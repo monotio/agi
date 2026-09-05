@@ -210,11 +210,17 @@ for (const provider of ["openai", "anthropic"] as const) {
       );
       await expect(page.getByTestId("agent-stream-text")).toHaveText("I can see the café");
       await expect(page.getByTestId("agent-bubble-send")).toBeDisabled();
-      await page.screenshot({ path: test.info().outputPath(`${provider}-stream-desktop.png`) });
+      await page.screenshot({
+        path: test.info().outputPath(`${provider}-stream-desktop.png`),
+        animations: "disabled",
+      });
       await page.setViewportSize({ width: 390, height: 844 });
       await expect(page.getByTestId("agent-stream-status")).toBeInViewport();
       await expect(page.getByTestId("agent-stop")).toBeInViewport();
-      await page.screenshot({ path: test.info().outputPath(`${provider}-stream-mobile.png`) });
+      await page.screenshot({
+        path: test.info().outputPath(`${provider}-stream-mobile.png`),
+        animations: "disabled",
+      });
       const conversation = page.getByTestId("agent-conversation");
       const longText = "\nAn earlier sentence.".repeat(30);
       responses[1]!.write(
