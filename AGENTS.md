@@ -42,7 +42,7 @@ Public setup and compatibility information live in README.md.
 - App name: **AGI IS HERE**. Package names use `agi-is-here`.
 - Internal identifiers use `monotio_agi` (`monotio-agi` in hyphenated names).
   Storage keys and provider cache keys start with `monotio_agi.`.
-- The public address is `https://monotio.com/agi`. Archive format identifiers
+- The public address is `https://agi.monotio.com`. Archive format identifiers
   are versioned contracts; preserve compatibility with existing exports.
 - Project branding: Monotio / monotio.com (publisher), Joakim Riedel (author).
 - Credit third-party specifications, dependencies and tools where relevant.

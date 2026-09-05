@@ -5,7 +5,7 @@
   "type": "module",
   "license": "MIT",
   "author": "Joakim Riedel <joakim@monotio.com>",
-  "homepage": "https://monotio.com/agi",
+  "homepage": "https://agi.monotio.com",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/monotio/agi.git"

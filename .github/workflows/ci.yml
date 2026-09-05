@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
 
 permissions:
@@ -10,14 +10,17 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
     name: Typecheck, lint, unit tests, build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
@@ -28,14 +31,31 @@ jobs:
       - run: npm ci
       - run: npm --prefix app ci
       - run: npm run check
-      - run: npm --prefix app run build
+      - run: npm --prefix app run build -- --base=/
+      - run: npx playwright install --with-deps chromium
+        working-directory: app
+      - run: npm --prefix app run e2e:production
+      - name: Package public files only
+        run: |
+          mkdir -p release
+          cp -R app/dist/. release/
+          cp app/staticwebapp.config.json release/
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: agi-site
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
 
   e2e:
     name: Playwright (play, remix and export)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: check
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
@@ -59,3 +79,107 @@ jobs:
             app/playwright-report/
             app/test-results/
           retention-days: 7
+
+  deploy:
+    name: Deploy production
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [check, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: https://agi.monotio.com/
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: agi-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: agi-site
+          path: release
+      - name: Restrict origin to the production gateway
+        env:
+          FRONT_DOOR_ID: ${{ secrets.FRONT_DOOR_ID }}
+          FRONT_DOOR_HOST: ${{ secrets.FRONT_DOOR_HOST }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          identity = os.environ['FRONT_DOOR_ID']
+          hostname = os.environ['FRONT_DOOR_HOST']
+          if not identity or not hostname:
+              raise SystemExit('Production gateway configuration is missing')
+          path = Path('release/staticwebapp.config.json')
+          config = json.loads(path.read_text())
+          config['networking'] = {'allowedIpRanges': ['AzureFrontDoor.Backend']}
+          config['forwardingGateway'] = {
+              'requiredHeaders': {'X-Azure-FDID': identity},
+              'allowedForwardedHosts': ['agi.monotio.com', hostname],
+          }
+          path.write_text(json.dumps(config))
+          PYTHON
+      - name: Reject obsolete workflow re-runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          test "$current" = "$GITHUB_SHA"
+      - name: Sign in using a short-lived Azure identity
+        uses: Azure/login@8216e11d8cd9b42fe925c852af8e76311ff067ac # v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Acquire a masked deployment token
+        env:
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          AZURE_STATIC_WEB_APP_NAME: ${{ secrets.AZURE_STATIC_WEB_APP_NAME }}
+        run: |
+          token="$(az staticwebapp secrets list --name "$AZURE_STATIC_WEB_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query properties.apiKey -o tsv --only-show-errors)"
+          test -n "$token"
+          echo "::add-mask::$token"
+          echo "AZURE_STATIC_WEB_APPS_API_TOKEN=$token" >> "$GITHUB_ENV"
+      - name: Publish the checked artifact
+        uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
+        with:
+          action: upload
+          app_location: release
+          output_location: ""
+          production_branch: main
+          skip_app_build: true
+          skip_api_build: true
+          azure_static_web_apps_api_token: ${{ env.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+      - name: Verify public headers
+        env:
+          FRONT_DOOR_HOST: ${{ secrets.FRONT_DOOR_HOST }}
+        run: |
+          curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 10 --dump-header /tmp/agi-headers "https://agi.monotio.com/" -o /tmp/agi-index
+          grep -qi '^cross-origin-opener-policy: same-origin' /tmp/agi-headers
+          grep -qi '^cross-origin-embedder-policy: credentialless' /tmp/agi-headers
+          grep -q '/assets/' /tmp/agi-index
+
+  verify:
+    name: Verify deployed browser app
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm --prefix app ci
+      - run: npx playwright install --with-deps chromium
+        working-directory: app
+      - run: npm --prefix app run e2e:production
+        env:
+          AGI_DEPLOY_URL: https://agi.monotio.com
