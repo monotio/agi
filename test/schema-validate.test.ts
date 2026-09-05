@@ -67,14 +67,21 @@ describe("validateToolArguments", () => {
     assert.deepEqual(validateToolArguments(schema, { ...ok, beats: 8 }), [
       "beats must be < 8, got 8.",
     ]);
-    for (const key of ["constructor", "toString", "__proto__", "hasOwnProperty"])
-      assert.deepEqual(
-        validateToolArguments(
-          schema,
-          JSON.parse(`{"num":1,"mode":"a","items":[{"name":"x"}],${JSON.stringify(key)}:1}`),
-        ),
-        [`${key} is not a known field.`],
+    for (const key of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+      const raw = JSON.parse(
+        `{"num":1,"mode":"a","items":[{"name":"x"}],${JSON.stringify(key)}:{"polluted":1}}`,
       );
+      assert.deepEqual(validateToolArguments(schema, raw), [`${key} is not a known field.`]);
+      assert.deepEqual(validateToolArguments(schema, normalizeToolArguments(schema, raw)), [
+        `${key} is not a known field.`,
+      ]);
+      const session = createAgentSessionState();
+      const call = JSON.parse(`{"words":["look"],${JSON.stringify(key)}:{"polluted":1}}`);
+      const res = executeAgentTool(session, "write_words", call);
+      assert.equal(res.success, false, key);
+      assert.match(res.error ?? "", /not a known field/);
+    }
+    assert.equal(({} as Record<string, unknown>)["polluted"], undefined);
     assert.deepEqual(validateToolArguments(schema, {}), [
       "arguments.num is required.",
       "arguments.mode is required.",

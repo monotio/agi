@@ -20,9 +20,11 @@ export function normalizeToolArguments<T>(schema: unknown, value: T): T {
     return value.map((item) => normalizeToolArguments(s["items"], item)) as T;
   if (!value || typeof value !== "object") return value;
   const props = (s["properties"] ?? {}) as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value as Record<string, unknown>))
-    out[key] = Object.hasOwn(props, key) ? normalizeToolArguments(props[key], item) : item;
+  // Spread copies a JSON "__proto__" key as an own data property; assigning
+  // it onto {} would instead hit the prototype setter and hide the key.
+  const out: Record<string, unknown> = { ...(value as Record<string, unknown>) };
+  for (const [key, item] of Object.entries(out))
+    if (Object.hasOwn(props, key)) out[key] = normalizeToolArguments(props[key], item);
   for (const key of Array.isArray(s["required"]) ? s["required"] : [])
     if (!Object.hasOwn(out, key) && nullable(props[key])) out[key] = null;
   return out as T;
