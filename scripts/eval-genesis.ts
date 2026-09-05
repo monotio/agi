@@ -351,7 +351,7 @@ async function runOpenAiGenesis(
   }));
 
   const input: OpenAI.Responses.ResponseInputItem[] = [{ role: "user", content: prompt }];
-  const sessionId = Math.random().toString(36).slice(2, 10);
+  const sessionId = crypto.randomUUID();
 
   let turn = 0;
   const maxTurns = 20;
