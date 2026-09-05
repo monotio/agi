@@ -4,7 +4,9 @@
  * is the authoritative check before any handler mutates session state. The
  * supported keywords are exactly those the catalog uses: type (including
  * union arrays), properties, required, additionalProperties, items, enum,
- * minimum, maximum, minItems, maxItems, minLength, maxLength.
+ * minimum, maximum, exclusiveMinimum, exclusiveMaximum, minItems, maxItems,
+ * minLength, maxLength, pattern. test/schema-validate.test.ts checks that the
+ * catalog uses no other keywords.
  */
 export function validateToolArguments(schema: unknown, value: unknown): string[] {
   const errors: string[] = [];
@@ -45,12 +47,18 @@ function check(schema: unknown, value: unknown, path: string, errors: string[]):
       errors.push(`${label} must be >= ${s["minimum"]}, got ${value}.`);
     if (typeof s["maximum"] === "number" && value > s["maximum"])
       errors.push(`${label} must be <= ${s["maximum"]}, got ${value}.`);
+    if (typeof s["exclusiveMinimum"] === "number" && value <= s["exclusiveMinimum"])
+      errors.push(`${label} must be > ${s["exclusiveMinimum"]}, got ${value}.`);
+    if (typeof s["exclusiveMaximum"] === "number" && value >= s["exclusiveMaximum"])
+      errors.push(`${label} must be < ${s["exclusiveMaximum"]}, got ${value}.`);
   }
   if (typeof value === "string") {
     if (typeof s["minLength"] === "number" && value.length < s["minLength"])
       errors.push(`${label} must have at least ${s["minLength"]} characters.`);
     if (typeof s["maxLength"] === "number" && value.length > s["maxLength"])
       errors.push(`${label} must have at most ${s["maxLength"]} characters.`);
+    if (typeof s["pattern"] === "string" && !new RegExp(s["pattern"]).test(value))
+      errors.push(`${label} must match ${s["pattern"]}.`);
   }
   if (Array.isArray(value)) {
     if (typeof s["minItems"] === "number" && value.length < s["minItems"])
