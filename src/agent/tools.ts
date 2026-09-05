@@ -8,6 +8,7 @@
  */
 
 import { CORE_AGENT_TOOLS } from "./coreToolDefinitions.ts";
+import { validateToolArguments } from "./schemaValidate.ts";
 import { assembleLogic } from "../logic/assembler.ts";
 import { buildWordsTok, parseWordsTok, type WordEntry } from "../logic/words.ts";
 import { renderPicture } from "../picture/renderer.ts";
@@ -406,6 +407,17 @@ export function executeAgentTool(
   name: string,
   args: Record<string, unknown>,
 ): AgentToolResult {
+  const definition = AGENT_TOOLS.find((tool) => tool.name === name);
+  if (definition) {
+    // Providers may send tools non-strict; this is the authoritative check
+    // before any handler mutates the session or its container.
+    const errors = validateToolArguments(definition.parameters, args);
+    if (errors.length)
+      return {
+        success: false,
+        error: `Invalid arguments for ${name}; nothing was changed. ${errors.slice(0, 8).join(" ")}`,
+      };
+  }
   if (name === "read_command_reference") return readCommandReference(session.profile, args);
   let result: AgentToolResult;
   for (const field of ["offset", "limit"]) {
