@@ -11,6 +11,7 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${PORT}`,
     headless: true,
+    trace: "retain-on-failure",
   },
   // Each run owns its server; keep source files stable during verification.
   webServer: {

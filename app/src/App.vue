@@ -2543,7 +2543,11 @@ h1 {
 }
 
 .config-col select,
-.config-col input {
+.config-col input,
+.task-budget input,
+.power-up-config input,
+.power-up-config select {
+  color-scheme: dark;
   background: #000;
   border: 1px solid #444;
   color: #fff;

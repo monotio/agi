@@ -293,7 +293,7 @@ export function createOpenAiConversation(
   const input: OpenAI.Responses.ResponseInputItem[] = Array.isArray(initialTranscript)
     ? JSON.parse(JSON.stringify(initialTranscript))
     : [];
-  const sessionId = initialSessionId || Math.random().toString(36).slice(2, 10);
+  const sessionId = initialSessionId || crypto.randomUUID();
 
   function closePending(reason: string): void {
     const pending = new Set<string>();
