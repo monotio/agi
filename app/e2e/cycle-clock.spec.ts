@@ -100,7 +100,9 @@ test("worker honors v10 pace while modal keys and pause remain responsive", asyn
         const elapsed = performance.now() - started;
         const fastDelta = (await fast!.read()).vars[40]! - beforeFast;
         const slowDelta = (await slow!.read()).vars[40]! - beforeSlow;
-        const clockFast = (await fast!.read()).vars[11]!;
+        // The cycle window can end just before a whole-second clock tick.
+        // Observe that tick separately so the pace measurement stays unchanged.
+        const clockFast = (await fast!.until((state) => state.vars[11]! >= 2, 1000)).vars[11]!;
         const clockSlow = (await slow!.read()).vars[11]!;
         const promptBefore = await prompt!.read();
         const keyAt = performance.now();
