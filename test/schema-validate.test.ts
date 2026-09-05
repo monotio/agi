@@ -67,6 +67,14 @@ describe("validateToolArguments", () => {
     assert.deepEqual(validateToolArguments(schema, { ...ok, beats: 8 }), [
       "beats must be < 8, got 8.",
     ]);
+    for (const key of ["constructor", "toString", "__proto__", "hasOwnProperty"])
+      assert.deepEqual(
+        validateToolArguments(
+          schema,
+          JSON.parse(`{"num":1,"mode":"a","items":[{"name":"x"}],${JSON.stringify(key)}:1}`),
+        ),
+        [`${key} is not a known field.`],
+      );
     assert.deepEqual(validateToolArguments(schema, {}), [
       "arguments.num is required.",
       "arguments.mode is required.",

@@ -22,9 +22,9 @@ export function normalizeToolArguments<T>(schema: unknown, value: T): T {
   const props = (s["properties"] ?? {}) as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(value as Record<string, unknown>))
-    out[key] = key in props ? normalizeToolArguments(props[key], item) : item;
+    out[key] = Object.hasOwn(props, key) ? normalizeToolArguments(props[key], item) : item;
   for (const key of Array.isArray(s["required"]) ? s["required"] : [])
-    if (!(key in out) && nullable(props[key])) out[key] = null;
+    if (!Object.hasOwn(out, key) && nullable(props[key])) out[key] = null;
   return out as T;
 }
 
@@ -95,10 +95,11 @@ function check(schema: unknown, value: unknown, path: string, errors: string[]):
     // missing nullable field with null, so only non-nullable omissions are
     // errors.
     for (const key of Array.isArray(s["required"]) ? s["required"] : [])
-      if (!(key in obj) && !nullable(props[key])) errors.push(`${label}.${key} is required.`);
+      if (!Object.hasOwn(obj, key) && !nullable(props[key]))
+        errors.push(`${label}.${key} is required.`);
     for (const [key, item] of Object.entries(obj)) {
       const child = path ? `${path}.${key}` : key;
-      if (key in props) check(props[key], item, child, errors);
+      if (Object.hasOwn(props, key)) check(props[key], item, child, errors);
       else if (s["additionalProperties"] === false) errors.push(`${child} is not a known field.`);
     }
   }
