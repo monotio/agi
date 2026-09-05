@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { validateToolArguments } from "../src/agent/schemaValidate.ts";
-import { AGENT_TOOLS } from "../src/agent/tools.ts";
+import { normalizeToolArguments, validateToolArguments } from "../src/agent/schemaValidate.ts";
+import { AGENT_TOOLS, createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts";
 
 const schema = {
   type: "object",
@@ -72,6 +72,53 @@ describe("validateToolArguments", () => {
       "arguments.mode is required.",
       "arguments.items is required.",
     ]);
+  });
+
+  it("normalizes omitted nullable fields to null, recursively, without mutating input", () => {
+    const nested = {
+      type: "object",
+      properties: {
+        ...schema.properties,
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { name: { type: "string" }, note: { type: ["string", "null"] } },
+            required: ["name", "note"],
+          },
+        },
+      },
+      required: ["num", "label", "mode", "items"],
+    };
+    const input = { num: 1, mode: "a", items: [{ name: "x" }] };
+    const out = normalizeToolArguments(nested, input);
+    assert.deepEqual(out, { num: 1, mode: "a", items: [{ name: "x", note: null }], label: null });
+    assert.deepEqual(input, { num: 1, mode: "a", items: [{ name: "x" }] });
+    assert.deepEqual(normalizeToolArguments(nested, { ...input, label: "ok" }).label, "ok");
+  });
+
+  it("handlers that compare against null accept omitted optional fields at execution", () => {
+    const session = createAgentSessionState();
+    const actor = executeAgentTool(session, "write_actor", {
+      num: 0,
+      transparentColor: 0,
+      mirrorLeftFromRight: true,
+      right: [["120", "340"]],
+      down: [["506", "780"]],
+      up: [["90A", "BC0"]],
+    });
+    assert.equal(actor.success, true, actor.error ?? "");
+    const music = executeAgentTool(session, "write_music", {
+      num: 8,
+      tempo: 90,
+      tracks: [{ channel: "melody", volume: 13, events: [{ note: "C4", beats: 1, repeat: 1 }] }],
+    });
+    assert.equal(music.success, true, music.error ?? "");
+    const read = executeAgentTool(session, "read_sound", { num: 8 });
+    assert.equal(read.success, true, read.error ?? "");
+    const paged = executeAgentTool(session, "read_logic", { num: 0 });
+    assert.equal(paged.success, false);
+    assert.doesNotMatch(paged.error ?? "", /required|Invalid arguments/);
   });
 
   it("the catalog uses only keywords the validator implements", () => {

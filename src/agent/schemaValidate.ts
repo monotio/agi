@@ -8,6 +8,26 @@
  * minLength, maxLength, pattern. test/schema-validate.test.ts checks that the
  * catalog uses no other keywords.
  */
+/**
+ * Fills omitted required-nullable properties with null, recursively along the
+ * schema, so handlers see the same shape strict providers deliver. Returns a
+ * new value; the input is not mutated.
+ */
+export function normalizeToolArguments<T>(schema: unknown, value: T): T {
+  if (!schema || typeof schema !== "object") return value;
+  const s = schema as Record<string, unknown>;
+  if (Array.isArray(value))
+    return value.map((item) => normalizeToolArguments(s["items"], item)) as T;
+  if (!value || typeof value !== "object") return value;
+  const props = (s["properties"] ?? {}) as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>))
+    out[key] = key in props ? normalizeToolArguments(props[key], item) : item;
+  for (const key of Array.isArray(s["required"]) ? s["required"] : [])
+    if (!(key in out) && nullable(props[key])) out[key] = null;
+  return out as T;
+}
+
 export function validateToolArguments(schema: unknown, value: unknown): string[] {
   const errors: string[] = [];
   check(schema, value, "", errors);
@@ -71,8 +91,9 @@ function check(schema: unknown, value: unknown, path: string, errors: string[]):
     const obj = value as Record<string, unknown>;
     const props = (s["properties"] ?? {}) as Record<string, unknown>;
     // The catalog lists every property as required and marks optional ones
-    // nullable (strict-mode convention). A missing nullable field reads as
-    // null, so only non-nullable omissions are errors.
+    // nullable (strict-mode convention). normalizeToolArguments fills a
+    // missing nullable field with null, so only non-nullable omissions are
+    // errors.
     for (const key of Array.isArray(s["required"]) ? s["required"] : [])
       if (!(key in obj) && !nullable(props[key])) errors.push(`${label}.${key} is required.`);
     for (const [key, item] of Object.entries(obj)) {

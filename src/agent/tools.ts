@@ -8,7 +8,7 @@
  */
 
 import { CORE_AGENT_TOOLS } from "./coreToolDefinitions.ts";
-import { validateToolArguments } from "./schemaValidate.ts";
+import { normalizeToolArguments, validateToolArguments } from "./schemaValidate.ts";
 import { assembleLogic } from "../logic/assembler.ts";
 import { buildWordsTok, parseWordsTok, type WordEntry } from "../logic/words.ts";
 import { renderPicture } from "../picture/renderer.ts";
@@ -410,7 +410,9 @@ export function executeAgentTool(
   const definition = AGENT_TOOLS.find((tool) => tool.name === name);
   if (definition) {
     // Providers may send tools non-strict; this is the authoritative check
-    // before any handler mutates the session or its container.
+    // before any handler mutates the session or its container. Omitted
+    // nullable fields become null so handlers see the strict-mode shape.
+    args = normalizeToolArguments(definition.parameters, args);
     const errors = validateToolArguments(definition.parameters, args);
     if (errors.length)
       return {
