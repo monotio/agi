@@ -1,6 +1,6 @@
 import type { AgentRun } from "./agentRun.ts";
 /**
- * BYOK LLM client supporting Anthropic (Claude Opus-5 / Fable-5) and
+ * BYOK LLM client supporting Anthropic (Claude Opus 5 / Fable 5 / Fable 5.1) and
  * OpenAI (GPT-5.6 / Terra / Sol) directly from the browser with prompt caching.
  */
 import Anthropic from "@anthropic-ai/sdk";
@@ -9,7 +9,8 @@ import { AGENT_TOOLS, type AgentToolResult } from "../../../src/agent/tools.ts";
 import {
   splitToolResult,
   openAiToolContent,
-  anthropicToolContent,
+  anthropicToolDefinitions,
+  anthropicToolResult,
 } from "../../../src/agent/toolTransport.ts";
 import { AGI_SYSTEM_PROMPT } from "../../../src/agent/prompt.ts";
 
@@ -60,6 +61,7 @@ export const DEFAULT_MODELS: Record<ProviderType, string> = {
 export const MODEL_OPTIONS: Record<ProviderType, { id: string; label: string }[]> = {
   anthropic: [
     { id: "claude-opus-5", label: "Claude Opus 5" },
+    { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
     { id: "claude-fable-5", label: "Claude Fable 5" },
   ],
   openai: [
@@ -115,12 +117,7 @@ export function createAnthropicConversation(
     timeout: 600000,
   });
 
-  const tools: Anthropic.Tool[] = AGENT_TOOLS.map((t) => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.parameters as unknown as Anthropic.Tool.InputSchema,
-    strict: true,
-  }));
+  const tools = anthropicToolDefinitions(AGENT_TOOLS) as unknown as Anthropic.Tool[];
   let selectedTools = tools;
   const totalUsage: LlmUsage = { input: 0, output: 0, cachedInput: 0, cacheWriteInput: 0 };
 
@@ -198,7 +195,9 @@ export function createAnthropicConversation(
       const reason =
         response.stop_reason === "max_tokens"
           ? "The provider response reached its output limit before completion. Partial tool arguments were not executed."
-          : `The model stopped before completing the turn (${response.stop_reason}).`;
+          : response.stop_reason === "refusal"
+            ? `The model declined this request${response.stop_details?.category ? ` (${response.stop_details.category})` : ""}. Rephrase the request or choose another model; nothing was executed.`
+            : `The model stopped before completing the turn (${response.stop_reason}).`;
       closePending(reason);
       throw new LlmResponseError(reason, usage);
     }
@@ -237,14 +236,9 @@ export function createAnthropicConversation(
       return step();
     },
     async sendToolResults(results): Promise<LlmTurnResult> {
-      const content: Anthropic.ToolResultBlockParam[] = results.map((r) => {
-        return {
-          type: "tool_result",
-          tool_use_id: r.toolCallId,
-          is_error: !r.result.success,
-          content: anthropicToolContent(splitToolResult(r.result)),
-        };
-      });
+      const content: Anthropic.ToolResultBlockParam[] = results.map((r) =>
+        anthropicToolResult(r.toolCallId, r.result),
+      );
       messages.push({ role: "user", content });
       return step();
     },

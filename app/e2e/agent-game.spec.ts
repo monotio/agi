@@ -265,6 +265,10 @@ test("provider and model configuration adapts options and persists choices", asy
 
   await providerSelect.selectOption("anthropic");
   await expect(modelSelect).toContainText("Claude Opus 5");
+  await expect(modelSelect).toContainText("Claude Fable 5.1");
+  const repoLink = page.getByTestId("github-link");
+  await expect(repoLink).toBeVisible();
+  await expect(repoLink).toHaveAttribute("href", "https://github.com/monotio/agi");
 });
 
 test("sound controls allow toggling mute and switching sound chip mode", async ({ page }) => {
