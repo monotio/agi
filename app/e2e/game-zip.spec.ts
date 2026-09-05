@@ -233,12 +233,20 @@ test("a v3 cartridge can be imported, remixed, exported and opened in a fresh se
   const fresh = await browser.newContext();
   try {
     const friend = await fresh.newPage();
+    // Cover a cold worker request instead of depending on the runner's load speed.
+    await friend.route("**/engine.worker.ts*", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 6000));
+      await route.continue();
+    });
     await friend.goto(page.url());
     await friend.getByTestId("game-zip-input").setInputFiles((await download.path())!);
+    // A fresh browser must load and boot its worker before it can paint game text.
+    await expect
+      .poll(async () => (await textHook(friend)).profile, { timeout: 15_000 })
+      .toBe("3.002.149");
     await expect
       .poll(async () => (await textHook(friend)).rows.join(" "))
       .toContain("A remixed v3 adventure.");
-    await expect.poll(async () => (await textHook(friend)).profile).toBe("3.002.149");
     await friend.screenshot({ path: "test-results/shared-v3-zip-remixed.png" });
   } finally {
     await fresh.close();
