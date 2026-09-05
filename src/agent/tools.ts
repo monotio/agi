@@ -339,7 +339,7 @@ export function createAgentSessionState(existingContainer?: GameContainer): Agen
   };
 }
 
-/** Tool definitions in JSON Schema format (compatible with OpenAI and Anthropic strict modes). */
+/** Shared JSON Schemas: OpenAI uses strict mode; Anthropic uses non-strict transport. */
 export const AGENT_TOOLS: readonly ToolDefinition[] = [
   ...AUTHORING_TOOLS,
   ...SPRITE_TOOLS,
@@ -407,19 +407,35 @@ export function executeAgentTool(
   name: string,
   args: Record<string, unknown>,
 ): AgentToolResult {
+  const call = prepareAgentToolCall(name, args);
+  if (!call.success) return call;
+  return executeValidatedAgentTool(session, name, call.args);
+}
+
+/** Both public dispatchers must validate before reading live data or changing resources. */
+function prepareAgentToolCall(
+  name: string,
+  args: Record<string, unknown>,
+): { success: true; args: Record<string, unknown> } | { success: false; error: string } {
   const definition = AGENT_TOOLS.find((tool) => tool.name === name);
-  if (definition) {
-    // Providers may send tools non-strict; this is the authoritative check
-    // before any handler mutates the session or its container. Omitted
-    // nullable fields become null so handlers see the strict-mode shape.
-    args = normalizeToolArguments(definition.parameters, args);
-    const errors = validateToolArguments(definition.parameters, args);
-    if (errors.length)
-      return {
-        success: false,
-        error: `Invalid arguments for ${name}; nothing was changed. ${errors.slice(0, 8).join(" ")}`,
-      };
-  }
+  if (!definition) return { success: false, error: `Unknown tool: '${name}'.` };
+  // Omitted nullable fields become null so handlers see the strict-mode shape.
+  args = normalizeToolArguments(definition.parameters, args);
+  const errors = validateToolArguments(definition.parameters, args);
+  if (errors.length)
+    return {
+      success: false,
+      error: `Invalid arguments for ${name}; nothing was changed. ${errors.slice(0, 8).join(" ")}`,
+    };
+  return { success: true, args };
+}
+
+/** Internal dispatch for arguments already normalized and checked against the catalog. */
+function executeValidatedAgentTool(
+  session: AgentSessionState,
+  name: string,
+  args: Record<string, unknown>,
+): AgentToolResult {
   if (name === "read_command_reference") return readCommandReference(session.profile, args);
   let result: AgentToolResult;
   for (const field of ["offset", "limit"]) {
@@ -1334,8 +1350,8 @@ async function executeReadFrames(
 }
 
 /**
- * Execute a tool that may need the live interpreter. Everything except the
- * three runtime tools is delegated verbatim to the synchronous executor.
+ * Execute a tool that may need the live interpreter. Validate all calls before
+ * choosing a runtime handler or the shared synchronous resource dispatcher.
  */
 export async function executeAgentToolAsync(
   session: AgentSessionState,
@@ -1349,16 +1365,9 @@ export async function executeAgentToolAsync(
       error:
         "Ask mode is read-only. Explain the proposed change; the player can switch to Remix to apply it.",
     };
-  for (const field of ["ids", "variables", "flags"]) {
-    const value = args[field];
-    if (
-      value != null &&
-      (!Array.isArray(value) ||
-        value.length > 256 ||
-        value.some((id) => typeof id !== "number" || !Number.isInteger(id) || id < 0 || id > 255))
-    )
-      return { success: false, error: `${field} must be null or an array of IDs in 0..255.` };
-  }
+  const call = prepareAgentToolCall(name, args);
+  if (!call.success) return call;
+  args = call.args;
   if (name === "read_room_context") {
     let live: Record<string, unknown> | null = null;
     if (deps?.engine) live = (await deps.engine.state()) as Record<string, unknown> | null;
@@ -1447,5 +1456,5 @@ export async function executeAgentToolAsync(
       return { success: false, error: `read_state failed: ${String(err)}` };
     }
   }
-  return executeAgentTool(session, name, args);
+  return executeValidatedAgentTool(session, name, args);
 }

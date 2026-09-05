@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { createAgentSessionState, executeAgentTool } from "../../src/agent/tools.ts";
+import {
+  createAgentSessionState,
+  executeAgentTool,
+  executeAgentToolAsync,
+} from "../../src/agent/tools.ts";
 import { splitToolResult } from "../../src/agent/toolTransport.ts";
-
-function runTool(session, tool, args) {
-  return executeAgentTool(session, tool, args);
-}
 
 describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
   const badCasesDir = resolve("evals/fixtures/bad-cases");
@@ -17,9 +17,10 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
     const filePath = join(badCasesDir, file);
     const content = JSON.parse(readFileSync(filePath, "utf-8"));
 
-    it(`replays bad case: ${content.name} (${file})`, () => {
+    it(`replays bad case: ${content.name} (${file})`, async () => {
       const session = createAgentSessionState();
-      const res = runTool(session, content.tool, content.args);
+      const execute = content.async ? executeAgentToolAsync : executeAgentTool;
+      const res = await execute(session, content.tool, content.args);
       if (content.expectedTextMaxChars !== undefined) {
         const wire = splitToolResult(res);
         assert.ok(
