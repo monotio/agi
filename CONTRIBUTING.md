@@ -187,7 +187,8 @@ can still change GitHub's settings, so account security remains essential.
 A successful push to `main` publishes the artifact from that same CI run after
 both check jobs pass. PR jobs have read-only repository access and no production
 identity. Outside contributors' workflows require approval. Production is a
-main-only GitHub environment, uses OIDC, and has only these environment secrets:
+main-only GitHub environment, uses OIDC bound to immutable GitHub owner/repository IDs, and has only these
+environment secrets:
 `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`,
 `AZURE_RESOURCE_GROUP`, `AZURE_STATIC_WEB_APP_NAME`, `FRONT_DOOR_ID`, and
 `FRONT_DOOR_HOST`. These identify infrastructure; no long-lived Azure login
@@ -195,7 +196,7 @@ secret or provider API key is stored. The upload token is fetched at runtime
 and masked. Public workflow logs are public: never print Azure deployment
 objects, tokens or private parameters in this repository.
 
-Shared Front Door, DNS, production parameters and the publisher identity are
+Front Door, DNS, production parameters and the publisher identity are
 managed with Bicep in the private Monotio web infrastructure repository. The
 publisher can read only the AGI site's deployment token, not change DNS, roles,
 Front Door or the portfolio. The origin accepts traffic only from our gateway.

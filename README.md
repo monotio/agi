@@ -12,6 +12,8 @@ needs no key.
 
 ## Play
 
+Play at [agi.monotio.com](https://agi.monotio.com/), or run it locally.
+
 With Node.js 22.6 or newer, run:
 
 ```bash
