@@ -1044,15 +1044,27 @@ function executeLegacyTool(
     }
 
     case "write_inventory_objects": {
-      const rawObjects = Array.isArray(args["objects"]) ? (args["objects"] as unknown[]) : [];
+      // Anthropic tools are not strict (see toolTransport.ts), so a malformed
+      // call must fail here instead of silently replacing the OBJECT table.
+      if (!Array.isArray(args["objects"]))
+        return {
+          success: false,
+          error:
+            "Missing or invalid 'objects': expected an array of { name, startingRoom }. The table was not changed.",
+        };
+      const rawObjects = args["objects"] as unknown[];
       const objects: { name: string; startingRoom: number }[] = [];
-      for (const item of rawObjects) {
-        if (!item || typeof item !== "object") continue;
-        const obj = item as Record<string, unknown>;
-        if (typeof obj["name"] === "string" && obj["name"].trim().length > 0) {
-          const startingRoom = typeof obj["startingRoom"] === "number" ? obj["startingRoom"] : 0;
-          objects.push({ name: obj["name"].trim(), startingRoom });
-        }
+      for (const [index, item] of rawObjects.entries()) {
+        const obj =
+          item && typeof item === "object" ? (item as Record<string, unknown>) : undefined;
+        const name = typeof obj?.["name"] === "string" ? obj["name"].trim() : "";
+        const startingRoom = obj?.["startingRoom"] ?? 0;
+        if (!obj || name.length === 0 || !Number.isInteger(startingRoom))
+          return {
+            success: false,
+            error: `Invalid inventory item at index ${index}: expected { name: non-empty string, startingRoom: integer or null }. The table was not changed.`,
+          };
+        objects.push({ name, startingRoom: startingRoom as number });
       }
       try {
         const previous = session.objectPayload ?? session.container.files.get("OBJECT");

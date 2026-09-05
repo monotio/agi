@@ -464,6 +464,36 @@ describe("agent tools", () => {
     assert.equal(session.sources.objects?.length, 2);
   });
 
+  it("write_inventory_objects rejects malformed calls instead of replacing the table", () => {
+    const session = createAgentSessionState();
+    assert.equal(
+      executeAgentTool(session, "write_inventory_objects", {
+        objects: [{ name: "Brass Key", startingRoom: 1 }],
+      }).success,
+      true,
+    );
+    const before = session.getFiles().get("OBJECT");
+    for (const args of [
+      {},
+      { objects: "Brass Key" },
+      { objects: [{ startingRoom: 1 }] },
+      { objects: [{ name: "  ", startingRoom: 1 }] },
+      { objects: [{ name: "Lamp", startingRoom: "2" }] },
+      { objects: [null] },
+    ]) {
+      const res = executeAgentTool(session, "write_inventory_objects", args);
+      assert.equal(res.success, false, JSON.stringify(args));
+      assert.match(res.error ?? "", /not changed/);
+    }
+    assert.deepEqual(session.getFiles().get("OBJECT"), before);
+    assert.equal(session.sources.objects?.length, 1);
+    const nullRoom = executeAgentTool(session, "write_inventory_objects", {
+      objects: [{ name: "Lamp", startingRoom: null }],
+    });
+    assert.equal(nullRoom.success, true);
+    assert.deepEqual(session.sources.objects, [{ name: "Lamp", startingRoom: 0 }]);
+  });
+
   it("inspect_world_bible summarizes rooms, objects, and vocabulary", () => {
     const session = createAgentSessionState();
     executeAgentTool(session, "write_words", { words: ["look", "take"] });
