@@ -1,0 +1,30 @@
+{
+  "name": "write-view-null-mirror-on-loop-0",
+  "description": "GPT-5.6 Genesis turn emitting loop 0 with cels and mirrorLoop: null due to strict schema requirements",
+  "tool": "write_view",
+  "args": {
+    "num": 0,
+    "spec": {
+      "description": "Sir Graham pastiche ego sprite",
+      "loops": [
+        {
+          "mirrorLoop": null,
+          "cels": [
+            {
+              "width": 4,
+              "height": 4,
+              "transparentColor": null,
+              "mirror": null,
+              "pixels": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+            }
+          ]
+        },
+        {
+          "mirrorLoop": 0,
+          "cels": null
+        }
+      ]
+    }
+  },
+  "expectedSuccess": true
+}

@@ -1,0 +1,4 @@
+# Local-only eval artefacts (Sierra-derived images, briefs, sources, scores).
+fixtures/pictures/
+results/
+last-genesis-trace.json

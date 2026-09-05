@@ -1,0 +1,18 @@
+{
+  "name": "agi-is-here-evals",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Authoring evaluations and regression checks for AGI IS HERE.",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "eval": "promptfoo eval -c configs/genesis.mjs",
+    "eval:replay": "node --test \"tests/**/*.test.mjs\"",
+    "test": "npm run eval:replay"
+  },
+  "devDependencies": {
+    "promptfoo": "0.122.1"
+  }
+}

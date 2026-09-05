@@ -1,0 +1,35 @@
+{
+  // App shell typecheck. Mirrors the root tsconfig.json strictness exactly;
+  // the only differences are the ones the browser/bundler target forces:
+  // bundler module resolution (Vite resolves the `.ts` specifiers and the
+  // `three/webgpu` export condition), DOM libs, and vite/client for
+  // import.meta.env / import.meta.hot.
+  //
+  // engine.worker.ts is checked by tsconfig.worker.json instead: it needs the
+  // WebWorker lib (self.postMessage / self.onmessage), which cannot share a
+  // program with DOM (the two libs redeclare the same globals). Both projects
+  // run in `npm --prefix app run typecheck`.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "jsx": "preserve",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": false,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.vue", "test/**/*.ts"],
+  "exclude": ["src/engine.worker.ts"]
+}

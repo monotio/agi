@@ -1,0 +1,25 @@
+{
+  "name": "write-view-redundant-mirror-0-on-loop-0",
+  "description": "Model supplies loop 0 with cels and also mirrorLoop: 0; cels must take precedence without throwing RangeError",
+  "tool": "write_view",
+  "args": {
+    "num": 0,
+    "spec": {
+      "description": "Ego sprite redundant mirrorLoop 0",
+      "loops": [
+        {
+          "mirrorLoop": 0,
+          "cels": [
+            {
+              "width": 2,
+              "height": 2,
+              "transparentColor": 0,
+              "pixels": [1, 1, 1, 1]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "expectedSuccess": true
+}

@@ -1,0 +1,12 @@
+{
+  // Worker-only program: same strictness as tsconfig.json, but with the
+  // WebWorker lib instead of DOM so `self` is a DedicatedWorkerGlobalScope.
+  // The two libs redeclare the same globals and cannot share one program.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "WebWorker"],
+    "types": []
+  },
+  "include": ["src/engine.worker.ts"],
+  "exclude": []
+}

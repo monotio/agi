@@ -1,0 +1,8 @@
+{
+  "name": "picture-tool-result-is-an-image-not-numeric-json",
+  "tool": "write_picture",
+  "args": { "room": 1, "source": "vis 1\nfill 0,0\nend" },
+  "expectedSuccess": true,
+  "expectedTextMaxChars": 2000,
+  "expectedImageCount": 1
+}

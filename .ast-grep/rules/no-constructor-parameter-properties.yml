@@ -1,0 +1,20 @@
+id: no-constructor-parameter-properties
+language: TypeScript
+severity: error
+message: Constructor parameter properties are TypeScript-only runtime syntax; Node strip-types mode rejects them. Declare the field and assign it in the constructor body.
+note: AGENTS.md — "no constructor parameter properties, no enums, no namespaces".
+files:
+  - src/**/*.ts
+  - test/**/*.ts
+  - app/src/**/*.ts
+rule:
+  kind: required_parameter
+  inside:
+    kind: formal_parameters
+    inside:
+      kind: method_definition
+      has:
+        field: name
+        regex: ^constructor$
+  has:
+    kind: accessibility_modifier

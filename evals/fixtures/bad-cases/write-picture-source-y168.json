@@ -1,0 +1,11 @@
+{
+  "name": "write-picture-source-bottom-row-off-by-one",
+  "description": "GPT-5.6 Sol first round of the picture eval (kq1-room1): treats the 168-row surface as y 0..168 and addresses the bottom edge with y=168; write_picture must return a precise line-numbered error and store nothing, not silently clamp.",
+  "tool": "write_picture",
+  "args": {
+    "room": 1,
+    "source": "vis 6\npri 14\npolygon 0,150 159,150 159,168 0,168\nfill 80,160\nend\n"
+  },
+  "expectedSuccess": false,
+  "expectedErrorSnippet": "line 3: polygon point 3: coordinate 159,168 out of range"
+}

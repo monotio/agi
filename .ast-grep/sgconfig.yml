@@ -1,0 +1,4 @@
+# Opt-in structural guardrails. Not part of `npm run check`; run
+# `npm run lint:ast` when ast-grep is installed (brew install ast-grep).
+ruleDirs:
+  - rules

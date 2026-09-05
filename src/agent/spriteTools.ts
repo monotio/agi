@@ -1,0 +1,559 @@
+/** Bounded, row-oriented helpers for mechanical AGI sprite authoring. */
+import { resourceRevision } from "./authoringState.ts";
+import type { AgentSessionState, AgentToolResult, ToolDefinition } from "./tools.ts";
+import { viewFeedback } from "./viewFeedback.ts";
+import { EGA_RGB, encodePngRgb } from "../picture/png.ts";
+import {
+  buildView,
+  parseView,
+  readViewCel,
+  selectViewCel,
+  type AgiView,
+  type BuildCelInput,
+  type BuildLoopInput,
+  type BuildViewInput,
+  type ViewCel,
+} from "../view/view.ts";
+
+const CEL_ROWS_SCHEMA = {
+  type: "array",
+  minItems: 1,
+  maxItems: 168,
+  items: {
+    type: "string",
+    minLength: 1,
+    maxLength: 160,
+    pattern: "^[0-9A-Fa-f]+$",
+  },
+  description: "One string per row; every character is one EGA color index (0-F).",
+} as const;
+
+const DIRECTION_SCHEMA = {
+  type: ["array", "null"],
+  minItems: 1,
+  maxItems: 15,
+  items: CEL_ROWS_SCHEMA,
+  description: "Animation cels; each cel is an array of equal-width hexadecimal rows.",
+} as const;
+
+/** Strict-compatible schemas for the bounded sprite helpers. */
+export const SPRITE_TOOLS: readonly ToolDefinition[] = [
+  {
+    name: "write_actor",
+    description:
+      "Write a four-facing actor with compact hexadecimal rows. The tool infers each cel's exact dimensions and compiles loops in AGI order: right, left, down, up. Set mirrorLeftFromRight true and left null to make the left loop an authentic mirror alias of right. Rows are never padded or truncated. Returns a compiled contact sheet and the view revision.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        num: { type: "integer", minimum: 0, maximum: 255, description: "View number." },
+        description: {
+          type: ["string", "null"],
+          maxLength: 512,
+          description: "Optional AGI view description; null omits it.",
+        },
+        transparentColor: {
+          type: "integer",
+          minimum: 0,
+          maximum: 15,
+          description: "Transparent EGA color used by every cel.",
+        },
+        mirrorLeftFromRight: {
+          type: "boolean",
+          description: "When true, left must be null and is compiled as a mirror of right.",
+        },
+        right: DIRECTION_SCHEMA,
+        left: DIRECTION_SCHEMA,
+        down: DIRECTION_SCHEMA,
+        up: DIRECTION_SCHEMA,
+      },
+      required: [
+        "num",
+        "description",
+        "transparentColor",
+        "mirrorLeftFromRight",
+        "right",
+        "left",
+        "down",
+        "up",
+      ],
+    },
+  },
+  {
+    name: "read_view_cel",
+    description:
+      "Read one selected cel from compiled VIEW bytes. Returns up to 64 exact rendered hexadecimal rows from rowOffset, totalRows and nextRowOffset for complete paging, compact dimensions and transparency metadata, a bounded full-cel PNG, and the resource revision needed by patch_view_cel. Null rowOffset and rowLimit use 0 and 64.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        num: { type: "integer", minimum: 0, maximum: 255, description: "View number." },
+        loop: { type: "integer", minimum: 0, maximum: 254, description: "Zero-based loop." },
+        cel: { type: "integer", minimum: 0, maximum: 254, description: "Zero-based cel." },
+        rowOffset: {
+          type: ["integer", "null"],
+          minimum: 0,
+          maximum: 167,
+          description: "First row to return, or null for row 0.",
+        },
+        rowLimit: {
+          type: ["integer", "null"],
+          minimum: 1,
+          maximum: 64,
+          description: "Maximum rows to return, or null for 64.",
+        },
+      },
+      required: ["num", "loop", "cel", "rowOffset", "rowLimit"],
+    },
+  },
+  {
+    name: "patch_view_cel",
+    description:
+      "Replace exactly one rendered cel using hexadecimal rows. expectedRevision prevents stale writes. Other loops and cels retain their compiled appearance and metadata; when the target belongs to a mirror alias, it is isolated so its opposite facing does not change silently. Returns the new revision and selected-cel PNG.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        num: { type: "integer", minimum: 0, maximum: 255, description: "View number." },
+        loop: { type: "integer", minimum: 0, maximum: 254, description: "Zero-based loop." },
+        cel: { type: "integer", minimum: 0, maximum: 254, description: "Zero-based cel." },
+        expectedRevision: {
+          type: "string",
+          minLength: 1,
+          maxLength: 64,
+          description: "Exact revision returned by read_view_cel.",
+        },
+        rows: CEL_ROWS_SCHEMA,
+      },
+      required: ["num", "loop", "cel", "expectedRevision", "rows"],
+    },
+  },
+];
+
+function integer(value: unknown, label: string, min: number, max: number): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`${label} must be an integer in ${min}..${max}.`);
+  }
+  return value;
+}
+
+function nullableInteger(
+  value: unknown,
+  label: string,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (value === null || value === undefined) return fallback;
+  return integer(value, label, min, max);
+}
+
+function celFromRows(
+  value: unknown,
+  label: string,
+  transparentColor: number,
+  adjustments: string[],
+): BuildCelInput {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 168) {
+    throw new Error(`${label} must contain 1..168 rows.`);
+  }
+  const rows: string[] = [];
+  let normalized = false;
+  for (let y = 0; y < value.length; y++) {
+    const raw = value[y];
+    if (typeof raw !== "string") throw new Error(`${label} row ${y} must be a string.`);
+    const trimmed = raw.trim();
+    if (trimmed !== raw || trimmed !== trimmed.toUpperCase()) normalized = true;
+    const row = trimmed.toUpperCase();
+    if (!/^[0-9A-F]+$/.test(row)) {
+      throw new Error(`${label} row ${y} must contain only EGA hex digits 0-F.`);
+    }
+    if (row.length > 160) throw new Error(`${label} row ${y} exceeds 160 pixels.`);
+    rows.push(row);
+  }
+  const width = rows[0]!.length;
+  for (let y = 1; y < rows.length; y++) {
+    if (rows[y]!.length !== width) {
+      throw new Error(
+        `${label} rows must all have the same width (row 0 is ${width}, row ${y} is ${rows[y]!.length}).`,
+      );
+    }
+  }
+  if (normalized)
+    adjustments.push(`${label}: normalized surrounding whitespace and lowercase hex digits.`);
+  const pixels = rows.flatMap((row) => [...row].map((digit) => Number.parseInt(digit, 16)));
+  return { width, height: rows.length, transparentColor, mirror: false, pixels };
+}
+
+function direction(
+  value: unknown,
+  label: string,
+  transparentColor: number,
+  adjustments: string[],
+): BuildCelInput[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 15) {
+    throw new Error(`${label} must contain 1..15 cels.`);
+  }
+  return value.map((rows, index) =>
+    celFromRows(rows, `${label} cel ${index}`, transparentColor, adjustments),
+  );
+}
+
+function rowsFromCel(cel: ViewCel): string[] {
+  const rows: string[] = [];
+  for (let y = 0; y < cel.height; y++) {
+    let row = "";
+    for (let x = 0; x < cel.width; x++)
+      row += cel.pixels[y * cel.width + x]!.toString(16).toUpperCase();
+    rows.push(row);
+  }
+  return rows;
+}
+
+function celPng(cel: ViewCel): Uint8Array {
+  const width = cel.width * 2;
+  const height = cel.height;
+  const rgb = new Uint8Array(width * height * 3);
+  const checker = [
+    [38, 43, 50],
+    [49, 55, 63],
+  ] as const;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const logicalX = x >> 1;
+      const color = cel.pixels[y * cel.width + logicalX]!;
+      const entry = color === cel.transparentColor ? checker[(logicalX + y) & 1]! : EGA_RGB[color]!;
+      rgb.set(entry, (y * width + x) * 3);
+    }
+  }
+  return encodePngRgb(width, height, rgb);
+}
+
+function selectedCelResult(
+  num: number,
+  loop: number,
+  celIndex: number,
+  rowOffset: number,
+  rowLimit: number,
+  payload: Uint8Array,
+  view: AgiView,
+): AgentToolResult {
+  const cel = selectViewCel(view, loop, celIndex);
+  if (!cel) return { success: false, error: `View ${num} has no loop ${loop}, cel ${celIndex}.` };
+  const allRows = rowsFromCel(cel);
+  const rows = allRows.slice(rowOffset, rowOffset + rowLimit);
+  const nextRowOffset = rowOffset + rows.length < allRows.length ? rowOffset + rows.length : null;
+  const revision = resourceRevision(payload);
+  return {
+    success: true,
+    message: `View ${num}, loop ${loop}, cel ${celIndex} (${cel.width}x${cel.height}, transparent ${cel.transparentColor}): returned ${rows.length} row(s) from offset ${rowOffset} of ${allRows.length}; revision ${revision}.`,
+    details: {
+      resource: { kind: "view", num },
+      num,
+      loop,
+      cel: celIndex,
+      width: cel.width,
+      height: cel.height,
+      transparentColor: cel.transparentColor,
+      mirrored: cel.mirrored,
+      rows,
+      totalRows: allRows.length,
+      rowOffset,
+      rowLimit,
+      nextRowOffset,
+      revision,
+    },
+    images: [
+      {
+        png: celPng(cel),
+        caption: `View ${num}, loop ${loop}, cel ${celIndex}; compiled EGA pixels at native 2:1 aspect. Checkerboard is transparent color ${cel.transparentColor}.`,
+      },
+    ],
+  };
+}
+
+function u16le(payload: Uint8Array, offset: number): number {
+  return payload[offset]! | (payload[offset + 1]! << 8);
+}
+
+interface AliasGroup {
+  readonly members: number[];
+  readonly cels: BuildCelInput[];
+  readonly headerHigh: number;
+  readonly controlHighs: number[];
+}
+
+interface MetadataPlan {
+  readonly loop: number;
+  readonly headerHigh: number;
+  readonly controlHighs: readonly number[];
+}
+
+function cloneCel(cel: ViewCel): BuildCelInput {
+  return {
+    width: cel.width,
+    height: cel.height,
+    transparentColor: cel.transparentColor,
+    mirror: false,
+    pixels: cel.pixels.slice(),
+  };
+}
+
+function aliasGroups(payload: Uint8Array, view: AgiView, packed: boolean): AliasGroup[] {
+  const byOffset = new Map<number, AliasGroup>();
+  const groups: AliasGroup[] = [];
+  for (let loop = 0; loop < view.loops.length; loop++) {
+    const loopStart = u16le(payload, 5 + loop * 2);
+    const existing = byOffset.get(loopStart);
+    if (existing) {
+      existing.members.push(loop);
+      continue;
+    }
+    const header = payload[loopStart]!;
+    const celCount = packed ? header & 0x0f : header;
+    const cels: BuildCelInput[] = [];
+    const controlHighs: number[] = [];
+    for (let cel = 0; cel < celCount; cel++) {
+      const loaded = readViewCel(view, loop, cel);
+      if (!loaded) throw new RangeError(`view loop ${loop}, cel ${cel} could not be decoded`);
+      cels.push(cloneCel(loaded));
+      const celStart = loopStart + u16le(payload, loopStart + 1 + cel * 2);
+      controlHighs.push(payload[celStart + 2]! & 0xf0);
+    }
+    const group: AliasGroup = {
+      members: [loop],
+      cels,
+      headerHigh: header & 0xf0,
+      controlHighs,
+    };
+    byOffset.set(loopStart, group);
+    groups.push(group);
+  }
+  return groups;
+}
+
+function reverseRows(cel: BuildCelInput): BuildCelInput {
+  const pixels = new Uint8Array(cel.width * cel.height);
+  for (let y = 0; y < cel.height; y++) {
+    for (let x = 0; x < cel.width; x++) {
+      pixels[y * cel.width + x] = cel.pixels[y * cel.width + cel.width - 1 - x]!;
+    }
+  }
+  return { ...cel, pixels };
+}
+
+function applyMetadata(payload: Uint8Array, packed: boolean, plans: readonly MetadataPlan[]): void {
+  for (const plan of plans) {
+    const loopStart = u16le(payload, 5 + plan.loop * 2);
+    if (packed) payload[loopStart] = (payload[loopStart]! & 0x0f) | plan.headerHigh;
+    else {
+      for (let cel = 0; cel < plan.controlHighs.length; cel++) {
+        const celStart = loopStart + u16le(payload, loopStart + 1 + cel * 2);
+        payload[celStart + 2] = (payload[celStart + 2]! & 0x0f) | plan.controlHighs[cel]!;
+      }
+    }
+  }
+}
+
+function patchedView(
+  original: Uint8Array,
+  state: AgentSessionState,
+  targetLoop: number,
+  targetCel: number,
+  replacement: BuildCelInput,
+  adjustments: string[],
+): { payload: Uint8Array; spec: BuildViewInput } {
+  const view = parseView(original, state.profile);
+  const groups = aliasGroups(original, view, state.profile.packedViewLoopHeader);
+  const loops: BuildLoopInput[] = new Array(view.loops.length);
+  const plans: MetadataPlan[] = [];
+  for (const group of groups) {
+    const containsTarget = group.members.includes(targetLoop);
+    if (!containsTarget || group.members.length === 1) {
+      const first = group.members[0]!;
+      const cels: BuildCelInput[] = group.cels.map((cel) => ({
+        ...cel,
+        pixels: Uint8Array.from(cel.pixels),
+      }));
+      if (containsTarget) {
+        const displayed = view.loops[targetLoop]!.cels[targetCel]!;
+        cels[targetCel] = displayed.mirrored ? reverseRows(replacement) : replacement;
+      }
+      loops[first] = { cels };
+      for (const member of group.members.slice(1)) loops[member] = { mirrorLoop: first };
+      plans.push({ loop: first, headerHigh: group.headerHigh, controlHighs: group.controlHighs });
+      continue;
+    }
+
+    const displayedCels = view.loops[targetLoop]!.cels.map(cloneCel);
+    displayedCels[targetCel] = replacement;
+    loops[targetLoop] = { cels: displayedCels };
+    const remaining = group.members.filter((loop) => loop !== targetLoop);
+    const firstRemaining = remaining[0]!;
+    loops[firstRemaining] = {
+      cels: group.cels.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) })),
+    };
+    for (const member of remaining.slice(1)) loops[member] = { mirrorLoop: firstRemaining };
+    plans.push({
+      loop: firstRemaining,
+      headerHigh: group.headerHigh,
+      controlHighs: group.controlHighs,
+    });
+    adjustments.push(
+      `Loop ${targetLoop} was isolated from its mirrored alias before patching so the other facing retained its pixels.`,
+    );
+  }
+  const spec: BuildViewInput = {
+    loops,
+    ...(view.description === undefined ? {} : { description: view.description }),
+  };
+  const payload = buildView(spec, state.profile);
+  applyMetadata(payload, state.profile.packedViewLoopHeader, plans);
+  parseView(payload, state.profile);
+  return { payload, spec };
+}
+
+/** Execute one sprite helper, or return undefined when the name belongs to another registry. */
+export function executeSpriteTool(
+  state: AgentSessionState,
+  name: string,
+  args: Record<string, unknown>,
+): AgentToolResult | undefined {
+  if (name === "write_actor") {
+    try {
+      const num = integer(args["num"], "View number", 0, 255);
+      const transparentColor = integer(args["transparentColor"], "Transparent color", 0, 15);
+      if (typeof args["mirrorLeftFromRight"] !== "boolean") {
+        throw new Error("mirrorLeftFromRight must be a boolean.");
+      }
+      const description = args["description"];
+      if (description !== null && (typeof description !== "string" || description.length > 512)) {
+        throw new Error("Description must be null or at most 512 characters.");
+      }
+      const adjustments: string[] = [];
+      const right = direction(args["right"], "right", transparentColor, adjustments);
+      const down = direction(args["down"], "down", transparentColor, adjustments);
+      const up = direction(args["up"], "up", transparentColor, adjustments);
+      let left: BuildLoopInput;
+      if (args["mirrorLeftFromRight"]) {
+        if (args["left"] !== null)
+          throw new Error("left must be null when mirrorLeftFromRight is true.");
+        left = { mirrorLoop: 0 };
+      } else {
+        left = { cels: direction(args["left"], "left", transparentColor, adjustments) };
+      }
+      const spec: BuildViewInput = {
+        loops: [{ cels: right }, left, { cels: down }, { cels: up }],
+        ...(description === null ? {} : { description }),
+      };
+      const payload = buildView(spec, state.profile);
+      const preview = viewFeedback(payload, state.profile, num);
+      state.container.putResource("view", num, payload);
+      state.sources.views.set(num, spec);
+      return {
+        success: true,
+        message: `View ${num} actor compiled in right/left/down/up loop order (${payload.length} bytes), revision ${resourceRevision(payload)}.`,
+        ...(adjustments.length === 0 ? {} : { adjustments }),
+        details: {
+          resource: { kind: "view", num },
+          writtenResources: [{ kind: "view", num }],
+          revision: resourceRevision(payload),
+          bytes: payload.length,
+          loops: 4,
+        },
+        images: [{ png: preview.png, caption: preview.caption }],
+      };
+    } catch (error) {
+      return { success: false, error: `Actor view was not written: ${String(error)}` };
+    }
+  }
+
+  if (name === "read_view_cel") {
+    try {
+      const num = integer(args["num"], "View number", 0, 255);
+      const loop = integer(args["loop"], "Loop", 0, 254);
+      const cel = integer(args["cel"], "Cel", 0, 254);
+      const rowOffset = nullableInteger(args["rowOffset"], "Row offset", 0, 0, 167);
+      const rowLimit = nullableInteger(args["rowLimit"], "Row limit", 64, 1, 64);
+      const payload = state.container.getResource("view", num);
+      if (!payload)
+        return { success: false, error: `View ${num} is not present in the container.` };
+      return selectedCelResult(
+        num,
+        loop,
+        cel,
+        rowOffset,
+        rowLimit,
+        payload,
+        parseView(payload, state.profile),
+      );
+    } catch (error) {
+      return { success: false, error: `Cannot read view cel: ${String(error)}` };
+    }
+  }
+
+  if (name === "patch_view_cel") {
+    try {
+      const num = integer(args["num"], "View number", 0, 255);
+      const loop = integer(args["loop"], "Loop", 0, 254);
+      const cel = integer(args["cel"], "Cel", 0, 254);
+      if (typeof args["expectedRevision"] !== "string") {
+        throw new Error("expectedRevision must be a string.");
+      }
+      const original = state.container.getResource("view", num);
+      if (!original)
+        return { success: false, error: `View ${num} is not present in the container.` };
+      const actualRevision = resourceRevision(original);
+      if (args["expectedRevision"] !== actualRevision) {
+        return {
+          success: false,
+          error: `Stale view ${num} revision: expected ${args["expectedRevision"]}, current revision is ${actualRevision}. Read the cel again before patching.`,
+          details: { resource: { kind: "view", num }, revision: actualRevision },
+        };
+      }
+      const before = parseView(original, state.profile);
+      const currentCel = before.loops[loop]?.cels[cel];
+      if (!currentCel)
+        return { success: false, error: `View ${num} has no loop ${loop}, cel ${cel}.` };
+      const adjustments: string[] = [];
+      const parsed = celFromRows(
+        args["rows"],
+        `loop ${loop} cel ${cel}`,
+        currentCel.transparentColor,
+        adjustments,
+      );
+      const { payload, spec } = patchedView(original, state, loop, cel, parsed, adjustments);
+      const after = parseView(payload, state.profile);
+      const selected = selectViewCel(after, loop, cel)!;
+      state.container.putResource("view", num, payload);
+      state.sources.views.set(num, spec);
+      const revision = resourceRevision(payload);
+      return {
+        success: true,
+        message: `View ${num}, loop ${loop}, cel ${cel} patched as ${selected.width}x${selected.height}; revision ${revision}.`,
+        ...(adjustments.length === 0 ? {} : { adjustments }),
+        details: {
+          resource: { kind: "view", num },
+          writtenResources: [{ kind: "view", num }],
+          num,
+          loop,
+          cel,
+          width: selected.width,
+          height: selected.height,
+          transparentColor: selected.transparentColor,
+          revision,
+        },
+        images: [
+          {
+            png: celPng(selected),
+            caption: `Patched view ${num}, loop ${loop}, cel ${cel}; compiled EGA pixels at native 2:1 aspect.`,
+          },
+        ],
+      };
+    } catch (error) {
+      return { success: false, error: `View cel was not patched: ${String(error)}` };
+    }
+  }
+
+  return undefined;
+}

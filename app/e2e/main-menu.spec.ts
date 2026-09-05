@@ -1,0 +1,99 @@
+import { test, expect } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { isolateStorage, textHook } from "./engineProbe.ts";
+
+test("templates expose editable Markdown and genesis receives the edited brief", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  await page.goto("/");
+  const brief = page.getByTestId("custom-cartridge-input");
+  await expect(brief).toBeHidden();
+  await expect(page.locator('.cartridge-card[aria-pressed="true"]')).toHaveCount(0);
+  await expect(page.getByTestId("boot-cartridge")).toBeDisabled();
+  for (const slug of ["knights-trial", "badge-of-millhaven", "mop-jockey", "polyester-nights"]) {
+    await page.getByTestId(`cartridge-${slug}`).click();
+    const source = await readFile(new URL(`../../games/${slug}/SKILL.md`, import.meta.url), "utf8");
+    await expect(brief).toHaveValue(source.slice(source.indexOf("\n---", 4) + 4).trimStart());
+    await expect(brief).not.toHaveValue(/^---/);
+  }
+  await page.getByTestId("cartridge-mop-jockey").click();
+  const edited =
+    (await brief.inputValue()) +
+    "\n\n## Player direction\nThe station is run by a talking otter.\n";
+  await brief.fill(edited);
+  await page.getByLabel("Adventure name").fill("Otter Station");
+  await page.getByTestId("cartridge-custom").click();
+  await expect(brief).toHaveValue("");
+  await expect(page.getByTestId("boot-cartridge")).toBeDisabled();
+  await page.getByTestId("cartridge-mop-jockey").click();
+  await expect(brief).toHaveValue(edited);
+  await expect(page.getByLabel("Adventure name")).toHaveValue("Otter Station");
+  await brief.fill("");
+  await expect(page.getByTestId("boot-cartridge")).toBeDisabled();
+  await brief.fill(edited);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await brief.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath("template-editor-mobile.png") });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({
+    path: test.info().outputPath("template-editor-desktop.png"),
+    fullPage: true,
+  });
+  await page.getByTestId("provider-select").selectOption("openai");
+  await page.getByTestId("api-key-input").fill("test-placeholder");
+  await page.route("**/api/openai/v1/responses", (route) =>
+    route.fulfill({
+      status: 400,
+      json: { error: { message: "End of request inspection", type: "invalid_request_error" } },
+    }),
+  );
+  const request = page.waitForRequest("**/api/openai/v1/responses");
+  await page.getByTestId("boot-cartridge").click();
+  const sent = JSON.stringify((await request).postDataJSON());
+  expect(sent).toContain("name: mop-jockey");
+  expect(sent).toContain(JSON.stringify(edited.trim()).slice(1, -1));
+});
+
+test("the menu accommodates a large library and gives custom adventures room to write", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  await page.route("**/fixtures/", (route) =>
+    route.fulfill({ json: Array.from({ length: 40 }, (_, i) => `game-${i + 1}`) }),
+  );
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "AGI IS HERE." })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("menu-first-visit.png") });
+  const installed = page.getByTestId("installed-game-select");
+  await expect(installed.locator("option")).toHaveCount(40);
+  await installed.selectOption("game-40");
+  await expect(page.locator(".fixture-btn")).toHaveCount(1);
+  await expect(page.getByTestId("boot-game-40")).toHaveText("Play");
+  await page.getByTestId("cartridge-custom").click();
+  await expect(page.getByTestId("boot-cartridge")).toBeDisabled();
+  await page.getByLabel("Adventure name").fill("Midnight at the Museum");
+  const brief = page.getByTestId("custom-cartridge-input");
+  await brief.fill(
+    "I am the night guard at a museum where the exhibits come alive. A tiny dinosaur has stolen my keys.",
+  );
+  expect((await brief.boundingBox())!.height).toBeGreaterThanOrEqual(200);
+  await page.screenshot({ path: test.info().outputPath("menu-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(brief).toHaveValue(/night guard/);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath("menu-mobile.png"), fullPage: true });
+  await page.getByRole("link", { name: "Play a game", exact: true }).click();
+  await expect(page.getByTestId("open-game-zip")).toBeInViewport();
+  await page.getByRole("link", { name: "Create an adventure", exact: true }).click();
+  await page.getByTestId("provider-select").selectOption("stub");
+  await page.getByTestId("boot-cartridge").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await page.getByTestId("btn-eject").click();
+  await expect(page.getByTestId("saved-world-panel")).toContainText("Midnight at the Museum");
+  await page.getByTestId("cartridge-mop-jockey").click();
+  await expect(page.getByTestId("saved-world-panel")).toContainText("Midnight at the Museum");
+  await page.screenshot({ path: test.info().outputPath("menu-mobile-saved.png"), fullPage: true });
+});

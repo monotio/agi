@@ -1,0 +1,10 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+games/
+package-lock.json
+app/package-lock.json
+evals/package-lock.json
+evals/results/
+evals/fixtures/pictures/

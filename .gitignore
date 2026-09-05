@@ -1,0 +1,23 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+*.log
+.DS_Store
+.env
+.env.*
+*.pem
+*.key
+*.p12
+
+# Local game data; original cartridge briefs are included below.
+games/*/
+!games/knights-trial/
+!games/badge-of-millhaven/
+!games/mop-jockey/
+!games/polyester-nights/
+
+# Local game data.
+kq1/
+kq2/
+kq3/
