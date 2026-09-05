@@ -137,28 +137,28 @@ describe("validateToolArguments", () => {
   });
 
   it("the catalog uses only keywords the validator implements", () => {
-    const known = new Set([
-      "type",
-      "description",
-      "properties",
-      "required",
-      "additionalProperties",
-      "items",
-      "enum",
-      "minimum",
-      "maximum",
-      "exclusiveMinimum",
-      "exclusiveMaximum",
-      "minItems",
-      "maxItems",
-      "minLength",
-      "maxLength",
-      "pattern",
-    ]);
+    const known: Record<string, true> = {
+      type: true,
+      description: true,
+      properties: true,
+      required: true,
+      additionalProperties: true,
+      items: true,
+      enum: true,
+      minimum: true,
+      maximum: true,
+      exclusiveMinimum: true,
+      exclusiveMaximum: true,
+      minItems: true,
+      maxItems: true,
+      minLength: true,
+      maxLength: true,
+      pattern: true,
+    };
     const walk = (schema: unknown, where: string): void => {
       if (!schema || typeof schema !== "object") return;
       for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
-        assert.ok(known.has(key), `${where} uses unsupported keyword ${key}`);
+        assert.ok(Object.hasOwn(known, key), `${where} uses unsupported keyword ${key}`);
         if (key === "properties")
           for (const [name, prop] of Object.entries(value as Record<string, unknown>))
             walk(prop, `${where}.${name}`);
