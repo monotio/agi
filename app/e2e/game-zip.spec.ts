@@ -1,3 +1,4 @@
+import { providerReply } from "../../test/provider-stream.ts";
 import { openGameOptions } from "./engineProbe.ts";
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
@@ -108,8 +109,8 @@ test("a friend opens an exported world in a fresh browser without a key", async 
     const remixRequests: unknown[] = [];
     await friend.route("**/api/openai/v1/responses", async (route) => {
       remixRequests.push(route.request().postDataJSON());
-      await route.fulfill({
-        json: {
+      await route.fulfill(
+        providerReply("openai", {
           id: `remix-${remixRequests.length}`,
           output:
             remixRequests.length === 1
@@ -132,8 +133,8 @@ test("a friend opens an exported world in a fresh browser without a key", async 
                     content: [{ type: "output_text", text: "Ready." }],
                   },
                 ],
-        },
-      });
+        }),
+      );
     });
     await friend.getByTestId("power-up").click();
     await expect(friend.getByTestId("power-up-api-key")).toBeVisible();
@@ -186,8 +187,8 @@ test("a v3 cartridge can be imported, remixed, exported and opened in a fresh se
   let requests = 0;
   await page.route("**/api/openai/v1/responses", async (route) => {
     requests++;
-    await route.fulfill({
-      json: {
+    await route.fulfill(
+      providerReply("openai", {
         id: `v3-remix-${requests}`,
         output:
           requests === 1
@@ -207,8 +208,8 @@ test("a v3 cartridge can be imported, remixed, exported and opened in a fresh se
                   content: [{ type: "output_text", text: "Ready." }],
                 },
               ],
-      },
-    });
+      }),
+    );
   });
   await page.getByTestId("power-up").click();
   await page.getByTestId("power-up-provider").selectOption("openai");

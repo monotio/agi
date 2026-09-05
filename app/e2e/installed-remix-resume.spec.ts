@@ -1,3 +1,4 @@
+import { providerReply } from "../../test/provider-stream.ts";
 import { openGameOptions } from "./engineProbe.ts";
 import { test, expect } from "@playwright/test";
 import { createContainer, openContainer } from "../../src/container/container.ts";
@@ -53,8 +54,8 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
       ["write_view", { num: 11, spec: sprite }],
       ["write_logic_source", { room: 1, source: remixed }],
     ];
-    await route.fulfill({
-      json: {
+    await route.fulfill(
+      providerReply("openai", {
         id: `response-${requests}`,
         output:
           requests === 1
@@ -72,8 +73,8 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
                   content: [{ type: "output_text", text: "Ready." }],
                 },
               ],
-      },
-    });
+      }),
+    );
   });
   await page.getByTestId("boot-sample").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);

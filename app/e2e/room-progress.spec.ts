@@ -1,3 +1,4 @@
+import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -100,8 +101,8 @@ for (const fail of [false, true])
           },
         ],
       ];
-      await route.fulfill({
-        json: {
+      await route.fulfill(
+        providerReply("openai", {
           id: `room-${requests}`,
           output:
             requests === 1
@@ -119,8 +120,8 @@ for (const fail of [false, true])
                     content: [{ type: "output_text", text: "Room ready." }],
                   },
                 ],
-        },
-      });
+        }),
+      );
     });
     try {
       await page.reload();

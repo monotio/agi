@@ -1,3 +1,4 @@
+import { providerReply } from "../../test/provider-stream.ts";
 import { openGameOptions } from "./engineProbe.ts";
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
@@ -113,8 +114,8 @@ test("Save project resumes private history in a fresh browser; Export game has o
     const requests: Record<string, unknown>[] = [];
     await other.route("**/api/openai/v1/responses", async (route) => {
       requests.push(route.request().postDataJSON());
-      await route.fulfill({
-        json: {
+      await route.fulfill(
+        providerReply("openai", {
           id: `continued-${requests.length}`,
           output: [
             {
@@ -123,8 +124,8 @@ test("Save project resumes private history in a fresh browser; Export game has o
               content: [{ type: "output_text", text: "Ready to continue the garden." }],
             },
           ],
-        },
-      });
+        }),
+      );
     });
     await other.getByTestId("power-up").click();
     await other.getByTestId("power-up-provider").selectOption("openai");

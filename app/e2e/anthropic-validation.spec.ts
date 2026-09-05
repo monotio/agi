@@ -1,3 +1,4 @@
+import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -29,8 +30,8 @@ test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted 
   await page.route("**/api/anthropic/v1/messages", async (route) => {
     requests.push(route.request().postDataJSON());
     const turn = requests.length;
-    await route.fulfill({
-      json: {
+    await route.fulfill(
+      providerReply("anthropic", {
         id: `reply-${turn}`,
         type: "message",
         role: "assistant",
@@ -47,8 +48,8 @@ test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted 
                 },
               ]
             : [{ type: "text", text: "You are in room 1." }],
-      },
-    });
+      }),
+    );
   });
   await page.goto("/");
   await page.getByTestId("game-zip-input").setInputFiles({

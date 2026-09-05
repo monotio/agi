@@ -1,3 +1,4 @@
+import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 
@@ -32,8 +33,8 @@ test("power-up vocabulary and inventory reach the live worker and exported cartr
         },
       ],
     ] as const;
-    await route.fulfill({
-      json: {
+    await route.fulfill(
+      providerReply("openai", {
         id: `reply${requests}`,
         output:
           requests === 1
@@ -51,8 +52,8 @@ test("power-up vocabulary and inventory reach the live worker and exported cartr
                   content: [{ type: "output_text", text: "Your crystal can sparkle." }],
                 },
               ],
-      },
-    });
+      }),
+    );
   });
   await page.goto("/");
   const result = await page.evaluate(

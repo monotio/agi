@@ -1,3 +1,4 @@
+import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createAnthropicConversation, createOpenAiConversation } from "../src/agent/llmClient.ts";
@@ -9,7 +10,8 @@ test("OpenAI reports usage, keeps stable tools and refuses truncated calls befor
     requests.push(JSON.parse(String(init?.body)));
     count++;
     return new Response(
-      JSON.stringify(
+      providerSse(
+        "openai",
         count === 1
           ? {
               id: "one",
@@ -40,7 +42,7 @@ test("OpenAI reports usage, keeps stable tools and refuses truncated calls befor
               output: [],
             },
       ),
-      { headers: { "content-type": "application/json" } },
+      { headers: { "content-type": "text/event-stream" } },
     );
   });
   const conversation = createOpenAiConversation({
@@ -80,7 +82,7 @@ test("Anthropic reports total input including cache and closes unfinished tool t
     requests.push(JSON.parse(String(init?.body)));
     count++;
     return new Response(
-      JSON.stringify({
+      providerSse("anthropic", {
         id: String(count),
         type: "message",
         role: "assistant",
@@ -96,7 +98,7 @@ test("Anthropic reports total input including cache and closes unfinished tool t
           cache_creation_input_tokens: 20,
         },
       }),
-      { headers: { "content-type": "application/json" } },
+      { headers: { "content-type": "text/event-stream" } },
     );
   });
   const conversation = createAnthropicConversation({
@@ -128,7 +130,7 @@ test("Anthropic refusal surfaces the category and closes the pending tool call",
     requests.push(JSON.parse(String(init?.body)));
     count++;
     return new Response(
-      JSON.stringify({
+      providerSse("anthropic", {
         id: String(count),
         type: "message",
         role: "assistant",
@@ -141,7 +143,7 @@ test("Anthropic refusal surfaces the category and closes the pending tool call",
             : [],
         usage: { input_tokens: 10, output_tokens: 5 },
       }),
-      { headers: { "content-type": "application/json" } },
+      { headers: { "content-type": "text/event-stream" } },
     );
   });
   const conversation = createAnthropicConversation({
@@ -166,12 +168,12 @@ test("malformed complete tool arguments do not turn into an empty successful cal
     "fetch",
     async () =>
       new Response(
-        JSON.stringify({
+        providerSse("openai", {
           id: "bad",
           status: "completed",
           output: [{ type: "function_call", call_id: "bad", name: "write_view", arguments: "{" }],
         }),
-        { headers: { "content-type": "application/json" } },
+        { headers: { "content-type": "text/event-stream" } },
       ),
   );
   const conversation = createOpenAiConversation({

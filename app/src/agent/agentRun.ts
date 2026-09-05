@@ -19,6 +19,7 @@ const RATES: Record<
   "claude-fable-5-1": { input: 10, output: 50, longContext: false, cacheRead: 0.25 },
 };
 export interface AgentRunState {
+  progress: AgentProgress | null;
   status: "idle" | "running" | "paused";
   reason: string;
   spent: number;
@@ -27,6 +28,15 @@ export interface AgentRunState {
   requests: number;
   usageIncomplete: boolean;
   priceKnown: boolean;
+}
+
+/** Ephemeral provider activity; never part of a saved conversation or game. */
+export interface AgentProgress {
+  phase: "waiting" | "thinking" | "text" | "tool";
+  tool: string | null;
+  text: string;
+  startedAt: number;
+  lastEventAt: number;
 }
 
 /** A pause suspends the existing async task, including its staged resource container. */
@@ -43,6 +53,7 @@ export class AgentRun {
   private signatures: string[] = [];
   private lastInputCost = 0;
   private outputRate = 0;
+  private progressTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(model: string, changed: (state: AgentRunState) => void, budget = 5) {
     if (!Number.isFinite(budget) || budget <= 0) throw new Error("Task budget must be positive.");
@@ -50,6 +61,7 @@ export class AgentRun {
     this.changed = changed;
     this.allowance = budget;
     this.state = {
+      progress: null,
       status: "idle",
       reason: "",
       spent: 0,
@@ -62,10 +74,30 @@ export class AgentRun {
     this.outputRate = RATES[model]?.output ?? 0;
   }
   snapshot(): AgentRunState {
-    return { ...this.state };
+    return { ...this.state, progress: this.state.progress ? { ...this.state.progress } : null };
   }
   private publish(): void {
     this.changed(this.snapshot());
+  }
+  updateProgress(phase?: AgentProgress["phase"], text = "", tool?: string): void {
+    const progress = this.state.progress;
+    if (!progress) return;
+    const previous = progress.phase;
+    if (phase) progress.phase = phase;
+    if (tool !== undefined) progress.tool = tool;
+    progress.text = (progress.text + text).slice(0, 16000);
+    progress.lastEventAt = Date.now();
+    // Phase changes appear immediately; token bursts cause at most ten UI updates a second.
+    if (previous !== progress.phase) this.publish();
+    if (this.progressTimer === undefined)
+      this.progressTimer = setTimeout(() => {
+        this.progressTimer = undefined;
+        this.publish();
+      }, 100);
+  }
+  markUsageIncomplete(): void {
+    this.state.usageIncomplete = true;
+    this.publish();
   }
   async run<T>(work: () => Promise<T>): Promise<T> {
     if (this.state.status !== "idle") throw new Error("An agent task is already active.");
@@ -180,19 +212,32 @@ export class AgentRun {
         ? Math.max(1, Math.min(128000, Math.floor((remaining * 1e6) / this.outputRate)))
         : 128000;
       this.state.requests++;
+      this.state.progress = {
+        phase: "waiting",
+        tool: null,
+        text: "",
+        startedAt: Date.now(),
+        lastEventAt: Date.now(),
+      };
       this.publish();
+      let response: T;
       try {
-        const response = await send(controller.signal, maxTokens);
-        if (this.stopped) await this.checkpoint(false);
-        return response;
+        response = await send(controller.signal, maxTokens);
       } catch (error) {
         if (!controller.signal.aborted || this.cancelled) throw error;
         // An aborted provider request may still be billed; do not call this total exact.
         this.state.usageIncomplete = true;
+        continue;
       } finally {
         clearTimeout(timer);
+        clearTimeout(this.progressTimer);
+        this.progressTimer = undefined;
+        this.state.progress = null;
         this.controller = undefined;
+        this.publish();
       }
+      if (this.stopped) await this.checkpoint(false);
+      return response;
     }
   }
 }
