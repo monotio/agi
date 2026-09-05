@@ -584,11 +584,23 @@ const creatingRoom = computed(() => state.powerUp.mode === "room");
 const powerUpFeed = computed(() => state.agentLog.slice(state.powerUp.feedStart));
 
 const conversationEl = ref<HTMLDivElement | null>(null);
+const followConversation = ref(true);
+function onConversationScroll(): void {
+  const el = conversationEl.value;
+  if (el) followConversation.value = el.scrollHeight - el.clientHeight - el.scrollTop < 24;
+}
 watch(
-  [() => state.powerUp.open, () => state.powerUp.messages.length],
-  () => {
+  [
+    () => state.powerUp.open,
+    () => state.powerUp.messages.length,
+    () => state.agentTask?.progress?.text,
+  ],
+  ([open, count], [wasOpen, previousCount]) => {
+    if (!open) return;
+    if (!wasOpen || (count !== previousCount && state.powerUp.messages.at(-1)?.role === "user"))
+      followConversation.value = true;
     const el = conversationEl.value;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && followConversation.value) el.scrollTop = el.scrollHeight;
   },
   { flush: "post" },
 );
@@ -1482,7 +1494,10 @@ watch(
         <h2 class="splash-title">{{ activeCartridge.title }}</h2>
         <p class="splash-desc">{{ activeCartridge.description }}</p>
         <div class="splash-progress">
-          <div class="spinner-box" v-if="state.agentTask?.status !== 'paused'">
+          <div
+            class="spinner-box"
+            v-if="state.agentTask?.status !== 'paused' && !state.agentTask?.progress"
+          >
             <span class="pulsing-dot" />
             <span>Preparing your adventure…</span>
           </div>
@@ -1659,6 +1674,7 @@ watch(
           ref="conversationEl"
           class="agent-conversation"
           data-testid="agent-conversation"
+          @scroll="onConversationScroll"
           role="log"
           aria-label="Conversation"
           aria-live="polite"
@@ -1670,9 +1686,19 @@ watch(
           >
             {{ message.text }}
           </div>
+          <div
+            v-if="asking && state.powerUp.busy && state.agentTask?.progress?.text"
+            class="agent-message assistant"
+            data-testid="agent-stream-text"
+            aria-live="off"
+          >
+            {{ state.agentTask.progress.text }}
+          </div>
         </div>
         <div
-          v-if="state.powerUp.busy && state.agentTask?.status !== 'paused'"
+          v-if="
+            state.powerUp.busy && state.agentTask?.status !== 'paused' && !state.agentTask?.progress
+          "
           class="remix-progress"
         >
           <span
@@ -1695,6 +1721,7 @@ watch(
         </div>
         <AgentTaskControls
           :task="state.agentTask"
+          :show-text="!asking"
           @stop="stopAgent"
           @resume="continueAgent"
           @discard="discardAgent"

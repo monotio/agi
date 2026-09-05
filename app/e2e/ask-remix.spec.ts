@@ -1,3 +1,4 @@
+import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -23,8 +24,8 @@ test("Ask stays paused, remembers the conversation after reload, and hands conte
   const requests: string[] = [];
   await page.route("**/api/openai/v1/responses", async (route) => {
     requests.push(route.request().postData()!);
-    await route.fulfill({
-      json: {
+    await route.fulfill(
+      providerReply("openai", {
         id: `reply${requests.length}`,
         output:
           requests.length <= 20
@@ -52,8 +53,8 @@ test("Ask stays paused, remembers the conversation after reload, and hands conte
                   ],
                 },
               ],
-      },
-    });
+      }),
+    );
   });
   await page.goto("/");
   await page.getByTestId("game-zip-input").setInputFiles({

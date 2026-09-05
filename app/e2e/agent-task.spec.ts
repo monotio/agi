@@ -1,3 +1,4 @@
+import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -29,8 +30,8 @@ test("Astra is the new-user default; Stop and budget pauses retain a staged remi
     expect(route.request().postDataJSON().max_output_tokens).toBeGreaterThan(4096);
     if (request === 2) await blocked;
     try {
-      await route.fulfill({
-        json: {
+      await route.fulfill(
+        providerReply("openai", {
           id: `task${request}`,
           usage: { input_tokens: 0, output_tokens: request === 3 ? 100000 : 0 },
           output:
@@ -59,8 +60,8 @@ test("Astra is the new-user default; Stop and budget pauses retain a staged remi
                       content: [{ type: "output_text", text: "Ready." }],
                     },
                   ],
-        },
-      });
+        }),
+      );
     } catch {
       /* The stopped request has been aborted. */
     }

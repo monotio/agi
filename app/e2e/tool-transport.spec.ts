@@ -1,3 +1,4 @@
+import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 
@@ -10,8 +11,9 @@ for (const provider of ["openai", "anthropic"] as const) {
       provider === "openai" ? "**/api/openai/v1/responses" : "**/api/anthropic/v1/messages",
       async (route) => {
         requests.push(route.request().postDataJSON());
-        await route.fulfill({
-          json:
+        await route.fulfill(
+          providerReply(
+            provider,
             provider === "openai"
               ? { id: "test", output: [] }
               : {
@@ -21,7 +23,8 @@ for (const provider of ["openai", "anthropic"] as const) {
                   content: [],
                   usage: { input_tokens: 1, output_tokens: 1 },
                 },
-        });
+          ),
+        );
       },
     );
     await page.goto("/");

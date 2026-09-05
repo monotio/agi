@@ -1,3 +1,4 @@
+import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AgentSession } from "../src/agent/agentSession.ts";
@@ -26,8 +27,8 @@ test("Ask refuses mutations even when the provider requests them, and keeps the 
               content: [{ type: "output_text", text: "The game is unchanged." }],
             },
           ];
-    return new Response(JSON.stringify({ id: `ask${requests.length}`, output }), {
-      headers: { "Content-Type": "application/json" },
+    return new Response(providerSse("openai", { id: `ask${requests.length}`, output }), {
+      headers: { "Content-Type": "text/event-stream" },
     });
   });
   const state = createAgentSessionState();
@@ -56,8 +57,8 @@ test("an unanswered historical tool call is reported as unexecuted, never succes
   let request: Record<string, unknown> = {};
   t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
     request = JSON.parse(String(init.body));
-    return new Response(JSON.stringify({ id: "test", output: [] }), {
-      headers: { "Content-Type": "application/json" },
+    return new Response(providerSse("openai", { id: "test", output: [] }), {
+      headers: { "Content-Type": "text/event-stream" },
     });
   });
   const conversation = createOpenAiConversation(
@@ -110,9 +111,9 @@ test("a provider power-up returns compiled vocabulary and inventory files with i
               content: [{ type: "output_text", text: "You have a crystal." }],
             },
           ];
-    return new Response(JSON.stringify({ id: `reply${requests}`, output }), {
+    return new Response(providerSse("openai", { id: `reply${requests}`, output }), {
       status: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "text/event-stream" },
     });
   });
   const state = createAgentSessionState();
@@ -181,8 +182,8 @@ test("room helper edits are transactional and cannot rewrite another room", asyn
             },
           ]
         : [];
-    return new Response(JSON.stringify({ id: String(count), output }), {
-      headers: { "Content-Type": "application/json" },
+    return new Response(providerSse("openai", { id: String(count), output }), {
+      headers: { "Content-Type": "text/event-stream" },
     });
   });
   const session = new AgentSession(
@@ -203,7 +204,7 @@ test("a stalled remix pauses and can be discarded without claiming completion", 
     "fetch",
     async () =>
       new Response(
-        JSON.stringify({
+        providerSse("openai", {
           id: String(++calls),
           output: [
             {
@@ -214,7 +215,7 @@ test("a stalled remix pauses and can be discarded without claiming completion", 
             },
           ],
         }),
-        { headers: { "Content-Type": "application/json" } },
+        { headers: { "Content-Type": "text/event-stream" } },
       ),
   );
   const session = new AgentSession(
@@ -248,7 +249,7 @@ test("a truncated response pauses without discarding earlier staged resources", 
   t.mock.method(globalThis, "fetch", async () => {
     calls++;
     return new Response(
-      JSON.stringify({
+      providerSse("openai", {
         id: `truncated${calls}`,
         ...(calls === 2
           ? { status: "incomplete", incomplete_details: { reason: "max_output_tokens" } }
@@ -273,7 +274,7 @@ test("a truncated response pauses without discarding earlier staged resources", 
                   },
                 ],
       }),
-      { headers: { "Content-Type": "application/json" } },
+      { headers: { "Content-Type": "text/event-stream" } },
     );
   });
   const session = new AgentSession(

@@ -1,3 +1,4 @@
+import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "@playwright/test";
 import { buildZip } from "../src/zip.ts";
 import { createContainer } from "../../src/container/container.ts";
@@ -61,7 +62,7 @@ test("remix progress follows activity, preserves reading position and jumps to l
                   : { ids: [i] },
             ),
           }));
-    await route.fulfill({ json: { id: `reply-${request}`, output } });
+    await route.fulfill(providerReply("openai", { id: `reply-${request}`, output }));
   });
   try {
     await page.goto("/");
@@ -92,7 +93,7 @@ test("remix progress follows activity, preserves reading position and jumps to l
     await expect(feed).toContainText("read_objects");
     expect(await feed.evaluate((el) => el.scrollTop)).toBe(0);
     expect(await feed.locator(".agent-bubble-line").first().textContent()).toBe(firstEntry);
-    await expect(page.getByTestId("remix-progress-status")).toContainText("Reviewing results");
+    await expect(page.getByTestId("agent-stream-status")).toHaveText("Waiting for the model…");
     await page.screenshot({ path: "test-results/remix-reading-earlier.png" });
     await page.getByTestId("remix-jump-latest").click();
     await expect.poll(remaining).toBeLessThan(4);
@@ -102,7 +103,7 @@ test("remix progress follows activity, preserves reading position and jumps to l
     await expect.poll(remaining).toBeLessThan(4);
     await page.screenshot({ path: "test-results/remix-following-live.png" });
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.getByTestId("remix-progress-status")).toBeInViewport();
+    await expect(page.getByTestId("agent-stream-status")).toBeInViewport();
     await expect(page.getByRole("button", { name: "Back to game" })).toBeInViewport();
     await page.screenshot({ path: "test-results/remix-progress-mobile.png" });
     finish();

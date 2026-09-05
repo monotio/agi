@@ -48,8 +48,13 @@ Ask leaves the game untouched; Remix applies the finished changes and resumes
 play. You can also open an existing AGI game ZIP and remix it.
 
 GPT-6 Astra is the default; you can choose another OpenAI or Anthropic model.
+Responses stream live: Ask shows text as it arrives, and authoring shows model
+activity and which tool it is preparing. Tools run only after the complete
+response has been received and validated.
 Tasks start with a $5 estimated budget. **Stop** and **Continue** keep work in
 progress in the current tab; a budget pause lets you add another allowance.
+Stopping an active response discards its unfinished draft; Continue retries
+that request with the completed work retained.
 Estimates use reported tokens and standard API rates. A response can cross the
 threshold, and interrupted requests may still be billed.
 

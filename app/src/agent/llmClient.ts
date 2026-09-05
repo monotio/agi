@@ -45,6 +45,32 @@ export class LlmResponseError extends Error {
   }
 }
 
+function anthropicUsage(usage: Anthropic.Usage | undefined): LlmUsage {
+  return {
+    input:
+      (usage?.input_tokens ?? 0) +
+      (usage?.cache_read_input_tokens ?? 0) +
+      (usage?.cache_creation_input_tokens ?? 0),
+    output: usage?.output_tokens ?? 0,
+    cachedInput: usage?.cache_read_input_tokens ?? 0,
+    cacheWriteInput: usage?.cache_creation_input_tokens ?? 0,
+  };
+}
+
+function recordUsage(usage: LlmUsage, total: LlmUsage, run?: AgentRun): void {
+  run?.recordUsage(usage);
+  for (const key of Object.keys(total) as (keyof LlmUsage)[]) total[key] += usage[key];
+}
+
+function openAiUsage(usage: OpenAI.Responses.ResponseUsage | null | undefined): LlmUsage {
+  return {
+    input: usage?.input_tokens ?? 0,
+    output: usage?.output_tokens ?? 0,
+    cachedInput: usage?.input_tokens_details?.cached_tokens ?? 0,
+    cacheWriteInput: usage?.input_tokens_details?.cache_write_tokens ?? 0,
+  };
+}
+
 export interface LlmTurnResult {
   usage?: LlmUsage;
 
@@ -146,8 +172,10 @@ export function createAnthropicConversation(
   }
 
   async function step(): Promise<LlmTurnResult> {
-    const send = (signal?: AbortSignal, maxTokens = 128000) =>
-      client.messages.create(
+    const send = async (signal?: AbortSignal, maxTokens = 128000) => {
+      // Official SDK accumulation preserves thinking signatures and complete tool inputs.
+      // https://platform.claude.com/docs/en/build-with-claude/streaming
+      const stream = client.messages.stream(
         {
           model: config.model || DEFAULT_MODELS.anthropic,
           max_tokens: maxTokens,
@@ -168,19 +196,36 @@ export function createAnthropicConversation(
         },
         { ...(signal ? { signal } : {}) },
       );
+      let usage: Anthropic.Usage | undefined;
+      try {
+        for await (const event of stream) {
+          run?.updateProgress();
+          if (event.type === "message_start") usage = { ...event.message.usage };
+          if (event.type === "message_delta")
+            usage = { ...usage, ...event.usage } as Anthropic.Usage;
+          if (event.type === "content_block_start") {
+            if (event.content_block.type === "tool_use")
+              run?.updateProgress("tool", "", event.content_block.name);
+            else if (event.content_block.type === "thinking") run?.updateProgress("thinking");
+          }
+          if (event.type === "content_block_delta" && event.delta.type === "text_delta")
+            run?.updateProgress("text", event.delta.text);
+        }
+        const response = await stream.finalMessage();
+        recordUsage(anthropicUsage(response.usage), totalUsage, run);
+        return response;
+      } catch (error) {
+        if (usage) {
+          const partial = anthropicUsage(usage);
+          recordUsage(partial, totalUsage, run);
+        }
+        run?.markUsageIncomplete();
+        throw error;
+      }
+    };
     const response = await (run ? run.request(send) : send());
 
-    const usage: LlmUsage = {
-      input:
-        (response.usage?.input_tokens ?? 0) +
-        (response.usage?.cache_read_input_tokens ?? 0) +
-        (response.usage?.cache_creation_input_tokens ?? 0),
-      output: response.usage?.output_tokens ?? 0,
-      cachedInput: response.usage?.cache_read_input_tokens ?? 0,
-      cacheWriteInput: response.usage?.cache_creation_input_tokens ?? 0,
-    };
-    run?.recordUsage(usage);
-    for (const key of Object.keys(totalUsage) as (keyof LlmUsage)[]) totalUsage[key] += usage[key];
+    const usage = anthropicUsage(response.usage);
 
     // Save assistant response to conversation history
     messages.push({
@@ -188,10 +233,7 @@ export function createAnthropicConversation(
       content: response.content,
     });
 
-    if (
-      response.stop_reason &&
-      !["end_turn", "tool_use", "stop_sequence"].includes(response.stop_reason)
-    ) {
+    if (!["end_turn", "tool_use", "stop_sequence"].includes(response.stop_reason ?? "")) {
       const reason =
         response.stop_reason === "max_tokens"
           ? "The provider response reached its output limit before completion. Partial tool arguments were not executed."
@@ -304,9 +346,12 @@ export function createOpenAiConversation(
   }
 
   async function step(): Promise<LlmTurnResult> {
-    const send = (signal?: AbortSignal, maxTokens = 128000) =>
-      client.responses.create(
+    const send = async (signal?: AbortSignal, maxTokens = 128000) => {
+      // Use typed SSE events for presentation; only a terminal response may enter history.
+      // https://developers.openai.com/api/docs/guides/streaming-responses
+      const stream = await client.responses.create(
         {
+          stream: true,
           max_output_tokens: maxTokens,
           model: config.model || DEFAULT_MODELS.openai,
           instructions: AGI_SYSTEM_PROMPT,
@@ -333,18 +378,38 @@ export function createOpenAiConversation(
         },
         { ...(signal ? { signal } : {}) },
       );
+      try {
+        for await (const event of stream) {
+          run?.updateProgress();
+          if (event.type === "response.output_text.delta") run?.updateProgress("text", event.delta);
+          if (event.type === "response.output_item.added") {
+            if (event.item.type === "function_call")
+              run?.updateProgress("tool", "", event.item.name);
+            else if (event.item.type === "reasoning") run?.updateProgress("thinking");
+          }
+          if (
+            event.type === "response.completed" ||
+            event.type === "response.incomplete" ||
+            event.type === "response.failed"
+          ) {
+            recordUsage(openAiUsage(event.response.usage), totalUsage, run);
+            return event.response;
+          }
+          if (event.type === "error") throw new Error(event.message);
+        }
+        throw new Error(
+          "The provider stream ended before completing the response. No partial tools were executed.",
+        );
+      } catch (error) {
+        run?.markUsageIncomplete();
+        throw error;
+      }
+    };
     const response = await (run ? run.request(send) : send());
 
-    const usage: LlmUsage = {
-      input: response.usage?.input_tokens ?? 0,
-      output: response.usage?.output_tokens ?? 0,
-      cachedInput: response.usage?.input_tokens_details?.cached_tokens ?? 0,
-      cacheWriteInput: response.usage?.input_tokens_details?.cache_write_tokens ?? 0,
-    };
-    run?.recordUsage(usage);
-    for (const key of Object.keys(totalUsage) as (keyof LlmUsage)[]) totalUsage[key] += usage[key];
+    const usage = openAiUsage(response.usage);
     for (const item of response.output) input.push(item as OpenAI.Responses.ResponseInputItem);
-    if (response.status && response.status !== "completed") {
+    if (response.status !== "completed") {
       const reason =
         response.incomplete_details?.reason === "max_output_tokens"
           ? "The provider response reached its output limit before completion. Partial tool arguments were not executed."
