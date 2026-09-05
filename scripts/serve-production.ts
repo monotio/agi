@@ -28,8 +28,11 @@ createServer(async (req, res) => {
   try {
     const body = await readFile(target);
     res.setHeader("Content-Type", types[extname(target)] ?? "application/octet-stream");
-    if (path.startsWith("/assets/"))
-      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    const route = config.routes.find((entry: { route: string }) =>
+      entry.route.endsWith("*") ? path.startsWith(entry.route.slice(0, -1)) : path === entry.route,
+    );
+    for (const [name, value] of Object.entries(route?.headers ?? {}))
+      res.setHeader(name, String(value));
     res.end(body);
   } catch {
     res.writeHead(404);

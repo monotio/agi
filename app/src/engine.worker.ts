@@ -392,6 +392,7 @@ function postFrame(): void {
   }
   const frame = engine.getFrame();
   const modal = engine.modalKind;
+  const textCells = engine.textCells;
   // Repeated display/trace opcodes can mark text dirty without changing a cell.
   // Sending those frames floods software GPU renderers and delays user input.
   let same =
@@ -400,8 +401,8 @@ function postFrame(): void {
     lastTextMode === engine.textModeActive &&
     lastText !== null;
   if (same && lastText) {
-    for (let i = 0; i < engine.textCells.length; i++) {
-      if (engine.textCells[i] !== lastText[i]) {
+    for (let i = 0; i < textCells.length; i++) {
+      if (textCells[i] !== lastText[i]) {
         same = false;
         break;
       }
@@ -419,11 +420,11 @@ function postFrame(): void {
   }
   if (same) return;
   lastVisual = frame.visual.slice(); // retained copy, never transferred
-  lastText = engine.textCells.slice();
+  lastText = textCells.slice();
   lastPicRow = engine.displayBase;
   lastTextMode = engine.textModeActive;
   lastModal = modal;
-  const text = engine.textCells.slice();
+  const text = textCells.slice();
   self.postMessage(
     {
       type: "frame",

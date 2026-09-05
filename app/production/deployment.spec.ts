@@ -1,4 +1,6 @@
 import { test, expect } from "@playwright/test";
+import { createContainer } from "../../src/container/container.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
 
 test("production origin, isolation, worker and provider policy", async ({ page, request }) => {
   const response = await page.goto("/");
@@ -16,24 +18,57 @@ test("production origin, isolation, worker and provider policy", async ({ page, 
   await expect(page.getByTestId("installed-game-select")).toBeHidden();
   const script = await page.locator('script[type="module"]').getAttribute("src");
   expect(script).toMatch(/^\/assets\//);
-  const source = await (await request.get(script!)).text();
+  const scriptResponse = await request.get(script!);
+  expect(scriptResponse.headers()["cache-control"]).toBe("public, max-age=31536000, immutable");
+  const source = await scriptResponse.text();
   const workerPath = source.match(/\/assets\/engine\.worker-[^"'`]+\.js/)?.[0];
   expect(workerPath, "production worker asset is bundled beneath /assets/").toBeTruthy();
   const workerResponse = await request.get(workerPath!);
   expect(workerResponse.ok()).toBe(true);
   expect(workerResponse.headers()["content-type"]).toMatch(/javascript/);
-  const workerReady = await page.evaluate(async (url) => {
-    const worker = new Worker(url, { type: "module" });
-    try {
-      await new Promise<void>((resolve, reject) => {
-        worker.onerror = () => reject(new Error("Worker failed to load"));
-        setTimeout(resolve, 1500);
-      });
-      return true;
-    } finally {
-      worker.terminate();
-    }
-  }, workerPath!);
-  expect(workerReady).toBe(true);
+  expect(workerResponse.headers()["cache-control"]).toBe("public, max-age=31536000, immutable");
+  const cartridge = createContainer();
+  cartridge.putResource(
+    "logic",
+    0,
+    assembleLogic('display(5, 2, "Production worker ready."); return;', { dictionary: new Map() })
+      .payload,
+  );
+  const profile = await page.evaluate(
+    async ({ url, files }) => {
+      const worker = new Worker(url, { type: "module" });
+      try {
+        return await new Promise<string>((resolve, reject) => {
+          const timeout = setTimeout(
+            () => reject(new Error("Worker did not boot and render")),
+            10000,
+          );
+          let profile: string | null = null;
+          let rendered = false;
+          worker.onerror = () => {
+            clearTimeout(timeout);
+            reject(new Error("Worker failed to load"));
+          };
+          worker.onmessage = ({ data }) => {
+            if (data.type === "error") {
+              clearTimeout(timeout);
+              reject(new Error(data.message));
+            }
+            if (data.type === "booted") profile = data.profile;
+            if (data.type === "frame") rendered = data.text.some((cell: number) => cell !== 0);
+            if (profile && rendered) {
+              clearTimeout(timeout);
+              resolve(profile);
+            }
+          };
+          worker.postMessage({ type: "boot", files, words: [], sab: new SharedArrayBuffer(65536) });
+        });
+      } finally {
+        worker.terminate();
+      }
+    },
+    { url: workerPath!, files: Object.fromEntries(cartridge.files) },
+  );
+  expect(profile).toBe("2.936");
   expect((await request.get("/fixtures/kq1/LOGDIR")).status()).toBe(404);
 });
