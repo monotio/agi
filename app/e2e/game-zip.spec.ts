@@ -180,6 +180,9 @@ test("a v3 cartridge can be imported, remixed, exported and opened in a fresh se
   await expect
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("A shared v3 adventure.");
+  const stillFrame = await textHook(page);
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(stillFrame.cycle + 5);
+  expect((await textHook(page)).frame).toBe(stillFrame.frame);
   let requests = 0;
   await page.route("**/api/openai/v1/responses", async (route) => {
     requests++;

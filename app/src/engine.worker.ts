@@ -365,7 +365,9 @@ const host: EngineHost = {
 };
 
 let lastVisual: Uint8Array | null = null;
-let lastTextDirty = -1;
+let lastText: Uint8Array | null = null;
+let lastPicRow = -1;
+let lastTextMode = false;
 let lastModal: string | null = null;
 let lastControls = "";
 let lastInputEdit = "";
@@ -390,7 +392,21 @@ function postFrame(): void {
   }
   const frame = engine.getFrame();
   const modal = engine.modalKind;
-  let same = lastTextDirty === engine.textDirty && lastModal === modal;
+  // Repeated display/trace opcodes can mark text dirty without changing a cell.
+  // Sending those frames floods software GPU renderers and delays user input.
+  let same =
+    lastModal === modal &&
+    lastPicRow === engine.displayBase &&
+    lastTextMode === engine.textModeActive &&
+    lastText !== null;
+  if (same && lastText) {
+    for (let i = 0; i < engine.textCells.length; i++) {
+      if (engine.textCells[i] !== lastText[i]) {
+        same = false;
+        break;
+      }
+    }
+  }
   if (same && lastVisual) {
     for (let i = 0; i < frame.visual.length; i++) {
       if (frame.visual[i] !== lastVisual[i]) {
@@ -403,7 +419,9 @@ function postFrame(): void {
   }
   if (same) return;
   lastVisual = frame.visual.slice(); // retained copy, never transferred
-  lastTextDirty = engine.textDirty;
+  lastText = engine.textCells.slice();
+  lastPicRow = engine.displayBase;
+  lastTextMode = engine.textModeActive;
   lastModal = modal;
   const text = engine.textCells.slice();
   self.postMessage(
@@ -530,7 +548,9 @@ self.onmessage = (ev: MessageEvent) => {
       inputBuffer = [];
       keyBuffer = [];
       lastVisual = null;
-      lastTextDirty = -1;
+      lastText = null;
+      lastPicRow = -1;
+      lastTextMode = false;
       lastModal = null;
       lastControls = "";
       lastInputEdit = "";
