@@ -317,6 +317,8 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
               name: { type: "string", description: "Display name of the inventory item." },
               startingRoom: {
                 type: ["integer", "null"],
+                minimum: 0,
+                maximum: 255,
                 description: "Starting room: 255 = carried, 1..254 = in room, 0 = inactive.",
               },
             },

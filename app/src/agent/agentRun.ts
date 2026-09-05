@@ -6,12 +6,17 @@ import type { AgentToolResult } from "../../../src/agent/tools.ts";
 // https://developers.openai.com/api/docs/models/gpt-5.6-sol
 // https://developers.openai.com/api/docs/models/gpt-5.6-terra
 // https://platform.claude.com/docs/en/about-claude/pricing
-const RATES: Record<string, { input: number; output: number; longContext: boolean }> = {
+// cacheRead overrides the default cache-read price of 10% of input.
+const RATES: Record<
+  string,
+  { input: number; output: number; longContext: boolean; cacheRead?: number }
+> = {
   "gpt-6-astra": { input: 10, output: 50, longContext: true },
   "gpt-5.6-sol": { input: 4, output: 20, longContext: true },
   "gpt-5.6-terra": { input: 2, output: 12, longContext: true },
   "claude-opus-5": { input: 5, output: 25, longContext: false },
   "claude-fable-5": { input: 10, output: 50, longContext: false },
+  "claude-fable-5-1": { input: 10, output: 50, longContext: false, cacheRead: 0.25 },
 };
 export interface AgentRunState {
   status: "idle" | "running" | "paused";
@@ -119,11 +124,12 @@ export class AgentRun {
     }
     const long = rate.longContext && usage.input > 272000;
     const input = rate.input * (long ? 2 : 1);
+    const cacheRead = (rate.cacheRead ?? rate.input * 0.1) * (long ? 2 : 1);
     this.outputRate = rate.output * (long ? 1.5 : 1);
     const reads = Math.min(usage.input, usage.cachedInput);
     const writes = Math.min(usage.input - reads, usage.cacheWriteInput);
     this.lastInputCost =
-      ((usage.input - reads - writes) * input + reads * input * 0.1 + writes * input * 1.25) / 1e6;
+      ((usage.input - reads - writes) * input + reads * cacheRead + writes * input * 1.25) / 1e6;
     this.state.spent += this.lastInputCost + (usage.output * this.outputRate) / 1e6;
     this.publish();
   }

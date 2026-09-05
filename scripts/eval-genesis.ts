@@ -24,7 +24,8 @@ import {
 import {
   splitToolResult,
   openAiToolContent,
-  anthropicToolContent,
+  anthropicToolDefinitions,
+  anthropicToolResult,
   serializeAgentLog,
 } from "../src/agent/toolTransport.ts";
 import { validateGenesis } from "../src/agent/playtest.ts";
@@ -465,15 +466,15 @@ async function runAnthropicGenesis(
   session: ReturnType<typeof createAgentSessionState>,
   trace: TraceEntry[],
 ): Promise<void> {
+  // Claude Opus 5 and Fable think by default and max_tokens caps thinking plus
+  // tool arguments together; an explicit timeout keeps the non-streaming path.
   const client = new Anthropic({
     apiKey: args.apiKey,
+    timeout: 600000,
   });
 
-  const tools: Anthropic.Tool[] = GENESIS_TOOLS.map((t, idx) => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.parameters as Anthropic.Tool.InputSchema,
-    strict: true,
+  const tools: Anthropic.Tool[] = anthropicToolDefinitions(GENESIS_TOOLS).map((tool, idx) => ({
+    ...(tool as unknown as Anthropic.Tool),
     ...(idx === GENESIS_TOOLS.length - 1 ? { cache_control: { type: "ephemeral" } } : {}),
   }));
 
@@ -489,7 +490,7 @@ async function runAnthropicGenesis(
     const requestedAt = performance.now();
     const response = await client.messages.create({
       model: args.model,
-      max_tokens: 4096,
+      max_tokens: 32000,
       system: [{ type: "text", text: AGI_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
       messages,
       tools,
@@ -561,12 +562,7 @@ async function runAnthropicGenesis(
         payload: JSON.parse(serializeAgentLog({ tool: tc.name, args: tc.args, result: toolRes })),
       });
 
-      toolResultsContent.push({
-        type: "tool_result",
-        tool_use_id: tc.id,
-        is_error: !toolRes.success,
-        content: anthropicToolContent(splitToolResult(toolRes)),
-      });
+      toolResultsContent.push(anthropicToolResult(tc.id, toolRes));
     }
 
     messages.push({ role: "user", content: toolResultsContent });

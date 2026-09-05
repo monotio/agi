@@ -113,6 +113,51 @@ test("Anthropic reports total input including cache and closes unfinished tool t
   });
   await conversation.sendUserMessage("smaller");
   assert.match(JSON.stringify(requests[1]?.["messages"]), /not executed/i);
+  const tools = requests[0]?.["tools"] as { name: string; strict?: boolean }[];
+  assert.ok(tools.length > 20);
+  // Anthropic strict tools are limited to 20 tools and 16 union parameters and
+  // reject numeric constraints; this catalog is sent unconstrained instead.
+  assert.ok(tools.every((tool) => !("strict" in tool)));
+  assert.match(JSON.stringify(tools), /"maximum":255/);
+});
+
+test("Anthropic refusal surfaces the category and closes the pending tool call", async (t) => {
+  const requests: Record<string, unknown>[] = [];
+  let count = 0;
+  t.mock.method(globalThis, "fetch", async (_input: unknown, init?: RequestInit) => {
+    requests.push(JSON.parse(String(init?.body)));
+    count++;
+    return new Response(
+      JSON.stringify({
+        id: String(count),
+        type: "message",
+        role: "assistant",
+        stop_reason: count === 1 ? "refusal" : "end_turn",
+        stop_details:
+          count === 1 ? { type: "refusal", category: "cyber", explanation: "declined" } : null,
+        content:
+          count === 1
+            ? [{ type: "tool_use", id: "refused", name: "write_view", input: { num: 0 } }]
+            : [],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+      { headers: { "content-type": "application/json" } },
+    );
+  });
+  const conversation = createAnthropicConversation({
+    provider: "anthropic",
+    model: "test",
+    apiKey: "placeholder",
+  });
+  await assert.rejects(conversation.sendUserMessage("draw"), /declined this request \(cyber\)/);
+  await conversation.sendUserMessage("try again");
+  const messages = requests[1]?.["messages"] as { role: string; content: unknown }[];
+  const closing = messages.find(
+    (m) => Array.isArray(m.content) && JSON.stringify(m.content).includes('"tool_result"'),
+  );
+  assert.ok(closing, "the refused tool_use is closed with a tool_result");
+  assert.match(JSON.stringify(closing.content), /"tool_use_id":"refused"/);
+  assert.match(JSON.stringify(closing.content), /nothing was executed/i);
 });
 
 test("malformed complete tool arguments do not turn into an empty successful call", async (t) => {

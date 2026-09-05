@@ -89,6 +89,7 @@ import {
   splitToolResult,
   openAiToolContent,
   anthropicToolContent,
+  anthropicToolDefinitions,
   type ToolContent,
 } from "../src/agent/toolTransport.ts";
 export { splitToolResult } from "../src/agent/toolTransport.ts";
@@ -273,11 +274,8 @@ class AnthropicProvider implements Provider {
     execute: ToolExecutor,
     maxRounds: number,
   ): Promise<void> {
-    const tools: Anthropic.Tool[] = AGENT_TOOLS.map((t, idx) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.parameters as unknown as Anthropic.Tool.InputSchema,
-      strict: true,
+    const tools: Anthropic.Tool[] = anthropicToolDefinitions(AGENT_TOOLS).map((tool, idx) => ({
+      ...(tool as unknown as Anthropic.Tool),
       ...(idx === AGENT_TOOLS.length - 1 ? { cache_control: { type: "ephemeral" as const } } : {}),
     }));
     const messages: Anthropic.MessageParam[] = [{ role: "user", content: user }];

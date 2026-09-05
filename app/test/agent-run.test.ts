@@ -60,3 +60,16 @@ test("Stop aborts an in-flight request, waits, then resumes without losing the t
   assert.equal(await result, "kept");
   assert.equal(run.snapshot().usageIncomplete, true);
 });
+
+test("cache reads use the per-model rate: Fable 5.1 charges $0.25/M, not 10% of input", () => {
+  const fable = new AgentRun("claude-fable-5-1", () => {});
+  fable.run(async () => {
+    fable.recordUsage({ input: 1_000_000, cachedInput: 1_000_000, cacheWriteInput: 0, output: 0 });
+  });
+  assert.equal(fable.snapshot().spent, 0.25);
+  const opus = new AgentRun("claude-opus-5", () => {});
+  opus.run(async () => {
+    opus.recordUsage({ input: 1_000_000, cachedInput: 1_000_000, cacheWriteInput: 0, output: 0 });
+  });
+  assert.equal(opus.snapshot().spent, 0.5);
+});

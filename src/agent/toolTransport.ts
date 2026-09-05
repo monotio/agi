@@ -1,4 +1,4 @@
-import type { AgentToolImage, AgentToolResult } from "./tools.ts";
+import type { AgentToolImage, AgentToolResult, ToolDefinition } from "./tools.ts";
 
 export interface ToolContent {
   text: string;
@@ -53,6 +53,59 @@ export function anthropicToolContent(content: ToolContent): AnthropicToolBlock[]
     });
   }
   return blocks;
+}
+
+export interface AnthropicToolDefinition {
+  name: string;
+  description: string;
+  input_schema: ToolDefinition["parameters"];
+}
+
+/**
+ * Converts the shared catalog for the Anthropic Messages API. The schemas are
+ * sent as written; tool handlers, assembler and container validate arguments.
+ * Never set `strict: true` here: Anthropic compiles strict tools into a
+ * constrained grammar with limits this catalog exceeds — numeric, string and
+ * array constraints are rejected outright, at most 20 tools may be strict, at
+ * most 16 parameters may be nullable or union-typed, and even 8 of these tools
+ * overflow the compiled grammar (observed September 2026, e.g. request
+ * req_011CekXFu7mEkGe69ybWwf5D). OpenAI strict mode keeps the same catalog.
+ */
+export function anthropicToolDefinitions(
+  tools: readonly ToolDefinition[],
+): AnthropicToolDefinition[] {
+  return tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    input_schema: tool.parameters,
+  }));
+}
+
+export interface AnthropicToolResultBlock {
+  type: "tool_result";
+  tool_use_id: string;
+  is_error: boolean;
+  content: AnthropicToolBlock[];
+}
+
+/**
+ * Builds the Anthropic tool_result block for a tool outcome. The API rejects
+ * `is_error: true` unless every block is text ("all content must be type
+ * `text` if `is_error` is true"), so a failure that returns images (a failed
+ * playtest with frames) keeps its images and relies on the JSON text's
+ * `success: false`; text-only failures keep the flag.
+ */
+export function anthropicToolResult(
+  toolUseId: string,
+  result: AgentToolResult,
+): AnthropicToolResultBlock {
+  const content = splitToolResult(result);
+  return {
+    type: "tool_result",
+    tool_use_id: toolUseId,
+    is_error: !result.success && content.images.length === 0,
+    content: anthropicToolContent(content),
+  };
 }
 
 /** Debugging keeps byte counts; the actual image remains in the provider request. */

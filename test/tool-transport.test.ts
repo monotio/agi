@@ -11,6 +11,8 @@ import {
   splitToolResult,
   openAiToolContent,
   anthropicToolContent,
+  anthropicToolDefinitions,
+  anthropicToolResult,
   serializeAgentLog,
 } from "../src/agent/toolTransport.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
@@ -468,4 +470,45 @@ test("every catalog tool produces bounded binary-free transport on real success 
     assert.equal(failure.success, false, `${name}: invalid args unexpectedly succeeded`);
     assertTransport(name, "failure", failure);
   }
+});
+
+test("Anthropic tool definitions send the catalog schemas verbatim and never strict", () => {
+  const definitions = anthropicToolDefinitions(AGENT_TOOLS);
+  assert.equal(definitions.length, AGENT_TOOLS.length);
+  for (const [index, tool] of definitions.entries()) {
+    assert.deepEqual(tool, {
+      name: AGENT_TOOLS[index]!.name,
+      description: AGENT_TOOLS[index]!.description,
+      input_schema: AGENT_TOOLS[index]!.parameters,
+    });
+    assert.ok(!("strict" in tool), `${tool.name}: strict tools exceed Anthropic grammar limits`);
+  }
+});
+
+test("Anthropic error results with images are not flagged is_error", () => {
+  // The Messages API rejects `is_error: true` unless every block is text; a
+  // failed playtest still returns frames, and the JSON text carries success:false.
+  const png = new Uint8Array([137, 80, 78, 71]);
+  const failed: AgentToolResult = {
+    success: false,
+    error: "steps[0]: the print modal pauses animation.",
+    images: [{ png, caption: "Frame after step 0" }],
+  };
+  assert.deepEqual(anthropicToolResult("call-1", failed), {
+    type: "tool_result",
+    tool_use_id: "call-1",
+    is_error: false,
+    content: [
+      { type: "text", text: JSON.stringify({ success: false, error: failed.error }) },
+      { type: "text", text: "Frame after step 0" },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw==" } },
+    ],
+  });
+  assert.deepEqual(anthropicToolResult("call-2", { success: false, error: "bad" }), {
+    type: "tool_result",
+    tool_use_id: "call-2",
+    is_error: true,
+    content: [{ type: "text", text: JSON.stringify({ success: false, error: "bad" }) }],
+  });
+  assert.equal(anthropicToolResult("call-3", { success: true, message: "ok" }).is_error, false);
 });
