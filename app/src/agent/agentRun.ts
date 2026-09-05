@@ -12,6 +12,7 @@ const RATES: Record<string, { input: number; output: number; longContext: boolea
   "gpt-5.6-terra": { input: 2, output: 12, longContext: true },
   "claude-opus-5": { input: 5, output: 25, longContext: false },
   "claude-fable-5": { input: 10, output: 50, longContext: false },
+  "claude-fable-5-1": { input: 10, output: 50, longContext: false },
 };
 export interface AgentRunState {
   status: "idle" | "running" | "paused";

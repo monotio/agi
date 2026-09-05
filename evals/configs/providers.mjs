@@ -5,6 +5,7 @@
  */
 
 import { AGENT_TOOLS } from "../../src/agent/tools.ts";
+import { anthropicToolDefinitions } from "../../src/agent/toolTransport.ts";
 
 export const MODEL_IDS = {
   gpt56Sol: "gpt-5.6-sol",
@@ -12,6 +13,7 @@ export const MODEL_IDS = {
   gpt56Luna: "gpt-5.6-luna",
   claudeOpus5: "claude-opus-5",
   claudeFable5: "claude-fable-5",
+  claudeFable51: "claude-fable-5-1",
 };
 
 export function variantOpenAiTools() {
@@ -25,11 +27,7 @@ export function variantOpenAiTools() {
 }
 
 export function variantAnthropicTools() {
-  return AGENT_TOOLS.map((t) => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.parameters,
-  }));
+  return anthropicToolDefinitions(AGENT_TOOLS);
 }
 
 export function providerMatrix({
