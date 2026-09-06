@@ -19,7 +19,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
     "openai": "^7.10.0",
-    "three": "^0.178.0",
+    "three": "^0.185.1",
     "vue": "^3.5.0"
   },
   "devDependencies": {
