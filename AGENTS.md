@@ -55,8 +55,10 @@ only for released formats and keep their original fixtures.
 
 - Real formats and bytecode: v2 split and v3 combined directories, "Avis Durgan"
   message encryption, picture vector streams, view loops and cels. Authored games
-  target AGI 2.936 with no custom opcodes; the host room-preparation hook is
-  enabled only for authored games.
+  are plain AGI 2.936 bytecode with no custom opcodes. The engine's single escape
+  hatch is the optional `prepareRoom` host hook, which lets the agent write a
+  missing room during `new.room`; the worker installs it only for games created in
+  the app, never for imported or fixture games.
 - Container edits preserve resource IDs, record formats and interpreter behavior.
   Repack replaced resources transactionally so superseded data does not accumulate.
 - Fidelity: every opcode an installed fixture uses needs the specified observable
