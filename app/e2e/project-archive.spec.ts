@@ -1,12 +1,11 @@
 import { providerReply } from "../../test/provider-stream.ts";
-import { openGameOptions } from "./engineProbe.ts";
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/zip.ts";
 import { readGameZip } from "../src/gameZip.ts";
-import { isolateStorage } from "./engineProbe.ts";
+import { configureAi, isolateStorage, openGameOptions } from "./engineProbe.ts";
 
 test("Save project resumes private history in a fresh browser; Export game has only playable resources", async ({
   page,
@@ -22,7 +21,6 @@ test("Save project resumes private history in a fresh browser; Export game has o
   const context = {
     format: "monotio.agi.project",
     version: 1,
-    harnessVersion: 1,
     provider: "anthropic",
     model: "claude-opus-5",
     conversation: { formatVersion: 1, messages: transcript },
@@ -55,6 +53,7 @@ test("Save project resumes private history in a fresh browser; Export game has o
     mimeType: "application/zip",
     buffer: Buffer.from(archive),
   });
+  await page.getByTestId("btn-resume-cached").click();
   await openGameOptions(page, "save-share-menu");
   await expect(page.getByTestId("btn-save-live-project")).toBeVisible();
   await openGameOptions(page, "save-share-menu");
@@ -87,6 +86,7 @@ test("Save project resumes private history in a fresh browser; Export game has o
     });
     await other.goto(page.url());
     await other.getByTestId("game-zip-input").setInputFiles((await saved.path())!);
+    await other.getByTestId("btn-resume-cached").click();
     await openGameOptions(other, "save-share-menu");
     await expect(other.getByTestId("btn-save-live-project")).toBeVisible();
     await other.reload();
@@ -106,7 +106,7 @@ test("Save project resumes private history in a fresh browser; Export game has o
     expect(restored.authoringState).toEqual(context.authoringState);
     expect(restored.index.storage).toBe("indexeddb");
     expect(restored.index.transcript).toBeUndefined();
-    expect(await other.evaluate(() => localStorage.getItem("monotio_agi.apiKey"))).toBeNull();
+    expect(await other.evaluate(() => localStorage.getItem("monotio_agi.aiSettings"))).toBeNull();
     expect(calls).toBe(0);
     await other.screenshot({ path: "test-results/project-ready.png" });
     await other.getByTestId("btn-resume-cached").click();
@@ -128,9 +128,7 @@ test("Save project resumes private history in a fresh browser; Export game has o
       );
     });
     await other.getByTestId("power-up").click();
-    await other.getByTestId("power-up-provider").selectOption("openai");
-    await other.getByTestId("power-up-api-key").fill("test-placeholder");
-    await other.getByTestId("power-up-connect").click();
+    await configureAi(other, { provider: "openai", key: "test-placeholder" });
     await expect(other.getByTestId("agent-bubble-input")).toBeEnabled();
     expect(requests).toHaveLength(0);
     await other.getByTestId("agent-bubble-input").fill("Continue our garden.");
@@ -158,39 +156,25 @@ test("Save project resumes private history in a fresh browser; Export game has o
   }
 });
 
-test("legacy project migration preserves the original when IndexedDB is unavailable", async ({
-  page,
-}) => {
+test("unavailable project storage cannot publish a library index", async ({ page }) => {
   await isolateStorage(page);
+  await page.addInitScript(() => {
+    indexedDB.open = () => {
+      throw new Error("Storage unavailable");
+    };
+  });
   await page.goto("/");
   const result = await page.evaluate(async () => {
     const path = "/src/cartridgeStorage.ts";
     const storage = await import(path);
-    const original = JSON.stringify({
-      slug: "legacy",
-      title: "Legacy",
+    const saved = await storage.saveAuthoredCartridge("blocked", {
+      title: "Cannot save",
       provider: "stub",
       model: "offline-stub",
-      authoredAt: "2026-01-01",
-      filesBase64: { "VOL.0": "AQID" },
+      files: { "VOL.0": new Uint8Array([1, 2, 3]) },
       words: [],
-      transcript: [{ text: "keep me" }],
     });
-    localStorage.setItem(storage.getStorageKey("legacy"), original);
-    const originalOpen = indexedDB.open.bind(indexedDB);
-    indexedDB.open = () => {
-      throw new Error("Storage unavailable");
-    };
-    let error = "";
-    try {
-      await storage.loadAuthoredCartridge("legacy");
-    } catch (e) {
-      error = String(e);
-    } finally {
-      indexedDB.open = originalOpen;
-    }
-    return { error, preserved: localStorage.getItem(storage.getStorageKey("legacy")) === original };
+    return { saved, index: localStorage.getItem(storage.getStorageKey("blocked")) };
   });
-  expect(result.error).toContain("Storage unavailable");
-  expect(result.preserved).toBe(true);
+  expect(result).toEqual({ saved: false, index: null });
 });

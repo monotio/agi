@@ -49,6 +49,12 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
           );
         }
       }
+      if (content.expectedMessageSnippet) {
+        assert.ok(
+          res.message?.includes(content.expectedMessageSnippet),
+          `Expected message to contain '${content.expectedMessageSnippet}', got: '${res.message}'`,
+        );
+      }
     });
   }
 });

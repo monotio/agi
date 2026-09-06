@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/zip.ts";
-import { textHook } from "./engineProbe.ts";
+import { configureAi, textHook } from "./engineProbe.ts";
 
 test("Ask stays paused, remembers the conversation after reload, and hands context to Remix", async ({
   page,
@@ -62,11 +62,10 @@ test("Ask stays paused, remembers the conversation after reload, and hands conte
     mimeType: "application/zip",
     buffer: Buffer.from(zip),
   });
+  await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByTestId("power-up").click();
-  await page.getByTestId("power-up-provider").selectOption("openai");
-  await page.getByTestId("power-up-api-key").fill("test-placeholder");
-  await page.getByTestId("power-up-connect").click();
+  await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await page.getByTestId("agent-mode-ask").click();
   await page.getByTestId("agent-mode-remix").click();

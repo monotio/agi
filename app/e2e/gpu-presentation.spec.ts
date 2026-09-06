@@ -1,3 +1,4 @@
+import { cacheGame } from "./engineProbe.ts";
 import { expect, test } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -45,26 +46,16 @@ test("saved game keeps its message visible through resize, then changes rooms an
     ).payload,
   );
   await page.goto("/");
-  await page.evaluate(
-    (filesBase64) => {
-      localStorage.setItem(
-        "monotio_agi.authored.presentation",
-        JSON.stringify({
-          slug: "presentation",
-          title: "Saved adventure",
-          authoredAt: "2026-01-01T00:00:00Z",
-          provider: "stub",
-          model: "local-playback",
-          imported: true,
-          filesBase64,
-          words: [],
-        }),
-      );
-    },
-    Object.fromEntries(
-      [...game.files].map(([name, data]) => [name, Buffer.from(data).toString("base64")]),
-    ),
-  );
+  await cacheGame(page, {
+    slug: "presentation",
+    title: "Saved adventure",
+    provider: "stub",
+    model: "local-playback",
+    imported: true,
+    roomGeneration: false,
+    files: Object.fromEntries(game.files),
+    words: [],
+  });
   await page.reload();
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).modal).toBe("print");

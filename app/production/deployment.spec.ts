@@ -1,6 +1,31 @@
 import { test, expect } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
+import { textHook } from "../e2e/engineProbe.ts";
+
+test("bundled tutorial previews and plays on the production origin without a provider", async ({
+  page,
+}) => {
+  const externalRequests: string[] = [];
+  await page.route(/^https:\/\//, async (route) => {
+    externalRequests.push(route.request().url());
+    await route.abort();
+  });
+  await page.goto("/");
+  await expect(page.getByTestId("catalog-adventure-department").getByRole("img")).toHaveAttribute(
+    "src",
+    /^data:image\/png;base64,/,
+  );
+  await page.getByTestId("hero-play-now").click();
+  await expect(page.getByTestId("input-line")).toBeVisible();
+  await expect.poll(async () => (await textHook(page)).rows[2] ?? "").toContain("HELP");
+  await page.getByTestId("input-line").fill("help");
+  await page.getByTestId("input-line").press("Enter");
+  await expect(page.getByText("[ Press Enter to continue ]", { exact: true })).toBeVisible();
+  await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Useful commands");
+  await page.screenshot({ path: test.info().outputPath("tutorial-production.png") });
+  expect(externalRequests).toEqual([]);
+});
 
 test("production origin, isolation, worker and provider policy", async ({ page, request }) => {
   const response = await page.goto("/");
@@ -71,4 +96,7 @@ test("production origin, isolation, worker and provider policy", async ({ page, 
   );
   expect(profile).toBe("2.936");
   expect((await request.get("/fixtures/kq1/LOGDIR")).status()).toBe(404);
+  const catalog = await request.get("/catalog.json");
+  expect(catalog.ok()).toBe(true);
+  expect(await catalog.json()).toMatchObject({ format: "monotio.agi.catalog", version: 1 });
 });

@@ -129,6 +129,60 @@ export function encodePngRgb(width: number, height: number, rgb: Uint8Array): Ui
   return png;
 }
 
+/** Encode RGB pixels losslessly as an 8-bit indexed PNG when they use at most 256 colors. */
+export function encodePngPaletteRgb(width: number, height: number, rgb: Uint8Array): Uint8Array {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+    throw new RangeError(`png: bad dimensions ${width}x${height}`);
+  }
+  const expectedLength = width * height * 3;
+  if (rgb.length !== expectedLength) {
+    throw new RangeError(`png: expected ${expectedLength} RGB bytes, got ${rgb.length}`);
+  }
+
+  const paletteByColor = new Map<number, number>();
+  const palette: number[] = [];
+  const indexes = new Uint8Array(width * height);
+  for (let pixel = 0; pixel < indexes.length; pixel++) {
+    const offset = pixel * 3;
+    const key = (rgb[offset]! << 16) | (rgb[offset + 1]! << 8) | rgb[offset + 2]!;
+    let index = paletteByColor.get(key);
+    if (index === undefined) {
+      index = paletteByColor.size;
+      if (index === 256) throw new RangeError("png: image contains more than 256 colors");
+      paletteByColor.set(key, index);
+      palette.push(rgb[offset]!, rgb[offset + 1]!, rgb[offset + 2]!);
+    }
+    indexes[pixel] = index;
+  }
+
+  const raw = new Uint8Array((width + 1) * height);
+  for (let y = 0; y < height; y++) {
+    const row = y * (width + 1);
+    raw[row] = 0;
+    raw.set(indexes.subarray(y * width, (y + 1) * width), row + 1);
+  }
+  const ihdr = new Uint8Array(13);
+  const view = new DataView(ihdr.buffer);
+  view.setUint32(0, width);
+  view.setUint32(4, height);
+  ihdr[8] = 8;
+  ihdr[9] = 3; // indexed color
+  const parts = [
+    new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("PLTE", Uint8Array.from(palette)),
+    chunk("IDAT", zlibStored(raw)),
+    chunk("IEND", new Uint8Array(0)),
+  ];
+  const png = new Uint8Array(parts.reduce((length, part) => length + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    png.set(part, offset);
+    offset += part.length;
+  }
+  return png;
+}
+
 export interface SurfacePngOptions {
   /** Integer nearest-neighbour scale, both axes. Default 2. */
   scale?: number;

@@ -1,4 +1,11 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
+import type { CachedCartridgeData } from "../src/cartridgeTypes.ts";
+
+export interface AiConfiguration {
+  provider: "anthropic" | "openai" | "stub";
+  key?: string;
+  model?: string;
+}
 
 /**
  * Shared observation helpers for the e2e proof runs.
@@ -235,6 +242,52 @@ export async function isolateStorage(page: Page): Promise<void> {
   });
 }
 
+/** Find one saved-game card by the title visible to the player. */
+export function savedGameCard(page: Page, title: string | RegExp): Locator {
+  const titlePattern =
+    typeof title === "string"
+      ? new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)
+      : title;
+  return page
+    .getByTestId("saved-game-gallery")
+    .locator("[data-testid^='saved-game-card-']")
+    .filter({ has: page.getByTestId("saved-game-title").filter({ hasText: titlePattern }) });
+}
+
+/** Open a saved game's native Details disclosure without toggling it closed. */
+export async function openSavedGameDetails(card: Locator): Promise<void> {
+  const details = card.locator("details[data-testid^='game-details-']");
+  if ((await details.getAttribute("open")) === null) await details.locator("summary").click();
+}
+
+/** Open the native Create an adventure disclosure without toggling it closed. */
+export async function openCreateAdventure(page: Page): Promise<void> {
+  const details = page.getByTestId("create-adventure-disclosure");
+  if ((await details.getAttribute("open")) === null)
+    await page.getByTestId("create-adventure-toggle").click();
+}
+
+/** Open the test/developer activity disclosure without toggling it closed. */
+export async function openDeveloperActivity(page: Page): Promise<void> {
+  const details = page.getByTestId("agent-panel");
+  if ((await details.getAttribute("open")) === null)
+    await page.getByTestId("developer-activity-summary").click();
+}
+
+/** Configure the app-wide AI connection through the same dialog a player uses. */
+export async function configureAi(page: Page, configuration: AiConfiguration): Promise<void> {
+  await page.getByTestId("open-ai-settings").click();
+  const dialog = page.getByTestId("ai-settings-dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByTestId("provider-select").selectOption(configuration.provider);
+  if (configuration.model !== undefined)
+    await dialog.getByTestId("model-select").selectOption(configuration.model);
+  if (configuration.key !== undefined)
+    await dialog.getByTestId("api-key-input").fill(configuration.key);
+  await dialog.getByTestId("ai-settings-save").click();
+  await expect(dialog).toBeHidden();
+}
+
 /** Open a top-bar disclosure through its visible control without closing it on repeat calls. */
 export async function openGameOptions(
   page: Page,
@@ -242,4 +295,29 @@ export async function openGameOptions(
 ): Promise<void> {
   const details = page.getByTestId(menu);
   if ((await details.getAttribute("open")) === null) await details.locator("summary").click();
+}
+
+/** Seed through the production persistence boundary, so fixtures use the release contract. */
+export async function cacheGame(
+  page: Page,
+  game: Omit<CachedCartridgeData, "authoredAt">,
+): Promise<void> {
+  const { files, ...metadata } = game;
+  const saved = await page.evaluate(
+    async ({ metadata, files }) => {
+      const path = "/src/cartridgeStorage.ts";
+      const { saveAuthoredCartridge } = await import(path);
+      return saveAuthoredCartridge(metadata.slug, {
+        ...metadata,
+        files: Object.fromEntries(
+          Object.entries(files).map(([name, bytes]) => [name, new Uint8Array(bytes)]),
+        ),
+      });
+    },
+    {
+      metadata,
+      files: Object.fromEntries(Object.entries(files).map(([name, bytes]) => [name, [...bytes]])),
+    },
+  );
+  expect(saved).toBe(true);
 }

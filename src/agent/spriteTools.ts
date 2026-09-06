@@ -41,26 +41,23 @@ export const SPRITE_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_actor",
     description:
-      "Write a four-facing actor with compact hexadecimal rows. The tool infers each cel's exact dimensions and compiles loops in AGI order: right, left, down, up. Set mirrorLeftFromRight true and left null to make the left loop an authentic mirror alias of right. Rows are never padded or truncated. Returns a compiled contact sheet and the view revision.",
+      'Compile a four-facing actor from equal-width EGA hex rows. Each direction lists cels as row-string arrays, e.g. [["01","10"],["10","01"]]. Loops are right, left, down, up; mirrorLeftFromRight requires left null. Rows are never padded. Returns a contact sheet and revision.',
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        num: { type: "integer", minimum: 0, maximum: 255, description: "View number." },
+        num: { type: "integer", minimum: 0, maximum: 255 },
         description: {
           type: ["string", "null"],
           maxLength: 512,
-          description: "Optional AGI view description; null omits it.",
         },
         transparentColor: {
           type: "integer",
           minimum: 0,
           maximum: 15,
-          description: "Transparent EGA color used by every cel.",
         },
         mirrorLeftFromRight: {
           type: "boolean",
-          description: "When true, left must be null and is compiled as a mirror of right.",
         },
         right: DIRECTION_SCHEMA,
         left: DIRECTION_SCHEMA,
@@ -82,25 +79,23 @@ export const SPRITE_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_view_cel",
     description:
-      "Read one selected cel from compiled VIEW bytes. Returns up to 64 exact rendered hexadecimal rows from rowOffset, totalRows and nextRowOffset for complete paging, compact dimensions and transparency metadata, a bounded full-cel PNG, and the resource revision needed by patch_view_cel. Null rowOffset and rowLimit use 0 and 64.",
+      "Read exact EGA hex rows, metadata, PNG and revision for one compiled cel. Results page by row.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        num: { type: "integer", minimum: 0, maximum: 255, description: "View number." },
-        loop: { type: "integer", minimum: 0, maximum: 254, description: "Zero-based loop." },
-        cel: { type: "integer", minimum: 0, maximum: 254, description: "Zero-based cel." },
+        num: { type: "integer", minimum: 0, maximum: 255 },
+        loop: { type: "integer", minimum: 0, maximum: 254 },
+        cel: { type: "integer", minimum: 0, maximum: 254 },
         rowOffset: {
           type: ["integer", "null"],
           minimum: 0,
           maximum: 167,
-          description: "First row to return, or null for row 0.",
         },
         rowLimit: {
           type: ["integer", "null"],
           minimum: 1,
           maximum: 64,
-          description: "Maximum rows to return, or null for 64.",
         },
       },
       required: ["num", "loop", "cel", "rowOffset", "rowLimit"],
@@ -109,19 +104,18 @@ export const SPRITE_TOOLS: readonly ToolDefinition[] = [
   {
     name: "patch_view_cel",
     description:
-      "Replace exactly one rendered cel using hexadecimal rows. expectedRevision prevents stale writes. Other loops and cels retain their compiled appearance and metadata; when the target belongs to a mirror alias, it is isolated so its opposite facing does not change silently. Returns the new revision and selected-cel PNG.",
+      "Replace one cel from EGA hex rows. The revision prevents stale writes. A mirrored target is isolated, preserving its opposite. Returns the new revision and cel PNG.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        num: { type: "integer", minimum: 0, maximum: 255, description: "View number." },
-        loop: { type: "integer", minimum: 0, maximum: 254, description: "Zero-based loop." },
-        cel: { type: "integer", minimum: 0, maximum: 254, description: "Zero-based cel." },
+        num: { type: "integer", minimum: 0, maximum: 255 },
+        loop: { type: "integer", minimum: 0, maximum: 254 },
+        cel: { type: "integer", minimum: 0, maximum: 254 },
         expectedRevision: {
           type: "string",
           minLength: 1,
           maxLength: 64,
-          description: "Exact revision returned by read_view_cel.",
         },
         rows: CEL_ROWS_SCHEMA,
       },

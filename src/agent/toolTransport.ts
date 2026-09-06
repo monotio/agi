@@ -12,7 +12,20 @@ export type AnthropicToolBlock =
   | { type: "image"; source: { type: "base64"; media_type: "image/png"; data: string } };
 
 export function splitToolResult(result: AgentToolResult): ToolContent {
-  const { images, ...metadata } = result;
+  const { images, audio, ...metadata } = result;
+  // Current authoring connections accept text and images. A local audio preview
+  // must not leak WAV bytes into JSON or be mistaken for model listening.
+  if (audio?.length) {
+    metadata.details = {
+      ...metadata.details,
+      audioPreviews: audio.map(({ caption, mimeType, wav }) => ({
+        caption,
+        mimeType,
+        bytes: wav.byteLength,
+        delivery: "Local listening preview; audio is not sent to the model.",
+      })),
+    };
+  }
   // Read tools expose source as both human-readable text and structured data.
   // The model needs it once; local callers retain the full tool result.
   const source = metadata.details?.["source"];

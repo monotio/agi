@@ -67,6 +67,8 @@ export default defineConfig({
     headers: {
       "Cross-Origin-Opener-Policy": "same-origin",
       "Cross-Origin-Embedder-Policy": "require-corp",
+      // WebKit can reject cached modules shared by consecutive workers under COEP.
+      "Cache-Control": "no-store",
     },
     proxy: {
       "/api/openai": {

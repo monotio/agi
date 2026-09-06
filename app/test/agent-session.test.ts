@@ -291,3 +291,35 @@ test("a truncated response pauses without discarding earlier staged resources", 
   await work;
   assert.equal(session.state.sources.words.has("sparkle"), true);
 });
+
+test("Genesis executes advertised room inspection through the shared asynchronous dispatcher", async (t) => {
+  let requests = 0;
+  let result: { success?: boolean; error?: string } | undefined;
+  t.mock.method(globalThis, "fetch", async () => {
+    if (++requests > 1) throw new Error("End this bounded inspection test.");
+    return new Response(
+      providerSse("openai", {
+        id: "genesis-context",
+        output: [
+          {
+            type: "function_call",
+            call_id: "context",
+            name: "read_room_context",
+            arguments: '{"room":1}',
+          },
+        ],
+      }),
+      { headers: { "Content-Type": "text/event-stream" } },
+    );
+  });
+  const session = new AgentSession(
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-5.6-sol" },
+    (_type, message, data) => {
+      const event = data as { result?: typeof result } | undefined;
+      if (message.startsWith("[Genesis] read_room_context") && event?.result) result = event.result;
+    },
+  );
+  await assert.rejects(session.startGenesis("A quiet courtyard."));
+  assert.equal(requests, 2);
+  assert.equal(result?.success, true, result?.error ?? "room context was not returned");
+});

@@ -1,3 +1,4 @@
+import { cacheGame, configureAi } from "./engineProbe.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
@@ -37,25 +38,17 @@ for (const fail of [false, true])
     game.putFile("OBJECT", buildObjectFile([{ name: "Old key", startingRoom: 1 }]));
     game.putFile("WORDS.TOK", new Uint8Array(52));
     await page.goto("/");
-    await page.evaluate(
-      (filesBase64) => {
-        localStorage.setItem(
-          "monotio_agi.authored.progress",
-          JSON.stringify({
-            slug: "progress",
-            title: "A growing world",
-            authoredAt: "2026-01-01",
-            provider: "openai",
-            model: "test",
-            filesBase64,
-            words: [],
-          }),
-        );
-        localStorage.setItem("monotio_agi.provider", "openai");
-        localStorage.setItem("monotio_agi.apiKey", "test-placeholder");
-      },
-      Object.fromEntries([...game.files].map(([n, b]) => [n, Buffer.from(b).toString("base64")])),
-    );
+    await configureAi(page, { provider: "openai", key: "test-placeholder" });
+    await cacheGame(page, {
+      slug: "progress",
+      title: "A growing world",
+      provider: "openai",
+      model: "gpt-6-astra",
+      imported: false,
+      roomGeneration: true,
+      files: Object.fromEntries(game.files),
+      words: [],
+    });
     let release!: () => void;
     let finish!: () => void;
     const pending = new Promise<void>((r) => {

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as storage from "../src/cartridgeStorage.ts";
+import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+
+const indexedDbRecords = installIndexedDbFixture();
 
 test("renaming preserves cartridge resources, conversation and save identity", async (t) => {
   const values = new Map<string, string>();
@@ -14,6 +17,7 @@ test("renaming preserves cartridge resources, conversation and save identity", a
     value: {
       getItem: (key: string) => values.get(key) ?? null,
       setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
     },
   });
   await storage.saveAuthoredCartridge("custom", {
@@ -25,11 +29,389 @@ test("renaming preserves cartridge resources, conversation and save identity", a
     transcript: [{ text: "Original" }],
   });
   const original = (await storage.loadAuthoredCartridge("custom"))!;
+  const gameId = original.library?.gameId;
   assert.equal(await storage.renameAuthoredCartridge("custom", "  My adventure  "), true);
   assert.deepEqual(await storage.loadAuthoredCartridge("custom"), {
     ...original,
     title: "My adventure",
   });
+  assert.equal((await storage.loadAuthoredCartridge("custom"))?.library?.gameId, gameId);
   assert.equal(await storage.renameAuthoredCartridge("custom", "   "), false);
   assert.equal(await storage.renameAuthoredCartridge("absent", "New title"), false);
+});
+
+test("pre-release localStorage project bodies are left untouched", async (t) => {
+  const values = new Map<string, string>();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+  values.set(
+    storage.getStorageKey("old-project"),
+    JSON.stringify({
+      slug: "old-project",
+      title: "Old project",
+      authoredAt: "2025-01-01T00:00:00.000Z",
+      provider: "stub",
+      model: "stub",
+      filesBase64: { "VOL.0": btoa("old") },
+      words: [],
+    }),
+  );
+  await assert.rejects(storage.loadAuthoredCartridge("old-project"), /version/);
+  assert.equal(storage.getCachedCartridgeMeta("old-project"), null);
+  assert.match(values.get(storage.getStorageKey("old-project"))!, /filesBase64/);
+});
+
+test("future project bodies and indexes are rejected without being overwritten", async (t) => {
+  const values = new Map<string, string>();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+  const key = storage.getStorageKey("future-index");
+  const futureIndex = JSON.stringify({
+    format: "monotio.agi.project-index",
+    version: 2,
+    storage: "indexeddb",
+  });
+  values.set(key, futureIndex);
+  await assert.rejects(storage.loadAuthoredCartridge("future-index"), /version/);
+  assert.equal(await storage.renameAuthoredCartridge("future-index", "Changed"), false);
+  assert.equal(values.get(key), futureIndex);
+
+  await storage.saveAuthoredCartridge("future-body", {
+    title: "Current",
+    provider: "stub",
+    model: "stub",
+    files: { "VOL.0": Uint8Array.of(1) },
+    words: [],
+  });
+  const body = indexedDbRecords.get("future-body") as Record<string, unknown>;
+  body["version"] = 2;
+  indexedDbRecords.set("future-body", body);
+  const before = structuredClone(body);
+  await assert.rejects(storage.loadAuthoredCartridge("future-body"), /version/);
+  assert.equal(await storage.renameAuthoredCartridge("future-body", "Changed"), false);
+  assert.deepEqual(indexedDbRecords.get("future-body"), before);
+});
+
+test("reconciliation and conversation writes preserve future-version records", async (t) => {
+  const values = new Map<string, string>();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+  await storage.saveAuthoredCartridge("future-reconcile", {
+    title: "Current",
+    provider: "stub",
+    model: "stub",
+    files: { "VOL.0": Uint8Array.of(1) },
+    words: [],
+  });
+  const indexKey = storage.getStorageKey("future-reconcile");
+  const futureIndex = JSON.stringify({
+    format: "monotio.agi.project-index",
+    version: 2,
+    storage: "indexeddb",
+    privateFutureField: true,
+  });
+  values.set(indexKey, futureIndex);
+  const bodyBeforeSave = structuredClone(indexedDbRecords.get("future-reconcile"));
+  assert.equal(
+    await storage.saveAuthoredCartridge("future-reconcile", {
+      title: "Replacement",
+      provider: "stub",
+      model: "stub",
+      files: { "VOL.0": Uint8Array.of(2) },
+      words: [],
+    }),
+    false,
+  );
+  assert.equal(values.get(indexKey), futureIndex);
+  assert.deepEqual(indexedDbRecords.get("future-reconcile"), bodyBeforeSave);
+  await storage.reconcileCartridgeIndex();
+  assert.equal(values.get(indexKey), futureIndex);
+
+  const conversationKey = "conversation/future";
+  const futureConversation = {
+    slug: conversationKey,
+    format: "monotio.agi.conversation",
+    version: 2,
+    privateFutureField: true,
+  };
+  indexedDbRecords.set(conversationKey, futureConversation);
+  await assert.rejects(
+    storage.saveGameConversation("future", {
+      provider: "stub",
+      model: "stub",
+      transcript: [],
+      authoringState: {},
+    }),
+    /version/,
+  );
+  assert.deepEqual(indexedDbRecords.get(conversationKey), futureConversation);
+});
+
+test("unavailable IndexedDB fails clearly without creating a localStorage body", async (t) => {
+  const values = new Map<string, string>();
+  const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const databaseDescriptor = Object.getOwnPropertyDescriptor(globalThis, "indexedDB");
+  const errors: string[] = [];
+  const originalError = console.error;
+  t.after(() => {
+    console.error = originalError;
+    if (storageDescriptor) Object.defineProperty(globalThis, "localStorage", storageDescriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+    if (databaseDescriptor) Object.defineProperty(globalThis, "indexedDB", databaseDescriptor);
+  });
+  console.error = (...values: unknown[]) => errors.push(values.map(String).join(" "));
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+  Reflect.deleteProperty(globalThis, "indexedDB");
+  assert.equal(
+    await storage.saveAuthoredCartridge("no-database", {
+      title: "Unsaved",
+      provider: "stub",
+      model: "stub",
+      files: { "VOL.0": Uint8Array.of(1) },
+      words: [],
+    }),
+    false,
+  );
+  assert.equal(values.size, 0);
+  assert.match(errors.join("\n"), /Browser project storage is unavailable/);
+});
+
+test("previews survive metadata-only saves and invalidate when resource bytes change", async (t) => {
+  const values = new Map<string, string>();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+  const preview = "data:image/png;base64,iVBORw0KGgo=";
+  await storage.saveAuthoredCartridge("preview", {
+    title: "Preview",
+    provider: "stub",
+    model: "stub",
+    files: { "VOL.0": Uint8Array.of(1) },
+    words: [],
+  });
+  const storedPreview = indexedDbRecords.get("preview") as Record<string, unknown>;
+  const library = storedPreview["library"] as Record<string, unknown>;
+  storedPreview["library"] = {
+    gameId: library["gameId"],
+    revision: library["revision"],
+    source: library["source"],
+    validation: library["validation"],
+    additiveExtension: { retained: true },
+    version: 1,
+  };
+  indexedDbRecords.set("preview", storedPreview);
+  const revision = (await storage.loadAuthoredCartridge("preview"))!.library!.revision;
+  assert.equal(
+    await storage.updateCartridgePreview("preview", revision, preview, {
+      status: "ready",
+      message: "Opening checked.",
+      profile: "2.936",
+    }),
+    true,
+  );
+  await storage.updateCartridgeConversation("preview", [{ role: "user", content: "hello" }]);
+  assert.deepEqual(
+    (
+      (indexedDbRecords.get("preview") as Record<string, unknown>)["library"] as Record<
+        string,
+        unknown
+      >
+    )["additiveExtension"],
+    { retained: true },
+  );
+  assert.equal((await storage.loadAuthoredCartridge("preview"))?.library?.preview, preview);
+  assert.equal(
+    await storage.updateAuthoredCartridgeFiles("preview", { "VOL.0": Uint8Array.of(2) }),
+    true,
+  );
+  const changed = (await storage.loadAuthoredCartridge("preview"))!;
+  assert.equal(changed.library?.preview, undefined);
+  assert.equal(changed.library?.validation.status, "unverified");
+  assert.equal(
+    await storage.updateCartridgePreview(
+      "preview",
+      changed.library!.revision,
+      "https://example.com/tracker.png",
+      { status: "ready", message: "Remote." },
+    ),
+    false,
+  );
+  assert.equal(
+    await storage.updateCartridgePreview(
+      "preview",
+      changed.library!.revision,
+      "data:image/png;base64,AAAA",
+      { status: "ready", message: "Not really a PNG." },
+    ),
+    false,
+  );
+});
+
+test("loads serialize revision verification with writes to the same cartridge", async (t) => {
+  const values = new Map<string, string>();
+  const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const cryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  t.after(() => {
+    if (storageDescriptor) Object.defineProperty(globalThis, "localStorage", storageDescriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+    if (cryptoDescriptor) Object.defineProperty(globalThis, "crypto", cryptoDescriptor);
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+  await storage.saveAuthoredCartridge("race", {
+    title: "Before",
+    provider: "stub",
+    model: "stub",
+    files: { "VOL.0": Uint8Array.of(1) },
+    words: [],
+  });
+
+  const digest = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
+  let digestCalls = 0;
+  let releaseFirst!: () => void;
+  let markFirstStarted!: () => void;
+  const firstStarted = new Promise<void>((resolve) => {
+    markFirstStarted = resolve;
+  });
+  const firstGate = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  Object.defineProperty(globalThis, "crypto", {
+    configurable: true,
+    value: {
+      ...globalThis.crypto,
+      subtle: {
+        digest: async (algorithm: AlgorithmIdentifier, data: BufferSource) => {
+          digestCalls++;
+          if (digestCalls === 1) {
+            markFirstStarted();
+            await firstGate;
+          }
+          return digest(algorithm, data);
+        },
+      },
+    },
+  });
+
+  const load = storage.loadAuthoredCartridge("race");
+  await firstStarted;
+  const rename = storage.renameAuthoredCartridge("race", "After");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const callsBeforeRelease = digestCalls;
+  releaseFirst();
+  await load;
+  assert.equal(await rename, true);
+  assert.equal(callsBeforeRelease, 1, "the rename waits for the in-flight load");
+  assert.equal((await storage.loadAuthoredCartridge("race"))?.title, "After");
+});
+
+test("a database open that finishes after being blocked closes its abandoned connection", async (t) => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "indexedDB");
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  t.after(() => {
+    if (previous) Object.defineProperty(globalThis, "indexedDB", previous);
+    else Reflect.deleteProperty(globalThis, "indexedDB");
+    if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  t.mock.method(console, "error", () => {});
+  let closed = 0;
+  const request = {
+    onblocked: null as (() => void) | null,
+    onsuccess: null as (() => void) | null,
+    result: {
+      close: () => {
+        closed++;
+      },
+      onversionchange: null,
+    },
+  };
+  Object.defineProperty(globalThis, "indexedDB", {
+    configurable: true,
+    value: {
+      open: () => {
+        queueMicrotask(() => request.onblocked?.());
+        return request;
+      },
+    },
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("Must not publish an index");
+      },
+    },
+  });
+  const modulePath = "../src/cartridgeStorage.ts?blocked-open";
+  const fresh = await import(modulePath);
+  assert.equal(
+    await fresh.saveAuthoredCartridge("blocked", {
+      title: "Blocked",
+      provider: "stub",
+      model: "offline-stub",
+      files: { "VOL.0": Uint8Array.of(1) },
+      words: [],
+    }),
+    false,
+  );
+  request.onsuccess?.();
+  assert.equal(closed, 1);
 });

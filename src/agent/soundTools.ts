@@ -11,6 +11,8 @@ import {
   type ToolDefinition,
 } from "./tools.ts";
 import { parseSound } from "../sound/sound.ts";
+import { renderSoundPreview } from "../sound/preview.ts";
+import { soundFeedback, type SoundFeedbackOptions } from "./soundFeedback.ts";
 
 const CHANNELS = ["melody", "harmony", "bass", "noise"] as const;
 type ChannelName = (typeof CHANNELS)[number];
@@ -31,15 +33,6 @@ const NOISE_SELECTORS: Record<string, number> = {
   "white-high": 4,
 };
 
-const NOISE_NAMES: Record<string, string> = {
-  "0": "periodic-high",
-  "1": "periodic-medium",
-  "2": "periodic-low",
-  "4": "white-high",
-  "5": "white-medium",
-  "6": "white-low",
-};
-
 const REST_NAMES = new Set(["rest", "r", "silence"]);
 const MAX_EXPANDED_NOTES = 4096;
 
@@ -48,7 +41,7 @@ export const SOUND_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_music",
     description:
-      "Compile compact beat-based music into an authentic four-channel AGI sound. Named roles map to melody=0, harmony=1, bass=2, noise=3 regardless of track order. Tone notes use names such as C4, F#4, or Bb3; null or 'rest' is silence. Noise notes are periodic-low/medium/high or white-low/medium/high. Volume is human-facing: 15 is loudest and 0 is quietest. Repeats expand deterministically, with at most 4096 compiled events.",
+      "Compile beat-based music to four-channel AGI SOUND. Roles map to melody=0, harmony=1, bass=2, noise=3. Tone notes use names; noise uses periodic/white low/medium/high. Volume 15 is loudest. Repeats expand to at most 4096 events.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -57,19 +50,16 @@ export const SOUND_TOOLS: readonly ToolDefinition[] = [
           type: "integer",
           minimum: 0,
           maximum: 255,
-          description: "Sound resource number.",
         },
         tempo: {
           type: "number",
           minimum: 40,
           maximum: 240,
-          description: "Tempo in beats per minute.",
         },
         tracks: {
           type: "array",
           minItems: 1,
           maxItems: 4,
-          description: "One track per unique named channel role.",
           items: {
             type: "object",
             additionalProperties: false,
@@ -77,13 +67,11 @@ export const SOUND_TOOLS: readonly ToolDefinition[] = [
               channel: {
                 type: "string",
                 enum: CHANNELS,
-                description: "Unique channel role.",
               },
               volume: {
                 type: "integer",
                 minimum: 0,
                 maximum: 15,
-                description: "Human loudness: 15 loudest, 0 quietest.",
               },
               events: {
                 type: "array",
@@ -96,19 +84,16 @@ export const SOUND_TOOLS: readonly ToolDefinition[] = [
                     note: {
                       type: ["string", "null"],
                       maxLength: 32,
-                      description: "Tone note name, noise mode name, or null/'rest' for silence.",
                     },
                     beats: {
                       type: "number",
                       exclusiveMinimum: 0,
                       maximum: 16,
-                      description: "Duration in beats before repeat expansion.",
                     },
                     repeat: {
                       type: "integer",
                       minimum: 1,
                       maximum: 32,
-                      description: "Number of times to emit this event.",
                     },
                   },
                   required: ["note", "beats", "repeat"],
@@ -125,7 +110,7 @@ export const SOUND_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_sound",
     description:
-      "Inspect an authentic compiled sound with bounded paging. Returns factual channel note counts and durations plus control byte, duration, and attenuation for at most 64 events. Tone channels include the original tone word and frequency divisor; noise events instead return null for those fields plus their authentic selector and named noise mode. Set channel null to page across all four channels; offset and limit null use 0 and 16.",
+      "Inspect SOUND as timed events and a four-channel timeline. Auto uses saved music intent when available; choose music for estimated pitches or sound for raw frequency/noise. Seconds and divisors are authoritative. Follow `nextOffset` to page.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -134,28 +119,55 @@ export const SOUND_TOOLS: readonly ToolDefinition[] = [
           type: "integer",
           minimum: 0,
           maximum: 255,
-          description: "Sound resource number.",
         },
         channel: {
           type: ["integer", "null"],
           minimum: 0,
           maximum: 3,
-          description: "Channel 0..3, or null for all channels.",
         },
         offset: {
           type: ["integer", "null"],
           minimum: 0,
           maximum: 65535,
-          description: "Event offset in the selected channel set; null means 0.",
         },
         limit: {
           type: ["integer", "null"],
           minimum: 1,
           maximum: 64,
-          description: "Maximum returned events; null means 16.",
+        },
+        representation: {
+          type: ["string", "null"],
+          enum: ["auto", "music", "sound", null],
         },
       },
-      required: ["num", "channel", "offset", "limit"],
+      required: ["num", "channel", "offset", "limit", "representation"],
+    },
+  },
+  {
+    name: "preview_sound",
+    description:
+      "Render a bounded WAV preview with the game scheduler and an approximate synthesizer. The player can hear it; the model cannot. Read-only and separate from live playback.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        num: { type: "integer", minimum: 0, maximum: 255 },
+        startSeconds: {
+          type: ["number", "null"],
+          minimum: 0,
+          maximum: 300,
+        },
+        durationSeconds: {
+          type: ["number", "null"],
+          exclusiveMinimum: 0,
+          maximum: 30,
+        },
+        device: {
+          type: ["string", "null"],
+          enum: ["tandy", "pc-speaker", null],
+        },
+      },
+      required: ["num", "startSeconds", "durationSeconds", "device"],
     },
   },
 ];
@@ -306,6 +318,51 @@ export function executeSoundTool(
   name: string,
   args: Record<string, unknown>,
 ): AgentToolResult | undefined {
+  if (name === "preview_sound") {
+    try {
+      const num = integer(args["num"], "Sound number", 0, 255);
+      const payload = state.container.getResource("sound", num);
+      if (!payload)
+        return { success: false, error: `Sound ${num} is not present in the container.` };
+      const startSeconds = numberInRange(args["startSeconds"] ?? 0, "Start seconds", 0, 300);
+      const durationSeconds = numberInRange(
+        args["durationSeconds"] ?? 20,
+        "Duration seconds",
+        0,
+        30,
+      );
+      if (durationSeconds === 0) throw new Error("Duration seconds must be positive.");
+      const device = args["device"] ?? "tandy";
+      if (device !== "tandy" && device !== "pc-speaker")
+        throw new Error("Unknown sound preview device.");
+      const { wav, ...preview } = renderSoundPreview(payload, state.profile, {
+        startSeconds,
+        durationSeconds,
+        device,
+      });
+      if (wav.length <= 44)
+        return {
+          success: false,
+          error:
+            "This time window contains no sound samples. Choose a start before the sound ends and a longer duration.",
+        };
+      const caption = `Sound ${num} · ${device === "tandy" ? "Tandy" : "PC Speaker"} · ${preview.startSeconds.toFixed(2)}–${(preview.startSeconds + preview.durationSeconds).toFixed(2)} s · Approximate synthesis.`;
+      return {
+        success: true,
+        message: `Sound ${num} listening preview is ready for the player. Audio is not sent to the model; use read_sound to inspect the data and timeline.`,
+        details: {
+          resource: { kind: "sound", num },
+          revision: resourceRevision(payload),
+          device,
+          profile: state.profile.id,
+          ...preview,
+        },
+        audio: [{ wav, caption, mimeType: "audio/wav" }],
+      };
+    } catch (error) {
+      return { success: false, error: `Cannot preview sound: ${String(error)}` };
+    }
+  }
   if (name === "write_music") {
     try {
       const compiled = compileMusic(args);
@@ -314,12 +371,15 @@ export function executeSoundTool(
       state.container.putResource("sound", compiled.num, payload);
       state.sources.sounds.set(compiled.num, compiled.tracks);
       const revision = resourceRevision(payload);
+      state.authoring.music ??= {};
+      state.authoring.music[String(compiled.num)] = { revision, tempo: compiled.tempo };
       return {
         success: true,
         message: `Sound ${compiled.num} compiled at ${compiled.tempo} BPM (${compiled.noteCount} events, ${sound.duration} ticks, ${sound.durationSeconds.toFixed(2)} seconds), revision ${revision}.`,
         details: {
           resource: { kind: "sound", num: compiled.num },
           writtenResources: [{ kind: "sound", num: compiled.num }],
+          authoringChanged: true,
           revision,
           tempo: compiled.tempo,
           notes: compiled.noteCount,
@@ -350,51 +410,62 @@ export function executeSoundTool(
       if (!payload)
         return { success: false, error: `Sound ${num} is not present in the container.` };
       const sound = parseSound(payload);
-      const selected = channel === null ? sound.channels : [sound.channels[channel]!];
-      const allEvents = selected.flatMap((item) =>
-        item.notes.map((note, index) => {
-          const noiseSelector = item.channelIndex === 3 ? (note.tone >> 8) & 0x07 : null;
-          return {
-            channel: item.channelIndex,
-            index,
-            tone: item.channelIndex === 3 ? null : note.tone,
-            control: note.control,
-            freqDivisor: item.channelIndex === 3 ? null : note.freqDivisor,
-            ...(noiseSelector === null
-              ? {}
-              : {
-                  noiseSelector,
-                  noise: NOISE_NAMES[String(noiseSelector)] ?? `unknown-${noiseSelector}`,
-                }),
-            duration: note.duration,
-            attenuation: note.attenuation,
-          };
-        }),
-      );
-      const events = allEvents.slice(offset, offset + limit);
       const revision = resourceRevision(payload);
+      const intent = state.authoring.music?.[String(num)];
+      const tempo = intent?.revision === revision ? intent.tempo : undefined;
+      const requested = args["representation"] ?? "auto";
+      if (requested !== "auto" && requested !== "music" && requested !== "sound")
+        throw new Error("Representation must be auto, music or sound.");
+      const representation =
+        requested === "auto" ? (tempo === undefined ? "sound" : "music") : requested;
+      const feedbackOptions: SoundFeedbackOptions = {
+        num,
+        channel,
+        offset,
+        limit,
+        representation,
+        ...(tempo !== undefined && representation === "music" ? { tempo } : {}),
+      };
+      let feedback = soundFeedback(payload, feedbackOptions);
+      // Rich events have variable text cost. Keep the original precision and
+      // return a shorter page when necessary; regenerate its matching image.
+      if (JSON.stringify(feedback.events).length > 9000) {
+        let count = feedback.events.length;
+        while (count > 1 && JSON.stringify(feedback.events.slice(0, count)).length > 9000) count--;
+        feedback = soundFeedback(payload, { ...feedbackOptions, limit: count });
+      }
+      const { events, channels, totalNotes, preview, image } = feedback;
       return {
         success: true,
-        message: `Sound ${num}: ${sound.duration} ticks (${sound.durationSeconds.toFixed(2)} seconds), ${allEvents.length} selected events. Returned ${events.length} event(s) from offset ${offset}; revision ${revision}.`,
+        message: `Sound ${num}: ${sound.duration} ticks (${sound.durationSeconds.toFixed(2)} seconds), ${totalNotes} selected events. Returned ${events.length} event(s) from offset ${offset}; ${representation === "music" ? "musical score with estimated pitches" : "frequency and noise timeline"}; revision ${revision}.`,
         details: {
           resource: { kind: "sound", num },
           revision,
           bytes: payload.length,
           durationTicks: sound.duration,
           durationSeconds: sound.durationSeconds,
-          channels: selected.map((item) => ({
-            channel: item.channelIndex,
-            role: CHANNELS[item.channelIndex],
-            notes: item.notes.length,
-            durationTicks: item.totalDuration,
-          })),
-          totalNotes: allEvents.length,
+          representation,
+          representationSource:
+            requested === "auto"
+              ? tempo === undefined
+                ? "unclassified"
+                : "authored-music"
+              : "explicit",
+          tempo: representation === "music" ? (tempo ?? null) : null,
+          meter: null,
+          timing:
+            "Durations and onsets are compiled 60 Hz ticks. No meter or original imported tempo is inferred. Volume is the base level before profile envelopes and live sound settings.",
+          channels,
+          totalNotes,
           offset,
           limit,
           returned: events.length,
-          hasMore: offset + events.length < allEvents.length,
+          hasMore: offset + events.length < totalNotes,
+          nextOffset: offset + events.length < totalNotes ? offset + events.length : null,
           events,
+          preview,
         },
+        images: [image],
       };
     } catch (error) {
       return { success: false, error: `Cannot read sound: ${String(error)}` };

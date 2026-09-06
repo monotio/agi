@@ -1,5 +1,6 @@
 import { readProjectContext, type ProjectContext } from "./projectArchive.ts";
 import { crc32 } from "./zip.ts";
+import { readPublicMetadata, type PublicGameMetadata } from "./gameMetadata.ts";
 import { openContainer, DIRECTORY_FILES } from "../../src/container/container.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import { parseLogicResource } from "../../src/logic/resource.ts";
@@ -9,13 +10,16 @@ const MAX_EXPANDED_BYTES = 256 * 1024 * 1024;
 const MAX_ENTRY_BYTES = 64 * 1024 * 1024;
 
 /** Read stored/deflated ZIPs into memory; no paths are written to disk. */
-export async function readGameZip(bytes: Uint8Array): Promise<{
+export interface OpenedGame {
   files: Record<string, Uint8Array>;
   words: [string, number][];
   title?: string;
   roomGeneration?: boolean;
   project?: ProjectContext;
-}> {
+  metadata?: PublicGameMetadata;
+}
+
+export async function readGameZip(bytes: Uint8Array): Promise<OpenedGame> {
   if (bytes.length < 22 || bytes.length > MAX_GAME_ZIP_BYTES)
     throw new Error("Choose a valid game ZIP smaller than 128 MB.");
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -124,6 +128,31 @@ export async function readGameZip(bytes: Uint8Array): Promise<{
     entries.set(key, data);
   }
   if (at !== directoryStart + directorySize) throw new Error("Invalid ZIP directory size.");
+  return readGameFiles(entries);
+}
+
+/** Shared folder/ZIP boundary: normalize paths, select one root, then validate AGI resources. */
+export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGame {
+  if (input.size > 1024) throw new Error("Choose one AGI game with at most 1024 files.");
+  const entries = new Map<string, Uint8Array>();
+  let expanded = 0;
+  for (const [path, bytes] of input) {
+    const name = path.replace(/\\/g, "/").toUpperCase();
+    if (
+      !name ||
+      name.startsWith("/") ||
+      name.includes(":") ||
+      name.includes("\0") ||
+      name.split("/").some((part) => part === ".." || part === ".")
+    )
+      throw new Error("Invalid game file path.");
+    if (entries.has(name)) throw new Error(`Duplicate game filename: ${name}.`);
+    expanded += bytes.length;
+    if (bytes.length > MAX_ENTRY_BYTES || expanded > MAX_EXPANDED_BYTES)
+      throw new Error("The game exceeds the import size limit.");
+    entries.set(name, bytes);
+  }
+  const decoder = new TextDecoder();
   const directories = [...entries.keys()].filter((path) => {
     const name = path.slice(path.lastIndexOf("/") + 1);
     return (
@@ -132,7 +161,9 @@ export async function readGameZip(bytes: Uint8Array): Promise<{
   });
   const roots = [...new Set(directories.map((path) => path.slice(0, path.lastIndexOf("/") + 1)))];
   if (roots.length !== 1)
-    throw new Error("The ZIP must contain one AGI game with resource directories.");
+    throw new Error(
+      "Choose one AGI game folder with resource directories (LOGDIR or a v3 DIR file).",
+    );
   const root = roots[0]!;
   const files: Record<string, Uint8Array> = {};
   for (const [path, data] of entries) {
@@ -157,26 +188,25 @@ export async function readGameZip(bytes: Uint8Array): Promise<{
     word,
     id,
   ]);
-  let title: string | undefined;
-  let roomGeneration = false;
   const metadata = entries.get(`${root}GAME.JSON`);
-  if (metadata && metadata.length < 16384) {
+  if (metadata && metadata.length >= 16384) throw new Error("GAME.JSON is too large.");
+  let rawMetadata: unknown;
+  if (metadata) {
     try {
-      const parsed = JSON.parse(decoder.decode(metadata));
-      if (parsed.format === "monotio.agi" && typeof parsed.title === "string")
-        title = parsed.title.slice(0, 160);
-      roomGeneration = parsed.roomGeneration === true;
+      rawMetadata = JSON.parse(decoder.decode(metadata));
     } catch {
-      /* Optional metadata is not needed to play the game. */
+      throw new Error(
+        "GAME.JSON contains invalid JSON. Obtain a fresh copy of the game or correct its metadata.",
+      );
     }
   }
+  const gameMetadata = metadata ? readPublicMetadata(rawMetadata) : { roomGeneration: false };
   const projectBytes = entries.get(`${root}PROJECT.JSON`);
   const project = projectBytes ? readProjectContext(projectBytes, entries, root) : undefined;
   return {
     files,
     words,
-    roomGeneration,
+    ...gameMetadata,
     ...(project ? { project } : {}),
-    ...(title ? { title } : {}),
   };
 }

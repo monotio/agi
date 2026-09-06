@@ -2,6 +2,8 @@
 export type BindingKind = "logic" | "picture" | "view" | "sound" | "flag" | "variable";
 export interface AuthoringState {
   version: 1;
+  /** Authored musical intent, usable only while the compiled SOUND revision matches. */
+  music?: Record<string, { revision: string; tempo: number }>;
   bindings: Record<string, { kind: BindingKind; num: number }>;
   world: {
     rooms: Record<string, { title: string; description: string; exits: Record<string, number> }>;
@@ -45,6 +47,25 @@ export function validateAuthoringState(value: unknown): AuthoringState {
   const raw = record(value, "authoring state", 8);
   if (raw["version"] !== 1) throw new Error("Unsupported authoring state version.");
   const result = createAuthoringState();
+  if (raw["music"] !== undefined) {
+    const music: NonNullable<AuthoringState["music"]> = {};
+    for (const [num, entry] of Object.entries(record(raw["music"], "music", 256))) {
+      const item = record(entry, "music entry", 2);
+      if (
+        !/^(0|[1-9]\d{0,2})$/.test(num) ||
+        Number(num) > 255 ||
+        typeof item["tempo"] !== "number" ||
+        !Number.isFinite(item["tempo"]) ||
+        item["tempo"] < 40 ||
+        item["tempo"] > 240 ||
+        typeof item["revision"] !== "string" ||
+        !/^\d{1,6}-[0-9a-f]{8}$/.test(item["revision"])
+      )
+        throw new Error(`Invalid music metadata for sound '${num}'.`);
+      music[num] = { revision: item["revision"], tempo: item["tempo"] };
+    }
+    result.music = music;
+  }
   for (const [name, entry] of Object.entries(record(raw["bindings"], "bindings", 1536))) {
     const item = record(entry, "binding", 4);
     if (

@@ -167,7 +167,11 @@ export class AgentRun {
   }
   recordTool(name: string, args: Record<string, unknown>, result: AgentToolResult): void {
     // Compare recent observations, not call IDs. Different results remain productive.
-    const signature = JSON.stringify([name, args, { ...result, images: undefined }]);
+    const signature = JSON.stringify([
+      name,
+      args,
+      { ...result, images: undefined, audio: undefined },
+    ]);
     this.signatures.push(signature);
     if (this.signatures.length > 16) this.signatures.shift();
     if (this.signatures.filter((value) => value === signature).length >= 8) {

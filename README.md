@@ -22,7 +22,32 @@ npm --prefix app ci
 npm run dev
 ```
 
-Open `http://localhost:5199/` and pick a starting point:
+Open `http://localhost:5199/` and click **Play now** for **Adventure Department**,
+an original MIT-licensed tutorial with three rooms. Repair a picture, wake a
+sprite and fix a clerk's priority to learn how AGI adventures work. It runs
+locally without a provider key or original Sierra game files. **Make a copy**
+keeps the catalog original intact; **Save project** includes the tutorial's
+editable logic, picture, view and sound sources. The exported AGI game can also run
+offline in a compatible interpreter. Loading this website itself still needs
+a connection; it is not yet an installable offline app.
+The built-in catalog includes Adventure Department 1.0.0. To include more games
+on your own site, put their resources in public folders and list them in
+`catalog.json`; visitors play them directly from the gallery without importing
+files. See [hosting included games](CONTRIBUTING.md#including-games-on-your-site).
+
+The first visit leads with the tutorial and an expanded **Create a new adventure**
+section. The browser remembers whether you leave Create expanded or collapsed.
+The tutorial can also be collapsed; once you create or import your own games, it
+starts collapsed unless you explicitly chose to keep it open.
+**Play existing game** takes you to your library, or to **Open game** when it is empty.
+Once a game is in your library,
+**Your games** appears as a gallery with a direct **Resume** or **Play** action
+on each card. Games supplied by the site, imports, creations and local development
+fixtures share this gallery. Progress screenshots show the scene captured with the latest safe
+autosave. Expand a game's **Details** to rename, copy, export or remove it.
+
+To create an adventure with an AI provider, pick a starting point under
+**Create a new adventure**:
 
 | Adventure                                               | Your predicament                                                     |
 | ------------------------------------------------------- | -------------------------------------------------------------------- |
@@ -33,8 +58,8 @@ Open `http://localhost:5199/` and pick a starting point:
 
 Each template opens a Markdown brief you can edit. Or choose **Your own
 adventure** and describe the hero, setting and trouble. Plain language and
-structured [cartridge briefs](games/README.md) both work. Connect your provider
-and click **Create adventure**.
+structured [cartridge briefs](games/README.md) both work. Connect your provider in
+**AI settings**, then click **Create adventure**.
 
 The agent builds the opening room, including its artwork, characters and game
 logic. When you enter an unwritten room, play pauses while the agent creates it;
@@ -43,6 +68,9 @@ their saved resources.
 
 Click the game to type, press **Enter** to submit, and use the arrow keys to walk.
 **Home**, **Page Up**, **End** and **Page Down** walk diagonally.
+The numeric keypad also walks in all eight directions: **7/9/1/3** diagonally
+and **8/4/6/2** straight, regardless of Num Lock. Top-row digits still type numbers;
+numeric and text prompts also accept keypad digits normally.
 **Game controls** shows shortcuts registered by the running game.
 On a touchscreen, use the eight-direction pad and **Type** to open your phone's
 keyboard. **Enter**, **Esc**, **Space** and **Keys** provide dialog controls,
@@ -58,7 +86,18 @@ and save descriptions.
 Ask leaves the game untouched; Remix applies the finished changes and resumes
 play. You can also open an existing AGI game ZIP and remix it.
 
-GPT-6 Astra is the default; you can choose another OpenAI or Anthropic model.
+Sound inspection gives the agent timed events and a visual timeline. Known music
+gets a piano roll; effects and unclassified sounds show frequency and noise activity.
+Ask for a sound preview to get a local WAV player and download. These clips use
+the game's sound timing with approximate synthesis; the current authoring
+connections receive the data and image, not the audio.
+
+**AI settings** is shared by Create, Ask and Remix. Each provider keeps its own
+key, model and reasoning effort in this browser, so switching providers preserves
+your settings. Saving settings starts no model request.
+GPT-6 Astra is the default; choose another OpenAI or Anthropic model and effort
+in the same dialog. Selecting a model applies its default effort. Sol starts at
+low based on Genesis cost evaluations; other models retain their API defaults.
 Responses stream live: Ask shows text as it arrives, and authoring shows model
 activity and which tool it is preparing. Tools run only after the complete
 response has been received and validated.
@@ -76,9 +115,22 @@ provider during authoring. See [Security](SECURITY.md) for storage and data flow
 
 ## Save and share
 
-**Your games** holds your saved adventures and lets you rename, download or
-open them. Completed remixes save in your browser. **Menu** saves before leaving,
-and **Resume game** restores your game and position.
+**Your games** holds authored adventures, the included tutorial and games opened
+from a ZIP or local folder. An opening check identifies the interpreter profile,
+captures a local thumbnail and catches invalid boot resources before an import is
+stored. It checks the opening only; it does not prove that every room or puzzle is
+playable. Importing the same game resources again reuses the library entry, while
+project archives and remix copies keep independent authoring histories and save
+slots. Renaming a game does not change that identity.
+Playing the included tutorial or an imported game needs no provider key.
+
+Choose **Open game → ZIP file** or **Game folder**, or drop one ZIP or game
+folder into the opening area. Folder drops work in browsers that expose directory
+entries; the folder picker is the fallback. Files are read locally into your
+library, so playing does not require keeping the source folder connected.
+
+Completed remixes save in your browser. **Menu** saves before leaving, and
+**Resume game** restores your game and position.
 
 The game's own Save/Restore actions open an engine-rendered selector with twelve
 numbered slots per game. Choose a slot with Up/Down and Enter, name a new save,
@@ -93,9 +145,12 @@ emulated. Clearing browser data removes these local saves.
 | **Export game**  | Playable resources and public game metadata.                                           |
 | **Save project** | The game plus its authoring conversation, images, source descriptions and world notes. |
 
-Both downloads are ZIPs you can reopen with **Open ZIP**. A game export starts a
-fresh authoring conversation; a project carries its saved context. Downloaded
-games start from the beginning. Your saved position stays in the browser.
+Both downloads are ZIPs you can reopen with **Open game → ZIP file**. Public game
+exports can include a description, author, license and remix provenance in
+`GAME.JSON`. They exclude local thumbnails, validation results and conversations. A missing license remains unknown rather than inheriting this
+repository's MIT license. A game export starts a fresh authoring conversation; a
+project carries its saved context. Downloaded games start from the beginning.
+Your saved position stays in the browser.
 
 ## How it works
 
@@ -104,6 +159,20 @@ vocabulary, inventory and sound. These resources run locally in the interpreter.
 When drawing pictures or sprites, the model receives rendered previews. It can
 inspect game state, look up commands for the active interpreter profile and test
 candidate logic, using compiler diagnostics and tool feedback to revise its work.
+Picture previews preserve AGI's double-width pixels. Scene probes report actor
+scale, control footprints and depth overlap; isolated playtests replay commands
+and movement and report wall contacts and observed animation timing. Requested
+checkpoints show intermediate composed frames with actor positions, cels and
+priorities, so the agent can inspect motion as well as the final scene. These checks
+support a repair-and-replay loop, but do not automatically solve arbitrary games
+or establish that their art and writing are good.
+
+The tutorial uses original native AGI vector backgrounds with broad color areas
+and sparse detail. Its characters use carefully resolved native EGA pixel clusters
+and aligned VIEW cels. The lever animates as a separate VIEW and keeps its pulled
+position when you return to the room.
+Collision and scenery depth are authored separately and tested in the interpreter;
+no image service is needed to play.
 
 The engine is framework-free TypeScript with zero runtime dependencies. It reads
 AGI v2 and v3 containers and selects interpreter behavior by profile; generated

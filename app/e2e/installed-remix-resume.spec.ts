@@ -1,5 +1,5 @@
 import { providerReply } from "../../test/provider-stream.ts";
-import { openGameOptions } from "./engineProbe.ts";
+import { configureAi, openGameOptions, savedGameCard } from "./engineProbe.ts";
 import { test, expect } from "@playwright/test";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -39,11 +39,7 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   });
   await isolateStorage(page);
   await page.goto("/");
-  await page.evaluate(() => {
-    localStorage.setItem("monotio_agi.provider", "openai");
-    localStorage.setItem("monotio_agi.apiKey", "test-placeholder");
-  });
-  await page.reload();
+  await configureAi(page, { provider: "openai", key: "test-placeholder" });
   let requests = 0;
   const sprite = { loops: [{ cels: [{ width: 3, height: 2, pixels: [4, 4, 4, 4, 0, 4] }] }] };
   const remixed =
@@ -97,7 +93,8 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
     });
   });
   await page.getByTestId("btn-eject").click();
-  await expect(page.getByTestId("btn-resume-autosave")).toBeVisible();
+  const card = savedGameCard(page, "SAMPLE Remix");
+  await expect(card.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
   const record = await page.evaluate(() => {
     const slug = localStorage.getItem("monotio_agi.lastGame")!;
     return JSON.parse(localStorage.getItem("monotio_agi.autosave." + slug)!);
@@ -105,7 +102,7 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   expect(record.game.installed).toBe(false);
   expect(record.game.slug).not.toBe("sample");
   const reads = fixtureReads;
-  await page.getByTestId("btn-resume-autosave").click();
+  await card.getByRole("button", { name: "Resume", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
   expect(fixtureReads).toBe(reads);
   expect(await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"))).toBe(

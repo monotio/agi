@@ -27,6 +27,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { inflateSync } from "node:zlib";
+import { pathToFileURL } from "node:url";
 import { parseView } from "../src/view/view.ts";
 import {
   buildViewFromSheet,
@@ -310,11 +311,13 @@ function main(argv: readonly string[]): void {
   }
 }
 
-try {
-  main(process.argv.slice(2));
-} catch (error) {
-  process.stderr.write(
-    `sheet-to-view: ${error instanceof Error ? error.message : String(error)}\n`,
-  );
-  process.exitCode = 1;
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    main(process.argv.slice(2));
+  } catch (error) {
+    process.stderr.write(
+      `sheet-to-view: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exitCode = 1;
+  }
 }

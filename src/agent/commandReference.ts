@@ -142,7 +142,7 @@ export function relatedCommands(
 export const COMMAND_REFERENCE_TOOL: ToolDefinition = {
   name: "read_command_reference",
   description:
-    "Discover commands supported by the active interpreter profile directly from its opcode table. query null returns the complete compact signatures; a command name or search term returns matching signatures and available operation help. kind can select action or condition; null searches both. offset pages search results, 16 at a time. Variable operands are variable IDs, not literal values. Use this before unfamiliar low-level source edits; the compiler remains the validator.",
+    "Discover commands for the active interpreter profile. Null query lists signatures; text returns matching help. Variable operands are IDs. The compiler remains authoritative.",
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -150,18 +150,14 @@ export const COMMAND_REFERENCE_TOOL: ToolDefinition = {
       query: {
         type: ["string", "null"],
         maxLength: 120,
-        description:
-          "Command name or terms such as priority, animation, or movement; null lists all signatures.",
       },
       kind: {
         type: ["string", "null"],
         enum: ["action", "condition", null],
-        description: "Optional command family.",
       },
       offset: {
         type: ["integer", "null"],
         minimum: 0,
-        description: "Search-result offset; null starts at zero.",
       },
     },
     required: ["query", "kind", "offset"],

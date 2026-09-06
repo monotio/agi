@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 import { buildZip } from "../src/zip.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { textHook } from "./engineProbe.ts";
+import { configureAi, textHook } from "./engineProbe.ts";
 
 test("remix progress follows activity, preserves reading position and jumps to latest", async ({
   page,
@@ -71,11 +71,10 @@ test("remix progress follows activity, preserves reading position and jumps to l
       mimeType: "application/zip",
       buffer: Buffer.from(zip),
     });
+    await page.getByTestId("btn-resume-cached").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await page.getByTestId("power-up").click();
-    await page.getByTestId("power-up-provider").selectOption("openai");
-    await page.getByTestId("power-up-api-key").fill("test-placeholder");
-    await page.getByTestId("power-up-connect").click();
+    await configureAi(page, { provider: "openai", key: "test-placeholder" });
     await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
     await page.getByTestId("agent-bubble-input").fill("Give the adventurer a blue coat");
     await page.getByTestId("agent-bubble-send").click();

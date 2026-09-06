@@ -16,7 +16,7 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
   {
     name: "reserve_binding",
     description:
-      "Give a stable name to a resource, flag or variable. `name` is a lowercase identifier; `kind` selects its family. Set `id` to null to allocate an unused ID, or supply an ID to name an existing one without changing its value or contents. Automatic variable/flag allocation reads all compiled logic and refuses uncertain indirect access. Returns the binding and a #define usable in logic; existing named bindings remain stable.",
+      "Bind a stable lowercase name to a resource, flag or variable. Null ID allocates safely; an explicit ID binds that slot without changing its contents. Indirect variable/flag access prevents automatic allocation.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -31,7 +31,7 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
   {
     name: "upsert_inventory_item",
     description:
-      "Add or update one inventory definition while retaining all other IDs and entries. `id` null appends a new item; an existing ID edits that definition. `name` is its display name; `location` is 'carried', 'room' or 'inactive', with `room` supplying the room number only for 'room'. Returns the stable object ID and compiled OBJECT update. Existing live locations are preserved by the engine; change live ownership with game logic. Room generation may append definitions but cannot rewrite existing ones.",
+      "Add or update one inventory definition while preserving other IDs. Null ID appends. Live ownership is unchanged; game logic changes it.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -47,7 +47,7 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
   {
     name: "edit_resource_source",
     description:
-      "Change one exact source section without resending a complete resource. `kind` is logic or picture, and `num` identifies the resource. `expectedRevision` must match the latest read; `find` must occur exactly once, and `replace` is its replacement. Compiles the full resulting resource before storing it, returning the new revision and normal compiler feedback. A stale revision, ambiguous match or invalid compilation changes nothing.",
+      "Replace one exact logic or picture source section from read_logic or read_picture; their disassembly can normalize authored syntax. The revision must match and `find` must occur once. The full result compiles before storage; any conflict or compile error changes nothing.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -64,7 +64,7 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
   {
     name: "update_world",
     description:
-      "Record authoring intent for continuity across rooms and saved projects. `rooms` updates named room descriptions and exits; `facts` updates named facts; `quests` updates quest descriptions, dependencies and optional named completion flags. Empty arrays leave other entries unchanged. Returns the updated intent counts; these notes do not alter AGI behavior or prove the world implements the plan. inspect_world_bible returns both this intent and the compiled resource index.",
+      "Update persistent room, fact and quest intent. Empty arrays leave other entries unchanged. Intent does not alter or verify game behavior.",
     parameters: {
       type: "object",
       additionalProperties: false,

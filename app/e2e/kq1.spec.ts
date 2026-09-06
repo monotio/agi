@@ -8,7 +8,10 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   canvasColors,
   canvasHash,
+  configureAi,
   isolateStorage,
+  openCreateAdventure,
+  openSavedGameDetails,
   observe,
   probe,
   screenText,
@@ -305,7 +308,7 @@ test("saving with F5 writes a real save-file image and F7 restores it without lo
   // base64 of a 31-byte description header followed by the 2.917 profile's
   // five u16le length-prefixed blocks, the first of which is 0x05e1 bytes.
   const envelope = await page.evaluate(() => {
-    const stored = JSON.parse(localStorage.getItem("monotio_agi.saves.kq1") ?? "{}")["1"];
+    const stored = JSON.parse(localStorage.getItem("monotio_agi.saves.kq1") ?? "{}").slots["1"];
     if (!stored) return null;
     const binary = atob(stored);
     return { length: binary.length, block1: binary.charCodeAt(31) | (binary.charCodeAt(32) << 8) };
@@ -455,7 +458,10 @@ test("returning to the menu preserves the installed game autosave", async ({ pag
   await page.getByTestId("btn-eject").click();
   await expect(page.locator(".setup-panel")).toBeVisible();
   expect((await storedAutosave(page, "kq1"))?.room).toBe(1);
-  await page.getByTestId("btn-resume-autosave").click();
+  await page
+    .getByTestId("local-game-card-kq1")
+    .getByRole("button", { name: "Resume", exact: true })
+    .click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect(page.locator(".screen")).toBeVisible();
 });
@@ -492,11 +498,14 @@ test("game frame is hidden until game is running, clicking screen advances title
   await expect(page.locator(".screen")).toBeHidden();
   await expect(page.locator(".setup-panel")).toBeVisible();
 
-  // 2. Creating a selected adventure without an API key shows the setup error.
+  // 2. Creating without a configured key opens shared AI settings and preserves the draft.
+  await openCreateAdventure(page);
   await page.getByTestId("cartridge-knights-trial").click();
+  const draft = await page.getByTestId("custom-cartridge-input").inputValue();
   await page.getByTestId("boot-cartridge").click();
-  await expect(page.getByTestId("error-panel")).toBeVisible();
-  expect(await page.getByTestId("error-panel").textContent()).toContain("API key");
+  await expect(page.getByTestId("ai-settings-dialog")).toBeVisible();
+  await expect(page.getByTestId("custom-cartridge-input")).toHaveValue(draft);
+  await page.getByTestId("ai-settings-cancel").click();
   await expect(page.locator(".screen")).toBeHidden();
 
   // 3. Boot KQ1: screen becomes visible
@@ -521,16 +530,17 @@ test("game frame is hidden until game is running, clicking screen advances title
 /** The first submitted Ask gets real fixture context without changing the game. */
 test("KQ1 orientation accompanies the first question, Escape resumes", async ({ page }) => {
   await page.goto("/");
-  await page.getByTestId("provider-select").selectOption("stub");
+  await configureAi(page, { provider: "stub" });
   await bootKq1(page);
   await advanceToCourtyard(page);
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
 
   await page.getByTestId("power-up").click();
   await expect(page.getByTestId("agent-bubble")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
 
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await expect(page.getByTestId("agent-panel")).toHaveCount(0);
+  await expect(page.getByTestId("agent-panel")).not.toContainText("[Orientation]");
   await page.getByTestId("agent-mode-ask").click();
   await page.getByTestId("agent-bubble-input").fill("Where am I?");
   await page.getByTestId("agent-bubble-send").click();
@@ -584,7 +594,7 @@ test("KQ1 orientation accompanies the first question, Escape resumes", async ({ 
 
 test("a locally loaded patched game can be downloaded and imported", async ({ page }) => {
   await page.goto("/");
-  await page.getByTestId("provider-select").selectOption("stub");
+  await configureAi(page, { provider: "stub" });
   await bootKq1(page);
   await advanceToCourtyard(page);
 
@@ -615,6 +625,10 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
     Object.keys(localStorage).filter((k) => k.includes("kq1")),
   );
   expect(stored).toEqual([]);
-  await expect(page.getByTestId("saved-world-panel")).toBeVisible();
-  await expect(page.getByTestId("btn-export-agi-zip")).toBeVisible();
+  const savedCard = page
+    .getByTestId("saved-game-gallery")
+    .locator("[data-testid^='saved-game-card-']");
+  await expect(savedCard).toHaveCount(1);
+  await openSavedGameDetails(savedCard);
+  await expect(savedCard.getByTestId("btn-export-agi-zip")).toBeVisible();
 });

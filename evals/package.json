@@ -9,7 +9,8 @@
   },
   "scripts": {
     "eval": "promptfoo eval -c configs/genesis.mjs",
-    "eval:replay": "node --test \"tests/**/*.test.mjs\"",
+    "eval:effort": "promptfoo eval -c configs/effort.mjs",
+    "eval:replay": "cd .. && node --test \"evals/tests/**/*.test.mjs\"",
     "test": "npm run eval:replay"
   },
   "devDependencies": {

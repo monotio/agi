@@ -83,6 +83,7 @@ async function boot(
       }),
     ),
   });
+  await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).egoX).toBe(60);
 }
 

@@ -30,7 +30,8 @@ export default defineConfig([
     "**/dist/",
     "app/test-results/",
     "app/playwright-report/",
-    "games/",
+    "games/*/",
+    "!games/adventure-department/",
     "evals/node_modules/",
   ]),
 
@@ -41,6 +42,7 @@ export default defineConfig([
     name: "monotio_agi/typescript",
     files: [
       "src/**/*.ts",
+      "games/adventure-department/**/*.ts",
       "test/**/*.ts",
       "app/src/**/*.ts",
       "app/e2e/**/*.ts",

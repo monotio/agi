@@ -43,7 +43,6 @@ export class BrowserReplay {
   async boot(slug: string, seed: number): Promise<void> {
     await isolateStorage(this.page);
     await this.page.goto(`/?replaySeed=${seed}`);
-    await this.page.getByTestId("installed-game-select").selectOption(slug);
     const boot = this.page.getByTestId(`boot-${slug}`);
     if (this.phone) await boot.tap();
     else await boot.click();

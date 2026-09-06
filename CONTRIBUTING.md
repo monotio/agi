@@ -53,7 +53,9 @@ implementing behavior; check the common contract and the selected profile's vari
 
 Prefer small, original resources with hand-computed expectations. To test a game
 locally, put its files in `games/<slug>/`. Development discovery recognizes AGI v2
-split directories and v3 combined directories; choose it under **Local games**.
+split directories and v3 combined directories; play them from the same **Your games**
+gallery as saved projects. This development folder discovery is not a publishing
+mechanism and is excluded from production builds.
 Installed game folders are gitignored and excluded from production builds.
 
 The compatibility suite uses these local installations (other editions may differ):
@@ -176,9 +178,82 @@ interpreter's terminal state independently of screenshot timing.
 
 ## Testing authoring and persistence
 
+Sound feedback is checked at three levels: compiled event timing and pitch/noise
+interpretation, the aligned visual timeline, and bounded WAV playback through the
+profile's existing sound scheduler. `read_sound` defaults to a neutral effects
+view unless matching `write_music` metadata establishes musical intent. Explicit
+music inspection estimates equal-tempered pitches; it does not recover an imported
+score's original tempo or meter. Saved tempo is tied to the compiled resource
+revision and survives project round trips; stale metadata is ignored.
+`preview_sound` produces a local listening attachment. Provider adapters omit its
+binary audio and state that the model has not heard it. These offline checks prove
+the feedback path, not composition quality or a model's listening ability.
+
 Define the expected behavior before implementing it. Observe a new regression
 check fail against the bad case, then pass with the fix. Exact bytes, pixels and
 schemas come first; use model judges for subjective quality.
+
+The tutorial's canonical artwork is authored directly in
+`games/adventure-department/sceneArt.ts`, `characterViews.ts` and `leverView.ts`.
+`game.ts` couples the broad filled backgrounds and native EGA VIEW cels with
+control and occlusion geometry. Review compiled room frames and cel sheets, then
+play all rooms with the actual ego. Update collision and occlusion geometry when
+a prop or doorway changes.
+
+For agent-authored scenes, use PICTURE vectors for architecture, terrain,
+backdrops and broad static fills. Anything the player manipulates, picks up or
+sees animate—including a lever, pickup or operable door—must be a VIEW-backed
+screen object. Give it cels for visible states, persist lasting state in logic,
+and reconstruct the correct appearance on room re-entry. Commit persistent state
+when the action logically takes effect, including before a lever sweep when
+leaving mid-sweep must still leave the lever pulled; terminal feedback can wait
+for the last cel. Initialize the object with `load.view`, `animate.obj`,
+`set.view`, `position` and `draw`; select direct
+states with `set.cel`, or finish animated changes with `end.of.loop` and retain
+the terminal cel. Reserve `add.to.pic` for static baked details that never act,
+animate, disappear or change independently. Build economical sprites from
+meaningful contiguous colour clusters, limit decoration to readable details,
+and keep character head silhouettes expressive at native resolution; choose
+the colours the sprite needs instead of enforcing an arbitrary maximum.
+Keep open floor at priority 4 and shape higher priorities to visible occluders.
+
+Local fixture studies supply functional patterns without shipping their art or
+text. KQ1 room 1 places a 42×10, five-cel VIEW 97 at `(5, 17)` with fixed
+priority 15 and cycles it continuously. KQ2 room 1 uses shared logic 152 and a
+28×24, nine-cel VIEW 1 at `(0, 50)`: it rests on cel 0 for a randomized 5–80
+logic-cycle pause, plays once with `end.of.loop`, then resets. KQ3 room 39 keeps
+most of its shop in the PICTURE while an 11×16–17 character VIEW 78 moves and
+cycles independently; a separate four-cel VIEW 79 supplies a small intermittent
+foreground action. These observations are timing and composition references;
+do not copy their implementation or artwork. Original rooms can use the same
+restraint: one short-loop pennant or one paused water-edge splash often adds
+enough motion.
+
+Use an evidence loop for each scene: inspect the PICTURE and priority overlay,
+then a composed full-room frame with the real actor at scene scale. Inspect the
+VIEW contact sheet and request intermediate `playtest_room` frames with
+`captureTicks` so rest, mid-motion and terminal cels appear together. Replay
+pickup, manipulation and room re-entry paths, including departure during a
+state-changing animation. Revise a concrete defect found in those observations.
+Structural checks and successful assertions do not guarantee visual quality.
+This follows OpenAI's [current-model guidance](https://developers.openai.com/api/docs/guides/latest-model)
+and [prompt-engineering guidance](https://developers.openai.com/api/docs/guides/prompt-engineering#prompting-current-models):
+state the role and workflow clearly, use actual tool observations, give concrete
+criteria and apply appropriate validation. It is practical process guidance,
+not a model-specific recipe or an automatic beauty score.
+Compare the aligned preview's clean visual, raw EGA priority/control and blended
+semantic overlay panels alongside its numeric probes. ImageGen references and
+proposed priority masks are drafting aids; compiled AGI output and real-ego
+playtests decide whether the scene works. Check the entire actor baseline against
+barriers and replay both sides of each depth transition. The authoring guidance
+follows the specification's
+[picture rules](https://peterkelly.github.io/agi-re/spec/picture_resources.html),
+[view composition](https://peterkelly.github.io/agi-re/spec/view_resources.html),
+and [object cadence and movement](https://peterkelly.github.io/agi-re/spec/object_behavior.html).
+Supply explicit steps and expected puzzle outcomes to `playtest_room`; inspect
+its movement, cel-change, timing and occlusion observations before another edit.
+Its final screenshot, requested intermediate motion sheet and bounded route cover
+only the exercised behavior.
 
 For browser changes, exercise the real flow: create or import, remix, leave,
 resume, download and reopen as appropriate. Use request and download assertions
@@ -186,13 +261,28 @@ for transport, and screenshots for visual changes.
 
 **Save project** stores authoring context in a versioned `PROJECT.JSON` with
 repeated images deduplicated into ZIP attachments. **Export game** includes AGI
-resources and allowlisted public metadata in `GAME.JSON`. Both preserve resource
-IDs and the game's container format.
+resources and version-1 `GAME.JSON`, whose nested public metadata allowlist is
+`description`, `author`, `license` and parent game/revision.
+Neither format changes resource IDs or the game's container format; public game
+exports exclude conversations, source descriptions, local previews and opening
+validation. Do not infer a license for imported resources when none is declared.
 
-Project bodies live in IndexedDB; a small localStorage index supports discovery.
-Persist resource changes and their matching conversation before advancing the
-saved-state reference. Verify failure paths as well as successful saves, and
+Project bodies live in IndexedDB; a small localStorage index supports discovery
+and can be rebuilt from those bodies. Version-1 library metadata keeps the stable
+game ID and local storage slug separate from the SHA-256 revision of normalized AGI
+resource bytes.
+Changing bytes invalidates only the cached opening preview; renames and
+conversation saves retain it. Catalog resources are copied to a remix before an
+edit, and imported project archives remain separate even when their game bytes
+match. Persist resource changes and their matching conversation before advancing
+the saved-state reference. Verify failure paths as well as successful saves, and
 check exports in a fresh browser session.
+
+Progress thumbnails belong to the autosave record, separately from a library
+game's opening cover. Capture the composed picture, sprites and engine text at
+the same safe cycle boundary as the save bytes. Old saves remain valid without
+a thumbnail, and a thumbnail failure must never prevent saving progress. In the
+menu, show each saved game once, with its own resume action and optional details.
 
 ## Pull requests
 
@@ -220,6 +310,59 @@ The worker bridge requires cross-origin isolation for `SharedArrayBuffer`.
 Check the headers, worker loading, ZIP import and provider connections on the
 actual host. Production calls providers directly; the development server proxies
 those requests locally.
+
+### Including games on your site
+
+The bundled tutorial needs no setup. To offer additional games you have permission
+to redistribute, put their public AGI resources under `app/public/games/<id>/`
+and add an entry to `app/public/catalog.json` before building. You can also upload
+these folders and the manifest directly beside a deployed `index.html`.
+
+```json
+{
+  "format": "monotio.agi.catalog",
+  "version": 1,
+  "games": [
+    {
+      "id": "garden",
+      "version": "1.0.0",
+      "title": "The Garden",
+      "description": "An afternoon in an unusual garden.",
+      "author": "Your studio",
+      "license": "MIT",
+      "path": "games/garden/",
+      "files": [
+        "LOGDIR",
+        "PICDIR",
+        "VIEWDIR",
+        "SNDDIR",
+        "VOL.0",
+        "WORDS.TOK",
+        "OBJECT",
+        "GAME.JSON"
+      ]
+    }
+  ]
+}
+```
+
+List the actual filenames, preserving their case; optional files such as
+`GAME.JSON` should only be listed if present. Use the game's actual license and
+keep its required attribution and license files alongside the published game.
+The manifest fetches only declared public AGI files, never `PROJECT.JSON` or
+authoring conversations. Paths are relative to the manifest on the same origin,
+including when the app is hosted under a subpath.
+
+Each entry appears in **Your games** with a checked opening screenshot and **Play**.
+The opening check runs when its card comes into view and reports missing or broken
+resources before play. Playing stores that release in the browser; subsequent
+visits use its saved copy and checkpoint. Change the entry's version when publishing
+changed resources so an existing player's saved release stays intact.
+
+The root `games/kq1/`, `games/kq2/` and `games/kq3/` folders are private test
+fixtures. The development server exposes them locally for testing; they are not
+copied into `app/dist` or discovered by the production app. Publishing games is
+an explicit choice through the public folder and manifest.
 
 ### Production releases
 

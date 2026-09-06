@@ -3,7 +3,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { buildZip } from "../src/zip.ts";
-import { isolateStorage, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
+import { isolateStorage, savedGameCard, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
 
 function cartridge(shortcuts: boolean, scrollLock = false) {
   const game = createContainer();
@@ -47,6 +47,7 @@ test("game controls discover bindings and menu labels, track disabled items, and
   await page
     .getByTestId("game-zip-input")
     .setInputFiles({ name: "courtyard.zip", mimeType: "application/zip", buffer: cartridge(true) });
+  await savedGameCard(page, "courtyard").getByTestId("btn-resume-cached").click();
   const controls = page.getByTestId("game-controls");
   await expect(controls).toBeVisible();
   await expect(page.getByTestId("game-toolbar")).toHaveCount(0);
@@ -84,6 +85,7 @@ test("game controls discover bindings and menu labels, track disabled items, and
   await page
     .getByTestId("game-zip-input")
     .setInputFiles({ name: "quiet.zip", mimeType: "application/zip", buffer: cartridge(false) });
+  await savedGameCard(page, "quiet").getByTestId("btn-resume-cached").click();
   await controls.locator("summary").click();
   await expect(controls.getByRole("button")).toHaveCount(0);
   await expect(controls).toContainText("Shortcuts appear here");
@@ -101,6 +103,7 @@ test("mapped Scroll Lock controls advertise and invoke the script controller", a
     mimeType: "application/zip",
     buffer: cartridge(false, true),
   });
+  await savedGameCard(page, "scroll-controller").getByTestId("btn-resume-cached").click();
   const controls = page.getByTestId("game-controls");
   for (const [count, viewport] of [
     [1, { width: 1280, height: 900 }],
@@ -126,6 +129,7 @@ test("browser reload restores shortcut labels and live menu enable state", async
     mimeType: "application/zip",
     buffer: cartridge(true),
   });
+  await savedGameCard(page, "courtyard").getByTestId("btn-resume-cached").click();
   const controls = page.getByTestId("game-controls");
   await controls.locator("summary").click();
   await controls.getByRole("button", { name: "Inspect F3", exact: true }).click();

@@ -72,6 +72,52 @@ const KEY_EVENTS: Record<string, number> = {
   ScrollLock: 0x4600,
 };
 
+const MOVEMENT_KEYS: Record<string, number> = {
+  ArrowUp: 1,
+  PageUp: 2,
+  ArrowRight: 3,
+  PageDown: 4,
+  ArrowDown: 5,
+  End: 6,
+  ArrowLeft: 7,
+  Home: 8,
+};
+
+const NUMPAD_MOVEMENT_CODES: Record<string, number> = {
+  Numpad8: 1,
+  Numpad9: 2,
+  Numpad6: 3,
+  Numpad3: 4,
+  Numpad2: 5,
+  Numpad1: 6,
+  Numpad4: 7,
+  Numpad7: 8,
+};
+
+const NUMPAD_MOVEMENT_DIGITS: Record<string, number> = {
+  "8": 1,
+  "9": 2,
+  "6": 3,
+  "3": 4,
+  "2": 5,
+  "1": 6,
+  "4": 7,
+  "7": 8,
+};
+
+/** Translate an unmodified navigation or numeric-keypad event to an AGI direction. */
+export function movementDirection(event: KeyboardEvent): number | undefined {
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.isComposing)
+    return undefined;
+  const keypadDirection = NUMPAD_MOVEMENT_CODES[event.code];
+  if (keypadDirection !== undefined) return keypadDirection;
+  const navigationDirection = MOVEMENT_KEYS[event.key];
+  if (navigationDirection !== undefined) return navigationDirection;
+  if (event.location === 3 && (!event.code || event.code === "Unidentified"))
+    return NUMPAD_MOVEMENT_DIGITS[event.key];
+  return undefined;
+}
+
 /** IBM PC key words shared by physical and on-screen input. */
 export function pcKey(event: KeyboardEvent): number | undefined {
   if (event.metaKey || event.isComposing) return undefined;

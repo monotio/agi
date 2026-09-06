@@ -659,10 +659,9 @@ Surface is 160 wide (x 0..159) by 168 tall (y 0..167); y grows downward. The sur
                            pattern and applies to every following point until the next seed)
   end                      end of picture
 
-Workflow that Sierra artists used: enable both channels (vis + pri), draw the outline of a region, fill it,
-then move to the next region. Draw far things first (sky, distant hills), near things last. Priority bands:
-pri 0/1 walls, 2 trigger, 3 water, 4..15 depth (4 = far/high on screen, 15 = near/bottom). Set pri to the band
-of the ground the object stands on; sky/horizon area should be pri 4, ground gets increasing values downward.
+Draw the visual pass far to near with enclosed outlines and fills. Then draw only intentional priority/control
+shapes: pri 0/1 barriers, 2 triggers, 3 water, and 5..15 scenery that should occlude a sprite. Leave ordinary
+walkable floor at pri 4; shape higher-priority regions to visible scenery instead of drawing floor stripes.
 `;
 
 // ---------------------------------------------------------------------------

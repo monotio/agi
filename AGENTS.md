@@ -42,8 +42,11 @@ Public setup and compatibility information live in README.md.
 - App name: **AGI IS HERE**. Package names use `agi-is-here`.
 - Internal identifiers use `monotio_agi` (`monotio-agi` in hyphenated names).
   Storage keys and provider cache keys start with `monotio_agi.`.
-- The public address is `https://agi.monotio.com`. Archive format identifiers
-  are versioned contracts; preserve compatibility with existing exports.
+- The public address is `https://agi.monotio.com`. Version 1.0 is the first public
+  archive baseline: pre-release formats and migrations may be removed for this
+  release. Preserve compatibility with actual released saves and exports after it.
+  Readers reject unknown versions without rewriting their bytes. Add migrations
+  only for released formats; retain their original fixtures and add cases for new formats.
 - Project branding: Monotio / monotio.com (publisher), Joakim Riedel (author).
 - Credit third-party specifications, dependencies and tools where relevant.
 
@@ -156,6 +159,8 @@ Use checks that establish the changed behavior:
 ## Delegated work
 
 - Give each contributor an explicit file scope.
+- Start a fresh agent for an unrelated task. Reuse an agent only for follow-up
+  work within its existing scope; unrelated context reduces precision.
 - Review delegated output and run the relevant checks before integrating it.
 - Do not require a particular agent vendor or model. Use available capabilities
   within the session's delegation policy.

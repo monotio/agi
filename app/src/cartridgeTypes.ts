@@ -1,4 +1,7 @@
+import type { LibraryMetadata } from "./gameMetadata.ts";
+
 export interface CachedCartridgeMeta {
+  library?: LibraryMetadata | undefined;
   slug: string;
   title: string;
   authoredAt: string;

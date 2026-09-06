@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderPicture } from "../src/picture/renderer.ts";
+import { renderPicture, type PictureFillDiagnostic } from "../src/picture/renderer.ts";
 import { createPictureSurface, SCREEN_WIDTH, type PictureSurface } from "../src/types.ts";
 
 function render(
@@ -192,6 +192,93 @@ test("seed fill fills a bounded region with the visual channel enabled", () => {
   assert.equal(v(s, 7, 3), 15);
   assert.equal(v(s, 4, 1), 15);
   assert.equal(v(s, 4, 6), 15);
+});
+
+test("seed fill diagnostics report blocked and successful fills without changing pixels", () => {
+  const blocked = createPictureSurface();
+  const blockedDiagnostics: PictureFillDiagnostic[] = [];
+  renderPicture(
+    new Uint8Array([
+      0xf0, 0x09, 0xf8, 0x00, 0x00, 0xf0, 0x08, 0xf6, 0x02, 0x02, 0x06, 0x02, 0x06, 0x05, 0x02,
+      0x05, 0x02, 0x02, 0xf8, 0x04, 0x03, 0xff,
+    ]),
+    blocked,
+    { fillDiagnostics: blockedDiagnostics },
+  );
+  assert.equal(v(blocked, 4, 3), 9);
+  assert.deepEqual(blockedDiagnostics, [
+    {
+      channel: "visual",
+      x: 0,
+      y: 0,
+      selectedValue: 9,
+      targetValue: 15,
+      seedValue: 15,
+      filledCells: 160 * 168,
+    },
+    {
+      channel: "visual",
+      x: 4,
+      y: 3,
+      selectedValue: 8,
+      targetValue: 15,
+      seedValue: 9,
+      filledCells: 0,
+    },
+  ]);
+
+  const filled = createPictureSurface();
+  const filledDiagnostics: PictureFillDiagnostic[] = [];
+  renderPicture(
+    new Uint8Array([
+      0xf0, 0x08, 0xf6, 0x02, 0x02, 0x06, 0x02, 0x06, 0x05, 0x02, 0x05, 0x02, 0x02, 0xf0, 0x09,
+      0xf8, 0x00, 0x00, 0xf0, 0x08, 0xf8, 0x04, 0x03, 0xff,
+    ]),
+    filled,
+    { fillDiagnostics: filledDiagnostics },
+  );
+  for (let y = 3; y <= 4; y++)
+    for (let x = 3; x <= 5; x++) assert.equal(v(filled, x, y), 8, `(${x},${y})`);
+  assert.equal(v(filled, 1, 1), 9);
+  assert.deepEqual(filledDiagnostics, [
+    {
+      channel: "visual",
+      x: 0,
+      y: 0,
+      selectedValue: 9,
+      targetValue: 15,
+      seedValue: 15,
+      filledCells: 160 * 168 - 20,
+    },
+    {
+      channel: "visual",
+      x: 4,
+      y: 3,
+      selectedValue: 8,
+      targetValue: 15,
+      seedValue: 15,
+      filledCells: 6,
+    },
+  ]);
+});
+
+test("priority-only fill diagnostics use priority 4 as the target", () => {
+  const surface = createPictureSurface();
+  const diagnostics: PictureFillDiagnostic[] = [];
+  renderPicture(Uint8Array.of(0xf2, 8, 0xf8, 0, 0, 0xf2, 6, 0xf8, 4, 3, 0xff), surface, {
+    fillDiagnostics: diagnostics,
+  });
+  assert.equal(surface.priority[3 * SCREEN_WIDTH + 4], 8);
+  assert.equal(surface.visual[3 * SCREEN_WIDTH + 4], 15);
+  assert.deepEqual(diagnostics[1], {
+    channel: "priority",
+    x: 4,
+    y: 3,
+    selectedValue: 6,
+    targetValue: 4,
+    seedValue: 8,
+    filledCells: 0,
+  });
 });
 
 test("seed fill with both channels enabled: visual connectivity, both written", () => {

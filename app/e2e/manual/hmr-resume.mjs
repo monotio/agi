@@ -69,7 +69,6 @@ async function poll(fn, label, timeout = 30000) {
   }
 }
 async function playToRestedCourtyard() {
-  await page.getByTestId("installed-game-select").selectOption("kq1");
   await page.getByTestId("boot-kq1").click();
   await page.getByTestId("title-prompt-hint").waitFor({ timeout: 20000 });
   await page.locator(".screen").click();

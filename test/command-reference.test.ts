@@ -22,10 +22,11 @@ test("command reference exactly follows every promoted profile and its operand v
   }
 });
 
-test("default prompt includes the complete catalog; imported orientation uses its actual profile", () => {
+test("prompts load command details on demand using the imported game's profile", () => {
   const catalog = formatCommandCatalog(PROFILES["2.936"]);
   assert.ok(catalog.length < 12000);
-  assert.ok(AGI_SYSTEM_PROMPT.includes(catalog));
+  assert.ok(!AGI_SYSTEM_PROMPT.includes(catalog));
+  assert.ok(AGI_SYSTEM_PROMPT.includes("read_command_reference"));
   const text = createOrientationPrompt({
     gameId: "custom",
     profile: "2.230",
@@ -35,7 +36,9 @@ test("default prompt includes the complete catalog; imported orientation uses it
     pictureSource: "",
     wordsSummary: "",
   });
-  assert.ok(text.includes(formatCommandCatalog(PROFILES["2.230"])));
+  assert.ok(!text.includes(formatCommandCatalog(PROFILES["2.230"])));
+  assert.match(text, /Interpreter profile: 2\.230/);
+  assert.ok(text.includes("read_command_reference"));
 });
 
 test("command lookup supplies real signatures and semantic help, and generic failures offer candidates", () => {

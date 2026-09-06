@@ -308,6 +308,10 @@ test("every catalog tool produces bounded binary-free transport on real success 
       good: { num: 6, channel: null, offset: null, limit: null },
       bad: { num: 255, channel: null, offset: null, limit: null },
     },
+    preview_sound: {
+      good: { num: 6, startSeconds: null, durationSeconds: null, device: null },
+      bad: { num: 255, startSeconds: null, durationSeconds: null, device: null },
+    },
     write_scene: {
       good: { room: 5, backgroundColor: 1, shapes: [] },
       bad: { room: 5, backgroundColor: 16, shapes: [] },
@@ -431,6 +435,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     "list_resources",
     "patch_view_cel",
     "playtest_room",
+    "preview_sound",
     "read_command_reference",
     "read_frames",
     "read_logic",

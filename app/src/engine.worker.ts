@@ -18,8 +18,7 @@
  *   { type: "showObj", viewNum }           0x81/0xa2 modal view popup
  *   { type: "showPri" }                    0x1d modal priority-surface view
  *   { type: "statusScreen", items }        0x7c modal inventory list
- *   { type: "saveGame", image }            0x7d save-file image, base64 (localStorage)
- *   { type: "autosave", image, cycle, room, files? }
+ *   { type: "autosave", image, preview?, cycle, room, files? }
  *                                          host-initiated snapshot (no save.game
  *                                          involved); `files` carries the live
  *                                          container only when a patch landed
@@ -47,6 +46,7 @@ import { FrameRing } from "./frameRing.ts";
 import { CycleClock } from "../../src/runtime/cycleClock.ts";
 import { SoundClock } from "./soundClock.ts";
 import type { ReplayObservation } from "./replay.ts";
+import { createProgressPreview } from "./progressPreview.ts";
 
 /** Save-file image as base64: the SAB bridge and localStorage both carry text. */
 function bytesToBase64(bytes: Uint8Array): string {
@@ -172,7 +172,13 @@ let lastPatchGeneration = 0;
 function autosave(force: boolean): boolean {
   if (!engine) return false;
   if (!force && cycleCount === lastAutosaveCycle) return false;
-  const image = engine.autosaveImage();
+  let image: Uint8Array | null;
+  try {
+    image = engine.autosaveImage();
+  } catch (error) {
+    self.postMessage({ type: "log", text: `Autosave snapshot failed: ${String(error)}` });
+    return false;
+  }
   if (!image) return false;
   const msg: Record<string, unknown> = {
     type: "autosave",
@@ -181,6 +187,16 @@ function autosave(force: boolean): boolean {
     cycle: cycleCount,
     room: engine.vars[0],
   };
+  try {
+    const frame = engine.getFrame();
+    msg["preview"] = createProgressPreview({
+      visual: frame.visual,
+      text: engine.textCells,
+      picRow: engine.displayBase,
+    });
+  } catch (error) {
+    self.postMessage({ type: "log", text: `Autosave preview skipped: ${String(error)}` });
+  }
   // The patched container travels only when a patch really landed since the
   // host last saw one: a resource snapshot on every tick would cost far more
   // than the save image it accompanies.

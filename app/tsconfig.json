@@ -31,5 +31,5 @@
     "noEmit": true
   },
   "include": ["src/**/*.ts", "src/**/*.vue", "test/**/*.ts"],
-  "exclude": ["src/engine.worker.ts"]
+  "exclude": ["src/engine.worker.ts", "src/preview.worker.ts"]
 }

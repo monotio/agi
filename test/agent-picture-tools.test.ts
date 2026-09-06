@@ -93,6 +93,13 @@ describe("accessible picture authoring", () => {
     assert.deepEqual(result?.details?.["writtenResources"], [{ kind: "picture", num: 4 }]);
     assert.equal(typeof result?.details?.["revision"], "string");
     assert.equal(result?.images?.length, 1);
+    const png = result?.images?.[0]!.png;
+    assert.ok(png);
+    const header = new DataView(png.buffer, png.byteOffset, png.byteLength);
+    assert.deepEqual([header.getUint32(16), header.getUint32(20)], [960, 168]);
+    assert.match(result?.images?.[0]!.caption ?? "", /Left: clean visual.*Middle: raw priority/);
+    assert.match(result?.message ?? "", /Display geometry: 160x168 logical -> 320x168/);
+    assert.match(result?.message ?? "", /priority\/control map/i);
     const source = state.sources.pictures.get(4)!;
     assert.match(source, /line 2,2 5,2/);
     assert.match(source, /polygon 10,10 14,10 12,14/);

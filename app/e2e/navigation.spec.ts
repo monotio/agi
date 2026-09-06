@@ -34,6 +34,7 @@ test("top navigation groups controls and follows game sound through shortcuts, a
     mimeType: "application/zip",
     buffer: Buffer.from(buildZip([...game.files].map(([name, data]) => ({ name, data })))),
   });
+  await page.getByTestId("btn-resume-cached").click();
   const nav = page.getByRole("navigation", { name: "Game options" });
   const controls = nav.getByTestId("game-controls");
   const settings = nav.getByTestId("sound-display-menu");

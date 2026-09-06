@@ -1,4 +1,5 @@
 import { buildZip, type ZipFileInput } from "./zip.ts";
+import { publicGameMetadata } from "./gameMetadata.ts";
 import { validateAuthoringState } from "../../src/agent/authoringState.ts";
 import { buildView, type BuildViewInput } from "../../src/view/view.ts";
 import { buildObjectFile, buildSound, type SoundTrackInput } from "../../src/agent/tools.ts";
@@ -17,7 +18,7 @@ export interface ProjectContext {
 
 /** Only current game resources and interpreter identification travel publicly. */
 function gameEntries(
-  data: Pick<CachedCartridgeData, "files" | "title" | "roomGeneration">,
+  data: Pick<CachedCartridgeData, "files" | "title" | "roomGeneration" | "library">,
 ): ZipFileInput[] {
   const packed = compactContainer(new Map(Object.entries(data.files)));
   if (!packed.has("OBJECT")) packed.set("OBJECT", buildObjectFile([], detectProfile(packed)));
@@ -33,6 +34,7 @@ function gameEntries(
     data: JSON.stringify({
       format: "monotio.agi",
       version: 1,
+      metadata: publicGameMetadata(data.library),
       title: data.title,
       roomGeneration: data.roomGeneration === true,
     }),
@@ -41,7 +43,7 @@ function gameEntries(
 }
 
 export function buildPublicGameZip(
-  data: Pick<CachedCartridgeData, "files" | "title" | "roomGeneration">,
+  data: Pick<CachedCartridgeData, "files" | "title" | "roomGeneration" | "library">,
 ): Uint8Array<ArrayBuffer> {
   return finishArchive(gameEntries(data));
 }
@@ -99,7 +101,6 @@ export async function buildProjectZip(data: CachedCartridgeData): Promise<Uint8A
     data: JSON.stringify({
       format: "monotio.agi.project",
       version: 1,
-      harnessVersion: 1,
       provider: data.provider,
       model: data.model,
       sessionId: data.sessionId,

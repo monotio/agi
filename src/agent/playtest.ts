@@ -3,7 +3,7 @@ import { openContainer } from "../container/container.ts";
 import { parseWordsTok } from "../logic/words.ts";
 import { TIMER_INCREMENT_MS } from "../runtime/cycleClock.ts";
 import { Engine, type EngineHost } from "../runtime/engine.ts";
-import { frameToPng, textRows } from "./frames.ts";
+import { frameToPng, framesToContactSheet, textRows, type AgentFrame } from "./frames.ts";
 import type { AgentSessionState, AgentToolResult } from "./tools.ts";
 
 const DEFAULT_CYCLES = 600;
@@ -18,6 +18,17 @@ const DIRECTIONS: Readonly<Record<string, number>> = {
   "up-left": 8,
 };
 
+const DIRECTION_DELTAS: Readonly<Record<number, readonly [number, number]>> = {
+  1: [0, -1],
+  2: [1, -1],
+  3: [1, 0],
+  4: [1, 1],
+  5: [0, 1],
+  6: [-1, 1],
+  7: [-1, 0],
+  8: [-1, -1],
+};
+
 class SimulationStop extends Error {
   readonly status: "needs_host" | "needs_authoring" | "needs_input";
   constructor(message: string, status: "needs_host" | "needs_authoring" | "needs_input") {
@@ -26,11 +37,31 @@ class SimulationStop extends Error {
   }
 }
 
+interface CapturedCheckpoint {
+  frame: AgentFrame;
+  stepIndex: number;
+  tick: number;
+  estimatedGameTimeMs: number | null;
+  room: number;
+  objects: {
+    num: number;
+    view: number;
+    loop: number;
+    cel: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    priority: number;
+  }[];
+}
+
 class Simulation {
   readonly engine: Engine;
   readonly messages: string[] = [];
   readonly missingRooms: number[] = [];
   readonly steps: Record<string, unknown>[] = [];
+  readonly checkpoints: CapturedCheckpoint[] = [];
   cycles = 0;
   readonly cycleBudget: number;
   private readonly started = Date.now();
@@ -112,6 +143,35 @@ class Simulation {
     }
     this.engine.tick();
   }
+  captureCheckpoint(stepIndex: number, tick: number): void {
+    const raw = this.engine.getFrame();
+    this.checkpoints.push({
+      frame: {
+        visual: raw.visual.slice(),
+        priority: raw.priority.slice(),
+        cycle: this.cycles,
+        picRow: this.engine.displayBase,
+        text: this.engine.textCells.slice(),
+      },
+      stepIndex,
+      tick,
+      estimatedGameTimeMs: this.estimatedGameTimeMs,
+      room: this.engine.vars[0]!,
+      objects: this.engine
+        .readObjects()
+        .map(({ num, view, loop, cel, x, y, width, height, priority }) => ({
+          num,
+          view,
+          loop,
+          cel,
+          x,
+          y,
+          width,
+          height,
+          priority,
+        })),
+    });
+  }
   result(
     success: boolean,
     status: string,
@@ -127,6 +187,34 @@ class Simulation {
       picRow: engine.displayBase,
       text: engine.textCells.slice(),
     };
+    const checkpointSheet = this.checkpoints.length
+      ? framesToContactSheet(
+          this.checkpoints.map(({ frame: checkpoint }) => checkpoint),
+          "visual",
+        )
+      : null;
+    const checkpoints = this.checkpoints.map((checkpoint, tile) => ({
+      tile,
+      row: Math.floor(tile / checkpointSheet!.grid.cols),
+      col: tile % checkpointSheet!.grid.cols,
+      stepIndex: checkpoint.stepIndex,
+      tick: checkpoint.tick,
+      cycle: checkpoint.frame.cycle,
+      estimatedGameTimeMs: checkpoint.estimatedGameTimeMs,
+      room: checkpoint.room,
+      objects: checkpoint.objects,
+    }));
+    const images = [
+      {
+        png: frameToPng(frame, "visual"),
+        caption: `Isolated simulation, room ${state.room}, cycle ${this.cycles}. Picture and sprites at authentic geometry; game text is transcribed separately.`,
+      },
+    ];
+    if (checkpointSheet)
+      images.push({
+        png: checkpointSheet.png,
+        caption: `${this.checkpoints.length} requested intermediate composed frame${this.checkpoints.length === 1 ? "" : "s"} in row-major order (${checkpointSheet.grid.cols} columns by ${checkpointSheet.grid.rows} rows). Tile timing and object state are listed in details.checkpoints.`,
+      });
     return {
       success,
       ...(error
@@ -144,7 +232,7 @@ class Simulation {
         cycles: this.cycles,
         estimatedGameTimeMs: this.estimatedGameTimeMs,
         timing:
-          "Ticks are logic cycles. Positive v10 uses 50 ms increments; v10=0 is host-rate-dependent and has no elapsed-time claim.",
+          "Ticks are logic cycles. Timing begins at boot; playtest_room restarts the estimate at the action sequence after room setup. Positive v10 uses 50 ms increments; v10=0 is host-rate-dependent and has no elapsed-time claim.",
         missingRooms: this.missingRooms,
         steps: this.steps,
         state: {
@@ -165,14 +253,10 @@ class Simulation {
         objects: engine.readObjects(),
         messages: this.messages,
         text: textRows(frame).filter((row) => row.trim()),
+        checkpoints,
         ...extra,
       },
-      images: [
-        {
-          png: frameToPng(frame, "visual"),
-          caption: `Isolated simulation, room ${state.room}, cycle ${this.cycles}. Picture and sprites at authentic geometry; game text is transcribed separately.`,
-        },
-      ],
+      images,
     };
   }
 }
@@ -223,6 +307,68 @@ function footprint(engine: Engine, x: number, y: number): string[] {
   return issues;
 }
 
+interface ControlSpan {
+  value: number;
+  x0: number;
+  x1: number;
+}
+
+/** Exact scene controls under a proposed actor baseline, grouped into horizontal spans. */
+function baselineProbe(engine: Engine, x: number, y: number) {
+  const ego = engine.screenObjects[0]!;
+  const values = new Set<number>();
+  const blockingControls: ControlSpan[] = [];
+  for (let offset = 0; offset < ego.width; offset++) {
+    const at = x + offset;
+    if (at < 0 || at >= 160 || y < 0 || y >= 168) continue;
+    const value = engine.surface.priority[y * 160 + at]! & 0x0f;
+    values.add(value);
+    const blocking = value === 0 || (value === 1 && ego.observeBlocks);
+    const previous = blockingControls[blockingControls.length - 1];
+    if (blocking && previous?.value === value && previous.x1 === at - 1) previous.x1 = at;
+    else if (blocking) blockingControls.push({ value, x0: at, x1: at });
+  }
+  return {
+    x0: x,
+    x1: x + ego.width - 1,
+    y,
+    values: [...values].sort((a, b) => a - b),
+    blockingControls,
+  };
+}
+
+/** Current rendered depth over ego's logical bounding box; flag f1 is the exact engine verdict. */
+function occlusionProbe(engine: Engine) {
+  const ego = engine.screenObjects[0]!;
+  let actorBoxCells = 0;
+  let sceneCellsAboveActorPriority = 0;
+  const top = ego.y - ego.height + 1;
+  for (let y = Math.max(0, top); y <= Math.min(167, ego.y); y++) {
+    for (let x = Math.max(0, ego.x); x <= Math.min(159, ego.x + ego.width - 1); x++) {
+      actorBoxCells++;
+      let comparison = engine.surface.priority[y * 160 + x]! & 0x0f;
+      // drawCel resolves controls 0..2 to the first ordinary priority below.
+      if (comparison <= 2) {
+        comparison = 0;
+        for (let belowY = y + 1; belowY < 168; belowY++) {
+          const below = engine.surface.priority[belowY * 160 + x]! & 0x0f;
+          if (below > 2) {
+            comparison = below;
+            break;
+          }
+        }
+      }
+      if (comparison > ego.priority) sceneCellsAboveActorPriority++;
+    }
+  }
+  return {
+    actorPriority: ego.priority,
+    actorBoxCells,
+    sceneCellsAboveActorPriority,
+    completelyOccluded: engine.flags[1] !== 0,
+  };
+}
+
 /** Bootstrap normally, then explicitly enter the requested room in the detached game. */
 export function playtestRoom(
   state: AgentSessionState,
@@ -234,6 +380,41 @@ export function playtestRoom(
     const steps = args["steps"] ?? [];
     if (!Array.isArray(steps) || steps.length > 256)
       throw new Error("steps must contain at most 256 actions.");
+    const captureTicksByStep: number[][] = [];
+    let totalCaptureTicks = 0;
+    for (let index = 0; index < steps.length; index++) {
+      const step = steps[index];
+      if (!step || typeof step !== "object" || Array.isArray(step))
+        throw new Error(`steps[${index}] must be an action object.`);
+      const action = step as Record<string, unknown>;
+      const ticks =
+        action["ticks"] == null ? 1 : integer(action["ticks"], `steps[${index}].ticks`, 1, 60000);
+      const requested = action["captureTicks"];
+      if (requested == null) {
+        captureTicksByStep.push([]);
+        continue;
+      }
+      if (!Array.isArray(requested))
+        throw new Error(`steps[${index}].captureTicks must be an array or null.`);
+      if (requested.length > 9)
+        throw new Error(`steps[${index}].captureTicks must contain at most 9 ticks.`);
+      const validated: number[] = [];
+      for (let captureIndex = 0; captureIndex < requested.length; captureIndex++) {
+        const tick = integer(
+          requested[captureIndex],
+          `steps[${index}].captureTicks[${captureIndex}]`,
+          1,
+          ticks,
+        );
+        if (validated.length && tick <= validated[validated.length - 1]!)
+          throw new Error(`steps[${index}].captureTicks must be strictly increasing.`);
+        validated.push(tick);
+      }
+      totalCaptureTicks += validated.length;
+      if (totalCaptureTicks > 9)
+        throw new Error("captureTicks may request at most 9 checkpoints across the scenario.");
+      captureTicksByStep.push(validated);
+    }
     simulation = new Simulation(
       state,
       args["cycleBudget"] == null
@@ -276,13 +457,16 @@ export function playtestRoom(
       ego.x = ego.prevX = x;
       ego.y = ego.prevY = y;
     }
+    if (steps.length) simulation.estimatedGameTimeMs = engine.vars[10] === 0 ? null : 0;
     for (let index = 0; index < steps.length; index++) {
       const step = steps[index] as Record<string, unknown>;
       if (!step || typeof step !== "object" || Array.isArray(step))
         throw new Error(`steps[${index}] must be an action object.`);
       const ticks =
         step["ticks"] == null ? 1 : integer(step["ticks"], `steps[${index}].ticks`, 1, 60000);
+      const captureTicks = captureTicksByStep[index]!;
       const action = step["action"];
+      let moveDirection: number | null = null;
       if (action === "enter") simulation.keys.push(13);
       else if (action === "command") {
         if (engine.modalKind)
@@ -308,6 +492,7 @@ export function playtestRoom(
             `steps[${index}].direction must name one of the eight compass directions.`,
           );
         // Same host movement input as the app's direction messages.
+        moveDirection = direction;
         engine.vars[6] = direction;
       } else if (action !== "wait")
         throw new Error(`steps[${index}].action must be command, move, enter or wait.`);
@@ -344,6 +529,10 @@ export function playtestRoom(
       observed["observedObjects"] = observations.length;
       observed["totalObjects"] = active.length;
       observed["completedTicks"] = 0;
+      const estimatedStart = simulation.estimatedGameTimeMs;
+      let positionChanges = 0;
+      let previousEgoX = engine.screenObjects[0]!.x;
+      let previousEgoY = engine.screenObjects[0]!.y;
       for (let cycle = 0; cycle < ticks; cycle++) {
         if (action === "wait" && engine.modalKind)
           throw new SimulationStop(
@@ -352,6 +541,10 @@ export function playtestRoom(
           );
         simulation.tick();
         observed["completedTicks"] = cycle + 1;
+        const currentEgo = engine.screenObjects[0]!;
+        if (currentEgo.x !== previousEgoX || currentEgo.y !== previousEgoY) positionChanges++;
+        previousEgoX = currentEgo.x;
+        previousEgoY = currentEgo.y;
         for (const observation of observations) {
           const object = engine.screenObjects[observation.num]!;
           if (object.cel !== observation.celAfter) observation.celChanges++;
@@ -359,13 +552,55 @@ export function playtestRoom(
           observation.xAfter = object.x;
           observation.yAfter = object.y;
         }
+        if (captureTicks.includes(cycle + 1)) simulation.captureCheckpoint(index, cycle + 1);
       }
       Object.assign(observed, {
         roomAfter: engine.vars[0],
         xAfter: engine.screenObjects[0]!.x,
         yAfter: engine.screenObjects[0]!.y,
         modal: engine.modalKind,
+        egoCompletelyOccluded: engine.flags[1] !== 0,
+        estimatedDurationMs:
+          estimatedStart === null || simulation.estimatedGameTimeMs === null
+            ? null
+            : simulation.estimatedGameTimeMs - estimatedStart,
+        occlusion: occlusionProbe(engine),
       });
+      if (action === "move" && moveDirection !== null) {
+        const xBefore = observed["xBefore"] as number;
+        const yBefore = observed["yBefore"] as number;
+        const xAfter = engine.screenObjects[0]!.x;
+        const yAfter = engine.screenObjects[0]!.y;
+        const roomChanged = engine.vars[0] !== observed["roomBefore"];
+        const finalDirection = engine.screenObjects[0]!.direction;
+        const finalDelta = DIRECTION_DELTAS[finalDirection];
+        const probe =
+          !roomChanged && finalDelta
+            ? baselineProbe(
+                engine,
+                xAfter + finalDelta[0] * engine.screenObjects[0]!.stepSize,
+                yAfter + finalDelta[1] * engine.screenObjects[0]!.stepSize,
+              )
+            : null;
+        const firstBlock = probe?.blockingControls[0];
+        const distance = Math.max(Math.abs(xAfter - xBefore), Math.abs(yAfter - yBefore));
+        const issue = firstBlock
+          ? `${positionChanges === 0 ? `No movement in ${ticks} cycles` : `Moved ${distance} pixel${distance === 1 ? "" : "s"}, then stopped`}; the next baseline intersects ${firstBlock.value === 0 ? "barrier" : "conditional barrier"} priority ${firstBlock.value} at x${firstBlock.x0}${firstBlock.x1 === firstBlock.x0 ? "" : `-${firstBlock.x1}`}.`
+          : null;
+        observed["movement"] = {
+          moved: positionChanges > 0 || roomChanged,
+          deltaX: xAfter - xBefore,
+          deltaY: yAfter - yBefore,
+          positionChanges,
+          finalDirection,
+          blockedAtEnd: firstBlock !== undefined,
+          attemptedBaseline: probe
+            ? { x0: probe.x0, x1: probe.x1, y: probe.y, values: probe.values }
+            : null,
+          blockingControls: probe?.blockingControls ?? [],
+          issue,
+        };
+      }
       if (action === "move") {
         engine.vars[6] = 0;
         engine.screenObjects[0]!.direction = 0;
