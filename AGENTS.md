@@ -22,12 +22,12 @@ Node 22.12+. Two package roots: the repo root (engine, tests, scripts) and `app/
 ```bash
 npm ci && npm --prefix app ci                 # install both roots
 npm run dev                                   # Vite dev server on http://localhost:5199
-npm run check                                 # the gate: typecheck (root + app), lint, prettier, engine + app tests, eval replay
+npm run check                                 # the gate: typecheck (root + app), lint, ast-grep, prettier, engine + app tests, eval replay
 npm test && npm run test:app                  # node:test under --experimental-strip-types
 node --test --experimental-strip-types test/<file>.test.ts   # one engine test file
 npm run test:e2e                              # Playwright on its own `vite --mode test` server
 npm --prefix app run e2e -- e2e/<file>.spec.ts               # one spec
-npm run lint:ast                              # ast-grep structural rules; not in check, needs ast-grep installed
+npm run lint:ast                              # ast-grep structural rules and suppression check (part of check)
 npm run eval:replay                           # stored bad cases, offline
 ```
 
@@ -83,8 +83,8 @@ only for released formats and keep their original fixtures.
 - TypeScript strict with `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`;
   ESM with explicit `.ts` import specifiers.
 - Tests and scripts run under Node strip-types, so nothing they import may use
-  enums, namespaces or constructor parameter properties. ESLint and
-  `.ast-grep/rules/` enforce this.
+  enums, namespaces or constructor parameter properties. `erasableSyntaxOnly`,
+  ESLint and `.ast-grep/rules/` enforce this.
 - Static string-keyed tables are `Record`; `Map` and `Set` only for dynamic or
   non-string keys. No one-expression wrapper functions unless the name is a public
   contract.

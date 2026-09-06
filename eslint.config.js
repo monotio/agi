@@ -1,5 +1,6 @@
 // ESLint flat config. Encodes the AGENTS.md rules that a stock rule can
-// express; the ast-grep layer (.ast-grep/) covers the rest and is opt-in.
+// express; the ast-grep layer (.ast-grep/, `npm run lint:ast`) covers the
+// structural rest, and `npm run check` runs both.
 import js from "@eslint/js";
 import { defineConfig, globalIgnores } from "eslint/config";
 import vue from "eslint-plugin-vue";
@@ -126,6 +127,7 @@ export default defineConfig([
     files: [
       "test/**/*.ts",
       "scripts/**/*.ts",
+      "scripts/**/*.mjs",
       "app/e2e/**/*.ts",
       "app/test/**/*.ts",
       "app/vite.config.ts",
@@ -187,6 +189,40 @@ export default defineConfig([
       "vue/html-closing-bracket-newline": "off",
       "vue/first-attribute-linebreak": "off",
       "vue/attributes-order": "off",
+    },
+  },
+
+  {
+    // Vue 3.5 idioms: one script-setup style with type-based macros, and the
+    // rules that catch silent reactivity loss. The vue-* ast-grep rules cover
+    // what these cannot express (withDefaults, ref<T | null>(null),
+    // useTemplateRef generics).
+    name: "monotio_agi/strict-vue",
+    files: ["app/src/**/*.vue"],
+    rules: {
+      "vue/block-lang": ["error", { script: { lang: "ts" } }],
+      "vue/define-macros-order": [
+        "error",
+        {
+          order: ["defineProps", "defineEmits", "defineModel", "defineSlots"],
+          defineExposeLast: true,
+        },
+      ],
+      "vue/define-props-declaration": ["error", "type-based"],
+      "vue/define-emits-declaration": ["error", "type-based"],
+      "vue/enforce-style-attribute": ["error", { allow: ["scoped"] }],
+      "vue/no-undef-components": "error",
+      "vue/no-undef-properties": "error",
+      "vue/no-unused-refs": "error",
+      "vue/no-useless-v-bind": "error",
+      "vue/prefer-true-attribute-shorthand": "error",
+      "vue/prefer-separate-static-class": "error",
+      "vue/component-api-style": ["error", ["script-setup"]],
+      "vue/no-ref-object-reactivity-loss": "error",
+      "vue/require-typed-ref": "error",
+      "vue/prefer-use-template-ref": "error",
+      "vue/no-required-prop-with-default": "error",
+      "vue/valid-define-options": "error",
     },
   },
 

@@ -1,4 +1,26 @@
-# Opt-in structural guardrails. Not part of `npm run check`; run
-# `npm run lint:ast` when ast-grep is installed (brew install ast-grep).
+# Structural guardrails that stock ESLint rules cannot express. `npm run
+# lint:ast` runs them inside `npm run check` and CI; the CLI is a root
+# devDependency. Paths here are relative to this file.
 ruleDirs:
   - rules
+
+# Parse .vue files as HTML, then inject TypeScript inside <script> blocks so
+# TS rules reach into SFCs (ast-grep's built-in injection covers JS/CSS only).
+languageGlobs:
+  html: ["**/*.vue"]
+
+languageInjections:
+  - hostLanguage: html
+    rule:
+      pattern: |
+        <script setup lang="ts">
+          $CONTENT
+        </script>
+    injected: ts
+  - hostLanguage: html
+    rule:
+      pattern: |
+        <script lang="ts" setup>
+          $CONTENT
+        </script>
+    injected: ts

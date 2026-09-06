@@ -1,0 +1,11 @@
+id: vue-no-withdefaults
+language: ts
+severity: error
+message: Use reactive props destructure instead of withDefaults (Vue 3.5+)
+note: |
+  withDefaults keeps a prop's default away from its declaration, so the two
+  drift; a destructured default stays next to the prop and stays reactive.
+  BAD:  const props = withDefaults(defineProps<Props>(), { count: 1 });
+  GOOD: const { count = 1 } = defineProps<Props>();
+rule:
+  pattern: withDefaults(defineProps<$T>(), $DEFAULTS)

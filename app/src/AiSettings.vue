@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, useTemplateRef } from "vue";
 import { defaultModelEffort, modelEffortOptions } from "../../src/agent/modelEffort.ts";
 import { copyAiSettings, type AiSettings, type AiSettingsProvider } from "./aiSettings.ts";
 
-const props = defineProps<{
+const { settings, budgetUsd } = defineProps<{
   settings: AiSettings;
   models: Record<AiSettingsProvider, readonly { id: string; label: string }[]>;
   allowStub: boolean;
@@ -16,13 +16,13 @@ const emit = defineEmits<{
   closed: [];
 }>();
 
-const dialog = ref<HTMLDialogElement | null>(null);
-const draft = ref(copyAiSettings(props.settings));
-const draftBudget = ref(props.budgetUsd);
+const dialog = useTemplateRef("dialog");
+const draft = ref(copyAiSettings(settings));
+const draftBudget = ref(budgetUsd);
 
 function show(): void {
-  draft.value = copyAiSettings(props.settings);
-  draftBudget.value = props.budgetUsd;
+  draft.value = copyAiSettings(settings);
+  draftBudget.value = budgetUsd;
   dialog.value?.showModal();
 }
 

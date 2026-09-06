@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import type { AgentRunState } from "./agent/agentRun.ts";
-const props = withDefaults(defineProps<{ task: AgentRunState | null; showText?: boolean }>(), {
-  showText: true,
-});
+const { task, showText = true } = defineProps<{ task: AgentRunState | null; showText?: boolean }>();
 defineEmits<{ stop: []; resume: []; discard: [] }>();
 const now = ref(Date.now());
 let clock: ReturnType<typeof setInterval>;
@@ -29,7 +27,7 @@ const TOOL_SUBJECTS: Record<string, string> = {
   playtest_room: "a playtest",
 };
 const activity = computed(() => {
-  const progress = props.task?.progress;
+  const progress = task?.progress;
   if (progress?.phase === "tool")
     return `Preparing ${TOOL_SUBJECTS[progress.tool ?? ""] ?? "a tool call"}…`;
   if (progress?.phase === "text") return "Writing…";
@@ -37,10 +35,10 @@ const activity = computed(() => {
   return "Waiting for the model…";
 });
 const elapsed = computed(() =>
-  Math.max(0, Math.floor((now.value - (props.task?.progress?.startedAt ?? now.value)) / 1000)),
+  Math.max(0, Math.floor((now.value - (task?.progress?.startedAt ?? now.value)) / 1000)),
 );
 const quiet = computed(() =>
-  Math.max(0, Math.floor((now.value - (props.task?.progress?.lastEventAt ?? now.value)) / 1000)),
+  Math.max(0, Math.floor((now.value - (task?.progress?.lastEventAt ?? now.value)) / 1000)),
 );
 </script>
 
@@ -69,7 +67,7 @@ const quiet = computed(() =>
     </div>
     <div class="task-row">
       <span
-        :title="'Estimated from reported tokens and standard API rates. A response may cross the budget; interrupted requests may still be billed.'"
+        title="Estimated from reported tokens and standard API rates. A response may cross the budget; interrupted requests may still be billed."
       >
         {{
           task.priceKnown
