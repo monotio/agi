@@ -370,11 +370,6 @@ resources before play. Playing stores that release in the browser; subsequent
 visits use its saved copy and checkpoint. Change the entry's version when publishing
 changed resources so an existing player's saved release stays intact.
 
-The root `games/kq1/`, `games/kq2/` and `games/kq3/` folders are private test
-fixtures. The development server exposes them locally for testing; they are not
-copied into `app/dist` or discovered by the production app. Publishing games is
-an explicit choice through the public folder and manifest.
-
 ### Production releases
 
 Production is served at `https://agi.monotio.com/` through Azure Front Door.
