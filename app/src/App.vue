@@ -908,13 +908,9 @@ function onInputEdit(event: Event): void {
     ).slice(0, Math.min(39, prompt.maxLen));
     input.value = promptLine.value;
     echoPrompt();
-  } else if (state.textMode || state.waitingForKey || state.modal !== null || !state.inputEnabled) {
-    for (const char of input.value) sendKey(char.charCodeAt(0));
-    inputLine.value = "";
-    input.value = "";
   } else {
-    // An IME may insert or replace several characters without keydown. Route
-    // newly inserted registered keys exactly as the physical keyboard does.
+    // An IME may insert or replace several characters without keydown. Only
+    // that inserted range is new input; the rest may be an unfinished command.
     const previous = inputLine.value;
     const next = input.value;
     let start = 0;
@@ -925,6 +921,16 @@ function onInputEdit(event: Event): void {
     while (oldEnd > start && newEnd > start && previous[oldEnd - 1] === next[newEnd - 1]) {
       oldEnd--;
       newEnd--;
+    }
+    if (state.textMode || state.waitingForKey || state.modal !== null || !state.inputEnabled) {
+      const entered =
+        event instanceof InputEvent || event instanceof CompositionEvent
+          ? (event.data ?? next.slice(start, newEnd))
+          : next.slice(start, newEnd);
+      for (const char of entered) sendKey(char.charCodeAt(0));
+      // Raw-key answers do not edit the parser command that preceded them.
+      input.value = previous;
+      return;
     }
     let inserted = "";
     for (const char of next.slice(start, newEnd)) {

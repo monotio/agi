@@ -4,6 +4,8 @@ import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { decodeSave } from "../src/runtime/persistence.ts";
+import { runSaveDialog } from "../src/runtime/saveDialog.ts";
+import { TextSurface } from "../src/runtime/textSurface.ts";
 
 function setup(
   action: "save" | "restore",
@@ -234,4 +236,80 @@ test("save description fallback consumes text and confirmation from the same key
   assert.equal(writes[0]?.slot, 2);
   assert.equal(decodeSave(writes[0]!.bytes, engine.profile).description, "Path");
   assert.equal(engine.vars[100], 0x62);
+});
+
+for (const alias of [0x0101, 0x0301]) {
+  test(`raw description editor accepts Enter alias ${alias.toString(16)}`, () => {
+    const keys = [13, 65, alias, 13];
+    const writes: string[] = [];
+    runSaveDialog("save", new TextSurface(), "", {
+      list: () => [],
+      waitKey: () => keys.shift() ?? 0,
+      read: () => null,
+      write: (_slot, description) => {
+        writes.push(description);
+      },
+    });
+    assert.deepEqual(writes, ["A"]);
+  });
+}
+
+for (const alias of [0x0201, 0x0401]) {
+  test(`raw description editor cancels on Escape alias ${alias.toString(16)}`, () => {
+    const keys = [13, 65, alias, 13, 13];
+    const writes: string[] = [];
+    runSaveDialog("save", new TextSurface(), "", {
+      list: () => [],
+      waitKey: () => keys.shift() ?? 0,
+      read: () => null,
+      write: (_slot, description) => {
+        writes.push(description);
+      },
+    });
+    assert.deepEqual(writes, []);
+    assert.deepEqual(keys, [13, 13], "cancellation leaves following keys unread");
+  });
+}
+
+test("raw description editing reserves the header terminator before accepting characters", () => {
+  const keys = [13, ...Array<number>(31).fill(65), 8, 66, 13, 13];
+  const text = new TextSurface();
+  const writes: string[] = [];
+  const confirmations: string[] = [];
+  runSaveDialog("save", text, "", {
+    list: () => [],
+    waitKey() {
+      if (text.charAt(1, 2) === "S".charCodeAt(0) && text.charAt(1, 7) === "i".charCodeAt(0)) {
+        confirmations.push(
+          Array.from({ length: 31 }, (_, i) => String.fromCharCode(text.charAt(3, 2 + i))).join(""),
+        );
+      }
+      return keys.shift() ?? 0;
+    },
+    read: () => null,
+    write: (_slot, description) => {
+      writes.push(description);
+    },
+  });
+  assert.deepEqual(writes, ["A".repeat(29) + "B"]);
+  assert.deepEqual(confirmations, ["A".repeat(29) + "B "]);
+});
+
+test("native description editor and final write use the same 30-character capacity", () => {
+  const limits: number[] = [];
+  const writes: string[] = [];
+  runSaveDialog("save", new TextSurface(), "", {
+    list: () => [],
+    waitKey: () => 13,
+    describe(_initial, maxLen) {
+      limits.push(maxLen);
+      return "A".repeat(30) + "Z";
+    },
+    read: () => null,
+    write: (_slot, description) => {
+      writes.push(description);
+    },
+  });
+  assert.deepEqual(limits, [30]);
+  assert.deepEqual(writes, ["A".repeat(30)], "defensively bound an overlong host reply");
 });

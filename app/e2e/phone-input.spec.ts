@@ -8,7 +8,12 @@ import { isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
 
 test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
 
-async function boot(page: Page, hold = false, interrupt?: "print" | "menu" | "save") {
+async function boot(
+  page: Page,
+  hold = false,
+  interrupt?: "print" | "menu" | "save",
+  rawDraft = false,
+) {
   const game = createContainer();
   game.putFile("OBJECT", buildObjectFile([{ name: "key" }, { name: "lamp" }]));
   game.putResource("picture", 0, Uint8Array.of(255));
@@ -38,7 +43,9 @@ async function boot(page: Page, hold = false, interrupt?: "print" | "menu" | "sa
     if(controller(2)) {get.num("Number?",v61);display(4,0,"Number: %v61");}
     if(controller(3)) {menu.input();}
     if(controller(4)) {print("Continue or cancel");display(5,0,"Window closed");}
-    if(controller(5)) {text.screen();prevent.input();}
+    if(controller(5)) {text.screen();prevent.input();
+      ${rawDraft ? "raw_answer: if(!have.key()) {goto raw_answer;} assignv(v65,v19);graphics();accept.input();" : ""}
+    }
     if(controller(6)) {display(6,0,"CTRL A");}
     if(controller(7)) {display(7,0,"ALT A");}
     if(controller(8)) {set(f13);status();display(9,0,"Item: %v25");}
@@ -55,6 +62,7 @@ async function boot(page: Page, hold = false, interrupt?: "print" | "menu" | "sa
     if(equaln(v19,3)) {display(14,0,"RAW CTRL C");}
     display(10,0,"State: %v62");
     if(equaln(v19,121)) {graphics();accept.input();display(8,0,"RAW Y");}
+    ${rawDraft ? 'if(greatern(v65,0)) {display(15,0,"First key: %v65");}' : ""}
     ${interrupt ? `get.posn(0,v63,v64);if(!isset(f201) && greatern(v63,64)) {set(f201);${interrupt === "print" ? 'print("Movement interruption");' : interrupt === "menu" ? "menu.input();" : "save.game();"}}` : ""}
     return;`,
       { dictionary: new Map() },
@@ -379,7 +387,30 @@ test("cancelling a native save description leaves the slot empty", async ({ page
   await expect.poll(async () => (await textHook(page)).modal).toBe("save");
   await pad.getByRole("button", { name: "Enter", exact: true }).tap();
   await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  await expect
+    .poll(async () => (await textHook(page)).rows.join(" "))
+    .toContain("Describe this saved game:");
+  const blankEditor = await page.getByTestId("game-canvas").evaluate((canvas) => {
+    const pixels = (canvas as HTMLCanvasElement)
+      .getContext("2d")!
+      .getImageData(16, 24, 112, 8).data;
+    return Array.from(pixels).filter((value, index) => index % 4 === 0 && value === 0).length;
+  });
   await page.getByTestId("input-line").fill("Cancelled name");
+  await expect
+    .poll(async () =>
+      page.getByTestId("game-canvas").evaluate((canvas) => {
+        const pixels = (canvas as HTMLCanvasElement)
+          .getContext("2d")!
+          .getImageData(16, 24, 112, 8).data;
+        if (!Array.from(pixels).every((value) => value === 0 || value === 255)) return -1;
+        return Array.from(pixels).filter((value, index) => index % 4 === 0 && value === 0).length;
+      }),
+    )
+    .toBeGreaterThan(blankEditor);
+  await expect
+    .poll(async () => (await textHook(page)).rows.join(" "))
+    .toContain("Describe this saved game:");
   await pad.getByRole("button", { name: "Esc", exact: true }).tap();
   await expect.poll(async () => (await textHook(page)).modal).toBeNull();
   await pad.getByRole("button", { name: "F8", exact: true }).tap();
@@ -461,3 +492,24 @@ test("touch keys navigate game menus and preserve raw text-screen answers", asyn
   await expect(pad.getByRole("button", { name: "Enter", exact: true })).toBeInViewport();
   await page.screenshot({ path: test.info().outputPath("phone-landscape.png") });
 });
+
+for (const replacement of [false, true]) {
+  test(`native raw-key ${replacement ? "replacement" : "answer"} preserves the unfinished parser draft`, async ({
+    page,
+  }) => {
+    await boot(page, false, undefined, true);
+    const input = page.getByTestId("input-line");
+    await input.fill("look");
+    await waitForCycles(page, 2);
+    await page.keyboard.press("F5");
+    await expect.poll(async () => (await textHook(page)).textMode).toBe(true);
+    await input.focus();
+    if (replacement) await input.selectText();
+    await page.keyboard.insertText(replacement ? "l" : "y");
+    await expect
+      .poll(async () => (await textHook(page)).rows.join(" "))
+      .toContain(`First key: ${replacement ? 108 : 121}`);
+    await expect(input).toHaveValue("look");
+    await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("look");
+  });
+}

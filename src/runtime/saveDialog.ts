@@ -1,6 +1,9 @@
 /** Engine-owned selector from agi-re, "Save selector" and "Save action outcomes". */
-import { saveSignatureMatches } from "./persistence.ts";
+import { SAVE_DESCRIPTION_BYTES, saveSignatureMatches } from "./persistence.ts";
 import { type TextSurface, TEXT_COLS, TEXT_ROWS, attr } from "./textSurface.ts";
+
+// The existing save writer reserves one byte in the header for its NUL terminator.
+const DESCRIPTION_LIMIT = SAVE_DESCRIPTION_BYTES - 1;
 
 export interface SaveSlot {
   slot: number;
@@ -66,7 +69,7 @@ export function runSaveDialog(
       let description: string | null = null;
       if (file) {
         description = "";
-        for (const byte of file.bytes.subarray(0, 31)) {
+        for (const byte of file.bytes.subarray(0, SAVE_DESCRIPTION_BYTES)) {
           if (byte === 0) break;
           description += String.fromCharCode(byte);
         }
@@ -113,7 +116,7 @@ export function runSaveDialog(
     if (description === null) {
       screen("Describe this saved game:");
       text.write(6, 2, "ENTER: accept   ESC: cancel", normal);
-      if (host.describe) description = host.describe("", 31, 3, 2);
+      if (host.describe) description = host.describe("", DESCRIPTION_LIMIT, 3, 2);
       else {
         description = "";
         for (;;) {
@@ -121,14 +124,15 @@ export function runSaveDialog(
           text.write(3, 2, description, normal);
           const key = host.waitKey();
           const byte = key & 0xff;
-          if (byte === 13) break;
-          if (key === 0 || byte === 27) return null;
+          if (byte === 13 || key === 0x0101 || key === 0x0301) break;
+          if (key === 0 || byte === 27 || key === 0x0201 || key === 0x0401) return null;
           if (byte === 8) description = description.slice(0, -1);
-          else if (byte >= 32 && description.length < 31) description += String.fromCharCode(byte);
+          else if (byte >= 32 && description.length < DESCRIPTION_LIMIT)
+            description += String.fromCharCode(byte);
         }
       }
       if (description === null) return null;
-      description = description.slice(0, 31);
+      description = description.slice(0, DESCRIPTION_LIMIT);
     }
     screen(
       choice.description === null
