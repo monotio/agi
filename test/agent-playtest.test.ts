@@ -221,7 +221,7 @@ test("a room-only check does not claim a tested route and can enter a later auth
   assert.equal(result.details?.["simulation"], "not_requested");
 });
 
-test("genesis rejects a static room that never enables player input", () => {
+test("genesis warns about a static room that never enables player input", () => {
   const state = world();
   const dictionary = new Map([
     ["take", 10],
@@ -237,8 +237,74 @@ test("genesis rejects a static room that never enables player input", () => {
     ).payload,
   );
   const result = validateGenesis(state);
+  assert.equal(result.success, true, result.error ?? "");
+  assert.match((result.details?.["warnings"] as string[]).join(" "), /parser was not enabled/);
+});
+
+test("genesis fails a boot that shows nothing", () => {
+  const state = world();
+  state.container.putResource(
+    "logic",
+    1,
+    assembleLogic("return;", { dictionary: new Map() }).payload,
+  );
+  const result = validateGenesis(state);
   assert.equal(result.success, false);
-  assert.match(result.error ?? "", /enabled parser/);
+  assert.match(result.error ?? "", /showed nothing/);
+});
+
+test("genesis passes a text-only intro and an ego-less scene with warnings", () => {
+  const dictionary = new Map([["take", 10]]);
+  const textOnly = world();
+  textOnly.container.putResource(
+    "logic",
+    1,
+    assembleLogic('display(10, 5, "The archive is closed today."); return;', { dictionary })
+      .payload,
+  );
+  const intro = validateGenesis(textOnly);
+  assert.equal(intro.success, true, intro.error ?? "");
+  assert.match((intro.details?.["warnings"] as string[]).join(" "), /no picture/i);
+
+  const egoless = world();
+  egoless.container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      "if (isset(f5)) { assignn(v10,1); load.pic(v10); draw.pic(v10); show.pic(); accept.input(); } return;",
+      { dictionary },
+    ).payload,
+  );
+  const scene = validateGenesis(egoless);
+  assert.equal(scene.success, true, scene.error ?? "");
+  assert.match((scene.details?.["warnings"] as string[]).join(" "), /active ego/);
+  assert.equal(scene.details?.["genesisValidated"], true);
+});
+
+test("genesis dismisses a long intro and a key-wait title before the first room", () => {
+  const dictionary = new Map([["take", 10]]);
+  const state = world();
+  state.container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      `
+if (lessn(v40, 10)) { increment(v40); print("Long ago, in a kingdom of pixels..."); return; }
+if (!isset(f41)) {
+  display(10, 5, "Press any key");
+title: if (!have.key()) { goto title; }
+  set(f41);
+  assignn(v10,1); load.pic(v10); draw.pic(v10); show.pic();
+  load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); accept.input();
+}
+return;`,
+      { dictionary },
+    ).payload,
+  );
+  const result = validateGenesis(state);
+  assert.equal(result.success, true, result.error ?? "");
+  assert.equal(result.details?.["acknowledgements"], 11, "ten messages and one key press");
+  assert.equal(result.details?.["warnings"], undefined);
 });
 
 test("a barrier-blocked exit fails the expected room assertion instead of claiming reachability", () => {

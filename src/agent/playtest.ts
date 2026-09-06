@@ -7,6 +7,10 @@ import { frameToPng, framesToContactSheet, textRows, type AgentFrame } from "./f
 import type { AgentSessionState, AgentToolResult } from "./tools.ts";
 
 const DEFAULT_CYCLES = 600;
+/** Genesis boots get this many cycles, plus GENESIS_CYCLES_PER_ACK for every dismissed message or key. */
+const GENESIS_CYCLES = 120;
+const GENESIS_CYCLES_PER_ACK = 30;
+const GENESIS_MAX_ACKS = 16;
 const DIRECTIONS: Readonly<Record<string, number>> = {
   up: 1,
   "up-right": 2,
@@ -68,7 +72,14 @@ class Simulation {
   estimatedGameTimeMs: number | null = 0;
   line: string | null = null;
   keys: number[] = [];
-  constructor(state: AgentSessionState, cycleBudget = DEFAULT_CYCLES, instructionBudget = 50000) {
+  /** Keys the simulation pressed for a blocking wait; only genesis boots allow that. */
+  keyPresses = 0;
+  constructor(
+    state: AgentSessionState,
+    cycleBudget = DEFAULT_CYCLES,
+    instructionBudget = 50000,
+    options: { pressKeys?: boolean } = {},
+  ) {
     this.cycleBudget = cycleBudget;
     const container = openContainer(state.getFiles(), { kind: state.profile.container });
     const words = container.files.get("WORDS.TOK");
@@ -110,7 +121,11 @@ class Simulation {
         random = (Math.imul(random, 1664525) + 1013904223) >>> 0;
         return random >>> 16;
       },
-      waitKey: () => unsupported("waitKey"),
+      waitKey: () => {
+        if (!options.pressKeys) return unsupported("waitKey");
+        this.keyPresses += 1;
+        return 13;
+      },
       promptNumber: () => unsupported("get.num"),
       promptString: () => unsupported("get.string"),
       saveGame: () => unsupported("save.game"),
@@ -676,7 +691,19 @@ export function playtestRoom(
   }
 }
 
-/** Execute the actual boot driver; resource names alone cannot establish a playable start. */
+function textVisible(engine: Engine): boolean {
+  return engine.textCells.some((byte, index) => index % 2 === 0 && byte > 32);
+}
+
+/**
+ * Execute the actual boot driver; resource names alone cannot establish a playable start.
+ *
+ * Only real defects fail: a missing resource, a black screen, or an ego that spawns
+ * in unwalkable space. Messages and key waits are dismissed the way a player would.
+ * An opening that has not enabled the parser or animated ego within the budget still
+ * passes, with warnings in the result, so title cards, intros and ego-less scenes are
+ * reported to the model rather than blocked.
+ */
 export function validateGenesis(state: AgentSessionState): AgentToolResult {
   let simulation: Simulation | undefined;
   try {
@@ -685,34 +712,61 @@ export function validateGenesis(state: AgentSessionState): AgentToolResult {
       throw new Error(
         "Cannot finish genesis: missing required initial resources: boot logic 0 or WORDS.TOK.",
       );
-    simulation = new Simulation(state);
+    simulation = new Simulation(state, DEFAULT_CYCLES, 50000, { pressKeys: true });
     const engine = simulation.engine;
-    let acknowledgements = 0;
-    for (let i = 0; i < 120; i++) {
+    const warnings: string[] = [];
+    let dismissed = 0;
+    let budget = GENESIS_CYCLES;
+    let seen = false;
+    for (let i = 0; i < budget; i++) {
       simulation.tick();
       const current = engine.readState();
-      if (current.pictureShown && current.inputEnabled && engine.screenObjects[0]!.active) {
-        const issues = footprint(engine, current.egoX, current.egoY);
-        if (issues.length)
-          throw new Error(
-            `Booted room ${current.room} has an invalid ego spawn: ${issues.join(" ")}`,
+      seen ||= current.pictureShown || textVisible(engine);
+      if (current.pictureShown && current.inputEnabled) {
+        if (engine.screenObjects[0]!.active) {
+          const issues = footprint(engine, current.egoX, current.egoY);
+          if (issues.length)
+            throw new Error(
+              `Booted room ${current.room} has an invalid ego spawn: ${issues.join(" ")}`,
+            );
+        } else {
+          warnings.push(
+            `Room ${current.room} accepts input without an active ego (object 0), so players can type but not walk. That suits a text or cutscene opening; otherwise animate.obj, position and draw object 0 before accept.input().`,
           );
+        }
         return simulation.result(true, "passed", undefined, {
           genesisValidated: true,
-          acknowledgements,
+          acknowledgements: dismissed + simulation.keyPresses,
+          ...(warnings.length ? { warnings } : {}),
         });
       }
       if (engine.modalKind) {
-        if (++acknowledgements > 8)
-          throw new Error(
-            "Boot did not reach an interactive scene after eight modal acknowledgements.",
-          );
         engine.ackPrint();
+        dismissed += 1;
+        budget += GENESIS_CYCLES_PER_ACK;
       }
+      if (dismissed + simulation.keyPresses > GENESIS_MAX_ACKS)
+        throw new Error(
+          `Boot did not reach an interactive scene after ${GENESIS_MAX_ACKS} dismissed messages or key presses.`,
+        );
     }
-    throw new Error(
-      "Boot did not reach a shown picture, active ego and enabled parser within 120 cycles.",
+    if (!seen)
+      throw new Error(
+        `Boot showed nothing within ${budget} cycles: no picture and no text. Draw the first room (load.pic, draw.pic, show.pic) or display text before waiting.`,
+      );
+    const final = engine.readState();
+    warnings.push(
+      final.pictureShown
+        ? `The parser was not enabled within ${budget} cycles: the opening shows a picture but never calls accept.input(). Fine for a title card or intro that advances on a key; otherwise players cannot act.`
+        : final.inputEnabled
+          ? `No picture was shown within ${budget} cycles although the parser is on. Fine for a text adventure; otherwise draw the first room with load.pic, draw.pic and show.pic.`
+          : `Only text was shown within ${budget} cycles: no picture, and the parser is off. Fine for a text intro; otherwise draw the first room and call accept.input().`,
     );
+    return simulation.result(true, "passed", undefined, {
+      genesisValidated: true,
+      acknowledgements: dismissed + simulation.keyPresses,
+      warnings,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const status = error instanceof SimulationStop ? error.status : "failed";

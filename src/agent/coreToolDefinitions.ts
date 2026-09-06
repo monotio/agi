@@ -250,7 +250,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "finish_genesis",
     description:
-      "Validate genesis by booting the world in a bounded simulation. The starting room must draw, accept input and place initialized ego fully in walkable space. Returns observed state and a screenshot; failures do not complete genesis. `notes` is optional free text and is not interpreted.",
+      "Validate genesis by booting the world in a bounded simulation, dismissing messages and key waits like a player. Missing resources, a black screen or an ego placed outside walkable space fail and do not complete genesis. An opening without the parser enabled or without an active ego passes with `warnings` describing what players will meet. Returns observed state and a screenshot. `notes` is optional free text and is not interpreted.",
     parameters: {
       type: "object",
       additionalProperties: false,
