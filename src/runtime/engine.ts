@@ -638,10 +638,11 @@ export class Engine {
 
   /**
    * Tracked key release (spec): when the release gate is nonzero the release
-   * enqueues a movement value 0, processed in the next input phase.
+   * enqueues a movement value 0, processed in the next input phase. A host
+   * delaying delivery through a modal may supply eligibility captured at release.
    */
-  releaseTrackedKey(): void {
-    if (this.keyReleaseGate !== 0) {
+  releaseTrackedKey(eligible = this.keyReleaseGate !== 0): void {
+    if (eligible) {
       for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
       this.inputQueue.enqueue({ type: 2, value: 0 });
     }
@@ -1776,6 +1777,8 @@ export class Engine {
       } catch (rc) {
         if (rc instanceof RoomChange) {
           this.finishRoomChange(rc.room);
+          // agi-re "Top-level cycle order" refreshes remembered v3 only on reentry;
+          // retain the pre-logic f9 comparison so sound changes still redraw at the tail.
           this.cycleStatusScore = this.vars[V_SCORE]!;
           this.controllers.fill(0);
           this.vars[V_KEY] = 0;

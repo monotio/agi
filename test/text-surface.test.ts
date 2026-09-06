@@ -534,6 +534,26 @@ test("room reentry refreshes the remembered score before running the next logic 
   assert.equal(engine.textRow(0).slice(18, 22), "TIME");
 });
 
+test("room reentry retains the pre-logic sound comparison for the final status redraw", () => {
+  // agi-re "Top-level cycle order" refreshes remembered v3 on reentry, not f9.
+  const container = gameWith(`
+    if (!isset(f200)) {
+      set(f200); assignn(v7,42); status.line.on(); set(f9); new.room(1);
+    }
+    display(0,18,"TIME"); return;
+  `);
+  container.putResource("logic", 1, assembleLogic("return;", { dictionary: DICT }).payload);
+  const engine = new Engine(container, new Host(), DICT);
+  engine.tick();
+  assert.equal(engine.vars[0], 1);
+  assert.equal(engine.flags[9], 1);
+  assert.equal(
+    engine.textRow(0),
+    " Score: 0 of 42" + spaces(15) + "Sound:on  ",
+    "the sound change before new.room redraws over the destination's custom status cells",
+  );
+});
+
 test("host sound toggle refreshes status immediately or after a modal closes", () => {
   const host = new Host();
   const engine = new Engine(

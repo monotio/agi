@@ -1460,7 +1460,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   }
 
   function sendDirection(dir: number): void {
-    worker?.postMessage({ type: "direction", dir });
+    worker?.postMessage({ type: "direction", dir, releaseEligible: state.holdToMove });
   }
 
   function sendKey(code: number): void {

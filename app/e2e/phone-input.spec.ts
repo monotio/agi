@@ -8,7 +8,7 @@ import { isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
 
 test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
 
-async function boot(page: Page, hold = false) {
+async function boot(page: Page, hold = false, interrupt?: "print" | "menu" | "save") {
   const game = createContainer();
   game.putFile("OBJECT", buildObjectFile([{ name: "key" }, { name: "lamp" }]));
   game.putResource("picture", 0, Uint8Array.of(255));
@@ -55,6 +55,7 @@ async function boot(page: Page, hold = false) {
     if(equaln(v19,3)) {display(14,0,"RAW CTRL C");}
     display(10,0,"State: %v62");
     if(equaln(v19,121)) {graphics();accept.input();display(8,0,"RAW Y");}
+    ${interrupt ? `get.posn(0,v63,v64);if(!isset(f201) && greatern(v63,64)) {set(f201);${interrupt === "print" ? 'print("Movement interruption");' : interrupt === "menu" ? "menu.input();" : "save.game();"}}` : ""}
     return;`,
       { dictionary: new Map() },
     ).payload,
@@ -105,6 +106,67 @@ for (const hold of [false, true]) {
     }
     await page.screenshot({ path: test.info().outputPath("phone-controls.png") });
   });
+}
+
+test("touch hold release during a game-triggered print stops ego after dismissal", async ({
+  page,
+}) => {
+  await boot(page, true, "print");
+  const pad = page.getByTestId("touch-controls");
+  const east = pad.getByRole("button", { name: /^(Walk|Navigate) east$/ });
+  await east.dispatchEvent("pointerdown", { pointerId: 1, pointerType: "touch", button: 0 });
+  await expect.poll(async () => (await textHook(page)).modal).toBe("print");
+  await east.dispatchEvent("pointerup", { pointerId: 1, pointerType: "touch" });
+  await pad.getByRole("button", { name: "Esc", exact: true }).tap();
+  await expect.poll(async () => (await textHook(page)).modal).toBeNull();
+  await waitForCycles(page, 2);
+  const released = (await textHook(page)).egoX;
+  await waitForCycles(page, 3);
+  expect((await textHook(page)).egoX).toBe(released);
+});
+
+for (const modal of ["menu", "save"] as const) {
+  for (const hold of [false, true]) {
+    test(`${modal} navigation releases preserve ${hold ? "the next held gesture" : "toggle walking"}`, async ({
+      page,
+    }) => {
+      await boot(page, hold, modal);
+      const pad = page.getByTestId("touch-controls");
+      const east = pad.getByRole("button", { name: /^(Walk|Navigate) east$/ });
+      await east.dispatchEvent("pointerdown", { pointerId: 1, pointerType: "touch", button: 0 });
+      if (!hold) await east.dispatchEvent("pointerup", { pointerId: 1, pointerType: "touch" });
+      await expect.poll(async () => (await textHook(page)).modal).toBe(modal);
+      if (hold) await east.dispatchEvent("pointerup", { pointerId: 1, pointerType: "touch" });
+      const south = pad.getByRole("button", { name: /^(Walk|Navigate) south$/ });
+      await south.dispatchEvent("pointerdown", { pointerId: 2, pointerType: "touch", button: 0 });
+      await pad.getByRole("button", { name: "Esc", exact: true }).tap();
+      await expect.poll(async () => (await textHook(page)).modal).toBeNull();
+      await waitForCycles(page, 2);
+      const resumed = (await textHook(page)).egoX;
+      await waitForCycles(page, 3);
+      if (hold) {
+        expect((await textHook(page)).egoX).toBe(resumed);
+        await south.dispatchEvent("pointerup", { pointerId: 2, pointerType: "touch" });
+        await east.dispatchEvent("pointerdown", { pointerId: 3, pointerType: "touch", button: 0 });
+        await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(resumed);
+        const moving = (await textHook(page)).egoX;
+        await waitForCycles(page, 3);
+        expect((await textHook(page)).egoX).toBeGreaterThan(moving);
+        await east.dispatchEvent("pointerup", { pointerId: 3, pointerType: "touch" });
+      } else {
+        expect((await textHook(page)).egoX).toBeGreaterThan(resumed);
+        await south.dispatchEvent("pointerup", { pointerId: 2, pointerType: "touch" });
+        const afterNavigation = (await textHook(page)).egoX;
+        await waitForCycles(page, 3);
+        expect((await textHook(page)).egoX).toBeGreaterThan(afterNavigation);
+        await east.tap();
+      }
+      await waitForCycles(page, 2);
+      const stopped = (await textHook(page)).egoX;
+      await waitForCycles(page, 3);
+      expect((await textHook(page)).egoX).toBe(stopped);
+    });
+  }
 }
 
 test("phone text input answers string and numeric prompts without keydown", async ({ page }) => {

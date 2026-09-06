@@ -69,6 +69,7 @@ const DIRS: Record<string, number> = {
   PageDown: 4,
 };
 const heldMovementKeys = new Set<string>();
+let touchMovementActive = false;
 
 // Cartridge and LLM state
 const savedWorlds = ref(listCachedCartridges());
@@ -890,7 +891,7 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
 
 function onGlobalKeyup(ev: KeyboardEvent): void {
   if (!heldMovementKeys.delete(ev.key)) return;
-  if (state.phase === "running" && state.modal === null) {
+  if (state.phase === "running") {
     sendDirection(0);
     ev.preventDefault();
   }
@@ -945,13 +946,15 @@ function onCompositionEnd(event: CompositionEvent): void {
 function onTouchDirection(dir: number): void {
   resumeAudio();
   if (dir === 0) {
-    // Dialog navigation consumes the press. Do not leave a delayed release
-    // message waiting behind a synchronous save/restore selector.
-    if (state.modal !== null) return;
-    sendDirection(0);
+    // Match the release to its press: walking may have opened a dialog, and
+    // a navigation gesture may end after that dialog has already closed.
+    const wasWalking = touchMovementActive;
+    touchMovementActive = false;
+    if (wasWalking && state.phase === "running") sendDirection(0);
     return;
   }
   if (state.phase !== "running" || state.powerUp.open || state.prompt) return;
+  touchMovementActive = state.modal === null && !state.waitingForKey;
   if (state.waitingForKey || state.modal === "save" || state.modal === "restore")
     sendKey([0, 0x4800, 0x4900, 0x4d00, 0x5100, 0x5000, 0x4f00, 0x4b00, 0x4700][dir]!);
   else sendDirection(dir);

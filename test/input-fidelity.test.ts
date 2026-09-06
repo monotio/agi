@@ -246,3 +246,18 @@ test("ordinary queued raw input keeps its classification when a later script add
   engine.tick();
   assert.equal(engine.vars[100], 98);
 });
+
+test("deferred tracked releases use eligibility captured when the key was released", () => {
+  const eligible = game("return;", new Host());
+  eligible.vars[6] = 3;
+  eligible.releaseTrackedKey(true);
+  eligible.tick();
+  assert.equal(eligible.vars[6], 0, "an admitted release survives a later closed gate");
+
+  const ineligible = game("hold.key(); return;", new Host());
+  ineligible.tick();
+  ineligible.vars[6] = 3;
+  ineligible.releaseTrackedKey(false);
+  ineligible.tick();
+  assert.equal(ineligible.vars[6], 3, "opening the gate later does not admit an earlier release");
+});

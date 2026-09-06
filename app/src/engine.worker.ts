@@ -97,6 +97,8 @@ let liveDictionary = new Map<string, number>();
 let authoredWords: Uint8Array | null = null;
 let inputBuffer: string[] = [];
 let keyBuffer: number[] = [];
+/** Admitted walking releases and later walking keys wait for ordinary input. */
+const deferredMovement: number[] = [];
 let lastKeyId = 0;
 let timer: number | null = null;
 let soundTimer: number | null = null;
@@ -104,6 +106,14 @@ const soundClock = new SoundClock(performance.now());
 const cycleClock = new CycleClock(performance.now());
 /** Poll input/modal services at display cadence; v10 separately gates logic cycles. */
 const HOST_POLL_MS = 1000 / 60;
+
+function flushDeferredMovement(): void {
+  if (!engine || engine.modalKind !== null || engine.continuationPending) return;
+  for (const key of deferredMovement.splice(0)) {
+    if (key === 0) engine.releaseTrackedKey(true);
+    else keyBuffer.push(key);
+  }
+}
 /** Interpreter cycles completed since boot; the frame ring's timeline. */
 let cycleCount = 0;
 /** Liveness observations stay responsive at slow game-selected cycle speeds. */
@@ -581,6 +591,7 @@ self.onmessage = (ev: MessageEvent) => {
       engine.flags[9] = 1;
       inputBuffer = [];
       keyBuffer = [];
+      deferredMovement.length = 0;
       lastKeyId = 0;
       lastVisual = null;
       lastText = null;
@@ -655,6 +666,7 @@ self.onmessage = (ev: MessageEvent) => {
             engine!.tick();
             postFrame();
           } else if (cycleClock.poll(now, engine!.vars[10]!)) {
+            flushDeferredMovement();
             engine!.tick();
             cycleCount++;
             captureFrame();
@@ -754,11 +766,27 @@ self.onmessage = (ev: MessageEvent) => {
         lastKeyId = msg.id;
         self.postMessage({ type: "keyAccepted", id: msg.id });
       }
-      keyBuffer.push(Number(msg.code) & 0xffff);
+      flushDeferredMovement();
+      const key = Number(msg.code) & 0xffff;
+      if (
+        deferredMovement.length > 0 &&
+        engine?.modalKind === null &&
+        [0x4800, 0x4900, 0x4d00, 0x5100, 0x5000, 0x4f00, 0x4b00, 0x4700].includes(key)
+      ) {
+        if (deferredMovement.length < 19) deferredMovement.push(key);
+      } else keyBuffer.push(key);
       return;
     }
     if (msg.type === "direction" && engine) {
       const dir = Number(msg.dir) & 0xff;
+      if (dir === 0) {
+        // The main thread captures the gate even while save/restore blocks us.
+        const eligible =
+          typeof msg.releaseEligible === "boolean" ? msg.releaseEligible : engine.releaseGate !== 0;
+        if (eligible && deferredMovement.length < 19) deferredMovement.push(0);
+        flushDeferredMovement();
+        return;
+      }
       if (engine.modalKind !== null) {
         // Arrows steer the open modal (inventory selection, menu) instead of ego.
         if (dir !== 0) {
@@ -767,10 +795,12 @@ self.onmessage = (ev: MessageEvent) => {
         }
         return;
       }
-      if (dir === 0) engine.releaseTrackedKey();
-      else {
-        const key = [0, 0x4800, 0x4900, 0x4d00, 0x5100, 0x5000, 0x4f00, 0x4b00, 0x4700][dir];
-        if (key !== undefined) keyBuffer.push(key);
+      flushDeferredMovement();
+      const key = [0, 0x4800, 0x4900, 0x4d00, 0x5100, 0x5000, 0x4f00, 0x4b00, 0x4700][dir];
+      if (key !== undefined) {
+        if (deferredMovement.length > 0) {
+          if (deferredMovement.length < 19) deferredMovement.push(key);
+        } else keyBuffer.push(key);
       }
       return;
     }
