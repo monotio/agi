@@ -13,6 +13,7 @@ async function boot(
   hold = false,
   interrupt?: "print" | "menu" | "save",
   rawDraft = false,
+  nativeEnter: boolean | "mapped" = false,
 ) {
   const game = createContainer();
   game.putFile("OBJECT", buildObjectFile([{ name: "key" }, { name: "lamp" }]));
@@ -35,6 +36,7 @@ async function boot(
       set.key(0,64,8);set.key(0,65,9);set.key(0,66,10);set.key(0,67,11);
       set.key(120,0,13);
       set.key(0,68,12);set.key(122,0,14);
+      ${nativeEnter === "mapped" ? "set.key(13,0,15);" : ""}
       assignn(v62,17);get(0);get(1);
       set.menu("Game");set.menu.item("Answer",1);submit.menu();set(f14);
       ${hold ? "hold.key();" : ""}
@@ -62,6 +64,7 @@ async function boot(
     if(equaln(v19,3)) {display(14,0,"RAW CTRL C");}
     display(10,0,"State: %v62");
     if(equaln(v19,121)) {graphics();accept.input();display(8,0,"RAW Y");}
+    ${nativeEnter ? 'if(equaln(v19,13)) {graphics();accept.input();display(16,0,"RAW ENTER");} if(controller(15)) {display(16,0,"MAPPED ENTER");} if(isset(f2)) {display(17,0,"PARSER SUBMITTED");}' : ""}
     ${rawDraft ? 'if(greatern(v65,0)) {display(15,0,"First key: %v65");}' : ""}
     ${interrupt ? `get.posn(0,v63,v64);if(!isset(f201) && greatern(v63,64)) {set(f201);${interrupt === "print" ? 'print("Movement interruption");' : interrupt === "menu" ? "menu.input();" : "save.game();"}}` : ""}
     return;`,
@@ -541,5 +544,72 @@ for (const completion of ["touch Enter", "touch Esc", "native form submit"] as c
     await page.keyboard.insertText(" around");
     await expect(input).toHaveValue("look around");
     await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("look around");
+  });
+}
+
+for (const consumer of [
+  "text screen",
+  "blocking key wait",
+  "print modal",
+  "disabled parser",
+  "mapped Enter",
+] as const) {
+  test(`native form Enter reaches ${consumer} and preserves the parser draft`, async ({ page }) => {
+    await boot(
+      page,
+      false,
+      undefined,
+      consumer === "blocking key wait",
+      consumer === "mapped Enter" ? "mapped" : true,
+    );
+    const input = page.getByTestId("input-line");
+    await input.fill("look");
+    await waitForCycles(page, 2);
+    if (consumer !== "mapped Enter") {
+      await page.keyboard.press(
+        consumer === "print modal" ? "F4" : consumer === "disabled parser" ? "z" : "F5",
+      );
+    }
+    if (consumer === "print modal") {
+      await expect.poll(async () => (await textHook(page)).modal).toBe("print");
+    } else if (consumer === "disabled parser") {
+      await expect
+        .poll(async () => (await textHook(page)).rows.join(" "))
+        .toContain("RAW GRAPHICS");
+    } else if (consumer !== "mapped Enter") {
+      await expect.poll(async () => (await textHook(page)).textMode).toBe(true);
+      if (consumer === "text screen") await waitForCycles(page, 2);
+    }
+    await input.evaluate((element) => (element as HTMLInputElement).form!.requestSubmit());
+    await expect
+      .poll(async () => (await textHook(page)).rows.join(" "))
+      .toContain(
+        consumer === "print modal"
+          ? "Window closed"
+          : consumer === "mapped Enter"
+            ? "MAPPED ENTER"
+            : "RAW ENTER",
+      );
+    if (consumer === "blocking key wait") {
+      await expect
+        .poll(async () => (await textHook(page)).rows.join(" "))
+        .toContain("First key: 13");
+    }
+    await expect(input).toHaveValue("look");
+    await input.focus();
+    await input.evaluate((element) => {
+      const field = element as HTMLInputElement;
+      field.setSelectionRange(field.value.length, field.value.length);
+    });
+    await page.keyboard.insertText(" around");
+    await expect(input).toHaveValue("look around");
+    await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("look around");
+    if (consumer === "text screen") {
+      await input.evaluate((element) => (element as HTMLInputElement).form!.requestSubmit());
+      await expect(input).toHaveValue("");
+      await expect
+        .poll(async () => (await textHook(page)).rows.join(" "))
+        .toContain("PARSER SUBMITTED");
+    }
   });
 }

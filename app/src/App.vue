@@ -1726,7 +1726,7 @@ watch(
           v-if="state.phase === 'running'"
           class="input-row"
           @click.stop
-          @submit.prevent="submit"
+          @submit.prevent="onVirtualKey(13)"
         >
           <input
             id="game-command"
