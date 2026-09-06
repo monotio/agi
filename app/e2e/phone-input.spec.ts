@@ -258,6 +258,57 @@ for (const interruption of ["pointercancel", "blur"] as const) {
   });
 }
 
+for (const desktop of [false, true]) {
+  test.describe(`${desktop ? "desktop" : "touch-enabled"} mouse focus`, () => {
+    test.use({
+      hasTouch: !desktop,
+      viewport: desktop ? { width: 1280, height: 900 } : { width: 390, height: 844 },
+    });
+    test("real mouse hold on another arrow survives the previous arrow's focus", async ({
+      page,
+    }) => {
+      await boot(page, true);
+      if (desktop) {
+        const settings = page.getByTestId("sound-display-menu").locator("summary");
+        await settings.click();
+        await page.getByTestId("toggle-touch-controls").click();
+        await settings.click();
+      }
+      const pad = page.getByTestId("touch-controls");
+      const west = pad.getByRole("button", { name: "Walk west", exact: true });
+      const east = pad.getByRole("button", { name: "Walk east", exact: true });
+      await west.focus();
+      await expect(west).toBeFocused();
+      await east.evaluate((button) => {
+        document.addEventListener(
+          "pointerdown",
+          (event) => {
+            if (event.target === button)
+              button.setAttribute("data-pointer-default-prevented", String(event.defaultPrevented));
+          },
+          { once: true },
+        );
+      });
+      const button = await east.boundingBox();
+      expect(button).not.toBeNull();
+      await page.mouse.move(button!.x + button!.width / 2, button!.y + button!.height / 2);
+      await page.mouse.down();
+      await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(60);
+      await expect(west).toBeFocused();
+      const held = (await textHook(page)).egoX;
+      await waitForCycles(page, 3);
+      expect((await textHook(page)).egoX).toBeGreaterThan(held);
+      expect((await textHook(page)).egoY).toBe(120);
+      await expect(east).toHaveAttribute("data-pointer-default-prevented", "true");
+      await page.mouse.up();
+      await waitForCycles(page, 2);
+      const released = (await textHook(page)).egoX;
+      await waitForCycles(page, 3);
+      expect((await textHook(page)).egoX).toBe(released);
+    });
+  });
+}
+
 for (const key of ["Enter", "Space"]) {
   test(`focused touch arrow supports ${key} hold and release`, async ({ page }) => {
     await boot(page, true);
