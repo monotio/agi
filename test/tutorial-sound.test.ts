@@ -28,6 +28,13 @@ function boot(soundEnabled = true) {
   return { engine, container, started, output, commands, keys };
 }
 
+/** The mural is painted from in front of the frame, so walk right from the doorway first. */
+function approachMural(engine: Engine, keys: number[]): void {
+  keys.push(0x4d00);
+  for (let cycle = 0; cycle < 400 && engine.readObjects()[0]!.x < 60; cycle++) engine.tick();
+  assert.ok(engine.readObjects()[0]!.x >= 60, "did not reach the mural");
+}
+
 test("tutorial ships a short melodic opening and compact point/lever effects with editable intent", () => {
   const game = buildTutorial();
   const container = openContainer(new Map(Object.entries(game.files)));
@@ -90,7 +97,8 @@ test("opening tune starts in the displayed room once and never blocks movement o
 });
 
 test("each earned repair plays exactly one success cue and repeated commands stay quiet", () => {
-  const { engine, started, commands } = boot();
+  const { engine, started, commands, keys } = boot();
+  approachMural(engine, keys);
   commands.push("paint mural");
   engine.tick();
   assert.deepEqual(started, [1, 2], "the earned point cue replaces the opening immediately");
@@ -121,7 +129,7 @@ test("each earned repair plays exactly one success cue and repeated commands sta
 });
 
 test("tutorial cues respect an already-muted game without suppressing progression", () => {
-  const { engine, output, commands, started } = boot(false);
+  const { engine, output, commands, started, keys } = boot(false);
   assert.deepEqual(started, [1]);
   assert.equal(engine.flags[9], 0);
   engine.soundTick();
@@ -131,6 +139,7 @@ test("tutorial cues respect an already-muted game without suppressing progressio
       (event) => event.kind === "psg" && event.bytes.every((byte) => (byte & 15) === 15),
     ),
   );
+  approachMural(engine, keys);
   commands.push("paint mural");
   engine.tick();
   engine.soundTick();

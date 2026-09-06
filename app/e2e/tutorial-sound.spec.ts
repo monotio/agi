@@ -72,6 +72,10 @@ test("tutorial plays its opening and earned cues through the real sound worker a
     await page.keyboard.press("Enter");
     await expect.poll(async () => (await textHook(page)).modal).toBeNull();
   };
+  // The mural is painted from in front of the frame, so walk over first.
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThanOrEqual(60);
+  await page.keyboard.press("ArrowRight");
   await command("paint mural");
   await expect.poll(async () => (await audioState(page)).started).toEqual([1, 2]);
   await expect.poll(async () => (await textHook(page)).modal).not.toBeNull();

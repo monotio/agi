@@ -153,6 +153,19 @@ function walkUntilRoom(engine: Engine, host: TutorialHost, key: number, room: nu
   assert.equal(engine.vars[0], room, `arrow-key travel did not reach room ${room}`);
 }
 
+/** Walk with one arrow key until ego's x satisfies `reached`; the repairs need the player nearby. */
+function walkUntilX(
+  engine: Engine,
+  host: TutorialHost,
+  key: number,
+  reached: (x: number) => boolean,
+): void {
+  // One press starts walking; a second press of the same arrow would stop it.
+  if (engine.readObjects()[0]!.direction === 0) host.keys.push(key);
+  for (let cycle = 0; cycle < 400 && !reached(engine.readObjects()[0]!.x); cycle++) engine.tick();
+  assert.ok(reached(engine.readObjects()[0]!.x), "arrow-key travel did not reach the exhibit");
+}
+
 function visualDifferences(
   actual: Uint8Array,
   background: Uint8Array,
@@ -248,7 +261,7 @@ test("every tutorial picture fill seed lands on a white interior", () => {
 test("tutorial resources are pinned to the released catalog version", async () => {
   assert.equal(
     await gameRevision(buildTutorial().files),
-    "3404678b08422f2488450cb04b6a9c177cf98ff43b26ea016ebfaa34b70d538c",
+    "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b",
     "tutorial resources changed: bump the GAME_CATALOG version in app/src/gameCatalog.ts and re-pin this revision",
   );
 });
@@ -265,7 +278,11 @@ test("the complete tutorial teaches movement, pictures, sprites, logic, and prio
 
   engine.tick();
   assert.equal(engine.vars[0], 1);
-  assert.match(host.displays.map(({ text }) => text).join(" "), /apprentice/i);
+  assert.match(
+    host.displays.map(({ text }) => text).join(" "),
+    /Fix 3 exhibits.*HELP.*PAINT MURAL/i,
+    "the hint row states the goal and the first repair",
+  );
   assert.match(engine.textRow(2), /HELP.*PAINT MURAL/i);
 
   const startX = engine.readObjects()[0]!.x;
@@ -293,6 +310,10 @@ test("the complete tutorial teaches movement, pictures, sprites, logic, and prio
   assert.match(host.prints.at(-1) ?? "", /ROOM.*numbered.*PICTURE.*LOGIC.*new\.room\(2\)/i);
 
   const muralBefore = engine.getFrame().visual[65 * SCREEN_WIDTH + 80];
+  enter(engine, host, "paint mural");
+  assert.equal(engine.flags[30], 0, "the mural cannot be painted from across the room");
+  assert.match(host.prints.at(-1) ?? "", /too far away.*frame/i);
+  walkUntilX(engine, host, 0x4d00, (x) => x >= 60);
   enter(engine, host, "paint mural");
   assert.equal(engine.flags[30], 1);
   assert.notEqual(engine.getFrame().visual[65 * SCREEN_WIDTH + 80], muralBefore);
@@ -854,15 +875,14 @@ test("graduation triggers regardless of which exhibit is repaired last", () => {
   enter(engine, host, "fix priority");
   assert.equal(engine.flags[33], 0);
   enter(engine, host, "west");
+  walkUntilX(engine, host, 0x4b00, (x) => x <= 50);
   enter(engine, host, "pull lever");
   assert.equal(engine.flags[33], 0);
   enter(engine, host, "west");
+  walkUntilX(engine, host, 0x4b00, (x) => x <= 100);
   enter(engine, host, "paint mural");
 
   assert.equal(engine.flags[33], 1);
   assert.equal(engine.vars[3], 30);
-  assert.match(
-    host.prints.at(-1) ?? "",
-    /Make a copy.*Game actions > Project keeps.*Remix.*Game actions > Game export/i,
-  );
+  assert.match(host.prints.at(-1) ?? "", /graduated.*PICTURE.*VIEW.*PRIORITY.*LOGIC.*main menu/i);
 });

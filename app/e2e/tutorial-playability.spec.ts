@@ -75,6 +75,10 @@ test("tutorial walls and three exhibits work through the real browser controls",
   await waitForCycles(page, 55);
   expect((await textHook(page)).egoY).toBe(126);
   await page.keyboard.press("ArrowUp");
+  // The mural is painted from in front of the frame, so walk over first.
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThanOrEqual(60);
+  await page.keyboard.press("ArrowRight");
   await command(page, "paint mural");
   await expect.poll(async () => (await textHook(page)).modal).not.toBeNull();
   await page.keyboard.press("Enter");
