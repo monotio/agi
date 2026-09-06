@@ -16,7 +16,7 @@ test("bundled tutorial previews and plays on the production origin without a pro
     "src",
     /^data:image\/png;base64,/,
   );
-  await page.getByTestId("hero-play-now").click();
+  await page.getByTestId("catalog-play-adventure-department").click();
   await expect(page.getByTestId("input-line")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).rows[2] ?? "").toContain("HELP");
   await page.getByTestId("input-line").fill("help");

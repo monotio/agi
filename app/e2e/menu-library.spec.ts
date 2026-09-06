@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 import {
   cacheGame,
+  openCreateAdventure,
+  openLibraryActions,
   isolateStorage,
   openSavedGameDetails,
   savedGameCard,
@@ -27,8 +29,8 @@ test("a first visit leads with tutorial and creation while keeping import availa
   await isolateStorage(page);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
-  await expect(page.getByTestId("hero-play-now")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Create an adventure", exact: true })).toBeVisible();
+  await expect(page.getByTestId("catalog-play-adventure-department")).toBeVisible();
+  await expect(page.getByTestId("create-adventure-toggle")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Your games", exact: true })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Your games", exact: true })).toHaveCount(0);
   await expect(page.getByTestId("saved-game-gallery")).toHaveCount(0);
@@ -41,18 +43,6 @@ test("a first visit leads with tutorial and creation while keeping import availa
       return Boolean(element.compareDocumentPosition(importer) & Node.DOCUMENT_POSITION_FOLLOWING);
     }),
   ).toBe(true);
-  const existingGame = page.getByRole("link", { name: "Play existing game", exact: true });
-  await expect(existingGame).toHaveAttribute("href", "#open-game");
-  const secondaryStyle = (element: Element) => {
-    const style = getComputedStyle(element);
-    return { color: style.color, border: style.border, font: style.font, padding: style.padding };
-  };
-  expect(await existingGame.evaluate(secondaryStyle)).toEqual(
-    await page
-      .getByRole("link", { name: "Create an adventure", exact: true })
-      .evaluate(secondaryStyle),
-  );
-  await existingGame.click();
   await page.getByRole("button", { name: "Add game", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: /ZIP/i })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: /folder/i })).toBeVisible();
@@ -77,7 +67,7 @@ test("Create remembers explicit expanded and collapsed choices across reloads", 
   await page.goto("/");
   const create = page.getByTestId("create-adventure-disclosure");
   const toggle = page.getByTestId("create-adventure-toggle");
-  await page.getByRole("link", { name: "Create an adventure", exact: true }).click();
+  await openCreateAdventure(page);
   await expect(create).toHaveAttribute("open");
   await page.evaluate(() => history.replaceState(null, "", location.pathname));
   await page.reload();
@@ -92,7 +82,7 @@ test("Create remembers explicit expanded and collapsed choices across reloads", 
   await expect(create).toHaveAttribute("open");
   await page.reload();
   await expect(create).toHaveAttribute("open");
-  await page.getByRole("link", { name: "Create an adventure", exact: true }).click();
+  await openCreateAdventure(page);
   await toggle.click();
   await expect(create).not.toHaveAttribute("open");
   await page.reload();
@@ -128,7 +118,7 @@ test("Resume shows the same saved scene and position, including after reopening 
     };
   });
   await page.goto("/");
-  await page.getByTestId("hero-play-now").click();
+  await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByTestId("input-line").fill("east");
   await page.getByTestId("input-line").press("Enter");
@@ -193,10 +183,6 @@ test("Resume shows the same saved scene and position, including after reopening 
     (await card.boundingBox())!.width,
     "a single game keeps a readable card size",
   ).toBeLessThanOrEqual(512);
-  await expect(page.getByRole("link", { name: "Play existing game", exact: true })).toHaveAttribute(
-    "href",
-    "#your-games",
-  );
   await expect(card.getByTestId("library-thumbnail")).toHaveAttribute("src", saved.preview);
   await expect(card.getByTestId("library-thumbnail")).toHaveAttribute(
     "data-preview-kind",
@@ -262,7 +248,7 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
     return { family: style.fontFamily, size: style.fontSize, weight: style.fontWeight };
   };
   expect(await cards.first().getByTestId("btn-resume-cached").evaluate(typography)).toEqual(
-    await page.getByTestId("hero-play-now").evaluate(typography),
+    await page.getByTestId("connect-create-ai").evaluate(typography),
   );
 
   for (const width of [1440, 1024, 768, 390]) {
@@ -296,7 +282,7 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
   }
 
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByRole("link", { name: "Create an adventure", exact: true }).click();
+  await openCreateAdventure(page);
   await expect(create).toHaveAttribute("open");
   await expect(page.getByTestId("cartridge-custom")).toBeVisible();
   const toggle = page.getByTestId("create-adventure-toggle");
@@ -314,7 +300,7 @@ test("a checkpoint cannot resume against changed game resources and remains reco
 }) => {
   await isolateStorage(page);
   await page.goto("/");
-  await page.getByTestId("hero-play-now").click();
+  await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByRole("button", { name: "Menu", exact: true }).click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
@@ -400,12 +386,13 @@ test("own games collapse the tutorial by default while an explicit choice takes 
 }) => {
   await isolateStorage(page);
   await page.goto("/");
-  await page.getByTestId("hero-play-now").click();
+  await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByTestId("btn-eject").click();
   const original = savedGameCard(page, "Adventure Department");
   await openSavedGameDetails(original);
-  await original.getByTestId("copy-library-game").click();
+  await openLibraryActions(page, original);
+  await page.getByTestId("copy-library-game").click();
   await expect(savedGameCard(page, "Adventure Department Remix")).toBeVisible();
   await openSavedGameDetails(original);
   await expect(

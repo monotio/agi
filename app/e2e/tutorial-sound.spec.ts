@@ -50,7 +50,7 @@ test("tutorial plays its opening and earned cues through the real sound worker a
     };
   });
   await page.goto("/");
-  await page.getByTestId("hero-play-now").click();
+  await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect.poll(async () => (await audioState(page)).started).toEqual([1]);
   await expect.poll(async () => (await audioState(page)).contextStates).toContain("running");

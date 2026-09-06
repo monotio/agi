@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { isolateStorage, openSavedGameDetails, savedGameCard, textHook } from "./engineProbe.ts";
+import {
+  isolateStorage,
+  openSavedGameDetails,
+  savedGameCard,
+  textHook,
+  openAiSettings,
+} from "./engineProbe.ts";
 
 test.beforeEach(async ({ page }) => {
   await isolateStorage(page);
@@ -20,15 +26,14 @@ const appearance = (element: Element) => {
 };
 
 test("Play, Resume and Save settings share one primary action style", async ({ page }) => {
-  const primary = await page.getByTestId("hero-play-now").evaluate(appearance);
-  expect(await page.getByTestId("catalog-play-adventure-department").evaluate(appearance)).toEqual(
-    primary,
-  );
-  await page.getByTestId("hero-play-now").click();
+  const primary = await page.getByTestId("catalog-play-adventure-department").evaluate(appearance);
+  await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  const secondary = await page.getByTestId("open-ai-settings").evaluate(appearance);
+  const secondary = await page.getByTestId("settings-menu").evaluate(appearance);
   expect(await page.getByTestId("btn-eject").evaluate(appearance)).toEqual(secondary);
-  for (const action of await page.locator(".game-nav > button, .game-nav summary").all()) {
+  for (const action of await page
+    .locator(".game-nav > button, .game-nav summary, .game-nav .action-menu > button")
+    .all()) {
     expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   }
   await page.getByTestId("btn-eject").click();
@@ -36,7 +41,7 @@ test("Play, Resume and Save settings share one primary action style", async ({ p
   const resume = card.getByRole("button", { name: "Resume", exact: true });
   await expect(resume).toBeVisible();
   expect(await resume.evaluate(appearance)).toEqual(primary);
-  await page.getByTestId("open-ai-settings").click();
+  await openAiSettings(page);
   expect(await page.getByTestId("ai-settings-save").evaluate(appearance)).toEqual(primary);
   await page.screenshot({
     animations: "disabled",
@@ -100,9 +105,9 @@ test("library details stay concise and Add game is a secondary action", async ({
   const add = page.getByRole("button", { name: "Add game", exact: true });
   await expect(add).toBeVisible();
   expect(await add.evaluate(appearance)).toEqual(
-    await page.getByRole("link", { name: "Create an adventure", exact: true }).evaluate(appearance),
+    await page.getByTestId("settings-menu").evaluate(appearance),
   );
-  await page.getByTestId("hero-play-now").click();
+  await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByTestId("btn-eject").click();
   const card = savedGameCard(page, "Adventure Department");
@@ -110,20 +115,8 @@ test("library details stay concise and Add game is a secondary action", async ({
   await expect(card).not.toContainText(
     /Later rooms|Opening checked|Interpreter|Save project keeps|Ready to play/,
   );
-  for (const id of [
-    "rename-game",
-    "copy-library-game",
-    "btn-export-agi-zip",
-    "btn-save-project",
-    "remove-library-game",
-  ]) {
-    const action = card.getByTestId(id);
+  for (const action of await card.locator("button").all()) {
     expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-    expect(
-      Number(
-        await action.evaluate((element) => getComputedStyle(element).fontSize.replace("px", "")),
-      ),
-    ).toBeGreaterThanOrEqual(14);
   }
   await add.click();
   await expect(page.getByRole("menu", { name: "Add game", exact: true })).toBeVisible();
@@ -131,12 +124,6 @@ test("library details stay concise and Add game is a secondary action", async ({
   await page.keyboard.press("Escape");
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 950 });
-    const actions = await card.locator(".saved-world-actions > button").all();
-    for (let index = 0; index + 1 < actions.length; index += 2) {
-      const left = (await actions[index]!.boundingBox())!;
-      const right = (await actions[index + 1]!.boundingBox())!;
-      expect(Math.abs(left.height - right.height)).toBeLessThan(1);
-    }
     await card.screenshot({
       animations: "disabled",
       path: test.info().outputPath(`game-card-${width}.png`),

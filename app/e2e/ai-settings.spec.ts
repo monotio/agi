@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { providerReply } from "../../test/provider-stream.ts";
-import { isolateStorage, textHook } from "./engineProbe.ts";
+import { isolateStorage, openAiSettings, textHook } from "./engineProbe.ts";
 
 test("one shared AI setup preserves the brief and keeps provider keys separate", async ({
   page,
@@ -17,7 +17,7 @@ test("one shared AI setup preserves the brief and keeps provider keys separate",
   await page.getByTestId("cartridge-custom").click();
   await page.getByLabel("Adventure name").fill("The Quiet Observatory");
   await page.getByTestId("custom-cartridge-input").fill("Find the missing moon chart.");
-  await page.getByTestId("boot-cartridge").click();
+  await page.getByTestId("connect-create-ai").click();
   const dialog = page.getByTestId("ai-settings-dialog");
   await expect(dialog).toBeVisible();
   await expect(page.getByTestId("error-panel")).toHaveCount(0);
@@ -26,6 +26,7 @@ test("one shared AI setup preserves the brief and keeps provider keys separate",
   await expect(dialog.getByTestId("effort-select")).toHaveValue("low");
   await dialog.getByTestId("api-key-input").fill("test-openai-key");
   await dialog.getByTestId("effort-select").selectOption("low");
+  await dialog.getByTestId("task-budget").fill("1.23");
   await dialog.getByTestId("ai-settings-save").click();
   await expect(dialog).toBeHidden();
   await expect(page.getByLabel("Adventure name")).toHaveValue("The Quiet Observatory");
@@ -34,7 +35,7 @@ test("one shared AI setup preserves the brief and keeps provider keys separate",
   );
   expect(providerCalls).toBe(0);
 
-  await page.getByTestId("open-ai-settings").click();
+  await openAiSettings(page);
   await dialog.getByTestId("provider-select").selectOption("anthropic");
   await expect(dialog.getByTestId("api-key-input")).toHaveValue("");
   await dialog.getByTestId("api-key-input").fill("test-anthropic-key");
@@ -42,16 +43,17 @@ test("one shared AI setup preserves the brief and keeps provider keys separate",
   await dialog.getByTestId("ai-settings-save").click();
   await expect(dialog).toBeHidden();
   await page.reload();
-  await page.getByTestId("open-ai-settings").click();
+  await openAiSettings(page);
   await expect(dialog.getByTestId("provider-select")).toHaveValue("anthropic");
   await expect(dialog.getByTestId("api-key-input")).toHaveValue("test-anthropic-key");
   await expect(dialog.getByTestId("effort-select")).toHaveValue("medium");
+  await expect(dialog.getByTestId("task-budget")).toHaveValue("1.23");
   await dialog.getByTestId("provider-select").selectOption("openai");
   await expect(dialog.getByTestId("api-key-input")).toHaveValue("test-openai-key");
   await expect(dialog.getByTestId("effort-select")).toHaveValue("low");
   await dialog.getByTestId("api-key-input").fill("discard-this-edit");
   await dialog.getByTestId("ai-settings-cancel").click();
-  await page.getByTestId("open-ai-settings").click();
+  await openAiSettings(page);
   await expect(dialog.getByTestId("provider-select")).toHaveValue("anthropic");
   await dialog.getByTestId("provider-select").selectOption("openai");
   await expect(dialog.getByTestId("api-key-input")).toHaveValue("test-openai-key");
@@ -77,11 +79,11 @@ test("AI settings pause only their own game interaction and preserve the assista
     await route.abort();
   });
   await page.goto("/");
-  await page.getByTestId("hero-play-now").click();
+  await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
   const before = await textHook(page);
-  await page.getByTestId("open-ai-settings").click();
+  await openAiSettings(page);
   const dialog = page.getByTestId("ai-settings-dialog");
   await expect(dialog).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
@@ -91,10 +93,10 @@ test("AI settings pause only their own game interaction and preserve the assista
   await expect(dialog).toBeHidden();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
   expect((await textHook(page)).egoX).toBe(before.egoX);
-  await expect(page.getByTestId("open-ai-settings")).toBeFocused();
+  await expect(page.getByTestId("settings-menu")).toBeFocused();
 
   await page.getByTestId("power-up").click();
-  await page.getByTestId("connect-assistant-ai").click();
+  await openAiSettings(page);
   await dialog.getByTestId("provider-select").selectOption("openai");
   await dialog.getByTestId("api-key-input").fill("test-openai-key");
   await dialog.getByTestId("effort-select").selectOption("low");
@@ -103,12 +105,13 @@ test("AI settings pause only their own game interaction and preserve the assista
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await page.getByTestId("agent-mode-ask").click();
   await page.getByTestId("agent-bubble-input").fill("Where should I look next?");
-  await page.getByTestId("connect-assistant-ai").click();
+  await openAiSettings(page);
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   await expect(page.getByTestId("agent-bubble")).toBeVisible();
   await expect(page.getByTestId("agent-mode-ask")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("agent-bubble-input")).toHaveValue("Where should I look next?");
+  await expect(page.getByTestId("settings-menu")).toBeFocused();
   expect((await textHook(page)).paused).toBe(true);
   expect(providerCalls).toBe(0);
   await page.getByRole("button", { name: "Back to game", exact: true }).click();
@@ -148,10 +151,10 @@ test("changing the shared provider affects the next Ask without losing the conve
     );
   });
   await page.goto("/");
-  await page.getByTestId("hero-play-now").click();
+  await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByTestId("power-up").click();
-  await page.getByTestId("connect-assistant-ai").click();
+  await openAiSettings(page);
   const dialog = page.getByTestId("ai-settings-dialog");
   await dialog.getByTestId("provider-select").selectOption("openai");
   await dialog.getByTestId("api-key-input").fill("test-openai-key");
@@ -163,7 +166,7 @@ test("changing the shared provider affects the next Ask without losing the conve
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-conversation")).toContainText("The mural is unfinished.");
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("connect-assistant-ai").click();
+  await openAiSettings(page);
   await dialog.getByTestId("provider-select").selectOption("anthropic");
   await expect(dialog.getByTestId("api-key-input")).toHaveValue("");
   await dialog.getByTestId("api-key-input").fill("test-anthropic-key");

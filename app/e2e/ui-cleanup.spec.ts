@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { isolateStorage, openCreateAdventure } from "./engineProbe.ts";
+import { isolateStorage, openCreateAdventure, openAiSettings } from "./engineProbe.ts";
 
 test.beforeEach(async ({ page }) => {
   await isolateStorage(page);
@@ -18,7 +18,7 @@ test("the start page uses concise tutorial copy and readable primary actions", a
   await openCreateAdventure(page);
   await page.getByTestId("cartridge-custom").click();
   await page.getByTestId("custom-cartridge-input").fill("A concise test adventure.");
-  await page.getByTestId("open-ai-settings").click();
+  await openAiSettings(page);
   const dialog = page.getByTestId("ai-settings-dialog");
   const keyLink = dialog.getByRole("link", { name: "Get an API key" });
   await expect(keyLink).toHaveAttribute("href", "https://platform.openai.com/api-keys");
@@ -32,9 +32,8 @@ test("the start page uses concise tutorial copy and readable primary actions", a
   }
   await dialog.getByTestId("ai-settings-cancel").click();
   for (const action of [
-    page.getByTestId("hero-play-now"),
     page.getByTestId("catalog-play-adventure-department"),
-    page.getByTestId("boot-cartridge"),
+    page.getByTestId("connect-create-ai"),
   ]) {
     const type = await action.evaluate((element) => {
       const style = getComputedStyle(element);
@@ -51,8 +50,8 @@ test("the start page uses concise tutorial copy and readable primary actions", a
     expect(type.height).toBeGreaterThanOrEqual(44);
   }
 
-  await expect(page.getByTestId("hero-play-now")).toBeEnabled();
-  await page.getByTestId("hero-play-now").click();
+  await expect(page.getByTestId("catalog-play-adventure-department")).toBeEnabled();
+  await page.getByTestId("catalog-play-adventure-department").click();
   await expect(page.getByTestId("power-up")).toBeVisible();
   await page.getByTestId("power-up").click();
   await page.getByTestId("connect-assistant-ai").click();

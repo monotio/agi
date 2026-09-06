@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import AgentTaskControls from "./AgentTaskControls.vue";
+import ActionMenu from "./ActionMenu.vue";
+import UiIcon from "./UiIcon.vue";
 import AiSettingsDialog from "./AiSettings.vue";
 import SoundPreview from "./SoundPreview.vue";
 import TouchControls from "./TouchControls.vue";
@@ -259,13 +261,6 @@ const apiKey = ref(aiSettings.value.profiles[provider.value].apiKey);
 const model = ref(aiSettings.value.profiles[provider.value].model);
 const effort = ref(aiSettings.value.profiles[provider.value].effort);
 const aiConfigured = computed(() => provider.value === "stub" || apiKey.value.trim().length > 0);
-const aiSettingsStatus = computed(() =>
-  aiConfigured.value
-    ? provider.value === "stub"
-      ? "Offline test provider"
-      : `${provider.value === "openai" ? "OpenAI" : "Anthropic"} · Key saved`
-    : `${provider.value === "openai" ? "OpenAI" : "Anthropic"} · Not configured`,
-);
 
 watch(selectedCartridgeSlug, (slug) => {
   cachedMeta.value = getCachedCartridgeMeta(slug);
@@ -357,19 +352,19 @@ function openAiSettings(event: Event | null, context: "header" | "create" | "ass
   aiSettingsDialog.value?.show();
 }
 
-async function applyAiSettings(settings: AiSettings): Promise<void> {
+async function applyAiSettings(settings: AiSettings, budgetUsd: number): Promise<void> {
   aiSettingsSaving.value = true;
   aiSettingsError.value = "";
   try {
     saveAiSettings(localStorage, settings);
     aiSettings.value = copyAiSettings(settings);
+    taskBudget.value = budgetUsd;
     provider.value = settings.provider;
     model.value = settings.profiles[settings.provider].model;
     apiKey.value = settings.profiles[settings.provider].apiKey;
     effort.value = settings.profiles[settings.provider].effort;
     await updateAiConfig(llmConfig());
-    if (aiSettingsContext.value === "assistant" && state.powerUp.open)
-      await openPowerUp(llmConfig());
+    if (state.powerUp.open) await openPowerUp(llmConfig());
     aiSettingsDialog.value?.close();
   } catch (error) {
     aiSettingsError.value = `Could not apply AI settings: ${String(error).replace(/^Error: /, "")}`;
@@ -385,7 +380,12 @@ function onAiSettingsClosed(): void {
   }
   const returnFocus = aiSettingsReturnFocus;
   aiSettingsReturnFocus = null;
-  nextTick(() => returnFocus?.focus());
+  nextTick(() => {
+    if (returnFocus?.isConnected) returnFocus.focus();
+    else if (aiSettingsContext.value === "create") createButton.value?.focus();
+    else if (aiSettingsContext.value === "assistant") powerUpEl.value?.focus();
+    else document.querySelector<HTMLElement>('[data-testid="settings-menu"]')?.focus();
+  });
 }
 
 watch(
@@ -590,7 +590,6 @@ function refreshLibrary(slug?: string): void {
   savedWorlds.value = listCachedCartridges();
   if (slug) {
     selectedCartridgeSlug.value = slug;
-    expandedGameSlug.value = slug;
   } else if (!savedWorlds.value.some((entry) => entry.slug === selectedCartridgeSlug.value))
     selectedCartridgeSlug.value = savedWorlds.value[0]?.slug ?? "";
   cachedMeta.value = selectedCartridgeSlug.value
@@ -949,11 +948,9 @@ watch(
 
 const inputEl = ref<HTMLInputElement | null>(null);
 const controlsEl = ref<HTMLDetailsElement | null>(null);
-const settingsEl = ref<HTMLDetailsElement | null>(null);
-const savingEl = ref<HTMLDetailsElement | null>(null);
 
 function closeNavMenus(restoreFocus = false): void {
-  for (const menu of [controlsEl.value, settingsEl.value, savingEl.value]) {
+  for (const menu of [controlsEl.value]) {
     if (!menu?.open) continue;
     menu.open = false;
     if (restoreFocus) menu.querySelector("summary")?.focus();
@@ -963,7 +960,7 @@ function closeNavMenus(restoreFocus = false): void {
 function onNavToggle(event: Event): void {
   const current = event.target as HTMLDetailsElement;
   if (!current.open) return;
-  for (const menu of [controlsEl.value, settingsEl.value, savingEl.value]) {
+  for (const menu of [controlsEl.value]) {
     if (menu && menu !== current) menu.open = false;
   }
 }
@@ -980,7 +977,7 @@ watch(
 );
 
 function onOutsideControls(event: PointerEvent): void {
-  for (const menu of [controlsEl.value, settingsEl.value, savingEl.value]) {
+  for (const menu of [controlsEl.value]) {
     if (event.target instanceof Node && menu && !menu.contains(event.target)) menu.open = false;
   }
   if (
@@ -1671,16 +1668,6 @@ watch(
         <h1 v-else>AGI IS HERE</h1>
         <span v-if="state.phase === 'running'" class="tagline">Play. Create. Remix.</span>
       </div>
-      <button
-        v-if="state.phase === 'idle' || state.phase === 'error' || state.phase === 'running'"
-        type="button"
-        class="ui-button ui-button--secondary audio-btn ai-settings-trigger"
-        data-testid="open-ai-settings"
-        :disabled="aiSettingsUnavailable"
-        @click="openAiSettings($event, 'header')"
-      >
-        AI settings
-      </button>
       <a
         v-if="state.phase === 'idle' || state.phase === 'error'"
         class="repo-link"
@@ -1698,15 +1685,22 @@ watch(
         </svg>
         <span>GitHub</span>
       </a>
-      <nav v-if="state.phase === 'running'" class="game-nav" aria-label="Game options">
+      <nav
+        v-if="['idle', 'error', 'running'].includes(state.phase)"
+        class="game-nav"
+        aria-label="App options"
+      >
         <details
+          v-if="state.phase === 'running'"
           ref="controlsEl"
           class="game-controls nav-menu"
           data-testid="game-controls"
           @keydown.esc.prevent.stop="closeNavMenus(true)"
           @toggle="onNavToggle"
         >
-          <summary class="ui-button ui-button--secondary audio-btn">Controls</summary>
+          <summary class="ui-button ui-button--secondary audio-btn">
+            Controls <UiIcon name="chevron" />
+          </summary>
           <div class="game-controls-panel">
             <p v-if="!shortcuts.length" class="controls-hint">
               Shortcuts appear here when the game registers them.
@@ -1738,110 +1732,98 @@ watch(
             </template>
           </div>
         </details>
-        <details
-          ref="settingsEl"
-          class="nav-menu"
-          data-testid="sound-display-menu"
-          @toggle="onNavToggle"
-          @keydown.esc.prevent.stop="closeNavMenus(true)"
-        >
-          <summary class="ui-button ui-button--secondary audio-btn">Settings</summary>
-          <div class="game-controls-panel settings-panel">
-            <button
-              type="button"
-              class="game-shortcut"
-              :aria-pressed="touchControls"
-              data-testid="toggle-touch-controls"
-              @click="touchControls = !touchControls"
+        <ActionMenu label="Settings" test-id="settings-menu">
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="open-ai-settings"
+            :disabled="aiSettingsUnavailable"
+            @click="openAiSettings($event, 'header')"
+          >
+            AI provider
+          </button>
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            :aria-checked="touchControls"
+            data-testid="toggle-touch-controls"
+            @click="touchControls = !touchControls"
+          >
+            <span>Touch controls<small>Directions, keyboard and game keys</small></span>
+            <span class="setting-value">{{ touchControls ? "On" : "Off" }}</span>
+          </button>
+          <button
+            role="menuitemcheckbox"
+            data-testid="toggle-mute"
+            :aria-checked="!state.soundMuted"
+            @click="
+              resumeAudio();
+              toggleMute();
+            "
+          >
+            <span
+              >Sound {{ state.soundMuted ? "off" : "on"
+              }}<small>Linked to the game’s sound setting</small></span
             >
-              <span>Touch controls<small>Directions, keyboard and game keys</small></span>
-              <span class="setting-value">{{ touchControls ? "On" : "Off" }}</span>
-            </button>
-            <button
-              class="game-shortcut"
-              data-testid="toggle-mute"
-              :aria-pressed="!state.soundMuted"
-              @click="
-                resumeAudio();
-                toggleMute();
-              "
+            <span class="setting-value">{{ state.soundMuted ? "Off" : "On" }}</span>
+          </button>
+          <button
+            role="menuitem"
+            data-testid="toggle-sound-mode"
+            data-keep-open
+            @click="
+              resumeAudio();
+              setAudioMode(state.soundMode === 'tandy' ? 'pc-speaker' : 'tandy');
+            "
+          >
+            <span
+              >Sound chip<small>{{
+                state.soundMode === "tandy" ? "Tandy 4-Voice" : "PC Speaker"
+              }}</small></span
             >
-              <span
-                >Sound {{ state.soundMuted ? "off" : "on"
-                }}<small>Linked to the game’s sound setting</small></span
-              >
-              <span class="setting-value">{{ state.soundMuted ? "Off" : "On" }}</span>
-            </button>
-            <button
-              class="game-shortcut"
-              data-testid="toggle-sound-mode"
-              @click="
-                resumeAudio();
-                setAudioMode(state.soundMode === 'tandy' ? 'pc-speaker' : 'tandy');
-              "
-            >
-              <span
-                >Sound chip<small>{{
-                  state.soundMode === "tandy" ? "Tandy 4-Voice" : "PC Speaker"
-                }}</small></span
-              >
-              <span class="setting-value">Change</span>
-            </button>
-            <button
-              v-if="gpuBackend"
-              type="button"
-              class="game-shortcut"
-              :aria-pressed="crtEnabled"
-              data-testid="toggle-crt"
-              @click="crtEnabled = !crtEnabled"
-            >
-              <span>CRT display<small>Scanlines, glow and curved glass</small></span>
-              <span class="setting-value">{{ crtEnabled ? "On" : "Off" }}</span>
-            </button>
-          </div>
-        </details>
-        <details
-          ref="savingEl"
-          class="nav-menu"
-          data-testid="save-share-menu"
-          @toggle="onNavToggle"
-          @keydown.esc.prevent.stop="closeNavMenus(true)"
-        >
-          <summary class="ui-button ui-button--secondary audio-btn">Save &amp; share</summary>
-          <div class="game-controls-panel settings-panel">
-            <button
-              v-if="state.phase === 'running'"
-              class="game-shortcut"
-              data-testid="btn-export-live-zip"
-              :disabled="exportBusy || state.powerUp.busy"
-              title="Share a playable game. Your authoring conversation stays private."
-              @click="onExportAgiZip(true)"
-            >
-              <span
-                >{{ exportBusy ? "Preparing…" : "Download game" }}<small>Playable game</small></span
-              >
-            </button>
-            <button
-              v-if="state.phase === 'running'"
-              class="game-shortcut"
-              data-testid="btn-save-live-project"
-              :disabled="exportBusy || state.powerUp.busy"
-              title="Continue creating with your conversation history and authoring sources."
-              @click="onExportAgiZip(true, true)"
-            >
-              <span>Download project<small>Game and editing history</small></span>
-            </button>
-            <button
-              type="button"
-              class="game-shortcut"
-              data-testid="btn-start-over"
-              title="Discard the autosave and play this game from the beginning"
-              @click="onStartOver"
-            >
-              <span>Start over<small>Begin this adventure again</small></span>
-            </button>
-          </div>
-        </details>
+            <span class="setting-value">Change</span>
+          </button>
+          <button
+            v-if="gpuBackend"
+            type="button"
+            role="menuitemcheckbox"
+            :aria-checked="crtEnabled"
+            data-testid="toggle-crt"
+            @click="crtEnabled = !crtEnabled"
+          >
+            <span>CRT display<small>Scanlines, glow and curved glass</small></span>
+            <span class="setting-value">{{ crtEnabled ? "On" : "Off" }}</span>
+          </button>
+          <button
+            v-if="state.phase === 'running'"
+            type="button"
+            role="menuitem"
+            data-testid="btn-start-over"
+            @click="onStartOver"
+          >
+            Start over
+          </button>
+        </ActionMenu>
+        <ActionMenu v-if="state.phase === 'running'" label="Download" test-id="download-game-menu">
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="btn-export-live-zip"
+            :disabled="exportBusy || state.powerUp.busy"
+            @click="onExportAgiZip(true)"
+          >
+            <span>Game export<small>Playable game</small></span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="btn-save-live-project"
+            :disabled="exportBusy || state.powerUp.busy"
+            @click="onExportAgiZip(true, true)"
+          >
+            <span>Project<small>Game and editing history</small></span>
+          </button>
+        </ActionMenu>
         <button
           v-if="state.phase === 'running'"
           class="ui-button ui-button--secondary audio-btn"
@@ -1857,6 +1839,7 @@ watch(
     <AiSettingsDialog
       ref="aiSettingsDialog"
       :settings="aiSettings"
+      :budget-usd="taskBudget"
       :models="MODEL_OPTIONS"
       :allow-stub="testMode"
       :saving="aiSettingsSaving"
@@ -1876,40 +1859,6 @@ watch(
       <p class="welcome-kicker">Adventure Game Interpreter</p>
       <h1 id="welcome-title">AGI IS HERE<span>.</span></h1>
       <p class="welcome-line">Dream it. Play it. Remix it.</p>
-      <nav class="menu-jumps" aria-label="Start an adventure">
-        <button
-          type="button"
-          class="ui-button ui-button--primary"
-          data-testid="hero-play-now"
-          :disabled="catalogBusy[featuredCatalog.id] || libraryActionBusy"
-          @click="
-            catalogErrors[featuredCatalog.id]
-              ? loadCatalogOpening(featuredCatalog.id)
-              : playCatalogGame(featuredCatalog.id)
-          "
-        >
-          {{
-            catalogErrors[featuredCatalog.id]
-              ? "Retry tutorial preview"
-              : catalogBusy[featuredCatalog.id]
-                ? "Checking opening…"
-                : "Play now"
-          }}
-        </button>
-        <a
-          class="ui-button ui-button--secondary"
-          href="#create-adventure"
-          @click.prevent="openCreateSection()"
-        >
-          Create an adventure
-        </a>
-        <a
-          class="ui-button ui-button--secondary"
-          :href="hasLibraryContent ? '#your-games' : '#open-game'"
-        >
-          Play existing game
-        </a>
-      </nav>
     </section>
 
     <details
@@ -2046,35 +1995,21 @@ watch(
           </div>
         </section>
 
-        <section class="section create-ai-context" aria-labelledby="create-ai-title">
-          <div>
-            <h2 id="create-ai-title">AI for this adventure</h2>
-            <p>{{ aiSettingsStatus }} · {{ model }}</p>
-          </div>
+        <div v-if="!aiConfigured" class="ai-connect" data-testid="create-ai-connect">
+          <p>Connect your AI provider to generate a game.</p>
           <button
             type="button"
-            class="ui-button ui-button--secondary"
+            class="ui-button ui-button--primary"
             data-testid="connect-create-ai"
             :disabled="aiSettingsUnavailable"
             @click="openAiSettings($event, 'create')"
           >
-            {{ aiConfigured ? "Change AI settings" : "Connect AI" }}
+            Connect AI
           </button>
-        </section>
-        <label class="task-budget"
-          >Task budget · USD (estimated)
-          <input
-            v-model.number="taskBudget"
-            type="number"
-            min="0.01"
-            step="any"
-            required
-            data-testid="task-budget"
-          />
-        </label>
+        </div>
 
         <!-- Launch Buttons -->
-        <div class="boot-row">
+        <div v-if="aiConfigured" class="boot-row">
           <button
             ref="createButton"
             class="ui-button ui-button--primary"
@@ -2137,20 +2072,137 @@ watch(
             <div v-else class="saved-game-cover" aria-hidden="true">AGI</div>
             <div class="saved-game-card-body">
               <span v-if="libraryAutosaves[world.slug]" class="saved-world-badge">IN PROGRESS</span>
-              <h3 class="saved-world-title" data-testid="saved-game-title">{{ world.title }}</h3>
+              <form
+                v-if="renaming && selectedCartridgeSlug === world.slug"
+                class="cartridge-rename"
+                data-testid="rename-game-form"
+                @submit.prevent="saveCartridgeTitle"
+              >
+                <label :for="`cartridge-title-${world.slug}`">Game name</label>
+                <input
+                  :id="`cartridge-title-${world.slug}`"
+                  :ref="setTitleInput"
+                  v-model="cartridgeTitle"
+                  maxlength="100"
+                  required
+                  @keydown.esc="renaming = false"
+                />
+                <button
+                  type="submit"
+                  class="ui-button ui-button--secondary"
+                  :disabled="!cartridgeTitle.trim()"
+                >
+                  Save name
+                </button>
+                <button
+                  type="button"
+                  class="ui-button ui-button--secondary"
+                  @click="renaming = false"
+                >
+                  Cancel
+                </button>
+                <p v-if="renameError" role="alert">{{ renameError }}</p>
+              </form>
+              <div
+                v-show="!(renaming && selectedCartridgeSlug === world.slug)"
+                class="saved-game-heading"
+              >
+                <h3 class="saved-world-title" data-testid="saved-game-title">{{ world.title }}</h3>
+                <button
+                  type="button"
+                  class="ui-button ui-button--icon rename-icon"
+                  aria-label="Rename game"
+                  title="Rename game"
+                  data-testid="rename-game"
+                  @click="beginRename(world)"
+                >
+                  <UiIcon name="pencil" />
+                </button>
+              </div>
               <p v-if="libraryAutosaves[world.slug]" class="saved-world-time">
                 Room {{ libraryAutosaves[world.slug]?.room }} · Saved
                 {{ new Date(libraryAutosaves[world.slug]!.savedAt).toLocaleString() }}
               </p>
-              <button
-                type="button"
-                class="ui-button ui-button--primary saved-game-primary"
-                data-testid="btn-resume-cached"
-                :disabled="libraryActionBusy || importBusy"
-                @click="onPlayLibraryWorld(world)"
+              <div class="saved-game-play-row">
+                <button
+                  type="button"
+                  class="ui-button ui-button--primary saved-game-primary"
+                  data-testid="btn-resume-cached"
+                  :disabled="libraryActionBusy || importBusy"
+                  @click="onPlayLibraryWorld(world)"
+                >
+                  {{ libraryAutosaves[world.slug] ? "Resume" : "Play" }}
+                </button>
+                <ActionMenu
+                  label="Game actions"
+                  icon="more"
+                  icon-only
+                  :test-id="`game-actions-${world.slug}`"
+                >
+                  <button
+                    v-if="libraryAutosaves[world.slug]"
+                    type="button"
+                    role="menuitem"
+                    data-testid="start-library-game-over"
+                    @click="onStartLibraryWorldOver(world)"
+                  >
+                    Start over
+                  </button>
+                  <button
+                    v-if="world.library?.validation.status === 'unverified'"
+                    type="button"
+                    role="menuitem"
+                    data-testid="check-library-game"
+                    :disabled="libraryActionBusy"
+                    @click="onCheckLibraryWorld(world)"
+                  >
+                    Check opening
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-testid="copy-library-game"
+                    :disabled="libraryActionBusy"
+                    @click="onCopyLibraryWorld(world)"
+                  >
+                    Make a copy
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    class="danger"
+                    data-testid="remove-library-game"
+                    @click="onRemoveLibraryWorld(world)"
+                  >
+                    Remove game
+                  </button>
+                </ActionMenu>
+              </div>
+              <ActionMenu
+                label="Download"
+                class="saved-game-download"
+                :test-id="`download-${world.slug}`"
+                :disabled="exportBusy"
               >
-                {{ libraryAutosaves[world.slug] ? "Resume" : "Play" }}
-              </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-testid="btn-export-agi-zip"
+                  :disabled="exportBusy"
+                  @click="onExportLibraryWorld(world)"
+                >
+                  <span>Game export<small>Playable game</small></span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-testid="btn-save-project"
+                  :disabled="exportBusy"
+                  @click="onExportLibraryWorld(world, true)"
+                >
+                  <span>Project<small>Game and editing history</small></span>
+                </button>
+              </ActionMenu>
               <details
                 class="library-details-disclosure"
                 :open="expandedGameSlug === world.slug"
@@ -2158,37 +2210,7 @@ watch(
                 @toggle="onGameDetailsToggle(world.slug, $event)"
               >
                 <summary>Details</summary>
-                <form
-                  v-if="renaming && selectedCartridgeSlug === world.slug"
-                  class="cartridge-rename"
-                  data-testid="rename-game-form"
-                  @submit.prevent="saveCartridgeTitle"
-                >
-                  <label :for="`cartridge-title-${world.slug}`">Game name</label>
-                  <input
-                    :id="`cartridge-title-${world.slug}`"
-                    :ref="setTitleInput"
-                    v-model="cartridgeTitle"
-                    maxlength="100"
-                    required
-                    @keydown.esc="renaming = false"
-                  />
-                  <button
-                    type="submit"
-                    class="ui-button ui-button--secondary"
-                    :disabled="!cartridgeTitle.trim()"
-                  >
-                    Save name
-                  </button>
-                  <button
-                    type="button"
-                    class="ui-button ui-button--secondary"
-                    @click="renaming = false"
-                  >
-                    Cancel
-                  </button>
-                  <p v-if="renameError" role="alert">{{ renameError }}</p>
-                </form>
+
                 <div v-if="world.library" class="library-details">
                   <p v-if="world.library.description">{{ world.library.description }}</p>
                   <dl>
@@ -2205,73 +2227,6 @@ watch(
                       <dd>{{ world.library.catalog.version }}</dd>
                     </template>
                   </dl>
-                </div>
-                <div class="saved-world-actions">
-                  <button
-                    v-if="!(renaming && selectedCartridgeSlug === world.slug)"
-                    type="button"
-                    class="ui-button ui-button--secondary"
-                    data-testid="rename-game"
-                    @click="beginRename(world)"
-                  >
-                    Rename
-                  </button>
-                  <button
-                    v-if="libraryAutosaves[world.slug]"
-                    type="button"
-                    class="ui-button ui-button--secondary"
-                    data-testid="start-library-game-over"
-                    @click="onStartLibraryWorldOver(world)"
-                  >
-                    Start over
-                  </button>
-                  <button
-                    v-if="world.library?.validation.status === 'unverified'"
-                    type="button"
-                    class="ui-button ui-button--secondary"
-                    data-testid="check-library-game"
-                    :disabled="libraryActionBusy"
-                    @click="onCheckLibraryWorld(world)"
-                  >
-                    Check opening
-                  </button>
-                  <button
-                    type="button"
-                    class="ui-button ui-button--secondary"
-                    data-testid="copy-library-game"
-                    :disabled="libraryActionBusy"
-                    @click="onCopyLibraryWorld(world)"
-                  >
-                    Make a copy
-                  </button>
-                  <button
-                    type="button"
-                    class="ui-button ui-button--secondary"
-                    data-testid="btn-export-agi-zip"
-                    title="Share a playable game. Your authoring conversation stays private."
-                    :disabled="exportBusy"
-                    @click="onExportLibraryWorld(world)"
-                  >
-                    Download game
-                  </button>
-                  <button
-                    type="button"
-                    class="ui-button ui-button--secondary"
-                    title="Continue creating with your conversation history and authoring sources."
-                    data-testid="btn-save-project"
-                    :disabled="exportBusy"
-                    @click="onExportLibraryWorld(world, true)"
-                  >
-                    Download project
-                  </button>
-                  <button
-                    type="button"
-                    class="ui-button ui-button--danger"
-                    data-testid="remove-library-game"
-                    @click="onRemoveLibraryWorld(world)"
-                  >
-                    Remove game
-                  </button>
                 </div>
               </details>
             </div>
@@ -2297,28 +2252,34 @@ watch(
               <p v-if="libraryAutosaves[slug]" class="saved-world-time">
                 Room {{ libraryAutosaves[slug]?.room }}
               </p>
-              <button
-                type="button"
-                class="ui-button ui-button--primary saved-game-primary"
-                :data-testid="`boot-${slug}`"
-                :disabled="libraryActionBusy || importBusy"
-                @click="onPlayLocalGame(slug)"
-              >
-                {{ libraryAutosaves[slug] ? "Resume" : "Play" }}
-              </button>
-              <details v-if="libraryAutosaves[slug]" class="library-details-disclosure">
-                <summary>Details</summary>
+              <div class="saved-game-play-row">
                 <button
                   type="button"
-                  class="ui-button ui-button--secondary"
-                  @click="
-                    resumeAudio();
-                    startOver(slug, llmConfig());
-                  "
+                  class="ui-button ui-button--primary saved-game-primary"
+                  :data-testid="`boot-${slug}`"
+                  :disabled="libraryActionBusy || importBusy"
+                  @click="onPlayLocalGame(slug)"
                 >
-                  Start over
+                  {{ libraryAutosaves[slug] ? "Resume" : "Play" }}
                 </button>
-              </details>
+                <ActionMenu
+                  v-if="libraryAutosaves[slug]"
+                  label="Game actions"
+                  icon="more"
+                  icon-only
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    @click="
+                      resumeAudio();
+                      startOver(slug, llmConfig());
+                    "
+                  >
+                    Start over
+                  </button>
+                </ActionMenu>
+              </div>
             </div>
           </article>
           <article
@@ -2405,7 +2366,7 @@ watch(
               {{ new Date(pendingAutosave.savedAt).toLocaleString() }}
             </span>
           </div>
-          <div class="saved-world-actions">
+          <div class="saved-game-play-row">
             <button
               type="button"
               class="ui-button ui-button--primary"
@@ -2414,15 +2375,17 @@ watch(
             >
               Resume
             </button>
-            <button
-              type="button"
-              class="ui-button ui-button--danger"
-              data-testid="btn-start-over-picker"
-              title="Discard the autosave and play this game from the beginning"
-              @click="onStartOver"
-            >
-              Start over
-            </button>
+            <ActionMenu label="Game actions" icon="more" icon-only>
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="btn-start-over-picker"
+                title="Discard the autosave and play this game from the beginning"
+                @click="onStartOver"
+              >
+                Start over
+              </button>
+            </ActionMenu>
           </div>
         </div>
 
@@ -2668,33 +2631,18 @@ watch(
               Back to game
             </button>
           </div>
-          <section v-if="!creatingRoom" class="assistant-ai-context">
-            <div>
-              <strong>{{ aiSettingsStatus }}</strong>
-              <span>{{ model }}</span>
-            </div>
-            <label>
-              Task budget · USD
-              <input
-                v-model.number="taskBudget"
-                type="number"
-                min="0.01"
-                step="any"
-                :disabled="state.powerUp.busy"
-                data-testid="assistant-task-budget"
-              />
-            </label>
+          <div v-if="!creatingRoom && !aiConfigured" class="ai-connect assistant-connect">
+            <p>Connect your AI provider to ask about or remix this game.</p>
             <button
               type="button"
-              class="ui-button ui-button--secondary"
+              class="ui-button ui-button--primary"
               data-testid="connect-assistant-ai"
               :disabled="aiSettingsUnavailable"
               @click="openAiSettings($event, 'assistant')"
             >
-              {{ aiConfigured ? "Change AI settings" : "Connect AI" }}
+              Connect AI
             </button>
-            <p v-if="state.powerUp.needsConfig">Add an API key before asking or remixing.</p>
-          </section>
+          </div>
           <div
             v-if="!creatingRoom && state.powerUp.messages.length"
             ref="conversationEl"
@@ -2992,64 +2940,6 @@ watch(
   color: #fff;
   background: #203537;
 }
-.power-up-config {
-  display: grid;
-  gap: 0.6rem;
-  padding: 0.8rem;
-}
-.power-up-config label {
-  display: grid;
-  gap: 0.25rem;
-}
-.power-up-field {
-  display: grid;
-  gap: 0.25rem;
-}
-.power-up-config input,
-.power-up-config select,
-.power-up-config button {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 0.5rem;
-}
-.assistant-ai-context {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: end;
-  gap: 8px 12px;
-  padding: 10px;
-  border: 1px solid #29474f;
-  border-radius: 6px;
-  background: #081116;
-  font:
-    12px/1.4 system-ui,
-    sans-serif;
-}
-.assistant-ai-context strong,
-.assistant-ai-context span {
-  display: block;
-}
-.assistant-ai-context span,
-.assistant-ai-context p {
-  margin: 2px 0 0;
-  color: #93a9ae;
-}
-.assistant-ai-context label {
-  color: #aebfc2;
-}
-.assistant-ai-context input {
-  display: block;
-  width: 76px;
-  min-height: 34px;
-  margin-top: 3px;
-  box-sizing: border-box;
-  color: #fff;
-  border: 1px solid #496068;
-  background: #03080a;
-}
-.assistant-ai-context > p {
-  grid-column: 1 / -1;
-}
 /* ---- The remix: one round button on the game frame (.screen is relative) ---- */
 .power-up {
   position: absolute;
@@ -3109,22 +2999,6 @@ watch(
   .agent-bubble {
     opacity: 0;
   }
-}
-
-.task-budget {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 12px;
-  color: #afc6ce;
-  font:
-    12px/1.5 system-ui,
-    sans-serif;
-}
-.task-budget input {
-  width: 80px;
-  margin: 0;
-  padding: 6px 8px;
 }
 
 .agent-bubble-head {
@@ -3332,11 +3206,8 @@ watch(
   display: flex;
   flex-direction: column;
 }
-.ai-settings-trigger {
-  margin-left: auto;
-}
-
 .game-nav {
+  margin-left: auto;
   position: relative;
   display: flex;
   flex-wrap: wrap;
@@ -3372,8 +3243,20 @@ watch(
   .game-nav .nav-menu {
     position: static;
   }
-  .game-nav .audio-btn {
-    padding-inline: 7px;
+  .game-nav :deep(.ui-button),
+  .game-nav .nav-menu summary {
+    padding-inline: 6px;
+    gap: 4px;
+  }
+  .game-nav :deep(.ui-icon) {
+    width: 16px;
+    height: 16px;
+  }
+  .at-menu .game-nav {
+    width: auto;
+  }
+  .at-menu .repo-link span {
+    display: none;
   }
   .game-nav .game-controls-panel {
     left: 0;
@@ -3464,12 +3347,6 @@ h1 {
     500 clamp(18px, 2.5vw, 25px)/1.4 system-ui,
     sans-serif;
 }
-.menu-jumps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 20px;
-}
 .catalog-shelf {
   width: var(--shell-width);
   margin: 0 auto 28px;
@@ -3486,8 +3363,8 @@ h1 {
   scroll-margin-top: 20px;
 }
 .library-pane.empty-library {
-  width: min(100%, 640px);
-  align-self: center;
+  width: 100%;
+  align-self: stretch;
   padding: 20px;
   background: #0b1213;
 }
@@ -3668,12 +3545,6 @@ details[open] > .section-summary {
 .library-pane .saved-world-title {
   overflow-wrap: anywhere;
 }
-.library-pane .saved-world-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  width: 100%;
-  gap: 8px;
-}
 .saved-game-gallery {
   display: grid;
   align-items: start;
@@ -3772,27 +3643,6 @@ details[open] > .section-summary {
   color: #aaa;
   font-size: 13px;
 }
-.create-ai-context {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px;
-  border: 1px solid #31494c;
-  border-radius: 6px;
-  background: #0a1416;
-}
-.create-ai-context h2,
-.create-ai-context p {
-  margin: 0;
-}
-.create-ai-context p {
-  color: #91a7aa;
-  font:
-    12px/1.5 system-ui,
-    sans-serif;
-}
-
 .section h2 {
   font-size: 16px;
   letter-spacing: 0.02em;
@@ -3920,10 +3770,7 @@ details[open] > .section-summary {
 }
 
 .config-col select,
-.config-col input,
-.task-budget input,
-.power-up-config input,
-.power-up-config select {
+.config-col input {
   color-scheme: dark;
   background: #000;
   border: 1px solid #444;
@@ -3936,8 +3783,7 @@ details[open] > .section-summary {
   border-radius: 2px;
 }
 
-.config-col select,
-.power-up-config select {
+.config-col select {
   height: 44px;
   min-height: 44px;
 }
@@ -4193,13 +4039,6 @@ details[open] > .section-summary {
 .nav-menu summary::-webkit-details-marker {
   display: none;
 }
-.nav-menu summary::after {
-  content: "+";
-  color: #7fe8ee;
-}
-.nav-menu[open] summary::after {
-  content: "−";
-}
 .game-controls-panel {
   position: absolute;
   z-index: 20;
@@ -4309,17 +4148,6 @@ summary:focus-visible {
   }
   .library-pane {
     padding: 18px;
-  }
-  .create-ai-context {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .assistant-ai-context {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-  .assistant-ai-context > div,
-  .assistant-ai-context > p {
-    grid-column: 1 / -1;
   }
   .welcome {
     padding: 12px 0 28px;
@@ -4606,7 +4434,54 @@ summary:focus-visible {
   font-size: 0.75rem;
 }
 
+.ai-connect {
+  margin-top: 24px;
+  color: #b9cdce;
+  font:
+    14px/1.5 system-ui,
+    sans-serif;
+}
+.ai-connect p {
+  margin: 0 0 12px;
+}
+.assistant-connect {
+  margin-top: 12px;
+}
+.saved-game-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 8px 0 4px;
+}
+.saved-game-card .saved-game-heading .saved-world-title {
+  margin: 0;
+  flex: 1;
+}
+.rename-icon {
+  color: #91b9bc;
+  background: transparent;
+}
+.rename-icon:hover {
+  color: var(--ui-action);
+  background: #14282a;
+}
+.saved-game-play-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  margin-top: 12px;
+}
+.saved-game-play-row .saved-game-primary {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.saved-game-download {
+  margin-top: 12px;
+}
 .cartridge-rename {
+  width: 100%;
   display: flex;
   flex-wrap: wrap;
   align-items: center;

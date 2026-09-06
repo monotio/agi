@@ -9,6 +9,7 @@ import {
   configureAi,
   isolateStorage,
   openSavedGameDetails,
+  openLibraryActions,
   savedGameCard,
   textHook,
 } from "./engineProbe.ts";
@@ -80,7 +81,8 @@ test("a selected folder is checked, deduplicated with its ZIP, and can be copied
     });
     await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(1);
     await openSavedGameDetails(original);
-    await original.getByTestId("copy-library-game").click();
+    await openLibraryActions(page, original);
+    await page.getByTestId("copy-library-game").click();
     await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(2);
     await expect(savedGameCard(page, "Folder Adventure Remix")).toBeVisible();
     await expect(original).not.toContainText("Folder Adventure Remix");
@@ -210,7 +212,7 @@ test("the offline tutorial has a generated thumbnail and fits a phone", async ({
   await expect(card.getByRole("img")).toHaveAttribute("src", /^data:image\/png/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: test.info().outputPath("game-library-phone.png"), fullPage: true });
-  await page.getByTestId("hero-play-now").click();
+  await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(5);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("HELP");

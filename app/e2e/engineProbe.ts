@@ -5,6 +5,7 @@ export interface AiConfiguration {
   provider: "anthropic" | "openai" | "stub";
   key?: string;
   model?: string;
+  budget?: number;
 }
 
 /**
@@ -276,7 +277,7 @@ export async function openDeveloperActivity(page: Page): Promise<void> {
 
 /** Configure the app-wide AI connection through the same dialog a player uses. */
 export async function configureAi(page: Page, configuration: AiConfiguration): Promise<void> {
-  await page.getByTestId("open-ai-settings").click();
+  await openAiSettings(page);
   const dialog = page.getByTestId("ai-settings-dialog");
   await expect(dialog).toBeVisible();
   await dialog.getByTestId("provider-select").selectOption(configuration.provider);
@@ -284,8 +285,31 @@ export async function configureAi(page: Page, configuration: AiConfiguration): P
     await dialog.getByTestId("model-select").selectOption(configuration.model);
   if (configuration.key !== undefined)
     await dialog.getByTestId("api-key-input").fill(configuration.key);
+  if (configuration.budget !== undefined)
+    await dialog.getByTestId("task-budget").fill(String(configuration.budget));
   await dialog.getByTestId("ai-settings-save").click();
   await expect(dialog).toBeHidden();
+}
+
+/** Open the single shared connection dialog through Settings. */
+export async function openAiSettings(page: Page): Promise<void> {
+  const settings = page.getByTestId("settings-menu");
+  if ((await settings.getAttribute("aria-expanded")) !== "true") await settings.click();
+  await page.getByTestId("open-ai-settings").click();
+  await expect(page.getByTestId("ai-settings-dialog")).toBeVisible();
+}
+
+/** Saved-game actions live in a popup outside the card's clipping boundary. */
+export async function openLibraryActions(page: Page, card: Locator): Promise<void> {
+  const trigger = card.getByRole("button", { name: "Game actions", exact: true });
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+  await expect(page.getByRole("menu", { name: "Game actions", exact: true })).toBeVisible();
+}
+
+export async function openLibraryDownload(page: Page, card: Locator): Promise<void> {
+  const trigger = card.getByRole("button", { name: "Download", exact: true });
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+  await expect(page.getByRole("menu", { name: "Download", exact: true })).toBeVisible();
 }
 
 /** Open a top-bar disclosure through its visible control without closing it on repeat calls. */
@@ -293,8 +317,10 @@ export async function openGameOptions(
   page: Page,
   menu: "save-share-menu" | "sound-display-menu",
 ): Promise<void> {
-  const details = page.getByTestId(menu);
-  if ((await details.getAttribute("open")) === null) await details.locator("summary").click();
+  const trigger = page.getByTestId(
+    menu === "save-share-menu" ? "download-game-menu" : "settings-menu",
+  );
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
 }
 
 /** Seed through the production persistence boundary, so fixtures use the release contract. */

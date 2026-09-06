@@ -9,17 +9,20 @@ const props = defineProps<{
   allowStub: boolean;
   saving: boolean;
   error: string;
+  budgetUsd: number;
 }>();
 const emit = defineEmits<{
-  save: [settings: AiSettings];
+  save: [settings: AiSettings, budgetUsd: number];
   closed: [];
 }>();
 
 const dialog = ref<HTMLDialogElement | null>(null);
 const draft = ref(copyAiSettings(props.settings));
+const draftBudget = ref(props.budgetUsd);
 
 function show(): void {
   draft.value = copyAiSettings(props.settings);
+  draftBudget.value = props.budgetUsd;
   dialog.value?.showModal();
 }
 
@@ -30,6 +33,11 @@ function close(): void {
 function applyModelDefault(): void {
   const profile = draft.value.profiles[draft.value.provider];
   profile.effort = defaultModelEffort(profile.model);
+}
+
+function save(): void {
+  if (!Number.isFinite(draftBudget.value) || draftBudget.value <= 0) return;
+  emit("save", copyAiSettings(draft.value), draftBudget.value);
 }
 
 defineExpose({ show, close });
@@ -43,7 +51,7 @@ defineExpose({ show, close });
     data-testid="ai-settings-dialog"
     @close="emit('closed')"
   >
-    <form method="dialog" @submit.prevent="emit('save', copyAiSettings(draft))">
+    <form method="dialog" @submit.prevent="save">
       <header>
         <h2 id="ai-settings-title">AI settings</h2>
         <button
@@ -117,6 +125,17 @@ defineExpose({ show, close });
         />
         <p class="privacy-note">Your key stays in this browser.</p>
       </template>
+      <label for="task-budget">Budget per task · USD</label>
+      <input
+        id="task-budget"
+        v-model.number="draftBudget"
+        type="number"
+        min="0.01"
+        step="0.01"
+        required
+        data-testid="task-budget"
+      />
+      <p class="budget-note">Maximum estimated spend for each creation or remix.</p>
       <p v-if="error" class="dialog-error" role="alert">{{ error }}</p>
       <footer>
         <button
@@ -170,6 +189,7 @@ footer,
 }
 h2,
 .privacy-note,
+.budget-note,
 .dialog-error {
   margin: 0;
 }
@@ -177,7 +197,8 @@ h2 {
   color: #fff;
   font-size: 24px;
 }
-.privacy-note {
+.privacy-note,
+.budget-note {
   color: #9db0b2;
   line-height: 1.5;
 }
@@ -197,8 +218,8 @@ input {
   color: #fff;
   background: #030809;
   font:
-    14px/1.4 ui-monospace,
-    monospace;
+    14px/1.4 system-ui,
+    sans-serif;
 }
 a {
   color: #88e8ea;

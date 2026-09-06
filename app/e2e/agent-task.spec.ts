@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/zip.ts";
-import { configureAi, textHook } from "./engineProbe.ts";
+import { configureAi, openAiSettings, textHook } from "./engineProbe.ts";
 
 test("Astra is the new-user default; Stop and budget pauses retain a staged remix", async ({
   page,
@@ -68,7 +68,7 @@ test("Astra is the new-user default; Stop and budget pauses retain a staged remi
   });
   try {
     await page.goto("/");
-    await page.getByTestId("open-ai-settings").click();
+    await openAiSettings(page);
     await expect(page.getByTestId("model-select")).toHaveValue("gpt-6-astra");
     await page.getByTestId("ai-settings-cancel").click();
     await page.getByTestId("game-zip-input").setInputFiles({
@@ -79,7 +79,7 @@ test("Astra is the new-user default; Stop and budget pauses retain a staged remi
     await page.getByTestId("btn-resume-cached").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await page.getByTestId("power-up").click();
-    await configureAi(page, { provider: "openai", key: "test-placeholder" });
+    await configureAi(page, { provider: "openai", key: "test-placeholder", budget: 1 });
     await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
     await page.getByTestId("agent-bubble-input").fill("Add sparkle to the vocabulary");
     await page.getByTestId("agent-bubble-send").click();

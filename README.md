@@ -26,7 +26,7 @@ Open `http://localhost:5199/` and click **Play now** for **Adventure Department*
 an original MIT-licensed tutorial with three rooms. Repair a picture, wake a
 sprite and fix a clerk's priority to learn how AGI adventures work. It runs
 locally without a provider key or original Sierra game files. **Make a copy**
-keeps the catalog original intact; **Download project** includes the tutorial's
+keeps the catalog original intact; **Download → Project** includes the tutorial's
 editable logic, picture, view and sound sources. The exported AGI game can also run
 offline in a compatible interpreter. Loading this website itself still needs
 a connection; it is not yet an installable offline app.
@@ -39,12 +39,14 @@ The first visit leads with the tutorial and an expanded **Create a new adventure
 section. The browser remembers whether you leave Create expanded or collapsed.
 The tutorial can also be collapsed; once you create or import your own games, it
 starts collapsed unless you explicitly chose to keep it open.
-**Play existing game** takes you to your library, or to **Add game** when it is empty.
+**Add game** accepts a ZIP or folder below these sections.
 Once a game is in your library,
 **Your games** appears as a gallery with a direct **Resume** or **Play** action
 on each card. Games supplied by the site, imports, creations and local development
 fixtures share this gallery. Progress screenshots show the scene captured with the latest safe
-autosave. Expand a game's **Details** to rename, copy, export or remove it.
+autosave. Rename with the pencil beside its name. The three-dot menu beside
+**Resume** or **Play** contains Start over, Make a copy and Remove game.
+**Download** offers a game export or project; **Details** contains game metadata.
 
 To create an adventure with an AI provider, pick a starting point under
 **Create a new adventure**:
@@ -59,7 +61,7 @@ To create an adventure with an AI provider, pick a starting point under
 Each template opens a Markdown brief you can edit. Or choose **Your own
 adventure** and describe the hero, setting and trouble. Plain language and
 structured [cartridge briefs](games/README.md) both work. Connect your provider in
-**AI settings**, then click **Create adventure**.
+**Connect AI**, then click **Create adventure**.
 
 The agent builds the opening room, including its artwork, characters and game
 logic. When you enter an unwritten room, play pauses while the agent creates it;
@@ -92,7 +94,7 @@ Ask for a sound preview to get a local WAV player and download. These clips use
 the game's sound timing with approximate synthesis; the current authoring
 connections receive the data and image, not the audio.
 
-**AI settings** is shared by Create, Ask and Remix. Each provider keeps its own
+**Settings → AI provider** is shared by Create, Ask and Remix. Each provider keeps its own
 key, model and reasoning effort in this browser, so switching providers preserves
 your settings. Saving settings starts no model request.
 GPT-6 Astra is the default; choose another OpenAI or Anthropic model and effort
@@ -101,7 +103,8 @@ low based on Genesis cost evaluations; other models retain their API defaults.
 Responses stream live: Ask shows text as it arrives, and authoring shows model
 activity and which tool it is preparing. Tools run only after the complete
 response has been received and validated.
-Tasks start with a $5 estimated budget. **Stop** and **Continue** keep work in
+Tasks start with a $5 estimated budget, adjustable in the same settings dialog.
+**Stop** and **Continue** keep work in
 progress in the current tab; a budget pause lets you add another allowance.
 Stopping an active response discards its unfinished draft; Continue retries
 that request with the completed work retained.
@@ -140,10 +143,10 @@ Existing single-slot saves remain available when their game signature matches.
 Browser storage supplies the save directory; DOS drive and path dialogs are not
 emulated. Clearing browser data removes these local saves.
 
-| Download             | What travels with it                                                                   |
-| -------------------- | -------------------------------------------------------------------------------------- |
-| **Download game**    | Playable resources and public game metadata.                                           |
-| **Download project** | The game plus its authoring conversation, images, source descriptions and world notes. |
+| Download                   | What travels with it                                                                   |
+| -------------------------- | -------------------------------------------------------------------------------------- |
+| **Download → Game export** | Playable resources and public game metadata.                                           |
+| **Download → Project**     | The game plus its authoring conversation, images, source descriptions and world notes. |
 
 Both downloads are ZIPs you can reopen with **Add game → ZIP file**. Public game
 exports can include a description, author, license and remix provenance in
@@ -209,3 +212,5 @@ observable behavior and interpreter versions, and is published under
 Created by Joakim Riedel and published by [Monotio](https://monotio.com).
 The engine, authoring tools, browser shell and original project assets use the
 [MIT license](LICENSE). Dependencies and imported games retain their own licenses.
+The pencil, menu and chevron icons are from [Lucide](https://lucide.dev), with
+[ISC and Feather MIT notices](app/public/licenses/lucide.txt) included in the build.

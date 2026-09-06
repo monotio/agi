@@ -270,7 +270,7 @@ for (const desktop of [false, true]) {
     }) => {
       await boot(page, true);
       if (desktop) {
-        const settings = page.getByTestId("sound-display-menu").locator("summary");
+        const settings = page.getByTestId("settings-menu");
         await settings.click();
         await page.getByTestId("toggle-touch-controls").click();
         await settings.click();

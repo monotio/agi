@@ -259,8 +259,8 @@ For browser changes, exercise the real flow: create or import, remix, leave,
 resume, download and reopen as appropriate. Use request and download assertions
 for transport, and screenshots for visual changes.
 
-**Download project** stores authoring context in a versioned `PROJECT.JSON` with
-repeated images deduplicated into ZIP attachments. **Download game** includes AGI
+**Download → Project** stores authoring context in a versioned `PROJECT.JSON` with
+repeated images deduplicated into ZIP attachments. **Download → Game export** includes AGI
 resources and version-1 `GAME.JSON`, whose nested public metadata allowlist is
 `description`, `author`, `license` and parent game/revision.
 Neither format changes resource IDs or the game's container format; public game
@@ -290,6 +290,10 @@ Keep Tutorial and Create on the same disclosure control. Routine validation
 belongs in stored diagnostics; show players actionable failures, not test-scope
 commentary. `app/e2e/ui-consistency.spec.ts` checks appearance, tap targets,
 disclosures and concise game cards across the live flows.
+Keep setup in **Settings → AI provider**. Creation and Remix show Connect AI only
+until configured. Saved-game cards expose inline rename, Play/Resume, an actions
+menu and one Download menu; Details contains metadata. `app/e2e/menu-flow.spec.ts`
+checks these paths and section alignment at desktop and phone sizes.
 
 ## Pull requests
 

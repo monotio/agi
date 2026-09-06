@@ -12,6 +12,7 @@ import {
   isolateStorage,
   openCreateAdventure,
   openSavedGameDetails,
+  openLibraryDownload,
   observe,
   probe,
   screenText,
@@ -440,7 +441,7 @@ test("Start over discards the autosave and boots the game from the top", async (
   await expect(page.getByTestId("resume-caption")).toBeVisible({ timeout: 20_000 });
 
   // Start over throws the snapshot away and boots KQ1 from its title screen.
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "sound-display-menu");
   await page.getByTestId("btn-start-over").click();
   await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId("resume-caption")).toBeHidden();
@@ -630,5 +631,6 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
     .locator("[data-testid^='saved-game-card-']");
   await expect(savedCard).toHaveCount(1);
   await openSavedGameDetails(savedCard);
-  await expect(savedCard.getByTestId("btn-export-agi-zip")).toBeVisible();
+  await openLibraryDownload(page, savedCard);
+  await expect(page.getByTestId("btn-export-agi-zip")).toBeVisible();
 });

@@ -4,7 +4,7 @@ import { isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
 test("tutorial walking speed commands change movement without a modal", async ({ page }) => {
   await isolateStorage(page);
   await page.goto("/");
-  await page.getByTestId("hero-play-now").click();
+  await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 
   const measure = async (speed: string | null): Promise<number> => {
@@ -68,7 +68,7 @@ test("tutorial walls and three exhibits work through the real browser controls",
   await isolateStorage(page);
   await page.setViewportSize({ width: 1000, height: 820 });
   await page.goto("/");
-  await page.getByTestId("hero-play-now").click();
+  await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByTestId("input-line").focus();
   await page.keyboard.press("ArrowUp");

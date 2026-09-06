@@ -12,6 +12,7 @@ import {
   openDeveloperActivity,
   openGameOptions,
   openSavedGameDetails,
+  openLibraryDownload,
   savedGameCard,
   textHook,
 } from "./engineProbe.ts";
@@ -319,7 +320,8 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
   await expect(renamedCard.getByTestId("saved-game-title")).toHaveText("The Midnight Appointment");
   await openSavedGameDetails(renamedCard);
   const downloading = page.waitForEvent("download");
-  await renamedCard.getByTestId("btn-export-agi-zip").click();
+  await openLibraryDownload(page, renamedCard);
+  await page.getByTestId("btn-export-agi-zip").click();
   const exported = await downloading;
   const content = await readGameZip(new Uint8Array(await readFile((await exported.path())!)));
   expect(content.title).toBe("The Midnight Appointment");

@@ -7,6 +7,7 @@ test("templates expose editable Markdown and genesis receives the edited brief",
 }) => {
   await isolateStorage(page);
   await page.goto("/");
+  await configureAi(page, { provider: "stub" });
   const brief = page.getByTestId("custom-cartridge-input");
   await expect(brief).toBeHidden();
   await expect(page.getByTestId("create-adventure-disclosure")).toHaveAttribute("open", "");
@@ -66,13 +67,14 @@ test("the menu accommodates a large library and gives custom adventures room to 
   );
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
+  await configureAi(page, { provider: "stub" });
   await expect(page.getByRole("heading", { name: "AGI IS HERE." })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath("menu-first-visit.png") });
   const gallery = page.getByTestId("saved-game-gallery");
   await expect(gallery.locator('[data-testid^="local-game-card-"]')).toHaveCount(40);
   await expect(page.getByTestId("installed-game-select")).toHaveCount(0);
   await expect(page.getByTestId("boot-game-40")).toHaveText("Play");
-  await page.getByRole("link", { name: "Create an adventure", exact: true }).click();
+  await openCreateAdventure(page);
   await expect(page.getByTestId("create-adventure-disclosure")).toHaveAttribute("open", "");
   await page.getByTestId("cartridge-custom").click();
   await expect(page.getByTestId("boot-cartridge")).toBeDisabled();
@@ -87,7 +89,7 @@ test("the menu accommodates a large library and gives custom adventures room to 
   await expect(brief).toHaveValue(/night guard/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: test.info().outputPath("menu-mobile.png"), fullPage: true });
-  await expect(page.getByTestId("hero-play-now")).toHaveText("Play now");
+  await expect(page.getByTestId("catalog-play-adventure-department")).toHaveText("Play now");
   const openGame = page.getByRole("button", { name: "Add game", exact: true });
   await openGame.scrollIntoViewIfNeeded();
   await expect(openGame).toBeInViewport();

@@ -1394,7 +1394,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       };
       if (!(await saveAuthoredCartridge(slug, data)))
         throw new Error(
-          "Browser storage could not save this remix. Use Download project to keep it.",
+          "Browser storage could not save this remix. Use Download → Project to keep it.",
         );
       game.slug = slug;
       game.installed = false;
@@ -1415,7 +1415,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       ))
     ) {
       throw new Error(
-        "Browser storage could not save this remix. Use Download project to keep it.",
+        "Browser storage could not save this remix. Use Download → Project to keep it.",
       );
     }
     game.files = files;
@@ -1464,7 +1464,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
               context.model,
             ))
           )
-            throw new Error("Conversation could not be saved. Use Download project to keep it.");
+            throw new Error("Conversation could not be saved. Use Download → Project to keep it.");
         }
         return;
       }
@@ -1515,7 +1515,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         const files = await query<Record<string, Uint8Array> | null>("exportFiles");
         if (!files)
           throw new Error(
-            "The current game could not be saved. Try Download project before leaving.",
+            "The current game could not be saved. Try Download → Project before leaving.",
           );
         await persistRemix(game, session, files);
       }
@@ -1670,7 +1670,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       if (!saved)
         logAgent(
           "error",
-          "Browser storage could not save this world. Use Download project to keep it.",
+          "Browser storage could not save this world. Use Download → Project to keep it.",
         );
       if (saved)
         logAgent(

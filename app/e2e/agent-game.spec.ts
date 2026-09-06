@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import {
   canvasPicHash,
   configureAi,
+  openAiSettings,
   isolateStorage,
   observe,
   openCreateAdventure,
@@ -262,7 +263,7 @@ test("cartridge picker displays built-in cartridges and allows selection", async
 
 test("provider and model configuration adapts options and persists choices", async ({ page }) => {
   await page.goto("/");
-  await page.getByTestId("open-ai-settings").click();
+  await openAiSettings(page);
   const dialog = page.getByTestId("ai-settings-dialog");
   const providerSelect = dialog.getByTestId("provider-select");
   await expect(providerSelect).toBeVisible();
@@ -275,7 +276,7 @@ test("provider and model configuration adapts options and persists choices", asy
   await expect(modelSelect).toContainText("Claude Opus 5");
   await expect(modelSelect).toContainText("Claude Fable 5.1");
   await dialog.getByTestId("ai-settings-save").click();
-  await page.getByTestId("open-ai-settings").click();
+  await openAiSettings(page);
   await expect(dialog.getByTestId("provider-select")).toHaveValue("anthropic");
   await dialog.getByTestId("ai-settings-cancel").click();
   const repoLink = page.getByTestId("github-link");

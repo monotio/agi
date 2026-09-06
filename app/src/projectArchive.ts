@@ -122,13 +122,13 @@ function finishArchive(entries: ZipFileInput[]): Uint8Array<ArrayBuffer> {
     expanded += size;
     if (size > 64 * 1024 * 1024 || expanded > 256 * 1024 * 1024)
       throw new Error(
-        "This project exceeds the supported archive size. Choose Download game to keep its playable resources.",
+        "This project exceeds the supported archive size. Choose Download → Game export to keep its playable resources.",
       );
   }
   const zip = buildZip(entries);
   if (zip.length > 128 * 1024 * 1024)
     throw new Error(
-      "This project exceeds the 128 MB archive limit. Choose Download game to keep its playable resources.",
+      "This project exceeds the 128 MB archive limit. Choose Download → Game export to keep its playable resources.",
     );
   return zip;
 }
