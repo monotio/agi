@@ -26,8 +26,17 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
             (transaction["oncomplete"] as (() => void) | null)?.();
         });
       } catch (error) {
+        // A failed request settles its transaction the way IndexedDB does:
+        // the request errors, then the transaction errors and aborts.
         value.error = error as DOMException;
         value.onerror?.();
+        transaction["pending"] = Number(transaction["pending"]) - 1;
+        transaction["aborted"] = true;
+        transaction["error"] = error;
+        queueMicrotask(() => {
+          (transaction["onerror"] as (() => void) | null)?.();
+          (transaction["onabort"] as (() => void) | null)?.();
+        });
       }
     });
     return value as unknown as IDBRequest<T>;
