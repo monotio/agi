@@ -13,9 +13,6 @@ defineProps<{
     data-testid="sound-previews"
     @click.stop
   >
-    <p class="sound-preview-note">
-      Listening preview. The agent receives sound data and a visual timeline.
-    </p>
     <figure v-for="(preview, index) in audio" :key="preview.url" class="sound-preview">
       <figcaption>{{ preview.caption }}</figcaption>
       <audio
@@ -48,11 +45,6 @@ defineProps<{
   font:
     12px/1.45 system-ui,
     sans-serif;
-}
-
-.sound-preview-note {
-  margin: 0;
-  color: #9db1b6;
 }
 
 .sound-preview {

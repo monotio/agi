@@ -88,7 +88,7 @@ test("the menu accommodates a large library and gives custom adventures room to 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: test.info().outputPath("menu-mobile.png"), fullPage: true });
   await expect(page.getByTestId("hero-play-now")).toHaveText("Play now");
-  const openGame = page.getByRole("button", { name: "Open game", exact: true });
+  const openGame = page.getByRole("button", { name: "Add game", exact: true });
   await openGame.scrollIntoViewIfNeeded();
   await expect(openGame).toBeInViewport();
   await configureAi(page, { provider: "stub" });

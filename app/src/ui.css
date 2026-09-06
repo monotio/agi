@@ -1,0 +1,83 @@
+:root {
+  --ui-action: #79e5e6;
+  --ui-action-hover: #9aedef;
+  --ui-action-ink: #071112;
+  --ui-action-surface: #132426;
+  --ui-action-surface-hover: #1b3335;
+  --ui-danger: #d98b91;
+  --ui-danger-hover: #f0a0a6;
+  --ui-focus: #b6f5f6;
+}
+
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font:
+    700 14px/1.4 system-ui,
+    sans-serif;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.ui-button--primary {
+  border-color: var(--ui-action);
+  color: var(--ui-action-ink);
+  background: var(--ui-action);
+}
+
+.ui-button--primary:hover:not(:disabled) {
+  border-color: var(--ui-action-hover);
+  background: var(--ui-action-hover);
+}
+
+.ui-button--secondary {
+  border-color: var(--ui-action);
+  color: var(--ui-action);
+  background: transparent;
+}
+
+.ui-button--secondary:hover:not(:disabled) {
+  color: var(--ui-action-hover);
+  border-color: var(--ui-action-hover);
+  background: var(--ui-action-surface-hover);
+}
+
+.ui-button--danger {
+  border-color: var(--ui-danger);
+  color: var(--ui-danger);
+  background: transparent;
+}
+
+.ui-button--danger:hover:not(:disabled) {
+  color: var(--ui-danger-hover);
+  border-color: var(--ui-danger-hover);
+  background: var(--ui-action-surface);
+}
+
+.ui-button--icon {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  padding: 0;
+}
+
+.ui-button:focus-visible {
+  outline: 3px solid var(--ui-focus);
+  outline-offset: 2px;
+}
+
+.ui-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}

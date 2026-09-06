@@ -42,7 +42,7 @@ test("ZIP import is checked and staged before Play, with a stable duplicate", as
     buffer: zip,
   });
   const card = savedGameCard(page, "library");
-  await expect(card).toContainText("Opening checked");
+  await expect(card.getByTestId("btn-resume-cached")).toBeEnabled();
   await expect(card.getByTestId("library-thumbnail")).toHaveAttribute("src", /^data:image\/png/);
   await expect(page.getByTestId("input-line")).toBeHidden();
   const firstSlug = await card.getAttribute("data-slug");
@@ -52,7 +52,7 @@ test("ZIP import is checked and staged before Play, with a stable duplicate", as
     mimeType: "application/zip",
     buffer: zip,
   });
-  await expect(page.getByTestId("game-import-ready")).toContainText("ready to play");
+  await expect(page.getByTestId("game-import-ready")).toContainText("added to your library");
   await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(1);
   await expect(card).toHaveAttribute("data-slug", firstSlug!);
   await card.getByTestId("btn-resume-cached").click();
@@ -72,7 +72,7 @@ test("a selected folder is checked, deduplicated with its ZIP, and can be copied
     await Promise.all(files.map(({ name, data }) => writeFile(join(folder, name), data)));
     await page.getByTestId("game-folder-input").setInputFiles(folder);
     const original = savedGameCard(page, "Folder Adventure");
-    await expect(original).toContainText("Opening checked");
+    await expect(original.getByTestId("btn-resume-cached")).toBeEnabled();
     await page.getByTestId("game-zip-input").setInputFiles({
       name: "same-resources.zip",
       mimeType: "application/zip",

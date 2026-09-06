@@ -22,7 +22,7 @@ test("a friend opens an exported world in a fresh browser without a key", async 
 }) => {
   await isolateStorage(page);
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "Open game", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add game", exact: true })).toBeVisible();
   await openDeveloperActivity(page);
   await page.getByTestId("boot-agent").click();
   await expect(page.getByTestId("input-line")).toBeVisible();
@@ -50,7 +50,7 @@ test("a friend opens an exported world in a fresh browser without a key", async 
       return route.abort();
     });
     await friend.goto(page.url());
-    await expect(friend.getByRole("button", { name: "Open game", exact: true })).toBeVisible();
+    await expect(friend.getByRole("button", { name: "Add game", exact: true })).toBeVisible();
     await friend.getByTestId("game-zip-input").setInputFiles((await zip.path())!);
     await friend.getByTestId("btn-resume-cached").click();
     await expect(friend.getByTestId("input-line")).toBeVisible();

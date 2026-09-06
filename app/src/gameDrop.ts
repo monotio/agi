@@ -7,7 +7,7 @@ const MAX_FOLDER_FILE_BYTES = 64 * 1024 * 1024;
 
 const PICK_ONE_ERROR = "Drop one game folder or one ZIP at a time.";
 const FOLDER_FALLBACK_ERROR =
-  "This browser cannot read that dropped folder. Use Open game → Game folder instead.";
+  "This browser cannot read that dropped folder. Use Add game → Game folder instead.";
 
 function validSegment(name: string): boolean {
   return (

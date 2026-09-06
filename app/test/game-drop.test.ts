@@ -134,13 +134,13 @@ test("ambiguous roots and unsupported loose files report actionable errors", asy
   );
   await assert.rejects(
     captureGameDrop(transfer([null], { fallbackItems: [loose] })),
-    /Use Open game → Game folder/,
+    /Use Add game → Game folder/,
   );
   await assert.rejects(
     captureGameDrop(
       transfer([null, null], { fallbackItems: [loose, new File(["data"], "WORDS.TOK")] }),
     ),
-    /Use Open game → Game folder/,
+    /Use Add game → Game folder/,
   );
 });
 

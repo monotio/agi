@@ -144,9 +144,7 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
   expect(previewText).not.toMatch(/data:audio|"wav"\s*:|UklGR/i);
 
   const preview = page.getByTestId("agent-bubble-sound-preview");
-  await expect(preview).toContainText(
-    "Listening preview. The agent receives sound data and a visual timeline.",
-  );
+  await expect(preview).not.toContainText("The agent receives");
   await expect(preview).toContainText("Sound 5");
   const audio = preview.getByTestId("sound-preview-audio");
   await expect(audio).toHaveAttribute("controls", "");

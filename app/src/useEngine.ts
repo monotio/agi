@@ -1393,7 +1393,9 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         roomGeneration: false,
       };
       if (!(await saveAuthoredCartridge(slug, data)))
-        throw new Error("Browser storage could not save this remix. Use Save project to keep it.");
+        throw new Error(
+          "Browser storage could not save this remix. Use Download project to keep it.",
+        );
       game.slug = slug;
       game.installed = false;
       game.cartridge = { ...data, slug, authoredAt: new Date().toISOString() };
@@ -1412,7 +1414,9 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         files,
       ))
     ) {
-      throw new Error("Browser storage could not save this remix. Use Save project to keep it.");
+      throw new Error(
+        "Browser storage could not save this remix. Use Download project to keep it.",
+      );
     }
     game.files = files;
     game.words = words;
@@ -1460,7 +1464,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
               context.model,
             ))
           )
-            throw new Error("Conversation could not be saved. Use Save project to keep it.");
+            throw new Error("Conversation could not be saved. Use Download project to keep it.");
         }
         return;
       }
@@ -1510,7 +1514,9 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       if (game && session && (!game.installed || remixNeedsSave)) {
         const files = await query<Record<string, Uint8Array> | null>("exportFiles");
         if (!files)
-          throw new Error("The current game could not be saved. Try Save project before leaving.");
+          throw new Error(
+            "The current game could not be saved. Try Download project before leaving.",
+          );
         await persistRemix(game, session, files);
       }
       await flushAutosave(2000);
@@ -1664,7 +1670,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       if (!saved)
         logAgent(
           "error",
-          "Browser storage could not save this world. Use Save project to keep it.",
+          "Browser storage could not save this world. Use Download project to keep it.",
         );
       if (saved)
         logAgent(

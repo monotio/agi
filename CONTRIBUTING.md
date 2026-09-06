@@ -259,8 +259,8 @@ For browser changes, exercise the real flow: create or import, remix, leave,
 resume, download and reopen as appropriate. Use request and download assertions
 for transport, and screenshots for visual changes.
 
-**Save project** stores authoring context in a versioned `PROJECT.JSON` with
-repeated images deduplicated into ZIP attachments. **Export game** includes AGI
+**Download project** stores authoring context in a versioned `PROJECT.JSON` with
+repeated images deduplicated into ZIP attachments. **Download game** includes AGI
 resources and version-1 `GAME.JSON`, whose nested public metadata allowlist is
 `description`, `author`, `license` and parent game/revision.
 Neither format changes resource IDs or the game's container format; public game
@@ -283,6 +283,13 @@ game's opening cover. Capture the composed picture, sprites and engine text at
 the same safe cycle boundary as the save bytes. Old saves remain valid without
 a thumbnail, and a thumbnail failure must never prevent saving progress. In the
 menu, show each saved game once, with its own resume action and optional details.
+
+Use the shared action styles in `app/src/ui.css`: primary for Play, Resume and
+submission; secondary for Add game and supporting actions; danger for removal.
+Keep Tutorial and Create on the same disclosure control. Routine validation
+belongs in stored diagnostics; show players actionable failures, not test-scope
+commentary. `app/e2e/ui-consistency.spec.ts` checks appearance, tap targets,
+disclosures and concise game cards across the live flows.
 
 ## Pull requests
 

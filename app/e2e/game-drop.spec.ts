@@ -155,9 +155,9 @@ test("a ZIP dropped through DataTransfer is checked before it can be played", as
 
   await dispatchZipDrop(page, zip);
 
-  await expect(page.getByTestId("game-import-ready")).toContainText("ready to play");
+  await expect(page.getByTestId("game-import-ready")).toContainText("added to your library");
   const card = savedGameCard(page, "dropped-adventure");
-  await expect(card).toContainText("Opening checked");
+  await expect(card.getByTestId("btn-resume-cached")).toBeEnabled();
   await expect(page.getByTestId("input-line")).toBeHidden();
   await card.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
@@ -181,9 +181,9 @@ test("a nested multi-batch folder drop is staged only after its opening is valid
     ),
   ).toBe(0);
 
-  await expect(page.getByTestId("game-import-ready")).toContainText("ready to play");
+  await expect(page.getByTestId("game-import-ready")).toContainText("added to your library");
   const card = savedGameCard(page, "Dropped Folder");
-  await expect(card).toContainText("Opening checked");
+  await expect(card.getByTestId("btn-resume-cached")).toBeEnabled();
   await card.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect

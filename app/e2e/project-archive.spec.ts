@@ -7,7 +7,7 @@ import { buildZip } from "../src/zip.ts";
 import { readGameZip } from "../src/gameZip.ts";
 import { configureAi, isolateStorage, openGameOptions } from "./engineProbe.ts";
 
-test("Save project resumes private history in a fresh browser; Export game has only playable resources", async ({
+test("Download project resumes private history in a fresh browser; Download game has only playable resources", async ({
   page,
   browser,
 }) => {

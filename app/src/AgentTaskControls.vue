@@ -83,6 +83,7 @@ const quiet = computed(() =>
       <button
         v-if="task.status === 'running'"
         type="button"
+        class="ui-button ui-button--secondary"
         data-testid="agent-stop"
         @click="$emit('stop')"
       >
@@ -91,6 +92,7 @@ const quiet = computed(() =>
       <button
         v-else-if="task.status === 'paused'"
         type="button"
+        class="ui-button ui-button--primary"
         data-testid="agent-continue"
         @click="$emit('resume')"
       >
@@ -103,7 +105,12 @@ const quiet = computed(() =>
     </div>
     <template v-if="task.status === 'paused'">
       <p role="status" data-testid="agent-pause-reason">{{ task.reason }}</p>
-      <button type="button" class="discard" data-testid="agent-discard" @click="$emit('discard')">
+      <button
+        type="button"
+        class="ui-button ui-button--danger"
+        data-testid="agent-discard"
+        @click="$emit('discard')"
+      >
         Discard this attempt
       </button>
     </template>
@@ -138,21 +145,7 @@ const quiet = computed(() =>
   overflow-y: auto;
   text-align: left;
 }
-button {
-  margin: 0;
-  padding: 6px 12px;
-  border: 1px solid #47636e;
-  border-radius: 5px;
-  background: #173039;
-  color: #b7f7ff;
-  cursor: pointer;
-  font: inherit;
-}
 p {
   margin: 8px 0;
-}
-.discard {
-  background: transparent;
-  color: #d1b6b6;
 }
 </style>

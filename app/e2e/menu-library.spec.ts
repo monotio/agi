@@ -53,7 +53,7 @@ test("a first visit leads with tutorial and creation while keeping import availa
       .evaluate(secondaryStyle),
   );
   await existingGame.click();
-  await page.getByRole("button", { name: "Open game", exact: true }).click();
+  await page.getByRole("button", { name: "Add game", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: /ZIP/i })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: /folder/i })).toBeVisible();
   await page.keyboard.press("Escape");

@@ -45,13 +45,10 @@ defineExpose({ show, close });
   >
     <form method="dialog" @submit.prevent="emit('save', copyAiSettings(draft))">
       <header>
-        <div>
-          <p class="dialog-kicker">AI connection</p>
-          <h2 id="ai-settings-title">AI settings</h2>
-        </div>
+        <h2 id="ai-settings-title">AI settings</h2>
         <button
           type="button"
-          class="dialog-close"
+          class="ui-button ui-button--secondary ui-button--icon dialog-close"
           aria-label="Cancel AI settings"
           :disabled="saving"
           @click="close"
@@ -59,7 +56,6 @@ defineExpose({ show, close });
           ×
         </button>
       </header>
-      <p class="dialog-intro">Used to create, ask about and remix games.</p>
       <label for="ai-provider">Provider</label>
       <select id="ai-provider" v-model="draft.provider" data-testid="provider-select">
         <option value="openai">OpenAI</option>
@@ -119,13 +115,13 @@ defineExpose({ show, close });
           placeholder="Paste your provider API key"
           data-testid="api-key-input"
         />
+        <p class="privacy-note">Your key stays in this browser.</p>
       </template>
-      <p class="privacy-note">Your key stays in this browser.</p>
       <p v-if="error" class="dialog-error" role="alert">{{ error }}</p>
       <footer>
         <button
           type="button"
-          class="dialog-secondary"
+          class="ui-button ui-button--secondary"
           data-testid="ai-settings-cancel"
           :disabled="saving"
           @click="close"
@@ -134,7 +130,7 @@ defineExpose({ show, close });
         </button>
         <button
           type="submit"
-          class="dialog-primary"
+          class="ui-button ui-button--primary"
           data-testid="ai-settings-save"
           :disabled="saving"
         >
@@ -173,8 +169,6 @@ footer,
   gap: 12px;
 }
 h2,
-.dialog-kicker,
-.dialog-intro,
 .privacy-note,
 .dialog-error {
   margin: 0;
@@ -183,19 +177,9 @@ h2 {
   color: #fff;
   font-size: 24px;
 }
-.dialog-kicker {
-  color: #79cfd1;
-  font: 700 11px/1.4 monospace;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-.dialog-intro,
 .privacy-note {
   color: #9db0b2;
   line-height: 1.5;
-}
-.dialog-intro {
-  margin-bottom: 8px;
 }
 label {
   margin-top: 8px;
@@ -220,13 +204,10 @@ a {
   color: #88e8ea;
   font-size: 12px;
 }
+select {
+  height: 44px;
+}
 .dialog-close {
-  width: 40px;
-  min-height: 40px;
-  border: 0;
-  color: #b8cccc;
-  background: transparent;
-  cursor: pointer;
   font-size: 25px;
 }
 .dialog-error {
@@ -235,27 +216,5 @@ a {
 footer {
   justify-content: flex-end;
   margin-top: 12px;
-}
-.dialog-primary,
-.dialog-secondary {
-  min-height: 44px;
-  padding: 9px 15px;
-  border: 1px solid #527679;
-  border-radius: 4px;
-  color: #d9eeee;
-  background: #132426;
-  cursor: pointer;
-  font:
-    700 14px/1.4 system-ui,
-    sans-serif;
-}
-.dialog-primary {
-  color: #071112;
-  border-color: #79e5e6;
-  background: #79e5e6;
-}
-button:disabled {
-  cursor: wait;
-  opacity: 0.6;
 }
 </style>

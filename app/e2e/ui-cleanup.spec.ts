@@ -63,8 +63,8 @@ test("the start page uses concise tutorial copy and readable primary actions", a
   await dialog.getByTestId("ai-settings-cancel").click();
 });
 
-test("Open game is one keyboard-friendly menu with ZIP and folder choices", async ({ page }) => {
-  const trigger = page.getByRole("button", { name: "Open game", exact: true });
+test("Add game is one keyboard-friendly menu with ZIP and folder choices", async ({ page }) => {
+  const trigger = page.getByRole("button", { name: "Add game", exact: true });
   const zip = page.getByTestId("open-game-zip");
   const folder = page.getByTestId("open-game-folder");
 

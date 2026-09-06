@@ -26,7 +26,7 @@ Open `http://localhost:5199/` and click **Play now** for **Adventure Department*
 an original MIT-licensed tutorial with three rooms. Repair a picture, wake a
 sprite and fix a clerk's priority to learn how AGI adventures work. It runs
 locally without a provider key or original Sierra game files. **Make a copy**
-keeps the catalog original intact; **Save project** includes the tutorial's
+keeps the catalog original intact; **Download project** includes the tutorial's
 editable logic, picture, view and sound sources. The exported AGI game can also run
 offline in a compatible interpreter. Loading this website itself still needs
 a connection; it is not yet an installable offline app.
@@ -39,7 +39,7 @@ The first visit leads with the tutorial and an expanded **Create a new adventure
 section. The browser remembers whether you leave Create expanded or collapsed.
 The tutorial can also be collapsed; once you create or import your own games, it
 starts collapsed unless you explicitly chose to keep it open.
-**Play existing game** takes you to your library, or to **Open game** when it is empty.
+**Play existing game** takes you to your library, or to **Add game** when it is empty.
 Once a game is in your library,
 **Your games** appears as a gallery with a direct **Resume** or **Play** action
 on each card. Games supplied by the site, imports, creations and local development
@@ -124,7 +124,7 @@ project archives and remix copies keep independent authoring histories and save
 slots. Renaming a game does not change that identity.
 Playing the included tutorial or an imported game needs no provider key.
 
-Choose **Open game → ZIP file** or **Game folder**, or drop one ZIP or game
+Choose **Add game → ZIP file** or **Game folder**, or drop one ZIP or game
 folder into the opening area. Folder drops work in browsers that expose directory
 entries; the folder picker is the fallback. Files are read locally into your
 library, so playing does not require keeping the source folder connected.
@@ -140,12 +140,12 @@ Existing single-slot saves remain available when their game signature matches.
 Browser storage supplies the save directory; DOS drive and path dialogs are not
 emulated. Clearing browser data removes these local saves.
 
-| Download         | What travels with it                                                                   |
-| ---------------- | -------------------------------------------------------------------------------------- |
-| **Export game**  | Playable resources and public game metadata.                                           |
-| **Save project** | The game plus its authoring conversation, images, source descriptions and world notes. |
+| Download             | What travels with it                                                                   |
+| -------------------- | -------------------------------------------------------------------------------------- |
+| **Download game**    | Playable resources and public game metadata.                                           |
+| **Download project** | The game plus its authoring conversation, images, source descriptions and world notes. |
 
-Both downloads are ZIPs you can reopen with **Open game → ZIP file**. Public game
+Both downloads are ZIPs you can reopen with **Add game → ZIP file**. Public game
 exports can include a description, author, license and remix provenance in
 `GAME.JSON`. They exclude local thumbnails, validation results and conversations. A missing license remains unknown rather than inheriting this
 repository's MIT license. A game export starts a fresh authoring conversation; a
