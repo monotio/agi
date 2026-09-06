@@ -49,6 +49,8 @@ keyboard. **Enter**, **Esc**, **Space** and **Keys** provide dialog controls,
 F1–F10 and Ctrl/Alt letter combinations. The pad follows the game's movement
 mode: tap the same direction again to stop, or release in games using held-key
 movement. **Settings → Touch controls** also enables the pad on a desktop.
+With assistive activation in held-key games, activate an arrow once to walk
+and again to stop; leaving the control also releases it.
 Menus, inventory and save dialogs use these same keys; game text stays on the
 original 40×25 character screen. Native text entry handles commands, answers
 and save descriptions.

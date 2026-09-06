@@ -264,6 +264,72 @@ for (const key of ["Enter", "Space"]) {
   });
 }
 
+for (const key of ["Enter", "Space"]) {
+  test(`focused touch arrow ${key} activation toggles walking exactly once`, async ({ page }) => {
+    await boot(page);
+    const east = page
+      .getByTestId("touch-controls")
+      .getByRole("button", { name: "Walk east", exact: true });
+    await east.evaluate((button) => {
+      button.setAttribute("data-native-clicks", "0");
+      button.addEventListener("click", () => {
+        button.setAttribute(
+          "data-native-clicks",
+          String(Number(button.getAttribute("data-native-clicks")) + 1),
+        );
+      });
+    });
+    await east.focus();
+    await page.keyboard.down(key);
+    await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(60);
+    await page.keyboard.up(key);
+    await waitForCycles(page, 2);
+    const released = (await textHook(page)).egoX;
+    await waitForCycles(page, 3);
+    expect((await textHook(page)).egoX).toBeGreaterThan(released);
+    await page.keyboard.press(key);
+    await waitForCycles(page, 2);
+    const stopped = (await textHook(page)).egoX;
+    await waitForCycles(page, 3);
+    expect((await textHook(page)).egoX).toBe(stopped);
+    await test.info().attach("native-button-click-count", {
+      body: (await east.getAttribute("data-native-clicks")) ?? "missing",
+      contentType: "text/plain",
+    });
+  });
+}
+
+test("assistive click holds movement until repeated activation or blur", async ({ page }) => {
+  await boot(page, true);
+  const east = page
+    .getByTestId("touch-controls")
+    .getByRole("button", { name: "Walk east", exact: true });
+  await east.dispatchEvent("click", { detail: 0 });
+  await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(60);
+  await expect(east).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("touch-controls")).toContainText(
+    "Activate this arrow again to stop.",
+  );
+  await page.screenshot({ path: test.info().outputPath("assistive-hold-active.png") });
+  const moving = (await textHook(page)).egoX;
+  await waitForCycles(page, 3);
+  expect((await textHook(page)).egoX).toBeGreaterThan(moving);
+  await east.dispatchEvent("click", { detail: 0 });
+  await expect(east).toHaveAttribute("aria-pressed", "false");
+  await waitForCycles(page, 2);
+  const released = (await textHook(page)).egoX;
+  await waitForCycles(page, 3);
+  expect((await textHook(page)).egoX).toBe(released);
+  await east.dispatchEvent("click", { detail: 0 });
+  await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(released);
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await expect(east).toHaveAttribute("aria-pressed", "false");
+  await waitForCycles(page, 2);
+  const blurred = (await textHook(page)).egoX;
+  await waitForCycles(page, 3);
+  expect((await textHook(page)).egoX).toBe(blurred);
+});
+
 test("touch letter modifiers dispatch the game's Ctrl and Alt bindings", async ({ page }) => {
   await boot(page);
   const pad = page.getByTestId("touch-controls");

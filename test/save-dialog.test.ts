@@ -173,3 +173,65 @@ test("selected malformed save shows a restore error before aborting execution", 
   assert.ok(s.screens.some((screen) => screen.includes("Unable to restore")));
   assert.equal(s.engine.vars[100], 0);
 });
+
+function batchedSaveHost(keys: number[], nativeDescription = true) {
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `
+    save.game();
+    if (have.key()) { assignv(v100,v19); }
+    return;
+  `,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  const writes: { slot: number | undefined; bytes: Uint8Array }[] = [];
+  let selectorStarted = false;
+  const host: EngineHost = {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => (selectorStarted ? keys.splice(0) : []),
+    listSaveGames() {
+      selectorStarted = true;
+      return [];
+    },
+    ...(nativeDescription ? { promptSaveDescription: () => "Before the bridge" } : {}),
+    saveGame(bytes, slot) {
+      writes.push({ bytes, slot });
+    },
+  };
+  return { engine: new Engine(container, host, new Map()), writes };
+}
+
+test("save selector consumes a takeKeys batch one key at a time without waitKey", () => {
+  const { engine, writes } = batchedSaveHost([0x5000, 0x0101, 0x0301, 0x62]);
+  engine.tick();
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0]?.slot, 2, "Down selects slot 2, then the two Enters select and confirm");
+  assert.equal(decodeSave(writes[0]!.bytes, engine.profile).description, "Before the bridge");
+  assert.equal(engine.vars[100], 0x62, "the unread suffix reaches the following have.key");
+});
+
+test("cancelling a save selector preserves the rest of a takeKeys batch", () => {
+  const { engine, writes } = batchedSaveHost([0x0201, 0x62]);
+  engine.tick();
+  assert.equal(writes.length, 0);
+  assert.equal(engine.vars[100], 0x62, "Escape cancels only the selector, not later input");
+});
+
+test("save description fallback consumes text and confirmation from the same key batch", () => {
+  const { engine, writes } = batchedSaveHost(
+    [0x5000, 13, 80, 97, 116, 104, 0x0101, 0x0301, 0x62],
+    false,
+  );
+  engine.tick();
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0]?.slot, 2);
+  assert.equal(decodeSave(writes[0]!.bytes, engine.profile).description, "Path");
+  assert.equal(engine.vars[100], 0x62);
+});

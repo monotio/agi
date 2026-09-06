@@ -940,7 +940,36 @@ export class Engine {
     try {
       return runSaveDialog(mode, this.text, this.signature, {
         list: () => list.call(this.host),
-        waitKey: () => (wait ? wait.call(this.host) : (this.host.takeKeys()[0] ?? KEY_ESC)),
+        waitKey: () => {
+          if (wait) return wait.call(this.host);
+          // Polling hosts return a batch. Preserve the bounded FIFO and leave
+          // its unread suffix for the next modal or script input consumer.
+          for (const key of this.host.takeKeys()) {
+            const normalized =
+              key === 0x0101 || key === 0x0301
+                ? KEY_ENTER
+                : key === 0x0201 || key === 0x0401
+                  ? KEY_ESC
+                  : key;
+            const raw = normalized & 0xff ? normalized & 0xff : normalized & 0xffff;
+            const navigation = NAV_KEYS[raw];
+            this.inputQueue.enqueue({
+              type: navigation === undefined ? 1 : 2,
+              value: navigation ?? raw,
+              mapOnConsume: true,
+            });
+          }
+          for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
+            if (event.type === 1) return event.value;
+            if (event.type === 2 && event.value !== 0) {
+              const navigationKey = Object.entries(NAV_KEYS).find(
+                ([, direction]) => direction === event.value,
+              );
+              if (navigationKey) return Number(navigationKey[0]);
+            }
+          }
+          return KEY_ESC;
+        },
         ...(describe
           ? {
               describe: (initial: string, maxLen: number, row: number, col: number) =>

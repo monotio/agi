@@ -5,6 +5,7 @@ import { FUNCTION_KEYS, ALT_LETTER_SCANS } from "./gameControls.ts";
 const props = defineProps<{ disabled: boolean; navigating: boolean; hold: boolean }>();
 const emit = defineEmits<{ direction: [direction: number]; key: [code: number]; keyboard: [] }>();
 const active = ref<number | null>(null);
+const assistiveHeld = ref(false);
 let pointer: number | null = null;
 let heldKey: string | null = null;
 const directions = [
@@ -31,6 +32,7 @@ const letters = "abcdefghijklmnopqrstuvwxyz".split("");
 
 function press(event: PointerEvent, dir: number): void {
   if (props.disabled || event.button !== 0 || pointer !== null || heldKey !== null) return;
+  if (assistiveHeld.value) release();
   pointer = event.pointerId;
   active.value = dir;
   const target = event.currentTarget as HTMLElement;
@@ -45,26 +47,40 @@ function press(event: PointerEvent, dir: number): void {
 
 function pressKey(event: KeyboardEvent, dir: number): void {
   if (event.key !== "Enter" && event.key !== " ") return;
+  // Cancel native button activation: this key's down/up already owns the gesture.
   event.preventDefault();
   if (props.disabled || event.repeat || pointer !== null || heldKey !== null) return;
+  if (assistiveHeld.value) release();
   heldKey = event.key;
   active.value = dir;
   emit("direction", dir);
 }
 
 function release(event?: Event): void {
-  if (pointer === null && heldKey === null) return;
+  if (pointer === null && heldKey === null && !assistiveHeld.value) return;
   if (event instanceof PointerEvent && event.pointerId !== pointer) return;
   if (event instanceof KeyboardEvent && event.key !== heldKey) return;
   pointer = null;
   heldKey = null;
+  assistiveHeld.value = false;
   active.value = null;
   emit("direction", 0);
 }
 
-/** Assistive activation has no pointer/key lifecycle, so deliver a complete tap. */
+/** Click-only activation holds a virtual key until another activation or blur. */
 function clickDirection(event: MouseEvent, dir: number): void {
   if (props.disabled || event.detail !== 0 || pointer !== null || heldKey !== null) return;
+  if (assistiveHeld.value) {
+    const stopping = active.value === dir && !props.navigating;
+    release();
+    if (stopping) return;
+  }
+  if (props.hold && !props.navigating) {
+    assistiveHeld.value = true;
+    active.value = dir;
+    emit("direction", dir);
+    return;
+  }
   emit("direction", dir);
   emit("direction", 0);
 }
@@ -100,6 +116,9 @@ onBeforeUnmount(() => {
           type="button"
           :disabled="disabled"
           :class="{ pressed: active === direction.dir, 'keyboard-key': direction.dir === 0 }"
+          :aria-pressed="
+            props.hold && !props.navigating && direction.dir ? active === direction.dir : undefined
+          "
           :aria-label="
             direction.dir ? `${navigating ? 'Navigate' : 'Walk'} ${direction.name}` : 'Keyboard'
           "
@@ -125,9 +144,11 @@ onBeforeUnmount(() => {
       {{
         navigating
           ? "Arrows select · Enter accepts · Esc returns"
-          : hold
-            ? "Hold an arrow to walk. Release to stop."
-            : "Tap an arrow to walk. Tap it again to stop."
+          : assistiveHeld
+            ? "Activate this arrow again to stop."
+            : hold
+              ? "Hold an arrow to walk. Release to stop."
+              : "Tap an arrow to walk. Tap it again to stop."
       }}
     </p>
     <details class="extra-keys">
