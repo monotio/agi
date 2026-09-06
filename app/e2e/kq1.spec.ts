@@ -503,7 +503,7 @@ test("game frame is hidden until game is running, clicking screen advances title
   await openCreateAdventure(page);
   await page.getByTestId("cartridge-knights-trial").click();
   const draft = await page.getByTestId("custom-cartridge-input").inputValue();
-  await page.getByTestId("boot-cartridge").click();
+  await page.getByTestId("connect-create-ai").click();
   await expect(page.getByTestId("ai-settings-dialog")).toBeVisible();
   await expect(page.getByTestId("custom-cartridge-input")).toHaveValue(draft);
   await page.getByTestId("ai-settings-cancel").click();
