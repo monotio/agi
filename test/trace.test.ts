@@ -54,6 +54,18 @@ test("trace appears in discovered controls only when enabled or active", () => {
   assert.deepEqual(e.readControls(), []);
 });
 
+test("mapped Scroll Lock discovery matches ordinary controller dispatch", () => {
+  const { engine: e, key } = game(
+    "if(!isset(f200)){set(f200);set(f10);set.key(0,70,7);}if(controller(7)){increment(v200);}return;",
+  );
+  e.tick();
+  assert.deepEqual(e.readControls(), [{ key: 0x4600, controller: 7, menuItems: [] }]);
+  key(0x4600);
+  e.tick();
+  assert.equal(e.vars[200], 1);
+  assert.ok(rows(e).every((row) => !row.includes("Trace")));
+});
+
 test("f10 gates trace activation; numeric tracing leaves game variables and input intact", () => {
   const { engine: e, key } = game("if(!isset(f200)){set(f200);trace.on();}increment(v200);return;");
   e.tick();

@@ -32,9 +32,10 @@ jobs:
       - run: npm --prefix app ci
       - run: npm run check
       - run: npm --prefix app run build -- --base=/
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
         working-directory: app
       - run: npm --prefix app run e2e:production
+      - run: npm --prefix app run e2e:production -- --browser=webkit
       - name: Package public files only
         run: |
           mkdir -p release
@@ -69,6 +70,11 @@ jobs:
         working-directory: app
       - run: npm run e2e -- --reporter=list
         working-directory: app
+        env:
+          CI: "1"
+      - run: npx playwright install --with-deps webkit
+        working-directory: app
+      - run: npm --prefix app run e2e:phone -- --project=iphone-webkit --reporter=list
         env:
           CI: "1"
       - if: failure()
@@ -158,7 +164,7 @@ jobs:
         run: |
           curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 10 --dump-header /tmp/agi-headers "https://agi.monotio.com/" -o /tmp/agi-index
           grep -qi '^cross-origin-opener-policy: same-origin' /tmp/agi-headers
-          grep -qi '^cross-origin-embedder-policy: credentialless' /tmp/agi-headers
+          grep -qi '^cross-origin-embedder-policy: require-corp' /tmp/agi-headers
           grep -q '/assets/' /tmp/agi-index
 
   verify:

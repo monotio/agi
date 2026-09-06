@@ -371,14 +371,15 @@ describe("engine selects behavior by profile field", () => {
   });
 
   test("the script key map stops at the profile capacity", () => {
-    // 39 entries in 2.936, 49 in 3.002.149. Map keys 0x0100.. in order and
-    // press the 40th (0x0127): only 3.002.149 still has room for it.
+    // 39 entries in 2.936, 49 in 3.002.149. Map ASCII keys 32..76 in order
+    // and press the 40th (71): only 3.002.149 still has room for it.
+    // ASCII events carry only the low byte, never an accompanying scan byte.
     const lines: string[] = [];
-    for (let i = 0; i < 45; i++) lines.push(`set.key(${i}, 1, ${i + 1});`);
+    for (let i = 0; i < 45; i++) lines.push(`set.key(${i + 32}, 0, ${i + 1});`);
     const source = `${lines.join("\n")}\nreturn;\n`;
     const press = (profileId?: "3.002.149"): number => {
       const { engine, host } = boot(source, profileId);
-      host.keys.push(0x0127); // the 40th mapping (index 39)
+      host.keys.push(71); // the 40th mapping (index 39)
       engine.tick();
       return engine.controllers[40]!;
     };

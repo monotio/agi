@@ -32,6 +32,26 @@ function game(source: string, host: Partial<EngineHost> = {}) {
   });
 }
 
+test("room changes restore player control after a scripted stop", () => {
+  // Peter Kelly's new.room reference includes execution of player.control:
+  // https://agistudio.sourceforge.net/help/new_room.html
+  for (const transition of ["new.room(1);", "assignn(v100,1);new.room.v(v100);"]) {
+    const keys: number[] = [];
+    const e = game(
+      `if(!isset(f200)){set(f200);stop.motion(o0);${transition}}
+       if(isset(f5)){load.view(0);animate.obj(o0);set.view(o0,0);position(o0,80,120);draw(o0);}
+       return;`,
+      { takeKeys: () => keys.splice(0) },
+    );
+    e.patchResource("logic", 1, assembleLogic("return;", { dictionary: new Map() }).payload);
+    e.tick();
+    assert.equal(e.vars[0], 1);
+    keys.push(0x4800);
+    e.tick();
+    assert.equal(e.screenObjects[0]!.y, 119, `${transition} permits ordinary player movement`);
+  }
+});
+
 test("alternate text mode skips post-logic movement and animation until graphics resumes", () => {
   const e = game(
     "if(!isset(f200)){set(f200);load.view(0);animate.obj(o0);set.view(o0,0);position(o0,80,120);draw(o0);assignn(v6,3);text.screen();}return;",

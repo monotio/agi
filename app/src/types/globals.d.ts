@@ -6,6 +6,7 @@
  * what lets useEngine.ts publish them without an `any` cast.
  */
 import type { AgentLogEntry, TextHook } from "../useEngine.ts";
+import type { ReplayDriver } from "../replay.ts";
 
 declare global {
   interface Window {
@@ -13,5 +14,7 @@ declare global {
     __AGI_TEXT__?: TextHook;
     /** Agent bridge trace. */
     __AGI_TRACE__?: AgentLogEntry[];
+    /** Present only in Vite test mode with an explicit replay seed. */
+    __AGI_REPLAY__?: ReplayDriver;
   }
 }

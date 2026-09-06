@@ -123,6 +123,57 @@ Run them with `node --experimental-strip-types --test test/kq3-regressions.test.
 The manual HMR proof in `app/e2e/manual/hmr-resume.mjs` temporarily edits source;
 run it in an isolated checkout as described in the script.
 
+Input conformance covers the nineteen-event FIFO, raw/mapped/navigation event
+handling, held-key release ordering and modal input. Save-selector tests cover
+twelve slots, descriptions, cancellation, overwrite confirmation, signature
+filtering and failure outcomes. The browser supplies per-game storage instead
+of a DOS drive/path interface; these checks do not establish exact platform
+dialog presentation or completion of every game/version.
+
+Run `npm --prefix app run e2e -- phone-input.spec.ts movement-input.spec.ts game-controls.spec.ts`
+for synthetic browser input coverage. `npm --prefix app run e2e:phone` runs the
+phone suite in both Chromium and WebKit, including the isolation headers needed
+for the worker bridge. With local KQ1–3 fixtures installed, it also checks each
+game's opening room, touch walking and named save/restore slots. Both engines
+are checked in CI; commercial fixture cases skip there. Touch emulation checks application behavior, including
+input/composition events; it does not emulate Samsung Keyboard or the iOS
+keyboard. Before claiming device compatibility, verify on physical Android and
+iPhone browsers with the keyboard open, rotation, interruption and save/restore.
+Full-game compatibility needs recorded completion runs using the specific game
+edition and interpreter profile.
+
+### KQ1 completion proof
+
+With the local KQ1 2.917 installation present, run:
+
+```bash
+npm run prove:kq1
+npm --prefix app exec -- playwright install chromium webkit
+npm run prove:kq1:browser
+```
+
+The first command executes the walkthrough with a seeded random source and a
+virtual 60 Hz host clock. It needs no model calls or real-time delays. It starts
+at the title screen and uses walking keys, parser commands and prompt replies;
+it does not teleport, write game variables, patch resources or load prepared saves.
+Deaths, missed score milestones and an incomplete ending fail the run. The local
+JSON report defaults to `/tmp/agi-kq1-speedrun.json`; pass another path after
+`npm run prove:kq1 --` to keep a separate report. Reports contain input events,
+resource hashes, checkpoints and the observed ending state, not game resources.
+
+The browser command generates a fresh report, then replays it through actual
+desktop keys and phone controls in Chromium and WebKit. Only the test-mode host
+clock is accelerated; movement, collision, sounds, timers and script execution
+retain their ordinary cycle order. Each replay verifies the exact local fixture
+hashes and the game's terminal ending state independently of the report's success
+label. A missing fixture produces an explicit skip. These runs establish the
+tested edition's completion under browser emulation; physical Samsung/iPhone
+keyboards and screen readers still require device testing.
+
+WebKit's automated GPU screenshots can capture a stale ending dialog; each full
+run also attaches the final engine frame. Completion assertions check the
+interpreter's terminal state independently of screenshot timing.
+
 ## Testing authoring and persistence
 
 Define the expected behavior before implementing it. Observe a new regression
@@ -156,7 +207,7 @@ Run `npm run build` and serve `app/dist` over HTTPS. Set these response headers:
 
 ```text
 Cross-Origin-Opener-Policy: same-origin
-Cross-Origin-Embedder-Policy: credentialless
+Cross-Origin-Embedder-Policy: require-corp
 ```
 
 For a subpath such as `/agi/`, build with:

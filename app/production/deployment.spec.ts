@@ -6,7 +6,7 @@ test("production origin, isolation, worker and provider policy", async ({ page, 
   const response = await page.goto("/");
   expect(response?.status()).toBe(200);
   expect(response?.headers()["cross-origin-opener-policy"]).toBe("same-origin");
-  expect(response?.headers()["cross-origin-embedder-policy"]).toBe("credentialless");
+  expect(response?.headers()["cross-origin-embedder-policy"]).toBe("require-corp");
   const policy = response?.headers()["content-security-policy"] ?? "";
   expect(policy).toContain("https://api.openai.com");
   expect(policy).toContain("https://api.anthropic.com");

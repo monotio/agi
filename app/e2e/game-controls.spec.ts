@@ -5,7 +5,7 @@ import { buildWordsTok } from "../../src/logic/words.ts";
 import { buildZip } from "../src/zip.ts";
 import { isolateStorage, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
 
-function cartridge(shortcuts: boolean) {
+function cartridge(shortcuts: boolean, scrollLock = false) {
   const game = createContainer();
   game.putResource("picture", 0, new Uint8Array([0xf0, 0, 0xf8, 0, 0, 0xff]));
   const dictionary = new Map([["look", 1]]);
@@ -18,11 +18,13 @@ function cartridge(shortcuts: boolean) {
    assignn(v51,0);load.pic(v51);draw.pic(v51);show.pic();
    display(2,2,"A courtyard of possibilities.");
    ${shortcuts ? 'set.key(0,61,7);set.key(0,62,9);set.key(0,66,8);set.key(0,68,10);set.menu("Adventure");set.menu.item("Inspect    F3",7);set.menu.item("Repeat command    F10",10);submit.menu();' : ""}
+   ${scrollLock ? "set.key(0,70,11);set(f10);" : ""}
   }
   if(controller(7)) {display(3,2,"INSPECTED");disable.item(7);}
   if(controller(9)) {enable.item(7);}
   if(controller(8)) {display(3,2,"UNLABELLED KEY");}
   if(controller(10)) {echo.line();}
+  ${scrollLock ? 'if(controller(11)) {increment(v52);display(5,2,"Scroll count %v52");}' : ""}
   if(said("look")) {increment(v50);display(4,2,"Look count %v50");}
   return;`,
       { dictionary },
@@ -89,6 +91,31 @@ test("game controls discover bindings and menu labels, track disabled items, and
   await page.getByTestId("input-line").focus();
   await page.keyboard.press("Tab");
   await expect(page.getByTestId("input-line")).not.toBeFocused();
+});
+
+test("mapped Scroll Lock controls advertise and invoke the script controller", async ({ page }) => {
+  await isolateStorage(page);
+  await page.goto("/");
+  await page.getByTestId("game-zip-input").setInputFiles({
+    name: "scroll-controller.zip",
+    mimeType: "application/zip",
+    buffer: cartridge(false, true),
+  });
+  const controls = page.getByTestId("game-controls");
+  for (const [count, viewport] of [
+    [1, { width: 1280, height: 900 }],
+    [2, { width: 390, height: 844 }],
+  ] as const) {
+    await page.setViewportSize(viewport);
+    await controls.locator("summary").click();
+    await expect(controls.getByRole("button")).toHaveCount(1);
+    await expect(controls).not.toContainText("Show trace");
+    await controls.getByRole("button", { name: "Scroll Lock", exact: true }).click();
+    await expect
+      .poll(async () => (await textHook(page)).rows.join(" "))
+      .toContain(`Scroll count ${count}`);
+    await page.screenshot({ path: test.info().outputPath(`mapped-scroll-${count}.png`) });
+  }
 });
 
 test("browser reload restores shortcut labels and live menu enable state", async ({ page }) => {

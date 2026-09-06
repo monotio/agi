@@ -37,6 +37,7 @@ interface PersistenceCase {
   objectRecords: number;
   /** Three-byte inventory entries at the head of block 3. */
   inventoryEntries: number;
+  maximumScore: number;
 }
 
 const GAMES: readonly PersistenceCase[] = [
@@ -48,6 +49,7 @@ const GAMES: readonly PersistenceCase[] = [
     replayCapacity: 100,
     objectRecords: 18,
     inventoryEntries: 27,
+    maximumScore: 158,
   },
   {
     slug: "kq2",
@@ -57,6 +59,7 @@ const GAMES: readonly PersistenceCase[] = [
     replayCapacity: 60,
     objectRecords: 17,
     inventoryEntries: 85,
+    maximumScore: 185,
   },
   {
     slug: "kq3",
@@ -66,6 +69,7 @@ const GAMES: readonly PersistenceCase[] = [
     replayCapacity: 127,
     objectRecords: 17,
     inventoryEntries: 55,
+    maximumScore: 210,
   },
 ];
 
@@ -92,6 +96,31 @@ class QuietHost implements EngineHost {
   }
 }
 
+/** Storage adapter used only by the real game's interactive restore path. */
+class SelectorHost extends QuietHost {
+  scans = 0;
+  restoredSlots: (number | undefined)[] = [];
+  selectorKeys = [0x4800, 13];
+
+  listSaveGames(): { slot: number; bytes: Uint8Array }[] {
+    this.scans++;
+    return this.saved
+      ? [
+          { slot: 1, bytes: this.saved },
+          { slot: 9, bytes: this.saved },
+        ]
+      : [];
+  }
+  waitKey(): number {
+    // Startup screens can wait for a raw key before save selection begins.
+    return this.scans === 0 ? 13 : (this.selectorKeys.shift() ?? 27);
+  }
+  override restoreGame(slot?: number): Uint8Array | null {
+    this.restoredSlots.push(slot);
+    return this.saved;
+  }
+}
+
 /** The interpreter binary that carries the version string, if present. */
 function interpreterFiles(slug: string): Map<string, Uint8Array> {
   const dir = fixtureDir(slug);
@@ -106,9 +135,12 @@ function gameProfile(slug: string): AgiProfile {
   return detectProfile(interpreterFiles(slug));
 }
 
-function boot(slug: string, options: { restarted: boolean; cycles: number }) {
+function boot(
+  slug: string,
+  options: { restarted: boolean; cycles: number },
+  host: QuietHost = new QuietHost(),
+) {
   const { container, dict } = loadGame(slug);
-  const host = new QuietHost();
   const engine = new Engine(container, host, dict, {
     profile: gameProfile(slug),
     restarted: options.restarted,
@@ -181,6 +213,15 @@ for (const game of GAMES) {
       );
     });
 
+    test("the status line uses the maximum score declared by the game", () => {
+      const { engine } = boot(game.slug, { restarted: false, cycles: 400 });
+      assert.equal(engine.vars[7], game.maximumScore);
+      assert.equal(
+        engine.textRow(0).slice(1, 18).trimEnd(),
+        `Score: ${engine.vars[3]} of ${game.maximumScore}`,
+      );
+    });
+
     test("restoring into a fresh engine reproduces state and the rendered screen", (t) => {
       const { engine } = boot(game.slug, { restarted: true, cycles: 30 });
       assert.equal(engine.vars[0], game.firstRoom);
@@ -234,18 +275,37 @@ for (const game of GAMES) {
       );
     });
 
-    test("restore.game from bytecode replays without re-running the room logic", () => {
-      const { engine, host } = boot(game.slug, { restarted: true, cycles: 30 });
+    test("the game's F7 restore action selects a slot and replays the saved room", () => {
+      const host = new SelectorHost();
+      const { engine } = boot(game.slug, { restarted: false, cycles: 400 }, host);
       host.saved = engine.serialize();
       const beforeVisual = Array.from(engine.surface.visual);
 
       // Mutate visible state, then let the game's own restore.game path run.
       engine.vars[220] = 0xab;
       engine.surface.visual.fill(0);
-      assert.throws(() => engine.applyRestore(host.saved!));
+      host.keys.push(0x4100); // F7 is restore in each installed game's own set.key table.
+      engine.tick();
 
+      assert.equal(host.scans, 1, "the game's restore opcode opened the selector");
+      assert.deepEqual(host.restoredSlots, [9], "Up wraps from the first candidate to slot 9");
+      assert.equal(engine.modalKind, null, "successful restore closes the selector");
       assert.equal(engine.vars[220], 0, "the saved variables replaced the mutation");
       assert.deepEqual(Array.from(engine.surface.visual), beforeVisual);
     });
   });
 }
+
+test(
+  "KQ3's game-written clock survives status refresh with two-digit minutes and seconds",
+  {
+    skip: fixtureSkip("kq3", ["AGIDATA.OVL"]),
+  },
+  () => {
+    const { engine } = boot("kq3", { restarted: false, cycles: 400 });
+    // Logic 0 displays its clock at column 20 using %v117:%v116|2:%v115|2.
+    assert.equal(engine.textRow(0).slice(20, 28), "0:00:00 ");
+    engine.tick();
+    assert.equal(engine.textRow(0).slice(20, 28), "0:00:00 ");
+  },
+);

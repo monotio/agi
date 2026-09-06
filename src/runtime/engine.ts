@@ -28,6 +28,8 @@ import { actionSpec, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../logic/opcod
 import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "../view/view.ts";
 import { detectProfile, type AgiProfile, type ProfileId } from "./profile.ts";
 import { TraceWindow } from "./trace.ts";
+import { InputQueue, NAV_KEYS } from "./inputQueue.ts";
+import { runSaveDialog, type SaveSlot } from "./saveDialog.ts";
 import {
   newScreenObject,
   packObjectState,
@@ -137,12 +139,16 @@ export interface EngineHost {
    * save.game: persist the real save-file image (31-byte description header
    * plus the profile's length-prefixed blocks) the engine just encoded.
    */
-  saveGame?(bytes: Uint8Array): void;
+  saveGame?(bytes: Uint8Array, slot?: number): boolean | void;
+  /** Available storage namespace; opts into the engine-owned 12-slot selector. */
+  listSaveGames?(): SaveSlot[];
+  /** Native text input adapter for the engine-drawn save description editor. */
+  promptSaveDescription?(initial: string, maxLen: number, row: number, col: number): string | null;
   /**
    * restore.game: blocking; returns a save-file image, or null when the
    * player cancelled or no save exists.
    */
-  restoreGame?(): Uint8Array | null;
+  restoreGame?(slot?: number): Uint8Array | null;
   /** log / obj.status.v / show.mem: diagnostic text sink (LOGFILE semantics). */
   logText?(text: string): void;
   /** version: interpreter name/version, stored into string slot 0. */
@@ -225,18 +231,6 @@ type Modal =
   | { kind: "menu"; saved: SavedRect }
   | { kind: "showObj"; saved: SavedRect; view: number }
   | { kind: "showPri" };
-
-/** Extended key words that become type-2 navigation values (spec "Event queue"). */
-const NAV_KEYS: Record<number, number> = {
-  0x4800: 1,
-  0x4900: 2,
-  0x4d00: 3,
-  0x5100: 4,
-  0x5000: 5,
-  0x4f00: 6,
-  0x4b00: 7,
-  0x4700: 8,
-};
 
 const KEY_ENTER = 0x0d;
 /** have.key polls per cycle before a keyless host receives a synthesized Enter. */
@@ -339,6 +333,10 @@ export class Engine {
   private pictureShown = false;
   private terminated = false;
   private statusEnabled = false;
+  /** Cycle-entry status values survive a modal suspension of the logic stack. */
+  private cycleStatusScore = 0;
+  private cycleStatusSound = 0;
+  private statusRefreshRequested = false;
   private inputAccepted = false;
   private scriptCapacity = 0;
   private maximumReplayPairs = 0;
@@ -375,7 +373,7 @@ export class Engine {
   /** Tracked key-release gate (action 0xad; spec "Tracked key release"). */
   private keyReleaseGate = 0;
   /** A gated release enqueued a movement value 0 for the next input phase. */
-  private releaseStop = false;
+  private readonly inputQueue = new InputQueue();
   /**
    * Saved bytecode resume offsets per logic (set.scan.start/reset.scan.start).
    * They are the source of save block 5 and are re-established by restore.
@@ -400,6 +398,7 @@ export class Engine {
   private signature = "";
   /** Last selected/entered save description; set.simple copies at most 31 bytes. */
   private saveDescription = "";
+  private saveDialogMode: "save" | "restore" | null = null;
   /**
    * Object-0/global-direction coupling selector (save block 1): player.control
    * couples object 0 to the global direction byte, program.control decouples it.
@@ -553,7 +552,12 @@ export class Engine {
 
   /** 40x25 cells, [char, attr] pairs; char 0 = transparent (picture shows through). */
   get textCells(): Uint8Array {
-    if (!this.trace.active || this.modal !== null || this.persistentWindow !== null)
+    if (
+      !this.trace.active ||
+      this.modal !== null ||
+      this.saveDialogMode !== null ||
+      this.persistentWindow !== null
+    )
       return this.text.cells;
     const cells = this.tracedText.cells;
     cells.set(this.text.cells);
@@ -583,8 +587,8 @@ export class Engine {
   }
 
   /** Kind of the open modal, or null when the interpreter is running. */
-  get modalKind(): Modal["kind"] | null {
-    return this.modal?.kind ?? null;
+  get modalKind(): Modal["kind"] | "save" | "restore" | null {
+    return this.saveDialogMode ?? this.modal?.kind ?? null;
   }
 
   /** A message has suspended a cycle, including after its timeout expires. */
@@ -611,6 +615,11 @@ export class Engine {
     return this.editLine;
   }
 
+  /** Whether the host should offer parser editing rather than raw key input. */
+  get inputEnabled(): boolean {
+    return this.inputAccepted;
+  }
+
   /** The text row for a text-surface read-back (debug/test helper). */
   textRow(row: number): string {
     return this.textCells === this.text.cells
@@ -629,10 +638,14 @@ export class Engine {
 
   /**
    * Tracked key release (spec): when the release gate is nonzero the release
-   * enqueues a movement value 0, processed in the next input phase.
+   * enqueues a movement value 0, processed in the next input phase. A host
+   * delaying delivery through a modal may supply eligibility captured at release.
    */
-  releaseTrackedKey(): void {
-    if (this.keyReleaseGate !== 0) this.releaseStop = true;
+  releaseTrackedKey(eligible = this.keyReleaseGate !== 0): void {
+    if (eligible) {
+      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
+      this.inputQueue.enqueue({ type: 2, value: 0 });
+    }
   }
 
   /** Key-release event gate (action 0xad / 0xb5); nonzero enqueues release events. */
@@ -661,6 +674,15 @@ export class Engine {
     return attr(this.textFg, this.textBg);
   }
 
+  /** Host sound control refreshes status without overwriting an open modal. */
+  setSoundEnabled(enabled: boolean): void {
+    const value = enabled ? 1 : 0;
+    if (this.flags[F_SOUND_ENABLED] === value) return;
+    this.flags[F_SOUND_ENABLED] = value;
+    this.statusRefreshRequested = true;
+    if (this.modalKind === null && this.pendingLogic === null) this.drawStatus();
+  }
+
   /** Status line: score at column 1, sound state at column 30, black on white. */
   private drawStatus(): void {
     if (!this.statusEnabled || this.textMode) return;
@@ -673,10 +695,14 @@ export class Engine {
       `Sound:${this.flags[F_SOUND_ENABLED] !== 0 ? "on" : "off"}`,
       a,
     );
+    this.statusRefreshRequested = false;
+    this.host.statusLine(this.statusText());
   }
 
   private statusText(): string {
-    return `Score: ${this.vars[V_SCORE]} of 255`;
+    // Supplemental variable contract: AGI specs §3.3 identifies v7 as maximum score.
+    // https://www.agidev.com/articles/agispec/agispecs-3.html
+    return `Score: ${this.vars[V_SCORE]} of ${this.vars[7]}`;
   }
 
   /** Input row: prompt marker, then the edit buffer (spec "Text geometry"). */
@@ -698,20 +724,21 @@ export class Engine {
     this.drawInputRow();
   }
 
+  /** have.key discards navigation/status events and preserves the unread suffix. */
+  private pollRawKey(): number | undefined {
+    for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
+      if (event.type === 1) {
+        if (event.mapOnConsume && this.keymap.has(event.value)) continue;
+        return event.value;
+      }
+    }
+    return undefined;
+  }
+
   /** Raw key in the ordinary (non-modal) input phase. */
   private handleKey(key: number): void {
     if (key === 0x4600) {
       if (this.trace.active || this.flags[10] !== 0) this.trace.setActive(!this.trace.active);
-      return;
-    }
-    const mapped = this.keymap.get(key);
-    if (mapped !== undefined) {
-      this.controllers[mapped] = 1;
-      return;
-    }
-    const nav = NAV_KEYS[key];
-    if (nav !== undefined) {
-      this.vars[V_EGO_DIR] = this.vars[V_EGO_DIR] === nav ? 0 : nav;
       return;
     }
     const byte = key & 0xff;
@@ -900,6 +927,64 @@ export class Engine {
       }
     } finally {
       if (confirmation && this.modal === confirmation) this.closeModal();
+    }
+  }
+
+  /** The adapter supplies an available directory; the engine owns selection and text. */
+  private selectSavedGame(mode: "save" | "restore"): Uint8Array | null {
+    const list = this.host.listSaveGames!;
+    const wait = this.host.waitKey ?? this.host.waitTextKey;
+    const describe = this.host.promptSaveDescription;
+    this.stopSound();
+    this.saveDialogMode = mode;
+    try {
+      return runSaveDialog(mode, this.text, this.signature, {
+        list: () => list.call(this.host),
+        waitKey: () => {
+          if (wait) return wait.call(this.host);
+          // Polling hosts return a batch. Preserve the bounded FIFO and leave
+          // its unread suffix for the next modal or script input consumer.
+          for (const key of this.host.takeKeys()) {
+            const normalized =
+              key === 0x0101 || key === 0x0301
+                ? KEY_ENTER
+                : key === 0x0201 || key === 0x0401
+                  ? KEY_ESC
+                  : key;
+            const raw = normalized & 0xff ? normalized & 0xff : normalized & 0xffff;
+            const navigation = NAV_KEYS[raw];
+            this.inputQueue.enqueue({
+              type: navigation === undefined ? 1 : 2,
+              value: navigation ?? raw,
+              mapOnConsume: true,
+            });
+          }
+          for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
+            if (event.type === 1) return event.value;
+            if (event.type === 2 && event.value !== 0) {
+              const navigationKey = Object.entries(NAV_KEYS).find(
+                ([, direction]) => direction === event.value,
+              );
+              if (navigationKey) return Number(navigationKey[0]);
+            }
+          }
+          return KEY_ESC;
+        },
+        ...(describe
+          ? {
+              describe: (initial: string, maxLen: number, row: number, col: number) =>
+                describe.call(this.host, initial, maxLen, row, col),
+            }
+          : {}),
+        write: (slot, description) => {
+          this.saveDescription = description;
+          return this.host.saveGame ? this.host.saveGame(this.serialize(), slot) : false;
+        },
+        read: (slot) => this.host.restoreGame?.(slot) ?? null,
+      });
+    } finally {
+      this.saveDialogMode = null;
+      this.controllers.fill(0);
     }
   }
 
@@ -1273,6 +1358,10 @@ export class Engine {
    */
   applyRestore(image: Uint8Array): never {
     const s = decodeSave(image, this.profile);
+    this.saveDescription = s.description;
+    this.statusRefreshRequested = false;
+    this.inputQueue.clear();
+    this.pendingController = null;
     this.pendingLogic = null;
     this.stopSound();
 
@@ -1616,7 +1705,29 @@ export class Engine {
     if (this.terminated) return;
     // Modal windows pause the interpreter; keys drive the modal instead.
     if (this.modal) {
-      for (const key of this.host.takeKeys()) this.modalKey(key);
+      for (const key of this.host.takeKeys()) {
+        const normalized =
+          key === 0x0101 || key === 0x0301
+            ? KEY_ENTER
+            : key === 0x0201 || key === 0x0401
+              ? KEY_ESC
+              : key;
+        // Modal Enter/Escape are raw controls, even when a script binds them.
+        const raw = normalized & 0xff ? normalized & 0xff : normalized & 0xffff;
+        const navigation = NAV_KEYS[raw];
+        this.inputQueue.enqueue({
+          type: navigation === undefined ? 1 : 2,
+          value: navigation ?? raw,
+          mapOnConsume: true,
+        });
+      }
+      while (this.modal) {
+        const event = this.inputQueue.dequeue();
+        if (!event) break;
+        if (event.type === 2) this.modalNavigate(event.value);
+        else if (event.type === 1) this.modalKey(event.value);
+      }
+      // Keep unread modal keys raw: the continuation may open another modal.
       if (this.modal || this.pendingLogic === null) return;
     }
     if (this.printsPending > 0) return;
@@ -1634,16 +1745,22 @@ export class Engine {
       this.vars[V_WORDS] = 0;
       this.haveKeyPolls = 0;
       if (this.pendingController !== null) {
-        this.controllers[this.pendingController] = 1;
+        this.inputQueue.enqueue({ type: 3, value: this.pendingController });
         this.pendingController = null;
       }
-      for (const key of this.host.takeKeys()) this.handleKey(key);
+      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
+      for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
+        if (event.type === 2)
+          this.vars[V_EGO_DIR] = this.vars[V_EGO_DIR] === event.value ? 0 : event.value;
+        else if (event.type === 3) this.controllers[event.value] = 1;
+        else {
+          const mapped = event.mapOnConsume ? this.keymap.get(event.value) : undefined;
+          if (mapped !== undefined) this.controllers[mapped] = 1;
+          else this.handleKey(event.value);
+        }
+      }
       const line = this.host.takeInputLine();
       if (line !== null && this.inputAccepted) this.acceptLine(line);
-      if (this.releaseStop) {
-        this.releaseStop = false;
-        this.vars[V_EGO_DIR] = 0;
-      }
       if (this.menuRequested) {
         this.menuRequested = false;
         if (this.openMenu()) return;
@@ -1670,6 +1787,8 @@ export class Engine {
       }
       if (this.directionCoupling === 0) this.vars[V_EGO_DIR] = this.objects[0]!.direction;
       else this.objects[0]!.direction = this.vars[V_EGO_DIR]!;
+      this.cycleStatusScore = this.vars[V_SCORE]!;
+      this.cycleStatusSound = this.flags[F_SOUND_ENABLED]!;
     }
 
     // 6. Execute logic 0 (with re-entry on restart-style requests).
@@ -1687,6 +1806,9 @@ export class Engine {
       } catch (rc) {
         if (rc instanceof RoomChange) {
           this.finishRoomChange(rc.room);
+          // agi-re "Top-level cycle order" refreshes remembered v3 only on reentry;
+          // retain the pre-logic f9 comparison so sound changes still redraw at the tail.
+          this.cycleStatusScore = this.vars[V_SCORE]!;
           this.controllers.fill(0);
           this.vars[V_KEY] = 0;
           continue; // next top-level pass begins with logic 0
@@ -1701,11 +1823,15 @@ export class Engine {
       }
     }
 
-    // 8. Restore ego direction from v6; redraw the status line when enabled.
+    // 8. Only score/sound changes redraw status; games can use the other cells.
     this.objects[0]!.direction = this.vars[V_EGO_DIR]!;
-    if (this.statusEnabled) {
+    if (
+      this.statusEnabled &&
+      (this.statusRefreshRequested ||
+        this.vars[V_SCORE] !== this.cycleStatusScore ||
+        this.flags[F_SOUND_ENABLED] !== this.cycleStatusSound)
+    ) {
       if (!this.modal) this.drawStatus(); // a modal opened this cycle owns the surface
-      this.host.statusLine(this.statusText());
     }
 
     // 9. Clear object event bytes and cycle flags.
@@ -2454,21 +2580,22 @@ export class Engine {
         // and the game keeps running. A host with no blocking wait gets a
         // synthesized Enter after a bounded number of polls so a headless run
         // never spins forever.
-        if (this.vars[V_KEY] === 0) {
-          const keys = this.host.takeKeys();
-          const pressed = keys.find((k) => (k & 0xff) !== 0);
-          const blockingWait = this.host.waitKey ?? this.host.waitTextKey;
-          if (pressed !== undefined) {
-            this.vars[V_KEY] = pressed & 0xff;
-          } else if (blockingWait) {
+        if (this.vars[V_KEY] !== 0) return { result: true, next: pc + 1 };
+        for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
+        let pressed = this.pollRawKey();
+        const blockingWait = this.host.waitKey ?? this.host.waitTextKey;
+        if (pressed === undefined) {
+          if (blockingWait) {
             if (this.textMode || ++this.haveKeyPolls > HAVE_KEY_BUSY_POLLS) {
-              this.vars[V_KEY] = blockingWait.call(this.host) & 0xff;
+              this.inputQueue.enqueueKey(blockingWait.call(this.host), this.keymap);
+              pressed = this.pollRawKey();
             }
           } else if (++this.haveKeyPolls > HAVE_KEY_POLL_LIMIT) {
-            this.vars[V_KEY] = KEY_ENTER;
+            pressed = KEY_ENTER;
           }
         }
-        return { result: this.vars[V_KEY] !== 0, next: pc + 1 };
+        if (pressed !== undefined) this.vars[V_KEY] = pressed & 0xff;
+        return { result: pressed !== undefined && pressed !== 0, next: pc + 1 };
       }
       case 0x0e: {
         const count = code[pc + 1]!;
@@ -2539,11 +2666,21 @@ export class Engine {
   }
 
   private expandMessage(text: string): string {
-    return text
-      .replace(/%v(\d+)/g, (_, n) => String(this.vars[Number(n)] ?? 0))
-      .replace(/%s(\d+)/g, (_, n) => this.strings[Number(n)] ?? "")
-      .replace(/%m(\d+)/g, (_, n) => this.message(Number(n)))
-      .replace(/%w(\d+)/g, (_, n) => this.parsedWordTexts[Number(n) - 1] ?? "");
+    return (
+      text
+        // AGI specs §4.2 print: %vN|width retains leading zeroes.
+        // https://www.agidev.com/articles/agispec/agispecs-4.html
+        .replace(/%v(\d+)(?:\|(\d+))?/g, (_, n, width: string | undefined) => {
+          const value = String(this.vars[Number(n)] ?? 0);
+          // Bound requested padding to one text row before allocating it.
+          return width === undefined
+            ? value
+            : value.padStart(Math.min(TEXT_COLS, Number(width)), "0");
+        })
+        .replace(/%s(\d+)/g, (_, n) => this.strings[Number(n)] ?? "")
+        .replace(/%m(\d+)/g, (_, n) => this.message(Number(n)))
+        .replace(/%w(\d+)/g, (_, n) => this.parsedWordTexts[Number(n) - 1] ?? "")
+    );
   }
 
   // ---------- action dispatch ----------
@@ -3071,18 +3208,42 @@ export class Engine {
       case 0x7d:
         // Save writes the real file image: header plus the profile's
         // length-prefixed blocks (spec "Save action outcomes").
-        this.host.saveGame?.call(this.host, this.serialize());
+        if (this.host.listSaveGames) this.selectSavedGame("save");
+        else this.host.saveGame?.call(this.host, this.serialize());
         this.controllers.fill(0);
         return next;
       case 0x7e: {
         const restore = this.host.restoreGame;
-        const image = restore ? restore.call(this.host) : null;
+        const image = this.host.listSaveGames
+          ? this.selectSavedGame("restore")
+          : restore
+            ? restore.call(this.host)
+            : null;
         this.controllers.fill(0);
         // Cancel and file-open failure are recoverable and continue after the
         // restore action; a successful restore aborts the continuation
         // instead (spec "Restore action outcomes").
         if (image === null || image === undefined) return next;
-        this.applyRestore(image);
+        try {
+          this.applyRestore(image);
+        } catch (error) {
+          if (error instanceof ContinuationAbort) throw error;
+          // Block-read/decode failure is fatal only after its error dialog.
+          this.emitPrint(
+            "Unable to restore saved game.\nThe save file is invalid.",
+            undefined,
+            true,
+          );
+          const wait = this.host.waitKey ?? this.host.waitTextKey;
+          if (wait) {
+            while (this.modal) {
+              const key = wait.call(this.host);
+              this.modalKey(key === 0 ? KEY_ESC : key);
+            }
+          }
+          this.terminated = true;
+          throw error;
+        }
         return next;
       }
       case 0x85: {
@@ -3518,6 +3679,9 @@ export class Engine {
     this.vars[V_EGO_VIEW] = this.objects[0]!.view;
     this.horizon = 36;
     this.blockRect = null;
+    // Room entry restores player.control, including after stop.motion(ego).
+    // Peter Kelly: https://agistudio.sourceforge.net/help/new_room.html
+    this.directionCoupling = 1;
     this.vars[V_OBJ_HIT] = 0;
     this.vars[V_OBJ_EDGE] = 0;
     this.parsedWords = [];
@@ -3734,6 +3898,7 @@ export class Engine {
     this.printsPending = 0;
     this.textMode = false;
     this.statusEnabled = false;
+    this.statusRefreshRequested = false;
     this.inputAccepted = false;
     this.editLine = "";
     this.acceptedLine = "";
@@ -3742,7 +3907,7 @@ export class Engine {
     this.priorityBase = 48;
     this.lastPicture = 0;
     this.keyReleaseGate = 0;
-    this.releaseStop = false;
+    this.inputQueue.clear();
     this.inputWidthCap = null;
     this.surface.reset();
     this.pictureShown = false;
@@ -3799,24 +3964,24 @@ export class Engine {
 
   /** A detached view of script-installed keys and their matching finalized menu items. */
   readControls(): GameControlBinding[] {
-    const controls: GameControlBinding[] = [...this.keymap]
-      .filter(([key]) => key !== 0x4600)
-      .map(([key, controller]) => ({
-        key,
-        controller,
-        menuItems: this.menuFinalized
-          ? this.menu.flatMap((heading) =>
-              heading.items
-                .filter((item) => item.id === controller)
-                .map((item) => ({
-                  heading: heading.title,
-                  text: item.text,
-                  enabled: heading.enabled && item.enabled,
-                })),
-            )
-          : [],
-      }));
-    if (this.flags[10] !== 0 || this.trace.active)
+    const controls: GameControlBinding[] = [...this.keymap].map(([key, controller]) => ({
+      key,
+      controller,
+      menuItems: this.menuFinalized
+        ? this.menu.flatMap((heading) =>
+            heading.items
+              .filter((item) => item.id === controller)
+              .map((item) => ({
+                heading: heading.title,
+                text: item.text,
+                enabled: heading.enabled && item.enabled,
+              })),
+          )
+        : [],
+    }));
+    // A mapped raw key becomes a controller before ordinary raw-key handling.
+    // Advertise the trace shortcut only when that is the action it will perform.
+    if (!this.keymap.has(0x4600) && (this.flags[10] !== 0 || this.trace.active))
       controls.push({
         key: 0x4600,
         controller: null,

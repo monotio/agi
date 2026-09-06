@@ -153,12 +153,14 @@ test("display writes cells with the text attribute; clear.lines / clear.text.rec
 test("status line: score at column 1 and sound state at column 30, black on white", () => {
   const host = new Host();
   const engine = new Engine(
-    gameWith("configure.screen(1, 22, 0); assignn(v3, 5); status.line.on(); return;"),
+    gameWith(
+      "configure.screen(1, 22, 0); assignn(v3, 5); assignn(v7, 42); status.line.on(); return;",
+    ),
     host,
     DICT,
   );
   engine.tick();
-  assert.equal(engine.textRow(0), " Score: 5 of 255" + spaces(14) + "Sound:off ");
+  assert.equal(engine.textRow(0), " Score: 5 of 42" + spaces(15) + "Sound:off ");
   assert.ok(row(engine, 0).attrs.every((a) => a === BLACK_ON_WHITE));
   // Turning it off clears the row to transparent cells.
   engine.execute(0);
@@ -314,7 +316,7 @@ test("text.screen fills the surface with the text attribute; graphics restores s
   assert.equal(engine.textModeActive, false);
   assert.equal(engine.textRow(2), spaces(40));
   assert.equal(row(engine, 2).chars[4], 0, "transparent again");
-  assert.equal(engine.textRow(0), " Score: 0 of 255" + spaces(14) + "Sound:off ", "status redrawn");
+  assert.equal(engine.textRow(0), " Score: 0 of 0" + spaces(16) + "Sound:off ", "status redrawn");
   assert.ok(
     row(engine, 22).chars.every((c) => c === 0x20),
     "input row redrawn",
@@ -458,4 +460,134 @@ test("hold.key (0xad) gates tracked key releases into a movement-zero event", ()
   engine.releaseTrackedKey();
   engine.tick();
   assert.equal(engine.vars[6], 0, "gate 1: release stops ego at the next input phase");
+});
+
+test("status redraw preserves game text until score or sound changes", () => {
+  const engine = new Engine(
+    gameWith(`
+    if (!isset(f200)) {
+      set(f200); assignn(v7,42); status.line.on(); display(0,18,"TIME");
+    }
+    if (isset(f201)) { reset(f201); increment(v3); }
+    if (isset(f202)) { reset(f202); toggle(f9); }
+    if (isset(f203)) { reset(f203); assignn(v7,43); }
+    return;
+  `),
+    new Host(),
+    DICT,
+  );
+  engine.tick();
+  assert.equal(engine.textRow(0).slice(18, 22), "TIME");
+  engine.tick();
+  assert.equal(engine.textRow(0).slice(18, 22), "TIME", "unchanged cycle leaves custom cells");
+  engine.flags[203] = 1;
+  engine.tick();
+  assert.equal(
+    engine.textRow(0).slice(1, 15),
+    "Score: 0 of 42",
+    "maximum alone does not trigger redraw",
+  );
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.equal(engine.textRow(0), " Score: 1 of 43" + spaces(15) + "Sound:off ");
+  engine.flags[202] = 1;
+  engine.tick();
+  assert.equal(engine.textRow(0).slice(30), "Sound:on  ");
+});
+
+test("status change detection spans a suspended modal continuation", () => {
+  for (const change of [false, true]) {
+    const host = new Host();
+    const engine = new Engine(
+      gameWith(`
+      if (!isset(f200)) { set(f200); assignn(v7,42); status.line.on(); display(0,18,"TIME"); }
+      if (isset(f201)) {
+        reset(f201); ${change ? "increment(v3);" : ""} print("Continue");
+      }
+      return;
+    `),
+      host,
+      DICT,
+    );
+    engine.tick();
+    engine.flags[201] = 1;
+    engine.tick();
+    assert.equal(engine.modalKind, "print");
+    host.keys.push(13);
+    engine.tick();
+    assert.equal(engine.textRow(0).slice(18, 22), change ? spaces(4) : "TIME");
+    assert.equal(engine.textRow(0).slice(1, 15), `Score: ${change ? 1 : 0} of 42`);
+  }
+});
+
+test("room reentry refreshes the remembered score before running the next logic pass", () => {
+  const container = gameWith(`
+    if (!isset(f200)) {
+      set(f200); assignn(v7,42); status.line.on(); increment(v3); new.room(1);
+    }
+    display(0,18,"TIME"); return;
+  `);
+  container.putResource("logic", 1, assembleLogic("return;", { dictionary: DICT }).payload);
+  const engine = new Engine(container, new Host(), DICT);
+  engine.tick();
+  assert.equal(engine.vars[0], 1);
+  assert.equal(engine.textRow(0).slice(18, 22), "TIME");
+});
+
+test("room reentry retains the pre-logic sound comparison for the final status redraw", () => {
+  // agi-re "Top-level cycle order" refreshes remembered v3 on reentry, not f9.
+  const container = gameWith(`
+    if (!isset(f200)) {
+      set(f200); assignn(v7,42); status.line.on(); set(f9); new.room(1);
+    }
+    display(0,18,"TIME"); return;
+  `);
+  container.putResource("logic", 1, assembleLogic("return;", { dictionary: DICT }).payload);
+  const engine = new Engine(container, new Host(), DICT);
+  engine.tick();
+  assert.equal(engine.vars[0], 1);
+  assert.equal(engine.flags[9], 1);
+  assert.equal(
+    engine.textRow(0),
+    " Score: 0 of 42" + spaces(15) + "Sound:on  ",
+    "the sound change before new.room redraws over the destination's custom status cells",
+  );
+});
+
+test("host sound toggle refreshes status immediately or after a modal closes", () => {
+  const host = new Host();
+  const engine = new Engine(
+    gameWith(`
+    if (!isset(f200)) { set(f200); status.line.on(); }
+    if (isset(f201)) { reset(f201); print("Continue"); }
+    return;
+  `),
+    host,
+    DICT,
+  );
+  engine.tick();
+  engine.setSoundEnabled(true);
+  assert.equal(engine.textRow(0).slice(30), "Sound:on  ");
+  engine.flags[201] = 1;
+  engine.tick();
+  const modal = engine.textCells.slice();
+  engine.setSoundEnabled(false);
+  assert.deepEqual(engine.textCells, modal, "host toggle does not replace the open modal");
+  host.keys.push(13);
+  engine.tick();
+  assert.equal(engine.textRow(0).slice(30), "Sound:off ");
+});
+
+test("numeric message fields honor explicit zero-padded widths", () => {
+  const engine = new Engine(
+    gameWith(`
+    assignn(v50,0); assignn(v51,7); assignn(v52,42); assignn(v53,255);
+    display(5,0,"%v50|2 %v51|2 %v52|3 %v53|3 %v51");
+    return;
+  `),
+    new Host(),
+    DICT,
+  );
+  engine.tick();
+  assert.equal(engine.textRow(5), "00 07 042 255 7" + spaces(25));
 });

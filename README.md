@@ -42,7 +42,18 @@ you can follow its progress in the activity panel. Rooms you return to run from
 their saved resources.
 
 Click the game to type, press **Enter** to submit, and use the arrow keys to walk.
+**Home**, **Page Up**, **End** and **Page Down** walk diagonally.
 **Game controls** shows shortcuts registered by the running game.
+On a touchscreen, use the eight-direction pad and **Type** to open your phone's
+keyboard. **Enter**, **Esc**, **Space** and **Keys** provide dialog controls,
+F1–F10 and Ctrl/Alt letter combinations. The pad follows the game's movement
+mode: tap the same direction again to stop, or release in games using held-key
+movement. **Settings → Touch controls** also enables the pad on a desktop.
+With assistive activation in held-key games, activate an arrow once to walk
+and again to stop; leaving the control also releases it.
+Menus, inventory and save dialogs use these same keys; game text stays on the
+original 40×25 character screen. Native text entry handles commands, answers
+and save descriptions.
 **✦** opens **Ask** for hints and investigation, or **Remix** to change the game.
 Ask leaves the game untouched; Remix applies the finished changes and resumes
 play. You can also open an existing AGI game ZIP and remix it.
@@ -69,6 +80,14 @@ provider during authoring. See [Security](SECURITY.md) for storage and data flow
 open them. Completed remixes save in your browser. **Menu** saves before leaving,
 and **Resume game** restores your game and position.
 
+The game's own Save/Restore actions open an engine-rendered selector with twelve
+numbered slots per game. Choose a slot with Up/Down and Enter, name a new save,
+then confirm; Esc cancels. Occupied slots require overwrite confirmation.
+These saves preserve the AGI binary format and are separate from autosave.
+Existing single-slot saves remain available when their game signature matches.
+Browser storage supplies the save directory; DOS drive and path dialogs are not
+emulated. Clearing browser data removes these local saves.
+
 | Download         | What travels with it                                                                   |
 | ---------------- | -------------------------------------------------------------------------------------- |
 | **Export game**  | Playable resources and public game metadata.                                           |
@@ -94,6 +113,8 @@ to inspection.
 
 See [Contributing](CONTRIBUTING.md) for architecture, tests, local game fixtures
 and hosting, and [evals](evals/README.md) for authoring evaluations.
+The [KQ1 completion proof](CONTRIBUTING.md#kq1-completion-proof) runs a local
+walkthrough on a virtual clock and replays it through desktop and phone controls.
 
 ## Back to AGI, thirty years later
 

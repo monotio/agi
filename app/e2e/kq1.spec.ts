@@ -285,11 +285,18 @@ test("saving with F5 writes a real save-file image and F7 restores it without lo
   await bootKq1(page);
   await advanceToCourtyard(page);
 
-  // Save game (F5). The write is asynchronous (worker -> host), so wait for
-  // the slot to exist rather than for a delay to elapse.
+  // Save game (F5): select a slot, name it and confirm the engine's dialog.
   await clickGameKey(page, 16128);
+  await expectModal(page, "save");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  await page.getByTestId("input-line").fill("Courtyard");
+  await page.keyboard.press("Enter");
+  await expect.poll(() => screenText(page)).toContain("Save in slot 1?");
+  await expect.poll(() => screenText(page)).toContain("Courtyard");
+  await page.keyboard.press("Enter");
   await expect
-    .poll(() => page.evaluate(() => localStorage.getItem("monotio_agi.save") !== null), {
+    .poll(() => page.evaluate(() => localStorage.getItem("monotio_agi.saves.kq1") !== null), {
       timeout: 15_000,
     })
     .toBe(true);
@@ -298,7 +305,7 @@ test("saving with F5 writes a real save-file image and F7 restores it without lo
   // base64 of a 31-byte description header followed by the 2.917 profile's
   // five u16le length-prefixed blocks, the first of which is 0x05e1 bytes.
   const envelope = await page.evaluate(() => {
-    const stored = localStorage.getItem("monotio_agi.save");
+    const stored = JSON.parse(localStorage.getItem("monotio_agi.saves.kq1") ?? "{}")["1"];
     if (!stored) return null;
     const binary = atob(stored);
     return { length: binary.length, block1: binary.charCodeAt(31) | (binary.charCodeAt(32) << 8) };
@@ -309,9 +316,11 @@ test("saving with F5 writes a real save-file image and F7 restores it without lo
 
   // Restore game (F7)
   await clickGameKey(page, 16640);
+  await expectModal(page, "restore");
+  await expect.poll(() => screenText(page)).toContain("Courtyard");
+  await page.keyboard.press("Enter");
 
   // Telemetry checks
-  await expect(page.locator(".agent-panel")).toContainText("Game state saved to local storage.");
   await expect(page.locator(".agent-panel")).toContainText(
     "Restoring saved game from local storage...",
   );

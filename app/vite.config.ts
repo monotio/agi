@@ -62,11 +62,11 @@ function fixtureServer(): Plugin {
 export default defineConfig({
   plugins: [vue(), fixtureServer()],
   // SharedArrayBuffer (the LLM blocking bridge) requires cross-origin isolation.
-  // Using credentialless allows cross-origin API calls (OpenAI / Anthropic) without CORP blocking.
+  // require-corp works in Safari too; provider fetches opt in through CORS.
   server: {
     headers: {
       "Cross-Origin-Opener-Policy": "same-origin",
-      "Cross-Origin-Embedder-Policy": "credentialless",
+      "Cross-Origin-Embedder-Policy": "require-corp",
     },
     proxy: {
       "/api/openai": {

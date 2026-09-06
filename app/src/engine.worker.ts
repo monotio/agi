@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * Engine worker: hosts the authentic interpreter off the main thread.
  *
@@ -45,6 +46,7 @@ import { BRIDGE_HEADER_BYTES, BRIDGE_PAUSE_SLOT } from "./agent/sabBridge.ts";
 import { FrameRing } from "./frameRing.ts";
 import { CycleClock } from "../../src/runtime/cycleClock.ts";
 import { SoundClock } from "./soundClock.ts";
+import type { ReplayObservation } from "./replay.ts";
 
 /** Save-file image as base64: the SAB bridge and localStorage both carry text. */
 function bytesToBase64(bytes: Uint8Array): string {
@@ -88,6 +90,8 @@ interface BootMsg {
    */
   restoreImage?: string;
   restoreMenus?: EngineMenuState;
+  /** Test-mode host clock and reproducible random input. */
+  replaySeed?: number;
 }
 
 let engine: Engine | null = null;
@@ -97,12 +101,40 @@ let liveDictionary = new Map<string, number>();
 let authoredWords: Uint8Array | null = null;
 let inputBuffer: string[] = [];
 let keyBuffer: number[] = [];
+/** Admitted walking releases and later walking keys wait for ordinary input. */
+const deferredMovement: number[] = [];
+let lastKeyId = 0;
 let timer: number | null = null;
 let soundTimer: number | null = null;
 const soundClock = new SoundClock(performance.now());
 const cycleClock = new CycleClock(performance.now());
 /** Poll input/modal services at display cadence; v10 separately gates logic cycles. */
 const HOST_POLL_MS = 1000 / 60;
+let replay: { tick: number; revision: number; random: number; yielded: boolean } | null = null;
+let replayRequest: number | null = null;
+
+function postReplay(blocked: string | null): void {
+  if (!replay || !engine) return;
+  const observation: ReplayObservation = {
+    revision: ++replay.revision,
+    tick: replay.tick,
+    cycle: cycleCount,
+    blocked,
+    state: engine.readState(),
+    rows: Array.from({ length: 25 }, (_, row) => engine!.textRow(row)),
+    egoView: engine.screenObjects[0]!.view,
+  };
+  self.postMessage({ type: "replay", id: replayRequest, observation });
+  replayRequest = null;
+}
+
+function flushDeferredMovement(): void {
+  if (!engine || engine.modalKind !== null || engine.continuationPending) return;
+  for (const key of deferredMovement.splice(0)) {
+    if (key === 0) engine.releaseTrackedKey(true);
+    else keyBuffer.push(key);
+  }
+}
 /** Interpreter cycles completed since boot; the frame ring's timeline. */
 let cycleCount = 0;
 /** Liveness observations stay responsive at slow game-selected cycle speeds. */
@@ -177,6 +209,7 @@ const historyRing = new FrameRing(60);
 let bridge: { i32: Int32Array; bytes: Uint8Array } | null = null;
 
 function advanceSoundClock(authoring = false): void {
+  if (replay) return;
   const paused =
     authoring || (bridge !== null && Atomics.load(bridge.i32, BRIDGE_PAUSE_SLOT) === 1);
   const ticks = soundClock.advance(performance.now(), paused);
@@ -199,6 +232,10 @@ function bridgeCall(op: string, context: string): string {
   Atomics.store(bridge.i32, 1, payload.length);
   Atomics.store(bridge.i32, 0, 1); // request
   Atomics.notify(bridge.i32, 0);
+  if (replay && ["waitkey", "getnum", "getstring", "saveDescription"].includes(op)) {
+    replay.yielded = true;
+    postReplay(op);
+  }
   const authoring = op === "room";
   if (authoring) self.postMessage({ type: "soundPaused", paused: true });
   try {
@@ -219,13 +256,18 @@ function bridgeCall(op: string, context: string): string {
     return response;
   } finally {
     if (authoring) {
-      cycleClock.reset(performance.now());
+      cycleClock.reset(replay ? (replay.tick * 1000) / 60 : performance.now());
       self.postMessage({ type: "soundPaused", paused: false });
     }
   }
 }
 
 const host: EngineHost = {
+  randomWord() {
+    if (!replay) return Math.floor(Math.random() * 65536);
+    replay.random = (Math.imul(replay.random, 1664525) + 1013904223) >>> 0;
+    return replay.random >>> 16;
+  },
   print(text) {
     self.postMessage({ type: "print", text });
   },
@@ -248,9 +290,21 @@ const host: EngineHost = {
    * as well as in full text mode.
    */
   waitKey() {
-    const res = bridgeCall("waitkey", "{}");
-    const code = Number.parseInt(res, 10);
-    return Number.isFinite(code) ? code : 0x000d;
+    for (;;) {
+      const buffered = keyBuffer.shift();
+      if (buffered !== undefined) return buffered;
+      const res = bridgeCall("waitkey", "{}");
+      if (res.startsWith("{")) {
+        const key = JSON.parse(res) as { id: number; code: number };
+        if (key.id <= lastKeyId) continue;
+        lastKeyId = key.id;
+        self.postMessage({ type: "keyAccepted", id: key.id });
+        return key.code & 0xffff;
+      }
+      // Direct host/test bridges retain the original numeric reply contract.
+      const code = Number.parseInt(res, 10);
+      return Number.isFinite(code) ? code : 0x000d;
+    }
   },
   statusLine(text) {
     self.postMessage({ type: "status", text });
@@ -322,12 +376,24 @@ const host: EngineHost = {
    * thread owns localStorage, and the bridge carries text, so the bytes travel
    * as base64 and are stored as base64 — never re-encoded as JSON.
    */
-  saveGame(bytes) {
-    self.postMessage({ type: "saveGame", image: bytesToBase64(bytes) });
+  listSaveGames() {
+    const slots = JSON.parse(bridgeCall("saveList", "{}")) as { slot: number; image: string }[];
+    return slots.map(({ slot, image }) => ({ slot, bytes: base64ToBytes(image) }));
+  },
+  promptSaveDescription(initial, maxLen, row, col) {
+    const response = JSON.parse(
+      bridgeCall("saveDescription", JSON.stringify({ initial, maxLen, row, col })),
+    ) as { value: string | null };
+    return response.value;
+  },
+  saveGame(bytes, slot = 1) {
+    return (
+      bridgeCall("saveWrite", JSON.stringify({ slot, image: bytesToBase64(bytes) })) === "true"
+    );
   },
   /** 0x7e restore.game: blocking bridge lookup; null = cancelled or no save. */
-  restoreGame() {
-    const response = bridgeCall("restore", "{}");
+  restoreGame(slot = 1) {
+    const response = bridgeCall("restore", JSON.stringify({ slot }));
     if (!response) return null;
     try {
       return base64ToBytes(response);
@@ -368,6 +434,8 @@ let lastVisual: Uint8Array | null = null;
 let lastText: Uint8Array | null = null;
 let lastPicRow = -1;
 let lastTextMode = false;
+let lastInputEnabled = false;
+let lastReleaseGate = 0;
 let lastModal: string | null = null;
 let lastControls = "";
 let lastInputEdit = "";
@@ -399,6 +467,8 @@ function postFrame(): void {
     lastModal === modal &&
     lastPicRow === engine.displayBase &&
     lastTextMode === engine.textModeActive &&
+    lastInputEnabled === engine.inputEnabled &&
+    lastReleaseGate === engine.releaseGate &&
     lastText !== null;
   if (same && lastText) {
     for (let i = 0; i < textCells.length; i++) {
@@ -423,6 +493,8 @@ function postFrame(): void {
   lastText = textCells.slice();
   lastPicRow = engine.displayBase;
   lastTextMode = engine.textModeActive;
+  lastInputEnabled = engine.inputEnabled;
+  lastReleaseGate = engine.releaseGate;
   lastModal = modal;
   const text = textCells.slice();
   self.postMessage(
@@ -434,6 +506,8 @@ function postFrame(): void {
       picRow: engine.displayBase,
       modal,
       textMode: engine.textModeActive,
+      inputEnabled: engine.inputEnabled,
+      holdToMove: engine.releaseGate !== 0,
       edit: engine.inputEdit,
     },
     [frame.visual.buffer, frame.priority.buffer, text.buffer],
@@ -490,6 +564,28 @@ function serveFrames(id: unknown, count: number, stride: number, since: number |
 self.onmessage = (ev: MessageEvent) => {
   const msg = ev.data;
   try {
+    if (msg.type === "replayAdvance" && replay && engine) {
+      const ticks = Number(msg.ticks);
+      if (!Number.isInteger(ticks) || ticks < 1 || ticks > 100_000)
+        throw new Error("Replay advance requires 1..100000 virtual ticks.");
+      replayRequest = Number(msg.id);
+      replay.yielded = false;
+      for (let i = 0; i < ticks; i++) {
+        replay.tick++;
+        engine.advanceClock(1000 / 60);
+        engine.soundTick();
+        if (engine.modalKind !== null || engine.continuationPending) engine.tick();
+        else if (cycleClock.poll((replay.tick * 1000) / 60, engine.vars[10]!)) {
+          flushDeferredMovement();
+          engine.tick();
+          cycleCount++;
+        }
+        if (replay.yielded) break;
+      }
+      postFrame();
+      postReplay(null);
+      return;
+    }
     if (msg.type === "frames") {
       serveFrames(msg.id, Number(msg.count ?? 1), Number(msg.stride ?? 1), msg.since ?? null);
       return;
@@ -534,6 +630,10 @@ self.onmessage = (ev: MessageEvent) => {
     }
     if (msg.type === "boot") {
       const boot = msg as BootMsg;
+      replay =
+        import.meta.env.MODE === "test" && Number.isInteger(boot.replaySeed)
+          ? { tick: 0, revision: 0, random: boot.replaySeed! >>> 0, yielded: false }
+          : null;
       bridge = {
         i32: new Int32Array(boot.sab, 0, 4),
         bytes: new Uint8Array(boot.sab, BRIDGE_HEADER_BYTES),
@@ -548,10 +648,14 @@ self.onmessage = (ev: MessageEvent) => {
       engine.flags[9] = 1;
       inputBuffer = [];
       keyBuffer = [];
+      deferredMovement.length = 0;
+      lastKeyId = 0;
       lastVisual = null;
       lastText = null;
       lastPicRow = -1;
       lastTextMode = false;
+      lastInputEnabled = false;
+      lastReleaseGate = 0;
       lastModal = null;
       lastControls = "";
       lastInputEdit = "";
@@ -559,7 +663,7 @@ self.onmessage = (ev: MessageEvent) => {
       clearInterval(timer ?? undefined);
       clearInterval(soundTimer ?? undefined);
       soundClock.reset(performance.now());
-      cycleClock.reset(performance.now());
+      cycleClock.reset(replay ? 0 : performance.now());
       lastCycleReportAt = performance.now();
       lastHistoryAt = performance.now();
       // v10 selects the number of 50ms timer increments between logic cycles.
@@ -592,68 +696,72 @@ self.onmessage = (ev: MessageEvent) => {
           self.postMessage({ type: "restored", ok: false, message: String(e) });
         }
       }
-      soundTimer = setInterval(() => {
-        try {
-          advanceSoundClock();
-        } catch (error) {
-          self.postMessage({ type: "error", message: String(error) });
-          clearInterval(soundTimer ?? undefined);
-          clearInterval(timer ?? undefined);
-        }
-      }, 1000 / 60) as unknown as number;
-      timer = setInterval(() => {
-        try {
-          // Remix freeze: the interpreter parks BETWEEN cycles, so the
-          // world stops mid-step and resumes on exactly the state it left.
-          // The worker deliberately stays responsive while parked: read_frames,
-          // read_state and patch all have to work on a frozen game.
-          const now = performance.now();
-          if (bridge && Atomics.load(bridge.i32, BRIDGE_PAUSE_SLOT) === 1) {
-            cycleClock.poll(now, engine!.vars[10]!, true);
-            return;
+      if (!replay)
+        soundTimer = setInterval(() => {
+          try {
+            advanceSoundClock();
+          } catch (error) {
+            self.postMessage({ type: "error", message: String(error) });
+            clearInterval(soundTimer ?? undefined);
+            clearInterval(timer ?? undefined);
           }
-          advanceSoundClock();
-          if (engine!.modalKind !== null || engine!.continuationPending) {
-            // Acknowledgement resumes the suspended instruction's call stack.
-            // Let timer increments accumulate while a normal game modal is open.
-            engine!.tick();
-            postFrame();
-          } else if (cycleClock.poll(now, engine!.vars[10]!)) {
-            engine!.tick();
-            cycleCount++;
-            captureFrame();
-            postFrame();
+        }, 1000 / 60) as unknown as number;
+      if (!replay)
+        timer = setInterval(() => {
+          try {
+            // Remix freeze: the interpreter parks BETWEEN cycles, so the
+            // world stops mid-step and resumes on exactly the state it left.
+            // The worker deliberately stays responsive while parked: read_frames,
+            // read_state and patch all have to work on a frozen game.
+            const now = performance.now();
+            if (bridge && Atomics.load(bridge.i32, BRIDGE_PAUSE_SLOT) === 1) {
+              cycleClock.poll(now, engine!.vars[10]!, true);
+              return;
+            }
+            advanceSoundClock();
+            if (engine!.modalKind !== null || engine!.continuationPending) {
+              // Acknowledgement resumes the suspended instruction's call stack.
+              // Let timer increments accumulate while a normal game modal is open.
+              engine!.tick();
+              postFrame();
+            } else if (cycleClock.poll(now, engine!.vars[10]!)) {
+              flushDeferredMovement();
+              engine!.tick();
+              cycleCount++;
+              captureFrame();
+              postFrame();
+            }
+            // Liveness heartbeat. Frames are posted only when the screen
+            // changes, so a static room posts nothing and the host cannot tell
+            // "parked" from "nothing moved". This counter always advances while
+            // the interpreter is cycling and stops dead the moment it parks.
+            if (now - lastCycleReportAt >= CYCLE_REPORT_MS) {
+              lastCycleReportAt = now;
+              // The heartbeat carries the scalars a host (and a proof run) needs
+              // to say WHERE the game is, not just that it is alive: a resumed
+              // game has to land in the room and on the spot it left.
+              const scalars = engine!.readState();
+              self.postMessage({
+                type: "cycle",
+                cycle: cycleCount,
+                room: scalars.room,
+                egoX: scalars.egoX,
+                egoY: scalars.egoY,
+              });
+            }
+            // Autosave: on the cadence, and always between cycles rather than
+            // inside one. A boundary the engine refuses (an open window, a text
+            // screen) is simply skipped and retried on the next tick, which is
+            // why this is a poll and not a timer of its own.
+            if (Date.now() - lastAutosaveAt >= autosaveIntervalMs) autosave(false);
+          } catch (e) {
+            self.postMessage({ type: "error", message: String(e) });
+            clearInterval(timer ?? undefined);
+            clearInterval(soundTimer ?? undefined);
           }
-          // Liveness heartbeat. Frames are posted only when the screen
-          // changes, so a static room posts nothing and the host cannot tell
-          // "parked" from "nothing moved". This counter always advances while
-          // the interpreter is cycling and stops dead the moment it parks.
-          if (now - lastCycleReportAt >= CYCLE_REPORT_MS) {
-            lastCycleReportAt = now;
-            // The heartbeat carries the scalars a host (and a proof run) needs
-            // to say WHERE the game is, not just that it is alive: a resumed
-            // game has to land in the room and on the spot it left.
-            const scalars = engine!.readState();
-            self.postMessage({
-              type: "cycle",
-              cycle: cycleCount,
-              room: scalars.room,
-              egoX: scalars.egoX,
-              egoY: scalars.egoY,
-            });
-          }
-          // Autosave: on the cadence, and always between cycles rather than
-          // inside one. A boundary the engine refuses (an open window, a text
-          // screen) is simply skipped and retried on the next tick, which is
-          // why this is a poll and not a timer of its own.
-          if (Date.now() - lastAutosaveAt >= autosaveIntervalMs) autosave(false);
-        } catch (e) {
-          self.postMessage({ type: "error", message: String(e) });
-          clearInterval(timer ?? undefined);
-          clearInterval(soundTimer ?? undefined);
-        }
-      }, HOST_POLL_MS) as unknown as number;
+        }, HOST_POLL_MS) as unknown as number;
       self.postMessage({ type: "booted", profile: engine.profile.id });
+      postReplay(null);
       return;
     }
     if (msg.type === "flush") {
@@ -684,7 +792,7 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "soundEnabled" && engine) {
-      engine.flags[9] = msg.enabled ? 1 : 0;
+      engine.setSoundEnabled(msg.enabled);
       postFrame();
       return;
     }
@@ -713,11 +821,32 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "key") {
-      keyBuffer.push(Number(msg.code) & 0xffff);
+      if (typeof msg.id === "number") {
+        if (msg.id <= lastKeyId) return;
+        lastKeyId = msg.id;
+        self.postMessage({ type: "keyAccepted", id: msg.id });
+      }
+      flushDeferredMovement();
+      const key = Number(msg.code) & 0xffff;
+      if (
+        deferredMovement.length > 0 &&
+        engine?.modalKind === null &&
+        [0x4800, 0x4900, 0x4d00, 0x5100, 0x5000, 0x4f00, 0x4b00, 0x4700].includes(key)
+      ) {
+        if (deferredMovement.length < 19) deferredMovement.push(key);
+      } else keyBuffer.push(key);
       return;
     }
     if (msg.type === "direction" && engine) {
       const dir = Number(msg.dir) & 0xff;
+      if (dir === 0) {
+        // The main thread captures the gate even while save/restore blocks us.
+        const eligible =
+          typeof msg.releaseEligible === "boolean" ? msg.releaseEligible : engine.releaseGate !== 0;
+        if (eligible && deferredMovement.length < 19) deferredMovement.push(0);
+        flushDeferredMovement();
+        return;
+      }
       if (engine.modalKind !== null) {
         // Arrows steer the open modal (inventory selection, menu) instead of ego.
         if (dir !== 0) {
@@ -726,10 +855,12 @@ self.onmessage = (ev: MessageEvent) => {
         }
         return;
       }
-      if (dir === 0) engine.releaseTrackedKey();
-      else {
-        const key = [0, 0x4800, 0x4900, 0x4d00, 0x5100, 0x5000, 0x4f00, 0x4b00, 0x4700][dir];
-        if (key !== undefined) keyBuffer.push(key);
+      flushDeferredMovement();
+      const key = [0, 0x4800, 0x4900, 0x4d00, 0x5100, 0x5000, 0x4f00, 0x4b00, 0x4700][dir];
+      if (key !== undefined) {
+        if (deferredMovement.length > 0) {
+          if (deferredMovement.length < 19) deferredMovement.push(key);
+        } else keyBuffer.push(key);
       }
       return;
     }
