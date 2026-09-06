@@ -1,4 +1,5 @@
 import {
+  authoredPictureSource,
   executeAgentTool,
   type AgentSessionState,
   type AgentToolResult,
@@ -272,12 +273,12 @@ export function executeAuthoringTool(
           "Resource revision changed or is absent. Read the current source before editing.",
         );
       // One source of truth per kind: pictures edit the text the agent wrote
-      // (what read_picture returns), falling back to disassembly only for
-      // pictures that were never written this session.
+      // (what read_picture returns) while it still matches the resource, and
+      // fall back to disassembly for pictures never written or since changed.
       const source =
         kind === "logic"
           ? disassembleLogic(payload, { dictionary: state.sources.words, profile: state.profile })
-          : (state.sources.pictures.get(num) ??
+          : (authoredPictureSource(state, num) ??
             readPictureSource(state.container, num, { profile: state.profile }));
       const find = args["find"];
       const replacement = args["replace"];

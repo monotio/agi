@@ -844,7 +844,7 @@ function executeLegacyTool(
         return { success: false, error: `Picture ${num} is not present in the container.` };
       }
       try {
-        const editableSource = session.sources.pictures.get(num) ?? source;
+        const editableSource = authoredPictureSource(session, num) ?? source;
         const surface = createPictureSurface();
         renderPicture(session.container.getResource("picture", num)!, surface, {
           profile: session.profile,
@@ -1315,6 +1315,26 @@ const NO_LIVE_GAME =
   "No live game is attached to this session, so runtime inspection is unavailable. Use read_logic, read_picture and list_resources instead.";
 
 /** Explicit capabilities for a discussion turn; new tools require deliberate approval here. */
+/**
+ * The picture text the agent wrote this session, only while it still compiles to
+ * the stored resource bytes. An imported or stale source that disagrees with the
+ * container is ignored so reads and edits never resurrect discarded work.
+ */
+export function authoredPictureSource(session: AgentSessionState, num: number): string | undefined {
+  const authored = session.sources.pictures.get(num);
+  const payload = session.container.getResource("picture", num);
+  if (authored === undefined || !payload) return undefined;
+  try {
+    const compiled = compilePictureSource(authored, { profile: session.profile }).bytes;
+    if (compiled.length !== payload.length) return undefined;
+    for (let index = 0; index < compiled.length; index++)
+      if (compiled[index] !== payload[index]) return undefined;
+    return authored;
+  } catch {
+    return undefined;
+  }
+}
+
 export const ASK_TOOLS: readonly string[] = [
   "read_room_context",
   "read_picture",

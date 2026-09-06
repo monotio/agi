@@ -33,7 +33,9 @@ export async function previewGame(game: {
       finish();
       reject(new Error("The preview could not run. Reload the app and try again."));
     };
-    worker.postMessage(game);
+    // The worker inspects resources only; an imported project's transcript and
+    // authoring state must not be cloned into it.
+    worker.postMessage({ files: game.files, words: game.words });
   });
   const canvas = document.createElement("canvas");
   canvas.width = 320;

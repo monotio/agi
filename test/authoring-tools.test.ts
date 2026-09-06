@@ -132,6 +132,35 @@ test("picture edits match the authored source read_picture returns, comments and
   assert.notEqual(after.details?.["revision"], read.details?.["revision"]);
 });
 
+test("a stored picture source that no longer matches its resource is not trusted", () => {
+  const state = createAgentSessionState();
+  const authored = ["vis 4", "rect 20,97 27,100", "end"].join("\n");
+  assert.equal(
+    executeAgentTool(state, "write_picture", { room: 3, source: authored }).success,
+    true,
+  );
+  // An imported project can carry a source that disagrees with its compiled picture.
+  state.sources.pictures.set(3, ["vis 1", "rect 0,0 5,5", "end"].join("\n"));
+  const read = executeAgentTool(state, "read_picture", { num: 3, include: "source" });
+  assert.equal(read.success, true, read.error ?? "");
+  const shown = String(read.details?.["source"]);
+  assert.doesNotMatch(shown, /rect 0,0 5,5/, "the stale text is not shown");
+  assert.deepEqual(
+    [...compilePictureSource(shown, { profile: state.profile }).bytes],
+    [...state.container.getResource("picture", 3)!],
+    "the shown source compiles to the stored resource",
+  );
+  const edit = executeAuthoringTool(state, "edit_resource_source", {
+    kind: "picture",
+    num: 3,
+    expectedRevision: read.details?.["revision"],
+    find: "rect 0,0 5,5",
+    replace: "rect 1,1 2,2",
+  })!;
+  assert.equal(edit.success, false, "the stale text cannot be edited");
+  assert.match(edit.error ?? "", /find must match/);
+});
+
 test("world intent is durable and partial updates preserve other facts", () => {
   const state = createAgentSessionState();
   assert.equal(
