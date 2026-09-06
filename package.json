@@ -1,6 +1,6 @@
 {
   "name": "agi-is-here",
-  "version": "1.0.0",
+  "version": "1.0.0-rc.1",
   "description": "Create, play and remix authentic AGI adventures with AI. Open-source TypeScript engine and browser authoring tools by Monotio.",
   "type": "module",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "url": "https://github.com/monotio/agi/issues"
   },
   "engines": {
-    "node": ">=22.6"
+    "node": ">=22.12"
   },
   "scripts": {
     "dev": "npm --prefix app run dev -- --port 5199",
@@ -39,13 +39,13 @@
     "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.123.0",
+    "@anthropic-ai/sdk": "^0.124.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.4.1",
     "eslint": "^10.10.0",
-    "eslint-plugin-vue": "^10.10.0",
+    "eslint-plugin-vue": "^10.11.0",
     "globals": "^17.12.0",
-    "npm-run-all2": "^8.0.4",
+    "npm-run-all2": "^9.0.3",
     "openai": "^7.10.0",
     "prettier": "^3.9.6",
     "typescript": "^5.6.0",

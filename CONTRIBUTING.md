@@ -6,7 +6,7 @@ verification requirements.
 
 ## Development
 
-Use Node.js 22.6 or newer.
+Use Node.js 22.12 or newer.
 
 ```bash
 npm ci
