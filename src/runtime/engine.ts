@@ -3964,24 +3964,24 @@ export class Engine {
 
   /** A detached view of script-installed keys and their matching finalized menu items. */
   readControls(): GameControlBinding[] {
-    const controls: GameControlBinding[] = [...this.keymap]
-      .filter(([key]) => key !== 0x4600)
-      .map(([key, controller]) => ({
-        key,
-        controller,
-        menuItems: this.menuFinalized
-          ? this.menu.flatMap((heading) =>
-              heading.items
-                .filter((item) => item.id === controller)
-                .map((item) => ({
-                  heading: heading.title,
-                  text: item.text,
-                  enabled: heading.enabled && item.enabled,
-                })),
-            )
-          : [],
-      }));
-    if (this.flags[10] !== 0 || this.trace.active)
+    const controls: GameControlBinding[] = [...this.keymap].map(([key, controller]) => ({
+      key,
+      controller,
+      menuItems: this.menuFinalized
+        ? this.menu.flatMap((heading) =>
+            heading.items
+              .filter((item) => item.id === controller)
+              .map((item) => ({
+                heading: heading.title,
+                text: item.text,
+                enabled: heading.enabled && item.enabled,
+              })),
+          )
+        : [],
+    }));
+    // A mapped raw key becomes a controller before ordinary raw-key handling.
+    // Advertise the trace shortcut only when that is the action it will perform.
+    if (!this.keymap.has(0x4600) && (this.flags[10] !== 0 || this.trace.active))
       controls.push({
         key: 0x4600,
         controller: null,
