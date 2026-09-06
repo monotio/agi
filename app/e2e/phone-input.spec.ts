@@ -513,3 +513,33 @@ for (const replacement of [false, true]) {
     await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("look");
   });
 }
+
+for (const completion of ["touch Enter", "touch Esc", "native form submit"] as const) {
+  test(`${completion} preserves the parser draft after a prompt`, async ({ page }) => {
+    await boot(page);
+    const input = page.getByTestId("input-line");
+    await input.fill("look");
+    await waitForCycles(page, 2);
+    await page.keyboard.press("F1");
+    await expect(page.getByTestId("prompt-hint")).toBeVisible();
+    await input.fill("Rosella");
+    if (completion === "native form submit") {
+      await input.evaluate((element) => (element as HTMLInputElement).form!.requestSubmit());
+    } else {
+      const pad = page.getByTestId("touch-controls");
+      await pad
+        .getByRole("button", { name: completion === "touch Enter" ? "Enter" : "Esc", exact: true })
+        .tap();
+    }
+    await expect(page.getByTestId("prompt-hint")).toBeHidden();
+    await expect(input).toHaveValue("look");
+    await input.focus();
+    await input.evaluate((element) => {
+      const field = element as HTMLInputElement;
+      field.setSelectionRange(field.value.length, field.value.length);
+    });
+    await page.keyboard.insertText(" around");
+    await expect(input).toHaveValue("look around");
+    await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("look around");
+  });
+}

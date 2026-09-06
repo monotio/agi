@@ -972,7 +972,6 @@ function onVirtualKey(code: number): void {
   if (state.prompt) {
     if (code === 13 || code === 27) {
       submitPrompt(code === 27 ? "" : promptLine.value, code === 27);
-      inputLine.value = "";
     } else if (code === 8) {
       promptLine.value = promptLine.value.slice(0, -1);
       echoPrompt();
@@ -1016,7 +1015,6 @@ function submit(): void {
   if (composing.value) return;
   if (state.prompt) {
     submitPrompt(promptLine.value);
-    inputLine.value = "";
     return;
   }
   const text = inputLine.value.trim();

@@ -114,8 +114,8 @@ export class Speedrun {
         this.engine.tick();
         this.cycles++;
       }
-      if (this.slug === "kq1")
-        assert.equal(this.engine.flags[63], 0, `Graham died: ${JSON.stringify(this.state())}`);
+      if (this.slug === "kq1" && this.engine.flags[63] !== 0)
+        assert.fail(`Graham died: ${JSON.stringify(this.state())}`);
     }
   }
 

@@ -9,6 +9,20 @@ test("speedrun randomness has a stable seed contract", () => {
 });
 
 test(
+  "KQ1 speedrun builds death diagnostics only when Graham dies",
+  { skip: fixtureSkip("kq1", ["AGIDATA.OVL"]) },
+  (t) => {
+    const run = new Speedrun();
+    const state = t.mock.method(run, "state");
+    run.advance(30);
+    assert.equal(state.mock.callCount(), 0, "successful ticks need no diagnostic snapshots");
+    run.engine.flags[63] = 1;
+    assert.throws(() => run.advance(), /Graham died: .*"room":83/);
+    assert.equal(state.mock.callCount(), 1, "a death still includes its diagnostic snapshot");
+  },
+);
+
+test(
   "KQ1 speedrun cold boots using inputs and rejects a false progress claim",
   {
     skip: fixtureSkip("kq1", ["AGIDATA.OVL"]),
