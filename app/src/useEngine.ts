@@ -7,6 +7,7 @@ import { readGameSaves, writeGameSave } from "./gameSaves.ts";
 import { serializeAgentLog } from "../../src/agent/toolTransport.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import type { SoundOutput } from "../../src/sound/sound.ts";
+import type { ReplayDriver, ReplayObservation } from "./replay.ts";
 import { createBridge, type AgentHandler, type Bridge } from "./agent/sabBridge.ts";
 import { AgentSession } from "./agent/agentSession.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
@@ -258,6 +259,17 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   /** In-flight worker queries (frames / state / objects), keyed by request id. */
   const pendingQueries = new Map<number, (value: unknown) => void>();
   let nextQueryId = 1;
+  const replaySeedText =
+    import.meta.env.MODE === "test" ? new URLSearchParams(location.search).get("replaySeed") : null;
+  const replaySeed = replaySeedText === null ? null : Number(replaySeedText);
+  const replayDriver: ReplayDriver | null =
+    replaySeed !== null && Number.isInteger(replaySeed)
+      ? {
+          latest: null,
+          advance: (ticks) => query<ReplayObservation>("replayAdvance", { ticks }),
+        }
+      : null;
+  if (replayDriver) window.__AGI_REPLAY__ = replayDriver;
   let shakeTimer: number | null = null;
   /** Resolves the pending getnum/getstring bridge request. */
   let promptResolver: ((value: string) => void) | null = null;
@@ -551,6 +563,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       // A successful remix is saved as its own local cartridge before playback resumes.
       worker.postMessage({
         type: "boot",
+        ...(replayDriver ? { replaySeed } : {}),
         soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
         files,
         words,
@@ -865,6 +878,18 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         }
       } else if (msg.type === "log") {
         logAgent("log", String(msg.text));
+      } else if (msg.type === "replay" && replayDriver) {
+        replayDriver.latest = msg.observation as ReplayObservation;
+        hook.cycle = replayDriver.latest.cycle;
+        hook.room = replayDriver.latest.state.room;
+        hook.egoX = replayDriver.latest.state.egoX;
+        hook.egoY = replayDriver.latest.state.egoY;
+        publishHook();
+        const resolve = pendingQueries.get(Number(msg.id));
+        if (resolve) {
+          pendingQueries.delete(Number(msg.id));
+          resolve(replayDriver.latest);
+        }
       } else if (
         msg.type === "frames" ||
         msg.type === "engineState" ||
@@ -1341,6 +1366,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
           };
           worker.postMessage({
             type: "boot",
+            ...(replayDriver ? { replaySeed } : {}),
             soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
             files: cached.files,
             words: cached.words,
@@ -1404,6 +1430,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         sab: bridge.sab,
         autosaveFiles: true,
         authorRooms: true,
+        ...(replayDriver ? { replaySeed } : {}),
       });
     } catch (e) {
       state.phase = "error";

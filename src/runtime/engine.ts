@@ -3679,6 +3679,9 @@ export class Engine {
     this.vars[V_EGO_VIEW] = this.objects[0]!.view;
     this.horizon = 36;
     this.blockRect = null;
+    // Room entry restores player.control, including after stop.motion(ego).
+    // Peter Kelly: https://agistudio.sourceforge.net/help/new_room.html
+    this.directionCoupling = 1;
     this.vars[V_OBJ_HIT] = 0;
     this.vars[V_OBJ_EDGE] = 0;
     this.parsedWords = [];

@@ -142,6 +142,38 @@ iPhone browsers with the keyboard open, rotation, interruption and save/restore.
 Full-game compatibility needs recorded completion runs using the specific game
 edition and interpreter profile.
 
+### KQ1 completion proof
+
+With the local KQ1 2.917 installation present, run:
+
+```bash
+npm run prove:kq1
+npm --prefix app exec -- playwright install chromium webkit
+npm run prove:kq1:browser
+```
+
+The first command executes the walkthrough with a seeded random source and a
+virtual 60 Hz host clock. It needs no model calls or real-time delays. It starts
+at the title screen and uses walking keys, parser commands and prompt replies;
+it does not teleport, write game variables, patch resources or load prepared saves.
+Deaths, missed score milestones and an incomplete ending fail the run. The local
+JSON report defaults to `/tmp/agi-kq1-speedrun.json`; pass another path after
+`npm run prove:kq1 --` to keep a separate report. Reports contain input events,
+resource hashes, checkpoints and the observed ending state, not game resources.
+
+The browser command generates a fresh report, then replays it through actual
+desktop keys and phone controls in Chromium and WebKit. Only the test-mode host
+clock is accelerated; movement, collision, sounds, timers and script execution
+retain their ordinary cycle order. Each replay verifies the exact local fixture
+hashes and the game's terminal ending state independently of the report's success
+label. A missing fixture produces an explicit skip. These runs establish the
+tested edition's completion under browser emulation; physical Samsung/iPhone
+keyboards and screen readers still require device testing.
+
+WebKit's automated GPU screenshots can capture a stale ending dialog; each full
+run also attaches the final engine frame. Completion assertions check the
+interpreter's terminal state independently of screenshot timing.
+
 ## Testing authoring and persistence
 
 Define the expected behavior before implementing it. Observe a new regression

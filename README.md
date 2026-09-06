@@ -113,6 +113,8 @@ to inspection.
 
 See [Contributing](CONTRIBUTING.md) for architecture, tests, local game fixtures
 and hosting, and [evals](evals/README.md) for authoring evaluations.
+The [KQ1 completion proof](CONTRIBUTING.md#kq1-completion-proof) runs a local
+walkthrough on a virtual clock and replays it through desktop and phone controls.
 
 ## Back to AGI, thirty years later
 
