@@ -3,6 +3,7 @@ import { reactive } from "vue";
 import type { GameControlBinding, EngineMenuState } from "../../src/runtime/engine.ts";
 import { continuationTranscript } from "./projectArchive.ts";
 import { readGameZip } from "./gameZip.ts";
+import { readGameSaves, writeGameSave } from "./gameSaves.ts";
 import { serializeAgentLog } from "../../src/agent/toolTransport.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import type { SoundOutput } from "../../src/sound/sound.ts";
@@ -24,14 +25,14 @@ import {
 } from "./cartridgeStorage.ts";
 
 /** Engine modal kinds (the engine draws them on its text surface). */
-export type ModalKind = "print" | "inventory" | "menu" | "showObj" | "showPri";
+export type ModalKind = "print" | "inventory" | "menu" | "showObj" | "showPri" | "save" | "restore";
 
 /**
  * Blocking get.num / get.string prompt awaiting player input. The engine has
  * drawn the prompt at (row, col); the host echoes the live edit after it.
  */
 export interface PromptState {
-  kind: "getnum" | "getstring";
+  kind: "getnum" | "getstring" | "saveDescription";
   prompt: string;
   maxLen: number;
   row: number;
@@ -79,6 +80,9 @@ export interface EngineState {
   agentTask: AgentRunState | null;
   leaving: boolean;
   controls: GameControlBinding[];
+  inputEnabled: boolean;
+  holdToMove: boolean;
+  waitingForKey: boolean;
   gameEdit: { text: string } | null;
   phase: "idle" | "loading" | "running" | "error";
   error: string;
@@ -206,6 +210,9 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     agentTask: null,
     leaving: false,
     controls: [],
+    inputEnabled: false,
+    holdToMove: false,
+    waitingForKey: false,
     gameEdit: null,
     phase: "idle",
     error: "",
@@ -259,6 +266,10 @@ export function useEngine(onFrame: (frame: Frame) => void) {
    * the worker); sendKey resolves it in graphics mode as well as text mode.
    */
   let keyWaitResolver: ((value: string) => void) | null = null;
+  // Keys remain here until the worker acknowledges receipt. A synchronous
+  // AGI wait can claim a key whose postMessage is still waiting to dispatch.
+  const pendingKeys = new Map<number, number>();
+  let nextKeyId = 0;
 
   function logAgent(
     kind: "request" | "response" | "error" | "log",
@@ -354,7 +365,16 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         if (req.op === "restore") {
           // The stored value is the base64 save-file image itself; an empty
           // reply is the engine's "cancelled / no save" answer.
-          const saved = localStorage.getItem(SAVE_KEY);
+          let saved: string | undefined | null;
+          try {
+            const slot = Number(req.context["slot"]);
+            saved =
+              booted && Number.isInteger(slot)
+                ? readGameSaves(localStorage, booted.slug)[String(slot)]
+                : localStorage.getItem(SAVE_KEY);
+          } catch {
+            saved = null;
+          }
           if (!saved) {
             logAgent("log", "No saved game found in local storage.");
             return Promise.resolve("");
@@ -362,12 +382,50 @@ export function useEngine(onFrame: (frame: Frame) => void) {
           logAgent("log", "Restoring saved game from local storage...");
           return Promise.resolve(saved);
         }
+        if (req.op === "saveList") {
+          if (!booted) return "[]";
+          try {
+            const slots = readGameSaves(localStorage, booted.slug);
+            // Only the description/signature header is needed for the selector.
+            // Full images are fetched on restore, keeping the SAB reply bounded.
+            return JSON.stringify(
+              Object.entries(slots).flatMap(([slot, image]) => {
+                try {
+                  return [{ slot: Number(slot), image: btoa(atob(image).slice(0, 40)) }];
+                } catch {
+                  return [];
+                }
+              }),
+            );
+          } catch {
+            return "storage-error";
+          }
+        }
+        if (req.op === "saveWrite") {
+          return String(
+            Boolean(
+              booted &&
+              writeGameSave(
+                localStorage,
+                booted.slug,
+                Number(req.context["slot"]),
+                String(req.context["image"]),
+              ),
+            ),
+          );
+        }
         if (req.op === "waitkey") {
+          const queued = pendingKeys.entries().next().value;
+          if (queued) {
+            pendingKeys.delete(queued[0]);
+            return JSON.stringify({ id: queued[0], code: queued[1] });
+          }
           return new Promise<string>((resolve) => {
+            state.waitingForKey = true;
             keyWaitResolver = resolve;
           });
         }
-        if (req.op === "getnum" || req.op === "getstring") {
+        if (req.op === "getnum" || req.op === "getstring" || req.op === "saveDescription") {
           // Captured before the executor: narrowing of a parameter does not
           // survive into a nested closure.
           const kind = req.op;
@@ -432,12 +490,16 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   }
 
   /** Player submitted (or cancelled) the blocking prompt modal. */
-  function submitPrompt(value: string): void {
+  function submitPrompt(value: string, cancelled = false): void {
     if (!promptResolver) return;
     const resolve = promptResolver;
+    const response =
+      state.prompt?.kind === "saveDescription"
+        ? JSON.stringify({ value: cancelled ? null : value })
+        : value;
     promptResolver = null;
     state.prompt = null;
-    resolve(value);
+    resolve(response);
   }
 
   async function discoverGames(): Promise<void> {
@@ -521,6 +583,10 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     state.textMode = false;
     state.modal = null;
     state.controls = [];
+    state.inputEnabled = false;
+    state.holdToMove = false;
+    state.waitingForKey = false;
+    pendingKeys.clear();
     state.gameEdit = null;
     state.rows = [];
     state.prompt = null;
@@ -719,7 +785,11 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     w.onmessage = (ev: MessageEvent) => {
       if (worker !== w) return;
       const msg = ev.data;
-      if (msg.type === "frame") {
+      if (msg.type === "keyAccepted") {
+        pendingKeys.delete(Number(msg.id));
+      } else if (msg.type === "frame") {
+        state.inputEnabled = Boolean(msg.inputEnabled);
+        state.holdToMove = Boolean(msg.holdToMove);
         publishText(msg.text, msg.modal ?? null, Boolean(msg.textMode));
         onFrame({
           visual: msg.visual,
@@ -1394,13 +1464,22 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   }
 
   function sendKey(code: number): void {
+    if (!worker) return;
+    const id = ++nextKeyId;
+    pendingKeys.set(id, code);
     if (keyWaitResolver) {
       const resolve = keyWaitResolver;
       keyWaitResolver = null;
-      resolve(String(code));
+      state.waitingForKey = false;
+      const queued = pendingKeys.entries().next().value!;
+      pendingKeys.delete(queued[0]);
+      resolve(JSON.stringify({ id: queued[0], code: queued[1] }));
+      // If the worker resumes normal execution instead of waiting again, it
+      // still receives this key. The sequence ID suppresses bridge duplicates.
+      worker.postMessage({ type: "key", id, code });
       return;
     }
-    worker?.postMessage({ type: "key", code });
+    worker.postMessage({ type: "key", id, code });
   }
 
   function toggleMute(): boolean {

@@ -11,6 +11,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "e2e": "playwright test",
+    "e2e:phone": "playwright test --config playwright.phone.config.ts",
     "typecheck": "vue-tsc --noEmit -p tsconfig.json && vue-tsc --noEmit -p tsconfig.worker.json",
     "e2e:production": "playwright test --config playwright.production.config.ts",
     "e2e:ui": "playwright test --ui"

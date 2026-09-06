@@ -28,7 +28,15 @@
 export interface LlmRequest {
   // "waitkey" is host-served (a have.key busy loop parks the worker on the
   // bridge until the player presses a key); it never reaches a game agent.
-  op: "room" | "getnum" | "getstring" | "restore" | "waitkey";
+  op:
+    | "room"
+    | "getnum"
+    | "getstring"
+    | "restore"
+    | "waitkey"
+    | "saveList"
+    | "saveWrite"
+    | "saveDescription";
   context: Record<string, unknown>;
 }
 

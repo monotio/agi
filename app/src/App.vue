@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AgentTaskControls from "./AgentTaskControls.vue";
+import TouchControls from "./TouchControls.vue";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   useEngine,
@@ -28,13 +29,23 @@ import {
 } from "./cartridgeStorage.ts";
 import { buildProjectZip, buildPublicGameZip } from "./projectArchive.ts";
 import { MAX_GAME_ZIP_BYTES } from "./gameZip.ts";
-import { FUNCTION_KEYS, gameShortcuts, registeredKey } from "./gameControls.ts";
+import { FUNCTION_KEYS, gameShortcuts, registeredKey, pcKey } from "./gameControls.ts";
 
 const canvas = ref<HTMLCanvasElement | null>(null);
 const testMode = import.meta.env.MODE === "test";
 const gpuCanvas = ref<HTMLCanvasElement | null>(null);
 const inputLine = ref("");
 const promptLine = ref("");
+const composing = ref(false);
+const touchControls = ref(
+  localStorage.getItem("monotio_agi.touchControls") === "on" ||
+    (localStorage.getItem("monotio_agi.touchControls") !== "off" &&
+      matchMedia("(any-pointer: coarse)").matches),
+);
+const viewportHeight = ref(window.visualViewport?.height ?? window.innerHeight);
+watch(touchControls, (enabled) =>
+  localStorage.setItem("monotio_agi.touchControls", enabled ? "on" : "off"),
+);
 const apiKeyEl = ref<HTMLInputElement | null>(null);
 const gpuBackend = ref<string | null>(null);
 const crtEnabled = ref<boolean>(localStorage.getItem("monotio_agi.crt") !== "off");
@@ -52,6 +63,10 @@ const DIRS: Record<string, number> = {
   ArrowRight: 3,
   ArrowDown: 5,
   ArrowLeft: 7,
+  Home: 8,
+  PageUp: 2,
+  End: 6,
+  PageDown: 4,
 };
 const heldMovementKeys = new Set<string>();
 
@@ -415,20 +430,25 @@ const hasKeyPrompt = computed(() =>
 function onScreenClick(): void {
   resumeAudio();
   if (state.phase !== "running") return;
-  if (state.modal !== null) {
-    dismissModal();
+  if (state.prompt) {
     inputEl.value?.focus();
+    return;
+  }
+  if (state.modal !== null) {
+    if (state.modal === "save" || state.modal === "restore") return;
+    dismissModal();
+    if (!touchControls.value) inputEl.value?.focus();
     return;
   }
   // Empty Enter (0x000d) wakes have.key() e.g. title screens or prompts
   sendKey(0x000d);
-  if (!state.textMode) inputEl.value?.focus();
+  if (!state.textMode && !touchControls.value) inputEl.value?.focus();
 }
 
 watch(
   () => state.phase,
   (phase) => {
-    if (phase === "running") {
+    if (phase === "running" && !touchControls.value) {
       nextTick(() => {
         inputEl.value?.focus();
       });
@@ -478,7 +498,7 @@ function triggerKey(code: number): void {
   resumeAudio();
   closeNavMenus();
   sendKey(code);
-  inputEl.value?.focus();
+  if (!touchControls.value) inputEl.value?.focus();
 }
 
 /**
@@ -517,9 +537,11 @@ function echoPrompt(): void {
 
 function onPromptKey(ev: KeyboardEvent): void {
   const prompt = state.prompt!;
+  // Native input/composition events own editable text, including Android IMEs.
+  if (ev.target === inputEl.value && ev.key !== "Enter" && ev.key !== "Escape") return;
   ev.preventDefault();
   if (ev.key === "Escape") {
-    submitPrompt("");
+    submitPrompt("", true);
   } else if (ev.key === "Enter") {
     submitPrompt(promptLine.value);
   } else if (ev.key === "Backspace") {
@@ -535,6 +557,14 @@ function onPromptKey(ev: KeyboardEvent): void {
 
 /** Keys while an engine modal (print window, inventory, menu…) is open. */
 function onModalKey(ev: KeyboardEvent): void {
+  if (state.waitingForKey || state.modal === "save" || state.modal === "restore") {
+    const code = pcKey(ev);
+    if (code !== undefined) {
+      ev.preventDefault();
+      sendKey(code);
+    }
+    return;
+  }
   const dir = DIRS[ev.key];
   if (dir !== undefined) {
     sendDirection(dir);
@@ -740,6 +770,7 @@ function onPowerUpKey(ev: KeyboardEvent): void {
 function onGlobalKeydown(ev: KeyboardEvent): void {
   resumeAudio();
   if (state.phase !== "running") return;
+  if (ev.isComposing || ev.keyCode === 229) return;
   // The bubble owns the keyboard while it is open: the world is frozen and
   // nothing typed here may reach the interpreter's input line.
   if (state.powerUp.open) {
@@ -775,10 +806,13 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
     return;
   }
 
-  // Intercept any key in full text mode (e.g. F1 Help) to wake have.key() and dismiss
-  if (state.textMode) {
-    ev.preventDefault();
-    sendKey(0x000d);
+  // Text screens can ask a specific question: preserve the actual key.
+  if (state.textMode || state.waitingForKey) {
+    const key = pcKey(ev);
+    if (key !== undefined) {
+      ev.preventDefault();
+      sendKey(key);
+    }
     return;
   }
 
@@ -789,6 +823,16 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
     return;
   }
 
+  const dir = !ev.altKey && !ev.ctrlKey && !ev.metaKey && !ev.shiftKey ? DIRS[ev.key] : undefined;
+  if (dir !== undefined) {
+    if (!ev.repeat && !heldMovementKeys.has(ev.key)) {
+      heldMovementKeys.add(ev.key);
+      sendDirection(dir);
+    }
+    ev.preventDefault();
+    return;
+  }
+
   const shortcut = registeredKey(ev, state.controls);
   if (shortcut !== undefined) {
     ev.preventDefault();
@@ -796,13 +840,12 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
     return;
   }
 
-  const dir = DIRS[ev.key];
-  if (dir !== undefined) {
-    if (!ev.repeat && !heldMovementKeys.has(ev.key)) {
-      heldMovementKeys.add(ev.key);
-      sendDirection(dir);
+  if (!state.inputEnabled) {
+    const code = pcKey(ev);
+    if (code !== undefined) {
+      ev.preventDefault();
+      sendKey(code);
     }
-    ev.preventDefault();
     return;
   }
 
@@ -854,11 +897,119 @@ function onGlobalKeyup(ev: KeyboardEvent): void {
 }
 
 /** The DOM input is the keyboard capture; its text lives on the engine's input row. */
-function onInputEdit(): void {
-  sendEdit(inputLine.value);
+function onInputEdit(event: Event): void {
+  const input = event.target as HTMLInputElement;
+  if (composing.value || (event instanceof InputEvent && event.isComposing)) return;
+  if (state.prompt) {
+    const prompt = state.prompt;
+    promptLine.value = (
+      prompt.kind === "getnum" ? input.value.replace(/[^0-9]/g, "") : input.value
+    ).slice(0, Math.min(39, prompt.maxLen));
+    input.value = promptLine.value;
+    echoPrompt();
+  } else if (state.textMode || state.waitingForKey || state.modal !== null || !state.inputEnabled) {
+    for (const char of input.value) sendKey(char.charCodeAt(0));
+    inputLine.value = "";
+    input.value = "";
+  } else {
+    // An IME may insert or replace several characters without keydown. Route
+    // newly inserted registered keys exactly as the physical keyboard does.
+    const previous = inputLine.value;
+    const next = input.value;
+    let start = 0;
+    while (start < previous.length && start < next.length && previous[start] === next[start])
+      start++;
+    let oldEnd = previous.length;
+    let newEnd = next.length;
+    while (oldEnd > start && newEnd > start && previous[oldEnd - 1] === next[newEnd - 1]) {
+      oldEnd--;
+      newEnd--;
+    }
+    let inserted = "";
+    for (const char of next.slice(start, newEnd)) {
+      const code = char.charCodeAt(0);
+      if (state.controls.some((binding) => binding.key === code)) sendKey(code);
+      else inserted += char;
+    }
+    inputLine.value = next.slice(0, start) + inserted + next.slice(newEnd);
+    if (input.value !== inputLine.value) input.value = inputLine.value;
+    sendEdit(inputLine.value);
+  }
+}
+
+function onCompositionEnd(event: CompositionEvent): void {
+  composing.value = false;
+  onInputEdit(event);
+}
+
+function onTouchDirection(dir: number): void {
+  resumeAudio();
+  if (dir === 0) {
+    // Dialog navigation consumes the press. Do not leave a delayed release
+    // message waiting behind a synchronous save/restore selector.
+    if (state.modal !== null) return;
+    sendDirection(0);
+    return;
+  }
+  if (state.phase !== "running" || state.powerUp.open || state.prompt) return;
+  if (state.waitingForKey || state.modal === "save" || state.modal === "restore")
+    sendKey([0, 0x4800, 0x4900, 0x4d00, 0x5100, 0x5000, 0x4f00, 0x4b00, 0x4700][dir]!);
+  else sendDirection(dir);
+}
+
+function onVirtualKey(code: number): void {
+  resumeAudio();
+  if (state.phase !== "running" || state.powerUp.open || composing.value) return;
+  if (state.prompt) {
+    if (code === 13 || code === 27) {
+      submitPrompt(code === 27 ? "" : promptLine.value, code === 27);
+      inputLine.value = "";
+    } else if (code === 8) {
+      promptLine.value = promptLine.value.slice(0, -1);
+      echoPrompt();
+    } else if (
+      code >= 32 &&
+      code <= 126 &&
+      promptLine.value.length < Math.min(39, state.prompt.maxLen)
+    ) {
+      const char = String.fromCharCode(code);
+      if (state.prompt.kind !== "getnum" || /[0-9]/.test(char)) promptLine.value += char;
+      echoPrompt();
+    }
+    return;
+  }
+  if (
+    state.modal !== null ||
+    state.textMode ||
+    state.waitingForKey ||
+    !state.inputEnabled ||
+    state.controls.some((binding) => binding.key === code)
+  ) {
+    sendKey(code);
+  } else if (code === 13) submit();
+  else if (code === 8 || (code >= 32 && code <= 126)) {
+    inputLine.value =
+      code === 8 ? inputLine.value.slice(0, -1) : inputLine.value + String.fromCharCode(code);
+    sendEdit(inputLine.value);
+  } else sendKey(code);
+}
+
+function releaseMovement(): void {
+  if (heldMovementKeys.size) sendDirection(0);
+  heldMovementKeys.clear();
+}
+
+function resizeViewport(): void {
+  viewportHeight.value = window.visualViewport?.height ?? window.innerHeight;
 }
 
 function submit(): void {
+  if (composing.value) return;
+  if (state.prompt) {
+    submitPrompt(promptLine.value);
+    inputLine.value = "";
+    return;
+  }
   const text = inputLine.value.trim();
   if (text.length === 0) {
     // Empty Enter sends raw Enter key (0x000d) to wake have.key() loops (e.g. title screens)
@@ -876,7 +1027,10 @@ function submit(): void {
  * event that still reliably gets a turn of the event loop.
  */
 function onPageHidden(): void {
-  if (document.visibilityState === "hidden") void flushAutosave();
+  if (document.visibilityState === "hidden") {
+    releaseMovement();
+    void flushAutosave();
+  }
 }
 
 function onPageHide(): void {
@@ -917,6 +1071,9 @@ if (import.meta.hot) {
 }
 
 onMounted(async () => {
+  window.addEventListener("blur", releaseMovement);
+  window.visualViewport?.addEventListener("resize", resizeViewport);
+  window.addEventListener("resize", resizeViewport);
   window.addEventListener("keydown", onGlobalKeydown);
   document.addEventListener("pointerdown", onOutsideControls);
   window.addEventListener("keyup", onGlobalKeyup);
@@ -944,6 +1101,10 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  releaseMovement();
+  window.removeEventListener("blur", releaseMovement);
+  window.visualViewport?.removeEventListener("resize", resizeViewport);
+  window.removeEventListener("resize", resizeViewport);
   stage?.dispose();
   stage = null;
   window.removeEventListener("keydown", onGlobalKeydown);
@@ -974,6 +1135,7 @@ watch(
   <div
     class="app-container"
     :class="{ 'at-menu': state.phase === 'idle' || state.phase === 'error' }"
+    :style="{ '--visible-height': `${viewportHeight}px` }"
   >
     <header class="header">
       <div class="header-brand">
@@ -1052,6 +1214,16 @@ watch(
         >
           <summary class="audio-btn">Settings</summary>
           <div class="game-controls-panel settings-panel">
+            <button
+              type="button"
+              class="game-shortcut"
+              :aria-pressed="touchControls"
+              data-testid="toggle-touch-controls"
+              @click="touchControls = !touchControls"
+            >
+              <span>Touch controls<small>Directions, keyboard and game keys</small></span>
+              <span class="setting-value">{{ touchControls ? "On" : "Off" }}</span>
+            </button>
             <button
               class="game-shortcut"
               data-testid="toggle-mute"
@@ -1513,283 +1685,308 @@ watch(
     </div>
 
     <!-- Screen Area (Hidden until game is running) -->
-    <div
-      v-show="state.phase === 'running'"
-      class="screen"
-      :class="{
-        active: state.phase === 'running',
-        shake: state.shake,
-        remixing: state.powerUp.open,
-      }"
-      @click="onScreenClick"
-    >
-      <canvas
-        v-show="gpuBackend !== null"
-        ref="gpuCanvas"
-        class="game-surface"
-        width="960"
-        height="600"
-        data-testid="gpu-canvas"
-      />
-      <!-- The composed 320x200 frame: Playwright pixel probe and no-GPU fallback. -->
-      <canvas
-        v-show="gpuBackend === null"
-        ref="canvas"
-        class="game-surface"
-        width="320"
-        height="200"
-        data-testid="game-canvas"
-      />
-
-      <!-- Native keyboard/IME capture; the engine renders the only visible command line. -->
-      <form v-if="state.phase === 'running'" class="input-row" @submit.prevent="submit">
-        <input
-          id="game-command"
-          :disabled="state.powerUp.open"
-          aria-label="Game command"
-          aria-describedby="game-input-help"
-          ref="inputEl"
-          v-model="inputLine"
-          data-testid="input-line"
-          autocomplete="off"
-          autocapitalize="off"
-          enterkeyhint="send"
-          spellcheck="false"
-          @input="onInputEdit"
-        />
-      </form>
-
-      <!-- The remix: freeze the world and ask the agent to change it. -->
-      <button
-        type="button"
-        class="power-up"
-        :class="{ armed: state.powerUp.open }"
-        data-testid="power-up"
-        :disabled="creatingRoom && state.powerUp.open"
-        :aria-label="
-          creatingRoom && state.powerUp.open
-            ? 'Creating the next room'
-            : state.powerUp.open
-              ? 'Close assistant'
-              : 'Ask or remix this game'
-        "
-        :aria-expanded="state.powerUp.open"
-        :title="state.powerUp.open ? 'Back to game (Esc)' : 'Ask or remix with AI'"
-        @click.stop="onPowerUp"
+    <div class="play-area" :class="{ 'with-touch': touchControls && state.phase === 'running' }">
+      <div
+        v-show="state.phase === 'running'"
+        class="screen"
+        :class="{
+          active: state.phase === 'running',
+          shake: state.shake,
+          remixing: state.powerUp.open,
+        }"
+        @click="onScreenClick"
       >
-        <span class="power-up-glyph">✦</span>
-      </button>
-
-      <div v-if="state.powerUp.open" class="agent-bubble" data-testid="agent-bubble" @click.stop>
-        <div class="agent-bubble-head">
-          <span v-if="creatingRoom" class="agent-bubble-title">{{
-            state.powerUp.error ? "Could not create this room" : "Creating the next room"
-          }}</span>
-          <div v-else class="agent-mode-switch" role="group" aria-label="Agent mode">
-            <button
-              type="button"
-              data-testid="agent-mode-ask"
-              :aria-pressed="asking"
-              :disabled="state.powerUp.busy"
-              title="Ask questions without changing the game"
-              @click="state.powerUp.mode = 'ask'"
-            >
-              Ask
-            </button>
-            <button
-              type="button"
-              data-testid="agent-mode-remix"
-              :aria-pressed="!asking"
-              :disabled="state.powerUp.busy"
-              title="Make changes to this game"
-              @click="state.powerUp.mode = 'remix'"
-            >
-              Remix
-            </button>
-          </div>
-          <span class="agent-bubble-room" data-testid="agent-bubble-room"
-            >{{ asking ? "Read-only" : "Paused" }} ·
-            {{ state.powerUp.room > 0 ? `room ${state.powerUp.room}` : "…" }}</span
-          >
-          <button
-            v-if="!creatingRoom || !state.powerUp.busy"
-            type="button"
-            class="remix-close"
-            :disabled="state.powerUp.busy"
-            @click="onPowerUp"
-          >
-            Back to game
-          </button>
-        </div>
-        <form
-          v-if="state.powerUp.needsConfig"
-          class="power-up-config"
-          @submit.prevent="onPowerUpConnect"
-        >
-          <p>Connect your model.</p>
-          <label
-            >Task budget · USD (estimated)<input
-              v-model.number="taskBudget"
-              type="number"
-              min="0.01"
-              step="any"
-              required
-          /></label>
-          <label
-            >Provider
-            <select v-model="provider" data-testid="power-up-provider">
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-            </select>
-          </label>
-          <label
-            >Model
-            <select v-model="model">
-              <option v-for="option in MODEL_OPTIONS[provider]" :key="option.id" :value="option.id">
-                {{ option.label }}
-              </option>
-            </select>
-          </label>
-          <label
-            >API key
-            <input
-              v-model="apiKey"
-              type="password"
-              autocomplete="off"
-              data-testid="power-up-api-key"
-              placeholder="Your provider API key"
-            />
-          </label>
-          <small>Stored in this browser. Model calls use your provider account.</small>
-          <button
-            type="submit"
-            data-testid="power-up-connect"
-            :disabled="!apiKey.trim() || state.powerUp.busy"
-          >
-            {{ state.powerUp.busy ? "Connecting…" : "Connect" }}
-          </button>
-        </form>
-        <div
-          v-if="!creatingRoom && state.powerUp.messages.length"
-          ref="conversationEl"
-          class="agent-conversation"
-          data-testid="agent-conversation"
-          @scroll="onConversationScroll"
-          role="log"
-          aria-label="Conversation"
-          aria-live="polite"
-        >
-          <div
-            v-for="(message, index) in state.powerUp.messages"
-            :key="index"
-            :class="['agent-message', message.role]"
-          >
-            {{ message.text }}
-          </div>
-          <div
-            v-if="asking && state.powerUp.busy && state.agentTask?.progress?.text"
-            class="agent-message assistant"
-            data-testid="agent-stream-text"
-            aria-live="off"
-          >
-            {{ state.agentTask.progress.text }}
-          </div>
-        </div>
-        <div
-          v-if="
-            state.powerUp.busy && state.agentTask?.status !== 'paused' && !state.agentTask?.progress
-          "
-          class="remix-progress"
-        >
-          <span
-            role="status"
-            aria-live="polite"
-            aria-atomic="true"
-            data-testid="remix-progress-status"
-          >
-            {{ remixActivity }}
-          </span>
-          <progress
-            :aria-label="
-              creatingRoom
-                ? 'Room generation in progress'
-                : asking
-                  ? 'Investigation in progress'
-                  : 'Remix in progress'
-            "
-          ></progress>
-        </div>
-        <AgentTaskControls
-          :task="state.agentTask"
-          :show-text="!asking"
-          @stop="stopAgent"
-          @resume="continueAgent"
-          @discard="discardAgent"
+        <canvas
+          v-show="gpuBackend !== null"
+          ref="gpuCanvas"
+          class="game-surface"
+          width="960"
+          height="600"
+          data-testid="gpu-canvas"
         />
-        <details class="agent-activity" :open="creatingRoom || state.powerUp.busy">
-          <summary>Activity</summary>
+        <!-- The composed 320x200 frame: Playwright pixel probe and no-GPU fallback. -->
+        <canvas
+          v-show="gpuBackend === null"
+          ref="canvas"
+          class="game-surface"
+          width="320"
+          height="200"
+          data-testid="game-canvas"
+        />
+
+        <!-- Native keyboard/IME capture; the engine renders the only visible command line. -->
+        <form
+          v-if="state.phase === 'running'"
+          class="input-row"
+          @click.stop
+          @submit.prevent="submit"
+        >
+          <input
+            id="game-command"
+            :disabled="state.powerUp.open"
+            aria-label="Game command"
+            aria-describedby="game-input-help"
+            ref="inputEl"
+            :value="state.prompt ? promptLine : inputLine"
+            :inputmode="state.prompt?.kind === 'getnum' ? 'numeric' : 'text'"
+            data-testid="input-line"
+            autocomplete="off"
+            autocapitalize="off"
+            enterkeyhint="send"
+            spellcheck="false"
+            @input="onInputEdit"
+            @compositionstart="composing = true"
+            @compositionend="onCompositionEnd"
+          />
+        </form>
+
+        <!-- The remix: freeze the world and ask the agent to change it. -->
+        <button
+          type="button"
+          class="power-up"
+          :class="{ armed: state.powerUp.open }"
+          data-testid="power-up"
+          :disabled="creatingRoom && state.powerUp.open"
+          :aria-label="
+            creatingRoom && state.powerUp.open
+              ? 'Creating the next room'
+              : state.powerUp.open
+                ? 'Close assistant'
+                : 'Ask or remix this game'
+          "
+          :aria-expanded="state.powerUp.open"
+          :title="state.powerUp.open ? 'Back to game (Esc)' : 'Ask or remix with AI'"
+          @click.stop="onPowerUp"
+        >
+          <span class="power-up-glyph">✦</span>
+        </button>
+
+        <div v-if="state.powerUp.open" class="agent-bubble" data-testid="agent-bubble" @click.stop>
+          <div class="agent-bubble-head">
+            <span v-if="creatingRoom" class="agent-bubble-title">{{
+              state.powerUp.error ? "Could not create this room" : "Creating the next room"
+            }}</span>
+            <div v-else class="agent-mode-switch" role="group" aria-label="Agent mode">
+              <button
+                type="button"
+                data-testid="agent-mode-ask"
+                :aria-pressed="asking"
+                :disabled="state.powerUp.busy"
+                title="Ask questions without changing the game"
+                @click="state.powerUp.mode = 'ask'"
+              >
+                Ask
+              </button>
+              <button
+                type="button"
+                data-testid="agent-mode-remix"
+                :aria-pressed="!asking"
+                :disabled="state.powerUp.busy"
+                title="Make changes to this game"
+                @click="state.powerUp.mode = 'remix'"
+              >
+                Remix
+              </button>
+            </div>
+            <span class="agent-bubble-room" data-testid="agent-bubble-room"
+              >{{ asking ? "Read-only" : "Paused" }} ·
+              {{ state.powerUp.room > 0 ? `room ${state.powerUp.room}` : "…" }}</span
+            >
+            <button
+              v-if="!creatingRoom || !state.powerUp.busy"
+              type="button"
+              class="remix-close"
+              :disabled="state.powerUp.busy"
+              @click="onPowerUp"
+            >
+              Back to game
+            </button>
+          </div>
+          <form
+            v-if="state.powerUp.needsConfig"
+            class="power-up-config"
+            @submit.prevent="onPowerUpConnect"
+          >
+            <p>Connect your model.</p>
+            <label
+              >Task budget · USD (estimated)<input
+                v-model.number="taskBudget"
+                type="number"
+                min="0.01"
+                step="any"
+                required
+            /></label>
+            <label
+              >Provider
+              <select v-model="provider" data-testid="power-up-provider">
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+              </select>
+            </label>
+            <label
+              >Model
+              <select v-model="model">
+                <option
+                  v-for="option in MODEL_OPTIONS[provider]"
+                  :key="option.id"
+                  :value="option.id"
+                >
+                  {{ option.label }}
+                </option>
+              </select>
+            </label>
+            <label
+              >API key
+              <input
+                v-model="apiKey"
+                type="password"
+                autocomplete="off"
+                data-testid="power-up-api-key"
+                placeholder="Your provider API key"
+              />
+            </label>
+            <small>Stored in this browser. Model calls use your provider account.</small>
+            <button
+              type="submit"
+              data-testid="power-up-connect"
+              :disabled="!apiKey.trim() || state.powerUp.busy"
+            >
+              {{ state.powerUp.busy ? "Connecting…" : "Connect" }}
+            </button>
+          </form>
           <div
-            ref="progressFeedEl"
-            class="agent-bubble-feed"
-            data-testid="agent-bubble-feed"
-            role="region"
-            :aria-label="creatingRoom ? 'Room generation activity' : 'Agent activity'"
-            tabindex="0"
-            @scroll.passive="onProgressScroll"
+            v-if="!creatingRoom && state.powerUp.messages.length"
+            ref="conversationEl"
+            class="agent-conversation"
+            data-testid="agent-conversation"
+            @scroll="onConversationScroll"
+            role="log"
+            aria-label="Conversation"
+            aria-live="polite"
           >
             <div
-              v-for="entry in powerUpFeed"
-              :key="entry.id"
-              class="agent-bubble-line"
-              :class="entry.kind"
+              v-for="(message, index) in state.powerUp.messages"
+              :key="index"
+              :class="['agent-message', message.role]"
             >
-              {{ entry.detail }}
+              {{ message.text }}
+            </div>
+            <div
+              v-if="asking && state.powerUp.busy && state.agentTask?.progress?.text"
+              class="agent-message assistant"
+              data-testid="agent-stream-text"
+              aria-live="off"
+            >
+              {{ state.agentTask.progress.text }}
             </div>
           </div>
-          <div v-if="!followProgress" class="remix-follow-controls">
-            <button type="button" data-testid="remix-jump-latest" @click="jumpToLatest">
-              Jump to latest
-            </button>
-          </div>
-        </details>
-        <form
-          v-if="!creatingRoom && !state.powerUp.needsConfig"
-          class="agent-bubble-form"
-          @submit.prevent="onPowerUpSubmit"
-        >
-          <textarea
-            rows="2"
-            ref="powerUpEl"
-            v-model="powerUpLine"
-            data-testid="agent-bubble-input"
-            :aria-label="asking ? 'Ask about this game' : 'What would you like to change?'"
-            autocomplete="off"
-            spellcheck="false"
-            :disabled="state.powerUp.busy"
-            :placeholder="asking ? 'Ask about this game…' : 'What would you like to change?'"
-            @keydown="onPowerUpKey"
-          ></textarea>
-          <button
-            type="submit"
-            data-testid="agent-bubble-send"
-            :disabled="state.powerUp.busy || !powerUpLine.trim()"
+          <div
+            v-if="
+              state.powerUp.busy &&
+              state.agentTask?.status !== 'paused' &&
+              !state.agentTask?.progress
+            "
+            class="remix-progress"
           >
-            {{ state.powerUp.busy ? "Working…" : asking ? "Ask" : "Remix" }}
-          </button>
-        </form>
-        <p v-if="state.powerUp.error" class="agent-bubble-error" data-testid="agent-bubble-error">
-          {{ state.powerUp.error }}
-        </p>
+            <span
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              data-testid="remix-progress-status"
+            >
+              {{ remixActivity }}
+            </span>
+            <progress
+              :aria-label="
+                creatingRoom
+                  ? 'Room generation in progress'
+                  : asking
+                    ? 'Investigation in progress'
+                    : 'Remix in progress'
+              "
+            ></progress>
+          </div>
+          <AgentTaskControls
+            :task="state.agentTask"
+            :show-text="!asking"
+            @stop="stopAgent"
+            @resume="continueAgent"
+            @discard="discardAgent"
+          />
+          <details class="agent-activity" :open="creatingRoom || state.powerUp.busy">
+            <summary>Activity</summary>
+            <div
+              ref="progressFeedEl"
+              class="agent-bubble-feed"
+              data-testid="agent-bubble-feed"
+              role="region"
+              :aria-label="creatingRoom ? 'Room generation activity' : 'Agent activity'"
+              tabindex="0"
+              @scroll.passive="onProgressScroll"
+            >
+              <div
+                v-for="entry in powerUpFeed"
+                :key="entry.id"
+                class="agent-bubble-line"
+                :class="entry.kind"
+              >
+                {{ entry.detail }}
+              </div>
+            </div>
+            <div v-if="!followProgress" class="remix-follow-controls">
+              <button type="button" data-testid="remix-jump-latest" @click="jumpToLatest">
+                Jump to latest
+              </button>
+            </div>
+          </details>
+          <form
+            v-if="!creatingRoom && !state.powerUp.needsConfig"
+            class="agent-bubble-form"
+            @submit.prevent="onPowerUpSubmit"
+          >
+            <textarea
+              rows="2"
+              ref="powerUpEl"
+              v-model="powerUpLine"
+              data-testid="agent-bubble-input"
+              :aria-label="asking ? 'Ask about this game' : 'What would you like to change?'"
+              autocomplete="off"
+              spellcheck="false"
+              :disabled="state.powerUp.busy"
+              :placeholder="asking ? 'Ask about this game…' : 'What would you like to change?'"
+              @keydown="onPowerUpKey"
+            ></textarea>
+            <button
+              type="submit"
+              data-testid="agent-bubble-send"
+              :disabled="state.powerUp.busy || !powerUpLine.trim()"
+            >
+              {{ state.powerUp.busy ? "Working…" : asking ? "Ask" : "Remix" }}
+            </button>
+          </form>
+          <p v-if="state.powerUp.error" class="agent-bubble-error" data-testid="agent-bubble-error">
+            {{ state.powerUp.error }}
+          </p>
+        </div>
       </div>
-    </div>
 
-    <!-- Captions under the screen (never overlays: all game text is on the CRT) -->
+      <!-- Captions under the screen (never overlays: all game text is on the CRT) -->
+      <TouchControls
+        v-if="touchControls && state.phase === 'running'"
+        :disabled="state.powerUp.open || state.paused"
+        :navigating="state.modal !== null"
+        :hold="state.holdToMove"
+        @direction="onTouchDirection"
+        @key="onVirtualKey"
+        @keyboard="inputEl?.focus()"
+      />
+    </div>
     <div v-if="state.phase === 'running'" class="screen-captions">
       <span v-if="state.resumed" class="caption resume-caption" data-testid="resume-caption">
         Resumed where you left off
       </span>
       <span v-if="state.textMode" class="caption" data-testid="text-mode-hint">
-        [ Click screen or press any key to return ]
+        [ Use the keys requested by the game ]
       </span>
       <span v-else-if="hasKeyPrompt" class="caption" data-testid="title-prompt-hint">
         [ Click screen or press Enter / Space to start ]
@@ -1809,7 +2006,11 @@ watch(
     </div>
 
     <p v-if="state.phase === 'running'" id="game-input-help" class="input-help">
-      Click the game to type · Enter to send · Arrow keys to walk
+      {{
+        touchControls
+          ? "Type to open keyboard · Enter to send · Keys for F1–F10 and more"
+          : "Click the game to type · Enter to send · Arrows and Home / PgUp / End / PgDn to walk"
+      }}
     </p>
 
     <!-- Live Agent Debug Activity Panel -->
@@ -2681,6 +2882,35 @@ h1 {
   transition:
     box-shadow 180ms ease-out,
     border-color 180ms ease-out;
+}
+
+.play-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+@media (orientation: landscape) and (max-height: 600px) {
+  .play-area.with-touch {
+    --game-width: min(calc(100vw - 268px), calc((var(--visible-height, 100dvh) - 100px) * 1.6));
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  .app-container:has(.with-touch) {
+    padding: 8px 0;
+  }
+  .app-container:has(.with-touch) .header {
+    margin-bottom: 8px;
+  }
+}
+@media (orientation: portrait) {
+  .play-area.with-touch {
+    --game-width: min(
+      calc(100vw - 32px),
+      max(160px, calc((var(--visible-height, 100dvh) - 340px) * 1.6))
+    );
+  }
 }
 
 .screen.active {

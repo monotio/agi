@@ -4,6 +4,35 @@ import type { GameControlBinding } from "../../src/runtime/engine.ts";
 export const FUNCTION_KEYS: Record<string, number> = Object.fromEntries(
   Array.from({ length: 10 }, (_, i) => [`F${i + 1}`, (0x3b + i) << 8]),
 );
+/** IBM PC letter scan codes, shared with the phone's modifier key panel. */
+export const ALT_LETTER_SCANS: Record<string, number> = {
+  A: 30,
+  B: 48,
+  C: 46,
+  D: 32,
+  E: 18,
+  F: 33,
+  G: 34,
+  H: 35,
+  I: 23,
+  J: 36,
+  K: 37,
+  L: 38,
+  M: 50,
+  N: 49,
+  O: 24,
+  P: 25,
+  Q: 16,
+  R: 19,
+  S: 31,
+  T: 20,
+  U: 22,
+  V: 47,
+  W: 17,
+  X: 45,
+  Y: 21,
+  Z: 44,
+};
 const KEY_NAMES: Record<number, string> = {
   0x0008: "Backspace",
   0x0009: "Tab",
@@ -40,13 +69,40 @@ const KEY_EVENTS: Record<string, number> = {
   PageDown: 0x5100,
   Insert: 0x5200,
   Delete: 0x5300,
+  ScrollLock: 0x4600,
 };
+
+/** IBM PC key words shared by physical and on-screen input. */
+export function pcKey(event: KeyboardEvent): number | undefined {
+  if (event.metaKey || event.isComposing) return undefined;
+  // AltGr is native text entry. It must not trigger the unrelated Alt key.
+  if (event.altKey && event.ctrlKey) return undefined;
+  if (event.altKey) {
+    const scan = ALT_LETTER_SCANS[event.key.toUpperCase()];
+    return scan === undefined ? undefined : scan << 8;
+  }
+  if (event.ctrlKey)
+    return /^[a-z]$/i.test(event.key) ? event.key.toUpperCase().charCodeAt(0) - 64 : undefined;
+  // Modified extended keys have distinct PC words; never alias them to bare keys.
+  if (event.shiftKey && event.key.length !== 1) return undefined;
+  return (
+    FUNCTION_KEYS[event.key] ??
+    KEY_EVENTS[event.key] ??
+    (event.key.length === 1 && event.key.charCodeAt(0) <= 0x7f
+      ? event.key.charCodeAt(0)
+      : undefined)
+  );
+}
 
 export function gameShortcuts(bindings: GameControlBinding[]) {
   return bindings.map((binding) => {
     const key = binding.key;
     let keyLabel =
       KEY_NAMES[key] ?? Object.entries(FUNCTION_KEYS).find(([, code]) => code === key)?.[0] ?? "";
+    if (!keyLabel) {
+      const altLetter = Object.entries(ALT_LETTER_SCANS).find(([, scan]) => scan << 8 === key)?.[0];
+      if (altLetter) keyLabel = `Alt+${altLetter}`;
+    }
     if (!keyLabel && key >= 1 && key <= 26) keyLabel = `Ctrl+${String.fromCharCode(64 + key)}`;
     if (!keyLabel && key >= 33 && key <= 126) keyLabel = String.fromCharCode(key);
     const labels = binding.menuItems
@@ -75,16 +131,6 @@ export function registeredKey(
   event: KeyboardEvent,
   bindings: GameControlBinding[],
 ): number | undefined {
-  if (event.metaKey) return undefined;
-  let key: number | undefined;
-  if (event.altKey) {
-    if (event.key.toLowerCase() === "d") key = 0x2000;
-    if (event.key.toLowerCase() === "z") key = 0x2c00;
-  } else if (event.ctrlKey && /^[a-z]$/i.test(event.key))
-    key = event.key.toUpperCase().charCodeAt(0) - 64;
-  else if (!event.ctrlKey && !(event.key === "Tab" && event.shiftKey)) {
-    key = KEY_EVENTS[event.key];
-    if (key === undefined && event.key.length === 1) key = event.key.charCodeAt(0);
-  }
+  const key = pcKey(event);
   return bindings.some((binding) => binding.key === key) ? key : undefined;
 }

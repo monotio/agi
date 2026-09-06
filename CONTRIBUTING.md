@@ -123,6 +123,25 @@ Run them with `node --experimental-strip-types --test test/kq3-regressions.test.
 The manual HMR proof in `app/e2e/manual/hmr-resume.mjs` temporarily edits source;
 run it in an isolated checkout as described in the script.
 
+Input conformance covers the nineteen-event FIFO, raw/mapped/navigation event
+handling, held-key release ordering and modal input. Save-selector tests cover
+twelve slots, descriptions, cancellation, overwrite confirmation, signature
+filtering and failure outcomes. The browser supplies per-game storage instead
+of a DOS drive/path interface; these checks do not establish exact platform
+dialog presentation or completion of every game/version.
+
+Run `npm --prefix app run e2e -- phone-input.spec.ts movement-input.spec.ts game-controls.spec.ts`
+for synthetic browser input coverage. `npm --prefix app run e2e:phone` runs the
+phone suite in both Chromium and WebKit, including the isolation headers needed
+for the worker bridge. With local KQ1–3 fixtures installed, it also checks each
+game's opening room, touch walking and named save/restore slots. Both engines
+are checked in CI; commercial fixture cases skip there. Touch emulation checks application behavior, including
+input/composition events; it does not emulate Samsung Keyboard or the iOS
+keyboard. Before claiming device compatibility, verify on physical Android and
+iPhone browsers with the keyboard open, rotation, interruption and save/restore.
+Full-game compatibility needs recorded completion runs using the specific game
+edition and interpreter profile.
+
 ## Testing authoring and persistence
 
 Define the expected behavior before implementing it. Observe a new regression
@@ -156,7 +175,7 @@ Run `npm run build` and serve `app/dist` over HTTPS. Set these response headers:
 
 ```text
 Cross-Origin-Opener-Policy: same-origin
-Cross-Origin-Embedder-Policy: credentialless
+Cross-Origin-Embedder-Policy: require-corp
 ```
 
 For a subpath such as `/agi/`, build with:

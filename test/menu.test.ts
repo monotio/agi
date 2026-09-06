@@ -160,7 +160,7 @@ test("Enter selects an enabled item as a mapped event visible to the next cycle'
   assert.equal(engine.textRow(1), spaces(40), "pulldown restored");
   assert.equal(
     engine.textRow(0),
-    " Score: 0 of 255" + spaces(14) + "Sound:off ",
+    " Score: 0 of 0" + spaces(16) + "Sound:off ",
     "status line redrawn",
   );
   engine.tick(); // the input phase delivers controller 2 to logic 0

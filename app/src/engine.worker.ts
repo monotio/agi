@@ -97,6 +97,7 @@ let liveDictionary = new Map<string, number>();
 let authoredWords: Uint8Array | null = null;
 let inputBuffer: string[] = [];
 let keyBuffer: number[] = [];
+let lastKeyId = 0;
 let timer: number | null = null;
 let soundTimer: number | null = null;
 const soundClock = new SoundClock(performance.now());
@@ -248,9 +249,21 @@ const host: EngineHost = {
    * as well as in full text mode.
    */
   waitKey() {
-    const res = bridgeCall("waitkey", "{}");
-    const code = Number.parseInt(res, 10);
-    return Number.isFinite(code) ? code : 0x000d;
+    for (;;) {
+      const buffered = keyBuffer.shift();
+      if (buffered !== undefined) return buffered;
+      const res = bridgeCall("waitkey", "{}");
+      if (res.startsWith("{")) {
+        const key = JSON.parse(res) as { id: number; code: number };
+        if (key.id <= lastKeyId) continue;
+        lastKeyId = key.id;
+        self.postMessage({ type: "keyAccepted", id: key.id });
+        return key.code & 0xffff;
+      }
+      // Direct host/test bridges retain the original numeric reply contract.
+      const code = Number.parseInt(res, 10);
+      return Number.isFinite(code) ? code : 0x000d;
+    }
   },
   statusLine(text) {
     self.postMessage({ type: "status", text });
@@ -322,12 +335,24 @@ const host: EngineHost = {
    * thread owns localStorage, and the bridge carries text, so the bytes travel
    * as base64 and are stored as base64 — never re-encoded as JSON.
    */
-  saveGame(bytes) {
-    self.postMessage({ type: "saveGame", image: bytesToBase64(bytes) });
+  listSaveGames() {
+    const slots = JSON.parse(bridgeCall("saveList", "{}")) as { slot: number; image: string }[];
+    return slots.map(({ slot, image }) => ({ slot, bytes: base64ToBytes(image) }));
+  },
+  promptSaveDescription(initial, maxLen, row, col) {
+    const response = JSON.parse(
+      bridgeCall("saveDescription", JSON.stringify({ initial, maxLen, row, col })),
+    ) as { value: string | null };
+    return response.value;
+  },
+  saveGame(bytes, slot = 1) {
+    return (
+      bridgeCall("saveWrite", JSON.stringify({ slot, image: bytesToBase64(bytes) })) === "true"
+    );
   },
   /** 0x7e restore.game: blocking bridge lookup; null = cancelled or no save. */
-  restoreGame() {
-    const response = bridgeCall("restore", "{}");
+  restoreGame(slot = 1) {
+    const response = bridgeCall("restore", JSON.stringify({ slot }));
     if (!response) return null;
     try {
       return base64ToBytes(response);
@@ -368,6 +393,8 @@ let lastVisual: Uint8Array | null = null;
 let lastText: Uint8Array | null = null;
 let lastPicRow = -1;
 let lastTextMode = false;
+let lastInputEnabled = false;
+let lastReleaseGate = 0;
 let lastModal: string | null = null;
 let lastControls = "";
 let lastInputEdit = "";
@@ -399,6 +426,8 @@ function postFrame(): void {
     lastModal === modal &&
     lastPicRow === engine.displayBase &&
     lastTextMode === engine.textModeActive &&
+    lastInputEnabled === engine.inputEnabled &&
+    lastReleaseGate === engine.releaseGate &&
     lastText !== null;
   if (same && lastText) {
     for (let i = 0; i < textCells.length; i++) {
@@ -423,6 +452,8 @@ function postFrame(): void {
   lastText = textCells.slice();
   lastPicRow = engine.displayBase;
   lastTextMode = engine.textModeActive;
+  lastInputEnabled = engine.inputEnabled;
+  lastReleaseGate = engine.releaseGate;
   lastModal = modal;
   const text = textCells.slice();
   self.postMessage(
@@ -434,6 +465,8 @@ function postFrame(): void {
       picRow: engine.displayBase,
       modal,
       textMode: engine.textModeActive,
+      inputEnabled: engine.inputEnabled,
+      holdToMove: engine.releaseGate !== 0,
       edit: engine.inputEdit,
     },
     [frame.visual.buffer, frame.priority.buffer, text.buffer],
@@ -548,10 +581,13 @@ self.onmessage = (ev: MessageEvent) => {
       engine.flags[9] = 1;
       inputBuffer = [];
       keyBuffer = [];
+      lastKeyId = 0;
       lastVisual = null;
       lastText = null;
       lastPicRow = -1;
       lastTextMode = false;
+      lastInputEnabled = false;
+      lastReleaseGate = 0;
       lastModal = null;
       lastControls = "";
       lastInputEdit = "";
@@ -684,7 +720,7 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "soundEnabled" && engine) {
-      engine.flags[9] = msg.enabled ? 1 : 0;
+      engine.setSoundEnabled(msg.enabled);
       postFrame();
       return;
     }
@@ -713,6 +749,11 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "key") {
+      if (typeof msg.id === "number") {
+        if (msg.id <= lastKeyId) return;
+        lastKeyId = msg.id;
+        self.postMessage({ type: "keyAccepted", id: msg.id });
+      }
       keyBuffer.push(Number(msg.code) & 0xffff);
       return;
     }
