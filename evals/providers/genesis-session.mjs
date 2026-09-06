@@ -376,7 +376,7 @@ export async function runGenesisSession(options) {
       repeat,
       provider,
       model: options.model,
-      effort: options.effort ?? "api-default",
+      effort: options.effort ?? "model-default",
       effectiveEffort:
         (provider === "openai"
           ? firstRequestBody?.reasoning?.effort

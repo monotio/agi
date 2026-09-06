@@ -113,7 +113,7 @@ test("in-game ZIP exports the live cartridge after a patch and reload", async ({
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
   const downloadPromise = page.waitForEvent("download");
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "game-actions-menu");
   await page.getByTestId("btn-export-live-zip").click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("agi-custom-game.zip");
@@ -154,7 +154,7 @@ test("in-game ZIP exports the live cartridge after a patch and reload", async ({
   await expect(page.getByTestId("btn-resume-cached")).toBeVisible();
   await configureAi(page, { provider: "stub" });
   await savedGameCard(page, "custom").getByTestId("btn-resume-cached").click();
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "game-actions-menu");
   await expect(page.getByTestId("btn-export-live-zip")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
   await typeCommand(page, "east");
@@ -288,7 +288,7 @@ test("sound controls allow toggling mute and switching sound chip mode", async (
   await page.goto("/");
   await openDeveloperActivity(page);
   await page.getByTestId("boot-agent").click();
-  await openGameOptions(page, "sound-display-menu");
+  await openGameOptions(page, "settings-menu");
   const muteBtn = page.getByTestId("toggle-mute");
   const modeBtn = page.getByTestId("toggle-sound-mode");
 

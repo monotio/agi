@@ -112,6 +112,21 @@ test("public metadata is versioned, bounded and cannot carry private history or 
     () => readPublicMetadata({ format: "monotio.agi", version: 99, title: "Future" }),
     /version/i,
   );
+  for (const blank of ["", "   ", "\n\t"]) {
+    assert.equal(
+      readPublicMetadata({ format: "monotio.agi", version: 1, title: blank }).title,
+      undefined,
+      `A blank title ${JSON.stringify(blank)} falls back to the importer's name.`,
+    );
+  }
+  assert.equal(
+    readPublicMetadata({ format: "monotio.agi", version: 1, title: "  Padded  " }).title,
+    "Padded",
+  );
+  assert.equal(
+    readPublicMetadata({ format: "monotio.agi", version: 1, title: "x".repeat(200) }).title,
+    "x".repeat(160),
+  );
   const metadata = readPublicMetadata({
     format: "monotio.agi",
     version: 1,

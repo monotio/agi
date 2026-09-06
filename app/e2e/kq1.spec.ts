@@ -12,7 +12,7 @@ import {
   isolateStorage,
   openCreateAdventure,
   openSavedGameDetails,
-  openLibraryDownload,
+  openLibraryActions,
   observe,
   probe,
   screenText,
@@ -334,8 +334,8 @@ test("saving with F5 writes a real save-file image and F7 restores it without lo
   const restoreRequests = async (): Promise<number> =>
     page.evaluate(
       () =>
-        ((window as any).__AGI_TRACE__ || []).filter(
-          (e: any) => e.kind === "request" && e.detail.startsWith("restore"),
+        (window.__AGI_TRACE__ ?? []).filter(
+          (e) => e.kind === "request" && e.detail.startsWith("restore"),
         ).length,
     );
   await expect.poll(restoreRequests, { timeout: 15_000 }).toBe(1);
@@ -441,7 +441,7 @@ test("Start over discards the autosave and boots the game from the top", async (
   await expect(page.getByTestId("resume-caption")).toBeVisible({ timeout: 20_000 });
 
   // Start over throws the snapshot away and boots KQ1 from its title screen.
-  await openGameOptions(page, "sound-display-menu");
+  await openGameOptions(page, "game-actions-menu");
   await page.getByTestId("btn-start-over").click();
   await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId("resume-caption")).toBeHidden();
@@ -556,9 +556,9 @@ test("KQ1 orientation accompanies the first question, Escape resumes", async ({ 
 
   // ...and its prompt really is the live container read back as source.
   const prompt = await page.evaluate(() => {
-    const trace = ((window as any).__AGI_TRACE__ ?? []) as { detail: string; data?: any }[];
-    const entry = trace.find((e) => e.detail.startsWith("[Orientation]"));
-    return String(entry?.data?.prompt ?? "");
+    const entry = (window.__AGI_TRACE__ ?? []).find((e) => e.detail.startsWith("[Orientation]"));
+    const data = entry?.data;
+    return typeof data === "object" && data !== null && "prompt" in data ? String(data.prompt) : "";
   });
   expect(prompt).toContain("ORIENTATION: You have joined a game already in progress");
   expect(prompt).toContain("Game: kq1");
@@ -606,10 +606,10 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
   await page.getByTestId("agent-bubble-input").fill("put up a sign by the road");
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "game-actions-menu");
   await expect(page.getByTestId("btn-export-live-zip")).toBeVisible();
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "game-actions-menu");
   await page.getByTestId("btn-export-live-zip").click();
   const download = await downloading;
   expect(download.suggestedFilename()).toMatch(/^agi-remix-[a-f0-9-]+-game\.zip$/);
@@ -631,6 +631,6 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
     .locator("[data-testid^='saved-game-card-']");
   await expect(savedCard).toHaveCount(1);
   await openSavedGameDetails(savedCard);
-  await openLibraryDownload(page, savedCard);
+  await openLibraryActions(page, savedCard);
   await expect(page.getByTestId("btn-export-agi-zip")).toBeVisible();
 });

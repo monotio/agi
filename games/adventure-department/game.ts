@@ -9,6 +9,7 @@ import { buildView, type BuildViewInput } from "../../src/view/view.ts";
 import { CHARACTER_VIEWS } from "./characterViews.ts";
 import { LEVER_VIEW } from "./leverView.ts";
 import { ORIGINAL_SCENE_PICTURES } from "./sceneArt.ts";
+import { SIGNAL_VIEW } from "./signalView.ts";
 import { TUTORIAL_SOUND_IDS, TUTORIAL_SOUND_SOURCES } from "./sounds.ts";
 
 export const TUTORIAL_WORDS: [string, number][] = [
@@ -57,6 +58,14 @@ export const TUTORIAL_WORDS: [string, number][] = [
 ];
 
 const WORD_MAP = new Map(TUTORIAL_WORDS);
+
+/**
+ * Printed by whichever room completes the third repair. It names the app's
+ * Game actions menu entries; logic messages are single-byte strings, so the
+ * menu path uses ">" rather than an arrow glyph.
+ */
+const GRADUATION_MESSAGE =
+  "All three exhibits work. You have graduated! Felix is pleased to have a counter again. Choose Make a copy to experiment. Game actions > Project keeps readable sources; Remix can help when a provider is connected. Game actions > Game export makes a standard AGI game.";
 
 export const TUTORIAL_LOGIC_SOURCES: Readonly<Record<number, string>> = {
   0: String.raw`
@@ -118,7 +127,7 @@ return;
 #message 5 "The mural now shows the completed landscape."
 #message 6 "That command has no effect in the gallery. Type HELP for the useful commands."
 #message 7 "Apprentice: arrows. HELP or PAINT MURAL."
-#message 8 "All three exhibits work. You have graduated! Felix is pleased to have a counter again. Choose Make a copy to experiment. Save project keeps readable sources; Remix can help when a provider is connected. Export makes a standard AGI game."
+#message 8 "${GRADUATION_MESSAGE}"
 #message 9 "A ROOM is one numbered place. Its PICTURE draws the backdrop; its LOGIC runs the rules. EAST uses new.room(2). When you return, a flag remembers your repair."
 #message 10 "The west wall is solid oak. The Sprite Lab is east."
 
@@ -167,7 +176,7 @@ return;
 #message 5 "The parser consults WORDS.TOK. Try LOOK ROBOT, PULL LEVER, EAST, WEST, or HELP."
 #message 6 "Move with the arrow keys. FAST, NORMAL, or SLOW changes walking speed. Type PULL LEVER to switch a sprite resource."
 #message 7 "Try LOOK ROBOT or PULL LEVER."
-#message 8 "All three exhibits work. You have graduated! Felix is pleased to have a counter again. Choose Make a copy to experiment. Save project keeps readable sources; Remix can help when a provider is connected. Export makes a standard AGI game."
+#message 8 "${GRADUATION_MESSAGE}"
 
 if (isset(f5)) {
   assignn(v50, 2);
@@ -222,7 +231,7 @@ return;
 #message 4 "You change Felix from priority 15 to 10. The priority-11 counter now hides his torso while his head remains visible above it. Exhibit three is repaired."
 #message 5 "The counter is priority 11 and Felix is priority 10, so the overlapping part of his sprite stays behind it."
 #message 6 "Try LOOK, SHOW PRIORITY, FIX PRIORITY, WEST, or HELP. FAST, NORMAL, and SLOW change walking speed."
-#message 7 "All three exhibits work. You have graduated! Felix is pleased to have a counter again. Choose Make a copy to experiment. Save project keeps readable sources; Remix can help when a provider is connected. Export makes a standard AGI game."
+#message 7 "${GRADUATION_MESSAGE}"
 #message 8 "SHOW PRIORITY, then FIX PRIORITY."
 #message 9 "Counter:11. Felix:10. Lower goes behind."
 #message 10 "The east wall ends the archive. Return west to the Sprite Lab."
@@ -230,7 +239,7 @@ return;
 if (isset(f5)) {
   assignn(v50, 3); load.pic(v50); draw.pic(v50); show.pic();
   set.horizon(112);
-  load.view(0); load.view(3);
+  load.view(0); load.view(3); load.view(5);
   load.sound(2);
   animate.obj(o0); set.view(o0, 0); start.motion(o0);
   assignn(v51, 1); step.time(o0, v51);
@@ -241,7 +250,10 @@ if (isset(f5)) {
   set.cel(o1, 0); reset(f35); random(70, 140, v59);
   if (isset(f32)) { set.priority(o1, 10); } else { set.priority(o1, 15); }
   draw(o1);
-  if (isset(f32)) { assignn(v50, 5); load.pic(v50); overlay.pic(v50); show.pic(); }
+  animate.obj(o2); set.view(o2, 5); position(o2, 110, 74);
+  ignore.horizon(o2); ignore.objs(o2); stop.motion(o2); set.priority(o2, 15);
+  if (isset(f32)) { set.cel(o2, 1); } else { set.cel(o2, 0); }
+  draw(o2); stop.cycling(o2);
   accept.input();
 }
 if (!isset(f5)) {
@@ -264,8 +276,7 @@ if (said("show", "priority")) {
 }
 if (said("fix", "priority")) {
   if (!isset(f32)) {
-    set(f32); addn(v3, 10); set.priority(o1, 10);
-    assignn(v50, 5); load.pic(v50); overlay.pic(v50); show.pic();
+    set(f32); addn(v3, 10); set.priority(o1, 10); set.cel(o2, 1);
     sound(2, f37);
     print(4);
     if (isset(f30) && isset(f31)) { set(f33); print(7); }
@@ -365,19 +376,12 @@ vis 9
 fill 58,36
 end
 `,
-  5: `
-# A green signal above the counter confirms its priority was repaired.
-pri off
-vis 10
-line 111,72 114,72 114,74 111,74 111,72
-fill 112,73
-end
-`,
 };
 
 export const TUTORIAL_VIEW_SOURCES: Readonly<Record<number, BuildViewInput>> = {
   ...CHARACTER_VIEWS,
   4: LEVER_VIEW,
+  5: SIGNAL_VIEW,
 };
 
 export interface TutorialGame extends OpenedGame {

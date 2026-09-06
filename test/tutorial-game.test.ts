@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { openContainer } from "../src/container/container.ts";
+import { renderPicture, type PictureFillDiagnostic } from "../src/picture/renderer.ts";
+import { compilePictureSource } from "../src/picture/source.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
-import { SCREEN_WIDTH } from "../src/types.ts";
+import { createPictureSurface, SCREEN_WIDTH } from "../src/types.ts";
 import { buildView, parseView } from "../src/view/view.ts";
 import { GAME_CATALOG } from "../app/src/gameCatalog.ts";
+import { gameRevision } from "../app/src/gameMetadata.ts";
 import {
   TUTORIAL_LOGIC_SOURCES,
   TUTORIAL_PICTURE_SOURCES,
@@ -194,8 +197,8 @@ test("Adventure Department is a self-contained, editable AGI 2.936 game", async 
   assert.ok(game.files["WORDS.TOK"]);
   assert.ok(game.files["OBJECT"]);
   assert.deepEqual(Object.keys(TUTORIAL_LOGIC_SOURCES).map(Number), [0, 1, 2, 3]);
-  assert.deepEqual(Object.keys(TUTORIAL_PICTURE_SOURCES).map(Number), [1, 2, 3, 4, 5]);
-  assert.deepEqual(Object.keys(TUTORIAL_VIEW_SOURCES).map(Number), [0, 1, 2, 3, 4]);
+  assert.deepEqual(Object.keys(TUTORIAL_PICTURE_SOURCES).map(Number), [1, 2, 3, 4]);
+  assert.deepEqual(Object.keys(TUTORIAL_VIEW_SOURCES).map(Number), [0, 1, 2, 3, 4, 5]);
   assert.equal(game.project?.authoringState?.["sources"] instanceof Object, true);
 
   const catalogEntry = GAME_CATALOG.find(({ id }) => id === "adventure-department");
@@ -203,6 +206,51 @@ test("Adventure Department is a self-contained, editable AGI 2.936 game", async 
   assert.equal(catalogEntry?.author, "Monotio");
   const catalogGame = await catalogEntry!.load();
   assert.ok(catalogGame.project?.authoringState?.["sources"]);
+});
+
+/** Overlay pictures render over the room whose logic draws them; every other picture is a room backdrop. */
+const OVERLAY_HOSTS: Readonly<Record<number, number>> = { 4: 1 };
+
+test("every tutorial picture fill seed lands on a white interior", () => {
+  const blocked: string[] = [];
+  for (const [numText, source] of Object.entries(TUTORIAL_PICTURE_SOURCES)) {
+    const num = Number(numText);
+    const host = OVERLAY_HOSTS[num];
+    assert.ok(
+      host !== undefined || Object.hasOwn(TUTORIAL_LOGIC_SOURCES, num),
+      `picture ${num} is neither a room backdrop nor a declared overlay`,
+    );
+    const surface = createPictureSurface();
+    if (host !== undefined) {
+      renderPicture(compilePictureSource(TUTORIAL_PICTURE_SOURCES[host]!).bytes, surface);
+    }
+    const fillDiagnostics: PictureFillDiagnostic[] = [];
+    renderPicture(compilePictureSource(source).bytes, surface, {
+      overlay: host !== undefined,
+      fillDiagnostics,
+    });
+    for (const seed of fillDiagnostics) {
+      // The predicate write_picture reports to the model as "fill seeds did nothing".
+      if (seed.filledCells === 0 && seed.seedValue !== seed.selectedValue) {
+        blocked.push(
+          `picture ${num} ${seed.channel} seed ${seed.x},${seed.y} selected ${seed.selectedValue}, found ${seed.seedValue} (needs ${seed.targetValue})`,
+        );
+      }
+    }
+  }
+  assert.deepEqual(blocked, [], `blocked fill seeds:\n${blocked.join("\n")}`);
+});
+
+// The library keys a stored release on (gameId, revision, version): changed
+// resources at the same catalog version would appear beside a player's saved
+// release instead of replacing it. This release is unpublished, so the version
+// stays 1.0.0 and only the pin moves when the compiled bytes change.
+test("tutorial resources are pinned to the released catalog version", async () => {
+  assert.equal(
+    await gameRevision(buildTutorial().files),
+    "3404678b08422f2488450cb04b6a9c177cf98ff43b26ea016ebfaa34b70d538c",
+    "tutorial resources changed: bump the GAME_CATALOG version in app/src/gameCatalog.ts and re-pin this revision",
+  );
 });
 
 test("the complete tutorial teaches movement, pictures, sprites, logic, and priorities", () => {
@@ -638,6 +686,33 @@ test("priority repair demonstrates scenery occlusion without changing ego depth"
     },
     { x: 77, y: 100, width: 14, height: 32, priority: 15, fixed: true },
   );
+  const signal = engine.readObjects().find(({ num }) => num === 2)!;
+  assert.deepEqual(
+    {
+      view: signal.view,
+      cel: signal.cel,
+      x: signal.x,
+      y: signal.y,
+      width: signal.width,
+      height: signal.height,
+      priority: signal.priority,
+      fixed: signal.fixedPriority,
+      cycling: signal.cycling,
+    },
+    {
+      view: 5,
+      cel: 0,
+      x: 110,
+      y: 74,
+      width: 6,
+      height: 4,
+      priority: 15,
+      fixed: true,
+      cycling: false,
+    },
+    "the repair signal is a VIEW-backed lamp on the archive shelf",
+  );
+  assert.equal(engine.getFrame().visual[72 * SCREEN_WIDTH + 112], 4, "the unrepaired lamp is red");
   for (const [x, y] of [
     [56, 85],
     [118, 85],
@@ -680,6 +755,8 @@ test("priority repair demonstrates scenery occlusion without changing ego depth"
 
   enter(engine, host, "fix priority");
   assert.equal(engine.readObjects()[1]!.priority, 10);
+  assert.equal(engine.readObjects().find(({ num }) => num === 2)!.cel, 1);
+  assert.equal(engine.getFrame().visual[72 * SCREEN_WIDTH + 112], 10, "the repaired lamp is green");
   assert.equal(
     visualDifferences(engine.getFrame().visual, engine.surface.visual, 77, 85, 90, 100),
     0,
@@ -710,6 +787,16 @@ test("priority repair demonstrates scenery occlusion without changing ego depth"
     visualDifferences(engine.getFrame().visual, engine.surface.visual, 79, 92, 88, 121) > 0,
     "equal-priority ego pixels remain visible across the counter",
   );
+
+  enter(engine, host, "west");
+  enter(engine, host, "east");
+  assert.equal(engine.vars[0], 3);
+  assert.equal(
+    engine.readObjects().find(({ num }) => num === 2)!.cel,
+    1,
+    "room re-entry rebuilds the repaired lamp from the repair flag",
+  );
+  assert.equal(engine.getFrame().visual[72 * SCREEN_WIDTH + 112], 10);
 });
 
 test("Felix rests with open eyes and only closes them for a brief native cel blink", () => {
@@ -774,5 +861,8 @@ test("graduation triggers regardless of which exhibit is repaired last", () => {
 
   assert.equal(engine.flags[33], 1);
   assert.equal(engine.vars[3], 30);
-  assert.match(host.prints.at(-1) ?? "", /Make a copy.*Save project.*Remix.*Export/i);
+  assert.match(
+    host.prints.at(-1) ?? "",
+    /Make a copy.*Game actions > Project keeps.*Remix.*Game actions > Game export/i,
+  );
 });

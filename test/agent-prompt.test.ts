@@ -47,10 +47,29 @@ describe("agent system prompt", () => {
     }
   });
 
-  it("keeps behavior with each tool instead of the system prompt", () => {
+  it("explains every required parameter in the tool's own description", () => {
     for (const tool of AGENT_TOOLS) {
       assert.ok(tool.description.trim(), `${tool.name}: missing tool description`);
+      for (const param of tool.parameters.required) {
+        // A bare or backticked mention in the description, or a per-property
+        // description string, explains the parameter; length is no proxy.
+        const property = tool.parameters.properties[param] as { description?: unknown } | undefined;
+        assert.ok(
+          new RegExp(`\\b${param}\\b`).test(tool.description) ||
+            typeof property?.description === "string",
+          `${tool.name}: description does not explain its '${param}' parameter`,
+        );
+      }
     }
+  });
+
+  it("publishes the layout and actor comment grammars write_picture checks", () => {
+    const tool = AGENT_TOOLS.find((candidate) => candidate.name === "write_picture")!;
+    assert.match(tool.description, /# layout: <name> x<a>-<b> y<c>-<d> colou?r <n>/);
+    assert.match(
+      tool.description,
+      /# actor: <name> x<X> y<baseline> width<W> height<H> priority<P>/,
+    );
   });
 
   it("keeps the cross-tool workflow rules the picture eval proved", () => {

@@ -91,9 +91,15 @@ test("library puts rename inline and secondary actions into menus", async ({ pag
   await expect(menu.getByRole("menuitem", { name: "Remove game", exact: true })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(renamed.getByRole("button", { name: "Game actions", exact: true })).toBeFocused();
-  await renamed.getByRole("button", { name: "Download", exact: true }).click();
-  const downloads = page.getByRole("menu", { name: "Download", exact: true });
-  await expect(downloads.getByRole("menuitem")).toHaveCount(2);
+  await expect(renamed.getByRole("button", { name: "Download", exact: true })).toHaveCount(0);
+  await renamed.getByRole("button", { name: "Game actions", exact: true }).click();
+  await expect(menu.getByTestId("btn-export-agi-zip")).toBeVisible();
+  await expect(menu.getByTestId("btn-save-project")).toBeVisible();
+  await expect(menu.getByRole("separator")).toHaveCount(2);
+  const items = await menu.getByRole("menuitem").allInnerTexts();
+  expect(items[0]).toBe("Start over");
+  expect(items.at(-1)).toBe("Remove game");
+  expect(items.indexOf("Make a copy")).toBeLessThan(items.findIndex((t) => /Game export/.test(t)));
   for (const width of [1440, 390]) {
     await page.keyboard.press("Escape");
     await page.setViewportSize({ width, height: 900 });
@@ -101,12 +107,12 @@ test("library puts rename inline and secondary actions into menus", async ({ pag
       path: test.info().outputPath(`game-card-${width}.png`),
       animations: "disabled",
     });
-    await renamed.getByRole("button", { name: "Download", exact: true }).click();
-    const box = (await downloads.boundingBox())!;
+    await renamed.getByRole("button", { name: "Game actions", exact: true }).click();
+    const box = (await menu.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(width);
     await page.screenshot({
-      path: test.info().outputPath(`downloads-${width}.png`),
+      path: test.info().outputPath(`game-actions-${width}.png`),
       animations: "disabled",
     });
   }

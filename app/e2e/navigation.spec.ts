@@ -38,7 +38,7 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   const nav = page.getByRole("navigation", { name: "App options" });
   const controls = nav.getByTestId("game-controls");
   const settings = nav.getByTestId("settings-menu");
-  const saving = nav.getByTestId("download-game-menu");
+  const actions = nav.getByTestId("game-actions-menu");
   await expect(nav).toBeVisible();
   await controls.locator("summary").click();
   await controls.getByRole("button", { name: /Sound On\/Off/ }).click();
@@ -62,16 +62,20 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await expect(page.getByTestId("resume-caption")).toBeVisible();
   await settings.click();
   await expect(sound).toContainText("Sound off");
-  await saving.click();
+  await expect(page.getByTestId("btn-start-over")).toBeHidden();
+  await actions.click();
   await expect(settings).toHaveAttribute("aria-expanded", "false");
-  await expect(page.getByTestId("btn-export-live-zip")).toBeVisible();
-  await expect(page.getByTestId("btn-save-live-project")).toBeVisible();
+  const gameActions = page.getByTestId("game-actions-menu-menu");
+  await expect(gameActions.getByTestId("btn-start-over")).toBeVisible();
+  await expect(gameActions.getByTestId("btn-export-live-zip")).toBeVisible();
+  await expect(gameActions.getByTestId("btn-save-live-project")).toBeVisible();
+  await expect(gameActions.getByRole("menuitem")).toHaveCount(3);
   await page.screenshot({ path: test.info().outputPath("navigation-desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });
   for (const [trigger, popup] of [
     [controls.locator("summary"), controls.locator(".game-controls-panel")],
     [settings, page.getByTestId("settings-menu-menu")],
-    [saving, page.getByTestId("download-game-menu-menu")],
+    [actions, gameActions],
   ]) {
     await trigger!.click();
     await expect(popup!).toBeInViewport();

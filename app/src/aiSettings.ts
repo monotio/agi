@@ -3,6 +3,7 @@ import {
   modelEffortOptions,
   type ModelEffort,
 } from "../../src/agent/modelEffort.ts";
+import { MODEL_OPTIONS } from "./agent/llmClient.ts";
 
 export type AiSettingsProvider = "openai" | "anthropic" | "stub";
 
@@ -18,10 +19,21 @@ export interface AiSettings {
   profiles: Record<AiSettingsProvider, AiProviderSettings>;
 }
 
-type SettingsStorage = Pick<Storage, "getItem" | "setItem">;
+type SettingsStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 type DefaultModels = Record<AiSettingsProvider, string>;
+type AllowedModels = Record<AiSettingsProvider, readonly string[]>;
 
 export const AI_SETTINGS_KEY = "monotio_agi.aiSettings";
+
+/** Pre-release storage kept the key in its own entry; a release load discards these unread. */
+const LEGACY_KEYS = ["monotio_agi.provider", "monotio_agi.apiKey", "monotio_agi.model"];
+
+/** Ids the settings dialog offers; any other stored id would render a blank model select. */
+const KNOWN_MODEL_IDS: AllowedModels = {
+  openai: MODEL_OPTIONS.openai.map((option) => option.id),
+  anthropic: MODEL_OPTIONS.anthropic.map((option) => option.id),
+  stub: MODEL_OPTIONS.stub.map((option) => option.id),
+};
 
 function provider(value: unknown, allowStub: boolean): AiSettingsProvider | null {
   if (value === "openai" || value === "anthropic") return value;
@@ -44,56 +56,62 @@ function defaults(models: DefaultModels): AiSettings {
   };
 }
 
-export function loadAiSettings(
-  storage: SettingsStorage,
-  models: DefaultModels,
-  allowStub: boolean,
-): AiSettings {
-  const fallback = defaults(models);
+/** The stored record as an object; null when absent, unreadable or not an object. */
+function storedRecord(storage: SettingsStorage): Record<string, unknown> | null {
   let raw: string | null;
   try {
     raw = storage.getItem(AI_SETTINGS_KEY);
   } catch {
-    return fallback;
+    return null;
   }
-  if (raw !== null) {
-    try {
-      const value = JSON.parse(raw) as Record<string, unknown>;
-      if (value["version"] !== 1) return fallback;
-      const selected = provider(value["provider"], allowStub) ?? "openai";
-      const profiles = value["profiles"] as Record<string, unknown> | undefined;
-      for (const name of ["openai", "anthropic", "stub"] as const) {
-        const profile = profiles?.[name] as Record<string, unknown> | undefined;
-        if (typeof profile?.["model"] === "string" && profile["model"].trim())
-          fallback.profiles[name].model = profile["model"].trim();
-        if (typeof profile?.["apiKey"] === "string")
-          fallback.profiles[name].apiKey = profile["apiKey"];
-        const effort = profile?.["effort"] as ModelEffort | undefined;
-        fallback.profiles[name].effort = modelEffortOptions(fallback.profiles[name].model).includes(
-          effort ?? defaultModelEffort(fallback.profiles[name].model),
-        )
-          ? (effort ?? defaultModelEffort(fallback.profiles[name].model))
-          : defaultModelEffort(fallback.profiles[name].model);
-      }
-      fallback.provider = selected;
-      return fallback;
-    } catch {
-      return fallback;
-    }
+  if (raw === null) return null;
+  try {
+    const value: unknown = JSON.parse(raw);
+    return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+  } catch {
+    return null;
   }
+}
 
-  return fallback;
+export function loadAiSettings(
+  storage: SettingsStorage,
+  models: DefaultModels,
+  allowStub: boolean,
+  allowedModels: AllowedModels = KNOWN_MODEL_IDS,
+): AiSettings {
+  try {
+    for (const key of LEGACY_KEYS) storage.removeItem(key);
+  } catch {
+    /* Unavailable storage holds nothing to discard. */
+  }
+  const settings = defaults(models);
+  const value = storedRecord(storage);
+  if (!value || value["version"] !== 1) return settings;
+  const profiles = value["profiles"] as Record<string, unknown> | undefined;
+  for (const name of ["openai", "anthropic", "stub"] as const) {
+    const profile = profiles?.[name] as Record<string, unknown> | undefined;
+    const target = settings.profiles[name];
+    const model = typeof profile?.["model"] === "string" ? profile["model"].trim() : "";
+    if (model && (model === models[name] || allowedModels[name].includes(model))) {
+      const effort = profile?.["effort"] as ModelEffort | undefined;
+      target.model = model;
+      target.effort =
+        effort !== undefined && modelEffortOptions(model).includes(effort)
+          ? effort
+          : defaultModelEffort(model);
+    }
+    if (typeof profile?.["apiKey"] === "string") target.apiKey = profile["apiKey"];
+  }
+  settings.provider = provider(value["provider"], allowStub) ?? "openai";
+  return settings;
 }
 
 export function saveAiSettings(storage: SettingsStorage, settings: AiSettings): void {
-  const stored = storage.getItem(AI_SETTINGS_KEY);
-  if (stored !== null) {
-    const value: unknown = JSON.parse(stored);
-    if (!value || typeof value !== "object" || (value as { version?: unknown }).version !== 1)
-      throw new Error(
-        "These AI settings use an unsupported format. Update the app before changing them.",
-      );
-  }
+  const stored = storedRecord(storage);
+  if (stored && stored["version"] !== 1)
+    throw new Error(
+      "These AI settings use an unsupported format. Update the app before changing them.",
+    );
   if (settings.version !== 1) throw new Error("Unsupported AI settings version.");
   const selected = provider(settings.provider, true);
   if (!selected) throw new Error("Choose an AI provider.");

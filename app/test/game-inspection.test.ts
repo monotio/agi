@@ -45,7 +45,7 @@ for (const [slug, profile] of [
 ] as const) {
   test(
     `${slug} opening preview renders local game bytes without authoring or player input`,
-    { skip: fixtureSkip(slug) },
+    { skip: fixtureSkip(slug, ["AGIDATA.OVL"]) },
     () => {
       const dir = fixtureDir(slug);
       const game = readGameFiles(

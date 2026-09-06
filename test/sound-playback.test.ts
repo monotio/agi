@@ -52,6 +52,7 @@ describe("sound playback clock and profiles", () => {
   });
   it("wraps zero duration through 65536 ticks and honors f9 immediately", () => {
     const sound = player("2.936", 0, 0);
+    assert.equal(sound.durationTicks, 65536, "decoded length counts a zero duration as 65536");
     assert.equal(sound.tick(true, 0).complete, false);
     for (let i = 0; i < 65535; i++) assert.equal(sound.tick(true, 0).complete, false);
     assert.equal(sound.tick(true, 0).complete, true);
@@ -176,6 +177,7 @@ it("runtime playback bounds damaged channels while keeping valid notes and compl
     warnings.some((message) => message.includes("channel 0")),
     false,
   );
+  assert.equal(four.durationTicks, 2, "damaged channels contribute no ticks to the decoded length");
   assert.equal(four.tick(true, 0).complete, false);
   assert.equal(four.tick(true, 0).complete, false);
   assert.equal(four.tick(true, 0).complete, true);

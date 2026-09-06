@@ -5,11 +5,21 @@ import UiIcon from "./UiIcon.vue";
 import AiSettingsDialog from "./AiSettings.vue";
 import SoundPreview from "./SoundPreview.vue";
 import TouchControls from "./TouchControls.vue";
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  onWatcherCleanup,
+  ref,
+  useTemplateRef,
+  watch,
+} from "vue";
 import {
   useEngine,
   readAutosave,
   lastGameSlug,
+  removeLibraryGame,
   type Frame,
   type AutosaveRecord,
 } from "./useEngine.ts";
@@ -25,7 +35,6 @@ import {
 } from "./agent/llmClient.ts";
 import {
   getCachedCartridgeMeta,
-  clearCachedCartridge,
   loadAuthoredCartridge,
   listCachedCartridges,
   renameAuthoredCartridge,
@@ -50,9 +59,9 @@ import {
 } from "./gameControls.ts";
 import { copyAiSettings, loadAiSettings, saveAiSettings, type AiSettings } from "./aiSettings.ts";
 
-const canvas = ref<HTMLCanvasElement | null>(null);
+const canvas = useTemplateRef("canvas");
 const testMode = import.meta.env.MODE === "test";
-const gpuCanvas = ref<HTMLCanvasElement | null>(null);
+const gpuCanvas = useTemplateRef("gpuCanvas");
 const inputLine = ref("");
 const promptLine = ref("");
 const composing = ref(false);
@@ -65,7 +74,7 @@ const viewportHeight = ref(window.visualViewport?.height ?? window.innerHeight);
 watch(touchControls, (enabled) =>
   localStorage.setItem("monotio_agi.touchControls", enabled ? "on" : "off"),
 );
-const gpuBackend = ref<string | null>(null);
+const gpuBackend = ref<string>();
 const crtEnabled = ref<boolean>(localStorage.getItem("monotio_agi.crt") !== "off");
 let stage: AgiStage | null = null;
 let lastFrame: Frame | null = null;
@@ -80,15 +89,12 @@ const heldMovementKeys = new Set<string>();
 let touchMovementActive = false;
 
 // Cartridge and LLM state
-const savedWorlds = ref(listCachedCartridges());
-const selectedCartridgeSlug = ref<string>(
-  lastGameSlug() ?? savedWorlds.value[0]?.slug ?? "knights-trial",
-);
-const zipInput = ref<HTMLInputElement | null>(null);
-const folderInput = ref<HTMLInputElement | null>(null);
-const openGameMenuEl = ref<HTMLDivElement | null>(null);
-const openGameButtonEl = ref<HTMLButtonElement | null>(null);
-const openGameMenuOpen = ref(false);
+const initialWorlds = listCachedCartridges();
+const initialSlug = lastGameSlug() ?? initialWorlds[0]?.slug ?? "knights-trial";
+const savedWorlds = ref(initialWorlds);
+const selectedCartridgeSlug = ref<string>(initialSlug);
+const zipInput = useTemplateRef("zipInput");
+const folderInput = useTemplateRef("folderInput");
 const importBusy = ref(false);
 const importNotice = ref("");
 const libraryActionBusy = ref(false);
@@ -146,17 +152,15 @@ const adventureDrafts = ref<Record<string, { title: string; brief: string; front
 const adventureDraft = computed(
   () => adventureDrafts.value[creationSlug.value] ?? adventureDrafts.value["custom"]!,
 );
-const cachedMeta = ref<CachedCartridgeMeta | null>(
-  getCachedCartridgeMeta(selectedCartridgeSlug.value),
-);
+const cachedMeta = ref<CachedCartridgeMeta | null>(getCachedCartridgeMeta(initialSlug));
 const renaming = ref(false);
-const expandedGameSlug = ref<string | null>(null);
+const expandedGameSlug = ref<string>();
 const cartridgeTitle = ref("");
 const renameError = ref("");
-const titleInput = ref<HTMLInputElement | null>(null);
-const createDetails = ref<HTMLDetailsElement | null>(null);
-const createSummary = ref<HTMLElement | null>(null);
-const createButton = ref<HTMLButtonElement | null>(null);
+const titleInput = ref<HTMLInputElement>();
+const createDetails = useTemplateRef("createDetails");
+const createSummary = useTemplateRef("createSummary");
+const createButton = useTemplateRef("createButton");
 const CREATE_SECTION_KEY = "monotio_agi.createAdventure";
 let storedCreatePreference: "open" | "closed" | null = null;
 try {
@@ -178,6 +182,15 @@ const libraryAutosaves = computed<Record<string, AutosaveRecord>>(() =>
   ),
 );
 
+/** Play now adds the release to the library; from then on the shelf offers its checkpoint. */
+function catalogHasProgress(entry: GameCatalogEntry): boolean {
+  const world = savedWorlds.value.find(
+    (item) =>
+      item.library?.catalog?.id === entry.id && item.library.catalog.version === entry.version,
+  );
+  return world !== undefined && libraryAutosaves.value[world.slug] !== undefined;
+}
+
 function selectLibraryWorld(world: CachedCartridgeMeta): void {
   selectedCartridgeSlug.value = world.slug;
   cachedMeta.value = world;
@@ -194,7 +207,7 @@ async function beginRename(world?: CachedCartridgeMeta): Promise<void> {
 }
 
 function setTitleInput(element: unknown): void {
-  titleInput.value = element instanceof HTMLInputElement ? element : null;
+  titleInput.value = element instanceof HTMLInputElement ? element : undefined;
 }
 
 async function saveCartridgeTitle(): Promise<void> {
@@ -244,7 +257,7 @@ function onGameDetailsToggle(slug: string, event: Event): void {
     const world = savedWorlds.value.find((entry) => entry.slug === slug);
     if (world) selectLibraryWorld(world);
   } else if (expandedGameSlug.value === slug) {
-    expandedGameSlug.value = null;
+    expandedGameSlug.value = undefined;
     renaming.value = false;
   }
 }
@@ -255,11 +268,13 @@ watch(taskBudget, (value) => {
   if (Number.isFinite(value) && value > 0)
     localStorage.setItem("monotio_agi.taskBudget", String(value));
 });
-const aiSettings = ref(loadAiSettings(localStorage, DEFAULT_MODELS, testMode));
-const provider = ref<ProviderType>(aiSettings.value.provider);
-const apiKey = ref(aiSettings.value.profiles[provider.value].apiKey);
-const model = ref(aiSettings.value.profiles[provider.value].model);
-const effort = ref(aiSettings.value.profiles[provider.value].effort);
+const initialAiSettings = loadAiSettings(localStorage, DEFAULT_MODELS, testMode);
+const initialProfile = initialAiSettings.profiles[initialAiSettings.provider];
+const aiSettings = ref(initialAiSettings);
+const provider = ref<ProviderType>(initialAiSettings.provider);
+const apiKey = ref(initialProfile.apiKey);
+const model = ref(initialProfile.model);
+const effort = ref(initialProfile.effort);
 const aiConfigured = computed(() => provider.value === "stub" || apiKey.value.trim().length > 0);
 
 watch(selectedCartridgeSlug, (slug) => {
@@ -325,7 +340,7 @@ const {
   present(frame);
 });
 
-const aiSettingsDialog = ref<InstanceType<typeof AiSettingsDialog> | null>(null);
+const aiSettingsDialog = useTemplateRef("aiSettingsDialog");
 const aiSettingsSaving = ref(false);
 const aiSettingsError = ref("");
 const aiSettingsContext = ref<"header" | "create" | "assistant">("header");
@@ -413,20 +428,20 @@ const exportBusy = ref(false);
  * boot failed, or the player ejected back to the picker — plus the way to
  * throw it away and start the game from the beginning.
  */
-const pendingAutosave = ref<AutosaveRecord | null>(null);
+const pendingAutosave = ref<AutosaveRecord>();
 const hasLibraryContent = computed(
   () =>
     savedWorlds.value.length > 0 ||
     availableCatalogEntries.value.length > 0 ||
     Boolean(state.installedGames?.length) ||
-    pendingAutosave.value !== null,
+    pendingAutosave.value !== undefined,
 );
 const createOpen = computed(() =>
   createPreference.value === "open"
     ? true
     : createPreference.value === "closed"
       ? false
-      : savedWorlds.value.length === 0 && pendingAutosave.value === null,
+      : savedWorlds.value.length === 0 && pendingAutosave.value === undefined,
 );
 
 const localGameSlugs = computed(() =>
@@ -435,7 +450,7 @@ const localGameSlugs = computed(() =>
   ),
 );
 const TUTORIAL_SECTION_KEY = "monotio_agi.tutorial";
-const tutorialPreference = ref<"open" | "closed" | null>(null);
+const tutorialPreference = ref<"open" | "closed">();
 try {
   const stored = localStorage.getItem(TUTORIAL_SECTION_KEY);
   if (stored === "open" || stored === "closed") tutorialPreference.value = stored;
@@ -450,7 +465,7 @@ const hasOwnGames = computed(
 const tutorialOpen = computed(
   () =>
     tutorialPreference.value === "open" ||
-    (tutorialPreference.value === null && !hasOwnGames.value),
+    (tutorialPreference.value === undefined && !hasOwnGames.value),
 );
 function setTutorialOpen(open: boolean): void {
   tutorialPreference.value = open ? "open" : "closed";
@@ -463,7 +478,7 @@ function setTutorialOpen(open: boolean): void {
 watch(
   hasOwnGames,
   (own) => {
-    if (own && tutorialPreference.value === null) setTutorialOpen(false);
+    if (own && tutorialPreference.value === undefined) setTutorialOpen(false);
   },
   { immediate: true },
 );
@@ -477,7 +492,7 @@ async function onPlayLocalGame(slug: string): Promise<void> {
 
 function refreshPendingAutosave(): void {
   const slug = lastGameSlug();
-  pendingAutosave.value = slug ? readAutosave(slug) : null;
+  pendingAutosave.value = (slug ? readAutosave(slug) : null) ?? undefined;
 }
 
 function llmConfig(): LlmConfig {
@@ -582,8 +597,9 @@ async function onBootSavedCartridge(alreadyBusy = false): Promise<void> {
 }
 
 async function onClearSavedCartridge(): Promise<void> {
-  await clearCachedCartridge(selectedCartridgeSlug.value);
+  await removeLibraryGame(selectedCartridgeSlug.value);
   refreshLibrary();
+  refreshPendingAutosave();
 }
 
 function refreshLibrary(slug?: string): void {
@@ -641,56 +657,6 @@ async function onExportLibraryWorld(world: CachedCartridgeMeta, project = false)
 async function onRemoveLibraryWorld(world: CachedCartridgeMeta): Promise<void> {
   selectLibraryWorld(world);
   await onClearSavedCartridge();
-}
-
-function closeOpenGameMenu(restoreFocus = false): void {
-  openGameMenuOpen.value = false;
-  if (restoreFocus) nextTick(() => openGameButtonEl.value?.focus());
-}
-
-function onOpenGameMenuFocusout(): void {
-  nextTick(() => {
-    if (
-      openGameMenuOpen.value &&
-      document.activeElement instanceof Node &&
-      !openGameMenuEl.value?.contains(document.activeElement)
-    )
-      closeOpenGameMenu();
-  });
-}
-
-async function openGameMenu(focus: "first" | "last" | false = false): Promise<void> {
-  openGameMenuOpen.value = true;
-  if (!focus) return;
-  await nextTick();
-  const items = openGameMenuEl.value?.querySelectorAll<HTMLButtonElement>("[role='menuitem']");
-  if (!items?.length) return;
-  (focus === "first" ? items[0] : items[items.length - 1])?.focus();
-}
-
-function onOpenGameMenuKeydown(event: KeyboardEvent): void {
-  if (event.key === "Escape") {
-    event.preventDefault();
-    event.stopPropagation();
-    closeOpenGameMenu(true);
-    return;
-  }
-  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-  const items = [
-    ...(openGameMenuEl.value?.querySelectorAll<HTMLButtonElement>("[role='menuitem']") ?? []),
-  ];
-  if (!items.length) return;
-  event.preventDefault();
-  const current = items.indexOf(document.activeElement as HTMLButtonElement);
-  const next =
-    event.key === "Home"
-      ? 0
-      : event.key === "End"
-        ? items.length - 1
-        : event.key === "ArrowUp"
-          ? (current - 1 + items.length) % items.length
-          : (current + 1) % items.length;
-  items[next]?.focus();
 }
 
 async function stageLibraryGame(
@@ -830,7 +796,11 @@ async function playCatalogGame(id: string): Promise<void> {
       version: entry.version,
     });
     refreshLibrary(slug);
-    await onBootSavedCartridge(true);
+    const autosave = readAutosave(slug);
+    if (autosave) {
+      await resumeAudio();
+      await resumeFromRecord(autosave, llmConfig());
+    } else await onBootSavedCartridge(true);
   } catch (error) {
     libraryActionError.value = String(error).replace(/^Error: /, "");
   } finally {
@@ -946,8 +916,8 @@ watch(
   },
 );
 
-const inputEl = ref<HTMLInputElement | null>(null);
-const controlsEl = ref<HTMLDetailsElement | null>(null);
+const inputEl = useTemplateRef("inputEl");
+const controlsEl = useTemplateRef("controlsEl");
 
 function closeNavMenus(restoreFocus = false): void {
   for (const menu of [controlsEl.value]) {
@@ -980,12 +950,6 @@ function onOutsideControls(event: PointerEvent): void {
   for (const menu of [controlsEl.value]) {
     if (event.target instanceof Node && menu && !menu.contains(event.target)) menu.open = false;
   }
-  if (
-    openGameMenuOpen.value &&
-    event.target instanceof Node &&
-    !openGameMenuEl.value?.contains(event.target)
-  )
-    closeOpenGameMenu();
 }
 
 function triggerKey(code: number): void {
@@ -1100,7 +1064,7 @@ function onModalKey(ev: KeyboardEvent): void {
  * and the interpreter resumes on exactly the cycle it parked on.
  */
 const powerUpLine = ref("");
-const powerUpEl = ref<HTMLTextAreaElement | null>(null);
+const powerUpEl = useTemplateRef("powerUpEl");
 
 /** The live tool-call feed for this remix turn: the transcript tail. */
 const asking = computed(() => state.powerUp.mode === "ask");
@@ -1111,7 +1075,7 @@ const latestAgentAudio = computed(
   () => [...state.agentLog].reverse().find((entry) => entry.audio?.length)?.audio ?? [],
 );
 
-const conversationEl = ref<HTMLDivElement | null>(null);
+const conversationEl = useTemplateRef("conversationEl");
 const followConversation = ref(true);
 function onConversationScroll(): void {
   const el = conversationEl.value;
@@ -1132,7 +1096,7 @@ watch(
   },
   { flush: "post" },
 );
-const progressFeedEl = ref<HTMLDivElement | null>(null);
+const progressFeedEl = useTemplateRef("progressFeedEl");
 const followProgress = ref(true);
 const REMIX_ACTIVITY: Record<string, string> = {
   read_state: "Inspecting the game…",
@@ -1206,13 +1170,13 @@ watch(
     else if (!open && wasOpen && creatingRoom.value) inputEl.value?.focus();
   },
 );
-watch(progressFeedEl, (el, _previous, cleanup) => {
+watch(progressFeedEl, (el) => {
   if (!el) return;
   const observer = new ResizeObserver(() => {
     if (followProgress.value) el.scrollTop = el.scrollHeight;
   });
   observer.observe(el);
-  cleanup(() => observer.disconnect());
+  onWatcherCleanup(() => observer.disconnect());
 });
 
 async function onPowerUp(): Promise<void> {
@@ -1609,7 +1573,7 @@ onMounted(async () => {
   else if (pendingAutosave.value) await resumeLastGame(llmConfig());
   if (gpuCanvas.value) {
     stage = await AgiStage.create(gpuCanvas.value);
-    gpuBackend.value = stage?.backend ?? null;
+    gpuBackend.value = stage?.backend ?? undefined;
     if (stage) {
       stage.crt = crtEnabled.value;
       if (lastFrame) present(lastFrame);
@@ -1794,17 +1758,18 @@ watch(
             <span>CRT display<small>Scanlines, glow and curved glass</small></span>
             <span class="setting-value">{{ crtEnabled ? "On" : "Off" }}</span>
           </button>
-          <button
-            v-if="state.phase === 'running'"
-            type="button"
-            role="menuitem"
-            data-testid="btn-start-over"
-            @click="onStartOver"
-          >
+        </ActionMenu>
+        <ActionMenu
+          v-if="state.phase === 'running'"
+          label="Game actions"
+          icon="more"
+          icon-only
+          test-id="game-actions-menu"
+        >
+          <button type="button" role="menuitem" data-testid="btn-start-over" @click="onStartOver">
             Start over
           </button>
-        </ActionMenu>
-        <ActionMenu v-if="state.phase === 'running'" label="Download" test-id="download-game-menu">
+          <div role="separator"></div>
           <button
             type="button"
             role="menuitem"
@@ -1919,7 +1884,13 @@ watch(
             :disabled="catalogBusy[entry.id] || libraryActionBusy"
             @click="playCatalogGame(entry.id)"
           >
-            {{ catalogBusy[entry.id] ? "Checking opening…" : "Play now" }}
+            {{
+              catalogBusy[entry.id]
+                ? "Checking opening…"
+                : catalogHasProgress(entry)
+                  ? "Resume"
+                  : "Play now"
+            }}
           </button>
         </div>
       </article>
@@ -2167,6 +2138,26 @@ watch(
                   >
                     Make a copy
                   </button>
+                  <div role="separator"></div>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-testid="btn-export-agi-zip"
+                    :disabled="exportBusy"
+                    @click="onExportLibraryWorld(world)"
+                  >
+                    <span>Game export<small>Playable game</small></span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-testid="btn-save-project"
+                    :disabled="exportBusy"
+                    @click="onExportLibraryWorld(world, true)"
+                  >
+                    <span>Project<small>Game and editing history</small></span>
+                  </button>
+                  <div role="separator"></div>
                   <button
                     type="button"
                     role="menuitem"
@@ -2178,31 +2169,6 @@ watch(
                   </button>
                 </ActionMenu>
               </div>
-              <ActionMenu
-                label="Download"
-                class="saved-game-download"
-                :test-id="`download-${world.slug}`"
-                :disabled="exportBusy"
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  data-testid="btn-export-agi-zip"
-                  :disabled="exportBusy"
-                  @click="onExportLibraryWorld(world)"
-                >
-                  <span>Game export<small>Playable game</small></span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  data-testid="btn-save-project"
-                  :disabled="exportBusy"
-                  @click="onExportLibraryWorld(world, true)"
-                >
-                  <span>Project<small>Game and editing history</small></span>
-                </button>
-              </ActionMenu>
               <details
                 class="library-details-disclosure"
                 :open="expandedGameSlug === world.slug"
@@ -2397,57 +2363,28 @@ watch(
           @drop.prevent="onGameDrop($event.dataTransfer ?? undefined)"
           data-testid="game-zip-drop"
         >
-          <div ref="openGameMenuEl" class="open-game-menu" @focusout="onOpenGameMenuFocusout">
+          <ActionMenu
+            :label="importBusy ? 'Adding game…' : 'Add game'"
+            test-id="open-game-menu"
+            :disabled="importBusy"
+          >
             <button
-              ref="openGameButtonEl"
               type="button"
-              class="ui-button ui-button--secondary open-game-trigger"
-              aria-haspopup="menu"
-              :aria-expanded="openGameMenuOpen"
-              aria-controls="open-game-options"
-              :disabled="importBusy"
-              @click="openGameMenuOpen ? closeOpenGameMenu() : openGameMenu()"
-              @keydown.down.prevent="openGameMenu('first')"
-              @keydown.up.prevent="openGameMenu('last')"
-              @keydown.esc.prevent.stop="closeOpenGameMenu(true)"
+              role="menuitem"
+              data-testid="open-game-zip"
+              @click="zipInput?.click()"
             >
-              {{ importBusy ? "Adding game…" : "Add game" }}
-              <span aria-hidden="true">▾</span>
+              ZIP file
             </button>
-            <div
-              v-if="openGameMenuOpen"
-              id="open-game-options"
-              class="open-game-options"
-              role="menu"
-              aria-label="Add game"
-              @keydown="onOpenGameMenuKeydown"
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="open-game-folder"
+              @click="folderInput?.click()"
             >
-              <button
-                type="button"
-                role="menuitem"
-                data-testid="open-game-zip"
-                :disabled="importBusy"
-                @click="
-                  closeOpenGameMenu();
-                  zipInput?.click();
-                "
-              >
-                ZIP file
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                data-testid="open-game-folder"
-                :disabled="importBusy"
-                @click="
-                  closeOpenGameMenu();
-                  folderInput?.click();
-                "
-              >
-                Game folder
-              </button>
-            </div>
-          </div>
+              Game folder
+            </button>
+          </ActionMenu>
           <input
             ref="zipInput"
             type="file"
@@ -2656,7 +2593,8 @@ watch(
             <div
               v-for="(message, index) in state.powerUp.messages"
               :key="index"
-              :class="['agent-message', message.role]"
+              class="agent-message"
+              :class="message.role"
             >
               {{ message.text }}
             </div>
@@ -2894,52 +2832,6 @@ watch(
 .zip-drop-zone p {
   margin: 0.75rem 0 0;
 }
-.open-game-menu {
-  position: relative;
-  display: inline-block;
-}
-.open-game-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-}
-.open-game-trigger span {
-  font-size: 11px;
-}
-.open-game-options {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 6px);
-  left: 50%;
-  display: grid;
-  width: max-content;
-  min-width: 180px;
-  padding: 5px;
-  border: 1px solid #507477;
-  border-radius: 5px;
-  background: #10191b;
-  box-shadow: 0 10px 24px #000b;
-  transform: translateX(-50%);
-}
-.open-game-options button {
-  min-height: 44px;
-  padding: 8px 12px;
-  border: 0;
-  border-radius: 3px;
-  color: #dcecec;
-  background: transparent;
-  font:
-    700 14px/1.4 system-ui,
-    sans-serif;
-  text-align: left;
-  cursor: pointer;
-}
-.open-game-options button:hover:not(:disabled),
-.open-game-options button:focus-visible {
-  color: #fff;
-  background: #203537;
-}
 /* ---- The remix: one round button on the game frame (.screen is relative) ---- */
 .power-up {
   position: absolute;
@@ -3087,11 +2979,6 @@ watch(
   opacity: 0.5;
   cursor: default;
 }
-.agent-bubble :focus-visible {
-  outline: 2px solid #85f2ff;
-  outline-offset: 2px;
-}
-
 .agent-bubble-form textarea {
   box-sizing: border-box;
   resize: none;
@@ -3142,11 +3029,6 @@ watch(
   scrollbar-width: thin;
   font-size: 12px;
   line-height: 1.5;
-}
-
-.agent-bubble-feed:focus-visible {
-  outline: 1px solid #55ffff;
-  outline-offset: 2px;
 }
 
 .remix-follow-controls {
@@ -3398,8 +3280,6 @@ details[open] > .section-summary {
   margin-bottom: 20px;
 }
 .section-summary:focus-visible {
-  outline: 3px solid var(--ui-focus);
-  outline-offset: 4px;
   border-radius: 6px;
 }
 .catalog-card {
@@ -4098,12 +3978,6 @@ details[open] > .section-summary {
   font: 12px monospace;
   white-space: nowrap;
 }
-.game-shortcut:focus-visible,
-.nav-menu summary:focus-visible {
-  outline: 2px solid #7ff7ff;
-  outline-offset: 2px;
-}
-
 .agent-panel {
   width: var(--shell-width);
   margin-top: 1rem;
@@ -4118,16 +3992,6 @@ details[open] > .section-summary {
   padding: 12px 0;
   color: #aaa;
   font-size: 12px;
-}
-
-a:focus-visible,
-button:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible,
-summary:focus-visible {
-  outline: 2px solid #55ffff;
-  outline-offset: 3px;
 }
 
 @media (max-width: 850px) {
@@ -4476,9 +4340,6 @@ summary:focus-visible {
   flex: 1;
   min-width: 0;
   margin: 0;
-}
-.saved-game-download {
-  margin-top: 12px;
 }
 .cartridge-rename {
   width: 100%;

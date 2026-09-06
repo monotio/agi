@@ -122,6 +122,45 @@ test("version-1 autosaves allow optional previews and reject other formats", () 
   }
 });
 
+test("format-less and corrupt checkpoints are replaceable; future versions are not", () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+  };
+  const checkpoint: AutosaveRecord = {
+    format: "monotio.agi.autosave",
+    version: 1,
+    image: "save-image",
+    cycle: 12,
+    room: 3,
+    savedAt: 100,
+    game: { slug: "kq1", installed: true, revision: "0".repeat(64) },
+  };
+  const key = autosaveKey("kq1");
+  values.set(
+    key,
+    JSON.stringify({
+      image: "AAAA",
+      cycle: 1,
+      room: 1,
+      savedAt: 1,
+      game: { slug: "kq1", installed: true, revision: "0".repeat(64) },
+    }),
+  );
+  assert.deepEqual(writeAutosave(storage, checkpoint), checkpoint, "pre-release record");
+  assert.deepEqual(JSON.parse(values.get(key)!), checkpoint);
+  values.set(key, "{not json");
+  assert.deepEqual(writeAutosave(storage, checkpoint), checkpoint, "corrupt record");
+  assert.deepEqual(JSON.parse(values.get(key)!), checkpoint);
+  const future = JSON.stringify({ ...checkpoint, version: 2 });
+  values.set(key, future);
+  assert.equal(writeAutosave(storage, checkpoint), null, "future record");
+  assert.equal(values.get(key), future);
+});
+
 test("storage quota failure retries the viable save record without its preview", () => {
   const visual = new Uint8Array(160 * 168).fill(1);
   const preview = createProgressPreview({

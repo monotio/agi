@@ -4,6 +4,7 @@ import { createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts
 import { executeAuthoringTool } from "../src/agent/authoringTools.ts";
 import { resourceRevision } from "../src/agent/authoringState.ts";
 import { parseLogicResource } from "../src/logic/resource.ts";
+import { compilePictureSource } from "../src/picture/source.ts";
 
 test("named binding allocation avoids compiled references and preserves stable identities", () => {
   const state = createAgentSessionState();
@@ -93,6 +94,42 @@ test("revision-checked source edits change only one matched section and reject s
     })!.success,
     false,
   );
+});
+
+test("picture edits match the authored source read_picture returns, comments and macros included", () => {
+  const state = createAgentSessionState();
+  const authored = [
+    "# actor: ego x20 y120 width8 height24 priority11",
+    "vis 4",
+    "rect 20,97 27,100",
+    "end",
+  ];
+  const written = executeAgentTool(state, "write_picture", {
+    room: 3,
+    source: authored.join("\n"),
+  });
+  assert.equal(written.success, true, written.error ?? "");
+  const read = executeAgentTool(state, "read_picture", { num: 3, include: "source" });
+  assert.equal(read.success, true, read.error ?? "");
+  const lines = String(read.details?.["source"]).split("\n");
+  assert.deepEqual(lines, authored);
+  const edit = executeAuthoringTool(state, "edit_resource_source", {
+    kind: "picture",
+    num: 3,
+    expectedRevision: read.details?.["revision"],
+    find: lines[2]!,
+    replace: "rect 30,97 37,100",
+  })!;
+  assert.equal(edit.success, true, edit.error ?? "");
+  const expected = [authored[0]!, authored[1]!, "rect 30,97 37,100", authored[3]!].join("\n");
+  assert.equal(state.sources.pictures.get(3), expected);
+  assert.deepEqual(
+    [...state.container.getResource("picture", 3)!],
+    [...compilePictureSource(expected, { profile: state.profile }).bytes],
+  );
+  const after = executeAgentTool(state, "read_picture", { num: 3, include: "source" });
+  assert.equal(after.details?.["source"], expected);
+  assert.notEqual(after.details?.["revision"], read.details?.["revision"]);
 });
 
 test("world intent is durable and partial updates preserve other facts", () => {

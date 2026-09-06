@@ -180,6 +180,8 @@ export class SoundPlayback {
   private readonly device: number;
   private readonly single: boolean;
   private readonly channels: PlaybackChannel[];
+  /** Longest voice this device plays, in sound ticks; a zero duration counts as 65536 without being ticked through. */
+  readonly durationTicks: number;
   private active = true;
 
   constructor(
@@ -191,17 +193,17 @@ export class SoundPlayback {
     this.profile = profile;
     this.device = device & 255;
     this.single = this.device === 0 || (profile.sound === "common" && this.device === 8);
-    this.channels = decodeSound(payload, this.single ? 1 : 4, true, onWarning).channels.map(
-      (channel) => ({
-        notes: channel.notes,
-        cursor: 0,
-        countdown: 1,
-        terminated: false,
-        base: 15,
-        envelopeIndex: -1,
-        envelopeValue: 0,
-      }),
-    );
+    const decoded = decodeSound(payload, this.single ? 1 : 4, true, onWarning);
+    this.durationTicks = decoded.duration;
+    this.channels = decoded.channels.map((channel) => ({
+      notes: channel.notes,
+      cursor: 0,
+      countdown: 1,
+      terminated: false,
+      base: 15,
+      envelopeIndex: -1,
+      envelopeValue: 0,
+    }));
   }
 
   tick(enabled: boolean, adjustment: number): { outputs: SoundOutput[]; complete: boolean } {

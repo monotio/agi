@@ -54,12 +54,12 @@ test("Download project resumes private history in a fresh browser; Download game
     buffer: Buffer.from(archive),
   });
   await page.getByTestId("btn-resume-cached").click();
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "game-actions-menu");
   await expect(page.getByTestId("btn-save-live-project")).toBeVisible();
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "game-actions-menu");
   await expect(page.getByTestId("btn-save-live-project")).toBeEnabled();
   const projectDownload = page.waitForEvent("download");
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "game-actions-menu");
   await page.getByTestId("btn-save-live-project").click();
   const saved = await projectDownload;
   expect(saved.suggestedFilename()).toMatch(/-project.zip$/);
@@ -68,7 +68,7 @@ test("Download project resumes private history in a fresh browser; Download game
   expect(data.files["OBJECT"]).toEqual(Uint8Array.of(65, 118, 150));
   expect(data.project?.authoringState).toEqual(context.authoringState);
   const publicDownload = page.waitForEvent("download");
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "game-actions-menu");
   await page.getByTestId("btn-export-live-zip").click();
   const published = await publicDownload;
   const publicBytes = new Uint8Array(await readFile((await published.path())!));
@@ -87,7 +87,7 @@ test("Download project resumes private history in a fresh browser; Download game
     await other.goto(page.url());
     await other.getByTestId("game-zip-input").setInputFiles((await saved.path())!);
     await other.getByTestId("btn-resume-cached").click();
-    await openGameOptions(other, "save-share-menu");
+    await openGameOptions(other, "game-actions-menu");
     await expect(other.getByTestId("btn-save-live-project")).toBeVisible();
     await other.reload();
     await expect(other.getByTestId("btn-resume-cached")).toBeVisible();
@@ -139,7 +139,7 @@ test("Download project resumes private history in a fresh browser; Download game
     expect(JSON.stringify(requests[0])).toContain("Continue our garden.");
     expect(requests[0]?.["model"]).toBe("gpt-6-astra");
     const continuationDownload = other.waitForEvent("download");
-    await openGameOptions(other, "save-share-menu");
+    await openGameOptions(other, "game-actions-menu");
     await other.getByTestId("btn-save-live-project").click();
     const continued = await continuationDownload;
     const continuation = await readGameZip(

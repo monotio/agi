@@ -1,5 +1,16 @@
+import type { EngineStateReport } from "../../src/runtime/engine.ts";
+import type { SoundOutput } from "../../src/sound/sound.ts";
 import { test, expect } from "@playwright/test";
 import { fileURLToPath } from "node:url";
+
+/** The worker replies this test reads (engine.worker.ts, "Messages out"). */
+type WorkerReply =
+  | { type: "cycle"; cycle: number }
+  | { type: "error"; message: string }
+  | { type: "soundOutput"; output: SoundOutput }
+  | { type: "stopSound" }
+  | { type: "engineState"; id: number; state: EngineStateReport };
+type Reply<T extends WorkerReply["type"]> = Extract<WorkerReply, { type: T }>;
 
 test("sound ticks and completion continue during a blocking host prompt", async ({ page }) => {
   await page.goto("/");
@@ -35,26 +46,30 @@ test("sound ticks and completion continue during a blocking host prompt", async 
       const sab = new SharedArrayBuffer(16 + 65536);
       const header = new Int32Array(sab, 0, 4);
       const bridgeBytes = new Uint8Array(sab, 16);
-      const messages: any[] = [];
+      const messages: WorkerReply[] = [];
       const waiters = new Set<() => void>();
       worker.onmessage = (event) => {
         messages.push(event.data);
         for (const wake of waiters) wake();
       };
-      const wait = (predicate: (message: any) => boolean): Promise<any> =>
+      const wait = <T extends WorkerReply>(
+        predicate: (message: WorkerReply) => message is T,
+      ): Promise<T> =>
         new Promise((resolve, reject) => {
           const timeout = setTimeout(() => {
             waiters.delete(check);
             reject(new Error("Worker reply timed out"));
           }, 10000);
           const check = () => {
-            const error = messages.find((message) => message.type === "error");
+            const error = messages.find(
+              (message): message is Reply<"error"> => message.type === "error",
+            );
             const message = messages.find(predicate);
             if (!message && !error) return;
             clearTimeout(timeout);
             waiters.delete(check);
             if (error) reject(new Error(error.message));
-            else resolve(message);
+            else resolve(message!);
           };
           waiters.add(check);
           check();
@@ -68,13 +83,13 @@ test("sound ticks and completion continue during a blocking host prompt", async 
           sab,
         });
         const audible = await wait(
-          (message) =>
+          (message): message is Reply<"soundOutput"> =>
             message.type === "soundOutput" &&
             message.output.kind === "speaker" &&
             message.output.divisor !== null,
         );
         await wait(
-          (message) =>
+          (message): message is Reply<"stopSound"> =>
             message.type === "stopSound" && messages.indexOf(message) > messages.indexOf(audible),
         );
         const blockedState = Atomics.load(header, 0);
@@ -87,7 +102,10 @@ test("sound ticks and completion continue during a blocking host prompt", async 
         Atomics.store(header, 0, 2);
         Atomics.notify(header, 0);
         worker.postMessage({ type: "state", id: 1 });
-        const after = await wait((message) => message.type === "engineState" && message.id === 1);
+        const after = await wait(
+          (message): message is Reply<"engineState"> =>
+            message.type === "engineState" && message.id === 1,
+        );
         return {
           audible: audible.output,
           blockedState,

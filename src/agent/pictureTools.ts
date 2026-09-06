@@ -32,7 +32,7 @@ export const PICTURE_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_scene",
     description:
-      "Compile a complete picture from ordered rects, polygons and lines in logical coordinates. Rects use x1,y1,x2,y2; other shapes use points. Unused coordinates and visual-only priority are null. Later shapes paint over earlier ones. Returns the rendered comparison, spatial metrics and revision; invalid geometry stores nothing.",
+      "Compile a complete picture `room` from ordered `shapes` (rects, polygons and lines in logical coordinates) over a full `backgroundColor` fill. Rects use x1,y1,x2,y2; other shapes use points. Unused coordinates and visual-only priority are null. Later shapes paint over earlier ones. Returns the rendered comparison, spatial metrics and revision; invalid geometry stores nothing.",
     parameters: {
       type: "object",
       additionalProperties: false,

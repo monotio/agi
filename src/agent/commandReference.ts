@@ -142,7 +142,7 @@ export function relatedCommands(
 export const COMMAND_REFERENCE_TOOL: ToolDefinition = {
   name: "read_command_reference",
   description:
-    "Discover commands for the active interpreter profile. Null query lists signatures; text returns matching help. Variable operands are IDs. The compiler remains authoritative.",
+    "Discover commands for the active interpreter profile. Null query lists signatures; text returns matching help. `kind` narrows to action or condition (null: both); `offset` pages the listing by 16. Variable operands are IDs. The compiler remains authoritative.",
   parameters: {
     type: "object",
     additionalProperties: false,

@@ -1,31 +1,28 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, useId } from "vue";
+import { nextTick, onBeforeUnmount, ref, useId, useTemplateRef } from "vue";
 import UiIcon from "./UiIcon.vue";
 
-const props = withDefaults(
-  defineProps<{
-    label: string;
-    testId?: string | undefined;
-    iconOnly?: boolean;
-    icon?: "more" | "chevron";
-    disabled?: boolean;
-  }>(),
-  {
-    testId: undefined,
-    iconOnly: false,
-    icon: "chevron",
-    disabled: false,
-  },
-);
+const {
+  testId = undefined,
+  iconOnly = false,
+  icon = "chevron",
+  disabled = false,
+} = defineProps<{
+  label: string;
+  testId?: string | undefined;
+  iconOnly?: boolean;
+  icon?: "more" | "chevron";
+  disabled?: boolean;
+}>();
 
-const trigger = ref<HTMLButtonElement | null>(null);
-const menu = ref<HTMLElement | null>(null);
+const trigger = useTemplateRef("trigger");
+const menu = useTemplateRef("menu");
 const open = ref(false);
 const positioned = ref(false);
 const menuStyle = ref<Record<string, string>>({});
 const menuId = useId();
 const openingFocus = ref<"first" | "last">("first");
-const anchorPosition = ref<{ left: number; top: number } | null>(null);
+const anchorPosition = ref<{ left: number; top: number }>();
 let keyboardFocusExit = false;
 let popupPointerActive = false;
 
@@ -47,7 +44,7 @@ function removeWindowListeners(): void {
 function closeWithoutFocus(): void {
   open.value = false;
   positioned.value = false;
-  anchorPosition.value = null;
+  anchorPosition.value = undefined;
   removeWindowListeners();
 }
 
@@ -102,7 +99,7 @@ async function positionMenu(): Promise<void> {
 }
 
 function openMenu(initialFocus: "first" | "last" = "first"): void {
-  if (props.disabled) return;
+  if (disabled) return;
   openingFocus.value = initialFocus;
   open.value = true;
   window.addEventListener("pointerdown", onOutsidePointerDown, true);
@@ -202,7 +199,7 @@ onBeforeUnmount(removeWindowListeners);
       :aria-expanded="open"
       :aria-controls="menuId"
       :data-testid="testId"
-      :disabled="disabled"
+      :disabled
       @click="toggleMenu"
       @keydown.down.stop.prevent="openMenu('first')"
       @keydown.up.stop.prevent="openMenu('last')"
@@ -228,6 +225,11 @@ onBeforeUnmount(removeWindowListeners);
         @click="onMenuClick"
         @focusout="onFocusOut"
       >
+        <!--
+          Slot children are the menu items (role="menuitem", "menuitemcheckbox"
+          or "menuitemradio"). Put <div role="separator"></div> between groups:
+          it is drawn as a rule and skipped by keyboard navigation.
+        -->
         <slot />
       </div>
     </Teleport>
@@ -255,6 +257,12 @@ onBeforeUnmount(removeWindowListeners);
 }
 .action-menu__popup--positioned {
   visibility: visible;
+}
+.action-menu__popup :deep([role="separator"]) {
+  height: 1px;
+  margin: 4px 2px;
+  border: 0;
+  background: #2f4a4d;
 }
 .action-menu__popup
   :deep(:is([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"])) {

@@ -1,8 +1,8 @@
 /**
  * Bounded, deterministic offline preview of the profile-aware AGI sound stream.
  *
- * SoundPlayback remains the authority for event timing, device selection and
- * profile envelopes. The square waves and LFSR noise below are an intentionally
+ * SoundPlayback remains the authority for event timing, device selection,
+ * recovered length and profile envelopes. The square waves and LFSR noise below are an intentionally
  * small approximation of analog output for previews, not exact AGI hardware audio.
  */
 
@@ -68,27 +68,6 @@ function optionSeconds(
     return maximum;
   }
   return value;
-}
-
-/** Determine recovered playback length without expanding duration-zero events into ticks. */
-function playbackDurationTicks(payload: Uint8Array, channelCount: number): number {
-  let maximum = 0;
-  for (let channel = 0; channel < channelCount; channel++) {
-    if (payload.length < 8) continue;
-    let cursor = payload[channel * 2]! | (payload[channel * 2 + 1]! << 8);
-    if (cursor < 8 || cursor + 2 > payload.length) continue;
-    let ticks = 0;
-    while (cursor + 2 <= payload.length) {
-      const rawDuration = payload[cursor]! | (payload[cursor + 1]! << 8);
-      cursor += 2;
-      if (rawDuration === 0xffff) break;
-      if (cursor + 3 > payload.length) break;
-      cursor += 3;
-      ticks += rawDuration === 0 ? 65536 : rawDuration;
-    }
-    maximum = Math.max(maximum, ticks);
-  }
-  return maximum;
 }
 
 function applyOutput(state: SynthState, output: SoundOutput): void {
@@ -217,15 +196,15 @@ export function renderSoundPreview(
     warnings,
   );
   const startSample = Math.floor(start * SAMPLE_RATE);
-  const totalTicks = playbackDurationTicks(payload, speaker ? 1 : 4);
+  const playback = new SoundPlayback(profile, payload, speaker ? 0 : 1, (warning) => {
+    warnings.push(warning);
+  });
+  const totalTicks = playback.durationTicks;
   const totalSamples = totalTicks * SAMPLES_PER_TICK;
   const sampleCount = Math.min(
     Math.floor(requestedDuration * SAMPLE_RATE),
     Math.max(0, totalSamples - startSample),
   );
-  const playback = new SoundPlayback(profile, payload, speaker ? 0 : 1, (warning) => {
-    warnings.push(warning);
-  });
   const state: SynthState = {
     speakerDivisor: null,
     speakerPhase: 0,

@@ -41,7 +41,7 @@ export const SPRITE_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_actor",
     description:
-      'Compile a four-facing actor from equal-width EGA hex rows. Each direction lists cels as row-string arrays, e.g. [["01","10"],["10","01"]]. Loops are right, left, down, up; mirrorLeftFromRight requires left null. Rows are never padded. Returns a contact sheet and revision.',
+      'Compile four-facing actor view `num` from equal-width EGA hex rows; `transparentColor` is the see-through index and `description` an optional label. Each direction lists cels as row-string arrays, e.g. [["01","10"],["10","01"]]. Loops are right, left, down, up; mirrorLeftFromRight requires left null. Rows are never padded. Returns a contact sheet and revision.',
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -79,7 +79,7 @@ export const SPRITE_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_view_cel",
     description:
-      "Read exact EGA hex rows, metadata, PNG and revision for one compiled cel. Results page by row.",
+      "Read exact EGA hex rows, metadata, PNG and revision for one compiled cel: view `num`, `loop`, `cel`. Results page by row from `rowOffset` (null: 0) for `rowLimit` rows (null: 64).",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -104,7 +104,7 @@ export const SPRITE_TOOLS: readonly ToolDefinition[] = [
   {
     name: "patch_view_cel",
     description:
-      "Replace one cel from EGA hex rows. The revision prevents stale writes. A mirrored target is isolated, preserving its opposite. Returns the new revision and cel PNG.",
+      "Replace cel `cel` of loop `loop` in view `num` with EGA hex `rows`. `expectedRevision` must match the view's current revision, preventing stale writes. A mirrored target is isolated, preserving its opposite. Returns the new revision and cel PNG.",
     parameters: {
       type: "object",
       additionalProperties: false,

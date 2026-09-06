@@ -26,7 +26,7 @@ Open `http://localhost:5199/` and click **Play now** for **Adventure Department*
 an original MIT-licensed tutorial with three rooms. Repair a picture, wake a
 sprite and fix a clerk's priority to learn how AGI adventures work. It runs
 locally without a provider key or original Sierra game files. **Make a copy**
-keeps the catalog original intact; **Download → Project** includes the tutorial's
+keeps the catalog original intact; **Game actions → Project** includes the tutorial's
 editable logic, picture, view and sound sources. The exported AGI game can also run
 offline in a compatible interpreter. Loading this website itself still needs
 a connection; it is not yet an installable offline app.
@@ -44,9 +44,10 @@ Once a game is in your library,
 **Your games** appears as a gallery with a direct **Resume** or **Play** action
 on each card. Games supplied by the site, imports, creations and local development
 fixtures share this gallery. Progress screenshots show the scene captured with the latest safe
-autosave. Rename with the pencil beside its name. The three-dot menu beside
-**Resume** or **Play** contains Start over, Make a copy and Remove game.
-**Download** offers a game export or project; **Details** contains game metadata.
+autosave. Rename with the pencil beside its name. The three-dot **Game actions** menu beside
+**Resume** or **Play** holds Start over (once a checkpoint exists), Check opening (for
+unverified imports), Make a copy, Game export, Project and Remove game; **Details**
+contains game metadata.
 
 To create an adventure with an AI provider, pick a starting point under
 **Create a new adventure**:
@@ -73,7 +74,7 @@ Click the game to type, press **Enter** to submit, and use the arrow keys to wal
 The numeric keypad also walks in all eight directions: **7/9/1/3** diagonally
 and **8/4/6/2** straight, regardless of Num Lock. Top-row digits still type numbers;
 numeric and text prompts also accept keypad digits normally.
-**Game controls** shows shortcuts registered by the running game.
+**Controls** shows shortcuts registered by the running game.
 On a touchscreen, use the eight-direction pad and **Type** to open your phone's
 keyboard. **Enter**, **Esc**, **Space** and **Keys** provide dialog controls,
 F1–F10 and Ctrl/Alt letter combinations. The pad follows the game's movement
@@ -98,8 +99,10 @@ connections receive the data and image, not the audio.
 key, model and reasoning effort in this browser, so switching providers preserves
 your settings. Saving settings starts no model request.
 GPT-6 Astra is the default; choose another OpenAI or Anthropic model and effort
-in the same dialog. Selecting a model applies its default effort. Sol starts at
-low based on Genesis cost evaluations; other models retain their API defaults.
+in the same dialog. Selecting a model applies its default effort, which the app
+pins explicitly: Sol starts at low based on Genesis cost evaluations, Claude
+models at high and other OpenAI models at medium. Every request carries the
+chosen effort.
 Responses stream live: Ask shows text as it arrives, and authoring shows model
 activity and which tool it is preparing. Tools run only after the complete
 response has been received and validated.
@@ -132,21 +135,22 @@ folder into the opening area. Folder drops work in browsers that expose director
 entries; the folder picker is the fallback. Files are read locally into your
 library, so playing does not require keeping the source folder connected.
 
-Completed remixes save in your browser. **Menu** saves before leaving, and
-**Resume game** restores your game and position.
+Completed remixes save in your browser. While playing, the header offers
+**Settings**, a three-dot **Game actions** menu (Start over, Game export, Project)
+and **Menu**. **Menu** saves before leaving, and **Resume** restores your game and
+position.
 
 The game's own Save/Restore actions open an engine-rendered selector with twelve
 numbered slots per game. Choose a slot with Up/Down and Enter, name a new save,
 then confirm; Esc cancels. Occupied slots require overwrite confirmation.
 These saves preserve the AGI binary format and are separate from autosave.
-Existing single-slot saves remain available when their game signature matches.
 Browser storage supplies the save directory; DOS drive and path dialogs are not
 emulated. Clearing browser data removes these local saves.
 
-| Download                   | What travels with it                                                                   |
-| -------------------------- | -------------------------------------------------------------------------------------- |
-| **Download → Game export** | Playable resources and public game metadata.                                           |
-| **Download → Project**     | The game plus its authoring conversation, images, source descriptions and world notes. |
+| Export                         | What travels with it                                                                   |
+| ------------------------------ | -------------------------------------------------------------------------------------- |
+| **Game actions → Game export** | Playable resources and public game metadata.                                           |
+| **Game actions → Project**     | The game plus its authoring conversation, images, source descriptions and world notes. |
 
 Both downloads are ZIPs you can reopen with **Add game → ZIP file**. Public game
 exports can include a description, author, license and remix provenance in

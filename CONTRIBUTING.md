@@ -17,14 +17,14 @@ npm run dev
 The app opens at `http://localhost:5199/`. If your development server is already
 running, give browser tests their own port: `AGI_E2E_PORT=5299 npm run test:e2e`.
 
-| Command               | Purpose                                                        |
-| --------------------- | -------------------------------------------------------------- |
-| `npm run check`       | Typechecks, lint, formatting, unit tests and stored eval cases |
-| `npm test`            | Framework-free engine tests                                    |
-| `npm run test:app`    | Browser adapters, storage and provider transport tests         |
-| `npm run test:e2e`    | Playwright scenarios against a dedicated test server           |
-| `npm run build`       | Compile the engine and build the browser app                   |
-| `npm run eval:replay` | Replay stored authoring failures without provider calls        |
+| Command               | Purpose                                                                                   |
+| --------------------- | ----------------------------------------------------------------------------------------- |
+| `npm run check`       | Typechecks, lint, ast-grep structural rules, formatting, unit tests and stored eval cases |
+| `npm test`            | Framework-free engine tests                                                               |
+| `npm run test:app`    | Browser adapters, storage and provider transport tests                                    |
+| `npm run test:e2e`    | Playwright scenarios against a dedicated test server                                      |
+| `npm run build`       | Compile the engine and build the browser app                                              |
+| `npm run eval:replay` | Replay stored authoring failures without provider calls                                   |
 
 Install the browser once with `npm --prefix app exec -- playwright install chromium`.
 The Playwright server uses Vite's `test` mode, which exposes a deterministic test
@@ -259,8 +259,8 @@ For browser changes, exercise the real flow: create or import, remix, leave,
 resume, download and reopen as appropriate. Use request and download assertions
 for transport, and screenshots for visual changes.
 
-**Download → Project** stores authoring context in a versioned `PROJECT.JSON` with
-repeated images deduplicated into ZIP attachments. **Download → Game export** includes AGI
+**Game actions → Project** stores authoring context in a versioned `PROJECT.JSON` with
+repeated images deduplicated into ZIP attachments. **Game actions → Game export** includes AGI
 resources and version-1 `GAME.JSON`, whose nested public metadata allowlist is
 `description`, `author`, `license` and parent game/revision.
 Neither format changes resource IDs or the game's container format; public game
@@ -291,9 +291,11 @@ belongs in stored diagnostics; show players actionable failures, not test-scope
 commentary. `app/e2e/ui-consistency.spec.ts` checks appearance, tap targets,
 disclosures and concise game cards across the live flows.
 Keep setup in **Settings → AI provider**. Creation and Remix show Connect AI only
-until configured. Saved-game cards expose inline rename, Play/Resume, an actions
-menu and one Download menu; Details contains metadata. `app/e2e/menu-flow.spec.ts`
-checks these paths and section alignment at desktop and phone sizes.
+until configured. Saved-game cards expose inline rename, Play/Resume and one
+three-dot Game actions menu (Start over, Check opening, Make a copy, Game export,
+Project, Remove game); the game header carries an icon-only Game actions menu.
+Details contains metadata. `app/e2e/menu-flow.spec.ts` checks these paths and
+section alignment at desktop and phone sizes.
 
 ## Pull requests
 

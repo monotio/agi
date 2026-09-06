@@ -16,7 +16,7 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
   {
     name: "reserve_binding",
     description:
-      "Bind a stable lowercase name to a resource, flag or variable. Null ID allocates safely; an explicit ID binds that slot without changing its contents. Indirect variable/flag access prevents automatic allocation.",
+      "Bind a stable lowercase `name` to a resource, flag or variable of `kind` (logic, picture, view, sound, flag or variable). Null `id` allocates safely; an explicit `id` binds that slot without changing its contents. Indirect variable/flag access prevents automatic allocation.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -31,7 +31,7 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
   {
     name: "upsert_inventory_item",
     description:
-      "Add or update one inventory definition while preserving other IDs. Null ID appends. Live ownership is unchanged; game logic changes it.",
+      "Add or update one inventory definition while preserving other IDs. Null `id` appends; `name` is the item text; `location` is carried, room or inactive, and `room` (1..254) applies only to location room. Live ownership is unchanged; game logic changes it.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -47,7 +47,7 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
   {
     name: "edit_resource_source",
     description:
-      "Replace one exact logic or picture source section from read_logic or read_picture; their disassembly can normalize authored syntax. The revision must match and `find` must occur once. The full result compiles before storage; any conflict or compile error changes nothing.",
+      "Replace one exact source section of logic or picture `kind` number `num`: `find` must occur once in the source read_logic or read_picture returns and becomes `replace`. Pictures written this session keep their authored source; disassembly can normalize other syntax. `expectedRevision` must match the current revision. The full result compiles before storage; any conflict or compile error changes nothing.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -64,7 +64,7 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
   {
     name: "update_world",
     description:
-      "Update persistent room, fact and quest intent. Empty arrays leave other entries unchanged. Intent does not alter or verify game behavior.",
+      "Update persistent `rooms`, `facts` and `quests` intent. Empty arrays leave other entries unchanged. Intent does not alter or verify game behavior.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -271,10 +271,14 @@ export function executeAuthoringTool(
         throw new Error(
           "Resource revision changed or is absent. Read the current source before editing.",
         );
+      // One source of truth per kind: pictures edit the text the agent wrote
+      // (what read_picture returns), falling back to disassembly only for
+      // pictures that were never written this session.
       const source =
         kind === "logic"
           ? disassembleLogic(payload, { dictionary: state.sources.words, profile: state.profile })
-          : readPictureSource(state.container, num, { profile: state.profile });
+          : (state.sources.pictures.get(num) ??
+            readPictureSource(state.container, num, { profile: state.profile }));
       const find = args["find"];
       const replacement = args["replace"];
       if (

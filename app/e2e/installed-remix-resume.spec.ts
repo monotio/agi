@@ -112,7 +112,7 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
   expect(fixtureReads).toBe(reads);
   const pending = page.waitForEvent("download");
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "game-actions-menu");
   await page.getByTestId("btn-save-live-project").click();
   const download = await pending;
   const archive = await readGameZip(new Uint8Array(await readFile((await download.path())!)));

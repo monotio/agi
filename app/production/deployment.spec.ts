@@ -5,12 +5,18 @@ import { textHook } from "../e2e/engineProbe.ts";
 
 test("bundled tutorial previews and plays on the production origin without a provider", async ({
   page,
+  baseURL,
 }) => {
+  // Abort only cross-origin requests: the app origin itself may be https in the deployed run.
+  const origin = new URL(baseURL!).origin;
   const externalRequests: string[] = [];
-  await page.route(/^https:\/\//, async (route) => {
-    externalRequests.push(route.request().url());
-    await route.abort();
-  });
+  await page.route(
+    (url) => url.origin !== origin,
+    async (route) => {
+      externalRequests.push(route.request().url());
+      await route.abort();
+    },
+  );
   await page.goto("/");
   await expect(page.getByTestId("catalog-adventure-department").getByRole("img")).toHaveAttribute(
     "src",

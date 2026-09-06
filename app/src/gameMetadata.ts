@@ -116,8 +116,9 @@ export function readPublicMetadata(raw: unknown): {
     throw new Error(
       "This game metadata version is newer than this app. Update the app and try again.",
     );
+  const title = boundedText(value["title"], 160);
   return {
-    ...(typeof value["title"] === "string" ? { title: value["title"].slice(0, 160) } : {}),
+    ...(title ? { title } : {}),
     roomGeneration: value["roomGeneration"] === true,
     metadata: publicGameMetadata(value["metadata"] as PublicGameMetadata | undefined),
   };

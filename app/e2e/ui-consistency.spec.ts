@@ -113,7 +113,7 @@ test("library details stay concise and Add game is a secondary action", async ({
   const card = savedGameCard(page, "Adventure Department");
   await openSavedGameDetails(card);
   await expect(card).not.toContainText(
-    /Later rooms|Opening checked|Interpreter|Save project keeps|Ready to play/,
+    /Later rooms|Opening checked|Interpreter|Project keeps|Ready to play/,
   );
   for (const action of await card.locator("button").all()) {
     expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -137,4 +137,49 @@ test("library details stay concise and Add game is a secondary action", async ({
       true,
     );
   }
+});
+
+test("keyboard focus draws one ring on page buttons and dialog buttons alike", async ({ page }) => {
+  const ring = (element: Element) => {
+    const style = getComputedStyle(element);
+    return {
+      focusVisible: element.matches(":focus-visible"),
+      width: style.outlineWidth,
+      style: style.outlineStyle,
+      color: style.outlineColor,
+    };
+  };
+  const focusColor = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.style.color = "var(--ui-focus)";
+    document.body.append(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  });
+  const expected = { focusVisible: true, width: "3px", style: "solid", color: focusColor };
+  const play = page.getByTestId("catalog-play-adventure-department");
+  await expect(play).toBeEnabled();
+  await page.getByTestId("tutorial-toggle").focus();
+  await page.keyboard.press("Tab");
+  await expect(play).toBeFocused();
+  expect(await play.evaluate(ring), "a page button").toEqual(expected);
+  await page.getByTestId("tutorial-toggle").focus();
+  expect(await page.getByTestId("tutorial-toggle").evaluate(ring), "a section summary").toEqual(
+    expected,
+  );
+  await openAiSettings(page);
+  await page.getByTestId("task-budget").focus();
+  await page.keyboard.press("Tab");
+  const cancel = page.getByTestId("ai-settings-cancel");
+  await expect(cancel).toBeFocused();
+  expect(await cancel.evaluate(ring), "a dialog button").toEqual(expected);
+  await page.keyboard.press("Escape");
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await page.getByTestId("game-actions-menu").focus();
+  await page.keyboard.press("Tab");
+  const eject = page.getByTestId("btn-eject");
+  await expect(eject).toBeFocused();
+  expect(await eject.evaluate(ring), "a game header button").toEqual(expected);
 });

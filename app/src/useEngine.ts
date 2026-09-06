@@ -3,7 +3,7 @@ import { reactive } from "vue";
 import type { GameControlBinding, EngineMenuState } from "../../src/runtime/engine.ts";
 import { continuationTranscript } from "./projectArchive.ts";
 import { gameRevision } from "./gameMetadata.ts";
-import { readGameSaves, writeGameSave } from "./gameSaves.ts";
+import { clearGameSaves, readGameSaves, writeGameSave } from "./gameSaves.ts";
 import { serializeAgentLog } from "../../src/agent/toolTransport.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import type { SoundOutput } from "../../src/sound/sound.ts";
@@ -16,6 +16,7 @@ import type { RingFrame } from "./frameRing.ts";
 import { AgiAudio, type AudioMode } from "./audio/AgiAudio.ts";
 import { isProgressPreview, storeRecordWithPreviewFallback } from "./progressPreview.ts";
 import {
+  clearCachedCartridge,
   saveAuthoredCartridge,
   saveGameConversation,
   loadGameConversation,
@@ -202,7 +203,11 @@ export function readAutosave(slug: string): AutosaveRecord | null {
   }
 }
 
-/** Never replace a checkpoint whose format this release cannot understand. */
+/**
+ * Never replace a checkpoint whose format this release cannot understand. A
+ * record without a recognised format (pre-release, or corrupt JSON) protects
+ * nothing and is replaced, so a stale slot cannot block autosave for good.
+ */
 export function writeAutosave(
   storage: Pick<Storage, "getItem" | "setItem">,
   record: AutosaveRecord,
@@ -210,13 +215,19 @@ export function writeAutosave(
   const key = autosaveKey(record.game.slug);
   try {
     const raw = storage.getItem(key);
-    if (raw !== null) {
-      const existing = JSON.parse(raw) as Partial<AutosaveRecord>;
-      if (existing?.format !== "monotio.agi.autosave" || existing.version !== 1) return null;
-    }
+    if (raw !== null && isFutureAutosave(raw)) return null;
     return storeRecordWithPreviewFallback(storage, key, record);
   } catch {
     return null;
+  }
+}
+
+function isFutureAutosave(raw: string): boolean {
+  try {
+    const existing = JSON.parse(raw) as Partial<AutosaveRecord> | null;
+    return existing?.format === "monotio.agi.autosave" && existing.version !== 1;
+  } catch {
+    return false;
   }
 }
 
@@ -236,6 +247,17 @@ export function lastGameSlug(): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Forget a library game completely: its project body and conversation, its
+ * checkpoint, its numbered saves and the resume pointer. Slugs are
+ * deterministic, so anything left behind would resurface on the next import.
+ */
+export async function removeLibraryGame(slug: string): Promise<void> {
+  await clearCachedCartridge(slug);
+  clearAutosave(slug);
+  clearGameSaves(localStorage, slug);
 }
 
 export function useEngine(onFrame: (frame: Frame) => void) {
@@ -773,44 +795,53 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     room: number;
     files?: Record<string, Uint8Array>;
   }): Promise<boolean> {
-    if (!booted) return false;
-    const game = booted;
-    if (msg.files) {
-      // Only cached worlds have a resource-storage slot for autosave updates.
-      if (booted.installed) return false;
-      booted.files = msg.files;
-      if (!(await updateAuthoredCartridgeFiles(booted.slug, msg.files))) return false;
-    }
-    const record: AutosaveRecord = {
-      format: "monotio.agi.autosave",
-      version: 1,
-      image: String(msg.image),
-      ...(isProgressPreview(msg.preview) ? { preview: msg.preview } : {}),
-      ...(msg.menus ? { menus: msg.menus } : {}),
-      cycle: Number(msg.cycle),
-      room: Number(msg.room),
-      savedAt: Date.now(),
-      game: {
-        slug: game.slug,
-        installed: game.installed,
-        revision: await gameRevision(game.files),
-      },
-    };
-    if (booted !== game) return false;
-    const stored = writeAutosave(localStorage, record);
-    if (!stored) {
-      logAgent("log", "autosave failed: browser storage rejected the save record");
+    try {
+      if (!booted) return false;
+      const game = booted;
+      if (msg.files) {
+        // Only cached worlds have a resource-storage slot for autosave updates.
+        if (booted.installed) return false;
+        // Memory follows storage: bytes the container refused (a catalog
+        // original) must not become the revision a later checkpoint records.
+        if (!(await updateAuthoredCartridgeFiles(game.slug, msg.files))) return false;
+        if (booted !== game) return false;
+        game.files = msg.files;
+      }
+      const record: AutosaveRecord = {
+        format: "monotio.agi.autosave",
+        version: 1,
+        image: String(msg.image),
+        ...(isProgressPreview(msg.preview) ? { preview: msg.preview } : {}),
+        ...(msg.menus ? { menus: msg.menus } : {}),
+        cycle: Number(msg.cycle),
+        room: Number(msg.room),
+        savedAt: Date.now(),
+        game: {
+          slug: game.slug,
+          installed: game.installed,
+          revision: await gameRevision(game.files),
+        },
+      };
+      if (booted !== game) return false;
+      const stored = writeAutosave(localStorage, record);
+      if (!stored) {
+        logAgent("log", "autosave failed: browser storage rejected the save record");
+        return false;
+      }
+      try {
+        localStorage.setItem(LAST_GAME_KEY, game.slug);
+      } catch (e) {
+        logAgent("log", `autosave resume pointer failed: ${String(e)}`);
+      }
+      hook.autosave = stored.cycle;
+      lastAutosave = stored;
+      publishHook();
+      return true;
+    } catch (error) {
+      // One failed checkpoint must not poison the write chain for the session.
+      logAgent("log", `autosave failed: ${String(error)}`);
       return false;
     }
-    try {
-      localStorage.setItem(LAST_GAME_KEY, booted.slug);
-    } catch (e) {
-      logAgent("log", `autosave resume pointer failed: ${String(e)}`);
-    }
-    hook.autosave = stored.cycle;
-    lastAutosave = stored;
-    publishHook();
-    return true;
   }
 
   /** Consume the matching image and session menus together; a boot restores once. */
@@ -1004,7 +1035,9 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         audio.stop();
       } else if (msg.type === "autosave") {
         const game = booted;
-        autosaveWrite = autosaveWrite.then(() => (booted === game ? storeAutosave(msg) : false));
+        autosaveWrite = autosaveWrite
+          .then(() => (booted === game ? storeAutosave(msg) : false))
+          .catch(() => false);
       } else if (msg.type === "flushed") {
         // The worker reply follows its snapshot; wait for the browser's
         // asynchronous project write before acknowledging the flush.
@@ -1394,8 +1427,11 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       };
       if (!(await saveAuthoredCartridge(slug, data)))
         throw new Error(
-          "Browser storage could not save this remix. Use Download → Project to keep it.",
+          "Browser storage could not save this remix. Use Game actions → Project to keep it.",
         );
+      // The checkpoint moves with the progress: the original card must never
+      // offer a snapshot taken under resources its own container does not have.
+      clearAutosave(game.slug);
       game.slug = slug;
       game.installed = false;
       game.cartridge = { ...data, slug, authoredAt: new Date().toISOString() };
@@ -1415,7 +1451,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       ))
     ) {
       throw new Error(
-        "Browser storage could not save this remix. Use Download → Project to keep it.",
+        "Browser storage could not save this remix. Use Game actions → Project to keep it.",
       );
     }
     game.files = files;
@@ -1464,7 +1500,9 @@ export function useEngine(onFrame: (frame: Frame) => void) {
               context.model,
             ))
           )
-            throw new Error("Conversation could not be saved. Use Download → Project to keep it.");
+            throw new Error(
+              "Conversation could not be saved. Use Game actions → Project to keep it.",
+            );
         }
         return;
       }
@@ -1515,7 +1553,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         const files = await query<Record<string, Uint8Array> | null>("exportFiles");
         if (!files)
           throw new Error(
-            "The current game could not be saved. Try Download → Project before leaving.",
+            "The current game could not be saved. Try Game actions → Project before leaving.",
           );
         await persistRemix(game, session, files);
       }
@@ -1670,7 +1708,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       if (!saved)
         logAgent(
           "error",
-          "Browser storage could not save this world. Use Download → Project to keep it.",
+          "Browser storage could not save this world. Use Game actions → Project to keep it.",
         );
       if (saved)
         logAgent(

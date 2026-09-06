@@ -41,7 +41,7 @@ export const SOUND_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_music",
     description:
-      "Compile beat-based music to four-channel AGI SOUND. Roles map to melody=0, harmony=1, bass=2, noise=3. Tone notes use names; noise uses periodic/white low/medium/high. Volume 15 is loudest. Repeats expand to at most 4096 events.",
+      "Compile beat-based music to four-channel AGI SOUND `num` at `tempo` BPM from `tracks`. Roles map to melody=0, harmony=1, bass=2, noise=3. Tone notes use names; noise uses periodic/white low/medium/high. Volume 15 is loudest. Repeats expand to at most 4096 events.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -110,7 +110,7 @@ export const SOUND_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_sound",
     description:
-      "Inspect SOUND as timed events and a four-channel timeline. Auto uses saved music intent when available; choose music for estimated pitches or sound for raw frequency/noise. Seconds and divisors are authoritative. Follow `nextOffset` to page.",
+      "Inspect SOUND `num` as timed events and a four-channel timeline; null `channel` reads all. `representation` auto uses saved music intent when available; choose music for estimated pitches or sound for raw frequency/noise. Seconds and divisors are authoritative. `offset` and `limit` page the events; follow `nextOffset`.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -146,7 +146,7 @@ export const SOUND_TOOLS: readonly ToolDefinition[] = [
   {
     name: "preview_sound",
     description:
-      "Render a bounded WAV preview with the game scheduler and an approximate synthesizer. The player can hear it; the model cannot. Read-only and separate from live playback.",
+      "Render a bounded WAV preview of SOUND `num` from `startSeconds` (null: 0) for `durationSeconds` (null: 20) on `device` tandy or pc-speaker (null: tandy) with the game scheduler and an approximate synthesizer. The player can hear it; the model cannot. Read-only and separate from live playback.",
     parameters: {
       type: "object",
       additionalProperties: false,

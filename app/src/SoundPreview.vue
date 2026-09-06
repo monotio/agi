@@ -24,6 +24,7 @@ defineProps<{
       <a
         :href="preview.url"
         :download="`agi-sound-preview-${index + 1}.wav`"
+        class="ui-button ui-button--secondary"
         data-testid="sound-preview-download"
       >
         Download WAV
@@ -67,7 +68,6 @@ defineProps<{
 }
 
 .sound-preview a {
-  color: #8debed;
   white-space: nowrap;
 }
 

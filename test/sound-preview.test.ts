@@ -199,6 +199,60 @@ describe("offline AGI sound preview", () => {
     assert.deepEqual(offset.wav.subarray(44), full.wav.subarray(44 + 15000 * 2, 44 + 21000 * 2));
   });
 
+  it("reports the decoded length of the voices the device actually plays", () => {
+    // Hand-built stream: channel 0 holds one duration-0 note (65536 ticks);
+    // channel 1 holds the same plus a 60-tick note (65596 ticks); 2 and 3 are empty.
+    const payload = Uint8Array.of(
+      8,
+      0,
+      15,
+      0,
+      27,
+      0,
+      29,
+      0,
+      // channel 0 at 8: duration 0, divisor 226 (0x0e, 0x82), attenuation 0, terminator
+      0,
+      0,
+      0x0e,
+      0x82,
+      0x90,
+      0xff,
+      0xff,
+      // channel 1 at 15: duration 0 then 60, divisor 380 (0x17, 0xac), terminator
+      0,
+      0,
+      0x17,
+      0xac,
+      0xb0,
+      60,
+      0,
+      0x17,
+      0xac,
+      0xb0,
+      0xff,
+      0xff,
+      // channels 2 and 3 at 27 and 29: immediate terminators
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+    );
+    const speaker = renderSoundPreview(payload, profile(), {
+      device: "pc-speaker",
+      durationSeconds: 0,
+    });
+    const tandy = renderSoundPreview(payload, profile(), { device: "tandy", durationSeconds: 0 });
+    assert.equal(speaker.totalDurationSeconds, 65536 / 60, "speaker length is channel 0 alone");
+    assert.equal(
+      tandy.totalDurationSeconds,
+      (65536 + 60) / 60,
+      "tandy length is the longest voice",
+    );
+    assert.equal(speaker.truncated, true);
+    assert.equal(tandy.truncated, true);
+  });
+
   it("honors device voice count and profile-generated attenuation commands", () => {
     const payload = sound([
       [{ duration: 60, divisor: 0, attenuation: 15 }],

@@ -55,10 +55,7 @@ const EMPTY_HOOK: TextHook = {
 };
 
 export async function textHook(page: Page): Promise<TextHook> {
-  return page.evaluate(
-    (empty) => ({ ...empty, ...((window as any).__AGI_TEXT__ ?? {}) }),
-    EMPTY_HOOK,
-  );
+  return page.evaluate((empty) => ({ ...empty, ...(window.__AGI_TEXT__ ?? {}) }), EMPTY_HOOK);
 }
 
 export async function screenText(page: Page): Promise<string> {
@@ -96,10 +93,10 @@ export async function probe(page: Page): Promise<Probe> {
     };
     const colors = new Set<string>();
     for (let i = 0; i < all.length; i += 4) colors.add(`${all[i]},${all[i + 1]},${all[i + 2]}`);
-    const hook = (window as any).__AGI_TEXT__ ?? {};
+    const hook = window.__AGI_TEXT__;
     return {
-      frame: Number(hook.frame ?? 0),
-      cycle: Number(hook.cycle ?? 0),
+      frame: hook?.frame ?? 0,
+      cycle: hook?.cycle ?? 0,
       hash: hashOf(all),
       picHash: hashOf(band),
       colors: colors.size,
@@ -306,20 +303,16 @@ export async function openLibraryActions(page: Page, card: Locator): Promise<voi
   await expect(page.getByRole("menu", { name: "Game actions", exact: true })).toBeVisible();
 }
 
-export async function openLibraryDownload(page: Page, card: Locator): Promise<void> {
-  const trigger = card.getByRole("button", { name: "Download", exact: true });
-  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
-  await expect(page.getByRole("menu", { name: "Download", exact: true })).toBeVisible();
-}
-
-/** Open a top-bar disclosure through its visible control without closing it on repeat calls. */
+/**
+ * Open a top-bar menu through its trigger without closing it on repeat calls.
+ * `game-actions-menu` holds Start over and the exports while a game runs;
+ * `settings-menu` holds the AI provider, input, sound and display settings.
+ */
 export async function openGameOptions(
   page: Page,
-  menu: "save-share-menu" | "sound-display-menu",
+  menu: "game-actions-menu" | "settings-menu",
 ): Promise<void> {
-  const trigger = page.getByTestId(
-    menu === "save-share-menu" ? "download-game-menu" : "settings-menu",
-  );
+  const trigger = page.getByTestId(menu);
   if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
 }
 

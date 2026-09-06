@@ -72,7 +72,19 @@
   padding: 0;
 }
 
-.ui-button:focus-visible {
+/* One keyboard focus ring for every control, whichever component renders it. */
+:is(
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  summary,
+  [tabindex],
+  [role="menuitem"],
+  [role="menuitemcheckbox"],
+  [role="menuitemradio"]
+):focus-visible {
   outline: 3px solid var(--ui-focus);
   outline-offset: 2px;
 }

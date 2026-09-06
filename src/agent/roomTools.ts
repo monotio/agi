@@ -28,7 +28,7 @@ const EDGES: Readonly<Record<string, number>> = { top: 1, right: 2, bottom: 3, l
 export const ROOM_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_room",
-    description: `Compile a complete room scaffold with picture, ego, spawn, edge exits and command interactions. Resource references are integer IDs or reserved binding names, not quoted numbers. Registers needed words while preserving IDs. Use expectedRevision "${resourceRevision(null)}" for a new room; otherwise match its revision. Picture, ego view and inventory items must exist; exit rooms can be authored later. Leaves boot logic intact and returns revision, bindings, commands and intent updates.`,
+    description: `Compile a complete room scaffold with picture, ego, spawn, edge exits and command interactions; title and description record the room intent. Resource references are integer IDs or reserved binding names, not quoted numbers. Registers needed words while preserving IDs. Use expectedRevision "${resourceRevision(null)}" for a new room; otherwise match its revision. Picture, ego view and inventory items must exist; exit rooms can be authored later. Leaves boot logic intact and returns revision, bindings, commands and intent updates.`,
     parameters: {
       type: "object",
       additionalProperties: false,

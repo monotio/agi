@@ -11,7 +11,9 @@ import {
   openSavedGameDetails,
   openLibraryActions,
   savedGameCard,
+  storedAutosave,
   textHook,
+  waitForCycles,
 } from "./engineProbe.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { TUTORIAL_LOGIC_SOURCES } from "../../games/adventure-department/game.ts";
@@ -31,6 +33,29 @@ function tinyGame(message = "A library adventure."): {
   game.putFile("WORDS.TOK", new Uint8Array(52));
   const files = [...game.files].map(([name, data]) => ({ name, data }));
   return { files, zip: Buffer.from(buildZip(files)) };
+}
+
+/** A one-room game that draws a picture, which is what an autosave snapshot needs. */
+function roomGame(): Buffer {
+  const game = createContainer();
+  game.putResource(
+    "logic",
+    0,
+    assembleLogic("assignn(v10,1);if(equaln(v0,0)){new.room(1);}call(1);return;", {
+      dictionary: new Map(),
+    }).payload,
+  );
+  game.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      "if(isset(f5)){assignn(v60,1);load.pic(v60);draw.pic(v60);show.pic();accept.input();}return;",
+      { dictionary: new Map() },
+    ).payload,
+  );
+  game.putResource("picture", 1, new Uint8Array([0xf0, 1, 0xf8, 0, 0, 0xff]));
+  game.putFile("WORDS.TOK", new Uint8Array(52));
+  return Buffer.from(buildZip([...game.files].map(([name, data]) => ({ name, data }))));
 }
 
 test("ZIP import is checked and staged before Play, with a stable duplicate", async ({ page }) => {
@@ -301,4 +326,49 @@ test("the first catalog edit forks a remix and preserves the original", async ({
   expect(after.remixSource).toBe("remix");
   expect(after.parent).toEqual({ gameId: before.gameId, revision: before.revision });
   expect(after.currentSlug).toBe(after.remixSlug);
+});
+
+test("removing a game forgets its progress, so the same bytes come back fresh", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  await page.goto("/");
+  const upload = { name: "forgettable.zip", mimeType: "application/zip", buffer: roomGame() };
+  await page.getByTestId("game-zip-input").setInputFiles(upload);
+  const card = savedGameCard(page, "forgettable");
+  const slug = (await card.getAttribute("data-slug"))!;
+  expect(slug).toMatch(/^imported-[a-f0-9]{64}$/);
+  await card.getByTestId("btn-resume-cached").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForCycles(page, 4);
+  // Leaving flushes a checkpoint; the card must offer it before the game is removed.
+  await page.getByTestId("btn-eject").click();
+  await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
+  await expect.poll(() => storedAutosave(page, slug)).not.toBeNull();
+  await expect(card.getByTestId("btn-resume-cached")).toHaveText("Resume");
+
+  await openLibraryActions(page, card);
+  await page.getByTestId("remove-library-game").click();
+  await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(0);
+  await expect(page.getByTestId("autosave-panel")).toHaveCount(0);
+  await expect(page.getByText("IN PROGRESS", { exact: true })).toHaveCount(0);
+  await expect(page.getByTestId("btn-resume-autosave")).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      (s) =>
+        Object.keys(localStorage).filter(
+          (key) =>
+            (key.startsWith("monotio_agi.autosave.") || key.startsWith("monotio_agi.saves.")) &&
+            key.includes(s),
+        ),
+      slug,
+    ),
+  ).toEqual([]);
+  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"))).toBeNull();
+
+  await page.getByTestId("game-zip-input").setInputFiles(upload);
+  const readded = savedGameCard(page, "forgettable");
+  await expect(readded).toHaveAttribute("data-slug", slug);
+  await expect(readded.getByTestId("btn-resume-cached")).toHaveText("Play");
+  await expect(readded.getByText("IN PROGRESS", { exact: true })).toHaveCount(0);
 });

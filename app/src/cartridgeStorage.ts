@@ -1,5 +1,10 @@
 import { parseWordsTok } from "../../src/logic/words.ts";
-import { gameRevision, isLocalGamePreview, normalizeLibraryMetadata } from "./gameMetadata.ts";
+import {
+  gameRevision,
+  isLocalGamePreview,
+  normalizeLibraryMetadata,
+  type LibraryMetadata,
+} from "./gameMetadata.ts";
 /**
  * IndexedDB project bodies with a lightweight localStorage metadata index.
  * Prevents loss of generated worlds across HMR, page refreshes, and browser sessions.
@@ -20,6 +25,21 @@ interface StoredCartridgeBody extends CachedCartridgeData {
 }
 
 const STORAGE_PREFIX = "monotio_agi.authored.";
+const SHA256 = /^[a-f0-9]{64}$/;
+/** Every released library field; a version-1 reader keeps anything else as an additive extension. */
+const LIBRARY_FIELDS: Record<keyof LibraryMetadata, true> = {
+  version: true,
+  gameId: true,
+  revision: true,
+  source: true,
+  catalog: true,
+  preview: true,
+  validation: true,
+  description: true,
+  author: true,
+  license: true,
+  parent: true,
+};
 
 export interface GameConversation {
   provider: string;
@@ -40,7 +60,9 @@ export async function saveGameConversation(slug: string, context: GameConversati
     let contractError: Error | undefined;
     existing.onsuccess = () => {
       const value = existing.result as Record<string, unknown> | undefined;
-      if (value && (value["format"] !== "monotio.agi.conversation" || value["version"] !== 1)) {
+      // Only a record this release recognises as newer is protected; a
+      // format-less pre-release record is replaced rather than blocking saves.
+      if (value && value["format"] === "monotio.agi.conversation" && value["version"] !== 1) {
         contractError = new Error("This game conversation version is not supported by this app.");
         transaction.abort();
         return;
@@ -92,7 +114,7 @@ export function getCachedCartridgeMeta(slug: string): CachedCartridgeMeta | null
     const library =
       libraryValue?.["version"] === 1 &&
       typeof libraryValue["revision"] === "string" &&
-      /^[a-f0-9]{64}$/.test(libraryValue["revision"])
+      SHA256.test(libraryValue["revision"])
         ? normalizeLibraryMetadata(libraryValue, {
             gameId: slug,
             revision: libraryValue["revision"],
@@ -193,7 +215,7 @@ async function writeCurrentBody(data: CachedCartridgeData): Promise<void> {
     let contractError: Error | undefined;
     existing.onsuccess = () => {
       const value = existing.result as Partial<StoredCartridgeBody> | undefined;
-      if (value && (value.format !== "monotio.agi.project" || value.version !== 1)) {
+      if (value && value.format === "monotio.agi.project" && value.version !== 1) {
         contractError = new Error("This saved project version is not supported by this app.");
         transaction.abort();
         return;
@@ -257,38 +279,34 @@ async function readBody(slug: string): Promise<CachedCartridgeData | null> {
       "The saved project data is unavailable. Open a downloaded project to recover it.",
     );
   const data = readStoredBody(stored, slug);
-  if (!data.library) throw new Error("The saved project has invalid library metadata.");
-  const normalized = normalizeLibraryMetadata(data.library, {
-    gameId: data.library.gameId,
-    revision: data.library.revision,
-    source: data.library.source,
-  });
-  const sameParent =
-    normalized.parent?.gameId === data.library.parent?.gameId &&
-    normalized.parent?.revision === data.library.parent?.revision;
-  const sameCatalog =
-    normalized.catalog?.id === data.library.catalog?.id &&
-    normalized.catalog?.version === data.library.catalog?.version;
-  const sameValidation =
-    normalized.validation.status === data.library.validation?.status &&
-    normalized.validation.message === data.library.validation?.message &&
-    normalized.validation.profile === data.library.validation?.profile;
+  data.library = readLibrary(data);
+  return data;
+}
+/**
+ * Version 1 is released: a reader checks the record's shape and takes the
+ * normalized values (bounded text, known enums, local previews), never the
+ * exact bytes, so tightening a bound later cannot orphan a saved project.
+ * Resource hashes are verified where identity matters — preview updates and
+ * resume — not on every load.
+ */
+function readLibrary(data: CachedCartridgeData): LibraryMetadata {
+  const raw = data.library as unknown as Record<string, unknown> | undefined;
   if (
-    normalized.gameId !== data.library.gameId ||
-    normalized.revision !== data.library.revision ||
-    normalized.source !== data.library.source ||
-    normalized.description !== data.library.description ||
-    normalized.author !== data.library.author ||
-    normalized.license !== data.library.license ||
-    normalized.preview !== data.library.preview ||
-    !sameParent ||
-    !sameCatalog ||
-    !sameValidation
+    !raw ||
+    typeof raw !== "object" ||
+    typeof raw["revision"] !== "string" ||
+    !SHA256.test(raw["revision"])
   )
     throw new Error("The saved project has invalid library metadata.");
-  if ((await gameRevision(data.files)) !== data.library.revision)
-    throw new Error("The saved project resources do not match their recorded revision.");
-  return data;
+  const normalized = normalizeLibraryMetadata(raw, {
+    gameId: data.slug,
+    revision: raw["revision"],
+    source: data.imported ? "zip" : "authored",
+  });
+  const library: Record<string, unknown> = { ...normalized };
+  for (const [key, value] of Object.entries(raw))
+    if (!Object.hasOwn(LIBRARY_FIELDS, key)) library[key] = value;
+  return library as unknown as LibraryMetadata;
 }
 async function stampLibraryMetadata(
   data: CachedCartridgeData,
@@ -442,7 +460,12 @@ export function renameAuthoredCartridge(slug: string, title: string): Promise<bo
 }
 export function clearCachedCartridge(slug: string): Promise<void> {
   return serializeWrite(slug, async () => {
-    await bodyTransaction("readwrite", (store) => store.delete(slug));
+    // The body and its conversation leave together: slugs are deterministic,
+    // so a game added again must not inherit the removed one's history.
+    await bodyTransaction("readwrite", (store) => {
+      store.delete(`conversation/${slug}`);
+      return store.delete(slug);
+    });
     localStorage.removeItem(getStorageKey(slug));
   });
 }

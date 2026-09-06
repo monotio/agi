@@ -165,6 +165,10 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
 
   const download = preview.getByTestId("sound-preview-download");
   await expect(download).toHaveAttribute("download", /\.wav$/);
+  expect(
+    (await download.boundingBox())!.height,
+    "Download WAV is a shared 44px control, not an inline link",
+  ).toBeGreaterThanOrEqual(44);
   const wav = await download.evaluate(async (link: HTMLAnchorElement) => {
     const response = await fetch(link.href);
     const bytes = new Uint8Array(await response.arrayBuffer());

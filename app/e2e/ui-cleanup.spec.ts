@@ -74,6 +74,8 @@ test("Add game is one keyboard-friendly menu with ZIP and folder choices", async
   await trigger.focus();
   await trigger.press("ArrowDown");
   await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(trigger).toHaveAttribute("data-testid", "open-game-menu");
+  await expect(page.getByTestId("open-game-menu-menu")).toHaveRole("menu");
   await expect(zip).toBeFocused();
   await expect(folder).toBeVisible();
   await zip.press("ArrowDown");

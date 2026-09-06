@@ -11,8 +11,8 @@ import {
   isolateStorage,
   openDeveloperActivity,
   openGameOptions,
+  openLibraryActions,
   openSavedGameDetails,
-  openLibraryDownload,
   savedGameCard,
   textHook,
 } from "./engineProbe.ts";
@@ -39,7 +39,7 @@ test("a friend opens an exported world in a fresh browser without a key", async 
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("generated room 2");
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "game-actions-menu");
   await page.getByTestId("btn-export-live-zip").click();
   const zip = await downloading;
   const context = await browser.newContext();
@@ -229,7 +229,7 @@ test("a v3 cartridge can be imported, remixed, exported and opened in a fresh se
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("A remixed v3 adventure.");
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "game-actions-menu");
   await page.getByTestId("btn-export-live-zip").click();
   const download = await downloading;
   const downloaded = await readFile((await download.path())!);
@@ -320,7 +320,7 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
   await expect(renamedCard.getByTestId("saved-game-title")).toHaveText("The Midnight Appointment");
   await openSavedGameDetails(renamedCard);
   const downloading = page.waitForEvent("download");
-  await openLibraryDownload(page, renamedCard);
+  await openLibraryActions(page, renamedCard);
   await page.getByTestId("btn-export-agi-zip").click();
   const exported = await downloading;
   const content = await readGameZip(new Uint8Array(await readFile((await exported.path())!)));

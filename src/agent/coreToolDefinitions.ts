@@ -1,5 +1,6 @@
 /** Schemas for core resource editing and runtime inspection tools. */
 import type { ToolDefinition } from "./tools.ts";
+import { MAX_FRAMES } from "./frames.ts";
 
 export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
@@ -48,7 +49,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_logic_source",
     description:
-      "Compile and replace an AGI logic resource from complete source, including #message directives. Failure returns assembler diagnostics and stores nothing; said() words must already be registered.",
+      "Compile and replace AGI logic `room` from complete `source`, including #message directives. Failure returns assembler diagnostics and stores nothing; said() words must already be registered.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -66,7 +67,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_picture",
     description:
-      "Compile and replace a complete vector picture. Returns a visual/priority/overlay comparison image, spatial metrics and revision. `# layout:` and `# actor:` comments add coverage and placement checks. Failure stores nothing.",
+      "Compile and replace picture `room` from complete vector `source`. Returns a visual/priority/overlay comparison image, spatial metrics and revision. A `# layout: <name> x<a>-<b> y<c>-<d> colour <n>` comment reports the colour and coverage that rendered in that box with an OK/UNDERFILLED/SHIFTED/MISSING verdict. A `# actor: <name> x<X> y<baseline> width<W> height<H> priority<P>` comment reports that footprint's extent, the control values on its baseline and how many cells of higher-priority scenery would occlude it. Failure stores nothing.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -84,7 +85,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_picture",
     description:
-      "Read editable picture source and rendered priority/control analysis. Null paging uses offset 0, limit 200 and both source and image. Fails for absent or invalid resources.",
+      "Read editable source and rendered priority/control analysis for picture `num`. `include` selects source, image or both; null paging uses offset 0, limit 200 and both. Fails for absent or invalid resources.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -110,7 +111,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_logic",
     description:
-      "Disassemble logic to editable, byte-identical source with said() words resolved. Null paging uses offset 0 and limit 200. Fails for absent or invalid resources.",
+      "Disassemble logic `num` to editable, byte-identical source with said() words resolved. Null paging uses offset 0 and limit 200. Fails for absent or invalid resources.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -132,7 +133,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "list_resources",
     description:
-      "List occupied ranges and next free IDs. Kind is logic, picture, view, sound, or null for all. Writing an occupied ID replaces it.",
+      "List occupied ranges and next free IDs. `kind` is logic, picture, view, sound, or null for all. Writing an occupied ID replaces it.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -147,7 +148,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_words",
     description:
-      "Inspect parser words and synonym groups by word ID. The compiled dictionary determines what said() can match.",
+      "Inspect parser words and synonym groups by word ID. `prefix` or `exact` narrows the words; `offset` and `limit` page the groups (null: 0 and 60). The compiled dictionary determines what said() can match.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -174,7 +175,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_view",
     description:
-      "Inspect a compiled view as a labeled contact sheet. Large views sample at most 32 cels. Fails for absent or invalid resources.",
+      "Inspect compiled view `num` as a labeled contact sheet. Large views sample at most 32 cels. Fails for absent or invalid resources.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -185,7 +186,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_view",
     description:
-      "Compile and replace a view. Each loop has cels or mirrors a preceding loop (cels null). Pixels are row-major EGA indices. Pixel-count corrections appear in `adjustments`. Returns a compiled contact sheet; large views sample 32 cels. Failure stores nothing.",
+      "Compile and replace view `num` from `spec`. Each loop has cels or mirrors a preceding loop (cels null). Pixels are row-major EGA indices. Pixel-count corrections appear in `adjustments`. Returns a compiled contact sheet; large views sample 32 cels. Failure stores nothing.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -249,7 +250,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "finish_genesis",
     description:
-      "Validate genesis by booting the world in a bounded simulation. The starting room must draw, accept input and place initialized ego fully in walkable space. Returns observed state and a screenshot; failures do not complete genesis.",
+      "Validate genesis by booting the world in a bounded simulation. The starting room must draw, accept input and place initialized ego fully in walkable space. Returns observed state and a screenshot; failures do not complete genesis. `notes` is optional free text and is not interpreted.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -264,7 +265,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_inventory_objects",
     description:
-      "Compile and replace the complete OBJECT inventory table. `startingRoom`: 255 carried, 1..254 in that room, 0 inactive.",
+      "Compile and replace the complete OBJECT inventory table from `objects`. `startingRoom`: 255 carried, 1..254 in that room, 0 inactive.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -292,7 +293,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_sound",
     description:
-      "Compile and replace a four-channel SOUND: three tone voices and one noise voice. Durations use 60 Hz ticks; attenuation 0 is loudest and 15 silent. Notes accept MIDI, names, rest, or raw frequency divisors.",
+      "Compile and replace four-channel SOUND `num` from `tracks`: three tone voices and one noise voice. Durations use 60 Hz ticks; attenuation 0 is loudest and 15 silent. Notes accept MIDI, names, rest, or raw frequency divisors.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -339,7 +340,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "inspect_world_bible",
     description:
-      "Inspect cartridge resources and authored intent, including staged edits. Inventory locations are definitions; use read_state for live inventory. This indexes resources and does not prove puzzle behavior.",
+      "Inspect cartridge resources and authored intent, including staged edits. `filter` is all, rooms, objects, words or intent (null: all); with intent, `section` (rooms, facts, quests or bindings) plus `name` or `offset` selects one entry. Inventory locations are definitions; use read_state for live inventory. This indexes resources and does not prove puzzle behavior.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -365,7 +366,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "playtest_room",
     description:
-      "Run a bounded isolated playtest against staged resources. Steps command, move, enter or wait; expectations assert room, inventory and flags. Null spawn uses initialized ego; null steps checks its footprint. captureTicks samples completed ticks within that step into a composed animation sheet. Missing destinations report `needs_authoring`.",
+      "Run a bounded isolated playtest of `room` against staged resources. `steps` command, move, enter or wait; `expect` asserts room, inventory and flags. Null `spawnX`/`spawnY` use initialized ego; null steps checks its footprint. captureTicks samples completed ticks within that step into a composed animation sheet. Null `cycleBudget` (600) and `instructionBudget` (50000) bound the run. Missing destinations report `needs_authoring`.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -453,16 +454,20 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_frames",
     description:
-      "Read recent frames oldest first; null returns one visual frame. A sheet shows motion; priority shows collision/depth. Text is transcribed separately. Fails without frames.",
+      "Read the last `count` (1..9) frames oldest first, sampling every `stride` cycles; null returns one visual frame. `sheet` tiles them into one contact sheet to show motion; `plane` is visual or priority (collision/depth). Text is transcribed separately. Fails without frames.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         count: {
           type: ["integer", "null"],
+          minimum: 1,
+          maximum: MAX_FRAMES,
         },
         stride: {
           type: ["integer", "null"],
+          minimum: 1,
+          maximum: 255,
         },
         sheet: {
           type: ["boolean", "null"],
@@ -477,7 +482,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_objects",
     description:
-      "Read the current screen-object table: view/cel, geometry, priority, direction, cycling and motion. Object 0 is ego. Read again after movement. Fails without an attached game.",
+      "Read the current screen-object table: view/cel, geometry, priority, direction, cycling and motion. `ids` selects objects; null reads all. Object 0 is ego. Read again after movement. Fails without an attached game.",
     parameters: {
       type: "object",
       additionalProperties: false,
