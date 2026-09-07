@@ -8,6 +8,20 @@ export function fixtureDir(slug: string): string {
   return fileURLToPath(new URL(`../games/${slug}/`, import.meta.url));
 }
 
+/**
+ * On-disk names of an installation, keyed by lowercase name, or null when the
+ * installation folder is absent. Installations disagree on case (PQ1 ships
+ * every file lowercase) and Linux lookups are case-sensitive, so all fixture
+ * access resolves through this map.
+ */
+export function fixtureFiles(slug: string): ReadonlyMap<string, string> | null {
+  const dir = fixtureDir(slug);
+  if (!existsSync(dir)) return null;
+  const names = new Map<string, string>();
+  for (const name of readdirSync(dir)) names.set(name.toLowerCase(), name);
+  return names;
+}
+
 const SPLIT_DIRECTORIES = ["LOGDIR", "PICDIR", "VIEWDIR", "SNDDIR"];
 
 /**
@@ -16,11 +30,11 @@ const SPLIT_DIRECTORIES = ["LOGDIR", "PICDIR", "VIEWDIR", "SNDDIR"];
  * volumes `<PREFIX>VOL.n`.
  */
 export function combinedDirectory(slug: string): { name: string; prefix: string } | null {
-  const dir = fixtureDir(slug);
-  if (!existsSync(dir)) return null;
-  for (const name of readdirSync(dir)) {
-    if (!/^[A-Z0-9_]+DIR$/.test(name) || SPLIT_DIRECTORIES.includes(name)) continue;
-    return { name, prefix: name.slice(0, -3) };
+  const names = fixtureFiles(slug);
+  if (!names) return null;
+  for (const [key, actual] of names) {
+    if (!/^[a-z0-9_]+dir$/.test(key) || SPLIT_DIRECTORIES.includes(key.toUpperCase())) continue;
+    return { name: actual, prefix: actual.slice(0, -3).toUpperCase() };
   }
   return null;
 }
@@ -58,6 +72,7 @@ function referencedVolumes(
 /** A Node test skip reason, also shared by browser tests and local tools. */
 export function fixtureSkip(slug: string, requiredFiles: readonly string[] = []): false | string {
   const dir = fixtureDir(slug);
+  const onDisk = fixtureFiles(slug);
   const combined = combinedDirectory(slug);
   const prefix = combined?.prefix ?? "";
   const required = new Set([
@@ -67,9 +82,9 @@ export function fixtureSkip(slug: string, requiredFiles: readonly string[] = [])
     `${prefix}VOL.0`,
     ...requiredFiles,
   ]);
-  if (combined) {
+  if (combined && onDisk) {
     // Four u16le section offsets, then the logic, picture, view and sound entries.
-    const bytes = readFileSync(dir + combined.name);
+    const bytes = readFileSync(dir + onDisk.get(combined.name.toLowerCase())!);
     const offsets = [0, 1, 2, 3].map((i) => bytes[i * 2]! | (bytes[i * 2 + 1]! << 8));
     offsets.push(bytes.length);
     const junk = JUNK_DIRECTORY_ENTRIES[slug] ?? [];
@@ -84,12 +99,13 @@ export function fixtureSkip(slug: string, requiredFiles: readonly string[] = [])
     }
   } else {
     for (const name of SPLIT_DIRECTORIES) {
-      if (!existsSync(dir + name)) continue;
-      for (const volume of referencedVolumes(readFileSync(dir + name), false))
+      const actual = onDisk?.get(name.toLowerCase());
+      if (!actual) continue;
+      for (const volume of referencedVolumes(readFileSync(dir + actual), false))
         required.add(`VOL.${volume}`);
     }
   }
-  const missing = [...required].filter((name) => !existsSync(dir + name));
+  const missing = [...required].filter((name) => !onDisk?.has(name.toLowerCase()));
   return missing.length
     ? `Place your own game files in games/${slug}/ to run this test (missing: ${missing.join(", ")}).`
     : false;
