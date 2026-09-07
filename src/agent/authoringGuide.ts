@@ -32,7 +32,33 @@ export const AUTHORING_GUIDE: Record<string, GuideTopic> = {
 - print(message) opens a modal window centred in the picture band and waits for Enter; print.at places it. Windows word-wrap at the width you give and are the right form for narration and parser replies. Keep routine replies to one or two lines; reserve longer windows for discoveries.
 - text.screen() switches to a full text screen (black, 40 by 25); graphics() returns. The Space Quest intro shows its story captions this way, one display per row every 16 cycles, counted with a variable decremented each cycle, and polls have.key() once per cycle so any key skips ahead. Use text.screen for credits, letters and long intros; never for room descriptions.
 - Speech bubbles in the Mixed-up Mother Goose demonstration are a bubble VIEW drawn with draw(o) at priority 14 or 15, text displayed inside it at fixed rows and columns, a cycle counter to hold it, then clear.text.rect over the words and a redraw of the bubble cel with a picture inside. Copy the shape: draw the bubble first, write the text second, erase text before erasing the bubble.
-- The Sierra demo menu paints rows 0..9 black with clear.text.rect, displays the instructions, then add.to.pic's the game cards on top of the black band. Paint first, draw second, because a later drawing wins.`,
+- The Sierra demo menu paints rows 0..9 black with clear.text.rect, displays the instructions, then add.to.pic's the game cards on top of the black band. Paint first, draw second, because a later drawing wins.
+
+A caption intro on a text screen, paced by a counter and skippable with any key (room logic, entered with new.room):
+
+\`\`\`agi
+if (isset(f5)) {
+  prevent.input();
+  text.screen();
+  set.text.attribute(15, 0);
+  assignn(v40, 1);
+  assignn(v41, 16);
+}
+if (have.key()) {
+  graphics();
+  new.room(2);
+}
+decrement(v41);
+if (equaln(v41, 0)) {
+  assignn(v41, 16);
+  if (equaln(v40, 1)) { display(4, 3, "Light-years from home, a survey ship"); }
+  if (equaln(v40, 2)) { display(5, 3, "drifts toward an uncharted star."); }
+  if (equaln(v40, 3)) { display(7, 3, "Nobody aboard has noticed yet."); }
+  if (equaln(v40, 5)) { graphics(); new.room(2); }
+  increment(v40);
+}
+return;
+\`\`\``,
   },
   "timing-and-pacing": {
     title: "Cycles, clocks and pacing",
@@ -85,6 +111,41 @@ export const AUTHORING_GUIDE: Record<string, GuideTopic> = {
 - Demonstration mode: the demo pack toggles selections with number keys, runs each demonstration as a sequence of rooms and returns to a menu room. Every prompt is printed with f15 kept set so windows stay open; a key or a counter closes them. Attract modes make good tutorials.
 - Cursor interface (Manhunter): ego is a cursor sprite at priority 15 that the arrow keys move; each room checks get.posn against rectangles, stores a hotspot number in a variable, snaps the cursor to an anchor and displays the action on rows 23 and 24 ("Press <ENTER> to look."). Enter is a controller shared by every room. Hotspot registration fires on entry to the region, so pressing Enter right after the snap performs the intended action while moving on can leave the region. This is how to build point-and-click puzzles, map screens and menus in AGI without a parser.
 - Map travel (Manhunter): a map room with pages; pushing the cursor off an edge sets v2 and the logic turns the page; hotspots per page carry destination room numbers.
+- A hotspot room in that style, with the cursor as object 0 at priority 15 and Enter mapped once in logic 0 with set.key(13, 0, 20):
+
+\`\`\`agi
+if (isset(f5)) {
+  assignn(v40, 1);
+  load.pic(v40);
+  draw.pic(v40);
+  show.pic();
+  load.view(5);
+  animate.obj(o0);
+  set.view(o0, 5);
+  set.priority(o0, 15);
+  ignore.blocks(o0);
+  ignore.horizon(o0);
+  position(o0, 80, 100);
+  draw(o0);
+  assignn(v48, 0);
+  clear.lines(23, 24, 0);
+}
+get.posn(o0, v30, v31);
+if (greatern(v30, 100) && greatern(v31, 60) && lessn(v31, 120) && !equaln(v48, 1)) {
+  assignn(v48, 1);
+  reposition.to(o0, 120, 90);
+  display(23, 1, "Press ENTER to open the chest.");
+}
+if (equaln(v48, 1) && (lessn(v30, 101) || lessn(v31, 61) || greatern(v31, 119))) {
+  assignn(v48, 0);
+  clear.lines(23, 24, 0);
+}
+if (controller(20) && equaln(v48, 1)) {
+  set(f40);
+  print("The chest creaks open.");
+}
+return;
+\`\`\`
 - Skill games inside a room: the knife throw and the Kewpie doll booth sweep an object back and forth and judge Enter by the object's position at that cycle, then animate the result with a short counter. The player learns the rhythm; the logic stays simple.
 - Save points: the interpreter's save file carries variables, flags, objects, strings and the resource replay. Blocking the script buffer with f7 (as demonstration games do) keeps the replay empty, so a restored game relies on its room logic to reload resources; author rooms so that isset(f5) alone rebuilds them.`,
   },

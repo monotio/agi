@@ -8,6 +8,7 @@ import {
   executeAgentTool,
 } from "../src/agent/tools.ts";
 import { AGI_SYSTEM_PROMPT, createGenesisPrompt } from "../src/agent/prompt.ts";
+import { assembleLogic } from "../src/logic/assembler.ts";
 
 /**
  * The guide carries the verified interpreter behaviors and the design notes
@@ -70,4 +71,18 @@ test("the genesis prompt offers a boot skeleton without prescribing the opening'
   assert.match(prompt, /text-screen intro/);
   assert.ok(!/Use this logic 0 boot script/.test(prompt));
   assert.match(prompt, /assignn\(v10, 2\)/);
+});
+
+test("every code sketch in the guide assembles for the default profile", () => {
+  let sketches = 0;
+  for (const [key, topic] of Object.entries(AUTHORING_GUIDE)) {
+    for (const match of topic.body.matchAll(/```agi\n([\s\S]*?)```/g)) {
+      sketches++;
+      assert.doesNotThrow(
+        () => assembleLogic(match[1]!, { dictionary: new Map() }),
+        `${key} sketch ${sketches}`,
+      );
+    }
+  }
+  assert.ok(sketches >= 2, "the guide carries worked sketches");
 });
