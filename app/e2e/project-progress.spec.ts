@@ -56,7 +56,10 @@ test("the project archive moves the autosave to another browser; the game export
   const published = await publicDownload;
   const publicGame = await readGameZip(new Uint8Array(await readFile((await published.path())!)));
   // Publication safety: tests, saves and authoring context each excluded on their own.
-  expect(publicGame.files["TESTS.JSON"], "tests travel with the project archive only").toBeUndefined();
+  expect(
+    publicGame.files["TESTS.JSON"],
+    "tests travel with the project archive only",
+  ).toBeUndefined();
   expect(publicGame.progress, "saves travel with the project archive only").toBeUndefined();
   expect(publicGame.project, "authoring context travels with the project archive only").toBeUndefined();
   expect(project.files["TESTS.JSON"]).toBeDefined();
