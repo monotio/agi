@@ -147,10 +147,10 @@ These saves preserve the AGI binary format and are separate from autosave.
 Browser storage supplies the save directory; DOS drive and path dialogs are not
 emulated. Clearing browser data removes these local saves.
 
-| Export                         | What travels with it                                                                   |
-| ------------------------------ | -------------------------------------------------------------------------------------- |
-| **Game actions → Game export** | Playable resources and public game metadata.                                           |
-| **Game actions → Project**     | The game plus its authoring conversation, images, source descriptions and world notes. |
+| Export                         | What travels with it                                                                                      |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| **Game actions → Game export** | Playable resources and public game metadata.                                                              |
+| **Game actions → Project**     | The game plus its authoring conversation, images, source descriptions, world notes and stored game tests. |
 
 Both downloads are ZIPs you can reopen with **Add game → ZIP file**. Public game
 exports can include a description, author, license and remix provenance in

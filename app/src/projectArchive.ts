@@ -24,7 +24,7 @@ function gameEntries(
   if (!packed.has("OBJECT")) packed.set("OBJECT", buildObjectFile([], detectProfile(packed)));
   const entries = [...packed]
     .filter(([name]) =>
-      /^([A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|TESTS\.JSON|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/i.test(
+      /^([A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/i.test(
         name,
       ),
     )
@@ -48,9 +48,15 @@ export function buildPublicGameZip(
   return finishArchive(gameEntries(data));
 }
 
-/** Archive a complete conversation; repeated image bytes become one ZIP attachment. */
+/**
+ * Archive a complete conversation; repeated image bytes become one ZIP attachment.
+ * A project is for continuing the work elsewhere, so it also carries what a
+ * published game must not reveal: the stored game tests are walkthroughs.
+ */
 export async function buildProjectZip(data: CachedCartridgeData): Promise<Uint8Array<ArrayBuffer>> {
   const entries = gameEntries(data);
+  const tests = data.files["TESTS.JSON"];
+  if (tests) entries.push({ name: "TESTS.JSON", data: tests });
   const attachments = new Map<string, string>();
   async function visit(value: unknown): Promise<unknown> {
     if (typeof value === "string" && /^(data:image\/(?:png|jpeg|webp);base64,)/.test(value)) {
