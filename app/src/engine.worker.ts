@@ -457,7 +457,7 @@ let lastControls = "";
 let lastInputEdit = "";
 let lastSoundEnabled: boolean | null = null;
 
-function postFrame(): void {
+function postFrame(capture = false): void {
   if (!engine) return;
   const enabled = engine.flags[9] !== 0;
   if (enabled !== lastSoundEnabled) {
@@ -474,9 +474,10 @@ function postFrame(): void {
     lastInputEdit = engine.inputEdit;
     self.postMessage({ type: "inputEdit", text: lastInputEdit });
   }
-  const frame = engine.getFrame();
+  const frame = engine.getPresentation();
+  if (capture) captureFrame(frame);
   const modal = engine.modalKind;
-  const textCells = engine.textCells;
+  const textCells = frame.text;
   // Repeated display/trace opcodes can mark text dirty without changing a cell.
   // Sending those frames floods software GPU renderers and delays user input.
   let same =
@@ -530,21 +531,14 @@ function postFrame(): void {
   );
 }
 
-/** Copy the just-completed cycle into the rings (no allocation beyond copies). */
-function captureFrame(): void {
+/** Copy the same presentation into the rings before postFrame transfers its buffers. */
+function captureFrame(frame: ReturnType<Engine["getPresentation"]>): void {
   if (!engine) return;
-  const frame = engine.getFrame();
-  recentRing.push(cycleCount, frame.visual, frame.priority, engine.textCells, engine.displayBase);
+  recentRing.push(cycleCount, frame.visual, frame.priority, frame.text, engine.displayBase);
   const now = performance.now();
   if (now - lastHistoryAt >= 1000) {
     lastHistoryAt = now;
-    historyRing.push(
-      cycleCount,
-      frame.visual,
-      frame.priority,
-      engine.textCells,
-      engine.displayBase,
-    );
+    historyRing.push(cycleCount, frame.visual, frame.priority, frame.text, engine.displayBase);
   }
 }
 
@@ -639,8 +633,7 @@ self.onmessage = (ev: MessageEvent) => {
       // otherwise the re-entered room would sit behind an invisible window.
       for (let guard = 0; engine.modalKind !== null && guard < 16; guard++) engine.ackPrint();
       engine.reenterRoom(typeof msg.room === "number" ? msg.room : undefined);
-      captureFrame();
-      postFrame();
+      postFrame(true);
       self.postMessage({ type: "reentered", room: engine.vars[0] });
       return;
     }
@@ -744,8 +737,7 @@ self.onmessage = (ev: MessageEvent) => {
               flushDeferredMovement();
               engine!.tick();
               cycleCount++;
-              captureFrame();
-              postFrame();
+              postFrame(true);
             }
             // Liveness heartbeat. Frames are posted only when the screen
             // changes, so a static room posts nothing and the host cannot tell

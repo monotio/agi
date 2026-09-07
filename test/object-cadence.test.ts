@@ -747,19 +747,43 @@ test("a restore snapshots each sprite's saved rectangle at its restored position
   assert.equal(cell(engine, 12, 16), 0x44);
 });
 
-test("an occluded sprite cannot hide text it never paints over", () => {
-  const engine = game(`
+for (const [front, back] of [
+  [0, 1],
+  [1, 0],
+  [255, 0],
+])
+  test(`only the final sprite owner hides text (front o${front}, back o${back})`, () => {
+    const engine = game(`
     configure.screen(0, 23, 24); load.view(1);
-    animate.obj(o0); set.view(o0, 1); ignore.objs(o0); position(o0, 20, 100);
-    set.priority(o0, 15); draw(o0); stop.update(o0);
+    animate.obj(o${front}); set.view(o${front}, 1); ignore.objs(o${front}); position(o${front}, 20, 100);
+    set.priority(o${front}, 15); draw(o${front}); stop.update(o${front});
     display(12, 5, "A");
-    animate.obj(o1); set.view(o1, 1); ignore.objs(o1); set.loop(o1, 1); position(o1, 20, 100);
-    set.priority(o1, 14); draw(o1); stop.update(o1);
+    animate.obj(o${back}); set.view(o${back}, 1); ignore.objs(o${back}); set.loop(o${back}, 1); position(o${back}, 20, 100);
+    set.priority(o${back}, 14); draw(o${back}); stop.update(o${back});
     return;
   `);
-  engine.execute(0);
-  const frame = engine.getFrame();
-  assert.equal(frame.visual[100 * 160 + 20], 1, "the priority-15 sprite occludes the later one");
-  assert.equal(engine.textCells[(12 * 40 + 5) * 2], 65, "text remains above the earlier draw");
-  assert.deepEqual(engine.getFrame(), frame, "reading text cannot mutate composition");
-});
+    engine.execute(0);
+    const frame = engine.getFrame();
+    assert.equal(frame.visual[100 * 160 + 20], 1, "the priority-15 sprite occludes the later one");
+    assert.equal(engine.textCells[(12 * 40 + 5) * 2], 65, "text remains above the earlier draw");
+    assert.deepEqual(engine.getFrame(), frame, "reading text cannot mutate composition");
+    const presentation = engine.getPresentation();
+    assert.deepEqual(presentation.visual, frame.visual);
+    assert.deepEqual(presentation.priority, frame.priority);
+    assert.deepEqual(presentation.text, engine.textCells);
+    assert.ok(presentation.visual.buffer instanceof ArrayBuffer);
+    assert.ok(presentation.priority.buffer instanceof ArrayBuffer);
+    assert.ok(presentation.text.buffer instanceof ArrayBuffer);
+    const transferred = structuredClone(presentation, {
+      transfer: [
+        presentation.visual.buffer,
+        presentation.priority.buffer,
+        presentation.text.buffer,
+      ],
+    });
+    assert.deepEqual(
+      engine.getPresentation(),
+      transferred,
+      "host transfers cannot detach engine state",
+    );
+  });

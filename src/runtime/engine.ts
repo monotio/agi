@@ -615,9 +615,11 @@ export class Engine {
   }
 
   get textCells(): Uint8Array {
-    // Sprites hide game text only; the trace overlay is a host surface and
-    // stays on top of everything.
-    const game = this.hideTextUnderSprites(this.text.cells);
+    return this.getPresentation().text;
+  }
+
+  private mergeTraceText(game: Uint8Array): Uint8Array {
+    // The trace overlay is a host surface and stays on top of everything.
     if (!this.traceOverlayVisible) return game;
     const cells = this.tracedText.cells;
     cells.set(game);
@@ -684,7 +686,7 @@ export class Engine {
   /** The written row, trace overlay included, before sprites hide anything. */
   textRow(row: number): string {
     if (!this.traceOverlayVisible) return this.text.rowText(row);
-    void this.textCells; // refresh the traced merge
+    this.mergeTraceText(this.text.cells);
     return this.tracedText.rowText(row);
   }
 
@@ -1862,17 +1864,27 @@ export class Engine {
    * visible. This shapes the cells a host presents; the cells themselves are
    * untouched.
    */
-  private hideTextUnderSprites(cells: Uint8Array): Uint8Array {
-    // A text screen shows no sprites at all, so nothing hides its text.
-    if (this.textMode) return cells;
+  private hideTextUnderSprites(
+    ownership: Uint16Array | null,
+    sprites: readonly ScreenObject[],
+  ): Uint8Array {
+    const cells = this.text.cells;
+    if (!ownership) return cells;
     let out: Uint8Array | null = null;
-    this.composeFrame(false, (pixel, o) => {
+    for (let pixel = 0; pixel < ownership.length; pixel++) {
+      const owner = ownership[pixel]!;
+      if (owner === 0) continue;
       const index = this.textCellUnder(pixel);
-      if (index < 0 || cells[index * 2] === 0 || this.text.written[index]! > o.drawSeq) return;
+      if (
+        index < 0 ||
+        cells[index * 2] === 0 ||
+        this.text.written[index]! > sprites[owner - 1]!.drawSeq
+      )
+        continue;
       out ??= cells.slice();
       out[index * 2] = 0;
       out[index * 2 + 1] = 0;
-    });
+    }
     return out ?? cells;
   }
 
@@ -2516,21 +2528,29 @@ export class Engine {
     return this.composeFrame(false).frame;
   }
 
+  /** Pixels and text from one completed composition; buffers may be transferred by the host. */
+  getPresentation(): { visual: Uint8Array; priority: Uint8Array; text: Uint8Array } {
+    const { frame, ownership, sprites } = this.composeFrame(!this.textMode);
+    // Only the final owner of a pixel can obscure text. Intermediate paints
+    // may themselves be covered by another sprite in the same pass.
+    const text = this.mergeTraceText(this.hideTextUnderSprites(ownership, sprites)).slice();
+    return { ...frame, text };
+  }
+
   /** f1 is engine state, updated when sprites draw rather than when a host asks for pixels. */
   private updateEgoVisibility(): void {
     if (this.objects[0]!.active) this.flags[1] = this.composeFrame(true).egoVisible ? 0 : 1;
   }
 
-  private composeFrame(
-    trackEgo: boolean,
-    onSpritePixel?: (index: number, object: ScreenObject) => void,
-  ): {
+  private composeFrame(trackOwnership: boolean): {
     frame: { visual: Uint8Array; priority: Uint8Array };
     egoVisible: boolean;
+    ownership: Uint16Array | null;
+    sprites: ScreenObject[];
   } {
     const visual = this.surface.visual.slice();
     const priority = this.surface.priority.slice();
-    const ownership = trackEgo ? new Uint8Array(visual.length) : null;
+    const ownership = trackOwnership ? new Uint16Array(visual.length) : null;
     const frame: PictureSurface = { visual, priority, reset(): void {} };
     // Stable sorting retains object-number order for equal drawing keys.
     // Positive fixed priorities sort after every baseline in the table mode.
@@ -2543,24 +2563,24 @@ export class Engine {
         const bKey = b.fixedPriority ? (b.priority === 0 ? -1 : SCREEN_HEIGHT) : b.y;
         return aKey - bKey;
       });
-    for (const o of active) {
+    for (const [slot, o] of active.entries()) {
       const view = this.views.get(o.view);
       const cel = view && readViewCel(view, o.loop, o.cel);
       if (!cel) continue;
       const pri = o.fixedPriority ? o.priority : this.priorityForY(o.y);
       drawCel(frame, cel, o.x, o.y, {
         priority: pri,
-        ...(ownership || onSpritePixel
+        ...(ownership
           ? {
               onPixel: (index: number) => {
-                if (ownership) ownership[index] = o === this.objects[0] ? 1 : 0;
-                onSpritePixel?.(index, o);
+                ownership[index] = slot + 1;
               },
             }
           : {}),
       });
     }
-    const egoVisible = ownership?.includes(1) ?? false;
+    const egoSlot = active.indexOf(this.objects[0]!);
+    const egoVisible = egoSlot >= 0 && (ownership?.includes(egoSlot + 1) ?? false);
     if (this.modal?.kind === "showObj") {
       // show.obj preview: the view's first cel, bottom centre of the picture.
       const view = this.views.get(this.modal.view);
@@ -2569,8 +2589,13 @@ export class Engine {
         drawCel(frame, cel, (SCREEN_WIDTH - cel.width) >> 1, SCREEN_HEIGHT - 1, { priority: 15 });
     }
     if (this.modal?.kind === "showPri")
-      return { frame: { visual: priority.slice(), priority }, egoVisible };
-    return { frame: { visual, priority }, egoVisible };
+      return {
+        frame: { visual: priority.slice(), priority },
+        egoVisible,
+        ownership,
+        sprites: active,
+      };
+    return { frame: { visual, priority }, egoVisible, ownership, sprites: active };
   }
 
   /** Baseline priority bands (spec "Priority and horizon" and set.pri.base). */
