@@ -57,7 +57,10 @@ test("hosted games preview, play and resume in the same library without a provid
     "data-preview-kind",
     "progress",
   );
+  // The reload happened from the menu, so the app stays on the menu; resume from the card.
   await page.reload();
+  await expect(saved).toBeVisible();
+  await saved.getByRole("button", { name: "Resume", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByTestId("btn-eject").click();
   await expect(saved).toBeVisible();
