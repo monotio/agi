@@ -361,9 +361,10 @@ test("reposition.to places the object and suppresses its next due movement", () 
   assert.equal(engine.screenObjects[0]!.y, 37, "placement obeys the default horizon");
 });
 
-test("footprint scan: trigger latches on any cell, water follows the final cell", () => {
+test("footprint scan: trigger latches on any cell, water needs every cell", () => {
   // Ego is a two-cell-wide actor at (20,100); logic 0 idles, so every tick's
   // due movement pass re-scans the baseline in place and rewrites f0/f3.
+  // The rules are the shipped v3 interpreters' (see footprintAccepts).
   const engine = game(`if (!isset(f200)) { set(f200); ${setup} } return;`);
   engine.tick();
   const cells = (left: number, right: number): void => {
@@ -377,13 +378,36 @@ test("footprint scan: trigger latches on any cell, water follows the final cell"
   cells(4, 2);
   assert.deepEqual([engine.flags[3], engine.flags[0]], [1, 0], "trigger under the right cell only");
   cells(2, 3);
-  assert.deepEqual([engine.flags[3], engine.flags[0]], [1, 1], "trigger then water: both");
+  assert.deepEqual(
+    [engine.flags[3], engine.flags[0]],
+    [1, 0],
+    "trigger latched; not every cell water",
+  );
   cells(3, 4);
-  assert.deepEqual([engine.flags[3], engine.flags[0]], [0, 0], "water only under the left cell");
+  assert.deepEqual([engine.flags[3], engine.flags[0]], [0, 0], "water under the left cell only");
   cells(4, 3);
-  assert.deepEqual([engine.flags[3], engine.flags[0]], [0, 1], "water under the final cell");
+  assert.deepEqual([engine.flags[3], engine.flags[0]], [0, 0], "water under the final cell only");
+  cells(3, 3);
+  assert.deepEqual([engine.flags[3], engine.flags[0]], [0, 1], "every cell water");
   cells(4, 4);
   assert.deepEqual([engine.flags[3], engine.flags[0]], [0, 0]);
+});
+
+test("priority 15 skips the footprint scan and clears ego's class flags", () => {
+  const engine = game(`if (!isset(f200)) { set(f200); ${setup} } return;`);
+  engine.tick();
+  engine.surface.priority[100 * 160 + 20] = 2;
+  engine.surface.priority[100 * 160 + 21] = 3;
+  engine.tick();
+  assert.equal(engine.flags[3], 1);
+  engine.patchResource(
+    "logic",
+    0,
+    assembleLogic("set.priority(o0, 15); return;", { dictionary: new Map() }).payload,
+  );
+  engine.tick();
+  assert.deepEqual([engine.flags[3], engine.flags[0]], [0, 0], "no scan, both flags cleared");
+  assert.deepEqual([engine.screenObjects[0]!.x, engine.screenObjects[0]!.y], [20, 100]);
 });
 
 test("reposition runs placement, refreshes f3 and suppresses the next due step", () => {

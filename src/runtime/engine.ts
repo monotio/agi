@@ -1861,11 +1861,22 @@ export class Engine {
     }
   }
 
+  /**
+   * Targeted motion on object 0 selects object-to-v6 coupling (program
+   * control) until it completes, and completion or a border stop restores
+   * v6-to-object coupling with v6 cleared. The spec's movement chapter is
+   * silent on this; the shipped 2.936 and 3.002.x interpreters do it (their
+   * move.obj, move.obj.v and wander handlers write 0 to the coupling selector
+   * for object 0, and their motion-stop routine writes 1 and zeroes v6 for
+   * object 0). Game scripts rely on it: a zero-distance move.obj on ego is the
+   * idiom that hands control back after a scripted placement.
+   */
   private startMoveObj(o: ScreenObject, x: number, y: number, step: number, flag: number): void {
     o.motionMode = MOTION_MOVE_OBJ;
     o.moveTarget = { x, y, savedStep: o.stepSize, flag };
     if (step !== 0) o.stepSize = step;
     this.flags[flag] = 0;
+    if (o === this.objects[0]) this.directionCoupling = 0;
     if (!this.profile.targetMotionDeferred) this.updateMotion(o);
     if (o === this.objects[0]) this.vars[V_EGO_DIR] = o.direction;
   }
@@ -1900,7 +1911,7 @@ export class Engine {
           obj.direction = 0;
           obj.stepSize = t.savedStep;
           this.flags[t.flag] = 1;
-          if (obj === this.objects[0]) this.vars[V_EGO_DIR] = 0;
+          this.releaseEgoMotion(obj);
           return;
         }
         obj.direction = directionToward(dx, dy, step);
@@ -2012,9 +2023,16 @@ export class Engine {
         obj.moveTarget = null;
         obj.motionMode = MOTION_NORMAL;
         obj.direction = 0;
-        if (obj === this.objects[0]) this.vars[V_EGO_DIR] = 0;
+        this.releaseEgoMotion(obj);
       }
     }
+  }
+
+  /** A completed or border-stopped targeted move of object 0 hands control back (see startMoveObj). */
+  private releaseEgoMotion(obj: ScreenObject): void {
+    if (obj !== this.objects[0]) return;
+    this.vars[V_EGO_DIR] = 0;
+    this.directionCoupling = 1;
   }
 
   /** First geometrically valid, collision-free footprint in the specified spiral. */
@@ -2068,38 +2086,50 @@ export class Engine {
   }
 
   /**
-   * Footprint control acceptance (spec): scan the priority/control cells
-   * along the baseline for exactly the cel width, left to right. Control 0
-   * rejects; control 1 rejects unless ignore.blocks; the FINAL cell's water
-   * class decides f0 and the water/land post-gates — this is what keeps the
-   * crocodiles in the moat.
+   * Footprint control acceptance: scan the priority/control cells along the
+   * baseline for exactly the cel width, left to right. Control 0 rejects;
+   * control 1 rejects unless ignore.blocks. The two class flags are:
    *
-   * The trigger class latches: f3 is set when ANY scanned cell is control 2.
-   * The spec's "Footprint control acceptance" describes trigger as a final-cell
-   * state too, but observed 3.002.102 game data contradicts that: a scripted
-   * walk repositions ego one cell right per step and one cell down whenever
-   * f3 is clear, along a control-2 line that descends one row per four cells,
-   * and waits for ego to stand on exactly (67,128). With a final-cell trigger
-   * ego crosses row 128 at x 49..52 and never arrives; with a latched trigger
-   * it arrives (test "reposition rides a trigger line").
+   * - trigger (f3): set when ANY scanned cell is control 2, never cleared by a
+   *   later cell;
+   * - water (f0): set only when EVERY scanned cell is control 3.
+   *
+   * The spec's "Footprint control acceptance" states a final-cell rule for
+   * both classes. The shipped 3.002.102 and 3.002.107 interpreters disagree:
+   * their scan (load-module offset 0x5ae2, disassembled from the installed
+   * AGI binaries) starts with the water state set, clears it on any cell that
+   * is not water and latches the trigger state on control 2, then feeds both
+   * to f3/f0 for object 0 and applies the on-water/on-land gates to the
+   * all-water state. Observed data agrees: a 3.002.102 demo repositions ego
+   * along a control-2 line and waits for exactly (67,128), which a final-cell
+   * trigger never reaches (test "reposition rides a trigger line"). Priority
+   * 15 skips the scan, accepts the footprint, and for object 0 clears both
+   * flags, as the same routine does.
    */
   private footprintAccepts(obj: ScreenObject, nx: number, ny: number): boolean {
     if (!obj.fixedPriority) obj.priority = this.priorityForY(ny);
-    if (obj.priority === 15) return true;
+    if (obj.priority === 15) {
+      if (obj === this.objects[0]) {
+        this.flags[3] = 0;
+        this.flags[0] = 0;
+      }
+      return true;
+    }
     if (ny < 0 || ny > 167) return false;
     let flag3 = false;
-    let flag0 = false;
+    let flag0 = true;
     for (let i = 0; i < obj.width; i++) {
       const cx = nx + i;
       if (cx < 0 || cx > 159) continue;
       const v = this.surface.priority[ny * 160 + cx] ?? 4;
       if (v === 0) return false;
+      if (v === 3) continue;
+      flag0 = false;
       if (v === 1 && obj.observeBlocks) return false;
       if (v === 2) flag3 = true;
-      flag0 = v === 3;
     }
-    if (obj.waterGate === "on" && !flag0) return false; // obj.on.water: must end on control 3
-    if (obj.waterGate === "off" && flag0) return false; // obj.on.land: must not end on control 3
+    if (obj.waterGate === "on" && !flag0) return false; // obj.on.water: every cell is control 3
+    if (obj.waterGate === "off" && flag0) return false; // obj.on.land: not every cell is control 3
     if (obj === this.objects[0]) {
       this.flags[3] = flag3 ? 1 : 0;
       this.flags[0] = flag0 ? 1 : 0;
@@ -3110,6 +3140,7 @@ export class Engine {
         const o = obj(0);
         o.motionMode = MOTION_WANDER;
         o.wanderCount = 0;
+        if (o === this.objects[0]) this.directionCoupling = 0;
         return next;
       }
       case 0x4c: {

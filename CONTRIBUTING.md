@@ -75,9 +75,18 @@ message text of compressed logic records and the 3.002.102 profile end to end.
 The Manhunter row is a shipped v3 game with one directly stored logic beside 65
 compressed ones, the independent check of that text rule; its title screen skips
 through a clock busy-wait, which `test/mh1.test.ts` exercises. Where installed
-game data contradicts the specification text, the engine follows the data and
-the code comment cites the evidence; currently that is the trigger class of the
-footprint scan, which latches on any baseline cell.
+game data or the shipped interpreter binaries contradict the specification
+text, the engine follows them and the code comment cites the evidence. Currently
+that is the footprint scan's class flags (the trigger flag latches on any
+baseline cell, the water flag needs every cell, and the priority-15 bypass
+clears both for ego) and the direction coupling around ego's targeted motion
+(move.obj and wander take program control, arrival or a border stop restores
+player control). Both were read from the disassembled interpreters: `ndisasm -b
+16 -e 0x200` on a v3 `AGI` executable, and for v2 the same after undoing the
+loader's scrambling, a per-128-byte-block XOR with the 128-byte key stored at
+`SIERRA.COM` offset 0x41 that rotates right one bit per block with the carry
+chained across blocks. The 2.411, 2.917, 2.936, 3.002.102 and 3.002.107 builds
+agree on both behaviors.
 
 Copy the complete game installation, including its uppercase directory files,
 `WORDS.TOK`, `OBJECT`, all `VOL.*` files and interpreter files. Missing fixtures
