@@ -896,6 +896,12 @@ export class Engine {
     const m = this.modals.pop();
     if (!m) return;
     if (this.printsPending > 0) this.printsPending--;
+    // A timed print consumes v21: the verified print handlers zero the
+    // variable when the window closes, whether by timeout or key (2.411 at
+    // 0x1d2d, 2.440 at 0x1d43, 2.917/2.936 at 0x1d80, 3.002.086 at 0x2039,
+    // 3.002.102/3.002.107 at 0x204f).
+    if (m.kind === "print" && m.remainingMs !== null && this.profile.timedPrintClearsV21)
+      this.vars[21] = 0;
     if (m.kind !== "showPri") this.text.restore(m.saved);
     if (m.kind === "menu") {
       this.menuRequested = false;
@@ -925,6 +931,11 @@ export class Engine {
     );
     drawWindow(this.text, box, lines, attr(0, 15), attr(4, 15));
     if (!forceAcknowledgement && this.flags[15] !== 0) {
+      // The verified print handlers consume f15: a print that opens a
+      // non-blocking window resets the flag as it returns, so the next print
+      // blocks again (2.411 at 0x1cb9, 2.440 at 0x1ccf, 2.917 at 0x1d0c,
+      // 2.936 at 0x1d0c, 3.002.086 at 0x1fc5, 3.002.102/3.002.107 at 0x1fdb).
+      if (this.profile.printConsumesF15) this.flags[15] = 0;
       this.persistentWindow = saved;
     } else {
       this.modals.push({
@@ -2056,7 +2067,6 @@ export class Engine {
     this.flags[F_NEW_ROOM] = 0;
     this.flags[F_RESTART] = 0;
     this.flags[F_SCRIPT_0] = 0;
-
     // 10. Post-logic object update (movement + cycling).
     if (!this.textMode) {
       this.updateObjects();

@@ -899,17 +899,22 @@ function onScreenClick(): void {
     inputEl.value?.focus();
     return;
   }
-  if (state.modal !== null) {
-    if (state.modal === "save" || state.modal === "restore") return;
-    dismissModal();
-    if (!touchControls.value) inputEl.value?.focus();
+  // A touch device has no hardware keyboard, so a tap still advances title
+  // screens and acknowledges message windows. A desktop mouse click only
+  // focuses the game for typing: it must never act as Enter, or focusing the
+  // window could skip a screen, acknowledge a modal, or submit a half-typed
+  // command.
+  if (touchControls.value) {
+    if (state.modal !== null) {
+      if (state.modal !== "save" && state.modal !== "restore") dismissModal();
+      return;
+    }
+    // Empty Enter (0x000d) wakes have.key() e.g. title screens or prompts
+    sendKey(0x000d);
     return;
   }
-  // Empty Enter (0x000d) wakes have.key() e.g. title screens or prompts
-  sendKey(0x000d);
-  if (!state.textMode && !touchControls.value) inputEl.value?.focus();
+  inputEl.value?.focus();
 }
-
 watch(
   () => state.phase,
   (phase) => {
@@ -1323,14 +1328,13 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
       return;
     }
     if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
-      // The key goes to the engine as a key event AND into the input line.
-      // have.key() blocks the worker on the host's waitKey in graphics mode as
-      // well as in text mode (a "press any key" title screen), so a letter has
-      // to wake it; sendKey resolves that wait when one is pending and
-      // otherwise delivers a normal key event. The edit message follows and
-      // overwrites the engine's edit line with the host's, so the character is
-      // never doubled.
-      sendKey(ev.key.charCodeAt(0));
+      // Mirror the character into the input line exactly like the focused
+      // path does: through the edit message only. The engine also appends
+      // printable key events to its edit line, and a sendKey here would be
+      // buffered until the next engine tick while the edit applies at once —
+      // so the same character landed twice (the "llook" after Start over).
+      // No waitKey can be pending here: a blocking key wait sets
+      // state.waitingForKey, handled by the raw-key branch above.
       input?.focus();
       inputLine.value += ev.key;
       sendEdit(inputLine.value);
@@ -2756,7 +2760,7 @@ watch(
         [ Use the keys requested by the game ]
       </span>
       <span v-else-if="hasKeyPrompt" class="caption" data-testid="title-prompt-hint">
-        [ Click screen or press Enter / Space to start ]
+        [ {{ touchControls ? "Tap screen or press" : "Press" }} Enter / Space to start ]
       </span>
       <span v-else-if="state.prompt" class="caption" data-testid="prompt-hint">
         [ Type your answer on the screen, Enter to accept, Esc to cancel ]
