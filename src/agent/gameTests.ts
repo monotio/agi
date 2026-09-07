@@ -9,10 +9,11 @@
  */
 import { PLAYTEST_EXPECT_SCHEMA, PLAYTEST_STEPS_SCHEMA } from "./coreToolDefinitions.ts";
 import {
+  decodeBase64,
   validateGameTestExpect,
+  validateGameTestSetup,
   validateGameTestStep,
-  type GameTestExpect,
-  type GameTestStep,
+  type GameTestSetup,
 } from "./gameTestSteps.ts";
 import { playtestRoom } from "./playtest.ts";
 import type { AgentSessionState, AgentToolResult, ToolDefinition } from "./tools.ts";
@@ -20,6 +21,8 @@ import { createContainer } from "../container/container.ts";
 import { assembleLogic } from "../logic/assembler.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import { Engine, type EngineHost } from "../runtime/engine.ts";
+import { decodeSave } from "../runtime/persistence.ts";
+import type { AgiProfile } from "../runtime/profile.ts";
 import type { ResourceKind } from "../types.ts";
 
 export const GAME_TESTS_FILE = "TESTS.JSON";
@@ -41,6 +44,11 @@ export interface GameTest {
   /** Normalized expectations (validateGameTestExpect) or null. */
   readonly expect: Record<string, unknown> | null;
   readonly cycleBudget: number | null;
+  /**
+   * Recorded tests only: the interpreter state at record-start, restored
+   * before the steps run. Absent (never null) means a fresh boot.
+   */
+  readonly setup?: GameTestSetup | undefined;
 }
 
 export interface GameTestsDocument {
@@ -69,9 +77,11 @@ function integerOrNull(value: unknown, label: string, min: number, max: number):
  * Strictly shape-check one stored test, including every step and expectation,
  * and return the normalized full shape. Stored-file parsing and the
  * write_game_tests tool share this one path; provider tool-schema validation
- * does not protect imported JSON.
+ * does not protect imported JSON. When the game's profile is known, a setup
+ * image is also decoded through the runtime persistence layer (decodeSave):
+ * a malformed image fails here, loudly, never mid-replay.
  */
-export function validateGameTest(value: unknown, label: string): GameTest {
+export function validateGameTest(value: unknown, label: string, profile?: AgiProfile): GameTest {
   if (!value || typeof value !== "object" || Array.isArray(value))
     fail(`${label} must be an object.`);
   const test = value as Record<string, unknown>;
@@ -85,6 +95,17 @@ export function validateGameTest(value: unknown, label: string): GameTest {
   if (!Array.isArray(steps) || steps.length > 256)
     fail(`${label}.steps must hold at most 256 actions.`);
   const expect = test["expect"] ?? null;
+  const setup =
+    test["setup"] == null ? null : validateGameTestSetup(test["setup"], `${label}.setup`);
+  if (setup && profile) {
+    try {
+      decodeSave(decodeBase64(setup.image, `${label}.setup.image`), profile);
+    } catch (error) {
+      fail(
+        `${label}.setup.image is not a save image profile ${profile.id} can restore: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
   return {
     name,
     room,
@@ -93,10 +114,12 @@ export function validateGameTest(value: unknown, label: string): GameTest {
     steps: steps.map((step, index) => validateGameTestStep(step, `${label}.steps[${index}]`)),
     expect: expect === null ? null : validateGameTestExpect(expect, `${label}.expect`),
     cycleBudget: integerOrNull(test["cycleBudget"], `${label}.cycleBudget`, 1, 60000),
+    // Absent setup serializes exactly like the pre-setup format.
+    ...(setup ? { setup } : {}),
   };
 }
 
-export function parseGameTests(bytes: Uint8Array | undefined): GameTestsDocument {
+export function parseGameTests(bytes: Uint8Array | undefined, profile?: AgiProfile): GameTestsDocument {
   if (!bytes) return { format: GAME_TESTS_FORMAT, tests: [] };
   if (bytes.length > GAME_TESTS_MAX_BYTES) fail(`${GAME_TESTS_FILE} is larger than 256 KiB.`);
   let raw: unknown;
@@ -112,7 +135,7 @@ export function parseGameTests(bytes: Uint8Array | undefined): GameTestsDocument
     fail(`${GAME_TESTS_FILE} format must be ${GAME_TESTS_FORMAT}.`);
   if (!Array.isArray(doc["tests"]) || doc["tests"].length > MAX_GAME_TESTS)
     fail(`${GAME_TESTS_FILE} must list at most ${MAX_GAME_TESTS} tests.`);
-  const tests = doc["tests"].map((test, index) => validateGameTest(test, `tests[${index}]`));
+  const tests = doc["tests"].map((test, index) => validateGameTest(test, `tests[${index}]`, profile));
   const names = new Set<string>();
   for (const test of tests) {
     if (names.has(test.name)) fail(`Game test names must be unique: ${JSON.stringify(test.name)}.`);
@@ -132,7 +155,7 @@ export function serializeGameTests(tests: readonly GameTest[]): Uint8Array {
 }
 
 export function readStoredTests(session: AgentSessionState): readonly GameTest[] {
-  return parseGameTests(session.getFiles().get(GAME_TESTS_FILE)).tests;
+  return parseGameTests(session.getFiles().get(GAME_TESTS_FILE), session.profile).tests;
 }
 
 /**
@@ -267,15 +290,21 @@ function runOne(
   session: AgentSessionState,
   test: GameTest,
 ): { outcome: GameTestOutcome; result: AgentToolResult } {
-  const result = playtestRoom(session, {
-    room: test.room,
-    spawnX: test.spawnX,
-    spawnY: test.spawnY,
-    steps: test.steps,
-    expect: test.expect,
-    cycleBudget: test.cycleBudget,
-    instructionBudget: null,
-  });
+  const result = playtestRoom(
+    session,
+    {
+      room: test.room,
+      spawnX: test.spawnX,
+      spawnY: test.spawnY,
+      steps: test.steps,
+      expect: test.expect,
+      cycleBudget: test.cycleBudget,
+      instructionBudget: null,
+    },
+    // A recorded setup replays from the restored interpreter state; the image
+    // validated at read time, so this decode cannot fail.
+    test.setup ? { setupImage: decodeBase64(test.setup.image, "setup.image") } : {},
+  );
   const details = result.details ?? {};
   return {
     result,
@@ -430,7 +459,7 @@ export const GAME_TEST_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_game_tests",
     description:
-      "Add or replace stored game tests by name (`mode` merge, default), replace the whole set (`mode` replace) or delete the tests listed in `names` (`mode` remove, `tests` null). Each test is a playtest_room scenario: `room`, optional `spawnX`/`spawnY`, `steps` and `expect`, optional `cycleBudget`. Steps are command, move, enter, wait (cycles or an until predicate over room/flag/var), key (PC key word), direction (0..8), walkTo (x, y) and answer (prompt text); expectations add score, var ranges, object and reachable to room, carriedItems, flags, vars, printed and text. Commands must use registered words. Write at least one test per puzzle and rerun them with run_game_tests.",
+      "Add or replace stored game tests by name (`mode` merge, default), replace the whole set (`mode` replace) or delete the tests listed in `names` (`mode` remove, `tests` null). Each test is a playtest_room scenario: `room`, optional `spawnX`/`spawnY`, `steps` and `expect`, optional `cycleBudget`, and an optional `setup` {image} — the base64 save image a recorded test restores before its steps (absent setup boots fresh). Steps are command, move, enter, wait (cycles or an until predicate over room/flag/var), key (PC key word), direction (0..8), walkTo (x, y) and answer (prompt text); expectations add score, var ranges, object and reachable to room, carriedItems, flags, vars, printed and text. Commands must use registered words. Write at least one test per puzzle and rerun them with run_game_tests.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -451,8 +480,23 @@ export const GAME_TEST_TOOLS: readonly ToolDefinition[] = [
               steps: PLAYTEST_STEPS_SCHEMA,
               expect: PLAYTEST_EXPECT_SCHEMA,
               cycleBudget: { type: ["integer", "null"], minimum: 1, maximum: 60000 },
+              setup: {
+                type: ["object", "null"],
+                additionalProperties: false,
+                properties: { image: { type: "string" } },
+                required: ["image"],
+              },
             },
-            required: ["name", "room", "spawnX", "spawnY", "steps", "expect", "cycleBudget"],
+            required: [
+              "name",
+              "room",
+              "spawnX",
+              "spawnY",
+              "steps",
+              "expect",
+              "cycleBudget",
+              "setup",
+            ],
           },
         },
       },
@@ -506,7 +550,9 @@ export function executeGameTestTool(
     } else {
       const tests = args["tests"];
       if (!Array.isArray(tests) || !tests.length) fail(`${mode} needs at least one test in tests.`);
-      const written = tests.map((test, index) => validateGameTest(test, `tests[${index}]`));
+      const written = tests.map((test, index) =>
+        validateGameTest(test, `tests[${index}]`, session.profile),
+      );
       let probe: ((command: string) => string | null) | null = null;
       for (const test of written)
         for (const step of test.steps) {

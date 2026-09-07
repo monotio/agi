@@ -393,3 +393,64 @@ export function validateGameTestExpect(value: unknown, label: string): GameTestE
           },
   };
 }
+
+/**
+ * The interpreter state a recorded test replays from: a raw AGI save image
+ * (the bytes of engine.serialize()), base64 for JSON storage. A test without
+ * `setup` keeps the fresh-boot room simulation; with one, the stored-test
+ * runner restores the image into a fresh engine built from the CURRENT staged
+ * resources — the interpreter's own save/restore contract, so the image only
+ * ever supplies interpreter state, never resources.
+ */
+export interface GameTestSetup {
+  readonly image: string;
+}
+
+const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const BASE64_REVERSE: readonly number[] = (() => {
+  const table = Array<number>(128).fill(-1);
+  for (let i = 0; i < BASE64_CHARS.length; i++) table[BASE64_CHARS.charCodeAt(i)] = i;
+  return table;
+})();
+
+/** Strict RFC 4648 decoding without Node or browser globals; rejects all else. */
+export function decodeBase64(text: string, label: string): Uint8Array {
+  if (text.length === 0 || text.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(text))
+    fail(`${label} must be standard padded base64.`);
+  const padding = text.endsWith("==") ? 2 : text.endsWith("=") ? 1 : 0;
+  const out = new Uint8Array((text.length / 4) * 3 - padding);
+  let at = 0;
+  for (let i = 0; i < text.length; i += 4) {
+    const a = BASE64_REVERSE[text.charCodeAt(i)]!;
+    const b = BASE64_REVERSE[text.charCodeAt(i + 1)]!;
+    const c = text[i + 2] === "=" ? 0 : BASE64_REVERSE[text.charCodeAt(i + 2)]!;
+    const d = text[i + 3] === "=" ? 0 : BASE64_REVERSE[text.charCodeAt(i + 3)]!;
+    const triple = (a << 18) | (b << 12) | (c << 6) | d;
+    if (at < out.length) out[at++] = (triple >> 16) & 0xff;
+    if (at < out.length) out[at++] = (triple >> 8) & 0xff;
+    if (at < out.length) out[at++] = triple & 0xff;
+  }
+  return out;
+}
+
+const SETUP_FIELDS = ["image"];
+/**
+ * One setup image can never exceed the 256 KiB TESTS.JSON cap it shares with
+ * every test in the file, so anything longer is rejected before decoding.
+ */
+const SETUP_IMAGE_MAX_CHARS = 262144;
+
+/**
+ * Strictly validate the optional setup block of a stored test. Shape and
+ * base64 checks need no profile; the profile-specific save-image decode is
+ * the caller's job (validateGameTest runs it whenever a profile is known).
+ */
+export function validateGameTestSetup(value: unknown, label: string): GameTestSetup {
+  const setup = object(value, label);
+  unknownKeys(setup, SETUP_FIELDS, label);
+  const image = setup["image"];
+  if (typeof image !== "string" || image.length > SETUP_IMAGE_MAX_CHARS)
+    fail(`${label}.image must be base64 text of at most ${SETUP_IMAGE_MAX_CHARS} characters.`);
+  decodeBase64(image, `${label}.image`);
+  return { image };
+}

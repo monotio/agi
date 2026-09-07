@@ -433,10 +433,12 @@ function occlusionProbe(engine: Engine) {
 export function playtestRoom(
   state: AgentSessionState,
   args: Record<string, unknown>,
+  options: { setupImage?: Uint8Array } = {},
 ): AgentToolResult {
   let simulation: Simulation | undefined;
   try {
     const room = integer(args["room"], "room", 1, 255);
+    const setupImage = options.setupImage;
     const steps = args["steps"] ?? [];
     if (!Array.isArray(steps) || steps.length > 256)
       throw new Error("steps must contain at most 256 actions.");
@@ -492,23 +494,36 @@ export function playtestRoom(
         : integer(args["instructionBudget"], "instructionBudget", 1, 1000000),
     );
     const engine = simulation.engine;
-    simulation.tick();
     let enteredDirectly = false;
-    if (engine.vars[0] !== room) {
-      // This is explicit room setup, not evidence that a player can reach it.
-      for (let i = 0; engine.modalKind && i < 8; i++) engine.ackPrint();
-      if (engine.modalKind)
-        throw new Error("Room setup is blocked by more than eight stacked modals.");
-      engine.reenterRoom(room);
+    if (setupImage) {
+      // A recorded test replays from the interpreter state at record-start:
+      // the engine under test is built from the CURRENT staged resources and
+      // the image only supplies interpreter state — the interpreter's own
+      // save/restore contract (restoreImage validates the image against a
+      // disposable engine of the same container before applying it). No boot
+      // cycle, no room re-entry and no footprint gate: the restored position
+      // is historical, not an authored spawn.
+      engine.restoreImage(setupImage);
+    } else {
       simulation.tick();
-      enteredDirectly = true;
+      if (engine.vars[0] !== room) {
+        // This is explicit room setup, not evidence that a player can reach it.
+        for (let i = 0; engine.modalKind && i < 8; i++) engine.ackPrint();
+        if (engine.modalKind)
+          throw new Error("Room setup is blocked by more than eight stacked modals.");
+        engine.reenterRoom(room);
+        simulation.tick();
+        enteredDirectly = true;
+      }
+      if (engine.vars[0] !== room)
+        throw new Error(
+          `Requested room ${room} immediately transitions to room ${engine.vars[0]}.`,
+        );
     }
-    if (engine.vars[0] !== room)
-      throw new Error(`Requested room ${room} immediately transitions to room ${engine.vars[0]}.`);
     const ego = engine.screenObjects[0]!;
     const x = args["spawnX"] == null ? ego.x : integer(args["spawnX"], "spawnX", 0, 159);
     const y = args["spawnY"] == null ? ego.y : integer(args["spawnY"], "spawnY", 0, 167);
-    const problems = footprint(engine, x, y);
+    const problems = setupImage ? [] : footprint(engine, x, y);
     const spawn = {
       room,
       spawnX: x,
@@ -517,6 +532,7 @@ export function playtestRoom(
       spawnHeight: ego.height,
       spawnClear: problems.length === 0,
       enteredDirectly,
+      restored: Boolean(setupImage),
     };
     if (problems.length)
       return simulation.result(false, "spawn_blocked", problems.join(" "), spawn);

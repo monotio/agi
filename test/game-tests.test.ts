@@ -29,7 +29,7 @@ import {
   executeAgentTool,
   type AgentSessionState,
 } from "../src/agent/tools.ts";
-import { createContainer } from "../src/container/container.ts";
+import { createContainer, openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildWordsTok } from "../src/logic/words.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
@@ -742,6 +742,143 @@ test("TESTS.JSON travels in the project archive and never in the game export", a
   const project = await readGameZip(await buildProjectZip(data));
   assert.deepEqual(parseGameTests(project.files[GAME_TESTS_FILE]).tests, [takeKey]);
 });
+
+/**
+ * The recorder's setup capture, played by hand: the real engine boots, the
+ * player takes the key, and serialize() writes the interpreter state exactly
+ * as the browser recorder does when a recording starts.
+ */
+function recordSetupImage(state: AgentSessionState): string {
+  const container = openContainer(state.getFiles(), { kind: state.profile.container });
+  let line: string | null = null;
+  const host: EngineHost = {
+    print: () => {},
+    displayAt: () => {},
+    statusLine: () => {},
+    randomWord: () => 42,
+    takeInputLine: () => {
+      const taken = line;
+      line = null;
+      return taken;
+    },
+    takeKeys: () => [],
+  };
+  const engine = new Engine(container, host, state.sources.words, {
+    profile: state.profile,
+  });
+  engine.tick(); // Boot: logic 0 enters room 1.
+  line = "take key";
+  engine.tick(); // The said("take", "key") rule fires and prints.
+  assert.equal(engine.flags[30], 1, "the recording engine really took the key");
+  assert.equal(engine.vars[40], 7);
+  if (engine.modalKind) engine.ackPrint();
+  engine.tick();
+  return Buffer.from(engine.serialize()).toString("base64");
+}
+
+test("a recorded setup replays from mid-game state against the CURRENT resources", () => {
+  const state = world();
+  const image = recordSetupImage(state);
+  // After the recording, the game is patched: the take-key rule no longer
+  // carries the item or sets the flag, and its message text changed.
+  const patched = executeAgentTool(state, "write_logic_source", {
+    room: 1,
+    source: ROOM_LOGIC.replace(
+      'if (said("take", "key")) {get(0);set(f30);assignn(v40, 7);assignn(v3, 5);print("You take the key.");}',
+      'if (said("take", "key")) {assignn(v3, 5);print("You grab the key.");}',
+    ),
+  });
+  assert.equal(patched.success, true, patched.error ?? "");
+  const resumed = {
+    name: "resume with the key",
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    setup: { image },
+    steps: [step("command", { command: "take key" }), step("enter")],
+    expect: expectation({
+      carriedItems: [0],
+      flags: [{ id: 30, value: true }],
+      vars: [{ id: 40, value: 7, min: null, max: null }],
+      printed: "You grab the key.",
+      score: 5,
+    }),
+    cycleBudget: null,
+  };
+  // f30 and the carried item can only come from the restored image (the
+  // patched logic never sets them); the new message text can only come from
+  // the CURRENT resources. One verdict proves both halves of the contract.
+  const fresh = {
+    name: "fresh boot has no key",
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: resumed.steps,
+    expect: resumed.expect,
+    cycleBudget: null,
+  };
+  const written = executeAgentTool(state, "write_game_tests", {
+    mode: null,
+    names: null,
+    tests: [resumed, fresh],
+  });
+  assert.equal(written.success, true, written.error ?? "");
+  const only = executeAgentTool(state, "run_game_tests", { names: ["resume with the key"] });
+  assert.equal(only.success, true, only.error ?? "");
+  const all = executeAgentTool(state, "run_game_tests", { names: null });
+  assert.equal(all.success, false);
+  assert.match(
+    all.error ?? "",
+    /^1 game test pass, 1 fail: "fresh boot has no key" Expected item 0 carried; observed room 1\. Expected flag 30=true; observed false\. Expected v40=7; observed 0\./,
+  );
+});
+
+test("a malformed setup image is rejected at parse and at write_game_tests", () => {
+  const state = world();
+  const docBytes = (setup: unknown) =>
+    new TextEncoder().encode(
+      JSON.stringify({ format: GAME_TESTS_FORMAT, tests: [{ ...takeKey, setup }] }),
+    );
+  // Shape and base64 checks need no profile.
+  assert.throws(
+    () => parseGameTests(docBytes({ image: "not base64!!" })),
+    /setup\.image must be standard padded base64/,
+  );
+  assert.throws(() => parseGameTests(docBytes({ image: 42 })), /setup\.image must be base64/);
+  assert.throws(
+    () => parseGameTests(docBytes({ image: "AAAA", extra: true })),
+    /setup\.extra is not a known field/,
+  );
+  // Well-formed base64 that is not a save image this profile can restore
+  // fails the decodeSave validation when the profile is known.
+  const truncated = Buffer.from(recordSetupImage(state), "base64").subarray(0, 16);
+  const alien = truncated.toString("base64");
+  assert.throws(
+    () => parseGameTests(docBytes({ image: alien }), state.profile),
+    /setup\.image is not a save image/,
+  );
+  // write_game_tests runs the same validation with the session's profile.
+  const written = executeAgentTool(state, "write_game_tests", {
+    mode: null,
+    names: null,
+    tests: [{ ...takeKey, setup: { image: alien } }],
+  });
+  assert.equal(written.success, false);
+  assert.match(written.error ?? "", /setup\.image is not a save image/);
+  const badBase64 = executeAgentTool(state, "write_game_tests", {
+    mode: null,
+    names: null,
+    tests: [{ ...takeKey, setup: { image: "??" } }],
+  });
+  assert.equal(badBase64.success, false);
+  assert.match(badBase64.error ?? "", /setup\.image must be standard padded base64/);
+  // Tests without setup serialize exactly like the pre-setup format.
+  assert.ok(
+    !new TextDecoder().decode(serializeGameTests([takeKey])).includes("setup"),
+    "no-setup tests stay byte-identical",
+  );
+});
+
 
 // Keep the GameTest type referenced so the stored shape stays exported.
 const _typecheck: GameTest = takeKey;
