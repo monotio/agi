@@ -443,7 +443,6 @@ export class Engine {
    * sequence.
    */
   private readonly hostReplay: ReplayPair[] = [];
-  private hostReplayCheckpoint = 0;
   /** The shadow record hit HOST_REPLAY_LIMIT: an autosave could no longer rebuild the room. */
   private hostReplayOverflow = false;
   /** Saved active-pair count of the last push.script (spec "Replay checkpoints"). */
@@ -1497,7 +1496,6 @@ export class Engine {
     const sequence = screen ?? this.replay;
     this.hostReplay.length = 0;
     for (const pair of sequence) this.hostReplay.push({ ...pair });
-    this.hostReplayCheckpoint = 0;
     this.hostReplayOverflow = false;
     this.parsedWords = [];
     this.parsedWordTexts = [];
@@ -3895,15 +3893,14 @@ export class Engine {
       // push.script/pop.script: replay-pair checkpoints (spec "Replay
       // checkpoints"). The checkpoint action saves the active pair count; the
       // rollback action restores it and moves the append position to the end
-      // of the restored prefix, leaving later pairs outside the sequence.
+      // of the restored prefix, leaving later pairs outside the sequence. The
+      // shadow record is the log of what was drawn and is not rolled back: a
+      // cel added to the picture between the two stays on screen.
       case 0xab:
         this.replayCheckpoint = this.replay.length;
-        this.hostReplayCheckpoint = this.hostReplay.length;
         return next;
       case 0xac:
         if (this.replayCheckpoint <= this.replay.length) this.replay.length = this.replayCheckpoint;
-        if (this.hostReplayCheckpoint <= this.hostReplay.length)
-          this.hostReplay.length = this.hostReplayCheckpoint;
         return next;
       case 0xa5:
         this.vars[a(0)] = (this.vars[a(0)]! * a(1)) & 0xff;
@@ -3967,7 +3964,6 @@ export class Engine {
     this.hostReplayOverflow = false;
     this.pendingLogic = null;
     this.replayCheckpoint = 0;
-    this.hostReplayCheckpoint = 0;
     this.vars[V_PREV_ROOM] = this.vars[V_ROOM]!;
     this.vars[V_ROOM] = room;
     this.vars[V_EGO_VIEW] = this.objects[0]!.view;
@@ -4177,7 +4173,6 @@ export class Engine {
     this.hostReplay.length = 0;
     this.hostReplayOverflow = false;
     this.replayCheckpoint = 0;
-    this.hostReplayCheckpoint = 0;
     this.replayRecording = true;
     this.scriptCapacity = DEFAULT_REPLAY_CAPACITY;
     this.maximumReplayPairs = 0;

@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
-import { SAVE_DESCRIPTION_BYTES, decodeHostImage, decodeSave } from "../src/runtime/persistence.ts";
+import {
+  SAVE_DESCRIPTION_BYTES,
+  decodeHostImage,
+  decodeSave,
+  encodeHostImage,
+} from "../src/runtime/persistence.ts";
 
 /**
  * The host-initiated autosave image.
@@ -354,4 +359,59 @@ test("a host resume keeps the game's own replay and capacity apart from the scre
   // A truncated envelope is refused whole rather than restored in part.
   assert.throws(() => decodeHostImage(autosave.subarray(0, autosave.length - 1)), /pair/);
   assert.throws(() => decodeHostImage(autosave.subarray(0, 18)), /image length/);
+});
+
+test("pop.script forgets pairs for the game's replay only; the autosave still shows what was drawn", () => {
+  // A cel added to the picture between push.script and pop.script stays on
+  // screen although the game's own sequence forgets it (spec "Replay
+  // checkpoints"); the shadow is the log of what was drawn, so the resume
+  // shows the cel.
+  const host = new RecordingHost();
+  const container = buildGame();
+  container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      LOGIC_1.replace(
+        "accept.input();",
+        "accept.input(); push.script(); add.to.pic(0, 0, 0, 100, 60, 4, 0); pop.script();",
+      ),
+      { dictionary: DICT },
+    ).payload,
+  );
+  const engine = new Engine(container, host, DICT);
+  engine.tick();
+  const autosave = engine.autosaveImage();
+  assert.ok(autosave);
+  const { image, screen } = decodeHostImage(autosave);
+  const saved = decodeSave(image, engine.profile);
+  assert.ok(
+    !saved.replay.slice(0, saved.replayActive).some((pair) => pair.kind === 5),
+    "the game's sequence forgot the add.to.pic",
+  );
+  assert.ok(
+    screen?.some((pair) => pair.kind === 5),
+    "the screen sequence kept it",
+  );
+  const fresh = new Engine(buildGame(), new RecordingHost(), DICT);
+  fresh.restoreImage(autosave);
+  assert.deepEqual(Array.from(fresh.getFrame().visual), Array.from(engine.getFrame().visual));
+});
+
+test("a bare save described with the envelope's words is still a save", () => {
+  const host = new RecordingHost();
+  const engine = new Engine(buildGame(), host, DICT);
+  engine.tick();
+  const image = engine.serialize();
+  // The description is the first 31 bytes, zero-terminated typed text.
+  const named = image.slice();
+  for (let i = 0; i < 16; i++) named[i] = "MONOTIO AUTOSAVE".charCodeAt(i);
+  assert.deepEqual(decodeHostImage(named), { image: named, screen: null });
+  const fresh = new Engine(buildGame(), new RecordingHost(), DICT);
+  fresh.restoreImage(named);
+  assert.deepEqual(Array.from(fresh.vars), Array.from(engine.vars));
+  // The marker an autosave carries cannot be typed into a description.
+  const envelope = encodeHostImage(image, [{ kind: 2, value: 1 }]);
+  assert.equal(envelope[0], 0xff);
+  assert.deepEqual(decodeHostImage(envelope), { image, screen: [{ kind: 2, value: 1 }] });
 });
