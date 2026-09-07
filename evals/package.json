@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Authoring evaluations and regression checks for AGI IS HERE.",
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.22"
   },
   "scripts": {
     "eval": "promptfoo eval -c configs/genesis.mjs",

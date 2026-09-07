@@ -14,7 +14,7 @@ needs no key.
 
 Play at [agi.monotio.com](https://agi.monotio.com/), or run it locally.
 
-With Node.js 22.12 or newer, run:
+With Node.js 22.22 or newer, run:
 
 ```bash
 npm ci

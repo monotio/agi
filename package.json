@@ -14,7 +14,7 @@
     "url": "https://github.com/monotio/agi/issues"
   },
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.22"
   },
   "scripts": {
     "dev": "npm --prefix app run dev -- --port 5199",

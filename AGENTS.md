@@ -16,7 +16,7 @@ conformance detail.
 
 ## Commands
 
-Node 22.12+. Two package roots: the repo root (engine, tests, scripts) and `app/`
+Node 22.22+. Two package roots: the repo root (engine, tests, scripts) and `app/`
 (Vue shell).
 
 ```bash
