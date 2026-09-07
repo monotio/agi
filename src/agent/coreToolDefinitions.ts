@@ -2,6 +2,81 @@
 import type { ToolDefinition } from "./tools.ts";
 import { MAX_FRAMES } from "./frames.ts";
 
+/** Step vocabulary shared by playtest_room and stored game tests (write_game_tests). */
+export const PLAYTEST_STEPS_SCHEMA = {
+  type: ["array", "null"],
+  maxItems: 256,
+  items: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      action: { type: "string", enum: ["command", "move", "enter", "wait"] },
+      command: { type: ["string", "null"] },
+      direction: {
+        type: ["string", "null"],
+        enum: [
+          "up",
+          "up-right",
+          "right",
+          "down-right",
+          "down",
+          "down-left",
+          "left",
+          "up-left",
+          null,
+        ],
+      },
+      ticks: { type: ["integer", "null"], minimum: 1, maximum: 60000 },
+      captureTicks: {
+        type: ["array", "null"],
+        maxItems: 9,
+        items: { type: "integer", minimum: 1, maximum: 60000 },
+      },
+    },
+    required: ["action", "command", "direction", "ticks", "captureTicks"],
+  },
+};
+
+/** Expectations shared by playtest_room and stored game tests. */
+export const PLAYTEST_EXPECT_SCHEMA = {
+  type: ["object", "null"],
+  additionalProperties: false,
+  properties: {
+    room: { type: ["integer", "null"], minimum: 0, maximum: 255 },
+    carriedItems: {
+      type: ["array", "null"],
+      items: { type: "integer", minimum: 0, maximum: 255 },
+    },
+    flags: {
+      type: ["array", "null"],
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "integer", minimum: 0, maximum: 255 },
+          value: { type: "boolean" },
+        },
+        required: ["id", "value"],
+      },
+    },
+    vars: {
+      type: ["array", "null"],
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "integer", minimum: 0, maximum: 255 },
+          value: { type: "integer", minimum: 0, maximum: 255 },
+        },
+        required: ["id", "value"],
+      },
+    },
+    printed: { type: ["string", "null"], maxLength: 200 },
+    text: { type: ["string", "null"], maxLength: 200 },
+  },
+  required: ["room", "carriedItems", "flags", "vars", "printed", "text"],
+};
+
 export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_room_context",
@@ -366,7 +441,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "playtest_room",
     description:
-      "Run a bounded isolated playtest of `room` against staged resources. `steps` command, move, enter or wait; `expect` asserts room, inventory and flags. Null `spawnX`/`spawnY` use initialized ego; null steps checks its footprint. captureTicks samples completed ticks within that step into a composed animation sheet. Null `cycleBudget` (600) and `instructionBudget` (50000) bound the run. Missing destinations report `needs_authoring`.",
+      "Run a bounded isolated playtest of `room` against staged resources. `steps` command, move, enter or wait; `expect` asserts room, inventory, flags, variables, a printed message (`printed`) and visible text (`text`). Null `spawnX`/`spawnY` use initialized ego; null steps checks its footprint. captureTicks samples completed ticks within that step into a composed animation sheet. Null `cycleBudget` (600) and `instructionBudget` (50000) bound the run. Missing destinations report `needs_authoring`.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -381,63 +456,8 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
           minimum: 1,
           maximum: 1000000,
         },
-        steps: {
-          type: ["array", "null"],
-          maxItems: 256,
-          items: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              action: { type: "string", enum: ["command", "move", "enter", "wait"] },
-              command: { type: ["string", "null"] },
-              direction: {
-                type: ["string", "null"],
-                enum: [
-                  "up",
-                  "up-right",
-                  "right",
-                  "down-right",
-                  "down",
-                  "down-left",
-                  "left",
-                  "up-left",
-                  null,
-                ],
-              },
-              ticks: { type: ["integer", "null"], minimum: 1, maximum: 60000 },
-              captureTicks: {
-                type: ["array", "null"],
-                maxItems: 9,
-                items: { type: "integer", minimum: 1, maximum: 60000 },
-              },
-            },
-            required: ["action", "command", "direction", "ticks", "captureTicks"],
-          },
-        },
-        expect: {
-          type: ["object", "null"],
-          additionalProperties: false,
-          properties: {
-            room: { type: ["integer", "null"], minimum: 0, maximum: 255 },
-            carriedItems: {
-              type: ["array", "null"],
-              items: { type: "integer", minimum: 0, maximum: 255 },
-            },
-            flags: {
-              type: ["array", "null"],
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  id: { type: "integer", minimum: 0, maximum: 255 },
-                  value: { type: "boolean" },
-                },
-                required: ["id", "value"],
-              },
-            },
-          },
-          required: ["room", "carriedItems", "flags"],
-        },
+        steps: PLAYTEST_STEPS_SCHEMA,
+        expect: PLAYTEST_EXPECT_SCHEMA,
         room: {
           type: "integer",
         },

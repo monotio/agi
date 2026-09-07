@@ -170,7 +170,7 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
     if (!path.startsWith(root)) continue;
     const name = path.slice(root.length);
     if (
-      /^([A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/.test(
+      /^([A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|TESTS\.JSON|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/.test(
         name,
       )
     )
