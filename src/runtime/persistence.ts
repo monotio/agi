@@ -877,6 +877,71 @@ export function decodeSave(bytes: Uint8Array, profile: AgiProfile): SaveState {
   return state;
 }
 
+// ---------- host autosave envelope ----------
+
+/** Opens a host autosave; a save file starts with its description header instead. */
+const HOST_IMAGE_MAGIC = "MONOTIO AUTOSAVE";
+const HOST_IMAGE_HEADER = HOST_IMAGE_MAGIC.length + 4;
+
+/** A host autosave taken apart (see Engine.autosaveImage). */
+export interface HostImage {
+  /** The authentic save image, byte for byte what save.game writes. */
+  image: Uint8Array;
+  /**
+   * The screen sequence that rebuilds the room: every load and draw since the
+   * room began, whether or not f7 kept it out of the game's replay. Null for a
+   * bare save image, whose own replay is then the only screen there is.
+   */
+  screen: ReplayPair[] | null;
+}
+
+/**
+ * Wrap a save image with the engine's screen sequence for a host autosave.
+ * The envelope keeps the two apart so a resume restores the game's replay and
+ * capacity from the image and rebuilds the screen from the sequence; a later
+ * save.game then writes what the game recorded, not what the host needed.
+ * Layout: the 16-byte marker, u32le image length, the image, u16le pair
+ * count, the pairs as block 4 encodes them.
+ */
+export function encodeHostImage(image: Uint8Array, screen: readonly ReplayPair[]): Uint8Array {
+  if (screen.length > 0xffff)
+    throw new RangeError(`screen sequence has ${screen.length} pairs, more than the 65535 fit`);
+  const out = new Uint8Array(HOST_IMAGE_HEADER + image.length + 2 + screen.length * 2);
+  for (let i = 0; i < HOST_IMAGE_MAGIC.length; i++) out[i] = HOST_IMAGE_MAGIC.charCodeAt(i);
+  putU32(out, HOST_IMAGE_MAGIC.length, image.length);
+  out.set(image, HOST_IMAGE_HEADER);
+  let at = HOST_IMAGE_HEADER + image.length;
+  putU16(out, at, screen.length);
+  at += 2;
+  for (const pair of screen) {
+    out[at++] = pair.kind & 0xff;
+    out[at++] = pair.value & 0xff;
+  }
+  return out;
+}
+
+/** Take a host autosave apart; bytes without the marker are a bare save image. */
+export function decodeHostImage(bytes: Uint8Array): HostImage {
+  let marked = bytes.length >= HOST_IMAGE_MAGIC.length;
+  for (let i = 0; marked && i < HOST_IMAGE_MAGIC.length; i++) {
+    marked = bytes[i] === HOST_IMAGE_MAGIC.charCodeAt(i);
+  }
+  if (!marked) return { image: bytes, screen: null };
+  if (bytes.length < HOST_IMAGE_HEADER)
+    throw new RangeError("host autosave ends before its image length");
+  const imageLength = u32(bytes, HOST_IMAGE_MAGIC.length);
+  const countAt = HOST_IMAGE_HEADER + imageLength;
+  if (countAt + 2 > bytes.length) throw new RangeError("host autosave ends inside its save image");
+  const count = u16(bytes, countAt);
+  const pairBytes = bytes.length - countAt - 2;
+  if (pairBytes !== count * 2)
+    throw new RangeError(`host autosave holds ${pairBytes} pair bytes for ${count} pairs`);
+  return {
+    image: bytes.slice(HOST_IMAGE_HEADER, countAt),
+    screen: decodeBlock4(bytes.subarray(countAt + 2)),
+  };
+}
+
 /**
  * Save filename stem for a slot: the runtime signature followed by `SG.` and
  * the slot number (spec "Save names and signatures"). An empty signature

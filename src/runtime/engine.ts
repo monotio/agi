@@ -54,7 +54,9 @@ import {
   type ScreenObject,
 } from "./screenObject.ts";
 import {
+  decodeHostImage,
   decodeSave,
+  encodeHostImage,
   encodeSave,
   newObjectRecord,
   newSaveState,
@@ -1282,11 +1284,6 @@ export class Engine {
    * resume records.
    */
   serialize(): Uint8Array {
-    return this.serializeState(this.replay);
-  }
-
-  /** The save image with `pairs` as its replay sequence (see hostReplay). */
-  private serializeState(pairs: readonly ReplayPair[]): Uint8Array {
     const state = newSaveState(this.profile);
     state.description = this.saveDescription;
     for (let i = 0; i < this.signature.length && i < 7; i++) {
@@ -1303,10 +1300,10 @@ export class Engine {
     state.blockEnabled = this.blockRect ? 1 : 0;
     state.directionCoupling = this.directionCoupling;
     state.lastPicture = this.lastPicture;
-    // The capacity and the block-4 byte length must agree; a shadow record can
-    // outgrow the game's configured capacity, so the image carries the larger.
-    state.replayCapacity = Math.max(this.scriptCapacity, pairs.length);
-    state.replayActive = pairs.length;
+    // The capacity word and the block-4 byte length must agree, so the image
+    // never claims fewer slots than the pairs it holds.
+    state.replayCapacity = Math.max(this.scriptCapacity, this.replay.length);
+    state.replayActive = this.replay.length;
     state.replayCheckpoint = this.replayCheckpoint;
     let slot = 0;
     for (const [rawKey, status] of this.keymap) {
@@ -1339,7 +1336,7 @@ export class Engine {
     for (let item = 0; item < meta.entryCount; item++) {
       state.inventory[item * 3 + 2] = this.itemLocations[item]!;
     }
-    state.replay = pairs.map((pair) => ({ ...pair }));
+    state.replay = this.replay.map((pair) => ({ ...pair }));
     state.logicResume = [...this.logics.keys()].map((logic) => ({
       logic,
       offset: this.scanStart.get(logic) ?? 0,
@@ -1399,16 +1396,19 @@ export class Engine {
     if (this.modal !== null || this.persistentWindow !== null || this.printsPending > 0)
       return null;
     if (this.textMode) return null;
-    // Nothing to resume before the first room has drawn. A game that blocks
-    // the script buffer (f7, the demo pack does) records no replay pairs at
-    // all, so the shown picture is the witness, not the replay.
-    if (this.replay.length === 0 && !this.pictureShown) return null;
-    // The host image carries the shadow record: every load and draw since the
-    // room began, including the ones f7 kept out of the game's own sequence,
-    // so the restore rebuilds the room the game drew. save.game still writes
-    // the authentic sequence. A shadow that overflowed cannot rebuild it.
+    // Nothing to resume before the first room has drawn. The shadow record
+    // is the witness rather than the game's replay: a game that blocks the
+    // script buffer (f7, the demo pack does) records no replay pairs at all,
+    // and a resumed one has the sequence that rebuilt its screen but no
+    // show.pic of its own yet.
+    if (this.hostReplay.length === 0 && !this.pictureShown) return null;
+    // The host envelope wraps save.game's own image with the shadow record:
+    // every load and draw since the room began, including the ones f7 kept out
+    // of the game's sequence, so the resume rebuilds the room the game drew
+    // while the game's replay and capacity come back untouched. A shadow that
+    // overflowed cannot rebuild it.
     if (this.hostReplayOverflow) return null;
-    return this.serializeState(this.hostReplay);
+    return encodeHostImage(this.serialize(), this.hostReplay);
   }
 
   /**
@@ -1418,12 +1418,14 @@ export class Engine {
    * restores, so the abort is caught here, exactly as `reenterRoom` catches
    * the unwind `newRoom` throws.
    *
-   * A malformed or profile-mismatched image throws out of `decodeSave` before
-   * any state is replaced, so a failed restore leaves the game untouched.
+   * A malformed or profile-mismatched image throws out of `decodeHostImage` or
+   * `decodeSave` before any state is replaced, so a failed restore leaves the
+   * game untouched.
    */
-  restoreImage(image: Uint8Array): void {
+  restoreImage(bytes: Uint8Array): void {
+    const { image, screen } = decodeHostImage(bytes);
     try {
-      this.applyRestore(image);
+      this.applyRestore(image, screen);
     } catch (e) {
       if (!(e instanceof ContinuationAbort)) throw e;
     }
@@ -1435,8 +1437,9 @@ export class Engine {
    * resource sequence with recording disabled, rebind object views and refresh
    * presentation, then abort the current continuation. The room's logic is NOT
    * re-run: the screen comes from the replay sequence, not from room re-entry.
+   * A host resume passes the autosave's screen sequence to rebuild from.
    */
-  applyRestore(image: Uint8Array): never {
+  applyRestore(image: Uint8Array, screen: readonly ReplayPair[] | null = null): never {
     const s = decodeSave(image, this.profile);
     this.saveDescription = s.description;
     this.statusRefreshRequested = false;
@@ -1475,7 +1478,11 @@ export class Engine {
     this.displayBaseRow = s.displayBaseRow;
     this.keyReleaseGate = s.releaseGate;
     for (let num = 0; num < this.objects.length; num++) {
-      applyObjectRecord(this.objects[num]!, s.objects[num]);
+      const o = this.objects[num]!;
+      applyObjectRecord(o, s.objects[num]);
+      // The rebuilt screen shows each object where the save left it, so that
+      // is the rectangle its next erase restores, not where it stood before.
+      this.stampDraw(o);
     }
     const entryCount = this.inventoryMetadata().entryCount;
     for (let item = 0; item < entryCount; item++) {
@@ -1483,8 +1490,13 @@ export class Engine {
     }
     this.replay.length = 0;
     for (const pair of s.replay.slice(0, s.replayActive)) this.replay.push({ ...pair });
+    // The screen is rebuilt from the host's sequence when the image came with
+    // one (every load and draw since the room began, f7 or not); the game's
+    // own replay and capacity are the image's, untouched. Either way the
+    // sequence that rebuilt the screen is the shadow the next autosave carries.
+    const sequence = screen ?? this.replay;
     this.hostReplay.length = 0;
-    for (const pair of this.replay) this.hostReplay.push({ ...pair });
+    for (const pair of sequence) this.hostReplay.push({ ...pair });
     this.hostReplayCheckpoint = 0;
     this.hostReplayOverflow = false;
     this.parsedWords = [];
@@ -1499,7 +1511,7 @@ export class Engine {
     this.flags[F_SAID_MATCHED] = 0;
 
     // 2. Reset transient caches and replay the saved sequence.
-    this.replaySequence(s.logicResume);
+    this.replaySequence(s.logicResume, sequence);
 
     // 3. Rebind object views and refresh picture, objects, status and input.
     this.rebindObjectViews();
@@ -1525,7 +1537,7 @@ export class Engine {
    * duplicates. Kinds 6 and 7 use the ordinary ordered-discard rule, so a
    * later pair may load the same resource again and establish a new order.
    */
-  private replaySequence(resume: readonly LogicResumeRecord[]): void {
+  private replaySequence(resume: readonly LogicResumeRecord[], pairs: readonly ReplayPair[]): void {
     this.playingSound = null;
     this.soundDoneFlag = null;
     this.soundPlayback = null;
@@ -1542,7 +1554,6 @@ export class Engine {
     const recording = this.replayRecording;
     this.replayRecording = false;
     try {
-      const pairs = this.replay;
       for (let i = 0; i < pairs.length; i++) {
         const pair = pairs[i]!;
         switch (pair.kind) {

@@ -694,3 +694,55 @@ test("sprites hide game text by the rules of the screen they share", () => {
   assert.equal(cell(engine, row, col), 0, "still hidden under the sprite after the window");
   assert.equal(cell(engine, row, col + 1), 0x42);
 });
+
+test("a restore snapshots each sprite's saved rectangle at its restored position", () => {
+  // restore.game rebuilds the screen with every object where the save left it,
+  // so the rectangle its next erase restores is that one, not where the object
+  // stood before the restore. A caption written over the old spot after the
+  // restore has to survive the first update pass.
+  const cell = (engine: Engine, row: number, col: number) =>
+    engine.textCells[(row * 40 + col) * 2]!;
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) { set(f200); assignn(v0, 1); new.room.v(v0); } call.v(v0); return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      `if (isset(f5)) {
+         configure.screen(0, 23, 24); load.view(1); animate.obj(o1); set.view(o1, 1);
+         position(o1, 20, 100); draw(o1);
+       }
+       if (isset(f100)) { reset(f100); position(o1, 60, 100); }
+       if (isset(f101)) { reset(f101); display(12, 15, "CD"); }
+       return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  container.putResource(
+    "view",
+    1,
+    buildView({ loops: [{ cels: [{ width: 2, height: 1, pixels: [1, 1] }] }] }),
+  );
+  const engine = new Engine(container, host, undefined, { profile: "2.936" });
+  engine.tick();
+  engine.tick();
+  assert.equal(engine.screenObjects[1]!.x, 20);
+  const image = engine.serialize();
+  engine.flags[100] = 1;
+  engine.tick();
+  engine.tick();
+  assert.equal(engine.screenObjects[1]!.x, 60, "the sprite moved on after the save");
+  engine.restoreImage(image);
+  assert.equal(engine.screenObjects[1]!.x, 20, "the restore put it back");
+  engine.flags[101] = 1;
+  engine.tick();
+  assert.equal(cell(engine, 12, 15), 0x43, "a caption over the pre-restore spot stays");
+  assert.equal(cell(engine, 12, 16), 0x44);
+});
