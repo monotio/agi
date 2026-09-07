@@ -358,7 +358,7 @@ test("a host resume keeps the game's own replay and capacity apart from the scre
   assert.deepEqual(Array.from(bare.vars), Array.from(engine.vars));
   // A truncated envelope is refused whole rather than restored in part.
   assert.throws(() => decodeHostImage(autosave.subarray(0, autosave.length - 1)), /pair/);
-  assert.throws(() => decodeHostImage(autosave.subarray(0, 18)), /image length/);
+  assert.throws(() => decodeHostImage(autosave.subarray(0, 37)), /image length/);
 });
 
 test("pop.script forgets pairs for the game's replay only; the autosave still shows what was drawn", () => {
@@ -410,8 +410,99 @@ test("a bare save described with the envelope's words is still a save", () => {
   const fresh = new Engine(buildGame(), new RecordingHost(), DICT);
   fresh.restoreImage(named);
   assert.deepEqual(Array.from(fresh.vars), Array.from(engine.vars));
-  // The marker an autosave carries cannot be typed into a description.
+  // Framing reaches beyond the description into the first block length.
   const envelope = encodeHostImage(image, [{ kind: 2, value: 1 }]);
-  assert.equal(envelope[0], 0xff);
+  assert.deepEqual([...envelope.subarray(31, 33)], [0xff, 0xff]);
   assert.deepEqual(decodeHostImage(envelope), { image, screen: [{ kind: 2, value: 1 }] });
+});
+
+for (const blocked of [false, true]) {
+  test(`pop.script preserves painted autosave pixels with f7 ${blocked}`, () => {
+    const container = buildGame();
+    container.putResource(
+      "logic",
+      1,
+      assembleLogic(
+        LOGIC_1.replace(
+          "show.pic();",
+          `
+        show.pic();
+        ${blocked ? "set(f7);" : ""}
+        push.script();
+        add.to.pic(0, 0, 0, 100, 100, 15, 0);
+        pop.script();
+        ${blocked ? "reset(f7);" : ""}
+      `,
+        ),
+        { dictionary: DICT },
+      ).payload,
+    );
+    const engine = new Engine(container, new RecordingHost(), DICT);
+    engine.tick();
+    assert.equal(
+      engine.surface.visual[100 * 160 + 100],
+      5,
+      "the cel remains painted after pop.script",
+    );
+    const original = decodeSave(engine.serialize(), engine.profile);
+    assert.deepEqual(
+      original.replay.slice(0, original.replayActive),
+      [
+        { kind: 2, value: 1 },
+        { kind: 4, value: 1 },
+      ],
+      "the game rolled back its recording",
+    );
+    const fresh = new Engine(container, new RecordingHost(), DICT);
+    fresh.restoreImage(engine.autosaveImage()!);
+    assert.equal(
+      fresh.surface.visual[100 * 160 + 100],
+      5,
+      "host resume preserves the painted pixel",
+    );
+    assert.deepEqual(fresh.surface.visual, engine.surface.visual);
+    const resumed = decodeSave(fresh.serialize(), fresh.profile);
+    assert.deepEqual(resumed.replay, original.replay);
+    assert.equal(resumed.replayCheckpoint, original.replayCheckpoint);
+    assert.equal(resumed.replayCapacity, original.replayCapacity);
+    const second = new Engine(container, new RecordingHost(), DICT);
+    second.restoreImage(fresh.autosaveImage()!);
+    assert.deepEqual(
+      second.surface.visual,
+      engine.surface.visual,
+      "a second resume keeps the screen",
+    );
+  });
+}
+
+test("bare save descriptions cannot collide with host autosave framing", () => {
+  const engine = new Engine(buildGame(), new RecordingHost(), DICT);
+  engine.tick();
+  for (const description of [
+    "MONOTIO AUTOSAVE",
+    "MONOTIO AUTOSAVE extra",
+    "\xffMONOTIO AUTOSAVE",
+    "",
+    "x".repeat(30),
+  ]) {
+    const image = engine.serialize();
+    image.fill(0, 0, SAVE_DESCRIPTION_BYTES);
+    for (let i = 0; i < description.length; i++) image[i] = description.charCodeAt(i);
+    assert.deepEqual(decodeHostImage(image), { image, screen: null });
+    const fresh = new Engine(buildGame(), new RecordingHost(), DICT);
+    fresh.restoreImage(image);
+    assert.equal(decodeSave(fresh.serialize(), fresh.profile).description, description);
+  }
+});
+
+test("unknown host autosave versions are rejected without rewriting bytes or engine state", () => {
+  const engine = new Engine(buildGame(), new RecordingHost(), DICT);
+  engine.tick();
+  const image = engine.autosaveImage()!;
+  image[33] = 2;
+  const before = image.slice();
+  const state = engine.serialize();
+  assert.throws(() => engine.restoreImage(image), /unsupported host autosave version 2/);
+  assert.deepEqual(image, before);
+  assert.deepEqual(engine.serialize(), state);
 });
