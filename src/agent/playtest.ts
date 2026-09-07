@@ -679,6 +679,50 @@ export function playtestRoom(
         }
       }
     }
+    if (expected != null) {
+      const assertions = expected as Record<string, unknown>;
+      if (assertions["vars"] != null) {
+        if (!Array.isArray(assertions["vars"]) || assertions["vars"].length > 256)
+          throw new Error("expect.vars must be an array of at most 256 assertions.");
+        for (const value of assertions["vars"]) {
+          if (!value || typeof value !== "object")
+            throw new Error("Each variable assertion needs id and value.");
+          const id = integer(value.id, "expect.vars id", 0, 255);
+          const wanted = integer(value.value, "expect.vars value", 0, 255);
+          if (engine.vars[id] !== wanted) {
+            failures.push(`Expected v${id}=${wanted}; observed ${engine.vars[id]}.`);
+            nextSteps.push(
+              `Inspect every assignment to v${id} on the path the steps take; a counter that is reset on room entry or decremented each cycle reads differently from the value the logic stored last.`,
+            );
+          }
+        }
+      }
+      if (assertions["printed"] != null) {
+        if (typeof assertions["printed"] !== "string" || assertions["printed"].length > 200)
+          throw new Error("expect.printed must be text of at most 200 characters.");
+        const wanted = assertions["printed"];
+        if (!simulation.messages.some((message) => message.includes(wanted))) {
+          failures.push(
+            `Expected a printed message containing ${JSON.stringify(wanted)}; none did.`,
+          );
+          nextSteps.push(
+            "Compare the printed messages in details.messages with the said() handler or event that should print this text; check the words are registered and the handler's conditions hold on this path.",
+          );
+        }
+      }
+      if (assertions["text"] != null) {
+        if (typeof assertions["text"] !== "string" || assertions["text"].length > 200)
+          throw new Error("expect.text must be text of at most 200 characters.");
+        const wanted = assertions["text"];
+        const rows = Array.from({ length: 25 }, (_, row) => engine.textRow(row));
+        if (!rows.some((row) => row.includes(wanted))) {
+          failures.push(`Expected visible text containing ${JSON.stringify(wanted)}; none shown.`);
+          nextSteps.push(
+            "Compare details.text with the display call that should show it; text shows only while nothing repaints its rows, and an open window pauses the room.",
+          );
+        }
+      }
+    }
     if (failures.length)
       return simulation.result(false, "failed", failures.join(" "), { ...spawn, nextSteps });
     return simulation.result(true, steps.length ? "passed" : "not_requested", undefined, spawn);

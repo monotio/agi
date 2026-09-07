@@ -531,9 +531,14 @@ export class Engine {
   }
 
   /** Replace cartridge metadata while preserving the player's existing item locations. */
-  patchAuxiliaryFiles(files: { words?: Uint8Array; objects?: Uint8Array }): void {
+  patchAuxiliaryFiles(files: {
+    words?: Uint8Array;
+    objects?: Uint8Array;
+    tests?: Uint8Array;
+  }): void {
     const existingItems = this.inventoryMetadata().entryCount;
     if (files.words) this.container.putFile("WORDS.TOK", files.words);
+    if (files.tests) this.container.putFile("TESTS.JSON", files.tests);
     if (files.objects) {
       this.container.putFile("OBJECT", files.objects);
       this.inventoryMetaCache = null;
@@ -543,7 +548,7 @@ export class Engine {
         this.itemLocations[item] = meta.payload[item * 3 + 2] ?? 0;
       }
     }
-    if (files.words || files.objects) this.patchGen++;
+    if (files.words || files.objects || files.tests) this.patchGen++;
   }
 
   /**

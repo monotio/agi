@@ -56,7 +56,7 @@ export interface PowerUpResult {
   /** Everything it patched, in call order. */
   patched: PatchedResource[];
   /** Updated auxiliary files; these must reach the live parser, inventory and export. */
-  files?: Partial<Record<"WORDS.TOK" | "OBJECT", Uint8Array>>;
+  files?: Partial<Record<"WORDS.TOK" | "OBJECT" | "TESTS.JSON", Uint8Array>>;
 }
 
 export interface BootResources {
@@ -341,8 +341,8 @@ Answer the player's question using evidence from inspection when needed. For hin
       }
 
       const patched = changedResources(this.state, staged);
-      const files: Partial<Record<"WORDS.TOK" | "OBJECT", Uint8Array>> = {};
-      for (const name of ["WORDS.TOK", "OBJECT"] as const) {
+      const files: Partial<Record<"WORDS.TOK" | "OBJECT" | "TESTS.JSON", Uint8Array>> = {};
+      for (const name of ["WORDS.TOK", "OBJECT", "TESTS.JSON"] as const) {
         const before = this.state.getFiles().get(name);
         const after = staged.getFiles().get(name);
         if (
@@ -481,6 +481,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     const state = createAgentSessionState(container);
     state.wordsPayload = files["WORDS.TOK"];
     state.objectPayload = files["OBJECT"];
+    state.testsPayload = files["TESTS.JSON"];
     for (const [w, id] of words) {
       state.sources.words.set(w, id);
     }
@@ -777,6 +778,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         resources: changed,
         words: [...staged.sources.words],
         ...(staged.objectPayload ? { objects: Array.from(staged.objectPayload) } : {}),
+        ...(staged.testsPayload ? { tests: Array.from(staged.testsPayload) } : {}),
       });
       prepareRoomPatch(
         openContainer(this.state.getFiles()),

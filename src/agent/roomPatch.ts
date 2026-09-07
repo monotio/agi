@@ -12,9 +12,12 @@ import { parseView } from "../view/view.ts";
 import { detectProfile } from "../runtime/profile.ts";
 
 import { validateRoomInventory } from "./inventory.ts";
+import { parseGameTests } from "./gameTests.ts";
 
 export interface RoomPatch {
   objects?: Uint8Array;
+  /** Stored game tests written while authoring the room (TESTS.JSON). */
+  tests?: Uint8Array;
   resources: { kind: ResourceKind; num: number; payload: Uint8Array }[];
   words: [string, number][];
 }
@@ -107,5 +110,18 @@ export function prepareRoomPatch(
     objects = new Uint8Array(raw.objects);
     validateRoomInventory(container.files.get("OBJECT"), objects, profile);
   }
-  return { resources, words, ...(objects ? { objects } : {}) };
+  let tests: Uint8Array | undefined;
+  if (raw.tests !== undefined) {
+    if (
+      !Array.isArray(raw.tests) ||
+      raw.tests.length > 262144 ||
+      raw.tests.some(
+        (b: unknown) => typeof b !== "number" || !Number.isInteger(b) || b < 0 || b > 255,
+      )
+    )
+      throw new Error("Invalid game test bytes");
+    tests = new Uint8Array(raw.tests);
+    parseGameTests(tests);
+  }
+  return { resources, words, ...(objects ? { objects } : {}), ...(tests ? { tests } : {}) };
 }

@@ -44,6 +44,7 @@ import {
 } from "./commandReference.ts";
 import { ROOM_TOOLS, executeRoomTool } from "./roomTools.ts";
 import { AUTHORING_GUIDE_TOOL, readAuthoringGuide } from "./authoringGuide.ts";
+import { GAME_TEST_TOOLS, executeGameTestTool, rerunAffectedTests } from "./gameTests.ts";
 import { playtestRoom, validateGenesis } from "./playtest.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import {
@@ -199,6 +200,8 @@ export interface AgentSessionState {
   readonly profile: AgiProfile;
   wordsPayload?: Uint8Array | undefined;
   objectPayload?: Uint8Array | undefined;
+  /** Stored game tests (TESTS.JSON) written this session; see gameTests.ts. */
+  testsPayload?: Uint8Array | undefined;
   genesisComplete: boolean;
   /**
    * write_picture calls made per picture number this session. The harness
@@ -340,6 +343,7 @@ export function createAgentSessionState(existingContainer?: GameContainer): Agen
     profile: detectProfile(container.files),
     wordsPayload,
     objectPayload,
+    testsPayload: undefined,
     genesisComplete: false,
     pictureRounds: new Map<number, number>(),
     getFiles() {
@@ -350,6 +354,7 @@ export function createAgentSessionState(existingContainer?: GameContainer): Agen
       if (this.objectPayload) {
         files.set("OBJECT", this.objectPayload);
       }
+      if (this.testsPayload) files.set("TESTS.JSON", this.testsPayload);
       return files;
     },
   };
@@ -364,6 +369,7 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
   ...ROOM_TOOLS,
   COMMAND_REFERENCE_TOOL,
   AUTHORING_GUIDE_TOOL,
+  ...GAME_TEST_TOOLS,
   ...CORE_AGENT_TOOLS,
 ];
 
@@ -447,6 +453,25 @@ function prepareAgentToolCall(
   return { success: true, args };
 }
 
+/**
+ * A write's result carries the verdict of the stored game tests its change can
+ * affect: verdict first, so the agent sees the consequence in the same turn.
+ */
+function withGameTestVerdict(
+  session: AgentSessionState,
+  result: AgentToolResult,
+  kind: ResourceKind | "words" | "objects",
+  num: number,
+): AgentToolResult {
+  const rerun = rerunAffectedTests(session, kind, num);
+  if (!rerun) return result;
+  return {
+    ...result,
+    message: `${result.message ? `${result.message} ` : ""}Game tests: ${rerun.line}`,
+    details: { ...result.details, gameTests: rerun.outcomes },
+  };
+}
+
 /** Internal dispatch for arguments already normalized and checked against the catalog. */
 function executeValidatedAgentTool(
   session: AgentSessionState,
@@ -455,6 +480,12 @@ function executeValidatedAgentTool(
 ): AgentToolResult {
   if (name === "read_command_reference") return readCommandReference(session.profile, args);
   if (name === "read_authoring_guide") return readAuthoringGuide(args);
+  const gameTest = executeGameTestTool(session, name, args);
+  if (gameTest) {
+    if (name === "write_game_tests" && gameTest.success)
+      return { ...gameTest, details: { ...gameTest.details, updatedFiles: ["TESTS.JSON"] } };
+    return gameTest;
+  }
   let result: AgentToolResult;
   for (const field of ["offset", "limit"]) {
     const value = args[field];
@@ -488,23 +519,51 @@ function executeValidatedAgentTool(
   )[name];
   if (result.success && kind) {
     const num = Number(args["room"] ?? args["num"]);
-    return {
-      ...result,
-      details: {
-        ...result.details,
-        writtenResources: [{ kind, num }],
-        revision: resourceRevision(session.container.getResource(kind, num)),
+    return withGameTestVerdict(
+      session,
+      {
+        ...result,
+        details: {
+          ...result.details,
+          writtenResources: [{ kind, num }],
+          revision: resourceRevision(session.container.getResource(kind, num)),
+        },
       },
-    };
+      kind,
+      num,
+    );
   }
   if (result.success && (name === "write_words" || name === "write_inventory_objects"))
-    return {
-      ...result,
-      details: {
-        ...result.details,
-        updatedFiles: [name === "write_words" ? "WORDS.TOK" : "OBJECT"],
+    return withGameTestVerdict(
+      session,
+      {
+        ...result,
+        details: {
+          ...result.details,
+          updatedFiles: [name === "write_words" ? "WORDS.TOK" : "OBJECT"],
+        },
       },
-    };
+      name === "write_words" ? "words" : "objects",
+      0,
+    );
+  if (
+    result.success &&
+    (name === "write_room" || name === "write_scene" || name === "edit_resource_source")
+  ) {
+    const written = result.details?.["writtenResources"];
+    const first = Array.isArray(written)
+      ? ((written.find((entry) => entry?.kind === "logic") ?? written[0]) as
+          { kind: ResourceKind; num: number } | undefined)
+      : undefined;
+    const target =
+      first ??
+      (name === "edit_resource_source"
+        ? { kind: args["kind"] as ResourceKind, num: Number(args["num"]) }
+        : typeof args["room"] === "number"
+          ? { kind: "logic" as ResourceKind, num: args["room"] }
+          : undefined);
+    if (target) return withGameTestVerdict(session, result, target.kind, target.num);
+  }
   if (result.success && (name === "read_logic" || name === "read_picture")) {
     const full = String(result.details?.["source"] ?? "");
     const lines = full.split("\n");
@@ -1352,6 +1411,8 @@ export const ASK_TOOLS: readonly string[] = [
   "preview_sound",
   "read_command_reference",
   "read_authoring_guide",
+  "read_game_tests",
+  "run_game_tests",
   "inspect_world_bible",
   "playtest_room",
   "read_frames",

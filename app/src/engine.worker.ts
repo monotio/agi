@@ -353,7 +353,11 @@ const host: EngineHost = {
       liveDictionary.clear();
       for (const [word, id] of patch.words) liveDictionary.set(word, id);
       authoredWords = words;
-      engine.patchAuxiliaryFiles({ words, ...(patch.objects ? { objects: patch.objects } : {}) });
+      engine.patchAuxiliaryFiles({
+        words,
+        ...(patch.objects ? { objects: patch.objects } : {}),
+        ...(patch.tests ? { tests: patch.tests } : {}),
+      });
       return true;
     } catch (error) {
       self.postMessage({ type: "log", text: `Room ${room} authoring failed: ${String(error)}` });
@@ -781,12 +785,17 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "patchMetadata" && engine) {
-      const files = msg.files as Partial<Record<"WORDS.TOK" | "OBJECT", Uint8Array>>;
+      const files = msg.files as Partial<Record<"WORDS.TOK" | "OBJECT" | "TESTS.JSON", Uint8Array>>;
       const words = files["WORDS.TOK"] ? new Uint8Array(files["WORDS.TOK"]) : undefined;
       const objects = files["OBJECT"] ? new Uint8Array(files["OBJECT"]) : undefined;
+      const tests = files["TESTS.JSON"] ? new Uint8Array(files["TESTS.JSON"]) : undefined;
       // Validate the dictionary before changing either the container or parser.
       const entries = words ? parseWordsTok(words) : undefined;
-      engine.patchAuxiliaryFiles({ ...(words ? { words } : {}), ...(objects ? { objects } : {}) });
+      engine.patchAuxiliaryFiles({
+        ...(words ? { words } : {}),
+        ...(objects ? { objects } : {}),
+        ...(tests ? { tests } : {}),
+      });
       if (entries && words) {
         liveDictionary.clear();
         for (const { word, id } of entries) liveDictionary.set(word, id);
