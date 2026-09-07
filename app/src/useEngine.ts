@@ -12,6 +12,14 @@ import { createBridge, type AgentHandler, type Bridge } from "./agent/sabBridge.
 import { AgentSession } from "./agent/agentSession.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import type { AgentFrame, FrameRequest } from "../../src/agent/frames.ts";
+import { executeAgentTool } from "../../src/agent/tools.ts";
+import {
+  buildRecordedTest,
+  type AssertionSuggestion,
+  type RecordedEvent,
+  type RecorderStateSnapshot,
+  type RecordingSnapshot,
+} from "./gameRecording.ts";
 import type { RingFrame } from "./frameRing.ts";
 import { AgiAudio, type AudioMode } from "./audio/AgiAudio.ts";
 import { isProgressPreview } from "./progressPreview.ts";
@@ -130,6 +138,8 @@ export interface EngineState {
   powerUp: PowerUpUiState;
   /** This boot restored an autosave: the resume caption is showing. */
   resumed: boolean;
+  /** Player-action recording for a stored game test. */
+  recording: { active: boolean; starting: boolean; error: string };
 }
 
 /** Remix bubble state; the transcript slice is the live tool-call feed. */
@@ -249,6 +259,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       error: "",
     },
     resumed: false,
+    recording: { active: false, starting: false, error: "" },
   });
 
   let worker: Worker | null = null;
@@ -452,6 +463,8 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   let lastAutosave: AutosaveRecord | null = null;
   let autosaveWrite: Promise<boolean> = Promise.resolve(true);
   let remixNeedsSave = false;
+  /** Record-start capture of the active game-test recording, if one is running. */
+  let recordingStart: RecordingSnapshot["start"] | null = null;
   /** Resolvers waiting for the worker to acknowledge a flush request. */
   const flushWaiters = new Map<number, (saved: boolean) => void>();
 
@@ -699,9 +712,12 @@ export function useEngine(onFrame: (frame: Frame) => void) {
 
   function resetScreenState(): void {
     lastAutosave = null;
-    remixNeedsSave = false;
     state.powerUp.open = false;
     state.powerUp.busy = false;
+    recordingStart = null;
+    state.recording.active = false;
+    state.recording.starting = false;
+    state.recording.error = "";
     audio.setPaused(false);
     state.paused = false;
     state.resumed = false;
@@ -1009,6 +1025,12 @@ export function useEngine(onFrame: (frame: Frame) => void) {
           // the game is already running its normal boot behind this.
           logAgent("log", `Autosave discarded (${String(msg.message)}); starting a fresh game.`);
           if (booted) clearAutosave(booted.slug);
+        }
+      } else if (msg.type === "recordingStarted" || msg.type === "recordingStopped") {
+        const resolve = pendingQueries.get(Number(msg.id));
+        if (resolve) {
+          pendingQueries.delete(Number(msg.id));
+          resolve(msg);
         }
       } else if (msg.type === "log") {
         logAgent("log", String(msg.text));
@@ -1727,6 +1749,141 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     worker.postMessage({ type: "key", id, code });
   }
 
+  /**
+   * Start capturing player actions for a stored game test. The worker takes
+   * the record-start save image at a safe cycle boundary and stamps every
+   * later action with the interpreter cycle; refusal (an open window, a text
+   * screen, a blocking prompt) lands in state.recording.error.
+   */
+  async function startTestRecording(): Promise<void> {
+    state.recording.error = "";
+    if (!worker || state.phase !== "running") return;
+    if (
+      state.powerUp.open ||
+      state.powerUp.busy ||
+      state.modal !== null ||
+      state.prompt !== null ||
+      state.waitingForKey
+    ) {
+      state.recording.error =
+        "Close the open window, prompt or assistant before recording a game test.";
+      return;
+    }
+    state.recording.starting = true;
+    try {
+      const reply = await query<{
+        ok: boolean;
+        image?: string;
+        cycle?: number;
+        state?: RecorderStateSnapshot;
+        error?: string;
+      }>("startRecording");
+      if (!reply.ok || !reply.image || reply.cycle === undefined || !reply.state) {
+        state.recording.error = String(reply.error ?? "Recording could not start.");
+        return;
+      }
+      recordingStart = { image: reply.image, cycle: reply.cycle, state: reply.state };
+      state.recording.active = true;
+      logAgent(
+        "log",
+        `Recording a game test from room ${reply.state.room}, cycle ${reply.cycle}.`,
+      );
+    } finally {
+      state.recording.starting = false;
+    }
+  }
+
+  /** Stop capturing and return everything the worker recorded, or null. */
+  async function stopTestRecording(): Promise<RecordingSnapshot | null> {
+    if (!state.recording.active || !recordingStart) return null;
+    const reply = await query<{
+      events?: RecordedEvent[];
+      printed?: string[];
+      tainted?: string | null;
+      usedGetnum?: boolean;
+      cycle?: number;
+      state?: RecorderStateSnapshot | null;
+    }>("stopRecording");
+    state.recording.active = false;
+    const start = recordingStart;
+    recordingStart = null;
+    if (!reply.state || reply.cycle === undefined) return null;
+    return {
+      start,
+      events: reply.events ?? [],
+      printed: reply.printed ?? [],
+      endState: reply.state,
+      endCycle: reply.cycle,
+      tainted: reply.tainted ?? null,
+      usedGetnum: Boolean(reply.usedGetnum),
+    };
+  }
+
+  /** Discard the active recording without saving anything. */
+  function cancelTestRecording(): void {
+    if (!state.recording.active) return;
+    worker?.postMessage({ type: "cancelRecording" });
+    state.recording.active = false;
+    recordingStart = null;
+    logAgent("log", "Game test recording discarded.");
+  }
+
+  /**
+   * Store a recorded test through the SAME write path write_game_tests uses
+   * (validation, dictionary probe, TESTS.JSON serialization), then ship and
+   * persist the updated file exactly like a remix. On an installed or catalog
+   * game this is the established remix conversion: the project becomes a
+   * writable cartridge copy, since originals cannot store tests.
+   */
+  async function saveRecordedTest(
+    snapshot: RecordingSnapshot,
+    name: string,
+    selected: readonly AssertionSuggestion[],
+    config: LlmConfig,
+  ): Promise<{ ok: boolean; message: string }> {
+    const game = booted;
+    if (!game || !worker) return { ok: false, message: "No game is running." };
+    if (!session) {
+      const cached = game.installed
+        ? await loadGameConversation(game.slug)
+        : await loadAuthoredCartridge(game.slug);
+      session = AgentSession.fromAuthoredData(
+        config,
+        logAgent,
+        game.files,
+        game.words,
+        cached ? continuationTranscript(cached, config.provider, config.model) : undefined,
+        cached?.provider === config.provider && cached.model === config.model
+          ? cached.sessionId
+          : undefined,
+        cached?.authoringState,
+      );
+    }
+    const author = session;
+    const result = executeAgentTool(author.state, "write_game_tests", {
+      mode: "merge",
+      names: null,
+      tests: [buildRecordedTest(name, snapshot, selected)],
+    });
+    if (!result.success)
+      return { ok: false, message: result.error ?? "The recorded test was rejected." };
+    remixNeedsSave = true;
+    worker.postMessage({
+      type: "patchMetadata",
+      files: { "TESTS.JSON": new Uint8Array(author.state.testsPayload!) },
+    });
+    const files = await query<Record<string, Uint8Array> | null>("exportFiles");
+    if (!files || booted !== game)
+      return { ok: false, message: "The game changed while saving the recording. Try again." };
+    await persistRemix(game, author, files);
+    await flushAutosave(2000);
+    logAgent("response", `[Record] ${result.message}`, {
+      tool: "write_game_tests",
+      args: { name },
+    });
+    return { ok: true, message: result.message ?? "Recorded test stored." };
+  }
+
   function toggleMute(): boolean {
     const muted = audio.toggleMute();
     state.soundMuted = muted;
@@ -1781,6 +1938,10 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     isInstalledGame,
     currentGame,
     exportCurrentGame,
+    startTestRecording,
+    stopTestRecording,
+    cancelTestRecording,
+    saveRecordedTest,
     resumeLastGame,
     resumeFromRecord,
     startOver,

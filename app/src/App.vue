@@ -59,6 +59,11 @@ import {
   movementDirection,
 } from "./gameControls.ts";
 import { copyAiSettings, loadAiSettings, saveAiSettings, type AiSettings } from "./aiSettings.ts";
+import {
+  suggestAssertions,
+  type AssertionSuggestion,
+  type RecordingSnapshot,
+} from "./gameRecording.ts";
 
 const canvas = useTemplateRef("canvas");
 const testMode = import.meta.env.MODE === "test";
@@ -332,6 +337,10 @@ const {
   continueAgent,
   discardAgent,
   exportCurrentGame,
+  startTestRecording,
+  stopTestRecording,
+  cancelTestRecording,
+  saveRecordedTest,
   resumeLastGame,
   resumeFromRecord,
   startOver,
@@ -917,6 +926,68 @@ async function onExportAgiZip(live = false, project = false): Promise<void> {
     exportRefusal.value = `Download failed: ${String(error).replace(/^Error: /, "")}`;
   } finally {
     exportBusy.value = false;
+  }
+}
+
+/** Game-test recording: the worker captures; this dialog names and saves. */
+const recordDialog = useTemplateRef<HTMLDialogElement>("recordDialog");
+const recordSnapshot = ref<RecordingSnapshot | null>(null);
+const recordSuggestions = ref<AssertionSuggestion[]>([]);
+const recordName = ref("");
+const recordError = ref("");
+const recordResult = ref("");
+const recordSaving = ref(false);
+
+async function onRecordStart(): Promise<void> {
+  recordResult.value = "";
+  resumeAudio();
+  await startTestRecording();
+}
+
+async function onRecordStop(): Promise<void> {
+  const snapshot = await stopTestRecording();
+  if (!snapshot) return;
+  if (snapshot.tainted) {
+    recordResult.value = "";
+    state.recording.error = `Recording discarded: ${snapshot.tainted}.`;
+    return;
+  }
+  recordSnapshot.value = snapshot;
+  recordSuggestions.value = suggestAssertions(
+    snapshot.start.state,
+    snapshot.endState,
+    snapshot.printed,
+  );
+  recordName.value = "";
+  recordError.value = "";
+  recordDialog.value?.showModal();
+}
+
+async function onRecordSave(): Promise<void> {
+  const snapshot = recordSnapshot.value;
+  const name = recordName.value.trim();
+  if (!snapshot) return;
+  if (!name) {
+    recordError.value = "Name the test before saving it.";
+    return;
+  }
+  recordSaving.value = true;
+  recordError.value = "";
+  try {
+    const result = await saveRecordedTest(
+      snapshot,
+      name,
+      recordSuggestions.value.filter((suggestion) => suggestion.selected),
+      llmConfig(),
+    );
+    if (!result.ok) {
+      recordError.value = result.message;
+      return;
+    }
+    recordDialog.value?.close();
+    recordResult.value = result.message;
+  } finally {
+    recordSaving.value = false;
   }
 }
 
@@ -1855,6 +1926,15 @@ watch(
           <button type="button" role="menuitem" data-testid="btn-start-over" @click="onStartOver">
             Start over
           </button>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="btn-record-test"
+            :disabled="state.recording.active || state.recording.starting || state.powerUp.busy"
+            @click="onRecordStart"
+          >
+            <span>Record as game test<small>Replayable project regression test</small></span>
+          </button>
           <div role="separator"></div>
           <button
             type="button"
@@ -1901,6 +1981,99 @@ watch(
     <p v-if="exportRefusal" class="export-refusal" data-testid="export-refusal" role="alert">
       {{ exportRefusal }}
     </p>
+    <div
+      v-if="state.recording.active"
+      class="recording-bar"
+      data-testid="recording-bar"
+      role="status"
+    >
+      <span class="recording-dot" aria-hidden="true"></span>
+      <span>Recording game test</span>
+      <button
+        type="button"
+        class="ui-button ui-button--primary"
+        data-testid="record-stop"
+        @click="onRecordStop"
+      >
+        Stop and name
+      </button>
+      <button
+        type="button"
+        class="ui-button ui-button--secondary"
+        data-testid="record-cancel"
+        @click="cancelTestRecording"
+      >
+        Cancel
+      </button>
+    </div>
+    <p v-if="state.recording.error" class="export-refusal" data-testid="record-error" role="alert">
+      {{ state.recording.error }}
+    </p>
+    <p v-if="recordResult" class="record-result" data-testid="record-result" role="status">
+      {{ recordResult }}
+    </p>
+    <dialog
+      ref="recordDialog"
+      class="record-dialog"
+      aria-labelledby="record-dialog-title"
+      data-testid="record-dialog"
+    >
+      <form method="dialog" @submit.prevent="onRecordSave">
+        <header>
+          <h2 id="record-dialog-title">Save as game test</h2>
+        </header>
+        <label for="record-name">Name</label>
+        <input
+          id="record-name"
+          v-model="recordName"
+          data-testid="record-name"
+          maxlength="60"
+          autocomplete="off"
+          placeholder="what this playthrough proves"
+        />
+        <p v-if="recordSnapshot?.usedGetnum" class="record-warning" data-testid="record-warning">
+          This recording answered a get.number prompt, which stored tests cannot replay yet; the
+          saved test will need editing.
+        </p>
+        <fieldset v-if="recordSuggestions.length" class="record-assertions">
+          <legend>Assertions from this playthrough</legend>
+          <label
+            v-for="suggestion in recordSuggestions"
+            :key="suggestion.id"
+            class="record-assertion"
+          >
+            <input
+              v-model="suggestion.selected"
+              type="checkbox"
+              :data-testid="`record-check-${suggestion.id}`"
+            />
+            {{ suggestion.label }}
+          </label>
+        </fieldset>
+        <p v-if="recordError" class="dialog-error" role="alert" data-testid="record-save-error">
+          {{ recordError }}
+        </p>
+        <footer>
+          <button
+            type="button"
+            class="ui-button ui-button--secondary"
+            data-testid="record-save-cancel"
+            :disabled="recordSaving"
+            @click="recordDialog?.close()"
+          >
+            Discard
+          </button>
+          <button
+            type="submit"
+            class="ui-button ui-button--primary"
+            data-testid="record-save"
+            :disabled="recordSaving"
+          >
+            {{ recordSaving ? "Saving…" : "Save test" }}
+          </button>
+        </footer>
+      </form>
+    </dialog>
 
     <section
       v-if="state.phase === 'idle' || state.phase === 'error'"
@@ -2619,7 +2792,7 @@ watch(
           class="power-up"
           :class="{ armed: state.powerUp.open }"
           data-testid="power-up"
-          :disabled="creatingRoom && state.powerUp.open"
+          :disabled="(creatingRoom && state.powerUp.open) || state.recording.active"
           :aria-label="
             creatingRoom && state.powerUp.open
               ? 'Creating the next room'
@@ -3078,6 +3251,86 @@ watch(
   font-size: 12px;
   color: #8da4ac;
   margin-top: 10px;
+}
+.recording-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border: 1px solid #7a2a2a;
+  border-radius: 8px;
+  background: #2a1515;
+  color: #ffd9d9;
+  font-size: 13px;
+}
+.recording-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff4444;
+  animation: recording-pulse 1.2s ease-in-out infinite;
+}
+@keyframes recording-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+.record-result {
+  color: #9fe6a0;
+  font-size: 12px;
+  margin: 6px 0 0;
+}
+.record-dialog {
+  background: #101d22;
+  color: #e3ecee;
+  border: 1px solid #2a4048;
+  border-radius: 10px;
+  padding: 18px 20px;
+  width: min(480px, 92vw);
+}
+.record-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+.record-dialog h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+.record-dialog input[id="record-name"] {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 4px 0 12px;
+  padding: 6px 8px;
+  background: #0a1418;
+  color: inherit;
+  border: 1px solid #2a4048;
+  border-radius: 6px;
+}
+.record-assertions {
+  border: 1px solid #2a4048;
+  border-radius: 8px;
+  margin: 0 0 12px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.record-assertion {
+  display: block;
+  font-size: 13px;
+  margin: 4px 0;
+}
+.record-warning {
+  color: #ffd977;
+  font-size: 12px;
+}
+.dialog-error {
+  color: #ff9b9b;
+  font-size: 13px;
+}
+.record-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 .agent-activity summary {
   cursor: pointer;

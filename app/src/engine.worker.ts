@@ -6,6 +6,8 @@
  *   { type: "boot", files, words, sab, autosaveMs?, autosaveFiles?, restoreImage? }
  *   { type: "input", text: string }        player pressed Enter on the input line
  *   { type: "direction", dir: number }     movement key press (0 = tracked key release)
+ *   { type: "startRecording" / "stopRecording" / "cancelRecording", id }
+ *                                          player-action capture for a stored game test
  *   { type: "flush" }                      take an autosave now (page is going away)
  *
  * Messages out:
@@ -33,13 +35,13 @@
  *   { type: "booted", profile }            first cycles completed
  *   { type: "error", message }
  *
- * Blocking (SAB bridge, see agent/sabBridge.ts):
- *   op "getnum" / "getstring"              0x76 / 0x73 modal input prompts
  *   op "restore"                           0x7e fetch a base64 save image, or "" for none
  */
 import { prepareRoomPatch } from "../../src/agent/roomPatch.ts";
 import { buildWordsTok, parseWordsTok } from "../../src/logic/words.ts";
 import { openContainer } from "../../src/container/container.ts";
+import { decodeHostImage } from "../../src/runtime/persistence.ts";
+import type { RecordedEvent } from "./gameRecording.ts";
 import { Engine, type EngineHost, type EngineMenuState } from "../../src/runtime/engine.ts";
 import { BRIDGE_HEADER_BYTES, BRIDGE_PAUSE_SLOT } from "./agent/sabBridge.ts";
 import { FrameRing } from "./frameRing.ts";
@@ -103,6 +105,19 @@ let inputBuffer: string[] = [];
 let keyBuffer: number[] = [];
 /** Admitted walking releases and later walking keys wait for ordinary input. */
 const deferredMovement: number[] = [];
+
+/**
+ * The active player-action recording for a stored game test (see
+ * gameRecording.ts): every player action the interpreter receives, stamped
+ * with the interpreter cycle at the moment it arrives, plus the messages the
+ * game printed while recording. null while not recording.
+ */
+let recording: {
+  events: RecordedEvent[];
+  printed: string[];
+  tainted: string | null;
+  usedGetnum: boolean;
+} | null = null;
 let lastKeyId = 0;
 let timer: number | null = null;
 let soundTimer: number | null = null;
@@ -269,6 +284,14 @@ function bridgeCall(op: string, context: string): string {
     const len = Atomics.load(bridge.i32, 1);
     const response = new TextDecoder().decode(bridge.bytes.slice(0, len));
     Atomics.store(bridge.i32, 0, 0); // reset for the next call
+    if (recording && (op === "getstring" || op === "getnum")) {
+      recording.usedGetnum ||= op === "getnum";
+      recording.events.push({ cycle: cycleCount, kind: "answer", text: response });
+    } else if (recording && op === "restore" && response) {
+      // A restore replaces the interpreter state mid-recording; the captured
+      // steps no longer describe the live game.
+      recording.tainted = "the game was restored mid-recording";
+    }
     return response;
   } finally {
     if (authoring) {
@@ -285,6 +308,7 @@ const host: EngineHost = {
     return replay.random >>> 16;
   },
   print(text) {
+    if (recording && recording.printed.length < 16) recording.printed.push(text.slice(0, 400));
     self.postMessage({ type: "print", text });
   },
   displayAt(row, col, text) {
@@ -315,11 +339,16 @@ const host: EngineHost = {
         if (key.id <= lastKeyId) continue;
         lastKeyId = key.id;
         self.postMessage({ type: "keyAccepted", id: key.id });
-        return key.code & 0xffff;
+        const accepted = key.code & 0xffff;
+        // A key claimed by the blocking wait never arrives as a key message.
+        recording?.events.push({ cycle: cycleCount, kind: "key", code: accepted });
+        return accepted;
       }
       // Direct host/test bridges retain the original numeric reply contract.
       const code = Number.parseInt(res, 10);
-      return Number.isFinite(code) ? code : 0x000d;
+      const fallback = Number.isFinite(code) ? code : 0x000d;
+      recording?.events.push({ cycle: cycleCount, kind: "key", code: fallback });
+      return fallback;
     }
   },
   statusLine(text) {
@@ -620,6 +649,60 @@ self.onmessage = (ev: MessageEvent) => {
       });
       return;
     }
+    if (msg.type === "startRecording") {
+      if (!engine) {
+        self.postMessage({
+          type: "recordingStarted",
+          id: msg.id,
+          ok: false,
+          error: "No game is running.",
+        });
+        return;
+      }
+      // The same safe-boundary gates an autosave uses: a modal window, a text
+      // screen or the pre-first-room gap cannot resume from a save image.
+      const hostImage = engine.autosaveImage();
+      if (!hostImage) {
+        self.postMessage({
+          type: "recordingStarted",
+          id: msg.id,
+          ok: false,
+          error:
+            "Recording needs a quiet moment: close the open window or text screen and let the room draw.",
+        });
+        return;
+      }
+      recording = { events: [], printed: [], tainted: null, usedGetnum: false };
+      self.postMessage({
+        type: "recordingStarted",
+        id: msg.id,
+        ok: true,
+        // The stored format carries the raw save image, not the host envelope.
+        image: bytesToBase64(decodeHostImage(hostImage).image),
+        cycle: cycleCount,
+        state: engine.readState(),
+      });
+      return;
+    }
+    if (msg.type === "stopRecording") {
+      const taken = recording;
+      recording = null;
+      self.postMessage({
+        type: "recordingStopped",
+        id: msg.id,
+        events: taken?.events ?? [],
+        printed: taken?.printed ?? [],
+        tainted: taken?.tainted ?? null,
+        usedGetnum: taken?.usedGetnum ?? false,
+        cycle: cycleCount,
+        state: engine ? engine.readState() : null,
+      });
+      return;
+    }
+    if (msg.type === "cancelRecording") {
+      recording = null;
+      return;
+    }
     if (msg.type === "exportFiles") {
       // Explicit local downloads work even while a print window is open.
       const files: Record<string, Uint8Array> | null = engine ? {} : null;
@@ -662,6 +745,7 @@ self.onmessage = (ev: MessageEvent) => {
       inputBuffer = [];
       keyBuffer = [];
       deferredMovement.length = 0;
+      recording = null;
       lastKeyId = 0;
       lastVisual = null;
       lastText = null;
@@ -821,7 +905,9 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "input") {
-      inputBuffer.push(String(msg.text));
+      const text = String(msg.text);
+      recording?.events.push({ cycle: cycleCount, kind: "command", text });
+      inputBuffer.push(text);
       return;
     }
     if (msg.type === "edit" && engine) {
@@ -845,6 +931,7 @@ self.onmessage = (ev: MessageEvent) => {
       }
       flushDeferredMovement();
       const key = Number(msg.code) & 0xffff;
+      recording?.events.push({ cycle: cycleCount, kind: "key", code: key });
       if (
         deferredMovement.length > 0 &&
         engine?.modalKind === null &&
@@ -861,23 +948,30 @@ self.onmessage = (ev: MessageEvent) => {
         const eligible =
           typeof msg.releaseEligible === "boolean" ? msg.releaseEligible : engine.releaseGate !== 0;
         if (eligible && deferredMovement.length < 19) deferredMovement.push(0);
+        if (eligible) recording?.events.push({ cycle: cycleCount, kind: "release" });
         flushDeferredMovement();
         return;
       }
+      const dirKey = [0, 0x4800, 0x4900, 0x4d00, 0x5100, 0x5000, 0x4f00, 0x4b00, 0x4700][dir];
       if (engine.modalKind !== null) {
-        // Arrows steer the open modal (inventory selection, menu) instead of ego.
-        if (dir !== 0) {
-          engine.modalNavigate(dir);
-          postFrame();
-        }
+        // Arrows steer the open modal (inventory selection, menu) instead of
+        // ego; the direction key word replays the same navigation.
+        if (dirKey !== undefined)
+          recording?.events.push({ cycle: cycleCount, kind: "key", code: dirKey });
+        engine.modalNavigate(dir);
+        postFrame();
         return;
       }
       flushDeferredMovement();
-      const key = [0, 0x4800, 0x4900, 0x4d00, 0x5100, 0x5000, 0x4f00, 0x4b00, 0x4700][dir];
-      if (key !== undefined) {
+      if (dirKey !== undefined) {
+        // Hold-to-move games keep the heading until the release; tap games
+        // toggle it with the key word itself, exactly as the runner replays.
+        if (engine.releaseGate !== 0)
+          recording?.events.push({ cycle: cycleCount, kind: "direction", dir });
+        else recording?.events.push({ cycle: cycleCount, kind: "key", code: dirKey });
         if (deferredMovement.length > 0) {
-          if (deferredMovement.length < 19) deferredMovement.push(key);
-        } else keyBuffer.push(key);
+          if (deferredMovement.length < 19) deferredMovement.push(dirKey);
+        } else keyBuffer.push(dirKey);
       }
       return;
     }
