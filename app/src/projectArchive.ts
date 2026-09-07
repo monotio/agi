@@ -24,7 +24,7 @@ function gameEntries(
   if (!packed.has("OBJECT")) packed.set("OBJECT", buildObjectFile([], detectProfile(packed)));
   const entries = [...packed]
     .filter(([name]) =>
-      /^([A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/i.test(
+      /^([A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|TESTS\.JSON|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/i.test(
         name,
       ),
     )

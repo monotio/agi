@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readGameFiles } from "../app/src/gameZip.ts";
+import { readGameFiles, readGameZip } from "../app/src/gameZip.ts";
+import { buildProjectZip, buildPublicGameZip } from "../app/src/projectArchive.ts";
 import {
   GAME_TESTS_FILE,
   GAME_TESTS_FORMAT,
@@ -244,4 +245,22 @@ test("TESTS.JSON survives a ZIP import beside the game files", () => {
   for (const [name, bytes] of state.getFiles()) files.set(`Game/${name}`, bytes);
   const opened = readGameFiles(files);
   assert.deepEqual(parseGameTests(opened.files[GAME_TESTS_FILE]).tests, [takeKey]);
+});
+
+test("TESTS.JSON travels in the game export and the project archive", async () => {
+  const state = world();
+  executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [takeKey] });
+  const data = {
+    slug: "world",
+    title: "World",
+    authoredAt: "2026-09-07T00:00:00.000Z",
+    provider: "stub",
+    model: "local-playback",
+    files: Object.fromEntries(state.getFiles()),
+    words: [...DICTIONARY] as [string, number][],
+  };
+  const published = await readGameZip(buildPublicGameZip(data));
+  assert.deepEqual(parseGameTests(published.files[GAME_TESTS_FILE]).tests, [takeKey]);
+  const project = await readGameZip(await buildProjectZip(data));
+  assert.deepEqual(parseGameTests(project.files[GAME_TESTS_FILE]).tests, [takeKey]);
 });
