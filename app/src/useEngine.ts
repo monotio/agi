@@ -14,7 +14,13 @@ import type { LlmConfig } from "./agent/llmClient.ts";
 import type { AgentFrame, FrameRequest } from "../../src/agent/frames.ts";
 import type { RingFrame } from "./frameRing.ts";
 import { AgiAudio, type AudioMode } from "./audio/AgiAudio.ts";
-import { isProgressPreview, storeRecordWithPreviewFallback } from "./progressPreview.ts";
+import { isProgressPreview } from "./progressPreview.ts";
+import {
+  autosaveKey,
+  parseAutosaveRecord,
+  writeAutosave,
+  type AutosaveRecord,
+} from "./gameProgress.ts";
 import {
   clearCachedCartridge,
   saveAuthoredCartridge,
@@ -156,78 +162,23 @@ export interface Frame {
  * Autosave. A separate, per-game slot:
  * the player's F5 slot is theirs and is never written behind their back, so
  * the two never share a key. `monotio_agi.lastGame` names the slug to resume.
+ * The record and its store live in gameProgress.ts, since a project archive
+ * carries them too.
  */
-const AUTOSAVE_PREFIX = "monotio_agi.autosave.";
 const LAST_GAME_KEY = "monotio_agi.lastGame";
 /** How long the "Resumed where you left off" caption stays up. */
 const RESUME_CAPTION_MS = 10_000;
 
-/** One stored autosave: the save-file image plus what it takes to boot into it. */
-export interface AutosaveRecord {
-  format: "monotio.agi.autosave";
-  version: 1;
-  /** base64 of the authentic save envelope (the bytes save.game would write). */
-  image: string;
-  /** Exact composed engine frame captured with this save image, when available. */
-  preview?: string;
-  /** Menus are session state and are not present in the AGI save envelope. */
-  menus?: EngineMenuState;
-  cycle: number;
-  room: number;
-  savedAt: number;
-  game: { slug: string; installed: boolean; revision: string };
-}
-
-export function autosaveKey(slug: string): string {
-  return `${AUTOSAVE_PREFIX}${slug}`;
-}
+export { autosaveKey, writeAutosave };
+export type { AutosaveRecord };
 
 /** Every storage read is a maybe: a blocked, full or corrupt store is normal. */
 export function readAutosave(slug: string): AutosaveRecord | null {
   try {
-    const raw = localStorage.getItem(autosaveKey(slug));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as AutosaveRecord;
-    if (parsed?.format !== "monotio.agi.autosave" || parsed.version !== 1) return null;
-    if (typeof parsed.image !== "string" || !parsed.image) return null;
-    if (!Number.isInteger(parsed.room) || parsed.room < 0 || parsed.room > 255) return null;
-    if (!Number.isInteger(parsed.cycle) || parsed.cycle < 0 || !Number.isFinite(parsed.savedAt))
-      return null;
-    if (typeof parsed.game?.installed !== "boolean" || !/^[a-f0-9]{64}$/.test(parsed.game.revision))
-      return null;
-    if (parsed?.game?.slug !== slug) return null;
-    if (!isProgressPreview(parsed.preview)) delete parsed.preview;
-    return parsed;
+    const parsed = parseAutosaveRecord(localStorage.getItem(autosaveKey(slug)));
+    return parsed?.game.slug === slug ? parsed : null;
   } catch {
     return null;
-  }
-}
-
-/**
- * Never replace a checkpoint whose format this release cannot understand. A
- * record without a recognised format (pre-release, or corrupt JSON) protects
- * nothing and is replaced, so a stale slot cannot block autosave for good.
- */
-export function writeAutosave(
-  storage: Pick<Storage, "getItem" | "setItem">,
-  record: AutosaveRecord,
-): AutosaveRecord | null {
-  const key = autosaveKey(record.game.slug);
-  try {
-    const raw = storage.getItem(key);
-    if (raw !== null && isFutureAutosave(raw)) return null;
-    return storeRecordWithPreviewFallback(storage, key, record);
-  } catch {
-    return null;
-  }
-}
-
-function isFutureAutosave(raw: string): boolean {
-  try {
-    const existing = JSON.parse(raw) as Partial<AutosaveRecord> | null;
-    return existing?.format === "monotio.agi.autosave" && existing.version !== 1;
-  } catch {
-    return false;
   }
 }
 

@@ -1,4 +1,5 @@
 import { gameRevision, isLocalGamePreview, type LibraryMetadata } from "./gameMetadata.ts";
+import { storeImportedProgress } from "./gameProgress.ts";
 import {
   loadAuthoredCartridge,
   saveAuthoredCartridge,
@@ -84,6 +85,7 @@ export async function addLibraryGame(
     throw new Error(
       "Your browser could not save this game. Free some storage space and try again.",
     );
+  if (game.progress) storeImportedProgress(localStorage, slug, revision, game.progress);
   return slug;
 }
 

@@ -339,7 +339,12 @@ resources and version-1 `GAME.JSON`, whose nested public metadata allowlist is
 Neither format changes resource IDs or the game's container format; public game
 exports exclude conversations, source descriptions, local previews, opening
 validation and the stored game tests (`TESTS.JSON`, format `monotio.agi.tests.v1`),
-which are walkthroughs and travel only with the project. Do not infer a license for imported resources when none is declared.
+which are walkthroughs and travel only with the project. The project also carries
+the player's progress under `SAVES/`: the twelve slots as raw AGI save images
+(`SG.1` to `SG.12`) and the latest autosave record (`AUTOSAVE.JSON`: the host
+envelope plus preview and metadata). Every image must decode for the game's
+interpreter profile; an import stores them under the new library slug and
+revision. A game export never includes them. Do not infer a license for imported resources when none is declared.
 
 Project bodies live in IndexedDB; a small localStorage index supports discovery
 and can be rebuilt from those bodies. Version-1 library metadata keeps the stable
