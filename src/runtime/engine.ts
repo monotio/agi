@@ -1370,16 +1370,15 @@ export class Engine {
    * Host-initiated save image for an autosave, or null when this cycle
    * boundary is not a safe one to snapshot.
    *
-   * The bytes are exactly what `save.game` writes (`serialize`); what this
-   * adds is the "is now a good moment" rule, which `save.game` does not need
-   * because bytecode can only reach it from a running cycle:
+   * Wraps the authentic `save.game` image with the host's screen sequence,
+   * text and draw ages. Snapshots need a safe cycle boundary because they
+   * do not preserve suspended logic or modal interaction:
    *
-   * - An open modal window or a pending message owns the text surface, and
-   *   the surface is not part of the save. Restoring such an image would drop
-   *   the window and leave the player answering a question they cannot see.
+   * - An open modal window or a pending message owns the text surface; its
+   *   interaction cannot resume from the saved scalar and presentation state.
    * - Full-screen text mode is the same problem one layer up.
-   * - An empty replay sequence means no room has drawn yet (boot, or the gap
-   *   inside a room transition): the image would restore to a blank screen.
+   * - Before any room has drawn (boot, or the gap inside a room transition),
+   *   the image would restore to a blank screen.
    *
    * The caller skips this tick and tries the next one.
    */
