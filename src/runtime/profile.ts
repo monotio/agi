@@ -168,6 +168,20 @@ export interface AgiProfile {
   /** Showing a prepared picture clears f15 and closes an active text window (false in the early profiles). */
   readonly showPictureClearsF15: boolean;
   /**
+   * A print that opens a non-blocking window resets f15 as it returns, so the
+   * next print blocks again. Verified in the print handlers of every local
+   * build back to 2.411: 2.411, 2.440, 2.903, 2.917, 2.936, 3.002.086,
+   * 3.002.102/3.002.107 and Gold Rush 3.002.149 (the entry below cites its
+   * offsets; the MH2 build of 3.002.149 has no local binary). Unverified
+   * before 2.411.
+   */
+  readonly printConsumesF15: boolean;
+  /**
+   * A timed print (v21 half-seconds) zeroes v21 when its window closes, by
+   * timeout or key. Verified in the same handlers as printConsumesF15.
+   */
+  readonly timedPrintClearsV21: boolean;
+  /**
    * A due movement proposal whose left X is exactly zero reports left-boundary
    * code 4 (3.002.086 only; version_profiles.md "screen-boundary variant").
    */
@@ -225,6 +239,8 @@ const BASE_2936: AgiProfile = {
   movementClear: "later",
   inventorySelector: true,
   showPictureClearsF15: true,
+  printConsumesF15: true,
+  timedPrintClearsV21: true,
   clampExactZeroLeftBoundary: false,
   pictureMaxCommand: 0xfa,
   patternProfile: "shaped-v2",
@@ -252,6 +268,8 @@ const BASE_EARLY: AgiProfile = {
   movementClear: "early",
   inventorySelector: false,
   showPictureClearsF15: false,
+  printConsumesF15: false,
+  timedPrintClearsV21: false,
   pictureMaxCommand: 0xf8,
   patternProfile: "none",
   sound: "early-2.089",
@@ -360,6 +378,10 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     releaseGateClearAction: true,
     inputWidthActions: "noop",
     closeWindowClearsInputWidth: false,
+    // Gold Rush's 3.002.149 print handler (0x1f70) resets f15 at 0x1f94 and
+    // zeroes v21 at 0x2008, like every other verified build back to 2.411.
+    printConsumesF15: true,
+    timedPrintClearsV21: true,
     directionLoops: "four-or-more-f20",
     // The base MH2 build defines no aliases; select the Gold Rush build with
     // goldRushProfile() when a claim uses that data.

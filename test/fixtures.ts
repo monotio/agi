@@ -25,14 +25,32 @@ export function combinedDirectory(slug: string): { name: string; prefix: string 
   return null;
 }
 
+/** Section order of a v3 combined directory. */
+const COMBINED_SECTION_KINDS = ["logic", "picture", "view", "sound"] as const;
+
+/**
+ * Shipped directories with junk entries pointing at volumes that never
+ * shipped with the game, verified entry by entry. These are excluded from
+ * the volume census; any other missing volume still skips the test. KQ4's
+ * KQ4DIR points picture 150/151 at KQ4VOL.6 and view 198/199 at KQ4VOL.7,
+ * which no KQ4VOL.* contains and no logic ever loads.
+ */
+const JUNK_DIRECTORY_ENTRIES: Record<string, readonly string[]> = {
+  kq4: ["picture 150", "picture 151", "view 198", "view 199"],
+};
+
 /** Volume numbers referenced by a run of three-byte entries (v2 rule: high nibble 0xf is absent). */
-function referencedVolumes(entries: Uint8Array, exactAbsence: boolean): Set<number> {
+function referencedVolumes(
+  entries: Uint8Array,
+  exactAbsence: boolean,
+  skipEntry?: (num: number) => boolean,
+): Set<number> {
   const volumes = new Set<number>();
   for (let offset = 0; offset + 2 < entries.length; offset += 3) {
     const absent = exactAbsence
       ? entries[offset] === 255 && entries[offset + 1] === 255 && entries[offset + 2] === 255
       : entries[offset]! >> 4 === 15;
-    if (!absent) volumes.add(entries[offset]! >> 4);
+    if (!absent && !skipEntry?.(offset / 3)) volumes.add(entries[offset]! >> 4);
   }
   return volumes;
 }
@@ -54,8 +72,14 @@ export function fixtureSkip(slug: string, requiredFiles: readonly string[] = [])
     const bytes = readFileSync(dir + combined.name);
     const offsets = [0, 1, 2, 3].map((i) => bytes[i * 2]! | (bytes[i * 2 + 1]! << 8));
     offsets.push(bytes.length);
+    const junk = JUNK_DIRECTORY_ENTRIES[slug] ?? [];
     for (let i = 0; i < 4; i++) {
-      for (const volume of referencedVolumes(bytes.subarray(offsets[i], offsets[i + 1]), true))
+      const kind = COMBINED_SECTION_KINDS[i]!;
+      for (const volume of referencedVolumes(
+        bytes.subarray(offsets[i], offsets[i + 1]),
+        true,
+        (num) => junk.includes(`${kind} ${num}`),
+      ))
         required.add(`${prefix}VOL.${volume}`);
     }
   } else {

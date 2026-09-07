@@ -60,14 +60,15 @@ Installed game folders are gitignored and excluded from production builds.
 
 The compatibility suite uses these local installations (other editions may differ):
 
-| Folder            | Interpreter profile           | Container                           |
-| ----------------- | ----------------------------- | ----------------------------------- |
-| `games/kq1/`      | 2.917                         | v2 split                            |
-| `games/kq2/`      | 2.411                         | v2 split                            |
-| `games/kq3/`      | 2.936                         | v2 split                            |
-| `games/demopac4/` | 3.002.102                     | v3 combined (`DMDIR`, `DMVOL.0-1`)  |
-| `games/mh1/`      | 3.002.107 (3.002.102 profile) | v3 combined (`MHDIR`, `MHVOL.0-12`) |
-| `games/gr1/`      | 3.002.149 (no version string) | v3 combined (`GRDIR`, `GRVOL.0-2`)  |
+| Folder            | Interpreter profile           | Container                            |
+| ----------------- | ----------------------------- | ------------------------------------ |
+| `games/kq1/`      | 2.917                         | v2 split                             |
+| `games/kq2/`      | 2.411                         | v2 split                             |
+| `games/kq3/`      | 2.936                         | v2 split                             |
+| `games/demopac4/` | 3.002.102                     | v3 combined (`DMDIR`, `DMVOL.0-1`)   |
+| `games/mh1/`      | 3.002.107 (3.002.102 profile) | v3 combined (`MHDIR`, `MHVOL.0-12`)  |
+| `games/gr1/`      | 3.002.149 (no version string) | v3 combined (`GRDIR`, `GRVOL.0-2`)   |
+| `games/kq4/`      | 3.002.086                     | v3 combined (`KQ4DIR`, `KQ4VOL.0-3`) |
 
 The demo-pack row is a Sierra demonstration pack: six self-running game demos
 whose every logic record is dictionary-compressed. `test/demopac4.test.ts` runs
@@ -88,12 +89,22 @@ variables v2, v4 and v5 every cycle, loop selection (set.view keeps a loop the
 new view has, set.loop and the direction-driven loop change keep a cel the new
 loop has; only an out-of-range index falls back to 0), and display text layout
 (CR, LF and the character after column 39 continue on the next row at column
-0, the row capped at 24; the spec leaves this open). All were read from the
+0, the row capped at 24; the spec leaves this open), and the print handler's
+output modes (a print that opens a non-blocking window consumes f15 as it
+returns, and a timed window zeroes v21 when it closes). All were read from the
 disassembled interpreters: `ndisasm -b 16 -e 0x200` on a v3 `AGI` executable,
-and for v2 the same after undoing the loader's scrambling, a per-128-byte-block
-XOR with the 128-byte key stored at `SIERRA.COM` offset 0x41 that rotates right
-one bit per block with the carry chained across blocks. The 2.411, 2.917,
-2.936, 3.002.102 and 3.002.107 builds agree on all of them.
+and for v2 the same after undoing the loader's scrambling with
+`scripts/descramble-agi.ts` (a per-128-byte-block XOR with the 128-byte key at
+the loader's offset 0x41, each key byte rotating right per block with the low
+bit chaining forward from byte 0). The 2.411, 2.440, 2.917, 2.936, 3.002.086
+and 3.002.102/3.002.107 builds agree on all of them.
+
+An open text window does not suspend the per-cycle object update: the shipped
+main loops gate that call on a state byte set only around the full-screen
+selector UI, never by the window-open routine, so a cycling cel whose rect
+overlaps a window paints over it (KQ4's closing intro window shows its wave
+through the top border). The engine's text-cell masking models that overlap;
+do not "fix" it into modal-on-top layering.
 
 Two consequences of the interpreters' single screen are modelled on the text
 layer: text and graphics share one bitmap there, so a cel drawn by add.to.pic,

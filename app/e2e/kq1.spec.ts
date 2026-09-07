@@ -61,12 +61,13 @@ async function bootKq1(page: Page): Promise<void> {
 }
 
 /**
- * Click through the title screen and wait for room 1. The courtyard is the
- * first room with a status line, so `Score:` on row 0 is the arrival signal.
+ * Press Enter through the title screen and wait for room 1. The courtyard is
+ * the first room with a status line, so `Score:` on row 0 is the arrival
+ * signal. A click on the screen only focuses the game; it never advances it.
  */
 async function advanceToCourtyard(page: Page): Promise<void> {
   await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 15_000 });
-  await page.locator(".screen").click();
+  await page.keyboard.press("Enter");
   await expect
     .poll(async () => (await textHook(page)).rows[0] ?? "", { timeout: 20_000 })
     .toContain("Score:");
@@ -215,10 +216,10 @@ test("discovered game shortcuts trigger inventory and debug mode", async ({ page
   await bootKq1(page);
   await advanceToCourtyard(page);
 
-  // Click the discovered Tab shortcut; clicking the screen acknowledges it.
+  // Click the discovered Tab shortcut; Escape acknowledges the inventory.
   await clickGameKey(page, 9);
   await expectModal(page, "inventory", 5_000);
-  await page.locator(".screen").click();
+  await page.keyboard.press("Escape");
   await expectModal(page, null);
 
   // Click the discovered Alt+D shortcut
@@ -229,7 +230,7 @@ test("discovered game shortcuts trigger inventory and debug mode", async ({ page
   await expectModal(page, null);
 });
 
-test("F1 help screen displays in text mode and is dismissed on key or click", async ({ page }) => {
+test("F1 help screen displays in text mode and is dismissed on key", async ({ page }) => {
   await page.goto("/");
   await bootKq1(page);
   await advanceToCourtyard(page);
@@ -243,8 +244,8 @@ test("F1 help screen displays in text mode and is dismissed on key or click", as
   expect(await screenText(page)).toContain("Help");
   await page.screenshot({ path: "test-results/kq1-text-screen.png" });
 
-  // Dismiss help screen via screen click or key
-  await page.locator(".screen").click();
+  // Dismiss help screen with a key
+  await page.keyboard.press("Enter");
   await expect.poll(async () => (await textHook(page)).textMode, { timeout: 5_000 }).toBe(false);
   await expect(page.getByTestId("text-mode-hint")).toBeHidden();
 });
@@ -446,6 +447,108 @@ test("Start over discards the autosave and boots the game from the top", async (
   await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId("resume-caption")).toBeHidden();
   expect(await storedAutosave(page, "kq1")).toBeNull();
+});
+
+interface KeyEditPosting {
+  type: string;
+  code?: number;
+  text?: string;
+}
+
+/** The init script parks its transport tap on this window key. */
+const TAP_KEY = "__keyEditPostings";
+
+test("typing after Start over while the input is unfocused does not double the first letter", async ({
+  page,
+}) => {
+  // The engine appends a printable key event to its edit line and applies a
+  // host edit at once, so a letter must never travel both ways: spy on the
+  // worker transport (the visible outcome is a tick-timing race — the
+  // reported "llook" appeared only when the edit beat the buffered key).
+  await page.addInitScript((key: string) => {
+    // Test-only tap installed on window; no runtime shape to validate.
+    const w = window as unknown as Record<string, KeyEditPosting[]>;
+    const seen: KeyEditPosting[] = [];
+    w[key] = seen;
+    const original = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function (this: Worker, message: unknown, ...rest: never[]) {
+      if (typeof message === "object" && message !== null && "type" in message) {
+        const m = message as KeyEditPosting;
+        if (m.type === "key" || m.type === "edit") seen.push(m);
+      }
+      return original.call(this, message, ...rest);
+    };
+  }, TAP_KEY);
+  await page.goto("/");
+  await bootKq1(page);
+  await advanceToCourtyard(page);
+
+  await openGameOptions(page, "game-actions-menu");
+  await page.getByTestId("btn-start-over").click();
+  await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 20_000 });
+  await advanceToCourtyard(page);
+
+  // With focus anywhere but the hidden input (the menu button holds it after
+  // Start over), the first letter must go as an edit only.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.evaluate((key) => {
+    (window as unknown as Record<string, KeyEditPosting[]>)[key]?.splice(0);
+  }, TAP_KEY);
+  await page.keyboard.type("look");
+  await expect(page.getByTestId("input-line")).toHaveValue("look");
+  const postings = await page.evaluate(
+    (key) => (window as unknown as Record<string, KeyEditPosting[]>)[key] ?? [],
+    TAP_KEY,
+  );
+  expect(
+    postings.filter((m) => m.type === "key" && m.code === 0x6c),
+    "the first letter must not also go as a raw key event",
+  ).toEqual([]);
+});
+
+test("clicking the game screen only focuses it, never acts as Enter", async ({ page }) => {
+  await page.goto("/");
+  await bootKq1(page);
+
+  // On the title screen a click must not start the game.
+  await page.locator(".screen").click();
+  await expect(page.getByTestId("title-prompt-hint")).toBeVisible();
+  await waitForCycles(page, 4);
+  expect((await textHook(page)).rows[0] ?? "").not.toContain("Score:");
+
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(async () => (await textHook(page)).rows[0] ?? "", { timeout: 20_000 })
+    .toContain("Score:");
+
+  // In play, a click must not submit the half-typed command either.
+  await page.keyboard.type("look");
+  await expect(page.getByTestId("input-line")).toHaveValue("look");
+  await page.locator(".screen").click();
+  await waitForCycles(page, 4);
+  await expect(page.getByTestId("input-line")).toHaveValue("look");
+});
+
+// Touchscreen laptops match any-pointer: coarse, which enables touch controls;
+// a mouse click there must still never act as Enter.
+test.describe("hybrid pointer", () => {
+  test.use({ hasTouch: true });
+
+  test("mouse click only focuses while a tap advances the title screen", async ({ page }) => {
+    await page.goto("/");
+    await bootKq1(page);
+    await expect(page.getByTestId("touch-controls")).toBeVisible();
+
+    await page.locator(".screen").click();
+    await waitForCycles(page, 4);
+    expect((await textHook(page)).rows[0] ?? "").not.toContain("Score:");
+    await expect(page.getByTestId("title-prompt-hint")).toBeVisible();
+
+    await page.locator(".screen").tap();
+    await expect
+      .poll(async () => (await textHook(page)).rows[0] ?? "", { timeout: 20_000 })
+      .toContain("Score:");
+  });
 });
 
 test("returning to the menu preserves the installed game autosave", async ({ page }) => {

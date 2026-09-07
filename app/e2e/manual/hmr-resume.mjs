@@ -71,7 +71,7 @@ async function poll(fn, label, timeout = 30000) {
 async function playToRestedCourtyard() {
   await page.getByTestId("boot-kq1").click();
   await page.getByTestId("title-prompt-hint").waitFor({ timeout: 20000 });
-  await page.locator(".screen").click();
+  await page.keyboard.press("Enter"); // a screen click only focuses the game
   await poll((h) => (h.rows?.[0] ?? "").includes("Score:"), "courtyard");
   await page.locator("canvas.game-surface:visible").click();
   await page.keyboard.down("ArrowLeft");
