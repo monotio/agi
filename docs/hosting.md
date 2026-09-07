@@ -68,46 +68,22 @@ changed resources so an existing player's saved release stays intact.
 
 ## Production releases
 
-Production is served at `https://agi.monotio.com/` through Azure Front Door.
-CI builds with `/` as the base and packages only `app/dist` plus the
-static-host response configuration. Separate Chromium and WebKit jobs check that
-artifact with `npm --prefix app run e2e:production`; the development browser
-suites also run independently, so one browser failure cannot skip the other.
-Browser failures retain traces for diagnosis. Fixture games are never deployment inputs.
+Only the owner may merge into protected `main`; the required CI checks apply to
+administrators too. A successful push to `main` builds the production artifact,
+checks it in separate Chromium and WebKit jobs (`npm --prefix app run
+e2e:production`) and deploys from that same CI run. Pull request jobs have no
+deployment access, and outside contributors' workflows require approval.
+Fixture games are never deployment inputs. Browser failures retain traces for
+diagnosis.
 
-Only `@joakimriedel` may merge into protected `main`. Pull requests and the
-required CI checks apply to administrators too; direct pushes, force pushes,
-auto-merge and branch deletion are disabled. Self-authored PRs do not require a
-second account's approval. CODEOWNERS identifies ownership; the branch push
-restriction is what enforces exclusive merge permission. An organization owner
-can still change GitHub's settings, so account security remains essential.
+Rollback is a revert PR through the same checks; re-running CI rebuilds the
+same commit, so never re-run an older release job to roll back.
 
-A successful push to `main` publishes the artifact from that same CI run after
-all check and browser jobs pass. PR jobs have read-only repository access and no production
-identity. Outside contributors' workflows require approval. Production is a
-main-only GitHub environment, uses OIDC bound to immutable GitHub owner/repository IDs, and has only these
-environment secrets:
-`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`,
-`AZURE_RESOURCE_GROUP`, `AZURE_STATIC_WEB_APP_NAME`, `FRONT_DOOR_ID`, and
-`FRONT_DOOR_HOST`. These identify infrastructure; no long-lived Azure login
-secret or provider API key is stored. The upload token is fetched at runtime
-and masked. Public workflow logs are public: never print Azure deployment
-objects, tokens or private parameters in this repository.
-
-Front Door, DNS, production parameters and the publisher identity are
-managed with Bicep in the private Monotio web infrastructure repository. The
-publisher can read only the AGI site's deployment token, not change DNS, roles,
-Front Door or the portfolio. The origin accepts traffic only from our gateway.
-The app's HTML is not cached; hashed assets receive immutable caching.
-
-Verify the actual edge with:
+Verify a deployment with:
 
 ```bash
 AGI_DEPLOY_URL=https://agi.monotio.com npm --prefix app run e2e:production
 ```
 
-Release rollback is a revert PR through the same checks. Re-running CI also
-rebuilds its commit; do not re-run an older release job to roll back production.
-An urgent publishing stop is available by disabling the CI workflow or removing
-the production identity's federation in Azure. Neither action purges already
-served files. Front Door traffic is metered; rate limiting is not a spending cap.
+Credentials, deployment identity and gateway configuration live outside this
+repository.
