@@ -4,9 +4,11 @@
  * lives in browser storage per game slug, and it travels only with a project
  * archive (under `SAVES/`), never with a published game.
  */
-import type { EngineMenuState } from "../../src/runtime/engine.ts";
+import { Engine, type EngineHost, type EngineMenuState } from "../../src/runtime/engine.ts";
 import { decodeHostImage, decodeSave } from "../../src/runtime/persistence.ts";
 import { detectProfile } from "../../src/runtime/profile.ts";
+import { parseWordsTok } from "../../src/logic/words.ts";
+import { openContainer } from "../../src/container/container.ts";
 import { readGameSaves, writeGameSave } from "./gameSaves.ts";
 import { isProgressPreview, storeRecordWithPreviewFallback } from "./progressPreview.ts";
 import type { ZipFileInput } from "./zip.ts";
@@ -93,6 +95,44 @@ const SLOT_FILE = /^SAVES\/SG\.(1[0-2]|[1-9])$/;
 const MAX_SAVE_IMAGE_BYTES = 64 * 1024;
 const MAX_AUTOSAVE_RECORD_BYTES = 512 * 1024;
 
+/** Restore checks run against a boot of the imported game itself, not a live session. */
+const RESTORE_CHECK_HOST: EngineHost = {
+  print() {},
+  displayAt() {},
+  statusLine() {},
+  takeInputLine: () => null,
+  takeKeys: () => [],
+};
+
+/**
+ * Structural decode is not enough for progress: a save can decode cleanly yet
+ * replay resources the archive does not carry, importing as a checkpoint that
+ * only fails when the player resumes it. Boot the imported game once and
+ * dry-run every image's restore against it; failures name their archive entry.
+ */
+function restoreChecker(files: Record<string, Uint8Array>): (label: string, image: Uint8Array) => void {
+  let engine: Engine | undefined;
+  return (label, image) => {
+    if (!engine) {
+      const words = files["WORDS.TOK"];
+      engine = new Engine(
+        openContainer(new Map(Object.entries(files))),
+        RESTORE_CHECK_HOST,
+        words
+          ? new Map(parseWordsTok(words).map(({ word, id }): [string, number] => [word, id]))
+          : undefined,
+      );
+    }
+    try {
+      engine.restoreImage(image);
+    } catch (error) {
+      throw new Error(
+        `${label} cannot be restored into this game: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
+}
+
 export interface GameProgress {
   /** Slot number ("1" to "12") to the raw save image. */
   saves: Record<string, Uint8Array>;
@@ -170,6 +210,7 @@ export function readProgressEntries(
   }
   if (autosaveBytes === undefined && Object.keys(saves).length === 0) return undefined;
   const profile = detectProfile(new Map(Object.entries(files)));
+  const restores = restoreChecker(files);
   for (const [slot, image] of Object.entries(saves)) {
     if (image.length > MAX_SAVE_IMAGE_BYTES)
       throw new Error(`SAVES/SG.${slot} is too large to be a save file.`);
@@ -178,6 +219,7 @@ export function readProgressEntries(
     } catch {
       throw new Error(`SAVES/SG.${slot} is not a save file for this game.`);
     }
+    restores(`SAVES/SG.${slot}`, image);
   }
   let autosave: AutosaveRecord | null = null;
   if (autosaveBytes) {
@@ -186,14 +228,26 @@ export function readProgressEntries(
     const parsed = parseAutosaveRecord(new TextDecoder().decode(autosaveBytes));
     if (!parsed)
       throw new Error("SAVES/AUTOSAVE.JSON is not an autosave record this app understands.");
+    const hostImage = fromBase64(parsed.image);
     try {
-      decodeSave(decodeHostImage(fromBase64(parsed.image)).image, profile);
+      decodeSave(decodeHostImage(hostImage).image, profile);
     } catch {
       throw new Error("SAVES/AUTOSAVE.JSON does not hold a save image for this game.");
     }
+    restores("SAVES/AUTOSAVE.JSON", hostImage);
     autosave = parsed;
   }
   return { saves, autosave };
+}
+
+/** What an import actually persisted: browser storage can refuse any single entry. */
+export interface ImportStorageReport {
+  /** Numbered slots written, ascending. */
+  slots: number[];
+  /** Numbered slots storage refused. */
+  failedSlots: number[];
+  /** The autosave record as stored, or null when there was none or storage refused it. */
+  autosave: AutosaveRecord | null;
 }
 
 /**
@@ -202,18 +256,34 @@ export function readProgressEntries(
  * export compacts the container, so the bytes it wrote are not the bytes the
  * autosave hashed, and the interpreter restores its saves without such a
  * check anyway. What is checked is that every image decodes for the game's
- * profile (readProgressEntries).
+ * profile and restores against the imported archive (readProgressEntries).
+ *
+ * A storage failure mid-import is not hidden: the report names every entry
+ * that landed and every entry storage refused, so the caller never presents a
+ * half-written import as complete.
  */
 export function storeImportedProgress(
   storage: Pick<Storage, "getItem" | "setItem">,
   slug: string,
   revision: string,
   progress: GameProgress,
-): void {
-  for (const [slot, image] of Object.entries(progress.saves))
-    writeGameSave(storage, slug, Number(slot), toBase64(image));
+): ImportStorageReport {
+  const report: ImportStorageReport = { slots: [], failedSlots: [], autosave: null };
+  const slots = Object.keys(progress.saves)
+    .map(Number)
+    .filter((slot) => Number.isInteger(slot))
+    .sort((a, b) => a - b);
+  for (const slot of slots) {
+    if (writeGameSave(storage, slug, slot, toBase64(progress.saves[String(slot)]!)))
+      report.slots.push(slot);
+    else report.failedSlots.push(slot);
+  }
   if (progress.autosave)
-    writeAutosave(storage, { ...progress.autosave, game: { slug, installed: false, revision } });
+    report.autosave = writeAutosave(storage, {
+      ...progress.autosave,
+      game: { slug, installed: false, revision },
+    });
+  return report;
 }
 
 function toBase64(bytes: Uint8Array): string {
