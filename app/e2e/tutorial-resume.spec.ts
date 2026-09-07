@@ -10,7 +10,7 @@ import {
   waitForCycles,
 } from "./engineProbe.ts";
 
-const TUTORIAL_SLUG = "catalog-adventure-department-1.0.0";
+const TUTORIAL_SLUG = "catalog-adventure-department-1.0.1";
 
 test("the tutorial shelf offers Resume and restores the checkpoint exactly", async ({ page }) => {
   await isolateStorage(page);

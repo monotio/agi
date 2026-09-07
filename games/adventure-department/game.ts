@@ -1,4 +1,6 @@
 import type { OpenedGame } from "../../app/src/gameZip.ts";
+import { serializeGameTests } from "../../src/agent/gameTests.ts";
+import { TUTORIAL_GAME_TESTS } from "./tests.ts";
 import { createAuthoringState, resourceRevision } from "../../src/agent/authoringState.ts";
 import { buildSound } from "../../src/agent/tools.ts";
 import { createContainer } from "../../src/container/container.ts";
@@ -544,6 +546,7 @@ export function buildTutorial(): TutorialGame {
   container.putFile("WORDS.TOK", buildWordsTok(TUTORIAL_WORDS.map(([word, id]) => ({ word, id }))));
   // Empty OBJECT table: encrypted AGI 2.936 bytes for [table size 0, max object 255].
   container.putFile("OBJECT", Uint8Array.of(0x41, 0x76, 0x96));
+  container.putFile("TESTS.JSON", serializeGameTests(TUTORIAL_GAME_TESTS));
 
   const authoring = createAuthoringState();
   authoring.bindings = {
