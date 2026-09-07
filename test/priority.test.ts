@@ -54,7 +54,9 @@ const priorities = [4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 
 
 for (const horizon of [0, 36, 100]) {
   test(`default priority bands do not depend on horizon ${horizon}`, () => {
-    const engine = game(`set.horizon(${horizon}); ${sample(rows)} return;`);
+    // reposition runs placement, which keeps a horizon-observing object below
+    // the horizon; the probe is exempted so every band row is sampled in place.
+    const engine = game(`set.horizon(${horizon}); ignore.horizon(o0); ${sample(rows)} return;`);
     engine.tick();
     assert.deepEqual(Array.from(engine.vars.slice(60, 60 + rows.length)), priorities);
   });
@@ -63,7 +65,9 @@ for (const horizon of [0, 36, 100]) {
 test("set.pri.base replaces the bands independently of set.horizon", () => {
   // Base 68 leaves 100 rows: ten rows per band. Base itself starts at 5.
   const probeRows = [0, 67, 68, 77, 78, 87, 158, 167];
-  const engine = game(`set.pri.base(68); set.horizon(120); ${sample(probeRows)} return;`);
+  const engine = game(
+    `set.pri.base(68); set.horizon(120); ignore.horizon(o0); ${sample(probeRows)} return;`,
+  );
   engine.tick();
   assert.deepEqual(Array.from(engine.vars.slice(60, 68)), [4, 4, 5, 5, 6, 6, 14, 14]);
 });

@@ -32,6 +32,8 @@ export function attr(fg: number, bg: number): number {
 }
 
 export interface SavedRect {
+  /** The saved cells' write stamps, restored with them so their age under sprites survives a window. */
+  written: Uint32Array;
   top: number;
   left: number;
   bottom: number;
@@ -44,9 +46,19 @@ export class TextSurface {
   readonly cells = new Uint8Array(TEXT_COLS * TEXT_ROWS * 2);
   /** Increments on every mutation; presentation layers poll it. */
   dirty = 0;
+  /**
+   * The interpreters draw text into the same screen as the graphics, so a cel
+   * drawn later repaints the pixels under it, text included. This layer keeps
+   * text apart from the graphics; `seq` counts writes and `written` stamps
+   * every cell with the write that set it, so `coverPicture` can drop exactly
+   * the cells a later drawing would have painted over.
+   */
+  seq = 0;
+  readonly written = new Uint32Array(TEXT_COLS * TEXT_ROWS);
 
   clear(): void {
     this.cells.fill(0);
+    this.written.fill(0);
     this.dirty++;
   }
 
@@ -63,6 +75,7 @@ export class TextSurface {
     const at = (row * TEXT_COLS + col) * 2;
     this.cells[at] = ch & 0xff;
     this.cells[at + 1] = a & 0xff;
+    this.written[row * TEXT_COLS + col] = ++this.seq;
     this.dirty++;
   }
 
@@ -75,14 +88,60 @@ export class TextSurface {
 
   /** Fill an inclusive cell rectangle with one character and attribute. */
   fill(top: number, left: number, bottom: number, right: number, ch: number, a: number): void {
+    const stamp = ++this.seq;
     for (let r = Math.max(0, top); r <= Math.min(TEXT_ROWS - 1, bottom); r++) {
       for (let c = Math.max(0, left); c <= Math.min(TEXT_COLS - 1, right); c++) {
         const at = (r * TEXT_COLS + c) * 2;
         this.cells[at] = ch & 0xff;
         this.cells[at + 1] = a & 0xff;
+        this.written[r * TEXT_COLS + c] = stamp;
       }
     }
     this.dirty++;
+  }
+
+  /** Drop the given cells (row * TEXT_COLS + col); graphics painted over them for good. */
+  dropCells(indices: Iterable<number>): void {
+    let changed = false;
+    for (const i of indices) {
+      if (i < 0 || i >= TEXT_COLS * TEXT_ROWS || this.cells[i * 2] === 0) continue;
+      this.cells[i * 2] = 0;
+      this.cells[i * 2 + 1] = 0;
+      this.written[i] = 0;
+      changed = true;
+    }
+    if (changed) this.dirty++;
+  }
+
+  /**
+   * Drop the cells written after `since` whose area meets the picture-space
+   * rectangle (x0..x1, y0..y1), the graphics having been repainted there.
+   * Picture row 0 lies on text row `baseRow`; a cell spans 4 by 8 pixels.
+   */
+  coverPicture(
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    baseRow: number,
+    since: number,
+  ): void {
+    const c0 = Math.max(0, Math.floor(x0 / 4));
+    const c1 = Math.min(TEXT_COLS - 1, Math.floor(x1 / 4));
+    const r0 = Math.max(0, baseRow + Math.floor(y0 / 8));
+    const r1 = Math.min(TEXT_ROWS - 1, baseRow + Math.floor(y1 / 8));
+    let changed = false;
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        const i = r * TEXT_COLS + c;
+        if (this.written[i]! <= since || this.cells[i * 2] === 0) continue;
+        this.cells[i * 2] = 0;
+        this.cells[i * 2 + 1] = 0;
+        this.written[i] = 0;
+        changed = true;
+      }
+    }
+    if (changed) this.dirty++;
   }
 
   /** Copy out an inclusive rectangle so a modal window can restore it later. */
@@ -94,18 +153,29 @@ export class TextSurface {
     const w = Math.max(0, r - l + 1);
     const h = Math.max(0, b - t + 1);
     const cells = new Uint8Array(w * h * 2);
+    const written = new Uint32Array(w * h);
     for (let y = 0; y < h; y++) {
       const src = ((t + y) * TEXT_COLS + l) * 2;
       cells.set(this.cells.subarray(src, src + w * 2), y * w * 2);
+      written.set(
+        this.written.subarray((t + y) * TEXT_COLS + l, (t + y) * TEXT_COLS + r + 1),
+        y * w,
+      );
     }
-    return { top: t, left: l, bottom: b, right: r, cells };
+    return { top: t, left: l, bottom: b, right: r, cells, written };
   }
 
   restore(saved: SavedRect): void {
     const w = saved.right - saved.left + 1;
+    // The restored text keeps its age: what a sprite hid before the window
+    // stays hidden after it, and what lay on top stays on top.
     for (let y = 0; y <= saved.bottom - saved.top; y++) {
       const dst = ((saved.top + y) * TEXT_COLS + saved.left) * 2;
       this.cells.set(saved.cells.subarray(y * w * 2, (y + 1) * w * 2), dst);
+      this.written.set(
+        saved.written.subarray(y * w, (y + 1) * w),
+        (saved.top + y) * TEXT_COLS + saved.left,
+      );
     }
     this.dirty++;
   }

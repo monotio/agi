@@ -32,10 +32,6 @@ jobs:
       - run: npm --prefix app ci
       - run: npm run check
       - run: npm --prefix app run build -- --base=/
-      - run: npx playwright install --with-deps chromium webkit
-        working-directory: app
-      - run: npm --prefix app run e2e:production
-      - run: npm --prefix app run e2e:production -- --browser=webkit
       - name: Package public files only
         run: |
           mkdir -p release
@@ -48,11 +44,15 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  e2e:
-    name: Playwright (play, remix and export)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  production:
+    name: Production browser (${{ matrix.browser }})
     needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -66,30 +66,79 @@ jobs:
             app/package-lock.json
       - run: npm ci
       - run: npm --prefix app ci
-      - run: npx playwright install --with-deps chromium
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agi-site
+          path: app/dist
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
         working-directory: app
-      - run: npm run e2e -- --reporter=list
+      - run: npm --prefix app run e2e:production -- --browser=${{ matrix.browser }} --reporter=list
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-production-${{ matrix.browser }}
+          path: app/test-results/
+          retention-days: 7
+
+  e2e:
+    name: Playwright (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            app/package-lock.json
+      - run: npm ci
+      - run: npm --prefix app ci
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+        working-directory: app
+      - if: matrix.browser == 'chromium'
+        run: npm run e2e -- --reporter=list
         working-directory: app
         env:
           CI: "1"
-      - run: npx playwright install --with-deps webkit
-        working-directory: app
-      - run: npm --prefix app run e2e:phone -- --project=iphone-webkit --reporter=list
+      - if: matrix.browser == 'webkit'
+        run: npm --prefix app run e2e:phone -- --project=iphone-webkit --reporter=list
         env:
           CI: "1"
       - if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: playwright-report
+          name: playwright-e2e-${{ matrix.browser }}
           path: |
             app/playwright-report/
             app/test-results/
           retention-days: 7
 
+  browsers:
+    # Preserve the required check name configured in branch protection.
+    name: Playwright (play, remix and export)
+    if: always()
+    needs: [production, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Require every browser job to pass
+        env:
+          PRODUCTION_RESULT: ${{ needs.production.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+        run: test "$PRODUCTION_RESULT" = success && test "$E2E_RESULT" = success
+
   deploy:
     name: Deploy production
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [check, e2e]
+    needs: [check, browsers]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
@@ -189,3 +238,9 @@ jobs:
       - run: npm --prefix app run e2e:production
         env:
           AGI_DEPLOY_URL: https://agi.monotio.com
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-deployed
+          path: app/test-results/
+          retention-days: 7

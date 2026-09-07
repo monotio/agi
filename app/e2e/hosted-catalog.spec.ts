@@ -1,8 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { buildTutorial } from "../../games/adventure-department/game.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
+import { buildPublicGameZip } from "../src/projectArchive.ts";
+import { readGameZip } from "../src/gameZip.ts";
 
-const game = buildTutorial();
+// A hosted catalog serves the public game, not the author's project files.
+const game = await readGameZip(buildPublicGameZip(buildTutorial()));
 const manifest = {
   format: "monotio.agi.catalog",
   version: 1,
@@ -83,8 +86,12 @@ test("catalog and opening failures explain the problem before play and allow ret
   await page.goto("/");
   await expect(page.getByTestId("hosted-catalog-error")).toContainText("not supported");
   valid = true;
+  const catalogResponse = page.waitForResponse("**/catalog.json");
   await page.getByRole("button", { name: "Retry game list", exact: true }).click();
+  expect(await (await catalogResponse).json()).toEqual(manifest);
+  await expect(page.getByTestId("hosted-catalog-error")).toBeHidden();
   const card = page.getByTestId("hosted-game-card-constructor");
+  await expect(card).toBeVisible();
   await card.scrollIntoViewIfNeeded();
   await expect(card.getByRole("alert")).toContainText("404");
   await expect(card.getByRole("button", { name: "Play", exact: true })).toHaveCount(0);

@@ -492,6 +492,27 @@ export function drawCel(
   opts?: DrawCelOptions,
 ): void {
   const p = opts?.priority ?? 15;
+  forEachPaintedPixel(surface, cel, x, yBaseline, p, (cell, color) => {
+    surface.visual[cell] = color;
+    surface.priority[cell] = p;
+    opts?.onPixel?.(cell);
+  });
+}
+
+/**
+ * Visit every destination pixel `drawCel` would paint for this cel at this
+ * placement and priority, in row-major order, without painting. The same
+ * placement, transparency and priority rules as drawCel apply, so a caller
+ * that paints inside `visit` reproduces drawCel exactly.
+ */
+export function forEachPaintedPixel(
+  surface: PictureSurface,
+  cel: ViewCel,
+  x: number,
+  yBaseline: number,
+  p: number,
+  visit: (cell: number, color: number) => void,
+): void {
   let left = x;
   let top = yBaseline - cel.height + 1;
   if (top < 0) {
@@ -523,9 +544,7 @@ export function drawCel(
         }
       }
       if (comparison > p) continue;
-      surface.visual[cell] = color;
-      surface.priority[cell] = p;
-      opts?.onPixel?.(cell);
+      visit(cell, color);
     }
   }
 }

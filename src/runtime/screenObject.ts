@@ -16,6 +16,13 @@ export interface ScreenObject {
   y: number;
   prevX: number;
   prevY: number;
+  /** Text-write count when the cel was last drawn; text written later is under a redraw. */
+  drawSeq: number;
+  /** Bounds of the cel as last drawn, the rectangle an erase restores. */
+  drawnX: number;
+  drawnY: number;
+  drawnWidth: number;
+  drawnHeight: number;
   /** Cel dimensions, refreshed on view/loop/cel selection. */
   width: number;
   height: number;
@@ -59,6 +66,11 @@ export function newScreenObject(): ScreenObject {
     x: 0,
     y: 0,
     prevX: 0,
+    drawSeq: 0,
+    drawnX: 0,
+    drawnY: 0,
+    drawnWidth: 0,
+    drawnHeight: 0,
     prevY: 0,
     width: 8,
     height: 8,

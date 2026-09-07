@@ -1,5 +1,8 @@
 import { expect, test } from "@playwright/test";
+import { createContainer } from "../../src/container/container.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
 import {
+  cacheGame,
   isolateStorage,
   storedAutosave,
   textHook,
@@ -54,4 +57,51 @@ test("the tutorial shelf offers Resume and restores the checkpoint exactly", asy
     .toBe(stopped.egoX);
   await waitForCycles(page, 2);
   expect((await textHook(page)).egoX).toBe(stopped.egoX);
+});
+
+test("a caption drawn only on room entry survives a browser reload", async ({ page }) => {
+  const game = createContainer();
+  game.putResource(
+    "logic",
+    0,
+    assembleLogic("if(equaln(v0,0)){new.room(1);}call(1);return;", { dictionary: new Map() })
+      .payload,
+  );
+  game.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      `
+    if (isset(f5)) {
+      assignn(v60,1); load.pic(v60); draw.pic(v60); show.pic();
+      display(5,2,"Only drawn on room entry."); accept.input();
+    } return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  game.putResource("picture", 1, Uint8Array.of(0xf0, 1, 0xf8, 0, 0, 0xff));
+  await isolateStorage(page);
+  await page.goto("/");
+  await cacheGame(page, {
+    slug: "caption-resume",
+    title: "Caption resume",
+    provider: "stub",
+    model: "local-playback",
+    imported: true,
+    roomGeneration: false,
+    files: Object.fromEntries(game.files),
+    words: [],
+  });
+  await page.reload();
+  await page.getByTestId("btn-resume-cached").click();
+  await expect
+    .poll(async () => (await textHook(page)).rows[5])
+    .toContain("Only drawn on room entry.");
+  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  await page.reload();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect
+    .poll(async () => (await textHook(page)).rows[5])
+    .toContain("Only drawn on room entry.");
+  await page.screenshot({ path: test.info().outputPath("resumed-caption.png") });
 });

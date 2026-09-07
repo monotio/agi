@@ -3,14 +3,19 @@ import assert from "node:assert/strict";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
-import { SAVE_DESCRIPTION_BYTES } from "../src/runtime/persistence.ts";
+import {
+  SAVE_DESCRIPTION_BYTES,
+  decodeHostImage,
+  decodeSave,
+  encodeHostImage,
+} from "../src/runtime/persistence.ts";
 
 /**
  * The host-initiated autosave image.
  *
- * Two claims are worth a test and neither is provable from the app: the bytes
- * an autosave takes are the SAME bytes save.game writes (a different encoder
- * would restore into a subtly different game), and the snapshot is refused at
+ * Two claims are worth a test and neither is provable from the app: the save
+ * image inside an autosave is the SAME bytes save.game writes (a different
+ * encoder would restore into a subtly different game), and the snapshot is refused at
  * the moments where the save file cannot describe what the player is looking
  * at — an open message window, full-screen text mode, and the gap before a
  * room has drawn anything.
@@ -113,7 +118,7 @@ function blockLengths(image: Uint8Array, count: number): number[] {
   return lengths;
 }
 
-test("an autosave image is byte-identical to what save.game writes", () => {
+test("an autosave carries the save image byte-identical to what save.game writes", () => {
   const host = new RecordingHost();
   const engine = new Engine(buildGame(), host, DICT);
   engine.tick(); // boot into room 1
@@ -128,9 +133,12 @@ test("an autosave image is byte-identical to what save.game writes", () => {
   host.inputQueue.push("save");
   engine.tick();
   assert.equal(host.saved.length, 1, "save.game ran once");
-  const autosave = host.snapshotAtSave;
-  assert.ok(autosave, "the autosave was taken");
+  assert.ok(host.snapshotAtSave, "the autosave was taken");
+  // The host envelope wraps the authentic image with the screen sequence the
+  // resume rebuilds the room from; the image itself is what save.game wrote.
+  const { image: autosave, screen } = decodeHostImage(host.snapshotAtSave);
   assert.deepEqual(Array.from(autosave), Array.from(host.saved[0]!), "same bytes");
+  assert.ok(screen && screen.length > 0, "the screen sequence rides along");
 
   // Hand-checked envelope (spec "Save-file envelope", profile 2.936): a
   // 31-byte zero-filled description header (the game never called set.simple),
@@ -198,4 +206,412 @@ test("restoreImage replays an autosave into a fresh engine without unwinding", (
   // ...and the restored game keeps cycling.
   fresh.tick();
   assert.equal(fresh.vars[0], 1);
+});
+
+test("a game that blocks the script buffer still autosaves once a picture has drawn", () => {
+  // The demo pack sets f7 before its first room, so its replay sequence stays
+  // empty for the whole session; the shown picture is what makes the image
+  // resumable, and the restore re-enters the room to load its resources.
+  const host = new RecordingHost();
+  const container = buildGame();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(`set(f7);\n${LOGIC_0}`, { dictionary: DICT }).payload,
+  );
+  const engine = new Engine(container, host, DICT);
+  assert.equal(engine.autosaveImage(), null, "nothing has drawn yet");
+  engine.tick();
+  const image = engine.autosaveImage();
+  assert.ok(image, "the shown picture makes the state resumable");
+  const fresh = new Engine(buildGame(), new RecordingHost(), DICT);
+  fresh.restoreImage(image);
+  fresh.tick();
+  assert.equal(fresh.vars[0], 1);
+  assert.equal(fresh.screenObjects[0]!.active, true, "the room's sprite is back on screen");
+  // The game's own sequence is empty, so the host image carried the engine's
+  // shadow record: the restore reloaded and redrew the picture instead of
+  // leaving the reset surface.
+  const before = engine.getFrame().visual;
+  const after = fresh.getFrame().visual;
+  assert.ok(
+    before.some((color) => color !== 15),
+    "the saved scene is not the blank surface",
+  );
+  assert.deepEqual(
+    Array.from(after),
+    Array.from(before),
+    "the restored picture matches the saved one",
+  );
+});
+
+test("a script buffer blocked only around draw.pic still autosaves the whole scene", () => {
+  // The game's own sequence has load.pic but not draw.pic, so replaying it
+  // alone would restore a blank surface; the host image carries the shadow
+  // record with both.
+  const host = new RecordingHost();
+  const container = buildGame();
+  container.putResource(
+    "logic",
+    1,
+    assembleLogic(LOGIC_1.replace("draw.pic(v50);", "set(f7); draw.pic(v50); reset(f7);"), {
+      dictionary: DICT,
+    }).payload,
+  );
+  const engine = new Engine(container, host, DICT);
+  engine.tick();
+  const image = engine.autosaveImage();
+  assert.ok(image);
+  const fresh = new Engine(buildGame(), new RecordingHost(), DICT);
+  fresh.restoreImage(image);
+  fresh.tick();
+  assert.deepEqual(Array.from(fresh.getFrame().visual), Array.from(engine.getFrame().visual));
+});
+
+test("an autosave is refused once the shadow record has overflowed", () => {
+  // f7 keeps the game's sequence empty while the room churns through loads
+  // and discards; past the shadow's limit an image could not rebuild the room
+  // faithfully, so none is taken.
+  const host = new RecordingHost();
+  const container = buildGame();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(`set(f7);\n${LOGIC_0}`, { dictionary: DICT }).payload,
+  );
+  container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      `${LOGIC_1.replace("return;", "")}
+       assignn(v60, 0);
+       churn: load.view(0); discard.view(0); increment(v60);
+       if (!equaln(v60, 255)) { goto churn; }
+       return;`,
+      { dictionary: DICT },
+    ).payload,
+  );
+  const engine = new Engine(container, host, DICT);
+  engine.tick();
+  assert.ok(engine.autosaveImage(), "well within the shadow's capacity");
+  for (let i = 0; i < 9; i++) engine.tick();
+  assert.equal(engine.autosaveImage(), null, "overflowed: refused rather than incomplete");
+});
+
+test("a host resume keeps the game's own replay and capacity apart from the screen it rebuilt", () => {
+  // f7 keeps the game's sequence empty while the shadow records the room's
+  // loads and draws. After the resume, save.game must still write the game's
+  // sequence and capacity: pairs f7 excluded would otherwise fill the script
+  // buffer the game sized for its own recording.
+  const host = new RecordingHost();
+  const container = buildGame();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(`set(f7);\n${LOGIC_0}`, { dictionary: DICT }).payload,
+  );
+  const engine = new Engine(container, host, DICT);
+  engine.tick();
+  const authentic = engine.serialize();
+  const saved = decodeSave(authentic, engine.profile);
+  assert.equal(saved.replayActive, 0, "f7 kept the game's own sequence empty");
+  assert.equal(saved.replayCapacity, 200, "the default script buffer");
+  const autosave = engine.autosaveImage();
+  assert.ok(autosave);
+  const { image, screen } = decodeHostImage(autosave);
+  assert.deepEqual(
+    Array.from(image),
+    Array.from(authentic),
+    "the envelope carries save.game's image",
+  );
+  // load.pic(1) and draw.pic(1), the pairs f7 kept out of the game's sequence
+  // (kinds 2 and 4, spec "Resource replay sequence").
+  assert.deepEqual(
+    screen,
+    [
+      { kind: 2, value: 1 },
+      { kind: 4, value: 1 },
+    ],
+    "the screen sequence holds what f7 excluded",
+  );
+
+  const fresh = new Engine(buildGame(), new RecordingHost(), DICT);
+  fresh.restoreImage(autosave);
+  assert.deepEqual(
+    Array.from(fresh.getFrame().visual),
+    Array.from(engine.getFrame().visual),
+    "the screen is rebuilt from the sequence",
+  );
+  const resumed = decodeSave(fresh.serialize(), fresh.profile);
+  assert.equal(resumed.replayActive, 0, "save.game after the resume writes the game's sequence");
+  assert.equal(resumed.replayCapacity, 200, "...at the game's capacity");
+  // The next autosave still rebuilds the room: the sequence became the shadow.
+  const again = decodeHostImage(fresh.autosaveImage()!);
+  assert.deepEqual(again.screen, screen);
+  assert.deepEqual(Array.from(again.image), Array.from(fresh.serialize()));
+
+  // A bare save image (an autosave stored before the envelope) still restores,
+  // with the game's own sequence as the only screen there is.
+  const bare = new Engine(buildGame(), new RecordingHost(), DICT);
+  assert.deepEqual(decodeHostImage(authentic), { image: authentic, screen: null });
+  bare.restoreImage(authentic);
+  assert.deepEqual(Array.from(bare.vars), Array.from(engine.vars));
+  // A truncated envelope is refused whole rather than restored in part.
+  assert.throws(
+    () => decodeHostImage(autosave.subarray(0, autosave.length - 1)),
+    /presentation|pair/,
+  );
+  assert.throws(() => decodeHostImage(autosave.subarray(0, 37)), /image length/);
+});
+
+test("pop.script forgets pairs for the game's replay only; the autosave still shows what was drawn", () => {
+  // A cel added to the picture between push.script and pop.script stays on
+  // screen although the game's own sequence forgets it (spec "Replay
+  // checkpoints"); the shadow is the log of what was drawn, so the resume
+  // shows the cel.
+  const host = new RecordingHost();
+  const container = buildGame();
+  container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      LOGIC_1.replace(
+        "accept.input();",
+        "accept.input(); push.script(); add.to.pic(0, 0, 0, 100, 60, 4, 0); pop.script();",
+      ),
+      { dictionary: DICT },
+    ).payload,
+  );
+  const engine = new Engine(container, host, DICT);
+  engine.tick();
+  const autosave = engine.autosaveImage();
+  assert.ok(autosave);
+  const { image, screen } = decodeHostImage(autosave);
+  const saved = decodeSave(image, engine.profile);
+  assert.ok(
+    !saved.replay.slice(0, saved.replayActive).some((pair) => pair.kind === 5),
+    "the game's sequence forgot the add.to.pic",
+  );
+  assert.ok(
+    screen?.some((pair) => pair.kind === 5),
+    "the screen sequence kept it",
+  );
+  const fresh = new Engine(buildGame(), new RecordingHost(), DICT);
+  fresh.restoreImage(autosave);
+  assert.deepEqual(Array.from(fresh.getFrame().visual), Array.from(engine.getFrame().visual));
+});
+
+test("a bare save described with the envelope's words is still a save", () => {
+  const host = new RecordingHost();
+  const engine = new Engine(buildGame(), host, DICT);
+  engine.tick();
+  const image = engine.serialize();
+  // The description is the first 31 bytes, zero-terminated typed text.
+  const named = image.slice();
+  for (let i = 0; i < 16; i++) named[i] = "MONOTIO AUTOSAVE".charCodeAt(i);
+  assert.deepEqual(decodeHostImage(named), { image: named, screen: null });
+  const fresh = new Engine(buildGame(), new RecordingHost(), DICT);
+  fresh.restoreImage(named);
+  assert.deepEqual(Array.from(fresh.vars), Array.from(engine.vars));
+  // Framing reaches beyond the description into the first block length.
+  const envelope = encodeHostImage(image, [{ kind: 2, value: 1 }]);
+  assert.deepEqual([...envelope.subarray(31, 33)], [0xff, 0xff]);
+  assert.deepEqual(decodeHostImage(envelope), { image, screen: [{ kind: 2, value: 1 }] });
+});
+
+for (const blocked of [false, true]) {
+  test(`pop.script preserves painted autosave pixels with f7 ${blocked}`, () => {
+    const container = buildGame();
+    container.putResource(
+      "logic",
+      1,
+      assembleLogic(
+        LOGIC_1.replace(
+          "show.pic();",
+          `
+        show.pic();
+        ${blocked ? "set(f7);" : ""}
+        push.script();
+        add.to.pic(0, 0, 0, 100, 100, 15, 0);
+        pop.script();
+        ${blocked ? "reset(f7);" : ""}
+      `,
+        ),
+        { dictionary: DICT },
+      ).payload,
+    );
+    const engine = new Engine(container, new RecordingHost(), DICT);
+    engine.tick();
+    assert.equal(
+      engine.surface.visual[100 * 160 + 100],
+      5,
+      "the cel remains painted after pop.script",
+    );
+    const original = decodeSave(engine.serialize(), engine.profile);
+    assert.deepEqual(
+      original.replay.slice(0, original.replayActive),
+      [
+        { kind: 2, value: 1 },
+        { kind: 4, value: 1 },
+      ],
+      "the game rolled back its recording",
+    );
+    const fresh = new Engine(container, new RecordingHost(), DICT);
+    fresh.restoreImage(engine.autosaveImage()!);
+    assert.equal(
+      fresh.surface.visual[100 * 160 + 100],
+      5,
+      "host resume preserves the painted pixel",
+    );
+    assert.deepEqual(fresh.surface.visual, engine.surface.visual);
+    const resumed = decodeSave(fresh.serialize(), fresh.profile);
+    assert.deepEqual(resumed.replay, original.replay);
+    assert.equal(resumed.replayCheckpoint, original.replayCheckpoint);
+    assert.equal(resumed.replayCapacity, original.replayCapacity);
+    const second = new Engine(container, new RecordingHost(), DICT);
+    second.restoreImage(fresh.autosaveImage()!);
+    assert.deepEqual(
+      second.surface.visual,
+      engine.surface.visual,
+      "a second resume keeps the screen",
+    );
+  });
+}
+
+test("bare save descriptions cannot collide with host autosave framing", () => {
+  const engine = new Engine(buildGame(), new RecordingHost(), DICT);
+  engine.tick();
+  for (const description of [
+    "MONOTIO AUTOSAVE",
+    "MONOTIO AUTOSAVE extra",
+    "\xffMONOTIO AUTOSAVE",
+    "",
+    "x".repeat(30),
+  ]) {
+    const image = engine.serialize();
+    image.fill(0, 0, SAVE_DESCRIPTION_BYTES);
+    for (let i = 0; i < description.length; i++) image[i] = description.charCodeAt(i);
+    assert.deepEqual(decodeHostImage(image), { image, screen: null });
+    const fresh = new Engine(buildGame(), new RecordingHost(), DICT);
+    fresh.restoreImage(image);
+    assert.equal(decodeSave(fresh.serialize(), fresh.profile).description, description);
+  }
+});
+
+test("unknown host autosave versions are rejected without rewriting bytes or engine state", () => {
+  const engine = new Engine(buildGame(), new RecordingHost(), DICT);
+  engine.tick();
+  const image = engine.autosaveImage()!;
+  image[33] = 2;
+  const before = image.slice();
+  const state = engine.serialize();
+  assert.throws(() => engine.restoreImage(image), /unsupported host autosave version 2/);
+  assert.deepEqual(image, before);
+  assert.deepEqual(engine.serialize(), state);
+});
+
+test("host resume preserves captions and their ordering against stopped sprites", () => {
+  const container = buildGame();
+  container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      LOGIC_1.replace(
+        "draw(o0);",
+        `
+    configure.screen(0, 23, 24);
+    position(o0, 20, 100);
+    display(12, 5, "AB");
+    draw(o0); stop.update(o0);
+    animate.obj(o1); set.view(o1, 0); position(o1, 40, 100);
+    draw(o1); stop.update(o1);
+    display(12, 10, "XY");
+    display(6, 2, "A caption written once.");
+  `,
+      ).replace(
+        "return;",
+        `
+    if (isset(f100)) { reset(f100); erase(o0); erase(o1); }
+    return;
+  `,
+      ),
+      { dictionary: DICT },
+    ).payload,
+  );
+  const engine = new Engine(container, new RecordingHost(), DICT);
+  engine.tick();
+  const cell = (e: Engine, col: number) => e.textCells[(12 * 40 + col) * 2];
+  assert.equal(cell(engine, 5), 0, "older text is hidden under the first sprite");
+  assert.equal(cell(engine, 10), 88, "newer text is visible over the second sprite");
+  const fresh = new Engine(container, new RecordingHost(), DICT);
+  fresh.restoreImage(engine.autosaveImage()!);
+  assert.equal(fresh.textRow(6).slice(2, 25), "A caption written once.");
+  assert.deepEqual(fresh.textCells, engine.textCells);
+  const again = new Engine(container, new RecordingHost(), DICT);
+  again.restoreImage(fresh.autosaveImage()!);
+  assert.deepEqual(again.textCells, engine.textCells, "a second resume keeps text and draw ages");
+  for (const e of [engine, fresh, again]) {
+    e.flags[100] = 1;
+    e.tick();
+  }
+  assert.equal(cell(engine, 5), 65, "erase reveals the older A");
+  assert.equal(cell(engine, 10), 0, "erase drops the newer X");
+  assert.deepEqual(fresh.textCells, engine.textCells);
+  assert.deepEqual(again.textCells, engine.textCells);
+});
+
+for (const screen of [
+  [{ kind: 255, value: 0 }],
+  [{ kind: 5, value: 0 }],
+  [{ kind: 2, value: 255 }],
+]) {
+  test(`invalid host replay ${JSON.stringify(screen)} leaves the running engine untouched`, () => {
+    const source = new Engine(buildGame(), new RecordingHost(), DICT);
+    source.tick();
+    source.vars[90] = 123;
+    const host = new RecordingHost();
+    const engine = new Engine(buildGame(), host, DICT);
+    engine.tick();
+    engine.vars[90] = 9;
+    const before = engine.serialize();
+    const pixels = engine.getFrame().visual.slice();
+    const text = engine.textCells.slice();
+    const malformed = encodeHostImage(source.serialize(), screen);
+    assert.throws(() => engine.restoreImage(malformed), /replay|picture resource/);
+    assert.deepEqual(engine.serialize(), before);
+    assert.deepEqual(engine.getFrame().visual, pixels);
+    assert.deepEqual(engine.textCells, text);
+  });
+}
+
+test("malformed host presentation is rejected without touching bytes or the running screen", () => {
+  const engine = new Engine(buildGame(), new RecordingHost(), DICT);
+  engine.tick();
+  const original = engine.autosaveImage()!;
+  const presentation = decodeHostImage(original).presentation;
+  assert.ok(presentation, "host snapshots carry a validated presentation");
+  const header = new DataView(original.buffer, original.byteOffset, original.byteLength);
+  const pairCountAt = 38 + header.getUint32(34, true);
+  const markerAt = pairCountAt + 2 + header.getUint16(pairCountAt, true) * 2;
+  const textAt = markerAt + 1;
+  const drawsAt = textAt + 8 + 1000 * 6;
+  const before = engine.serialize();
+  const pixels = engine.getFrame().visual.slice();
+  const text = engine.textCells.slice();
+  for (const corrupt of [
+    (view: DataView) => view.setUint8(markerAt, 2),
+    (view: DataView) => view.setFloat64(textAt, NaN, true),
+    (view: DataView) => view.setUint32(textAt + 8 + 2000, presentation.seq + 1, true),
+    (view: DataView) => view.setFloat64(drawsAt, presentation.seq + 1, true),
+    (view: DataView) => view.setInt32(drawsAt + 16, 256, true),
+  ]) {
+    const bytes = original.slice();
+    corrupt(new DataView(bytes.buffer));
+    const untouched = bytes.slice();
+    assert.throws(() => engine.restoreImage(bytes), /host autosave/);
+    assert.deepEqual(bytes, untouched);
+    assert.deepEqual(engine.serialize(), before);
+    assert.deepEqual(engine.getFrame().visual, pixels);
+    assert.deepEqual(engine.textCells, text);
+  }
 });

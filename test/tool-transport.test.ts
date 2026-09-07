@@ -358,6 +358,10 @@ test("every catalog tool produces bounded binary-free transport on real success 
       good: { query: "priority", kind: null, offset: null },
       bad: { query: null, kind: "invalid", offset: null },
     },
+    read_authoring_guide: {
+      good: { topic: "text-and-captions" },
+      bad: { topic: "jokes" },
+    },
     playtest_room: {
       room: 1,
       spawnX: null,
@@ -436,6 +440,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     "patch_view_cel",
     "playtest_room",
     "preview_sound",
+    "read_authoring_guide",
     "read_command_reference",
     "read_frames",
     "read_logic",

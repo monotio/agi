@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { compactContainer, openContainer } from "../src/container/container.ts";
+import {
+  buildLogicResource,
+  parseLogicResource,
+  toggleMessageEncryption,
+} from "../src/logic/resource.ts";
+import { RESOURCE_KINDS, type ResourceKind } from "../src/types.ts";
 import { readGameZip } from "../app/src/gameZip.ts";
 import { buildZip } from "../app/src/zip.ts";
 
@@ -17,31 +23,15 @@ function record(stored: number[], expanded = stored.length, metadata = 0): Uint8
     ...stored,
   ]);
 }
-function game(stored: Uint8Array, entry = [0, 0, 0]): Map<string, Uint8Array> {
+/** One-entry combined directory: `entry` fills the section of `kind`, the rest are absent. */
+function game(
+  stored: Uint8Array,
+  entry = [0, 0, 0],
+  kind: ResourceKind = "logic",
+): Map<string, Uint8Array> {
+  const sections = RESOURCE_KINDS.flatMap((k) => (k === kind ? entry : [255, 255, 255]));
   return new Map([
-    [
-      "DEMODIR",
-      Uint8Array.from([
-        8,
-        0,
-        11,
-        0,
-        14,
-        0,
-        17,
-        0,
-        ...entry,
-        255,
-        255,
-        255,
-        255,
-        255,
-        255,
-        255,
-        255,
-        255,
-      ]),
-    ],
+    ["DEMODIR", Uint8Array.from([8, 0, 11, 0, 14, 0, 17, 0, ...sections])],
     ["DEMOVOL.0", stored],
   ]);
 }
@@ -107,14 +97,14 @@ describe("v3 combined resources", () => {
     // 100, 41, 42, 102, 104, 101 => A B AB ABA.
     const compressed = [0x00, 0x83, 0x08, 0x11, 0x48, 0x30, 0x20];
     assert.deepEqual(
-      openContainer(game(record(compressed, 7 + 0))).getResource("logic", 0),
+      openContainer(game(record(compressed, 7 + 0), undefined, "view")).getResource("view", 0),
       Uint8Array.from(compressed),
     ); // Equal lengths select direct storage before dictionary.
     const codes = [256, 65, 66, 258, 260, 257];
     // Add a repeated dictionary code to avoid equal stored/expanded lengths.
     const stored = packed([...codes.slice(0, -1), 260, 257], Array(7).fill(9));
     assert.deepEqual(
-      openContainer(game(record(stored, 10))).getResource("logic", 0),
+      openContainer(game(record(stored, 10), undefined, "view")).getResource("view", 0),
       Uint8Array.from([65, 66, 65, 66, 65, 66, 65, 65, 66, 65]),
     );
   });
@@ -124,9 +114,43 @@ describe("v3 combined resources", () => {
     const widths = [9, ...literals.map((_, i) => (i <= 254 ? 9 : i <= 766 ? 10 : 11)), 11, 9, 9, 9];
     const stored = packed(codes, widths);
     assert.deepEqual(
-      openContainer(game(record(stored, 770))).getResource("logic", 0),
+      openContainer(game(record(stored, 770), undefined, "view")).getResource("view", 0),
       Uint8Array.from([...literals, 90, 90]),
     );
+  });
+  it("re-encrypts the plain message text of a dictionary-compressed logic record", () => {
+    // return; plus one message. Compressed records carry the text plain
+    // (observed v3 data), so the stored stream is the toggled payload as
+    // literals: reset, one 9-bit literal per byte, end.
+    const encrypted = buildLogicResource(Uint8Array.of(0x00), ["Sound now Off"]);
+    const plain = toggleMessageEncryption(encrypted);
+    assert.notDeepEqual(plain, encrypted);
+    assert.equal(
+      String.fromCharCode(...plain.subarray(plain.length - 14, plain.length - 1)),
+      "Sound now Off",
+    );
+    const stored = packed([256, ...plain, 257], Array(plain.length + 2).fill(9));
+    assert.notEqual(stored.length, plain.length);
+    const c = openContainer(game(record(stored, plain.length)));
+    assert.deepEqual(c.getResource("logic", 0), encrypted);
+    assert.deepEqual(parseLogicResource(c.getResource("logic", 0)!).messages, ["Sound now Off"]);
+    // A directly stored record is already in the encrypted layout.
+    assert.deepEqual(
+      parseLogicResource(openContainer(game(record([...encrypted]))).getResource("logic", 0)!)
+        .messages,
+      ["Sound now Off"],
+    );
+    // Repacking copies the compressed record verbatim; it still decodes.
+    c.putResource("view", 1, Uint8Array.of(8));
+    assert.deepEqual(parseLogicResource(c.getResource("logic", 0)!).messages, ["Sound now Off"]);
+    // Toggling tolerates framing that does not fit, leaving the bytes alone,
+    // including a declared text end beyond the payload.
+    assert.deepEqual(toggleMessageEncryption(Uint8Array.of(9, 9, 9)), Uint8Array.of(9, 9, 9));
+    const oversized = encrypted.slice();
+    const tableStart = 2 + 1 + 1;
+    oversized[tableStart] = 0xff;
+    oversized[tableStart + 1] = 0x7f;
+    assert.deepEqual(toggleMessageEncryption(oversized), oversized);
   });
   it("expands packed picture color nibbles and an optional zero pad nibble", () => {
     for (const [stored, expected] of [

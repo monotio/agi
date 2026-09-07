@@ -1,18 +1,13 @@
 import type { AgiProfile } from "../runtime/profile.ts";
-import { MESSAGE_KEY } from "../logic/resource.ts";
+import { decodeInventoryFile, inventoryTableFits } from "../runtime/inventoryFile.ts";
 
 /** Decode the OBJECT table for authoring validation and context. */
 export function readInventoryObjects(payload: Uint8Array | undefined, profile: AgiProfile) {
   if (!payload) return [];
-  const data = payload.map(
-    (byte, i) =>
-      byte ^
-      (profile.inventoryMetadataEncrypted ? MESSAGE_KEY.charCodeAt(i % MESSAGE_KEY.length) : 0),
-  );
+  const data = decodeInventoryFile(payload, profile);
   if (data.length < 3) throw new Error("Invalid inventory header");
   const size = data[0]! | (data[1]! << 8);
-  if (size % 3 || size > 256 * 3 || size + 3 > data.length)
-    throw new Error("Invalid inventory table");
+  if (!inventoryTableFits(data)) throw new Error("Invalid inventory table");
   return Array.from({ length: size / 3 }, (_, i) => {
     const entry = 3 + i * 3;
     let at = 3 + (data[entry]! | (data[entry + 1]! << 8));
@@ -32,8 +27,11 @@ export function validateRoomInventory(
 ): void {
   const before = readInventoryObjects(previous, profile);
   const after = readInventoryObjects(next, profile);
+  // Compare the decoded header: a plain stub read through the fallback and its
+  // encrypted replacement share a maximum object index but not a storage byte.
+  const objectIndex = (payload: Uint8Array): number => decodeInventoryFile(payload, profile)[2]!;
   if (
-    (previous && previous[2] !== next[2]) ||
+    (previous && objectIndex(previous) !== objectIndex(next)) ||
     before.some(
       (item, i) => item.name !== after[i]?.name || item.startingRoom !== after[i]?.startingRoom,
     )

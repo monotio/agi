@@ -18,6 +18,7 @@ import { PROFILES } from "../src/runtime/profile.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
+import { buildView } from "../src/view/view.ts";
 
 /**
  * Authentic save-file envelope, clean-room from the agi-re specification
@@ -908,4 +909,83 @@ describe("restart", () => {
     assert.equal(engine.vars[100], 42, "state survives an unconfirmed restart");
     assert.equal(engine.flags[6], 0, "f6 was not set");
   });
+});
+
+test("an unconfigured game saves the default replay capacity and keeps recording after restore", () => {
+  // The interpreters always hold a configured capacity (the save layout has no
+  // unconfigured state); without script.size the engine's default applies and
+  // travels in the image, so a restore neither caps the game at the pairs it
+  // had recorded nor loses the limit.
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) { set(f200); load.view(1); load.view(2); }
+       if (isset(f201)) { reset(f201); load.view(3); }
+       return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  for (const n of [1, 2, 3])
+    container.putResource(
+      "view",
+      n,
+      buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [n] }] }] }),
+    );
+  const host: EngineHost = {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  };
+  const engine = new Engine(container, host);
+  engine.tick();
+  const image = engine.serialize();
+  const saved = decodeSave(image, engine.profile);
+  assert.equal(saved.replayCapacity, 200, "the default capacity is written");
+  assert.equal(saved.replayActive, 2);
+  const restored = new Engine(container, host);
+  restored.restoreImage(image);
+  restored.flags[201] = 1;
+  assert.doesNotThrow(() => restored.tick(), "a load after restore records freely");
+});
+
+test("a configured replay buffer that is exactly full restores exactly full", () => {
+  // script.size(2) with two recorded pairs saves capacity 2 and count 2; the
+  // restored engine keeps the limit, so the next load fails as it would have
+  // before the save. Only the bytes decide, never a guess from their equality.
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) { set(f200); script.size(2); load.view(1); load.view(2); }
+       if (isset(f201)) { reset(f201); load.view(3); }
+       return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  for (const n of [1, 2, 3])
+    container.putResource(
+      "view",
+      n,
+      buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [n] }] }] }),
+    );
+  const host: EngineHost = {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  };
+  const engine = new Engine(container, host);
+  engine.tick();
+  const image = engine.serialize();
+  assert.equal(decodeSave(image, engine.profile).replayCapacity, 2);
+  const restored = new Engine(container, host);
+  restored.restoreImage(image);
+  restored.flags[201] = 1;
+  assert.throws(() => restored.tick(), /exceeded its 2-pair capacity/);
 });

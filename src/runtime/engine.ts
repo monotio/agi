@@ -23,7 +23,8 @@ import {
 } from "../types.ts";
 import { renderPicture } from "../picture/renderer.ts";
 import { SoundPlayback, type SoundOutput } from "../sound/sound.ts";
-import { MESSAGE_KEY, parseLogicResource, type LogicResource } from "../logic/resource.ts";
+import { parseLogicResource, type LogicResource } from "../logic/resource.ts";
+import { decodeInventoryFile } from "./inventoryFile.ts";
 import { actionSpec, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../logic/opcodes.ts";
 import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "../view/view.ts";
 import { detectProfile, type AgiProfile, type ProfileId } from "./profile.ts";
@@ -46,7 +47,9 @@ import {
   type ScreenObject,
 } from "./screenObject.ts";
 import {
+  decodeHostImage,
   decodeSave,
+  encodeHostImage,
   encodeSave,
   newObjectRecord,
   newSaveState,
@@ -236,6 +239,34 @@ const KEY_ENTER = 0x0d;
 /** have.key polls per cycle before a keyless host receives a synthesized Enter. */
 const HAVE_KEY_POLL_LIMIT = 1000;
 /**
+ * Backward jumps within one host tick after which a logic pass that has read a
+ * clock variable (v11..v14) is parked until the next tick. Observed 3.002.107
+ * data (a title screen's key-to-skip path) busy-waits inside one invocation
+ * with `if (greaterv(v49, v11)) goto` after zeroing v11, relying on the
+ * timer interrupt to advance v11 while bytecode runs. The spec makes timer
+ * ticks asynchronous inputs and does not require delivery between individual
+ * instructions ("Top-level cycle order"); parking the call stack, exactly as a
+ * modal instruction does, lets the host's clock reach such a loop at the host
+ * cadence. Ordinary bounded loops stay far below this count in one pass.
+ */
+const CLOCK_WAIT_JUMPS = 1000;
+/**
+ * Host time a parked clock busy-wait may accumulate before it is an error.
+ * Games wait seconds; a loop that compares a clock variable with itself would
+ * otherwise park forever and never reach the instruction budget.
+ */
+const CLOCK_WAIT_LIMIT_MS = 10 * 60 * 1000;
+/**
+ * Replay-pair capacity of a game that never calls script.size. The
+ * interpreters always hold a configured capacity (the save layout has no
+ * unconfigured state) and the spec's 2.230 XMAS data carries 200 pairs; the
+ * shipped default itself is undocumented, so 200 stands until the binaries
+ * settle it. A game's own script.size replaces it.
+ */
+const DEFAULT_REPLAY_CAPACITY = 200;
+/** Pairs the host-only shadow record keeps for autosaves of a blocked script buffer. */
+const HOST_REPLAY_LIMIT = 4096;
+/**
  * Polls within one cycle after which have.key is treated as a busy loop and a
  * blocking host wait is used. A script that merely polls once per cycle stays
  * non-blocking, so ordinary graphics-mode play never freezes on a keypress.
@@ -309,6 +340,18 @@ export class Engine {
   parserCount = 0;
   /** have.key polls without a key inside one cycle (busy-loop bound). */
   private haveKeyPolls = 0;
+  /**
+   * Clock busy-wait parking state for the current host tick: backward jumps
+   * taken, and the logic and offset of the latest scalar comparison against a
+   * clock variable. A loop parks only when that comparison lies inside its
+   * own byte range, so a clock read elsewhere in the pass cannot shield an
+   * unrelated runaway loop from the playtest budget.
+   */
+  private backwardJumps = 0;
+  private clockReadLogic = -1;
+  private clockReadPc = -1;
+  /** Host milliseconds spent parked in the current clock busy-wait. */
+  private clockWaitMs = 0;
   /** Current room number mirrors vars[0]. */
   horizon = 36;
   /** Priority bands are independent of the movement horizon and are not saved. */
@@ -338,7 +381,7 @@ export class Engine {
   private cycleStatusSound = 0;
   private statusRefreshRequested = false;
   private inputAccepted = false;
-  private scriptCapacity = 0;
+  private scriptCapacity = DEFAULT_REPLAY_CAPACITY;
   private maximumReplayPairs = 0;
   private menu: MenuHeading[] = [];
   private menuFinalized = false;
@@ -385,6 +428,16 @@ export class Engine {
    * display state, rather than re-running the room's logic.
    */
   private readonly replay: ReplayPair[] = [];
+  /**
+   * Every pair the recording gate lets through, including those f7 blocks
+   * from the game's own sequence. Host autosaves of a game that blocks its
+   * script buffer (the demo pack sets f7 for good) use it so a resume can
+   * redraw the room; the game's save.game keeps writing the authentic
+   * sequence.
+   */
+  private readonly hostReplay: ReplayPair[] = [];
+  /** The shadow record hit HOST_REPLAY_LIMIT: an autosave could no longer rebuild the room. */
+  private hostReplayOverflow = false;
   /** Saved active-pair count of the last push.script (spec "Replay checkpoints"). */
   private replayCheckpoint = 0;
   /** Internal recording gate; cleared around replay and view previews. */
@@ -551,16 +604,25 @@ export class Engine {
   // ---------- text surface (spec "Text geometry and surfaces") ----------
 
   /** 40x25 cells, [char, attr] pairs; char 0 = transparent (picture shows through). */
+  /** The trace overlay shows only while no window or dialog owns the surface. */
+  private get traceOverlayVisible(): boolean {
+    return (
+      this.trace.active &&
+      this.modal === null &&
+      this.saveDialogMode === null &&
+      this.persistentWindow === null
+    );
+  }
+
   get textCells(): Uint8Array {
-    if (
-      !this.trace.active ||
-      this.modal !== null ||
-      this.saveDialogMode !== null ||
-      this.persistentWindow !== null
-    )
-      return this.text.cells;
+    return this.getPresentation().text;
+  }
+
+  private mergeTraceText(game: Uint8Array): Uint8Array {
+    // The trace overlay is a host surface and stays on top of everything.
+    if (!this.traceOverlayVisible) return game;
     const cells = this.tracedText.cells;
-    cells.set(this.text.cells);
+    cells.set(game);
     const overlay = this.trace.surface.cells;
     for (let i = 0; i < cells.length; i += 2) {
       if (overlay[i] !== 0) {
@@ -621,10 +683,11 @@ export class Engine {
   }
 
   /** The text row for a text-surface read-back (debug/test helper). */
+  /** The written row, trace overlay included, before sprites hide anything. */
   textRow(row: number): string {
-    return this.textCells === this.text.cells
-      ? this.text.rowText(row)
-      : this.tracedText.rowText(row);
+    if (!this.traceOverlayVisible) return this.text.rowText(row);
+    this.mergeTraceText(this.text.cells);
+    return this.tracedText.rowText(row);
   }
 
   /**
@@ -1231,9 +1294,9 @@ export class Engine {
     state.blockEnabled = this.blockRect ? 1 : 0;
     state.directionCoupling = this.directionCoupling;
     state.lastPicture = this.lastPicture;
-    // The capacity and the block-4 byte length must agree; a game that never
-    // configured one saves exactly the pairs it recorded.
-    state.replayCapacity = this.scriptCapacity > 0 ? this.scriptCapacity : this.replay.length;
+    // The capacity word and the block-4 byte length must agree, so the image
+    // never claims fewer slots than the pairs it holds.
+    state.replayCapacity = Math.max(this.scriptCapacity, this.replay.length);
     state.replayActive = this.replay.length;
     state.replayCheckpoint = this.replayCheckpoint;
     let slot = 0;
@@ -1309,16 +1372,15 @@ export class Engine {
    * Host-initiated save image for an autosave, or null when this cycle
    * boundary is not a safe one to snapshot.
    *
-   * The bytes are exactly what `save.game` writes (`serialize`); what this
-   * adds is the "is now a good moment" rule, which `save.game` does not need
-   * because bytecode can only reach it from a running cycle:
+   * Wraps the authentic `save.game` image with the host's screen sequence,
+   * text and draw ages. Snapshots need a safe cycle boundary because they
+   * do not preserve suspended logic or modal interaction:
    *
-   * - An open modal window or a pending message owns the text surface, and
-   *   the surface is not part of the save. Restoring such an image would drop
-   *   the window and leave the player answering a question they cannot see.
+   * - An open modal window or a pending message owns the text surface; its
+   *   interaction cannot resume from the saved scalar and presentation state.
    * - Full-screen text mode is the same problem one layer up.
-   * - An empty replay sequence means no room has drawn yet (boot, or the gap
-   *   inside a room transition): the image would restore to a blank screen.
+   * - Before any room has drawn (boot, or the gap inside a room transition),
+   *   the image would restore to a blank screen.
    *
    * The caller skips this tick and tries the next one.
    */
@@ -1327,8 +1389,30 @@ export class Engine {
     if (this.modal !== null || this.persistentWindow !== null || this.printsPending > 0)
       return null;
     if (this.textMode) return null;
-    if (this.replay.length === 0) return null;
-    return this.serialize();
+    // Nothing to resume before the first room has drawn. The shadow record
+    // is the witness rather than the game's replay: a game that blocks the
+    // script buffer (f7, the demo pack does) records no replay pairs at all,
+    // and a resumed one has the sequence that rebuilt its screen but no
+    // show.pic of its own yet.
+    if (this.hostReplay.length === 0 && !this.pictureShown) return null;
+    // The host envelope wraps save.game's own image with the shadow record:
+    // every load and draw since the room began, including the ones f7 kept out
+    // of the game's sequence, so the resume rebuilds the room the game drew
+    // while the game's replay and capacity come back untouched. A shadow that
+    // overflowed cannot rebuild it.
+    if (this.hostReplayOverflow) return null;
+    return encodeHostImage(this.serialize(), this.hostReplay, {
+      cells: this.text.cells,
+      written: this.text.written,
+      seq: this.text.seq,
+      draws: this.objects.map(({ drawSeq, drawnX, drawnY, drawnWidth, drawnHeight }) => ({
+        drawSeq,
+        drawnX,
+        drawnY,
+        drawnWidth,
+        drawnHeight,
+      })),
+    });
   }
 
   /**
@@ -1338,14 +1422,54 @@ export class Engine {
    * restores, so the abort is caught here, exactly as `reenterRoom` catches
    * the unwind `newRoom` throws.
    *
-   * A malformed or profile-mismatched image throws out of `decodeSave` before
-   * any state is replaced, so a failed restore leaves the game untouched.
+   * A malformed or profile-mismatched image throws out of `decodeHostImage` or
+   * `decodeSave` before any state is replaced, so a failed restore leaves the
+   * game untouched.
    */
-  restoreImage(image: Uint8Array): void {
+  restoreImage(bytes: Uint8Array): void {
+    const { image, screen, presentation } = decodeHostImage(bytes);
+    // Run the same restore against disposable state and a silent host first.
+    // This validates both packet grammar and referenced resources before the
+    // live engine or host sees any mutation, without a second replay parser.
+    const candidate = new Engine(
+      this.container,
+      {
+        print() {},
+        displayAt() {},
+        statusLine() {},
+        takeInputLine() {
+          return null;
+        },
+        takeKeys() {
+          return [];
+        },
+      },
+      this.dictionary,
+      { profile: this.profile },
+    );
     try {
-      this.applyRestore(image);
+      candidate.applyRestore(image, screen);
     } catch (e) {
       if (!(e instanceof ContinuationAbort)) throw e;
+    }
+    try {
+      this.applyRestore(image, screen);
+    } catch (e) {
+      if (!(e instanceof ContinuationAbort)) throw e;
+    }
+    if (presentation) {
+      this.textMode = false; // Host snapshots are taken only in graphics mode.
+      this.text.cells.set(presentation.cells);
+      this.text.written.set(presentation.written);
+      this.text.seq = presentation.seq;
+      this.text.dirty++;
+      for (let i = 0; i < this.objects.length; i++)
+        Object.assign(this.objects[i]!, presentation.draws[i]!);
+      // Parser edits are transient, as in an authentic restore; redraw the
+      // engine-owned controls over the restored game captions.
+      this.drawStatus();
+      this.drawInputRow();
+      this.host.setTextMode?.(false);
     }
   }
 
@@ -1355,8 +1479,9 @@ export class Engine {
    * resource sequence with recording disabled, rebind object views and refresh
    * presentation, then abort the current continuation. The room's logic is NOT
    * re-run: the screen comes from the replay sequence, not from room re-entry.
+   * A host resume passes the autosave's screen sequence to rebuild from.
    */
-  applyRestore(image: Uint8Array): never {
+  applyRestore(image: Uint8Array, screen: readonly ReplayPair[] | null = null): never {
     const s = decodeSave(image, this.profile);
     this.saveDescription = s.description;
     this.statusRefreshRequested = false;
@@ -1377,7 +1502,7 @@ export class Engine {
       : null;
     this.directionCoupling = s.directionCoupling;
     this.lastPicture = s.lastPicture;
-    this.scriptCapacity = s.replayCapacity;
+    this.scriptCapacity = s.replayCapacity || DEFAULT_REPLAY_CAPACITY;
     this.replayCheckpoint = s.replayCheckpoint;
     this.menuInteractionGate = s.menuGate;
     this.keymap.clear();
@@ -1395,7 +1520,11 @@ export class Engine {
     this.displayBaseRow = s.displayBaseRow;
     this.keyReleaseGate = s.releaseGate;
     for (let num = 0; num < this.objects.length; num++) {
-      applyObjectRecord(this.objects[num]!, s.objects[num]);
+      const o = this.objects[num]!;
+      applyObjectRecord(o, s.objects[num]);
+      // The rebuilt screen shows each object where the save left it, so that
+      // is the rectangle its next erase restores, not where it stood before.
+      this.stampDraw(o);
     }
     const entryCount = this.inventoryMetadata().entryCount;
     for (let item = 0; item < entryCount; item++) {
@@ -1403,6 +1532,14 @@ export class Engine {
     }
     this.replay.length = 0;
     for (const pair of s.replay.slice(0, s.replayActive)) this.replay.push({ ...pair });
+    // The screen is rebuilt from the host's sequence when the image came with
+    // one (every load and draw since the room began, f7 or not); the game's
+    // own replay and capacity are the image's, untouched. Either way the
+    // sequence that rebuilt the screen is the shadow the next autosave carries.
+    const sequence = screen ?? this.replay;
+    this.hostReplay.length = 0;
+    for (const pair of sequence) this.hostReplay.push({ ...pair });
+    this.hostReplayOverflow = false;
     this.parsedWords = [];
     this.parsedWordTexts = [];
     this.parserCount = 0;
@@ -1415,7 +1552,7 @@ export class Engine {
     this.flags[F_SAID_MATCHED] = 0;
 
     // 2. Reset transient caches and replay the saved sequence.
-    this.replaySequence(s.logicResume);
+    this.replaySequence(s.logicResume, sequence);
 
     // 3. Rebind object views and refresh picture, objects, status and input.
     this.rebindObjectViews();
@@ -1441,7 +1578,7 @@ export class Engine {
    * duplicates. Kinds 6 and 7 use the ordinary ordered-discard rule, so a
    * later pair may load the same resource again and establish a new order.
    */
-  private replaySequence(resume: readonly LogicResumeRecord[]): void {
+  private replaySequence(resume: readonly LogicResumeRecord[], pairs: readonly ReplayPair[]): void {
     this.playingSound = null;
     this.soundDoneFlag = null;
     this.soundPlayback = null;
@@ -1458,7 +1595,6 @@ export class Engine {
     const recording = this.replayRecording;
     this.replayRecording = false;
     try {
-      const pairs = this.replay;
       for (let i = 0; i < pairs.length; i++) {
         const pair = pairs[i]!;
         switch (pair.kind) {
@@ -1562,12 +1698,7 @@ export class Engine {
   private decodedInventoryFile(): Uint8Array | null {
     const payload = this.container.files.get("OBJECT");
     if (!payload || payload.length < 3) return null;
-    if (!this.profile.inventoryMetadataEncrypted) return payload;
-    const decoded = new Uint8Array(payload.length);
-    for (let i = 0; i < payload.length; i++) {
-      decoded[i] = payload[i]! ^ MESSAGE_KEY.charCodeAt(i % MESSAGE_KEY.length);
-    }
-    return decoded;
+    return decodeInventoryFile(payload, this.profile);
   }
 
   /** Initial inventory locations from the game metadata (boot and restart). */
@@ -1602,6 +1733,7 @@ export class Engine {
       }
       return;
     }
+    if (this.pendingLogic !== null) this.clockWaitMs += milliseconds;
     const elapsed = this.clockRemainderMs + milliseconds;
     let seconds = Math.floor((elapsed + 1e-7) / 1000);
     this.clockRemainderMs = Math.max(0, elapsed - seconds * 1000);
@@ -1668,12 +1800,92 @@ export class Engine {
     const view = this.loadView(viewNum);
     const c = selectViewCel(view, loop, cel);
     if (!c) throw new Error(`view ${viewNum} loop ${loop} cel ${cel} out of range`);
-    drawCel(this.surface, c, x, y, { priority });
+    // The cel paints into the picture for good, text included, but only where
+    // its opaque pixels land and the priority screen lets them (the demo
+    // pack's menu paints rows 0..9 black, then add.to.pic's its cards on top).
+    const covered = new Set<number>();
+    drawCel(this.surface, c, x, y, {
+      priority,
+      onPixel: (pixel) => {
+        const cell = this.textCellUnder(pixel);
+        if (cell >= 0) covered.add(cell);
+      },
+    });
+    this.text.dropCells(covered);
     if (margin < 4 && y >= 0 && y < SCREEN_HEIGHT) {
       const from = Math.max(0, x);
       const to = Math.min(SCREEN_WIDTH, x + c.width);
       for (let dx = from; dx < to; dx++) this.surface.priority[y * SCREEN_WIDTH + dx] = margin;
     }
+  }
+
+  /**
+   * Text and graphics share one screen in the interpreters. Erasing or
+   * redrawing a cel restores the pixels saved when it was drawn, so text
+   * written over the cel since then is gone; text older than the draw was
+   * saved with the background and stays (hideTextUnderSprites hides it
+   * meanwhile). Text lives in its own cell layer here: drop the cells under
+   * the cel's rectangle written after its last draw, then stamp the draw. A
+   * Mother Goose demonstration relies on this when it redraws its speech
+   * bubble over stale words.
+   */
+  private restoreBehind(o: ScreenObject): void {
+    // The rectangle the interpreter restores is the one it saved at the draw,
+    // not where the object stands now: position and reposition move x/y
+    // before the erase that follows them.
+    const drawn = o.drawnWidth > 0;
+    const x = drawn ? o.drawnX : o.x;
+    const y = drawn ? o.drawnY : o.y;
+    const width = drawn ? o.drawnWidth : o.width;
+    const height = drawn ? o.drawnHeight : o.height;
+    this.text.coverPicture(x, y - height + 1, x + width - 1, y, this.displayBaseRow, o.drawSeq);
+  }
+
+  /** Record what the cel covers from this draw on: text written later lies on top of it. */
+  private stampDraw(o: ScreenObject): void {
+    o.drawSeq = this.text.seq;
+    o.drawnX = o.x;
+    o.drawnY = o.y;
+    o.drawnWidth = o.width;
+    o.drawnHeight = o.height;
+  }
+
+  /** Text cell index under a picture pixel index, or -1 below the text rows. */
+  private textCellUnder(pixel: number): number {
+    const row = this.displayBaseRow + (((pixel / SCREEN_WIDTH) | 0) >> 3);
+    if (row >= TEXT_ROWS) return -1;
+    return row * TEXT_COLS + ((pixel % SCREEN_WIDTH) >> 2);
+  }
+
+  /**
+   * A drawn cel hides the text under the pixels it paints; the interpreter
+   * saved that text with the background, so it shows again when the cel moves
+   * on or is erased. Text written after the draw lies on top and stays
+   * visible. This shapes the cells a host presents; the cells themselves are
+   * untouched.
+   */
+  private hideTextUnderSprites(
+    ownership: Uint16Array | null,
+    sprites: readonly ScreenObject[],
+  ): Uint8Array {
+    const cells = this.text.cells;
+    if (!ownership) return cells;
+    let out: Uint8Array | null = null;
+    for (let pixel = 0; pixel < ownership.length; pixel++) {
+      const owner = ownership[pixel]!;
+      if (owner === 0) continue;
+      const index = this.textCellUnder(pixel);
+      if (
+        index < 0 ||
+        cells[index * 2] === 0 ||
+        this.text.written[index]! > sprites[owner - 1]!.drawSeq
+      )
+        continue;
+      out ??= cells.slice();
+      out[index * 2] = 0;
+      out[index * 2 + 1] = 0;
+    }
+    return out ?? cells;
   }
 
   /**
@@ -1702,6 +1914,9 @@ export class Engine {
   /** One synchronous interpreter cycle (spec: top-level cycle order). */
   tick(): void {
     this.remainingInstructions = this.instructionBudget;
+    this.backwardJumps = 0;
+    this.clockReadLogic = -1;
+    this.clockReadPc = -1;
     if (this.terminated) return;
     // Modal windows pause the interpreter; keys drive the modal instead.
     if (this.modal) {
@@ -1799,6 +2014,7 @@ export class Engine {
           this.pendingLogic = null;
           this.runLogicStack(frames);
         } else {
+          this.clockWaitMs = 0;
           this.execute(0);
         }
         if (this.pendingLogic !== null) return;
@@ -1848,28 +2064,54 @@ export class Engine {
     }
   }
 
+  /**
+   * Targeted motion on object 0 selects object-to-v6 coupling (program
+   * control) until it completes, and completion or a border stop restores
+   * v6-to-object coupling with v6 cleared. The spec's movement chapter is
+   * silent on this; the shipped 2.936 and 3.002.x interpreters do it (their
+   * move.obj, move.obj.v and wander handlers write 0 to the coupling selector
+   * for object 0, and their motion-stop routine writes 1 and zeroes v6 for
+   * object 0). Game scripts rely on it: a zero-distance move.obj on ego is the
+   * idiom that hands control back after a scripted placement.
+   */
   private startMoveObj(o: ScreenObject, x: number, y: number, step: number, flag: number): void {
     o.motionMode = MOTION_MOVE_OBJ;
     o.moveTarget = { x, y, savedStep: o.stepSize, flag };
     if (step !== 0) o.stepSize = step;
     this.flags[flag] = 0;
+    if (o === this.objects[0]) this.directionCoupling = 0;
     if (!this.profile.targetMotionDeferred) this.updateMotion(o);
     if (o === this.objects[0]) this.vars[V_EGO_DIR] = o.direction;
   }
 
   private updateObjects(): void {
+    // The movement pass starts by clearing the border bytes v2, v4 and v5, so a
+    // border contact is visible to logic for exactly one cycle. The spec clears
+    // v4 and v5 at the cycle start and v2 only on room entry; the shipped 2.936
+    // and 3.002.x interpreters zero all three here (their movement pass opens
+    // with stores to variables 5, 4 and 2), and a v3 city map that polls v2 for
+    // page turns depends on it.
+    this.vars[V_EDGE] = 0;
+    this.vars[V_OBJ_HIT] = 0;
+    this.vars[V_OBJ_EDGE] = 0;
     for (const obj of this.objects) {
       if (!obj.active || !obj.update || obj.earlierPartition) continue;
+      // Every updating cel is erased and redrawn each pass, which repaints
+      // whatever text was written over it since its last draw; the redraw at
+      // the pass's end is what later erases restore.
+      this.restoreBehind(obj);
       if (this.profile.directionLoopTiming === "every-pass" || obj.stepCount === 1)
         this.selectLoop(obj);
       this.updateCycle(obj);
-      if (obj.stepCount !== 0 && --obj.stepCount !== 0) continue;
-      obj.stepCount = obj.stepTime;
-      const previousX = obj.x;
-      const previousY = obj.y;
-      this.moveObject(obj, obj.newlyPositioned ? 0 : obj.stepSize);
-      obj.stationary = obj.x === previousX && obj.y === previousY;
-      obj.newlyPositioned = false;
+      if (obj.stepCount === 0 || --obj.stepCount === 0) {
+        obj.stepCount = obj.stepTime;
+        const previousX = obj.x;
+        const previousY = obj.y;
+        this.moveObject(obj, obj.newlyPositioned ? 0 : obj.stepSize);
+        obj.stationary = obj.x === previousX && obj.y === previousY;
+        obj.newlyPositioned = false;
+      }
+      this.stampDraw(obj);
     }
   }
 
@@ -1887,7 +2129,7 @@ export class Engine {
           obj.direction = 0;
           obj.stepSize = t.savedStep;
           this.flags[t.flag] = 1;
-          if (obj === this.objects[0]) this.vars[V_EGO_DIR] = 0;
+          this.releaseEgoMotion(obj);
           return;
         }
         obj.direction = directionToward(dx, dy, step);
@@ -1999,9 +2241,16 @@ export class Engine {
         obj.moveTarget = null;
         obj.motionMode = MOTION_NORMAL;
         obj.direction = 0;
-        if (obj === this.objects[0]) this.vars[V_EGO_DIR] = 0;
+        this.releaseEgoMotion(obj);
       }
     }
+  }
+
+  /** A completed or border-stopped targeted move of object 0 hands control back (see startMoveObj). */
+  private releaseEgoMotion(obj: ScreenObject): void {
+    if (obj !== this.objects[0]) return;
+    this.vars[V_EGO_DIR] = 0;
+    this.directionCoupling = 1;
   }
 
   /** First geometrically valid, collision-free footprint in the specified spiral. */
@@ -2055,40 +2304,50 @@ export class Engine {
   }
 
   /**
-   * Footprint control acceptance (spec): scan the priority/control cells
-   * along the baseline for exactly the cel width, left to right. Control 0
-   * rejects; control 1 rejects unless ignore.blocks; the FINAL cell's class
-   * decides the water/land post-gates — this is what keeps the crocodiles
-   * in the moat.
+   * Footprint control acceptance: scan the priority/control cells along the
+   * baseline for exactly the cel width, left to right. Control 0 rejects;
+   * control 1 rejects unless ignore.blocks. The two class flags are:
+   *
+   * - trigger (f3): set when ANY scanned cell is control 2, never cleared by a
+   *   later cell;
+   * - water (f0): set only when EVERY scanned cell is control 3.
+   *
+   * The spec's "Footprint control acceptance" states a final-cell rule for
+   * both classes. The shipped 3.002.102 and 3.002.107 interpreters disagree:
+   * their scan (load-module offset 0x5ae2, disassembled from the installed
+   * AGI binaries) starts with the water state set, clears it on any cell that
+   * is not water and latches the trigger state on control 2, then feeds both
+   * to f3/f0 for object 0 and applies the on-water/on-land gates to the
+   * all-water state. Observed data agrees: a 3.002.102 demo repositions ego
+   * along a control-2 line and waits for exactly (67,128), which a final-cell
+   * trigger never reaches (test "reposition rides a trigger line"). Priority
+   * 15 skips the scan, accepts the footprint, and for object 0 clears both
+   * flags, as the same routine does.
    */
   private footprintAccepts(obj: ScreenObject, nx: number, ny: number): boolean {
     if (!obj.fixedPriority) obj.priority = this.priorityForY(ny);
-    if (obj.priority === 15) return true;
+    if (obj.priority === 15) {
+      if (obj === this.objects[0]) {
+        this.flags[3] = 0;
+        this.flags[0] = 0;
+      }
+      return true;
+    }
     if (ny < 0 || ny > 167) return false;
     let flag3 = false;
-    let flag0 = false;
+    let flag0 = true;
     for (let i = 0; i < obj.width; i++) {
       const cx = nx + i;
       if (cx < 0 || cx > 159) continue;
       const v = this.surface.priority[ny * 160 + cx] ?? 4;
       if (v === 0) return false;
-      if (v === 1) {
-        if (obj.observeBlocks) return false;
-        flag3 = false;
-        flag0 = false;
-      } else if (v === 2) {
-        flag3 = true;
-        flag0 = false;
-      } else if (v === 3) {
-        flag3 = false;
-        flag0 = true;
-      } else {
-        flag3 = false;
-        flag0 = false;
-      }
+      if (v === 3) continue;
+      flag0 = false;
+      if (v === 1 && obj.observeBlocks) return false;
+      if (v === 2) flag3 = true;
     }
-    if (obj.waterGate === "on" && !flag0) return false; // obj.on.water: must end on control 3
-    if (obj.waterGate === "off" && flag0) return false; // obj.on.land: must not end on control 3
+    if (obj.waterGate === "on" && !flag0) return false; // obj.on.water: every cell is control 3
+    if (obj.waterGate === "off" && flag0) return false; // obj.on.land: not every cell is control 3
     if (obj === this.objects[0]) {
       this.flags[3] = flag3 ? 1 : 0;
       this.flags[0] = flag0 ? 1 : 0;
@@ -2133,11 +2392,36 @@ export class Engine {
       else if (d === 5) target = 2;
       else if (d === 1) target = 3;
     }
-    if (target >= 0 && target < loops && target !== obj.loop) {
-      obj.loop = target;
-      obj.cel = Math.min(obj.cel, view.loops[target]!.cels.length - 1);
-      this.updateCelSize(obj);
-    }
+    if (target >= 0 && target < loops && target !== obj.loop) this.setLoop(obj, target);
+  }
+
+  /**
+   * View binding (the interpreters' SetView, 3.002.102 load-module offset
+   * 0x3e9a; 2.917 and 2.936 match): the object keeps its current loop when the
+   * new view has that many loops and otherwise takes loop 0, then selects the
+   * loop through setLoop. The spec's "set.view" text reads "select its default
+   * loop and cel"; the binaries only fall back to the defaults when the kept
+   * indices are out of range.
+   */
+  private setView(obj: ScreenObject, view: number): void {
+    obj.view = view;
+    const loops = this.views.get(view)?.loops.length ?? 0;
+    this.setLoop(obj, obj.loop < loops ? obj.loop : 0);
+  }
+
+  /**
+   * Loop selection (SetLoop, 3.002.102 offset 0x3f6a with its core at 0x3fce;
+   * 2.917 and 2.936 at 0x3c1x): set.loop, set.loop.v, set.view and the
+   * direction-driven loop change all route here. The current cel survives
+   * when the new loop has that many cels and otherwise becomes 0; SetCel then
+   * refreshes the size. Manhunter's knife game (logic 118) depends on the
+   * survival: while it waits for the barker's cel to cycle it re-selects loop
+   * 0 every cycle, which a reset-to-0 would freeze forever.
+   */
+  private setLoop(obj: ScreenObject, loop: number): void {
+    obj.loop = loop;
+    if (obj.cel >= this.celCount(obj)) obj.cel = 0;
+    this.updateCelSize(obj);
   }
 
   /** Whether a view with MORE than four loops receives direction-based selection. */
@@ -2244,18 +2528,29 @@ export class Engine {
     return this.composeFrame(false).frame;
   }
 
+  /** Pixels and text from one completed composition; buffers may be transferred by the host. */
+  getPresentation(): { visual: Uint8Array; priority: Uint8Array; text: Uint8Array } {
+    const { frame, ownership, sprites } = this.composeFrame(!this.textMode);
+    // Only the final owner of a pixel can obscure text. Intermediate paints
+    // may themselves be covered by another sprite in the same pass.
+    const text = this.mergeTraceText(this.hideTextUnderSprites(ownership, sprites)).slice();
+    return { ...frame, text };
+  }
+
   /** f1 is engine state, updated when sprites draw rather than when a host asks for pixels. */
   private updateEgoVisibility(): void {
     if (this.objects[0]!.active) this.flags[1] = this.composeFrame(true).egoVisible ? 0 : 1;
   }
 
-  private composeFrame(trackEgo: boolean): {
+  private composeFrame(trackOwnership: boolean): {
     frame: { visual: Uint8Array; priority: Uint8Array };
     egoVisible: boolean;
+    ownership: Uint16Array | null;
+    sprites: ScreenObject[];
   } {
     const visual = this.surface.visual.slice();
     const priority = this.surface.priority.slice();
-    const ownership = trackEgo ? new Uint8Array(visual.length) : null;
+    const ownership = trackOwnership ? new Uint16Array(visual.length) : null;
     const frame: PictureSurface = { visual, priority, reset(): void {} };
     // Stable sorting retains object-number order for equal drawing keys.
     // Positive fixed priorities sort after every baseline in the table mode.
@@ -2268,7 +2563,7 @@ export class Engine {
         const bKey = b.fixedPriority ? (b.priority === 0 ? -1 : SCREEN_HEIGHT) : b.y;
         return aKey - bKey;
       });
-    for (const o of active) {
+    for (const [slot, o] of active.entries()) {
       const view = this.views.get(o.view);
       const cel = view && readViewCel(view, o.loop, o.cel);
       if (!cel) continue;
@@ -2278,13 +2573,14 @@ export class Engine {
         ...(ownership
           ? {
               onPixel: (index: number) => {
-                ownership[index] = o === this.objects[0] ? 1 : 0;
+                ownership[index] = slot + 1;
               },
             }
           : {}),
       });
     }
-    const egoVisible = ownership?.includes(1) ?? false;
+    const egoSlot = active.indexOf(this.objects[0]!);
+    const egoVisible = egoSlot >= 0 && (ownership?.includes(egoSlot + 1) ?? false);
     if (this.modal?.kind === "showObj") {
       // show.obj preview: the view's first cel, bottom centre of the picture.
       const view = this.views.get(this.modal.view);
@@ -2293,8 +2589,13 @@ export class Engine {
         drawCel(frame, cel, (SCREEN_WIDTH - cel.width) >> 1, SCREEN_HEIGHT - 1, { priority: 15 });
     }
     if (this.modal?.kind === "showPri")
-      return { frame: { visual: priority.slice(), priority }, egoVisible };
-    return { frame: { visual, priority }, egoVisible };
+      return {
+        frame: { visual: priority.slice(), priority },
+        egoVisible,
+        ownership,
+        sprites: active,
+      };
+    return { frame: { visual, priority }, egoVisible, ownership, sprites: active };
   }
 
   /** Baseline priority bands (spec "Priority and horizon" and set.pri.base). */
@@ -2388,7 +2689,23 @@ export class Engine {
           continue;
         }
         if (op === GOTO) {
-          frame.pc = pc + 3 + readS16(code, pc + 1);
+          const target = pc + 3 + readS16(code, pc + 1);
+          frame.pc = target;
+          if (
+            target <= pc &&
+            ++this.backwardJumps >= CLOCK_WAIT_JUMPS &&
+            this.clockReadLogic === frame.logic &&
+            this.clockReadPc >= target &&
+            this.clockReadPc < pc
+          ) {
+            // A clock busy-wait: resume at the loop head on the next host tick.
+            if (this.clockWaitMs > CLOCK_WAIT_LIMIT_MS)
+              throw new Error(
+                `clock busy-wait in logic ${frame.logic} exceeded ${CLOCK_WAIT_LIMIT_MS / 1000} seconds of host time`,
+              );
+            this.pendingLogic = frames;
+            return;
+          }
           continue;
         }
         if (op === IF) {
@@ -2522,6 +2839,16 @@ export class Engine {
   private evaluateCondition(code: Uint8Array, pc: number): { result: boolean; next: number } {
     const b = code[pc]!;
     const o = (i: number) => code[pc + 1 + i]!;
+    // Scalar comparisons against the clock variables mark this pass as a
+    // possible clock busy-wait (see CLOCK_WAIT_JUMPS).
+    if (b >= 0x01 && b <= 0x06) {
+      const first = o(0);
+      const second = (b & 1) === 0 ? o(1) : -1;
+      if ((first >= 11 && first <= 14) || (second >= 11 && second <= 14)) {
+        this.clockReadLogic = this.activation?.logic ?? -1;
+        this.clockReadPc = pc;
+      }
+    }
     switch (b) {
       case 0x00:
         return { result: false, next: pc + 1 };
@@ -2575,18 +2902,20 @@ export class Engine {
         // mode. Keys pressed meanwhile are polled first. A host that offers a
         // blocking wait is used for such a loop in either mode, because a host
         // whose keys arrive by message can never deliver one while the
-        // interpreter spins; in graphics mode the loop must first prove itself
+        // interpreter spins; the loop must first prove itself
         // (HAVE_KEY_BUSY_POLLS) so a once-per-cycle poll stays non-blocking
-        // and the game keeps running. A host with no blocking wait gets a
-        // synthesized Enter after a bounded number of polls so a headless run
-        // never spins forever.
+        // and the game keeps running. That holds in text mode too: the Space
+        // Quest intro shows its captions on a text screen and polls have.key
+        // once per cycle to let a key skip them. A host with no blocking wait
+        // gets a synthesized Enter after a bounded number of polls so a
+        // headless run never spins forever.
         if (this.vars[V_KEY] !== 0) return { result: true, next: pc + 1 };
         for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
         let pressed = this.pollRawKey();
         const blockingWait = this.host.waitKey ?? this.host.waitTextKey;
         if (pressed === undefined) {
           if (blockingWait) {
-            if (this.textMode || ++this.haveKeyPolls > HAVE_KEY_BUSY_POLLS) {
+            if (++this.haveKeyPolls > HAVE_KEY_BUSY_POLLS) {
               this.inputQueue.enqueueKey(blockingWait.call(this.host), this.keymap);
               pressed = this.pollRawKey();
             }
@@ -2650,8 +2979,33 @@ export class Engine {
   }
 
   /** display / display.v: text at a cell position with the current attribute. */
+  /**
+   * display: the interpreters' character output (3.002.102 load-module offset
+   * 0x2d48; 2.411, 2.917 and 2.936 match) treats CR and LF as a line break to
+   * the next row, capped at row 24, and wraps the character after column 39
+   * the same way. Both continue at the routine's start column, which only a
+   * message window sets, so a display call resumes at column 0. The spec
+   * leaves the layout of display text unspecified; games rely on embedded
+   * newlines (a Leisure Suit Larry demonstration and the Space Quest intro
+   * display two-line captions this way).
+   */
   private display(row: number, col: number, text: string): void {
-    this.text.write(row, col, text, this.textAttr());
+    const a = this.textAttr();
+    let r = row;
+    let c = col;
+    const lineBreak = (): void => {
+      if (r < TEXT_ROWS - 1) r++;
+      c = 0;
+    };
+    for (let i = 0; i < text.length; i++) {
+      const ch = text.charCodeAt(i);
+      if (ch === 0x0a || ch === 0x0d) {
+        lineBreak();
+        continue;
+      }
+      this.text.put(r, c, ch, a);
+      if (++c > TEXT_COLS - 1) lineBreak();
+    }
     this.host.displayAt(row, col, text);
   }
 
@@ -2874,11 +3228,17 @@ export class Engine {
         o.prevY = o.y;
         o.active = true;
         o.earlierPartition = false;
+        // The cel now covers whatever text lies under it (hideTextUnderSprites);
+        // text written from here on lies on top of it.
+        this.stampDraw(o);
         this.updateEgoVisibility();
         return next;
       }
       case 0x24: {
         const o = obj(0);
+        // Erasing restores the pixels saved when the cel was drawn: text
+        // written since then is gone.
+        if (o.active) this.restoreBehind(o);
         o.active = false;
         this.updateEgoVisibility();
         return next;
@@ -2905,48 +3265,34 @@ export class Engine {
       }
       case 0x28: {
         // reposition: signed 8-bit deltas from variables; negative underflow
-        // clamps to zero (spec).
+        // clamps to zero; the object is newly positioned and placement runs,
+        // which also refreshes f0/f3 for ego (spec, action 0x28). Like
+        // reposition.to, the previous-position snapshot is left alone.
         const o = obj(0);
         const dx = (this.vars[a(1)]! << 24) >> 24;
         const dy = (this.vars[a(2)]! << 24) >> 24;
-        o.x = o.prevX = Math.max(0, o.x + dx);
-        o.y = o.prevY = Math.max(0, o.y + dy);
-        if (!o.fixedPriority) o.priority = this.priorityForY(o.y);
+        o.x = Math.max(0, o.x + dx);
+        o.y = Math.max(0, o.y + dy);
+        o.newlyPositioned = true;
+        this.placeObject(o);
         return next;
       }
-      case 0x29: {
+      case 0x29:
         this.requireView(a(1));
-        const o = obj(0);
-        o.view = a(1);
-        o.loop = 0;
-        o.cel = 0;
-        this.updateCelSize(o);
+        this.setView(obj(0), a(1));
         return next;
-      }
       case 0x2a: {
         const view = this.vars[a(1)]!;
         this.requireView(view);
-        const o = obj(0);
-        o.view = view;
-        o.loop = 0;
-        o.cel = 0;
-        this.updateCelSize(o);
+        this.setView(obj(0), view);
         return next;
       }
-      case 0x2b: {
-        const o = obj(0);
-        o.loop = a(1);
-        o.cel = 0;
-        this.updateCelSize(o);
+      case 0x2b:
+        this.setLoop(obj(0), a(1));
         return next;
-      }
-      case 0x2c: {
-        const o = obj(0);
-        o.loop = this.vars[a(1)]!;
-        o.cel = 0;
-        this.updateCelSize(o);
+      case 0x2c:
+        this.setLoop(obj(0), this.vars[a(1)]!);
         return next;
-      }
       case 0x2d:
         obj(0).loopFixed = true;
         return next;
@@ -3080,6 +3426,7 @@ export class Engine {
         const o = obj(0);
         o.motionMode = MOTION_WANDER;
         o.wanderCount = 0;
+        if (o === this.objects[0]) this.directionCoupling = 0;
         return next;
       }
       case 0x4c: {
@@ -3607,7 +3954,9 @@ export class Engine {
       // push.script/pop.script: replay-pair checkpoints (spec "Replay
       // checkpoints"). The checkpoint action saves the active pair count; the
       // rollback action restores it and moves the append position to the end
-      // of the restored prefix, leaving later pairs outside the sequence.
+      // of the restored prefix, leaving later pairs outside the sequence. The
+      // shadow record is the log of what was drawn and is not rolled back: a
+      // cel added to the picture between the two stays on screen.
       case 0xab:
         this.replayCheckpoint = this.replay.length;
         return next;
@@ -3672,6 +4021,8 @@ export class Engine {
     // recorded resource/draw pairs describe that room alone (spec "Room
     // transition").
     this.replay.length = 0;
+    this.hostReplay.length = 0;
+    this.hostReplayOverflow = false;
     this.pendingLogic = null;
     this.replayCheckpoint = 0;
     this.vars[V_PREV_ROOM] = this.vars[V_ROOM]!;
@@ -3795,8 +4146,11 @@ export class Engine {
    * count as its capacity.
    */
   private record(kind: number, value: number): void {
-    if (!this.replayRecording || this.flags[F_REPLAY_OFF] !== 0) return;
-    if (this.scriptCapacity > 0 && this.replay.length >= this.scriptCapacity) {
+    if (!this.replayRecording) return;
+    if (this.hostReplay.length < HOST_REPLAY_LIMIT) this.hostReplay.push({ kind, value });
+    else this.hostReplayOverflow = true;
+    if (this.flags[F_REPLAY_OFF] !== 0) return;
+    if (this.replay.length >= this.scriptCapacity) {
       throw new RangeError(
         `resource replay sequence exceeded its ${this.scriptCapacity}-pair capacity`,
       );
@@ -3877,9 +4231,11 @@ export class Engine {
     this.viewOrder.length = 0;
     this.scanStart.clear();
     this.replay.length = 0;
+    this.hostReplay.length = 0;
+    this.hostReplayOverflow = false;
     this.replayCheckpoint = 0;
     this.replayRecording = true;
-    this.scriptCapacity = 0;
+    this.scriptCapacity = DEFAULT_REPLAY_CAPACITY;
     this.maximumReplayPairs = 0;
     this.menu = [];
     this.menuFinalized = false;

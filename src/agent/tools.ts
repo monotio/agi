@@ -31,6 +31,7 @@ import {
 import { viewFeedback } from "./viewFeedback.ts";
 import { normalizeAuthoredLogic } from "./logicText.ts";
 import { readInventoryObjects } from "./inventory.ts";
+import { decodeInventoryFile } from "../runtime/inventoryFile.ts";
 import { createAuthoringState, resourceRevision, type AuthoringState } from "./authoringState.ts";
 import { AUTHORING_TOOLS, executeAuthoringTool } from "./authoringTools.ts";
 import { SPRITE_TOOLS, executeSpriteTool } from "./spriteTools.ts";
@@ -42,6 +43,7 @@ import {
   relatedCommands,
 } from "./commandReference.ts";
 import { ROOM_TOOLS, executeRoomTool } from "./roomTools.ts";
+import { AUTHORING_GUIDE_TOOL, readAuthoringGuide } from "./authoringGuide.ts";
 import { playtestRoom, validateGenesis } from "./playtest.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import {
@@ -361,6 +363,7 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
   ...PICTURE_TOOLS,
   ...ROOM_TOOLS,
   COMMAND_REFERENCE_TOOL,
+  AUTHORING_GUIDE_TOOL,
   ...CORE_AGENT_TOOLS,
 ];
 
@@ -451,6 +454,7 @@ function executeValidatedAgentTool(
   args: Record<string, unknown>,
 ): AgentToolResult {
   if (name === "read_command_reference") return readCommandReference(session.profile, args);
+  if (name === "read_authoring_guide") return readAuthoringGuide(args);
   let result: AgentToolResult;
   for (const field of ["offset", "limit"]) {
     const value = args[field];
@@ -1152,10 +1156,11 @@ function executeLegacyTool(
       }
       try {
         const previous = session.objectPayload ?? session.container.files.get("OBJECT");
+        // The decoded header keeps the engine's object-record capacity stable
+        // whichever storage form the previous file used (see inventoryFile.ts).
         const maximumDrawableObjectIndex =
           previous && previous.length >= 3
-            ? previous[2]! ^
-              (session.profile.inventoryMetadataEncrypted ? MESSAGE_KEY.charCodeAt(2) : 0)
+            ? decodeInventoryFile(previous, session.profile)[2]!
             : 255;
         const payload = buildObjectFile(objects, session.profile, maximumDrawableObjectIndex);
         session.objectPayload = payload;
@@ -1346,6 +1351,7 @@ export const ASK_TOOLS: readonly string[] = [
   "read_sound",
   "preview_sound",
   "read_command_reference",
+  "read_authoring_guide",
   "inspect_world_bible",
   "playtest_room",
   "read_frames",

@@ -60,14 +60,55 @@ Installed game folders are gitignored and excluded from production builds.
 
 The compatibility suite uses these local installations (other editions may differ):
 
-| Folder       | Interpreter profile |
-| ------------ | ------------------- |
-| `games/kq1/` | 2.917               |
-| `games/kq2/` | 2.411               |
-| `games/kq3/` | 2.936               |
+| Folder            | Interpreter profile           | Container                           |
+| ----------------- | ----------------------------- | ----------------------------------- |
+| `games/kq1/`      | 2.917                         | v2 split                            |
+| `games/kq2/`      | 2.411                         | v2 split                            |
+| `games/kq3/`      | 2.936                         | v2 split                            |
+| `games/demopac4/` | 3.002.102                     | v3 combined (`DMDIR`, `DMVOL.0-1`)  |
+| `games/mh1/`      | 3.002.107 (3.002.102 profile) | v3 combined (`MHDIR`, `MHVOL.0-12`) |
+| `games/gr1/`      | 3.002.149 (no version string) | v3 combined (`GRDIR`, `GRVOL.0-2`)  |
+
+The demo-pack row is a Sierra demonstration pack: six self-running game demos
+whose every logic record is dictionary-compressed. `test/demopac4.test.ts` runs
+all six to completion, which is what proves the combined container, the plain
+message text of compressed logic records and the 3.002.102 profile end to end.
+The Manhunter row is a shipped v3 game with one directly stored logic beside 65
+compressed ones, the independent check of that text rule; its title screen skips
+through a clock busy-wait, and `test/mh1.test.ts` exercises that and then plays
+the whole first day through the game's cursor interface (see the Manhunter Day
+1 proof below). Where installed game data or the shipped interpreter binaries
+contradict the specification text, the engine follows them and the code comment
+cites the evidence. Currently that is the footprint scan's class flags (the
+trigger flag latches on any baseline cell, the water flag needs every cell, and
+the priority-15 bypass clears both for ego), the direction coupling around
+ego's targeted motion (move.obj and wander take program control, arrival or a
+border stop restores player control), the movement pass zeroing the border
+variables v2, v4 and v5 every cycle, loop selection (set.view keeps a loop the
+new view has, set.loop and the direction-driven loop change keep a cel the new
+loop has; only an out-of-range index falls back to 0), and display text layout
+(CR, LF and the character after column 39 continue on the next row at column
+0, the row capped at 24; the spec leaves this open). All were read from the
+disassembled interpreters: `ndisasm -b 16 -e 0x200` on a v3 `AGI` executable,
+and for v2 the same after undoing the loader's scrambling, a per-128-byte-block
+XOR with the 128-byte key stored at `SIERRA.COM` offset 0x41 that rotates right
+one bit per block with the carry chained across blocks. The 2.411, 2.917,
+2.936, 3.002.102 and 3.002.107 builds agree on all of them.
+
+Two consequences of the interpreters' single screen are modelled on the text
+layer: text and graphics share one bitmap there, so a cel drawn by add.to.pic,
+a sprite drawn or erased, and every updating sprite's per-cycle redraw repaint
+the text under them; the engine stamps text cells with their write and drops
+the stamped cells a later drawing covers (the demo pack paints its menu rows
+black and add.to.pic's the game cards over them, and a Mother Goose demo
+redraws its speech bubble over stale words). show.pic already cleared the
+picture band. A once-per-cycle `have.key` poll never blocks, on a text screen
+either: the Space Quest intro shows its captions in text mode and polls for a
+skip key each cycle.
 
 Copy the complete game installation, including its uppercase directory files,
-`WORDS.TOK`, `OBJECT`, all `VOL.*` files and interpreter files. Missing fixtures
+`WORDS.TOK`, `OBJECT`, every volume file (`VOL.*`, or a v3 game's prefixed
+`<PREFIX>VOL.*`) and the interpreter files. Missing fixtures
 produce explicit skips with the folder and missing filenames in both engine and
 browser test output. A fresh clone can run the suite without these games; its
 passing synthetic tests do not establish fixture compatibility. See
@@ -171,6 +212,27 @@ hashes and the game's terminal ending state independently of the report's succes
 label. A missing fixture produces an explicit skip. These runs establish the
 tested edition's completion under browser emulation; physical Samsung/iPhone
 keyboards and screen readers still require device testing.
+
+### Manhunter Day 1 proof
+
+With the local Manhunter: New York 3.002.107 installation present, run:
+
+```bash
+npm run prove:mh1
+```
+
+The route in `test/speedrun/mh1-day1.ts` plays the first day from the title
+screen to the return home that starts Day 2, using only the game's own inputs:
+arrow keys steer the cursor onto hotspots, Enter performs them, F3, C and Tab
+open the map, the MAD and the inventory, and the Orbs' name prompt is typed. It
+carries no prepared saves and writes no game state. The maze machine and the
+sewer network are driven by fixed move lists recorded from the engine's own
+runs, so a changed engine behavior fails the replay instead of being routed
+around. The same route runs as a fixture-gated test in `test/mh1.test.ts`, and
+the JSON report defaults to `/tmp/agi-mh1-speedrun.json`. Two engine fixes came
+out of it: the movement pass clearing v2 every cycle (the city map's page turns)
+and loop selection keeping an in-range cel (the knife game's ending re-selects a
+loop every cycle while it waits for the cel to come round).
 
 WebKit's automated GPU screenshots can capture a stale ending dialog; each full
 run also attaches the final engine frame. Completion assertions check the
@@ -375,9 +437,11 @@ changed resources so an existing player's saved release stays intact.
 ### Production releases
 
 Production is served at `https://agi.monotio.com/` through Azure Front Door.
-CI builds with `/` as the base, checks the built site with
-`npm --prefix app run e2e:production`, and packages only `app/dist` plus the
-static-host response configuration. Fixture games are never deployment inputs.
+CI builds with `/` as the base and packages only `app/dist` plus the
+static-host response configuration. Separate Chromium and WebKit jobs check that
+artifact with `npm --prefix app run e2e:production`; the development browser
+suites also run independently, so one browser failure cannot skip the other.
+Browser failures retain traces for diagnosis. Fixture games are never deployment inputs.
 
 Only `@joakimriedel` may merge into protected `main`. Pull requests and the
 required CI checks apply to administrators too; direct pushes, force pushes,
@@ -387,7 +451,7 @@ restriction is what enforces exclusive merge permission. An organization owner
 can still change GitHub's settings, so account security remains essential.
 
 A successful push to `main` publishes the artifact from that same CI run after
-both check jobs pass. PR jobs have read-only repository access and no production
+all check and browser jobs pass. PR jobs have read-only repository access and no production
 identity. Outside contributors' workflows require approval. Production is a
 main-only GitHub environment, uses OIDC bound to immutable GitHub owner/repository IDs, and has only these
 environment secrets:

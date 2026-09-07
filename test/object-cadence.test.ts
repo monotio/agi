@@ -6,6 +6,7 @@ import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { PROFILES, type ProfileId } from "../src/runtime/profile.ts";
 import { buildView } from "../src/view/view.ts";
 import { decodeSave } from "../src/runtime/persistence.ts";
+import { placeWindow } from "../src/runtime/textSurface.ts";
 
 const host: EngineHost = {
   print() {},
@@ -361,6 +362,143 @@ test("reposition.to places the object and suppresses its next due movement", () 
   assert.equal(engine.screenObjects[0]!.y, 37, "placement obeys the default horizon");
 });
 
+test("footprint scan: trigger latches on any cell, water needs every cell", () => {
+  // Ego is a two-cell-wide actor at (20,100); logic 0 idles, so every tick's
+  // due movement pass re-scans the baseline in place and rewrites f0/f3.
+  // The rules are the shipped v3 interpreters' (see footprintAccepts).
+  const engine = game(`if (!isset(f200)) { set(f200); ${setup} } return;`);
+  engine.tick();
+  const cells = (left: number, right: number): void => {
+    engine.surface.priority.fill(4);
+    engine.surface.priority[100 * 160 + 20] = left;
+    engine.surface.priority[100 * 160 + 21] = right;
+    engine.tick();
+  };
+  cells(2, 4);
+  assert.deepEqual([engine.flags[3], engine.flags[0]], [1, 0], "trigger under the left cell only");
+  cells(4, 2);
+  assert.deepEqual([engine.flags[3], engine.flags[0]], [1, 0], "trigger under the right cell only");
+  cells(2, 3);
+  assert.deepEqual(
+    [engine.flags[3], engine.flags[0]],
+    [1, 0],
+    "trigger latched; not every cell water",
+  );
+  cells(3, 4);
+  assert.deepEqual([engine.flags[3], engine.flags[0]], [0, 0], "water under the left cell only");
+  cells(4, 3);
+  assert.deepEqual([engine.flags[3], engine.flags[0]], [0, 0], "water under the final cell only");
+  cells(3, 3);
+  assert.deepEqual([engine.flags[3], engine.flags[0]], [0, 1], "every cell water");
+  cells(4, 4);
+  assert.deepEqual([engine.flags[3], engine.flags[0]], [0, 0]);
+});
+
+test("priority 15 skips the footprint scan and clears ego's class flags", () => {
+  const engine = game(`if (!isset(f200)) { set(f200); ${setup} } return;`);
+  engine.tick();
+  engine.surface.priority[100 * 160 + 20] = 2;
+  engine.surface.priority[100 * 160 + 21] = 3;
+  engine.tick();
+  assert.equal(engine.flags[3], 1);
+  engine.patchResource(
+    "logic",
+    0,
+    assembleLogic("set.priority(o0, 15); return;", { dictionary: new Map() }).payload,
+  );
+  engine.tick();
+  assert.deepEqual([engine.flags[3], engine.flags[0]], [0, 0], "no scan, both flags cleared");
+  assert.deepEqual([engine.screenObjects[0]!.x, engine.screenObjects[0]!.y], [20, 100]);
+});
+
+test("reposition runs placement, refreshes f3 and suppresses the next due step", () => {
+  // Cells (22,100) and (23,100) are barriers; the requested (22,100) is
+  // rejected, the spiral's first candidate left (21,100) still covers 22, and
+  // the second, down (21,101), is clear.
+  const engine = game(`if (!isset(f200)) { set(f200); ${setup} return; }
+    if (!isset(f201)) {
+      set(f201); assignn(v60, 2); assignn(v61, 0); reposition(o0, v60, v61);
+      assignn(v62, 3); set.dir(o0, v62);
+    }
+    return;
+  `);
+  engine.tick();
+  engine.surface.priority[100 * 160 + 22] = 0;
+  engine.surface.priority[100 * 160 + 23] = 0;
+  engine.surface.priority[101 * 160 + 21] = 2;
+  engine.tick();
+  const ego = engine.screenObjects[0]!;
+  assert.deepEqual([ego.x, ego.y], [21, 101], "placement spiral: left 1 rejected, down 1 accepted");
+  assert.equal(engine.flags[3], 1, "placement scanned the trigger under the new baseline");
+  assert.equal(engine.vars[6], 3, "the requested direction survives the reposition");
+  engine.tick();
+  assert.deepEqual([ego.x, ego.y], [22, 101], "one due step was suppressed, then movement resumes");
+});
+
+test("reposition rides a trigger line to an exact cell (observed 3.002.102 demo geometry)", () => {
+  // A control-2 line descends one row per four cells from (0,112); its row-128
+  // run is x 63..66. The script steps ego one cell right every pass and one
+  // cell down whenever f3 is clear, until ego stands on exactly (67,128). The
+  // 16-cell-wide actor's latched trigger arrives; a final-cell trigger crosses
+  // row 128 at x 49..52 and walks off the bottom of the screen instead.
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) {
+        set(f200); load.view(1); animate.obj(o0); set.view(o0, 1); ignore.horizon(o0);
+        ignore.objs(o0); ignore.blocks(o0); position(o0, 0, 111); draw(o0); stop.cycling(o0);
+        return;
+      }
+      if (posn(o0, 67, 128, 67, 128)) { set(f201); return; }
+      if (isset(f3)) { assignn(v61, 0); } else { assignn(v61, 1); }
+      assignn(v60, 1); reposition(o0, v60, v61); return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  container.putResource(
+    "view",
+    1,
+    buildView({ loops: [{ cels: [{ width: 16, height: 1, pixels: Array(16).fill(1) }] }] }),
+  );
+  const engine = new Engine(container, host);
+  engine.tick();
+  for (let row = 112; row <= 141; row++) {
+    for (let x = (row - 112) * 4 - 1; x <= (row - 112) * 4 + 2; x++) {
+      if (x >= 0 && x < 160) engine.surface.priority[row * 160 + x] = 2;
+    }
+  }
+  const ego = engine.screenObjects[0]!;
+  let arrived = false;
+  for (let i = 0; i < 200 && !arrived; i++) {
+    engine.tick();
+    arrived = engine.flags[201] === 1;
+  }
+  assert.equal(arrived, true, `ego ended at (${ego.x},${ego.y}) without reaching (67,128)`);
+});
+
+test("a border contact is visible to logic for exactly one cycle", () => {
+  // Ego walks up from just below the default horizon (36): the movement pass
+  // clamps it at 37 with edge code 1, the next cycle's logic sees v2 = 1 and
+  // stops ego, and the following pass clears the code again (shipped
+  // interpreters zero v2, v4 and v5 at the start of every movement pass).
+  const engine = game(`
+    if (!isset(f200)) { set(f200); ${setup} position(o0, 20, 40); assignn(v60, 1); set.dir(o0, v60); }
+    assignv(v61, v2);
+    if (equaln(v2, 1)) { assignn(v60, 0); set.dir(o0, v60); }
+    return;
+  `);
+  const seen: number[] = [];
+  for (let i = 0; i < 8; i++) {
+    engine.tick();
+    seen.push(engine.vars[61]!);
+  }
+  assert.equal(engine.screenObjects[0]!.y, 37, "clamped at the horizon");
+  assert.equal(seen.filter((v) => v === 1).length, 1, `edge code seen once: ${seen}`);
+  assert.equal(seen[seen.length - 1], 0, `cleared afterwards: ${seen}`);
+});
+
 test("object position conditions use the selected cel width", () => {
   const engine = game(`${setup}
     if (obj.in.box(o0, 20, 100, 21, 100)) { set(f60); }
@@ -371,3 +509,281 @@ test("object position conditions use the selected cel width", () => {
   engine.tick();
   assert.deepEqual(Array.from(engine.flags.slice(60, 63)), [1, 1, 1]);
 });
+
+test("loop and view selection keep an index the new loop or view has, else fall back to 0", () => {
+  const indices = (engine: Engine) => [engine.screenObjects[0]!.loop, engine.screenObjects[0]!.cel];
+  // set.loop keeps the cel: Manhunter's knife game (logic 118) re-selects the
+  // barker's loop 0 every cycle while waiting for his cel to come round.
+  let engine = game(`${setup} set.cel(o0, 2); set.loop(o0, 0); return;`);
+  engine.execute(0);
+  assert.deepEqual(indices(engine), [0, 2]);
+  // A loop without that many cels resets the cel to 0.
+  engine = game(`${setup} set.cel(o0, 2); assignn(v60, 1); set.loop.v(o0, v60); return;`);
+  engine.execute(0);
+  assert.deepEqual(indices(engine), [1, 0]);
+  // set.view keeps a loop and cel the new view has.
+  engine = game(`${setup} set.cel(o0, 1); set.view(o0, 1); return;`);
+  engine.execute(0);
+  assert.deepEqual(indices(engine), [0, 1]);
+  // A view with fewer loops resets the loop, and its loop's cel count applies.
+  const single = buildView({ loops: [{ cels: [{ width: 2, height: 1, pixels: [5, 5] }] }] });
+  engine = game(`${setup} load.view(2); set.loop(o0, 1); set.view(o0, 2); return;`);
+  engine.patchResource("view", 2, single);
+  engine.execute(0);
+  assert.deepEqual(indices(engine), [0, 0]);
+  engine = game(`${setup} load.view(2); set.cel(o0, 2); set.view(o0, 2); return;`);
+  engine.patchResource("view", 2, single);
+  engine.execute(0);
+  assert.deepEqual(indices(engine), [0, 0]);
+  // The direction-driven loop change goes through the same selection: an
+  // out-of-range cel becomes 0 rather than the loop's last cel.
+  const twoCels = buildView({
+    loops: [
+      {
+        cels: [
+          { width: 2, height: 1, pixels: [1, 1] },
+          { width: 2, height: 1, pixels: [2, 2] },
+          { width: 2, height: 1, pixels: [3, 3] },
+        ],
+      },
+      {
+        cels: [
+          { width: 2, height: 1, pixels: [4, 4] },
+          { width: 2, height: 1, pixels: [5, 5] },
+        ],
+      },
+    ],
+  });
+  engine = game(
+    `load.view(3); animate.obj(o0); set.view(o0, 3); position(o0, 20, 100); draw(o0);
+     stop.cycling(o0); ignore.blocks(o0); set.cel(o0, 2); assignn(v6, 7); return;`,
+  );
+  engine.patchResource("view", 3, twoCels);
+  engine.tick();
+  assert.deepEqual(indices(engine), [1, 0]);
+});
+
+// Text and graphics share one screen in the interpreters: a cel painted into
+// the picture covers the text under its opaque pixels for good, a drawn sprite
+// hides the older text under its painted pixels until it moves or is erased,
+// and erasing or redrawing a sprite restores the pixels saved at its draw, so
+// text written over it since then is gone. The engine keeps text in its own
+// cell layer and models each of these on the cells a host presents. The demo
+// pack's menu paints rows 0..9 black with clear.text.rect and then add.to.pic's
+// its game cards over them; a Mother Goose demonstration redraws its speech
+// bubble over the words it no longer wants.
+test("graphics drawn after text cover, hide or drop the cells under their pixels", () => {
+  // Picture row 0 is text row 0, so a cel at (20,100) covers column 5, row 12.
+  const cell = (engine: Engine, row: number, col: number) =>
+    engine.textCells[(row * 40 + col) * 2]!;
+  const raw = (engine: Engine, row: number, col: number) => engine.textRow(row).charCodeAt(col);
+  const chars = (engine: Engine, row: number) =>
+    Array.from({ length: 9 }, (_, col) => cell(engine, row, col));
+  let engine = game(
+    `configure.screen(0, 23, 24); load.view(1);
+     clear.text.rect(10, 0, 14, 39, 0); add.to.pic(1, 0, 0, 20, 100, 15, 4); return;`,
+  );
+  engine.execute(0);
+  assert.equal(cell(engine, 12, 5), 0, "add.to.pic covered the black cell");
+  assert.equal(cell(engine, 12, 4), 0x20, "the cell beside it stays black");
+  assert.equal(cell(engine, 11, 5), 0x20, "the row above stays black");
+  // Only painted pixels cover: a cel whose pixels over the cell are all
+  // transparent leaves the text alone.
+  engine = game(
+    `configure.screen(0, 23, 24); load.view(2);
+     clear.text.rect(10, 0, 14, 39, 0); add.to.pic(2, 0, 0, 20, 100, 15, 4); return;`,
+  );
+  engine.patchResource(
+    "view",
+    2,
+    buildView({
+      loops: [
+        { cels: [{ width: 8, height: 1, pixels: [0, 0, 0, 0, 3, 3, 3, 3], transparentColor: 0 }] },
+      ],
+    }),
+  );
+  engine.execute(0);
+  assert.equal(cell(engine, 12, 5), 0x20, "transparent pixels paint nothing");
+  assert.equal(cell(engine, 12, 6), 0, "the opaque half covers its cell");
+  // A sprite drawn over text hides it while it stands there; the text itself
+  // stays and shows again once the sprite is erased. Text displayed after the
+  // draw lies on top of the sprite.
+  engine = game(
+    `configure.screen(0, 23, 24); load.view(1); animate.obj(o0); set.view(o0, 1);
+     position(o0, 20, 100); display(12, 5, "AB"); draw(o0); stop.update(o0);
+     display(12, 7, "CD"); return;`,
+  );
+  engine.execute(0);
+  assert.deepEqual(chars(engine, 12).slice(5, 9), [0, 0x42, 0x43, 0x44]);
+  assert.equal(raw(engine, 12, 5), 0x41, "the hidden cell is still written");
+  engine = game(
+    `configure.screen(0, 23, 24); load.view(1); animate.obj(o0); set.view(o0, 1);
+     position(o0, 20, 100); display(12, 5, "AB"); draw(o0); stop.update(o0); erase(o0); return;`,
+  );
+  engine.execute(0);
+  assert.deepEqual(chars(engine, 12).slice(5, 7), [0x41, 0x42], "erase uncovers older text");
+  // Text written over a drawn sprite is lost when the sprite is erased: the
+  // pixels saved at the draw come back without it.
+  engine = game(
+    `configure.screen(0, 23, 24); load.view(1); animate.obj(o0); set.view(o0, 1);
+     position(o0, 20, 100); draw(o0); stop.update(o0); display(12, 5, "AB"); erase(o0); return;`,
+  );
+  engine.execute(0);
+  assert.deepEqual(chars(engine, 12).slice(5, 7), [0, 0x42], "erase repaints under the sprite");
+  // An updating sprite is erased and redrawn in the same cycle's object pass,
+  // so text the logic writes over it never reaches the frame; text it walks
+  // onto later is hidden while covered and returns behind it.
+  engine = game(
+    `configure.screen(0, 23, 24); load.view(1); animate.obj(o0); set.view(o0, 1);
+     position(o0, 20, 100); draw(o0); display(12, 5, "AB"); return;`,
+  );
+  engine.tick();
+  assert.deepEqual(chars(engine, 12).slice(5, 7), [0, 0x42], "an updating sprite repaints it");
+  engine = game(
+    `configure.screen(0, 23, 24); load.view(1);
+     if (isset(f5)) { display(12, 6, "XY"); animate.obj(o0); set.view(o0, 1); position(o0, 20, 100); ignore.blocks(o0); draw(o0); }
+     if (equaln(v50, 0)) { assignn(v50, 1); assignn(v6, 3); }
+     return;`,
+  );
+  engine.tick();
+  assert.deepEqual(chars(engine, 12).slice(6, 8), [0x58, 0x59], "not yet covered");
+  for (let i = 0; i < 8 && engine.screenObjects[0]!.x < 24; i++) engine.tick();
+  assert.equal(cell(engine, 12, 6), 0, "hidden while the sprite stands on it");
+  assert.equal(raw(engine, 12, 6), 0x58, "but not erased");
+  for (let i = 0; i < 20 && engine.screenObjects[0]!.x < 32; i++) engine.tick();
+  assert.deepEqual(chars(engine, 12).slice(6, 8), [0x58, 0x59], "back once the sprite has passed");
+});
+
+test("sprites hide game text by the rules of the screen they share", () => {
+  const cell = (engine: Engine, row: number, col: number) =>
+    engine.textCells[(row * 40 + col) * 2]!;
+  // A text screen shows no sprites, so a sprite drawn over older text hides
+  // nothing there.
+  let engine = game(
+    `configure.screen(0, 23, 24); load.view(1); text.screen(); display(12, 5, "AB");
+     animate.obj(o1); set.view(o1, 1); position(o1, 20, 100); draw(o1); stop.update(o1); return;`,
+  );
+  engine.execute(0);
+  assert.equal(cell(engine, 12, 5), 0x41, "text mode shows every caption");
+  // An erase restores the rectangle saved at the draw, not where the object
+  // stands now: position moved it before the erase.
+  engine = game(
+    `configure.screen(0, 23, 24); load.view(1); animate.obj(o0); set.view(o0, 1);
+     position(o0, 20, 100); draw(o0); stop.update(o0); display(12, 5, "AB"); display(12, 15, "CD");
+     position(o0, 60, 100); erase(o0); return;`,
+  );
+  engine.execute(0);
+  assert.equal(cell(engine, 12, 5), 0, "text over the drawn rectangle is gone");
+  assert.equal(cell(engine, 12, 15), 0x43, "text where the object merely moved to stays");
+  // A window saves and restores the cells with their age: text a sprite hid
+  // before the window is still hidden after it.
+  // Text and the sprite over its first cell both sit inside the "Hi" window.
+  const box = placeWindow(["Hi"], 0);
+  const row = box.top + 1;
+  const col = box.left + 1;
+  engine = game(
+    `configure.screen(0, 23, 24); load.view(1); animate.obj(o0); set.view(o0, 1);
+     position(o0, ${col * 4}, ${row * 8 + 4}); display(${row}, ${col}, "AB"); draw(o0); stop.update(o0);
+     print("Hi"); return;`,
+  );
+  engine.execute(0);
+  assert.equal(engine.modalKind, "print");
+  assert.equal(engine.textRow(row).slice(col, col + 2), "Hi");
+  engine.ackPrint();
+  assert.equal(engine.modalKind, null);
+  assert.equal(cell(engine, row, col), 0, "still hidden under the sprite after the window");
+  assert.equal(cell(engine, row, col + 1), 0x42);
+});
+
+test("a restore snapshots each sprite's saved rectangle at its restored position", () => {
+  // restore.game rebuilds the screen with every object where the save left it,
+  // so the rectangle its next erase restores is that one, not where the object
+  // stood before the restore. A caption written over the old spot after the
+  // restore has to survive the first update pass.
+  const cell = (engine: Engine, row: number, col: number) =>
+    engine.textCells[(row * 40 + col) * 2]!;
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) { set(f200); assignn(v0, 1); new.room.v(v0); } call.v(v0); return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      `if (isset(f5)) {
+         configure.screen(0, 23, 24); load.view(1); animate.obj(o1); set.view(o1, 1);
+         position(o1, 20, 100); draw(o1);
+       }
+       if (isset(f100)) { reset(f100); position(o1, 60, 100); }
+       if (isset(f101)) { reset(f101); display(12, 15, "CD"); }
+       return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  container.putResource(
+    "view",
+    1,
+    buildView({ loops: [{ cels: [{ width: 2, height: 1, pixels: [1, 1] }] }] }),
+  );
+  const engine = new Engine(container, host, undefined, { profile: "2.936" });
+  engine.tick();
+  engine.tick();
+  assert.equal(engine.screenObjects[1]!.x, 20);
+  const image = engine.serialize();
+  engine.flags[100] = 1;
+  engine.tick();
+  engine.tick();
+  assert.equal(engine.screenObjects[1]!.x, 60, "the sprite moved on after the save");
+  engine.restoreImage(image);
+  assert.equal(engine.screenObjects[1]!.x, 20, "the restore put it back");
+  engine.flags[101] = 1;
+  engine.tick();
+  assert.equal(cell(engine, 12, 15), 0x43, "a caption over the pre-restore spot stays");
+  assert.equal(cell(engine, 12, 16), 0x44);
+});
+
+for (const [front, back] of [
+  [0, 1],
+  [1, 0],
+  [255, 0],
+])
+  test(`only the final sprite owner hides text (front o${front}, back o${back})`, () => {
+    const engine = game(`
+    configure.screen(0, 23, 24); load.view(1);
+    animate.obj(o${front}); set.view(o${front}, 1); ignore.objs(o${front}); position(o${front}, 20, 100);
+    set.priority(o${front}, 15); draw(o${front}); stop.update(o${front});
+    display(12, 5, "A");
+    animate.obj(o${back}); set.view(o${back}, 1); ignore.objs(o${back}); set.loop(o${back}, 1); position(o${back}, 20, 100);
+    set.priority(o${back}, 14); draw(o${back}); stop.update(o${back});
+    return;
+  `);
+    engine.execute(0);
+    const frame = engine.getFrame();
+    assert.equal(frame.visual[100 * 160 + 20], 1, "the priority-15 sprite occludes the later one");
+    assert.equal(engine.textCells[(12 * 40 + 5) * 2], 65, "text remains above the earlier draw");
+    assert.deepEqual(engine.getFrame(), frame, "reading text cannot mutate composition");
+    const presentation = engine.getPresentation();
+    assert.deepEqual(presentation.visual, frame.visual);
+    assert.deepEqual(presentation.priority, frame.priority);
+    assert.deepEqual(presentation.text, engine.textCells);
+    assert.ok(presentation.visual.buffer instanceof ArrayBuffer);
+    assert.ok(presentation.priority.buffer instanceof ArrayBuffer);
+    assert.ok(presentation.text.buffer instanceof ArrayBuffer);
+    const transferred = structuredClone(presentation, {
+      transfer: [
+        presentation.visual.buffer,
+        presentation.priority.buffer,
+        presentation.text.buffer,
+      ],
+    });
+    assert.deepEqual(
+      engine.getPresentation(),
+      transferred,
+      "host transfers cannot detach engine state",
+    );
+  });

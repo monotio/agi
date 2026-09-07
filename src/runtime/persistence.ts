@@ -23,6 +23,7 @@
  */
 
 import type { AgiProfile, ProfileId } from "./profile.ts";
+import { TEXT_COLS, TEXT_ROWS } from "./textSurface.ts";
 
 /** Bytes of the leading description header (spec "Save-file envelope"). */
 export const SAVE_DESCRIPTION_BYTES = 31;
@@ -875,6 +876,183 @@ export function decodeSave(bytes: Uint8Array, profile: AgiProfile): SaveState {
   }
   state.logicResume = profile.saveBlocks === 5 ? decodeBlock5(blocks[4]!) : [];
   return state;
+}
+
+// ---------- host autosave envelope ----------
+
+/**
+ * Extends beyond the 31-byte description and puts 0xffff where a bare save
+ * stores its first block length. No supported profile has that block length,
+ * so even a description containing the marker cannot identify a bare save.
+ */
+const HOST_IMAGE_MAGIC = "MONOTIO AUTOSAVE".padEnd(SAVE_DESCRIPTION_BYTES + 2, "\xff");
+const HOST_IMAGE_VERSION = 1;
+const HOST_IMAGE_HEADER = HOST_IMAGE_MAGIC.length + 1 + 4;
+
+const HOST_TEXT_CELLS = TEXT_COLS * TEXT_ROWS;
+const HOST_DRAW_COUNT = 256;
+const HOST_PRESENTATION_BYTES = 8 + HOST_TEXT_CELLS * 6 + HOST_DRAW_COUNT * 24;
+
+export interface HostDraw {
+  drawSeq: number;
+  drawnX: number;
+  drawnY: number;
+  drawnWidth: number;
+  drawnHeight: number;
+}
+
+/** Host-only text and draw ages; these never enter an authentic save.game file. */
+export interface HostPresentation {
+  cells: Uint8Array;
+  written: Uint32Array;
+  seq: number;
+  draws: HostDraw[];
+}
+
+/** A host autosave taken apart (see Engine.autosaveImage). */
+export interface HostImage {
+  /** The authentic save image, byte for byte what save.game writes. */
+  image: Uint8Array;
+  /**
+   * The screen sequence that rebuilds the room: every load and draw since the
+   * room began, whether or not f7 kept it out of the game's replay. Null for a
+   * bare save image, whose own replay is then the only screen there is.
+   */
+  screen: ReplayPair[] | null;
+  presentation?: HostPresentation;
+}
+
+/**
+ * Wrap a save image with the engine's screen sequence for a host autosave.
+ * The envelope keeps the two apart so a resume restores the game's replay and
+ * capacity from the image and rebuilds the screen from the sequence; a later
+ * save.game then writes what the game recorded, not what the host needed.
+ * Layout: the 33-byte marker, u8 version, u32le image length, the image, u16le pair
+ * count, the pairs as block 4 encodes them, then a presence byte and optional
+ * fixed-size presentation: f64 sequence, cells, u32 write stamps, and 256
+ * draw records (f64 sequence and four i32 bounds). All numbers are little-endian.
+ */
+export function encodeHostImage(
+  image: Uint8Array,
+  screen: readonly ReplayPair[],
+  presentation?: HostPresentation,
+): Uint8Array {
+  if (screen.length > 0xffff)
+    throw new RangeError(`screen sequence has ${screen.length} pairs, more than the 65535 fit`);
+  if (
+    presentation &&
+    (presentation.cells.length !== HOST_TEXT_CELLS * 2 ||
+      presentation.written.length !== HOST_TEXT_CELLS ||
+      presentation.draws.length !== HOST_DRAW_COUNT)
+  )
+    throw new RangeError("host autosave presentation dimensions are invalid");
+  const out = new Uint8Array(
+    HOST_IMAGE_HEADER +
+      image.length +
+      2 +
+      screen.length * 2 +
+      1 +
+      (presentation ? HOST_PRESENTATION_BYTES : 0),
+  );
+  for (let i = 0; i < HOST_IMAGE_MAGIC.length; i++) out[i] = HOST_IMAGE_MAGIC.charCodeAt(i);
+  out[HOST_IMAGE_MAGIC.length] = HOST_IMAGE_VERSION;
+  putU32(out, HOST_IMAGE_MAGIC.length + 1, image.length);
+  out.set(image, HOST_IMAGE_HEADER);
+  let at = HOST_IMAGE_HEADER + image.length;
+  putU16(out, at, screen.length);
+  at += 2;
+  for (const pair of screen) {
+    out[at++] = pair.kind & 0xff;
+    out[at++] = pair.value & 0xff;
+  }
+  out[at++] = presentation ? 1 : 0;
+  if (presentation) {
+    const view = new DataView(out.buffer);
+    view.setFloat64(at, presentation.seq, true);
+    at += 8;
+    out.set(presentation.cells, at);
+    at += HOST_TEXT_CELLS * 2;
+    for (const stamp of presentation.written) {
+      putU32(out, at, stamp);
+      at += 4;
+    }
+    for (const draw of presentation.draws) {
+      view.setFloat64(at, draw.drawSeq, true);
+      view.setInt32(at + 8, draw.drawnX, true);
+      view.setInt32(at + 12, draw.drawnY, true);
+      view.setInt32(at + 16, draw.drawnWidth, true);
+      view.setInt32(at + 20, draw.drawnHeight, true);
+      at += 24;
+    }
+  }
+  return out;
+}
+
+/** Take a host autosave apart; bytes without the marker are a bare save image. */
+export function decodeHostImage(bytes: Uint8Array): HostImage {
+  let marked = bytes.length >= HOST_IMAGE_MAGIC.length;
+  for (let i = 0; marked && i < HOST_IMAGE_MAGIC.length; i++) {
+    marked = bytes[i] === HOST_IMAGE_MAGIC.charCodeAt(i);
+  }
+  if (!marked) return { image: bytes, screen: null };
+  if (bytes.length < HOST_IMAGE_HEADER)
+    throw new RangeError("host autosave ends before its image length");
+  if (bytes[HOST_IMAGE_MAGIC.length] !== HOST_IMAGE_VERSION)
+    throw new RangeError(`unsupported host autosave version ${bytes[HOST_IMAGE_MAGIC.length]}`);
+  const imageLength = u32(bytes, HOST_IMAGE_MAGIC.length + 1);
+  const countAt = HOST_IMAGE_HEADER + imageLength;
+  if (countAt + 2 > bytes.length) throw new RangeError("host autosave ends inside its save image");
+  const count = u16(bytes, countAt);
+  const pairEnd = countAt + 2 + count * 2;
+  if (pairEnd >= bytes.length) throw new RangeError("host autosave ends inside its pair data");
+  const present = bytes[pairEnd];
+  if (
+    (present !== 0 && present !== 1) ||
+    bytes.length !== pairEnd + 1 + (present ? HOST_PRESENTATION_BYTES : 0)
+  )
+    throw new RangeError("host autosave presentation length or marker is invalid");
+  const result: HostImage = {
+    image: bytes.slice(HOST_IMAGE_HEADER, countAt),
+    screen: decodeBlock4(bytes.subarray(countAt + 2, pairEnd)),
+  };
+  if (present) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let at = pairEnd + 1;
+    const seq = view.getFloat64(at, true);
+    at += 8;
+    if (!Number.isSafeInteger(seq) || seq < 0)
+      throw new RangeError("host autosave text sequence is invalid");
+    const cells = bytes.slice(at, at + HOST_TEXT_CELLS * 2);
+    at += HOST_TEXT_CELLS * 2;
+    const written = new Uint32Array(HOST_TEXT_CELLS);
+    for (let i = 0; i < written.length; i++) {
+      written[i] = u32(bytes, at);
+      at += 4;
+      if (written[i]! > seq) throw new RangeError("host autosave text stamp exceeds its sequence");
+    }
+    const draws: HostDraw[] = [];
+    for (let i = 0; i < HOST_DRAW_COUNT; i++) {
+      const drawSeq = view.getFloat64(at, true);
+      const drawnX = view.getInt32(at + 8, true);
+      const drawnY = view.getInt32(at + 12, true);
+      const drawnWidth = view.getInt32(at + 16, true);
+      const drawnHeight = view.getInt32(at + 20, true);
+      if (
+        !Number.isSafeInteger(drawSeq) ||
+        drawSeq < 0 ||
+        drawSeq > seq ||
+        drawnWidth < 0 ||
+        drawnWidth > 255 ||
+        drawnHeight < 0 ||
+        drawnHeight > 255
+      )
+        throw new RangeError("host autosave draw snapshot is invalid");
+      draws.push({ drawSeq, drawnX, drawnY, drawnWidth, drawnHeight });
+      at += 24;
+    }
+    result.presentation = { cells, written, seq, draws };
+  }
+  return result;
 }
 
 /**
