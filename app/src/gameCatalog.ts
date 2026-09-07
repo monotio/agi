@@ -13,7 +13,7 @@ export interface GameCatalogEntry {
 export const GAME_CATALOG: readonly GameCatalogEntry[] = [
   {
     id: "adventure-department",
-    version: "1.0.1",
+    version: "1.0.0",
     title: "Adventure Department",
     description: "Learn pictures, sprites and priority in a three-room tutorial.",
     author: "Monotio",

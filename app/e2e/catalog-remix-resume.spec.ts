@@ -11,7 +11,7 @@ import {
 } from "./engineProbe.ts";
 
 /** The catalog installs the bundled tutorial under a deterministic slug. */
-const TUTORIAL_SLUG = "catalog-adventure-department-1.0.1";
+const TUTORIAL_SLUG = "catalog-adventure-department-1.0.0";
 
 test("forking the tutorial moves its checkpoint to the remix card", async ({ page }) => {
   const original = TUTORIAL_LOGIC_SOURCES[1]!;
