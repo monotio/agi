@@ -322,9 +322,16 @@ export class Engine {
   parserCount = 0;
   /** have.key polls without a key inside one cycle (busy-loop bound). */
   private haveKeyPolls = 0;
-  /** Backward jumps and clock-variable reads within the current host tick (clock busy-wait parking). */
+  /**
+   * Clock busy-wait parking state for the current host tick: backward jumps
+   * taken, and the logic and offset of the latest scalar comparison against a
+   * clock variable. A loop parks only when that comparison lies inside its
+   * own byte range, so a clock read elsewhere in the pass cannot shield an
+   * unrelated runaway loop from the playtest budget.
+   */
   private backwardJumps = 0;
-  private clockRead = false;
+  private clockReadLogic = -1;
+  private clockReadPc = -1;
   /** Current room number mirrors vars[0]. */
   horizon = 36;
   /** Priority bands are independent of the movement horizon and are not saved. */
@@ -1714,7 +1721,8 @@ export class Engine {
   tick(): void {
     this.remainingInstructions = this.instructionBudget;
     this.backwardJumps = 0;
-    this.clockRead = false;
+    this.clockReadLogic = -1;
+    this.clockReadPc = -1;
     if (this.terminated) return;
     // Modal windows pause the interpreter; keys drive the modal instead.
     if (this.modal) {
@@ -2431,7 +2439,13 @@ export class Engine {
         if (op === GOTO) {
           const target = pc + 3 + readS16(code, pc + 1);
           frame.pc = target;
-          if (target <= pc && ++this.backwardJumps >= CLOCK_WAIT_JUMPS && this.clockRead) {
+          if (
+            target <= pc &&
+            ++this.backwardJumps >= CLOCK_WAIT_JUMPS &&
+            this.clockReadLogic === frame.logic &&
+            this.clockReadPc >= target &&
+            this.clockReadPc < pc
+          ) {
             // A clock busy-wait: resume at the loop head on the next host tick.
             this.pendingLogic = frames;
             return;
@@ -2573,10 +2587,10 @@ export class Engine {
     // possible clock busy-wait (see CLOCK_WAIT_JUMPS).
     if (b >= 0x01 && b <= 0x06) {
       const first = o(0);
-      if (first >= 11 && first <= 14) this.clockRead = true;
-      if ((b & 1) === 0) {
-        const second = o(1);
-        if (second >= 11 && second <= 14) this.clockRead = true;
+      const second = (b & 1) === 0 ? o(1) : -1;
+      if ((first >= 11 && first <= 14) || (second >= 11 && second <= 14)) {
+        this.clockReadLogic = this.activation?.logic ?? -1;
+        this.clockReadPc = pc;
       }
     }
     switch (b) {

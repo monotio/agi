@@ -65,6 +65,17 @@ test("a bounded loop that reads the clock completes within one pass", () => {
   assert.deepEqual([engine.flags[201], engine.vars[60]], [1, 0]);
 });
 
+test("a clock comparison outside a runaway loop does not shield it from the budget", () => {
+  // The comparison sits before the loop, not inside it: the loop is not a
+  // clock wait and must exhaust the budget rather than park.
+  const engine = game(
+    `if (equaln(v11, 0)) { set(f210); }
+     loop: if (equaln(v50, 0)) { goto loop; } return;`,
+    5000,
+  );
+  assert.throws(() => engine.tick(), /instruction budget exceeded in logic 0/);
+});
+
 test("a runaway loop that never reads the clock still trips the playtest budget", () => {
   const engine = game(`loop: if (equaln(v50, 0)) { goto loop; } return;`, 5000);
   assert.throws(() => engine.tick(), /instruction budget exceeded in logic 0/);
