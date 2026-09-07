@@ -1,5 +1,5 @@
 import type { AgiProfile } from "../runtime/profile.ts";
-import { decodeInventoryFile } from "../runtime/inventoryFile.ts";
+import { decodeInventoryFile, inventoryTableFits } from "../runtime/inventoryFile.ts";
 
 /** Decode the OBJECT table for authoring validation and context. */
 export function readInventoryObjects(payload: Uint8Array | undefined, profile: AgiProfile) {
@@ -7,8 +7,7 @@ export function readInventoryObjects(payload: Uint8Array | undefined, profile: A
   const data = decodeInventoryFile(payload, profile);
   if (data.length < 3) throw new Error("Invalid inventory header");
   const size = data[0]! | (data[1]! << 8);
-  if (size % 3 || size > 256 * 3 || size + 3 > data.length)
-    throw new Error("Invalid inventory table");
+  if (!inventoryTableFits(data)) throw new Error("Invalid inventory table");
   return Array.from({ length: size / 3 }, (_, i) => {
     const entry = 3 + i * 3;
     let at = 3 + (data[entry]! | (data[entry + 1]! << 8));

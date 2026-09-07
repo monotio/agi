@@ -357,7 +357,10 @@ test("a host resume keeps the game's own replay and capacity apart from the scre
   bare.restoreImage(authentic);
   assert.deepEqual(Array.from(bare.vars), Array.from(engine.vars));
   // A truncated envelope is refused whole rather than restored in part.
-  assert.throws(() => decodeHostImage(autosave.subarray(0, autosave.length - 1)), /pair/);
+  assert.throws(
+    () => decodeHostImage(autosave.subarray(0, autosave.length - 1)),
+    /presentation|pair/,
+  );
   assert.throws(() => decodeHostImage(autosave.subarray(0, 37)), /image length/);
 });
 
@@ -505,4 +508,110 @@ test("unknown host autosave versions are rejected without rewriting bytes or eng
   assert.throws(() => engine.restoreImage(image), /unsupported host autosave version 2/);
   assert.deepEqual(image, before);
   assert.deepEqual(engine.serialize(), state);
+});
+
+test("host resume preserves captions and their ordering against stopped sprites", () => {
+  const container = buildGame();
+  container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      LOGIC_1.replace(
+        "draw(o0);",
+        `
+    configure.screen(0, 23, 24);
+    position(o0, 20, 100);
+    display(12, 5, "AB");
+    draw(o0); stop.update(o0);
+    animate.obj(o1); set.view(o1, 0); position(o1, 40, 100);
+    draw(o1); stop.update(o1);
+    display(12, 10, "XY");
+    display(6, 2, "A caption written once.");
+  `,
+      ).replace(
+        "return;",
+        `
+    if (isset(f100)) { reset(f100); erase(o0); erase(o1); }
+    return;
+  `,
+      ),
+      { dictionary: DICT },
+    ).payload,
+  );
+  const engine = new Engine(container, new RecordingHost(), DICT);
+  engine.tick();
+  const cell = (e: Engine, col: number) => e.textCells[(12 * 40 + col) * 2];
+  assert.equal(cell(engine, 5), 0, "older text is hidden under the first sprite");
+  assert.equal(cell(engine, 10), 88, "newer text is visible over the second sprite");
+  const fresh = new Engine(container, new RecordingHost(), DICT);
+  fresh.restoreImage(engine.autosaveImage()!);
+  assert.equal(fresh.textRow(6).slice(2, 25), "A caption written once.");
+  assert.deepEqual(fresh.textCells, engine.textCells);
+  const again = new Engine(container, new RecordingHost(), DICT);
+  again.restoreImage(fresh.autosaveImage()!);
+  assert.deepEqual(again.textCells, engine.textCells, "a second resume keeps text and draw ages");
+  for (const e of [engine, fresh, again]) {
+    e.flags[100] = 1;
+    e.tick();
+  }
+  assert.equal(cell(engine, 5), 65, "erase reveals the older A");
+  assert.equal(cell(engine, 10), 0, "erase drops the newer X");
+  assert.deepEqual(fresh.textCells, engine.textCells);
+  assert.deepEqual(again.textCells, engine.textCells);
+});
+
+for (const screen of [
+  [{ kind: 255, value: 0 }],
+  [{ kind: 5, value: 0 }],
+  [{ kind: 2, value: 255 }],
+]) {
+  test(`invalid host replay ${JSON.stringify(screen)} leaves the running engine untouched`, () => {
+    const source = new Engine(buildGame(), new RecordingHost(), DICT);
+    source.tick();
+    source.vars[90] = 123;
+    const host = new RecordingHost();
+    const engine = new Engine(buildGame(), host, DICT);
+    engine.tick();
+    engine.vars[90] = 9;
+    const before = engine.serialize();
+    const pixels = engine.getFrame().visual.slice();
+    const text = engine.textCells.slice();
+    const malformed = encodeHostImage(source.serialize(), screen);
+    assert.throws(() => engine.restoreImage(malformed), /replay|picture resource/);
+    assert.deepEqual(engine.serialize(), before);
+    assert.deepEqual(engine.getFrame().visual, pixels);
+    assert.deepEqual(engine.textCells, text);
+  });
+}
+
+test("malformed host presentation is rejected without touching bytes or the running screen", () => {
+  const engine = new Engine(buildGame(), new RecordingHost(), DICT);
+  engine.tick();
+  const original = engine.autosaveImage()!;
+  const presentation = decodeHostImage(original).presentation;
+  assert.ok(presentation, "host snapshots carry a validated presentation");
+  const header = new DataView(original.buffer, original.byteOffset, original.byteLength);
+  const pairCountAt = 38 + header.getUint32(34, true);
+  const markerAt = pairCountAt + 2 + header.getUint16(pairCountAt, true) * 2;
+  const textAt = markerAt + 1;
+  const drawsAt = textAt + 8 + 1000 * 6;
+  const before = engine.serialize();
+  const pixels = engine.getFrame().visual.slice();
+  const text = engine.textCells.slice();
+  for (const corrupt of [
+    (view: DataView) => view.setUint8(markerAt, 2),
+    (view: DataView) => view.setFloat64(textAt, NaN, true),
+    (view: DataView) => view.setUint32(textAt + 8 + 2000, presentation.seq + 1, true),
+    (view: DataView) => view.setFloat64(drawsAt, presentation.seq + 1, true),
+    (view: DataView) => view.setInt32(drawsAt + 16, 256, true),
+  ]) {
+    const bytes = original.slice();
+    corrupt(new DataView(bytes.buffer));
+    const untouched = bytes.slice();
+    assert.throws(() => engine.restoreImage(bytes), /host autosave/);
+    assert.deepEqual(bytes, untouched);
+    assert.deepEqual(engine.serialize(), before);
+    assert.deepEqual(engine.getFrame().visual, pixels);
+    assert.deepEqual(engine.textCells, text);
+  }
 });

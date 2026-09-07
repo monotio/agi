@@ -109,3 +109,16 @@ test("authoring over a plain v3 stub keeps the decoded object-record capacity", 
     { name: "lamp", startingRoom: 3 },
   ]);
 });
+
+test("a long name pool cannot make an impossible decoded item count win", () => {
+  const plain = new Uint8Array(31000);
+  plain.set([6, 0, 15, 6, 0, 0, 6, 0, 1]);
+  plain.fill(65, 9, plain.length - 1);
+  const encrypted = plain.map((b, i) => b ^ MESSAGE_KEY.charCodeAt(i % MESSAGE_KEY.length));
+  // 0x7647 is divisible by three and fits the file, but describes 10093 items.
+  assert.equal(inventoryTableFits(encrypted), false);
+  assert.equal(decodeInventoryFile(plain, PROFILES["3.002.102"])[0], 6);
+  const items = readInventoryObjects(plain, PROFILES["3.002.102"]);
+  assert.equal(items.length, 2);
+  assert.equal(items[0]!.name.length, plain.length - 10);
+});

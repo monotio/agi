@@ -26,14 +26,7 @@ import { SoundPlayback, type SoundOutput } from "../sound/sound.ts";
 import { parseLogicResource, type LogicResource } from "../logic/resource.ts";
 import { decodeInventoryFile } from "./inventoryFile.ts";
 import { actionSpec, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../logic/opcodes.ts";
-import {
-  parseView,
-  selectViewCel,
-  readViewCel,
-  drawCel,
-  forEachPaintedPixel,
-  type AgiView,
-} from "../view/view.ts";
+import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "../view/view.ts";
 import { detectProfile, type AgiProfile, type ProfileId } from "./profile.ts";
 import { TraceWindow } from "./trace.ts";
 import { InputQueue, NAV_KEYS } from "./inputQueue.ts";
@@ -1407,7 +1400,18 @@ export class Engine {
     // while the game's replay and capacity come back untouched. A shadow that
     // overflowed cannot rebuild it.
     if (this.hostReplayOverflow) return null;
-    return encodeHostImage(this.serialize(), this.hostReplay);
+    return encodeHostImage(this.serialize(), this.hostReplay, {
+      cells: this.text.cells,
+      written: this.text.written,
+      seq: this.text.seq,
+      draws: this.objects.map(({ drawSeq, drawnX, drawnY, drawnWidth, drawnHeight }) => ({
+        drawSeq,
+        drawnX,
+        drawnY,
+        drawnWidth,
+        drawnHeight,
+      })),
+    });
   }
 
   /**
@@ -1422,11 +1426,49 @@ export class Engine {
    * game untouched.
    */
   restoreImage(bytes: Uint8Array): void {
-    const { image, screen } = decodeHostImage(bytes);
+    const { image, screen, presentation } = decodeHostImage(bytes);
+    // Run the same restore against disposable state and a silent host first.
+    // This validates both packet grammar and referenced resources before the
+    // live engine or host sees any mutation, without a second replay parser.
+    const candidate = new Engine(
+      this.container,
+      {
+        print() {},
+        displayAt() {},
+        statusLine() {},
+        takeInputLine() {
+          return null;
+        },
+        takeKeys() {
+          return [];
+        },
+      },
+      this.dictionary,
+      { profile: this.profile },
+    );
+    try {
+      candidate.applyRestore(image, screen);
+    } catch (e) {
+      if (!(e instanceof ContinuationAbort)) throw e;
+    }
     try {
       this.applyRestore(image, screen);
     } catch (e) {
       if (!(e instanceof ContinuationAbort)) throw e;
+    }
+    if (presentation) {
+      this.textMode = false; // Host snapshots are taken only in graphics mode.
+      this.text.cells.set(presentation.cells);
+      this.text.written.set(presentation.written);
+      this.text.seq = presentation.seq;
+      this.text.dirty++;
+      for (let i = 0; i < this.objects.length; i++)
+        Object.assign(this.objects[i]!, presentation.draws[i]!);
+      // Parser edits are transient, as in an authentic restore; redraw the
+      // engine-owned controls over the restored game captions.
+      this.drawStatus();
+      this.drawInputRow();
+      this.host.setTextMode?.(false);
     }
   }
 
@@ -1825,22 +1867,13 @@ export class Engine {
     // A text screen shows no sprites at all, so nothing hides its text.
     if (this.textMode) return cells;
     let out: Uint8Array | null = null;
-    for (const o of this.objects) {
-      if (!o.active) continue;
-      const view = this.views.get(o.view);
-      // The same reader and priority as composeFrame: reading must not select
-      // (and so mirror) a cel, and a non-fixed priority follows the baseline.
-      const cel = view && readViewCel(view, o.loop, o.cel);
-      if (!cel) continue;
-      const priority = o.fixedPriority ? o.priority : this.priorityForY(o.y);
-      forEachPaintedPixel(this.surface, cel, o.x, o.y, priority, (pixel) => {
-        const index = this.textCellUnder(pixel);
-        if (index < 0 || cells[index * 2] === 0 || this.text.written[index]! > o.drawSeq) return;
-        out ??= cells.slice();
-        out[index * 2] = 0;
-        out[index * 2 + 1] = 0;
-      });
-    }
+    this.composeFrame(false, (pixel, o) => {
+      const index = this.textCellUnder(pixel);
+      if (index < 0 || cells[index * 2] === 0 || this.text.written[index]! > o.drawSeq) return;
+      out ??= cells.slice();
+      out[index * 2] = 0;
+      out[index * 2 + 1] = 0;
+    });
     return out ?? cells;
   }
 
@@ -2489,7 +2522,10 @@ export class Engine {
     if (this.objects[0]!.active) this.flags[1] = this.composeFrame(true).egoVisible ? 0 : 1;
   }
 
-  private composeFrame(trackEgo: boolean): {
+  private composeFrame(
+    trackEgo: boolean,
+    onSpritePixel?: (index: number, object: ScreenObject) => void,
+  ): {
     frame: { visual: Uint8Array; priority: Uint8Array };
     egoVisible: boolean;
   } {
@@ -2515,10 +2551,11 @@ export class Engine {
       const pri = o.fixedPriority ? o.priority : this.priorityForY(o.y);
       drawCel(frame, cel, o.x, o.y, {
         priority: pri,
-        ...(ownership
+        ...(ownership || onSpritePixel
           ? {
               onPixel: (index: number) => {
-                ownership[index] = o === this.objects[0] ? 1 : 0;
+                if (ownership) ownership[index] = o === this.objects[0] ? 1 : 0;
+                onSpritePixel?.(index, o);
               },
             }
           : {}),

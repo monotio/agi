@@ -746,3 +746,20 @@ test("a restore snapshots each sprite's saved rectangle at its restored position
   assert.equal(cell(engine, 12, 15), 0x43, "a caption over the pre-restore spot stays");
   assert.equal(cell(engine, 12, 16), 0x44);
 });
+
+test("an occluded sprite cannot hide text it never paints over", () => {
+  const engine = game(`
+    configure.screen(0, 23, 24); load.view(1);
+    animate.obj(o0); set.view(o0, 1); ignore.objs(o0); position(o0, 20, 100);
+    set.priority(o0, 15); draw(o0); stop.update(o0);
+    display(12, 5, "A");
+    animate.obj(o1); set.view(o1, 1); ignore.objs(o1); set.loop(o1, 1); position(o1, 20, 100);
+    set.priority(o1, 14); draw(o1); stop.update(o1);
+    return;
+  `);
+  engine.execute(0);
+  const frame = engine.getFrame();
+  assert.equal(frame.visual[100 * 160 + 20], 1, "the priority-15 sprite occludes the later one");
+  assert.equal(engine.textCells[(12 * 40 + 5) * 2], 65, "text remains above the earlier draw");
+  assert.deepEqual(engine.getFrame(), frame, "reading text cannot mutate composition");
+});

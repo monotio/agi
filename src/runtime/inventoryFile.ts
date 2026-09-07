@@ -20,7 +20,7 @@ function xorWithKey(payload: Uint8Array): Uint8Array {
 export function inventoryTableFits(decoded: Uint8Array): boolean {
   if (decoded.length < 3) return false;
   const tableSize = decoded[0]! | (decoded[1]! << 8);
-  return tableSize % 3 === 0 && 3 + tableSize <= decoded.length;
+  return tableSize % 3 === 0 && tableSize <= 256 * 3 && 3 + tableSize <= decoded.length;
 }
 
 /**

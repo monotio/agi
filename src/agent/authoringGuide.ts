@@ -147,7 +147,7 @@ if (controller(20) && equaln(v48, 1)) {
 return;
 \`\`\`
 - Skill games inside a room: the knife throw and the Kewpie doll booth sweep an object back and forth and judge Enter by the object's position at that cycle, then animate the result with a short counter. The player learns the rhythm; the logic stays simple.
-- Save points: the interpreter's save file carries variables, flags, objects, strings and the resource replay. Blocking the script buffer with f7 (as demonstration games do) keeps the replay empty, so a restored game relies on its room logic to reload resources; author rooms so that isset(f5) alone rebuilds them.`,
+- Save points: save.game carries variables, flags, objects, strings and the game's resource replay. Restore replays those recorded resources; it does not re-enter the room or set f5. Keep f7 clear around the loads and draws needed to rebuild a normal save. The app's separate host autosave carries its own complete screen reconstruction and caption state, including operations f7 excluded; that support does not change save.game.`,
   },
   "puzzles-and-inventory": {
     title: "Puzzles, parser and inventory",

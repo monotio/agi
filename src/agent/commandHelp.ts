@@ -106,7 +106,7 @@ export const ACTION_HELP: Record<number, string> = {
   0x64: "Stop active sound and set its remembered completion flag.",
   0x65: "Show the current logic's message modally and wait for acknowledgement.",
   0x66: "Show the message numbered by the variable modally.",
-  0x67: "Expand substitutions in the message and display it at the immediate row and column. \\n and text past column 39 continue on the next row at column 0 (row capped at 24). The text stays until graphics repaint it: show.pic clears the picture band, and a cel drawn or erased over it takes the covered cells.",
+  0x67: "Expand substitutions in the message and display it at the immediate row and column. \\n and text past column 39 continue on the next row at column 0 (row capped at 24). show.pic clears text in the picture band. add.to.pic removes text under its painted pixels. A sprite hides older text until it leaves; erase or redraw removes text written over the sprite since its draw.",
   0x68: "Display the variable-selected message at variable-selected row and column with substitutions expanded, laid out like display.",
   0x69: "Clear full-width text rows from top through bottom, inclusively, using the selected attribute.",
   0x6a: "Enter alternate full-screen text mode, fill its surface, and suppress object graphics updates.",
