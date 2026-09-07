@@ -1,0 +1,171 @@
+import type { BuildCelInput, BuildViewInput } from "../../src/view/view.ts";
+
+const LEVER_COLORS: Record<string, number> = {
+  ".": 13,
+  K: 0,
+  D: 8,
+  G: 7,
+  R: 12,
+  r: 4,
+};
+
+function leverCel(rows: readonly string[]): BuildCelInput {
+  const width = 20;
+  const height = 30;
+  if (rows.length !== height || rows.some((row) => row.length !== width)) {
+    throw new Error("lever cel must be exactly 20 by 30 pixels");
+  }
+  return {
+    width,
+    height,
+    transparentColor: LEVER_COLORS["."],
+    pixels: rows.flatMap((row) => [...row].map((symbol) => LEVER_COLORS[symbol]!)),
+  };
+}
+
+const LEVER_RAISED_LEFT = leverCel([
+  "....................",
+  "KKKKKKKKK...........",
+  "KRRRRRRRK...........",
+  "KRRRRRRRK...........",
+  "KrrrrrrrK...........",
+  "KKKKKKKKK...........",
+  ".....KDK............",
+  ".....KDK............",
+  ".....KDK............",
+  "......KDK...........",
+  "......KDK...........",
+  "......KDK...........",
+  "......KDK...........",
+  "......KDK...........",
+  ".......KDK..........",
+  ".......KDK..........",
+  ".......KDK..........",
+  ".......KDK..........",
+  ".......KDK..........",
+  "........KDK.........",
+  "........KDK.........",
+  "........KDK.........",
+  ".......KKKKK........",
+  "......KGGGGGK.......",
+  "......KGDDDGK.......",
+  "......KGDDDGK.......",
+  "......KDDDDDK.......",
+  ".......KKKKK........",
+  "....................",
+  "....................",
+]);
+
+const LEVER_NEAR_CENTER_LEFT = leverCel([
+  "....................",
+  "....................",
+  "....................",
+  "....................",
+  "....KKKKKKKKK.......",
+  "....KRRRRRRRK.......",
+  "....KRRRRRRRK.......",
+  "....KrrrrrrrK.......",
+  "....KKKKKKKKK.......",
+  ".......KDK..........",
+  ".......KDK..........",
+  ".......KDK..........",
+  ".......KDK..........",
+  ".......KDK..........",
+  ".......KDK..........",
+  ".......KDK..........",
+  "........KDK.........",
+  "........KDK.........",
+  "........KDK.........",
+  "........KDK.........",
+  "........KDK.........",
+  "........KDK.........",
+  ".......KKKKK........",
+  "......KGGGGGK.......",
+  "......KGDDDGK.......",
+  "......KGDDDGK.......",
+  "......KDDDDDK.......",
+  ".......KKKKK........",
+  "....................",
+  "....................",
+]);
+
+const LEVER_NEAR_CENTER_RIGHT = leverCel([
+  "....................",
+  "....................",
+  "....................",
+  "....................",
+  ".......KKKKKKKKK....",
+  ".......KRRRRRRRK....",
+  ".......KRRRRRRRK....",
+  ".......KrrrrrrrK....",
+  ".......KKKKKKKKK....",
+  "..........KDK.......",
+  "..........KDK.......",
+  "..........KDK.......",
+  "..........KDK.......",
+  "..........KDK.......",
+  "..........KDK.......",
+  "..........KDK.......",
+  ".........KDK........",
+  ".........KDK........",
+  ".........KDK........",
+  ".........KDK........",
+  ".........KDK........",
+  ".........KDK........",
+  ".......KKKKK........",
+  "......KGGGGGK.......",
+  "......KGDDDGK.......",
+  "......KGDDDGK.......",
+  "......KDDDDDK.......",
+  ".......KKKKK........",
+  "....................",
+  "....................",
+]);
+
+const LEVER_RAISED_RIGHT = leverCel([
+  "....................",
+  "...........KKKKKKKKK",
+  "...........KRRRRRRRK",
+  "...........KRRRRRRRK",
+  "...........KrrrrrrrK",
+  "...........KKKKKKKKK",
+  "............KDK.....",
+  "............KDK.....",
+  "............KDK.....",
+  "...........KDK......",
+  "...........KDK......",
+  "...........KDK......",
+  "...........KDK......",
+  "...........KDK......",
+  "..........KDK.......",
+  "..........KDK.......",
+  "..........KDK.......",
+  "..........KDK.......",
+  "..........KDK.......",
+  ".........KDK........",
+  ".........KDK........",
+  ".........KDK........",
+  ".......KKKKK........",
+  "......KGGGGGK.......",
+  "......KGDDDGK.......",
+  "......KGDDDGK.......",
+  "......KDDDDDK.......",
+  ".......KKKKK........",
+  "....................",
+  "....................",
+]);
+
+/** Four positions trace a mechanical sweep around one fixed lower pivot. */
+export const LEVER_VIEW: BuildViewInput = {
+  description: "Lab wall lever",
+  loops: [
+    {
+      cels: [
+        LEVER_RAISED_LEFT,
+        LEVER_NEAR_CENTER_LEFT,
+        LEVER_NEAR_CENTER_RIGHT,
+        LEVER_RAISED_RIGHT,
+      ],
+    },
+  ],
+};

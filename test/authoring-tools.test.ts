@@ -4,6 +4,7 @@ import { createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts
 import { executeAuthoringTool } from "../src/agent/authoringTools.ts";
 import { resourceRevision } from "../src/agent/authoringState.ts";
 import { parseLogicResource } from "../src/logic/resource.ts";
+import { compilePictureSource } from "../src/picture/source.ts";
 
 test("named binding allocation avoids compiled references and preserves stable identities", () => {
   const state = createAgentSessionState();
@@ -93,6 +94,71 @@ test("revision-checked source edits change only one matched section and reject s
     })!.success,
     false,
   );
+});
+
+test("picture edits match the authored source read_picture returns, comments and macros included", () => {
+  const state = createAgentSessionState();
+  const authored = [
+    "# actor: ego x20 y120 width8 height24 priority11",
+    "vis 4",
+    "rect 20,97 27,100",
+    "end",
+  ];
+  const written = executeAgentTool(state, "write_picture", {
+    room: 3,
+    source: authored.join("\n"),
+  });
+  assert.equal(written.success, true, written.error ?? "");
+  const read = executeAgentTool(state, "read_picture", { num: 3, include: "source" });
+  assert.equal(read.success, true, read.error ?? "");
+  const lines = String(read.details?.["source"]).split("\n");
+  assert.deepEqual(lines, authored);
+  const edit = executeAuthoringTool(state, "edit_resource_source", {
+    kind: "picture",
+    num: 3,
+    expectedRevision: read.details?.["revision"],
+    find: lines[2]!,
+    replace: "rect 30,97 37,100",
+  })!;
+  assert.equal(edit.success, true, edit.error ?? "");
+  const expected = [authored[0]!, authored[1]!, "rect 30,97 37,100", authored[3]!].join("\n");
+  assert.equal(state.sources.pictures.get(3), expected);
+  assert.deepEqual(
+    [...state.container.getResource("picture", 3)!],
+    [...compilePictureSource(expected, { profile: state.profile }).bytes],
+  );
+  const after = executeAgentTool(state, "read_picture", { num: 3, include: "source" });
+  assert.equal(after.details?.["source"], expected);
+  assert.notEqual(after.details?.["revision"], read.details?.["revision"]);
+});
+
+test("a stored picture source that no longer matches its resource is not trusted", () => {
+  const state = createAgentSessionState();
+  const authored = ["vis 4", "rect 20,97 27,100", "end"].join("\n");
+  assert.equal(
+    executeAgentTool(state, "write_picture", { room: 3, source: authored }).success,
+    true,
+  );
+  // An imported project can carry a source that disagrees with its compiled picture.
+  state.sources.pictures.set(3, ["vis 1", "rect 0,0 5,5", "end"].join("\n"));
+  const read = executeAgentTool(state, "read_picture", { num: 3, include: "source" });
+  assert.equal(read.success, true, read.error ?? "");
+  const shown = String(read.details?.["source"]);
+  assert.doesNotMatch(shown, /rect 0,0 5,5/, "the stale text is not shown");
+  assert.deepEqual(
+    [...compilePictureSource(shown, { profile: state.profile }).bytes],
+    [...state.container.getResource("picture", 3)!],
+    "the shown source compiles to the stored resource",
+  );
+  const edit = executeAuthoringTool(state, "edit_resource_source", {
+    kind: "picture",
+    num: 3,
+    expectedRevision: read.details?.["revision"],
+    find: "rect 0,0 5,5",
+    replace: "rect 1,1 2,2",
+  })!;
+  assert.equal(edit.success, false, "the stale text cannot be edited");
+  assert.match(edit.error ?? "", /find must match/);
 });
 
 test("world intent is durable and partial updates preserve other facts", () => {

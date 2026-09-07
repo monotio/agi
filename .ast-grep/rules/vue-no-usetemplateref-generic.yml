@@ -1,0 +1,12 @@
+id: vue-no-usetemplateref-generic
+language: ts
+severity: error
+message: useTemplateRef infers its type from the ref attribute; drop the generic
+note: |
+  An explicit generic goes stale when the template changes and then lies
+  silently; the inferred type follows the element or component it names.
+  BAD:  const el = useTemplateRef<HTMLInputElement>('input');
+  GOOD: const el = useTemplateRef('input');
+fix: useTemplateRef($NAME)
+rule:
+  pattern: useTemplateRef<$T>($NAME)

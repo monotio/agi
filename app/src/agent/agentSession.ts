@@ -40,6 +40,7 @@ import {
 } from "./llmClient.ts";
 import { StubAgent } from "./stubAgent.ts";
 import type { AgentEventSink, AgentHandler, LlmRequest } from "./sabBridge.ts";
+import { continuationTranscript } from "../projectArchive.ts";
 
 /** Resource the remix turn wrote and the host must patch into the live game. */
 export interface PatchedResource {
@@ -92,6 +93,9 @@ export class AgentSession implements AgentHandler {
   private readonly onEvent: AgentEventSink;
   private readonly conversation: UnifiedConversation | null;
   private readonly stubFallback: StubAgent | null;
+  /** Conversation data retained while a non-stub provider has no connected key. */
+  private readonly retainedTranscript: unknown[];
+  private readonly retainedSessionId: string | undefined;
   /** Live-game sources for read_frames / read_objects / read_state. */
   private runtime: AgentRuntimeDeps = {};
   /** Context is attached to the first submitted request, never sent on panel open. */
@@ -110,19 +114,33 @@ export class AgentSession implements AgentHandler {
       (state) => onEvent("log", "[Task] " + state.status, { task: state }),
       config.budgetUsd,
     );
-    this.config = config;
+    this.config = { ...config };
     this.onEvent = onEvent;
     this.state = existingState ?? createAgentSessionState();
+    this.retainedTranscript = initialTranscript ? structuredClone(initialTranscript) : [];
+    this.retainedSessionId = sessionId;
 
-    if (config.provider === "anthropic") {
-      this.conversation = createAnthropicConversation(config, initialTranscript, this.task);
+    if (config.provider === "anthropic" && config.apiKey.trim()) {
+      this.conversation = createAnthropicConversation(
+        this.config,
+        this.retainedTranscript,
+        this.task,
+      );
       this.stubFallback = null;
-    } else if (config.provider === "openai") {
-      this.conversation = createOpenAiConversation(config, initialTranscript, sessionId, this.task);
+    } else if (config.provider === "openai" && config.apiKey.trim()) {
+      this.conversation = createOpenAiConversation(
+        this.config,
+        this.retainedTranscript,
+        sessionId,
+        this.task,
+      );
       this.stubFallback = null;
-    } else {
+    } else if (config.provider === "stub") {
       this.conversation = null;
       this.stubFallback = new StubAgent(onEvent);
+    } else {
+      this.conversation = null;
+      this.stubFallback = null;
     }
   }
 
@@ -138,6 +156,8 @@ export class AgentSession implements AgentHandler {
     return this.task.run(() => this.ask(question, room));
   }
   private async ask(question: string, room: number): Promise<string> {
+    if (!this.conversation && !this.stubFallback)
+      throw new Error("Connect an API key in AI settings before using Ask or Remix.");
     this.messages.push({ role: "user", text: question });
     this.onEvent("request", `[Ask] ${question}`, { instruction: question, room });
     const context = this.orientationContext(room);
@@ -247,6 +267,8 @@ Answer the player's question using evidence from inspection when needed. For hin
     return this.task.run(() => this.remix(instruction, room));
   }
   private async remix(instruction: string, room: number): Promise<PowerUpResult> {
+    if (!this.conversation && !this.stubFallback)
+      throw new Error("Connect an API key in AI settings before using Ask or Remix.");
     this.messages.push({ role: "user", text: instruction });
     this.onEvent("request", `[Remix] "${instruction}" (room ${room})`, { instruction, room });
     const prompt = this.orientationContext(room) + createPowerUpPrompt(instruction, room);
@@ -379,7 +401,7 @@ Answer the player's question using evidence from inspection when needed. For hin
   }
 
   getTranscript(): unknown[] {
-    return this.conversation?.getTranscript() ?? [];
+    return this.conversation?.getTranscript() ?? structuredClone(this.retainedTranscript);
   }
 
   getProviderContext(): { provider: string; model: string } {
@@ -400,11 +422,45 @@ Answer the player's question using evidence from inspection when needed. For hin
   }
 
   getSessionId(): string | undefined {
-    return this.conversation?.getSessionId?.();
+    return this.conversation?.getSessionId?.() ?? this.retainedSessionId;
   }
 
   getMessages(): AgentChatMessage[] {
     return this.messages.map((message) => ({ ...message }));
+  }
+
+  /** True for the deterministic stub or a provider client with a current key. */
+  isConfigured(): boolean {
+    return this.stubFallback !== null || this.conversation !== null;
+  }
+
+  /**
+   * Replace provider credentials at an idle boundary without replacing the
+   * authored game state. Protocol-specific transcripts are replayed only to
+   * the exact provider/model that produced them.
+   */
+  reconfigure(config: LlmConfig): AgentSession {
+    if (this.task.snapshot().status !== "idle")
+      throw new Error("Wait for the current agent task to finish before changing AI settings.");
+    const context = this.getProviderContext();
+    const sameProtocol = context.provider === config.provider && context.model === config.model;
+    const transcript = continuationTranscript(
+      { ...context, transcript: this.getTranscript() },
+      config.provider,
+      config.model,
+    );
+    const replacement = new AgentSession(
+      config,
+      this.onEvent,
+      this.state,
+      transcript,
+      sameProtocol ? this.getSessionId() : undefined,
+    );
+    replacement.messages = this.getMessages();
+    replacement.runtime = this.runtime;
+    replacement.oriented = this.oriented;
+    replacement.orientation = this.orientation ? { ...this.orientation } : undefined;
+    return replacement;
   }
 
   /**
@@ -501,6 +557,8 @@ Answer the player's question using evidence from inspection when needed. For hin
     return this.task.run(() => this.genesis(cartridgeMarkdown));
   }
   private async genesis(cartridgeMarkdown: string): Promise<BootResources> {
+    if (!this.conversation && !this.stubFallback)
+      throw new Error("Connect an API key in AI settings before creating a game.");
     this.conversation?.setTools(
       AGENT_TOOLS.filter(
         (tool) => !["read_frames", "read_state", "read_objects"].includes(tool.name),
@@ -548,7 +606,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Genesis] ${tc.name}`, { tool: tc.name, args: tc.input });
-          const res = executeAgentTool(this.state, tc.name, tc.input);
+          const res = await executeAgentToolAsync(this.state, tc.name, tc.input);
           this.onEvent(
             res.success ? "response" : "error",
             res.success
@@ -592,6 +650,8 @@ Answer the player's question using evidence from inspection when needed. For hin
     return this.task.run(() => this.prepareRoom(req));
   }
   private async prepareRoom(req: LlmRequest): Promise<string> {
+    if (!this.conversation && !this.stubFallback)
+      throw new Error("Connect an API key in AI settings before creating the next room.");
     if (this.stubFallback) {
       const response = await this.stubFallback.handle(req);
       if (req.op === "room" && response) {

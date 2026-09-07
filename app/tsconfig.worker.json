@@ -7,6 +7,6 @@
     "lib": ["ES2023", "WebWorker"],
     "types": []
   },
-  "include": ["src/engine.worker.ts"],
+  "include": ["src/engine.worker.ts", "src/preview.worker.ts"],
   "exclude": []
 }

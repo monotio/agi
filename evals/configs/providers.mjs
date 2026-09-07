@@ -10,7 +10,6 @@ import { anthropicToolDefinitions } from "../../src/agent/toolTransport.ts";
 export const MODEL_IDS = {
   gpt56Sol: "gpt-5.6-sol",
   gpt56Terra: "gpt-5.6-terra",
-  gpt56Luna: "gpt-5.6-luna",
   claudeOpus5: "claude-opus-5",
   claudeFable5: "claude-fable-5",
   claudeFable51: "claude-fable-5-1",

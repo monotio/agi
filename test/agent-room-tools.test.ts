@@ -22,7 +22,14 @@ function setup() {
     "view",
     0,
     buildView({
-      loops: [{ cels: [{ width: 3, height: 2, transparentColor: 0, pixels: [1, 1, 1, 1, 1, 1] }] }],
+      loops: [
+        {
+          cels: [
+            { width: 3, height: 2, transparentColor: 0, pixels: [1, 1, 1, 1, 1, 1] },
+            { width: 3, height: 2, transparentColor: 0, pixels: [2, 2, 2, 2, 2, 2] },
+          ],
+        },
+      ],
     }),
   );
   state.wordsPayload = buildWordsTok([
@@ -93,6 +100,70 @@ test("write_room describes and compiles real room behavior with named references
   });
   assert.equal(played.success, true, played.error ?? "");
   assert.ok((played.details?.["messages"] as string[]).includes("Taken -- safely."));
+});
+
+test("write_room accepts the new-room revision advertised to the model", () => {
+  const description = ROOM_TOOLS.find((tool) => tool.name === "write_room")!.description;
+  const advertised = description.match(/expectedRevision "([^"]+)" for a new room/)?.[1];
+  assert.ok(advertised, "The new-room sentinel must be discoverable before writing resources.");
+  const result = executeRoomTool(setup(), "write_room", {
+    ...args(),
+    expectedRevision: advertised,
+  })!;
+  assert.equal(result.success, true, result.error ?? "");
+});
+
+test("write_room allocates local pacing state and cycles ego only after real movement", () => {
+  const state = setup();
+  const result = executeRoomTool(state, "write_room", args())!;
+  assert.equal(result.success, true, result.error ?? "");
+
+  const names = [
+    "room_picture_number",
+    "room_ego_step_time",
+    "room_ego_cycle_time",
+    "room_ego_previous_x",
+    "room_ego_previous_y",
+    "room_ego_current_x",
+    "room_ego_current_y",
+  ];
+  const ids = names.map((name) => state.authoring.bindings[name]?.num);
+  assert.equal(
+    ids.every((id) => id !== undefined && id >= 32),
+    true,
+  );
+  assert.equal(new Set(ids).size, names.length);
+
+  const source = state.sources.logics.get(1) ?? "";
+  assert.doesNotMatch(source, /assignn\(v10,/);
+  assert.match(source, new RegExp(`assignn\\(v${ids[1]}, 1\\); step.time\\(0, v${ids[1]}\\)`));
+  assert.match(source, new RegExp(`assignn\\(v${ids[2]}, 3\\); cycle.time\\(0, v${ids[2]}\\)`));
+  assert.match(source, /stop.cycling\(0\)/);
+  assert.match(source, /get.posn\(0,/);
+
+  const idle = playtestRoom(state, {
+    room: 1,
+    steps: [{ action: "wait", ticks: 10 }],
+    expect: {},
+  });
+  assert.equal(idle.success, true, idle.error ?? "");
+  const idleStep = (idle.details?.["steps"] as Record<string, unknown>[])[0]!;
+  const idleEgo = (idleStep["objects"] as Record<string, unknown>[])[0]!;
+  assert.equal(idleEgo["celChanges"], 0, "an idle generated ego holds its current cel");
+
+  const moving = playtestRoom(state, {
+    room: 1,
+    steps: [{ action: "move", direction: "right", ticks: 10 }],
+    expect: {},
+  });
+  assert.equal(moving.success, true, moving.error ?? "");
+  const movingStep = (moving.details?.["steps"] as Record<string, unknown>[])[0]!;
+  const movingEgo = (movingStep["objects"] as Record<string, unknown>[])[0]!;
+  assert.equal((movingStep["movement"] as Record<string, unknown>)["moved"], true);
+  assert.ok((movingEgo["celChanges"] as number) >= 2, "walking advances at a readable cadence");
+  assert.equal(movingEgo["cycleTime"], 3);
+  const finalEgo = (moving.details?.["objects"] as Record<string, unknown>[])[0]!;
+  assert.equal(finalEgo["stepTime"], 1);
 });
 
 test("write_room protects replacements with a content revision and reports stale edits", () => {

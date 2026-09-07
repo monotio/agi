@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { normalizeToolArguments, validateToolArguments } from "../src/agent/schemaValidate.ts";
 import { AGENT_TOOLS, createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts";
+import { MAX_FRAMES } from "../src/agent/frames.ts";
 
 const schema = {
   type: "object",
@@ -134,6 +135,24 @@ describe("validateToolArguments", () => {
     const paged = executeAgentTool(session, "read_logic", { num: 0 });
     assert.equal(paged.success, false);
     assert.doesNotMatch(paged.error ?? "", /required|Invalid arguments/);
+  });
+
+  it("bounds read_frames count and stride in the schema instead of clamping silently", () => {
+    const tool = AGENT_TOOLS.find((candidate) => candidate.name === "read_frames")!;
+    const good = { count: MAX_FRAMES, stride: 255, sheet: null, plane: null };
+    assert.deepEqual(validateToolArguments(tool.parameters, good), []);
+    assert.deepEqual(validateToolArguments(tool.parameters, { ...good, count: 0 }), [
+      "count must be >= 1, got 0.",
+    ]);
+    assert.deepEqual(validateToolArguments(tool.parameters, { ...good, count: MAX_FRAMES + 1 }), [
+      `count must be <= ${MAX_FRAMES}, got ${MAX_FRAMES + 1}.`,
+    ]);
+    assert.deepEqual(validateToolArguments(tool.parameters, { ...good, stride: 0 }), [
+      "stride must be >= 1, got 0.",
+    ]);
+    assert.deepEqual(validateToolArguments(tool.parameters, { ...good, stride: 256 }), [
+      "stride must be <= 255, got 256.",
+    ]);
   });
 
   it("the catalog uses only keywords the validator implements", () => {

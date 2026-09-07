@@ -249,14 +249,42 @@ describe("agent tools", () => {
     assert.equal(typeof res.details?.["fillCoverage"], "number");
     assert.ok((res.details?.["fillCoverage"] as number) > 0.9);
 
-    // Provider-neutral image block: PNG signature, 2x upscale of 160x168.
+    // Provider-neutral image block: PNG signature, native 2:1 logical-pixel aspect.
     assert.equal(res.images?.length, 1);
     const png = res.images![0]!.png;
     assert.deepEqual([...png.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     const width = (png[16]! << 24) | (png[17]! << 16) | (png[18]! << 8) | png[19]!;
     const height = (png[20]! << 24) | (png[21]! << 16) | (png[22]! << 8) | png[23]!;
-    assert.deepEqual([width, height], [320, 336]);
+    assert.deepEqual([width, height], [960, 168]);
     assert.ok(res.images![0]!.caption.includes("Picture 3"));
+    assert.match(res.images![0]!.caption, /native 2:1/);
+    assert.match(
+      res.images![0]!.caption,
+      /Left: clean visual.*Middle: raw priority.*Right: overlay/,
+    );
+    assert.match(res.images![0]!.caption, /0 barrier.*1 conditional barrier.*2 trigger.*3 water/);
+    assert.doesNotMatch(res.message!, /fill seeds did nothing/);
+  });
+
+  it("write_picture reports blocked fill seeds concisely", () => {
+    const session = createAgentSessionState();
+    const res = executeAgentTool(session, "write_picture", {
+      room: 4,
+      source: [
+        "vis 9",
+        "fill 0,0",
+        "vis 8",
+        "line 10,10",
+        "fill 10,10 1,1 2,2 3,3 4,4 5,5 6,6",
+        "end",
+      ].join("\n"),
+    });
+    assert.equal(res.success, true, res.error ?? "");
+    assert.match(
+      res.message!,
+      /6 visual fill seeds did nothing: 1,1 selected 8, found 9 \(needs 15\); 2,2 selected 8, found 9 \(needs 15\); 3,3 selected 8, found 9 \(needs 15\); 4,4 selected 8, found 9 \(needs 15\); 5,5 selected 8, found 9 \(needs 15\); \+1 more\. Enclose and fill regions while their interiors still have the target value\./,
+    );
+    assert.doesNotMatch(res.message!, /10,10 selected/);
   });
 
   it("write_picture result carries the rendered colour grid, ahead of the revision line", () => {
@@ -316,6 +344,31 @@ describe("agent tools", () => {
     assert.ok(message.includes("-> SHIFTED"), message);
   });
 
+  it("write_picture reports spatial priority extents and actor placement probes", () => {
+    const session = createAgentSessionState();
+    const res = executeAgentTool(session, "write_picture", {
+      room: 8,
+      source: [
+        "# actor: ego x20 y120 width8 height24 priority11",
+        "pri 0",
+        "line 20,120 21,120",
+        "pri 12",
+        "rect 20,97 27,100",
+        "end",
+      ].join("\n"),
+    });
+    assert.equal(res.success, true, res.error ?? "");
+    assert.match(res.message ?? "", /Display geometry: 160x168 logical -> 320x168/);
+    assert.match(res.message ?? "", /0 barrier: 2 cells in 1 component, x20-21 y120-120/);
+    assert.match(
+      res.message ?? "",
+      /ego: logical x20-27 y97-120 \(8x24\), display x40-55 y97-120 \(16x24\)/,
+    );
+    assert.match(res.message ?? "", /controls \[0@x20-21\]/);
+    // A rect draws its 8x4 outline: 8 + 8 + 2 + 2 = 20 distinct cells.
+    assert.match(res.message ?? "", /higher-priority scenery 20\/192 cells/);
+  });
+
   it("write_picture reports preservation and leak metrics when revising the same picture", () => {
     const session = createAgentSessionState();
     const first = "vis 2\nrect 0,100 159,167\nfill 80,140\nend";
@@ -364,6 +417,10 @@ describe("agent tools", () => {
     const source = res.details?.["source"] as string;
     assert.ok(source.includes("vis 6"), source);
     assert.ok(source.includes("10,10"), source);
+    const png = res.images![0]!.png;
+    const header = new DataView(png.buffer, png.byteOffset, png.byteLength);
+    assert.deepEqual([header.getUint32(16), header.getUint32(20)], [960, 168]);
+    assert.match(res.message ?? "", /Priority\/control map/);
 
     const missing = executeAgentTool(session, "read_picture", { num: 6 });
     assert.equal(missing.success, false);

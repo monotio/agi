@@ -11,15 +11,23 @@ import { CORE_AGENT_TOOLS } from "./coreToolDefinitions.ts";
 import { normalizeToolArguments, validateToolArguments } from "./schemaValidate.ts";
 import { assembleLogic } from "../logic/assembler.ts";
 import { buildWordsTok, parseWordsTok, type WordEntry } from "../logic/words.ts";
-import { renderPicture } from "../picture/renderer.ts";
+import { renderPicture, type PictureFillDiagnostic } from "../picture/renderer.ts";
 import {
   compilePictureSource,
   PictureSourceSyntaxError,
   readPictureSource,
 } from "../picture/source.ts";
 import { computePictureMetrics, DEFAULT_HORIZON } from "../picture/metrics.ts";
-import { colourGrid, editReport, formatLayoutDiff, layoutDiff } from "./pictureFeedback.ts";
-import { surfaceToPng } from "../picture/png.ts";
+import {
+  actorLayoutFeedback,
+  colourGrid,
+  editReport,
+  formatLayoutDiff,
+  formatPriorityDiagnostics,
+  layoutDiff,
+  PICTURE_COMPARISON_LEGEND,
+  pictureComparisonPng,
+} from "./pictureFeedback.ts";
 import { viewFeedback } from "./viewFeedback.ts";
 import { normalizeAuthoredLogic } from "./logicText.ts";
 import { readInventoryObjects } from "./inventory.ts";
@@ -46,8 +54,6 @@ import {
 import {
   createPictureSurface,
   RESOURCE_KINDS,
-  SCREEN_HEIGHT,
-  SCREEN_WIDTH,
   type GameContainer,
   type ResourceKind,
 } from "../types.ts";
@@ -98,6 +104,14 @@ export interface AgentToolResult {
   readonly details?: Record<string, unknown> | undefined;
   /** Images the model should look at. Adapted per provider by the caller. */
   readonly images?: readonly AgentToolImage[] | undefined;
+  /** Local listening previews; provider adapters explicitly omit unsupported audio. */
+  readonly audio?: readonly AgentToolAudio[] | undefined;
+}
+
+export interface AgentToolAudio {
+  readonly wav: Uint8Array;
+  readonly mimeType: "audio/wav";
+  readonly caption: string;
 }
 
 export interface SoundNoteInput {
@@ -520,12 +534,17 @@ function executeValidatedAgentTool(
           }
         : {}),
     };
+    const rawSpatialDiagnostics = result.details?.["spatialDiagnostics"];
+    const spatialDiagnostics =
+      kind === "picture" && typeof rawSpatialDiagnostics === "string"
+        ? `\n${rawSpatialDiagnostics}`
+        : "";
     return {
       success: true,
       message:
         include === "image"
-          ? `Picture ${num}, stored rendering.`
-          : `${kind} ${num} source lines ${offset}..${Math.min(lines.length, offset + limit) - 1}:\n${source}`,
+          ? `Picture ${num}, stored rendering.${spatialDiagnostics}`
+          : `${kind} ${num} source lines ${offset}..${Math.min(lines.length, offset + limit) - 1}:\n${source}${spatialDiagnostics}`,
       details,
       ...(include !== "source" && result.images ? { images: result.images } : {}),
     };
@@ -716,7 +735,11 @@ function executeLegacyTool(
 
       try {
         const surface = createPictureSurface();
-        renderPicture(compiled.bytes, surface, { profile: session.profile });
+        const fillDiagnostics: PictureFillDiagnostic[] = [];
+        renderPicture(compiled.bytes, surface, {
+          profile: session.profile,
+          fillDiagnostics,
+        });
         const metrics = computePictureMetrics(surface, {
           horizon: DEFAULT_HORIZON,
           commandCount: compiled.commandCount,
@@ -740,7 +763,27 @@ function executeLegacyTool(
         const feedback = [
           "Dominant colour per cell, 8x7 (x left→right, y top→bottom):",
           colourGrid(surface.visual),
+          formatPriorityDiagnostics(surface.priority),
         ];
+        const blockedFills = fillDiagnostics.filter(
+          ({ filledCells, seedValue, selectedValue }) =>
+            filledCells === 0 && seedValue !== selectedValue,
+        );
+        if (blockedFills.length > 0) {
+          const samples = blockedFills
+            .slice(0, 5)
+            .map(
+              ({ x, y, selectedValue, seedValue, targetValue }) =>
+                `${x},${y} selected ${selectedValue}, found ${seedValue} (needs ${targetValue})`,
+            );
+          const channels = new Set(blockedFills.map(({ channel }) => channel));
+          const label = channels.size === 1 ? blockedFills[0]!.channel : "visual/priority";
+          feedback.push(
+            `${blockedFills.length} ${label} fill seeds did nothing: ${samples.join("; ")}${blockedFills.length > samples.length ? `; +${blockedFills.length - samples.length} more` : ""}. Enclose and fill regions while their interiors still have the target value.`,
+          );
+        }
+        const actors = actorLayoutFeedback(source, surface.priority);
+        if (actors.length > 0) feedback.push("Declared actor placement checks:", actors);
         const masses = layoutDiff(source, surface.visual);
         if (masses.length > 0) {
           feedback.push("Declared `# layout:` masses vs what rendered:", formatLayoutDiff(masses));
@@ -762,8 +805,8 @@ function executeLegacyTool(
           ...(compiled.warnings.length > 0 ? { adjustments: [...compiled.warnings] } : {}),
           images: [
             {
-              png: surfaceToPng(surface.visual, SCREEN_WIDTH, SCREEN_HEIGHT, { scale: 2 }),
-              caption: `Picture ${room}, visual surface (160x168 upscaled 2x, EGA palette).`,
+              png: pictureComparisonPng(surface.visual, surface.priority),
+              caption: `Picture ${room}, 960x168 comparison sheet; each 320x168 panel uses native 2:1 logical-pixel aspect. ${PICTURE_COMPARISON_LEGEND}`,
             },
           ],
           details: {
@@ -801,18 +844,29 @@ function executeLegacyTool(
         return { success: false, error: `Picture ${num} is not present in the container.` };
       }
       try {
+        const editableSource = authoredPictureSource(session, num) ?? source;
         const surface = createPictureSurface();
         renderPicture(session.container.getResource("picture", num)!, surface, {
           profile: session.profile,
         });
+        const actors = actorLayoutFeedback(editableSource, surface.priority);
+        const diagnostics = [
+          formatPriorityDiagnostics(surface.priority),
+          ...(actors.length > 0 ? ["Declared actor placement checks:", actors] : []),
+        ].join("\n");
         return {
           success: true,
-          message: `Picture ${num} source:\n${source}`,
-          details: { num, source, lines: source.split("\n").length },
+          message: `Picture ${num} source:\n${editableSource}\n${diagnostics}`,
+          details: {
+            num,
+            source: editableSource,
+            lines: editableSource.split("\n").length,
+            spatialDiagnostics: diagnostics,
+          },
           images: [
             {
-              png: surfaceToPng(surface.visual, SCREEN_WIDTH, SCREEN_HEIGHT, { scale: 2 }),
-              caption: `Picture ${num}, rendered from stored bytes.`,
+              png: pictureComparisonPng(surface.visual, surface.priority),
+              caption: `Picture ${num}, stored bytes in a 960x168 comparison sheet; each 320x168 panel uses native 2:1 logical-pixel aspect. ${PICTURE_COMPARISON_LEGEND}`,
             },
           ],
         };
@@ -1149,6 +1203,7 @@ function executeLegacyTool(
         const payload = buildSound(tracks);
         session.container.putResource("sound", num, payload);
         session.sources.sounds.set(num, tracks);
+        if (session.authoring.music) delete session.authoring.music[String(num)];
         return {
           success: true,
           message: `Sound ${num} compiled successfully (${tracks.length} tracks, ${payload.length} bytes authentic 4-channel audio).`,
@@ -1260,6 +1315,26 @@ const NO_LIVE_GAME =
   "No live game is attached to this session, so runtime inspection is unavailable. Use read_logic, read_picture and list_resources instead.";
 
 /** Explicit capabilities for a discussion turn; new tools require deliberate approval here. */
+/**
+ * The picture text the agent wrote this session, only while it still compiles to
+ * the stored resource bytes. An imported or stale source that disagrees with the
+ * container is ignored so reads and edits never resurrect discarded work.
+ */
+export function authoredPictureSource(session: AgentSessionState, num: number): string | undefined {
+  const authored = session.sources.pictures.get(num);
+  const payload = session.container.getResource("picture", num);
+  if (authored === undefined || !payload) return undefined;
+  try {
+    const compiled = compilePictureSource(authored, { profile: session.profile }).bytes;
+    if (compiled.length !== payload.length) return undefined;
+    for (let index = 0; index < compiled.length; index++)
+      if (compiled[index] !== payload[index]) return undefined;
+    return authored;
+  } catch {
+    return undefined;
+  }
+}
+
 export const ASK_TOOLS: readonly string[] = [
   "read_room_context",
   "read_picture",
@@ -1269,6 +1344,7 @@ export const ASK_TOOLS: readonly string[] = [
   "read_view",
   "read_view_cel",
   "read_sound",
+  "preview_sound",
   "read_command_reference",
   "inspect_world_bible",
   "playtest_room",

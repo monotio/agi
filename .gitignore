@@ -10,8 +10,9 @@ playwright-report/
 *.key
 *.p12
 
-# Local game data; original cartridge briefs are included below.
+# Local game data; original project briefs and tutorial sources are included below.
 games/*/
+!games/adventure-department/
 !games/knights-trial/
 !games/badge-of-millhaven/
 !games/mop-jockey/

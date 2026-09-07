@@ -1,3 +1,4 @@
+import { cacheGame } from "./engineProbe.ts";
 import { expect, test } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -32,25 +33,16 @@ test("timed messages resume promptly, persistent windows allow play, and Scroll 
   names[171] = "controller";
   game.putResource("logic", 10, buildLogicResource(Uint8Array.of(0), names));
   await page.goto("/");
-  await page.evaluate(
-    (filesBase64) =>
-      localStorage.setItem(
-        "monotio_agi.authored.message-trace",
-        JSON.stringify({
-          slug: "message-trace",
-          title: "Window and trace test",
-          authoredAt: "2026-01-01T00:00:00Z",
-          provider: "stub",
-          model: "local-playback",
-          imported: true,
-          filesBase64,
-          words: [],
-        }),
-      ),
-    Object.fromEntries(
-      [...game.files].map(([name, data]) => [name, Buffer.from(data).toString("base64")]),
-    ),
-  );
+  await cacheGame(page, {
+    slug: "message-trace",
+    title: "Window and trace test",
+    provider: "stub",
+    model: "local-playback",
+    imported: true,
+    roomGeneration: false,
+    files: Object.fromEntries(game.files),
+    words: [],
+  });
   await page.reload();
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(() => screenText(page)).toContain("This message closes by itself.");

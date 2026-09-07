@@ -2,9 +2,13 @@
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { FUNCTION_KEYS, ALT_LETTER_SCANS } from "./gameControls.ts";
 
-const props = defineProps<{ disabled: boolean; navigating: boolean; hold: boolean }>();
+const { disabled, navigating, hold } = defineProps<{
+  disabled: boolean;
+  navigating: boolean;
+  hold: boolean;
+}>();
 const emit = defineEmits<{ direction: [direction: number]; key: [code: number]; keyboard: [] }>();
-const active = ref<number | null>(null);
+const active = ref<number>();
 const assistiveHeld = ref(false);
 let pointer: number | null = null;
 let heldKey: string | null = null;
@@ -31,7 +35,7 @@ const modifier = ref<"none" | "ctrl" | "alt">("none");
 const letters = "abcdefghijklmnopqrstuvwxyz".split("");
 
 function press(event: PointerEvent, dir: number): void {
-  if (props.disabled || event.button !== 0 || pointer !== null || heldKey !== null) return;
+  if (disabled || event.button !== 0 || pointer !== null || heldKey !== null) return;
   if (assistiveHeld.value) release();
   pointer = event.pointerId;
   active.value = dir;
@@ -49,7 +53,7 @@ function pressKey(event: KeyboardEvent, dir: number): void {
   if (event.key !== "Enter" && event.key !== " ") return;
   // Cancel native button activation: this key's down/up already owns the gesture.
   event.preventDefault();
-  if (props.disabled || event.repeat || pointer !== null || heldKey !== null) return;
+  if (disabled || event.repeat || pointer !== null || heldKey !== null) return;
   if (assistiveHeld.value) release();
   heldKey = event.key;
   active.value = dir;
@@ -63,19 +67,19 @@ function release(event?: Event): void {
   pointer = null;
   heldKey = null;
   assistiveHeld.value = false;
-  active.value = null;
+  active.value = undefined;
   emit("direction", 0);
 }
 
 /** Click-only activation holds a virtual key until another activation or blur. */
 function clickDirection(event: MouseEvent, dir: number): void {
-  if (props.disabled || event.detail !== 0 || pointer !== null || heldKey !== null) return;
+  if (disabled || event.detail !== 0 || pointer !== null || heldKey !== null) return;
   if (assistiveHeld.value) {
-    const stopping = active.value === dir && !props.navigating;
+    const stopping = active.value === dir && !navigating;
     release();
     if (stopping) return;
   }
-  if (props.hold && !props.navigating) {
+  if (hold && !navigating) {
     assistiveHeld.value = true;
     active.value = dir;
     emit("direction", dir);
@@ -90,7 +94,7 @@ function hidden(): void {
 }
 
 watch(
-  () => props.disabled,
+  () => disabled,
   (disabled) => {
     if (disabled) release();
   },
@@ -114,10 +118,10 @@ onBeforeUnmount(() => {
           v-for="direction in directions"
           :key="direction.dir"
           type="button"
-          :disabled="disabled"
+          :disabled
           :class="{ pressed: active === direction.dir, 'keyboard-key': direction.dir === 0 }"
           :aria-pressed="
-            props.hold && !props.navigating && direction.dir ? active === direction.dir : undefined
+            hold && !navigating && direction.dir ? active === direction.dir : undefined
           "
           :aria-label="
             direction.dir ? `${navigating ? 'Navigate' : 'Walk'} ${direction.name}` : 'Keyboard'
@@ -135,9 +139,9 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <div class="action-keys">
-        <button type="button" :disabled="disabled" @click="emit('key', 13)">Enter</button>
-        <button type="button" :disabled="disabled" @click="emit('key', 27)">Esc</button>
-        <button type="button" :disabled="disabled" @click="emit('key', 32)">Space</button>
+        <button type="button" :disabled @click="emit('key', 13)">Enter</button>
+        <button type="button" :disabled @click="emit('key', 27)">Esc</button>
+        <button type="button" :disabled @click="emit('key', 32)">Space</button>
       </div>
     </div>
     <p class="movement-help">
@@ -158,7 +162,7 @@ onBeforeUnmount(() => {
           v-for="(code, label) in extraKeys"
           :key="label"
           type="button"
-          :disabled="disabled"
+          :disabled
           @click="emit('key', code)"
         >
           {{ label }}
@@ -166,7 +170,7 @@ onBeforeUnmount(() => {
       </div>
       <label class="modifier"
         >Letter keys
-        <select v-model="modifier" :disabled="disabled" aria-label="Key modifier">
+        <select v-model="modifier" :disabled aria-label="Key modifier">
           <option value="none">Letters</option>
           <option value="ctrl">Ctrl + letter</option>
           <option value="alt">Alt + letter</option>
@@ -177,7 +181,7 @@ onBeforeUnmount(() => {
           v-for="(letter, index) in letters"
           :key="letter"
           type="button"
-          :disabled="disabled"
+          :disabled
           @click="
             emit(
               'key',
@@ -245,11 +249,6 @@ button:active,
 button.pressed {
   background: #284758;
   border-color: #55ffff;
-}
-button:focus-visible,
-summary:focus-visible {
-  outline: 2px solid #55ffff;
-  outline-offset: 2px;
 }
 button:disabled {
   opacity: 0.4;

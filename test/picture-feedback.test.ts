@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { inflateSync } from "node:zlib";
 import {
+  actorLayoutFeedback,
   colourGrid,
   editReport,
+  formatPriorityDiagnostics,
   formatLayoutDiff,
   layoutDiff,
   parseLayout,
+  pictureComparisonPng,
 } from "../src/agent/pictureFeedback.ts";
+import { EGA_RGB } from "../src/picture/png.ts";
 
 /** Tiny hand-drawable surface: rows of colour indices -> flat buffer. */
 function surface(rows: readonly (readonly number[])[]): Uint8Array {
@@ -31,6 +36,33 @@ function painted(
     }
   }
   return buf;
+}
+
+function pngPixels(png: Uint8Array): { width: number; height: number; rgb: Uint8Array } {
+  const header = new DataView(png.buffer, png.byteOffset, png.byteLength);
+  const width = header.getUint32(16);
+  const height = header.getUint32(20);
+  let offset = 8;
+  let idat: Uint8Array | null = null;
+  while (offset < png.length) {
+    const length = header.getUint32(offset);
+    const type = String.fromCharCode(
+      png[offset + 4]!,
+      png[offset + 5]!,
+      png[offset + 6]!,
+      png[offset + 7]!,
+    );
+    if (type === "IDAT") idat = png.subarray(offset + 8, offset + 8 + length);
+    offset += length + 12;
+  }
+  assert.ok(idat);
+  const scanlines = new Uint8Array(inflateSync(Buffer.from(idat)));
+  const rgb = new Uint8Array(width * height * 3);
+  for (let y = 0; y < height; y++) {
+    assert.equal(scanlines[y * (width * 3 + 1)], 0);
+    rgb.set(scanlines.subarray(y * (width * 3 + 1) + 1, (y + 1) * (width * 3 + 1)), y * width * 3);
+  }
+  return { width, height, rgb };
 }
 
 describe("picture feedback: colour grid", () => {
@@ -71,6 +103,64 @@ describe("picture feedback: colour grid", () => {
     assert.equal(lines.length, 7);
     assert.equal(lines[0], "y  0- 23:  9  9  9  9  9  9  9  9");
     assert.equal(lines[6], "y144-167:  9  9  9  9  9  9  9  9");
+  });
+});
+
+describe("picture feedback: authentic scene geometry", () => {
+  it("aligns clean visual, raw priority, and exact semantic overlay panels", () => {
+    const visual = new Uint8Array([4, 2, 7, 7, 7, 7]);
+    const priority = new Uint8Array([4, 6, 0, 1, 2, 3]);
+    const { width, height, rgb } = pngPixels(
+      pictureComparisonPng(visual, priority, { width: 6, height: 1 }),
+    );
+    assert.deepEqual([width, height], [36, 1]);
+    const pixel = (x: number): number[] => [...rgb.subarray(x * 3, x * 3 + 3)];
+
+    // Left stays clean and every logical pixel is exactly two display columns.
+    assert.deepEqual(pixel(0), EGA_RGB[4]);
+    assert.deepEqual(pixel(1), EGA_RGB[4]);
+    assert.deepEqual(pixel(2), EGA_RGB[2]);
+    // Middle is the unmodified EGA rendering of raw priority values.
+    assert.deepEqual(pixel(12), EGA_RGB[4]);
+    assert.deepEqual(pixel(14), EGA_RGB[6]);
+    assert.deepEqual(pixel(16), EGA_RGB[0]);
+    // Right: priority 4 is untouched; 6 is a 50% integer blend; controls are vivid.
+    assert.deepEqual(pixel(24), EGA_RGB[4]);
+    assert.deepEqual(pixel(26), [85, 127, 0]);
+    assert.deepEqual(pixel(28), [255, 85, 85]);
+    assert.deepEqual(pixel(30), [255, 255, 255]);
+    assert.deepEqual(pixel(32), [255, 85, 255]);
+    assert.deepEqual(pixel(34), [85, 255, 255]);
+  });
+
+  it("summarises exact control and depth extents without losing thin barriers", () => {
+    const priority = surface([
+      [4, 4, 4, 4],
+      [5, 5, 5, 5],
+      [0, 0, 8, 8],
+      [3, 3, 8, 8],
+    ]);
+    const text = formatPriorityDiagnostics(priority, { width: 4, height: 4 });
+    assert.match(text, /0 barrier: 2 cells in 1 component, x0-1 y2-2/);
+    assert.match(text, /3 water: 2 cells in 1 component, x0-1 y3-3/);
+    assert.match(text, /depth bands: 4 x0-3 y0-0 \(4\); 5 x0-3 y1-1 \(4\); 8 x2-3 y2-3 \(4\)/);
+  });
+
+  it("checks a declared actor's displayed proportions, baseline controls, and occlusion", () => {
+    const priority = surface([
+      [4, 4, 4, 4],
+      [4, 4, 9, 4],
+      [4, 4, 9, 4],
+      [4, 0, 7, 4],
+    ]);
+    const text = actorLayoutFeedback("# actor: ego x1 y3 width2 height3 priority7", priority, {
+      width: 4,
+      height: 4,
+    });
+    assert.equal(
+      text,
+      "- ego: logical x1-2 y1-3 (2x3), display x2-5 y1-3 (4x3); priority 7; baseline values [0, 7], controls [0@x1]; higher-priority scenery 2/6 cells",
+    );
   });
 });
 

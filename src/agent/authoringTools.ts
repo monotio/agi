@@ -1,4 +1,5 @@
 import {
+  authoredPictureSource,
   executeAgentTool,
   type AgentSessionState,
   type AgentToolResult,
@@ -16,7 +17,7 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
   {
     name: "reserve_binding",
     description:
-      "Give a stable name to a resource, flag or variable. `name` is a lowercase identifier; `kind` selects its family. Set `id` to null to allocate an unused ID, or supply an ID to name an existing one without changing its value or contents. Automatic variable/flag allocation reads all compiled logic and refuses uncertain indirect access. Returns the binding and a #define usable in logic; existing named bindings remain stable.",
+      "Bind a stable lowercase `name` to a resource, flag or variable of `kind` (logic, picture, view, sound, flag or variable). Null `id` allocates safely; an explicit `id` binds that slot without changing its contents. Indirect variable/flag access prevents automatic allocation.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -31,7 +32,7 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
   {
     name: "upsert_inventory_item",
     description:
-      "Add or update one inventory definition while retaining all other IDs and entries. `id` null appends a new item; an existing ID edits that definition. `name` is its display name; `location` is 'carried', 'room' or 'inactive', with `room` supplying the room number only for 'room'. Returns the stable object ID and compiled OBJECT update. Existing live locations are preserved by the engine; change live ownership with game logic. Room generation may append definitions but cannot rewrite existing ones.",
+      "Add or update one inventory definition while preserving other IDs. Null `id` appends; `name` is the item text; `location` is carried, room or inactive, and `room` (1..254) applies only to location room. Live ownership is unchanged; game logic changes it.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -47,7 +48,7 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
   {
     name: "edit_resource_source",
     description:
-      "Change one exact source section without resending a complete resource. `kind` is logic or picture, and `num` identifies the resource. `expectedRevision` must match the latest read; `find` must occur exactly once, and `replace` is its replacement. Compiles the full resulting resource before storing it, returning the new revision and normal compiler feedback. A stale revision, ambiguous match or invalid compilation changes nothing.",
+      "Replace one exact source section of logic or picture `kind` number `num`: `find` must occur once in the source read_logic or read_picture returns and becomes `replace`. Pictures written this session keep their authored source; disassembly can normalize other syntax. `expectedRevision` must match the current revision. The full result compiles before storage; any conflict or compile error changes nothing.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -64,7 +65,7 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
   {
     name: "update_world",
     description:
-      "Record authoring intent for continuity across rooms and saved projects. `rooms` updates named room descriptions and exits; `facts` updates named facts; `quests` updates quest descriptions, dependencies and optional named completion flags. Empty arrays leave other entries unchanged. Returns the updated intent counts; these notes do not alter AGI behavior or prove the world implements the plan. inspect_world_bible returns both this intent and the compiled resource index.",
+      "Update persistent `rooms`, `facts` and `quests` intent. Empty arrays leave other entries unchanged. Intent does not alter or verify game behavior.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -271,10 +272,14 @@ export function executeAuthoringTool(
         throw new Error(
           "Resource revision changed or is absent. Read the current source before editing.",
         );
+      // One source of truth per kind: pictures edit the text the agent wrote
+      // (what read_picture returns) while it still matches the resource, and
+      // fall back to disassembly for pictures never written or since changed.
       const source =
         kind === "logic"
           ? disassembleLogic(payload, { dictionary: state.sources.words, profile: state.profile })
-          : readPictureSource(state.container, num, { profile: state.profile });
+          : (authoredPictureSource(state, num) ??
+            readPictureSource(state.container, num, { profile: state.profile }));
       const find = args["find"];
       const replacement = args["replace"];
       if (

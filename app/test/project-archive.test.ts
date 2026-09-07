@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildProjectZip, buildPublicGameZip } from "../src/projectArchive.ts";
+import { buildProjectZip, buildPublicGameZip, readProjectContext } from "../src/projectArchive.ts";
 import { readGameZip } from "../src/gameZip.ts";
 
 test("exports supply an empty OBJECT file and preserve an existing inventory", async () => {
@@ -52,6 +52,18 @@ test("project round trip retains private history and deduplicates images; public
       authoring: { version: 1, bindings: {}, world: { rooms: {}, facts: {}, quests: {} } },
     },
     roomGeneration: true,
+    library: {
+      version: 1 as const,
+      gameId: "garden-local",
+      revision: "1".repeat(64),
+      source: "authored" as const,
+      description: "A public garden adventure.",
+      author: "Example Author",
+      license: "unknown",
+      parent: { gameId: "seed", revision: "2".repeat(64) },
+      preview: image,
+      validation: { status: "ready" as const, message: "Private local status." },
+    },
   };
   const project = await buildProjectZip(data);
   const opened = await readGameZip(project);
@@ -61,7 +73,15 @@ test("project round trip retains private history and deduplicates images; public
   assert.equal(opened.files["PRIVATE.TXT"], undefined);
   const publicZip = buildPublicGameZip(data);
   assert.equal(new TextDecoder().decode(publicZip).includes("secret prompt"), false);
-  assert.equal((await readGameZip(publicZip)).project, undefined);
+  const publicGame = await readGameZip(publicZip);
+  assert.equal(publicGame.project, undefined);
+  assert.deepEqual(publicGame.metadata, {
+    description: "A public garden adventure.",
+    author: "Example Author",
+    license: "unknown",
+    parent: { gameId: "seed", revision: "2".repeat(64) },
+  });
+  assert.equal(JSON.stringify(publicGame).includes("Private local status."), false);
 });
 
 test("project import rejects privileged messages and remote attachments", async () => {
@@ -109,4 +129,34 @@ test("changing models retains the native archive while using a portable continua
   assert.equal((continued?.[0] as { role: string }).role, "user");
   assert.equal(JSON.stringify(continued).includes("native-signature"), false);
   assert.equal(JSON.stringify(history).includes("native-signature"), true);
+});
+
+test("first-release project and public metadata versions reject future data", () => {
+  const futureProject = new TextEncoder().encode(
+    JSON.stringify({
+      format: "monotio.agi.project",
+      version: 2,
+      conversation: { formatVersion: 1, messages: [] },
+      provider: "stub",
+      model: "stub",
+    }),
+  );
+  assert.throws(() => readProjectContext(futureProject, new Map(), ""), /version/);
+  assert.throws(
+    () =>
+      readProjectContext(
+        new TextEncoder().encode(
+          JSON.stringify({
+            format: "monotio.agi.project",
+            version: 1,
+            conversation: { formatVersion: 2, messages: [] },
+            provider: "stub",
+            model: "stub",
+          }),
+        ),
+        new Map(),
+        "",
+      ),
+    /version/,
+  );
 });

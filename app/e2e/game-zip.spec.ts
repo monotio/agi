@@ -1,5 +1,4 @@
 import { providerReply } from "../../test/provider-stream.ts";
-import { openGameOptions } from "./engineProbe.ts";
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { readGameZip } from "../src/gameZip.ts";
@@ -7,7 +6,16 @@ import { openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/zip.ts";
 import { disassembleLogic } from "../../src/logic/disassembler.ts";
-import { isolateStorage, textHook } from "./engineProbe.ts";
+import {
+  configureAi,
+  isolateStorage,
+  openDeveloperActivity,
+  openGameOptions,
+  openLibraryActions,
+  openSavedGameDetails,
+  savedGameCard,
+  textHook,
+} from "./engineProbe.ts";
 
 test("a friend opens an exported world in a fresh browser without a key", async ({
   page,
@@ -15,7 +23,8 @@ test("a friend opens an exported world in a fresh browser without a key", async 
 }) => {
   await isolateStorage(page);
   await page.goto("/");
-  await expect(page.getByTestId("open-game-zip")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add game", exact: true })).toBeVisible();
+  await openDeveloperActivity(page);
   await page.getByTestId("boot-agent").click();
   await expect(page.getByTestId("input-line")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).frame).toBeGreaterThan(0);
@@ -30,7 +39,7 @@ test("a friend opens an exported world in a fresh browser without a key", async 
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("generated room 2");
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "game-actions-menu");
   await page.getByTestId("btn-export-live-zip").click();
   const zip = await downloading;
   const context = await browser.newContext();
@@ -42,8 +51,9 @@ test("a friend opens an exported world in a fresh browser without a key", async 
       return route.abort();
     });
     await friend.goto(page.url());
-    await expect(friend.getByTestId("open-game-zip")).toBeVisible();
+    await expect(friend.getByRole("button", { name: "Add game", exact: true })).toBeVisible();
     await friend.getByTestId("game-zip-input").setInputFiles((await zip.path())!);
+    await friend.getByTestId("btn-resume-cached").click();
     await expect(friend.getByTestId("input-line")).toBeVisible();
     await expect.poll(async () => (await textHook(friend)).room).toBe(1);
     if ((await textHook(friend)).modal) {
@@ -56,7 +66,7 @@ test("a friend opens an exported world in a fresh browser without a key", async 
       .poll(async () => (await textHook(friend)).rows.join(" "))
       .toContain("generated room 2");
     expect(providerCalls).toBe(0);
-    expect(await friend.evaluate(() => localStorage.getItem("monotio_agi.apiKey"))).toBeNull();
+    expect(await friend.evaluate(() => localStorage.getItem("monotio_agi.aiSettings"))).toBeNull();
     await friend.screenshot({ path: "test-results/shared-zip-playing.png" });
     await friend.getByTestId("btn-eject").click();
     const before = await friend.evaluate(() =>
@@ -87,13 +97,13 @@ test("a friend opens an exported world in a fresh browser without a key", async 
     );
     await friend.getByTestId("game-zip-drop").dispatchEvent("drop", { dataTransfer: transfer });
     await transfer.dispose();
-    await expect(friend.getByTestId("input-line")).toBeVisible();
     expect(
       await friend.evaluate(() =>
         Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.authored.imported-")),
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     expect(providerCalls).toBe(0);
+    await friend.getByTestId("btn-resume-cached").click();
     await friend.unroute("**/api/**");
     await expect.poll(async () => (await textHook(friend)).room).toBe(1);
     await expect.poll(async () => (await textHook(friend)).cycle).toBeGreaterThan(0);
@@ -137,11 +147,9 @@ test("a friend opens an exported world in a fresh browser without a key", async 
       );
     });
     await friend.getByTestId("power-up").click();
-    await expect(friend.getByTestId("power-up-api-key")).toBeVisible();
+    await expect(friend.getByTestId("connect-assistant-ai")).toBeVisible();
     await friend.screenshot({ path: "test-results/power-up-connect.png" });
-    await friend.getByTestId("power-up-provider").selectOption("openai");
-    await friend.getByTestId("power-up-api-key").fill("test-placeholder");
-    await friend.getByTestId("power-up-connect").click();
+    await configureAi(friend, { provider: "openai", key: "test-placeholder" });
     await expect(friend.getByTestId("agent-bubble-input")).toBeEnabled();
     await friend.getByTestId("agent-bubble-input").fill("remix the room description");
     await friend.getByTestId("agent-bubble-send").click();
@@ -177,6 +185,7 @@ test("a v3 cartridge can be imported, remixed, exported and opened in a fresh se
     mimeType: "application/zip",
     buffer: Buffer.from(zip),
   });
+  await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).profile).toBe("3.002.149");
   await expect
     .poll(async () => (await textHook(page)).rows.join(" "))
@@ -212,9 +221,7 @@ test("a v3 cartridge can be imported, remixed, exported and opened in a fresh se
     );
   });
   await page.getByTestId("power-up").click();
-  await page.getByTestId("power-up-provider").selectOption("openai");
-  await page.getByTestId("power-up-api-key").fill("test-placeholder");
-  await page.getByTestId("power-up-connect").click();
+  await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await page.getByTestId("agent-bubble-input").fill("remix the room description");
   await page.getByTestId("agent-bubble-send").click();
@@ -222,7 +229,7 @@ test("a v3 cartridge can be imported, remixed, exported and opened in a fresh se
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("A remixed v3 adventure.");
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "game-actions-menu");
   await page.getByTestId("btn-export-live-zip").click();
   const download = await downloading;
   const downloaded = await readFile((await download.path())!);
@@ -244,6 +251,7 @@ test("a v3 cartridge can be imported, remixed, exported and opened in a fresh se
     });
     await friend.goto(page.url());
     await friend.getByTestId("game-zip-input").setInputFiles((await download.path())!);
+    await friend.getByTestId("btn-resume-cached").click();
     // A fresh browser must load and boot its worker before it can paint game text.
     await expect
       .poll(async () => (await textHook(friend)).profile, { timeout: 15_000 })
@@ -282,31 +290,37 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
     mimeType: "application/zip",
     buffer: Buffer.from(zip),
   });
+  await savedGameCard(page, "Custom Cartridge").getByTestId("btn-resume-cached").click();
   await expect(page.getByTestId("input-line")).toBeVisible();
   await page.getByTestId("btn-eject").click();
   const before = await page.evaluate(() => {
     const key = Object.keys(localStorage).find((k) => k.startsWith("monotio_agi.authored."))!;
     return { key, data: JSON.parse(localStorage.getItem(key)!) };
   });
-  await page.getByRole("button", { name: "Rename", exact: true }).click();
-  const name = page.getByRole("textbox", { name: "Game name", exact: true });
+  const card = savedGameCard(page, "Custom Cartridge");
+  await openSavedGameDetails(card);
+  await card.getByTestId("rename-game").click();
+  const name = card.getByRole("textbox", { name: "Game name", exact: true });
   await expect(name).toBeFocused();
   await name.fill("Discard this name");
-  await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(page.locator(".saved-world-title")).toHaveText(before.data.title);
-  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await card.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(card.getByTestId("saved-game-title")).toHaveText(before.data.title);
+  await card.getByTestId("rename-game").click();
   await name.fill("   ");
   await expect(page.getByRole("button", { name: "Save name", exact: true })).toBeDisabled();
   await name.fill("  The Midnight Appointment  ");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: "test-results/rename-game-mobile.png" });
   await name.press("Enter");
-  await expect(page.locator(".saved-world-title")).toHaveText("The Midnight Appointment");
+  const renamedCard = savedGameCard(page, "The Midnight Appointment");
+  await expect(renamedCard.getByTestId("saved-game-title")).toHaveText("The Midnight Appointment");
   const after = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), before.key);
   expect(after).toEqual({ ...before.data, title: "The Midnight Appointment" });
   await page.reload();
-  await expect(page.locator(".saved-world-title")).toHaveText("The Midnight Appointment");
+  await expect(renamedCard.getByTestId("saved-game-title")).toHaveText("The Midnight Appointment");
+  await openSavedGameDetails(renamedCard);
   const downloading = page.waitForEvent("download");
+  await openLibraryActions(page, renamedCard);
   await page.getByTestId("btn-export-agi-zip").click();
   const exported = await downloading;
   const content = await readGameZip(new Uint8Array(await readFile((await exported.path())!)));
@@ -316,9 +330,11 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
     const friend = await context.newPage();
     await friend.goto(page.url());
     await friend.getByTestId("game-zip-input").setInputFiles((await exported.path())!);
+    const friendCard = savedGameCard(friend, "The Midnight Appointment");
+    await friendCard.getByTestId("btn-resume-cached").click();
     await expect(friend.getByTestId("input-line")).toBeVisible();
     await friend.getByTestId("btn-eject").click();
-    await expect(friend.locator(".saved-world-title")).toHaveText("The Midnight Appointment");
+    await expect(friendCard.getByTestId("saved-game-title")).toHaveText("The Midnight Appointment");
   } finally {
     await context.close();
   }

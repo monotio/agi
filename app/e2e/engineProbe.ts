@@ -1,4 +1,12 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
+import type { CachedCartridgeData } from "../src/cartridgeTypes.ts";
+
+export interface AiConfiguration {
+  provider: "anthropic" | "openai" | "stub";
+  key?: string;
+  model?: string;
+  budget?: number;
+}
 
 /**
  * Shared observation helpers for the e2e proof runs.
@@ -47,10 +55,7 @@ const EMPTY_HOOK: TextHook = {
 };
 
 export async function textHook(page: Page): Promise<TextHook> {
-  return page.evaluate(
-    (empty) => ({ ...empty, ...((window as any).__AGI_TEXT__ ?? {}) }),
-    EMPTY_HOOK,
-  );
+  return page.evaluate((empty) => ({ ...empty, ...(window.__AGI_TEXT__ ?? {}) }), EMPTY_HOOK);
 }
 
 export async function screenText(page: Page): Promise<string> {
@@ -88,10 +93,10 @@ export async function probe(page: Page): Promise<Probe> {
     };
     const colors = new Set<string>();
     for (let i = 0; i < all.length; i += 4) colors.add(`${all[i]},${all[i + 1]},${all[i + 2]}`);
-    const hook = (window as any).__AGI_TEXT__ ?? {};
+    const hook = window.__AGI_TEXT__;
     return {
-      frame: Number(hook.frame ?? 0),
-      cycle: Number(hook.cycle ?? 0),
+      frame: hook?.frame ?? 0,
+      cycle: hook?.cycle ?? 0,
       hash: hashOf(all),
       picHash: hashOf(band),
       colors: colors.size,
@@ -235,11 +240,103 @@ export async function isolateStorage(page: Page): Promise<void> {
   });
 }
 
-/** Open a top-bar disclosure through its visible control without closing it on repeat calls. */
+/** Find one saved-game card by the title visible to the player. */
+export function savedGameCard(page: Page, title: string | RegExp): Locator {
+  const titlePattern =
+    typeof title === "string"
+      ? new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)
+      : title;
+  return page
+    .getByTestId("saved-game-gallery")
+    .locator("[data-testid^='saved-game-card-']")
+    .filter({ has: page.getByTestId("saved-game-title").filter({ hasText: titlePattern }) });
+}
+
+/** Open a saved game's native Details disclosure without toggling it closed. */
+export async function openSavedGameDetails(card: Locator): Promise<void> {
+  const details = card.locator("details[data-testid^='game-details-']");
+  if ((await details.getAttribute("open")) === null) await details.locator("summary").click();
+}
+
+/** Open the native Create an adventure disclosure without toggling it closed. */
+export async function openCreateAdventure(page: Page): Promise<void> {
+  const details = page.getByTestId("create-adventure-disclosure");
+  if ((await details.getAttribute("open")) === null)
+    await page.getByTestId("create-adventure-toggle").click();
+}
+
+/** Open the test/developer activity disclosure without toggling it closed. */
+export async function openDeveloperActivity(page: Page): Promise<void> {
+  const details = page.getByTestId("agent-panel");
+  if ((await details.getAttribute("open")) === null)
+    await page.getByTestId("developer-activity-summary").click();
+}
+
+/** Configure the app-wide AI connection through the same dialog a player uses. */
+export async function configureAi(page: Page, configuration: AiConfiguration): Promise<void> {
+  await openAiSettings(page);
+  const dialog = page.getByTestId("ai-settings-dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByTestId("provider-select").selectOption(configuration.provider);
+  if (configuration.model !== undefined)
+    await dialog.getByTestId("model-select").selectOption(configuration.model);
+  if (configuration.key !== undefined)
+    await dialog.getByTestId("api-key-input").fill(configuration.key);
+  if (configuration.budget !== undefined)
+    await dialog.getByTestId("task-budget").fill(String(configuration.budget));
+  await dialog.getByTestId("ai-settings-save").click();
+  await expect(dialog).toBeHidden();
+}
+
+/** Open the single shared connection dialog through Settings. */
+export async function openAiSettings(page: Page): Promise<void> {
+  const settings = page.getByTestId("settings-menu");
+  if ((await settings.getAttribute("aria-expanded")) !== "true") await settings.click();
+  await page.getByTestId("open-ai-settings").click();
+  await expect(page.getByTestId("ai-settings-dialog")).toBeVisible();
+}
+
+/** Saved-game actions live in a popup outside the card's clipping boundary. */
+export async function openLibraryActions(page: Page, card: Locator): Promise<void> {
+  const trigger = card.getByRole("button", { name: "Game actions", exact: true });
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+  await expect(page.getByRole("menu", { name: "Game actions", exact: true })).toBeVisible();
+}
+
+/**
+ * Open a top-bar menu through its trigger without closing it on repeat calls.
+ * `game-actions-menu` holds Start over and the exports while a game runs;
+ * `settings-menu` holds the AI provider, input, sound and display settings.
+ */
 export async function openGameOptions(
   page: Page,
-  menu: "save-share-menu" | "sound-display-menu",
+  menu: "game-actions-menu" | "settings-menu",
 ): Promise<void> {
-  const details = page.getByTestId(menu);
-  if ((await details.getAttribute("open")) === null) await details.locator("summary").click();
+  const trigger = page.getByTestId(menu);
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+}
+
+/** Seed through the production persistence boundary, so fixtures use the release contract. */
+export async function cacheGame(
+  page: Page,
+  game: Omit<CachedCartridgeData, "authoredAt">,
+): Promise<void> {
+  const { files, ...metadata } = game;
+  const saved = await page.evaluate(
+    async ({ metadata, files }) => {
+      const path = "/src/cartridgeStorage.ts";
+      const { saveAuthoredCartridge } = await import(path);
+      return saveAuthoredCartridge(metadata.slug, {
+        ...metadata,
+        files: Object.fromEntries(
+          Object.entries(files).map(([name, bytes]) => [name, new Uint8Array(bytes)]),
+        ),
+      });
+    },
+    {
+      metadata,
+      files: Object.fromEntries(Object.entries(files).map(([name, bytes]) => [name, [...bytes]])),
+    },
+  );
+  expect(saved).toBe(true);
 }

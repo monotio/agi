@@ -1,6 +1,17 @@
 import { providerReply } from "../../test/provider-stream.ts";
+import type { EngineStateReport } from "../../src/runtime/engine.ts";
 import { test, expect } from "@playwright/test";
 import { fileURLToPath } from "node:url";
+
+/** The worker replies this test reads (engine.worker.ts, "Messages out"). */
+type WorkerReply =
+  | { type: "booted" }
+  | { type: "metadataPatched" }
+  | { type: "cycle"; cycle: number }
+  | { type: "error"; message: string }
+  | { type: "engineState"; id: number; state: EngineStateReport }
+  | { type: "exportFiles"; id: number; files: Record<string, Uint8Array> };
+type Reply<T extends WorkerReply["type"]> = Extract<WorkerReply, { type: T }>;
 
 test("power-up vocabulary and inventory reach the live worker and exported cartridge", async ({
   page,
@@ -87,43 +98,50 @@ test("power-up vocabulary and inventory reach the live worker and exported cartr
       const worker = new EngineWorker() as Worker;
       const sab = new SharedArrayBuffer(16 + 1024 * 1024);
       const control = new Int32Array(sab, 0, 4);
-      const messages: any[] = [];
+      const messages: WorkerReply[] = [];
       const waiters = new Set<() => void>();
       worker.onmessage = (event) => {
         messages.push(event.data);
         for (const wake of waiters) wake();
       };
-      const wait = (predicate: (message: any) => boolean): Promise<any> =>
+      const wait = <T extends WorkerReply>(
+        predicate: (message: WorkerReply) => message is T,
+      ): Promise<T> =>
         new Promise((resolve, reject) => {
           const timeout = setTimeout(() => {
             waiters.delete(check);
             reject(new Error("Worker reply timed out"));
           }, 10000);
           const check = () => {
-            const error = messages.find((message) => message.type === "error");
+            const error = messages.find(
+              (message): message is Reply<"error"> => message.type === "error",
+            );
             const at = messages.findIndex(predicate);
             if (!error && at < 0) return;
             clearTimeout(timeout);
             waiters.delete(check);
             if (error) reject(new Error(error.message));
-            else resolve(messages.splice(at, 1)[0]);
+            else resolve(messages.splice(at, 1)[0] as T);
           };
           waiters.add(check);
           check();
         });
       let queryId = 0;
-      const query = async (type: string) => {
+      const query = async <T extends WorkerReply>(type: string) => {
         const id = ++queryId;
         worker.postMessage({ type, id });
-        return wait((message) => message.id === id);
+        return wait((message): message is T => "id" in message && message.id === id);
       };
       const cycle = async (minimum: number) => {
-        await wait((message) => message.type === "cycle" && message.cycle >= minimum);
+        await wait(
+          (message): message is Reply<"cycle"> =>
+            message.type === "cycle" && message.cycle >= minimum,
+        );
         Atomics.store(control, 2, 1);
       };
       try {
         worker.postMessage({ type: "boot", files, words, sab });
-        await wait((message) => message.type === "booted");
+        await wait((message): message is Reply<"booted"> => message.type === "booted");
         await cycle(5); // The old key has been picked up in this live session.
         for (const patch of turn.patched) worker.postMessage({ type: "patch", ...patch });
         // Negative control: exactly the old broken transport. Logic arrives but
@@ -131,21 +149,23 @@ test("power-up vocabulary and inventory reach the live worker and exported cartr
         worker.postMessage({ type: "input", text: "sparkle" });
         Atomics.store(control, 2, 0);
         await cycle(10);
-        const before = (await query("state")).state;
+        const before = (await query<Reply<"engineState">>("state")).state;
         worker.postMessage({ type: "patchMetadata", files: turn.files });
-        await wait((message) => message.type === "metadataPatched");
+        await wait(
+          (message): message is Reply<"metadataPatched"> => message.type === "metadataPatched",
+        );
         worker.postMessage({ type: "input", text: "sparkle" });
         Atomics.store(control, 2, 0);
         await cycle(15);
-        const after = (await query("state")).state;
-        const exported = (await query("exportFiles")).files;
+        const after = (await query<Reply<"engineState">>("state")).state;
+        const exported = (await query<Reply<"exportFiles">>("exportFiles")).files;
         return {
           before: before.vars[200],
           after: after.vars[200],
           oldLocation: after.vars[201],
           newLocation: after.vars[203],
-          words: parseWordsTok(exported["WORDS.TOK"]).map((entry: { word: string }) => entry.word),
-          exportedObject: [...exported["OBJECT"]],
+          words: parseWordsTok(exported["WORDS.TOK"]!).map((entry: { word: string }) => entry.word),
+          exportedObject: [...exported["OBJECT"]!],
           authoredObject: [...turn.files["OBJECT"]],
         };
       } finally {

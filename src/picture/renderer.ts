@@ -39,6 +39,18 @@ export interface RenderPictureOptions {
   overlay?: boolean;
   /** Select command vocabulary and pattern geometry for the running game. */
   profile?: AgiProfile;
+  /** Optional per-seed observations for authoring diagnostics. */
+  fillDiagnostics?: PictureFillDiagnostic[];
+}
+
+export interface PictureFillDiagnostic {
+  channel: "visual" | "priority";
+  x: number;
+  y: number;
+  selectedValue: number;
+  targetValue: number;
+  seedValue: number;
+  filledCells: number;
 }
 
 /**
@@ -129,34 +141,63 @@ export function renderPicture(
    */
   const floodFill = (sx: number, sy: number): void => {
     let channel: Uint8Array;
+    let channelName: PictureFillDiagnostic["channel"];
+    let selectedValue: number;
     let target: number;
     if (visualEnabled) {
       if (visualColor === 15) return;
       channel = surface.visual;
+      channelName = "visual";
+      selectedValue = visualColor;
       target = 15;
     } else if (priorityEnabled) {
       if (priorityValue === 4) return;
       channel = surface.priority;
+      channelName = "priority";
+      selectedValue = priorityValue;
       target = 4;
     } else {
       return;
     }
     const start = sy * SCREEN_WIDTH + sx;
-    if (channel[start] !== target) return;
+    const seedValue = channel[start]!;
+    if (seedValue !== target) {
+      opts?.fillDiagnostics?.push({
+        channel: channelName,
+        x: sx,
+        y: sy,
+        selectedValue,
+        targetValue: target,
+        seedValue,
+        filledCells: 0,
+      });
+      return;
+    }
     // Writing replaces the target value in the connectivity channel (the
     // selected value differs from the target), so written cells double as
     // the visited set.
     const stack: number[] = [start];
+    let filledCells = 0;
     while (stack.length > 0) {
       const idx = stack.pop()!;
       if (channel[idx] !== target) continue;
       writeCell(idx);
+      filledCells++;
       const x = idx % SCREEN_WIDTH;
       if (x > 0) stack.push(idx - 1);
       if (x < SCREEN_WIDTH - 1) stack.push(idx + 1);
       if (idx >= SCREEN_WIDTH) stack.push(idx - SCREEN_WIDTH);
       if (idx < SCREEN_WIDTH * (SCREEN_HEIGHT - 1)) stack.push(idx + SCREEN_WIDTH);
     }
+    opts?.fillDiagnostics?.push({
+      channel: channelName,
+      x: sx,
+      y: sy,
+      selectedValue,
+      targetValue: target,
+      seedValue,
+      filledCells,
+    });
   };
 
   /** One shaped-brush v2 pattern plot at clamped logical coordinates. */

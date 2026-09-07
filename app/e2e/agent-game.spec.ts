@@ -1,12 +1,17 @@
-import { openGameOptions } from "./engineProbe.ts";
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import {
   canvasPicHash,
+  configureAi,
+  openAiSettings,
   isolateStorage,
   observe,
+  openCreateAdventure,
+  openDeveloperActivity,
+  openGameOptions,
   probe,
   settled,
+  savedGameCard,
   storedAutosave,
   textHook,
   waitForAutosaveAfter,
@@ -35,6 +40,7 @@ async function cycleOf(page: Page): Promise<number> {
 
 async function bootAgentGame(page: Page): Promise<void> {
   await page.goto("/");
+  await openDeveloperActivity(page);
   await page.getByTestId("boot-agent").click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
   // Authoring finishes before room 1 can be entered, and room 1 has to be
@@ -92,7 +98,7 @@ test("returning to the menu preserves the saved room and offers continue", async
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await page.getByTestId("btn-eject").click();
   expect((await storedAutosave(page, "custom"))?.room).toBe(2);
-  await page.getByTestId("btn-resume-autosave").click();
+  await savedGameCard(page, "custom").getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
 });
 
@@ -107,7 +113,7 @@ test("in-game ZIP exports the live cartridge after a patch and reload", async ({
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
   const downloadPromise = page.waitForEvent("download");
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "game-actions-menu");
   await page.getByTestId("btn-export-live-zip").click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("agi-custom-game.zip");
@@ -146,9 +152,9 @@ test("in-game ZIP exports the live cartridge after a patch and reload", async ({
   // A print window cannot produce a player-state save. The exported patched
   // resources remain available as a saved world and boot without reauthoring.
   await expect(page.getByTestId("btn-resume-cached")).toBeVisible();
-  await page.getByTestId("provider-select").selectOption("stub");
-  await page.getByTestId("btn-resume-cached").click();
-  await openGameOptions(page, "save-share-menu");
+  await configureAi(page, { provider: "stub" });
+  await savedGameCard(page, "custom").getByTestId("btn-resume-cached").click();
+  await openGameOptions(page, "game-actions-menu");
   await expect(page.getByTestId("btn-export-live-zip")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
   await typeCommand(page, "east");
@@ -241,6 +247,7 @@ test("an autosave resumes a room the agent authored mid-play, across a reload", 
 
 test("cartridge picker displays built-in cartridges and allows selection", async ({ page }) => {
   await page.goto("/");
+  await openCreateAdventure(page);
   await expect(page.getByTestId("cartridge-knights-trial")).toBeVisible();
   await expect(page.getByTestId("cartridge-badge-of-millhaven")).toBeVisible();
   await expect(page.getByTestId("cartridge-mop-jockey")).toBeVisible();
@@ -256,16 +263,22 @@ test("cartridge picker displays built-in cartridges and allows selection", async
 
 test("provider and model configuration adapts options and persists choices", async ({ page }) => {
   await page.goto("/");
-  const providerSelect = page.getByTestId("provider-select");
+  await openAiSettings(page);
+  const dialog = page.getByTestId("ai-settings-dialog");
+  const providerSelect = dialog.getByTestId("provider-select");
   await expect(providerSelect).toBeVisible();
 
   await providerSelect.selectOption("openai");
-  const modelSelect = page.getByTestId("model-select");
+  const modelSelect = dialog.getByTestId("model-select");
   await expect(modelSelect).toContainText("GPT-5.6");
 
   await providerSelect.selectOption("anthropic");
   await expect(modelSelect).toContainText("Claude Opus 5");
   await expect(modelSelect).toContainText("Claude Fable 5.1");
+  await dialog.getByTestId("ai-settings-save").click();
+  await openAiSettings(page);
+  await expect(dialog.getByTestId("provider-select")).toHaveValue("anthropic");
+  await dialog.getByTestId("ai-settings-cancel").click();
   const repoLink = page.getByTestId("github-link");
   await expect(repoLink).toBeVisible();
   await expect(repoLink).toHaveAttribute("href", "https://github.com/monotio/agi");
@@ -273,8 +286,9 @@ test("provider and model configuration adapts options and persists choices", asy
 
 test("sound controls allow toggling mute and switching sound chip mode", async ({ page }) => {
   await page.goto("/");
+  await openDeveloperActivity(page);
   await page.getByTestId("boot-agent").click();
-  await openGameOptions(page, "sound-display-menu");
+  await openGameOptions(page, "settings-menu");
   const muteBtn = page.getByTestId("toggle-mute");
   const modeBtn = page.getByTestId("toggle-sound-mode");
 

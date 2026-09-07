@@ -5,14 +5,15 @@
   "type": "module",
   "description": "Authoring evaluations and regression checks for AGI IS HERE.",
   "engines": {
-    "node": ">=22.6"
+    "node": ">=22.22"
   },
   "scripts": {
     "eval": "promptfoo eval -c configs/genesis.mjs",
-    "eval:replay": "node --test \"tests/**/*.test.mjs\"",
+    "eval:effort": "promptfoo eval -c configs/effort.mjs",
+    "eval:replay": "cd .. && node --test \"evals/tests/**/*.test.mjs\"",
     "test": "npm run eval:replay"
   },
   "devDependencies": {
-    "promptfoo": "0.122.1"
+    "promptfoo": "0.122.2"
   }
 }

@@ -4,7 +4,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { sseEvent, providerSse } from "../../test/provider-stream.ts";
 import { buildZip } from "../src/zip.ts";
-import { textHook } from "./engineProbe.ts";
+import { configureAi, textHook } from "./engineProbe.ts";
 
 for (const provider of ["openai", "anthropic"] as const) {
   test(`${provider}: live tool preparation, streamed Ask text, Stop and Continue`, async ({
@@ -79,11 +79,10 @@ for (const provider of ["openai", "anthropic"] as const) {
         mimeType: "application/zip",
         buffer: Buffer.from(zip),
       });
+      await page.getByTestId("btn-resume-cached").click();
       await expect.poll(async () => (await textHook(page)).room).toBe(1);
       await page.getByTestId("power-up").click();
-      await page.getByTestId("power-up-provider").selectOption(provider);
-      await page.getByTestId("power-up-api-key").fill("test-placeholder");
-      await page.getByTestId("power-up-connect").click();
+      await configureAi(page, { provider, key: "test-placeholder" });
       await page.getByTestId("agent-mode-ask").click();
       await page.getByTestId("agent-bubble-input").fill("Where am I?");
       await page.getByTestId("agent-bubble-send").click();

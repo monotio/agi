@@ -28,8 +28,7 @@ const EDGES: Readonly<Record<string, number>> = { top: 1, right: 2, bottom: 3, l
 export const ROOM_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_room",
-    description:
-      "Compile a complete room scaffold into standard AGI logic: initialize its picture, ego, declared spawn and input; implement named edge exits and command interactions; register needed words without reassigning existing IDs. room/picture/egoView accept resource IDs or named bindings. Flags accept existing numeric IDs or safe named allocations. Provide expectedRevision 'absent' for a new room, or the revision from read_logic to replace it. Spawn is the room's declared arrival position. Requires existing picture/ego resources and inventory definitions used by effects. Leaves boot logic 0 intact. Returns resource revision, bindings, registered commands and updates to world intent. Use playtest_room with steps and outcome assertions to verify behavior; read_logic/edit_resource_source remain available for custom puzzles.",
+    description: `Compile a complete room scaffold with picture, ego, spawn, edge exits and command interactions; title and description record the room intent. Resource references are integer IDs or reserved binding names, not quoted numbers. Registers needed words while preserving IDs. Use expectedRevision "${resourceRevision(null)}" for a new room; otherwise match its revision. Picture, ego view and inventory items must exist; exit rooms can be authored later. Leaves boot logic intact and returns revision, bindings, commands and intent updates.`,
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -40,18 +39,13 @@ export const ROOM_TOOLS: readonly ToolDefinition[] = [
         title: {
           type: "string",
           maxLength: 160,
-          description: "Room name stored in the authoring world index.",
         },
         description: {
           type: "string",
           maxLength: 4000,
-          description:
-            "Room setting and continuity notes stored in the authoring world index; player-facing dialogue belongs in interaction responses.",
         },
         expectedRevision: { type: "string" },
         spawn: {
-          description:
-            "Declared arrival position: x is the left edge, y is the sprite baseline, and horizon is the highest walkable boundary. The complete ego cel must fit below it.",
           type: "object",
           additionalProperties: false,
           properties: {
@@ -62,8 +56,6 @@ export const ROOM_TOOLS: readonly ToolDefinition[] = [
           required: ["x", "y", "horizon"],
         },
         exits: {
-          description:
-            "One destination per screen edge, optionally gated by a flag with dialogue when closed. Future room resources may be authored later.",
           type: "array",
           maxItems: 4,
           items: {
@@ -79,8 +71,6 @@ export const ROOM_TOOLS: readonly ToolDefinition[] = [
           },
         },
         interactions: {
-          description:
-            "Command alternatives sharing a response and effects. Inventory requirements check carried items; giveItem carries an item, removeItem makes it inactive, and setFlag sets a flag true.",
           type: "array",
           maxItems: 32,
           items: {
@@ -247,22 +237,48 @@ export function executeRoomTool(
         );
       return id;
     };
-    const pictureVariableName = "room_picture_number";
-    const reserved = executeAuthoringTool(staged, "reserve_binding", {
-      name: pictureVariableName,
-      kind: "variable",
-      id: null,
-    });
-    if (!reserved?.success)
-      throw new Error(reserved?.error ?? "Could not allocate picture temporary.");
-    const pictureVariable = staged.authoring.bindings[pictureVariableName]!.num;
+    const variableNames = [
+      "room_picture_number",
+      "room_ego_step_time",
+      "room_ego_cycle_time",
+      "room_ego_previous_x",
+      "room_ego_previous_y",
+      "room_ego_current_x",
+      "room_ego_current_y",
+    ] as const;
+    const roomVariables: Record<string, number> = {};
+    for (const variableName of variableNames) {
+      const reserved = executeAuthoringTool(staged, "reserve_binding", {
+        name: variableName,
+        kind: "variable",
+        id: null,
+      });
+      if (!reserved?.success)
+        throw new Error(reserved?.error ?? `Could not allocate ${variableName}.`);
+      roomVariables[variableName] = staged.authoring.bindings[variableName]!.num;
+    }
+    const pictureVariable = roomVariables["room_picture_number"]!;
+    const stepTimeVariable = roomVariables["room_ego_step_time"]!;
+    const cycleTimeVariable = roomVariables["room_ego_cycle_time"]!;
+    const previousXVariable = roomVariables["room_ego_previous_x"]!;
+    const previousYVariable = roomVariables["room_ego_previous_y"]!;
+    const currentXVariable = roomVariables["room_ego_current_x"]!;
+    const currentYVariable = roomVariables["room_ego_current_y"]!;
     const lines = [
       `if (isset(f5)) {`,
       `  assignn(v${pictureVariable}, ${picture}); load.pic(v${pictureVariable}); draw.pic(v${pictureVariable}); show.pic();`,
       `  set.horizon(${horizon}); load.view(${egoView}); animate.obj(0); set.view(0, ${egoView});`,
-      `  position(0, ${x}, ${y}); draw(0); normal.motion(0); normal.cycle(0); start.cycling(0);`,
+      `  assignn(v${stepTimeVariable}, 1); step.time(0, v${stepTimeVariable});`,
+      `  assignn(v${cycleTimeVariable}, 3); cycle.time(0, v${cycleTimeVariable});`,
+      `  position(0, ${x}, ${y}); draw(0); normal.motion(0); normal.cycle(0); stop.cycling(0);`,
+      `  get.posn(0, v${previousXVariable}, v${previousYVariable});`,
       `  assignn(v6, 0); player.control(); accept.input();`,
       `}`,
+      `get.posn(0, v${currentXVariable}, v${currentYVariable});`,
+      `if (equaln(v6, 0)) { stop.cycling(0); }`,
+      `if (!equaln(v6, 0) && (!equalv(v${currentXVariable}, v${previousXVariable}) || !equalv(v${currentYVariable}, v${previousYVariable}))) { start.cycling(0); }`,
+      `if (equalv(v${currentXVariable}, v${previousXVariable}) && equalv(v${currentYVariable}, v${previousYVariable})) { stop.cycling(0); }`,
+      `assignv(v${previousXVariable}, v${currentXVariable}); assignv(v${previousYVariable}, v${currentYVariable});`,
     ];
     const namedExits: Record<string, number> = {};
     for (const raw of exits) {
@@ -354,7 +370,9 @@ export function executeRoomTool(
     // The only fallible live mutation happens first. All source/metadata writes follow it.
     const bindings = Object.fromEntries(
       Object.entries(authoring.bindings).filter(
-        ([name]) => name === pictureVariableName || !Object.hasOwn(state.authoring.bindings, name),
+        ([name]) =>
+          variableNames.includes(name as (typeof variableNames)[number]) ||
+          !Object.hasOwn(state.authoring.bindings, name),
       ),
     );
     state.container.putResource("logic", room, compiled.payload);

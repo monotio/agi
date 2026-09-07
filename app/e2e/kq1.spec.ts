@@ -8,7 +8,11 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   canvasColors,
   canvasHash,
+  configureAi,
   isolateStorage,
+  openCreateAdventure,
+  openSavedGameDetails,
+  openLibraryActions,
   observe,
   probe,
   screenText,
@@ -305,7 +309,7 @@ test("saving with F5 writes a real save-file image and F7 restores it without lo
   // base64 of a 31-byte description header followed by the 2.917 profile's
   // five u16le length-prefixed blocks, the first of which is 0x05e1 bytes.
   const envelope = await page.evaluate(() => {
-    const stored = JSON.parse(localStorage.getItem("monotio_agi.saves.kq1") ?? "{}")["1"];
+    const stored = JSON.parse(localStorage.getItem("monotio_agi.saves.kq1") ?? "{}").slots["1"];
     if (!stored) return null;
     const binary = atob(stored);
     return { length: binary.length, block1: binary.charCodeAt(31) | (binary.charCodeAt(32) << 8) };
@@ -330,8 +334,8 @@ test("saving with F5 writes a real save-file image and F7 restores it without lo
   const restoreRequests = async (): Promise<number> =>
     page.evaluate(
       () =>
-        ((window as any).__AGI_TRACE__ || []).filter(
-          (e: any) => e.kind === "request" && e.detail.startsWith("restore"),
+        (window.__AGI_TRACE__ ?? []).filter(
+          (e) => e.kind === "request" && e.detail.startsWith("restore"),
         ).length,
     );
   await expect.poll(restoreRequests, { timeout: 15_000 }).toBe(1);
@@ -437,7 +441,7 @@ test("Start over discards the autosave and boots the game from the top", async (
   await expect(page.getByTestId("resume-caption")).toBeVisible({ timeout: 20_000 });
 
   // Start over throws the snapshot away and boots KQ1 from its title screen.
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "game-actions-menu");
   await page.getByTestId("btn-start-over").click();
   await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId("resume-caption")).toBeHidden();
@@ -455,7 +459,10 @@ test("returning to the menu preserves the installed game autosave", async ({ pag
   await page.getByTestId("btn-eject").click();
   await expect(page.locator(".setup-panel")).toBeVisible();
   expect((await storedAutosave(page, "kq1"))?.room).toBe(1);
-  await page.getByTestId("btn-resume-autosave").click();
+  await page
+    .getByTestId("local-game-card-kq1")
+    .getByRole("button", { name: "Resume", exact: true })
+    .click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect(page.locator(".screen")).toBeVisible();
 });
@@ -492,11 +499,14 @@ test("game frame is hidden until game is running, clicking screen advances title
   await expect(page.locator(".screen")).toBeHidden();
   await expect(page.locator(".setup-panel")).toBeVisible();
 
-  // 2. Creating a selected adventure without an API key shows the setup error.
+  // 2. Creating without a configured key opens shared AI settings and preserves the draft.
+  await openCreateAdventure(page);
   await page.getByTestId("cartridge-knights-trial").click();
-  await page.getByTestId("boot-cartridge").click();
-  await expect(page.getByTestId("error-panel")).toBeVisible();
-  expect(await page.getByTestId("error-panel").textContent()).toContain("API key");
+  const draft = await page.getByTestId("custom-cartridge-input").inputValue();
+  await page.getByTestId("connect-create-ai").click();
+  await expect(page.getByTestId("ai-settings-dialog")).toBeVisible();
+  await expect(page.getByTestId("custom-cartridge-input")).toHaveValue(draft);
+  await page.getByTestId("ai-settings-cancel").click();
   await expect(page.locator(".screen")).toBeHidden();
 
   // 3. Boot KQ1: screen becomes visible
@@ -521,16 +531,17 @@ test("game frame is hidden until game is running, clicking screen advances title
 /** The first submitted Ask gets real fixture context without changing the game. */
 test("KQ1 orientation accompanies the first question, Escape resumes", async ({ page }) => {
   await page.goto("/");
-  await page.getByTestId("provider-select").selectOption("stub");
+  await configureAi(page, { provider: "stub" });
   await bootKq1(page);
   await advanceToCourtyard(page);
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
 
   await page.getByTestId("power-up").click();
   await expect(page.getByTestId("agent-bubble")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
 
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await expect(page.getByTestId("agent-panel")).toHaveCount(0);
+  await expect(page.getByTestId("agent-panel")).not.toContainText("[Orientation]");
   await page.getByTestId("agent-mode-ask").click();
   await page.getByTestId("agent-bubble-input").fill("Where am I?");
   await page.getByTestId("agent-bubble-send").click();
@@ -545,9 +556,9 @@ test("KQ1 orientation accompanies the first question, Escape resumes", async ({ 
 
   // ...and its prompt really is the live container read back as source.
   const prompt = await page.evaluate(() => {
-    const trace = ((window as any).__AGI_TRACE__ ?? []) as { detail: string; data?: any }[];
-    const entry = trace.find((e) => e.detail.startsWith("[Orientation]"));
-    return String(entry?.data?.prompt ?? "");
+    const entry = (window.__AGI_TRACE__ ?? []).find((e) => e.detail.startsWith("[Orientation]"));
+    const data = entry?.data;
+    return typeof data === "object" && data !== null && "prompt" in data ? String(data.prompt) : "";
   });
   expect(prompt).toContain("ORIENTATION: You have joined a game already in progress");
   expect(prompt).toContain("Game: kq1");
@@ -584,7 +595,7 @@ test("KQ1 orientation accompanies the first question, Escape resumes", async ({ 
 
 test("a locally loaded patched game can be downloaded and imported", async ({ page }) => {
   await page.goto("/");
-  await page.getByTestId("provider-select").selectOption("stub");
+  await configureAi(page, { provider: "stub" });
   await bootKq1(page);
   await advanceToCourtyard(page);
 
@@ -595,10 +606,10 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
   await page.getByTestId("agent-bubble-input").fill("put up a sign by the road");
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "game-actions-menu");
   await expect(page.getByTestId("btn-export-live-zip")).toBeVisible();
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "save-share-menu");
+  await openGameOptions(page, "game-actions-menu");
   await page.getByTestId("btn-export-live-zip").click();
   const download = await downloading;
   expect(download.suggestedFilename()).toMatch(/^agi-remix-[a-f0-9-]+-game\.zip$/);
@@ -615,6 +626,11 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
     Object.keys(localStorage).filter((k) => k.includes("kq1")),
   );
   expect(stored).toEqual([]);
-  await expect(page.getByTestId("saved-world-panel")).toBeVisible();
+  const savedCard = page
+    .getByTestId("saved-game-gallery")
+    .locator("[data-testid^='saved-game-card-']");
+  await expect(savedCard).toHaveCount(1);
+  await openSavedGameDetails(savedCard);
+  await openLibraryActions(page, savedCard);
   await expect(page.getByTestId("btn-export-agi-zip")).toBeVisible();
 });

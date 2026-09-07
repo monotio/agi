@@ -1,11 +1,25 @@
 <script setup lang="ts">
 import AgentTaskControls from "./AgentTaskControls.vue";
+import ActionMenu from "./ActionMenu.vue";
+import UiIcon from "./UiIcon.vue";
+import AiSettingsDialog from "./AiSettings.vue";
+import SoundPreview from "./SoundPreview.vue";
 import TouchControls from "./TouchControls.vue";
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  onWatcherCleanup,
+  ref,
+  useTemplateRef,
+  watch,
+} from "vue";
 import {
   useEngine,
   readAutosave,
   lastGameSlug,
+  removeLibraryGame,
   type Frame,
   type AutosaveRecord,
 } from "./useEngine.ts";
@@ -21,19 +35,33 @@ import {
 } from "./agent/llmClient.ts";
 import {
   getCachedCartridgeMeta,
-  clearCachedCartridge,
   loadAuthoredCartridge,
   listCachedCartridges,
   renameAuthoredCartridge,
+  reconcileCartridgeIndex,
+  updateCartridgePreview,
   type CachedCartridgeMeta,
 } from "./cartridgeStorage.ts";
 import { buildProjectZip, buildPublicGameZip } from "./projectArchive.ts";
-import { MAX_GAME_ZIP_BYTES } from "./gameZip.ts";
-import { FUNCTION_KEYS, gameShortcuts, registeredKey, pcKey } from "./gameControls.ts";
+import { MAX_GAME_ZIP_BYTES, readGameFiles, readGameZip, type OpenedGame } from "./gameZip.ts";
+import { captureGameDrop } from "./gameDrop.ts";
+import { GAME_CATALOG, type GameCatalogEntry } from "./gameCatalog.ts";
+import { loadHostedCatalog } from "./hostedCatalog.ts";
+import { previewGame } from "./gamePreview.ts";
+import { addLibraryGame, copyLibraryGame, type CheckedOpening } from "./gameLibrary.ts";
+import { gameRevision } from "./gameMetadata.ts";
+import {
+  FUNCTION_KEYS,
+  gameShortcuts,
+  registeredKey,
+  pcKey,
+  movementDirection,
+} from "./gameControls.ts";
+import { copyAiSettings, loadAiSettings, saveAiSettings, type AiSettings } from "./aiSettings.ts";
 
-const canvas = ref<HTMLCanvasElement | null>(null);
+const canvas = useTemplateRef("canvas");
 const testMode = import.meta.env.MODE === "test";
-const gpuCanvas = ref<HTMLCanvasElement | null>(null);
+const gpuCanvas = useTemplateRef("gpuCanvas");
 const inputLine = ref("");
 const promptLine = ref("");
 const composing = ref(false);
@@ -46,8 +74,7 @@ const viewportHeight = ref(window.visualViewport?.height ?? window.innerHeight);
 watch(touchControls, (enabled) =>
   localStorage.setItem("monotio_agi.touchControls", enabled ? "on" : "off"),
 );
-const apiKeyEl = ref<HTMLInputElement | null>(null);
-const gpuBackend = ref<string | null>(null);
+const gpuBackend = ref<string>();
 const crtEnabled = ref<boolean>(localStorage.getItem("monotio_agi.crt") !== "off");
 let stage: AgiStage | null = null;
 let lastFrame: Frame | null = null;
@@ -58,27 +85,53 @@ watch(crtEnabled, (on) => {
   localStorage.setItem("monotio_agi.crt", on ? "on" : "off");
   if (stage) stage.crt = on;
 });
-const DIRS: Record<string, number> = {
-  ArrowUp: 1,
-  ArrowRight: 3,
-  ArrowDown: 5,
-  ArrowLeft: 7,
-  Home: 8,
-  PageUp: 2,
-  End: 6,
-  PageDown: 4,
-};
 const heldMovementKeys = new Set<string>();
 let touchMovementActive = false;
 
 // Cartridge and LLM state
-const savedWorlds = ref(listCachedCartridges());
-const selectedCartridgeSlug = ref<string>(
-  lastGameSlug() ?? savedWorlds.value[0]?.slug ?? "knights-trial",
-);
-const zipInput = ref<HTMLInputElement | null>(null);
+const initialWorlds = listCachedCartridges();
+const initialSlug = lastGameSlug() ?? initialWorlds[0]?.slug ?? "knights-trial";
+const savedWorlds = ref(initialWorlds);
+const selectedCartridgeSlug = ref<string>(initialSlug);
+const zipInput = useTemplateRef("zipInput");
+const folderInput = useTemplateRef("folderInput");
 const importBusy = ref(false);
+const importNotice = ref("");
+const libraryActionBusy = ref(false);
 const importError = ref("");
+const libraryActionError = ref("");
+const catalogOpenings = ref<Record<string, CheckedOpening | undefined>>(Object.create(null));
+const catalogErrors = ref<Record<string, string | undefined>>(Object.create(null));
+const catalogBusy = ref<Record<string, boolean | undefined>>(Object.create(null));
+const catalogGames = new Map<string, OpenedGame>();
+const featuredCatalog = GAME_CATALOG[0]!;
+const catalogEntries = ref<GameCatalogEntry[]>([...GAME_CATALOG]);
+const hostedCatalogError = ref("");
+const hostedCatalogBusy = ref(false);
+const availableCatalogEntries = computed(() =>
+  catalogEntries.value.filter(
+    (entry) =>
+      entry.id !== featuredCatalog.id &&
+      !savedWorlds.value.some(
+        (world) =>
+          world.library?.catalog?.id === entry.id &&
+          world.library.catalog.version === entry.version,
+      ),
+  ),
+);
+let catalogObserver: IntersectionObserver | null = null;
+const catalogCardIds = new WeakMap<Element, string>();
+function observeCatalogCard(element: unknown, id: string): void {
+  if (
+    !(element instanceof Element) ||
+    catalogOpenings.value[id] ||
+    catalogBusy.value[id] ||
+    catalogErrors.value[id]
+  )
+    return;
+  catalogCardIds.set(element, id);
+  catalogObserver?.observe(element);
+}
 const creationSlug = ref("");
 const adventureDrafts = ref<Record<string, { title: string; brief: string; frontmatter: string }>>({
   ...Object.fromEntries(
@@ -99,22 +152,62 @@ const adventureDrafts = ref<Record<string, { title: string; brief: string; front
 const adventureDraft = computed(
   () => adventureDrafts.value[creationSlug.value] ?? adventureDrafts.value["custom"]!,
 );
-const installedGameSlug = ref("");
-const cachedMeta = ref<CachedCartridgeMeta | null>(
-  getCachedCartridgeMeta(selectedCartridgeSlug.value),
-);
+const cachedMeta = ref<CachedCartridgeMeta | null>(getCachedCartridgeMeta(initialSlug));
 const renaming = ref(false);
+const expandedGameSlug = ref<string>();
 const cartridgeTitle = ref("");
 const renameError = ref("");
-const titleInput = ref<HTMLInputElement | null>(null);
+const titleInput = ref<HTMLInputElement>();
+const createDetails = useTemplateRef("createDetails");
+const createSummary = useTemplateRef("createSummary");
+const createButton = useTemplateRef("createButton");
+const CREATE_SECTION_KEY = "monotio_agi.createAdventure";
+let storedCreatePreference: "open" | "closed" | null = null;
+try {
+  const stored = localStorage.getItem(CREATE_SECTION_KEY);
+  if (stored === "open" || stored === "closed") storedCreatePreference = stored;
+} catch {
+  /* A blocked store leaves the section on its context-sensitive default. */
+}
+const createPreference = ref<"open" | "closed" | null>(storedCreatePreference);
 
-async function beginRename(): Promise<void> {
+const libraryAutosaves = computed<Record<string, AutosaveRecord>>(() =>
+  Object.fromEntries(
+    [...savedWorlds.value.map((world) => world.slug), ...(state.installedGames ?? [])].flatMap(
+      (slug) => {
+        const autosave = readAutosave(slug);
+        return autosave ? [[slug, autosave]] : [];
+      },
+    ),
+  ),
+);
+
+/** Play now adds the release to the library; from then on the shelf offers its checkpoint. */
+function catalogHasProgress(entry: GameCatalogEntry): boolean {
+  const world = savedWorlds.value.find(
+    (item) =>
+      item.library?.catalog?.id === entry.id && item.library.catalog.version === entry.version,
+  );
+  return world !== undefined && libraryAutosaves.value[world.slug] !== undefined;
+}
+
+function selectLibraryWorld(world: CachedCartridgeMeta): void {
+  selectedCartridgeSlug.value = world.slug;
+  cachedMeta.value = world;
+}
+
+async function beginRename(world?: CachedCartridgeMeta): Promise<void> {
+  if (world) selectLibraryWorld(world);
   cartridgeTitle.value = cachedMeta.value?.title ?? "";
   renameError.value = "";
   renaming.value = true;
   await nextTick();
   titleInput.value?.focus();
   titleInput.value?.select();
+}
+
+function setTitleInput(element: unknown): void {
+  titleInput.value = element instanceof HTMLInputElement ? element : undefined;
 }
 
 async function saveCartridgeTitle(): Promise<void> {
@@ -127,42 +220,67 @@ async function saveCartridgeTitle(): Promise<void> {
   renaming.value = false;
 }
 
+function saveCreatePreference(open: boolean): void {
+  createPreference.value = open ? "open" : "closed";
+  try {
+    localStorage.setItem(CREATE_SECTION_KEY, createPreference.value);
+  } catch {
+    /* The live choice still applies when persistence is unavailable. */
+  }
+}
+
+function onCreateSummaryActivate(): void {
+  const opening = !createDetails.value?.open;
+  saveCreatePreference(opening);
+  if (!opening && location.hash === "#create-adventure")
+    history.replaceState(null, "", `${location.pathname}${location.search}`);
+}
+
+async function openCreateSection(updateHash = true): Promise<void> {
+  saveCreatePreference(true);
+  if (createDetails.value) createDetails.value.open = true;
+  if (updateHash && location.hash !== "#create-adventure")
+    history.pushState(null, "", "#create-adventure");
+  await nextTick();
+  createSummary.value?.focus({ preventScroll: true });
+  createDetails.value?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function onMenuHashChange(): void {
+  if (location.hash === "#create-adventure") void openCreateSection(false);
+}
+
+function onGameDetailsToggle(slug: string, event: Event): void {
+  const details = event.currentTarget as HTMLDetailsElement;
+  if (details.open) {
+    expandedGameSlug.value = slug;
+    const world = savedWorlds.value.find((entry) => entry.slug === slug);
+    if (world) selectLibraryWorld(world);
+  } else if (expandedGameSlug.value === slug) {
+    expandedGameSlug.value = undefined;
+    renaming.value = false;
+  }
+}
+
 const savedBudget = Number(localStorage.getItem("monotio_agi.taskBudget") ?? 5);
 const taskBudget = ref(Number.isFinite(savedBudget) && savedBudget > 0 ? savedBudget : 5);
 watch(taskBudget, (value) => {
   if (Number.isFinite(value) && value > 0)
     localStorage.setItem("monotio_agi.taskBudget", String(value));
 });
-const savedProvider = localStorage.getItem("monotio_agi.provider");
-const provider = ref<ProviderType>(
-  savedProvider === "openai" ||
-    savedProvider === "anthropic" ||
-    (testMode && savedProvider === "stub")
-    ? savedProvider
-    : "openai",
-);
-const apiKey = ref<string>(localStorage.getItem("monotio_agi.apiKey") || "");
-const savedModel = localStorage.getItem("monotio_agi.model");
-const model = ref<string>(
-  MODEL_OPTIONS[provider.value].some((option) => option.id === savedModel)
-    ? savedModel!
-    : DEFAULT_MODELS[provider.value],
-);
+const initialAiSettings = loadAiSettings(localStorage, DEFAULT_MODELS, testMode);
+const initialProfile = initialAiSettings.profiles[initialAiSettings.provider];
+const aiSettings = ref(initialAiSettings);
+const provider = ref<ProviderType>(initialAiSettings.provider);
+const apiKey = ref(initialProfile.apiKey);
+const model = ref(initialProfile.model);
+const effort = ref(initialProfile.effort);
+const aiConfigured = computed(() => provider.value === "stub" || apiKey.value.trim().length > 0);
 
 watch(selectedCartridgeSlug, (slug) => {
   cachedMeta.value = getCachedCartridgeMeta(slug);
   renaming.value = false;
 });
-
-watch(provider, (p) => {
-  localStorage.setItem("monotio_agi.provider", p);
-  const options = MODEL_OPTIONS[p];
-  if (!options.some((m) => m.id === model.value)) {
-    model.value = DEFAULT_MODELS[p];
-  }
-});
-watch(apiKey, (k) => localStorage.setItem("monotio_agi.apiKey", k));
-watch(model, (m) => localStorage.setItem("monotio_agi.model", m));
 
 const activeCartridge = computed<CartridgeMetadata>(() => {
   const brief = adventureDraft.value.brief.trim();
@@ -190,7 +308,6 @@ const {
   discoverGames,
   bootGame,
   bootAgentGame,
-  bootImportedGame,
   bootCartridgeGame,
   sendInput,
   sendEdit,
@@ -201,6 +318,7 @@ const {
   ejectGame,
   currentGame,
   clearAgentLog,
+  releaseAgentAudioPreviews,
   openPowerUp,
   closePowerUp,
   submitPowerUp,
@@ -214,10 +332,76 @@ const {
   flushAutosave,
   lastAutosaveRecord,
   shutdownEngine,
+  pauseEngine,
+  resumeEngine,
+  updateAiConfig,
 } = useEngine((frame) => {
   lastFrame = frame;
   present(frame);
 });
+
+const aiSettingsDialog = useTemplateRef("aiSettingsDialog");
+const aiSettingsSaving = ref(false);
+const aiSettingsError = ref("");
+const aiSettingsContext = ref<"header" | "create" | "assistant">("header");
+const aiSettingsUnavailable = computed(
+  () =>
+    state.powerUp.busy ||
+    state.agentTask?.status === "running" ||
+    state.agentTask?.status === "paused",
+);
+let aiSettingsReturnFocus: HTMLElement | null = null;
+let aiSettingsOwnedPause = false;
+
+function openAiSettings(event: Event | null, context: "header" | "create" | "assistant"): void {
+  if (aiSettingsUnavailable.value) return;
+  aiSettingsContext.value = context;
+  aiSettingsError.value = "";
+  aiSettingsReturnFocus =
+    event?.currentTarget instanceof HTMLElement ? event.currentTarget : createButton.value;
+  releaseMovement();
+  if (state.phase === "running" && !state.paused) {
+    pauseEngine();
+    aiSettingsOwnedPause = true;
+  }
+  aiSettingsDialog.value?.show();
+}
+
+async function applyAiSettings(settings: AiSettings, budgetUsd: number): Promise<void> {
+  aiSettingsSaving.value = true;
+  aiSettingsError.value = "";
+  try {
+    saveAiSettings(localStorage, settings);
+    aiSettings.value = copyAiSettings(settings);
+    taskBudget.value = budgetUsd;
+    provider.value = settings.provider;
+    model.value = settings.profiles[settings.provider].model;
+    apiKey.value = settings.profiles[settings.provider].apiKey;
+    effort.value = settings.profiles[settings.provider].effort;
+    await updateAiConfig(llmConfig());
+    if (state.powerUp.open) await openPowerUp(llmConfig());
+    aiSettingsDialog.value?.close();
+  } catch (error) {
+    aiSettingsError.value = `Could not apply AI settings: ${String(error).replace(/^Error: /, "")}`;
+  } finally {
+    aiSettingsSaving.value = false;
+  }
+}
+
+function onAiSettingsClosed(): void {
+  if (aiSettingsOwnedPause) {
+    aiSettingsOwnedPause = false;
+    resumeEngine();
+  }
+  const returnFocus = aiSettingsReturnFocus;
+  aiSettingsReturnFocus = null;
+  nextTick(() => {
+    if (returnFocus?.isConnected) returnFocus.focus();
+    else if (aiSettingsContext.value === "create") createButton.value?.focus();
+    else if (aiSettingsContext.value === "assistant") powerUpEl.value?.focus();
+    else document.querySelector<HTMLElement>('[data-testid="settings-menu"]')?.focus();
+  });
+}
 
 watch(
   () => state.powerUp.busy,
@@ -232,13 +416,6 @@ watch(
   },
 );
 
-const selectedInstalledGame = computed({
-  get: () => installedGameSlug.value || state.installedGames?.[0] || "",
-  set: (slug: string) => {
-    installedGameSlug.value = slug;
-  },
-});
-
 const expandedLogIds = ref<Set<string>>(new Set());
 const copyFeedback = ref<string>("");
 /** Download failures are visible in both the picker and the game. */
@@ -251,11 +428,71 @@ const exportBusy = ref(false);
  * boot failed, or the player ejected back to the picker — plus the way to
  * throw it away and start the game from the beginning.
  */
-const pendingAutosave = ref<AutosaveRecord | null>(null);
+const pendingAutosave = ref<AutosaveRecord>();
+const hasLibraryContent = computed(
+  () =>
+    savedWorlds.value.length > 0 ||
+    availableCatalogEntries.value.length > 0 ||
+    Boolean(state.installedGames?.length) ||
+    pendingAutosave.value !== undefined,
+);
+const createOpen = computed(() =>
+  createPreference.value === "open"
+    ? true
+    : createPreference.value === "closed"
+      ? false
+      : savedWorlds.value.length === 0 && pendingAutosave.value === undefined,
+);
+
+const localGameSlugs = computed(() =>
+  (state.installedGames ?? []).filter(
+    (slug) => !savedWorlds.value.some((world) => world.slug === slug),
+  ),
+);
+const TUTORIAL_SECTION_KEY = "monotio_agi.tutorial";
+const tutorialPreference = ref<"open" | "closed">();
+try {
+  const stored = localStorage.getItem(TUTORIAL_SECTION_KEY);
+  if (stored === "open" || stored === "closed") tutorialPreference.value = stored;
+} catch {
+  /* Use the first-visit default when storage is blocked. */
+}
+const hasOwnGames = computed(
+  () =>
+    savedWorlds.value.some((world) => world.library?.catalog?.id !== featuredCatalog.id) ||
+    pendingAutosave.value?.game.installed === true,
+);
+const tutorialOpen = computed(
+  () =>
+    tutorialPreference.value === "open" ||
+    (tutorialPreference.value === undefined && !hasOwnGames.value),
+);
+function setTutorialOpen(open: boolean): void {
+  tutorialPreference.value = open ? "open" : "closed";
+  try {
+    localStorage.setItem(TUTORIAL_SECTION_KEY, tutorialPreference.value);
+  } catch {
+    /* Keep the live choice. */
+  }
+}
+watch(
+  hasOwnGames,
+  (own) => {
+    if (own && tutorialPreference.value === undefined) setTutorialOpen(false);
+  },
+  { immediate: true },
+);
+
+async function onPlayLocalGame(slug: string): Promise<void> {
+  await resumeAudio();
+  const checkpoint = readAutosave(slug);
+  if (checkpoint) await resumeFromRecord(checkpoint, llmConfig());
+  else await bootGame(slug);
+}
 
 function refreshPendingAutosave(): void {
   const slug = lastGameSlug();
-  pendingAutosave.value = slug ? readAutosave(slug) : null;
+  pendingAutosave.value = (slug ? readAutosave(slug) : null) ?? undefined;
 }
 
 function llmConfig(): LlmConfig {
@@ -263,6 +500,7 @@ function llmConfig(): LlmConfig {
     provider: provider.value,
     apiKey: apiKey.value.trim(),
     model: model.value.trim(),
+    effort: effort.value,
     budgetUsd: taskBudget.value,
   };
 }
@@ -303,7 +541,11 @@ async function copyDebugBundle(): Promise<void> {
     phase: state.phase,
     error: state.error || null,
     textRows: state.rows,
-    agentLog: state.agentLog,
+    agentLog: state.agentLog.map((entry) => {
+      const copy = { ...entry };
+      delete copy.audio;
+      return copy;
+    }),
   };
   try {
     await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
@@ -322,19 +564,11 @@ async function copyDebugBundle(): Promise<void> {
 async function onBootSelectedCartridge(): Promise<void> {
   if (!creationSlug.value || !adventureDraft.value.brief.trim()) return;
   if (provider.value !== "stub" && !apiKey.value.trim()) {
-    state.phase = "error";
-    state.error = `Enter your ${provider.value === "anthropic" ? "Anthropic" : "OpenAI"} API key to create an adventure.`;
-    nextTick(() => apiKeyEl.value?.focus());
+    openAiSettings(null, "create");
     return;
   }
   await resumeAudio();
-  const config: LlmConfig = {
-    provider: provider.value,
-    apiKey: apiKey.value.trim(),
-    model: model.value.trim(),
-    budgetUsd: taskBudget.value,
-  };
-  await bootCartridgeGame(activeCartridge.value.rawMarkdown, config, {
+  await bootCartridgeGame(activeCartridge.value.rawMarkdown, llmConfig(), {
     slug: activeCartridge.value.slug,
     title: activeCartridge.value.title,
     useCached: false,
@@ -344,42 +578,267 @@ async function onBootSelectedCartridge(): Promise<void> {
   cachedMeta.value = getCachedCartridgeMeta(selectedCartridgeSlug.value);
 }
 
-async function onBootSavedCartridge(): Promise<void> {
-  await resumeAudio();
-  const config: LlmConfig = {
-    provider: provider.value,
-    apiKey: apiKey.value.trim(),
-    model: model.value.trim(),
-    budgetUsd: taskBudget.value,
-  };
-  await bootCartridgeGame(activeCartridge.value.rawMarkdown, config, {
-    slug: selectedCartridgeSlug.value,
-    title: cachedMeta.value?.title ?? selectedCartridgeSlug.value,
-    useCached: true,
-  });
+async function onBootSavedCartridge(alreadyBusy = false): Promise<void> {
+  if (libraryActionBusy.value && !alreadyBusy) return;
+  if (!alreadyBusy) libraryActionBusy.value = true;
+  libraryActionError.value = "";
+  try {
+    await resumeAudio();
+    await bootCartridgeGame(activeCartridge.value.rawMarkdown, llmConfig(), {
+      slug: selectedCartridgeSlug.value,
+      title: cachedMeta.value?.title ?? selectedCartridgeSlug.value,
+      useCached: true,
+    });
+  } catch (error) {
+    libraryActionError.value = String(error).replace(/^Error: /, "");
+  } finally {
+    if (!alreadyBusy) libraryActionBusy.value = false;
+  }
 }
 
 async function onClearSavedCartridge(): Promise<void> {
-  await clearCachedCartridge(selectedCartridgeSlug.value);
-  cachedMeta.value = null;
+  await removeLibraryGame(selectedCartridgeSlug.value);
+  refreshLibrary();
+  refreshPendingAutosave();
+}
+
+function refreshLibrary(slug?: string): void {
   savedWorlds.value = listCachedCartridges();
+  if (slug) {
+    selectedCartridgeSlug.value = slug;
+  } else if (!savedWorlds.value.some((entry) => entry.slug === selectedCartridgeSlug.value))
+    selectedCartridgeSlug.value = savedWorlds.value[0]?.slug ?? "";
+  cachedMeta.value = selectedCartridgeSlug.value
+    ? getCachedCartridgeMeta(selectedCartridgeSlug.value)
+    : null;
+}
+
+async function onPlayLibraryWorld(world: CachedCartridgeMeta): Promise<void> {
+  selectLibraryWorld(world);
+  const autosave = readAutosave(world.slug);
+  if (!autosave) {
+    await onBootSavedCartridge();
+    return;
+  }
+  if (libraryActionBusy.value) return;
+  libraryActionBusy.value = true;
+  libraryActionError.value = "";
+  try {
+    await resumeAudio();
+    await resumeFromRecord(autosave, llmConfig());
+  } catch (error) {
+    libraryActionError.value = String(error).replace(/^Error: /, "");
+  } finally {
+    libraryActionBusy.value = false;
+  }
+}
+
+async function onStartLibraryWorldOver(world: CachedCartridgeMeta): Promise<void> {
+  selectLibraryWorld(world);
+  await resumeAudio();
+  await startOver(world.slug, llmConfig());
+}
+
+async function onCheckLibraryWorld(world: CachedCartridgeMeta): Promise<void> {
+  selectLibraryWorld(world);
+  await checkSelectedOpening();
+}
+
+async function onCopyLibraryWorld(world: CachedCartridgeMeta): Promise<void> {
+  selectLibraryWorld(world);
+  await copySelectedGame();
+}
+
+async function onExportLibraryWorld(world: CachedCartridgeMeta, project = false): Promise<void> {
+  selectLibraryWorld(world);
+  await onExportAgiZip(false, project);
+}
+
+async function onRemoveLibraryWorld(world: CachedCartridgeMeta): Promise<void> {
+  selectLibraryWorld(world);
+  await onClearSavedCartridge();
+}
+
+async function stageLibraryGame(
+  game: OpenedGame,
+  title: string,
+  source: "zip" | "folder",
+): Promise<void> {
+  const opening = await previewGame(game);
+  const slug = await addLibraryGame(game, game.title ?? title, source, opening);
+  refreshLibrary(slug);
 }
 
 async function onGameZip(file?: File): Promise<void> {
   if (!file || importBusy.value) return;
   importBusy.value = true;
   importError.value = "";
+  importNotice.value = "";
   try {
     if (file.size > MAX_GAME_ZIP_BYTES) throw new Error("Choose a game ZIP smaller than 128 MB.");
-    await resumeAudio();
-    await bootImportedGame(new Uint8Array(await file.arrayBuffer()), file.name);
-    savedWorlds.value = listCachedCartridges();
-    selectedCartridgeSlug.value = savedWorlds.value[0]?.slug ?? selectedCartridgeSlug.value;
+    const game = await readGameZip(new Uint8Array(await file.arrayBuffer()));
+    await stageLibraryGame(game, file.name.replace(/\.zip$/i, ""), "zip");
+    importNotice.value = `${game.title ?? file.name.replace(/\.zip$/i, "")} added to your library.`;
   } catch (error) {
     importError.value = String(error).replace(/^Error: /, "");
   } finally {
     importBusy.value = false;
     if (zipInput.value) zipInput.value.value = "";
+  }
+}
+
+async function onGameFolder(files?: FileList | File[] | Map<string, File>): Promise<void> {
+  if (!files || (files instanceof Map ? files.size === 0 : files.length === 0) || importBusy.value)
+    return;
+  importBusy.value = true;
+  importError.value = "";
+  importNotice.value = "";
+  try {
+    const selected = files instanceof Map ? [...files.values()] : [...files];
+    if (selected.length > 1024) throw new Error("Choose one game folder with at most 1024 files.");
+    const total = selected.reduce((bytes, file) => bytes + file.size, 0);
+    if (total > 256 * 1024 * 1024) throw new Error("Choose a game folder smaller than 256 MB.");
+    if (selected.some((file) => file.size > 64 * 1024 * 1024))
+      throw new Error("A game folder file is larger than the 64 MB per-file limit.");
+    const entries = new Map<string, Uint8Array>();
+    const paths =
+      files instanceof Map
+        ? files
+        : new Map(selected.map((file) => [file.webkitRelativePath || file.name, file]));
+    for (const [path, file] of paths) entries.set(path, new Uint8Array(await file.arrayBuffer()));
+    const game = readGameFiles(entries);
+    const firstPath = paths.keys().next().value as string | undefined;
+    const title = firstPath?.split("/")[0] || "Imported game";
+    await stageLibraryGame(game, title, "folder");
+    importNotice.value = `${game.title ?? title} added to your library.`;
+  } catch (error) {
+    importError.value = String(error).replace(/^Error: /, "");
+  } finally {
+    importBusy.value = false;
+    if (folderInput.value) folderInput.value.value = "";
+  }
+}
+
+async function onGameDrop(dataTransfer?: DataTransfer): Promise<void> {
+  if (!dataTransfer || importBusy.value) return;
+  importBusy.value = true;
+  importError.value = "";
+  importNotice.value = "";
+  try {
+    const dropped = await captureGameDrop(dataTransfer);
+    // Each importer takes ownership of the same guard synchronously before its
+    // first await, so there is no gap in which another drop can start.
+    importBusy.value = false;
+    if (dropped.kind === "zip") await onGameZip(dropped.file);
+    else await onGameFolder(dropped.files);
+  } catch (error) {
+    importBusy.value = false;
+    importError.value = String(error).replace(/^Error: /, "");
+  }
+}
+
+async function refreshHostedCatalog(): Promise<void> {
+  if (hostedCatalogBusy.value) return;
+  hostedCatalogBusy.value = true;
+  hostedCatalogError.value = "";
+  try {
+    const entries = await loadHostedCatalog(
+      new URL(`${import.meta.env.BASE_URL}catalog.json`, location.href),
+    );
+    if (
+      entries.some((entry) =>
+        GAME_CATALOG.some((builtin) => builtin.id.toLowerCase() === entry.id.toLowerCase()),
+      )
+    )
+      throw new Error(
+        "The game list repeats a bundled game identifier. Ask the site owner to give it a unique id.",
+      );
+    catalogEntries.value = [...GAME_CATALOG, ...entries];
+  } catch (error) {
+    hostedCatalogError.value = String(error).replace(/^Error: /, "");
+  } finally {
+    hostedCatalogBusy.value = false;
+  }
+}
+
+async function loadCatalogOpening(id: string): Promise<void> {
+  if (catalogOpenings.value[id] || catalogBusy.value[id]) return;
+  const entry = catalogEntries.value.find((item) => item.id === id);
+  if (!entry) return;
+  catalogBusy.value[id] = true;
+  catalogErrors.value[id] = undefined;
+  try {
+    const game = catalogGames.get(id) ?? (await entry.load());
+    catalogGames.set(id, game);
+    catalogOpenings.value[id] = await previewGame(game);
+  } catch (error) {
+    catalogGames.delete(id);
+    catalogErrors.value[id] = String(error).replace(/^Error: /, "");
+  } finally {
+    catalogBusy.value[id] = false;
+  }
+}
+
+async function playCatalogGame(id: string): Promise<void> {
+  if (libraryActionBusy.value) return;
+  const entry = catalogEntries.value.find((item) => item.id === id);
+  if (!entry) return;
+  libraryActionError.value = "";
+  libraryActionBusy.value = true;
+  try {
+    await loadCatalogOpening(id);
+    const game = catalogGames.get(id);
+    const opening = catalogOpenings.value[id];
+    if (!game || !opening)
+      throw new Error(catalogErrors.value[id] || "This game could not be opened.");
+    const slug = await addLibraryGame(game, entry.title, "catalog", opening, {
+      id: entry.id,
+      version: entry.version,
+    });
+    refreshLibrary(slug);
+    const autosave = readAutosave(slug);
+    if (autosave) {
+      await resumeAudio();
+      await resumeFromRecord(autosave, llmConfig());
+    } else await onBootSavedCartridge(true);
+  } catch (error) {
+    libraryActionError.value = String(error).replace(/^Error: /, "");
+  } finally {
+    libraryActionBusy.value = false;
+  }
+}
+
+async function checkSelectedOpening(): Promise<void> {
+  if (libraryActionBusy.value) return;
+  const selectedSlug = selectedCartridgeSlug.value;
+  libraryActionError.value = "";
+  libraryActionBusy.value = true;
+  try {
+    const game = await loadAuthoredCartridge(selectedSlug);
+    if (!game) throw new Error("This game is no longer in your library. Import it again.");
+    const opening = await previewGame(game);
+    const revision = game.library?.revision ?? (await gameRevision(game.files));
+    if (!(await updateCartridgePreview(game.slug, revision, opening.preview, opening)))
+      throw new Error("The game changed while its opening was being checked. Try again.");
+    refreshLibrary(selectedCartridgeSlug.value === selectedSlug ? game.slug : undefined);
+  } catch (error) {
+    libraryActionError.value = String(error).replace(/^Error: /, "");
+  } finally {
+    libraryActionBusy.value = false;
+  }
+}
+
+async function copySelectedGame(): Promise<void> {
+  if (libraryActionBusy.value) return;
+  const selectedSlug = selectedCartridgeSlug.value;
+  libraryActionError.value = "";
+  libraryActionBusy.value = true;
+  try {
+    refreshLibrary(await copyLibraryGame(selectedSlug));
+  } catch (error) {
+    libraryActionError.value = String(error).replace(/^Error: /, "");
+  } finally {
+    libraryActionBusy.value = false;
   }
 }
 
@@ -457,13 +916,11 @@ watch(
   },
 );
 
-const inputEl = ref<HTMLInputElement | null>(null);
-const controlsEl = ref<HTMLDetailsElement | null>(null);
-const settingsEl = ref<HTMLDetailsElement | null>(null);
-const savingEl = ref<HTMLDetailsElement | null>(null);
+const inputEl = useTemplateRef("inputEl");
+const controlsEl = useTemplateRef("controlsEl");
 
 function closeNavMenus(restoreFocus = false): void {
-  for (const menu of [controlsEl.value, settingsEl.value, savingEl.value]) {
+  for (const menu of [controlsEl.value]) {
     if (!menu?.open) continue;
     menu.open = false;
     if (restoreFocus) menu.querySelector("summary")?.focus();
@@ -473,7 +930,7 @@ function closeNavMenus(restoreFocus = false): void {
 function onNavToggle(event: Event): void {
   const current = event.target as HTMLDetailsElement;
   if (!current.open) return;
-  for (const menu of [controlsEl.value, settingsEl.value, savingEl.value]) {
+  for (const menu of [controlsEl.value]) {
     if (menu && menu !== current) menu.open = false;
   }
 }
@@ -490,7 +947,7 @@ watch(
 );
 
 function onOutsideControls(event: PointerEvent): void {
-  for (const menu of [controlsEl.value, settingsEl.value, savingEl.value]) {
+  for (const menu of [controlsEl.value]) {
     if (event.target instanceof Node && menu && !menu.contains(event.target)) menu.open = false;
   }
 }
@@ -566,7 +1023,7 @@ function onModalKey(ev: KeyboardEvent): void {
     }
     return;
   }
-  const dir = DIRS[ev.key];
+  const dir = movementDirection(ev);
   if (dir !== undefined) {
     sendDirection(dir);
     ev.preventDefault();
@@ -607,14 +1064,18 @@ function onModalKey(ev: KeyboardEvent): void {
  * and the interpreter resumes on exactly the cycle it parked on.
  */
 const powerUpLine = ref("");
-const powerUpEl = ref<HTMLTextAreaElement | null>(null);
+const powerUpEl = useTemplateRef("powerUpEl");
 
 /** The live tool-call feed for this remix turn: the transcript tail. */
 const asking = computed(() => state.powerUp.mode === "ask");
 const creatingRoom = computed(() => state.powerUp.mode === "room");
 const powerUpFeed = computed(() => state.agentLog.slice(state.powerUp.feedStart));
+const powerUpAudio = computed(() => powerUpFeed.value.flatMap((entry) => entry.audio ?? []));
+const latestAgentAudio = computed(
+  () => [...state.agentLog].reverse().find((entry) => entry.audio?.length)?.audio ?? [],
+);
 
-const conversationEl = ref<HTMLDivElement | null>(null);
+const conversationEl = useTemplateRef("conversationEl");
 const followConversation = ref(true);
 function onConversationScroll(): void {
   const el = conversationEl.value;
@@ -635,7 +1096,7 @@ watch(
   },
   { flush: "post" },
 );
-const progressFeedEl = ref<HTMLDivElement | null>(null);
+const progressFeedEl = useTemplateRef("progressFeedEl");
 const followProgress = ref(true);
 const REMIX_ACTIVITY: Record<string, string> = {
   read_state: "Inspecting the game…",
@@ -709,13 +1170,13 @@ watch(
     else if (!open && wasOpen && creatingRoom.value) inputEl.value?.focus();
   },
 );
-watch(progressFeedEl, (el, _previous, cleanup) => {
+watch(progressFeedEl, (el) => {
   if (!el) return;
   const observer = new ResizeObserver(() => {
     if (followProgress.value) el.scrollTop = el.scrollHeight;
   });
   observer.observe(el);
-  cleanup(() => observer.disconnect());
+  onWatcherCleanup(() => observer.disconnect());
 });
 
 async function onPowerUp(): Promise<void> {
@@ -726,12 +1187,7 @@ async function onPowerUp(): Promise<void> {
     return;
   }
   powerUpLine.value = "";
-  await openPowerUp({
-    provider: provider.value,
-    apiKey: apiKey.value,
-    model: model.value,
-    budgetUsd: taskBudget.value,
-  });
+  await openPowerUp(llmConfig());
   await nextTick();
   powerUpEl.value?.focus();
 }
@@ -747,12 +1203,6 @@ async function onPowerUpSubmit(): Promise<void> {
     await nextTick();
     powerUpEl.value?.focus();
   }
-}
-
-async function onPowerUpConnect(): Promise<void> {
-  await openPowerUp(llmConfig());
-  await nextTick();
-  powerUpEl.value?.focus();
 }
 
 function onPowerUpKey(ev: KeyboardEvent): void {
@@ -772,6 +1222,7 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
   resumeAudio();
   if (state.phase !== "running") return;
   if (ev.isComposing || ev.keyCode === 229) return;
+  if (ev.target instanceof Element && ev.target.closest("dialog[open]")) return;
   // The bubble owns the keyboard while it is open: the world is frozen and
   // nothing typed here may reach the interpreter's input line.
   if (state.powerUp.open) {
@@ -788,7 +1239,7 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
   if (
     (target instanceof Element &&
       target !== inputEl.value &&
-      target.closest("button, input, textarea, select, a, summary")) ||
+      target.closest("button, input, textarea, select, a, audio, summary, dialog")) ||
     (ev.key === "Tab" && ev.shiftKey)
   ) {
     return;
@@ -824,10 +1275,11 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
     return;
   }
 
-  const dir = !ev.altKey && !ev.ctrlKey && !ev.metaKey && !ev.shiftKey ? DIRS[ev.key] : undefined;
+  const dir = movementDirection(ev);
   if (dir !== undefined) {
-    if (!ev.repeat && !heldMovementKeys.has(ev.key)) {
-      heldMovementKeys.add(ev.key);
+    const physicalKey = ev.code && ev.code !== "Unidentified" ? ev.code : ev.key;
+    if (!ev.repeat && !heldMovementKeys.has(physicalKey)) {
+      heldMovementKeys.add(physicalKey);
       sendDirection(dir);
     }
     ev.preventDefault();
@@ -890,7 +1342,8 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
 }
 
 function onGlobalKeyup(ev: KeyboardEvent): void {
-  if (!heldMovementKeys.delete(ev.key)) return;
+  const physicalKey = ev.code && ev.code !== "Unidentified" ? ev.code : ev.key;
+  if (!heldMovementKeys.delete(physicalKey)) return;
   if (state.phase === "running") {
     sendDirection(0);
     ev.preventDefault();
@@ -1084,8 +1537,29 @@ onMounted(async () => {
   window.addEventListener("keydown", onGlobalKeydown);
   document.addEventListener("pointerdown", onOutsideControls);
   window.addEventListener("keyup", onGlobalKeyup);
+  window.addEventListener("hashchange", onMenuHashChange);
   document.addEventListener("visibilitychange", onPageHidden);
   window.addEventListener("pagehide", onPageHide);
+  try {
+    await reconcileCartridgeIndex();
+    refreshLibrary();
+  } catch (error) {
+    libraryActionError.value = `Your saved game library could not be refreshed: ${String(error).replace(/^Error: /, "")}`;
+  }
+  catalogObserver = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const id = catalogCardIds.get(entry.target);
+        catalogObserver?.unobserve(entry.target);
+        if (id) void loadCatalogOpening(id);
+      }
+    },
+    { rootMargin: "200px" },
+  );
+  void loadCatalogOpening(featuredCatalog.id);
+  void refreshHostedCatalog();
+  onMenuHashChange();
   await discoverGames();
   // Nobody loses progress to a reload: whatever was being played comes back
   // by itself, restored from the last autosave. The picker only appears when
@@ -1099,7 +1573,7 @@ onMounted(async () => {
   else if (pendingAutosave.value) await resumeLastGame(llmConfig());
   if (gpuCanvas.value) {
     stage = await AgiStage.create(gpuCanvas.value);
-    gpuBackend.value = stage?.backend ?? null;
+    gpuBackend.value = stage?.backend ?? undefined;
     if (stage) {
       stage.crt = crtEnabled.value;
       if (lastFrame) present(lastFrame);
@@ -1108,6 +1582,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  catalogObserver?.disconnect();
   releaseMovement();
   window.removeEventListener("blur", releaseMovement);
   window.visualViewport?.removeEventListener("resize", resizeViewport);
@@ -1117,8 +1592,10 @@ onUnmounted(() => {
   window.removeEventListener("keydown", onGlobalKeydown);
   document.removeEventListener("pointerdown", onOutsideControls);
   window.removeEventListener("keyup", onGlobalKeyup);
+  window.removeEventListener("hashchange", onMenuHashChange);
   document.removeEventListener("visibilitychange", onPageHidden);
   window.removeEventListener("pagehide", onPageHide);
+  releaseAgentAudioPreviews();
   // Development only: this instance is being replaced by a hot update, and its
   // worker would otherwise keep ticking (and autosaving) behind the new one.
   if (import.meta.hot) shutdownEngine();
@@ -1172,15 +1649,22 @@ watch(
         </svg>
         <span>GitHub</span>
       </a>
-      <nav v-if="state.phase === 'running'" class="game-nav" aria-label="Game options">
+      <nav
+        v-if="['idle', 'error', 'running'].includes(state.phase)"
+        class="game-nav"
+        aria-label="App options"
+      >
         <details
+          v-if="state.phase === 'running'"
           ref="controlsEl"
           class="game-controls nav-menu"
           data-testid="game-controls"
           @keydown.esc.prevent.stop="closeNavMenus(true)"
           @toggle="onNavToggle"
         >
-          <summary class="audio-btn">Controls</summary>
+          <summary class="ui-button ui-button--secondary audio-btn">
+            Controls <UiIcon name="chevron" />
+          </summary>
           <div class="game-controls-panel">
             <p v-if="!shortcuts.length" class="controls-hint">
               Shortcuts appear here when the game registers them.
@@ -1212,117 +1696,102 @@ watch(
             </template>
           </div>
         </details>
-        <details
-          ref="settingsEl"
-          class="nav-menu"
-          data-testid="sound-display-menu"
-          @toggle="onNavToggle"
-          @keydown.esc.prevent.stop="closeNavMenus(true)"
+        <ActionMenu label="Settings" test-id="settings-menu">
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="open-ai-settings"
+            :disabled="aiSettingsUnavailable"
+            @click="openAiSettings($event, 'header')"
+          >
+            AI provider
+          </button>
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            :aria-checked="touchControls"
+            data-testid="toggle-touch-controls"
+            @click="touchControls = !touchControls"
+          >
+            <span>Touch controls<small>Directions, keyboard and game keys</small></span>
+            <span class="setting-value">{{ touchControls ? "On" : "Off" }}</span>
+          </button>
+          <button
+            role="menuitemcheckbox"
+            data-testid="toggle-mute"
+            :aria-checked="!state.soundMuted"
+            @click="
+              resumeAudio();
+              toggleMute();
+            "
+          >
+            <span
+              >Sound {{ state.soundMuted ? "off" : "on"
+              }}<small>Linked to the game’s sound setting</small></span
+            >
+            <span class="setting-value">{{ state.soundMuted ? "Off" : "On" }}</span>
+          </button>
+          <button
+            role="menuitem"
+            data-testid="toggle-sound-mode"
+            data-keep-open
+            @click="
+              resumeAudio();
+              setAudioMode(state.soundMode === 'tandy' ? 'pc-speaker' : 'tandy');
+            "
+          >
+            <span
+              >Sound chip<small>{{
+                state.soundMode === "tandy" ? "Tandy 4-Voice" : "PC Speaker"
+              }}</small></span
+            >
+            <span class="setting-value">Change</span>
+          </button>
+          <button
+            v-if="gpuBackend"
+            type="button"
+            role="menuitemcheckbox"
+            :aria-checked="crtEnabled"
+            data-testid="toggle-crt"
+            @click="crtEnabled = !crtEnabled"
+          >
+            <span>CRT display<small>Scanlines, glow and curved glass</small></span>
+            <span class="setting-value">{{ crtEnabled ? "On" : "Off" }}</span>
+          </button>
+        </ActionMenu>
+        <ActionMenu
+          v-if="state.phase === 'running'"
+          label="Game actions"
+          icon="more"
+          icon-only
+          test-id="game-actions-menu"
         >
-          <summary class="audio-btn">Settings</summary>
-          <div class="game-controls-panel settings-panel">
-            <button
-              type="button"
-              class="game-shortcut"
-              :aria-pressed="touchControls"
-              data-testid="toggle-touch-controls"
-              @click="touchControls = !touchControls"
-            >
-              <span>Touch controls<small>Directions, keyboard and game keys</small></span>
-              <span class="setting-value">{{ touchControls ? "On" : "Off" }}</span>
-            </button>
-            <button
-              class="game-shortcut"
-              data-testid="toggle-mute"
-              :aria-pressed="!state.soundMuted"
-              @click="
-                resumeAudio();
-                toggleMute();
-              "
-            >
-              <span
-                >Sound {{ state.soundMuted ? "off" : "on"
-                }}<small>Linked to the game’s sound setting</small></span
-              >
-              <span class="setting-value">{{ state.soundMuted ? "Off" : "On" }}</span>
-            </button>
-            <button
-              class="game-shortcut"
-              data-testid="toggle-sound-mode"
-              @click="
-                resumeAudio();
-                setAudioMode(state.soundMode === 'tandy' ? 'pc-speaker' : 'tandy');
-              "
-            >
-              <span
-                >Sound chip<small>{{
-                  state.soundMode === "tandy" ? "Tandy 4-Voice" : "PC Speaker"
-                }}</small></span
-              >
-              <span class="setting-value">Change</span>
-            </button>
-            <button
-              v-if="gpuBackend"
-              type="button"
-              class="game-shortcut"
-              :aria-pressed="crtEnabled"
-              data-testid="toggle-crt"
-              @click="crtEnabled = !crtEnabled"
-            >
-              <span>CRT display<small>Scanlines, glow and curved glass</small></span>
-              <span class="setting-value">{{ crtEnabled ? "On" : "Off" }}</span>
-            </button>
-          </div>
-        </details>
-        <details
-          ref="savingEl"
-          class="nav-menu"
-          data-testid="save-share-menu"
-          @toggle="onNavToggle"
-          @keydown.esc.prevent.stop="closeNavMenus(true)"
-        >
-          <summary class="audio-btn">Save &amp; share</summary>
-          <div class="game-controls-panel settings-panel">
-            <p class="controls-hint">
-              Your progress saves in this browser. Downloads let you keep or share the game.
-            </p>
-            <button
-              v-if="state.phase === 'running'"
-              class="game-shortcut"
-              data-testid="btn-export-live-zip"
-              :disabled="exportBusy || state.powerUp.busy"
-              title="Share a playable game. Your authoring conversation stays private."
-              @click="onExportAgiZip(true)"
-            >
-              <span
-                >{{ exportBusy ? "Exporting…" : "Export game"
-                }}<small>A playable ZIP to share</small></span
-              >
-            </button>
-            <button
-              v-if="state.phase === 'running'"
-              class="game-shortcut"
-              data-testid="btn-save-live-project"
-              :disabled="exportBusy || state.powerUp.busy"
-              title="Continue creating with your conversation history and authoring sources."
-              @click="onExportAgiZip(true, true)"
-            >
-              <span>Save project<small>Your game, sources and conversation</small></span>
-            </button>
-            <button
-              type="button"
-              class="game-shortcut"
-              data-testid="btn-start-over"
-              title="Discard the autosave and play this game from the beginning"
-              @click="onStartOver"
-            >
-              <span>Start over<small>Begin this adventure again</small></span>
-            </button>
-          </div>
-        </details>
+          <button type="button" role="menuitem" data-testid="btn-start-over" @click="onStartOver">
+            Start over
+          </button>
+          <div role="separator"></div>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="btn-export-live-zip"
+            :disabled="exportBusy || state.powerUp.busy"
+            @click="onExportAgiZip(true)"
+          >
+            <span>Game export<small>Playable game</small></span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="btn-save-live-project"
+            :disabled="exportBusy || state.powerUp.busy"
+            @click="onExportAgiZip(true, true)"
+          >
+            <span>Project<small>Game and editing history</small></span>
+          </button>
+        </ActionMenu>
         <button
           v-if="state.phase === 'running'"
-          class="audio-btn eject-btn"
+          class="ui-button ui-button--secondary audio-btn"
           data-testid="btn-eject"
           :disabled="state.powerUp.busy || state.leaving"
           title="Return to adventure selection menu"
@@ -1332,6 +1801,17 @@ watch(
         </button>
       </nav>
     </header>
+    <AiSettingsDialog
+      ref="aiSettingsDialog"
+      :settings="aiSettings"
+      :budget-usd="taskBudget"
+      :models="MODEL_OPTIONS"
+      :allow-stub="testMode"
+      :saving="aiSettingsSaving"
+      :error="aiSettingsError"
+      @save="applyAiSettings"
+      @closed="onAiSettingsClosed"
+    />
     <p v-if="exportRefusal" class="export-refusal" data-testid="export-refusal" role="alert">
       {{ exportRefusal }}
     </p>
@@ -1344,20 +1824,97 @@ watch(
       <p class="welcome-kicker">Adventure Game Interpreter</p>
       <h1 id="welcome-title">AGI IS HERE<span>.</span></h1>
       <p class="welcome-line">Dream it. Play it. Remix it.</p>
-      <p class="welcome-description">The future has 16 colors. And you can rewrite it.</p>
-      <nav class="menu-jumps" aria-label="Start an adventure">
-        <a href="#create-adventure">Create an adventure</a>
-        <a href="#your-games">Play a game</a>
-      </nav>
     </section>
+
+    <details
+      id="tutorial"
+      v-if="state.phase === 'idle' || state.phase === 'error'"
+      class="catalog-shelf"
+      data-testid="tutorial-disclosure"
+      :open="tutorialOpen"
+      aria-labelledby="catalog-title"
+    >
+      <summary
+        class="section-summary"
+        data-testid="tutorial-toggle"
+        @click.prevent="setTutorialOpen(!tutorialOpen)"
+      >
+        <h2 id="catalog-title">Play the tutorial</h2>
+      </summary>
+      <article
+        v-for="entry in [featuredCatalog]"
+        :key="`${entry.id}-${entry.version}`"
+        class="catalog-card"
+        :data-testid="`catalog-${entry.id}`"
+      >
+        <div class="catalog-art">
+          <img
+            v-if="catalogOpenings[entry.id]?.preview"
+            :src="catalogOpenings[entry.id]?.preview"
+            :alt="`${entry.title} opening scene`"
+          />
+          <div v-else class="thumbnail-placeholder" aria-hidden="true">
+            {{ catalogBusy[entry.id] ? "CHECKING OPENING…" : "16 COLOR ADVENTURE" }}
+          </div>
+        </div>
+        <div class="catalog-copy">
+          <h3>{{ entry.title }}</h3>
+          <p>{{ entry.description }}</p>
+          <p class="catalog-byline">{{ entry.author }} · {{ entry.license }}</p>
+          <p v-if="catalogErrors[entry.id]" role="alert" class="library-error">
+            {{ catalogErrors[entry.id] }}
+          </p>
+          <p v-if="libraryActionError && !cachedMeta" role="alert" class="library-error">
+            {{ libraryActionError }}
+          </p>
+          <button
+            v-if="catalogErrors[entry.id]"
+            type="button"
+            class="ui-button ui-button--secondary"
+            :disabled="catalogBusy[entry.id]"
+            @click="loadCatalogOpening(entry.id)"
+          >
+            Retry preview
+          </button>
+          <button
+            v-else
+            type="button"
+            class="ui-button ui-button--primary"
+            :data-testid="`catalog-play-${entry.id}`"
+            :disabled="catalogBusy[entry.id] || libraryActionBusy"
+            @click="playCatalogGame(entry.id)"
+          >
+            {{
+              catalogBusy[entry.id]
+                ? "Checking opening…"
+                : catalogHasProgress(entry)
+                  ? "Resume"
+                  : "Play now"
+            }}
+          </button>
+        </div>
+      </article>
+    </details>
 
     <!-- Pre-game setup panel -->
     <div v-if="state.phase === 'idle' || state.phase === 'error'" class="setup-panel">
-      <div id="create-adventure" class="create-pane">
+      <details
+        id="create-adventure"
+        ref="createDetails"
+        class="create-pane"
+        data-testid="create-adventure-disclosure"
+        :open="createOpen"
+      >
+        <summary
+          ref="createSummary"
+          class="section-summary"
+          data-testid="create-adventure-toggle"
+          @click.prevent="onCreateSummaryActivate"
+        >
+          <h2>Create a new adventure</h2>
+        </summary>
         <!-- Cartridge Selector -->
         <section class="section">
-          <h2>Create a new adventure</h2>
-          <p class="section-intro">Choose a template to edit, or write your own adventure.</p>
           <div class="cartridge-grid">
             <button
               v-for="cart in BUILTIN_CARTRIDGES"
@@ -1379,7 +1936,7 @@ watch(
               @click="creationSlug = 'custom'"
             >
               <span class="cartridge-title">Your own adventure</span>
-              <span class="cartridge-desc">Your characters. Your world. Your rules.</span>
+              <span class="cartridge-desc">Write your own premise.</span>
             </button>
           </div>
 
@@ -1394,8 +1951,7 @@ watch(
             />
             <label for="adventure-brief">Adventure brief</label>
             <p id="adventure-brief-help" class="section-intro">
-              This Markdown is the starting point for a new game. Edit it, or use it as is. The AI
-              creates the rooms, artwork and game logic when you click Create adventure.
+              Describe your hero, the world and what happens.
             </p>
             <textarea
               id="adventure-brief"
@@ -1410,61 +1966,24 @@ watch(
           </div>
         </section>
 
-        <!-- BYOK / Model Settings -->
-        <section class="section">
-          <h2>Connect your AI</h2>
-          <div class="config-grid">
-            <div class="config-col">
-              <label for="create-provider">Provider</label>
-              <select id="create-provider" v-model="provider" data-testid="provider-select">
-                <option value="anthropic">Anthropic</option>
-                <option value="openai">OpenAI</option>
-                <option v-if="testMode" value="stub">Offline test provider</option>
-              </select>
-            </div>
-
-            <div v-if="provider !== 'stub'" class="config-col">
-              <label for="create-model">Model</label>
-              <select id="create-model" v-model="model" data-testid="model-select">
-                <option v-for="opt in MODEL_OPTIONS[provider]" :key="opt.id" :value="opt.id">
-                  {{ opt.label }}
-                </option>
-              </select>
-            </div>
-
-            <div v-if="provider !== 'stub'" class="config-col key-col">
-              <label for="create-api-key">API key</label>
-              <input
-                id="create-api-key"
-                ref="apiKeyEl"
-                v-model="apiKey"
-                type="password"
-                placeholder="sk-..."
-                autocomplete="off"
-                data-testid="api-key-input"
-              />
-            </div>
-          </div>
-          <label v-if="provider !== 'stub'" class="task-budget"
-            >Task budget · USD (estimated)
-            <input
-              v-model.number="taskBudget"
-              type="number"
-              min="0.01"
-              step="any"
-              required
-              data-testid="task-budget"
-            />
-          </label>
-          <p class="section-intro">
-            Your key stays in this browser. Creating and remixing use your provider account.
-          </p>
-        </section>
+        <div v-if="!aiConfigured" class="ai-connect" data-testid="create-ai-connect">
+          <p>Connect your AI provider to generate a game.</p>
+          <button
+            type="button"
+            class="ui-button ui-button--primary"
+            data-testid="connect-create-ai"
+            :disabled="aiSettingsUnavailable"
+            @click="openAiSettings($event, 'create')"
+          >
+            Connect AI
+          </button>
+        </div>
 
         <!-- Launch Buttons -->
-        <div class="boot-row">
+        <div v-if="aiConfigured" class="boot-row">
           <button
-            class="boot-btn primary-btn"
+            ref="createButton"
+            class="ui-button ui-button--primary"
             data-testid="boot-cartridge"
             :disabled="!creationSlug || !adventureDraft.brief.trim()"
             @click="onBootSelectedCartridge"
@@ -1472,36 +1991,400 @@ watch(
             Create adventure
           </button>
         </div>
-      </div>
-      <aside id="your-games" class="library-pane" aria-labelledby="library-title">
-        <h2 id="library-title">Your games</h2>
-        <p class="section-intro">Jump into a world. Make it your own.</p>
-        <button
-          v-if="testMode"
-          class="boot-btn stub-btn"
-          data-testid="boot-agent"
-          @click="
-            resumeAudio();
-            bootAgentGame();
-          "
-        >
-          Run test game
-        </button>
-        <section
-          class="zip-drop-zone"
-          @dragover.prevent
-          @drop.prevent="onGameZip($event.dataTransfer?.files[0])"
-          data-testid="game-zip-drop"
-        >
+      </details>
+      <aside
+        id="your-games"
+        class="library-pane"
+        :class="{ 'empty-library': !hasLibraryContent }"
+        :aria-labelledby="hasLibraryContent ? 'library-title' : undefined"
+        :aria-label="hasLibraryContent ? undefined : 'Add game'"
+      >
+        <h2 v-if="hasLibraryContent" id="library-title">Your games</h2>
+        <p v-if="libraryActionError" role="alert" class="library-error">
+          {{ libraryActionError }}
+        </p>
+        <div v-if="hostedCatalogError" class="library-error" data-testid="hosted-catalog-error">
+          <p role="alert">{{ hostedCatalogError }}</p>
           <button
             type="button"
-            class="boot-btn"
-            data-testid="open-game-zip"
-            :disabled="importBusy"
-            @click="zipInput?.click()"
+            class="ui-button ui-button--secondary"
+            :disabled="hostedCatalogBusy"
+            @click="refreshHostedCatalog"
           >
-            {{ importBusy ? "Opening game…" : "Open ZIP" }}
+            Retry game list
           </button>
+        </div>
+
+        <div
+          v-if="savedWorlds.length || localGameSlugs.length || availableCatalogEntries.length"
+          class="saved-game-gallery"
+          data-testid="saved-game-gallery"
+        >
+          <article
+            v-for="world in savedWorlds"
+            :key="world.slug"
+            class="saved-game-card"
+            :class="{ selected: selectedCartridgeSlug === world.slug }"
+            :data-testid="`saved-game-card-${world.slug}`"
+            :data-slug="world.slug"
+          >
+            <img
+              v-if="libraryAutosaves[world.slug]?.preview || world.library?.preview"
+              class="library-thumbnail"
+              data-testid="library-thumbnail"
+              :data-preview-kind="libraryAutosaves[world.slug]?.preview ? 'progress' : 'opening'"
+              :src="libraryAutosaves[world.slug]?.preview ?? world.library?.preview"
+              :alt="
+                libraryAutosaves[world.slug]?.preview
+                  ? `${world.title}, current progress in room ${libraryAutosaves[world.slug]?.room}`
+                  : `${world.title} opening scene`
+              "
+            />
+            <div v-else class="saved-game-cover" aria-hidden="true">AGI</div>
+            <div class="saved-game-card-body">
+              <span v-if="libraryAutosaves[world.slug]" class="saved-world-badge">IN PROGRESS</span>
+              <form
+                v-if="renaming && selectedCartridgeSlug === world.slug"
+                class="cartridge-rename"
+                data-testid="rename-game-form"
+                @submit.prevent="saveCartridgeTitle"
+              >
+                <label :for="`cartridge-title-${world.slug}`">Game name</label>
+                <input
+                  :id="`cartridge-title-${world.slug}`"
+                  :ref="setTitleInput"
+                  v-model="cartridgeTitle"
+                  maxlength="100"
+                  required
+                  @keydown.esc="renaming = false"
+                />
+                <button
+                  type="submit"
+                  class="ui-button ui-button--secondary"
+                  :disabled="!cartridgeTitle.trim()"
+                >
+                  Save name
+                </button>
+                <button
+                  type="button"
+                  class="ui-button ui-button--secondary"
+                  @click="renaming = false"
+                >
+                  Cancel
+                </button>
+                <p v-if="renameError" role="alert">{{ renameError }}</p>
+              </form>
+              <div
+                v-show="!(renaming && selectedCartridgeSlug === world.slug)"
+                class="saved-game-heading"
+              >
+                <h3 class="saved-world-title" data-testid="saved-game-title">{{ world.title }}</h3>
+                <button
+                  type="button"
+                  class="ui-button ui-button--icon rename-icon"
+                  aria-label="Rename game"
+                  title="Rename game"
+                  data-testid="rename-game"
+                  @click="beginRename(world)"
+                >
+                  <UiIcon name="pencil" />
+                </button>
+              </div>
+              <p v-if="libraryAutosaves[world.slug]" class="saved-world-time">
+                Room {{ libraryAutosaves[world.slug]?.room }} · Saved
+                {{ new Date(libraryAutosaves[world.slug]!.savedAt).toLocaleString() }}
+              </p>
+              <div class="saved-game-play-row">
+                <button
+                  type="button"
+                  class="ui-button ui-button--primary saved-game-primary"
+                  data-testid="btn-resume-cached"
+                  :disabled="libraryActionBusy || importBusy"
+                  @click="onPlayLibraryWorld(world)"
+                >
+                  {{ libraryAutosaves[world.slug] ? "Resume" : "Play" }}
+                </button>
+                <ActionMenu
+                  label="Game actions"
+                  icon="more"
+                  icon-only
+                  :test-id="`game-actions-${world.slug}`"
+                >
+                  <button
+                    v-if="libraryAutosaves[world.slug]"
+                    type="button"
+                    role="menuitem"
+                    data-testid="start-library-game-over"
+                    @click="onStartLibraryWorldOver(world)"
+                  >
+                    Start over
+                  </button>
+                  <button
+                    v-if="world.library?.validation.status === 'unverified'"
+                    type="button"
+                    role="menuitem"
+                    data-testid="check-library-game"
+                    :disabled="libraryActionBusy"
+                    @click="onCheckLibraryWorld(world)"
+                  >
+                    Check opening
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-testid="copy-library-game"
+                    :disabled="libraryActionBusy"
+                    @click="onCopyLibraryWorld(world)"
+                  >
+                    Make a copy
+                  </button>
+                  <div role="separator"></div>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-testid="btn-export-agi-zip"
+                    :disabled="exportBusy"
+                    @click="onExportLibraryWorld(world)"
+                  >
+                    <span>Game export<small>Playable game</small></span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-testid="btn-save-project"
+                    :disabled="exportBusy"
+                    @click="onExportLibraryWorld(world, true)"
+                  >
+                    <span>Project<small>Game and editing history</small></span>
+                  </button>
+                  <div role="separator"></div>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    class="danger"
+                    data-testid="remove-library-game"
+                    @click="onRemoveLibraryWorld(world)"
+                  >
+                    Remove game
+                  </button>
+                </ActionMenu>
+              </div>
+              <details
+                class="library-details-disclosure"
+                :open="expandedGameSlug === world.slug"
+                :data-testid="`game-details-${world.slug}`"
+                @toggle="onGameDetailsToggle(world.slug, $event)"
+              >
+                <summary>Details</summary>
+
+                <div v-if="world.library" class="library-details">
+                  <p v-if="world.library.description">{{ world.library.description }}</p>
+                  <dl>
+                    <template v-if="world.library.author">
+                      <dt>By</dt>
+                      <dd>{{ world.library.author }}</dd>
+                    </template>
+                    <template v-if="world.library.license">
+                      <dt>License</dt>
+                      <dd>{{ world.library.license }}</dd>
+                    </template>
+                    <template v-if="world.library.catalog">
+                      <dt>Version</dt>
+                      <dd>{{ world.library.catalog.version }}</dd>
+                    </template>
+                  </dl>
+                </div>
+              </details>
+            </div>
+          </article>
+          <article
+            v-for="slug in localGameSlugs"
+            :key="`local-${slug}`"
+            class="saved-game-card"
+            :data-testid="`local-game-card-${slug}`"
+          >
+            <img
+              v-if="libraryAutosaves[slug]?.preview"
+              class="library-thumbnail"
+              data-testid="library-thumbnail"
+              data-preview-kind="progress"
+              :src="libraryAutosaves[slug]?.preview"
+              :alt="`${slug.toUpperCase()}, current progress in room ${libraryAutosaves[slug]?.room}`"
+            />
+            <div v-else class="saved-game-cover" aria-hidden="true">{{ slug.toUpperCase() }}</div>
+            <div class="saved-game-card-body">
+              <span v-if="libraryAutosaves[slug]" class="saved-world-badge">IN PROGRESS</span>
+              <h3 class="saved-world-title">{{ slug.toUpperCase() }}</h3>
+              <p v-if="libraryAutosaves[slug]" class="saved-world-time">
+                Room {{ libraryAutosaves[slug]?.room }}
+              </p>
+              <div class="saved-game-play-row">
+                <button
+                  type="button"
+                  class="ui-button ui-button--primary saved-game-primary"
+                  :data-testid="`boot-${slug}`"
+                  :disabled="libraryActionBusy || importBusy"
+                  @click="onPlayLocalGame(slug)"
+                >
+                  {{ libraryAutosaves[slug] ? "Resume" : "Play" }}
+                </button>
+                <ActionMenu
+                  v-if="libraryAutosaves[slug]"
+                  label="Game actions"
+                  icon="more"
+                  icon-only
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    @click="
+                      resumeAudio();
+                      startOver(slug, llmConfig());
+                    "
+                  >
+                    Start over
+                  </button>
+                </ActionMenu>
+              </div>
+            </div>
+          </article>
+          <article
+            v-for="entry in availableCatalogEntries"
+            :key="`catalog-${entry.id}-${entry.version}`"
+            :ref="(element) => observeCatalogCard(element, entry.id)"
+            class="saved-game-card"
+            :data-testid="`hosted-game-card-${entry.id}`"
+          >
+            <img
+              v-if="catalogOpenings[entry.id]?.preview"
+              class="library-thumbnail"
+              :src="catalogOpenings[entry.id]?.preview"
+              :alt="`${entry.title} opening scene`"
+            />
+            <div v-else class="saved-game-cover" aria-hidden="true">AGI</div>
+            <div class="saved-game-card-body">
+              <h3 class="saved-world-title">{{ entry.title }}</h3>
+              <p class="saved-world-time">{{ entry.description }}</p>
+              <p v-if="catalogErrors[entry.id]" role="alert" class="library-error">
+                {{ catalogErrors[entry.id] }}
+              </p>
+              <button
+                v-if="catalogErrors[entry.id]"
+                type="button"
+                class="ui-button ui-button--secondary"
+                :disabled="catalogBusy[entry.id]"
+                @click="loadCatalogOpening(entry.id)"
+              >
+                Retry preview
+              </button>
+              <button
+                v-else
+                type="button"
+                class="ui-button ui-button--primary saved-game-primary"
+                :disabled="catalogBusy[entry.id] || libraryActionBusy || importBusy"
+                @click="playCatalogGame(entry.id)"
+              >
+                {{ catalogBusy[entry.id] ? "Checking opening…" : "Play" }}
+              </button>
+              <details class="library-details-disclosure">
+                <summary>Details</summary>
+                <div class="library-details">
+                  <dl>
+                    <template v-if="entry.author"
+                      ><dt>By</dt>
+                      <dd>{{ entry.author }}</dd></template
+                    >
+                    <dt>License</dt>
+                    <dd>{{ entry.license }}</dd>
+                    <dt>Version</dt>
+                    <dd>{{ entry.version }}</dd>
+                  </dl>
+                </div>
+              </details>
+            </div>
+          </article>
+        </div>
+        <!-- Autosave left over from an installed or unavailable game. -->
+        <div
+          v-if="
+            pendingAutosave &&
+            !savedWorlds.some((world) => world.slug === pendingAutosave?.game.slug) &&
+            !localGameSlugs.includes(pendingAutosave.game.slug)
+          "
+          class="saved-world-card autosave-fallback"
+          data-testid="autosave-panel"
+        >
+          <img
+            v-if="pendingAutosave.preview"
+            class="library-thumbnail"
+            data-testid="library-thumbnail"
+            data-preview-kind="progress"
+            :src="pendingAutosave.preview"
+            :alt="`${pendingAutosave.game.slug}, current progress in room ${pendingAutosave.room}`"
+          />
+          <div class="saved-world-header">
+            <div class="saved-world-tag">
+              <span class="saved-world-badge">IN PROGRESS</span>
+              <span class="saved-world-title">{{ pendingAutosave.game.slug }}</span>
+            </div>
+            <span class="saved-world-time">
+              Room {{ pendingAutosave.room }} · Saved
+              {{ new Date(pendingAutosave.savedAt).toLocaleString() }}
+            </span>
+          </div>
+          <div class="saved-game-play-row">
+            <button
+              type="button"
+              class="ui-button ui-button--primary"
+              data-testid="btn-resume-autosave"
+              @click="onResumeAutosave"
+            >
+              Resume
+            </button>
+            <ActionMenu label="Game actions" icon="more" icon-only>
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="btn-start-over-picker"
+                title="Discard the autosave and play this game from the beginning"
+                @click="onStartOver"
+              >
+                Start over
+              </button>
+            </ActionMenu>
+          </div>
+        </div>
+
+        <section
+          id="open-game"
+          class="zip-drop-zone"
+          aria-label="Add game"
+          @dragover.prevent
+          @drop.prevent="onGameDrop($event.dataTransfer ?? undefined)"
+          data-testid="game-zip-drop"
+        >
+          <ActionMenu
+            :label="importBusy ? 'Adding game…' : 'Add game'"
+            test-id="open-game-menu"
+            :disabled="importBusy"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="open-game-zip"
+              @click="zipInput?.click()"
+            >
+              ZIP file
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="open-game-folder"
+              @click="folderInput?.click()"
+            >
+              Game folder
+            </button>
+          </ActionMenu>
           <input
             ref="zipInput"
             type="file"
@@ -1510,158 +2393,34 @@ watch(
             hidden
             @change="onGameZip(($event.target as HTMLInputElement).files?.[0])"
           />
-          <p>Drop a game or project ZIP here.</p>
-          <p class="zip-format-note">AGI v2 & v3 · Play without an API key</p>
+          <p class="drop-hint">Or drop a ZIP or folder</p>
+          <input
+            ref="folderInput"
+            type="file"
+            multiple
+            webkitdirectory
+            data-testid="game-folder-input"
+            hidden
+            @change="onGameFolder(($event.target as HTMLInputElement).files ?? undefined)"
+          />
           <p v-if="importError" role="alert" data-testid="game-zip-error">{{ importError }}</p>
-        </section>
-        <section v-if="savedWorlds.length" class="section saved-game-picker">
-          <label for="saved-world-select">Saved games</label>
-          <select
-            id="saved-world-select"
-            v-model="selectedCartridgeSlug"
-            data-testid="saved-world-select"
+          <p
+            v-if="importNotice"
+            role="status"
+            class="import-notice"
+            data-testid="game-import-ready"
           >
-            <option v-for="world in savedWorlds" :key="world.slug" :value="world.slug">
-              {{ world.title }}
-            </option>
-          </select>
-        </section>
-        <!-- Saved World Resume Card -->
-        <div v-if="cachedMeta" class="saved-world-card" data-testid="saved-world-panel">
-          <div class="saved-world-header">
-            <div class="saved-world-tag">
-              <span class="saved-world-badge">SAVED WORLD</span>
-              <span class="saved-world-title">{{ cachedMeta.title }}</span>
-            </div>
-          </div>
-          <form v-if="renaming" class="cartridge-rename" @submit.prevent="saveCartridgeTitle">
-            <label for="cartridge-title">Game name</label>
-            <input
-              id="cartridge-title"
-              ref="titleInput"
-              v-model="cartridgeTitle"
-              maxlength="100"
-              required
-              @keydown.esc="renaming = false"
-            />
-            <button type="submit" class="saved-action-btn" :disabled="!cartridgeTitle.trim()">
-              Save name
-            </button>
-            <button type="button" class="saved-action-btn" @click="renaming = false">Cancel</button>
-            <p v-if="renameError" role="alert">{{ renameError }}</p>
-          </form>
-          <p class="download-help">
-            Save project keeps your conversation and editing history. Export game creates a
-            cartridge to share.
+            {{ importNotice }}
           </p>
-          <div class="saved-world-actions">
-            <button v-if="!renaming" type="button" class="saved-action-btn" @click="beginRename">
-              Rename
-            </button>
-            <button
-              type="button"
-              class="boot-btn resume-btn"
-              data-testid="btn-resume-cached"
-              @click="onBootSavedCartridge"
-            >
-              Play game
-            </button>
-            <button
-              type="button"
-              class="saved-action-btn"
-              data-testid="btn-export-agi-zip"
-              title="Share a playable game. Your authoring conversation stays private."
-              :disabled="exportBusy"
-              @click="onExportAgiZip(false)"
-            >
-              Export game
-            </button>
-            <button
-              type="button"
-              class="saved-action-btn"
-              title="Continue creating with your conversation history and authoring sources."
-              data-testid="btn-save-project"
-              :disabled="exportBusy"
-              @click="onExportAgiZip(false, true)"
-            >
-              Save project
-            </button>
-            <button
-              type="button"
-              class="saved-action-btn danger"
-              title="Discard saved world"
-              @click="onClearSavedCartridge"
-            >
-              🗑 Clear
-            </button>
-          </div>
-        </div>
-
-        <!-- Autosave left over from a session that could not resume itself -->
-        <div v-if="pendingAutosave" class="saved-world-card" data-testid="autosave-panel">
-          <div class="saved-world-header">
-            <div class="saved-world-tag">
-              <span class="saved-world-badge">IN PROGRESS</span>
-              <span class="saved-world-title">{{
-                getCachedCartridgeMeta(pendingAutosave.game.slug)?.title ??
-                pendingAutosave.game.slug
-              }}</span>
-            </div>
-            <span class="saved-world-time"
-              >Room {{ pendingAutosave.room }}, autosaved
-              {{ new Date(pendingAutosave.savedAt).toLocaleTimeString() }}</span
-            >
-          </div>
-          <div class="saved-world-actions">
-            <button
-              type="button"
-              class="boot-btn resume-btn"
-              data-testid="btn-resume-autosave"
-              @click="onResumeAutosave"
-            >
-              Resume game
-            </button>
-            <button
-              type="button"
-              class="saved-action-btn danger"
-              data-testid="btn-start-over-picker"
-              title="Discard the autosave and play this game from the beginning"
-              @click="onStartOver"
-            >
-              ↺ Start over
-            </button>
-          </div>
-        </div>
-
-        <section v-if="state.installedGames?.length" class="installed-picker">
-          <label for="installed-game-select"
-            >Local games <span>({{ state.installedGames.length }})</span></label
-          >
-          <div class="installed-picker-row">
-            <select
-              id="installed-game-select"
-              v-model="selectedInstalledGame"
-              data-testid="installed-game-select"
-            >
-              <option v-for="slug in state.installedGames" :key="slug" :value="slug">
-                {{ slug.toUpperCase() }}
-              </option>
-            </select>
-            <button
-              class="boot-btn fixture-btn"
-              :data-testid="`boot-${selectedInstalledGame}`"
-              @click="
-                resumeAudio();
-                bootGame(selectedInstalledGame);
-              "
-            >
-              Play
-            </button>
-          </div>
         </section>
       </aside>
       <!-- Prominent Error Display inside Setup Panel -->
-      <div v-if="state.phase === 'error'" class="error-banner" data-testid="error-panel">
+      <div
+        v-if="state.phase === 'error'"
+        class="error-banner"
+        data-testid="error-panel"
+        role="alert"
+      >
         <span class="error-badge">ERROR</span>
         <span class="error-msg">{{ state.error }}</span>
       </div>
@@ -1802,65 +2561,25 @@ watch(
             <button
               v-if="!creatingRoom || !state.powerUp.busy"
               type="button"
-              class="remix-close"
+              class="ui-button ui-button--secondary remix-close"
               :disabled="state.powerUp.busy"
               @click="onPowerUp"
             >
               Back to game
             </button>
           </div>
-          <form
-            v-if="state.powerUp.needsConfig"
-            class="power-up-config"
-            @submit.prevent="onPowerUpConnect"
-          >
-            <p>Connect your model.</p>
-            <label
-              >Task budget · USD (estimated)<input
-                v-model.number="taskBudget"
-                type="number"
-                min="0.01"
-                step="any"
-                required
-            /></label>
-            <label
-              >Provider
-              <select v-model="provider" data-testid="power-up-provider">
-                <option value="openai">OpenAI</option>
-                <option value="anthropic">Anthropic</option>
-              </select>
-            </label>
-            <label
-              >Model
-              <select v-model="model">
-                <option
-                  v-for="option in MODEL_OPTIONS[provider]"
-                  :key="option.id"
-                  :value="option.id"
-                >
-                  {{ option.label }}
-                </option>
-              </select>
-            </label>
-            <label
-              >API key
-              <input
-                v-model="apiKey"
-                type="password"
-                autocomplete="off"
-                data-testid="power-up-api-key"
-                placeholder="Your provider API key"
-              />
-            </label>
-            <small>Stored in this browser. Model calls use your provider account.</small>
+          <div v-if="!creatingRoom && !aiConfigured" class="ai-connect assistant-connect">
+            <p>Connect your AI provider to ask about or remix this game.</p>
             <button
-              type="submit"
-              data-testid="power-up-connect"
-              :disabled="!apiKey.trim() || state.powerUp.busy"
+              type="button"
+              class="ui-button ui-button--primary"
+              data-testid="connect-assistant-ai"
+              :disabled="aiSettingsUnavailable"
+              @click="openAiSettings($event, 'assistant')"
             >
-              {{ state.powerUp.busy ? "Connecting…" : "Connect" }}
+              Connect AI
             </button>
-          </form>
+          </div>
           <div
             v-if="!creatingRoom && state.powerUp.messages.length"
             ref="conversationEl"
@@ -1874,7 +2593,8 @@ watch(
             <div
               v-for="(message, index) in state.powerUp.messages"
               :key="index"
-              :class="['agent-message', message.role]"
+              class="agent-message"
+              :class="message.role"
             >
               {{ message.text }}
             </div>
@@ -1938,14 +2658,25 @@ watch(
                 :class="entry.kind"
               >
                 {{ entry.detail }}
+                <SoundPreview v-if="entry.audio?.length" :audio="entry.audio" />
               </div>
             </div>
             <div v-if="!followProgress" class="remix-follow-controls">
-              <button type="button" data-testid="remix-jump-latest" @click="jumpToLatest">
+              <button
+                type="button"
+                class="ui-button ui-button--secondary"
+                data-testid="remix-jump-latest"
+                @click="jumpToLatest"
+              >
                 Jump to latest
               </button>
             </div>
           </details>
+          <SoundPreview
+            v-if="!state.powerUp.busy && powerUpAudio.length"
+            :audio="powerUpAudio"
+            data-testid="agent-bubble-sound-preview"
+          />
           <form
             v-if="!creatingRoom && !state.powerUp.needsConfig"
             class="agent-bubble-form"
@@ -1965,6 +2696,7 @@ watch(
             ></textarea>
             <button
               type="submit"
+              class="ui-button ui-button--primary"
               data-testid="agent-bubble-send"
               :disabled="state.powerUp.busy || !powerUpLine.trim()"
             >
@@ -2016,13 +2748,19 @@ watch(
       {{
         touchControls
           ? "Type to open keyboard · Enter to send · Keys for F1–F10 and more"
-          : "Click the game to type · Enter to send · Arrows and Home / PgUp / End / PgDn to walk"
+          : "Click the game to type · Enter to send · Arrows or numpad to walk · Home / PgUp / End / PgDn for diagonals"
       }}
     </p>
 
+    <SoundPreview
+      v-if="!state.powerUp.open && latestAgentAudio.length"
+      :audio="latestAgentAudio"
+      data-testid="latest-sound-preview"
+    />
+
     <!-- Live Agent Debug Activity Panel -->
-    <details v-if="state.agentLog.length" class="agent-panel" data-testid="agent-panel">
-      <summary>Developer activity</summary>
+    <details v-if="state.agentLog.length || testMode" class="agent-panel" data-testid="agent-panel">
+      <summary data-testid="developer-activity-summary">Developer activity</summary>
       <div class="agent-panel-header">
         <h2>Agent activity</h2>
         <span class="backend-tag" data-testid="gpu-backend">{{ gpuBackend || "canvas2d" }}</span>
@@ -2048,6 +2786,17 @@ watch(
           <span v-if="copyFeedback" class="copy-feedback">{{ copyFeedback }}</span>
         </div>
       </div>
+      <button
+        v-if="testMode && (state.phase === 'idle' || state.phase === 'error')"
+        class="ui-button ui-button--secondary"
+        data-testid="boot-agent"
+        @click="
+          resumeAudio();
+          bootAgentGame();
+        "
+      >
+        Run test game
+      </button>
       <div class="agent-entries">
         <div
           v-for="entry in state.agentLog.slice(-50)"
@@ -2066,6 +2815,7 @@ watch(
           <pre v-if="entry.data && expandedLogIds.has(entry.id)" class="agent-data-preview">{{
             JSON.stringify(entry.data, null, 2)
           }}</pre>
+          <SoundPreview v-if="entry.audio?.length" :audio="entry.audio" />
         </div>
       </div>
     </details>
@@ -2081,26 +2831,6 @@ watch(
 }
 .zip-drop-zone p {
   margin: 0.75rem 0 0;
-}
-.zip-drop-zone .zip-format-note {
-  font-size: 12px;
-  color: #aaa;
-}
-.power-up-config {
-  display: grid;
-  gap: 0.6rem;
-  padding: 0.8rem;
-}
-.power-up-config label {
-  display: grid;
-  gap: 0.25rem;
-}
-.power-up-config input,
-.power-up-config select,
-.power-up-config button {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 0.5rem;
 }
 /* ---- The remix: one round button on the game frame (.screen is relative) ---- */
 .power-up {
@@ -2136,6 +2866,7 @@ watch(
 }
 
 .agent-bubble {
+  font-family: system-ui, sans-serif;
   position: fixed;
   left: 50%;
   top: 50%;
@@ -2160,22 +2891,6 @@ watch(
   .agent-bubble {
     opacity: 0;
   }
-}
-
-.task-budget {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 12px;
-  color: #afc6ce;
-  font:
-    12px/1.5 system-ui,
-    sans-serif;
-}
-.task-budget input {
-  width: 80px;
-  margin: 0;
-  padding: 6px 8px;
 }
 
 .agent-bubble-head {
@@ -2208,12 +2923,15 @@ watch(
   border-radius: 8px;
 }
 .agent-mode-switch button {
+  min-height: 44px;
   border: 0;
   border-radius: 5px;
   background: transparent;
   color: #a9bac0;
   padding: 7px 12px;
-  font: inherit;
+  font:
+    700 14px/1.4 system-ui,
+    sans-serif;
   cursor: pointer;
 }
 .agent-mode-switch button[aria-pressed="true"] {
@@ -2222,11 +2940,6 @@ watch(
 }
 .agent-bubble-head .remix-close {
   margin-left: auto;
-  border: 0;
-  padding: 8px 0 8px 8px;
-  background: transparent;
-  color: #d8e9ed;
-  font: inherit;
   white-space: nowrap;
 }
 .agent-conversation {
@@ -2266,11 +2979,6 @@ watch(
   opacity: 0.5;
   cursor: default;
 }
-.agent-bubble :focus-visible {
-  outline: 2px solid #85f2ff;
-  outline-offset: 2px;
-}
-
 .agent-bubble-form textarea {
   box-sizing: border-box;
   resize: none;
@@ -2290,13 +2998,6 @@ watch(
   margin: 0;
   min-width: 72px;
   align-self: stretch;
-  background: #123039;
-  border: 1px solid #55ffff;
-  color: #55ffff;
-  border-radius: 4px;
-  padding: 0 12px;
-  cursor: pointer;
-  font-size: 13px;
 }
 
 .remix-progress {
@@ -2330,26 +3031,10 @@ watch(
   line-height: 1.5;
 }
 
-.agent-bubble-feed:focus-visible {
-  outline: 1px solid #55ffff;
-  outline-offset: 2px;
-}
-
 .remix-follow-controls {
   display: flex;
   justify-content: flex-end;
   padding-top: 6px;
-}
-
-.remix-follow-controls button {
-  border: 1px solid #48666e;
-  border-radius: 4px;
-  background: #123039;
-  color: #b4ffff;
-  padding: 6px 10px;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
 }
 
 .agent-bubble-line {
@@ -2403,8 +3088,8 @@ watch(
   display: flex;
   flex-direction: column;
 }
-
 .game-nav {
+  margin-left: auto;
   position: relative;
   display: flex;
   flex-wrap: wrap;
@@ -2412,10 +3097,6 @@ watch(
   gap: 0.4rem;
 }
 
-.game-nav > .audio-btn {
-  min-height: 40px;
-  box-sizing: border-box;
-}
 .settings-panel {
   display: grid;
   gap: 0.35rem;
@@ -2444,10 +3125,20 @@ watch(
   .game-nav .nav-menu {
     position: static;
   }
-  .game-nav .audio-btn {
-    font-size: 11px;
-    letter-spacing: 0;
-    padding-inline: 7px;
+  .game-nav :deep(.ui-button),
+  .game-nav .nav-menu summary {
+    padding-inline: 6px;
+    gap: 4px;
+  }
+  .game-nav :deep(.ui-icon) {
+    width: 16px;
+    height: 16px;
+  }
+  .at-menu .game-nav {
+    width: auto;
+  }
+  .at-menu .repo-link span {
+    display: none;
   }
   .game-nav .game-controls-panel {
     left: 0;
@@ -2455,25 +3146,6 @@ watch(
     width: 100%;
     max-height: min(60vh, 28rem);
   }
-}
-
-.audio-btn {
-  background: #1a1a1a;
-  border: 1px solid #444;
-  color: #ccc;
-  font-size: 12px;
-  min-height: 36px;
-  padding: 6px 10px;
-  border-radius: 3px;
-  cursor: pointer;
-  letter-spacing: 0.05em;
-  transition: all 0.15s ease;
-}
-
-.audio-btn:hover {
-  background: #282828;
-  border-color: #666;
-  color: #fff;
 }
 
 h1 {
@@ -2493,8 +3165,8 @@ h1 {
   width: var(--shell-width);
   box-sizing: border-box;
   margin-bottom: 0.75rem;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  display: flex;
+  flex-direction: column;
   gap: 32px;
   padding: 0;
 }
@@ -2557,67 +3229,191 @@ h1 {
     500 clamp(18px, 2.5vw, 25px)/1.4 system-ui,
     sans-serif;
 }
-.welcome-description {
-  color: #96abad;
-  font:
-    15px/1.6 system-ui,
-    sans-serif;
-  margin: 0;
+.catalog-shelf {
+  width: var(--shell-width);
+  margin: 0 auto 28px;
+  padding: 22px;
+  box-sizing: border-box;
+  border: 1px solid #3d6669;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #152a2c, #0b1113 68%);
+  font-family: system-ui, sans-serif;
 }
-.menu-jumps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 20px;
-}
-.menu-jumps a {
-  color: #9deded;
-  text-decoration: none;
-  font:
-    500 14px/1.5 system-ui,
-    sans-serif;
-  padding: 10px 14px;
-  border: 1px solid #365759;
-  border-radius: 5px;
-}
-.menu-jumps a:hover {
-  color: #fff;
-  background: #13282a;
-}
+#tutorial,
 .create-pane,
 .library-pane {
   scroll-margin-top: 20px;
 }
+.library-pane.empty-library {
+  width: 100%;
+  align-self: stretch;
+  padding: 20px;
+  background: #0b1213;
+}
+.library-pane.empty-library h2 {
+  margin-bottom: 10px;
+  font-size: 20px;
+}
+.section-summary {
+  display: list-item;
+  list-style-position: inside;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 8px 0;
+  color: #e9f4f4;
+  cursor: pointer;
+  font:
+    700 20px/1.4 system-ui,
+    sans-serif;
+}
+.section-summary::marker {
+  color: var(--ui-action);
+  font-size: 16px;
+}
+.section-summary h2 {
+  display: inline;
+  margin: 0 0 0 8px;
+  font: inherit;
+  color: inherit;
+}
+details[open] > .section-summary {
+  margin-bottom: 20px;
+}
+.section-summary:focus-visible {
+  border-radius: 6px;
+}
+.catalog-card {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.35fr) minmax(240px, 1fr);
+  overflow: hidden;
+  border: 1px solid #42676a;
+  border-radius: 9px;
+  background: #0c1517;
+}
+.catalog-art {
+  min-height: 225px;
+  background: #050707;
+}
+.catalog-art img,
+.library-thumbnail {
+  display: block;
+  width: 100%;
+  aspect-ratio: 8 / 5;
+  object-fit: cover;
+  image-rendering: pixelated;
+}
+.thumbnail-placeholder {
+  display: grid;
+  height: 100%;
+  min-height: 225px;
+  place-items: center;
+  color: #759294;
+  font: 12px/1.4 monospace;
+  letter-spacing: 0.12em;
+}
+.catalog-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px;
+}
+.catalog-copy h3 {
+  margin: 7px 0;
+  color: #fff;
+  font-size: 24px;
+}
+.catalog-copy > p:not(.saved-world-badge) {
+  margin: 0 0 14px;
+  color: #a9bdbf;
+  line-height: 1.5;
+}
+.catalog-copy .catalog-byline {
+  color: #7f999b;
+  font-size: 12px;
+}
+.catalog-copy .ui-button {
+  width: auto;
+  min-width: 150px;
+}
+.library-thumbnail {
+  margin-bottom: 14px;
+  border: 1px solid #405457;
+  border-radius: 5px;
+}
+.library-details {
+  margin-top: 12px;
+  color: #9fb3b5;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.library-details dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 10px;
+  margin: 12px 0;
+}
+.library-details dt {
+  color: #718d90;
+}
+.library-details dd {
+  margin: 0;
+}
+.library-details strong {
+  color: #b7f3da;
+}
+.library-error {
+  color: #ffc2bd !important;
+}
 .create-pane {
+  font-family: system-ui, sans-serif;
   min-width: 0;
-  padding: 26px;
-  background: linear-gradient(145deg, #102021, #0b1012 60%);
-  border: 1px solid #294346;
+  align-self: start;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 22px;
+  background: linear-gradient(135deg, #152a2c, #0b1113 68%);
+  border: 1px solid #3d6669;
   border-radius: 12px;
 }
-.create-pane > .section:first-child {
+.create-pane > .section:first-of-type {
   margin-top: 0;
 }
 .library-pane {
   min-width: 0;
-  padding: 8px 0;
+  padding: 26px;
+  box-sizing: border-box;
+  border: 1px solid #294346;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #102021, #0b1012 60%);
   font-family: system-ui, sans-serif;
 }
 .library-pane h2 {
-  margin: 0;
+  margin: 0 0 18px;
   color: #e4eeee;
-  font-size: 18px;
+  font-size: 24px;
 }
 .library-pane .stub-btn {
-  width: 100%;
   margin-bottom: 20px;
 }
 .library-pane .zip-drop-zone {
-  padding: 16px 12px;
+  margin-top: 20px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 16px;
   border-color: #405457;
   border-radius: 8px;
+  text-align: left;
+}
+.library-pane.empty-library .zip-drop-zone {
+  margin-top: 0;
+  padding: 0;
+  border: 0;
 }
 .library-pane .zip-drop-zone p {
+  margin: 0;
   font-size: 13px;
 }
 .library-pane .saved-world-header {
@@ -2626,46 +3422,94 @@ h1 {
 .library-pane .saved-world-tag {
   flex-wrap: wrap;
 }
-.library-pane .saved-world-card {
-  padding: 16px;
-  margin: 16px 0;
-}
 .library-pane .saved-world-title {
   overflow-wrap: anywhere;
 }
-.library-pane .saved-world-actions {
-  gap: 8px;
+.saved-game-gallery {
+  display: grid;
+  align-items: start;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr));
+  gap: 18px;
+  margin-top: 20px;
 }
-.library-pane .saved-game-picker {
+.saved-game-card {
+  display: flex;
+  min-width: 0;
   flex-direction: column;
-  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid #38575a;
+  border-radius: 8px;
+  background: #091315;
 }
-.installed-picker {
-  margin-top: 24px;
+.saved-game-card.selected {
+  border-color: #5b9da0;
 }
-.installed-picker label {
-  display: block;
-  color: #bbcdcf;
-  margin-bottom: 8px;
+.saved-game-card .library-thumbnail,
+.saved-game-cover {
+  width: 100%;
+  margin: 0;
+  aspect-ratio: 8 / 5;
+  border: 0;
+  border-radius: 0;
+  object-fit: cover;
+  image-rendering: pixelated;
+}
+.saved-game-cover {
+  display: grid;
+  place-items: center;
+  color: #6b8588;
+  background: linear-gradient(145deg, #162627, #0a0f10);
+  font: 700 28px/1 monospace;
+  letter-spacing: 0.15em;
+  overflow-wrap: anywhere;
+  text-align: center;
+  box-sizing: border-box;
+  padding: 16px;
+}
+.saved-game-card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 18px;
+}
+.saved-game-card .saved-world-title {
+  margin: 10px 0 4px;
+  color: #f2ffff;
+  font-size: 19px;
+  line-height: 1.25;
+}
+.saved-game-card .saved-world-time {
+  margin: 0 0 16px;
+  color: #90aaa9;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.saved-game-primary {
+  width: 100%;
+  margin-top: 16px;
+}
+.library-details-disclosure {
+  width: 100%;
+  margin-top: 12px;
+  border-top: 1px solid #2d4144;
+  color: #9fb3b5;
+}
+.library-details-disclosure > summary {
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 12px 2px;
+  color: #b9d0d2;
+  cursor: pointer;
   font-size: 13px;
 }
-.installed-picker label span {
-  color: #849c9f;
+.library-details-disclosure[open] > summary {
+  color: #efffff;
 }
-.installed-picker-row {
-  display: flex;
-  gap: 8px;
+.autosave-fallback {
+  margin-top: 20px;
 }
-.installed-picker select {
-  min-width: 0;
-  flex: 1;
-  background: #101719;
-  color: #e1eeee;
-  border: 1px solid #405457;
-  padding: 10px;
-  border-radius: 4px;
-  font: inherit;
-}
+
 .setup-panel > .error-banner {
   grid-column: 1 / -1;
 }
@@ -2679,25 +3523,6 @@ h1 {
   color: #aaa;
   font-size: 13px;
 }
-
-.saved-game-picker {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.saved-game-picker select {
-  min-height: 40px;
-  max-width: 100%;
-  padding: 8px 12px;
-  border: 1px solid #555;
-  background: #171717;
-  color: #fff;
-  font: inherit;
-}
-
 .section h2 {
   font-size: 16px;
   letter-spacing: 0.02em;
@@ -2808,11 +3633,24 @@ h1 {
   color: #bbb;
 }
 
+.field-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.field-label-row a {
+  color: #8debed;
+  font:
+    600 12px/1.4 system-ui,
+    sans-serif;
+}
+.field-label-row a:hover {
+  color: #fff;
+}
+
 .config-col select,
-.config-col input,
-.task-budget input,
-.power-up-config input,
-.power-up-config select {
+.config-col input {
   color-scheme: dark;
   background: #000;
   border: 1px solid #444;
@@ -2825,57 +3663,16 @@ h1 {
   border-radius: 2px;
 }
 
+.config-col select {
+  height: 44px;
+  min-height: 44px;
+}
+
 .boot-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 0.5rem;
-}
-
-.boot-btn {
-  min-height: 44px;
-  padding: 0.5rem 0.8rem;
-  font-family: monospace;
-  font-size: 0.8rem;
-  font-weight: bold;
-  cursor: pointer;
-  border: 1px solid #444;
-  background: #222;
-  color: #fff;
-  border-radius: 2px;
-  transition: all 0.15s ease;
-}
-
-.boot-btn:hover:not(:disabled) {
-  border-color: #777;
-  background: #333;
-}
-
-.boot-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.primary-btn {
-  background: #80eeee;
-  border-color: #80eeee;
-  color: #072226;
-}
-
-.primary-btn:hover:not(:disabled) {
-  background: #b2ffff;
-  border-color: #b2ffff;
-}
-
-.stub-btn {
-  background: #232323;
-  color: #bbb;
-}
-
-.fixture-btn {
-  background: #2d261e;
-  border-color: #5c4d3d;
-  color: #d8c3a5;
 }
 
 .screen {
@@ -3112,7 +3909,7 @@ h1 {
   color: #dce8e9;
 }
 .nav-menu summary {
-  min-height: 40px;
+  min-height: 44px;
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -3121,13 +3918,6 @@ h1 {
 }
 .nav-menu summary::-webkit-details-marker {
   display: none;
-}
-.nav-menu summary::after {
-  content: "+";
-  color: #7fe8ee;
-}
-.nav-menu[open] summary::after {
-  content: "−";
 }
 .game-controls-panel {
   position: absolute;
@@ -3188,12 +3978,6 @@ h1 {
   font: 12px monospace;
   white-space: nowrap;
 }
-.game-shortcut:focus-visible,
-.nav-menu summary:focus-visible {
-  outline: 2px solid #7ff7ff;
-  outline-offset: 2px;
-}
-
 .agent-panel {
   width: var(--shell-width);
   margin-top: 1rem;
@@ -3210,32 +3994,9 @@ h1 {
   font-size: 12px;
 }
 
-.remix-close {
-  background: transparent;
-  color: #cceeee;
-  border: 1px solid #52757c;
-  padding: 6px 8px;
-  min-height: 32px;
-  cursor: pointer;
-}
-
-a:focus-visible,
-button:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible,
-summary:focus-visible {
-  outline: 2px solid #55ffff;
-  outline-offset: 3px;
-}
-
 @media (max-width: 850px) {
-  .setup-panel {
+  .catalog-card {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .library-pane {
-    border-top: 1px solid #294346;
-    padding-top: 24px;
   }
 }
 
@@ -3249,12 +4010,25 @@ summary:focus-visible {
   .create-pane {
     padding: 18px;
   }
+  .library-pane {
+    padding: 18px;
+  }
   .welcome {
     padding: 12px 0 28px;
   }
   .welcome-kicker {
     font-size: 10px;
     letter-spacing: 0.1em;
+  }
+  .catalog-shelf {
+    padding: 18px;
+  }
+  .catalog-art,
+  .thumbnail-placeholder {
+    min-height: 0;
+  }
+  .catalog-copy {
+    padding: 18px;
   }
   .cartridge-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -3290,9 +4064,6 @@ summary:focus-visible {
   .agent-bubble-form textarea {
     min-width: 0;
     width: 100%;
-  }
-  .agent-bubble-form button {
-    min-height: 40px;
   }
   .config-col,
   .config-col.key-col {
@@ -3473,18 +4244,6 @@ summary:focus-visible {
   box-sizing: border-box;
 }
 
-.eject-btn {
-  background: #2a1515;
-  border-color: #5c2222;
-  color: #f99;
-}
-
-.eject-btn:hover {
-  background: #3d1c1c;
-  border-color: #8c3333;
-  color: #fff;
-}
-
 .error {
   margin-top: 1rem;
   color: #f66;
@@ -3539,14 +4298,51 @@ summary:focus-visible {
   font-size: 0.75rem;
 }
 
-.saved-world-actions {
+.ai-connect {
+  margin-top: 24px;
+  color: #b9cdce;
+  font:
+    14px/1.5 system-ui,
+    sans-serif;
+}
+.ai-connect p {
+  margin: 0 0 12px;
+}
+.assistant-connect {
+  margin-top: 12px;
+}
+.saved-game-heading {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  margin: 8px 0 4px;
 }
-
+.saved-game-card .saved-game-heading .saved-world-title {
+  margin: 0;
+  flex: 1;
+}
+.rename-icon {
+  color: #91b9bc;
+  background: transparent;
+}
+.rename-icon:hover {
+  color: var(--ui-action);
+  background: #14282a;
+}
+.saved-game-play-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  margin-top: 12px;
+}
+.saved-game-play-row .saved-game-primary {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
 .cartridge-rename {
+  width: 100%;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -3568,46 +4364,5 @@ summary:focus-visible {
   border: 1px solid #579873;
   border-radius: 4px;
   font: inherit;
-}
-
-.boot-btn.resume-btn {
-  background: #1e5c3a;
-  border-color: #38a169;
-  color: #ffffff;
-  font-weight: bold;
-}
-
-.boot-btn.resume-btn:hover {
-  background: #27794d;
-  border-color: #48bb78;
-  color: #fff;
-}
-
-.saved-action-btn {
-  min-height: 36px;
-  font-size: 0.75rem;
-  padding: 0.4rem 0.6rem;
-  background: #18221c;
-  border: 1px solid #2d4a37;
-  color: #a0c4ab;
-  border-radius: 3px;
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.saved-action-btn:hover {
-  background: #233329;
-  color: #fff;
-}
-
-.saved-action-btn.danger {
-  color: #e57373;
-  border-color: #5c2828;
-  background: #2a1515;
-}
-
-.saved-action-btn.danger:hover {
-  background: #421d1d;
-  color: #ff9999;
 }
 </style>

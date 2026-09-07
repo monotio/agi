@@ -9,10 +9,11 @@ locally. Creating and remixing send relevant game source, messages, rendered
 previews and authoring conversation to that provider. Provider calls use your
 account and are subject to the provider's data handling policies.
 
-Projects are saved in IndexedDB with a localStorage index. **Save project**
-downloads authoring history and images alongside the game; **Export game**
-downloads playable resources and public metadata. API credentials are excluded
-from both. Downloads are local files; sharing them is a separate action.
+Projects are saved in IndexedDB with a localStorage index.
+**Game actions → Project** downloads authoring history and images alongside the
+game; **Game actions → Game export** downloads playable resources and public
+metadata. API credentials are excluded from both. Downloads are local files;
+sharing them is a separate action.
 
 ## Trust boundaries
 

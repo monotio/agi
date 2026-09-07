@@ -13,6 +13,7 @@ import {
   anthropicToolResult,
 } from "../../../src/agent/toolTransport.ts";
 import { AGI_SYSTEM_PROMPT } from "../../../src/agent/prompt.ts";
+import { resolveModelEffort, type ModelEffort } from "../../../src/agent/modelEffort.ts";
 
 export type ProviderType = "anthropic" | "openai" | "stub";
 
@@ -20,6 +21,9 @@ export interface LlmConfig {
   provider: ProviderType;
   apiKey: string;
   model: string;
+  effort?: ModelEffort;
+  /** Isolated evaluation override; ordinary app requests use the shipped prompt. */
+  systemPrompt?: string;
   budgetUsd?: number;
 }
 
@@ -178,11 +182,19 @@ export function createAnthropicConversation(
       const stream = client.messages.stream(
         {
           model: config.model || DEFAULT_MODELS.anthropic,
+          // Cache the growing tool/result history as well as the static prefix.
+          cache_control: { type: "ephemeral" },
+          output_config: {
+            effort: resolveModelEffort(
+              config.model || DEFAULT_MODELS.anthropic,
+              config.effort,
+            ) as Exclude<ModelEffort, "none">,
+          },
           max_tokens: maxTokens,
           system: [
             {
               type: "text",
-              text: AGI_SYSTEM_PROMPT,
+              text: config.systemPrompt ?? AGI_SYSTEM_PROMPT,
               cache_control: { type: "ephemeral" },
             },
           ],
@@ -354,7 +366,10 @@ export function createOpenAiConversation(
           stream: true,
           max_output_tokens: maxTokens,
           model: config.model || DEFAULT_MODELS.openai,
-          instructions: AGI_SYSTEM_PROMPT,
+          reasoning: {
+            effort: resolveModelEffort(config.model || DEFAULT_MODELS.openai, config.effort),
+          },
+          instructions: config.systemPrompt ?? AGI_SYSTEM_PROMPT,
           prompt_cache_key: `monotio_agi.session.${sessionId}`,
           prompt_cache_options: {
             mode: "implicit",

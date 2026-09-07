@@ -156,14 +156,27 @@ describe("read_frames tool", () => {
     assert.deepEqual(pngSize(res.images![0]!.png), { width: 968, height: 404 });
   });
 
-  it("clamps count to the documented maximum", async () => {
+  it("returns every frame up to the documented maximum", async () => {
+    const res = await executeAgentToolAsync(
+      session,
+      "read_frames",
+      { count: 9, stride: 1, sheet: null, plane: null },
+      { frames: fakeSource([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) },
+    );
+    assert.equal(res.images?.length, 9);
+  });
+
+  it("rejects a count above the documented maximum before dispatch", async () => {
+    // The schema bound is the contract, as for playtest_room.ticks; nothing is clamped silently.
     const res = await executeAgentToolAsync(
       session,
       "read_frames",
       { count: 99, stride: 1, sheet: null, plane: null },
       { frames: fakeSource([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) },
     );
-    assert.equal(res.images?.length, 9);
+    assert.equal(res.success, false);
+    assert.match(res.error ?? "", /count must be <= 9, got 99/);
+    assert.equal(res.images, undefined);
   });
 
   it("reports an empty ring rather than an empty image", async () => {

@@ -1,6 +1,6 @@
 {
   "name": "agi-is-here",
-  "version": "1.0.0",
+  "version": "1.0.0-rc.1",
   "description": "Create, play and remix authentic AGI adventures with AI. Open-source TypeScript engine and browser authoring tools by Monotio.",
   "type": "module",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "url": "https://github.com/monotio/agi/issues"
   },
   "engines": {
-    "node": ">=22.6"
+    "node": ">=22.22"
   },
   "scripts": {
     "dev": "npm --prefix app run dev -- --port 5199",
@@ -26,29 +26,30 @@
     "prove:kq1:browser": "npm run prove:kq1 && AGI_SPEEDRUN_FILE=/tmp/agi-kq1-speedrun.json npm --prefix app run e2e -- --config playwright.speedrun.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:app": "npm --prefix app run typecheck",
-    "check": "run-s typecheck typecheck:app lint format:check test test:app eval:replay",
+    "check": "run-s typecheck typecheck:app lint lint:ast format:check test test:app eval:replay",
     "eval:genesis": "node --experimental-strip-types scripts/eval-genesis.ts",
     "eval:picture": "node --experimental-strip-types scripts/eval-picture.ts",
     "conformance": "node --experimental-strip-types scripts/conformance.ts",
     "eval:replay": "node --test --experimental-strip-types 'evals/tests/**/*.test.mjs'",
     "eval": "npx --prefix evals promptfoo eval -c configs/genesis.mjs",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
-    "lint:ast": "ast-grep scan -c .ast-grep/sgconfig.yml",
+    "lint:ast": "node scripts/check-ast-grep-suppressions.mjs && ast-grep scan -c .ast-grep/sgconfig.yml --error",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.123.0",
+    "@anthropic-ai/sdk": "^0.124.0",
+    "@ast-grep/cli": "0.45.3",
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.4.1",
     "eslint": "^10.10.0",
-    "eslint-plugin-vue": "^10.10.0",
+    "eslint-plugin-vue": "^10.11.0",
     "globals": "^17.12.0",
-    "npm-run-all2": "^8.0.4",
+    "npm-run-all2": "^9.0.3",
     "openai": "^7.10.0",
     "prettier": "^3.9.6",
-    "typescript": "^5.6.0",
+    "typescript": "^5.8.0",
     "typescript-eslint": "^8.69.0",
     "vue-eslint-parser": "^10.4.1"
   }

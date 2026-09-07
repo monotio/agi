@@ -2,8 +2,8 @@ import type { AgentRunState } from "./agent/agentRun.ts";
 import { reactive } from "vue";
 import type { GameControlBinding, EngineMenuState } from "../../src/runtime/engine.ts";
 import { continuationTranscript } from "./projectArchive.ts";
-import { readGameZip } from "./gameZip.ts";
-import { readGameSaves, writeGameSave } from "./gameSaves.ts";
+import { gameRevision } from "./gameMetadata.ts";
+import { clearGameSaves, readGameSaves, writeGameSave } from "./gameSaves.ts";
 import { serializeAgentLog } from "../../src/agent/toolTransport.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import type { SoundOutput } from "../../src/sound/sound.ts";
@@ -14,7 +14,9 @@ import type { LlmConfig } from "./agent/llmClient.ts";
 import type { AgentFrame, FrameRequest } from "../../src/agent/frames.ts";
 import type { RingFrame } from "./frameRing.ts";
 import { AgiAudio, type AudioMode } from "./audio/AgiAudio.ts";
+import { isProgressPreview, storeRecordWithPreviewFallback } from "./progressPreview.ts";
 import {
+  clearCachedCartridge,
   saveAuthoredCartridge,
   saveGameConversation,
   loadGameConversation,
@@ -75,6 +77,13 @@ export interface AgentLogEntry {
   kind: "request" | "response" | "error" | "log";
   detail: string;
   data?: unknown;
+  /** Ephemeral browser-only previews. Never copied into logs or project data. */
+  audio?: AgentLogAudio[];
+}
+
+export interface AgentLogAudio {
+  url: string;
+  caption: string;
 }
 
 export interface EngineState {
@@ -143,9 +152,6 @@ export interface Frame {
   picRow: number;
 }
 
-/** localStorage slot holding the base64 save-file image written by save.game. */
-const SAVE_KEY = "monotio_agi.save";
-
 /**
  * Autosave. A separate, per-game slot:
  * the player's F5 slot is theirs and is never written behind their back, so
@@ -158,14 +164,18 @@ const RESUME_CAPTION_MS = 10_000;
 
 /** One stored autosave: the save-file image plus what it takes to boot into it. */
 export interface AutosaveRecord {
+  format: "monotio.agi.autosave";
+  version: 1;
   /** base64 of the authentic save envelope (the bytes save.game would write). */
   image: string;
+  /** Exact composed engine frame captured with this save image, when available. */
+  preview?: string;
   /** Menus are session state and are not present in the AGI save envelope. */
   menus?: EngineMenuState;
   cycle: number;
   room: number;
   savedAt: number;
-  game: { slug: string; installed: boolean };
+  game: { slug: string; installed: boolean; revision: string };
 }
 
 export function autosaveKey(slug: string): string {
@@ -178,11 +188,46 @@ export function readAutosave(slug: string): AutosaveRecord | null {
     const raw = localStorage.getItem(autosaveKey(slug));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AutosaveRecord;
-    if (typeof parsed?.image !== "string" || !parsed.image) return null;
-    if (typeof parsed?.game?.slug !== "string") return null;
+    if (parsed?.format !== "monotio.agi.autosave" || parsed.version !== 1) return null;
+    if (typeof parsed.image !== "string" || !parsed.image) return null;
+    if (!Number.isInteger(parsed.room) || parsed.room < 0 || parsed.room > 255) return null;
+    if (!Number.isInteger(parsed.cycle) || parsed.cycle < 0 || !Number.isFinite(parsed.savedAt))
+      return null;
+    if (typeof parsed.game?.installed !== "boolean" || !/^[a-f0-9]{64}$/.test(parsed.game.revision))
+      return null;
+    if (parsed?.game?.slug !== slug) return null;
+    if (!isProgressPreview(parsed.preview)) delete parsed.preview;
     return parsed;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Never replace a checkpoint whose format this release cannot understand. A
+ * record without a recognised format (pre-release, or corrupt JSON) protects
+ * nothing and is replaced, so a stale slot cannot block autosave for good.
+ */
+export function writeAutosave(
+  storage: Pick<Storage, "getItem" | "setItem">,
+  record: AutosaveRecord,
+): AutosaveRecord | null {
+  const key = autosaveKey(record.game.slug);
+  try {
+    const raw = storage.getItem(key);
+    if (raw !== null && isFutureAutosave(raw)) return null;
+    return storeRecordWithPreviewFallback(storage, key, record);
+  } catch {
+    return null;
+  }
+}
+
+function isFutureAutosave(raw: string): boolean {
+  try {
+    const existing = JSON.parse(raw) as Partial<AutosaveRecord> | null;
+    return existing?.format === "monotio.agi.autosave" && existing.version !== 1;
+  } catch {
+    return false;
   }
 }
 
@@ -202,6 +247,17 @@ export function lastGameSlug(): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Forget a library game completely: its project body and conversation, its
+ * checkpoint, its numbered saves and the resume pointer. Slugs are
+ * deterministic, so anything left behind would resurface on the next import.
+ */
+export async function removeLibraryGame(slug: string): Promise<void> {
+  await clearCachedCartridge(slug);
+  clearAutosave(slug);
+  clearGameSaves(localStorage, slug);
 }
 
 export function useEngine(onFrame: (frame: Frame) => void) {
@@ -248,6 +304,10 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   let bridge: Bridge | null = null;
   /** The authoring session for the game currently in the slot, if one exists. */
   let session: AgentSession | null = null;
+  /** Every worker bridge follows the current idle-boundary session replacement. */
+  const currentSessionAgent: AgentHandler = {
+    handle: async (request) => session?.handle(request) ?? "",
+  };
   /** What booted, so a remix can build a session for an installed original. */
   let booted: {
     slug: string;
@@ -282,6 +342,92 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   // AGI wait can claim a key whose postMessage is still waiting to dispatch.
   const pendingKeys = new Map<number, number>();
   let nextKeyId = 0;
+  const audioPreviewUrls: { entryId: string; url: string }[] = [];
+  const MAX_AUDIO_PREVIEWS = 8;
+  const MAX_AUDIO_PREVIEW_BYTES = 8 * 1024 * 1024;
+
+  function isWave(bytes: Uint8Array): boolean {
+    if (!(
+      bytes.length >= 44 &&
+      bytes.length <= MAX_AUDIO_PREVIEW_BYTES &&
+      bytes[0] === 0x52 &&
+      bytes[1] === 0x49 &&
+      bytes[2] === 0x46 &&
+      bytes[3] === 0x46 &&
+      bytes[8] === 0x57 &&
+      bytes[9] === 0x41 &&
+      bytes[10] === 0x56 &&
+      bytes[11] === 0x45 &&
+      bytes[12] === 0x66 &&
+      bytes[13] === 0x6d &&
+      bytes[14] === 0x74 &&
+      bytes[15] === 0x20 &&
+      bytes[36] === 0x64 &&
+      bytes[37] === 0x61 &&
+      bytes[38] === 0x74 &&
+      bytes[39] === 0x61
+    ))
+      return false;
+    const header = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const byteRate = header.getUint32(28, true);
+    const dataBytes = header.getUint32(40, true);
+    return (
+      header.getUint32(4, true) + 8 === bytes.length &&
+      header.getUint16(20, true) === 1 &&
+      byteRate > 0 &&
+      dataBytes + 44 === bytes.length &&
+      dataBytes / byteRate <= 30
+    );
+  }
+
+  function takeAudio(data: unknown): { previews: AgentLogAudio[]; serializable: unknown } {
+    if (!data || typeof data !== "object" || Array.isArray(data))
+      return { previews: [], serializable: data };
+    const record = data as Record<string, unknown>;
+    const result = record["result"];
+    if (!result || typeof result !== "object" || Array.isArray(result))
+      return { previews: [], serializable: data };
+    const resultRecord = result as Record<string, unknown>;
+    const attachments = resultRecord["audio"];
+    if (!Array.isArray(attachments)) return { previews: [], serializable: data };
+
+    const cleanResult = { ...resultRecord };
+    delete cleanResult["audio"];
+    const previews: AgentLogAudio[] = [];
+    for (const attachment of attachments.slice(0, MAX_AUDIO_PREVIEWS)) {
+      if (!attachment || typeof attachment !== "object" || Array.isArray(attachment)) continue;
+      const candidate = attachment as Record<string, unknown>;
+      const wav = candidate["wav"];
+      const caption = candidate["caption"];
+      if (
+        candidate["mimeType"] !== "audio/wav" ||
+        !(wav instanceof Uint8Array) ||
+        !isWave(wav) ||
+        typeof caption !== "string" ||
+        !caption.trim()
+      )
+        continue;
+      previews.push({
+        url: URL.createObjectURL(new Blob([wav.slice()], { type: "audio/wav" })),
+        caption: caption.trim().slice(0, 300),
+      });
+    }
+    return { previews, serializable: { ...record, result: cleanResult } };
+  }
+
+  function traceAgentLog(): AgentLogEntry[] {
+    return state.agentLog.map((entry) => {
+      const copy = { ...entry };
+      delete copy.audio;
+      return copy;
+    });
+  }
+
+  function releaseAgentAudioPreviews(): void {
+    for (const { url } of audioPreviewUrls) URL.revokeObjectURL(url);
+    audioPreviewUrls.length = 0;
+    for (const entry of state.agentLog) delete entry.audio;
+  }
 
   function logAgent(
     kind: "request" | "response" | "error" | "log",
@@ -293,20 +439,37 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       return;
     }
 
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const extracted = takeAudio(data);
     const entry: AgentLogEntry = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id,
       timestamp: Date.now(),
       kind,
       detail,
-      data: data !== undefined ? JSON.parse(serializeAgentLog(data)) : undefined,
+      data:
+        extracted.serializable !== undefined
+          ? JSON.parse(serializeAgentLog(extracted.serializable))
+          : undefined,
     };
+    if (extracted.previews.length) entry.audio = extracted.previews;
     state.agentLog.push(entry);
+    for (const preview of extracted.previews)
+      audioPreviewUrls.push({ entryId: id, url: preview.url });
+    while (audioPreviewUrls.length > MAX_AUDIO_PREVIEWS) {
+      const evicted = audioPreviewUrls.shift()!;
+      URL.revokeObjectURL(evicted.url);
+      const oldEntry = state.agentLog.find(({ id: entryId }) => entryId === evicted.entryId);
+      if (!oldEntry?.audio) continue;
+      oldEntry.audio = oldEntry.audio.filter(({ url }) => url !== evicted.url);
+      if (!oldEntry.audio.length) delete oldEntry.audio;
+    }
     if (typeof window !== "undefined") {
-      window.__AGI_TRACE__ = state.agentLog;
+      window.__AGI_TRACE__ = traceAgentLog();
     }
   }
 
   function clearAgentLog(): void {
+    releaseAgentAudioPreviews();
     state.agentLog = [];
     if (typeof window !== "undefined") {
       window.__AGI_TRACE__ = [];
@@ -383,7 +546,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
             saved =
               booted && Number.isInteger(slot)
                 ? readGameSaves(localStorage, booted.slug)[String(slot)]
-                : localStorage.getItem(SAVE_KEY);
+                : null;
           } catch {
             saved = null;
           }
@@ -559,7 +722,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       // over this container on first use.
       session = null;
       booted = { slug, installed: true, files, words };
-      bridge = createBridge(hostBridgeHandler({ handle: async () => "" }), logAgent);
+      bridge = createBridge(hostBridgeHandler(currentSessionAgent), logAgent);
       // A successful remix is saved as its own local cartridge before playback resumes.
       worker.postMessage({
         type: "boot",
@@ -569,7 +732,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         words,
         sab: bridge.sab,
         autosaveFiles: true,
-        ...takeResumeState(),
+        ...(await takeResumeState(files)),
       });
     } catch (e) {
       state.phase = "error";
@@ -626,45 +789,71 @@ export function useEngine(onFrame: (frame: Frame) => void) {
    */
   async function storeAutosave(msg: {
     image: string;
+    preview?: unknown;
     menus?: EngineMenuState;
     cycle: number;
     room: number;
     files?: Record<string, Uint8Array>;
   }): Promise<boolean> {
-    if (!booted) return false;
-    const game = booted;
-    if (msg.files) {
-      // Only cached worlds have a resource-storage slot for autosave updates.
-      if (booted.installed) return false;
-      booted.files = msg.files;
-      if (!(await updateAuthoredCartridgeFiles(booted.slug, msg.files))) return false;
-    }
-    const record: AutosaveRecord = {
-      image: String(msg.image),
-      ...(msg.menus ? { menus: msg.menus } : {}),
-      cycle: Number(msg.cycle),
-      room: Number(msg.room),
-      savedAt: Date.now(),
-      game: { slug: game.slug, installed: game.installed },
-    };
     try {
+      if (!booted) return false;
+      const game = booted;
+      if (msg.files) {
+        // Only cached worlds have a resource-storage slot for autosave updates.
+        if (booted.installed) return false;
+        // Memory follows storage: bytes the container refused (a catalog
+        // original) must not become the revision a later checkpoint records.
+        if (!(await updateAuthoredCartridgeFiles(game.slug, msg.files))) return false;
+        if (booted !== game) return false;
+        game.files = msg.files;
+      }
+      const record: AutosaveRecord = {
+        format: "monotio.agi.autosave",
+        version: 1,
+        image: String(msg.image),
+        ...(isProgressPreview(msg.preview) ? { preview: msg.preview } : {}),
+        ...(msg.menus ? { menus: msg.menus } : {}),
+        cycle: Number(msg.cycle),
+        room: Number(msg.room),
+        savedAt: Date.now(),
+        game: {
+          slug: game.slug,
+          installed: game.installed,
+          revision: await gameRevision(game.files),
+        },
+      };
       if (booted !== game) return false;
-      localStorage.setItem(autosaveKey(game.slug), JSON.stringify(record));
-      localStorage.setItem(LAST_GAME_KEY, booted.slug);
-    } catch (e) {
-      logAgent("log", `autosave failed: ${String(e)}`);
+      const stored = writeAutosave(localStorage, record);
+      if (!stored) {
+        logAgent("log", "autosave failed: browser storage rejected the save record");
+        return false;
+      }
+      try {
+        localStorage.setItem(LAST_GAME_KEY, game.slug);
+      } catch (e) {
+        logAgent("log", `autosave resume pointer failed: ${String(e)}`);
+      }
+      hook.autosave = stored.cycle;
+      lastAutosave = stored;
+      publishHook();
+      return true;
+    } catch (error) {
+      // One failed checkpoint must not poison the write chain for the session.
+      logAgent("log", `autosave failed: ${String(error)}`);
       return false;
     }
-    hook.autosave = record.cycle;
-    lastAutosave = record;
-    publishHook();
-    return true;
   }
 
   /** Consume the matching image and session menus together; a boot restores once. */
-  function takeResumeState(): { restoreImage: string; restoreMenus?: EngineMenuState } {
+  async function takeResumeState(
+    files: Record<string, Uint8Array>,
+  ): Promise<{ restoreImage: string; restoreMenus?: EngineMenuState }> {
     const record = pendingResumeRecord;
     pendingResumeRecord = null;
+    if (record && record.game.revision !== (await gameRevision(files)))
+      throw new Error(
+        "This checkpoint belongs to a different revision of the game. Restore its matching project, or choose Start over to begin with the current game. Your checkpoint has been kept.",
+      );
     return {
       restoreImage: record?.image ?? "",
       ...(record?.menus ? { restoreMenus: record.menus } : {}),
@@ -721,6 +910,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     worker?.terminate();
     bridge?.dispose();
     audio.stop();
+    releaseAgentAudioPreviews();
     worker = null;
     bridge = null;
     session = null;
@@ -843,18 +1033,11 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       } else if (msg.type === "stopSound") {
         state.soundPlaying = false;
         audio.stop();
-      } else if (msg.type === "saveGame") {
-        try {
-          // msg.image is the base64 save-file image the engine encoded.
-          const image = String(msg.image);
-          localStorage.setItem(SAVE_KEY, image);
-          logAgent("log", "Game state saved to local storage.");
-        } catch (e) {
-          logAgent("log", `save failed: ${String(e)}`);
-        }
       } else if (msg.type === "autosave") {
         const game = booted;
-        autosaveWrite = autosaveWrite.then(() => (booted === game ? storeAutosave(msg) : false));
+        autosaveWrite = autosaveWrite
+          .then(() => (booted === game ? storeAutosave(msg) : false))
+          .catch(() => false);
       } else if (msg.type === "flushed") {
         // The worker reply follows its snapshot; wait for the browser's
         // asynchronous project write before acknowledging the flush.
@@ -1094,6 +1277,10 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       }
       if (!session) throw new Error("no game is running");
       state.powerUp.messages = session.getMessages();
+      if (!session.isConfigured()) {
+        state.powerUp.needsConfig = true;
+        return;
+      }
       session.setRuntime({ frames: { read: readFrames }, engine: engineSource });
       if (booted?.installed || (booted && getCachedCartridgeMeta(booted.slug)?.imported)) {
         session.setOrientation({
@@ -1112,6 +1299,77 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     objects: () => query<unknown>("objects"),
     state: () => query<unknown>("state"),
   };
+
+  /** Apply shared AI settings to the next turn without replacing authored game state. */
+  async function updateAiConfig(config: LlmConfig): Promise<void> {
+    if (state.powerUp.busy)
+      throw new Error("Wait for the current agent task to finish before changing AI settings.");
+
+    const current = session;
+    let replacement: AgentSession;
+    if (current) {
+      replacement = current.reconfigure(config);
+    } else {
+      const game = booted;
+      if (!game) return;
+      const cached = game.installed
+        ? await loadGameConversation(game.slug)
+        : await loadAuthoredCartridge(game.slug);
+      if (booted !== game || session)
+        throw new Error("The game changed while applying AI settings. Try again.");
+      replacement = AgentSession.fromAuthoredData(
+        config,
+        logAgent,
+        game.files,
+        game.words,
+        cached ? continuationTranscript(cached, config.provider, config.model) : undefined,
+        cached?.provider === config.provider && cached.model === config.model
+          ? cached.sessionId
+          : undefined,
+        cached?.authoringState,
+      );
+      if (game.installed || getCachedCartridgeMeta(game.slug)?.imported) {
+        replacement.setOrientation({
+          gameId: game.slug,
+          profile: state.profile ?? "unknown",
+        });
+      }
+    }
+
+    replacement.setRuntime({ frames: { read: readFrames }, engine: engineSource });
+    session = replacement;
+    state.agentTask = replacement.task.snapshot();
+    state.powerUp.messages = replacement.getMessages();
+    state.powerUp.needsConfig = !replacement.isConfigured();
+    state.powerUp.error = "";
+
+    const game = booted;
+    if (!game) return;
+    const context = replacement.getProviderContext();
+    try {
+      if (game.installed) {
+        await saveGameConversation(game.slug, {
+          ...context,
+          transcript: replacement.getTranscript(),
+          sessionId: replacement.getSessionId(),
+          authoringState: replacement.getAuthoringState(),
+        });
+      } else if (
+        !(await updateCartridgeConversation(
+          game.slug,
+          replacement.getTranscript(),
+          replacement.getSessionId(),
+          replacement.getAuthoringState(),
+          context.provider,
+          context.model,
+        ))
+      ) {
+        logAgent("error", "Browser storage could not save the updated AI session.");
+      }
+    } catch {
+      logAgent("error", "Browser storage could not save the updated AI session.");
+    }
+  }
 
   /** Close the bubble without asking for anything; the world resumes untouched. */
   function closePowerUp(): void {
@@ -1133,10 +1391,31 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     const words = files["WORDS.TOK"]
       ? parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id] as [string, number])
       : game.words;
-    if (game.installed) {
+    const original = game.installed ? null : await loadAuthoredCartridge(game.slug);
+    const revision = await gameRevision(files);
+    const catalogChanged =
+      original?.library?.source === "catalog" && original.library.revision !== revision;
+    if (game.installed || catalogChanged) {
       const slug = `remix-${crypto.randomUUID()}`;
-      const data = {
-        title: `${game.slug.toUpperCase()} Remix`,
+      const data: Omit<CachedCartridgeData, "slug" | "authoredAt"> = {
+        title: `${original?.title ?? game.slug.toUpperCase()} Remix`,
+        library: {
+          ...original?.library,
+          version: 1,
+          gameId: slug,
+          revision,
+          source: "remix",
+          catalog: undefined,
+          preview: undefined,
+          parent: {
+            gameId: original?.library?.gameId ?? game.slug,
+            revision: original?.library?.revision ?? (await gameRevision(game.files)),
+          },
+          validation: {
+            status: "unverified",
+            message: "Remixed resources. Check the opening to create a new preview.",
+          },
+        },
         files,
         words,
         ...context,
@@ -1147,7 +1426,12 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         roomGeneration: false,
       };
       if (!(await saveAuthoredCartridge(slug, data)))
-        throw new Error("Browser storage could not save this remix. Use Save project to keep it.");
+        throw new Error(
+          "Browser storage could not save this remix. Use Game actions → Project to keep it.",
+        );
+      // The checkpoint moves with the progress: the original card must never
+      // offer a snapshot taken under resources its own container does not have.
+      clearAutosave(game.slug);
       game.slug = slug;
       game.installed = false;
       game.cartridge = { ...data, slug, authoredAt: new Date().toISOString() };
@@ -1166,7 +1450,9 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         files,
       ))
     ) {
-      throw new Error("Browser storage could not save this remix. Use Save project to keep it.");
+      throw new Error(
+        "Browser storage could not save this remix. Use Game actions → Project to keep it.",
+      );
     }
     game.files = files;
     game.words = words;
@@ -1181,6 +1467,10 @@ export function useEngine(onFrame: (frame: Frame) => void) {
    */
   async function submitPowerUp(instruction: string): Promise<void> {
     if (!session || state.powerUp.busy || state.powerUp.mode === "room") return;
+    if (!session.isConfigured()) {
+      state.powerUp.needsConfig = true;
+      return;
+    }
     state.powerUp.busy = true;
     state.powerUp.error = "";
     state.powerUp.messages.push({ role: "user", text: instruction });
@@ -1210,7 +1500,9 @@ export function useEngine(onFrame: (frame: Frame) => void) {
               context.model,
             ))
           )
-            throw new Error("Conversation could not be saved. Use Save project to keep it.");
+            throw new Error(
+              "Conversation could not be saved. Use Game actions → Project to keep it.",
+            );
         }
         return;
       }
@@ -1260,7 +1552,9 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       if (game && session && (!game.installed || remixNeedsSave)) {
         const files = await query<Record<string, Uint8Array> | null>("exportFiles");
         if (!files)
-          throw new Error("The current game could not be saved. Try Save project before leaving.");
+          throw new Error(
+            "The current game could not be saved. Try Game actions → Project before leaving.",
+          );
         await persistRemix(game, session, files);
       }
       await flushAutosave(2000);
@@ -1353,10 +1647,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
                   cached.authoringState,
                 );
           session = cachedSession;
-          bridge = createBridge(
-            hostBridgeHandler({ handle: async (req) => session?.handle(req) ?? "" }),
-            logAgent,
-          );
+          bridge = createBridge(hostBridgeHandler(currentSessionAgent), logAgent);
           booted = {
             slug,
             installed: false,
@@ -1373,15 +1664,18 @@ export function useEngine(onFrame: (frame: Frame) => void) {
             sab: bridge.sab,
             autosaveFiles: true,
             authorRooms: cached.roomGeneration ?? !cached.imported,
-            ...takeResumeState(),
+            ...(await takeResumeState(cached.files)),
           });
           return;
         }
+        throw new Error(
+          "This saved game is no longer available. Import it again or choose a catalog game.",
+        );
       }
 
       const authoring = new AgentSession(config, logAgent);
       session = authoring;
-      bridge = createBridge(hostBridgeHandler(authoring), logAgent);
+      bridge = createBridge(hostBridgeHandler(currentSessionAgent), logAgent);
 
       const { files, words, transcript, sessionId } =
         await authoring.startGenesis(cartridgeMarkdown);
@@ -1414,7 +1708,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       if (!saved)
         logAgent(
           "error",
-          "Browser storage could not save this world. Use Save project to keep it.",
+          "Browser storage could not save this world. Use Game actions → Project to keep it.",
         );
       if (saved)
         logAgent(
@@ -1448,33 +1742,6 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       model: "offline-stub",
     };
     return bootCartridgeGame("", stubConfig);
-  }
-
-  async function bootImportedGame(bytes: Uint8Array, filename: string): Promise<void> {
-    const imported = await readGameZip(bytes);
-    const slug = `imported-${crypto.randomUUID()}`;
-    const title = imported.title ?? filename.replace(/\.zip$/i, "");
-    if (
-      !(await saveAuthoredCartridge(slug, {
-        title,
-        provider: imported.project?.provider ?? "stub",
-        model: imported.project?.model ?? "local-playback",
-        transcript: imported.project?.transcript,
-        sessionId: imported.project?.sessionId,
-        authoringState: imported.project?.authoringState,
-        conversationHistory: imported.project?.conversationHistory,
-        roomGeneration: imported.roomGeneration,
-        files: imported.files,
-        words: imported.words,
-        imported: true,
-      }))
-    )
-      throw new Error("Browser storage is full. Free space before importing this game.");
-    await bootCartridgeGame(
-      "",
-      { provider: "stub", model: "local-playback", apiKey: "" },
-      { slug, title, useCached: true },
-    );
   }
 
   function sendInput(text: string): void {
@@ -1543,7 +1810,6 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     discoverGames,
     bootGame,
     bootAgentGame,
-    bootImportedGame,
     bootCartridgeGame,
     sendInput,
     sendEdit,
@@ -1553,9 +1819,11 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     submitPrompt,
     ejectGame,
     clearAgentLog,
+    releaseAgentAudioPreviews,
     pauseEngine,
     resumeEngine,
     readFrames,
+    updateAiConfig,
     openPowerUp,
     closePowerUp,
     submitPowerUp,

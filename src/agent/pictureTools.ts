@@ -1,9 +1,13 @@
 /** Accessible, bounded shape authoring compiled to authentic AGI picture commands. */
 import { resourceRevision } from "./authoringState.ts";
-import { colourGrid } from "./pictureFeedback.ts";
+import {
+  colourGrid,
+  formatPriorityDiagnostics,
+  PICTURE_COMPARISON_LEGEND,
+  pictureComparisonPng,
+} from "./pictureFeedback.ts";
 import type { AgentSessionState, AgentToolResult, ToolDefinition } from "./tools.ts";
 import { computePictureMetrics, DEFAULT_HORIZON } from "../picture/metrics.ts";
-import { surfaceToPng } from "../picture/png.ts";
 import { renderPicture } from "../picture/renderer.ts";
 import { compilePictureSource } from "../picture/source.ts";
 import { createPictureSurface, SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
@@ -28,7 +32,7 @@ export const PICTURE_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_scene",
     description:
-      "Compile an ordered list of rectangles, polygons, and polylines into an authentic AGI vector picture. Geometry uses logical coordinates x 0..159 and y 0..167. Every shape writes its visual color and optionally its priority value. Filled geometry is rasterized as deterministic authentic line commands, so it does not depend on fragile flood-fill seeds. Polygon input must be simple and non-self-intersecting. Returns the compiled render, numeric feedback, and resource revision.",
+      "Compile a complete picture `room` from ordered `shapes` (rects, polygons and lines in logical coordinates) over a full `backgroundColor` fill. Rects use x1,y1,x2,y2; other shapes use points. Unused coordinates and visual-only priority are null. Later shapes paint over earlier ones. Returns the rendered comparison, spatial metrics and revision; invalid geometry stores nothing.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -37,18 +41,15 @@ export const PICTURE_TOOLS: readonly ToolDefinition[] = [
           type: "integer",
           minimum: 0,
           maximum: 255,
-          description: "Picture resource number.",
         },
         backgroundColor: {
           type: "integer",
           minimum: 0,
           maximum: 15,
-          description: "EGA color for the full initial background.",
         },
         shapes: {
           type: "array",
           maxItems: MAX_SHAPES,
-          description: "Shapes painted in order; later shapes appear over earlier shapes.",
           items: {
             type: "object",
             additionalProperties: false,
@@ -59,42 +60,35 @@ export const PICTURE_TOOLS: readonly ToolDefinition[] = [
                 type: ["integer", "null"],
                 minimum: 0,
                 maximum: 15,
-                description: "Priority/control value, or null to leave priority unchanged.",
               },
               filled: {
                 type: "boolean",
-                description: "Fill rects/polygons; must be false for a line.",
               },
               x1: {
                 type: ["integer", "null"],
                 minimum: 0,
                 maximum: 159,
-                description: "First rect corner X; null for polygon/line.",
               },
               y1: {
                 type: ["integer", "null"],
                 minimum: 0,
                 maximum: 167,
-                description: "First rect corner Y; null for polygon/line.",
               },
               x2: {
                 type: ["integer", "null"],
                 minimum: 0,
                 maximum: 159,
-                description: "Second rect corner X; null for polygon/line.",
               },
               y2: {
                 type: ["integer", "null"],
                 minimum: 0,
                 maximum: 167,
-                description: "Second rect corner Y; null for polygon/line.",
               },
               points: {
                 type: ["array", "null"],
                 minItems: 2,
                 maxItems: MAX_VERTICES_PER_SHAPE,
                 items: POINT_SCHEMA,
-                description: "Polygon/polyline vertices; null for rect.",
               },
             },
             required: ["kind", "color", "priority", "filled", "x1", "y1", "x2", "y2", "points"],
@@ -351,13 +345,13 @@ export function executePictureTool(
       horizon: DEFAULT_HORIZON,
       commandCount: compiled.commandCount,
     });
-    const png = surfaceToPng(surface.visual, SCREEN_WIDTH, SCREEN_HEIGHT, { scale: 2 });
+    const png = pictureComparisonPng(surface.visual, surface.priority);
     state.container.putResource("picture", room, compiled.bytes);
     state.sources.pictures.set(room, source);
     const revision = resourceRevision(compiled.bytes);
     return {
       success: true,
-      message: `Picture ${room} compiled from ${shapes.length} ordered shapes (${compiled.bytes.length} bytes, ${compiled.commandCount} commands), revision ${revision}.\nDominant colour per cell, 8x7:\n${colourGrid(surface.visual)}`,
+      message: `Picture ${room} compiled from ${shapes.length} ordered shapes (${compiled.bytes.length} bytes, ${compiled.commandCount} commands), revision ${revision}.\nDominant colour per cell, 8x7:\n${colourGrid(surface.visual)}\n${formatPriorityDiagnostics(surface.priority)}`,
       details: {
         resource: { kind: "picture", num: room },
         writtenResources: [{ kind: "picture", num: room }],
@@ -375,7 +369,7 @@ export function executePictureTool(
       images: [
         {
           png,
-          caption: `Picture ${room}, rendered from compiled AGI vector bytes at 320x336 with the EGA palette.`,
+          caption: `Picture ${room}, compiled AGI vector bytes in a 960x168 comparison sheet; each 320x168 panel uses native 2:1 logical-pixel aspect. ${PICTURE_COMPARISON_LEGEND}`,
         },
       ],
     };

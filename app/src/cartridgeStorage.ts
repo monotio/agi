@@ -1,4 +1,10 @@
 import { parseWordsTok } from "../../src/logic/words.ts";
+import {
+  gameRevision,
+  isLocalGamePreview,
+  normalizeLibraryMetadata,
+  type LibraryMetadata,
+} from "./gameMetadata.ts";
 /**
  * IndexedDB project bodies with a lightweight localStorage metadata index.
  * Prevents loss of generated worlds across HMR, page refreshes, and browser sessions.
@@ -7,15 +13,33 @@ import { parseWordsTok } from "../../src/logic/words.ts";
 import type { CachedCartridgeMeta, CachedCartridgeData } from "./cartridgeTypes.ts";
 export type { CachedCartridgeMeta, CachedCartridgeData } from "./cartridgeTypes.ts";
 
-interface StoredCartridgeJson extends CachedCartridgeMeta {
-  filesBase64: Record<string, string>;
-  words: [string, number][];
-  transcript?: unknown[] | undefined;
-  authoringState?: Record<string, unknown> | undefined;
-  conversationHistory?: { provider: string; model: string; transcript: unknown[] }[] | undefined;
+interface StoredCartridgeIndex extends CachedCartridgeMeta {
+  format: "monotio.agi.project-index";
+  version: 1;
+  storage: "indexeddb";
+}
+
+interface StoredCartridgeBody extends CachedCartridgeData {
+  format: "monotio.agi.project";
+  version: 1;
 }
 
 const STORAGE_PREFIX = "monotio_agi.authored.";
+const SHA256 = /^[a-f0-9]{64}$/;
+/** Every released library field; a version-1 reader keeps anything else as an additive extension. */
+const LIBRARY_FIELDS: Record<keyof LibraryMetadata, true> = {
+  version: true,
+  gameId: true,
+  revision: true,
+  source: true,
+  catalog: true,
+  preview: true,
+  validation: true,
+  description: true,
+  author: true,
+  license: true,
+  parent: true,
+};
 
 export interface GameConversation {
   provider: string;
@@ -27,81 +51,80 @@ export interface GameConversation {
 
 /** Local discussions of installed games, without copying game resources into a project. */
 export async function saveGameConversation(slug: string, context: GameConversation): Promise<void> {
-  await bodyTransaction("readwrite", (store) =>
-    store.put({ ...context, slug: `conversation/${slug}` }),
-  );
+  const key = `conversation/${slug}`;
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction("projects", "readwrite");
+    const store = transaction.objectStore("projects");
+    const existing = store.get(key);
+    let contractError: Error | undefined;
+    existing.onsuccess = () => {
+      const value = existing.result as Record<string, unknown> | undefined;
+      // Only a record this release recognises as newer is protected; a
+      // format-less pre-release record is replaced rather than blocking saves.
+      if (value && value["format"] === "monotio.agi.conversation" && value["version"] !== 1) {
+        contractError = new Error("This game conversation version is not supported by this app.");
+        transaction.abort();
+        return;
+      }
+      store.put({
+        ...context,
+        slug: key,
+        format: "monotio.agi.conversation",
+        version: 1,
+      });
+    };
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(contractError ?? transaction.error);
+    transaction.onabort = () =>
+      reject(
+        contractError ?? transaction.error ?? new Error("Project storage transaction aborted."),
+      );
+  });
 }
 
 export async function loadGameConversation(slug: string): Promise<GameConversation | undefined> {
-  return bodyTransaction<GameConversation | undefined>("readonly", (store) =>
-    store.get(`conversation/${slug}`),
+  const stored = await bodyTransaction<(GameConversation & Record<string, unknown>) | undefined>(
+    "readonly",
+    (store) => store.get(`conversation/${slug}`),
   );
+  if (!stored) return undefined;
+  if (stored["format"] !== "monotio.agi.conversation" || stored["version"] !== 1)
+    throw new Error("This game conversation version is not supported by this app.");
+  const { format: _format, version: _version, slug: _slug, ...context } = stored;
+  return context as unknown as GameConversation;
 }
 
 export function getStorageKey(slug: string): string {
   return `${STORAGE_PREFIX}${slug}`;
 }
 
-function legacySaveAuthoredCartridge(
-  slug: string,
-  data: {
-    title: string;
-    authoredAt?: string;
-    provider: string;
-    model: string;
-    files: Record<string, Uint8Array>;
-    words: [string, number][];
-    transcript?: unknown[] | undefined;
-    authoringState?: Record<string, unknown> | undefined;
-    conversationHistory?: { provider: string; model: string; transcript: unknown[] }[] | undefined;
-    sessionId?: string | undefined;
-    imported?: boolean | undefined;
-    roomGeneration?: boolean | undefined;
-  },
-): boolean {
-  try {
-    const filesBase64: Record<string, string> = {};
-    for (const [name, bytes] of Object.entries(data.files)) {
-      let binary = "";
-      const len = bytes.byteLength;
-      for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(bytes[i]!);
-      }
-      filesBase64[name] = btoa(binary);
-    }
-
-    const payload: StoredCartridgeJson = {
-      slug,
-      title: data.title,
-      authoredAt: data.authoredAt ?? new Date().toISOString(),
-      provider: data.provider,
-      model: data.model,
-      sessionId: data.sessionId,
-      imported: data.imported,
-      roomGeneration: data.roomGeneration,
-      authoringState: data.authoringState,
-      conversationHistory: data.conversationHistory,
-      filesBase64,
-      words: data.words,
-      transcript: data.transcript,
-    };
-
-    localStorage.setItem(getStorageKey(slug), JSON.stringify(payload));
-    return true;
-  } catch (e) {
-    console.warn("Failed to persist authored cartridge to localStorage:", e);
-    return false;
-  }
-}
-
 export function getCachedCartridgeMeta(slug: string): CachedCartridgeMeta | null {
   try {
     const raw = localStorage.getItem(getStorageKey(slug));
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredCartridgeJson;
+    const parsed = JSON.parse(raw) as StoredCartridgeIndex;
+    if (
+      parsed.format !== "monotio.agi.project-index" ||
+      parsed.version !== 1 ||
+      parsed.storage !== "indexeddb"
+    )
+      return null;
+    const libraryValue = parsed.library as unknown as Record<string, unknown> | undefined;
+    const library =
+      libraryValue?.["version"] === 1 &&
+      typeof libraryValue["revision"] === "string" &&
+      SHA256.test(libraryValue["revision"])
+        ? normalizeLibraryMetadata(libraryValue, {
+            gameId: slug,
+            revision: libraryValue["revision"],
+            source: parsed.imported ? "zip" : "authored",
+          })
+        : undefined;
     return {
-      slug: parsed.slug || slug,
-      title: parsed.title || slug,
+      ...(library ? { library } : {}),
+      slug: parsed.slug,
+      title: parsed.title,
       authoredAt: parsed.authoredAt,
       provider: parsed.provider,
       model: parsed.model,
@@ -110,43 +133,6 @@ export function getCachedCartridgeMeta(slug: string): CachedCartridgeMeta | null
       roomGeneration: parsed.roomGeneration,
     };
   } catch {
-    return null;
-  }
-}
-
-function legacyLoadAuthoredCartridge(slug: string): CachedCartridgeData | null {
-  try {
-    const raw = localStorage.getItem(getStorageKey(slug));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredCartridgeJson;
-
-    const files: Record<string, Uint8Array> = {};
-    for (const [name, b64] of Object.entries(parsed.filesBase64 || {})) {
-      const binary = atob(b64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      files[name] = bytes;
-    }
-
-    return {
-      slug: parsed.slug || slug,
-      title: parsed.title || slug,
-      authoredAt: parsed.authoredAt,
-      provider: parsed.provider,
-      model: parsed.model,
-      sessionId: parsed.sessionId,
-      imported: parsed.imported,
-      roomGeneration: parsed.roomGeneration,
-      files,
-      words: parsed.words || [],
-      transcript: parsed.transcript,
-      authoringState: parsed.authoringState,
-      conversationHistory: parsed.conversationHistory,
-    };
-  } catch (e) {
-    console.warn("Failed to load cached cartridge from localStorage:", e);
     return null;
   }
 }
@@ -157,7 +143,7 @@ export function listCachedCartridges(): CachedCartridgeMeta[] {
       .filter((key) => key.startsWith(STORAGE_PREFIX))
       .map((key) => getCachedCartridgeMeta(key.slice(STORAGE_PREFIX.length)))
       .filter((entry): entry is CachedCartridgeMeta => entry !== null)
-      .sort((a, b) => b.authoredAt.localeCompare(a.authoredAt));
+      .sort((a, b) => (b.authoredAt ?? "").localeCompare(a.authoredAt ?? ""));
   } catch {
     return [];
   }
@@ -166,11 +152,36 @@ export function listCachedCartridges(): CachedCartridgeMeta[] {
 let database: Promise<IDBDatabase> | undefined;
 const writes = new Map<string, Promise<unknown>>();
 function openDatabase(): Promise<IDBDatabase> {
+  if (typeof indexedDB === "undefined")
+    return Promise.reject(
+      new Error("Browser project storage is unavailable. Enable site storage and try again."),
+    );
   database ??= new Promise((resolve, reject) => {
+    let abandoned = false;
     const request = indexedDB.open("monotio-agi-projects", 1);
     request.onupgradeneeded = () =>
       request.result.createObjectStore("projects", { keyPath: "slug" });
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const opened = request.result;
+      if (abandoned) {
+        opened.close();
+        return;
+      }
+      opened.onversionchange = () => {
+        opened.close();
+        database = undefined;
+      };
+      resolve(opened);
+    };
+    request.onblocked = () => {
+      abandoned = true;
+      database = undefined;
+      reject(
+        new Error(
+          "Project storage is open in another tab. Close or reload that tab, then try again.",
+        ),
+      );
+    };
     request.onerror = () => {
       database = undefined;
       reject(request.error);
@@ -195,9 +206,34 @@ async function bodyTransaction<T>(
       reject(transaction.error ?? new Error("Project storage transaction aborted."));
   });
 }
+async function writeCurrentBody(data: CachedCartridgeData): Promise<void> {
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction("projects", "readwrite");
+    const store = transaction.objectStore("projects");
+    const existing = store.get(data.slug);
+    let contractError: Error | undefined;
+    existing.onsuccess = () => {
+      const value = existing.result as Partial<StoredCartridgeBody> | undefined;
+      if (value && value.format === "monotio.agi.project" && value.version !== 1) {
+        contractError = new Error("This saved project version is not supported by this app.");
+        transaction.abort();
+        return;
+      }
+      store.put(storedBody(data));
+    };
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(contractError ?? transaction.error);
+    transaction.onabort = () =>
+      reject(
+        contractError ?? transaction.error ?? new Error("Project storage transaction aborted."),
+      );
+  });
+}
 function metadata(data: CachedCartridgeData): CachedCartridgeMeta {
   return {
     slug: data.slug,
+    library: data.library,
     title: data.title,
     authoredAt: data.authoredAt,
     provider: data.provider,
@@ -207,42 +243,119 @@ function metadata(data: CachedCartridgeData): CachedCartridgeMeta {
     roomGeneration: data.roomGeneration,
   };
 }
+function storedIndex(data: CachedCartridgeData): StoredCartridgeIndex {
+  return {
+    ...metadata(data),
+    format: "monotio.agi.project-index",
+    version: 1,
+    storage: "indexeddb",
+  };
+}
+function storedBody(data: CachedCartridgeData): StoredCartridgeBody {
+  return { ...data, format: "monotio.agi.project", version: 1 };
+}
+function readStoredBody(raw: StoredCartridgeBody, slug: string): CachedCartridgeData {
+  if (raw.format !== "monotio.agi.project" || raw.version !== 1)
+    throw new Error("This saved project version is not supported by this app.");
+  if (raw.slug !== slug) throw new Error("The saved project identity does not match its index.");
+  const { format: _format, version: _version, ...data } = raw;
+  return data;
+}
 async function readBody(slug: string): Promise<CachedCartridgeData | null> {
   const raw = localStorage.getItem(getStorageKey(slug));
   if (!raw) return null;
-  const index = JSON.parse(raw);
-  if (index.storage === "indexeddb") {
-    const data = await bodyTransaction<CachedCartridgeData | undefined>("readonly", (store) =>
-      store.get(slug),
+  const index = JSON.parse(raw) as Record<string, unknown>;
+  if (
+    index["format"] !== "monotio.agi.project-index" ||
+    index["version"] !== 1 ||
+    index["storage"] !== "indexeddb"
+  )
+    throw new Error("This saved project version is not supported by this app.");
+  const stored = await bodyTransaction<StoredCartridgeBody | undefined>("readonly", (store) =>
+    store.get(slug),
+  );
+  if (!stored)
+    throw new Error(
+      "The saved project data is unavailable. Open a downloaded project to recover it.",
     );
-    if (!data)
-      throw new Error(
-        "The saved project data is unavailable. Open a downloaded project to recover it.",
-      );
-    return data;
+  const data = readStoredBody(stored, slug);
+  data.library = readLibrary(data);
+  return data;
+}
+/**
+ * Version 1 is released: a reader checks the record's shape and takes the
+ * normalized values (bounded text, known enums, local previews), never the
+ * exact bytes, so tightening a bound later cannot orphan a saved project.
+ * Resource hashes are verified where identity matters — preview updates and
+ * resume — not on every load.
+ */
+function readLibrary(data: CachedCartridgeData): LibraryMetadata {
+  const raw = data.library as unknown as Record<string, unknown> | undefined;
+  if (
+    !raw ||
+    typeof raw !== "object" ||
+    typeof raw["revision"] !== "string" ||
+    !SHA256.test(raw["revision"])
+  )
+    throw new Error("The saved project has invalid library metadata.");
+  const normalized = normalizeLibraryMetadata(raw, {
+    gameId: data.slug,
+    revision: raw["revision"],
+    source: data.imported ? "zip" : "authored",
+  });
+  const library: Record<string, unknown> = { ...normalized };
+  for (const [key, value] of Object.entries(raw))
+    if (!Object.hasOwn(LIBRARY_FIELDS, key)) library[key] = value;
+  return library as unknown as LibraryMetadata;
+}
+async function stampLibraryMetadata(
+  data: CachedCartridgeData,
+  protectCatalog: boolean,
+): Promise<boolean> {
+  const revision = await gameRevision(data.files);
+  const previous = data.library;
+  if (protectCatalog && previous?.source === "catalog" && previous.revision !== revision)
+    throw new Error("Catalog resources are immutable. Create a remix before changing them.");
+  const next = normalizeLibraryMetadata(previous, {
+    gameId: data.slug,
+    revision,
+    source: data.imported ? "zip" : "authored",
+  });
+  next.revision = revision;
+  if (!previous || previous.revision !== revision) {
+    delete next.preview;
+    next.validation = previous
+      ? {
+          status: "unverified",
+          message: "Resources changed. Check the opening again to refresh its preview.",
+        }
+      : { status: "unverified", message: "Opening not checked yet." };
   }
-  const legacy = legacyLoadAuthoredCartridge(slug);
-  if (legacy && typeof indexedDB !== "undefined") {
-    // Commit the large body first. If migration fails, retain the original archive intact.
-    await bodyTransaction("readwrite", (store) => store.put(legacy));
-    localStorage.setItem(
-      getStorageKey(slug),
-      JSON.stringify({ ...metadata(legacy), storage: "indexeddb" }),
-    );
-  }
-  return legacy;
+  const merged = { ...previous, ...next };
+  if (!previous || previous.revision !== revision) delete merged.preview;
+  const changed = JSON.stringify(previous) !== JSON.stringify(merged);
+  data.library = merged;
+  return changed;
 }
 async function writeBody(data: CachedCartridgeData): Promise<void> {
-  if (typeof indexedDB === "undefined") {
-    if (!legacySaveAuthoredCartridge(data.slug, data))
-      throw new Error("Browser storage could not save the project.");
-    return;
+  const existingIndex = localStorage.getItem(getStorageKey(data.slug));
+  if (existingIndex) {
+    let index: Record<string, unknown>;
+    try {
+      index = JSON.parse(existingIndex) as Record<string, unknown>;
+    } catch {
+      throw new Error("The saved project index is invalid and was left unchanged.");
+    }
+    if (
+      index["format"] !== "monotio.agi.project-index" ||
+      index["version"] !== 1 ||
+      index["storage"] !== "indexeddb"
+    )
+      throw new Error("This saved project version is not supported by this app.");
   }
-  await bodyTransaction("readwrite", (store) => store.put(data));
-  localStorage.setItem(
-    getStorageKey(data.slug),
-    JSON.stringify({ ...metadata(data), storage: "indexeddb" }),
-  );
+  await stampLibraryMetadata(data, true);
+  await writeCurrentBody(data);
+  localStorage.setItem(getStorageKey(data.slug), JSON.stringify(storedIndex(data)));
 }
 function serializeWrite<T>(slug: string, operation: () => Promise<T>): Promise<T> {
   const next = (writes.get(slug) ?? Promise.resolve()).catch(() => {}).then(operation);
@@ -255,8 +368,7 @@ function serializeWrite<T>(slug: string, operation: () => Promise<T>): Promise<T
   return next;
 }
 export async function loadAuthoredCartridge(slug: string): Promise<CachedCartridgeData | null> {
-  await writes.get(slug);
-  return readBody(slug);
+  return serializeWrite(slug, () => readBody(slug));
 }
 export function saveAuthoredCartridge(
   slug: string,
@@ -348,8 +460,100 @@ export function renameAuthoredCartridge(slug: string, title: string): Promise<bo
 }
 export function clearCachedCartridge(slug: string): Promise<void> {
   return serializeWrite(slug, async () => {
-    if (typeof indexedDB !== "undefined")
-      await bodyTransaction("readwrite", (store) => store.delete(slug));
+    // The body and its conversation leave together: slugs are deterministic,
+    // so a game added again must not inherit the removed one's history.
+    await bodyTransaction("readwrite", (store) => {
+      store.delete(`conversation/${slug}`);
+      return store.delete(slug);
+    });
     localStorage.removeItem(getStorageKey(slug));
   });
+}
+
+/** Store a newly checked preview only if it describes the exact current revision. */
+export function updateCartridgePreview(
+  slug: string,
+  revision: string,
+  preview: string,
+  validation: NonNullable<CachedCartridgeMeta["library"]>["validation"],
+): Promise<boolean> {
+  return serializeWrite(slug, async () => {
+    const data = await readBody(slug);
+    if (!data || !isLocalGamePreview(preview) || (await gameRevision(data.files)) !== revision)
+      return false;
+    data.library = {
+      ...(data.library ?? {
+        version: 1,
+        gameId: slug,
+        revision,
+        source: data.imported ? "zip" : "authored",
+      }),
+      preview,
+      validation,
+    };
+    await writeBody(data);
+    return true;
+  });
+}
+
+/** Rebuild the disposable index from committed IndexedDB bodies after an interrupted write. */
+export async function reconcileCartridgeIndex(): Promise<void> {
+  const bodies = await bodyTransaction<StoredCartridgeBody[]>("readonly", (store) =>
+    store.getAll(),
+  );
+  const slugs = bodies
+    .filter(
+      (data) =>
+        data.format === "monotio.agi.project" &&
+        data.version === 1 &&
+        typeof data.slug === "string" &&
+        !data.slug.startsWith("conversation/") &&
+        data.files &&
+        typeof data.files === "object",
+    )
+    .map((data) => data.slug);
+  for (const slug of slugs) {
+    await serializeWrite(slug, async () => {
+      const stored = await bodyTransaction<StoredCartridgeBody | undefined>("readonly", (store) =>
+        store.get(slug),
+      );
+      if (!stored) return;
+      const data = readStoredBody(stored, slug);
+      if (!data.library) return;
+      const current = localStorage.getItem(getStorageKey(data.slug));
+      if (current) {
+        try {
+          const parsed = JSON.parse(current) as Record<string, unknown>;
+          if (parsed["format"] === "monotio.agi.project-index" && parsed["version"] !== 1) return;
+        } catch {
+          return;
+        }
+      }
+      localStorage.setItem(getStorageKey(data.slug), JSON.stringify(storedIndex(data)));
+    });
+  }
+  for (const key of Object.keys(localStorage).filter((key) => key.startsWith(STORAGE_PREFIX))) {
+    const slug = key.slice(STORAGE_PREFIX.length);
+    await serializeWrite(slug, async () => {
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      let index: Record<string, unknown>;
+      try {
+        index = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        // Leave unrelated legacy data recoverable.
+        return;
+      }
+      if (
+        index["format"] !== "monotio.agi.project-index" ||
+        index["version"] !== 1 ||
+        index["storage"] !== "indexeddb"
+      )
+        return;
+      const data = await bodyTransaction<StoredCartridgeBody | undefined>("readonly", (store) =>
+        store.get(slug),
+      );
+      if (!data) localStorage.removeItem(key);
+    });
+  }
 }

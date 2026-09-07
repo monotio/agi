@@ -8,7 +8,7 @@ describe("compact music authoring tools", () => {
   it("advertises strict, bounded schemas", () => {
     assert.deepEqual(
       SOUND_TOOLS.map((tool) => tool.name),
-      ["write_music", "read_sound"],
+      ["write_music", "read_sound", "preview_sound"],
     );
     for (const tool of SOUND_TOOLS) {
       assert.equal(tool.parameters.additionalProperties, false);
@@ -199,17 +199,29 @@ describe("compact music authoring tools", () => {
       limit: 1,
     });
     assert.equal(result?.success, true);
-    assert.deepEqual(result?.details?.["events"], [
-      {
-        channel: 0,
-        index: 1,
-        tone: 0x8315,
-        control: 0x92,
-        freqDivisor: 339,
-        duration: 20,
-        attenuation: 2,
-      },
-    ]);
+    const events = result?.details?.["events"] as Record<string, unknown>[];
+    assert.deepEqual(
+      events.map(({ channel, index, tone, control, freqDivisor, duration, attenuation }) => ({
+        channel,
+        index,
+        tone,
+        control,
+        freqDivisor,
+        duration,
+        attenuation,
+      })),
+      [
+        {
+          channel: 0,
+          index: 1,
+          tone: 0x8315,
+          control: 0x92,
+          freqDivisor: 339,
+          duration: 20,
+          attenuation: 2,
+        },
+      ],
+    );
     assert.equal(result?.details?.["totalNotes"], 3);
     assert.equal(result?.details?.["durationTicks"], 80);
     assert.equal(result?.details?.["durationSeconds"], 80 / 60);

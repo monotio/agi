@@ -1,0 +1,11 @@
+{
+  "name": "write-picture-fill-over-colored-background",
+  "description": "A recurring Genesis picture pattern paints the background before outlining objects, so authentic AGI white-only seed fills silently do nothing",
+  "tool": "write_picture",
+  "args": {
+    "room": 1,
+    "source": "vis 9\nfill 0,0\nvis 8\nrect 2,2 8,8\nfill 5,5\nend"
+  },
+  "expectedSuccess": true,
+  "expectedMessageSnippet": "1 visual fill seeds did nothing: 5,5 selected 8, found 9 (needs 15)."
+}

@@ -2,7 +2,8 @@ node_modules/
 dist/
 test-results/
 playwright-report/
-games/
+games/*/
+!games/adventure-department/
 package-lock.json
 app/package-lock.json
 evals/package-lock.json

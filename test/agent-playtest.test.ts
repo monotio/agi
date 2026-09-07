@@ -5,6 +5,7 @@ import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildWordsTok } from "../src/logic/words.ts";
 import { buildView } from "../src/view/view.ts";
 import { playtestRoom, validateGenesis } from "../src/agent/playtest.ts";
+import { decodePng } from "../scripts/sheet-to-view.ts";
 
 function world(extra = "", room = 1) {
   const state = createAgentSessionState();
@@ -220,7 +221,7 @@ test("a room-only check does not claim a tested route and can enter a later auth
   assert.equal(result.details?.["simulation"], "not_requested");
 });
 
-test("genesis rejects a static room that never enables player input", () => {
+test("genesis warns about a static room that never enables player input", () => {
   const state = world();
   const dictionary = new Map([
     ["take", 10],
@@ -236,8 +237,74 @@ test("genesis rejects a static room that never enables player input", () => {
     ).payload,
   );
   const result = validateGenesis(state);
+  assert.equal(result.success, true, result.error ?? "");
+  assert.match((result.details?.["warnings"] as string[]).join(" "), /parser was not enabled/);
+});
+
+test("genesis fails a boot that shows nothing", () => {
+  const state = world();
+  state.container.putResource(
+    "logic",
+    1,
+    assembleLogic("return;", { dictionary: new Map() }).payload,
+  );
+  const result = validateGenesis(state);
   assert.equal(result.success, false);
-  assert.match(result.error ?? "", /enabled parser/);
+  assert.match(result.error ?? "", /showed nothing/);
+});
+
+test("genesis passes a text-only intro and an ego-less scene with warnings", () => {
+  const dictionary = new Map([["take", 10]]);
+  const textOnly = world();
+  textOnly.container.putResource(
+    "logic",
+    1,
+    assembleLogic('display(10, 5, "The archive is closed today."); return;', { dictionary })
+      .payload,
+  );
+  const intro = validateGenesis(textOnly);
+  assert.equal(intro.success, true, intro.error ?? "");
+  assert.match((intro.details?.["warnings"] as string[]).join(" "), /no picture/i);
+
+  const egoless = world();
+  egoless.container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      "if (isset(f5)) { assignn(v10,1); load.pic(v10); draw.pic(v10); show.pic(); accept.input(); } return;",
+      { dictionary },
+    ).payload,
+  );
+  const scene = validateGenesis(egoless);
+  assert.equal(scene.success, true, scene.error ?? "");
+  assert.match((scene.details?.["warnings"] as string[]).join(" "), /active ego/);
+  assert.equal(scene.details?.["genesisValidated"], true);
+});
+
+test("genesis dismisses a long intro and a key-wait title before the first room", () => {
+  const dictionary = new Map([["take", 10]]);
+  const state = world();
+  state.container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      `
+if (lessn(v40, 10)) { increment(v40); print("Long ago, in a kingdom of pixels..."); return; }
+if (!isset(f41)) {
+  display(10, 5, "Press any key");
+title: if (!have.key()) { goto title; }
+  set(f41);
+  assignn(v10,1); load.pic(v10); draw.pic(v10); show.pic();
+  load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); accept.input();
+}
+return;`,
+      { dictionary },
+    ).payload,
+  );
+  const result = validateGenesis(state);
+  assert.equal(result.success, true, result.error ?? "");
+  assert.equal(result.details?.["acknowledgements"], 11, "ten messages and one key press");
+  assert.equal(result.details?.["warnings"], undefined);
 });
 
 test("a barrier-blocked exit fails the expected room assertion instead of claiming reachability", () => {
@@ -254,6 +321,44 @@ test("a barrier-blocked exit fails the expected room assertion instead of claimi
   assert.match(result.error ?? "", /Expected room 2; observed room 1/);
   assert.deepEqual(result.details?.["missingRooms"], []);
   assert.equal((result.details?.["state"] as { egoX: number }).egoX, 153);
+  const step = (result.details?.["steps"] as Record<string, unknown>[])[0]!;
+  assert.deepEqual(step["movement"], {
+    moved: false,
+    deltaX: 0,
+    deltaY: 0,
+    positionChanges: 0,
+    finalDirection: 3,
+    blockedAtEnd: true,
+    attemptedBaseline: { x0: 154, x1: 156, y: 120, values: [0, 4] },
+    blockingControls: [{ value: 0, x0: 156, x1: 156 }],
+    issue: "No movement in 20 cycles; the next baseline intersects barrier priority 0 at x156.",
+  });
+  assert.equal(step["egoCompletelyOccluded"], false);
+  assert.equal(step["estimatedDurationMs"], 1000, "timing starts after room setup with v10=1");
+});
+
+test("movement diagnostics report a barrier reached after making partial progress", () => {
+  const state = world();
+  state.container.putResource("picture", 1, Uint8Array.of(0xf2, 0, 0xf6, 158, 0, 158, 167, 0xff));
+  const result = playtestRoom(state, {
+    room: 1,
+    spawnX: 153,
+    spawnY: 120,
+    steps: [{ action: "move", direction: "right", ticks: 20 }],
+  });
+  assert.equal(result.success, true, result.error ?? "");
+  const movement = (result.details?.["steps"] as { movement: Record<string, unknown> }[])[0]!
+    .movement;
+  assert.equal(movement["moved"], true);
+  assert.equal(movement["deltaX"], 2);
+  assert.equal(movement["blockedAtEnd"], true);
+  assert.deepEqual(movement["attemptedBaseline"], {
+    x0: 156,
+    x1: 158,
+    y: 120,
+    values: [0, 4],
+  });
+  assert.match(String(movement["issue"]), /Moved 2 pixels.*barrier priority 0 at x158/);
 });
 
 test("waiting behind a modal does not claim an animation test passed", () => {
@@ -294,6 +399,200 @@ test("animation observations count every cel transition rather than comparing on
   const ego = steps[0]!.objects.find((object) => object.num === 0)!;
   assert.equal(ego.celChanges, 24);
   assert.equal(ego.celBefore, ego.celAfter);
+});
+
+test("playtest checkpoints preserve distinct intermediate frames when a cycle returns to its endpoint", () => {
+  const state = world();
+  state.container.putResource(
+    "view",
+    0,
+    buildView({
+      loops: [
+        {
+          cels: [1, 2, 3, 4].map((color) => ({
+            width: 3,
+            height: 2,
+            transparentColor: 0,
+            pixels: Array(6).fill(color),
+          })),
+        },
+      ],
+    }),
+  );
+  const result = playtestRoom(state, {
+    room: 1,
+    steps: [{ action: "wait", ticks: 4, captureTicks: [1, 2, 3, 4] }],
+  });
+  assert.equal(result.success, true, result.error ?? "");
+  assert.equal(
+    result.images?.length,
+    2,
+    "the final screenshot remains first and one sheet follows",
+  );
+
+  const checkpoints = result.details?.["checkpoints"] as {
+    tile: number;
+    row: number;
+    col: number;
+    stepIndex: number;
+    tick: number;
+    cycle: number;
+    estimatedGameTimeMs: number;
+    room: number;
+    objects: {
+      num: number;
+      view: number;
+      loop: number;
+      cel: number;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      priority: number;
+    }[];
+  }[];
+  assert.deepEqual(
+    checkpoints.map(({ tile, row, col, stepIndex, tick, cycle, estimatedGameTimeMs, room }) => ({
+      tile,
+      row,
+      col,
+      stepIndex,
+      tick,
+      cycle,
+      estimatedGameTimeMs,
+      room,
+    })),
+    [
+      {
+        tile: 0,
+        row: 0,
+        col: 0,
+        stepIndex: 0,
+        tick: 1,
+        cycle: 2,
+        estimatedGameTimeMs: 50,
+        room: 1,
+      },
+      {
+        tile: 1,
+        row: 0,
+        col: 1,
+        stepIndex: 0,
+        tick: 2,
+        cycle: 3,
+        estimatedGameTimeMs: 100,
+        room: 1,
+      },
+      {
+        tile: 2,
+        row: 1,
+        col: 0,
+        stepIndex: 0,
+        tick: 3,
+        cycle: 4,
+        estimatedGameTimeMs: 150,
+        room: 1,
+      },
+      {
+        tile: 3,
+        row: 1,
+        col: 1,
+        stepIndex: 0,
+        tick: 4,
+        cycle: 5,
+        estimatedGameTimeMs: 200,
+        room: 1,
+      },
+    ],
+  );
+  assert.deepEqual(
+    checkpoints.map(({ objects }) => objects),
+    [2, 3, 0, 1].map((cel) => [
+      { num: 0, view: 0, loop: 0, cel, x: 80, y: 120, width: 3, height: 2, priority: 11 },
+    ]),
+  );
+
+  const final = decodePng(result.images![0]!.png);
+  const sheet = decodePng(result.images![1]!.png);
+  assert.deepEqual({ width: sheet.width, height: sheet.height }, { width: 644, height: 404 });
+  const rgbAt = (image: typeof final, x: number, y: number): number[] =>
+    Array.from(image.rgba.slice((y * image.width + x) * 4, (y * image.width + x) * 4 + 3));
+  assert.deepEqual(rgbAt(final, 160, 127), [0, 170, 0], "final frame returned to its starting cel");
+  assert.deepEqual(
+    [
+      rgbAt(sheet, 160, 127),
+      rgbAt(sheet, 324 + 160, 127),
+      rgbAt(sheet, 160, 204 + 127),
+      rgbAt(sheet, 324 + 160, 204 + 127),
+    ],
+    [
+      [0, 170, 170],
+      [170, 0, 0],
+      [0, 0, 170],
+      [0, 170, 0],
+    ],
+    "the contact sheet contains all intermediate composed frames in row-major order",
+  );
+});
+
+test("playtest rejects invalid checkpoint requests before simulation", () => {
+  for (const [captureTicks, ticks, pattern] of [
+    [[2, 1], 2, /strictly increasing/i],
+    [[1, 3], 2, /integer from 1 to 2/i],
+    [[1.5], 2, /integer from 1 to 2/i],
+    [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 10, /at most 9/i],
+  ] as const) {
+    const result = playtestRoom(world(), {
+      room: 1,
+      steps: [{ action: "wait", ticks, captureTicks }],
+    });
+    assert.equal(result.success, false);
+    assert.match(result.error ?? "", pattern);
+    assert.equal(result.images, undefined, "validation runs before the isolated interpreter boots");
+  }
+  const total = playtestRoom(world(), {
+    room: 1,
+    steps: [
+      { action: "wait", ticks: 5, captureTicks: [1, 2, 3, 4, 5] },
+      { action: "wait", ticks: 5, captureTicks: [1, 2, 3, 4, 5] },
+    ],
+  });
+  assert.equal(total.success, false);
+  assert.match(total.error ?? "", /at most 9.*scenario/i);
+  assert.equal(total.images, undefined);
+});
+
+test("checkpoint timing remains unknown while v10 is host-rate-dependent", () => {
+  const result = playtestRoom(world("assignn(v10,0);"), {
+    room: 1,
+    steps: [{ action: "wait", ticks: 1, captureTicks: [1] }],
+  });
+  assert.equal(result.success, true, result.error ?? "");
+  assert.equal(result.details?.["estimatedGameTimeMs"], null);
+  assert.equal(
+    (result.details?.["checkpoints"] as { estimatedGameTimeMs: number | null }[])[0]!
+      .estimatedGameTimeMs,
+    null,
+  );
+  assert.equal(
+    (result.details?.["steps"] as Record<string, unknown>[])[0]!["estimatedDurationMs"],
+    null,
+  );
+});
+
+test("each playtest step reports engine occlusion plus the scenery depth over ego", () => {
+  const state = world();
+  state.container.putResource("picture", 1, Uint8Array.of(0xf0, 2, 0xf2, 12, 0xf8, 0, 0, 0xff));
+  const result = playtestRoom(state, { room: 1, steps: [{ action: "wait", ticks: 1 }] });
+  assert.equal(result.success, true, result.error ?? "");
+  const step = (result.details?.["steps"] as Record<string, unknown>[])[0]!;
+  assert.equal(step["egoCompletelyOccluded"], true);
+  assert.deepEqual(step["occlusion"], {
+    actorPriority: 11,
+    actorBoxCells: 6,
+    sceneCellsAboveActorPriority: 6,
+    completelyOccluded: true,
+  });
 });
 
 test("failed outcomes return targeted investigation steps for exits, inventory and flags", () => {

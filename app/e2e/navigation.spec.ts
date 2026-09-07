@@ -34,50 +34,59 @@ test("top navigation groups controls and follows game sound through shortcuts, a
     mimeType: "application/zip",
     buffer: Buffer.from(buildZip([...game.files].map(([name, data]) => ({ name, data })))),
   });
-  const nav = page.getByRole("navigation", { name: "Game options" });
+  await page.getByTestId("btn-resume-cached").click();
+  const nav = page.getByRole("navigation", { name: "App options" });
   const controls = nav.getByTestId("game-controls");
-  const settings = nav.getByTestId("sound-display-menu");
-  const saving = nav.getByTestId("save-share-menu");
+  const settings = nav.getByTestId("settings-menu");
+  const actions = nav.getByTestId("game-actions-menu");
   await expect(nav).toBeVisible();
   await controls.locator("summary").click();
   await controls.getByRole("button", { name: /Sound On\/Off/ }).click();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("GAME SOUND OFF");
-  await settings.locator("summary").click();
-  const sound = settings.getByTestId("toggle-mute");
-  await expect(sound).toHaveAttribute("aria-pressed", "false");
+  await settings.click();
+  const sound = page.getByTestId("toggle-mute");
+  await expect(sound).toHaveAttribute("aria-checked", "false");
   await expect(sound).toContainText("Sound off");
   await sound.click();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("GAME SOUND ON");
-  await expect(sound).toHaveAttribute("aria-pressed", "true");
+  await expect(sound).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("Escape");
-  await expect(settings.locator("summary")).toBeFocused();
+  await expect(settings).toBeFocused();
   await page.getByTestId("input-line").focus();
   await page.keyboard.press("F2");
-  await settings.locator("summary").click();
+  await settings.click();
   await expect(sound).toContainText("Sound off");
   await page.keyboard.press("Escape");
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await page.reload();
   await expect(page.getByTestId("resume-caption")).toBeVisible();
-  await settings.locator("summary").click();
+  await settings.click();
   await expect(sound).toContainText("Sound off");
-  await saving.locator("summary").click();
-  await expect(settings).not.toHaveAttribute("open");
-  await expect(saving.getByTestId("btn-export-live-zip")).toBeVisible();
-  await expect(saving.getByTestId("btn-save-live-project")).toBeVisible();
+  await expect(page.getByTestId("btn-start-over")).toBeHidden();
+  await actions.click();
+  await expect(settings).toHaveAttribute("aria-expanded", "false");
+  const gameActions = page.getByTestId("game-actions-menu-menu");
+  await expect(gameActions.getByTestId("btn-start-over")).toBeVisible();
+  await expect(gameActions.getByTestId("btn-export-live-zip")).toBeVisible();
+  await expect(gameActions.getByTestId("btn-save-live-project")).toBeVisible();
+  await expect(gameActions.getByRole("menuitem")).toHaveCount(3);
   await page.screenshot({ path: test.info().outputPath("navigation-desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const menu of [controls, settings, saving]) {
-    if ((await menu.getAttribute("open")) === null) await menu.locator("summary").click();
-    await expect(menu.locator(".game-controls-panel")).toBeInViewport();
-    const box = await menu.locator(".game-controls-panel").boundingBox();
-    expect(box!.x).toBeGreaterThanOrEqual(0);
-    expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  for (const [trigger, popup] of [
+    [controls.locator("summary"), controls.locator(".game-controls-panel")],
+    [settings, page.getByTestId("settings-menu-menu")],
+    [actions, gameActions],
+  ]) {
+    await trigger!.click();
+    await expect(popup!).toBeInViewport();
+    const box = (await popup!.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
     await page.keyboard.press("Escape");
-    await expect(menu.locator("summary")).toBeFocused();
+    await expect(trigger!).toBeFocused();
   }
-  await settings.locator("summary").click();
+  await settings.click();
   await page.screenshot({ path: test.info().outputPath("navigation-mobile.png") });
   await page.getByRole("heading", { name: "AGI IS HERE", exact: true }).click();
-  await expect(settings).not.toHaveAttribute("open");
+  await expect(settings).toHaveAttribute("aria-expanded", "false");
 });

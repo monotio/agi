@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import type { AgentRunState } from "./agent/agentRun.ts";
-const props = withDefaults(defineProps<{ task: AgentRunState | null; showText?: boolean }>(), {
-  showText: true,
-});
+const { task, showText = true } = defineProps<{ task: AgentRunState | null; showText?: boolean }>();
 defineEmits<{ stop: []; resume: []; discard: [] }>();
 const now = ref(Date.now());
 let clock: ReturnType<typeof setInterval>;
@@ -29,7 +27,7 @@ const TOOL_SUBJECTS: Record<string, string> = {
   playtest_room: "a playtest",
 };
 const activity = computed(() => {
-  const progress = props.task?.progress;
+  const progress = task?.progress;
   if (progress?.phase === "tool")
     return `Preparing ${TOOL_SUBJECTS[progress.tool ?? ""] ?? "a tool call"}…`;
   if (progress?.phase === "text") return "Writing…";
@@ -37,10 +35,10 @@ const activity = computed(() => {
   return "Waiting for the model…";
 });
 const elapsed = computed(() =>
-  Math.max(0, Math.floor((now.value - (props.task?.progress?.startedAt ?? now.value)) / 1000)),
+  Math.max(0, Math.floor((now.value - (task?.progress?.startedAt ?? now.value)) / 1000)),
 );
 const quiet = computed(() =>
-  Math.max(0, Math.floor((now.value - (props.task?.progress?.lastEventAt ?? now.value)) / 1000)),
+  Math.max(0, Math.floor((now.value - (task?.progress?.lastEventAt ?? now.value)) / 1000)),
 );
 </script>
 
@@ -69,7 +67,7 @@ const quiet = computed(() =>
     </div>
     <div class="task-row">
       <span
-        :title="'Estimated from reported tokens and standard API rates. A response may cross the budget; interrupted requests may still be billed.'"
+        title="Estimated from reported tokens and standard API rates. A response may cross the budget; interrupted requests may still be billed."
       >
         {{
           task.priceKnown
@@ -83,6 +81,7 @@ const quiet = computed(() =>
       <button
         v-if="task.status === 'running'"
         type="button"
+        class="ui-button ui-button--secondary"
         data-testid="agent-stop"
         @click="$emit('stop')"
       >
@@ -91,6 +90,7 @@ const quiet = computed(() =>
       <button
         v-else-if="task.status === 'paused'"
         type="button"
+        class="ui-button ui-button--primary"
         data-testid="agent-continue"
         @click="$emit('resume')"
       >
@@ -103,7 +103,12 @@ const quiet = computed(() =>
     </div>
     <template v-if="task.status === 'paused'">
       <p role="status" data-testid="agent-pause-reason">{{ task.reason }}</p>
-      <button type="button" class="discard" data-testid="agent-discard" @click="$emit('discard')">
+      <button
+        type="button"
+        class="ui-button ui-button--danger"
+        data-testid="agent-discard"
+        @click="$emit('discard')"
+      >
         Discard this attempt
       </button>
     </template>
@@ -138,21 +143,7 @@ const quiet = computed(() =>
   overflow-y: auto;
   text-align: left;
 }
-button {
-  margin: 0;
-  padding: 6px 12px;
-  border: 1px solid #47636e;
-  border-radius: 5px;
-  background: #173039;
-  color: #b7f7ff;
-  cursor: pointer;
-  font: inherit;
-}
 p {
   margin: 8px 0;
-}
-.discard {
-  background: transparent;
-  color: #d1b6b6;
 }
 </style>

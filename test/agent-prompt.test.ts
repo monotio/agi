@@ -7,8 +7,31 @@ import {
 } from "../src/agent/prompt.ts";
 import { PICTURE_SOURCE_DOC } from "../src/picture/source.ts";
 import { AGENT_TOOLS } from "../src/agent/tools.ts";
+import { assembleLogic } from "../src/logic/assembler.ts";
 
 describe("agent system prompt", () => {
+  it("fits the lean frontier-model startup budget", () => {
+    assert.ok(
+      AGI_SYSTEM_PROMPT.length <= 10_000,
+      `system prompt is ${AGI_SYSTEM_PROMPT.length} characters; expected at most 10000`,
+    );
+  });
+
+  it("loads opcode details on demand instead of embedding a catalog", () => {
+    assert.ok(AGI_SYSTEM_PROMPT.includes("read_command_reference"));
+    assert.ok(!AGI_SYSTEM_PROMPT.includes("Complete command catalog"));
+  });
+
+  it("demonstrates a picture operand using an initialized variable", () => {
+    const example = AGI_SYSTEM_PROMPT.match(/For picture 1, use `([^`]+)`/)?.[1];
+    assert.ok(example, "Include a compact example of the variable operand contract.");
+    assert.deepEqual(
+      [...assembleLogic(example, { dictionary: new Map() }).code],
+      [3, 40, 1, 24, 40, 25, 40, 26],
+      "assignn(v40,1), load.pic(v40), draw.pic(v40), show.pic()",
+    );
+  });
+
   /**
    * Declare once (see the prompt.ts header): per-tool facts live in the tool
    * description, the prompt carries only cross-tool workflow. The catalog is
@@ -24,21 +47,29 @@ describe("agent system prompt", () => {
     }
   });
 
-  it("gives every tool a description detailed enough to stand alone", () => {
+  it("explains every required parameter in the tool's own description", () => {
     for (const tool of AGENT_TOOLS) {
-      // Useful descriptions explain behavior; sentence counts reward padding.
-      assert.ok(
-        tool.description.length >= 150,
-        `${tool.name}: missing standalone behavior description`,
-      );
+      assert.ok(tool.description.trim(), `${tool.name}: missing tool description`);
       for (const param of tool.parameters.required) {
+        // A bare or backticked mention in the description, or a per-property
+        // description string, explains the parameter; length is no proxy.
+        const property = tool.parameters.properties[param] as { description?: unknown } | undefined;
         assert.ok(
-          tool.description.includes(param) ||
-            JSON.stringify(tool.parameters.properties[param]).includes("description"),
+          new RegExp(`\\b${param}\\b`).test(tool.description) ||
+            typeof property?.description === "string",
           `${tool.name}: description does not explain its '${param}' parameter`,
         );
       }
     }
+  });
+
+  it("publishes the layout and actor comment grammars write_picture checks", () => {
+    const tool = AGENT_TOOLS.find((candidate) => candidate.name === "write_picture")!;
+    assert.match(tool.description, /# layout: <name> x<a>-<b> y<c>-<d> colou?r <n>/);
+    assert.match(
+      tool.description,
+      /# actor: <name> x<X> y<baseline> width<W> height<H> priority<P>/,
+    );
   });
 
   it("keeps the cross-tool workflow rules the picture eval proved", () => {
@@ -114,7 +145,108 @@ describe("agent system prompt", () => {
       AGI_SYSTEM_PROMPT.includes("A priority fill floods the whole connected pri-4 region"),
       "priority band recipe warns about flooding",
     );
+    assert.ok(
+      AGI_SYSTEM_PROMPT.includes("Do not paint horizontal priority bands across open floor"),
+      "open floor is not sliced into artificial priority bands",
+    );
+    assert.ok(
+      !AGI_SYSTEM_PROMPT.includes("Bands must cover every walkable pixel"),
+      "removes the harmful full-floor priority-band recipe",
+    );
     assert.ok(AGI_SYSTEM_PROMPT.includes("Texture is an accent"), "stipple is capped");
+  });
+
+  it("couples scene scale, hybrid detail, visible boundaries and composed playtests", () => {
+    for (const contract of [
+      "same baseline",
+      "composed frame",
+      "visible obstacle",
+      "add.to.pic",
+      "draw.pic resets",
+      "control/margin 4",
+      "object-object collision",
+      "wall contact",
+      "walking behind",
+    ]) {
+      assert.ok(AGI_SYSTEM_PROMPT.includes(contract), `missing scene contract '${contract}'`);
+    }
+  });
+
+  it("requires triptych inspection and bounded runtime evidence", () => {
+    for (const contract of [
+      "clean visual",
+      "raw EGA priority/control",
+      "semantic overlay",
+      "numeric probes",
+      "real ego",
+      "drafting aids",
+      "compiled outputs",
+      "bounded speedrun",
+      "not a full solver guarantee",
+    ]) {
+      assert.ok(AGI_SYSTEM_PROMPT.includes(contract), `missing inspection contract '${contract}'`);
+    }
+  });
+
+  it("requires native-resolution simplification and readable interactive objects", () => {
+    for (const contract of [
+      "broad enclosed fills",
+      "avoid isolated speckles",
+      "quiet contrast",
+      "identify each interactive object",
+    ]) {
+      assert.ok(AGI_SYSTEM_PROMPT.includes(contract), `missing readability contract '${contract}'`);
+    }
+  });
+
+  it("uses VIEW screen objects for interactive state and PICTUREs for painted scenery", () => {
+    for (const contract of [
+      "player manipulates, picks up or sees animate",
+      "VIEW-backed screen object",
+      "architecture, terrain, backdrops and broad static fills",
+      "commit state when the action commits",
+      "room re-entry",
+      "static baked detail",
+      "changing prop, pickup or actor",
+      "recognizable silhouettes",
+    ]) {
+      assert.ok(
+        AGI_SYSTEM_PROMPT.includes(contract),
+        `missing VIEW/PICTURE contract '${contract}'`,
+      );
+    }
+    assert.ok(
+      !AGI_SYSTEM_PROMPT.includes("maximum number of sprite colours"),
+      "sprite economy must not impose an arbitrary hard colour maximum",
+    );
+    assert.ok(
+      !AGI_SYSTEM_PROMPT.includes("set a lasting state flag when it completes"),
+      "persistent state timing depends on the interaction contract, not loop completion",
+    );
+  });
+
+  it("requires an evidence loop for sparse environmental motion", () => {
+    for (const contract of [
+      "clean visual",
+      "priority/control panel",
+      "composed frame",
+      "intermediate animation contact sheet",
+      "captureTicks",
+      "persistent interaction and room re-entry states",
+      "Revise a concrete defect",
+    ]) {
+      assert.ok(
+        AGI_SYSTEM_PROMPT.includes(contract),
+        `missing evidence-loop contract '${contract}'`,
+      );
+    }
+  });
+
+  it("keeps prose concrete and humor restrained", () => {
+    assert.ok(AGI_SYSTEM_PROMPT.includes("Direct second-person narration"));
+    assert.ok(AGI_SYSTEM_PROMPT.includes("Humor is occasional"));
+    assert.ok(AGI_SYSTEM_PROMPT.includes("situation-specific"));
+    assert.ok(AGI_SYSTEM_PROMPT.includes("Do not force a joke"));
   });
 
   it("keeps individual game briefs and phase framing outside the shared system prompt", () => {
@@ -152,5 +284,11 @@ describe("first-turn prompts", () => {
     assert.ok(prompt.includes("Dictionary: 3 words"), "words summary");
     assert.ok(!prompt.includes("GENESIS"), "no genesis framing for an installed original");
     assert.ok(!prompt.includes("finish_genesis"), "installed originals never finish genesis");
+    assert.ok(
+      prompt.includes("read_command_reference"),
+      "points to the on-demand command reference",
+    );
+    assert.ok(!prompt.includes("Complete command catalog"), "does not repeat the opcode catalog");
+    assert.ok(prompt.length < 1_000, `orientation boilerplate is ${prompt.length} characters`);
   });
 });

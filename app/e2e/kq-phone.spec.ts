@@ -41,7 +41,6 @@ for (const game of [
     test.skip(Boolean(missing), missing || "");
     await isolateStorage(page);
     await page.goto("/");
-    await page.getByTestId("installed-game-select").selectOption(game.slug);
     await page.getByTestId(`boot-${game.slug}`).tap();
     await expect.poll(async () => (await textHook(page)).profile).toBe(game.profile);
     await expect.poll(async () => (await textHook(page)).room).toBe(game.intro);
