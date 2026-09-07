@@ -361,6 +361,98 @@ test("reposition.to places the object and suppresses its next due movement", () 
   assert.equal(engine.screenObjects[0]!.y, 37, "placement obeys the default horizon");
 });
 
+test("footprint scan: trigger latches on any cell, water follows the final cell", () => {
+  // Ego is a two-cell-wide actor at (20,100); logic 0 idles, so every tick's
+  // due movement pass re-scans the baseline in place and rewrites f0/f3.
+  const engine = game(`if (!isset(f200)) { set(f200); ${setup} } return;`);
+  engine.tick();
+  const cells = (left: number, right: number): void => {
+    engine.surface.priority.fill(4);
+    engine.surface.priority[100 * 160 + 20] = left;
+    engine.surface.priority[100 * 160 + 21] = right;
+    engine.tick();
+  };
+  cells(2, 4);
+  assert.deepEqual([engine.flags[3], engine.flags[0]], [1, 0], "trigger under the left cell only");
+  cells(4, 2);
+  assert.deepEqual([engine.flags[3], engine.flags[0]], [1, 0], "trigger under the right cell only");
+  cells(2, 3);
+  assert.deepEqual([engine.flags[3], engine.flags[0]], [1, 1], "trigger then water: both");
+  cells(3, 4);
+  assert.deepEqual([engine.flags[3], engine.flags[0]], [0, 0], "water only under the left cell");
+  cells(4, 3);
+  assert.deepEqual([engine.flags[3], engine.flags[0]], [0, 1], "water under the final cell");
+  cells(4, 4);
+  assert.deepEqual([engine.flags[3], engine.flags[0]], [0, 0]);
+});
+
+test("reposition runs placement, refreshes f3 and suppresses the next due step", () => {
+  // Cells (22,100) and (23,100) are barriers; the requested (22,100) is
+  // rejected, the spiral's first candidate left (21,100) still covers 22, and
+  // the second, down (21,101), is clear.
+  const engine = game(`if (!isset(f200)) { set(f200); ${setup} return; }
+    if (!isset(f201)) {
+      set(f201); assignn(v60, 2); assignn(v61, 0); reposition(o0, v60, v61);
+      assignn(v62, 3); set.dir(o0, v62);
+    }
+    return;
+  `);
+  engine.tick();
+  engine.surface.priority[100 * 160 + 22] = 0;
+  engine.surface.priority[100 * 160 + 23] = 0;
+  engine.surface.priority[101 * 160 + 21] = 2;
+  engine.tick();
+  const ego = engine.screenObjects[0]!;
+  assert.deepEqual([ego.x, ego.y], [21, 101], "placement spiral: left 1 rejected, down 1 accepted");
+  assert.equal(engine.flags[3], 1, "placement scanned the trigger under the new baseline");
+  assert.equal(engine.vars[6], 3, "the requested direction survives the reposition");
+  engine.tick();
+  assert.deepEqual([ego.x, ego.y], [22, 101], "one due step was suppressed, then movement resumes");
+});
+
+test("reposition rides a trigger line to an exact cell (observed 3.002.102 demo geometry)", () => {
+  // A control-2 line descends one row per four cells from (0,112); its row-128
+  // run is x 63..66. The script steps ego one cell right every pass and one
+  // cell down whenever f3 is clear, until ego stands on exactly (67,128). The
+  // 16-cell-wide actor's latched trigger arrives; a final-cell trigger crosses
+  // row 128 at x 49..52 and walks off the bottom of the screen instead.
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) {
+        set(f200); load.view(1); animate.obj(o0); set.view(o0, 1); ignore.horizon(o0);
+        ignore.objs(o0); ignore.blocks(o0); position(o0, 0, 111); draw(o0); stop.cycling(o0);
+        return;
+      }
+      if (posn(o0, 67, 128, 67, 128)) { set(f201); return; }
+      if (isset(f3)) { assignn(v61, 0); } else { assignn(v61, 1); }
+      assignn(v60, 1); reposition(o0, v60, v61); return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  container.putResource(
+    "view",
+    1,
+    buildView({ loops: [{ cels: [{ width: 16, height: 1, pixels: Array(16).fill(1) }] }] }),
+  );
+  const engine = new Engine(container, host);
+  engine.tick();
+  for (let row = 112; row <= 141; row++) {
+    for (let x = (row - 112) * 4 - 1; x <= (row - 112) * 4 + 2; x++) {
+      if (x >= 0 && x < 160) engine.surface.priority[row * 160 + x] = 2;
+    }
+  }
+  const ego = engine.screenObjects[0]!;
+  let arrived = false;
+  for (let i = 0; i < 200 && !arrived; i++) {
+    engine.tick();
+    arrived = engine.flags[201] === 1;
+  }
+  assert.equal(arrived, true, `ego ended at (${ego.x},${ego.y}) without reaching (67,128)`);
+});
+
 test("object position conditions use the selected cel width", () => {
   const engine = game(`${setup}
     if (obj.in.box(o0, 20, 100, 21, 100)) { set(f60); }

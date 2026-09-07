@@ -8,9 +8,24 @@ export function secondHalf(run: Speedrun): void {
   run.command("climb beanstalk");
   run.wait(() => engine.screenObjects[0]!.moveTarget === null, "mount beanstalk");
   run.exit("N", 70);
+  // The stalk is flanked by trigger lines (control 2) and touching either one
+  // with any baseline cell drops Graham. Its safe corridor for the 8-wide
+  // climbing cel is x 67..76 below row 104 and x 72..74 around rows 94..96 and
+  // 9..11, so climb at x 69 to row 110, then at x 73 to the top.
+  run.walkTo(69, 110);
+  run.walkTo(73, 106);
   run.exit("N", 71);
-  run.walkTo(69, 80);
-  run.walkTo(66, 75);
+  // Room 71's stalk leans right, then back left: its corridor for the 8-wide
+  // cel is x 67..73 below row 100, x 74..80 for rows 86..95, x 68..74 for
+  // rows 66..69, x 65..71 for rows 57..59 and x 61..67 above row 43.
+  run.walkTo(70, 100);
+  run.walkTo(75, 95);
+  run.walkTo(75, 72);
+  run.walkTo(72, 69);
+  run.walkTo(72, 62);
+  run.walkTo(68, 58);
+  run.walkTo(68, 45);
+  run.walkTo(65, 42);
   run.exit("N", 72);
   run.walkTo(66, 125);
   run.direction(1);
@@ -19,8 +34,10 @@ export function secondHalf(run: Speedrun): void {
   run.exit("E", 56);
   run.exit("E", 57);
   run.exit("E", 58);
-  // The upper bank keeps Graham beyond the giant's walking horizon.
-  run.walkTo(15, 40);
+  // The upper bank keeps Graham beyond the giant's walking horizon. Its edge
+  // is a trigger line (control 2, x 7..17 on row 40) and any baseline cell on
+  // it drops Graham off the cloud, so stop one row below it.
+  run.walkTo(15, 41);
   run.wait(() => engine.vars[86] === 1, "giant falls asleep");
   const giant = engine.screenObjects[1]!;
   run.walkTo(giant.x, giant.y - 15);
@@ -49,9 +66,19 @@ export function secondHalf(run: Speedrun): void {
   run.wait(() => !!engine.flags[157], "mount beanstalk to descend");
   run.direction(0);
   run.exit("S", 71);
-  run.walkTo(66, 75);
-  run.walkTo(69, 80);
+  // Descend inside the trigger corridors mapped for the climb (room 71 enters
+  // at x 66, room 70 at x 69), shifting where the stalk leans.
+  run.walkTo(66, 60);
+  run.walkTo(70, 64);
+  run.walkTo(70, 72);
+  run.walkTo(75, 77);
+  run.walkTo(75, 99);
+  run.walkTo(70, 104);
   run.exit("S", 70);
+  run.walkTo(69, 60);
+  run.walkTo(73, 64);
+  run.walkTo(73, 114);
+  run.walkTo(68, 119);
   run.exit("S", 38);
   run.direction(5);
   run.wait(() => !engine.flags[157], "step off beanstalk at ground");

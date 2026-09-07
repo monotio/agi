@@ -11,6 +11,7 @@
 
 import { RESOURCE_KINDS, type GameContainer, type ResourceKind } from "../types.ts";
 import { detectProfile } from "../runtime/profile.ts";
+import { toggleMessageEncryption } from "../logic/resource.ts";
 
 /** Directory file per family (v2 split profile). */
 export const DIRECTORY_FILES: Readonly<Record<ResourceKind, string>> = {
@@ -260,8 +261,15 @@ class ResourceContainer implements GameContainer {
     }
     const stored = vol.slice(offset + this.#headerBytes, offset + this.#headerBytes + storedLength);
     if (this.#v3 && metadata & 0x80) return expandPicture(stored, length);
-    if (storedLength !== length) return expandDictionary(stored, length);
-    return stored;
+    if (storedLength === length) return stored;
+    const expanded = expandDictionary(stored, length);
+    // A dictionary-compressed logic record stores its message text plain
+    // (observed v3 game data; see toggleMessageEncryption). Normalizing it to
+    // the encrypted layout of the "Logic payload" section means the logic
+    // decoder, the disassembler and the authoring tools see one encoding, and
+    // a replacement written by putResource (stored directly, encrypted by the
+    // assembler) needs no transform of its own.
+    return kind === "logic" ? toggleMessageEncryption(expanded) : expanded;
   }
 
   putResource(kind: ResourceKind, num: number, payload: Uint8Array): void {

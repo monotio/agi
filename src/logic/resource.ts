@@ -84,6 +84,39 @@ export function buildLogicResource(
   return out;
 }
 
+/**
+ * Return a copy of `payload` with its message-text region XORed with the
+ * repeating key. XOR is its own inverse, so the same call both encrypts a
+ * plain region into the spec's layout and decrypts an encrypted one. The
+ * code, the count and the offset table are copied unchanged. A payload whose
+ * framing does not fit is returned as an unmodified copy; the parser reports
+ * the framing error.
+ *
+ * Observed v3 game data (a Sierra 3.002.102 demo installation, where every
+ * logic record is dictionary-compressed) stores the message text of
+ * dictionary-compressed logic records plain, while directly stored records
+ * carry the encrypted text the "Logic payload" section specifies. The v3
+ * container uses this to hand every decoder one encoding.
+ */
+export function toggleMessageEncryption(payload: Uint8Array): Uint8Array {
+  const out = payload.slice();
+  if (payload.length < 3) return out;
+  const codeLength = payload[0]! | (payload[1]! << 8);
+  const tableStart = 2 + codeLength + 1;
+  if (tableStart > payload.length) return out;
+  const messageCount = payload[tableStart - 1]!;
+  const textStart = tableStart + (messageCount + 1) * 2;
+  if (textStart > payload.length) return out;
+  const regionEnd = Math.min(
+    payload.length,
+    tableStart + (payload[tableStart]! | (payload[tableStart + 1]! << 8)),
+  );
+  for (let at = textStart; at < regionEnd; at++) {
+    out[at] = payload[at]! ^ MESSAGE_KEY.charCodeAt((at - textStart) % MESSAGE_KEY.length);
+  }
+  return out;
+}
+
 export function parseLogicResource(payload: Uint8Array): LogicResource {
   if (payload.length < 3) throw new Error("logic resource too short");
   const codeLength = payload[0]! | (payload[1]! << 8);

@@ -23,7 +23,8 @@ import {
 } from "../types.ts";
 import { renderPicture } from "../picture/renderer.ts";
 import { SoundPlayback, type SoundOutput } from "../sound/sound.ts";
-import { MESSAGE_KEY, parseLogicResource, type LogicResource } from "../logic/resource.ts";
+import { parseLogicResource, type LogicResource } from "../logic/resource.ts";
+import { decodeInventoryFile } from "./inventoryFile.ts";
 import { actionSpec, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../logic/opcodes.ts";
 import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "../view/view.ts";
 import { detectProfile, type AgiProfile, type ProfileId } from "./profile.ts";
@@ -1562,12 +1563,7 @@ export class Engine {
   private decodedInventoryFile(): Uint8Array | null {
     const payload = this.container.files.get("OBJECT");
     if (!payload || payload.length < 3) return null;
-    if (!this.profile.inventoryMetadataEncrypted) return payload;
-    const decoded = new Uint8Array(payload.length);
-    for (let i = 0; i < payload.length; i++) {
-      decoded[i] = payload[i]! ^ MESSAGE_KEY.charCodeAt(i % MESSAGE_KEY.length);
-    }
-    return decoded;
+    return decodeInventoryFile(payload, this.profile);
   }
 
   /** Initial inventory locations from the game metadata (boot and restart). */
@@ -2057,9 +2053,18 @@ export class Engine {
   /**
    * Footprint control acceptance (spec): scan the priority/control cells
    * along the baseline for exactly the cel width, left to right. Control 0
-   * rejects; control 1 rejects unless ignore.blocks; the FINAL cell's class
-   * decides the water/land post-gates — this is what keeps the crocodiles
-   * in the moat.
+   * rejects; control 1 rejects unless ignore.blocks; the FINAL cell's water
+   * class decides f0 and the water/land post-gates — this is what keeps the
+   * crocodiles in the moat.
+   *
+   * The trigger class latches: f3 is set when ANY scanned cell is control 2.
+   * The spec's "Footprint control acceptance" describes trigger as a final-cell
+   * state too, but observed 3.002.102 game data contradicts that: a scripted
+   * walk repositions ego one cell right per step and one cell down whenever
+   * f3 is clear, along a control-2 line that descends one row per four cells,
+   * and waits for ego to stand on exactly (67,128). With a final-cell trigger
+   * ego crosses row 128 at x 49..52 and never arrives; with a latched trigger
+   * it arrives (test "reposition rides a trigger line").
    */
   private footprintAccepts(obj: ScreenObject, nx: number, ny: number): boolean {
     if (!obj.fixedPriority) obj.priority = this.priorityForY(ny);
@@ -2072,20 +2077,9 @@ export class Engine {
       if (cx < 0 || cx > 159) continue;
       const v = this.surface.priority[ny * 160 + cx] ?? 4;
       if (v === 0) return false;
-      if (v === 1) {
-        if (obj.observeBlocks) return false;
-        flag3 = false;
-        flag0 = false;
-      } else if (v === 2) {
-        flag3 = true;
-        flag0 = false;
-      } else if (v === 3) {
-        flag3 = false;
-        flag0 = true;
-      } else {
-        flag3 = false;
-        flag0 = false;
-      }
+      if (v === 1 && obj.observeBlocks) return false;
+      if (v === 2) flag3 = true;
+      flag0 = v === 3;
     }
     if (obj.waterGate === "on" && !flag0) return false; // obj.on.water: must end on control 3
     if (obj.waterGate === "off" && flag0) return false; // obj.on.land: must not end on control 3
@@ -2905,13 +2899,16 @@ export class Engine {
       }
       case 0x28: {
         // reposition: signed 8-bit deltas from variables; negative underflow
-        // clamps to zero (spec).
+        // clamps to zero; the object is newly positioned and placement runs,
+        // which also refreshes f0/f3 for ego (spec, action 0x28). Like
+        // reposition.to, the previous-position snapshot is left alone.
         const o = obj(0);
         const dx = (this.vars[a(1)]! << 24) >> 24;
         const dy = (this.vars[a(2)]! << 24) >> 24;
-        o.x = o.prevX = Math.max(0, o.x + dx);
-        o.y = o.prevY = Math.max(0, o.y + dy);
-        if (!o.fixedPriority) o.priority = this.priorityForY(o.y);
+        o.x = Math.max(0, o.x + dx);
+        o.y = Math.max(0, o.y + dy);
+        o.newlyPositioned = true;
+        this.placeObject(o);
         return next;
       }
       case 0x29: {

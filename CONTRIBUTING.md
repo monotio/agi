@@ -60,11 +60,20 @@ Installed game folders are gitignored and excluded from production builds.
 
 The compatibility suite uses these local installations (other editions may differ):
 
-| Folder       | Interpreter profile |
-| ------------ | ------------------- |
-| `games/kq1/` | 2.917               |
-| `games/kq2/` | 2.411               |
-| `games/kq3/` | 2.936               |
+| Folder            | Interpreter profile | Container                          |
+| ----------------- | ------------------- | ---------------------------------- |
+| `games/kq1/`      | 2.917               | v2 split                           |
+| `games/kq2/`      | 2.411               | v2 split                           |
+| `games/kq3/`      | 2.936               | v2 split                           |
+| `games/demopac4/` | 3.002.102           | v3 combined (`DMDIR`, `DMVOL.0-1`) |
+
+The v3 row is a Sierra demonstration pack: six self-running game demos whose
+every logic record is dictionary-compressed. `test/demopac4.test.ts` runs all
+six to completion, which is what proves the combined container, the plain
+message text of compressed logic records and the 3.002.102 profile end to end.
+Where installed game data contradicts the specification text, the engine follows
+the data and the code comment cites the evidence; currently that is the trigger
+class of the footprint scan, which latches on any baseline cell.
 
 Copy the complete game installation, including its uppercase directory files,
 `WORDS.TOK`, `OBJECT`, all `VOL.*` files and interpreter files. Missing fixtures

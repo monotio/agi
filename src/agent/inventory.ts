@@ -1,14 +1,10 @@
 import type { AgiProfile } from "../runtime/profile.ts";
-import { MESSAGE_KEY } from "../logic/resource.ts";
+import { decodeInventoryFile } from "../runtime/inventoryFile.ts";
 
 /** Decode the OBJECT table for authoring validation and context. */
 export function readInventoryObjects(payload: Uint8Array | undefined, profile: AgiProfile) {
   if (!payload) return [];
-  const data = payload.map(
-    (byte, i) =>
-      byte ^
-      (profile.inventoryMetadataEncrypted ? MESSAGE_KEY.charCodeAt(i % MESSAGE_KEY.length) : 0),
-  );
+  const data = decodeInventoryFile(payload, profile);
   if (data.length < 3) throw new Error("Invalid inventory header");
   const size = data[0]! | (data[1]! << 8);
   if (size % 3 || size > 256 * 3 || size + 3 > data.length)
