@@ -271,6 +271,11 @@ watch(taskBudget, (value) => {
 const initialAiSettings = loadAiSettings(localStorage, DEFAULT_MODELS, testMode);
 const initialProfile = initialAiSettings.profiles[initialAiSettings.provider];
 const aiSettings = ref(initialAiSettings);
+const aiModelLabel = computed(() => {
+  const { provider: current, profiles } = aiSettings.value;
+  const model = profiles[current].model;
+  return MODEL_OPTIONS[current].find((option) => option.id === model)?.label ?? model;
+});
 const provider = ref<ProviderType>(initialAiSettings.provider);
 const apiKey = ref(initialProfile.apiKey);
 const model = ref(initialProfile.model);
@@ -1632,23 +1637,6 @@ watch(
         <h1 v-else>AGI IS HERE</h1>
         <span v-if="state.phase === 'running'" class="tagline">Play. Create. Remix.</span>
       </div>
-      <a
-        v-if="state.phase === 'idle' || state.phase === 'error'"
-        class="repo-link"
-        href="https://github.com/monotio/agi"
-        target="_blank"
-        rel="noopener"
-        aria-label="Source on GitHub"
-        data-testid="github-link"
-      >
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-          <path
-            fill="currentColor"
-            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"
-          />
-        </svg>
-        <span>GitHub</span>
-      </a>
       <nav
         v-if="['idle', 'error', 'running'].includes(state.phase)"
         class="game-nav"
@@ -1696,6 +1684,23 @@ watch(
             </template>
           </div>
         </details>
+        <a
+          v-if="state.phase === 'idle' || state.phase === 'error'"
+          class="ui-button ui-button--secondary repo-link"
+          href="https://github.com/monotio/agi"
+          target="_blank"
+          rel="noopener"
+          aria-label="Source on GitHub"
+          data-testid="github-link"
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+            />
+          </svg>
+          <span>GitHub</span>
+        </a>
         <ActionMenu label="Settings" test-id="settings-menu">
           <button
             type="button"
@@ -1704,7 +1709,10 @@ watch(
             :disabled="aiSettingsUnavailable"
             @click="openAiSettings($event, 'header')"
           >
-            AI provider
+            <span
+              >AI provider<small>{{ aiModelLabel }}</small></span
+            >
+            <span class="setting-value">Change</span>
           </button>
           <button
             type="button"
@@ -2028,21 +2036,23 @@ watch(
             :data-testid="`saved-game-card-${world.slug}`"
             :data-slug="world.slug"
           >
-            <img
-              v-if="libraryAutosaves[world.slug]?.preview || world.library?.preview"
-              class="library-thumbnail"
-              data-testid="library-thumbnail"
-              :data-preview-kind="libraryAutosaves[world.slug]?.preview ? 'progress' : 'opening'"
-              :src="libraryAutosaves[world.slug]?.preview ?? world.library?.preview"
-              :alt="
-                libraryAutosaves[world.slug]?.preview
-                  ? `${world.title}, current progress in room ${libraryAutosaves[world.slug]?.room}`
-                  : `${world.title} opening scene`
-              "
-            />
-            <div v-else class="saved-game-cover" aria-hidden="true">AGI</div>
-            <div class="saved-game-card-body">
+            <div class="saved-game-media">
+              <img
+                v-if="libraryAutosaves[world.slug]?.preview || world.library?.preview"
+                class="library-thumbnail"
+                data-testid="library-thumbnail"
+                :data-preview-kind="libraryAutosaves[world.slug]?.preview ? 'progress' : 'opening'"
+                :src="libraryAutosaves[world.slug]?.preview ?? world.library?.preview"
+                :alt="
+                  libraryAutosaves[world.slug]?.preview
+                    ? `${world.title}, current progress in room ${libraryAutosaves[world.slug]?.room}`
+                    : `${world.title} opening scene`
+                "
+              />
+              <div v-else class="saved-game-cover" aria-hidden="true">AGI</div>
               <span v-if="libraryAutosaves[world.slug]" class="saved-world-badge">IN PROGRESS</span>
+            </div>
+            <div class="saved-game-card-body">
               <form
                 v-if="renaming && selectedCartridgeSlug === world.slug"
                 class="cartridge-rename"
@@ -2076,28 +2086,32 @@ watch(
               </form>
               <div
                 v-show="!(renaming && selectedCartridgeSlug === world.slug)"
-                class="saved-game-heading"
+                class="saved-game-info"
               >
-                <h3 class="saved-world-title" data-testid="saved-game-title">{{ world.title }}</h3>
-                <button
-                  type="button"
-                  class="ui-button ui-button--icon rename-icon"
-                  aria-label="Rename game"
-                  title="Rename game"
-                  data-testid="rename-game"
-                  @click="beginRename(world)"
-                >
-                  <UiIcon name="pencil" />
-                </button>
+                <div class="saved-game-heading">
+                  <h3 class="saved-world-title" data-testid="saved-game-title">
+                    {{ world.title }}
+                  </h3>
+                  <button
+                    type="button"
+                    class="ui-button ui-button--icon rename-icon"
+                    aria-label="Rename game"
+                    title="Rename game"
+                    data-testid="rename-game"
+                    @click="beginRename(world)"
+                  >
+                    <UiIcon name="pencil" />
+                  </button>
+                </div>
+                <p v-if="libraryAutosaves[world.slug]" class="saved-world-time">
+                  Room {{ libraryAutosaves[world.slug]?.room }} · Saved
+                  {{ new Date(libraryAutosaves[world.slug]!.savedAt).toLocaleString() }}
+                </p>
               </div>
-              <p v-if="libraryAutosaves[world.slug]" class="saved-world-time">
-                Room {{ libraryAutosaves[world.slug]?.room }} · Saved
-                {{ new Date(libraryAutosaves[world.slug]!.savedAt).toLocaleString() }}
-              </p>
               <div class="saved-game-play-row">
                 <button
                   type="button"
-                  class="ui-button ui-button--primary saved-game-primary"
+                  class="ui-button ui-button--primary"
                   data-testid="btn-resume-cached"
                   :disabled="libraryActionBusy || importBusy"
                   @click="onPlayLibraryWorld(world)"
@@ -2203,25 +2217,31 @@ watch(
             class="saved-game-card"
             :data-testid="`local-game-card-${slug}`"
           >
-            <img
-              v-if="libraryAutosaves[slug]?.preview"
-              class="library-thumbnail"
-              data-testid="library-thumbnail"
-              data-preview-kind="progress"
-              :src="libraryAutosaves[slug]?.preview"
-              :alt="`${slug.toUpperCase()}, current progress in room ${libraryAutosaves[slug]?.room}`"
-            />
-            <div v-else class="saved-game-cover" aria-hidden="true">{{ slug.toUpperCase() }}</div>
-            <div class="saved-game-card-body">
+            <div class="saved-game-media">
+              <img
+                v-if="libraryAutosaves[slug]?.preview"
+                class="library-thumbnail"
+                data-testid="library-thumbnail"
+                data-preview-kind="progress"
+                :src="libraryAutosaves[slug]?.preview"
+                :alt="`${slug.toUpperCase()}, current progress in room ${libraryAutosaves[slug]?.room}`"
+              />
+              <div v-else class="saved-game-cover" aria-hidden="true">{{ slug.toUpperCase() }}</div>
               <span v-if="libraryAutosaves[slug]" class="saved-world-badge">IN PROGRESS</span>
-              <h3 class="saved-world-title">{{ slug.toUpperCase() }}</h3>
-              <p v-if="libraryAutosaves[slug]" class="saved-world-time">
-                Room {{ libraryAutosaves[slug]?.room }}
-              </p>
+            </div>
+            <div class="saved-game-card-body">
+              <div class="saved-game-info">
+                <div class="saved-game-heading">
+                  <h3 class="saved-world-title">{{ slug.toUpperCase() }}</h3>
+                </div>
+                <p v-if="libraryAutosaves[slug]" class="saved-world-time">
+                  Room {{ libraryAutosaves[slug]?.room }}
+                </p>
+              </div>
               <div class="saved-game-play-row">
                 <button
                   type="button"
-                  class="ui-button ui-button--primary saved-game-primary"
+                  class="ui-button ui-button--primary"
                   :data-testid="`boot-${slug}`"
                   :disabled="libraryActionBusy || importBusy"
                   @click="onPlayLocalGame(slug)"
@@ -2255,37 +2275,45 @@ watch(
             class="saved-game-card"
             :data-testid="`hosted-game-card-${entry.id}`"
           >
-            <img
-              v-if="catalogOpenings[entry.id]?.preview"
-              class="library-thumbnail"
-              :src="catalogOpenings[entry.id]?.preview"
-              :alt="`${entry.title} opening scene`"
-            />
-            <div v-else class="saved-game-cover" aria-hidden="true">AGI</div>
+            <div class="saved-game-media">
+              <img
+                v-if="catalogOpenings[entry.id]?.preview"
+                class="library-thumbnail"
+                :src="catalogOpenings[entry.id]?.preview"
+                :alt="`${entry.title} opening scene`"
+              />
+              <div v-else class="saved-game-cover" aria-hidden="true">AGI</div>
+            </div>
             <div class="saved-game-card-body">
-              <h3 class="saved-world-title">{{ entry.title }}</h3>
-              <p class="saved-world-time">{{ entry.description }}</p>
+              <div class="saved-game-info">
+                <div class="saved-game-heading">
+                  <h3 class="saved-world-title">{{ entry.title }}</h3>
+                </div>
+                <p class="saved-world-time">{{ entry.description }}</p>
+              </div>
               <p v-if="catalogErrors[entry.id]" role="alert" class="library-error">
                 {{ catalogErrors[entry.id] }}
               </p>
-              <button
-                v-if="catalogErrors[entry.id]"
-                type="button"
-                class="ui-button ui-button--secondary"
-                :disabled="catalogBusy[entry.id]"
-                @click="loadCatalogOpening(entry.id)"
-              >
-                Retry preview
-              </button>
-              <button
-                v-else
-                type="button"
-                class="ui-button ui-button--primary saved-game-primary"
-                :disabled="catalogBusy[entry.id] || libraryActionBusy || importBusy"
-                @click="playCatalogGame(entry.id)"
-              >
-                {{ catalogBusy[entry.id] ? "Checking opening…" : "Play" }}
-              </button>
+              <div class="saved-game-play-row">
+                <button
+                  v-if="catalogErrors[entry.id]"
+                  type="button"
+                  class="ui-button ui-button--secondary"
+                  :disabled="catalogBusy[entry.id]"
+                  @click="loadCatalogOpening(entry.id)"
+                >
+                  Retry preview
+                </button>
+                <button
+                  v-else
+                  type="button"
+                  class="ui-button ui-button--primary"
+                  :disabled="catalogBusy[entry.id] || libraryActionBusy || importBusy"
+                  @click="playCatalogGame(entry.id)"
+                >
+                  {{ catalogBusy[entry.id] ? "Checking opening…" : "Play" }}
+                </button>
+              </div>
               <details class="library-details-disclosure">
                 <summary>Details</summary>
                 <div class="library-details">
@@ -3109,8 +3137,11 @@ watch(
   line-height: 1.4;
 }
 .setting-value {
+  flex: none;
+  margin-left: auto;
   color: #88e5eb;
   font-size: 12px;
+  white-space: nowrap;
 }
 .nav-menu[open] > summary {
   border-color: #7fe8ee;
@@ -3136,6 +3167,10 @@ watch(
   }
   .at-menu .game-nav {
     width: auto;
+  }
+  .at-menu .repo-link {
+    width: 44px;
+    padding: 0;
   }
   .at-menu .repo-link span {
     display: none;
@@ -3183,19 +3218,8 @@ h1 {
 .publisher span {
   color: #739193;
 }
-.repo-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: #739193;
-  text-decoration: none;
-  font: 600 12px/1 monospace;
-  letter-spacing: 0.08em;
-  transition: color 0.15s;
-}
-.repo-link:hover,
-.repo-link:focus-visible {
-  color: #deeeee;
+.repo-link svg {
+  flex: none;
 }
 .welcome {
   width: var(--shell-width);
@@ -3427,6 +3451,7 @@ details[open] > .section-summary {
 }
 .saved-game-gallery {
   display: grid;
+  /* Top-aligned on purpose: an open Details grows its own card only. */
   align-items: start;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr));
   gap: 18px;
@@ -3466,6 +3491,14 @@ details[open] > .section-summary {
   box-sizing: border-box;
   padding: 16px;
 }
+.saved-game-media {
+  position: relative;
+}
+.saved-game-media .saved-world-badge {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+}
 .saved-game-card-body {
   display: flex;
   flex: 1;
@@ -3473,21 +3506,29 @@ details[open] > .section-summary {
   align-items: flex-start;
   padding: 18px;
 }
+/* Two title lines plus one progress line, so Play sits at the same height on
+   every card in a row whatever the title length or progress text. */
+.saved-game-info {
+  width: 100%;
+  min-height: calc(2 * 19px * 1.25 + 4px + 13px * 1.4);
+}
+/* One column has nothing to line up with, so the reservation goes. */
+@media (max-width: 640px) {
+  .saved-game-info {
+    min-height: 0;
+  }
+}
 .saved-game-card .saved-world-title {
-  margin: 10px 0 4px;
+  margin: 0;
   color: #f2ffff;
   font-size: 19px;
   line-height: 1.25;
 }
 .saved-game-card .saved-world-time {
-  margin: 0 0 16px;
+  margin: 0;
   color: #90aaa9;
   font-size: 13px;
   line-height: 1.4;
-}
-.saved-game-primary {
-  width: 100%;
-  margin-top: 16px;
 }
 .library-details-disclosure {
   width: 100%;
@@ -4313,16 +4354,18 @@ details[open] > .section-summary {
 }
 .saved-game-heading {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   width: 100%;
-  margin: 8px 0 4px;
+  margin: 0 0 4px;
 }
 .saved-game-card .saved-game-heading .saved-world-title {
   margin: 0;
   flex: 1;
 }
+/* Centre the 44px button on the first title line rather than on the whole title. */
 .rename-icon {
+  margin: calc((19px * 1.25 - 44px) / 2) 0;
   color: #91b9bc;
   background: transparent;
 }
@@ -4334,12 +4377,11 @@ details[open] > .section-summary {
   display: flex;
   gap: 8px;
   width: 100%;
-  margin-top: 12px;
+  margin-top: 14px;
 }
-.saved-game-play-row .saved-game-primary {
+.saved-game-card .saved-game-play-row > .ui-button {
   flex: 1;
   min-width: 0;
-  margin: 0;
 }
 .cartridge-rename {
   width: 100%;
