@@ -437,9 +437,11 @@ changed resources so an existing player's saved release stays intact.
 ### Production releases
 
 Production is served at `https://agi.monotio.com/` through Azure Front Door.
-CI builds with `/` as the base, checks the built site with
-`npm --prefix app run e2e:production`, and packages only `app/dist` plus the
-static-host response configuration. Fixture games are never deployment inputs.
+CI builds with `/` as the base and packages only `app/dist` plus the
+static-host response configuration. Separate Chromium and WebKit jobs check that
+artifact with `npm --prefix app run e2e:production`; the development browser
+suites also run independently, so one browser failure cannot skip the other.
+Browser failures retain traces for diagnosis. Fixture games are never deployment inputs.
 
 Only `@joakimriedel` may merge into protected `main`. Pull requests and the
 required CI checks apply to administrators too; direct pushes, force pushes,
@@ -449,7 +451,7 @@ restriction is what enforces exclusive merge permission. An organization owner
 can still change GitHub's settings, so account security remains essential.
 
 A successful push to `main` publishes the artifact from that same CI run after
-both check jobs pass. PR jobs have read-only repository access and no production
+all check and browser jobs pass. PR jobs have read-only repository access and no production
 identity. Outside contributors' workflows require approval. Production is a
 main-only GitHub environment, uses OIDC bound to immutable GitHub owner/repository IDs, and has only these
 environment secrets:
