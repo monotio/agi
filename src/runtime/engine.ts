@@ -26,7 +26,14 @@ import { SoundPlayback, type SoundOutput } from "../sound/sound.ts";
 import { parseLogicResource, type LogicResource } from "../logic/resource.ts";
 import { decodeInventoryFile } from "./inventoryFile.ts";
 import { actionSpec, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../logic/opcodes.ts";
-import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "../view/view.ts";
+import {
+  parseView,
+  selectViewCel,
+  readViewCel,
+  drawCel,
+  forEachPaintedPixel,
+  type AgiView,
+} from "../view/view.ts";
 import { detectProfile, type AgiProfile, type ProfileId } from "./profile.ts";
 import { TraceWindow } from "./trace.ts";
 import { InputQueue, NAV_KEYS } from "./inputQueue.ts";
@@ -255,6 +262,16 @@ const CLOCK_WAIT_JUMPS = 1000;
  */
 const CLOCK_WAIT_LIMIT_MS = 10 * 60 * 1000;
 /**
+ * Replay-pair capacity of a game that never calls script.size. The
+ * interpreters always hold a configured capacity (the save layout has no
+ * unconfigured state) and the spec's 2.230 XMAS data carries 200 pairs; the
+ * shipped default itself is undocumented, so 200 stands until the binaries
+ * settle it. A game's own script.size replaces it.
+ */
+const DEFAULT_REPLAY_CAPACITY = 200;
+/** Pairs the host-only shadow record keeps for autosaves of a blocked script buffer. */
+const HOST_REPLAY_LIMIT = 4096;
+/**
  * Polls within one cycle after which have.key is treated as a busy loop and a
  * blocking host wait is used. A script that merely polls once per cycle stays
  * non-blocking, so ordinary graphics-mode play never freezes on a keypress.
@@ -369,7 +386,7 @@ export class Engine {
   private cycleStatusSound = 0;
   private statusRefreshRequested = false;
   private inputAccepted = false;
-  private scriptCapacity = 0;
+  private scriptCapacity = DEFAULT_REPLAY_CAPACITY;
   private maximumReplayPairs = 0;
   private menu: MenuHeading[] = [];
   private menuFinalized = false;
@@ -416,6 +433,15 @@ export class Engine {
    * display state, rather than re-running the room's logic.
    */
   private readonly replay: ReplayPair[] = [];
+  /**
+   * Every pair the recording gate lets through, including those f7 blocks
+   * from the game's own sequence. Host autosaves of a game that blocks its
+   * script buffer (the demo pack sets f7 for good) use it so a resume can
+   * redraw the room; the game's save.game keeps writing the authentic
+   * sequence.
+   */
+  private readonly hostReplay: ReplayPair[] = [];
+  private hostReplayCheckpoint = 0;
   /** Saved active-pair count of the last push.script (spec "Replay checkpoints"). */
   private replayCheckpoint = 0;
   /** Internal recording gate; cleared around replay and view previews. */
@@ -582,14 +608,18 @@ export class Engine {
   // ---------- text surface (spec "Text geometry and surfaces") ----------
 
   /** 40x25 cells, [char, attr] pairs; char 0 = transparent (picture shows through). */
+  /** The trace overlay shows only while no window or dialog owns the surface. */
+  private get traceOverlayVisible(): boolean {
+    return (
+      this.trace.active &&
+      this.modal === null &&
+      this.saveDialogMode === null &&
+      this.persistentWindow === null
+    );
+  }
+
   get textCells(): Uint8Array {
-    if (
-      !this.trace.active ||
-      this.modal !== null ||
-      this.saveDialogMode !== null ||
-      this.persistentWindow !== null
-    )
-      return this.text.cells;
+    if (!this.traceOverlayVisible) return this.hideTextUnderSprites(this.text.cells);
     const cells = this.tracedText.cells;
     cells.set(this.text.cells);
     const overlay = this.trace.surface.cells;
@@ -599,7 +629,7 @@ export class Engine {
         cells[i + 1] = overlay[i + 1]!;
       }
     }
-    return cells;
+    return this.hideTextUnderSprites(cells);
   }
 
   /** Increments on every text-surface mutation. */
@@ -652,10 +682,11 @@ export class Engine {
   }
 
   /** The text row for a text-surface read-back (debug/test helper). */
+  /** The written row, trace overlay included, before sprites hide anything. */
   textRow(row: number): string {
-    return this.textCells === this.text.cells
-      ? this.text.rowText(row)
-      : this.tracedText.rowText(row);
+    if (!this.traceOverlayVisible) return this.text.rowText(row);
+    void this.textCells; // refresh the traced merge
+    return this.tracedText.rowText(row);
   }
 
   /**
@@ -1246,6 +1277,11 @@ export class Engine {
    * resume records.
    */
   serialize(): Uint8Array {
+    return this.serializeState(this.replay);
+  }
+
+  /** The save image with `pairs` as its replay sequence (see hostReplay). */
+  private serializeState(pairs: readonly ReplayPair[]): Uint8Array {
     const state = newSaveState(this.profile);
     state.description = this.saveDescription;
     for (let i = 0; i < this.signature.length && i < 7; i++) {
@@ -1262,10 +1298,10 @@ export class Engine {
     state.blockEnabled = this.blockRect ? 1 : 0;
     state.directionCoupling = this.directionCoupling;
     state.lastPicture = this.lastPicture;
-    // The capacity and the block-4 byte length must agree; a game that never
-    // configured one saves exactly the pairs it recorded.
-    state.replayCapacity = this.scriptCapacity > 0 ? this.scriptCapacity : this.replay.length;
-    state.replayActive = this.replay.length;
+    // The capacity and the block-4 byte length must agree; a shadow record can
+    // outgrow the game's configured capacity, so the image carries the larger.
+    state.replayCapacity = Math.max(this.scriptCapacity, pairs.length);
+    state.replayActive = pairs.length;
     state.replayCheckpoint = this.replayCheckpoint;
     let slot = 0;
     for (const [rawKey, status] of this.keymap) {
@@ -1298,7 +1334,7 @@ export class Engine {
     for (let item = 0; item < meta.entryCount; item++) {
       state.inventory[item * 3 + 2] = this.itemLocations[item]!;
     }
-    state.replay = this.replay.map((pair) => ({ ...pair }));
+    state.replay = pairs.map((pair) => ({ ...pair }));
     state.logicResume = [...this.logics.keys()].map((logic) => ({
       logic,
       offset: this.scanStart.get(logic) ?? 0,
@@ -1362,7 +1398,9 @@ export class Engine {
     // the script buffer (f7, the demo pack does) records no replay pairs at
     // all, so the shown picture is the witness, not the replay.
     if (this.replay.length === 0 && !this.pictureShown) return null;
-    return this.serialize();
+    // With nothing in the game's own sequence the shadow record stands in, so
+    // the restore can reload and redraw the room instead of leaving it blank.
+    return this.serializeState(this.replay.length === 0 ? this.hostReplay : this.replay);
   }
 
   /**
@@ -1411,10 +1449,7 @@ export class Engine {
       : null;
     this.directionCoupling = s.directionCoupling;
     this.lastPicture = s.lastPicture;
-    // A game that never configured a capacity saved its active pair count as
-    // the capacity (see serialize); restoring that count as a hard limit would
-    // make the very next resource load fail, so it stays unconfigured.
-    this.scriptCapacity = s.replayCapacity > s.replayActive ? s.replayCapacity : 0;
+    this.scriptCapacity = s.replayCapacity || DEFAULT_REPLAY_CAPACITY;
     this.replayCheckpoint = s.replayCheckpoint;
     this.menuInteractionGate = s.menuGate;
     this.keymap.clear();
@@ -1440,6 +1475,9 @@ export class Engine {
     }
     this.replay.length = 0;
     for (const pair of s.replay.slice(0, s.replayActive)) this.replay.push({ ...pair });
+    this.hostReplay.length = 0;
+    for (const pair of this.replay) this.hostReplay.push({ ...pair });
+    this.hostReplayCheckpoint = 0;
     this.parsedWords = [];
     this.parsedWordTexts = [];
     this.parserCount = 0;
@@ -1689,26 +1727,6 @@ export class Engine {
    * four-pair transient-cel packet so restore can reproduce the draw; replay
    * calls this one directly, with recording already disabled.
    */
-  /**
-   * Text and graphics share one screen in the interpreters, so drawing or
-   * erasing a cel repaints the text under it. Text lives in its own cell
-   * layer here; this drops the cells the object's cel covers that were written
-   * after its last draw, then stamps the draw. The demo pack's menu paints
-   * rows 0..9 black with clear.text.rect and add.to.pic's its cards on top; a
-   * Mother Goose demonstration redraws its speech bubble over stale words.
-   */
-  private coverText(o: ScreenObject): void {
-    this.text.coverPicture(
-      o.x,
-      o.y - o.height + 1,
-      o.x + o.width - 1,
-      o.y,
-      this.displayBaseRow,
-      o.drawSeq,
-    );
-    o.drawSeq = this.text.seq;
-  }
-
   private addToPic(
     viewNum: number,
     loop: number,
@@ -1721,13 +1739,77 @@ export class Engine {
     const view = this.loadView(viewNum);
     const c = selectViewCel(view, loop, cel);
     if (!c) throw new Error(`view ${viewNum} loop ${loop} cel ${cel} out of range`);
-    drawCel(this.surface, c, x, y, { priority });
-    this.text.coverPicture(x, y - c.height + 1, x + c.width - 1, y, this.displayBaseRow, 0);
+    // The cel paints into the picture for good, text included, but only where
+    // its opaque pixels land and the priority screen lets them (the demo
+    // pack's menu paints rows 0..9 black, then add.to.pic's its cards on top).
+    const covered = new Set<number>();
+    drawCel(this.surface, c, x, y, {
+      priority,
+      onPixel: (pixel) => {
+        const cell = this.textCellUnder(pixel);
+        if (cell >= 0) covered.add(cell);
+      },
+    });
+    this.text.dropCells(covered);
     if (margin < 4 && y >= 0 && y < SCREEN_HEIGHT) {
       const from = Math.max(0, x);
       const to = Math.min(SCREEN_WIDTH, x + c.width);
       for (let dx = from; dx < to; dx++) this.surface.priority[y * SCREEN_WIDTH + dx] = margin;
     }
+  }
+
+  /**
+   * Text and graphics share one screen in the interpreters. Erasing or
+   * redrawing a cel restores the pixels saved when it was drawn, so text
+   * written over the cel since then is gone; text older than the draw was
+   * saved with the background and stays (hideTextUnderSprites hides it
+   * meanwhile). Text lives in its own cell layer here: drop the cells under
+   * the cel's rectangle written after its last draw, then stamp the draw. A
+   * Mother Goose demonstration relies on this when it redraws its speech
+   * bubble over stale words.
+   */
+  private restoreBehind(o: ScreenObject): void {
+    this.text.coverPicture(
+      o.x,
+      o.y - o.height + 1,
+      o.x + o.width - 1,
+      o.y,
+      this.displayBaseRow,
+      o.drawSeq,
+    );
+    o.drawSeq = this.text.seq;
+  }
+
+  /** Text cell index under a picture pixel index, or -1 below the text rows. */
+  private textCellUnder(pixel: number): number {
+    const row = this.displayBaseRow + (((pixel / SCREEN_WIDTH) | 0) >> 3);
+    if (row >= TEXT_ROWS) return -1;
+    return row * TEXT_COLS + ((pixel % SCREEN_WIDTH) >> 2);
+  }
+
+  /**
+   * A drawn cel hides the text under the pixels it paints; the interpreter
+   * saved that text with the background, so it shows again when the cel moves
+   * on or is erased. Text written after the draw lies on top and stays
+   * visible. This shapes the cells a host presents; the cells themselves are
+   * untouched.
+   */
+  private hideTextUnderSprites(cells: Uint8Array): Uint8Array {
+    let out: Uint8Array | null = null;
+    for (const o of this.objects) {
+      if (!o.active) continue;
+      const view = this.views.get(o.view);
+      const cel = view && selectViewCel(view, o.loop, o.cel);
+      if (!cel) continue;
+      forEachPaintedPixel(this.surface, cel, o.x, o.y, o.priority, (pixel) => {
+        const index = this.textCellUnder(pixel);
+        if (index < 0 || cells[index * 2] === 0 || this.text.written[index]! > o.drawSeq) return;
+        out ??= cells.slice();
+        out[index * 2] = 0;
+        out[index * 2 + 1] = 0;
+      });
+    }
+    return out ?? cells;
   }
 
   /**
@@ -1940,7 +2022,7 @@ export class Engine {
       if (!obj.active || !obj.update || obj.earlierPartition) continue;
       // Every updating cel is erased and redrawn each pass, which repaints
       // whatever text was written over it since its last draw.
-      this.coverText(obj);
+      this.restoreBehind(obj);
       if (this.profile.directionLoopTiming === "every-pass" || obj.stepCount === 1)
         this.selectLoop(obj);
       this.updateCycle(obj);
@@ -3050,7 +3132,9 @@ export class Engine {
         o.prevY = o.y;
         o.active = true;
         o.earlierPartition = false;
-        this.coverText(o);
+        // The cel now covers whatever text lies under it (hideTextUnderSprites);
+        // text written from here on lies on top of it.
+        o.drawSeq = this.text.seq;
         this.updateEgoVisibility();
         return next;
       }
@@ -3058,7 +3142,7 @@ export class Engine {
         const o = obj(0);
         // Erasing restores the pixels saved when the cel was drawn: text
         // written since then is gone.
-        if (o.active) this.coverText(o);
+        if (o.active) this.restoreBehind(o);
         o.active = false;
         this.updateEgoVisibility();
         return next;
@@ -3777,9 +3861,12 @@ export class Engine {
       // of the restored prefix, leaving later pairs outside the sequence.
       case 0xab:
         this.replayCheckpoint = this.replay.length;
+        this.hostReplayCheckpoint = this.hostReplay.length;
         return next;
       case 0xac:
         if (this.replayCheckpoint <= this.replay.length) this.replay.length = this.replayCheckpoint;
+        if (this.hostReplayCheckpoint <= this.hostReplay.length)
+          this.hostReplay.length = this.hostReplayCheckpoint;
         return next;
       case 0xa5:
         this.vars[a(0)] = (this.vars[a(0)]! * a(1)) & 0xff;
@@ -3839,8 +3926,10 @@ export class Engine {
     // recorded resource/draw pairs describe that room alone (spec "Room
     // transition").
     this.replay.length = 0;
+    this.hostReplay.length = 0;
     this.pendingLogic = null;
     this.replayCheckpoint = 0;
+    this.hostReplayCheckpoint = 0;
     this.vars[V_PREV_ROOM] = this.vars[V_ROOM]!;
     this.vars[V_ROOM] = room;
     this.vars[V_EGO_VIEW] = this.objects[0]!.view;
@@ -3962,8 +4051,10 @@ export class Engine {
    * count as its capacity.
    */
   private record(kind: number, value: number): void {
-    if (!this.replayRecording || this.flags[F_REPLAY_OFF] !== 0) return;
-    if (this.scriptCapacity > 0 && this.replay.length >= this.scriptCapacity) {
+    if (!this.replayRecording) return;
+    if (this.hostReplay.length < HOST_REPLAY_LIMIT) this.hostReplay.push({ kind, value });
+    if (this.flags[F_REPLAY_OFF] !== 0) return;
+    if (this.replay.length >= this.scriptCapacity) {
       throw new RangeError(
         `resource replay sequence exceeded its ${this.scriptCapacity}-pair capacity`,
       );
@@ -4044,9 +4135,11 @@ export class Engine {
     this.viewOrder.length = 0;
     this.scanStart.clear();
     this.replay.length = 0;
+    this.hostReplay.length = 0;
     this.replayCheckpoint = 0;
+    this.hostReplayCheckpoint = 0;
     this.replayRecording = true;
-    this.scriptCapacity = 0;
+    this.scriptCapacity = DEFAULT_REPLAY_CAPACITY;
     this.maximumReplayPairs = 0;
     this.menu = [];
     this.menuFinalized = false;

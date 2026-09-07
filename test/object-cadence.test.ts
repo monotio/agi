@@ -562,18 +562,20 @@ test("loop and view selection keep an index the new loop or view has, else fall 
   assert.deepEqual(indices(engine), [1, 0]);
 });
 
-// Text and graphics share one screen in the interpreters: a cel drawn into the
-// picture or a sprite drawn or erased afterwards repaints the pixels under it,
-// text included. The engine keeps text in its own cell layer, so it drops the
-// cells a later drawing covers. The demo pack's menu paints rows 0..9 black
-// with clear.text.rect and then add.to.pic's its game cards over them; a
-// Mother Goose demonstration redraws its speech bubble over the words it no
-// longer wants.
-test("graphics drawn after text drop the cells they cover", () => {
+// Text and graphics share one screen in the interpreters: a cel painted into
+// the picture covers the text under its opaque pixels for good, a drawn sprite
+// hides the older text under its painted pixels until it moves or is erased,
+// and erasing or redrawing a sprite restores the pixels saved at its draw, so
+// text written over it since then is gone. The engine keeps text in its own
+// cell layer and models each of these on the cells a host presents. The demo
+// pack's menu paints rows 0..9 black with clear.text.rect and then add.to.pic's
+// its game cards over them; a Mother Goose demonstration redraws its speech
+// bubble over the words it no longer wants.
+test("graphics drawn after text cover, hide or drop the cells under their pixels", () => {
   // Picture row 0 is text row 0, so a cel at (20,100) covers column 5, row 12.
-  // Raw cells: an empty (transparent) cell is 0, which textRow renders as a space.
   const cell = (engine: Engine, row: number, col: number) =>
     engine.textCells[(row * 40 + col) * 2]!;
+  const raw = (engine: Engine, row: number, col: number) => engine.textRow(row).charCodeAt(col);
   const chars = (engine: Engine, row: number) =>
     Array.from({ length: 9 }, (_, col) => cell(engine, row, col));
   let engine = game(
@@ -584,8 +586,27 @@ test("graphics drawn after text drop the cells they cover", () => {
   assert.equal(cell(engine, 12, 5), 0, "add.to.pic covered the black cell");
   assert.equal(cell(engine, 12, 4), 0x20, "the cell beside it stays black");
   assert.equal(cell(engine, 11, 5), 0x20, "the row above stays black");
-  // A sprite drawn over text covers it; text displayed after the draw stays
-  // until the sprite is erased or, when it updates, until its next pass.
+  // Only painted pixels cover: a cel whose pixels over the cell are all
+  // transparent leaves the text alone.
+  engine = game(
+    `configure.screen(0, 23, 24); load.view(2);
+     clear.text.rect(10, 0, 14, 39, 0); add.to.pic(2, 0, 0, 20, 100, 15, 4); return;`,
+  );
+  engine.patchResource(
+    "view",
+    2,
+    buildView({
+      loops: [
+        { cels: [{ width: 8, height: 1, pixels: [0, 0, 0, 0, 3, 3, 3, 3], transparentColor: 0 }] },
+      ],
+    }),
+  );
+  engine.execute(0);
+  assert.equal(cell(engine, 12, 5), 0x20, "transparent pixels paint nothing");
+  assert.equal(cell(engine, 12, 6), 0, "the opaque half covers its cell");
+  // A sprite drawn over text hides it while it stands there; the text itself
+  // stays and shows again once the sprite is erased. Text displayed after the
+  // draw lies on top of the sprite.
   engine = game(
     `configure.screen(0, 23, 24); load.view(1); animate.obj(o0); set.view(o0, 1);
      position(o0, 20, 100); display(12, 5, "AB"); draw(o0); stop.update(o0);
@@ -593,18 +614,41 @@ test("graphics drawn after text drop the cells they cover", () => {
   );
   engine.execute(0);
   assert.deepEqual(chars(engine, 12).slice(5, 9), [0, 0x42, 0x43, 0x44]);
+  assert.equal(raw(engine, 12, 5), 0x41, "the hidden cell is still written");
+  engine = game(
+    `configure.screen(0, 23, 24); load.view(1); animate.obj(o0); set.view(o0, 1);
+     position(o0, 20, 100); display(12, 5, "AB"); draw(o0); stop.update(o0); erase(o0); return;`,
+  );
+  engine.execute(0);
+  assert.deepEqual(chars(engine, 12).slice(5, 7), [0x41, 0x42], "erase uncovers older text");
+  // Text written over a drawn sprite is lost when the sprite is erased: the
+  // pixels saved at the draw come back without it.
   engine = game(
     `configure.screen(0, 23, 24); load.view(1); animate.obj(o0); set.view(o0, 1);
      position(o0, 20, 100); draw(o0); stop.update(o0); display(12, 5, "AB"); erase(o0); return;`,
   );
   engine.execute(0);
   assert.deepEqual(chars(engine, 12).slice(5, 7), [0, 0x42], "erase repaints under the sprite");
+  // An updating sprite is erased and redrawn in the same cycle's object pass,
+  // so text the logic writes over it never reaches the frame; text it walks
+  // onto later is hidden while covered and returns behind it.
   engine = game(
     `configure.screen(0, 23, 24); load.view(1); animate.obj(o0); set.view(o0, 1);
      position(o0, 20, 100); draw(o0); display(12, 5, "AB"); return;`,
   );
-  // An updating sprite is erased and redrawn in the same cycle's object pass,
-  // so text the logic writes over it never reaches the frame.
   engine.tick();
   assert.deepEqual(chars(engine, 12).slice(5, 7), [0, 0x42], "an updating sprite repaints it");
+  engine = game(
+    `configure.screen(0, 23, 24); load.view(1);
+     if (isset(f5)) { display(12, 6, "XY"); animate.obj(o0); set.view(o0, 1); position(o0, 20, 100); ignore.blocks(o0); draw(o0); }
+     if (equaln(v50, 0)) { assignn(v50, 1); assignn(v6, 3); }
+     return;`,
+  );
+  engine.tick();
+  assert.deepEqual(chars(engine, 12).slice(6, 8), [0x58, 0x59], "not yet covered");
+  for (let i = 0; i < 8 && engine.screenObjects[0]!.x < 24; i++) engine.tick();
+  assert.equal(cell(engine, 12, 6), 0, "hidden while the sprite stands on it");
+  assert.equal(raw(engine, 12, 6), 0x58, "but not erased");
+  for (let i = 0; i < 20 && engine.screenObjects[0]!.x < 32; i++) engine.tick();
+  assert.deepEqual(chars(engine, 12).slice(6, 8), [0x58, 0x59], "back once the sprite has passed");
 });

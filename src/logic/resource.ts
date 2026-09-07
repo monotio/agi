@@ -107,10 +107,8 @@ export function toggleMessageEncryption(payload: Uint8Array): Uint8Array {
   const messageCount = payload[tableStart - 1]!;
   const textStart = tableStart + (messageCount + 1) * 2;
   if (textStart > payload.length) return out;
-  const regionEnd = Math.min(
-    payload.length,
-    tableStart + (payload[tableStart]! | (payload[tableStart + 1]! << 8)),
-  );
+  const regionEnd = tableStart + (payload[tableStart]! | (payload[tableStart + 1]! << 8));
+  if (regionEnd < textStart || regionEnd > payload.length) return out;
   for (let at = textStart; at < regionEnd; at++) {
     out[at] = payload[at]! ^ MESSAGE_KEY.charCodeAt((at - textStart) % MESSAGE_KEY.length);
   }

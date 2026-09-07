@@ -107,7 +107,8 @@ either: the Space Quest intro shows its captions in text mode and polls for a
 skip key each cycle.
 
 Copy the complete game installation, including its uppercase directory files,
-`WORDS.TOK`, `OBJECT`, all `VOL.*` files and interpreter files. Missing fixtures
+`WORDS.TOK`, `OBJECT`, every volume file (`VOL.*`, or a v3 game's prefixed
+`<PREFIX>VOL.*`) and the interpreter files. Missing fixtures
 produce explicit skips with the folder and missing filenames in both engine and
 browser test output. A fresh clone can run the suite without these games; its
 passing synthetic tests do not establish fixture compatibility. See

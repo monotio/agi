@@ -98,6 +98,19 @@ export class TextSurface {
     this.dirty++;
   }
 
+  /** Drop the given cells (row * TEXT_COLS + col); graphics painted over them for good. */
+  dropCells(indices: Iterable<number>): void {
+    let changed = false;
+    for (const i of indices) {
+      if (i < 0 || i >= TEXT_COLS * TEXT_ROWS || this.cells[i * 2] === 0) continue;
+      this.cells[i * 2] = 0;
+      this.cells[i * 2 + 1] = 0;
+      this.written[i] = 0;
+      changed = true;
+    }
+    if (changed) this.dirty++;
+  }
+
   /**
    * Drop the cells written after `since` whose area meets the picture-space
    * rectangle (x0..x1, y0..y1), the graphics having been repainted there.

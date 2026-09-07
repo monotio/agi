@@ -34,7 +34,8 @@ test("the guide states the interpreter behaviors the engine follows", () => {
   const text = AUTHORING_GUIDE["text-and-captions"]!.body;
   assert.match(text, /next row at column 0/);
   assert.match(text, /show\.pic repaints the whole picture band/);
-  assert.match(text, /every updating sprite is erased and redrawn each cycle/);
+  assert.match(text, /every updating sprite's per-cycle redraw/);
+  assert.match(text, /returns when the sprite moves on or is erased/);
   const sprites = AUTHORING_GUIDE["sprites-and-animation"]!.body;
   assert.match(sprites, /set\.view keeps the object's current loop/);
   assert.match(sprites, /call set\.cel\(o, 0\) explicitly/);

@@ -143,8 +143,14 @@ describe("v3 combined resources", () => {
     // Repacking copies the compressed record verbatim; it still decodes.
     c.putResource("view", 1, Uint8Array.of(8));
     assert.deepEqual(parseLogicResource(c.getResource("logic", 0)!).messages, ["Sound now Off"]);
-    // Toggling tolerates framing that does not fit, leaving the bytes alone.
+    // Toggling tolerates framing that does not fit, leaving the bytes alone,
+    // including a declared text end beyond the payload.
     assert.deepEqual(toggleMessageEncryption(Uint8Array.of(9, 9, 9)), Uint8Array.of(9, 9, 9));
+    const oversized = encrypted.slice();
+    const tableStart = 2 + 1 + 1;
+    oversized[tableStart] = 0xff;
+    oversized[tableStart + 1] = 0x7f;
+    assert.deepEqual(toggleMessageEncryption(oversized), oversized);
   });
   it("expands packed picture color nibbles and an optional zero pad nibble", () => {
     for (const [stored, expected] of [

@@ -221,4 +221,18 @@ test("a game that blocks the script buffer still autosaves once a picture has dr
   fresh.tick();
   assert.equal(fresh.vars[0], 1);
   assert.equal(fresh.screenObjects[0]!.active, true, "the room's sprite is back on screen");
+  // The game's own sequence is empty, so the host image carried the engine's
+  // shadow record: the restore reloaded and redrew the picture instead of
+  // leaving the reset surface.
+  const before = engine.getFrame().visual;
+  const after = fresh.getFrame().visual;
+  assert.ok(
+    before.some((color) => color !== 15),
+    "the saved scene is not the blank surface",
+  );
+  assert.deepEqual(
+    Array.from(after),
+    Array.from(before),
+    "the restored picture matches the saved one",
+  );
 });
