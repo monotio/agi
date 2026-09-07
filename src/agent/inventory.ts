@@ -28,8 +28,11 @@ export function validateRoomInventory(
 ): void {
   const before = readInventoryObjects(previous, profile);
   const after = readInventoryObjects(next, profile);
+  // Compare the decoded header: a plain stub read through the fallback and its
+  // encrypted replacement share a maximum object index but not a storage byte.
+  const objectIndex = (payload: Uint8Array): number => decodeInventoryFile(payload, profile)[2]!;
   if (
-    (previous && previous[2] !== next[2]) ||
+    (previous && objectIndex(previous) !== objectIndex(next)) ||
     before.some(
       (item, i) => item.name !== after[i]?.name || item.startingRoom !== after[i]?.startingRoom,
     )

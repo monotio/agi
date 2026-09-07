@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { createContainer, openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { MESSAGE_KEY } from "../src/logic/resource.ts";
-import { readInventoryObjects } from "../src/agent/inventory.ts";
+import { readInventoryObjects, validateRoomInventory } from "../src/agent/inventory.ts";
+import { buildObjectFile, createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { decodeInventoryFile, inventoryTableFits } from "../src/runtime/inventoryFile.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
@@ -69,4 +70,42 @@ test("the engine lists the stub's single item under a v3 profile", () => {
   const engine = new Engine(container, host, undefined, { profile: "3.002.102" });
   engine.tick();
   assert.deepEqual(host.statusItems, [{ num: 0, name: "?" }]);
+});
+
+test("authoring over a plain v3 stub keeps the decoded object-record capacity", () => {
+  const profile = PROFILES["3.002.102"];
+  const replacement = buildObjectFile([{ name: "?", startingRoom: 0 }], profile, 15);
+  assert.notEqual(replacement[2], PLAIN_STUB[2], "the replacement is stored encrypted");
+  assert.doesNotThrow(() => validateRoomInventory(PLAIN_STUB, replacement, profile));
+  assert.throws(
+    () =>
+      validateRoomInventory(
+        PLAIN_STUB,
+        buildObjectFile([{ name: "?", startingRoom: 0 }], profile, 16),
+        profile,
+      ),
+    /Keep existing inventory entries/,
+  );
+  const state = createAgentSessionState(
+    openContainer(
+      new Map([
+        ["AGIDATA.OVL", Uint8Array.from("Version 3.002.102", (c) => c.charCodeAt(0))],
+        ["OBJECT", PLAIN_STUB],
+      ]),
+    ),
+  );
+  assert.equal(state.profile.id, "3.002.102");
+  const result = executeAgentTool(state, "write_inventory_objects", {
+    objects: [
+      { name: "?", startingRoom: 0 },
+      { name: "lamp", startingRoom: 3 },
+    ],
+  });
+  assert.equal(result.success, true, result.error ?? "tool failed");
+  const written = state.getFiles().get("OBJECT")!;
+  assert.equal(decodeInventoryFile(written, profile)[2], 15, "index 15 survives the rewrite");
+  assert.deepEqual(readInventoryObjects(written, profile), [
+    { name: "?", startingRoom: 0 },
+    { name: "lamp", startingRoom: 3 },
+  ]);
 });

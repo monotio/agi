@@ -31,6 +31,7 @@ import {
 import { viewFeedback } from "./viewFeedback.ts";
 import { normalizeAuthoredLogic } from "./logicText.ts";
 import { readInventoryObjects } from "./inventory.ts";
+import { decodeInventoryFile } from "../runtime/inventoryFile.ts";
 import { createAuthoringState, resourceRevision, type AuthoringState } from "./authoringState.ts";
 import { AUTHORING_TOOLS, executeAuthoringTool } from "./authoringTools.ts";
 import { SPRITE_TOOLS, executeSpriteTool } from "./spriteTools.ts";
@@ -1152,10 +1153,11 @@ function executeLegacyTool(
       }
       try {
         const previous = session.objectPayload ?? session.container.files.get("OBJECT");
+        // The decoded header keeps the engine's object-record capacity stable
+        // whichever storage form the previous file used (see inventoryFile.ts).
         const maximumDrawableObjectIndex =
           previous && previous.length >= 3
-            ? previous[2]! ^
-              (session.profile.inventoryMetadataEncrypted ? MESSAGE_KEY.charCodeAt(2) : 0)
+            ? decodeInventoryFile(previous, session.profile)[2]!
             : 255;
         const payload = buildObjectFile(objects, session.profile, maximumDrawableObjectIndex);
         session.objectPayload = payload;
