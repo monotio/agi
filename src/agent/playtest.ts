@@ -43,8 +43,7 @@ const DIRECTION_DELTAS: Readonly<Record<number, readonly [number, number]>> = {
 /** Every non-null condition of a wait-until predicate must hold. */
 function untilMet(engine: Engine, until: UntilPredicate): boolean {
   if (until.room !== null && engine.vars[0] !== until.room) return false;
-  if (until.flag !== null && (engine.flags[until.flag.id] !== 0) !== until.flag.value)
-    return false;
+  if (until.flag !== null && (engine.flags[until.flag.id] !== 0) !== until.flag.value) return false;
   if (until.var !== null) {
     const value = engine.vars[until.var.id]!;
     if (until.var.value !== null) {

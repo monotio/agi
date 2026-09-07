@@ -131,8 +131,23 @@ export interface AssertionSuggestion {
  * Everything else that changed is a candidate game variable.
  */
 const INTERPRETER_VARS: Readonly<Record<number, true>> = {
-  0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true,
-  10: true, 16: true, 17: true, 18: true, 19: true, 21: true, 22: true,
+  0: true,
+  1: true,
+  2: true,
+  3: true,
+  4: true,
+  5: true,
+  6: true,
+  7: true,
+  8: true,
+  9: true,
+  10: true,
+  16: true,
+  17: true,
+  18: true,
+  19: true,
+  21: true,
+  22: true,
 };
 
 /**
@@ -169,7 +184,13 @@ export function suggestAssertions(
   }
   const score = end.vars[3] ?? 0;
   if (score !== (start.vars[3] ?? 0))
-    suggestions.push({ id: "score", kind: "score", score, label: `score ${score}`, selected: true });
+    suggestions.push({
+      id: "score",
+      kind: "score",
+      score,
+      label: `score ${score}`,
+      selected: true,
+    });
   for (let id = 0; id < 256; id++) {
     if (INTERPRETER_VARS[id]) continue;
     const after = end.vars[id] ?? 0;
@@ -224,7 +245,9 @@ export function buildRecordedTest(
 ): Record<string, unknown> {
   const flags = selected.flatMap((s) => (s.kind === "flag" && s.flag ? [s.flag] : []));
   const vars = selected.flatMap((s) => (s.kind === "var" && s.var ? [s.var] : []));
-  const carriedItems = selected.flatMap((s) => (s.kind === "item" && s.item !== undefined ? [s.item] : []));
+  const carriedItems = selected.flatMap((s) =>
+    s.kind === "item" && s.item !== undefined ? [s.item] : [],
+  );
   const room = selected.find((s) => s.kind === "room")?.room;
   const score = selected.find((s) => s.kind === "score")?.score;
   const printed = selected.filter((s) => s.kind === "printed").at(-1)?.printed;

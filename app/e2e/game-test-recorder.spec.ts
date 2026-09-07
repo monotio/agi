@@ -21,7 +21,11 @@ const ROOM_ONE = TUTORIAL_LOGIC_SOURCES[1]!;
 const BROKEN_ROOM_ONE = ROOM_ONE.replace(MURAL_TEXT, BROKEN_TEXT);
 
 /** The assistant turns one remix needs: the tool call, then the closing text. */
-function remixResponses(idPrefix: string, calls: [string, Record<string, unknown>][], text: string) {
+function remixResponses(
+  idPrefix: string,
+  calls: [string, Record<string, unknown>][],
+  text: string,
+) {
   return [
     {
       id: `${idPrefix}-calls`,
@@ -35,9 +39,7 @@ function remixResponses(idPrefix: string, calls: [string, Record<string, unknown
     },
     {
       id: `${idPrefix}-done`,
-      output: [
-        { type: "message", role: "assistant", content: [{ type: "output_text", text }] },
-      ],
+      output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text }] }],
     },
   ];
 }

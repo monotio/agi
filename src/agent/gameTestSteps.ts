@@ -107,7 +107,7 @@ export type GameTestStep = {
   readonly until: UntilPredicate | null;
   readonly ticks: number | null;
   readonly captureTicks: readonly number[] | null;
-}
+};
 
 /** One stored expectation set, normalized to the full shape (a type alias for
  * the same Record<string, unknown> assignability as GameTestStep). */
@@ -121,7 +121,7 @@ export type GameTestExpect = {
   readonly score: number | null;
   readonly object: ObjectAssertion | null;
   readonly reachable: ReachableAssertion | null;
-}
+};
 
 function fail(message: string): never {
   throw new Error(message);
@@ -133,12 +133,7 @@ function integer(value: unknown, label: string, min: number, max: number): numbe
   return value;
 }
 
-function optionalInteger(
-  value: unknown,
-  label: string,
-  min: number,
-  max: number,
-): number | null {
+function optionalInteger(value: unknown, label: string, min: number, max: number): number | null {
   return value == null ? null : integer(value, label, min, max);
 }
 
@@ -187,10 +182,8 @@ export function validateUntilPredicate(value: unknown, label: string): UntilPred
   const until = object(value, label);
   unknownKeys(until, UNTIL_FIELDS, label);
   const room = optionalInteger(until["room"], `${label}.room`, 0, 255);
-  const flag =
-    until["flag"] == null ? null : validateFlagAssertion(until["flag"], `${label}.flag`);
-  const variable =
-    until["var"] == null ? null : validateVarAssertion(until["var"], `${label}.var`);
+  const flag = until["flag"] == null ? null : validateFlagAssertion(until["flag"], `${label}.flag`);
+  const variable = until["var"] == null ? null : validateVarAssertion(until["var"], `${label}.var`);
   if (room === null && flag === null && variable === null)
     fail(`${label} needs at least one condition: room, flag or var.`);
   return { room, flag, var: variable };
@@ -284,9 +277,10 @@ export function validateGameTestStep(value: unknown, label: string): GameTestSte
     x: kind === "walkTo" ? integer(step["x"], `${label}.x`, 0, 159) : null,
     y: kind === "walkTo" ? integer(step["y"], `${label}.y`, 0, 167) : null,
     answer: kind === "answer" ? text(step["answer"], `${label}.answer`, 80) : null,
-    until: kind === "wait" && step["until"] != null
-      ? validateUntilPredicate(step["until"], `${label}.until`)
-      : null,
+    until:
+      kind === "wait" && step["until"] != null
+        ? validateUntilPredicate(step["until"], `${label}.until`)
+        : null,
     ticks,
     captureTicks,
   };
@@ -378,18 +372,8 @@ export function validateGameTestExpect(value: unknown, label: string): GameTestE
       reachable == null
         ? null
         : {
-            x: integer(
-              (reachable as Record<string, unknown>)["x"],
-              `${label}.reachable.x`,
-              0,
-              159,
-            ),
-            y: integer(
-              (reachable as Record<string, unknown>)["y"],
-              `${label}.reachable.y`,
-              0,
-              167,
-            ),
+            x: integer((reachable as Record<string, unknown>)["x"], `${label}.reachable.x`, 0, 159),
+            y: integer((reachable as Record<string, unknown>)["y"], `${label}.reachable.y`, 0, 167),
           },
   };
 }

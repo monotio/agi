@@ -55,7 +55,11 @@ class Boot {
   constructor(slug: string, profileId: string) {
     const { container, dict, files } = loadGame(slug, { interpreterFiles: true });
     const profile = detectProfile(files);
-    assert.equal(profile.id, profileId, `${slug}: the installation selects the interpreter profile`);
+    assert.equal(
+      profile.id,
+      profileId,
+      `${slug}: the installation selects the interpreter profile`,
+    );
     const host: EngineHost = {
       print: (text) => this.prints.push(text),
       displayAt() {},
@@ -127,31 +131,46 @@ function assertNonBlank(engine: Engine, label: string): void {
 }
 
 const sq1Skip = fixtureSkip("sq1");
-test("sq1: cold boot reaches the Arcada through the title screen and the name prompt", { skip: sq1Skip }, () => {
-  const boot = new Boot("sq1", "2.917");
-  boot.until(() => boot.room() === 67, 100, "title screen (room 67)");
-  boot.run(60); // let the title settle before the any-key press
-  boot.key(ENTER);
-  boot.until(() => boot.engine.inputEnabled, 600, "first playable room");
-  assert.deepEqual(boot.textPrompts, ["First Name: "], "the only opening prompt asks the first name");
-  assert.equal(boot.room(), 2, "the opening room");
-  assert.ok(boot.engine.textRow(0).includes("Score: 0 of 202"), "the SQ1 status line is up");
-  assertNonBlank(boot.engine, "sq1");
-});
+test(
+  "sq1: cold boot reaches the Arcada through the title screen and the name prompt",
+  { skip: sq1Skip },
+  () => {
+    const boot = new Boot("sq1", "2.917");
+    boot.until(() => boot.room() === 67, 100, "title screen (room 67)");
+    boot.run(60); // let the title settle before the any-key press
+    boot.key(ENTER);
+    boot.until(() => boot.engine.inputEnabled, 600, "first playable room");
+    assert.deepEqual(
+      boot.textPrompts,
+      ["First Name: "],
+      "the only opening prompt asks the first name",
+    );
+    assert.equal(boot.room(), 2, "the opening room");
+    assert.ok(boot.engine.textRow(0).includes("Score: 0 of 202"), "the SQ1 status line is up");
+    assertNonBlank(boot.engine, "sq1");
+  },
+);
 
 const kq2Skip = fixtureSkip("kq2");
-test("kq2: cold boot reaches the castle exterior through the credits screen", { skip: kq2Skip }, () => {
-  const boot = new Boot("kq2", "2.411");
-  boot.until(() => boot.room() === 97, 100, "credits screen (room 97)");
-  // The credits text fades in on a timer after the room loads.
-  boot.until(() => boot.engine.textRow(1).includes("KING'S QUEST ]["), 1200, "the credits title");
-  assert.ok(boot.engine.textRow(2).includes("ROMANCING THE THRONE"), "the credits subtitle is up");
-  boot.key(ENTER); // the credits screen waits for any key
-  boot.until(() => boot.engine.inputEnabled, 600, "first playable room");
-  assert.equal(boot.room(), 1, "the opening room");
-  assert.ok(boot.engine.textRow(0).includes("Score: 0 of 185"), "the KQ2 status line is up");
-  assertNonBlank(boot.engine, "kq2");
-});
+test(
+  "kq2: cold boot reaches the castle exterior through the credits screen",
+  { skip: kq2Skip },
+  () => {
+    const boot = new Boot("kq2", "2.411");
+    boot.until(() => boot.room() === 97, 100, "credits screen (room 97)");
+    // The credits text fades in on a timer after the room loads.
+    boot.until(() => boot.engine.textRow(1).includes("KING'S QUEST ]["), 1200, "the credits title");
+    assert.ok(
+      boot.engine.textRow(2).includes("ROMANCING THE THRONE"),
+      "the credits subtitle is up",
+    );
+    boot.key(ENTER); // the credits screen waits for any key
+    boot.until(() => boot.engine.inputEnabled, 600, "first playable room");
+    assert.equal(boot.room(), 1, "the opening room");
+    assert.ok(boot.engine.textRow(0).includes("Score: 0 of 185"), "the KQ2 status line is up");
+    assertNonBlank(boot.engine, "kq2");
+  },
+);
 
 const kq3Skip = fixtureSkip("kq3");
 test("kq3: cold boot reaches Manannan's house through the title screen", { skip: kq3Skip }, () => {
@@ -183,34 +202,42 @@ test("pq1: cold boot reaches the station through the title screen", { skip: pq1S
 });
 
 const lsl1Skip = fixtureSkip("lsl1");
-test("lsl1: cold boot reaches the age-check prompt through the title and the content warning", { skip: lsl1Skip }, () => {
-  const boot = new Boot("lsl1", "2.440");
-  boot.until(() => boot.room() === 1, 100, "title screen (room 1)");
-  boot.run(60);
-  boot.key(ENTER); // the title waits for any key
-  boot.until(() => boot.engine.modalKind === "print", 600, "the content warning window");
-  assert.ok(
-    boot.prints[0]!.includes("contains some elements of plot"),
-    "the content warning text is up",
-  );
-  boot.run(5);
-  boot.key(ENTER); // dismiss the warning
-  boot.until(() => boot.numPrompts.length > 0, 600, "the age-check prompt");
-  const prompt = boot.numPrompts[0]!;
-  assert.equal(prompt.room, 6, "the age check happens in its opening room");
-  assert.equal(prompt.prompt, "How old are you?  ");
-  assert.ok(prompt.rowText.includes("How old are you?"), "the question is on the input row");
-  assertNonBlank(boot.engine, "lsl1");
-});
+test(
+  "lsl1: cold boot reaches the age-check prompt through the title and the content warning",
+  { skip: lsl1Skip },
+  () => {
+    const boot = new Boot("lsl1", "2.440");
+    boot.until(() => boot.room() === 1, 100, "title screen (room 1)");
+    boot.run(60);
+    boot.key(ENTER); // the title waits for any key
+    boot.until(() => boot.engine.modalKind === "print", 600, "the content warning window");
+    assert.ok(
+      boot.prints[0]!.includes("contains some elements of plot"),
+      "the content warning text is up",
+    );
+    boot.run(5);
+    boot.key(ENTER); // dismiss the warning
+    boot.until(() => boot.numPrompts.length > 0, 600, "the age-check prompt");
+    const prompt = boot.numPrompts[0]!;
+    assert.equal(prompt.room, 6, "the age check happens in its opening room");
+    assert.equal(prompt.prompt, "How old are you?  ");
+    assert.ok(prompt.rowText.includes("How old are you?"), "the question is on the input row");
+    assertNonBlank(boot.engine, "lsl1");
+  },
+);
 
 const gr1Skip = fixtureSkip("gr1");
-test("gr1: cold boot reaches Jerrod's street through the keyless intro slideshow", { skip: gr1Skip }, () => {
-  const boot = new Boot("gr1", "3.002.149");
-  // The slideshow (rooms 129, 73, 191, 196, 199, 200) plays on timers alone.
-  boot.until(() => boot.engine.inputEnabled, 9000, "first playable room");
-  assert.equal(boot.room(), 1, "the opening room");
-  assertNonBlank(boot.engine, "gr1");
-});
+test(
+  "gr1: cold boot reaches Jerrod's street through the keyless intro slideshow",
+  { skip: gr1Skip },
+  () => {
+    const boot = new Boot("gr1", "3.002.149");
+    // The slideshow (rooms 129, 73, 191, 196, 199, 200) plays on timers alone.
+    boot.until(() => boot.engine.inputEnabled, 9000, "first playable room");
+    assert.equal(boot.room(), 1, "the opening room");
+    assertNonBlank(boot.engine, "gr1");
+  },
+);
 
 const kq4Skip = fixtureSkip("kq4");
 test("kq4: cold boot reaches the copy-protection question", { skip: kq4Skip }, () => {

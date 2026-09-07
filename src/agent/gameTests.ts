@@ -119,7 +119,10 @@ export function validateGameTest(value: unknown, label: string, profile?: AgiPro
   };
 }
 
-export function parseGameTests(bytes: Uint8Array | undefined, profile?: AgiProfile): GameTestsDocument {
+export function parseGameTests(
+  bytes: Uint8Array | undefined,
+  profile?: AgiProfile,
+): GameTestsDocument {
   if (!bytes) return { format: GAME_TESTS_FORMAT, tests: [] };
   if (bytes.length > GAME_TESTS_MAX_BYTES) fail(`${GAME_TESTS_FILE} is larger than 256 KiB.`);
   let raw: unknown;
@@ -135,7 +138,9 @@ export function parseGameTests(bytes: Uint8Array | undefined, profile?: AgiProfi
     fail(`${GAME_TESTS_FILE} format must be ${GAME_TESTS_FORMAT}.`);
   if (!Array.isArray(doc["tests"]) || doc["tests"].length > MAX_GAME_TESTS)
     fail(`${GAME_TESTS_FILE} must list at most ${MAX_GAME_TESTS} tests.`);
-  const tests = doc["tests"].map((test, index) => validateGameTest(test, `tests[${index}]`, profile));
+  const tests = doc["tests"].map((test, index) =>
+    validateGameTest(test, `tests[${index}]`, profile),
+  );
   const names = new Set<string>();
   for (const test of tests) {
     if (names.has(test.name)) fail(`Game test names must be unique: ${JSON.stringify(test.name)}.`);
@@ -271,9 +276,7 @@ export function testsForResource(
   tests: readonly GameTest[],
   touched: readonly TouchedResource[],
 ): readonly GameTest[] {
-  return tests.filter((test) =>
-    touched.some((resource) => affectsTest(session, test, resource)),
-  );
+  return tests.filter((test) => touched.some((resource) => affectsTest(session, test, resource)));
 }
 
 interface GameTestOutcome {

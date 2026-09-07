@@ -86,7 +86,8 @@ export async function addLibraryGame(
     throw new Error(
       "Your browser could not save this game. Free some storage space and try again.",
     );
-  if (game.progress) onProgressStored?.(storeImportedProgress(localStorage, slug, revision, game.progress));
+  if (game.progress)
+    onProgressStored?.(storeImportedProgress(localStorage, slug, revision, game.progress));
   return slug;
 }
 

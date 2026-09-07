@@ -11,11 +11,7 @@ import {
   verdictLine,
   type GameTest,
 } from "../src/agent/gameTests.ts";
-import {
-  DIRECTION_KEYS,
-  directionForDelta,
-  randomSource,
-} from "../src/agent/gameTestSteps.ts";
+import { DIRECTION_KEYS, directionForDelta, randomSource } from "../src/agent/gameTestSteps.ts";
 import { playtestRoom } from "../src/agent/playtest.ts";
 import {
   AGI_SYSTEM_PROMPT,
@@ -159,10 +155,7 @@ test("the stored format round-trips and rejects what it cannot run", () => {
   const twice = JSON.stringify({ format: GAME_TESTS_FORMAT, tests: [takeKey, takeKey] });
   assert.throws(() => parseGameTests(new TextEncoder().encode(twice)), /unique/);
   // The 256 KiB bound holds on reading and on writing.
-  assert.throws(
-    () => parseGameTests(new Uint8Array(262145)),
-    /larger than 256 KiB/,
-  );
+  assert.throws(() => parseGameTests(new Uint8Array(262145)), /larger than 256 KiB/);
   const bulky = {
     ...takeKey,
     steps: Array.from({ length: 256 }, () =>
@@ -180,9 +173,7 @@ test("the stored format round-trips and rejects what it cannot run", () => {
 
 test("validateGameTest rejects non-spec shapes at parse time, not at runtime", () => {
   const doc = (tests: unknown[]) =>
-    parseGameTests(
-      new TextEncoder().encode(JSON.stringify({ format: GAME_TESTS_FORMAT, tests })),
-    );
+    parseGameTests(new TextEncoder().encode(JSON.stringify({ format: GAME_TESTS_FORMAT, tests })));
   const badStep = { ...takeKey, steps: [{ action: "dance" }] };
   assert.throws(() => doc([badStep]), /action must be one of/);
   // Negative and zero ticks are rejected at parse time.
@@ -318,9 +309,7 @@ test("write_game_tests stores, merges, replaces and removes; commands need regis
   const merged = executeAgentTool(state, "write_game_tests", {
     mode: "merge",
     names: null,
-    tests: [
-      { ...takeKey, name: "look around", steps: [step("wait", { ticks: 3 })], expect: null },
-    ],
+    tests: [{ ...takeKey, name: "look around", steps: [step("wait", { ticks: 3 })], expect: null }],
   });
   assert.equal(merged.success, true, merged.error ?? "");
   assert.deepEqual(merged.details?.["names"], ["take the key", "look around"]);
@@ -454,9 +443,8 @@ test("stored test runs are deterministic: seeded random and a virtual clock", ()
   // other observed state field too.
   assert.deepEqual(first.details?.["state"], second.details?.["state"]);
   const v50 = (
-    (first.details?.["state"] as { nonzeroVariables: { id: number; value: number }[] })
-      .nonzeroVariables
-  ).find((entry) => entry.id === 50);
+    first.details?.["state"] as { nonzeroVariables: { id: number; value: number }[] }
+  ).nonzeroVariables.find((entry) => entry.id === 50);
   assert.ok(v50 && v50.value >= 1 && v50.value <= 100, "the seeded random source ran");
 });
 
@@ -520,7 +508,7 @@ test("the extended step vocabulary runs in the simulation", () => {
   // key: a PC key word dismisses the opening modal like Enter does.
   const withModal = world(
     ROOM_LOGIC.replace(
-      "if (said(\"take\", \"key\"))",
+      'if (said("take", "key"))',
       'if (!isset(f31)) {set(f31);print("Welcome");}\nif (said("take", "key"))',
     ),
   );
@@ -540,7 +528,9 @@ test("the extended step vocabulary runs in the simulation", () => {
     spawnX: null,
     spawnY: null,
     steps: [step("direction", { direction: 3, ticks: 20 })],
-    expect: expectation({ object: { num: 0, view: 0, x0: 82, y0: 118, x1: 159, y1: 122, active: true } }),
+    expect: expectation({
+      object: { num: 0, view: 0, x0: 82, y0: 118, x1: 159, y1: 122, active: true },
+    }),
     cycleBudget: null,
     instructionBudget: null,
   });
@@ -561,11 +551,7 @@ test("the extended step vocabulary runs in the simulation", () => {
   assert.equal(walked.success, true, walked.error ?? "");
   // A barrier blocks both walkTo and reachable.
   const blocked = world();
-  blocked.container.putResource(
-    "picture",
-    1,
-    Uint8Array.of(0xf2, 0, 0xf6, 156, 0, 156, 167, 0xff),
-  );
+  blocked.container.putResource("picture", 1, Uint8Array.of(0xf2, 0, 0xf6, 156, 0, 156, 167, 0xff));
   const walled = playtestRoom(blocked, {
     room: 1,
     spawnX: null,
@@ -671,7 +657,9 @@ test("score, var range, object and reachable expectations report observed values
   assert.equal(range.success, false);
   assert.match(range.error ?? "", /Expected v40 in 8\.\.10; observed 7/);
   const view = run(
-    expectation({ object: { num: 0, view: 1, x0: null, y0: null, x1: null, y1: null, active: null } }),
+    expectation({
+      object: { num: 0, view: 1, x0: null, y0: null, x1: null, y1: null, active: null },
+    }),
   );
   assert.equal(view.success, false);
   assert.match(view.error ?? "", /object 0/);
@@ -878,7 +866,6 @@ test("a malformed setup image is rejected at parse and at write_game_tests", () 
     "no-setup tests stay byte-identical",
   );
 });
-
 
 // Keep the GameTest type referenced so the stored shape stays exported.
 const _typecheck: GameTest = takeKey;

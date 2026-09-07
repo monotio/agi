@@ -270,7 +270,9 @@ test("import rejects progress whose resource replay does not execute against the
   const record = { ...progress.autosave!, image: toBase64(badScreen) };
   decodeSave(decodeHostImage(fromBase64(record.image)).image, profile);
   await assert.rejects(
-    readGameZip(buildZip([...project, { name: "SAVES/AUTOSAVE.JSON", data: JSON.stringify(record) }])),
+    readGameZip(
+      buildZip([...project, { name: "SAVES/AUTOSAVE.JSON", data: JSON.stringify(record) }]),
+    ),
     /SAVES\/AUTOSAVE\.JSON cannot be restored into this game/,
   );
 });
@@ -363,7 +365,12 @@ test("re-addressing is the revision contract: export compaction makes equality i
       backing.set(key, value);
     },
   };
-  const report = storeImportedProgress(storage, "imported-xyz", importedRevision, imported.progress!);
+  const report = storeImportedProgress(
+    storage,
+    "imported-xyz",
+    importedRevision,
+    imported.progress!,
+  );
   assert.equal(report.autosave?.game.revision, importedRevision);
   assert.equal(report.autosave?.image, autosave.image);
 });

@@ -23,16 +23,17 @@ import { loadGame } from "./game-fixture.ts";
 const SLUG = "pq1";
 const skip = fixtureSkip(SLUG);
 
-test(`${SLUG}: lowercase installation names enumerate into canonical container files`, { skip }, () => {
-  const onDisk = readdirSync(fixtureDir(SLUG));
-  assert.ok(
-    onDisk.includes("logdir") && onDisk.includes("vol.0"),
-    "the installation ships lowercase names",
-  );
-  const { files } = loadGame(SLUG, { interpreterFiles: true });
-  assert.deepEqual(
-    [...files.keys()].sort(),
-    [
+test(
+  `${SLUG}: lowercase installation names enumerate into canonical container files`,
+  { skip },
+  () => {
+    const onDisk = readdirSync(fixtureDir(SLUG));
+    assert.ok(
+      onDisk.includes("logdir") && onDisk.includes("vol.0"),
+      "the installation ships lowercase names",
+    );
+    const { files } = loadGame(SLUG, { interpreterFiles: true });
+    assert.deepEqual([...files.keys()].sort(), [
       "AGIDATA.OVL",
       "LOGDIR",
       "OBJECT",
@@ -43,38 +44,42 @@ test(`${SLUG}: lowercase installation names enumerate into canonical container f
       "VOL.1",
       "VOL.2",
       "VOL.3",
-    ],
-  );
-});
+    ]);
+  },
+);
 
-test(`${SLUG}: v2 split container, 2.936 profile by container shape, resource census`, { skip }, () => {
-  const { container, files } = loadGame(SLUG, { interpreterFiles: true });
-  assert.deepEqual(detectContainerFormat(files), { kind: "v2-split", prefix: "" });
-  assert.equal(detectVersionString(files), "2.903");
-  const profile = detectProfile(files);
-  assert.equal(profile.id, "2.936");
-  const counts = { logic: 0, picture: 0, view: 0, sound: 0 };
-  for (let n = 0; n < 256; n++) {
-    const logic = container.getResource("logic", n);
-    if (logic) {
-      assert.ok(parseLogicResource(logic).code.length > 0, `logic ${n} has bytecode`);
-      counts.logic++;
+test(
+  `${SLUG}: v2 split container, 2.936 profile by container shape, resource census`,
+  { skip },
+  () => {
+    const { container, files } = loadGame(SLUG, { interpreterFiles: true });
+    assert.deepEqual(detectContainerFormat(files), { kind: "v2-split", prefix: "" });
+    assert.equal(detectVersionString(files), "2.903");
+    const profile = detectProfile(files);
+    assert.equal(profile.id, "2.936");
+    const counts = { logic: 0, picture: 0, view: 0, sound: 0 };
+    for (let n = 0; n < 256; n++) {
+      const logic = container.getResource("logic", n);
+      if (logic) {
+        assert.ok(parseLogicResource(logic).code.length > 0, `logic ${n} has bytecode`);
+        counts.logic++;
+      }
+      const picture = container.getResource("picture", n);
+      if (picture) {
+        renderPicture(picture, createPictureSurface(), { profile });
+        counts.picture++;
+      }
+      const view = container.getResource("view", n);
+      if (view) {
+        assert.ok(parseView(view).loops.length > 0, `view ${n} has a loop`);
+        counts.view++;
+      }
+      const sound = container.getResource("sound", n);
+      if (sound) {
+        parseSound(sound);
+        counts.sound++;
+      }
     }
-    const picture = container.getResource("picture", n);
-    if (picture) {
-      renderPicture(picture, createPictureSurface(), { profile });
-      counts.picture++;
-    }
-    const view = container.getResource("view", n);
-    if (view) {
-      assert.ok(parseView(view).loops.length > 0, `view ${n} has a loop`);
-      counts.view++;
-    }
-    const sound = container.getResource("sound", n);
-    if (sound) {
-      parseSound(sound);
-      counts.sound++;
-    }
-  }
-  assert.deepEqual(counts, { logic: 118, picture: 71, view: 220, sound: 36 });
-});
+    assert.deepEqual(counts, { logic: 118, picture: 71, view: 220, sound: 36 });
+  },
+);

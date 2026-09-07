@@ -1784,10 +1784,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       }
       recordingStart = { image: reply.image, cycle: reply.cycle, state: reply.state };
       state.recording.active = true;
-      logAgent(
-        "log",
-        `Recording a game test from room ${reply.state.room}, cycle ${reply.cycle}.`,
-      );
+      logAgent("log", `Recording a game test from room ${reply.state.room}, cycle ${reply.cycle}.`);
     } finally {
       state.recording.starting = false;
     }

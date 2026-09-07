@@ -61,7 +61,10 @@ test("the project archive moves the autosave to another browser; the game export
     "tests travel with the project archive only",
   ).toBeUndefined();
   expect(publicGame.progress, "saves travel with the project archive only").toBeUndefined();
-  expect(publicGame.project, "authoring context travels with the project archive only").toBeUndefined();
+  expect(
+    publicGame.project,
+    "authoring context travels with the project archive only",
+  ).toBeUndefined();
   expect(project.files["TESTS.JSON"]).toBeDefined();
 
   const fresh = await browser.newContext();

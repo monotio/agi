@@ -930,8 +930,8 @@ async function onExportAgiZip(live = false, project = false): Promise<void> {
 }
 
 /** Game-test recording: the worker captures; this dialog names and saves. */
-const recordDialog = useTemplateRef<HTMLDialogElement>("recordDialog");
-const recordSnapshot = ref<RecordingSnapshot | null>(null);
+const recordDialog = useTemplateRef("recordDialog");
+const recordSnapshot = ref<RecordingSnapshot>();
 const recordSuggestions = ref<AssertionSuggestion[]>([]);
 const recordName = ref("");
 const recordError = ref("");

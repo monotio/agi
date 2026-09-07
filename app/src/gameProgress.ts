@@ -110,7 +110,9 @@ const RESTORE_CHECK_HOST: EngineHost = {
  * only fails when the player resumes it. Boot the imported game once and
  * dry-run every image's restore against it; failures name their archive entry.
  */
-function restoreChecker(files: Record<string, Uint8Array>): (label: string, image: Uint8Array) => void {
+function restoreChecker(
+  files: Record<string, Uint8Array>,
+): (label: string, image: Uint8Array) => void {
   let engine: Engine | undefined;
   return (label, image) => {
     if (!engine) {
