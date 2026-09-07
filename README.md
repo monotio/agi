@@ -33,7 +33,7 @@ a connection; it is not yet an installable offline app.
 The built-in catalog includes Adventure Department 1.0.0. To include more games
 on your own site, put their resources in public folders and list them in
 `catalog.json`; visitors play them directly from the gallery without importing
-files. See [hosting included games](CONTRIBUTING.md#including-games-on-your-site).
+files. See [hosting included games](docs/hosting.md#including-games-on-your-site).
 
 The first visit leads with the tutorial and an expanded **Create a new adventure**
 section. The browser remembers whether you leave Create expanded or collapsed.
@@ -188,8 +188,14 @@ adventures target AGI 2.936 with standard bytecode. The browser shell adds a GPU
 CRT display and an in-game command line. The game resources and engine are open
 to inspection.
 
-See [Contributing](CONTRIBUTING.md) for architecture, tests, local game fixtures
-and hosting, and [evals](evals/README.md) for authoring evaluations.
+Where an installed original game or a disassembled Sierra interpreter disagrees
+with the published AGI specification, the engine follows the original. Each
+such behavior is recorded with its evidence and pinning tests in
+[Interpreter fidelity findings](docs/fidelity.md).
+
+See [Contributing](CONTRIBUTING.md) for architecture, tests and local game
+fixtures, [Hosting](docs/hosting.md) for running your own site, and
+[evals](evals/README.md) for authoring evaluations.
 The [KQ1 completion proof](CONTRIBUTING.md#kq1-completion-proof) runs a local
 walkthrough on a virtual clock and replays it through desktop and phone controls.
 

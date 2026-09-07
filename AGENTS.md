@@ -11,8 +11,9 @@ harness in which an agent authors and live-patches real AGI resources while you
 play. Engine behavior is clean-room from Peter Kelly's CC0 agi-re specification
 (https://peterkelly.github.io/agi-re/spec/): read the common contract and the
 selected profile's variants before implementing an opcode. MIT, by Monotio.
-README.md is the public front door; CONTRIBUTING.md has hosting, CI and
-conformance detail.
+README.md is the public front door; CONTRIBUTING.md has development, CI and
+conformance detail, docs/hosting.md the hosting and production releases, and
+docs/fidelity.md the interpreter findings.
 
 ## Commands
 
@@ -65,6 +66,8 @@ only for released formats and keep their original fixtures.
   behavior, selected per interpreter profile (`src/runtime/profile.ts`). A no-op is
   valid only where the spec says so. `test/games.test.ts` checks dispatch coverage;
   semantics need their own assertions.
+- Interpreter findings go in `docs/fidelity.md`; code comments cite the entry
+  rather than repeating offsets and build lists.
 
 ## Architecture rules
 

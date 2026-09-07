@@ -901,10 +901,8 @@ export class Engine {
     const m = this.modals.pop();
     if (!m) return;
     if (this.printsPending > 0) this.printsPending--;
-    // A timed print consumes v21: the verified print handlers zero the
-    // variable when the window closes, whether by timeout or key (2.411 at
-    // 0x1d2d, 2.440 at 0x1d43, 2.917/2.936 at 0x1d80, 3.002.086 at 0x2039,
-    // 3.002.102/3.002.107 at 0x204f).
+    // A timed print zeroes v21 when its window closes, by timeout or key.
+    // docs/fidelity.md: print-handler-output-modes
     if (m.kind === "print" && m.remainingMs !== null && this.profile.timedPrintClearsV21)
       this.vars[21] = 0;
     if (m.kind !== "showPri") this.text.restore(m.saved);
@@ -936,10 +934,8 @@ export class Engine {
     );
     drawWindow(this.text, box, lines, attr(0, 15), attr(4, 15));
     if (!forceAcknowledgement && this.flags[15] !== 0) {
-      // The verified print handlers consume f15: a print that opens a
-      // non-blocking window resets the flag as it returns, so the next print
-      // blocks again (2.411 at 0x1cb9, 2.440 at 0x1ccf, 2.917 at 0x1d0c,
-      // 2.936 at 0x1d0c, 3.002.086 at 0x1fc5, 3.002.102/3.002.107 at 0x1fdb).
+      // A print that opens a non-blocking window consumes f15 as it returns.
+      // docs/fidelity.md: print-handler-output-modes
       if (this.profile.printConsumesF15) this.flags[15] = 0;
       this.persistentWindow = saved;
     } else {
@@ -2074,6 +2070,8 @@ export class Engine {
     this.flags[F_SCRIPT_0] = 0;
     // 10. Post-logic object update (movement + cycling).
     if (!this.textMode) {
+      // An open text window never suspends this update.
+      // docs/fidelity.md: window-update-gate
       this.updateObjects();
       this.updateEgoVisibility();
     }
@@ -2083,11 +2081,9 @@ export class Engine {
    * Targeted motion on object 0 selects object-to-v6 coupling (program
    * control) until it completes, and completion or a border stop restores
    * v6-to-object coupling with v6 cleared. The spec's movement chapter is
-   * silent on this; the shipped 2.936 and 3.002.x interpreters do it (their
-   * move.obj, move.obj.v and wander handlers write 0 to the coupling selector
-   * for object 0, and their motion-stop routine writes 1 and zeroes v6 for
-   * object 0). Game scripts rely on it: a zero-distance move.obj on ego is the
-   * idiom that hands control back after a scripted placement.
+   * silent on this; game scripts rely on it: a zero-distance move.obj on ego
+   * is the idiom that hands control back after a scripted placement.
+   * docs/fidelity.md: ego-direction-coupling
    */
   private startMoveObj(o: ScreenObject, x: number, y: number, step: number, flag: number): void {
     o.motionMode = MOTION_MOVE_OBJ;
@@ -2101,11 +2097,8 @@ export class Engine {
 
   private updateObjects(): void {
     // The movement pass starts by clearing the border bytes v2, v4 and v5, so a
-    // border contact is visible to logic for exactly one cycle. The spec clears
-    // v4 and v5 at the cycle start and v2 only on room entry; the shipped 2.936
-    // and 3.002.x interpreters zero all three here (their movement pass opens
-    // with stores to variables 5, 4 and 2), and a v3 city map that polls v2 for
-    // page turns depends on it.
+    // border contact is visible to logic for exactly one cycle.
+    // docs/fidelity.md: border-variables-cleared
     this.vars[V_EDGE] = 0;
     this.vars[V_OBJ_HIT] = 0;
     this.vars[V_OBJ_EDGE] = 0;
@@ -2328,16 +2321,10 @@ export class Engine {
    * - water (f0): set only when EVERY scanned cell is control 3.
    *
    * The spec's "Footprint control acceptance" states a final-cell rule for
-   * both classes. The shipped 3.002.102 and 3.002.107 interpreters disagree:
-   * their scan (load-module offset 0x5ae2, disassembled from the installed
-   * AGI binaries) starts with the water state set, clears it on any cell that
-   * is not water and latches the trigger state on control 2, then feeds both
-   * to f3/f0 for object 0 and applies the on-water/on-land gates to the
-   * all-water state. Observed data agrees: a 3.002.102 demo repositions ego
-   * along a control-2 line and waits for exactly (67,128), which a final-cell
-   * trigger never reaches (test "reposition rides a trigger line"). Priority
-   * 15 skips the scan, accepts the footprint, and for object 0 clears both
-   * flags, as the same routine does.
+   * both classes; the shipped interpreters and observed game data disagree.
+   * Priority 15 skips the scan, accepts the footprint, and for object 0
+   * clears both flags, as the same routine does.
+   * docs/fidelity.md: footprint-class-flags
    */
   private footprintAccepts(obj: ScreenObject, nx: number, ny: number): boolean {
     if (!obj.fixedPriority) obj.priority = this.priorityForY(ny);
@@ -2411,12 +2398,11 @@ export class Engine {
   }
 
   /**
-   * View binding (the interpreters' SetView, 3.002.102 load-module offset
-   * 0x3e9a; 2.917 and 2.936 match): the object keeps its current loop when the
-   * new view has that many loops and otherwise takes loop 0, then selects the
-   * loop through setLoop. The spec's "set.view" text reads "select its default
-   * loop and cel"; the binaries only fall back to the defaults when the kept
-   * indices are out of range.
+   * View binding: the object keeps its current loop when the new view has
+   * that many loops and otherwise takes loop 0, then selects the loop through
+   * setLoop. The spec's "set.view" text reads "select its default loop and
+   * cel"; the interpreters only fall back to the defaults when the kept
+   * indices are out of range. docs/fidelity.md: view-loop-index-retention
    */
   private setView(obj: ScreenObject, view: number): void {
     obj.view = view;
@@ -2425,13 +2411,13 @@ export class Engine {
   }
 
   /**
-   * Loop selection (SetLoop, 3.002.102 offset 0x3f6a with its core at 0x3fce;
-   * 2.917 and 2.936 at 0x3c1x): set.loop, set.loop.v, set.view and the
-   * direction-driven loop change all route here. The current cel survives
-   * when the new loop has that many cels and otherwise becomes 0; SetCel then
-   * refreshes the size. Manhunter's knife game (logic 118) depends on the
-   * survival: while it waits for the barker's cel to cycle it re-selects loop
-   * 0 every cycle, which a reset-to-0 would freeze forever.
+   * Loop selection: set.loop, set.loop.v, set.view and the direction-driven
+   * loop change all route here. The current cel survives when the new loop
+   * has that many cels and otherwise becomes 0; SetCel then refreshes the
+   * size. Manhunter's knife game (logic 118) depends on the survival: while
+   * it waits for the barker's cel to cycle it re-selects loop 0 every cycle,
+   * which a reset-to-0 would freeze forever.
+   * docs/fidelity.md: view-loop-index-retention
    */
   private setLoop(obj: ScreenObject, loop: number): void {
     obj.loop = loop;
@@ -2993,16 +2979,12 @@ export class Engine {
     return this.itemLocations[item]!;
   }
 
-  /** display / display.v: text at a cell position with the current attribute. */
   /**
-   * display: the interpreters' character output (3.002.102 load-module offset
-   * 0x2d48; 2.411, 2.917 and 2.936 match) treats CR and LF as a line break to
-   * the next row, capped at row 24, and wraps the character after column 39
-   * the same way. Both continue at the routine's start column, which only a
-   * message window sets, so a display call resumes at column 0. The spec
-   * leaves the layout of display text unspecified; games rely on embedded
-   * newlines (a Leisure Suit Larry demonstration and the Space Quest intro
-   * display two-line captions this way).
+   * display / display.v: text at a cell position with the current attribute.
+   * CR and LF break to the next row, capped at row 24, and the character
+   * after column 39 wraps the same way; both continue at the routine's start
+   * column, which only a message window sets, so a display call resumes at
+   * column 0. docs/fidelity.md: display-line-layout
    */
   private display(row: number, col: number, text: string): void {
     const a = this.textAttr();
