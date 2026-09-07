@@ -1,41 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
-import { openContainer } from "../src/container/container.ts";
-import { parseWordsTok } from "../src/logic/words.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { detectProfile } from "../src/runtime/profile.ts";
-import { fixtureDir } from "./fixtures.ts";
+import { fixtureSkip } from "./fixtures.ts";
+import { loadGame } from "./game-fixture.ts";
 
 /**
  * KQ4 (AGI 3.002.086) regressions, replayed from the installed fixture.
- *
- * The fixture's combined KQ4DIR references KQ4VOL.6/7 through four junk
- * entries (pictures 150/151, views 198/199) that no shipped logic ever loads,
- * so the strict fixtureSkip() volume census does not fit this game; the
- * records below are the files the interpreter actually reads.
+ * KQ4DIR's four junk entries (picture 150/151, view 198/199, pointing at
+ * volumes that never shipped) are the one allowed census exception; see
+ * JUNK_DIRECTORY_ENTRIES in test/fixtures.ts.
  */
-const KQ4_FILES = [
-  "KQ4DIR",
-  "KQ4VOL.0",
-  "KQ4VOL.1",
-  "KQ4VOL.2",
-  "KQ4VOL.3",
-  "OBJECT",
-  "WORDS.TOK",
-  "AGIDATA.OVL",
-] as const;
-const missing = KQ4_FILES.filter((name) => !existsSync(fixtureDir("kq4") + name));
-const skip = missing.length
-  ? `Place your own game files in games/kq4/ to run this test (missing: ${missing.join(", ")}).`
-  : false;
+const skip = fixtureSkip("kq4", ["AGIDATA.OVL"]);
 
 function bootKq4() {
-  const dir = fixtureDir("kq4");
-  const files = new Map<string, Uint8Array>();
-  for (const name of KQ4_FILES) files.set(name, new Uint8Array(readFileSync(dir + name)));
+  const { container, dict, files } = loadGame("kq4", { interpreterFiles: true });
   const profile = detectProfile(files);
   assert.equal(profile.id, "3.002.086", "AGIDATA.OVL selects the KQ4 profile");
+  const keys: number[] = [];
   const host: EngineHost = {
     print() {},
     displayAt() {},
@@ -44,13 +26,7 @@ function bootKq4() {
     takeInputLine: () => null,
     randomWord: () => 66,
   };
-  const keys: number[] = [];
-  const engine = new Engine(
-    openContainer(files),
-    host,
-    new Map(parseWordsTok(readFileSync(dir + "WORDS.TOK")).map((e) => [e.word, e.id])),
-    { profile },
-  );
+  const engine = new Engine(container, host, dict, { profile });
   return { engine, keys };
 }
 
@@ -66,32 +42,51 @@ function run(engine: Engine, cycles: number): void {
 }
 
 test(
+  "KQ4: exactly the four known junk directory entries point at volumes that never shipped",
+  { skip },
+  () => {
+    const { container } = loadGame("kq4");
+    for (const [kind, num] of [
+      ["picture", 150],
+      ["picture", 151],
+      ["view", 198],
+      ["view", 199],
+    ] as const)
+      assert.throws(
+        () => container.getResource(kind, num),
+        /points to missing VOL/,
+        `${kind} ${num}`,
+      );
+  },
+);
+
+/** Alt+D, Enter, Enter, "marble", Enter, Enter: the copy-protection bypass. */
+function passCopyProtection(engine: Engine, keys: number[]): void {
+  for (let i = 0; i < 300 && !engine.textRow(6).includes("legal"); i++) step(engine);
+  assert.ok(engine.textRow(6).includes("legal"), "the manual question is up");
+  keys.push(0x2000);
+  run(engine, 10);
+  keys.push(0x000d);
+  run(engine, 10);
+  keys.push(0x000d);
+  run(engine, 10);
+  for (const ch of "marble") {
+    keys.push(ch.charCodeAt(0));
+    run(engine, 2);
+  }
+  keys.push(0x000d);
+  run(engine, 10);
+  keys.push(0x000d);
+  run(engine, 10);
+}
+
+test(
   "KQ4: the marble debug bypass clears the copy protection and the keyless intro reaches interactive play",
   { skip },
   () => {
     const { engine, keys } = bootKq4();
-    for (let i = 0; i < 300 && !engine.textRow(6).includes("legal"); i++) step(engine);
-    assert.equal(engine.vars[0], 143, "the copy protection is the boot room");
-    const protection = Array.from({ length: 25 }, (_, row) => engine.textRow(row)).join(" ");
-    assert.ok(protection.includes("verify your legal"), "the manual question is up");
-
-    // The documented bypass: Alt+D opens the debug window, Enter passes its
-    // version card and reaches the prompt, "marble" plus Enter skips the
-    // protection, and one more Enter passes the KQ IV card.
-    keys.push(0x2000);
-    run(engine, 10);
-    keys.push(0x000d);
-    run(engine, 10);
-    keys.push(0x000d);
-    run(engine, 10);
-    for (const ch of "marble") {
-      keys.push(ch.charCodeAt(0));
-      run(engine, 2);
-    }
-    keys.push(0x000d);
-    run(engine, 10);
-    keys.push(0x000d);
-    run(engine, 10);
+    passCopyProtection(engine, keys);
+    assert.equal(engine.vars[0] !== 143, true, "left the copy-protection room");
 
     // The intro is keyless: any key aborts it. If a print blocked on an
     // acknowledgement the run would stall, so reaching interactive play
@@ -122,29 +117,16 @@ test(
   { skip },
   () => {
     const { engine, keys } = bootKq4();
-    run(engine, 60);
-    keys.push(0x2000);
-    run(engine, 10);
-    keys.push(0x000d);
-    run(engine, 10);
-    keys.push(0x000d);
-    run(engine, 10);
-    for (const ch of "marble") {
-      keys.push(ch.charCodeAt(0));
-      run(engine, 2);
-    }
-    keys.push(0x000d);
-    run(engine, 10);
-    keys.push(0x000d);
-    run(engine, 10);
+    passCopyProtection(engine, keys);
 
     // Run to the closing window ("Well, you're on your own, Rosella.").
-    let cycles = 0;
-    for (; cycles < 60000 && !engine.inputEnabled; cycles++) {
+    let found = false;
+    for (let cycles = 0; cycles < 60000 && !engine.inputEnabled && !found; cycles++) {
       step(engine);
-      if (engine.vars[0] === 128 && engine.textRow(17).includes("Well, you're on your own,")) break;
+      if (engine.vars[0] === 128 && engine.textRow(17).includes("Well, you're on your own,"))
+        found = true;
     }
-    assert.ok(!engine.inputEnabled, "the closing window shows before interactive play");
+    assert.ok(found, "reached the closing window before interactive play");
 
     // Every intro print arrived through f15 and consumed it (the verified
     // print handlers reset the flag as the non-blocking window opens).

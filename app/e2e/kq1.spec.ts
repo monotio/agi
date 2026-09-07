@@ -529,6 +529,28 @@ test("clicking the game screen only focuses it, never acts as Enter", async ({ p
   await expect(page.getByTestId("input-line")).toHaveValue("look");
 });
 
+// Touchscreen laptops match any-pointer: coarse, which enables touch controls;
+// a mouse click there must still never act as Enter.
+test.describe("hybrid pointer", () => {
+  test.use({ hasTouch: true });
+
+  test("mouse click only focuses while a tap advances the title screen", async ({ page }) => {
+    await page.goto("/");
+    await bootKq1(page);
+    await expect(page.getByTestId("touch-controls")).toBeVisible();
+
+    await page.locator(".screen").click();
+    await waitForCycles(page, 4);
+    expect((await textHook(page)).rows[0] ?? "").not.toContain("Score:");
+    await expect(page.getByTestId("title-prompt-hint")).toBeVisible();
+
+    await page.locator(".screen").tap();
+    await expect
+      .poll(async () => (await textHook(page)).rows[0] ?? "", { timeout: 20_000 })
+      .toContain("Score:");
+  });
+});
+
 test("returning to the menu preserves the installed game autosave", async ({ page }) => {
   await page.goto("/");
   await bootKq1(page);

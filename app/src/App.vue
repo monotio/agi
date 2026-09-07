@@ -892,6 +892,13 @@ const hasKeyPrompt = computed(() =>
   state.rows.some((r) => r.toLowerCase().includes("press any key")),
 );
 
+/** Pointer type of the last screen press; the click event carries none. */
+let screenPointerType = "mouse";
+
+function onScreenPointerDown(ev: PointerEvent): void {
+  screenPointerType = ev.pointerType;
+}
+
 function onScreenClick(): void {
   resumeAudio();
   if (state.phase !== "running") return;
@@ -899,12 +906,13 @@ function onScreenClick(): void {
     inputEl.value?.focus();
     return;
   }
-  // A touch device has no hardware keyboard, so a tap still advances title
-  // screens and acknowledges message windows. A desktop mouse click only
-  // focuses the game for typing: it must never act as Enter, or focusing the
-  // window could skip a screen, acknowledge a modal, or submit a half-typed
-  // command.
-  if (touchControls.value) {
+  // A tap (touch or pen) still advances title screens and acknowledges
+  // message windows — touch devices have no hardware keyboard. A mouse click
+  // only focuses the game for typing: it must never act as Enter, or
+  // focusing the window could skip a screen, acknowledge a modal, or submit a
+  // half-typed command. The pointer type decides, not the touch-controls
+  // mode: `any-pointer: coarse` also matches hybrid laptops with a mouse.
+  if (touchControls.value && screenPointerType !== "mouse") {
     if (state.modal !== null) {
       if (state.modal !== "save" && state.modal !== "restore") dismissModal();
       return;
@@ -2493,6 +2501,7 @@ watch(
           remixing: state.powerUp.open,
         }"
         @click="onScreenClick"
+        @pointerdown="onScreenPointerDown"
       >
         <canvas
           v-show="gpuBackend !== null"

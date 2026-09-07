@@ -10,15 +10,12 @@ playwright-report/
 *.key
 *.p12
 
-# Local game data; original project briefs and tutorial sources are included below.
-games/*/
+# Local game data of any name, files and directories alike; the original
+# project cartridges and the README are the only included content.
+games/*
+!games/README.md
 !games/adventure-department/
 !games/knights-trial/
 !games/badge-of-millhaven/
 !games/mop-jockey/
 !games/polyester-nights/
-
-# Local game data.
-kq1/
-kq2/
-kq3/

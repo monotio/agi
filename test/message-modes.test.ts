@@ -102,23 +102,25 @@ test("replacing a persistent window restores the original cells when the modal c
   assert.equal(e.vars[200], 1);
 });
 
-test("a non-blocking print consumes f15, so the next print blocks again", () => {
-  // The verified 2.411-3.002.107 print handlers reset f15 as they open the
-  // non-blocking window; without the reset every later print would stay
-  // non-blocking (the KQ4 intro re-sets f15 for each window it wants kept).
-  const e = game('set(f15);print("First.");print("Second.");increment(v200);return;');
-  e.tick();
-  assert.equal(e.modalKind, "print", "the second print blocks once f15 was consumed");
-  assert.ok(
-    Array.from({ length: 25 }, (_, row) => e.textRow(row))
-      .join(" ")
-      .includes("Second."),
-    "the blocking window shows the second message",
-  );
-  e.ackPrint();
-  e.tick();
-  assert.equal(e.vars[200], 1);
-});
+for (const profile of ["2.936", "3.002.149"] as const) {
+  test(`${profile}: a non-blocking print consumes f15, so the next print blocks again`, () => {
+    // The verified 2.411-3.002.149 print handlers reset f15 as they open the
+    // non-blocking window; without the reset every later print would stay
+    // non-blocking (the KQ4 intro re-sets f15 for each window it wants kept).
+    const e = game('set(f15);print("First.");print("Second.");increment(v200);return;', profile);
+    e.tick();
+    assert.equal(e.modalKind, "print", "the second print blocks once f15 was consumed");
+    assert.ok(
+      Array.from({ length: 25 }, (_, row) => e.textRow(row))
+        .join(" ")
+        .includes("Second."),
+      "the blocking window shows the second message",
+    );
+    e.ackPrint();
+    e.tick();
+    assert.equal(e.vars[200], 1);
+  });
+}
 
 test("a timed print clears v21 when its window closes", () => {
   const e = game('assignn(v21,2);print("A moment.");increment(v200);return;');
@@ -141,7 +143,7 @@ test("an early-acknowledged timed print clears v21 too", () => {
   assert.equal(e.vars[200], 1);
 });
 
-for (const profile of ["2.089", "3.002.149"] as const) {
+for (const profile of ["2.089"] as const) {
   test(`${profile}: prints keep f15 and timed windows keep v21 until the build is verified`, () => {
     // No local binary verifies these builds' print handler, so the engine
     // deliberately keeps the flags set there. A base-profile refactor must

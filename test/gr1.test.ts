@@ -13,10 +13,11 @@ import { loadGame } from "./game-fixture.ts";
 
 /**
  * Authentic v3 fixture: a local, gitignored Gold Rush! installation
- * (games/gr1: GRDIR, GRVOL.0-2, WORDS.TOK, OBJECT, no interpreter files). It
- * is the 3.002.149 game of the compatibility set: with no version string the
- * combined container selects that profile, the last of the v3 line. Counts
- * were read from the fixture bytes; the opening was observed in a headless run.
+ * (games/gr1: GRDIR, GRVOL.0-2, WORDS.TOK, OBJECT, plus the interpreter files
+ * AGI/AGIDATA.OVL/SIERRA.COM). It is the 3.002.149 game of the compatibility
+ * set, the last of the v3 line; AGIDATA.OVL carries the version string.
+ * Counts were read from the fixture bytes; the opening was observed in a
+ * headless run.
  */
 const SLUG = "gr1";
 const skip = fixtureSkip(SLUG);
@@ -40,7 +41,7 @@ class Host implements EngineHost {
 test(`${SLUG}: combined container, 3.002.149 profile by default, resource census`, { skip }, () => {
   const { container, files } = loadGame(SLUG, { interpreterFiles: true });
   assert.deepEqual(detectContainerFormat(files), { kind: "v3-combined", prefix: "GR" });
-  assert.equal(detectVersionString(files), null);
+  assert.equal(detectVersionString(files), "3.002.149");
   const profile = detectProfile(files);
   assert.equal(profile.id, "3.002.149");
   const counts = { logic: 0, picture: 0, view: 0, sound: 0 };
