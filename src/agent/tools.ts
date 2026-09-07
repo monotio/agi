@@ -44,7 +44,12 @@ import {
 } from "./commandReference.ts";
 import { ROOM_TOOLS, executeRoomTool } from "./roomTools.ts";
 import { AUTHORING_GUIDE_TOOL, readAuthoringGuide } from "./authoringGuide.ts";
-import { GAME_TEST_TOOLS, executeGameTestTool, rerunAffectedTests } from "./gameTests.ts";
+import {
+  GAME_TEST_TOOLS,
+  executeGameTestTool,
+  rerunAffectedTests,
+  type TouchedResource,
+} from "./gameTests.ts";
 import { playtestRoom, validateGenesis } from "./playtest.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import {
@@ -460,15 +465,14 @@ function prepareAgentToolCall(
 function withGameTestVerdict(
   session: AgentSessionState,
   result: AgentToolResult,
-  kind: ResourceKind | "words" | "objects",
-  num: number,
+  touched: readonly TouchedResource[],
 ): AgentToolResult {
-  const rerun = rerunAffectedTests(session, kind, num);
+  const rerun = rerunAffectedTests(session, touched);
   if (!rerun) return result;
   return {
     ...result,
-    message: `${result.message ? `${result.message} ` : ""}Game tests: ${rerun.line}`,
-    details: { ...result.details, gameTests: rerun.outcomes },
+    message: `Game tests: ${rerun.line}${result.message ? ` ${result.message}` : ""}`,
+    details: { ...result.details, gameTests: rerun.outcomes, gameTestsRerun: rerun.selection },
   };
 }
 
@@ -529,8 +533,7 @@ function executeValidatedAgentTool(
           revision: resourceRevision(session.container.getResource(kind, num)),
         },
       },
-      kind,
-      num,
+      [{ kind, num }],
     );
   }
   if (result.success && (name === "write_words" || name === "write_inventory_objects"))
@@ -543,26 +546,32 @@ function executeValidatedAgentTool(
           updatedFiles: [name === "write_words" ? "WORDS.TOK" : "OBJECT"],
         },
       },
-      name === "write_words" ? "words" : "objects",
-      0,
+      [{ kind: name === "write_words" ? "words" : "objects", num: 0 }],
     );
   if (
     result.success &&
     (name === "write_room" || name === "write_scene" || name === "edit_resource_source")
   ) {
+    // A room or scene write touches several resources; every one of them
+    // selects the stored tests it can affect.
     const written = result.details?.["writtenResources"];
-    const first = Array.isArray(written)
-      ? ((written.find((entry) => entry?.kind === "logic") ?? written[0]) as
-          { kind: ResourceKind; num: number } | undefined)
-      : undefined;
-    const target =
-      first ??
-      (name === "edit_resource_source"
-        ? { kind: args["kind"] as ResourceKind, num: Number(args["num"]) }
-        : typeof args["room"] === "number"
-          ? { kind: "logic" as ResourceKind, num: args["room"] }
-          : undefined);
-    if (target) return withGameTestVerdict(session, result, target.kind, target.num);
+    const touched: TouchedResource[] = [];
+    if (Array.isArray(written))
+      for (const entry of written) {
+        const resource = entry as { kind?: unknown; num?: unknown } | null;
+        if (typeof resource?.kind === "string" && typeof resource.num === "number")
+          touched.push({ kind: resource.kind as ResourceKind, num: resource.num });
+      }
+    if (
+      !touched.length &&
+      name === "edit_resource_source" &&
+      typeof args["kind"] === "string" &&
+      args["num"] != null
+    )
+      touched.push({ kind: args["kind"] as ResourceKind, num: Number(args["num"]) });
+    if (!touched.length && typeof args["room"] === "number")
+      touched.push({ kind: "logic", num: args["room"] });
+    if (touched.length) return withGameTestVerdict(session, result, touched);
   }
   if (result.success && (name === "read_logic" || name === "read_picture")) {
     const full = String(result.details?.["source"] ?? "");

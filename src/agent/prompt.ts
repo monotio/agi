@@ -81,7 +81,7 @@ A minimal logic 0 that works, yours to adapt or replace:
      return;
      \`\`\`
 
-A room logic usually initializes on isset(f5): draw and show the picture, position ego, set the horizon, enable input, describe the room; the rest of it handles actions and exits.
+A room logic usually initializes on isset(f5): draw and show the picture, position ego, set the horizon, enable input, describe the room; the rest of it handles actions and exits. For every puzzle you author, store at least one game test for it with write_game_tests and run them with run_game_tests before finishing; a puzzle without a passing test is not done.
 
 ---
 ${cartridgeText.trim()}
@@ -131,10 +131,9 @@ ${input.logicSource.trim()}
 --- Picture ${input.room} (picture source) ---
 ${input.pictureSource.trim()}
 
-When the player asks for a change, use read_logic / read_picture / list_resources to check anything you are unsure of, keep resource numbers you author out of the ranges already in use, and patch the smallest thing that achieves what was asked.`;
+When the player asks for a change, use read_logic / read_picture / list_resources to check anything you are unsure of, keep resource numbers you author out of the ranges already in use, and patch the smallest thing that achieves what was asked. For every puzzle you author or change, store at least one game test for it with write_game_tests and run them with run_game_tests before finishing.`;
 }
 
-/** Formats a runtime turn prompt when the player enters a new room. */
 export function createRuntimeRoomPrompt(room: number, from: number): string {
   return JSON.stringify({
     op: "room",

@@ -9,8 +9,19 @@ import {
   serializeGameTests,
   testsForResource,
   verdictLine,
+  type GameTest,
 } from "../src/agent/gameTests.ts";
-import { AGI_SYSTEM_PROMPT } from "../src/agent/prompt.ts";
+import {
+  DIRECTION_KEYS,
+  directionForDelta,
+  randomSource,
+} from "../src/agent/gameTestSteps.ts";
+import { playtestRoom } from "../src/agent/playtest.ts";
+import {
+  AGI_SYSTEM_PROMPT,
+  createGenesisPrompt,
+  createOrientationPrompt,
+} from "../src/agent/prompt.ts";
 import {
   ASK_TOOLS,
   buildObjectFile,
@@ -18,9 +29,15 @@ import {
   executeAgentTool,
   type AgentSessionState,
 } from "../src/agent/tools.ts";
+import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildWordsTok } from "../src/logic/words.ts";
+import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { buildView } from "../src/view/view.ts";
+import {
+  DIRECTION_KEYS as RUNNER_DIRECTION_KEYS,
+  randomSource as runnerRandomSource,
+} from "./speedrun/runner.ts";
 
 /**
  * Game tests are playtest_room scenarios stored with the game in TESTS.JSON:
@@ -32,6 +49,11 @@ const DICTIONARY = new Map([
   ["take", 10],
   ["key", 11],
   ["look", 12],
+  ["keycard", 13],
+  ["dont", 14],
+  ["ice cream", 15],
+  ["juggle", 0],
+  ["the", 0],
 ]);
 
 const ROOM_LOGIC = `
@@ -39,11 +61,13 @@ if (isset(f5)) {
  assignn(v10, 1); load.pic(v10); draw.pic(v10); show.pic();
  load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); accept.input();
  display(20, 1, "Room one");
+ random(1, 100, v50);
 }
-if (said("take", "key")) {get(0);set(f30);assignn(v40, 7);print("You take the key.");}
+if (said("take", "key")) {get(0);set(f30);assignn(v40, 7);assignn(v3, 5);print("You take the key.");}
+if (said("look")) {get.string(s0, "Name?", 0, 0, 10);assignn(v41, 1);}
 return;`;
 
-function world(): AgentSessionState {
+function world(logic = ROOM_LOGIC): AgentSessionState {
   const state = createAgentSessionState();
   state.wordsPayload = buildWordsTok([...DICTIONARY].map(([word, id]) => ({ word, id })));
   state.objectPayload = buildObjectFile([{ name: "Key", startingRoom: 1 }]);
@@ -63,28 +87,35 @@ function world(): AgentSessionState {
       dictionary: DICTIONARY,
     }).payload,
   );
-  state.container.putResource(
-    "logic",
-    1,
-    assembleLogic(ROOM_LOGIC, { dictionary: DICTIONARY }).payload,
-  );
+  state.container.putResource("logic", 1, assembleLogic(logic, { dictionary: DICTIONARY }).payload);
   return state;
 }
 
-const step = (action: string, command: string | null = null, ticks = 1) => ({
+/** One stored step in the normalized full shape; pass the fields the action uses. */
+const step = (action: string, fields: Record<string, unknown> = {}) => ({
   action,
-  command,
+  command: null,
   direction: null,
-  ticks,
+  key: null,
+  x: null,
+  y: null,
+  answer: null,
+  until: null,
+  ticks: null,
   captureTicks: null,
+  ...fields,
 });
-const expectation = (fields: Record<string, unknown>) => ({
+/** One stored expectation set in the normalized full shape. */
+const expectation = (fields: Record<string, unknown> = {}) => ({
   room: null,
   carriedItems: null,
   flags: null,
   vars: null,
   printed: null,
   text: null,
+  score: null,
+  object: null,
+  reachable: null,
   ...fields,
 });
 const takeKey = {
@@ -92,11 +123,11 @@ const takeKey = {
   room: 1,
   spawnX: null,
   spawnY: null,
-  steps: [step("command", "take key"), step("enter")],
+  steps: [step("command", { command: "take key" }), step("enter")],
   expect: expectation({
     carriedItems: [0],
     flags: [{ id: 30, value: true }],
-    vars: [{ id: 40, value: 7 }],
+    vars: [{ id: 40, value: 7, min: null, max: null }],
     printed: "take the key",
     text: "Room one",
   }),
@@ -109,6 +140,17 @@ test("the stored format round-trips and rejects what it cannot run", () => {
   assert.equal(doc.format, GAME_TESTS_FORMAT);
   assert.deepEqual(doc.tests, [takeKey]);
   assert.deepEqual(parseGameTests(undefined).tests, []);
+  // A sparse step (only the fields its action uses) parses to the full shape.
+  const sparse = parseGameTests(
+    new TextEncoder().encode(
+      JSON.stringify({
+        format: GAME_TESTS_FORMAT,
+        tests: [{ name: "sparse", room: 1, steps: [{ action: "wait", ticks: 3 }] }],
+      }),
+    ),
+  );
+  assert.deepEqual(sparse.tests[0]!.steps, [step("wait", { ticks: 3 })]);
+  assert.equal(sparse.tests[0]!.expect, null);
   assert.throws(() => parseGameTests(new TextEncoder().encode("{")), /not valid JSON/);
   assert.throws(
     () => parseGameTests(new TextEncoder().encode(JSON.stringify({ format: "x", tests: [] }))),
@@ -116,21 +158,129 @@ test("the stored format round-trips and rejects what it cannot run", () => {
   );
   const twice = JSON.stringify({ format: GAME_TESTS_FORMAT, tests: [takeKey, takeKey] });
   assert.throws(() => parseGameTests(new TextEncoder().encode(twice)), /unique/);
-  const badStep = { ...takeKey, steps: [{ action: "dance" }] };
+  // The 256 KiB bound holds on reading and on writing.
+  assert.throws(
+    () => parseGameTests(new Uint8Array(262145)),
+    /larger than 256 KiB/,
+  );
+  const bulky = {
+    ...takeKey,
+    steps: Array.from({ length: 256 }, () =>
+      step("command", { command: "take key".padEnd(80, " x") }),
+    ),
+  };
   assert.throws(
     () =>
-      parseGameTests(
-        new TextEncoder().encode(JSON.stringify({ format: GAME_TESTS_FORMAT, tests: [badStep] })),
+      serializeGameTests(
+        Array.from({ length: 8 }, (_, index) => ({ ...bulky, name: `bulky ${index}` })),
       ),
-    /action must be command, move, enter or wait/,
+    /256 KiB/,
   );
-  // Which stored tests a change can touch.
-  const other = { ...takeKey, name: "room two", room: 2 };
-  assert.deepEqual(testsForResource([takeKey, other], "logic", 2), [other]);
-  assert.deepEqual(testsForResource([takeKey, other], "picture", 1), [takeKey]);
-  assert.equal(testsForResource([takeKey, other], "logic", 0).length, 2);
-  assert.equal(testsForResource([takeKey, other], "words", 0).length, 2);
-  assert.equal(testsForResource([takeKey, other], "view", 0).length, 2);
+});
+
+test("validateGameTest rejects non-spec shapes at parse time, not at runtime", () => {
+  const doc = (tests: unknown[]) =>
+    parseGameTests(
+      new TextEncoder().encode(JSON.stringify({ format: GAME_TESTS_FORMAT, tests })),
+    );
+  const badStep = { ...takeKey, steps: [{ action: "dance" }] };
+  assert.throws(() => doc([badStep]), /action must be one of/);
+  // Negative and zero ticks are rejected at parse time.
+  assert.throws(
+    () => doc([{ ...takeKey, steps: [{ action: "wait", ticks: -1 }] }]),
+    /ticks must be an integer from 1 to 60000/,
+  );
+  assert.throws(
+    () => doc([{ ...takeKey, steps: [{ action: "wait", ticks: 0 }] }]),
+    /ticks must be an integer from 1 to 60000/,
+  );
+  // Unknown step fields and fields that do not apply to the action are rejected.
+  assert.throws(
+    () => doc([{ ...takeKey, steps: [{ action: "wait", ticks: 1, turbo: true }] }]),
+    /turbo is not a known field/,
+  );
+  assert.throws(
+    () => doc([{ ...takeKey, steps: [{ action: "wait", ticks: 1, command: "look" }] }]),
+    /command does not apply to a wait step/,
+  );
+  // Malformed nested expectations fail at parse time.
+  assert.throws(
+    () => doc([{ ...takeKey, expect: { flags: [{ id: "30", value: true }] } }]),
+    /flags\[0\]\.id must be an integer/,
+  );
+  assert.throws(
+    () => doc([{ ...takeKey, expect: { vars: [{ id: 40 }] } }]),
+    /needs an exact value or a min\/max range/,
+  );
+  assert.throws(
+    () => doc([{ ...takeKey, expect: { vars: [{ id: 40, min: 9, max: 2 }] } }]),
+    /min must not exceed/,
+  );
+  assert.throws(
+    () => doc([{ ...takeKey, expect: { score: -1 } }]),
+    /score must be an integer from 0 to 255/,
+  );
+  assert.throws(
+    () => doc([{ ...takeKey, expect: { mood: "happy" } }]),
+    /mood is not a known field/,
+  );
+  assert.throws(
+    () => doc([{ ...takeKey, steps: [{ action: "wait", until: {}, ticks: 5 }] }]),
+    /needs at least one condition/,
+  );
+  assert.throws(
+    () => doc([{ ...takeKey, steps: [{ action: "wait", ticks: 2, captureTicks: [2, 1] }] }]),
+    /strictly increasing/,
+  );
+  assert.throws(
+    () => doc([{ ...takeKey, steps: [{ action: "wait", ticks: 1, captureTicks: [3] }] }]),
+    /exceeds the step's ticks/,
+  );
+});
+
+test("testsForResource follows real dependencies and stays conservative when they are unknown", () => {
+  const state = world();
+  const roomTwo = { ...takeKey, name: "room two", room: 2 };
+  const roomThree = { ...takeKey, name: "room three", room: 3 };
+  const tests = [takeKey, roomTwo, roomThree];
+  const names = (
+    touched: { kind: "logic" | "picture" | "view" | "sound" | "words" | "objects"; num: number }[],
+  ) => testsForResource(state, tests, touched).map((entry) => entry.name);
+  // A room's own logic selects that room's tests; room three's logic is
+  // unreadable, so its dependencies are unknown and it is always selected.
+  assert.deepEqual(names([{ kind: "logic", num: 2 }]), ["room two", "room three"]);
+  // Global changes touch everything.
+  assert.equal(names([{ kind: "logic", num: 0 }]).length, 3);
+  assert.equal(names([{ kind: "words", num: 0 }]).length, 3);
+  assert.equal(names([{ kind: "objects", num: 0 }]).length, 3);
+  assert.equal(names([{ kind: "view", num: 0 }]).length, 3);
+  // A called shared logic affects the caller's tests; an uncalled one does not.
+  state.sources.logics.set(1, "call(5);\nreturn;");
+  state.sources.logics.set(2, "return;");
+  assert.deepEqual(names([{ kind: "logic", num: 5 }]), ["take the key", "room three"]);
+  assert.deepEqual(names([{ kind: "logic", num: 6 }]), ["room three"]);
+  // A literal picture load is a real dependency.
+  state.sources.logics.set(1, "load.pic(2);\ndraw.pic(2);\nreturn;");
+  assert.deepEqual(names([{ kind: "picture", num: 2 }]), ["take the key", "room three"]);
+  assert.deepEqual(names([{ kind: "picture", num: 3 }]), ["room three"]);
+  // A runtime-chosen picture or call target is unknown: select the test.
+  state.sources.logics.set(1, "assignn(v10, 2);\nload.pic(v10);\nreturn;");
+  assert.deepEqual(names([{ kind: "picture", num: 2 }]), ["take the key", "room three"]);
+  state.sources.logics.set(1, "call.v(v50);\nreturn;");
+  assert.deepEqual(names([{ kind: "logic", num: 5 }]), ["take the key", "room three"]);
+  // Disassembled container logic is used when no authored source is stored.
+  state.sources.logics.delete(1);
+  state.sources.logics.delete(2);
+  assert.equal(names([{ kind: "picture", num: 2 }]).length, 3, "room 1 loads its picture via v10");
+  // Multi-resource writes consider every touched resource.
+  state.sources.logics.set(1, "call(5);\nreturn;");
+  assert.deepEqual(
+    names([
+      { kind: "logic", num: 2 },
+      { kind: "logic", num: 5 },
+    ]),
+    ["take the key", "room two", "room three"],
+  );
 });
 
 test("write_game_tests stores, merges, replaces and removes; commands need registered words", () => {
@@ -146,15 +296,31 @@ test("write_game_tests stores, merges, replaces and removes; commands need regis
   const unknown = executeAgentTool(state, "write_game_tests", {
     mode: "merge",
     names: null,
-    tests: [{ ...takeKey, name: "juggle", steps: [step("command", "juggle key")] }],
+    tests: [
+      {
+        ...takeKey,
+        name: "frobnicate",
+        steps: [step("command", { command: "frobnicate key" })],
+      },
+    ],
   });
   assert.equal(unknown.success, false);
-  assert.match(unknown.error ?? "", /juggle/);
+  assert.match(unknown.error ?? "", /frobnicate/);
   assert.match(unknown.error ?? "", /write_words/);
+  const close = executeAgentTool(state, "write_game_tests", {
+    mode: "merge",
+    names: null,
+    tests: [{ ...takeKey, name: "typo", steps: [step("command", { command: "tak key" })] }],
+  });
+  assert.equal(close.success, false);
+  assert.match(close.error ?? "", /\btak\b/);
+  assert.match(close.error ?? "", /\btake\b/, "the error names registered candidates");
   const merged = executeAgentTool(state, "write_game_tests", {
     mode: "merge",
     names: null,
-    tests: [{ ...takeKey, name: "look around", steps: [step("wait", null, 3)], expect: null }],
+    tests: [
+      { ...takeKey, name: "look around", steps: [step("wait", { ticks: 3 })], expect: null },
+    ],
   });
   assert.equal(merged.success, true, merged.error ?? "");
   assert.deepEqual(merged.details?.["names"], ["take the key", "look around"]);
@@ -177,6 +343,61 @@ test("write_game_tests stores, merges, replaces and removes; commands need regis
   assert.ok(ASK_TOOLS.includes("read_game_tests") && ASK_TOOLS.includes("run_game_tests"));
   assert.ok(!ASK_TOOLS.includes("write_game_tests"), "writing is a Remix action");
   assert.ok(AGI_SYSTEM_PROMPT.includes("write_game_tests"));
+});
+
+/** Whether the REAL parser (engine said()/dictionary path) accepts a command line. */
+function realParserAccepts(command: string): boolean {
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic("accept.input();\nreturn;", { dictionary: DICTIONARY }).payload,
+  );
+  let line: string | null = null;
+  const host: EngineHost = {
+    print: () => {},
+    displayAt: () => {},
+    statusLine: () => {},
+    takeInputLine: () => {
+      const taken = line;
+      line = null;
+      return taken;
+    },
+    takeKeys: () => [],
+  };
+  const engine = new Engine(container, host, DICTIONARY);
+  engine.tick();
+  line = command;
+  engine.tick();
+  return engine.vars[9] === 0;
+}
+
+test("stored-command acceptance matches the real parser: normalization, punctuation, filler and phrases", () => {
+  // The dictionary knows keycard, dont, "ice cream" and the ignored filler "the".
+  const cases: [command: string, accepted: boolean][] = [
+    ["take key", true],
+    ["TAKE KEY", true],
+    ["take, the key!", true],
+    ["take key-card", true],
+    ["don't look", true],
+    ["take ice cream", true],
+    ["frobnicate key", false],
+  ];
+  for (const [command, accepted] of cases)
+    assert.equal(realParserAccepts(command), accepted, `real parser: ${command}`);
+  for (const [command, accepted] of cases) {
+    const state = world();
+    const written = executeAgentTool(state, "write_game_tests", {
+      mode: "replace",
+      names: null,
+      tests: [{ ...takeKey, steps: [step("command", { command })], expect: null }],
+    });
+    assert.equal(
+      written.success,
+      accepted,
+      `write_game_tests must ${accepted ? "accept" : "reject"} ${JSON.stringify(command)} the way the real parser does${written.success ? "" : `: ${written.error}`}`,
+    );
+  }
 });
 
 test("run_game_tests replays stored tests and puts the verdict first", () => {
@@ -215,12 +436,40 @@ test("run_game_tests replays stored tests and puts the verdict first", () => {
   assert.equal(verdictLine([]), "No game tests stored.");
 });
 
-test("a write tool reruns the stored tests its change can touch and reports the verdict", () => {
+test("stored test runs are deterministic: seeded random and a virtual clock", () => {
+  const state = world();
+  const args = {
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: takeKey.steps,
+    expect: null,
+    cycleBudget: null,
+    instructionBudget: null,
+  };
+  const first = playtestRoom(state, args);
+  const second = playtestRoom(state, args);
+  assert.equal(first.success, true, first.error ?? "");
+  // v50 is random(1, 100) from room setup: identical across runs, and every
+  // other observed state field too.
+  assert.deepEqual(first.details?.["state"], second.details?.["state"]);
+  const v50 = (
+    (first.details?.["state"] as { nonzeroVariables: { id: number; value: number }[] })
+      .nonzeroVariables
+  ).find((entry) => entry.id === 50);
+  assert.ok(v50 && v50.value >= 1 && v50.value <= 100, "the seeded random source ran");
+});
+
+test("a write tool leads with the verdict and reports selection, coverage and parse failures", () => {
   const state = world();
   executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [takeKey] });
   const kept = executeAgentTool(state, "write_logic_source", { room: 1, source: ROOM_LOGIC });
   assert.equal(kept.success, true, kept.error ?? "");
-  assert.match(kept.message ?? "", /Game tests: 1 game test pass, 0 fail\./);
+  assert.match(
+    kept.message ?? "",
+    /^Game tests: 1 game test pass, 0 fail\. 1 of 1 game tests rerun \(selection: room 1\)\. Logic 1 compiled successfully/,
+  );
+  assert.deepEqual(kept.details?.["gameTestsRerun"], { ran: 1, stored: 1, notRun: 0 });
   const broken = executeAgentTool(state, "write_logic_source", {
     room: 1,
     source: ROOM_LOGIC.replace("set(f30);", ""),
@@ -228,7 +477,7 @@ test("a write tool reruns the stored tests its change can touch and reports the 
   assert.equal(broken.success, true, broken.error ?? "");
   assert.match(
     broken.message ?? "",
-    /Game tests: 0 game tests pass, 1 fail: "take the key" Expected flag 30=true/,
+    /^Game tests: 0 game tests pass, 1 fail: "take the key" Expected flag 30=true/,
   );
   const outcomes = broken.details?.["gameTests"] as { passed: boolean }[];
   assert.equal(outcomes[0]?.passed, false);
@@ -236,6 +485,233 @@ test("a write tool reruns the stored tests its change can touch and reports the 
   const elsewhere = executeAgentTool(state, "write_logic_source", { room: 2, source: "return;" });
   assert.equal(elsewhere.success, true, elsewhere.error ?? "");
   assert.ok(!/Game tests:/.test(elsewhere.message ?? ""));
+});
+
+test("reruns report skipped coverage instead of looking like full coverage", () => {
+  const state = world();
+  const nine = Array.from({ length: 9 }, (_, index) => ({ ...takeKey, name: `puzzle ${index}` }));
+  executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: nine });
+  const written = executeAgentTool(state, "write_logic_source", { room: 1, source: ROOM_LOGIC });
+  assert.equal(written.success, true, written.error ?? "");
+  assert.match(
+    written.message ?? "",
+    /^Game tests: 8 game tests pass, 0 fail\. 8 of 9 game tests rerun \(selection: room 1\); 1 not run\./,
+  );
+  assert.deepEqual(written.details?.["gameTestsRerun"], { ran: 8, stored: 9, notRun: 1 });
+});
+
+test("a malformed stored test document is reported loudly on the next write", () => {
+  const state = world();
+  state.testsPayload = new TextEncoder().encode("{");
+  const written = executeAgentTool(state, "write_logic_source", { room: 1, source: ROOM_LOGIC });
+  assert.equal(written.success, true, written.error ?? "");
+  assert.match(
+    written.message ?? "",
+    /^Game tests: TESTS\.JSON could not be parsed \(TESTS\.JSON is not valid JSON\.\)/,
+  );
+  // run_game_tests fails loudly too instead of running nothing.
+  const run = executeAgentTool(state, "run_game_tests", { names: null });
+  assert.equal(run.success, false);
+  assert.match(run.error ?? "", /not valid JSON/);
+});
+
+test("the extended step vocabulary runs in the simulation", () => {
+  const state = world();
+  // key: a PC key word dismisses the opening modal like Enter does.
+  const withModal = world(
+    ROOM_LOGIC.replace(
+      "if (said(\"take\", \"key\"))",
+      'if (!isset(f31)) {set(f31);print("Welcome");}\nif (said("take", "key"))',
+    ),
+  );
+  const keyed = playtestRoom(withModal, {
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: [step("key", { key: 13 }), ...takeKey.steps],
+    expect: takeKey.expect,
+    cycleBudget: null,
+    instructionBudget: null,
+  });
+  assert.equal(keyed.success, true, keyed.error ?? "");
+  // direction: a numeric heading steers ego like a named move.
+  const headed = playtestRoom(state, {
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: [step("direction", { direction: 3, ticks: 20 })],
+    expect: expectation({ object: { num: 0, view: 0, x0: 82, y0: 118, x1: 159, y1: 122, active: true } }),
+    cycleBudget: null,
+    instructionBudget: null,
+  });
+  assert.equal(headed.success, true, headed.error ?? "");
+  // walkTo steers to the target; reachable asserts the same from the final state.
+  const walked = playtestRoom(state, {
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: [step("walkTo", { x: 100, y: 120 })],
+    expect: expectation({
+      object: { num: 0, view: null, x0: 98, y0: 118, x1: 102, y1: 122, active: true },
+      reachable: { x: 120, y: 120 },
+    }),
+    cycleBudget: null,
+    instructionBudget: null,
+  });
+  assert.equal(walked.success, true, walked.error ?? "");
+  // A barrier blocks both walkTo and reachable.
+  const blocked = world();
+  blocked.container.putResource(
+    "picture",
+    1,
+    Uint8Array.of(0xf2, 0, 0xf6, 156, 0, 156, 167, 0xff),
+  );
+  const walled = playtestRoom(blocked, {
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: [step("walkTo", { x: 158, y: 120, ticks: 60 })],
+    expect: null,
+    cycleBudget: null,
+    instructionBudget: null,
+  });
+  assert.equal(walled.success, false);
+  assert.match(walled.error ?? "", /walkTo did not reach \(158,120\)/);
+  const unreachable = playtestRoom(blocked, {
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: [],
+    expect: expectation({ reachable: { x: 158, y: 120 } }),
+    cycleBudget: null,
+    instructionBudget: null,
+  });
+  assert.equal(unreachable.success, false);
+  assert.match(unreachable.error ?? "", /\(158,120\) reachable/);
+  // answer feeds get.string; without one the game reports the missing input.
+  const answered = playtestRoom(state, {
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: [
+      step("answer", { answer: "xyzzy" }),
+      step("command", { command: "look" }),
+      step("wait", { ticks: 2 }),
+    ],
+    expect: expectation({ vars: [{ id: 41, value: 1, min: null, max: null }] }),
+    cycleBudget: null,
+    instructionBudget: null,
+  });
+  assert.equal(answered.success, true, answered.error ?? "");
+  const unanswered = playtestRoom(state, {
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: [step("command", { command: "look" }), step("wait", { ticks: 2 })],
+    expect: null,
+    cycleBudget: null,
+    instructionBudget: null,
+  });
+  assert.equal(unanswered.success, false);
+  assert.match(unanswered.error ?? "", /answer step/);
+});
+
+test("wait accepts cycles or an until predicate over room, flag and var", () => {
+  const state = world();
+  const until = (predicate: unknown, ticks = 10) =>
+    playtestRoom(state, {
+      room: 1,
+      spawnX: null,
+      spawnY: null,
+      steps: [
+        step("command", { command: "take key" }),
+        step("enter"),
+        step("wait", { until: predicate, ticks }),
+      ],
+      expect: null,
+      cycleBudget: null,
+      instructionBudget: null,
+    });
+  assert.equal(until({ room: 1, flag: null, var: null }).success, true);
+  assert.equal(until({ room: null, flag: { id: 30, value: true }, var: null }).success, true);
+  assert.equal(
+    until({ room: null, flag: null, var: { id: 40, value: 7, min: null, max: null } }).success,
+    true,
+  );
+  assert.equal(
+    until({ room: null, flag: null, var: { id: 40, value: null, min: 5, max: 10 } }).success,
+    true,
+  );
+  const unmet = until({ room: null, flag: { id: 31, value: true }, var: null }, 5);
+  assert.equal(unmet.success, false);
+  assert.match(unmet.error ?? "", /did not satisfy.*within 5 cycles/);
+});
+
+test("score, var range, object and reachable expectations report observed values", () => {
+  const state = world();
+  const run = (expect: unknown) =>
+    playtestRoom(state, {
+      room: 1,
+      spawnX: null,
+      spawnY: null,
+      steps: takeKey.steps,
+      expect,
+      cycleBudget: null,
+      instructionBudget: null,
+    });
+  assert.equal(run(expectation({ score: 5 })).success, true);
+  const score = run(expectation({ score: 4 }));
+  assert.equal(score.success, false);
+  assert.match(score.error ?? "", /Expected score 4; observed 5/);
+  assert.equal(
+    run(expectation({ vars: [{ id: 40, value: null, min: 5, max: 10 }] })).success,
+    true,
+  );
+  const range = run(expectation({ vars: [{ id: 40, value: null, min: 8, max: 10 }] }));
+  assert.equal(range.success, false);
+  assert.match(range.error ?? "", /Expected v40 in 8\.\.10; observed 7/);
+  const view = run(
+    expectation({ object: { num: 0, view: 1, x0: null, y0: null, x1: null, y1: null, active: null } }),
+  );
+  assert.equal(view.success, false);
+  assert.match(view.error ?? "", /object 0/);
+});
+
+test("the speedrun runner imports the shared step vocabulary", () => {
+  assert.equal(RUNNER_DIRECTION_KEYS, DIRECTION_KEYS, "one PC direction-key table");
+  assert.equal(runnerRandomSource, randomSource, "one seeded random source");
+  assert.deepEqual(Array.from({ length: 4 }, randomSource(1)), [15496, 24200, 33046, 46195]);
+  for (const [dx, dy, direction] of [
+    [0, 0, 0],
+    [0, -1, 1],
+    [1, -1, 2],
+    [1, 0, 3],
+    [1, 1, 4],
+    [0, 1, 5],
+    [-1, 1, 6],
+    [-1, 0, 7],
+    [-1, -1, 8],
+  ] as const)
+    assert.equal(directionForDelta(dx, dy), direction, `delta ${dx},${dy}`);
+});
+
+test("genesis and orientation prompts require a stored test per puzzle", () => {
+  const genesis = createGenesisPrompt("A quiet courtyard.");
+  assert.match(genesis, /write_game_tests/);
+  assert.match(genesis, /run_game_tests/);
+  assert.match(genesis, /each puzzle|every puzzle/);
+  const orientation = createOrientationPrompt({
+    gameId: "kq1",
+    profile: "2.917",
+    room: 1,
+    resourceListing: "logic 1",
+    logicSource: "return;",
+    pictureSource: "picture",
+    wordsSummary: "look",
+  });
+  assert.match(orientation, /write_game_tests/);
+  assert.match(orientation, /run_game_tests/);
+  assert.match(orientation, /each puzzle|every puzzle/);
 });
 
 test("TESTS.JSON survives a ZIP import beside the game files", () => {
@@ -266,3 +742,7 @@ test("TESTS.JSON travels in the project archive and never in the game export", a
   const project = await readGameZip(await buildProjectZip(data));
   assert.deepEqual(parseGameTests(project.files[GAME_TESTS_FILE]).tests, [takeKey]);
 });
+
+// Keep the GameTest type referenced so the stored shape stays exported.
+const _typecheck: GameTest = takeKey;
+void _typecheck;

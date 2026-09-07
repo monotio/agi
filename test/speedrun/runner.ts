@@ -3,8 +3,14 @@ import { readFileSync, existsSync } from "node:fs";
 import { Engine, type EngineHost } from "../../src/runtime/engine.ts";
 import { CycleClock } from "../../src/runtime/cycleClock.ts";
 import { detectProfile, INTERPRETER_FILES } from "../../src/runtime/profile.ts";
+import { DIRECTION_KEYS, directionForDelta, randomSource } from "../../src/agent/gameTestSteps.ts";
 import { loadGame } from "../game-fixture.ts";
 import { fixtureDir } from "../fixtures.ts";
+
+// The step vocabulary is shared with stored game tests (src/agent/gameTestSteps.ts)
+// so speedrun proofs and TESTS.JSON can never disagree; re-export the pieces
+// this module has always provided.
+export { DIRECTION_KEYS, randomSource };
 
 export type Action =
   | { kind: "key"; code: number }
@@ -12,18 +18,6 @@ export type Action =
   | { kind: "advance"; ticks: number }
   | { kind: "answer"; text: string }
   | { kind: "checkpoint"; label: string; room: number; score: number; x: number; y: number };
-
-export const DIRECTION_KEYS = [0, 0x4800, 0x4900, 0x4d00, 0x5100, 0x5000, 0x4f00, 0x4b00, 0x4700];
-
-/** Repeatable random input, never a chosen result for an individual game branch. */
-export function randomSource(seed: number): () => number {
-  let value = seed >>> 0;
-  return () => {
-    value = (Math.imul(value, 1664525) + 1013904223) >>> 0;
-    return value >>> 16;
-  };
-}
-
 /** Local-only input driver. No writes to game variables, objects, flags or resources. */
 export class Speedrun {
   readonly engine: Engine;
@@ -173,17 +167,7 @@ export class Speedrun {
         this.direction(0);
         return;
       }
-      const dirs: Record<string, number> = {
-        "0,-1": 1,
-        "1,-1": 2,
-        "1,0": 3,
-        "1,1": 4,
-        "0,1": 5,
-        "-1,1": 6,
-        "-1,0": 7,
-        "-1,-1": 8,
-      };
-      this.direction(dirs[`${dx},${dy}`]!);
+      this.direction(directionForDelta(dx, dy));
       this.advance();
     }
     throw new Error(`Walk blocked at ${JSON.stringify(this.state())}, target ${x},${y}`);

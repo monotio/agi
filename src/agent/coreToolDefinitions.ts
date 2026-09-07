@@ -2,6 +2,19 @@
 import type { ToolDefinition } from "./tools.ts";
 import { MAX_FRAMES } from "./frames.ts";
 
+/** A variable check: exact `value`, or an inclusive `min`/`max` range. */
+const VAR_ASSERTION_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    id: { type: "integer", minimum: 0, maximum: 255 },
+    value: { type: ["integer", "null"], minimum: 0, maximum: 255 },
+    min: { type: ["integer", "null"], minimum: 0, maximum: 255 },
+    max: { type: ["integer", "null"], minimum: 0, maximum: 255 },
+  },
+  required: ["id", "value", "min", "max"],
+};
+
 /** Step vocabulary shared by playtest_room and stored game tests (write_game_tests). */
 export const PLAYTEST_STEPS_SCHEMA = {
   type: ["array", "null"],
@@ -10,10 +23,13 @@ export const PLAYTEST_STEPS_SCHEMA = {
     type: "object",
     additionalProperties: false,
     properties: {
-      action: { type: "string", enum: ["command", "move", "enter", "wait"] },
-      command: { type: ["string", "null"] },
+      action: {
+        type: "string",
+        enum: ["command", "move", "enter", "wait", "key", "direction", "walkTo", "answer"],
+      },
+      command: { type: ["string", "null"], maxLength: 80 },
       direction: {
-        type: ["string", "null"],
+        type: ["string", "integer", "null"],
         enum: [
           "up",
           "up-right",
@@ -23,8 +39,39 @@ export const PLAYTEST_STEPS_SCHEMA = {
           "down-left",
           "left",
           "up-left",
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
           null,
         ],
+      },
+      key: { type: ["integer", "null"], minimum: 0, maximum: 65535 },
+      x: { type: ["integer", "null"], minimum: 0, maximum: 159 },
+      y: { type: ["integer", "null"], minimum: 0, maximum: 167 },
+      answer: { type: ["string", "null"], maxLength: 80 },
+      until: {
+        type: ["object", "null"],
+        additionalProperties: false,
+        properties: {
+          room: { type: ["integer", "null"], minimum: 0, maximum: 255 },
+          flag: {
+            type: ["object", "null"],
+            additionalProperties: false,
+            properties: {
+              id: { type: "integer", minimum: 0, maximum: 255 },
+              value: { type: "boolean" },
+            },
+            required: ["id", "value"],
+          },
+          var: { ...VAR_ASSERTION_SCHEMA, type: ["object", "null"] },
+        },
+        required: ["room", "flag", "var"],
       },
       ticks: { type: ["integer", "null"], minimum: 1, maximum: 60000 },
       captureTicks: {
@@ -33,7 +80,18 @@ export const PLAYTEST_STEPS_SCHEMA = {
         items: { type: "integer", minimum: 1, maximum: 60000 },
       },
     },
-    required: ["action", "command", "direction", "ticks", "captureTicks"],
+    required: [
+      "action",
+      "command",
+      "direction",
+      "key",
+      "x",
+      "y",
+      "answer",
+      "until",
+      "ticks",
+      "captureTicks",
+    ],
   },
 };
 
@@ -59,24 +117,46 @@ export const PLAYTEST_EXPECT_SCHEMA = {
         required: ["id", "value"],
       },
     },
-    vars: {
-      type: ["array", "null"],
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          id: { type: "integer", minimum: 0, maximum: 255 },
-          value: { type: "integer", minimum: 0, maximum: 255 },
-        },
-        required: ["id", "value"],
-      },
-    },
+    vars: { type: ["array", "null"], items: VAR_ASSERTION_SCHEMA },
     printed: { type: ["string", "null"], maxLength: 200 },
     text: { type: ["string", "null"], maxLength: 200 },
+    score: { type: ["integer", "null"], minimum: 0, maximum: 255 },
+    object: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      properties: {
+        num: { type: "integer", minimum: 0, maximum: 255 },
+        view: { type: ["integer", "null"], minimum: 0, maximum: 255 },
+        x0: { type: ["integer", "null"], minimum: 0, maximum: 159 },
+        y0: { type: ["integer", "null"], minimum: 0, maximum: 167 },
+        x1: { type: ["integer", "null"], minimum: 0, maximum: 159 },
+        y1: { type: ["integer", "null"], minimum: 0, maximum: 167 },
+        active: { type: ["boolean", "null"] },
+      },
+      required: ["num", "view", "x0", "y0", "x1", "y1", "active"],
+    },
+    reachable: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      properties: {
+        x: { type: "integer", minimum: 0, maximum: 159 },
+        y: { type: "integer", minimum: 0, maximum: 167 },
+      },
+      required: ["x", "y"],
+    },
   },
-  required: ["room", "carriedItems", "flags", "vars", "printed", "text"],
+  required: [
+    "room",
+    "carriedItems",
+    "flags",
+    "vars",
+    "printed",
+    "text",
+    "score",
+    "object",
+    "reachable",
+  ],
 };
-
 export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_room_context",

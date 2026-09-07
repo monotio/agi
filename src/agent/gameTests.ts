@@ -8,14 +8,26 @@
  * playtest can never disagree about what the game does.
  */
 import { PLAYTEST_EXPECT_SCHEMA, PLAYTEST_STEPS_SCHEMA } from "./coreToolDefinitions.ts";
+import {
+  validateGameTestExpect,
+  validateGameTestStep,
+  type GameTestExpect,
+  type GameTestStep,
+} from "./gameTestSteps.ts";
 import { playtestRoom } from "./playtest.ts";
 import type { AgentSessionState, AgentToolResult, ToolDefinition } from "./tools.ts";
+import { createContainer } from "../container/container.ts";
+import { assembleLogic } from "../logic/assembler.ts";
+import { disassembleLogic } from "../logic/disassembler.ts";
+import { Engine, type EngineHost } from "../runtime/engine.ts";
 import type { ResourceKind } from "../types.ts";
 
 export const GAME_TESTS_FILE = "TESTS.JSON";
 export const GAME_TESTS_FORMAT = "monotio.agi.tests.v1";
 /** Stored tests per game; enough for a puzzle or two per room of a large game. */
 export const MAX_GAME_TESTS = 64;
+/** TESTS.JSON is capped at 256 KiB on reading AND on writing. */
+export const GAME_TESTS_MAX_BYTES = 262144;
 /** Tests rerun after one patch; keeps a write tool's latency bounded. */
 const RERUN_LIMIT = 8;
 
@@ -24,7 +36,9 @@ export interface GameTest {
   readonly room: number;
   readonly spawnX: number | null;
   readonly spawnY: number | null;
+  /** Normalized steps (validateGameTestStep); Record so existing stored-test literals stay assignable. */
   readonly steps: readonly Record<string, unknown>[];
+  /** Normalized expectations (validateGameTestExpect) or null. */
   readonly expect: Record<string, unknown> | null;
   readonly cycleBudget: number | null;
 }
@@ -32,6 +46,12 @@ export interface GameTest {
 export interface GameTestsDocument {
   readonly format: typeof GAME_TESTS_FORMAT;
   readonly tests: readonly GameTest[];
+}
+
+/** One resource a successful write touched; rerun selection considers every one of them. */
+export interface TouchedResource {
+  readonly kind: ResourceKind | "words" | "objects";
+  readonly num: number;
 }
 
 function fail(message: string): never {
@@ -45,7 +65,12 @@ function integerOrNull(value: unknown, label: string, min: number, max: number):
   return value;
 }
 
-/** Shape-check one stored test; the simulation validates step and expect details when it runs. */
+/**
+ * Strictly shape-check one stored test, including every step and expectation,
+ * and return the normalized full shape. Stored-file parsing and the
+ * write_game_tests tool share this one path; provider tool-schema validation
+ * does not protect imported JSON.
+ */
 export function validateGameTest(value: unknown, label: string): GameTest {
   if (!value || typeof value !== "object" || Array.isArray(value))
     fail(`${label} must be an object.`);
@@ -59,30 +84,21 @@ export function validateGameTest(value: unknown, label: string): GameTest {
   const steps = test["steps"] ?? [];
   if (!Array.isArray(steps) || steps.length > 256)
     fail(`${label}.steps must hold at most 256 actions.`);
-  for (const [index, step] of steps.entries()) {
-    if (!step || typeof step !== "object" || Array.isArray(step))
-      fail(`${label}.steps[${index}] must be an action object.`);
-    const action = (step as Record<string, unknown>)["action"];
-    if (!["command", "move", "enter", "wait"].includes(String(action)))
-      fail(`${label}.steps[${index}].action must be command, move, enter or wait.`);
-  }
   const expect = test["expect"] ?? null;
-  if (expect !== null && (typeof expect !== "object" || Array.isArray(expect)))
-    fail(`${label}.expect must be an assertion object or null.`);
   return {
     name,
     room,
     spawnX: integerOrNull(test["spawnX"], `${label}.spawnX`, 0, 159),
     spawnY: integerOrNull(test["spawnY"], `${label}.spawnY`, 0, 167),
-    steps: steps.map((step) => ({ ...(step as Record<string, unknown>) })),
-    expect: expect === null ? null : { ...(expect as Record<string, unknown>) },
+    steps: steps.map((step, index) => validateGameTestStep(step, `${label}.steps[${index}]`)),
+    expect: expect === null ? null : validateGameTestExpect(expect, `${label}.expect`),
     cycleBudget: integerOrNull(test["cycleBudget"], `${label}.cycleBudget`, 1, 60000),
   };
 }
 
 export function parseGameTests(bytes: Uint8Array | undefined): GameTestsDocument {
   if (!bytes) return { format: GAME_TESTS_FORMAT, tests: [] };
-  if (bytes.length > 262144) fail(`${GAME_TESTS_FILE} is larger than 256 KiB.`);
+  if (bytes.length > GAME_TESTS_MAX_BYTES) fail(`${GAME_TESTS_FILE} is larger than 256 KiB.`);
   let raw: unknown;
   try {
     raw = JSON.parse(new TextDecoder().decode(bytes));
@@ -104,35 +120,137 @@ export function parseGameTests(bytes: Uint8Array | undefined): GameTestsDocument
   }
   return { format: GAME_TESTS_FORMAT, tests };
 }
-
 export function serializeGameTests(tests: readonly GameTest[]): Uint8Array {
-  return new TextEncoder().encode(
+  const bytes = new TextEncoder().encode(
     JSON.stringify({ format: GAME_TESTS_FORMAT, tests }, null, 2) + "\n",
   );
+  if (bytes.length > GAME_TESTS_MAX_BYTES)
+    fail(
+      `${GAME_TESTS_FILE} would be ${bytes.length} bytes, over the 256 KiB limit. Remove or shorten tests.`,
+    );
+  return bytes;
 }
 
 export function readStoredTests(session: AgentSessionState): readonly GameTest[] {
   return parseGameTests(session.getFiles().get(GAME_TESTS_FILE)).tests;
 }
 
-/** Parser words a stored command uses that the dictionary does not know. */
-function unknownWords(session: AgentSessionState, command: string): string[] {
-  const known = session.sources.words;
-  return command
-    .toLowerCase()
-    .split(/[^a-z0-9'-]+/)
-    .filter((word) => word && !known.has(word));
+/**
+ * The first dictionary word the REAL parser rejects in a stored command, or
+ * null when the parser accepts the whole line. Runs the engine's own
+ * normalization and dictionary matching (parseInput via accept.input), so
+ * punctuation, filler words and multi-word entries behave exactly as in the
+ * game; there is no second word splitter.
+ */
+function createParserProbe(session: AgentSessionState): (command: string) => string | null {
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic("accept.input();\nreturn;", {
+      dictionary: session.sources.words,
+      profile: session.profile,
+    }).payload,
+  );
+  let line: string | null = null;
+  const host: EngineHost = {
+    print: () => {},
+    displayAt: () => {},
+    statusLine: () => {},
+    takeInputLine: () => {
+      const taken = line;
+      line = null;
+      return taken;
+    },
+    takeKeys: () => [],
+  };
+  const engine = new Engine(container, host, session.sources.words, {
+    profile: session.profile,
+  });
+  engine.tick();
+  return (command) => {
+    line = command;
+    engine.tick();
+    if (engine.vars[9] === 0) return null;
+    return engine.parsedWordTexts[engine.parsedWordTexts.length - 1] ?? null;
+  };
 }
 
-/** The stored tests a change to `kind` `num` can affect. */
+/** Registered words that start like an unknown token, to offer as candidates. */
+function wordCandidates(session: AgentSessionState, word: string): string[] {
+  const prefix = word.slice(0, Math.min(3, Math.max(1, word.length)));
+  return [...session.sources.words.keys()]
+    .filter((known) => known.startsWith(prefix))
+    .sort()
+    .slice(0, 5);
+}
+
+/** The authored or disassembled source of a room's logic; null when it cannot be read. */
+function roomLogicSource(session: AgentSessionState, room: number): string | null {
+  const authored = session.sources.logics.get(room);
+  if (authored !== undefined) return authored;
+  const payload = session.container.getResource("logic", room);
+  if (!payload) return null;
+  try {
+    return disassembleLogic(payload, {
+      dictionary: session.sources.words,
+      profile: session.profile,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Logic source without comments and string literals, for reference scans. */
+function scannable(source: string): string {
+  return source.replace(/\/\/[^\n]*|"(?:\\[^\n]|[^"\\\n])*"/g, "");
+}
+
+/**
+ * Whether a change to one touched resource can affect one stored test. Uses
+ * actual dependencies where they are cheaply known (the room's own logic,
+ * literal call() and load.pic/draw.pic references in the room's logic source)
+ * and conservatively selects the test whenever dependencies are unknown:
+ * runtime-chosen call or picture targets, calls into shared logics that may
+ * load the picture, or an unreadable logic source.
+ */
+function affectsTest(
+  session: AgentSessionState,
+  test: GameTest,
+  touched: TouchedResource,
+): boolean {
+  const { kind, num } = touched;
+  if (kind === "words" || kind === "objects") return true;
+  if (kind === "logic" && num === 0) return true;
+  if (kind === "logic") {
+    if (test.room === num) return true;
+    const source = roomLogicSource(session, test.room);
+    if (source === null) return true;
+    const code = scannable(source);
+    if (/\bcall\.v\s*\(/.test(code)) return true;
+    return new RegExp(`\\bcall\\(\\s*${num}\\s*\\)`).test(code);
+  }
+  if (kind === "picture") {
+    const source = roomLogicSource(session, test.room);
+    if (source === null) return true;
+    const code = scannable(source);
+    // A picture may be loaded by a called shared logic or chosen at runtime.
+    if (/\bcall(?:\.v)?\s*\(/.test(code)) return true;
+    if (/\b(?:load|draw|overlay)\.pic\s*\(\s*v\d+\s*\)/.test(code)) return true;
+    return new RegExp(`\\b(?:load|draw|overlay)\\.pic\\s*\\(\\s*${num}\\s*\\)`).test(code);
+  }
+  return true;
+}
+
+/** The stored tests a change to the touched resources can affect. */
 export function testsForResource(
+  session: AgentSessionState,
   tests: readonly GameTest[],
-  kind: ResourceKind | "words" | "objects",
-  num: number,
+  touched: readonly TouchedResource[],
 ): readonly GameTest[] {
-  if (kind === "words" || kind === "objects" || (kind === "logic" && num === 0)) return tests;
-  if (kind === "logic" || kind === "picture") return tests.filter((test) => test.room === num);
-  return tests;
+  return tests.filter((test) =>
+    touched.some((resource) => affectsTest(session, test, resource)),
+  );
 }
 
 interface GameTestOutcome {
@@ -231,25 +349,53 @@ export function runGameTests(
   };
 }
 
+/** How a touched resource reads in the rerun report, e.g. "room 3" for its logic. */
+function describeTouched(touched: TouchedResource): string {
+  if (touched.kind === "words") return "words";
+  if (touched.kind === "objects") return "objects";
+  if (touched.kind === "logic") return touched.num === 0 ? "logic 0" : `room ${touched.num}`;
+  return `${touched.kind} ${touched.num}`;
+}
+
 /**
  * After a successful write, rerun the stored tests the change can affect and
  * return the verdict line for the tool result, or null when nothing applies.
+ * The line reports the selection, the coverage and any validation failure, so
+ * a small green subset cannot be mistaken for full coverage.
  */
 export function rerunAffectedTests(
   session: AgentSessionState,
-  kind: ResourceKind | "words" | "objects",
-  num: number,
-): { line: string; outcomes: readonly GameTestOutcome[] } | null {
+  touched: readonly TouchedResource[],
+): {
+  line: string;
+  outcomes: readonly GameTestOutcome[];
+  selection: { ran: number; stored: number; notRun: number };
+} | null {
+  if (!touched.length) return null;
   let stored: readonly GameTest[];
   try {
     stored = readStoredTests(session);
-  } catch {
-    return null;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return {
+      line: `${GAME_TESTS_FILE} could not be parsed (${reason}); no game tests rerun. Fix it with write_game_tests (mode replace) or remove it.`,
+      outcomes: [],
+      selection: { ran: 0, stored: 0, notRun: 0 },
+    };
   }
-  const affected = testsForResource(stored, kind, num).slice(0, RERUN_LIMIT);
+  if (!stored.length) return null;
+  const affected = testsForResource(session, stored, touched);
   if (!affected.length) return null;
-  const outcomes = affected.map((test) => runOne(session, test).outcome);
-  return { line: verdictLine(outcomes), outcomes };
+  const selected = affected.slice(0, RERUN_LIMIT);
+  const outcomes = selected.map((test) => runOne(session, test).outcome);
+  const notRun = stored.length - outcomes.length;
+  const selection = touched.map(describeTouched).join(", ");
+  const line = `${verdictLine(outcomes)} ${outcomes.length} of ${stored.length} game tests rerun (selection: ${selection})${notRun ? `; ${notRun} not run` : ""}.`;
+  return {
+    line,
+    outcomes,
+    selection: { ran: outcomes.length, stored: stored.length, notRun },
+  };
 }
 
 const NAMES_SCHEMA = {
@@ -284,7 +430,7 @@ export const GAME_TEST_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_game_tests",
     description:
-      "Add or replace stored game tests by name (`mode` merge, default), replace the whole set (`mode` replace) or delete the tests listed in `names` (`mode` remove, `tests` null). Each test is a playtest_room scenario: `room`, optional `spawnX`/`spawnY`, `steps` and `expect`, optional `cycleBudget`. Commands must use registered words. Write at least one test per puzzle and rerun them with run_game_tests.",
+      "Add or replace stored game tests by name (`mode` merge, default), replace the whole set (`mode` replace) or delete the tests listed in `names` (`mode` remove, `tests` null). Each test is a playtest_room scenario: `room`, optional `spawnX`/`spawnY`, `steps` and `expect`, optional `cycleBudget`. Steps are command, move, enter, wait (cycles or an until predicate over room/flag/var), key (PC key word), direction (0..8), walkTo (x, y) and answer (prompt text); expectations add score, var ranges, object and reachable to room, carriedItems, flags, vars, printed and text. Commands must use registered words. Write at least one test per puzzle and rerun them with run_game_tests.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -361,14 +507,18 @@ export function executeGameTestTool(
       const tests = args["tests"];
       if (!Array.isArray(tests) || !tests.length) fail(`${mode} needs at least one test in tests.`);
       const written = tests.map((test, index) => validateGameTest(test, `tests[${index}]`));
+      let probe: ((command: string) => string | null) | null = null;
       for (const test of written)
         for (const step of test.steps) {
-          if (step["action"] !== "command") continue;
-          const unknown = unknownWords(session, String(step["command"] ?? ""));
-          if (unknown.length)
+          if (step["action"] !== "command" || step["command"] == null) continue;
+          probe ??= createParserProbe(session);
+          const unknown = probe(String(step["command"]));
+          if (unknown !== null) {
+            const candidates = wordCandidates(session, unknown);
             fail(
-              `${JSON.stringify(test.name)}: the command ${JSON.stringify(step["command"])} uses words the dictionary does not know: ${unknown.join(", ")}. Register them with write_words first.`,
+              `${JSON.stringify(test.name)}: the command ${JSON.stringify(step["command"])} uses a word the dictionary does not know: ${unknown}.${candidates.length ? ` Registered words like: ${candidates.join(", ")}.` : ""} Register new words with write_words first.`,
             );
+          }
         }
       const seen = new Set<string>();
       for (const test of written) {
