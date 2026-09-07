@@ -2,7 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import {
   canvasPicHash,
-  configureAi,
   openAiSettings,
   isolateStorage,
   observe,
@@ -149,14 +148,17 @@ test("in-game ZIP exports the live cartridge after a patch and reload", async ({
   expect(Object.keys(files)).not.toContain("PROJECT.JSON");
   expect(Object.keys(files)).not.toContain("transcript.json");
   await page.reload();
-  // A print window cannot produce a player-state save. The exported patched
-  // resources remain available as a saved world and boot without reauthoring.
-  await expect(page.getByTestId("btn-resume-cached")).toBeVisible();
-  await configureAi(page, { provider: "stub" });
-  await savedGameCard(page, "custom").getByTestId("btn-resume-cached").click();
+  // The live patch travels with the autosave, so the reload resumes the
+  // patched world where the player left it (room 2) without reauthoring.
+  await expect(page.getByText("Resumed where you left off")).toBeVisible({ timeout: 15_000 });
+  await page.keyboard.press("Enter");
   await openGameOptions(page, "game-actions-menu");
   await expect(page.getByTestId("btn-export-live-zip")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
+  // Re-entering room 2 runs its patched entry code: the sign is really there.
+  await typeCommand(page, "west");
+  expect(await printWindowText(page)).toContain("generated room 1");
+  await page.keyboard.press("Enter");
   await typeCommand(page, "east");
   expect(await printWindowText(page)).toContain("generated room 2");
   await page.keyboard.press("Enter");

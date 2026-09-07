@@ -67,6 +67,7 @@ The compatibility suite uses these local installations (other editions may diffe
 | `games/kq3/`      | 2.936                         | v2 split                            |
 | `games/demopac4/` | 3.002.102                     | v3 combined (`DMDIR`, `DMVOL.0-1`)  |
 | `games/mh1/`      | 3.002.107 (3.002.102 profile) | v3 combined (`MHDIR`, `MHVOL.0-12`) |
+| `games/gr1/`      | 3.002.149 (no version string) | v3 combined (`GRDIR`, `GRVOL.0-2`)  |
 
 The demo-pack row is a Sierra demonstration pack: six self-running game demos
 whose every logic record is dictionary-compressed. `test/demopac4.test.ts` runs

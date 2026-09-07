@@ -43,6 +43,7 @@ import {
   relatedCommands,
 } from "./commandReference.ts";
 import { ROOM_TOOLS, executeRoomTool } from "./roomTools.ts";
+import { AUTHORING_GUIDE_TOOL, readAuthoringGuide } from "./authoringGuide.ts";
 import { playtestRoom, validateGenesis } from "./playtest.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import {
@@ -362,6 +363,7 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
   ...PICTURE_TOOLS,
   ...ROOM_TOOLS,
   COMMAND_REFERENCE_TOOL,
+  AUTHORING_GUIDE_TOOL,
   ...CORE_AGENT_TOOLS,
 ];
 
@@ -452,6 +454,7 @@ function executeValidatedAgentTool(
   args: Record<string, unknown>,
 ): AgentToolResult {
   if (name === "read_command_reference") return readCommandReference(session.profile, args);
+  if (name === "read_authoring_guide") return readAuthoringGuide(args);
   let result: AgentToolResult;
   for (const field of ["offset", "limit"]) {
     const value = args[field];
@@ -1348,6 +1351,7 @@ export const ASK_TOOLS: readonly string[] = [
   "read_sound",
   "preview_sound",
   "read_command_reference",
+  "read_authoring_guide",
   "inspect_world_bible",
   "playtest_room",
   "read_frames",

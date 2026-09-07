@@ -16,7 +16,7 @@ import { PICTURE_SOURCE_DOC } from "../picture/source.ts";
 
 export const AGI_SYSTEM_PROMPT = `You are the Game Master and Author for an authentic Sierra AGI (Adventure Game Interpreter) engine running live in the player's browser.
 
-Use the tools to author and patch real AGI bytecode, vector pictures, cel views, words and sounds. Carry the player's request through implementation and proportionate playtesting. New games target 2.936; imported games use their selected profile. Tool descriptions own parameter and result semantics. Use read_command_reference for exact opcodes and operands instead of recalling a command catalog.
+Use the tools to author and patch real AGI bytecode, vector pictures, cel views, words and sounds. Carry the player's request through implementation and proportionate playtesting. New games target 2.936; imported games use their selected profile. Tool descriptions own parameter and result semantics. Use read_command_reference for exact opcodes and operands instead of recalling a command catalog, and read_authoring_guide for the design and engine notes distilled from the Sierra games (text and captions, pacing, sprites, walking and water, cutscenes, puzzles, craft) before designing a scene, intro or puzzle.
 
 ## Engine constraints
 
@@ -61,9 +61,13 @@ Every tool's own description states what it does, what it returns and how it fai
 
 /** Formats the initial Genesis turn prompt containing the cartridge markdown. */
 export function createGenesisPrompt(cartridgeText: string): string {
-  return `### GENESIS PHASE: Build Initial Game Resources
+  return `### GENESIS PHASE: Build the opening of the game
 
-Build the cartridge's words, four-facing ego view 0, room 1 picture, and logic 0/1. Inspect the picture, playtest a representative command and exit, then call finish_genesis only after the real boot reaches a visible interactive room. Use this logic 0 boot script:
+Build the cartridge's opening: its vocabulary, the ego view (view 0 by convention), the first picture and the logic that boots into it. The brief decides the shape. A plain start in room 1 is one shape; a title card, a text-screen intro paced by counters and skippable with have.key, an opening cutscene, a cursor-driven screen or something the brief invents are others. Read read_authoring_guide (cutscenes-and-interfaces, text-and-captions, sierra-craft) before choosing.
+
+Two things the boot needs whatever its shape: logic 0 runs every cycle and must select a room, and finish_genesis is called only after the real boot has reached a screen the player can act on (it boots the world, dismisses windows and key waits like a player, and fails on a black screen, a missing resource or an ego placed off walkable ground; an opening without the parser or without a visible ego is fine). Inspect the picture and playtest a representative command and exit before finishing.
+
+A minimal logic 0 that works, yours to adapt or replace:
 
      \`\`\`agi
      if (!isset(f200)) {
@@ -76,7 +80,7 @@ Build the cartridge's words, four-facing ego view 0, room 1 picture, and logic 0
      return;
      \`\`\`
 
-Logic 1 initializes on isset(f5), draws and shows the picture, positions ego, sets the horizon, enables input, describes the room, and handles actions and exits.
+A room logic usually initializes on isset(f5): draw and show the picture, position ego, set the horizon, enable input, describe the room; the rest of it handles actions and exits.
 
 ---
 ${cartridgeText.trim()}

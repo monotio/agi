@@ -29,12 +29,12 @@ const HELP: Record<string, string> = {
     "Places the left edge and bottom baseline at literal x,y; increasing sprite height extends upward.",
   "position.v": "Places left edge and bottom baseline using x,y variable values.",
   "set.loop":
-    "Selects a literal view loop; automatic direction selection may subsequently change it.",
+    "Selects a literal view loop and keeps the current cel when the loop has it; automatic direction selection may subsequently change the loop.",
   "fix.loop": "Disables automatic direction-based loop selection.",
   "release.loop": "Restores automatic direction-based loop selection.",
   "set.cel": "Selects a literal cel and clears the one-callback cycle delay.",
   "set.view":
-    "Selects a literal VIEW resource number; artwork carries no animation timing or world position.",
+    "Selects a literal VIEW resource number, keeping an in-range loop and cel; artwork carries no animation timing or world position.",
   draw: "Makes an animated screen object visible at its baseline.",
   "animate.obj":
     "Initializes a screen object for animation; select its view and position before drawing.",
