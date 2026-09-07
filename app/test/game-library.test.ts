@@ -179,6 +179,38 @@ test("ZIP and folder imports deduplicate the same resources and normalize room g
   assert.equal((await loadAuthoredCartridge(zipSlug))?.title, "ZIP title");
 });
 
+test("room authoring is kept only for project imports, never from public metadata", async (t) => {
+  installLocalStorage(t);
+  const files = game();
+  const publicSlug = await addLibraryGame(
+    { files, words: [], roomGeneration: true },
+    "Public claim",
+    "zip",
+    opening,
+  );
+  assert.equal((await loadAuthoredCartridge(publicSlug))?.roomGeneration, false);
+  const projectSlug = await addLibraryGame(
+    {
+      files,
+      words: [],
+      roomGeneration: true,
+      project: { provider: "stub", model: "one", transcript: [{ role: "user", content: "one" }] },
+    },
+    "Own project",
+    "zip",
+    opening,
+  );
+  assert.equal((await loadAuthoredCartridge(projectSlug))?.roomGeneration, true);
+  const catalogSlug = await addLibraryGame(
+    { files, words: [], roomGeneration: true },
+    "Hosted",
+    "catalog",
+    opening,
+    { id: "hosted", version: "1.0.0" },
+  );
+  assert.equal((await loadAuthoredCartridge(catalogSlug))?.roomGeneration, false);
+});
+
 test("project imports with identical resources retain separate private histories", async (t) => {
   installLocalStorage(t);
   const files = game();

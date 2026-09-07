@@ -31,6 +31,10 @@ export async function addLibraryGame(
   )
     throw new Error("The catalog release identifier is invalid.");
   const revision = await gameRevision(game.files);
+  // Room authoring belongs to games created in the app. A public GAME.JSON can
+  // claim the flag, so it counts only when the authoring context travels with it.
+  const roomGeneration =
+    source !== "catalog" && game.project !== undefined && game.roomGeneration === true;
   const gameId = catalog ? `catalog-${catalog.id}` : `imported-${revision}`;
   const preferredSlug = catalog ? `${gameId}-${catalog.version}` : gameId;
   // Imported projects carry independent histories. Trusted catalog sources are repeatable fixtures.
@@ -40,7 +44,7 @@ export async function addLibraryGame(
       return (
         library?.gameId === gameId &&
         library.revision === revision &&
-        entry.roomGeneration === (game.roomGeneration === true) &&
+        entry.roomGeneration === roomGeneration &&
         (!catalog || library.catalog?.version === catalog.version)
       );
     });
@@ -71,7 +75,7 @@ export async function addLibraryGame(
       sessionId: game.project?.sessionId,
       authoringState: game.project?.authoringState,
       conversationHistory: game.project?.conversationHistory,
-      roomGeneration: game.roomGeneration ?? false,
+      roomGeneration,
       files: game.files,
       words: game.words,
       imported: true,
