@@ -128,6 +128,7 @@ function restoreChecker(files: Record<string, Uint8Array>): (label: string, imag
     } catch (error) {
       throw new Error(
         `${label} cannot be restored into this game: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       );
     }
   };
