@@ -247,7 +247,9 @@ test("TESTS.JSON survives a ZIP import beside the game files", () => {
   assert.deepEqual(parseGameTests(opened.files[GAME_TESTS_FILE]).tests, [takeKey]);
 });
 
-test("TESTS.JSON travels in the game export and the project archive", async () => {
+test("TESTS.JSON travels in the project archive and never in the game export", async () => {
+  // The tests are walkthroughs (rooms, commands, the flags a puzzle sets): a
+  // project archive continues the work elsewhere, a game export is published.
   const state = world();
   executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [takeKey] });
   const data = {
@@ -260,7 +262,7 @@ test("TESTS.JSON travels in the game export and the project archive", async () =
     words: [...DICTIONARY] as [string, number][],
   };
   const published = await readGameZip(buildPublicGameZip(data));
-  assert.deepEqual(parseGameTests(published.files[GAME_TESTS_FILE]).tests, [takeKey]);
+  assert.equal(published.files[GAME_TESTS_FILE], undefined, "a published game keeps its secrets");
   const project = await readGameZip(await buildProjectZip(data));
   assert.deepEqual(parseGameTests(project.files[GAME_TESTS_FILE]).tests, [takeKey]);
 });

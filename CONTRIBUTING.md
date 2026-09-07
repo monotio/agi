@@ -326,8 +326,9 @@ repeated images deduplicated into ZIP attachments. **Game actions → Game expor
 resources and version-1 `GAME.JSON`, whose nested public metadata allowlist is
 `description`, `author`, `license` and parent game/revision.
 Neither format changes resource IDs or the game's container format; public game
-exports exclude conversations, source descriptions, local previews and opening
-validation. Do not infer a license for imported resources when none is declared.
+exports exclude conversations, source descriptions, local previews, opening
+validation and the stored game tests (`TESTS.JSON`, format `monotio.agi.tests.v1`),
+which are walkthroughs and travel only with the project. Do not infer a license for imported resources when none is declared.
 
 Project bodies live in IndexedDB; a small localStorage index supports discovery
 and can be rebuilt from those bodies. Version-1 library metadata keeps the stable
