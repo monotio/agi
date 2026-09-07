@@ -237,6 +237,18 @@ const KEY_ENTER = 0x0d;
 /** have.key polls per cycle before a keyless host receives a synthesized Enter. */
 const HAVE_KEY_POLL_LIMIT = 1000;
 /**
+ * Backward jumps within one host tick after which a logic pass that has read a
+ * clock variable (v11..v14) is parked until the next tick. Observed 3.002.107
+ * data (a title screen's key-to-skip path) busy-waits inside one invocation
+ * with `if (greaterv(v49, v11)) goto` after zeroing v11, relying on the
+ * timer interrupt to advance v11 while bytecode runs. The spec makes timer
+ * ticks asynchronous inputs and does not require delivery between individual
+ * instructions ("Top-level cycle order"); parking the call stack, exactly as a
+ * modal instruction does, lets the host's clock reach such a loop at the host
+ * cadence. Ordinary bounded loops stay far below this count in one pass.
+ */
+const CLOCK_WAIT_JUMPS = 1000;
+/**
  * Polls within one cycle after which have.key is treated as a busy loop and a
  * blocking host wait is used. A script that merely polls once per cycle stays
  * non-blocking, so ordinary graphics-mode play never freezes on a keypress.
@@ -310,6 +322,9 @@ export class Engine {
   parserCount = 0;
   /** have.key polls without a key inside one cycle (busy-loop bound). */
   private haveKeyPolls = 0;
+  /** Backward jumps and clock-variable reads within the current host tick (clock busy-wait parking). */
+  private backwardJumps = 0;
+  private clockRead = false;
   /** Current room number mirrors vars[0]. */
   horizon = 36;
   /** Priority bands are independent of the movement horizon and are not saved. */
@@ -1698,6 +1713,8 @@ export class Engine {
   /** One synchronous interpreter cycle (spec: top-level cycle order). */
   tick(): void {
     this.remainingInstructions = this.instructionBudget;
+    this.backwardJumps = 0;
+    this.clockRead = false;
     if (this.terminated) return;
     // Modal windows pause the interpreter; keys drive the modal instead.
     if (this.modal) {
@@ -2382,7 +2399,13 @@ export class Engine {
           continue;
         }
         if (op === GOTO) {
-          frame.pc = pc + 3 + readS16(code, pc + 1);
+          const target = pc + 3 + readS16(code, pc + 1);
+          frame.pc = target;
+          if (target <= pc && ++this.backwardJumps >= CLOCK_WAIT_JUMPS && this.clockRead) {
+            // A clock busy-wait: resume at the loop head on the next host tick.
+            this.pendingLogic = frames;
+            return;
+          }
           continue;
         }
         if (op === IF) {
@@ -2516,6 +2539,16 @@ export class Engine {
   private evaluateCondition(code: Uint8Array, pc: number): { result: boolean; next: number } {
     const b = code[pc]!;
     const o = (i: number) => code[pc + 1 + i]!;
+    // Scalar comparisons against the clock variables mark this pass as a
+    // possible clock busy-wait (see CLOCK_WAIT_JUMPS).
+    if (b >= 0x01 && b <= 0x06) {
+      const first = o(0);
+      if (first >= 11 && first <= 14) this.clockRead = true;
+      if ((b & 1) === 0) {
+        const second = o(1);
+        if (second >= 11 && second <= 14) this.clockRead = true;
+      }
+    }
     switch (b) {
       case 0x00:
         return { result: false, next: pc + 1 };
