@@ -501,6 +501,26 @@ function refreshPendingAutosave(): void {
   pendingAutosave.value = (slug ? readAutosave(slug) : null) ?? undefined;
 }
 
+const PLAY_HASH_PREFIX = "#play/";
+
+/** The slug the URL says is being played, or null outside a game. */
+function playHashSlug(): string | null {
+  if (!location.hash.startsWith(PLAY_HASH_PREFIX)) return null;
+  return decodeURIComponent(location.hash.slice(PLAY_HASH_PREFIX.length));
+}
+
+/** The URL is the source of truth for "a game is running": name it. */
+function markPlayHash(slug: string): void {
+  const target = `${PLAY_HASH_PREFIX}${encodeURIComponent(slug)}`;
+  if (location.hash !== target) history.replaceState(null, "", target);
+}
+
+/** Back at the picker the URL must not name a game any more. */
+function clearPlayHash(): void {
+  if (location.hash.startsWith(PLAY_HASH_PREFIX))
+    history.replaceState(null, "", `${location.pathname}${location.search}`);
+}
+
 function llmConfig(): LlmConfig {
   return {
     provider: provider.value,
@@ -1594,16 +1614,20 @@ onMounted(async () => {
   void refreshHostedCatalog();
   onMenuHashChange();
   await discoverGames();
-  // Nobody loses progress to a reload: whatever was being played comes back
-  // by itself, restored from the last autosave. The picker only appears when
-  // there is nothing to resume.
+  // Nobody loses progress to a reload: while a game runs the URL names it
+  // (`#play/<slug>`), and only a reload carrying that hash boots straight back
+  // into the autosave. A reload from the picker lands on the picker, which
+  // keeps offering the Resume card from the pending autosave.
   // A hot module update hands the running game over in memory: no reload
   // happened, so there is nothing to read back and the resume is instant.
   const handover = import.meta.hot?.data?.["monotio_agi_resume"] as AutosaveRecord | undefined;
   if (import.meta.hot?.data) delete import.meta.hot.data["monotio_agi_resume"];
   refreshPendingAutosave();
+  const playSlug = playHashSlug();
   if (handover) await resumeFromRecord(handover, llmConfig());
-  else if (pendingAutosave.value) await resumeLastGame(llmConfig());
+  else if (playSlug && playSlug === pendingAutosave.value?.game.slug)
+    await resumeLastGame(llmConfig());
+  if (state.phase === "idle") clearPlayHash();
   if (gpuCanvas.value) {
     stage = await AgiStage.create(gpuCanvas.value);
     gpuBackend.value = stage?.backend ?? undefined;
@@ -1633,13 +1657,24 @@ onUnmounted(() => {
   // worker would otherwise keep ticking (and autosaving) behind the new one.
   if (import.meta.hot) shutdownEngine();
 });
-
-// Back at the picker (the player ejected, or a boot failed): re-read what is
-// left in the autosave slot so the offer below matches storage.
+// The URL is the source of truth for "a game is running": name it while the
+// game runs. A remix can turn the running game into a new cartridge without
+// leaving the running phase, so the unpause after a remix turn re-asserts the
+// hash from whatever is booted then. Back at the picker (the player ejected,
+// or a boot failed) the hash is cleared and the autosave slot is re-read so
+// the offer below matches storage.
 watch(
-  () => state.phase,
-  (phase) => {
+  () => [state.phase, state.paused] as const,
+  ([phase, paused]) => {
+    if (phase === "running") {
+      if (!paused) {
+        const slug = currentGame()?.slug;
+        if (slug) markPlayHash(slug);
+      }
+      return;
+    }
     if (phase === "idle" || phase === "error") {
+      clearPlayHash();
       refreshPendingAutosave();
       savedWorlds.value = listCachedCartridges();
       cachedMeta.value = getCachedCartridgeMeta(selectedCartridgeSlug.value);

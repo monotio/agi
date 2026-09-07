@@ -53,6 +53,9 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("PICTURE GALLERY");
+  expect(new URL(page.url()).hash, "a running game must be named in the URL").toBe(
+    `#play/${TUTORIAL_SLUG}`,
+  );
   // A checkpoint on the untouched tutorial is what the fork has to move away.
   await waitForAutosaveAfter(page, 0);
   expect(await storedAutosave(page, TUTORIAL_SLUG)).not.toBeNull();
@@ -66,10 +69,12 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("REMIX GALLERY");
   const remixSlug = await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"));
   expect(remixSlug).not.toBe(TUTORIAL_SLUG);
+  expect(new URL(page.url()).hash, "the URL must follow the remix slug").toBe(`#play/${remixSlug}`);
   // Progress now belongs to the remix: the original card must not offer a checkpoint.
   expect(await storedAutosave(page, TUTORIAL_SLUG)).toBeNull();
 
   await page.getByTestId("btn-eject").click();
+  await expect.poll(() => new URL(page.url()).hash).toBe("");
   const tutorialCard = savedGameCard(page, "Adventure Department");
   await expect(tutorialCard.getByRole("button", { name: "Play", exact: true })).toBeVisible();
   await expect(tutorialCard.getByRole("button", { name: "Resume", exact: true })).toHaveCount(0);
@@ -79,6 +84,9 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   await tutorialCard.getByRole("button", { name: "Play", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("PICTURE GALLERY");
+  expect(new URL(page.url()).hash, "the replayed tutorial must be named in the URL").toBe(
+    `#play/${TUTORIAL_SLUG}`,
+  );
   expect((await textHook(page)).rows.join(" ")).not.toContain("REMIX GALLERY");
   await expect(page.getByText(/different revision/)).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveCount(0);
