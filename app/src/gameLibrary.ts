@@ -1,5 +1,5 @@
 import { gameRevision, isLocalGamePreview, type LibraryMetadata } from "./gameMetadata.ts";
-import { storeImportedProgress } from "./gameProgress.ts";
+import { storeImportedProgress, type ImportStorageReport } from "./gameProgress.ts";
 import {
   loadAuthoredCartridge,
   saveAuthoredCartridge,
@@ -21,6 +21,7 @@ export async function addLibraryGame(
   source: "zip" | "folder" | "catalog",
   opening: CheckedOpening,
   catalog?: { id: string; version: string },
+  onProgressStored?: (report: ImportStorageReport) => void,
 ): Promise<string> {
   if (!isLocalGamePreview(opening.preview))
     throw new Error("The checked opening did not produce a local PNG preview.");
@@ -85,7 +86,7 @@ export async function addLibraryGame(
     throw new Error(
       "Your browser could not save this game. Free some storage space and try again.",
     );
-  if (game.progress) storeImportedProgress(localStorage, slug, revision, game.progress);
+  if (game.progress) onProgressStored?.(storeImportedProgress(localStorage, slug, revision, game.progress));
   return slug;
 }
 

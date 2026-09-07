@@ -44,7 +44,7 @@ import {
 } from "./cartridgeStorage.ts";
 import { buildProjectZip, buildPublicGameZip } from "./projectArchive.ts";
 import { MAX_GAME_ZIP_BYTES, readGameFiles, readGameZip, type OpenedGame } from "./gameZip.ts";
-import { readGameProgress } from "./gameProgress.ts";
+import { readGameProgress, type ImportStorageReport } from "./gameProgress.ts";
 import { captureGameDrop } from "./gameDrop.ts";
 import { GAME_CATALOG, type GameCatalogEntry } from "./gameCatalog.ts";
 import { loadHostedCatalog } from "./hostedCatalog.ts";
@@ -689,20 +689,35 @@ async function stageLibraryGame(
   game: OpenedGame,
   title: string,
   source: "zip" | "folder",
-): Promise<void> {
+): Promise<ImportStorageReport | null> {
   const opening = await previewGame(game);
-  const slug = await addLibraryGame(game, game.title ?? title, source, opening);
+  let stored: ImportStorageReport | null = null;
+  const slug = await addLibraryGame(
+    game,
+    game.title ?? title,
+    source,
+    opening,
+    undefined,
+    (report) => (stored = report),
+  );
   refreshLibrary(slug);
+  return stored;
 }
 
-/** What a project archive brought along besides the game. */
-function progressNote(game: OpenedGame): string {
-  const slots = Object.keys(game.progress?.saves ?? {}).length;
+/** What a project archive brought along besides the game — and what storage refused. */
+function progressNote(game: OpenedGame, stored: ImportStorageReport | null): string {
+  if (!game.progress) return "";
+  const slots = stored?.slots.length ?? 0;
+  const refused =
+    (stored?.failedSlots.length ?? 0) + (game.progress.autosave && !stored?.autosave ? 1 : 0);
   const parts = [
     ...(slots > 0 ? [`${slots} saved ${slots === 1 ? "game" : "games"}`] : []),
-    ...(game.progress?.autosave ? ["your last autosave"] : []),
+    ...(stored?.autosave ? ["your last autosave"] : []),
   ];
-  return parts.length > 0 ? ` with ${parts.join(" and ")}` : "";
+  const note = parts.length > 0 ? ` with ${parts.join(" and ")}` : "";
+  return refused > 0
+    ? `${note} (${refused} ${refused === 1 ? "save" : "saves"} could not be stored)`
+    : note;
 }
 
 async function onGameZip(file?: File): Promise<void> {
@@ -713,8 +728,8 @@ async function onGameZip(file?: File): Promise<void> {
   try {
     if (file.size > MAX_GAME_ZIP_BYTES) throw new Error("Choose a game ZIP smaller than 128 MB.");
     const game = await readGameZip(new Uint8Array(await file.arrayBuffer()));
-    await stageLibraryGame(game, file.name.replace(/\.zip$/i, ""), "zip");
-    importNotice.value = `${game.title ?? file.name.replace(/\.zip$/i, "")} added to your library${progressNote(game)}.`;
+    const stored = await stageLibraryGame(game, file.name.replace(/\.zip$/i, ""), "zip");
+    importNotice.value = `${game.title ?? file.name.replace(/\.zip$/i, "")} added to your library${progressNote(game, stored)}.`;
   } catch (error) {
     importError.value = String(error).replace(/^Error: /, "");
   } finally {
@@ -745,8 +760,8 @@ async function onGameFolder(files?: FileList | File[] | Map<string, File>): Prom
     const game = readGameFiles(entries);
     const firstPath = paths.keys().next().value as string | undefined;
     const title = firstPath?.split("/")[0] || "Imported game";
-    await stageLibraryGame(game, title, "folder");
-    importNotice.value = `${game.title ?? title} added to your library${progressNote(game)}.`;
+    const stored = await stageLibraryGame(game, title, "folder");
+    importNotice.value = `${game.title ?? title} added to your library${progressNote(game, stored)}.`;
   } catch (error) {
     importError.value = String(error).replace(/^Error: /, "");
   } finally {
