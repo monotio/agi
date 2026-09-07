@@ -44,6 +44,7 @@ import {
 } from "./cartridgeStorage.ts";
 import { buildProjectZip, buildPublicGameZip } from "./projectArchive.ts";
 import { MAX_GAME_ZIP_BYTES, readGameFiles, readGameZip, type OpenedGame } from "./gameZip.ts";
+import { readGameProgress } from "./gameProgress.ts";
 import { captureGameDrop } from "./gameDrop.ts";
 import { GAME_CATALOG, type GameCatalogEntry } from "./gameCatalog.ts";
 import { loadHostedCatalog } from "./hostedCatalog.ts";
@@ -674,6 +675,16 @@ async function stageLibraryGame(
   refreshLibrary(slug);
 }
 
+/** What a project archive brought along besides the game. */
+function progressNote(game: OpenedGame): string {
+  const slots = Object.keys(game.progress?.saves ?? {}).length;
+  const parts = [
+    ...(slots > 0 ? [`${slots} saved ${slots === 1 ? "game" : "games"}`] : []),
+    ...(game.progress?.autosave ? ["your last autosave"] : []),
+  ];
+  return parts.length > 0 ? ` with ${parts.join(" and ")}` : "";
+}
+
 async function onGameZip(file?: File): Promise<void> {
   if (!file || importBusy.value) return;
   importBusy.value = true;
@@ -683,7 +694,7 @@ async function onGameZip(file?: File): Promise<void> {
     if (file.size > MAX_GAME_ZIP_BYTES) throw new Error("Choose a game ZIP smaller than 128 MB.");
     const game = await readGameZip(new Uint8Array(await file.arrayBuffer()));
     await stageLibraryGame(game, file.name.replace(/\.zip$/i, ""), "zip");
-    importNotice.value = `${game.title ?? file.name.replace(/\.zip$/i, "")} added to your library.`;
+    importNotice.value = `${game.title ?? file.name.replace(/\.zip$/i, "")} added to your library${progressNote(game)}.`;
   } catch (error) {
     importError.value = String(error).replace(/^Error: /, "");
   } finally {
@@ -715,7 +726,7 @@ async function onGameFolder(files?: FileList | File[] | Map<string, File>): Prom
     const firstPath = paths.keys().next().value as string | undefined;
     const title = firstPath?.split("/")[0] || "Imported game";
     await stageLibraryGame(game, title, "folder");
-    importNotice.value = `${game.title ?? title} added to your library.`;
+    importNotice.value = `${game.title ?? title} added to your library${progressNote(game)}.`;
   } catch (error) {
     importError.value = String(error).replace(/^Error: /, "");
   } finally {
@@ -851,11 +862,16 @@ async function onExportAgiZip(live = false, project = false): Promise<void> {
   exportRefusal.value = "";
   exportBusy.value = true;
   try {
+    // A project is for continuing elsewhere: the live game checkpoints first,
+    // and the archive carries the player's save slots and latest autosave.
+    if (live && project) await flushAutosave(2000);
     const data = live
       ? await exportCurrentGame()
       : await loadAuthoredCartridge(selectedCartridgeSlug.value);
     if (!data) throw new Error("No saved world is available.");
-    const zipBytes = project ? await buildProjectZip(data) : buildPublicGameZip(data);
+    const zipBytes = project
+      ? await buildProjectZip(data, readGameProgress(localStorage, data.slug))
+      : buildPublicGameZip(data);
     const url = URL.createObjectURL(new Blob([zipBytes], { type: "application/zip" }));
     const a = document.createElement("a");
     a.href = url;

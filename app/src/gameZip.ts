@@ -1,4 +1,5 @@
 import { readProjectContext, type ProjectContext } from "./projectArchive.ts";
+import { readProgressEntries, type GameProgress } from "./gameProgress.ts";
 import { crc32 } from "./zip.ts";
 import { readPublicMetadata, type PublicGameMetadata } from "./gameMetadata.ts";
 import { openContainer, DIRECTORY_FILES } from "../../src/container/container.ts";
@@ -16,6 +17,8 @@ export interface OpenedGame {
   title?: string;
   roomGeneration?: boolean;
   project?: ProjectContext;
+  /** The player's save slots and autosave; a project archive carries them, a published game never does. */
+  progress?: GameProgress;
   metadata?: PublicGameMetadata;
 }
 
@@ -203,10 +206,12 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
   const gameMetadata = metadata ? readPublicMetadata(rawMetadata) : { roomGeneration: false };
   const projectBytes = entries.get(`${root}PROJECT.JSON`);
   const project = projectBytes ? readProjectContext(projectBytes, entries, root) : undefined;
+  const progress = project ? readProgressEntries(entries, root, files) : undefined;
   return {
     files,
     words,
     ...gameMetadata,
     ...(project ? { project } : {}),
+    ...(progress ? { progress } : {}),
   };
 }

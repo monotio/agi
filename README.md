@@ -147,17 +147,18 @@ These saves preserve the AGI binary format and are separate from autosave.
 Browser storage supplies the save directory; DOS drive and path dialogs are not
 emulated. Clearing browser data removes these local saves.
 
-| Export                         | What travels with it                                                                                      |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| **Game actions → Game export** | Playable resources and public game metadata.                                                              |
-| **Game actions → Project**     | The game plus its authoring conversation, images, source descriptions, world notes and stored game tests. |
+| Export                         | What travels with it                                                                                                                           |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Game actions → Game export** | Playable resources and public game metadata.                                                                                                   |
+| **Game actions → Project**     | The game plus its authoring conversation, images, source descriptions, world notes, stored game tests, and your saved games and last autosave. |
 
 Both downloads are ZIPs you can reopen with **Add game → ZIP file**. Public game
 exports can include a description, author, license and remix provenance in
 `GAME.JSON`. They exclude local thumbnails, validation results and conversations. A missing license remains unknown rather than inheriting this
 repository's MIT license. A game export starts a fresh authoring conversation; a
-project carries its saved context. Downloaded games start from the beginning.
-Your saved position stays in the browser.
+project carries its saved context. A game export starts from the beginning; a
+project archive also carries your twelve save slots and latest autosave, so your
+position moves with it between browsers and computers.
 
 ## How it works
 
