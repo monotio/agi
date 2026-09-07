@@ -5,34 +5,39 @@
  *   ndisasm -b 16 -e 0x200 /tmp/kq3-agi.bin > /tmp/kq3-agi.asm
  *
  * The v2 `AGI` executable is stored XORed per 128-byte block with the
- * 128-byte key at the loader's (`SIERRA.COM`, or the game's own `*.COM`)
- * offset 0x41; between blocks each key byte rotates right, the low bit
- * chaining from byte 0 forward into the next byte's high bit (byte 0's own
- * low bit folds back into its high bit; byte 127's low bit falls off). v3
- * executables are not scrambled.
+ * 128-byte key at the loader's offset 0x41; between blocks each key byte
+ * rotates right, the low bit chaining from byte 0 forward into the next
+ * byte's high bit (byte 0's own low bit folds back into its high bit; byte
+ * 127's low bit falls off). v3 executables are not scrambled.
  *
- * Output goes to a scratch path of your choice; decoded binaries and
- * disassemblies are Sierra data and must never be committed.
+ * The loader is `SIERRA.COM` on most installations; others ship a
+ * game-specific `*.COM` (KQ1.COM, …). Pass it as an optional third argument
+ * when enumeration is ambiguous. Output goes to a scratch path of your
+ * choice; decoded binaries and disassemblies are Sierra data and must never
+ * be committed.
  */
-import { readFileSync, writeFileSync } from "node:fs";
-
-const [gameDir, outPath] = process.argv.slice(2);
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+const [gameDir, outPath, loaderArg] = process.argv.slice(2);
 if (!gameDir || !outPath) {
-  process.stderr.write(`usage: descramble-agi.ts <game dir> <output.bin>\n`);
+  process.stderr.write(`usage: descramble-agi.ts <game dir> <output.bin> [loader.COM]\n`);
   process.exit(1);
 }
 
-const loaderName = ["SIERRA.COM", "KQ1.COM"].find((name) => {
-  try {
-    readFileSync(`${gameDir}/${name}`);
-    return true;
-  } catch {
-    return false;
-  }
-});
+let loaderName = loaderArg;
 if (!loaderName) {
-  process.stderr.write(`no loader (*.COM) found in ${gameDir}\n`);
-  process.exit(1);
+  const candidates = readdirSync(gameDir)
+    .filter((name) => /\.COM$/i.test(name))
+    .sort();
+  const sierra = candidates.find((name) => name.toUpperCase() === "SIERRA.COM");
+  loaderName = sierra ?? (candidates.length === 1 ? candidates[0] : undefined);
+  if (!loaderName) {
+    process.stderr.write(
+      candidates.length === 0
+        ? `no loader (*.COM) found in ${gameDir}\n`
+        : `several loaders in ${gameDir}: ${candidates.join(", ")} — pass one as the third argument\n`,
+    );
+    process.exit(1);
+  }
 }
 
 const loader = readFileSync(`${gameDir}/${loaderName}`);

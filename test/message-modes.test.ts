@@ -141,6 +141,33 @@ test("an early-acknowledged timed print clears v21 too", () => {
   assert.equal(e.vars[200], 1);
 });
 
+for (const profile of ["2.089", "3.002.149"] as const) {
+  test(`${profile}: prints keep f15 and timed windows keep v21 until the build is verified`, () => {
+    // No local binary verifies these builds' print handler, so the engine
+    // deliberately keeps the flags set there. A base-profile refactor must
+    // not silently adopt the verified builds' consumption.
+    const e = game('set(f15);print("First.");print("Second.");increment(v200);return;', profile);
+    e.tick();
+    assert.equal(e.modalKind, null, "both prints stay non-blocking while f15 is kept");
+    assert.equal(e.flags[15], 1);
+    assert.equal(e.vars[200], 1, "logic ran straight through both prints");
+    assert.ok(
+      Array.from({ length: 25 }, (_, row) => e.textRow(row))
+        .join(" ")
+        .includes("Second."),
+    );
+
+    const timed = game('assignn(v21,2);print("A moment.");increment(v200);return;', profile);
+    timed.tick();
+    assert.equal(timed.modalKind, "print");
+    timed.advanceClock(1000);
+    assert.equal(timed.modalKind, null, "the timed window still closes on its own");
+    assert.equal(timed.vars[21], 2, "v21 is kept until the build is verified");
+    timed.tick();
+    assert.equal(timed.vars[200], 1);
+  });
+}
+
 for (const profile of ["2.089", "2.936", "3.002.149"] as const) {
   test(`${profile}: show.pic closes persistent windows only in the specified profiles`, () => {
     const e = game(
