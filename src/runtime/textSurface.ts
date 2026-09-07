@@ -32,6 +32,8 @@ export function attr(fg: number, bg: number): number {
 }
 
 export interface SavedRect {
+  /** The saved cells' write stamps, restored with them so their age under sprites survives a window. */
+  written: Uint32Array;
   top: number;
   left: number;
   bottom: number;
@@ -151,24 +153,28 @@ export class TextSurface {
     const w = Math.max(0, r - l + 1);
     const h = Math.max(0, b - t + 1);
     const cells = new Uint8Array(w * h * 2);
+    const written = new Uint32Array(w * h);
     for (let y = 0; y < h; y++) {
       const src = ((t + y) * TEXT_COLS + l) * 2;
       cells.set(this.cells.subarray(src, src + w * 2), y * w * 2);
+      written.set(
+        this.written.subarray((t + y) * TEXT_COLS + l, (t + y) * TEXT_COLS + r + 1),
+        y * w,
+      );
     }
-    return { top: t, left: l, bottom: b, right: r, cells };
+    return { top: t, left: l, bottom: b, right: r, cells, written };
   }
 
   restore(saved: SavedRect): void {
     const w = saved.right - saved.left + 1;
-    // Restored text is as new as the restore: graphics drawn later cover it.
-    const stamp = ++this.seq;
+    // The restored text keeps its age: what a sprite hid before the window
+    // stays hidden after it, and what lay on top stays on top.
     for (let y = 0; y <= saved.bottom - saved.top; y++) {
       const dst = ((saved.top + y) * TEXT_COLS + saved.left) * 2;
       this.cells.set(saved.cells.subarray(y * w * 2, (y + 1) * w * 2), dst);
-      this.written.fill(
-        stamp,
+      this.written.set(
+        saved.written.subarray(y * w, (y + 1) * w),
         (saved.top + y) * TEXT_COLS + saved.left,
-        (saved.top + y) * TEXT_COLS + saved.right + 1,
       );
     }
     this.dirty++;

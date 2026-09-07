@@ -442,6 +442,8 @@ export class Engine {
    */
   private readonly hostReplay: ReplayPair[] = [];
   private hostReplayCheckpoint = 0;
+  /** The shadow record hit HOST_REPLAY_LIMIT: an autosave could no longer rebuild the room. */
+  private hostReplayOverflow = false;
   /** Saved active-pair count of the last push.script (spec "Replay checkpoints"). */
   private replayCheckpoint = 0;
   /** Internal recording gate; cleared around replay and view previews. */
@@ -619,9 +621,12 @@ export class Engine {
   }
 
   get textCells(): Uint8Array {
-    if (!this.traceOverlayVisible) return this.hideTextUnderSprites(this.text.cells);
+    // Sprites hide game text only; the trace overlay is a host surface and
+    // stays on top of everything.
+    const game = this.hideTextUnderSprites(this.text.cells);
+    if (!this.traceOverlayVisible) return game;
     const cells = this.tracedText.cells;
-    cells.set(this.text.cells);
+    cells.set(game);
     const overlay = this.trace.surface.cells;
     for (let i = 0; i < cells.length; i += 2) {
       if (overlay[i] !== 0) {
@@ -629,7 +634,7 @@ export class Engine {
         cells[i + 1] = overlay[i + 1]!;
       }
     }
-    return this.hideTextUnderSprites(cells);
+    return cells;
   }
 
   /** Increments on every text-surface mutation. */
@@ -1398,9 +1403,12 @@ export class Engine {
     // the script buffer (f7, the demo pack does) records no replay pairs at
     // all, so the shown picture is the witness, not the replay.
     if (this.replay.length === 0 && !this.pictureShown) return null;
-    // With nothing in the game's own sequence the shadow record stands in, so
-    // the restore can reload and redraw the room instead of leaving it blank.
-    return this.serializeState(this.replay.length === 0 ? this.hostReplay : this.replay);
+    // The host image carries the shadow record: every load and draw since the
+    // room began, including the ones f7 kept out of the game's own sequence,
+    // so the restore rebuilds the room the game drew. save.game still writes
+    // the authentic sequence. A shadow that overflowed cannot rebuild it.
+    if (this.hostReplayOverflow) return null;
+    return this.serializeState(this.hostReplay);
   }
 
   /**
@@ -1478,6 +1486,7 @@ export class Engine {
     this.hostReplay.length = 0;
     for (const pair of this.replay) this.hostReplay.push({ ...pair });
     this.hostReplayCheckpoint = 0;
+    this.hostReplayOverflow = false;
     this.parsedWords = [];
     this.parsedWordTexts = [];
     this.parserCount = 0;
@@ -1769,15 +1778,24 @@ export class Engine {
    * bubble over stale words.
    */
   private restoreBehind(o: ScreenObject): void {
-    this.text.coverPicture(
-      o.x,
-      o.y - o.height + 1,
-      o.x + o.width - 1,
-      o.y,
-      this.displayBaseRow,
-      o.drawSeq,
-    );
+    // The rectangle the interpreter restores is the one it saved at the draw,
+    // not where the object stands now: position and reposition move x/y
+    // before the erase that follows them.
+    const drawn = o.drawnWidth > 0;
+    const x = drawn ? o.drawnX : o.x;
+    const y = drawn ? o.drawnY : o.y;
+    const width = drawn ? o.drawnWidth : o.width;
+    const height = drawn ? o.drawnHeight : o.height;
+    this.text.coverPicture(x, y - height + 1, x + width - 1, y, this.displayBaseRow, o.drawSeq);
+  }
+
+  /** Record what the cel covers from this draw on: text written later lies on top of it. */
+  private stampDraw(o: ScreenObject): void {
     o.drawSeq = this.text.seq;
+    o.drawnX = o.x;
+    o.drawnY = o.y;
+    o.drawnWidth = o.width;
+    o.drawnHeight = o.height;
   }
 
   /** Text cell index under a picture pixel index, or -1 below the text rows. */
@@ -1795,13 +1813,18 @@ export class Engine {
    * untouched.
    */
   private hideTextUnderSprites(cells: Uint8Array): Uint8Array {
+    // A text screen shows no sprites at all, so nothing hides its text.
+    if (this.textMode) return cells;
     let out: Uint8Array | null = null;
     for (const o of this.objects) {
       if (!o.active) continue;
       const view = this.views.get(o.view);
-      const cel = view && selectViewCel(view, o.loop, o.cel);
+      // The same reader and priority as composeFrame: reading must not select
+      // (and so mirror) a cel, and a non-fixed priority follows the baseline.
+      const cel = view && readViewCel(view, o.loop, o.cel);
       if (!cel) continue;
-      forEachPaintedPixel(this.surface, cel, o.x, o.y, o.priority, (pixel) => {
+      const priority = o.fixedPriority ? o.priority : this.priorityForY(o.y);
+      forEachPaintedPixel(this.surface, cel, o.x, o.y, priority, (pixel) => {
         const index = this.textCellUnder(pixel);
         if (index < 0 || cells[index * 2] === 0 || this.text.written[index]! > o.drawSeq) return;
         out ??= cells.slice();
@@ -2021,18 +2044,21 @@ export class Engine {
     for (const obj of this.objects) {
       if (!obj.active || !obj.update || obj.earlierPartition) continue;
       // Every updating cel is erased and redrawn each pass, which repaints
-      // whatever text was written over it since its last draw.
+      // whatever text was written over it since its last draw; the redraw at
+      // the pass's end is what later erases restore.
       this.restoreBehind(obj);
       if (this.profile.directionLoopTiming === "every-pass" || obj.stepCount === 1)
         this.selectLoop(obj);
       this.updateCycle(obj);
-      if (obj.stepCount !== 0 && --obj.stepCount !== 0) continue;
-      obj.stepCount = obj.stepTime;
-      const previousX = obj.x;
-      const previousY = obj.y;
-      this.moveObject(obj, obj.newlyPositioned ? 0 : obj.stepSize);
-      obj.stationary = obj.x === previousX && obj.y === previousY;
-      obj.newlyPositioned = false;
+      if (obj.stepCount === 0 || --obj.stepCount === 0) {
+        obj.stepCount = obj.stepTime;
+        const previousX = obj.x;
+        const previousY = obj.y;
+        this.moveObject(obj, obj.newlyPositioned ? 0 : obj.stepSize);
+        obj.stationary = obj.x === previousX && obj.y === previousY;
+        obj.newlyPositioned = false;
+      }
+      this.stampDraw(obj);
     }
   }
 
@@ -3134,7 +3160,7 @@ export class Engine {
         o.earlierPartition = false;
         // The cel now covers whatever text lies under it (hideTextUnderSprites);
         // text written from here on lies on top of it.
-        o.drawSeq = this.text.seq;
+        this.stampDraw(o);
         this.updateEgoVisibility();
         return next;
       }
@@ -3927,6 +3953,7 @@ export class Engine {
     // transition").
     this.replay.length = 0;
     this.hostReplay.length = 0;
+    this.hostReplayOverflow = false;
     this.pendingLogic = null;
     this.replayCheckpoint = 0;
     this.hostReplayCheckpoint = 0;
@@ -4053,6 +4080,7 @@ export class Engine {
   private record(kind: number, value: number): void {
     if (!this.replayRecording) return;
     if (this.hostReplay.length < HOST_REPLAY_LIMIT) this.hostReplay.push({ kind, value });
+    else this.hostReplayOverflow = true;
     if (this.flags[F_REPLAY_OFF] !== 0) return;
     if (this.replay.length >= this.scriptCapacity) {
       throw new RangeError(
@@ -4136,6 +4164,7 @@ export class Engine {
     this.scanStart.clear();
     this.replay.length = 0;
     this.hostReplay.length = 0;
+    this.hostReplayOverflow = false;
     this.replayCheckpoint = 0;
     this.hostReplayCheckpoint = 0;
     this.replayRecording = true;

@@ -236,3 +236,56 @@ test("a game that blocks the script buffer still autosaves once a picture has dr
     "the restored picture matches the saved one",
   );
 });
+
+test("a script buffer blocked only around draw.pic still autosaves the whole scene", () => {
+  // The game's own sequence has load.pic but not draw.pic, so replaying it
+  // alone would restore a blank surface; the host image carries the shadow
+  // record with both.
+  const host = new RecordingHost();
+  const container = buildGame();
+  container.putResource(
+    "logic",
+    1,
+    assembleLogic(LOGIC_1.replace("draw.pic(v50);", "set(f7); draw.pic(v50); reset(f7);"), {
+      dictionary: DICT,
+    }).payload,
+  );
+  const engine = new Engine(container, host, DICT);
+  engine.tick();
+  const image = engine.autosaveImage();
+  assert.ok(image);
+  const fresh = new Engine(buildGame(), new RecordingHost(), DICT);
+  fresh.restoreImage(image);
+  fresh.tick();
+  assert.deepEqual(Array.from(fresh.getFrame().visual), Array.from(engine.getFrame().visual));
+});
+
+test("an autosave is refused once the shadow record has overflowed", () => {
+  // f7 keeps the game's sequence empty while the room churns through loads
+  // and discards; past the shadow's limit an image could not rebuild the room
+  // faithfully, so none is taken.
+  const host = new RecordingHost();
+  const container = buildGame();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(`set(f7);\n${LOGIC_0}`, { dictionary: DICT }).payload,
+  );
+  container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      `${LOGIC_1.replace("return;", "")}
+       assignn(v60, 0);
+       churn: load.view(0); discard.view(0); increment(v60);
+       if (!equaln(v60, 255)) { goto churn; }
+       return;`,
+      { dictionary: DICT },
+    ).payload,
+  );
+  const engine = new Engine(container, host, DICT);
+  engine.tick();
+  assert.ok(engine.autosaveImage(), "well within the shadow's capacity");
+  for (let i = 0; i < 9; i++) engine.tick();
+  assert.equal(engine.autosaveImage(), null, "overflowed: refused rather than incomplete");
+});

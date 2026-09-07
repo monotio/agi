@@ -6,6 +6,7 @@ import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { PROFILES, type ProfileId } from "../src/runtime/profile.ts";
 import { buildView } from "../src/view/view.ts";
 import { decodeSave } from "../src/runtime/persistence.ts";
+import { placeWindow } from "../src/runtime/textSurface.ts";
 
 const host: EngineHost = {
   print() {},
@@ -651,4 +652,45 @@ test("graphics drawn after text cover, hide or drop the cells under their pixels
   assert.equal(raw(engine, 12, 6), 0x58, "but not erased");
   for (let i = 0; i < 20 && engine.screenObjects[0]!.x < 32; i++) engine.tick();
   assert.deepEqual(chars(engine, 12).slice(6, 8), [0x58, 0x59], "back once the sprite has passed");
+});
+
+test("sprites hide game text by the rules of the screen they share", () => {
+  const cell = (engine: Engine, row: number, col: number) =>
+    engine.textCells[(row * 40 + col) * 2]!;
+  // A text screen shows no sprites, so a sprite drawn over older text hides
+  // nothing there.
+  let engine = game(
+    `configure.screen(0, 23, 24); load.view(1); text.screen(); display(12, 5, "AB");
+     animate.obj(o1); set.view(o1, 1); position(o1, 20, 100); draw(o1); stop.update(o1); return;`,
+  );
+  engine.execute(0);
+  assert.equal(cell(engine, 12, 5), 0x41, "text mode shows every caption");
+  // An erase restores the rectangle saved at the draw, not where the object
+  // stands now: position moved it before the erase.
+  engine = game(
+    `configure.screen(0, 23, 24); load.view(1); animate.obj(o0); set.view(o0, 1);
+     position(o0, 20, 100); draw(o0); stop.update(o0); display(12, 5, "AB"); display(12, 15, "CD");
+     position(o0, 60, 100); erase(o0); return;`,
+  );
+  engine.execute(0);
+  assert.equal(cell(engine, 12, 5), 0, "text over the drawn rectangle is gone");
+  assert.equal(cell(engine, 12, 15), 0x43, "text where the object merely moved to stays");
+  // A window saves and restores the cells with their age: text a sprite hid
+  // before the window is still hidden after it.
+  // Text and the sprite over its first cell both sit inside the "Hi" window.
+  const box = placeWindow(["Hi"], 0);
+  const row = box.top + 1;
+  const col = box.left + 1;
+  engine = game(
+    `configure.screen(0, 23, 24); load.view(1); animate.obj(o0); set.view(o0, 1);
+     position(o0, ${col * 4}, ${row * 8 + 4}); display(${row}, ${col}, "AB"); draw(o0); stop.update(o0);
+     print("Hi"); return;`,
+  );
+  engine.execute(0);
+  assert.equal(engine.modalKind, "print");
+  assert.equal(engine.textRow(row).slice(col, col + 2), "Hi");
+  engine.ackPrint();
+  assert.equal(engine.modalKind, null);
+  assert.equal(cell(engine, row, col), 0, "still hidden under the sprite after the window");
+  assert.equal(cell(engine, row, col + 1), 0x42);
 });
