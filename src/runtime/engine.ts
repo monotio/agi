@@ -249,6 +249,12 @@ const HAVE_KEY_POLL_LIMIT = 1000;
  */
 const CLOCK_WAIT_JUMPS = 1000;
 /**
+ * Host time a parked clock busy-wait may accumulate before it is an error.
+ * Games wait seconds; a loop that compares a clock variable with itself would
+ * otherwise park forever and never reach the instruction budget.
+ */
+const CLOCK_WAIT_LIMIT_MS = 10 * 60 * 1000;
+/**
  * Polls within one cycle after which have.key is treated as a busy loop and a
  * blocking host wait is used. A script that merely polls once per cycle stays
  * non-blocking, so ordinary graphics-mode play never freezes on a keypress.
@@ -332,6 +338,8 @@ export class Engine {
   private backwardJumps = 0;
   private clockReadLogic = -1;
   private clockReadPc = -1;
+  /** Host milliseconds spent parked in the current clock busy-wait. */
+  private clockWaitMs = 0;
   /** Current room number mirrors vars[0]. */
   horizon = 36;
   /** Priority bands are independent of the movement horizon and are not saved. */
@@ -1350,7 +1358,10 @@ export class Engine {
     if (this.modal !== null || this.persistentWindow !== null || this.printsPending > 0)
       return null;
     if (this.textMode) return null;
-    if (this.replay.length === 0) return null;
+    // Nothing to resume before the first room has drawn. A game that blocks
+    // the script buffer (f7, the demo pack does) records no replay pairs at
+    // all, so the shown picture is the witness, not the replay.
+    if (this.replay.length === 0 && !this.pictureShown) return null;
     return this.serialize();
   }
 
@@ -1400,7 +1411,10 @@ export class Engine {
       : null;
     this.directionCoupling = s.directionCoupling;
     this.lastPicture = s.lastPicture;
-    this.scriptCapacity = s.replayCapacity;
+    // A game that never configured a capacity saved its active pair count as
+    // the capacity (see serialize); restoring that count as a hard limit would
+    // make the very next resource load fail, so it stays unconfigured.
+    this.scriptCapacity = s.replayCapacity > s.replayActive ? s.replayCapacity : 0;
     this.replayCheckpoint = s.replayCheckpoint;
     this.menuInteractionGate = s.menuGate;
     this.keymap.clear();
@@ -1620,6 +1634,7 @@ export class Engine {
       }
       return;
     }
+    if (this.pendingLogic !== null) this.clockWaitMs += milliseconds;
     const elapsed = this.clockRemainderMs + milliseconds;
     let seconds = Math.floor((elapsed + 1e-7) / 1000);
     this.clockRemainderMs = Math.max(0, elapsed - seconds * 1000);
@@ -1674,6 +1689,26 @@ export class Engine {
    * four-pair transient-cel packet so restore can reproduce the draw; replay
    * calls this one directly, with recording already disabled.
    */
+  /**
+   * Text and graphics share one screen in the interpreters, so drawing or
+   * erasing a cel repaints the text under it. Text lives in its own cell
+   * layer here; this drops the cells the object's cel covers that were written
+   * after its last draw, then stamps the draw. The demo pack's menu paints
+   * rows 0..9 black with clear.text.rect and add.to.pic's its cards on top; a
+   * Mother Goose demonstration redraws its speech bubble over stale words.
+   */
+  private coverText(o: ScreenObject): void {
+    this.text.coverPicture(
+      o.x,
+      o.y - o.height + 1,
+      o.x + o.width - 1,
+      o.y,
+      this.displayBaseRow,
+      o.drawSeq,
+    );
+    o.drawSeq = this.text.seq;
+  }
+
   private addToPic(
     viewNum: number,
     loop: number,
@@ -1687,6 +1722,7 @@ export class Engine {
     const c = selectViewCel(view, loop, cel);
     if (!c) throw new Error(`view ${viewNum} loop ${loop} cel ${cel} out of range`);
     drawCel(this.surface, c, x, y, { priority });
+    this.text.coverPicture(x, y - c.height + 1, x + c.width - 1, y, this.displayBaseRow, 0);
     if (margin < 4 && y >= 0 && y < SCREEN_HEIGHT) {
       const from = Math.max(0, x);
       const to = Math.min(SCREEN_WIDTH, x + c.width);
@@ -1820,6 +1856,7 @@ export class Engine {
           this.pendingLogic = null;
           this.runLogicStack(frames);
         } else {
+          this.clockWaitMs = 0;
           this.execute(0);
         }
         if (this.pendingLogic !== null) return;
@@ -1890,8 +1927,20 @@ export class Engine {
   }
 
   private updateObjects(): void {
+    // The movement pass starts by clearing the border bytes v2, v4 and v5, so a
+    // border contact is visible to logic for exactly one cycle. The spec clears
+    // v4 and v5 at the cycle start and v2 only on room entry; the shipped 2.936
+    // and 3.002.x interpreters zero all three here (their movement pass opens
+    // with stores to variables 5, 4 and 2), and a v3 city map that polls v2 for
+    // page turns depends on it.
+    this.vars[V_EDGE] = 0;
+    this.vars[V_OBJ_HIT] = 0;
+    this.vars[V_OBJ_EDGE] = 0;
     for (const obj of this.objects) {
       if (!obj.active || !obj.update || obj.earlierPartition) continue;
+      // Every updating cel is erased and redrawn each pass, which repaints
+      // whatever text was written over it since its last draw.
+      this.coverText(obj);
       if (this.profile.directionLoopTiming === "every-pass" || obj.stepCount === 1)
         this.selectLoop(obj);
       this.updateCycle(obj);
@@ -2182,11 +2231,36 @@ export class Engine {
       else if (d === 5) target = 2;
       else if (d === 1) target = 3;
     }
-    if (target >= 0 && target < loops && target !== obj.loop) {
-      obj.loop = target;
-      obj.cel = Math.min(obj.cel, view.loops[target]!.cels.length - 1);
-      this.updateCelSize(obj);
-    }
+    if (target >= 0 && target < loops && target !== obj.loop) this.setLoop(obj, target);
+  }
+
+  /**
+   * View binding (the interpreters' SetView, 3.002.102 load-module offset
+   * 0x3e9a; 2.917 and 2.936 match): the object keeps its current loop when the
+   * new view has that many loops and otherwise takes loop 0, then selects the
+   * loop through setLoop. The spec's "set.view" text reads "select its default
+   * loop and cel"; the binaries only fall back to the defaults when the kept
+   * indices are out of range.
+   */
+  private setView(obj: ScreenObject, view: number): void {
+    obj.view = view;
+    const loops = this.views.get(view)?.loops.length ?? 0;
+    this.setLoop(obj, obj.loop < loops ? obj.loop : 0);
+  }
+
+  /**
+   * Loop selection (SetLoop, 3.002.102 offset 0x3f6a with its core at 0x3fce;
+   * 2.917 and 2.936 at 0x3c1x): set.loop, set.loop.v, set.view and the
+   * direction-driven loop change all route here. The current cel survives
+   * when the new loop has that many cels and otherwise becomes 0; SetCel then
+   * refreshes the size. Manhunter's knife game (logic 118) depends on the
+   * survival: while it waits for the barker's cel to cycle it re-selects loop
+   * 0 every cycle, which a reset-to-0 would freeze forever.
+   */
+  private setLoop(obj: ScreenObject, loop: number): void {
+    obj.loop = loop;
+    if (obj.cel >= this.celCount(obj)) obj.cel = 0;
+    this.updateCelSize(obj);
   }
 
   /** Whether a view with MORE than four loops receives direction-based selection. */
@@ -2447,6 +2521,10 @@ export class Engine {
             this.clockReadPc < pc
           ) {
             // A clock busy-wait: resume at the loop head on the next host tick.
+            if (this.clockWaitMs > CLOCK_WAIT_LIMIT_MS)
+              throw new Error(
+                `clock busy-wait in logic ${frame.logic} exceeded ${CLOCK_WAIT_LIMIT_MS / 1000} seconds of host time`,
+              );
             this.pendingLogic = frames;
             return;
           }
@@ -2646,18 +2724,20 @@ export class Engine {
         // mode. Keys pressed meanwhile are polled first. A host that offers a
         // blocking wait is used for such a loop in either mode, because a host
         // whose keys arrive by message can never deliver one while the
-        // interpreter spins; in graphics mode the loop must first prove itself
+        // interpreter spins; the loop must first prove itself
         // (HAVE_KEY_BUSY_POLLS) so a once-per-cycle poll stays non-blocking
-        // and the game keeps running. A host with no blocking wait gets a
-        // synthesized Enter after a bounded number of polls so a headless run
-        // never spins forever.
+        // and the game keeps running. That holds in text mode too: the Space
+        // Quest intro shows its captions on a text screen and polls have.key
+        // once per cycle to let a key skip them. A host with no blocking wait
+        // gets a synthesized Enter after a bounded number of polls so a
+        // headless run never spins forever.
         if (this.vars[V_KEY] !== 0) return { result: true, next: pc + 1 };
         for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
         let pressed = this.pollRawKey();
         const blockingWait = this.host.waitKey ?? this.host.waitTextKey;
         if (pressed === undefined) {
           if (blockingWait) {
-            if (this.textMode || ++this.haveKeyPolls > HAVE_KEY_BUSY_POLLS) {
+            if (++this.haveKeyPolls > HAVE_KEY_BUSY_POLLS) {
               this.inputQueue.enqueueKey(blockingWait.call(this.host), this.keymap);
               pressed = this.pollRawKey();
             }
@@ -2721,8 +2801,33 @@ export class Engine {
   }
 
   /** display / display.v: text at a cell position with the current attribute. */
+  /**
+   * display: the interpreters' character output (3.002.102 load-module offset
+   * 0x2d48; 2.411, 2.917 and 2.936 match) treats CR and LF as a line break to
+   * the next row, capped at row 24, and wraps the character after column 39
+   * the same way. Both continue at the routine's start column, which only a
+   * message window sets, so a display call resumes at column 0. The spec
+   * leaves the layout of display text unspecified; games rely on embedded
+   * newlines (a Leisure Suit Larry demonstration and the Space Quest intro
+   * display two-line captions this way).
+   */
   private display(row: number, col: number, text: string): void {
-    this.text.write(row, col, text, this.textAttr());
+    const a = this.textAttr();
+    let r = row;
+    let c = col;
+    const lineBreak = (): void => {
+      if (r < TEXT_ROWS - 1) r++;
+      c = 0;
+    };
+    for (let i = 0; i < text.length; i++) {
+      const ch = text.charCodeAt(i);
+      if (ch === 0x0a || ch === 0x0d) {
+        lineBreak();
+        continue;
+      }
+      this.text.put(r, c, ch, a);
+      if (++c > TEXT_COLS - 1) lineBreak();
+    }
     this.host.displayAt(row, col, text);
   }
 
@@ -2945,11 +3050,15 @@ export class Engine {
         o.prevY = o.y;
         o.active = true;
         o.earlierPartition = false;
+        this.coverText(o);
         this.updateEgoVisibility();
         return next;
       }
       case 0x24: {
         const o = obj(0);
+        // Erasing restores the pixels saved when the cel was drawn: text
+        // written since then is gone.
+        if (o.active) this.coverText(o);
         o.active = false;
         this.updateEgoVisibility();
         return next;
@@ -2988,39 +3097,22 @@ export class Engine {
         this.placeObject(o);
         return next;
       }
-      case 0x29: {
+      case 0x29:
         this.requireView(a(1));
-        const o = obj(0);
-        o.view = a(1);
-        o.loop = 0;
-        o.cel = 0;
-        this.updateCelSize(o);
+        this.setView(obj(0), a(1));
         return next;
-      }
       case 0x2a: {
         const view = this.vars[a(1)]!;
         this.requireView(view);
-        const o = obj(0);
-        o.view = view;
-        o.loop = 0;
-        o.cel = 0;
-        this.updateCelSize(o);
+        this.setView(obj(0), view);
         return next;
       }
-      case 0x2b: {
-        const o = obj(0);
-        o.loop = a(1);
-        o.cel = 0;
-        this.updateCelSize(o);
+      case 0x2b:
+        this.setLoop(obj(0), a(1));
         return next;
-      }
-      case 0x2c: {
-        const o = obj(0);
-        o.loop = this.vars[a(1)]!;
-        o.cel = 0;
-        this.updateCelSize(o);
+      case 0x2c:
+        this.setLoop(obj(0), this.vars[a(1)]!);
         return next;
-      }
       case 0x2d:
         obj(0).loopFixed = true;
         return next;

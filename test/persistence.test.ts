@@ -18,6 +18,7 @@ import { PROFILES } from "../src/runtime/profile.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
+import { buildView } from "../src/view/view.ts";
 
 /**
  * Authentic save-file envelope, clean-room from the agi-re specification
@@ -908,4 +909,41 @@ describe("restart", () => {
     assert.equal(engine.vars[100], 42, "state survives an unconfirmed restart");
     assert.equal(engine.flags[6], 0, "f6 was not set");
   });
+});
+
+test("restoring a game that never configured its replay capacity keeps recording", () => {
+  // Without script.size the engine records freely and the save writes the
+  // active pair count as the capacity. Restoring must not turn that count into
+  // a hard limit: the next resource load after the restore would otherwise fail.
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) { set(f200); load.view(1); load.view(2); }
+       if (isset(f201)) { reset(f201); load.view(3); }
+       return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  for (const n of [1, 2, 3])
+    container.putResource(
+      "view",
+      n,
+      buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [n] }] }] }),
+    );
+  const host: EngineHost = {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  };
+  const engine = new Engine(container, host);
+  engine.tick();
+  const image = engine.serialize();
+  const restored = new Engine(container, host);
+  restored.restoreImage(image);
+  restored.flags[201] = 1;
+  assert.doesNotThrow(() => restored.tick(), "a load after restore records freely");
 });

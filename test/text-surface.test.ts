@@ -591,3 +591,27 @@ test("numeric message fields honor explicit zero-padded widths", () => {
   engine.tick();
   assert.equal(engine.textRow(5), "00 07 042 255 7" + spaces(25));
 });
+
+test("display breaks lines on newlines and wraps after column 39, both at column 0", () => {
+  // The interpreters' character output moves CR, LF and the character after
+  // column 39 to the next row at the routine's start column, which only a
+  // message window sets; a display call therefore resumes at column 0 (the
+  // Leisure Suit Larry demonstration captions and the Space Quest intro rely
+  // on embedded newlines). Row 24 is the floor: later lines overwrite it.
+  const engine = new Engine(
+    gameWith(`
+      display(0, 2, "  Dance the night away at the\\n Lost Wages Disco.");
+      display(5, 30, "wrapped-around");
+      display(24, 0, "one\\ntwo");
+      return;
+    `),
+    new Host(),
+    DICT,
+  );
+  engine.tick();
+  assert.equal(engine.textRow(0).trimEnd(), "    Dance the night away at the");
+  assert.equal(engine.textRow(1).trimEnd(), " Lost Wages Disco.");
+  assert.equal(engine.textRow(5).slice(30), "wrapped-ar");
+  assert.equal(engine.textRow(6).trimEnd(), "ound");
+  assert.equal(engine.textRow(24).trimEnd(), "two");
+});

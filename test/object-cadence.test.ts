@@ -477,6 +477,27 @@ test("reposition rides a trigger line to an exact cell (observed 3.002.102 demo 
   assert.equal(arrived, true, `ego ended at (${ego.x},${ego.y}) without reaching (67,128)`);
 });
 
+test("a border contact is visible to logic for exactly one cycle", () => {
+  // Ego walks up from just below the default horizon (36): the movement pass
+  // clamps it at 37 with edge code 1, the next cycle's logic sees v2 = 1 and
+  // stops ego, and the following pass clears the code again (shipped
+  // interpreters zero v2, v4 and v5 at the start of every movement pass).
+  const engine = game(`
+    if (!isset(f200)) { set(f200); ${setup} position(o0, 20, 40); assignn(v60, 1); set.dir(o0, v60); }
+    assignv(v61, v2);
+    if (equaln(v2, 1)) { assignn(v60, 0); set.dir(o0, v60); }
+    return;
+  `);
+  const seen: number[] = [];
+  for (let i = 0; i < 8; i++) {
+    engine.tick();
+    seen.push(engine.vars[61]!);
+  }
+  assert.equal(engine.screenObjects[0]!.y, 37, "clamped at the horizon");
+  assert.equal(seen.filter((v) => v === 1).length, 1, `edge code seen once: ${seen}`);
+  assert.equal(seen[seen.length - 1], 0, `cleared afterwards: ${seen}`);
+});
+
 test("object position conditions use the selected cel width", () => {
   const engine = game(`${setup}
     if (obj.in.box(o0, 20, 100, 21, 100)) { set(f60); }
@@ -486,4 +507,104 @@ test("object position conditions use the selected cel width", () => {
   `);
   engine.tick();
   assert.deepEqual(Array.from(engine.flags.slice(60, 63)), [1, 1, 1]);
+});
+
+test("loop and view selection keep an index the new loop or view has, else fall back to 0", () => {
+  const indices = (engine: Engine) => [engine.screenObjects[0]!.loop, engine.screenObjects[0]!.cel];
+  // set.loop keeps the cel: Manhunter's knife game (logic 118) re-selects the
+  // barker's loop 0 every cycle while waiting for his cel to come round.
+  let engine = game(`${setup} set.cel(o0, 2); set.loop(o0, 0); return;`);
+  engine.execute(0);
+  assert.deepEqual(indices(engine), [0, 2]);
+  // A loop without that many cels resets the cel to 0.
+  engine = game(`${setup} set.cel(o0, 2); assignn(v60, 1); set.loop.v(o0, v60); return;`);
+  engine.execute(0);
+  assert.deepEqual(indices(engine), [1, 0]);
+  // set.view keeps a loop and cel the new view has.
+  engine = game(`${setup} set.cel(o0, 1); set.view(o0, 1); return;`);
+  engine.execute(0);
+  assert.deepEqual(indices(engine), [0, 1]);
+  // A view with fewer loops resets the loop, and its loop's cel count applies.
+  const single = buildView({ loops: [{ cels: [{ width: 2, height: 1, pixels: [5, 5] }] }] });
+  engine = game(`${setup} load.view(2); set.loop(o0, 1); set.view(o0, 2); return;`);
+  engine.patchResource("view", 2, single);
+  engine.execute(0);
+  assert.deepEqual(indices(engine), [0, 0]);
+  engine = game(`${setup} load.view(2); set.cel(o0, 2); set.view(o0, 2); return;`);
+  engine.patchResource("view", 2, single);
+  engine.execute(0);
+  assert.deepEqual(indices(engine), [0, 0]);
+  // The direction-driven loop change goes through the same selection: an
+  // out-of-range cel becomes 0 rather than the loop's last cel.
+  const twoCels = buildView({
+    loops: [
+      {
+        cels: [
+          { width: 2, height: 1, pixels: [1, 1] },
+          { width: 2, height: 1, pixels: [2, 2] },
+          { width: 2, height: 1, pixels: [3, 3] },
+        ],
+      },
+      {
+        cels: [
+          { width: 2, height: 1, pixels: [4, 4] },
+          { width: 2, height: 1, pixels: [5, 5] },
+        ],
+      },
+    ],
+  });
+  engine = game(
+    `load.view(3); animate.obj(o0); set.view(o0, 3); position(o0, 20, 100); draw(o0);
+     stop.cycling(o0); ignore.blocks(o0); set.cel(o0, 2); assignn(v6, 7); return;`,
+  );
+  engine.patchResource("view", 3, twoCels);
+  engine.tick();
+  assert.deepEqual(indices(engine), [1, 0]);
+});
+
+// Text and graphics share one screen in the interpreters: a cel drawn into the
+// picture or a sprite drawn or erased afterwards repaints the pixels under it,
+// text included. The engine keeps text in its own cell layer, so it drops the
+// cells a later drawing covers. The demo pack's menu paints rows 0..9 black
+// with clear.text.rect and then add.to.pic's its game cards over them; a
+// Mother Goose demonstration redraws its speech bubble over the words it no
+// longer wants.
+test("graphics drawn after text drop the cells they cover", () => {
+  // Picture row 0 is text row 0, so a cel at (20,100) covers column 5, row 12.
+  // Raw cells: an empty (transparent) cell is 0, which textRow renders as a space.
+  const cell = (engine: Engine, row: number, col: number) =>
+    engine.textCells[(row * 40 + col) * 2]!;
+  const chars = (engine: Engine, row: number) =>
+    Array.from({ length: 9 }, (_, col) => cell(engine, row, col));
+  let engine = game(
+    `configure.screen(0, 23, 24); load.view(1);
+     clear.text.rect(10, 0, 14, 39, 0); add.to.pic(1, 0, 0, 20, 100, 15, 4); return;`,
+  );
+  engine.execute(0);
+  assert.equal(cell(engine, 12, 5), 0, "add.to.pic covered the black cell");
+  assert.equal(cell(engine, 12, 4), 0x20, "the cell beside it stays black");
+  assert.equal(cell(engine, 11, 5), 0x20, "the row above stays black");
+  // A sprite drawn over text covers it; text displayed after the draw stays
+  // until the sprite is erased or, when it updates, until its next pass.
+  engine = game(
+    `configure.screen(0, 23, 24); load.view(1); animate.obj(o0); set.view(o0, 1);
+     position(o0, 20, 100); display(12, 5, "AB"); draw(o0); stop.update(o0);
+     display(12, 7, "CD"); return;`,
+  );
+  engine.execute(0);
+  assert.deepEqual(chars(engine, 12).slice(5, 9), [0, 0x42, 0x43, 0x44]);
+  engine = game(
+    `configure.screen(0, 23, 24); load.view(1); animate.obj(o0); set.view(o0, 1);
+     position(o0, 20, 100); draw(o0); stop.update(o0); display(12, 5, "AB"); erase(o0); return;`,
+  );
+  engine.execute(0);
+  assert.deepEqual(chars(engine, 12).slice(5, 7), [0, 0x42], "erase repaints under the sprite");
+  engine = game(
+    `configure.screen(0, 23, 24); load.view(1); animate.obj(o0); set.view(o0, 1);
+     position(o0, 20, 100); draw(o0); display(12, 5, "AB"); return;`,
+  );
+  // An updating sprite is erased and redrawn in the same cycle's object pass,
+  // so text the logic writes over it never reaches the frame.
+  engine.tick();
+  assert.deepEqual(chars(engine, 12).slice(5, 7), [0, 0x42], "an updating sprite repaints it");
 });

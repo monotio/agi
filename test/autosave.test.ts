@@ -199,3 +199,26 @@ test("restoreImage replays an autosave into a fresh engine without unwinding", (
   fresh.tick();
   assert.equal(fresh.vars[0], 1);
 });
+
+test("a game that blocks the script buffer still autosaves once a picture has drawn", () => {
+  // The demo pack sets f7 before its first room, so its replay sequence stays
+  // empty for the whole session; the shown picture is what makes the image
+  // resumable, and the restore re-enters the room to load its resources.
+  const host = new RecordingHost();
+  const container = buildGame();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(`set(f7);\n${LOGIC_0}`, { dictionary: DICT }).payload,
+  );
+  const engine = new Engine(container, host, DICT);
+  assert.equal(engine.autosaveImage(), null, "nothing has drawn yet");
+  engine.tick();
+  const image = engine.autosaveImage();
+  assert.ok(image, "the shown picture makes the state resumable");
+  const fresh = new Engine(buildGame(), new RecordingHost(), DICT);
+  fresh.restoreImage(image);
+  fresh.tick();
+  assert.equal(fresh.vars[0], 1);
+  assert.equal(fresh.screenObjects[0]!.active, true, "the room's sprite is back on screen");
+});

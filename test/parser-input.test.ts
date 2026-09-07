@@ -130,15 +130,16 @@ describe("have.key blocking wait", () => {
     assert.equal(engine.vars[100], 17);
   });
 
-  test("text mode blocks on the first poll", () => {
+  test("a busy loop in text mode proves itself the same way", () => {
     const host = new WaitHost();
     const engine = run(`text.screen();\n${BUSY}`, host);
+    assert.equal(engine.textModeActive, true);
     assert.equal(engine.vars[101], 0x41);
     assert.equal(host.waits, 1);
-    assert.equal(engine.vars[100], 1, "no busy-loop probing needed in text mode");
+    assert.equal(engine.vars[100], 17);
   });
 
-  test("a once-per-cycle poll never blocks", () => {
+  test("a once-per-cycle poll never blocks, on a text screen either", () => {
     class StrictHost extends Host {
       waitTextKey(): number {
         throw new Error("have.key must not block a once-per-cycle poll");
@@ -146,6 +147,14 @@ describe("have.key blocking wait", () => {
     }
     const engine = run("if (have.key()) { assignn(v102, 1); }\nreturn;\n", new StrictHost());
     assert.equal(engine.vars[102], 0);
+    // The Space Quest intro shows its captions on a text screen and polls
+    // have.key once per cycle so a key can skip them; blocking there froze it.
+    const text = run(
+      'text.screen(); display(4, 0, "caption"); if (have.key()) { assignn(v102, 1); }\nreturn;\n',
+      new StrictHost(),
+    );
+    assert.equal(text.textModeActive, true);
+    assert.equal(text.vars[102], 0);
   });
 
   test("a key already buffered ends the loop without blocking", () => {

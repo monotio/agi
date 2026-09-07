@@ -80,3 +80,17 @@ test("a runaway loop that never reads the clock still trips the playtest budget"
   const engine = game(`loop: if (equaln(v50, 0)) { goto loop; } return;`, 5000);
   assert.throws(() => engine.tick(), /instruction budget exceeded in logic 0/);
 });
+
+test("a wait that never ends is reported once the host clock has run ten minutes", () => {
+  // Parking makes a real clock wait resume at the host cadence; a loop that
+  // compares a clock variable with itself would otherwise park forever and
+  // never trip the playtest budget. Elapsed host time bounds it instead.
+  const engine = game(`loop: if (equalv(v11, v11)) { goto loop; } return;`, 5000);
+  engine.tick();
+  assert.equal(engine.continuationPending, true);
+  engine.advanceClock(5 * 60 * 1000);
+  engine.tick();
+  assert.equal(engine.continuationPending, true, "five minutes is still a plausible wait");
+  engine.advanceClock(6 * 60 * 1000);
+  assert.throws(() => engine.tick(), /clock busy-wait in logic 0 exceeded 600 seconds/);
+});
