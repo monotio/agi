@@ -14,6 +14,8 @@ the tools give it enough feedback to correct mistakes.
 
 `npm run check` includes stored bad cases and provider transport tests. These
 checks use deterministic inputs and mocked providers, so they incur no API charges.
+All evaluation configs, providers, prompts, assertions and tests are TypeScript;
+`tsconfig.json` checks them under the same strict rules as the main project.
 A standalone genesis smoke run is also available:
 
 ```bash
@@ -22,7 +24,7 @@ npm run eval:genesis -- --cartridge knights-trial --provider stub
 
 Bad cases in `fixtures/bad-cases/` declare a tool call and its acceptable result.
 Add one for a recurring failure, replay it through the real toolchain in
-`tests/replay.test.mjs`, and observe failure before the fix and success afterward.
+`tests/replay.test.ts`, and observe failure before the fix and success afterward.
 Image transport cases check that rendered previews reach the provider as image
 content and that binary buffers do not expand into JSON properties.
 
@@ -47,8 +49,8 @@ The optional Promptfoo configurations in `configs/` compare repeated runs. Insta
 those tools with `npm --prefix evals install`, then use the matching configuration:
 
 ```bash
-npm --prefix evals exec -- promptfoo eval -c evals/configs/genesis.mjs
-npm --prefix evals exec -- promptfoo eval -c evals/configs/picture.mjs
+npm --prefix evals exec -- promptfoo eval -c evals/configs/genesis.ts
+npm --prefix evals exec -- promptfoo eval -c evals/configs/picture.ts
 ```
 
 The production effort lane uses the app's `AgentSession`, provider adapters and

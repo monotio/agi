@@ -27,9 +27,9 @@ test("rejects corrupt archives, duplicate files, traversal and non-games", async
   const files = cartridgeFiles();
   const entries = Object.entries(files).map(([name, data]) => ({ name, data }));
   const broken = buildZip(entries);
-  broken[30 + "LOGDIR".length] ^= 1;
+  broken[30 + "LOGDIR".length] = broken[30 + "LOGDIR".length]! ^ 1;
   await assert.rejects(readGameZip(broken), /checksum/i);
-  await assert.rejects(readGameZip(buildZip([...entries, entries[0]])), /duplicate/i);
+  await assert.rejects(readGameZip(buildZip([...entries, entries[0]!])), /duplicate/i);
   await assert.rejects(readGameZip(buildZip([{ name: "../LOGDIR", data: "x" }])), /path/i);
   await assert.rejects(
     readGameZip(buildZip([{ name: "README.TXT", data: "not a game" }])),

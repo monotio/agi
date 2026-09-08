@@ -10,7 +10,8 @@ interface TutorialAudioProbe {
 
 async function audioState(page: Page) {
   return page.evaluate(() => {
-    const probe = (window as Window & { tutorialAudio: TutorialAudioProbe }).tutorialAudio;
+    const probe = (window as Window & { tutorialAudio?: TutorialAudioProbe }).tutorialAudio;
+    if (!probe) throw new Error("The audio probe was not installed");
     return {
       started: probe.started,
       active: probe.active,
@@ -26,7 +27,7 @@ test("tutorial plays its opening and earned cues through the real sound worker a
   await isolateStorage(page);
   await page.addInitScript(() => {
     const probe: TutorialAudioProbe = { started: [], active: null, outputs: 0, contexts: [] };
-    (window as Window & { tutorialAudio: TutorialAudioProbe }).tutorialAudio = probe;
+    Object.assign(window, { tutorialAudio: probe });
     const NativeWorker = window.Worker;
     window.Worker = class extends NativeWorker {
       constructor(url: string | URL, options?: WorkerOptions) {

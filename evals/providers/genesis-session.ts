@@ -9,15 +9,69 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
-import { AgentSession } from "../../app/src/agent/agentSession.ts";
+import { AgentSession, type BootResources } from "../../app/src/agent/agentSession.ts";
 import { validateGenesis } from "../../src/agent/playtest.ts";
 import { RESOURCE_KINDS } from "../../src/types.ts";
+
+import type { LlmConfig, LlmUsage } from "../../app/src/agent/llmClient.ts";
+import type { AgentSessionState, AgentToolResult } from "../../src/agent/tools.ts";
+
+export type EffortProvider = "openai" | "anthropic";
+export interface EffortStage {
+  promptVariant: "baseline" | "lean" | "current";
+  effort?: LlmConfig["effort"];
+}
+export interface RequestTool {
+  name: string;
+  description?: string | undefined;
+  parameters?: unknown;
+  input_schema?: unknown;
+  cache_control?: unknown;
+  [key: string]: unknown;
+}
+export interface RequestMessage {
+  role?: string;
+  content?: unknown;
+  [key: string]: unknown;
+}
+/** Fields observed or rewritten in captured provider requests. Other fields survive unchanged. */
+export interface ProviderBody {
+  instructions?: unknown;
+  system?: unknown;
+  tools?: RequestTool[];
+  input?: RequestMessage[] | string;
+  messages?: RequestMessage[];
+  reasoning?: { effort?: unknown };
+  output_config?: { effort?: unknown };
+  [key: string]: unknown;
+}
+interface PromptVariant {
+  systemPrompt?: string;
+  tools?: RequestTool[];
+  userPrompt?: string;
+  baselineRequestPath?: string;
+}
+export interface GenesisOptions {
+  provider: EffortProvider;
+  model: string;
+  cartridgeText: string;
+  promptVariant?: EffortStage["promptVariant"];
+  effort?: LlmConfig["effort"];
+  lane?: string;
+  caseName?: string;
+  repeat?: number;
+  outputRoot?: string;
+  baselineRequestPath?: string;
+  timeoutMs?: number;
+  budgetUsd?: number;
+  fetchImpl?: typeof fetch;
+}
 
 const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 15 * 60_000;
 let fetchQueue = Promise.resolve();
 
-function safeName(value) {
+function safeName(value: unknown) {
   return String(value ?? "unknown")
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, "-")
@@ -25,31 +79,33 @@ function safeName(value) {
     .slice(0, 100);
 }
 
-export function bodyText(input, init) {
+export function bodyText(input: RequestInfo | URL, init?: RequestInit) {
   if (typeof init?.body === "string") return Promise.resolve(init.body);
   if (init?.body instanceof Uint8Array) return Promise.resolve(new TextDecoder().decode(init.body));
   if (typeof Request !== "undefined" && input instanceof Request) return input.clone().text();
   throw new Error("The provider request body could not be captured as JSON text.");
 }
 
-function textOf(value) {
+function textOf(value: unknown) {
   return typeof value === "string" ? value : JSON.stringify(value ?? null);
 }
 
-function sha256(value) {
+function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function promptSectionEstimates(body, provider) {
+function promptSectionEstimates(body: ProviderBody, provider: EffortProvider) {
   const system =
     provider === "openai"
       ? textOf(body.instructions)
       : textOf(
-          Array.isArray(body.system) ? body.system.map((part) => part?.text ?? "") : body.system,
+          Array.isArray(body.system)
+            ? body.system.map((part: { text?: unknown } | null) => part?.text ?? "")
+            : body.system,
         );
   const user = provider === "openai" ? textOf(body.input) : textOf(body.messages);
   const tools = textOf(body.tools);
-  const section = (text) => ({
+  const section = (text: string) => ({
     characters: text.length,
     estimatedTokens: Math.ceil(text.length / 4),
   });
@@ -61,7 +117,7 @@ function promptSectionEstimates(body, provider) {
   };
 }
 
-function resourceCounts(state) {
+function resourceCounts(state: AgentSessionState) {
   return Object.fromEntries(
     RESOURCE_KINDS.map((kind) => {
       let count = 0;
@@ -71,22 +127,26 @@ function resourceCounts(state) {
   );
 }
 
-function summarizedPlaytest(result) {
+function summarizedPlaytest(result: AgentToolResult) {
   return {
     success: result.success,
-    simulation: result.details?.simulation ?? "failed",
-    cycles: result.details?.cycles ?? 0,
-    room: result.details?.state?.room ?? null,
+    simulation: result.details?.["simulation"] ?? "failed",
+    cycles: result.details?.["cycles"] ?? 0,
+    room: (result.details?.["state"] as { room?: number } | undefined)?.room ?? null,
     ...(result.error ? { error: result.error } : {}),
   };
 }
 
-async function loadVariant(variant, baselineRequestPath, cartridgeText) {
+async function loadVariant(
+  variant: EffortStage["promptVariant"],
+  baselineRequestPath: string | undefined,
+  cartridgeText: string,
+): Promise<PromptVariant> {
   if (variant === "current" || variant === "lean") return {};
   if (variant === "baseline") {
     const path = resolve(
       baselineRequestPath ??
-        process.env.EVAL_EFFORT_BASELINE_REQUEST ??
+        process.env["EVAL_EFFORT_BASELINE_REQUEST"] ??
         resolve(
           import.meta.dirname,
           "../results/effort/baseline-before-pruning/openai-gpt-5.6-sol-baseline-default--knights-trial--r1.first-request.json",
@@ -96,8 +156,10 @@ async function loadVariant(variant, baselineRequestPath, cartridgeText) {
       throw new Error(
         "Baseline request capture is missing. Set EVAL_EFFORT_BASELINE_REQUEST to the preserved first-request JSON.",
       );
-    const body = JSON.parse(readFileSync(path, "utf8"));
-    const capturedUser = body.input?.find((item) => item?.role === "user")?.content;
+    const body = JSON.parse(readFileSync(path, "utf8")) as ProviderBody;
+    const capturedUser = Array.isArray(body.input)
+      ? body.input.find((item) => item?.role === "user")?.content
+      : undefined;
     if (
       typeof body.instructions !== "string" ||
       !Array.isArray(body.tools) ||
@@ -119,7 +181,11 @@ async function loadVariant(variant, baselineRequestPath, cartridgeText) {
   throw new Error(`Unknown prompt variant: ${variant}`);
 }
 
-export function applyBaselineOverride(body, variant, provider) {
+export function applyBaselineOverride(
+  body: ProviderBody,
+  variant: PromptVariant,
+  provider: EffortProvider,
+): ProviderBody {
   if (!variant.tools) return body;
   if (!Array.isArray(body.tools)) throw new Error("Provider request omitted the production tools.");
   const capturedByName = new Map(variant.tools.map((tool) => [tool.name, tool]));
@@ -136,7 +202,7 @@ export function applyBaselineOverride(body, variant, provider) {
       input_schema: structuredClone(captured.parameters),
     };
   });
-  const replaceUser = (items) =>
+  const replaceUser = (items: RequestMessage[]) =>
     items.map((item) =>
       item?.role === "user" &&
       typeof item.content === "string" &&
@@ -156,33 +222,37 @@ export function applyBaselineOverride(body, variant, provider) {
   };
 }
 
-export function requestWithBody(input, init, body) {
+export function requestWithBody(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  body: string,
+): [RequestInfo | URL, RequestInit | undefined] {
   if (init?.body !== undefined) return [input, { ...init, body }];
   if (typeof Request !== "undefined" && input instanceof Request)
     return [new Request(input, { body }), undefined];
   return [input, init];
 }
 
-function apiKey(provider) {
+function apiKey(provider: EffortProvider) {
   return provider === "openai"
-    ? (process.env.OPENAI_API_KEY ?? "")
-    : (process.env.ANTHROPIC_API_KEY ?? "");
+    ? (process.env["OPENAI_API_KEY"] ?? "")
+    : (process.env["ANTHROPIC_API_KEY"] ?? "");
 }
 
-function outputDirectory(options) {
+function outputDirectory(options: GenesisOptions) {
   const root = resolve(
     options.outputRoot ??
-      process.env.EVAL_EFFORT_OUTPUT ??
+      process.env["EVAL_EFFORT_OUTPUT"] ??
       resolve(import.meta.dirname, "../results/effort"),
   );
-  const run = safeName(process.env.EVAL_EFFORT_RUN_ID ?? "latest");
+  const run = safeName(process.env["EVAL_EFFORT_RUN_ID"] ?? "latest");
   mkdirSync(resolve(root, run), { recursive: true });
   return resolve(root, run);
 }
 
-async function exclusiveFetch(work) {
+async function exclusiveFetch<T>(work: () => Promise<T>): Promise<T> {
   const previous = fetchQueue;
-  let release;
+  let release!: () => void;
   fetchQueue = new Promise((resolveQueue) => {
     release = resolveQueue;
   });
@@ -194,7 +264,7 @@ async function exclusiveFetch(work) {
   }
 }
 
-export async function runGenesisSession(options) {
+export async function runGenesisSession(options: GenesisOptions) {
   const provider = options.provider;
   if (provider !== "openai" && provider !== "anthropic")
     throw new Error("Genesis effort evaluation requires provider openai or anthropic.");
@@ -207,7 +277,10 @@ export async function runGenesisSession(options) {
         `${provider}-${options.model}-${options.promptVariant}-${options.effort ?? "default"}`,
     );
     const caseName = safeName(options.caseName ?? "case");
-    const repeat = Number.isInteger(options.repeat) && options.repeat > 0 ? options.repeat : 1;
+    const repeat =
+      options.repeat !== undefined && Number.isInteger(options.repeat) && options.repeat > 0
+        ? options.repeat
+        : 1;
     const stem = `${lane}--${caseName}--r${repeat}`;
     const directory = outputDirectory(options);
     const requestPath = resolve(directory, `${stem}.first-request.json`);
@@ -218,11 +291,10 @@ export async function runGenesisSession(options) {
     const resourcesPath = resolve(directory, `${stem}.resources`);
     const delegate = options.fetchImpl ?? globalThis.fetch;
     const originalFetch = globalThis.fetch;
-    let firstRequestText;
-    let firstRequestBody;
+    const firstRequest: { text?: string; body?: ProviderBody } = {};
     const requestStarts = [];
-    const requestLatenciesMs = [];
-    const usageTurns = [];
+    const requestLatenciesMs: number[] = [];
+    const usageTurns: LlmUsage[] = [];
     let repairTurns = 0;
     let failureSinceUsage = false;
     let actionableFailureSinceUsage = false;
@@ -233,29 +305,33 @@ export async function runGenesisSession(options) {
     let actionableToolFailures = 0;
     let expectedExitDiagnostics = 0;
     let toolCalls = 0;
-    let pendingToolStartedAt;
+    let pendingToolStartedAt: number | undefined;
     let toolLatencyMs = 0;
-    let session;
-    const events = [];
-    let runError;
-    let cancellationReason;
-    let bootResources;
+    let session: AgentSession | undefined;
+    const events: Array<{ elapsedMs: number; type: string; message: string; data: unknown }> = [];
+    let runError: string | undefined;
+    let cancellationReason: string | undefined;
+    let bootResources: BootResources | undefined;
     const startedAtIso = new Date().toISOString();
     const startedAt = performance.now();
 
-    let variant = {};
+    let variant: PromptVariant = {};
     globalThis.fetch = async (input, init) => {
       const requestedAt = performance.now();
       requestStarts.push(requestedAt);
       const originalBodyText = await bodyText(input, init);
-      const outgoingBody = applyBaselineOverride(JSON.parse(originalBodyText), variant, provider);
+      const outgoingBody = applyBaselineOverride(
+        JSON.parse(originalBodyText) as ProviderBody,
+        variant,
+        provider,
+      );
       const outgoingText = variant.tools ? JSON.stringify(outgoingBody) : originalBodyText;
-      if (firstRequestText === undefined) {
+      if (firstRequest.text === undefined) {
         const text = outgoingText;
         if (Buffer.byteLength(text) > MAX_REQUEST_BYTES)
           throw new Error(`First provider request exceeds ${MAX_REQUEST_BYTES} bytes.`);
-        firstRequestBody = outgoingBody;
-        firstRequestText = text;
+        firstRequest.body = outgoingBody;
+        firstRequest.text = text;
         writeFileSync(requestPath, text, "utf8");
       }
       const [requestInput, requestInit] = requestWithBody(input, init, outgoingText);
@@ -264,8 +340,8 @@ export async function runGenesisSession(options) {
       return response;
     };
 
-    let monitor;
-    let timer;
+    let monitor: ReturnType<typeof setInterval> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       variant = await loadVariant(
         options.promptVariant ?? "baseline",
@@ -283,8 +359,9 @@ export async function runGenesisSession(options) {
         },
         (type, message, data) => {
           events.push({ elapsedMs: performance.now() - startedAt, type, message, data });
-          if (message.startsWith("[Usage]") && data?.usage) {
-            usageTurns.push({ ...data.usage });
+          const detail = data as { usage?: LlmUsage; result?: AgentToolResult } | undefined;
+          if (message.startsWith("[Usage]") && detail?.usage) {
+            usageTurns.push({ ...detail.usage });
             if (failureSinceUsage) repairTurns++;
             if (actionableFailureSinceUsage) actionableRepairTurns++;
             if (expectedExitSinceUsage) expectedExitRepairTurns++;
@@ -303,7 +380,7 @@ export async function runGenesisSession(options) {
             if (type === "error") {
               toolFailures++;
               failureSinceUsage = true;
-              if (data?.result?.details?.simulation === "needs_authoring") {
+              if (detail?.result?.details?.["simulation"] === "needs_authoring") {
                 expectedExitDiagnostics++;
                 expectedExitSinceUsage = true;
               } else {
@@ -316,14 +393,14 @@ export async function runGenesisSession(options) {
       );
       const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
       monitor = setInterval(() => {
-        if (session.task.snapshot().status === "paused") {
+        if (session?.task.snapshot().status === "paused") {
           cancellationReason = `Production agent paused: ${session.task.snapshot().reason}`;
           session.task.cancel();
         }
       }, 20);
       timer = setTimeout(() => {
         cancellationReason = `Evaluation timed out after ${timeoutMs} ms.`;
-        session.task.cancel();
+        session?.task.cancel();
       }, timeoutMs);
       try {
         bootResources = await session.startGenesis(options.cartridgeText);
@@ -379,25 +456,27 @@ export async function runGenesisSession(options) {
       effort: options.effort ?? "model-default",
       effectiveEffort:
         (provider === "openai"
-          ? firstRequestBody?.reasoning?.effort
-          : firstRequestBody?.output_config?.effort) ?? null,
+          ? firstRequest.body?.reasoning?.effort
+          : firstRequest.body?.output_config?.effort) ?? null,
       promptVariant: options.promptVariant ?? "baseline",
       ...(variant.baselineRequestPath ? { baselineRequestPath: variant.baselineRequestPath } : {}),
       completion,
       ...(runError ? { error: runError } : {}),
       firstResponseInputTokens: usageTurns[0]?.input ?? null,
-      firstRequestSha256: firstRequestText ? sha256(firstRequestText) : null,
-      promptSectionSha256: firstRequestBody
+      firstRequestSha256: firstRequest.text ? sha256(firstRequest.text) : null,
+      promptSectionSha256: firstRequest.body
         ? {
             system: sha256(
               provider === "openai"
-                ? textOf(firstRequestBody.instructions)
-                : textOf(firstRequestBody.system),
+                ? textOf(firstRequest.body.instructions)
+                : textOf(firstRequest.body.system),
             ),
-            tools: sha256(textOf(firstRequestBody.tools)),
+            tools: sha256(textOf(firstRequest.body.tools)),
           }
         : null,
-      promptSections: firstRequestBody ? promptSectionEstimates(firstRequestBody, provider) : null,
+      promptSections: firstRequest.body
+        ? promptSectionEstimates(firstRequest.body, provider)
+        : null,
       usage: totalUsage,
       costUsd: task?.spent ?? 0,
       usageIncomplete: Boolean(runError || cancellationReason || (task?.usageIncomplete ?? true)),
@@ -444,7 +523,10 @@ export async function runGenesisSession(options) {
 }
 
 export default class GenesisSessionProvider {
-  constructor(options) {
+  private readonly config: Partial<GenesisOptions>;
+  private readonly providerId: string;
+
+  constructor(options?: { id?: string; config?: Partial<GenesisOptions> }) {
     this.config = options?.config ?? {};
     this.providerId = options?.id ?? "genesis-session";
   }
@@ -453,9 +535,17 @@ export default class GenesisSessionProvider {
     return this.providerId;
   }
 
-  async callApi(_prompt, context) {
+  async callApi(
+    _prompt: string,
+    context: { vars: { caseName: string; repeat?: number | string; cartridgeText: string } },
+  ) {
+    const { provider, model } = this.config;
+    if ((provider !== "openai" && provider !== "anthropic") || !model)
+      throw new Error("Genesis provider configuration requires a provider and model.");
     const report = await runGenesisSession({
       ...this.config,
+      provider,
+      model,
       caseName: context.vars.caseName,
       repeat: Number(context.vars.repeat ?? 1),
       cartridgeText: context.vars.cartridgeText,

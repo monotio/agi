@@ -510,6 +510,34 @@ test("a malformed stored test document is reported loudly on the next write", ()
   assert.match(run.error ?? "", /not valid JSON/);
 });
 
+test("replace repairs malformed tests while failed validation preserves the original bytes", () => {
+  const state = world();
+  const corrupt = new TextEncoder().encode("{");
+  state.testsPayload = corrupt;
+  const bad = executeAgentTool(state, "write_game_tests", {
+    mode: "replace",
+    names: null,
+    tests: [{ ...takeKey, cycleBudegt: 10 }],
+  });
+  assert.equal(bad.success, false);
+  assert.equal(state.testsPayload, corrupt);
+  const merge = executeAgentTool(state, "write_game_tests", {
+    mode: "merge",
+    names: null,
+    tests: [takeKey],
+  });
+  assert.equal(merge.success, false);
+  assert.equal(state.testsPayload, corrupt);
+  const replaced = executeAgentTool(state, "write_game_tests", {
+    mode: "replace",
+    names: null,
+    tests: [takeKey],
+  });
+  assert.equal(replaced.success, true, replaced.error ?? "");
+  const run = executeAgentTool(state, "run_game_tests", { names: null });
+  assert.equal(run.success, true, run.error ?? "");
+});
+
 test("the extended step vocabulary runs in the simulation", () => {
   const state = world();
   // key: a PC key word dismisses the opening modal like Enter does.

@@ -6,6 +6,11 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+function record(value: unknown): Record<string, unknown> {
+  assert.ok(value !== null && typeof value === "object" && !Array.isArray(value));
+  return value as Record<string, unknown>;
+}
+
 const finish = [
   { name: "write_words", args: { words: ["look"] } },
   {
@@ -35,7 +40,7 @@ for (const provider of ["openai", "anthropic"]) {
     `Genesis CLI sends PNG image blocks to ${provider} on the correction turn`,
     { timeout: 20000 },
     async () => {
-      const requests = [];
+      const requests: unknown[] = [];
       const server = createServer(async (req, res) => {
         const chunks = [];
         for await (const chunk of req) chunks.push(chunk);
@@ -92,8 +97,10 @@ for (const provider of ["openai", "anthropic"]) {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify(reply));
       });
-      await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-      const endpoint = `http://127.0.0.1:${server.address().port}`;
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const address = server.address();
+      assert.ok(address && typeof address !== "string");
+      const endpoint = `http://127.0.0.1:${address.port}`;
       const directory = mkdtempSync(join(tmpdir(), "agi-transport-"));
       try {
         const child = spawn(
@@ -126,17 +133,40 @@ for (const provider of ["openai", "anthropic"]) {
         assert.equal(code, 0, output);
         assert.equal(requests.length, 2);
         if (provider === "openai")
-          assert.deepEqual(requests[0].prompt_cache_options, { mode: "implicit", ttl: "30m" });
-        const result =
-          provider === "openai"
-            ? requests[1].input.find((item) => item.type === "function_call_output").output
-            : requests[1].messages.find(
-                (item) => item.role === "user" && Array.isArray(item.content),
-              ).content[0].content;
+          assert.deepEqual(record(requests[0])["prompt_cache_options"], {
+            mode: "implicit",
+            ttl: "30m",
+          });
+        const second = record(requests[1]);
+        let result: unknown;
+        if (provider === "openai") {
+          const input = second["input"];
+          assert.ok(Array.isArray(input));
+          result = record(
+            input.find((item: unknown) => record(item)["type"] === "function_call_output"),
+          )["output"];
+        } else {
+          const messages = second["messages"];
+          assert.ok(Array.isArray(messages));
+          const content = record(
+            messages.find(
+              (item: unknown) =>
+                record(item)["role"] === "user" && Array.isArray(record(item)["content"]),
+            ),
+          )["content"];
+          assert.ok(Array.isArray(content));
+          result = record(content[0])["content"];
+        }
         assert.ok(Array.isArray(result), "tool response must use multimodal blocks");
-        assert.ok(result[0].text.length < 2000);
-        const encoded =
-          provider === "openai" ? result[2].image_url.split(",")[1] : result[2].source.data;
+        const text = record(result[0])["text"];
+        assert.ok(typeof text === "string" && text.length < 2000);
+        let encoded: unknown;
+        if (provider === "openai") {
+          const imageUrl = record(result[2])["image_url"];
+          assert.equal(typeof imageUrl, "string");
+          encoded = (imageUrl as string).split(",")[1];
+        } else encoded = record(record(result[2])["source"])["data"];
+        assert.ok(typeof encoded === "string");
         assert.deepEqual(
           [...Buffer.from(encoded, "base64").subarray(0, 8)],
           [137, 80, 78, 71, 13, 10, 26, 10],
@@ -221,9 +251,11 @@ for (const provider of ["openai", "anthropic"]) {
           res.writeHead(200, { "content-type": "application/json" });
           res.end(JSON.stringify(reply));
         });
-        await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+        await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
         const directory = mkdtempSync(join(tmpdir(), "agi-rejected-"));
-        const endpoint = `http://127.0.0.1:${server.address().port}`;
+        const address = server.address();
+        assert.ok(address && typeof address !== "string");
+        const endpoint = `http://127.0.0.1:${address.port}`;
         try {
           const child = spawn(
             process.execPath,
@@ -254,7 +286,11 @@ for (const provider of ["openai", "anthropic"]) {
           clearTimeout(timer);
           assert.equal(code, 1, output);
           const report = JSON.parse(readFileSync(join(directory, "trace.json"), "utf8"));
-          assert.equal(report.trace.filter((entry) => entry.type === "tool_execution").length, 0);
+          assert.equal(
+            report.trace.filter((entry: { type: string }) => entry.type === "tool_execution")
+              .length,
+            0,
+          );
           assert.deepEqual(report.metrics.usage, {
             input: 50,
             output: 10,

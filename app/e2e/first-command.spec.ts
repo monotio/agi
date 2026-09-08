@@ -32,7 +32,7 @@ test("the first parser command waits for the worker's initial input mode", async
         Atomics.store(buffer, slot, 1);
         Object.assign(window, { __firstCommandGate: () => Atomics.store(buffer, slot, 0) });
       }
-      return original.call(this, message, transfer as Transferable[]);
+      return original.call(this, message, Array.isArray(transfer) ? { transfer } : transfer);
     };
   }, BRIDGE_PAUSE_SLOT);
   await page.goto("/");

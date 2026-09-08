@@ -4,6 +4,9 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "lib": ["ES2022"],
+    // Node tests and scripts need explicit ambient types in TypeScript 6.
+    // ESLint enforces the platform-free src/ boundary.
+    "types": ["node"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
@@ -14,8 +17,16 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "checkJs": false,
     "noEmit": true,
     "rewriteRelativeImportExtensions": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "scripts/**/*.ts",
+    "scripts/**/*.mjs",
+    "eslint.config.js"
+  ]
 }

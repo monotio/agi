@@ -9,7 +9,8 @@ import {
   applyBaselineOverride,
   requestWithBody,
   runGenesisSession,
-} from "../providers/genesis-session.mjs";
+  type RequestTool,
+} from "../providers/genesis-session.ts";
 
 const captured = {
   instructions: "Historical system prompt",
@@ -28,7 +29,7 @@ const captured = {
   })),
 };
 
-function writeBaseline(directory) {
+function writeBaseline(directory: string) {
   const path = join(directory, "baseline.json");
   writeFileSync(path, JSON.stringify(captured), "utf8");
   return path;
@@ -38,15 +39,25 @@ test("baseline replay restores complete OpenAI and Anthropic tool schemas and Ge
   const userPrompt = "OLD GENESIS\n---\nnew cartridge";
   const variant = { tools: captured.tools, userPrompt };
   const changed = structuredClone(captured.tools);
-  changed[0].description = "short";
+  changed[0]!.description = "short";
   const nestedTool = changed.find((tool) =>
     Object.values(tool.parameters?.properties ?? {}).some(
-      (property) => typeof property.description === "string",
+      (property): property is { description: string } =>
+        typeof property === "object" &&
+        property !== null &&
+        "description" in property &&
+        typeof property.description === "string",
     ),
   );
+  assert.ok(nestedTool);
   const nestedProperty = Object.values(nestedTool.parameters.properties).find(
-    (property) => typeof property.description === "string",
+    (property): property is { description: string } =>
+      typeof property === "object" &&
+      property !== null &&
+      "description" in property &&
+      typeof property.description === "string",
   );
+  assert.ok(nestedProperty);
   nestedProperty.description = "short nested";
   const openai = applyBaselineOverride(
     { tools: changed, input: [{ role: "user", content: "### GENESIS PHASE: CURRENT" }] },
@@ -54,14 +65,15 @@ test("baseline replay restores complete OpenAI and Anthropic tool schemas and Ge
     "openai",
   );
   assert.deepEqual(openai.tools, captured.tools);
-  assert.equal(openai.input[0].content, userPrompt);
+  assert.ok(Array.isArray(openai.input));
+  assert.equal(openai.input[0]?.content, userPrompt);
 
-  const anthropicTools = changed.map(({ name, description, parameters }) => ({
+  const anthropicTools: RequestTool[] = changed.map(({ name, description, parameters }) => ({
     name,
     description,
     input_schema: parameters,
   }));
-  anthropicTools.at(-1).cache_control = { type: "ephemeral" };
+  anthropicTools.at(-1)!.cache_control = { type: "ephemeral" };
   const anthropic = applyBaselineOverride(
     {
       tools: anthropicTools,
@@ -70,15 +82,16 @@ test("baseline replay restores complete OpenAI and Anthropic tool schemas and Ge
     variant,
     "anthropic",
   );
-  assert.deepEqual(anthropic.tools[0].input_schema, captured.tools[0].parameters);
-  assert.equal(anthropic.messages[0].content, userPrompt);
-  assert.deepEqual(anthropic.tools.at(-1).cache_control, { type: "ephemeral" });
+  assert.deepEqual(anthropic.tools?.[0]?.input_schema, captured.tools[0]!.parameters);
+  assert.equal(anthropic.messages?.[0]?.content, userPrompt);
+  assert.deepEqual(anthropic.tools?.at(-1)?.cache_control, { type: "ephemeral" });
 
   const subset = applyBaselineOverride(
     { tools: anthropicTools.slice(2, 5), messages: [] },
     variant,
     "anthropic",
   );
+  assert.ok(subset.tools);
   assert.deepEqual(
     subset.tools.map((tool) => tool.name),
     anthropicTools.slice(2, 5).map((tool) => tool.name),
@@ -94,6 +107,7 @@ test("captures and reconstructs a Request body without losing request metadata",
   assert.equal(await bodyText(original), '{"original":true}');
   const [rewritten, init] = requestWithBody(original, undefined, '{"rewritten":true}');
   assert.equal(init, undefined);
+  assert.ok(rewritten instanceof Request);
   assert.equal(rewritten.method, "POST");
   assert.equal(rewritten.headers.get("authorization"), "Bearer secret");
   assert.equal(await rewritten.text(), '{"rewritten":true}');
@@ -122,16 +136,18 @@ test("timeout cancels a production session and marks its usage incomplete", asyn
       timeoutMs: 30,
       fetchImpl: (_input, init) =>
         new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+          init?.signal?.addEventListener("abort", () => reject(init?.signal?.reason), {
+            once: true,
+          });
         }),
     });
     assert.equal(report.completion, false);
     assert.equal(report.usageIncomplete, true);
-    assert.match(report.error, /^Evaluation timed out after 30 ms\.$/);
+    assert.match(report.error ?? "", /^Evaluation timed out after 30 ms\.$/);
     assert.equal(report.providerRequests, 1);
     assert.equal(report.effectiveEffort, "medium");
     assert.match(report.startedAt, /^\d{4}-\d{2}-\d{2}T/);
-    assert.match(report.firstRequestSha256, /^[a-f0-9]{64}$/);
+    assert.match(report.firstRequestSha256 ?? "", /^[a-f0-9]{64}$/);
     assert.equal(report.latency.providerFetchMs.length, 0);
     assert.match(report.latency.providerFetchDefinition, /fetch resolves/);
     const captured = readFileSync(report.artifacts.firstRequest, "utf8");
@@ -156,7 +172,9 @@ test("captures the actual Anthropic Genesis startup subset with baseline schemas
       timeoutMs: 30,
       fetchImpl: (_input, init) =>
         new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+          init?.signal?.addEventListener("abort", () => reject(init?.signal?.reason), {
+            once: true,
+          });
         }),
     });
     const body = JSON.parse(readFileSync(report.artifacts.firstRequest, "utf8"));
@@ -164,7 +182,7 @@ test("captures the actual Anthropic Genesis startup subset with baseline schemas
     const catalogByName = new Map(catalog.map((tool) => [tool.name, tool]));
     assert.ok(body.tools.length < catalog.length, "Anthropic should send the selected tool subset");
     for (const tool of body.tools)
-      assert.deepEqual(tool.input_schema, catalogByName.get(tool.name).parameters);
+      assert.deepEqual(tool.input_schema, catalogByName.get(tool.name)!.parameters);
     assert.equal(body.messages[0].content.startsWith("### GENESIS PHASE:"), true);
     assert.equal(body.messages[0].content.endsWith("# Tiny cartridge\n---"), true);
   } finally {
@@ -191,7 +209,7 @@ test("reports a missing baseline artifact without attempting a provider request"
     });
     assert.equal(report.completion, false);
     assert.equal(report.usageIncomplete, true);
-    assert.match(report.error, /Baseline request capture is missing/);
+    assert.match(report.error ?? "", /Baseline request capture is missing/);
     assert.equal(fetchCalls, 0);
     assert.ok(readFileSync(report.artifacts.report, "utf8").includes("missing-baseline"));
   } finally {

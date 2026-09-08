@@ -149,13 +149,13 @@ function parseCliArgs(): CliArgs {
   const cartridge = options["cartridge"] || "knights-trial";
   let provider = (options["provider"] as CliArgs["provider"]) || "stub";
   if (!options["provider"]) {
-    if (process.env.OPENAI_API_KEY) provider = "openai";
-    else if (process.env.ANTHROPIC_API_KEY) provider = "anthropic";
+    if (process.env["OPENAI_API_KEY"]) provider = "openai";
+    else if (process.env["ANTHROPIC_API_KEY"]) provider = "anthropic";
   }
 
   const apiKey =
     options["api-key"] ||
-    (provider === "openai" ? process.env.OPENAI_API_KEY : process.env.ANTHROPIC_API_KEY) ||
+    (provider === "openai" ? process.env["OPENAI_API_KEY"] : process.env["ANTHROPIC_API_KEY"]) ||
     "";
 
   const model =
@@ -165,7 +165,14 @@ function parseCliArgs(): CliArgs {
   const outDir = options["out"];
   const tracePath = options["trace"] || "evals/last-genesis-trace.json";
 
-  return { cartridge, provider, model, apiKey, outDir, tracePath };
+  return {
+    cartridge,
+    provider,
+    model,
+    apiKey,
+    ...(outDir === undefined ? {} : { outDir }),
+    tracePath,
+  };
 }
 
 function loadCartridgeText(nameOrPath: string): string {
@@ -411,7 +418,7 @@ async function runOpenAiGenesis(
           );
         }
         toolCalls.push({
-          id: item.call_id || item.id,
+          id: item.call_id,
           name: item.name,
           args: parsedInput,
         });

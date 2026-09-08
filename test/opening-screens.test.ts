@@ -130,7 +130,7 @@ function assertNonBlank(engine: Engine, label: string): void {
   );
 }
 
-const sq1Skip = fixtureSkip("sq1");
+const sq1Skip = fixtureSkip("sq1", ["AGIDATA.OVL"]);
 test(
   "sq1: cold boot reaches the Arcada through the title screen and the name prompt",
   { skip: sq1Skip },
@@ -151,7 +151,7 @@ test(
   },
 );
 
-const kq2Skip = fixtureSkip("kq2");
+const kq2Skip = fixtureSkip("kq2", ["AGIDATA.OVL"]);
 test(
   "kq2: cold boot reaches the castle exterior through the credits screen",
   { skip: kq2Skip },
@@ -172,7 +172,7 @@ test(
   },
 );
 
-const kq3Skip = fixtureSkip("kq3");
+const kq3Skip = fixtureSkip("kq3", ["AGIDATA.OVL"]);
 test("kq3: cold boot reaches Manannan's house through the title screen", { skip: kq3Skip }, () => {
   const boot = new Boot("kq3", "2.936");
   boot.until(() => boot.room() === 45, 100, "title screen (room 45)");
@@ -189,7 +189,7 @@ test("kq3: cold boot reaches Manannan's house through the title screen", { skip:
   assertNonBlank(boot.engine, "kq3");
 });
 
-const pq1Skip = fixtureSkip("pq1");
+const pq1Skip = fixtureSkip("pq1", ["AGIDATA.OVL"]);
 test("pq1: cold boot reaches the station through the title screen", { skip: pq1Skip }, () => {
   const boot = new Boot("pq1", "2.936");
   boot.until(() => boot.room() === 1, 100, "title screen (room 1)");
@@ -201,7 +201,7 @@ test("pq1: cold boot reaches the station through the title screen", { skip: pq1S
   assertNonBlank(boot.engine, "pq1");
 });
 
-const lsl1Skip = fixtureSkip("lsl1");
+const lsl1Skip = fixtureSkip("lsl1", ["AGIDATA.OVL"]);
 test(
   "lsl1: cold boot reaches the age-check prompt through the title and the content warning",
   { skip: lsl1Skip },
@@ -226,7 +226,7 @@ test(
   },
 );
 
-const gr1Skip = fixtureSkip("gr1");
+const gr1Skip = fixtureSkip("gr1", ["AGIDATA.OVL"]);
 test(
   "gr1: cold boot reaches Jerrod's street through the keyless intro slideshow",
   { skip: gr1Skip },
@@ -239,7 +239,7 @@ test(
   },
 );
 
-const kq4Skip = fixtureSkip("kq4");
+const kq4Skip = fixtureSkip("kq4", ["AGIDATA.OVL"]);
 test("kq4: cold boot reaches the copy-protection question", { skip: kq4Skip }, () => {
   const boot = new Boot("kq4", "3.002.086");
   boot.until(() => boot.engine.textRow(6).includes("legal"), 200, "the manual question");

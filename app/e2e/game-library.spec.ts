@@ -160,7 +160,7 @@ test("index recovery preserves a game saved while another entry is being reconci
       let first = true;
       Object.defineProperty(IDBTransaction.prototype, "oncomplete", {
         configurable: true,
-        get: completion.get,
+        get: completion.get!,
         set(handler) {
           const hold = first;
           first = false;

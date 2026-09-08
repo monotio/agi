@@ -6,7 +6,25 @@ import { AGI_SYSTEM_PROMPT, createOrientationPrompt } from "../../src/agent/prom
  * byte-identical to the genesis lane — only the first user turn differs, so
  * the cached prefix is shared across both openings.
  */
-export default function ({ vars }) {
+interface PromptMessage {
+  role: "system" | "user";
+  content: string;
+}
+
+/** Orientation lane variables; every field falls back when promptfoo omits it. */
+export interface OrientationVars {
+  vars: {
+    gameId?: string;
+    profile?: string;
+    room?: number | string;
+    resourceListing?: string;
+    logicSource?: string;
+    pictureSource?: string;
+    wordsSummary?: string;
+  };
+}
+
+export default function ({ vars }: OrientationVars): PromptMessage[] {
   return [
     {
       role: "system",

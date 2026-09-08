@@ -7,15 +7,15 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { providerMatrix } from "./providers.mjs";
+import { providerMatrix } from "./providers.ts";
 
-function loadCartridge(slug) {
-  return readFileSync(resolve(`games/${slug}/SKILL.md`), "utf-8");
+function loadCartridge(slug: string) {
+  return readFileSync(resolve(import.meta.dirname, `../../games/${slug}/SKILL.md`), "utf-8");
 }
 
 export default {
   description: "agi-genesis: authentic resource compilation across frontier models",
-  prompts: [{ id: "file://../prompts/genesis.mjs", label: "genesis" }],
+  prompts: [{ id: "file://../prompts/genesis.ts", label: "genesis" }],
   providers: providerMatrix({
     effort: "medium",
   }),
@@ -23,7 +23,7 @@ export default {
     assert: [
       {
         type: "javascript",
-        value: "file://../lib/asserts.mjs:validateGenesisToolCalls",
+        value: "file://../lib/asserts.ts:validateGenesisToolCalls",
       },
     ],
   },

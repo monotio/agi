@@ -134,8 +134,9 @@ test("Resume shows the same saved scene and position, including after reopening 
   const saved = await page.evaluate(async () => {
     const slug = localStorage.getItem("monotio_agi.lastGame")!;
     const record = JSON.parse(localStorage.getItem(`monotio_agi.autosave.${slug}`)!);
-    const observed = (window as Window & { menuSaveObservation: SaveObservation })
+    const observed = (window as Window & { menuSaveObservation?: SaveObservation })
       .menuSaveObservation;
+    if (!observed) throw new Error("No save observation was installed");
     if (!record.preview) throw new Error("The saved progress has no screenshot");
     if (!observed.frame) throw new Error("No frame accompanied the save observation");
     const { compositeFrame } = await import("/src/composite.ts");

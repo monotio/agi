@@ -21,7 +21,7 @@ import { loadGame } from "./game-fixture.ts";
  * the fixture bytes.
  */
 const SLUG = "pq1";
-const skip = fixtureSkip(SLUG);
+const skip = fixtureSkip(SLUG, ["AGIDATA.OVL"]);
 
 test(
   `${SLUG}: lowercase installation names enumerate into canonical container files`,

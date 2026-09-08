@@ -581,7 +581,9 @@ export function executeGameTestTool(
     const mode = args["mode"] ?? "merge";
     if (!["merge", "replace", "remove"].includes(String(mode)))
       fail("mode must be merge, replace, remove or null.");
-    const stored = readStoredTests(session);
+    // Replacement is also the recovery path for a malformed imported file.
+    // Validate the replacement fully before assigning any new payload.
+    const stored = mode === "replace" ? [] : readStoredTests(session);
     let next: GameTest[];
     if (mode === "remove") {
       const names = namesArgument(args["names"]);

@@ -37,6 +37,16 @@ The gate checks installed dependencies against both manifests before testing.
 After switching branches or pulling dependency updates, run `npm ci` in both
 package roots; a green run against stale dependencies does not verify CI's build.
 
+Both package roots use TypeScript 6.0. In VS Code, select **TypeScript: Select
+TypeScript Version → Use Workspace Version** so editor diagnostics match the gate.
+The root project checks the engine, tests and Node scripts; the app solution
+references separate DOM and worker projects, including Playwright scenarios and
+Vite/Playwright configs. `evals/tsconfig.json` checks the evaluation configs,
+providers, assertions, prompts and regression tests under the same strict rules.
+`npm run check` runs every TypeScript project. The remaining JavaScript tooling
+(ESLint config, suppression scanner and manual HMR proof) has explicit editor
+project coverage; it uses lint and runtime checks rather than TypeScript checking.
+
 Recorded game tests store a host snapshot and a bounded operation tape in
 `TESTS.JSON`: clocks, consumed input, random draws and prompt replies replay
 against current resources. Divergent or unconsumed calls fail the replay.

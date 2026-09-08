@@ -5,7 +5,10 @@
  */
 
 import { AGENT_TOOLS } from "../../src/agent/tools.ts";
-import { anthropicToolDefinitions } from "../../src/agent/toolTransport.ts";
+import {
+  anthropicToolDefinitions,
+  type AnthropicToolDefinition,
+} from "../../src/agent/toolTransport.ts";
 
 export const MODEL_IDS = {
   gpt56Sol: "gpt-5.6-sol",
@@ -25,8 +28,24 @@ export function variantOpenAiTools() {
   }));
 }
 
-export function variantAnthropicTools() {
+export function variantAnthropicTools(): AnthropicToolDefinition[] {
   return anthropicToolDefinitions(AGENT_TOOLS);
+}
+
+/** One promptfoo provider descriptor built by the matrix. */
+export interface ProviderLane {
+  id: string;
+  label: string;
+  config: Record<string, unknown>;
+}
+
+export interface ProviderMatrixOptions {
+  effort?: string;
+  openaiConfig?: Record<string, unknown>;
+  anthropicConfig?: Record<string, unknown>;
+  includeSol?: boolean;
+  includeTerra?: boolean;
+  includeAnthropic?: boolean;
 }
 
 export function providerMatrix({
@@ -36,13 +55,12 @@ export function providerMatrix({
   includeSol = true,
   includeTerra = true,
   includeAnthropic = true,
-} = {}) {
+}: ProviderMatrixOptions = {}): ProviderLane[] {
   const env = process.env;
-  const hasOpenAi = Boolean(env.OPENAI_API_KEY);
-  const hasAnthropic = Boolean(env.ANTHROPIC_API_KEY);
+  const hasOpenAi = Boolean(env["OPENAI_API_KEY"]);
+  const hasAnthropic = Boolean(env["ANTHROPIC_API_KEY"]);
 
-  const providers = [];
-
+  const providers: ProviderLane[] = [];
   if (hasOpenAi) {
     if (includeSol) {
       providers.push({

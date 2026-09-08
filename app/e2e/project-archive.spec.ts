@@ -168,7 +168,12 @@ test("Download project resumes private history in a fresh browser; Download game
 test("unavailable project storage cannot publish a library index", async ({ page }) => {
   await isolateStorage(page);
   await page.addInitScript(() => {
-    indexedDB.open = () => {
+    // Patch the factory prototype: an instance override did not consistently
+    // intercept WebKit's opens. Count failures so the test proves injection.
+    const failures = { opens: 0 };
+    Object.assign(window, { __projectStorageFailures: failures });
+    IDBFactory.prototype.open = () => {
+      failures.opens++;
       throw new Error("Storage unavailable");
     };
   });
@@ -183,7 +188,14 @@ test("unavailable project storage cannot publish a library index", async ({ page
       files: { "VOL.0": new Uint8Array([1, 2, 3]) },
       words: [],
     });
-    return { saved, index: localStorage.getItem(storage.getStorageKey("blocked")) };
+    const failures = (window as unknown as { __projectStorageFailures: { opens: number } })
+      .__projectStorageFailures;
+    return {
+      saved,
+      index: localStorage.getItem(storage.getStorageKey("blocked")),
+      failedOpens: failures.opens,
+    };
   });
-  expect(result).toEqual({ saved: false, index: null });
+  expect(result.failedOpens).toBeGreaterThan(0);
+  expect({ saved: result.saved, index: result.index }).toEqual({ saved: false, index: null });
 });

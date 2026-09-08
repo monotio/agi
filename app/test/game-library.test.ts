@@ -10,7 +10,12 @@ import { addLibraryGame, copyLibraryGame } from "../src/gameLibrary.ts";
 import { loadAuthoredCartridge, updateAuthoredCartridgeFiles } from "../src/cartridgeStorage.ts";
 import { inspectGame } from "../src/gameInspection.ts";
 import { buildPublicGameZip } from "../src/projectArchive.ts";
-import type { AutosaveRecord, GameProgress, ImportStorageReport } from "../src/gameProgress.ts";
+import {
+  readGameProgress,
+  type AutosaveRecord,
+  type GameProgress,
+  type ImportStorageReport,
+} from "../src/gameProgress.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 
 function toBase64(bytes: Uint8Array): string {
@@ -341,6 +346,48 @@ test("trusted catalog projects deduplicate while imported project archives remai
     version: "1",
   });
   assert.equal(repeated, first);
+});
+
+test("import stores saves and autosave without a progress observer", async (t) => {
+  installLocalStorage(t);
+  const container = createContainer();
+  container.putResource("picture", 0, Uint8Array.of(0xff));
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic("load.pic(v0); draw.pic(v0); show.pic(); return;", { dictionary: new Map() })
+      .payload,
+  );
+  const engine = new Engine(container, {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  });
+  engine.tick();
+  const image = engine.autosaveImage();
+  assert.ok(image);
+  const slot = engine.serialize();
+  const files = Object.fromEntries(container.files);
+  const progress: GameProgress = {
+    saves: { "3": slot },
+    autosave: {
+      format: "monotio.agi.autosave",
+      version: 1,
+      image: toBase64(image),
+      cycle: 1,
+      room: 0,
+      savedAt: 1757000000000,
+      game: { slug: "source", installed: false, revision: "ab".repeat(32) },
+    },
+  };
+  const slug = await addLibraryGame({ files, words: [], progress }, "No observer", "zip", opening);
+  const stored = readGameProgress(localStorage, slug);
+  assert.deepEqual(stored.saves["3"], slot);
+  assert.equal(stored.autosave?.image, progress.autosave?.image);
+  assert.equal(stored.autosave?.game.slug, slug);
+  assert.equal(stored.autosave?.game.revision, await gameRevision(files));
 });
 
 test("import reports which progress entries browser storage refused", async (t) => {

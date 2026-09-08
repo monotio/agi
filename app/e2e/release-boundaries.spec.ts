@@ -34,7 +34,7 @@ for (const failure of ["unsafe", "timeout", "storage"] as const) {
         const post = Worker.prototype.postMessage;
         Worker.prototype.postMessage = function (message, transfer) {
           if (message.type === "flush") return;
-          return post.call(this, message, transfer as Transferable[]);
+          return post.call(this, message, Array.isArray(transfer) ? { transfer } : transfer);
         };
       });
     } else {
