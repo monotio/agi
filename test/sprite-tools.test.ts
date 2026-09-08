@@ -46,6 +46,52 @@ describe("sprite authoring tools", () => {
     assert.equal(result?.images?.length, 1);
   });
 
+  it("accepts a single direction and safely populates missing loops with warnings", () => {
+    const state = createAgentSessionState();
+    const result = executeSpriteTool(state, "write_actor", {
+      num: 1,
+      description: "Simple actor",
+      transparentColor: 0,
+      mirrorLeftFromRight: null,
+      mirrorUpFromDown: null,
+      right: [["12", "34"]],
+      left: null,
+      down: null,
+      up: null,
+    });
+    assert.equal(result?.success, true);
+    const view = parseView(state.container.getResource("view", 1)!, state.profile);
+    assert.equal(view.loops.length, 4);
+    assert.deepEqual([...selectViewCel(view, 0, 0)!.pixels], [1, 2, 3, 4]);
+    assert.deepEqual([...selectViewCel(view, 1, 0)!.pixels], [2, 1, 4, 3]); // mirrored
+    assert.deepEqual([...selectViewCel(view, 2, 0)!.pixels], [1, 2, 3, 4]); // down copied from right
+    assert.deepEqual([...selectViewCel(view, 3, 0)!.pixels], [1, 2, 3, 4]); // up copied from down/right
+    assert.ok(result?.adjustments?.some((a) => a.includes("down")));
+    assert.ok(result?.adjustments?.some((a) => a.includes("up")));
+  });
+
+  it("flips up vertically from down when mirrorUpFromDown is true", () => {
+    const state = createAgentSessionState();
+    const result = executeSpriteTool(state, "write_actor", {
+      num: 2,
+      description: "Top-down vehicle",
+      transparentColor: 0,
+      mirrorLeftFromRight: true,
+      mirrorUpFromDown: true,
+      right: [["12", "34"]],
+      left: null,
+      down: [["12", "34"]],
+      up: null,
+    });
+    assert.equal(result?.success, true);
+    const view = parseView(state.container.getResource("view", 2)!, state.profile);
+    assert.equal(view.loops.length, 4);
+    assert.deepEqual([...selectViewCel(view, 2, 0)!.pixels], [1, 2, 3, 4]);
+    // vertically flipped: rows are reversed (row 1 becomes row 0)
+    assert.deepEqual([...selectViewCel(view, 3, 0)!.pixels], [3, 4, 1, 2]);
+    assert.ok(result?.adjustments?.some((a) => a.includes("vertically")));
+  });
+
   it("rejects inconsistent row widths and invalid colors before writing", () => {
     const state = createAgentSessionState();
     const uneven = executeSpriteTool(state, "write_actor", {

@@ -28,23 +28,23 @@ Full resource-census tests require every volume referenced by the directories.
 Tests for individual rooms can use `checkVolumes: false` in the fixture helpers;
 resource readers still reject unavailable data if the scenario requests it.
 
-| Game                     | Folder            | Interpreter build / profile | Tests                                                                                                                                                                                                                |
-| ------------------------ | ----------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| King's Quest I           | `games/kq1/`      | 2.917                       | [Full-game completion proof](#kq1-completion-proof) (159 points; Node and browser), [resources](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts) |
-| King's Quest II          | `games/kq2/`      | 2.411                       | [Walkthrough to 41 points](../test/walkthroughs.test.ts), [resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)              |
-| King's Quest III         | `games/kq3/`      | 2.936                       | [Resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)                                                                        |
-| King's Quest IV          | `games/kq4/`      | 3.002.086                   | [Resources](../test/kq4.test.ts), [regressions](../test/kq4-regressions.test.ts)                                                                                                                                     |
-| The Black Cauldron       | `games/bc/`       | 2.439 / 2.440               | [Opening and movement](../test/openings.test.ts)                                                                                                                                                                     |
-| Mixed-Up Mother Goose    | `games/mumg/`     | 2.917                       | [Introduction and movement](../test/openings.test.ts)                                                                                                                                                                |
-| Donald Duck's Playground | `games/ddp/`      | DOS 1.50; 2.272 / 2.440     | [Difficulty selection and movement](../test/openings.test.ts), replayed in the browser                                                                                                                               |
-| Space Quest II           | `games/sq2/`      | 2.936                       | [Opening and movement](../test/openings.test.ts)                                                                                                                                                                     |
-| Space Quest I            | `games/sq1/`      | 2.917                       | [Walkthrough to 42 points](../test/walkthroughs.test.ts), [opening](../test/openings.test.ts)                                                                                                                        |
-| Police Quest I           | `games/pq1/`      | 2.903 / 2.936 fallback      | [Opening](../test/openings.test.ts)                                                                                                                                                                                  |
-| Leisure Suit Larry I     | `games/lsl1/`     | 2.440                       | [Opening](../test/openings.test.ts)                                                                                                                                                                                  |
-| Gold Rush                | `games/gr1/`      | 3.002.149                   | [Opening](../test/openings.test.ts), [binary profile](../test/mh2-profile.test.ts)                                                                                                                                   |
-| Manhunter: New York      | `games/mh1/`      | 3.002.107 / 3.002.102       | [Resources and Day 1](../test/mh1.test.ts)                                                                                                                                                                           |
-| Manhunter 2              | `games/mh2/`      | 3.002.149                   | [Profile and logic references](../test/mh2-profile.test.ts)                                                                                                                                                          |
-| Sierra demo pack         | `games/demopac4/` | 3.002.102                   | [Resources and six demos](../test/demopac4.test.ts)                                                                                                                                                                  |
+| Game                     | Folder            | Interpreter build / profile | Tests                                                                                                                                                                                                                         |
+| ------------------------ | ----------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| King's Quest I           | `games/kq1/`      | 2.917                       | [Full-game completion proof](#kq1-completion-proof) (159 points; Node and browser), [resources](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)          |
+| King's Quest II          | `games/kq2/`      | 2.411                       | [Walkthrough to 90 points (first door unlocked)](../test/walkthroughs.test.ts), [resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts) |
+| King's Quest III         | `games/kq3/`      | 2.936                       | [Resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)                                                                                 |
+| King's Quest IV          | `games/kq4/`      | 3.002.086                   | [Resources](../test/kq4.test.ts), [regressions](../test/kq4-regressions.test.ts)                                                                                                                                              |
+| The Black Cauldron       | `games/bc/`       | 2.439 / 2.440               | [Opening and movement](../test/openings.test.ts)                                                                                                                                                                              |
+| Mixed-Up Mother Goose    | `games/mumg/`     | 2.917                       | [Introduction and movement](../test/openings.test.ts)                                                                                                                                                                         |
+| Donald Duck's Playground | `games/ddp/`      | DOS 1.50; 2.272 / 2.440     | [Difficulty selection and movement](../test/openings.test.ts), replayed in the browser                                                                                                                                        |
+| Space Quest II           | `games/sq2/`      | 2.936                       | [Opening and movement](../test/openings.test.ts)                                                                                                                                                                              |
+| Space Quest I            | `games/sq1/`      | 2.917                       | [Walkthrough to 108 points (Ulence Flats)](../test/walkthroughs.test.ts), [opening](../test/openings.test.ts)                                                                                                                 |
+| Police Quest I           | `games/pq1/`      | 2.903 / 2.936 fallback      | [Opening](../test/openings.test.ts)                                                                                                                                                                                           |
+| Leisure Suit Larry I     | `games/lsl1/`     | 2.440                       | [Opening](../test/openings.test.ts)                                                                                                                                                                                           |
+| Gold Rush                | `games/gr1/`      | 3.002.149                   | [Opening](../test/openings.test.ts), [binary profile](../test/mh2-profile.test.ts)                                                                                                                                            |
+| Manhunter: New York      | `games/mh1/`      | 3.002.107 / 3.002.102       | [Resources and Day 1](../test/mh1.test.ts)                                                                                                                                                                                    |
+| Manhunter 2              | `games/mh2/`      | 3.002.149                   | [Profile and logic references](../test/mh2-profile.test.ts)                                                                                                                                                                   |
+| Sierra demo pack         | `games/demopac4/` | 3.002.102                   | [Resources and six demos](../test/demopac4.test.ts)                                                                                                                                                                           |
 
 `test/demopac4.test.ts` runs all six demonstrations in the Sierra demo pack to
 completion, exercising v3 containers and compressed logic. See
@@ -216,14 +216,17 @@ Each route uses normal player inputs and a virtual clock, asserts score and
 inventory milestones, and repeats from a cold boot with seed 1. The KQ2 route
 covers the opening errands, monastery cross, brooch, first door inscription and
 bridge round trip at score 41. The SQ1 route retrieves the cartridge and keycard,
-escapes the Arcada, lands on Kerona and crushes the spider droid with the boulder
-at score 42. Browser tests replay the same routes through the app's controls.
-The same catalog includes KQ1 completion and MH1 Day 1. Each entry defines its
-coverage, route and observable endpoint once for Node, CLI and browser checks.
-`scripts/walkthrough.ts` writes a replay for any catalog entry; for example,
-`npm run prove:walkthrough -- sq1`. Game-specific route modules contain player
-actions and intermediate milestones; `test/speedrun.test.ts` checks the driver.
-KQ2 and SQ1 are partial walkthroughs; their later puzzles and endings are not covered.
+escapes the Arcada, lands on Kerona, crushes the spider droid with the boulder,
+navigates the underground complex, defeats Orat, retrieves the data cartridge
+from the Keronian base, pilots the skimmer across the desert with zero damage,
+and arrives at Ulence Flats at score 108. Browser tests replay the same routes
+through the app's controls. The same catalog includes KQ1 completion and MH1 Day 1.
+Each entry defines its coverage, route and observable endpoint once for Node, CLI
+and browser checks. `scripts/walkthrough.ts` writes a replay for any catalog entry;
+for example, `npm run prove:walkthrough -- sq1`. Game-specific route modules contain
+player actions and intermediate milestones; `test/speedrun.test.ts` checks the driver.
+KQ2 covers the opening chapter and SQ1 covers Act 1 through Ulence Flats; later
+puzzles and endings are not covered.
 
 ### Manhunter Day 1 proof
 

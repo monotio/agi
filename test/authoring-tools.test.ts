@@ -36,6 +36,30 @@ test("named binding allocation avoids compiled references and preserves stable i
   );
 });
 
+test("batch reserve_binding allocates multiple IDs and returns defines", () => {
+  const state = createAgentSessionState();
+  const result = executeAuthoringTool(state, "reserve_binding", {
+    bindings: [
+      { name: "bridge_down", kind: "flag", id: null },
+      { name: "chest_opened", kind: "flag", id: null },
+      { name: "gold_count", kind: "variable", id: null },
+      { name: "room_custom_id", kind: "variable", id: 50 },
+      { name: "title_view", kind: "view", id: null },
+    ],
+  })!;
+  assert.equal(result.success, true);
+  assert.equal(state.authoring.bindings["bridge_down"]?.num, 32);
+  assert.equal(state.authoring.bindings["chest_opened"]?.num, 33);
+  assert.equal(state.authoring.bindings["gold_count"]?.num, 32);
+  assert.equal(state.authoring.bindings["room_custom_id"]?.num, 50);
+  assert.equal(state.authoring.bindings["title_view"]?.num, 1);
+  assert.match(String(result.details?.["defines"]), /#define bridge_down 32/);
+  assert.match(String(result.details?.["defines"]), /#define chest_opened 33/);
+  assert.match(String(result.details?.["defines"]), /#define gold_count 32/);
+  assert.match(String(result.details?.["defines"]), /#define room_custom_id 50/);
+  assert.match(String(result.details?.["defines"]), /#define title_view 1/);
+});
+
 test("inventory edits allocate stable IDs without sending the complete table", () => {
   const state = createAgentSessionState();
   const first = executeAuthoringTool(state, "upsert_inventory_item", {

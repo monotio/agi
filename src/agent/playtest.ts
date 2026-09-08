@@ -640,14 +640,19 @@ export function playtestRoom(
       let moveDirection: number | null = null;
       let walkTarget: { x: number; y: number } | null = null;
       let until: UntilPredicate | null = null;
+      if (
+        (engine.modalKind || engine.continuationPending) &&
+        action !== "enter" &&
+        action !== "key" &&
+        action !== "wait"
+      ) {
+        while (engine.modalKind) engine.ackPrint();
+        if (engine.continuationPending) simulation.tick();
+      }
       if (action === "enter") simulation.keys.push(AGI_KEY.ENTER);
       else if (action === "key")
         simulation.keys.push(integer(step["key"], `steps[${index}].key`, 0, 65535));
       else if (action === "command") {
-        if (engine.modalKind)
-          throw new Error(
-            `steps[${index}]: acknowledge the ${engine.modalKind} modal with an enter action before sending a command.`,
-          );
         if (
           typeof step["command"] !== "string" ||
           !step["command"].trim() ||
@@ -656,10 +661,6 @@ export function playtestRoom(
           throw new Error(`steps[${index}].command must be nonempty and at most 80 characters.`);
         simulation.line = step["command"];
       } else if (action === "move") {
-        if (engine.modalKind)
-          throw new Error(
-            `steps[${index}]: acknowledge the ${engine.modalKind} modal before moving.`,
-          );
         const direction =
           typeof step["direction"] === "string" ? DIRECTIONS[step["direction"]] : undefined;
         if (!direction)
@@ -670,18 +671,10 @@ export function playtestRoom(
         moveDirection = direction;
         engine.vars[6] = direction;
       } else if (action === "direction") {
-        if (engine.modalKind)
-          throw new Error(
-            `steps[${index}]: acknowledge the ${engine.modalKind} modal before moving.`,
-          );
         // The numeric form of move: 0..8, one heading decision per cycle.
         moveDirection = integer(step["direction"], `steps[${index}].direction`, 0, 8);
         engine.vars[6] = moveDirection;
       } else if (action === "walkTo") {
-        if (engine.modalKind)
-          throw new Error(
-            `steps[${index}]: acknowledge the ${engine.modalKind} modal before moving.`,
-          );
         walkTarget = {
           x: integer(step["x"], `steps[${index}].x`, 0, 159),
           y: integer(step["y"], `steps[${index}].y`, 0, 167),

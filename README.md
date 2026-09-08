@@ -4,8 +4,8 @@ Describe an adventure, then play it as an agent builds the rooms around you.
 You can ask for changes while you play: give the guard a different personality,
 add a puzzle, or turn the courtyard into a swamp.
 
-AGI IS HERE runs in your browser, using an authentic **Adventure Game
-Interpreter**, the engine behind Sierra's early adventures. The agent writes
+AGI IS HERE runs in your browser, using an authentic [**Adventure Game
+Interpreter**](https://en.wikipedia.org/wiki/Adventure_Game_Interpreter), the engine behind Sierra's early adventures. The agent writes
 real AGI game files, which you can inspect, download and play again. Creating
 and remixing use your own OpenAI or Anthropic API key; playing existing content
 needs no key.
@@ -40,7 +40,13 @@ on your own site, put their resources in public folders and list them in
 `catalog.json`; visitors play them directly from the gallery without importing
 files. See [hosting included games](docs/hosting.md#including-games-on-your-site).
 
-**Add game** accepts a ZIP or folder. Your library appears under **Your games**,
+**Add game** accepts a ZIP or folder. Compatible games verified to boot in this
+interpreter include _King's Quest I–IV_, _Space Quest I–II_, _Police Quest I_,
+_Leisure Suit Larry I_, _The Black Cauldron_, _Mixed-Up Mother Goose_,
+_Donald Duck's Playground_, _Gold Rush!_, _Manhunter: New York_,
+_Manhunter 2: San Francisco_, and the _Sierra demo pack_ (see
+[testing compatibility](docs/testing.md#testing-compatibility) for supported
+editions and fixture tests). Your library appears under **Your games**,
 with **Resume** or **Play** on each card and a screenshot from its latest autosave.
 Rename a game with the pencil beside its name. Open **Game actions** to start
 over, check an imported game's opening, make a copy, download or remove a game.

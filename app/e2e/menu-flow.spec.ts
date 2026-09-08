@@ -8,7 +8,12 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("first visit has one route per action and aligned sections", async ({ page }) => {
-  await expect(page.locator(".welcome button, .welcome a")).toHaveCount(0);
+  await expect(page.locator(".welcome button")).toHaveCount(0);
+  await expect(page.locator(".welcome a")).toHaveCount(1);
+  await expect(page.locator(".welcome a")).toHaveAttribute(
+    "href",
+    "https://en.wikipedia.org/wiki/Adventure_Game_Interpreter",
+  );
   await expect(page.getByTestId("create-adventure-disclosure")).toContainText(
     "Connect your AI provider to generate a game.",
   );

@@ -17,16 +17,36 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
   {
     name: "reserve_binding",
     description:
-      "Bind a stable lowercase `name` to a resource, flag or variable of `kind` (logic, picture, view, sound, flag or variable). Null `id` allocates safely; an explicit `id` binds that slot without changing its contents. Indirect variable/flag access prevents automatic allocation.",
+      "Bind stable lowercase names to resources, flags or variables of `kind` (logic, picture, view, sound, flag or variable). Supports a `bindings` array to reserve multiple names at once, or single `name`/`kind`/`id`. Null `id` allocates safely; an explicit `id` binds that slot without changing its contents. Returns `#define` lines.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        name: string,
-        kind: { type: "string", enum: ["logic", "picture", "view", "sound", "flag", "variable"] },
+        bindings: {
+          type: ["array", "null"],
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              name: string,
+              kind: {
+                type: "string",
+                enum: ["logic", "picture", "view", "sound", "flag", "variable"],
+              },
+              id: nullableId,
+            },
+            required: ["name", "kind", "id"],
+          },
+          description: "List of bindings to reserve in one call.",
+        },
+        name: { type: ["string", "null"], maxLength: 64 },
+        kind: {
+          type: ["string", "null"],
+          enum: ["logic", "picture", "view", "sound", "flag", "variable", null],
+        },
         id: nullableId,
       },
-      required: ["name", "kind", "id"],
+      required: ["bindings", "name", "kind", "id"],
     },
   },
   {
@@ -173,43 +193,84 @@ export function executeAuthoringTool(
   if (!AUTHORING_TOOLS.some((tool) => tool.name === name)) return undefined;
   try {
     if (name === "reserve_binding") {
-      const symbol = args["name"];
-      const kind = args["kind"] as BindingKind;
-      if (
-        typeof symbol !== "string" ||
-        !/^[a-z][a-z0-9_]{0,63}$/.test(symbol) ||
-        ["__proto__", "constructor", "prototype"].includes(symbol)
-      )
-        throw new Error("name must be a lowercase identifier of at most 64 characters.");
-      if (!["logic", "picture", "view", "sound", "flag", "variable"].includes(kind))
-        throw new Error("Invalid binding kind.");
-      const existing = state.authoring.bindings[symbol];
-      let num = args["id"];
-      if (existing) {
-        if (existing.kind !== kind || (num != null && existing.num !== num))
-          throw new Error(
-            `Binding '${symbol}' already means ${existing.kind} ${existing.num}; use its existing ID.`,
-          );
-        num = existing.num;
-      } else if (num == null) {
-        const used = occupiedIds(state, kind);
-        const start = kind === "flag" || kind === "variable" ? 32 : 1;
-        num = Array.from({ length: 256 - start }, (_, index) => start + index).find(
-          (id) => !used.has(id),
-        );
-        if (num === undefined) throw new Error(`No free ${kind} IDs remain.`);
+      let items: { name: unknown; kind: unknown; id: unknown }[];
+      if (Array.isArray(args["bindings"])) {
+        items = args["bindings"] as { name: unknown; kind: unknown; id: unknown }[];
+        if (items.length === 0) throw new Error("bindings array must not be empty.");
+      } else if (args["name"] != null) {
+        items = [{ name: args["name"], kind: args["kind"], id: args["id"] }];
+      } else {
+        throw new Error("Must provide either 'bindings' array or 'name', 'kind', and 'id'.");
       }
-      if (typeof num !== "number" || !Number.isInteger(num) || num < 0 || num > 255)
-        throw new Error("id must be null or an integer in 0..255.");
-      state.authoring.bindings[symbol] = { kind, num };
-      return {
-        success: true,
-        message: `${symbol} = ${kind} ${num}. Logic tools accept this name.`,
-        details: {
+
+      const reservedList: { name: string; kind: BindingKind; num: number; define: string }[] = [];
+      const messages: string[] = [];
+
+      for (const item of items) {
+        const symbol = item.name;
+        const kind = item.kind as BindingKind;
+        if (
+          typeof symbol !== "string" ||
+          !/^[a-z][a-z0-9_]{0,63}$/.test(symbol) ||
+          ["__proto__", "constructor", "prototype"].includes(symbol)
+        )
+          throw new Error(
+            `name '${String(symbol)}' must be a lowercase identifier of at most 64 characters.`,
+          );
+        if (!["logic", "picture", "view", "sound", "flag", "variable"].includes(kind))
+          throw new Error(`Invalid binding kind '${String(kind)}'.`);
+        const existing = state.authoring.bindings[symbol];
+        let num = item.id;
+        if (existing) {
+          if (existing.kind !== kind || (num != null && existing.num !== num))
+            throw new Error(
+              `Binding '${symbol}' already means ${existing.kind} ${existing.num}; use its existing ID.`,
+            );
+          num = existing.num;
+        } else if (num == null) {
+          const used = occupiedIds(state, kind);
+          for (const b of reservedList) {
+            if (b.kind === kind) used.add(b.num);
+          }
+          const start = kind === "flag" || kind === "variable" ? 32 : 1;
+          num = Array.from({ length: 256 - start }, (_, index) => start + index).find(
+            (id) => !used.has(id),
+          );
+          if (num === undefined) throw new Error(`No free ${kind} IDs remain.`);
+        }
+        if (typeof num !== "number" || !Number.isInteger(num) || num < 0 || num > 255)
+          throw new Error("id must be null or an integer in 0..255.");
+        state.authoring.bindings[symbol] = { kind, num };
+        reservedList.push({
           name: symbol,
           kind,
           num,
           define: `#define ${symbol} ${num}`,
+        });
+        messages.push(`${symbol} = ${kind} ${num}`);
+      }
+
+      if (reservedList.length === 1 && !Array.isArray(args["bindings"])) {
+        const first = reservedList[0]!;
+        return {
+          success: true,
+          message: `${first.name} = ${first.kind} ${first.num}. Logic tools accept this name.`,
+          details: {
+            name: first.name,
+            kind: first.kind,
+            num: first.num,
+            define: first.define,
+            authoringChanged: true,
+          },
+        };
+      }
+
+      return {
+        success: true,
+        message: `${reservedList.length} bindings reserved: ${messages.join(", ")}. Logic tools accept these names.`,
+        details: {
+          bindings: reservedList,
+          defines: reservedList.map((r) => r.define).join("\n"),
           authoringChanged: true,
         },
       };
