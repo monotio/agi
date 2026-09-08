@@ -56,8 +56,8 @@ export class Speedrun {
         return line;
       },
       waitKey: () => {
-        this.actions.push({ kind: "key", code: 13 });
-        return 13;
+        this.actions.push({ kind: "key", code: AGI_KEY.ENTER });
+        return AGI_KEY.ENTER;
       },
       promptString: (prompt) => {
         this.textPrompts.push(prompt);

@@ -40,7 +40,7 @@ for (const game of OPENING_ROUTES) {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     const run = openingRoute(slug);
-    const replay = new BrowserReplay(page, false, game.holdMovement);
+    const replay = new BrowserReplay(page, false);
     await replay.boot(slug, run.seed);
     await replay.play(run.actions);
     expect((await replay.read()).state.profile).toBe(run.engine.profile.id);

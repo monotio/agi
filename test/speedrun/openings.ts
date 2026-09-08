@@ -16,8 +16,6 @@ export interface Opening {
   readonly titleRoom: number;
   /** Present when the suite has a route through player-controlled movement. */
   readonly openingRoom?: number;
-  /** Browser movement keys remain held while advancing the replay clock. */
-  readonly holdMovement?: boolean;
 }
 
 export const OPENINGS: readonly Opening[] = [
@@ -32,7 +30,7 @@ export const OPENINGS: readonly Opening[] = [
   { slug: "lsl1", profiles: ["2.440"], titleRoom: 1 },
   { slug: "mh1", profiles: ["3.002.102"], titleRoom: 153 },
   { slug: "mh2", profiles: ["3.002.149"], titleRoom: 153 },
-  { slug: "mumg", profiles: ["2.917"], titleRoom: 96, openingRoom: 32, holdMovement: true },
+  { slug: "mumg", profiles: ["2.917"], titleRoom: 96, openingRoom: 32 },
   { slug: "pq1", profiles: ["2.936"], titleRoom: 1 },
   { slug: "sq1", profiles: ["2.917"], titleRoom: 67 },
   { slug: "sq2", profiles: ["2.936"], titleRoom: 140, openingRoom: 2 },
@@ -62,7 +60,7 @@ export function openingRoute(slug: string): Speedrun {
   run.advance(120);
   run.dismiss();
   if (slug !== "bc") {
-    run.key(13);
+    run.key(AGI_KEY.ENTER);
     run.advance(120);
     run.dismiss();
   }

@@ -31,14 +31,14 @@ resource readers still reject unavailable data if the scenario requests it.
 | Game                     | Folder            | Interpreter build / profile | Tests                                                                                                                                                                                                                |
 | ------------------------ | ----------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | King's Quest I           | `games/kq1/`      | 2.917                       | [Full-game completion proof](#kq1-completion-proof) (159 points; Node and browser), [resources](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts) |
-| King's Quest II          | `games/kq2/`      | 2.411                       | [Walkthrough to 41 points](../test/kq2-walkthrough.test.ts), [resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)           |
+| King's Quest II          | `games/kq2/`      | 2.411                       | [Walkthrough to 41 points](../test/walkthroughs.test.ts), [resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)              |
 | King's Quest III         | `games/kq3/`      | 2.936                       | [Resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)                                                                        |
 | King's Quest IV          | `games/kq4/`      | 3.002.086                   | [Resources](../test/kq4.test.ts), [regressions](../test/kq4-regressions.test.ts)                                                                                                                                     |
 | The Black Cauldron       | `games/bc/`       | 2.439 / 2.440               | [Opening and movement](../test/openings.test.ts)                                                                                                                                                                     |
 | Mixed-Up Mother Goose    | `games/mumg/`     | 2.917                       | [Introduction and movement](../test/openings.test.ts)                                                                                                                                                                |
 | Donald Duck's Playground | `games/ddp/`      | DOS 1.50; 2.272 / 2.440     | [Difficulty selection and movement](../test/openings.test.ts), replayed in the browser                                                                                                                               |
 | Space Quest II           | `games/sq2/`      | 2.936                       | [Opening and movement](../test/openings.test.ts)                                                                                                                                                                     |
-| Space Quest I            | `games/sq1/`      | 2.917                       | [Walkthrough to 42 points](../test/sq1-walkthrough.test.ts), [opening](../test/openings.test.ts)                                                                                                                     |
+| Space Quest I            | `games/sq1/`      | 2.917                       | [Walkthrough to 42 points](../test/walkthroughs.test.ts), [opening](../test/openings.test.ts)                                                                                                                        |
 | Police Quest I           | `games/pq1/`      | 2.903 / 2.936 fallback      | [Opening](../test/openings.test.ts)                                                                                                                                                                                  |
 | Leisure Suit Larry I     | `games/lsl1/`     | 2.440                       | [Opening](../test/openings.test.ts)                                                                                                                                                                                  |
 | Gold Rush                | `games/gr1/`      | 3.002.149                   | [Opening](../test/openings.test.ts), [binary profile](../test/mh2-profile.test.ts)                                                                                                                                   |
@@ -148,10 +148,12 @@ completion runs on the specific game edition and interpreter profile.
 
 ### Adding a walkthrough test
 
-Put reusable route code in [test/speedrun/](../test/speedrun/) and register it in
-a fixture-gated test. [Speedrun](../test/speedrun/runner.ts) provides player input,
+Put reusable route code in [test/speedrun/](../test/speedrun/) and register its
+coverage and endpoint in the [walkthrough catalog](../test/speedrun/walkthroughs.ts).
+The shared Node and browser suites handle fixture gating and verification.
+[Speedrun](../test/speedrun/runner.ts) provides player input,
 clock advancement and milestone assertions; the
-[KQ2 opening route](../test/speedrun/kq2-opening.ts) is a compact example.
+[KQ2 opening route](../test/speedrun/kq2.ts) is a compact example.
 
 1. Specify the game edition, interpreter profile and segment being tested. Use
    [fixtureSkip](../test/fixtures.ts) to report the required inputs when absent.
@@ -180,9 +182,9 @@ for contribution requirements.
 After supplying the KQ1 2.917 fixture, run:
 
 ```bash
-npm run prove:kq1
+npm run prove:walkthrough -- kq1
 npm --prefix app exec -- playwright install chromium webkit
-npm run prove:kq1:browser
+AGI_SPEEDRUN_FILE=/tmp/agi-kq1-speedrun.json npm --prefix app run e2e -- --config playwright.speedrun.config.ts
 ```
 
 The first command executes the walkthrough with a seeded random source and a
@@ -190,11 +192,11 @@ virtual 60 Hz host clock. It plays from the title screen using walking keys,
 parser commands and prompt replies. Deaths, missed score milestones and an
 incomplete ending fail the run. Completion requires all three royal treasures,
 159 points and the finished throne-room ending sequence. The JSON report defaults to
-`/tmp/agi-kq1-speedrun.json` (pass another path after `npm run prove:kq1 --`);
+`/tmp/agi-kq1-speedrun.json` (pass another path after `npm run prove:walkthrough -- kq1`);
 reports contain input events, resource hashes, checkpoints and the observed
 ending state, not game resources.
 
-The browser command generates a fresh report, then replays it through actual
+The browser command replays that report through actual
 desktop keys and phone controls in Chromium and WebKit with only the test-mode
 host clock accelerated. Each replay verifies the exact local fixture hashes and
 the game's terminal ending state independently of the report's success label; a
@@ -206,8 +208,8 @@ and screen readers still require device testing.
 After supplying the KQ2 2.411 or SQ1 2.917 fixture described above, run:
 
 ```bash
-node --test --experimental-strip-types test/kq2-walkthrough.test.ts test/sq1-walkthrough.test.ts
-npm --prefix app run e2e -- e2e/walkthrough-milestones.spec.ts
+node --test --experimental-strip-types test/walkthroughs.test.ts
+npm --prefix app run e2e -- e2e/walkthroughs.spec.ts
 ```
 
 Each route uses normal player inputs and a virtual clock, asserts score and
@@ -216,15 +218,19 @@ covers the opening errands, monastery cross, brooch, first door inscription and
 bridge round trip at score 41. The SQ1 route retrieves the cartridge and keycard,
 escapes the Arcada, lands on Kerona and crushes the spider droid with the boulder
 at score 42. Browser tests replay the same routes through the app's controls.
-The shorter opening segments also remain covered in `test/speedrun.test.ts`.
-These are partial walkthroughs; later puzzles and endings are not covered.
+The same catalog includes KQ1 completion and MH1 Day 1. Each entry defines its
+coverage, route and observable endpoint once for Node, CLI and browser checks.
+`scripts/walkthrough.ts` writes a replay for any catalog entry; for example,
+`npm run prove:walkthrough -- sq1`. Game-specific route modules contain player
+actions and intermediate milestones; `test/speedrun.test.ts` checks the driver.
+KQ2 and SQ1 are partial walkthroughs; their later puzzles and endings are not covered.
 
 ### Manhunter Day 1 proof
 
 After supplying the Manhunter: New York 3.002.107 fixture, run:
 
 ```bash
-npm run prove:mh1
+npm run prove:walkthrough -- mh1
 ```
 
 The route in `test/speedrun/mh1-day1.ts` plays the first day from the title
@@ -234,7 +240,7 @@ open the map, the MAD and the inventory, and the Orbs' name prompt is typed.
 The maze machine and the sewer network are driven by fixed move lists recorded
 from the engine's own runs, so a changed engine behavior fails the replay
 instead of being routed around. The same route runs as a fixture-gated test in
-`test/mh1.test.ts`, and the JSON report defaults to
+`test/walkthroughs.test.ts`, and the JSON report defaults to
 `/tmp/agi-mh1-speedrun.json`. Coverage ends at the start of Day 2; later days
 need their own walkthroughs.
 

@@ -3,7 +3,7 @@ import base from "./playwright.config.ts";
 
 export default defineConfig({
   ...base,
-  testMatch: "kq-speedrun.spec.ts",
+  testMatch: "walkthroughs.spec.ts",
   projects: [
     { name: "chromium", use: { browserName: "chromium" } },
     { name: "webkit", use: { browserName: "webkit" } },

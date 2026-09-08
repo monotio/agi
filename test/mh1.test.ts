@@ -10,13 +10,11 @@ import { detectProfile, detectVersionString } from "../src/runtime/profile.ts";
 import { createPictureSurface } from "../src/types.ts";
 import { fixtureSkip } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
-import { day1 } from "./speedrun/mh1-day1.ts";
-import { Speedrun } from "./speedrun/runner.ts";
 
 /**
  * Optional Manhunter: New York 3.002.107 fixture tests. The specification
  * maps this build to profile 3.002.102. The suite covers compressed and
- * directly stored logic, clock waits and the Day 1 route.
+ * directly stored logic and clock waits. Walkthrough coverage uses the shared suite.
  */
 const SLUG = "mh1";
 const skip = fixtureSkip(SLUG, ["AGIDATA.OVL"]);
@@ -136,23 +134,3 @@ test(
     assert.match(printed, /explosion\n at Bellevue Hospital!/);
   },
 );
-
-test(`${SLUG}: Day 1 completes from a cold boot through the cursor interface`, { skip }, () => {
-  // The route in test/speedrun/mh1-day1.ts presses only keys a player could:
-  // it proved set.loop must keep an in-range cel (the knife game's ending) and
-  // that the movement pass clears v2 (the city map's page turns). The same
-  // route backs `npm run prove:mh1`.
-  const run = new Speedrun(SLUG, 1);
-  day1(run);
-  assert.equal(run.state().room, 104, "Day 1 ends at home");
-  assert.equal(run.engine.vars[60], 2, "the day counter reads Day 2");
-  const carried = run.engine
-    .readState()
-    .inventory.filter((item) => item.room === 255)
-    .map((item) => item.name);
-  assert.deepEqual(carried, ["Twelve Keycards", "Medallion", "MAD", "Data Card"]);
-  assert.ok(
-    run.actions.some((a) => a.kind === "answer"),
-    "the Orbs' name prompt was typed",
-  );
-});

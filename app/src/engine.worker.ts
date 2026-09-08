@@ -161,6 +161,7 @@ function postReplay(blocked: string | null): void {
     state: engine.readState(),
     rows: Array.from({ length: 25 }, (_, row) => engine!.textRow(row)),
     egoView: engine.screenObjects[0]!.view,
+    releaseGate: engine.releaseGate,
   };
   self.postMessage({ type: "replay", id: replayRequest, observation });
   replayRequest = null;
