@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { AGI_KEY } from "../../src/runtime/keys.ts";
 import type { ScreenObject } from "../../src/runtime/screenObject.ts";
 import type { Speedrun } from "./runner.ts";
 
@@ -12,11 +13,7 @@ import type { Speedrun } from "./runner.ts";
  * and 114) and Tab the inventory (controller 7). Waits are counted in host
  * ticks at 60 Hz; the game runs one interpreter cycle per six ticks.
  */
-export const KEY_ENTER = 13;
-export const KEY_TAB = 9;
 export const KEY_C = 0x43;
-export const KEY_F3 = 0x3d00;
-export const KEY_RIGHT = 0x4d00;
 export const ROOM_MAP = 114;
 
 const DIRECTIONS: Record<string, number> = {
@@ -74,7 +71,7 @@ export class Manhunter {
   }
 
   enter(ticks = 60): void {
-    this.key(KEY_ENTER, ticks);
+    this.key(AGI_KEY.ENTER, ticks);
   }
 
   waitFor(predicate: () => boolean, label: string, max = 1200): void {
@@ -143,7 +140,7 @@ export class Manhunter {
 
   /** F3 opens the city map from any street room. */
   map(): void {
-    this.key(KEY_F3);
+    this.key(AGI_KEY.F3);
     this.waitFor(() => this.engine.vars[0] === ROOM_MAP, "the city map", 600);
     this.step(30);
   }

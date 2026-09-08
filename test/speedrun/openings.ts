@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { AGI_KEY } from "../../src/runtime/keys.ts";
 import { Speedrun } from "./runner.ts";
 
 /**
@@ -57,7 +58,7 @@ export function openingRoute(slug: string): Speedrun {
   if (slug === "sq2" || slug === "mumg") run.answer("PLAYER");
   run.advance(120);
   run.checkpoint("Title", { room: titleRoom, score: 0 });
-  run.key(slug === "mumg" ? 32 : 13);
+  run.key(slug === "mumg" ? AGI_KEY.SPACE : AGI_KEY.ENTER);
   run.advance(120);
   run.dismiss();
   if (slug !== "bc") {

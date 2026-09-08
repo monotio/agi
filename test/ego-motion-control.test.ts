@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
+import { AGI_KEY } from "../src/runtime/keys.ts";
 import { buildView } from "../src/view/view.ts";
 import { decodeSave } from "../src/runtime/persistence.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
@@ -31,7 +32,6 @@ class Host implements EngineHost {
   }
 }
 
-const KEY_UP = 0x4800;
 const setup = `load.view(1); animate.obj(o0); set.view(o0, 1); ignore.horizon(o0); ignore.blocks(o0); ignore.objs(o0); position(o0, 20, 100); draw(o0); stop.cycling(o0);`;
 
 function game(source: string): { engine: Engine; host: Host } {
@@ -58,7 +58,7 @@ test("move.obj on ego takes program control until arrival, then hands control ba
   assert.equal(ego.y, 99);
   assert.equal(coupling(engine), 0, "the scripted walk runs under program control");
   // An arrow key during the scripted walk is ignored: v6 mirrors the object.
-  host.keys.push(0x4d00); // right
+  host.keys.push(AGI_KEY.RIGHT);
   engine.tick();
   assert.deepEqual(
     [ego.x, ego.y, engine.vars[6]],
@@ -75,7 +75,7 @@ test("move.obj on ego takes program control until arrival, then hands control ba
   assert.deepEqual([engine.flags[202], engine.vars[6]], [1, 0], "completion flag set, v6 cleared");
   assert.equal(coupling(engine), 1, "player control restored");
   // Player control is back: an arrow key now moves ego.
-  host.keys.push(KEY_UP);
+  host.keys.push(AGI_KEY.UP);
   engine.tick();
   assert.deepEqual([ego.x, ego.y], [20, 96], "the key moved ego");
 });
@@ -87,13 +87,13 @@ test("a zero-distance move.obj on ego is a control hand-back", () => {
     return;
   `);
   engine.tick();
-  host.keys.push(KEY_UP);
+  host.keys.push(AGI_KEY.UP);
   engine.tick();
   const ego = engine.screenObjects[0]!;
   assert.deepEqual([ego.y, engine.vars[6]], [100, 0], "program control ignores the key");
   engine.tick(); // the zero-distance move completes on its first motion update
   assert.equal(engine.flags[202], 1);
-  host.keys.push(KEY_UP);
+  host.keys.push(AGI_KEY.UP);
   engine.tick();
   assert.equal(ego.y, 99, "player control restored by the completed move");
 });
@@ -106,7 +106,7 @@ test("wander on ego selects program control", () => {
   `);
   engine.tick();
   engine.tick();
-  host.keys.push(KEY_UP);
+  host.keys.push(AGI_KEY.UP);
   engine.tick();
   assert.equal(
     engine.vars[6],

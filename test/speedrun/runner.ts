@@ -1,3 +1,4 @@
+import { AGI_KEY } from "../../src/runtime/keys.ts";
 import assert from "node:assert/strict";
 import { Engine, type EngineHost } from "../../src/runtime/engine.ts";
 import { CycleClock } from "../../src/runtime/cycleClock.ts";
@@ -138,7 +139,7 @@ export class Speedrun {
   dismiss(): void {
     for (let n = 0; this.engine.modalKind !== null || this.engine.continuationPending; n++) {
       assert.ok(n < 100, `Unsettled modal: ${this.state().text}`);
-      if (this.engine.modalKind !== null) this.key(13);
+      if (this.engine.modalKind !== null) this.key(AGI_KEY.ENTER);
       this.advance();
     }
   }

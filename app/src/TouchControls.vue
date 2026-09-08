@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { AGI_KEY } from "../../src/runtime/keys.ts";
 import { FUNCTION_KEYS, ALT_LETTER_SCANS } from "./gameControls.ts";
 
 const { disabled, navigating, hold } = defineProps<{
@@ -25,10 +26,10 @@ const directions = [
 ];
 const extraKeys: Record<string, number> = {
   ...FUNCTION_KEYS,
-  Tab: 9,
-  Backspace: 8,
-  Insert: 0x5200,
-  Delete: 0x5300,
+  Tab: AGI_KEY.TAB,
+  Backspace: AGI_KEY.BACKSPACE,
+  Insert: AGI_KEY.INSERT,
+  Delete: AGI_KEY.DELETE,
   "Scroll Lock": 0x4600,
 };
 const modifier = ref<"none" | "ctrl" | "alt">("none");
@@ -139,9 +140,9 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <div class="action-keys">
-        <button type="button" :disabled @click="emit('key', 13)">Enter</button>
-        <button type="button" :disabled @click="emit('key', 27)">Esc</button>
-        <button type="button" :disabled @click="emit('key', 32)">Space</button>
+        <button type="button" :disabled @click="emit('key', AGI_KEY.ENTER)">Enter</button>
+        <button type="button" :disabled @click="emit('key', AGI_KEY.ESCAPE)">Esc</button>
+        <button type="button" :disabled @click="emit('key', AGI_KEY.SPACE)">Space</button>
       </div>
     </div>
     <p class="movement-help">

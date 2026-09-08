@@ -29,7 +29,8 @@ import { actionSpec, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../logic/opcod
 import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "../view/view.ts";
 import { detectProfile, type AgiProfile, type ProfileId } from "./profile.ts";
 import { TraceWindow } from "./trace.ts";
-import { InputQueue, NAV_KEYS } from "./inputQueue.ts";
+import { InputQueue } from "./inputQueue.ts";
+import { AGI_KEY, NAV_KEYS } from "./keys.ts";
 import { validateEngineReplayState, type EngineReplayState } from "./replayState.ts";
 import { runSaveDialog, type SaveSlot } from "./saveDialog.ts";
 import {
@@ -236,7 +237,6 @@ type Modal =
   | { kind: "showObj"; saved: SavedRect; view: number }
   | { kind: "showPri" };
 
-const KEY_ENTER = 0x0d;
 /** have.key polls per cycle before a keyless host receives a synthesized Enter. */
 const HAVE_KEY_POLL_LIMIT = 1000;
 /**
@@ -273,8 +273,6 @@ const HOST_REPLAY_LIMIT = 4096;
  * non-blocking, so ordinary graphics-mode play never freezes on a keypress.
  */
 const HAVE_KEY_BUSY_POLLS = 16;
-const KEY_ESC = 0x1b;
-const KEY_BACKSPACE = 0x08;
 /** Inventory interaction flag (spec "Inventory selection"). */
 const F_INV_SELECT = 13;
 /** Menu request gate flag (spec "Menu interaction"). */
@@ -836,11 +834,11 @@ export class Engine {
     }
     const byte = key & 0xff;
     if (this.inputAccepted && !this.textMode) {
-      if (byte === KEY_ENTER && this.editLine.length > 0) {
+      if (byte === AGI_KEY.ENTER && this.editLine.length > 0) {
         this.acceptLine(this.editLine);
         return;
       }
-      if (byte === KEY_BACKSPACE) {
+      if (byte === AGI_KEY.BACKSPACE) {
         this.editLine = this.editLine.slice(0, -1);
         this.drawInputRow();
         return;
@@ -864,8 +862,8 @@ export class Engine {
     }
     const m = this.modal;
     if (!m) return;
-    if (key === 0x0101 || key === 0x0301) key = KEY_ENTER;
-    if (key === 0x0201 || key === 0x0401) key = KEY_ESC;
+    if (key === 0x0101 || key === 0x0301) key = AGI_KEY.ENTER;
+    if (key === 0x0201 || key === 0x0401) key = AGI_KEY.ESCAPE;
     const nav = NAV_KEYS[key];
     if (nav !== undefined) {
       this.modalNavigate(nav);
@@ -876,30 +874,31 @@ export class Engine {
       case "print":
       case "showObj":
       case "showPri":
-        if (byte === KEY_ENTER || byte === KEY_ESC || byte === 0x20) this.closeModal();
+        if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE || byte === AGI_KEY.SPACE)
+          this.closeModal();
         return;
       case "inventory":
         if (!m.interactive) {
           if (byte !== 0) this.closeModal();
           return;
         }
-        if (byte === KEY_ENTER) {
+        if (byte === AGI_KEY.ENTER) {
           this.vars[V_SELECTED_ITEM] = m.items[m.selected]?.num ?? 0xff;
           this.closeModal();
-        } else if (byte === KEY_ESC) {
+        } else if (byte === AGI_KEY.ESCAPE) {
           this.vars[V_SELECTED_ITEM] = 0xff;
           this.closeModal();
         }
         return;
       case "menu":
-        if (byte === KEY_ENTER) {
+        if (byte === AGI_KEY.ENTER) {
           const heading = this.menu[this.menuHeading]!;
           const item = heading.items[heading.current];
           if (item && item.enabled) {
             this.pendingController = item.id;
             this.closeModal();
           }
-        } else if (byte === KEY_ESC) {
+        } else if (byte === AGI_KEY.ESCAPE) {
           this.closeModal();
         }
         return;
@@ -1020,10 +1019,10 @@ export class Engine {
     const wait = this.host.waitKey ?? this.host.waitTextKey;
     try {
       for (;;) {
-        const key = wait ? wait.call(this.host) : (this.host.takeKeys()[0] ?? KEY_ESC);
+        const key = wait ? wait.call(this.host) : (this.host.takeKeys()[0] ?? AGI_KEY.ESCAPE);
         const byte = key & 0xff;
-        if (byte === KEY_ENTER) return true;
-        if (byte === KEY_ESC || key === 0) return false;
+        if (byte === AGI_KEY.ENTER) return true;
+        if (byte === AGI_KEY.ESCAPE || key === 0) return false;
       }
     } finally {
       if (confirmation && this.modal === confirmation) this.closeModal();
@@ -1047,9 +1046,9 @@ export class Engine {
           for (const key of this.host.takeKeys()) {
             const normalized =
               key === 0x0101 || key === 0x0301
-                ? KEY_ENTER
+                ? AGI_KEY.ENTER
                 : key === 0x0201 || key === 0x0401
-                  ? KEY_ESC
+                  ? AGI_KEY.ESCAPE
                   : key;
             const raw = normalized & 0xff ? normalized & 0xff : normalized & 0xffff;
             const navigation = NAV_KEYS[raw];
@@ -1068,7 +1067,7 @@ export class Engine {
               if (navigationKey) return Number(navigationKey[0]);
             }
           }
-          return KEY_ESC;
+          return AGI_KEY.ESCAPE;
         },
         ...(describe
           ? {
@@ -2060,9 +2059,9 @@ export class Engine {
       for (const key of this.host.takeKeys()) {
         const normalized =
           key === 0x0101 || key === 0x0301
-            ? KEY_ENTER
+            ? AGI_KEY.ENTER
             : key === 0x0201 || key === 0x0401
-              ? KEY_ESC
+              ? AGI_KEY.ESCAPE
               : key;
         // Modal Enter/Escape are raw controls, even when a script binds them.
         const raw = normalized & 0xff ? normalized & 0xff : normalized & 0xffff;
@@ -3286,7 +3285,7 @@ export class Engine {
               pressed = this.pollRawKey();
             }
           } else if (++this.haveKeyPolls > HAVE_KEY_POLL_LIMIT) {
-            pressed = KEY_ENTER;
+            pressed = AGI_KEY.ENTER;
           }
         }
         if (pressed !== undefined) this.vars[V_KEY] = pressed & 0xff;
@@ -3953,7 +3952,7 @@ export class Engine {
           if (wait) {
             while (this.modal) {
               const key = wait.call(this.host);
-              this.modalKey(key === 0 ? KEY_ESC : key);
+              this.modalKey(key === 0 ? AGI_KEY.ESCAPE : key);
             }
           }
           this.terminated = true;

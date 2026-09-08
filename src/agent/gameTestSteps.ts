@@ -10,10 +10,8 @@ import { decodeRecordedReplay } from "./recordedReplay.ts";
  * in the browser worker and in Node.
  */
 
-/** PC key words for the eight compass directions (index 1..8; 0 is unused). */
-export const DIRECTION_KEYS: readonly number[] = [
-  0, 0x4800, 0x4900, 0x4d00, 0x5100, 0x5000, 0x4f00, 0x4b00, 0x4700,
-];
+/** The direction-key table is protocol data owned by src/runtime/keys.ts. */
+export { DIRECTION_KEYS } from "../runtime/keys.ts";
 
 /** Repeatable random input, never a chosen result for an individual game branch. */
 export function randomSource(seed: number): () => number {

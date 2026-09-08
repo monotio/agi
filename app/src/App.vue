@@ -58,6 +58,7 @@ import {
   pcKey,
   movementDirection,
 } from "./gameControls.ts";
+import { AGI_KEY, DIRECTION_KEYS } from "../../src/runtime/keys.ts";
 import { copyAiSettings, loadAiSettings, saveAiSettings, type AiSettings } from "./aiSettings.ts";
 import {
   suggestAssertions,
@@ -1193,17 +1194,17 @@ function onModalKey(ev: KeyboardEvent): void {
   }
   const code =
     ev.key === "Enter"
-      ? 0x000d
+      ? AGI_KEY.ENTER
       : ev.key === "Escape"
-        ? 0x001b
+        ? AGI_KEY.ESCAPE
         : ev.key === "Home"
-          ? 0x4700
+          ? AGI_KEY.HOME
           : ev.key === "End"
-            ? 0x4f00
+            ? AGI_KEY.END
             : ev.key === "PageUp"
-              ? 0x4900
+              ? AGI_KEY.PAGE_UP
               : ev.key === "PageDown"
-                ? 0x5100
+                ? AGI_KEY.PAGE_DOWN
                 : ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey
                   ? ev.key.charCodeAt(0) & 0xff
                   : null;
@@ -1576,7 +1577,7 @@ function onTouchDirection(dir: number): void {
   if (state.phase !== "running" || state.powerUp.open || state.prompt) return;
   touchMovementActive = state.modal === null && !state.waitingForKey;
   if (state.waitingForKey || state.modal === "save" || state.modal === "restore")
-    sendKey([0, 0x4800, 0x4900, 0x4d00, 0x5100, 0x5000, 0x4f00, 0x4b00, 0x4700][dir]!);
+    sendKey(DIRECTION_KEYS[dir]!);
   else sendDirection(dir);
 }
 
@@ -1584,13 +1585,13 @@ function onVirtualKey(code: number): void {
   resumeAudio();
   if (state.phase !== "running" || state.powerUp.open || composing.value) return;
   if (state.prompt) {
-    if (code === 13 || code === 27) {
-      submitPrompt(code === 27 ? "" : promptLine.value, code === 27);
-    } else if (code === 8) {
+    if (code === AGI_KEY.ENTER || code === AGI_KEY.ESCAPE) {
+      submitPrompt(code === AGI_KEY.ESCAPE ? "" : promptLine.value, code === AGI_KEY.ESCAPE);
+    } else if (code === AGI_KEY.BACKSPACE) {
       promptLine.value = promptLine.value.slice(0, -1);
       echoPrompt();
     } else if (
-      code >= 32 &&
+      code >= AGI_KEY.SPACE &&
       code <= 126 &&
       promptLine.value.length < Math.min(39, state.prompt.maxLen)
     ) {
@@ -1608,10 +1609,12 @@ function onVirtualKey(code: number): void {
     state.controls.some((binding) => binding.key === code)
   ) {
     sendKey(code);
-  } else if (code === 13) submit();
-  else if (code === 8 || (code >= 32 && code <= 126)) {
+  } else if (code === AGI_KEY.ENTER) submit();
+  else if (code === AGI_KEY.BACKSPACE || (code >= AGI_KEY.SPACE && code <= 126)) {
     inputLine.value =
-      code === 8 ? inputLine.value.slice(0, -1) : inputLine.value + String.fromCharCode(code);
+      code === AGI_KEY.BACKSPACE
+        ? inputLine.value.slice(0, -1)
+        : inputLine.value + String.fromCharCode(code);
     sendEdit(inputLine.value);
   } else sendKey(code);
 }
@@ -2799,7 +2802,7 @@ watch(
           v-if="state.phase === 'running'"
           class="input-row"
           @click.stop
-          @submit.prevent="onVirtualKey(13)"
+          @submit.prevent="onVirtualKey(AGI_KEY.ENTER)"
         >
           <input
             id="game-command"

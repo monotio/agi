@@ -43,6 +43,7 @@ import { openContainer } from "../../src/container/container.ts";
 import { OperationRecorder } from "../../src/agent/recordedReplay.ts";
 import type { RecordedEvent } from "./gameRecording.ts";
 import { Engine, type EngineHost, type EngineMenuState } from "../../src/runtime/engine.ts";
+import { AGI_KEY, DIRECTION_KEYS, NAV_KEYS } from "../../src/runtime/keys.ts";
 import { BRIDGE_HEADER_BYTES, BRIDGE_PAUSE_SLOT } from "./agent/sabBridge.ts";
 import { FrameRing } from "./frameRing.ts";
 import { CycleClock } from "../../src/runtime/cycleClock.ts";
@@ -986,7 +987,7 @@ self.onmessage = (ev: MessageEvent) => {
     }
     if (msg.type === "dismissPrint" && engine) {
       recording?.tape.record(["ack"]);
-      recordEvent({ cycle: cycleCount, kind: "key", code: 13 });
+      recordEvent({ cycle: cycleCount, kind: "key", code: AGI_KEY.ENTER });
       engine.ackPrint();
       postFrame();
       return;
@@ -1003,7 +1004,7 @@ self.onmessage = (ev: MessageEvent) => {
       if (
         deferredMovement.length > 0 &&
         engine?.modalKind === null &&
-        [0x4800, 0x4900, 0x4d00, 0x5100, 0x5000, 0x4f00, 0x4b00, 0x4700].includes(key)
+        NAV_KEYS[key] !== undefined
       ) {
         if (deferredMovement.length < 19) deferredMovement.push(key);
       } else keyBuffer.push(key);
@@ -1020,7 +1021,7 @@ self.onmessage = (ev: MessageEvent) => {
         flushDeferredMovement();
         return;
       }
-      const dirKey = [0, 0x4800, 0x4900, 0x4d00, 0x5100, 0x5000, 0x4f00, 0x4b00, 0x4700][dir];
+      const dirKey = DIRECTION_KEYS[dir];
       if (engine.modalKind !== null) {
         // Arrows steer the open modal (inventory selection, menu) instead of
         // ego; the direction key word replays the same navigation.

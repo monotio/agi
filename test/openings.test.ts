@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Engine } from "../src/runtime/engine.ts";
+import { AGI_KEY } from "../src/runtime/keys.ts";
 import { fixtureSkip } from "./fixtures.ts";
 import { Speedrun } from "./speedrun/runner.ts";
 import { OPENING_ROUTES, opening, openingRoute } from "./speedrun/openings.ts";
@@ -13,8 +14,6 @@ import { OPENING_ROUTES, opening, openingRoute } from "./speedrun/openings.ts";
  * the individual cases below; room and profile expectations come from the
  * shared opening catalog in test/speedrun/openings.ts.
  */
-
-const ENTER = 13;
 
 /** Cold boot through the shared driver, asserting the binary-selected profile. */
 function coldBoot(slug: string, load?: { checkVolumes?: boolean }): Speedrun {
@@ -42,7 +41,7 @@ test(
     run.answer(""); // the boot name prompt accepts an empty first name
     run.until(() => run.state().room === 67, 100, "title screen (room 67)");
     run.advance(60); // let the title settle before the any-key press
-    run.key(ENTER);
+    run.key(AGI_KEY.ENTER);
     run.until(() => run.engine.inputEnabled, 600, "first playable room");
     assert.deepEqual(
       run.textPrompts,
@@ -64,7 +63,7 @@ test(
     // The credits text fades in on a timer after the room loads.
     run.until(() => run.engine.textRow(1).includes("KING'S QUEST ]["), 1200, "the credits title");
     assert.ok(run.engine.textRow(2).includes("ROMANCING THE THRONE"), "the credits subtitle is up");
-    run.key(ENTER); // the credits screen waits for any key
+    run.key(AGI_KEY.ENTER); // the credits screen waits for any key
     run.until(() => run.engine.inputEnabled, 600, "first playable room");
     assert.equal(run.state().room, 1, "the opening room");
     assert.ok(run.engine.textRow(0).includes("Score: 0 of 185"), "the KQ2 status line is up");
@@ -84,7 +83,7 @@ test(
       1200,
       "the title copyright",
     );
-    run.key(ENTER); // the title waits for any key
+    run.key(AGI_KEY.ENTER); // the title waits for any key
     run.until(() => run.engine.inputEnabled, 600, "first playable room");
     assert.equal(run.state().room, 7, "the opening room");
     assert.ok(run.engine.textRow(0).includes("Score: 0 of 210"), "the KQ3 status line is up");
@@ -99,7 +98,7 @@ test(
     const run = coldBoot("pq1");
     run.until(() => run.state().room === 1, 100, "title screen (room 1)");
     run.advance(60);
-    run.key(ENTER); // the title waits for any key
+    run.key(AGI_KEY.ENTER); // the title waits for any key
     run.until(() => run.engine.inputEnabled, 600, "first playable room");
     assert.equal(run.state().room, 6, "the opening room");
     assert.ok(run.engine.textRow(0).includes("Score: 0 of 245"), "the PQ1 status line is up");
@@ -117,14 +116,14 @@ test(
     run.answerNumber(21);
     run.until(() => run.state().room === 1, 100, "title screen (room 1)");
     run.advance(60);
-    run.key(ENTER); // the title waits for any key
+    run.key(AGI_KEY.ENTER); // the title waits for any key
     run.until(() => run.engine.modalKind === "print", 600, "the content warning window");
     assert.ok(
       run.messages[0]!.includes("contains some elements of plot"),
       "the content warning text is up",
     );
     run.advance(5);
-    run.key(ENTER); // dismiss the warning
+    run.key(AGI_KEY.ENTER); // dismiss the warning
     run.until(() => run.numPrompts.length > 0, 600, "the age-check prompt");
     const prompt = run.numPrompts[0]!;
     assert.equal(prompt.room, 6, "the age check happens in its opening room");

@@ -8,6 +8,7 @@ import { openContainer } from "../container/container.ts";
 import { parseWordsTok } from "../logic/words.ts";
 import { TIMER_INCREMENT_MS } from "../runtime/cycleClock.ts";
 import { Engine, type EngineHost } from "../runtime/engine.ts";
+import { AGI_KEY } from "../runtime/keys.ts";
 import { frameToPng, framesToContactSheet, textRows, type AgentFrame } from "./frames.ts";
 import {
   directionForDelta,
@@ -639,7 +640,7 @@ export function playtestRoom(
       let moveDirection: number | null = null;
       let walkTarget: { x: number; y: number } | null = null;
       let until: UntilPredicate | null = null;
-      if (action === "enter") simulation.keys.push(13);
+      if (action === "enter") simulation.keys.push(AGI_KEY.ENTER);
       else if (action === "key")
         simulation.keys.push(integer(step["key"], `steps[${index}].key`, 0, 65535));
       else if (action === "command") {

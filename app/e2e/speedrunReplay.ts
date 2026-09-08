@@ -1,33 +1,34 @@
 import { expect, type Page } from "@playwright/test";
+import { AGI_KEY } from "../../src/runtime/keys.ts";
 import type { Action } from "../../test/speedrun/runner.ts";
 import type { ReplayObservation } from "../src/replay.ts";
 import { isolateStorage } from "./engineProbe.ts";
 
 const KEYS: Record<number, string> = {
-  8: "Backspace",
-  9: "Tab",
-  13: "Enter",
-  27: "Escape",
-  32: "Space",
-  0x4700: "Home",
-  0x4800: "ArrowUp",
-  0x4900: "PageUp",
-  0x4b00: "ArrowLeft",
-  0x4d00: "ArrowRight",
-  0x4f00: "End",
-  0x5000: "ArrowDown",
-  0x5100: "PageDown",
-  ...Object.fromEntries(Array.from({ length: 10 }, (_, n) => [(0x3b + n) << 8, `F${n + 1}`])),
+  [AGI_KEY.BACKSPACE]: "Backspace",
+  [AGI_KEY.TAB]: "Tab",
+  [AGI_KEY.ENTER]: "Enter",
+  [AGI_KEY.ESCAPE]: "Escape",
+  [AGI_KEY.SPACE]: "Space",
+  [AGI_KEY.HOME]: "Home",
+  [AGI_KEY.UP]: "ArrowUp",
+  [AGI_KEY.PAGE_UP]: "PageUp",
+  [AGI_KEY.LEFT]: "ArrowLeft",
+  [AGI_KEY.RIGHT]: "ArrowRight",
+  [AGI_KEY.END]: "End",
+  [AGI_KEY.DOWN]: "ArrowDown",
+  [AGI_KEY.PAGE_DOWN]: "PageDown",
+  ...Object.fromEntries(Array.from({ length: 10 }, (_, n) => [AGI_KEY.F1 + (n << 8), `F${n + 1}`])),
 };
 const DIRECTIONS: Record<number, string> = {
-  0x4700: "northwest",
-  0x4800: "north",
-  0x4900: "northeast",
-  0x4b00: "west",
-  0x4d00: "east",
-  0x4f00: "southwest",
-  0x5000: "south",
-  0x5100: "southeast",
+  [AGI_KEY.HOME]: "northwest",
+  [AGI_KEY.UP]: "north",
+  [AGI_KEY.PAGE_UP]: "northeast",
+  [AGI_KEY.LEFT]: "west",
+  [AGI_KEY.RIGHT]: "east",
+  [AGI_KEY.END]: "southwest",
+  [AGI_KEY.DOWN]: "south",
+  [AGI_KEY.PAGE_DOWN]: "southeast",
 };
 
 /** Only time is privileged. Every player action crosses the visible app controls. */
