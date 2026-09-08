@@ -31,6 +31,7 @@ export default defineConfig([
     "**/dist/",
     "app/test-results/",
     "app/playwright-report/",
+    ".captures/",
     "games/*/",
     "!games/adventure-department/",
     "evals/node_modules/",

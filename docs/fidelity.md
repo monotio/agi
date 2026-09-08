@@ -43,6 +43,25 @@ and disassemblies are Sierra data: keep them with the local fixtures, never comm
 
 ## Compatibility notes
 
+### Completion animation updates
+
+`end.of.loop` and `reverse.loop` select the updating object partition as well as
+starting cel cycling. Calling either after `stop.update` resumes the animation;
+the completion flag must be set when the terminal cel is reached. The normal
+startup delay and cycle cadence still apply. Without this update selection, a
+script waiting on a previously stopped object can stall indefinitely.
+
+The [cel-cycling specification](https://peterkelly.github.io/agi-re/spec/object_behavior.html#cel-cycling)
+defines the delay and completion behavior. Original interpreter handlers also
+restore update selection; this is distinct from invoking all refresh effects of
+`start.update`.
+
+Tests: [object-cadence.test.ts](../test/object-cadence.test.ts) covers both directions
+with original synthetic resources. The Mother Goose introduction in
+[openings.test.ts](../test/openings.test.ts) verifies that the
+waiting script reaches player control; [fixture-openings.spec.ts](../app/e2e/fixture-openings.spec.ts)
+replays the same inputs through the browser.
+
 ### Footprint class flags
 
 The footprint scan's trigger flag (f3) latches when any scanned baseline cell is control 2 and is

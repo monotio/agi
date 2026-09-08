@@ -9,6 +9,8 @@ export interface ReplayObservation {
   state: EngineStateReport;
   rows: string[];
   egoView: number;
+  /** Current key-release gate; input adapters must preserve held movement. */
+  releaseGate: number;
 }
 
 export interface ReplayDriver {

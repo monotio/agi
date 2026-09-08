@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { KEY_C, KEY_ENTER, KEY_RIGHT, KEY_TAB, Manhunter, ROOM_MAP } from "./mh1.ts";
+import { AGI_KEY } from "../../src/runtime/keys.ts";
+import { KEY_C, Manhunter, ROOM_MAP } from "./mh1.ts";
 import { DIRECTION_KEYS, type Speedrun } from "./runner.ts";
 
 /**
@@ -27,13 +28,13 @@ export function opening(mh: Manhunter): void {
   const { run, engine } = mh;
   mh.step(120);
   run.checkpoint("Title", { room: 153 });
-  mh.key(KEY_ENTER, 120);
+  mh.key(AGI_KEY.ENTER, 120);
   mh.waitFor(() => engine.vars[0] === 101, "the MAD tracker", 6000);
   // Enter starts the tracker, which replays the suspect's movements in four
   // timed segments alternating rooms 125 and 124; each finished segment sets
   // one of flags 65, 38, 68 and 69. C closes the MAD onto the city map.
   mh.waitFor(() => mh.hint().includes("Press <ENTER>"), "the tracker prompt");
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.waitFor(
     () => Boolean(engine.flags[69] && engine.flags[68] && engine.flags[38] && engine.flags[65]),
     "the tracker's four segments",
@@ -52,27 +53,27 @@ export function bellevue(mh: Manhunter): void {
   run.checkpoint("Bellevue Hospital", { room: 130 });
   // v66 is "inside", v50 the scene: 2 entrance hall, 3 ward, 6 close-up.
   mh.cursorTo(140, 137);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[66] === 1 && engine.vars[50] === 2 && mh.cursor.active, "the hall");
   mh.step(5);
   mh.cursorTo(77, 120);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[50] === 3 && mh.cursor.active, "the ward");
   mh.step(5);
   // The middle hotspot looks at the foot; the one on the right is the morgue.
   mh.cursorTo(96, 91);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[50] === 6, "the close-up");
   mh.step(60);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[50] === 3, "back in the ward");
   mh.step(10);
   mh.cursorTo(50, 160);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[50] === 2, "back in the hall");
   mh.step(5);
   mh.cursorTo(77, 160);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[66] === 0 && engine.vars[50] === 0, "outside");
   mh.step(10);
   // The MAD outside the hospital: Info on the name from the scene.
@@ -98,11 +99,11 @@ export function trinity(mh: Manhunter): void {
   mh.step(120);
   run.checkpoint("Trinity Church", { room: 111 });
   mh.cursorTo(72, 150);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[66] === 1, "inside the church");
   mh.step(60);
   mh.cursorTo(80, 160);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[66] === 0, "outside the church");
   mh.step(60);
   mh.map();
@@ -125,11 +126,11 @@ export function flatbush(mh: Manhunter): void {
   mh.step(5);
   run.checkpoint("Flatbush bar", { room: 122 });
   mh.cursorTo(75, 100);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[66] === 1 && engine.vars[0] === 122, "inside the bar");
   mh.step(120);
   mh.cursorTo(20, 100);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.waitFor(
     () => engine.vars[0] === 118 && engine.vars[50] === 0 && mh.hint().includes("throw"),
     "the knife game",
@@ -140,7 +141,7 @@ export function flatbush(mh: Manhunter): void {
   // the target column. Four hits end the game and return to the bar.
   for (const target of [50, 69, 85, 102]) {
     mh.waitFor(() => Math.abs(mh.cursor.x - target) <= 1, `a knife aimed at ${target}`, 600);
-    run.key(KEY_ENTER);
+    run.key(AGI_KEY.ENTER);
     for (let t = 0; t < 400 && engine.vars[0] === 118; t++) {
       mh.step(1);
       if (t > 20 && engine.vars[50] === 0) break;
@@ -152,7 +153,7 @@ export function flatbush(mh: Manhunter): void {
   // The arcade again now runs the maze machine, room 126.
   mh.cursorTo(20, 100);
   assert.match(mh.hint(), /video game/);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   // The machine shows its rules (v50 0) and Enter starts the game (v50 1);
   // from then on Enter would back out, so the avatar is driven by arrows only.
   mh.waitFor(
@@ -160,7 +161,7 @@ export function flatbush(mh: Manhunter): void {
     "the maze machine",
     600,
   );
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[50] === 1 && mh.cursor.active, "the maze started", 300);
   run.checkpoint("Maze", { room: 126 });
   maze(mh);
@@ -170,10 +171,10 @@ export function flatbush(mh: Manhunter): void {
     "the maze ending",
     4000,
   );
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[50] === 1, "the machine's back-up prompt");
   mh.step(10);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[0] === 122, "the bar after the maze");
   // Back out of the bar onto the street in front of it.
   mh.step(120);
@@ -275,21 +276,21 @@ export function sewers(mh: Manhunter): void {
     }
     const [x, y] = exits[move]!;
     mh.cursorTo(x, y);
-    run.key(KEY_ENTER);
+    run.key(AGI_KEY.ENTER);
     mh.settle();
   }
   assert.equal(cards, 12, "twelve keycards");
   assert.equal(engine.vars[250], 78, "the dock picture");
   mh.cursorTo(112, 100);
   assert.equal(engine.vars[51], 6, `the dock; ${mh.describe()}`);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.settle();
   mh.cursorTo(72, 83);
   assert.match(mh.hint(), /take the medallion/);
   mh.enter(120);
   assert.equal(engine.readState().inventory[13]!.room, 255, "the medallion is carried");
   mh.cursorTo(78, 160);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.settle();
   mh.map();
 }
@@ -302,7 +303,7 @@ function pitch(mh: Manhunter, x: number, y: number, shelves: readonly number[]):
     `the thrower at (${x},${y})`,
     2000,
   );
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   for (let t = 0; t < 400 && engine.vars[59] === 0; t++) {
     mh.step(1);
     if (t > 20 && engine.vars[95] === 0) break;
@@ -326,12 +327,12 @@ export function coneyIsland(mh: Manhunter): void {
   // booth choice. Moving after the snap would select the darts booth instead.
   mh.hotspot(1, 40, 100);
   assert.match(mh.hint(), /test your skills/);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[50] === 1, "the booth choice", 300);
   mh.step(5);
   mh.hotspot(2, 96, 100);
   assert.match(mh.hint(), /Kewpie Doll/);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[50] === 2, "the booth", 300);
   mh.waitFor(() => mh.hint().includes("throw"), "the first ball", 300);
   assert.equal(engine.vars[62], 2, "the Kewpie Doll booth");
@@ -344,18 +345,18 @@ export function coneyIsland(mh: Manhunter): void {
   mh.waitFor(() => engine.vars[59] === 4, "the barker's odd look", 1500);
   // Tab lists the carried items by number (Twelve Keycards 11, Medallion 13,
   // MAD 14); Right moves to the medallion and Enter shows it (v25 = 13).
-  run.key(KEY_TAB);
+  run.key(AGI_KEY.TAB);
   mh.step(6);
   assert.equal(engine.modalKind, "inventory");
-  run.key(KEY_RIGHT);
+  run.key(AGI_KEY.RIGHT);
   mh.step(1);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.step(12);
   assert.equal(engine.flags[72], 1, "the barker accepted the medallion");
   mh.waitFor(() => engine.vars[59] === 3, "the prize offer", 2500);
   mh.hotspot(1, 120, 100);
   assert.match(mh.hint(), /take your prize/);
-  run.key(KEY_ENTER);
+  run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[0] === 131, "the Orbs", 600);
   assert.equal(engine.readState().inventory[15]!.room, 255, "the Data Card is carried");
 }
@@ -376,7 +377,7 @@ export function orbs(mh: Manhunter): void {
     const stage = `${engine.vars[50]}/${engine.vars[47]}`;
     if (stage !== acknowledged && mh.hint().includes("Press <ENTER>")) {
       acknowledged = stage;
-      run.key(KEY_ENTER);
+      run.key(AGI_KEY.ENTER);
     }
   }
   mh.waitFor(() => engine.vars[0] === 104, "home", 600);

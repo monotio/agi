@@ -1,8 +1,9 @@
 import type { GameControlBinding } from "../../src/runtime/engine.ts";
+import { AGI_KEY } from "../../src/runtime/keys.ts";
 
 /** PC key words used by the browser's AGI input adapter. */
 export const FUNCTION_KEYS: Record<string, number> = Object.fromEntries(
-  Array.from({ length: 10 }, (_, i) => [`F${i + 1}`, (0x3b + i) << 8]),
+  Array.from({ length: 10 }, (_, i) => [`F${i + 1}`, AGI_KEY.F1 + (i << 8)]),
 );
 /** IBM PC letter scan codes, shared with the phone's modifier key panel. */
 export const ALT_LETTER_SCANS: Record<string, number> = {
@@ -34,41 +35,41 @@ export const ALT_LETTER_SCANS: Record<string, number> = {
   Z: 44,
 };
 const KEY_NAMES: Record<number, string> = {
-  0x0008: "Backspace",
-  0x0009: "Tab",
-  0x000d: "Enter",
-  0x001b: "Esc",
-  0x0020: "Space",
+  [AGI_KEY.BACKSPACE]: "Backspace",
+  [AGI_KEY.TAB]: "Tab",
+  [AGI_KEY.ENTER]: "Enter",
+  [AGI_KEY.ESCAPE]: "Esc",
+  [AGI_KEY.SPACE]: "Space",
   0x2000: "Alt+D",
   0x2c00: "Alt+Z",
   0x4600: "Scroll Lock",
-  0x4700: "Home",
-  0x4800: "↑",
-  0x4900: "Page Up",
-  0x4b00: "←",
-  0x4d00: "→",
-  0x4f00: "End",
-  0x5000: "↓",
-  0x5100: "Page Down",
-  0x5200: "Insert",
-  0x5300: "Delete",
+  [AGI_KEY.HOME]: "Home",
+  [AGI_KEY.UP]: "↑",
+  [AGI_KEY.PAGE_UP]: "Page Up",
+  [AGI_KEY.LEFT]: "←",
+  [AGI_KEY.RIGHT]: "→",
+  [AGI_KEY.END]: "End",
+  [AGI_KEY.DOWN]: "↓",
+  [AGI_KEY.PAGE_DOWN]: "Page Down",
+  [AGI_KEY.INSERT]: "Insert",
+  [AGI_KEY.DELETE]: "Delete",
 };
 
 const KEY_EVENTS: Record<string, number> = {
-  Backspace: 0x0008,
-  Tab: 0x0009,
-  Enter: 0x000d,
-  Escape: 0x001b,
-  Home: 0x4700,
-  ArrowUp: 0x4800,
-  PageUp: 0x4900,
-  ArrowLeft: 0x4b00,
-  ArrowRight: 0x4d00,
-  End: 0x4f00,
-  ArrowDown: 0x5000,
-  PageDown: 0x5100,
-  Insert: 0x5200,
-  Delete: 0x5300,
+  Backspace: AGI_KEY.BACKSPACE,
+  Tab: AGI_KEY.TAB,
+  Enter: AGI_KEY.ENTER,
+  Escape: AGI_KEY.ESCAPE,
+  Home: AGI_KEY.HOME,
+  ArrowUp: AGI_KEY.UP,
+  PageUp: AGI_KEY.PAGE_UP,
+  ArrowLeft: AGI_KEY.LEFT,
+  ArrowRight: AGI_KEY.RIGHT,
+  End: AGI_KEY.END,
+  ArrowDown: AGI_KEY.DOWN,
+  PageDown: AGI_KEY.PAGE_DOWN,
+  Insert: AGI_KEY.INSERT,
+  Delete: AGI_KEY.DELETE,
   ScrollLock: 0x4600,
 };
 

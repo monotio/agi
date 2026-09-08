@@ -11,9 +11,9 @@ harness in which an agent authors and live-patches real AGI resources while you
 play. Engine behavior is clean-room from Peter Kelly's CC0 agi-re specification
 (https://peterkelly.github.io/agi-re/spec/): read the common contract and the
 selected profile's variants before implementing an opcode. MIT, by Monotio.
-README.md is the public front door; CONTRIBUTING.md has development, CI and
-conformance detail, docs/hosting.md the hosting and production releases, and
-docs/fidelity.md the interpreter findings.
+README.md is the public front door; CONTRIBUTING.md covers development and
+contributions, docs/testing.md fixtures and compatibility checks,
+docs/hosting.md hosting and releases, and docs/fidelity.md interpreter behavior.
 
 ## Commands
 
@@ -35,7 +35,7 @@ npm run eval:replay                           # stored bad cases, offline
 ## Optional game fixtures
 
 - Contributors can enable compatibility tests by placing their own game files
-  in `games/<slug>/`; see CONTRIBUTING.md for supported fixture inputs.
+  in `games/<slug>/`; see docs/testing.md for supported fixture inputs.
   Fixture folders are excluded from version control and production builds.
 - Fixture-dependent tests use `test/fixtures.ts` to report missing inputs and
   setup instructions as explicit skips.

@@ -19,3 +19,6 @@ games/*
 !games/badge-of-millhaven/
 !games/mop-jockey/
 !games/polyester-nights/
+
+# Raw documentation screenshots, recordings and tool output.
+.captures/

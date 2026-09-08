@@ -1,39 +1,41 @@
 import { expect, type Page } from "@playwright/test";
+import { AGI_KEY, NAV_KEYS } from "../../src/runtime/keys.ts";
 import type { Action } from "../../test/speedrun/runner.ts";
 import type { ReplayObservation } from "../src/replay.ts";
 import { isolateStorage } from "./engineProbe.ts";
 
 const KEYS: Record<number, string> = {
-  8: "Backspace",
-  9: "Tab",
-  13: "Enter",
-  27: "Escape",
-  32: "Space",
-  0x4700: "Home",
-  0x4800: "ArrowUp",
-  0x4900: "PageUp",
-  0x4b00: "ArrowLeft",
-  0x4d00: "ArrowRight",
-  0x4f00: "End",
-  0x5000: "ArrowDown",
-  0x5100: "PageDown",
-  ...Object.fromEntries(Array.from({ length: 10 }, (_, n) => [(0x3b + n) << 8, `F${n + 1}`])),
+  [AGI_KEY.BACKSPACE]: "Backspace",
+  [AGI_KEY.TAB]: "Tab",
+  [AGI_KEY.ENTER]: "Enter",
+  [AGI_KEY.ESCAPE]: "Escape",
+  [AGI_KEY.SPACE]: "Space",
+  [AGI_KEY.HOME]: "Home",
+  [AGI_KEY.UP]: "ArrowUp",
+  [AGI_KEY.PAGE_UP]: "PageUp",
+  [AGI_KEY.LEFT]: "ArrowLeft",
+  [AGI_KEY.RIGHT]: "ArrowRight",
+  [AGI_KEY.END]: "End",
+  [AGI_KEY.DOWN]: "ArrowDown",
+  [AGI_KEY.PAGE_DOWN]: "PageDown",
+  ...Object.fromEntries(Array.from({ length: 10 }, (_, n) => [AGI_KEY.F1 + (n << 8), `F${n + 1}`])),
 };
 const DIRECTIONS: Record<number, string> = {
-  0x4700: "northwest",
-  0x4800: "north",
-  0x4900: "northeast",
-  0x4b00: "west",
-  0x4d00: "east",
-  0x4f00: "southwest",
-  0x5000: "south",
-  0x5100: "southeast",
+  [AGI_KEY.HOME]: "northwest",
+  [AGI_KEY.UP]: "north",
+  [AGI_KEY.PAGE_UP]: "northeast",
+  [AGI_KEY.LEFT]: "west",
+  [AGI_KEY.RIGHT]: "east",
+  [AGI_KEY.END]: "southwest",
+  [AGI_KEY.DOWN]: "south",
+  [AGI_KEY.PAGE_DOWN]: "southeast",
 };
 
 /** Only time is privileged. Every player action crosses the visible app controls. */
 export class BrowserReplay {
   readonly page: Page;
   readonly phone: boolean;
+  private heldDirection: string | null = null;
 
   constructor(page: Page, phone: boolean) {
     this.page = page;
@@ -45,8 +47,12 @@ export class BrowserReplay {
     await this.page.goto(`/?replaySeed=${seed}`);
     const boot = this.page.getByTestId(`boot-${slug}`);
     if (this.phone) await boot.tap();
-    else await boot.click();
-    await expect.poll(() => this.page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick)).toBe(0);
+    else await boot.press("Enter");
+    await expect
+      .poll(() => this.page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick), {
+        timeout: 30_000,
+      })
+      .toBe(0);
   }
 
   async read(): Promise<ReplayObservation> {
@@ -60,12 +66,42 @@ export class BrowserReplay {
     await expect.poll(async () => (await this.read()).revision).toBeGreaterThan(from.revision);
   }
 
+  private async releaseDirection(): Promise<void> {
+    if (!this.heldDirection) return;
+    if (this.phone) {
+      await this.page
+        .getByTestId("touch-controls")
+        .getByRole("button", { name: new RegExp(`^(Walk|Navigate) ${this.heldDirection}$`) })
+        .dispatchEvent("pointerup", { pointerId: 1, pointerType: "touch", button: 0 });
+    } else await this.page.keyboard.up(this.heldDirection);
+    this.heldDirection = null;
+  }
+
   async key(code: number): Promise<void> {
     const before = await this.read();
     const key = KEYS[code] ?? (code >= 33 && code <= 126 ? String.fromCharCode(code) : null);
     if (!key) throw new Error(`Replay key 0x${code.toString(16)} has no UI mapping.`);
-    if (!this.phone) await this.page.keyboard.press(key);
-    else {
+    // A held walking pointer must end before the pad can accept dialog taps.
+    if (before.state.modalKind !== null) await this.releaseDirection();
+    if (before.releaseGate !== 0 && DIRECTIONS[code] && before.state.modalKind === null) {
+      // A raw navigation word toggles the Node direction. Preserve that
+      // gesture through physical key or touch-pointer holds until its stop.
+      await this.releaseDirection();
+      if (before.state.egoDirection !== NAV_KEYS[code]) {
+        this.heldDirection = this.phone ? DIRECTIONS[code]! : key;
+        if (this.phone) {
+          await this.page
+            .getByTestId("touch-controls")
+            .getByRole("button", { name: new RegExp(`^Walk ${this.heldDirection}$`) })
+            .dispatchEvent("pointerdown", { pointerId: 1, pointerType: "touch", button: 0 });
+        } else await this.page.keyboard.down(key);
+      }
+    } else if (!this.phone) await this.page.keyboard.press(key);
+    else if (code >= 33 && code <= 126) {
+      // Native phone typing preserves case, including uppercase game bindings.
+      const input = this.page.getByTestId("input-line");
+      await input.fill((await input.inputValue()) + key);
+    } else {
       const pad = this.page.getByTestId("touch-controls");
       const direction = DIRECTIONS[code];
       if (direction) {

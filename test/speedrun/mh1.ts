@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { directionForDelta } from "../../src/agent/gameTestSteps.ts";
+import { AGI_KEY } from "../../src/runtime/keys.ts";
 import type { ScreenObject } from "../../src/runtime/screenObject.ts";
 import type { Speedrun } from "./runner.ts";
 
@@ -12,24 +14,8 @@ import type { Speedrun } from "./runner.ts";
  * and 114) and Tab the inventory (controller 7). Waits are counted in host
  * ticks at 60 Hz; the game runs one interpreter cycle per six ticks.
  */
-export const KEY_ENTER = 13;
-export const KEY_TAB = 9;
 export const KEY_C = 0x43;
-export const KEY_F3 = 0x3d00;
-export const KEY_RIGHT = 0x4d00;
 export const ROOM_MAP = 114;
-
-const DIRECTIONS: Record<string, number> = {
-  "0,-1": 1,
-  "1,-1": 2,
-  "1,0": 3,
-  "1,1": 4,
-  "0,1": 5,
-  "-1,1": 6,
-  "-1,0": 7,
-  "-1,-1": 8,
-  "0,0": 0,
-};
 
 export class Manhunter {
   readonly run: Speedrun;
@@ -74,7 +60,7 @@ export class Manhunter {
   }
 
   enter(ticks = 60): void {
-    this.key(KEY_ENTER, ticks);
+    this.key(AGI_KEY.ENTER, ticks);
   }
 
   waitFor(predicate: () => boolean, label: string, max = 1200): void {
@@ -102,27 +88,28 @@ export class Manhunter {
 
   private steerToward(x: number, y: number): void {
     const o = this.cursor;
-    this.run.direction(DIRECTIONS[`${Math.sign(x - o.x)},${Math.sign(y - o.y)}`]!);
+    this.run.direction(directionForDelta(Math.sign(x - o.x), Math.sign(y - o.y)));
     this.run.advance();
   }
 
   /**
    * Steer the cursor to within two pixels of (x,y). A registering hotspot snaps
    * the cursor, so a target can be unreachable: steering gives up after twelve
-   * motionless ticks and leaves the cursor where the room put it.
+   * attempts without getting closer, including oscillation around a snapped anchor.
    */
   cursorTo(x: number, y: number, max = 600): void {
     let stale = 0;
-    let lastX = -1;
-    let lastY = -1;
+    let bestDistance = Infinity;
     for (let n = 0; n < max; n++) {
       const o = this.cursor;
       if (Math.abs(x - o.x) <= 2 && Math.abs(y - o.y) <= 2) break;
-      if (o.x === lastX && o.y === lastY) {
+      const distance = Math.abs(x - o.x) + Math.abs(y - o.y);
+      if (distance >= bestDistance) {
         if (++stale > 12) break;
-      } else stale = 0;
-      lastX = o.x;
-      lastY = o.y;
+      } else {
+        stale = 0;
+        bestDistance = distance;
+      }
       this.steerToward(x, y);
     }
     this.run.direction(0);
@@ -143,7 +130,7 @@ export class Manhunter {
 
   /** F3 opens the city map from any street room. */
   map(): void {
-    this.key(KEY_F3);
+    this.key(AGI_KEY.F3);
     this.waitFor(() => this.engine.vars[0] === ROOM_MAP, "the city map", 600);
     this.step(30);
   }
@@ -163,7 +150,7 @@ export class Manhunter {
       else edge = target > page ? [o.x, 167] : [o.x, 1];
       for (let n = 0; n < 200 && this.engine.vars[90] === page; n++) {
         const c = this.cursor;
-        const along = DIRECTIONS[`${Math.sign(edge[0] - c.x)},${Math.sign(edge[1] - c.y)}`]!;
+        const along = directionForDelta(Math.sign(edge[0] - c.x), Math.sign(edge[1] - c.y));
         const out = edge[1] === 167 ? 5 : edge[1] === 1 ? 1 : edge[0] === 159 ? 3 : 7;
         this.run.direction(along || out);
         this.run.advance();

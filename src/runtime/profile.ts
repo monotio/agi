@@ -381,7 +381,7 @@ export const DEFAULT_V3_PROFILE = PROFILES["3.002.149"];
  * 2.915 and the second 2.917 build select 2.917, 2.439 selects 2.440, and
  * 3.002.107 selects 3.002.102 (version_profiles.md, per-profile paragraphs).
  */
-const EQUIVALENT_BUILDS: Readonly<Record<string, ProfileId>> = {
+export const EQUIVALENT_BUILDS: Readonly<Record<string, ProfileId>> = {
   "2.915": "2.917",
   "2.439": "2.440",
   "3.002.107": "3.002.102",

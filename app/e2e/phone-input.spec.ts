@@ -87,6 +87,33 @@ async function boot(
   await expect.poll(async () => (await textHook(page)).egoX).toBe(60);
 }
 
+test("touch Backspace updates the engine-rendered parser draft", async ({ page }) => {
+  await boot(page);
+  const input = page.getByTestId("input-line");
+  await input.fill("look");
+  await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("look");
+  const pad = page.getByTestId("touch-controls");
+  await pad.getByText("Keys", { exact: true }).tap();
+  await pad.getByRole("button", { name: "Backspace", exact: true }).tap();
+  await expect(input).toHaveValue("loo");
+  await expect.poll(async () => (await textHook(page)).rows.join("\n")).not.toContain("look");
+  await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("loo");
+});
+
+test("touch function keys cannot insert characters into a string prompt", async ({ page }) => {
+  await boot(page);
+  const pad = page.getByTestId("touch-controls");
+  await pad.getByText("Keys", { exact: true }).tap();
+  await pad.getByRole("button", { name: "F1", exact: true }).tap();
+  await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  const input = page.getByTestId("input-line");
+  await input.fill("Ada");
+  await pad.getByRole("button", { name: "F2", exact: true }).tap();
+  await expect(input).toHaveValue("Ada");
+  await pad.getByRole("button", { name: "Enter", exact: true }).tap();
+  await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("Name: Ada");
+});
+
 test("desktop navigation includes diagonals", async ({ page }) => {
   await boot(page);
   await page.getByTestId("input-line").focus();
@@ -665,3 +692,20 @@ for (const consumer of [
     }
   });
 }
+
+test("a text-screen string prompt shows answer instructions and accepts touch input", async ({
+  page,
+}) => {
+  await boot(page);
+  const pad = page.getByTestId("touch-controls");
+  await pad.getByText("Keys", { exact: true }).tap();
+  await pad.getByRole("button", { name: "F5", exact: true }).tap();
+  await expect.poll(async () => (await textHook(page)).textMode).toBe(true);
+  await pad.getByRole("button", { name: "F1", exact: true }).tap();
+  await expect(page.getByTestId("prompt-hint")).toBeVisible();
+  await expect(page.getByTestId("text-mode-hint")).toBeHidden();
+  await page.getByTestId("input-line").fill("Player");
+  await pad.getByRole("button", { name: "Enter", exact: true }).tap();
+  await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Name: Player");
+  await page.screenshot({ path: test.info().outputPath("text-screen-answer.png") });
+});

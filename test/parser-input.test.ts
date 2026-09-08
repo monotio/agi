@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
+import { PROFILES } from "../src/runtime/profile.ts";
 
 /**
  * Parser normalization (spec "Parser normalization") and the have.key
@@ -84,6 +85,75 @@ describe("parser normalization", () => {
   test("matching ignores ASCII case", () => {
     assert.deepEqual(parse("OPEN The DOOR").words, [11, 13]);
   });
+});
+
+describe("parser state between explicit parses", () => {
+  for (const profile of Object.values(PROFILES)) {
+    test(`${profile.id}: a prompted parse permits a new match in the same cycle`, () => {
+      const source = `
+        accept.input();
+        if (said("look")) {
+          get.string(s1, "Title:", 10, 0, 39);
+          parse(s1);
+          if (said("open", "door")) { assignn(v100, 1); }
+          if (said("open", "door")) { assignn(v101, 1); }
+        }
+        return;
+      `;
+      const container = createContainer();
+      container.putResource(
+        "logic",
+        0,
+        assembleLogic(source, { dictionary: DICT, profile }).payload,
+      );
+      let prompts = 0;
+      const host = new Host();
+      const engine = new Engine(
+        container,
+        {
+          print() {},
+          displayAt() {},
+          statusLine() {},
+          takeInputLine: () => host.takeInputLine(),
+          takeKeys: () => host.takeKeys(),
+          promptString: () => {
+            prompts++;
+            return "open door";
+          },
+        },
+        DICT,
+        { profile },
+      );
+      engine.tick();
+      host.line = "look";
+      engine.tick();
+      assert.equal(prompts, 1, "one answer is enough");
+      assert.equal(engine.vars[100], 1, "the new parsed input matches immediately");
+      assert.equal(engine.vars[101], 0, "the same parsed input cannot match twice");
+      assert.deepEqual(engine.parsedWords, [11, 13]);
+    });
+  }
+
+  for (const answer of ["", "the the", "?!"]) {
+    test(`parse clears ready and matched state for ${JSON.stringify(answer)}`, () => {
+      const source = `
+        set.string(s1, "open door");
+        parse(s1);
+        if (said("open", "door")) {
+          set.string(s1, "${answer}");
+          parse(s1);
+          if (isset(f2)) { assignn(v100, 1); }
+          if (isset(f4)) { assignn(v101, 1); }
+        }
+        return;
+      `;
+      const engine = run(source, new Host());
+      assert.equal(engine.vars[100], 0, "empty input is not ready");
+      assert.equal(engine.vars[101], 0, "the previous input's match is cleared");
+      assert.deepEqual(engine.parsedWords, []);
+      assert.deepEqual(engine.parsedWordTexts, []);
+    });
+  }
 });
 
 /**

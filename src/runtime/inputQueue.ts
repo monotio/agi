@@ -1,20 +1,11 @@
 /** AGI event queue, clean-room from agi-re "Event queue" and "Raw-key condition". */
+import { NAV_KEYS } from "./keys.ts";
+
 export type InputEvent = {
   type: 1 | 2 | 3;
   value: number;
   /** Modal raw keys acquire script mappings only if a script consumer reads them. */
   mapOnConsume?: true;
-};
-
-export const NAV_KEYS: Record<number, number> = {
-  0x4800: 1,
-  0x4900: 2,
-  0x4d00: 3,
-  0x5100: 4,
-  0x5000: 5,
-  0x4f00: 6,
-  0x4b00: 7,
-  0x4700: 8,
 };
 
 /** Twenty circular slots leave one empty, permitting nineteen pending events. */

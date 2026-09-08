@@ -45,20 +45,6 @@ providers, assertions, prompts and regression tests under the same strict rules.
 `npm run check` runs every TypeScript project. JavaScript tooling has editor
 project coverage and is checked by lint and runtime checks.
 
-### Recorded game tests
-
-Recorded game tests store a host snapshot and a bounded operation tape in
-`TESTS.JSON`: clocks, consumed input, random draws and prompt replies replay
-against current resources. Divergent or unconsumed calls fail the replay.
-`test/recording-replay.test.ts` and `app/e2e/game-test-recorder.spec.ts` verify
-this contract, including project export/import. Successful authoring mutations
-rerun affected tests conservatively; the verdict reports any tests not run.
-Stored tests travel only in project archives, never public game exports.
-`read_game_tests` lists compact summaries or pages of editable JSON definitions;
-opaque snapshots and replay tapes stay out of model responses. Merge edits retain
-existing recording setup when it is omitted or null. Full replacement uses only
-the supplied setup; remove a single test before rewriting it to reset its setup.
-
 ## Where things live
 
 | Directory                                                                 | Responsibility                                                |
@@ -78,141 +64,23 @@ when implementing behavior; check the common contract and the selected profile's
 
 ## Testing compatibility
 
-Prefer small, original resources with hand-computed expectations. To test a game
-locally, put its files in `games/<slug>/`. Development discovery recognizes AGI v2
-split directories and v3 combined directories; play them from the same **Your games**
-gallery as saved projects. Installed game folders are gitignored and excluded
-from production builds.
+Use small, original resources for engine regressions. Optional compatibility
+suites also run against game files supplied by the contributor in
+`games/<slug>/`; those fixture folders are gitignored and excluded from production
+builds. Missing inputs produce explicit test skips.
 
-### Optional fixtures
+See [Testing](docs/testing.md) for fixture editions and setup, walkthrough
+commands, browser replay, reference comparisons and recorded game tests.
+[Adding a walkthrough test](docs/testing.md#adding-a-walkthrough-test) explains
+how to contribute a reproducible route and its milestone assertions.
 
-To enable a game's compatibility tests, supply the edition below in its fixture
-folder. The suites assert edition-specific resource counts and behavior; other
-editions may need separate expectations.
+## Reporting bugs
 
-Full resource-census tests require every volume referenced by the directories.
-Tests for individual rooms can use `checkVolumes: false` in the fixture helpers;
-resource readers still reject unavailable data if the scenario requests it.
-
-| Game                 | Folder            | Interpreter build / profile | Tests                                                                                                                                |
-| -------------------- | ----------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| King's Quest I       | `games/kq1/`      | 2.917                       | [Resources and movement](test/games.test.ts), [profiles](test/games-profile.test.ts), [save/restore](test/games-persistence.test.ts) |
-| King's Quest II      | `games/kq2/`      | 2.411                       | [Resources and movement](test/games.test.ts), [profiles](test/games-profile.test.ts), [save/restore](test/games-persistence.test.ts) |
-| King's Quest III     | `games/kq3/`      | 2.936                       | [Resources and movement](test/games.test.ts), [profiles](test/games-profile.test.ts), [save/restore](test/games-persistence.test.ts) |
-| King's Quest IV      | `games/kq4/`      | 3.002.086                   | [Resources](test/kq4.test.ts), [regressions](test/kq4-regressions.test.ts)                                                           |
-| Space Quest I        | `games/sq1/`      | 2.917                       | [Opening](test/opening-screens.test.ts)                                                                                              |
-| Police Quest I       | `games/pq1/`      | 2.903 / 2.936 fallback      | [Opening](test/opening-screens.test.ts)                                                                                              |
-| Leisure Suit Larry I | `games/lsl1/`     | 2.440                       | [Opening](test/opening-screens.test.ts)                                                                                              |
-| Gold Rush            | `games/gr1/`      | 3.002.149                   | [Opening](test/opening-screens.test.ts), [binary profile](test/mh2-profile.test.ts)                                                  |
-| Manhunter: New York  | `games/mh1/`      | 3.002.107 / 3.002.102       | [Resources and Day 1](test/mh1.test.ts)                                                                                              |
-| Manhunter 2          | `games/mh2/`      | 3.002.149                   | [Profile and logic references](test/mh2-profile.test.ts)                                                                             |
-| Sierra demo pack     | `games/demopac4/` | 3.002.102                   | [Resources and six demos](test/demopac4.test.ts)                                                                                     |
-
-`test/demopac4.test.ts` runs all six demonstrations in the Sierra demo pack to
-completion, exercising v3 containers and compressed logic. See
-[Interpreter compatibility](docs/fidelity.md) for profile selection, behavior
-notes, regression tests and instructions for inspecting original interpreters.
-
-The handler comparison in `test/mh2-profile.test.ts` requires both 3.002.149
-fixtures (`gr1` and `mh2`); its logic-reference test requires only `mh2`.
-
-Copy the complete game installation, including its directory files,
-`WORDS.TOK`, `OBJECT`, every volume file (`VOL.*`, or a v3 game's prefixed
-`<PREFIX>VOL.*`) and the interpreter files. Missing fixtures produce explicit
-skips with the folder and missing filenames in both engine and browser test
-output; a fresh clone's passing synthetic tests do not establish fixture
-compatibility. See [test/fixtures.ts](test/fixtures.ts) for the shared checks
-and [test/game-fixture.ts](test/game-fixture.ts) for loading resources.
-Commercial game data belongs in local fixtures, not contributions. AGI resource
-filenames and original resources are welcome; provenance determines what can be
-included.
-
-To compare rendered pictures or scripted runtime state with reference observations:
-
-```bash
-npm run conformance -- pictures GAME_DIR OUTPUT_JSON PROFILE SUITE_ID
-npm run conformance -- runtime GAME_DIR SCENARIO_JSON OUTPUT_JSON
-npm run conformance -- compare REFERENCE_JSON OUTPUT_JSON
-```
-
-Use the reference bundle's profile and suite identifier. The comparison checks
-case coverage, visual and priority hashes, and attached frame artifacts; the
-runtime form also captures variables, flags, active objects and output hashes.
-
-A scenario supplies `suiteId`, `profile`, an optional random `seed`, and `steps`;
-each step is one operation: `advance` (milliseconds), `key` (PC key word), `input`
-(a parser line), `save`/`restore` (a named local slot) or `checkpoint` (a unique
-observation name), e.g. `{ "suiteId": "opening", "profile": "2.936", "steps":
-[{ "advance": 1000 }, { "checkpoint": "opening" }] }`.
-
-Use independently captured reference observations when assessing fidelity;
-repeating a seeded run checks reproducibility, not agreement with an original
-interpreter. Reusable scenario code and regression assertions belong in the
-test suite, gated by fixture availability. Keep captured saves, game resources,
-disassemblies, screenshots and transcripts with local fixtures.
-
-The manual HMR proof in `app/e2e/manual/hmr-resume.mjs` temporarily edits
-source; run it in an isolated checkout as described in the script.
-
-Input conformance covers the nineteen-event FIFO, raw/mapped/navigation event
-handling, held-key release ordering and modal input; save-selector tests cover
-twelve slots, descriptions, cancellation, overwrite confirmation, signature
-filtering and failure outcomes. The browser supplies per-game storage instead
-of a DOS drive/path interface; exact platform dialog presentation and the
-completion of every game/version are not established by these checks.
-
-Run `npm --prefix app run e2e -- phone-input.spec.ts movement-input.spec.ts game-controls.spec.ts`
-for synthetic browser input coverage. `npm --prefix app run e2e:phone` runs the
-phone suite in Chromium and WebKit; with local KQ1–3 fixtures it also checks
-each game's opening room, touch walking and named save/restore slots. Touch
-emulation does not emulate Samsung Keyboard or the iOS keyboard: verify device
-compatibility on physical Android and iPhone browsers with the keyboard open,
-rotation, interruption and save/restore. Full-game compatibility needs recorded
-completion runs on the specific game edition and interpreter profile.
-
-### KQ1 completion proof
-
-After supplying the KQ1 2.917 fixture, run:
-
-```bash
-npm run prove:kq1
-npm --prefix app exec -- playwright install chromium webkit
-npm run prove:kq1:browser
-```
-
-The first command executes the walkthrough with a seeded random source and a
-virtual 60 Hz host clock. It plays from the title screen using walking keys,
-parser commands and prompt replies. Deaths, missed score milestones and an
-incomplete ending fail the run. The JSON report defaults to
-`/tmp/agi-kq1-speedrun.json` (pass another path after `npm run prove:kq1 --`);
-reports contain input events, resource hashes, checkpoints and the observed
-ending state, not game resources.
-
-The browser command generates a fresh report, then replays it through actual
-desktop keys and phone controls in Chromium and WebKit with only the test-mode
-host clock accelerated. Each replay verifies the exact local fixture hashes and
-the game's terminal ending state independently of the report's success label; a
-missing fixture produces an explicit skip. Physical Samsung/iPhone keyboards
-and screen readers still require device testing.
-
-### Manhunter Day 1 proof
-
-After supplying the Manhunter: New York 3.002.107 fixture, run:
-
-```bash
-npm run prove:mh1
-```
-
-The route in `test/speedrun/mh1-day1.ts` plays the first day from the title
-screen to the return home that starts Day 2, using only the game's own inputs:
-arrow keys steer the cursor onto hotspots, Enter performs them, F3, C and Tab
-open the map, the MAD and the inventory, and the Orbs' name prompt is typed.
-The maze machine and the sewer network are driven by fixed move lists recorded
-from the engine's own runs, so a changed engine behavior fails the replay
-instead of being routed around. The same route runs as a fixture-gated test in
-`test/mh1.test.ts`, and the JSON report defaults to
-`/tmp/agi-mh1-speedrun.json`. Coverage ends at the start of Day 2; later days
-need their own walkthroughs.
+Open an [issue](https://github.com/monotio/agi/issues) with the expected behavior,
+what happened, and the smallest steps that reproduce it. Include the application
+version or commit and browser; for compatibility bugs, include the game edition
+and interpreter profile. Prefer an original minimal resource or input sequence
+that another contributor can run without commercial game files.
 
 ## Pull requests
 

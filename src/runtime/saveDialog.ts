@@ -1,4 +1,5 @@
 /** Engine-owned selector from agi-re, "Save selector" and "Save action outcomes". */
+import { AGI_KEY } from "./keys.ts";
 import { SAVE_DESCRIPTION_BYTES, saveSignatureMatches } from "./persistence.ts";
 import { type TextSurface, TEXT_COLS, TEXT_ROWS, attr } from "./textSurface.ts";
 
@@ -42,8 +43,9 @@ export function runSaveDialog(
   function accept(): boolean {
     for (;;) {
       const key = host.waitKey();
-      if ((key & 0xff) === 13 || key === 0x0101 || key === 0x0301) return true;
-      if ((key & 0xff) === 27 || key === 0 || key === 0x0201 || key === 0x0401) return false;
+      if ((key & 0xff) === AGI_KEY.ENTER || key === 0x0101 || key === 0x0301) return true;
+      if ((key & 0xff) === AGI_KEY.ESCAPE || key === 0 || key === 0x0201 || key === 0x0401)
+        return false;
     }
   }
   function failure(message: string): void {
@@ -96,10 +98,11 @@ export function runSaveDialog(
       text.write(18, 2, "UP/DOWN: select   ENTER: accept", normal);
       text.write(20, 2, "ESC: cancel", normal);
       const key = host.waitKey();
-      if (key === 0 || (key & 0xff) === 27 || key === 0x0201 || key === 0x0401) return null;
-      if (key === 0x4800) current = (current + slots.length - 1) % slots.length;
-      else if (key === 0x5000) current = (current + 1) % slots.length;
-      else if ((key & 0xff) === 13 || key === 0x0101 || key === 0x0301) break;
+      if (key === 0 || (key & 0xff) === AGI_KEY.ESCAPE || key === 0x0201 || key === 0x0401)
+        return null;
+      if (key === AGI_KEY.UP) current = (current + slots.length - 1) % slots.length;
+      else if (key === AGI_KEY.DOWN) current = (current + 1) % slots.length;
+      else if ((key & 0xff) === AGI_KEY.ENTER || key === 0x0101 || key === 0x0301) break;
     }
     const choice = slots[current]!;
     if (mode === "restore") {
@@ -124,10 +127,10 @@ export function runSaveDialog(
           text.write(3, 2, description, normal);
           const key = host.waitKey();
           const byte = key & 0xff;
-          if (byte === 13 || key === 0x0101 || key === 0x0301) break;
-          if (key === 0 || byte === 27 || key === 0x0201 || key === 0x0401) return null;
-          if (byte === 8) description = description.slice(0, -1);
-          else if (byte >= 32 && description.length < DESCRIPTION_LIMIT)
+          if (byte === AGI_KEY.ENTER || key === 0x0101 || key === 0x0301) break;
+          if (key === 0 || byte === AGI_KEY.ESCAPE || key === 0x0201 || key === 0x0401) return null;
+          if (byte === AGI_KEY.BACKSPACE) description = description.slice(0, -1);
+          else if (byte >= AGI_KEY.SPACE && description.length < DESCRIPTION_LIMIT)
             description += String.fromCharCode(byte);
         }
       }
