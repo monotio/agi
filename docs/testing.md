@@ -36,7 +36,7 @@ resource readers still reject unavailable data if the scenario requests it.
 | King's Quest IV          | `games/kq4/`      | 3.002.086                   | [Resources](../test/kq4.test.ts), [regressions](../test/kq4-regressions.test.ts)                                                              |
 | The Black Cauldron       | `games/bc/`       | 2.439 / 2.440               | [Opening and movement](../test/additional-openings.test.ts)                                                                                   |
 | Mixed-Up Mother Goose    | `games/mumg/`     | 2.917                       | [Introduction and movement](../test/additional-openings.test.ts)                                                                              |
-| Donald Duck's Playground | `games/ddp/`      | 2.272                       | [Browser title loading](../app/e2e/fixture-openings.spec.ts); resource/profile consistency requires the static audit below                    |
+| Donald Duck's Playground | `games/ddp/`      | DOS 1.50; 2.272 / 2.440     | [Difficulty selection and movement](../test/additional-openings.test.ts), replayed in the browser                                             |
 | Space Quest II           | `games/sq2/`      | 2.936                       | [Opening and movement](../test/additional-openings.test.ts)                                                                                   |
 | Space Quest I            | `games/sq1/`      | 2.917                       | [Opening](../test/opening-screens.test.ts)                                                                                                    |
 | Police Quest I           | `games/pq1/`      | 2.903 / 2.936 fallback      | [Opening](../test/opening-screens.test.ts)                                                                                                    |
@@ -51,7 +51,10 @@ completion, exercising v3 containers and compressed logic. See
 [Interpreter compatibility](fidelity.md) for profile selection, behavior
 notes, regression tests and instructions for inspecting original interpreters.
 
-For Donald Duck's Playground, use matching DOS resources and an interpreter.
+For Donald Duck's Playground, supply DOS 1.50 resources and an interpreter.
+The opening test accepts the 2.272 and 2.440 profiles selected from the
+interpreter binary; it does not infer a profile from the game title. This
+checks difficulty selection and movement, not whole-game conformance.
 [ScummVM's release catalog](https://github.com/scummvm/scummvm/blob/master/engines/agi/detection_tables.h)
 identifies a 1.0C download containing Amiga resources packaged with a DOS
 interpreter. A title screen loading from that mixture does not establish DOS

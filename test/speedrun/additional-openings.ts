@@ -41,3 +41,28 @@ export function additionalOpening(slug: (typeof ADDITIONAL_OPENINGS)[number]["sl
   assert.ok(run.engine.getFrame().visual.some((pixel) => pixel !== 0));
   return run;
 }
+
+/** DOS DDP 1.50: title, difficulty selection, then an ordinary arrow-key movement. */
+export function ddpOpening(): Speedrun {
+  const run = new Speedrun("ddp", 1);
+  // These are supported DOS interpreter contracts, not a resource-title override.
+  assert.ok(["2.272", "2.440"].includes(run.engine.profile.id));
+  run.advance(120);
+  run.checkpoint("Title", { room: 1, score: 0 });
+  run.key(13);
+  run.advance(120);
+  run.key(13);
+  run.advance(120);
+  run.dismiss();
+  run.advance(120);
+  run.checkpoint("Difficulty selection", { room: 3, score: 0 });
+  const before = run.state().y;
+  run.direction(1);
+  run.advance(100);
+  run.dismiss();
+  assert.ok(run.state().y < before, "an up arrow moves Donald north");
+  run.direction(0);
+  run.checkpoint("Difficulty selection movement", { room: 3, score: 0 });
+  assert.ok(run.engine.getFrame().visual.some((pixel) => pixel !== 0));
+  return run;
+}

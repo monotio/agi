@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixtureSkip } from "./fixtures.ts";
-import { ADDITIONAL_OPENINGS, additionalOpening } from "./speedrun/additional-openings.ts";
+import {
+  ADDITIONAL_OPENINGS,
+  additionalOpening,
+  ddpOpening,
+} from "./speedrun/additional-openings.ts";
 
 for (const game of ADDITIONAL_OPENINGS) {
   test(
@@ -17,3 +21,16 @@ for (const game of ADDITIONAL_OPENINGS) {
     },
   );
 }
+
+test(
+  "ddp: DOS opening reaches difficulty selection and accepts movement twice",
+  {
+    skip: fixtureSkip("ddp", ["AGIDATA.OVL"]),
+  },
+  () => {
+    const first = ddpOpening();
+    const second = ddpOpening();
+    assert.deepEqual(second.actions, first.actions);
+    assert.deepEqual(second.state(), first.state());
+  },
+);

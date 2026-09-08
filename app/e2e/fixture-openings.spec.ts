@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { fixtureSkip } from "../../test/fixtures.ts";
-import { ADDITIONAL_OPENINGS, additionalOpening } from "../../test/speedrun/additional-openings.ts";
+import {
+  ADDITIONAL_OPENINGS,
+  additionalOpening,
+  ddpOpening,
+} from "../../test/speedrun/additional-openings.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 import { BrowserReplay } from "./speedrunReplay.ts";
 
@@ -8,7 +12,6 @@ import { BrowserReplay } from "./speedrunReplay.ts";
 // Complete resource validation is a separate fixtures:audit command.
 for (const game of [
   { slug: "bc", profile: "2.440", room: 67 },
-  { slug: "ddp", profile: "2.272", room: 1 },
   { slug: "demopac4", profile: "3.002.102", room: 1 },
   { slug: "gr1", profile: "3.002.149", room: 129 },
   { slug: "kq1", profile: "2.917", room: 83 },
@@ -43,6 +46,20 @@ for (const game of [
     await page.screenshot({ path: test.info().outputPath("title.png") });
   });
 }
+
+test("ddp: DOS opening reaches difficulty selection and accepts movement", async ({ page }) => {
+  const missing = fixtureSkip("ddp", ["AGIDATA.OVL"]);
+  test.skip(Boolean(missing), missing || "");
+  const run = ddpOpening();
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const replay = new BrowserReplay(page, false);
+  await replay.boot("ddp", run.seed);
+  await replay.play(run.actions);
+  expect((await replay.read()).state.profile).toBe(run.engine.profile.id);
+  expect(errors).toEqual([]);
+  await page.screenshot({ path: test.info().outputPath("difficulty-selection.png") });
+});
 
 for (const game of ADDITIONAL_OPENINGS) {
   const missing = fixtureSkip(game.slug, ["AGIDATA.OVL"]);
