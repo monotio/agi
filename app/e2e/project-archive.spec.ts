@@ -115,7 +115,8 @@ test("Download project resumes private history in a fresh browser; Download game
     expect(calls).toBe(0);
     await other.screenshot({ path: "test-results/project-ready.png" });
     await other.getByTestId("btn-resume-cached").click();
-    await other.unroute("**/api/**");
+    // Keep interception enabled while the worker imports its modules. The
+    // specific mock below overrides the API-blocking fallback without a gap.
     const requests: Record<string, unknown>[] = [];
     await other.route("**/api/openai/v1/responses", async (route) => {
       requests.push(route.request().postDataJSON());

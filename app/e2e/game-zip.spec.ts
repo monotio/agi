@@ -104,7 +104,8 @@ test("a friend opens an exported world in a fresh browser without a key", async 
     ).toHaveLength(1);
     expect(providerCalls).toBe(0);
     await friend.getByTestId("btn-resume-cached").click();
-    await friend.unroute("**/api/**");
+    // Keep interception enabled across the worker boot; the later endpoint
+    // mock takes precedence over the API-blocking fallback.
     await expect.poll(async () => (await textHook(friend)).room).toBe(1);
     await expect.poll(async () => (await textHook(friend)).cycle).toBeGreaterThan(0);
     const exported = await readGameZip(bytes);
