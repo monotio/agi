@@ -2733,6 +2733,9 @@ export class Engine {
   // ---------- parser ----------
 
   private parseInput(line: string): void {
+    // Each parse starts a new input, even after said matched earlier in this cycle.
+    this.flags[F_INPUT_READY] = 0;
+    this.flags[F_SAID_MATCHED] = 0;
     this.lastInputLine = line;
     this.parserCount = 0;
     // Spec "Parser normalization": space and , . ? ! ( ) ; : [ ] { } separate;
@@ -2784,7 +2787,7 @@ export class Engine {
     }
     this.parsedWords = words;
     this.parsedWordTexts = texts;
-    this.flags[F_INPUT_READY] = 1;
+    if (this.parserCount > 0) this.flags[F_INPUT_READY] = 1;
   }
 
   // ---------- logic execution ----------
