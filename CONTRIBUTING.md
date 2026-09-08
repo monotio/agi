@@ -195,6 +195,21 @@ the game's terminal ending state independently of the report's success label; a
 missing fixture produces an explicit skip. Physical Samsung/iPhone keyboards
 and screen readers still require device testing.
 
+### Opening walkthroughs
+
+After supplying the KQ2 2.411 or SQ1 2.917 fixture described above, run:
+
+```bash
+node --test --experimental-strip-types --test-name-pattern="opening walkthrough" test/speedrun.test.ts
+```
+
+Each route uses normal player inputs and a virtual clock, asserts score and
+inventory milestones, and repeats from a cold boot with seed 1. The KQ2 route
+covers the basket, soup, earrings, cloak and ring, ending outside the cottage at
+score 18. The SQ1 route retrieves the cartridge and keycard at score 6, entering
+the archive console answer once. These tests cover those opening segments;
+later puzzles and endings require additional routes.
+
 ### Manhunter Day 1 proof
 
 After supplying the Manhunter: New York 3.002.107 fixture, run:
