@@ -3038,14 +3038,14 @@ watch(
       <span v-if="state.resumed" class="caption resume-caption" data-testid="resume-caption">
         Resumed where you left off
       </span>
-      <span v-if="state.textMode" class="caption" data-testid="text-mode-hint">
+      <span v-if="state.prompt" class="caption" data-testid="prompt-hint">
+        [ Type your answer on the screen, Enter to accept, Esc to cancel ]
+      </span>
+      <span v-else-if="state.textMode" class="caption" data-testid="text-mode-hint">
         [ Use the keys requested by the game ]
       </span>
       <span v-else-if="hasKeyPrompt" class="caption" data-testid="title-prompt-hint">
         [ {{ touchControls ? "Tap screen or press" : "Press" }} Enter / Space to start ]
-      </span>
-      <span v-else-if="state.prompt" class="caption" data-testid="prompt-hint">
-        [ Type your answer on the screen, Enter to accept, Esc to cancel ]
       </span>
       <span v-else-if="state.modal === 'menu'" class="caption" data-testid="menu-hint">
         [ Arrows to navigate, Enter to select, Esc to close ]

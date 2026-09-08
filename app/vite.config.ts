@@ -18,7 +18,7 @@ function fixtureServer(): Plugin {
       .filter((slug) => {
         const path = join(gamesRoot, slug);
         return (
-          statSync(path).isDirectory() &&
+          statSync(path, { throwIfNoEntry: false })?.isDirectory() &&
           readdirSync(path).some((name) => /^(?:LOG|[A-Z0-9_]+)DIR$/i.test(name))
         );
       })

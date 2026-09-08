@@ -1,11 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync, existsSync } from "node:fs";
 import { Engine, type EngineHost } from "../../src/runtime/engine.ts";
 import { CycleClock } from "../../src/runtime/cycleClock.ts";
-import { detectProfile, INTERPRETER_FILES } from "../../src/runtime/profile.ts";
+import { detectProfile } from "../../src/runtime/profile.ts";
 import { DIRECTION_KEYS, directionForDelta, randomSource } from "../../src/agent/gameTestSteps.ts";
 import { loadGame } from "../game-fixture.ts";
-import { fixtureDir } from "../fixtures.ts";
 
 // The step vocabulary is shared with stored game tests (src/agent/gameTestSteps.ts)
 // so speedrun proofs and TESTS.JSON can never disagree; re-export the pieces
@@ -35,16 +33,13 @@ export class Speedrun {
   constructor(slug = "kq1", seed = 1) {
     this.seed = seed;
     this.slug = slug;
-    const { container, dict } = loadGame(slug);
-    const profileFiles = new Map<string, Uint8Array>();
-    for (const file of INTERPRETER_FILES) {
-      const path = fixtureDir(slug) + file;
-      if (existsSync(path)) profileFiles.set(file, new Uint8Array(readFileSync(path)));
-    }
+    const { container, dict, files } = loadGame(slug, { interpreterFiles: true });
     const host: EngineHost = {
       print: (text) => this.messages.push(text),
       displayAt() {},
       statusLine() {},
+      // A cold boot has no manual saves, matching a fresh browser profile.
+      listSaveGames: () => [],
       takeKeys: () => this.keys.splice(0),
       takeInputLine: () => {
         const line = this.line;
@@ -64,7 +59,7 @@ export class Speedrun {
       randomWord: randomSource(seed),
     };
     this.engine = new Engine(container, host, dict, {
-      profile: detectProfile(profileFiles),
+      profile: detectProfile(files),
       instructionBudget: 1_000_000,
     });
     // Match the app's initial user sound preference before executing game logic.

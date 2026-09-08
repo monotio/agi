@@ -31,6 +31,7 @@
     "check": "run-s check:dependencies typecheck typecheck:app lint lint:ast format:check test test:app eval:replay",
     "eval:genesis": "node --experimental-strip-types scripts/eval-genesis.ts",
     "eval:picture": "node --experimental-strip-types scripts/eval-picture.ts",
+    "fixtures:audit": "node --experimental-strip-types scripts/audit-fixtures.ts",
     "conformance": "node --experimental-strip-types scripts/conformance.ts",
     "eval:replay": "node --test --experimental-strip-types 'evals/tests/**/*.test.ts'",
     "eval": "npm --prefix evals run eval --",

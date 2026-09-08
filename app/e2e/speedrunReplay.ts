@@ -34,10 +34,13 @@ const DIRECTIONS: Record<number, string> = {
 export class BrowserReplay {
   readonly page: Page;
   readonly phone: boolean;
+  readonly holdMovement: boolean;
+  private heldDirection: string | null = null;
 
-  constructor(page: Page, phone: boolean) {
+  constructor(page: Page, phone: boolean, holdMovement = false) {
     this.page = page;
     this.phone = phone;
+    this.holdMovement = holdMovement;
   }
 
   async boot(slug: string, seed: number): Promise<void> {
@@ -45,8 +48,12 @@ export class BrowserReplay {
     await this.page.goto(`/?replaySeed=${seed}`);
     const boot = this.page.getByTestId(`boot-${slug}`);
     if (this.phone) await boot.tap();
-    else await boot.click();
-    await expect.poll(() => this.page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick)).toBe(0);
+    else await boot.press("Enter");
+    await expect
+      .poll(() => this.page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick), {
+        timeout: 30_000,
+      })
+      .toBe(0);
   }
 
   async read(): Promise<ReplayObservation> {
@@ -64,7 +71,14 @@ export class BrowserReplay {
     const before = await this.read();
     const key = KEYS[code] ?? (code >= 33 && code <= 126 ? String.fromCharCode(code) : null);
     if (!key) throw new Error(`Replay key 0x${code.toString(16)} has no UI mapping.`);
-    if (!this.phone) await this.page.keyboard.press(key);
+    if (!this.phone && this.holdMovement && DIRECTIONS[code] && before.state.modalKind === null) {
+      // A second direction event stops the Node route. In hold.key games the
+      // equivalent physical input is keyup, with time advancing while held.
+      const previous = this.heldDirection;
+      if (previous) await this.page.keyboard.up(previous);
+      this.heldDirection = previous === key ? null : key;
+      if (this.heldDirection) await this.page.keyboard.down(this.heldDirection);
+    } else if (!this.phone) await this.page.keyboard.press(key);
     else {
       const pad = this.page.getByTestId("touch-controls");
       const direction = DIRECTIONS[code];

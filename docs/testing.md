@@ -28,24 +28,34 @@ Full resource-census tests require every volume referenced by the directories.
 Tests for individual rooms can use `checkVolumes: false` in the fixture helpers;
 resource readers still reject unavailable data if the scenario requests it.
 
-| Game                 | Folder            | Interpreter build / profile | Tests                                                                                                                                         |
-| -------------------- | ----------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| King's Quest I       | `games/kq1/`      | 2.917                       | [Resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts) |
-| King's Quest II      | `games/kq2/`      | 2.411                       | [Resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts) |
-| King's Quest III     | `games/kq3/`      | 2.936                       | [Resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts) |
-| King's Quest IV      | `games/kq4/`      | 3.002.086                   | [Resources](../test/kq4.test.ts), [regressions](../test/kq4-regressions.test.ts)                                                              |
-| Space Quest I        | `games/sq1/`      | 2.917                       | [Opening](../test/opening-screens.test.ts)                                                                                                    |
-| Police Quest I       | `games/pq1/`      | 2.903 / 2.936 fallback      | [Opening](../test/opening-screens.test.ts)                                                                                                    |
-| Leisure Suit Larry I | `games/lsl1/`     | 2.440                       | [Opening](../test/opening-screens.test.ts)                                                                                                    |
-| Gold Rush            | `games/gr1/`      | 3.002.149                   | [Opening](../test/opening-screens.test.ts), [binary profile](../test/mh2-profile.test.ts)                                                     |
-| Manhunter: New York  | `games/mh1/`      | 3.002.107 / 3.002.102       | [Resources and Day 1](../test/mh1.test.ts)                                                                                                    |
-| Manhunter 2          | `games/mh2/`      | 3.002.149                   | [Profile and logic references](../test/mh2-profile.test.ts)                                                                                   |
-| Sierra demo pack     | `games/demopac4/` | 3.002.102                   | [Resources and six demos](../test/demopac4.test.ts)                                                                                           |
+| Game                     | Folder            | Interpreter build / profile | Tests                                                                                                                                         |
+| ------------------------ | ----------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| King's Quest I           | `games/kq1/`      | 2.917                       | [Resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts) |
+| King's Quest II          | `games/kq2/`      | 2.411                       | [Resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts) |
+| King's Quest III         | `games/kq3/`      | 2.936                       | [Resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts) |
+| King's Quest IV          | `games/kq4/`      | 3.002.086                   | [Resources](../test/kq4.test.ts), [regressions](../test/kq4-regressions.test.ts)                                                              |
+| The Black Cauldron       | `games/bc/`       | 2.439 / 2.440               | [Opening and movement](../test/additional-openings.test.ts)                                                                                   |
+| Mixed-Up Mother Goose    | `games/mumg/`     | 2.917                       | [Introduction and movement](../test/additional-openings.test.ts)                                                                              |
+| Donald Duck's Playground | `games/ddp/`      | 2.272                       | [Browser title loading](../app/e2e/fixture-openings.spec.ts); resource/profile consistency requires the static audit below                    |
+| Space Quest II           | `games/sq2/`      | 2.936                       | [Opening and movement](../test/additional-openings.test.ts)                                                                                   |
+| Space Quest I            | `games/sq1/`      | 2.917                       | [Opening](../test/opening-screens.test.ts)                                                                                                    |
+| Police Quest I           | `games/pq1/`      | 2.903 / 2.936 fallback      | [Opening](../test/opening-screens.test.ts)                                                                                                    |
+| Leisure Suit Larry I     | `games/lsl1/`     | 2.440                       | [Opening](../test/opening-screens.test.ts)                                                                                                    |
+| Gold Rush                | `games/gr1/`      | 3.002.149                   | [Opening](../test/opening-screens.test.ts), [binary profile](../test/mh2-profile.test.ts)                                                     |
+| Manhunter: New York      | `games/mh1/`      | 3.002.107 / 3.002.102       | [Resources and Day 1](../test/mh1.test.ts)                                                                                                    |
+| Manhunter 2              | `games/mh2/`      | 3.002.149                   | [Profile and logic references](../test/mh2-profile.test.ts)                                                                                   |
+| Sierra demo pack         | `games/demopac4/` | 3.002.102                   | [Resources and six demos](../test/demopac4.test.ts)                                                                                           |
 
 `test/demopac4.test.ts` runs all six demonstrations in the Sierra demo pack to
 completion, exercising v3 containers and compressed logic. See
 [Interpreter compatibility](fidelity.md) for profile selection, behavior
 notes, regression tests and instructions for inspecting original interpreters.
+
+For Donald Duck's Playground, use matching DOS resources and an interpreter.
+[ScummVM's release catalog](https://github.com/scummvm/scummvm/blob/master/engines/agi/detection_tables.h)
+identifies a 1.0C download containing Amiga resources packaged with a DOS
+interpreter. A title screen loading from that mixture does not establish DOS
+compatibility; the static audit reports its format and opcode inconsistencies.
 
 The handler comparison in `test/mh2-profile.test.ts` requires both 3.002.149
 fixtures (`gr1` and `mh2`); its logic-reference test requires only `mh2`.
@@ -60,6 +70,35 @@ and [test/game-fixture.ts](../test/game-fixture.ts) for loading resources.
 Commercial game data belongs in local fixtures, not contributions. AGI resource
 filenames and original resources are welcome; provenance determines what can be
 included.
+
+### Auditing a fixture library
+
+```bash
+npm run fixtures:audit -- games .captures/fixture-audit.json
+node --test --experimental-strip-types test/additional-openings.test.ts
+npm --prefix app run e2e -- fixture-openings.spec.ts
+```
+
+The audit discovers immediate game folders containing AGI directory files and
+checks every indexed logic, picture, view and sound, plus vocabulary and inventory
+metadata. Filenames are case-insensitive. The JSON report records resource counts,
+selected profiles and individual findings; any finding produces a nonzero exit.
+Image-only folders (`.img` or `.ima`) are reported as unsupported; the engine
+requires resource files and a supported interpreter profile. Extraction alone
+does not establish compatibility with an older interpreter.
+It distinguishes decoding failures from unsupported contracts, including unknown
+interpreter versions and logic that cannot be reconstructed reliably. A resource
+may be misindexed or unreferenced; an audit finding alone does not prove that a
+normal playthrough requests it. Compare matching original directories and volumes
+before changing game data. The audit never repairs its inputs.
+
+The browser suite opens each documented fixture from the gallery and checks its
+profile, opening room and presented frame. Black Cauldron, Mother Goose and SQ2
+also replay their introductions through a player-controlled movement checkpoint;
+the corresponding engine routes run twice from a cold boot. Mother Goose must
+finish its arrival animation before movement counts. These checks establish their
+stated opening segments, not whole-game completion or a clean resource audit.
+Keep reports and captured game screenshots in the ignored `.captures/` directory.
 
 To compare rendered pictures or scripted runtime state with reference observations:
 

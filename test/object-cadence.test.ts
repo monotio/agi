@@ -787,3 +787,25 @@ for (const [front, back] of [
       "host transfers cannot detach engine state",
     );
   });
+
+for (const action of ["end.of.loop", "reverse.loop"]) {
+  test(`${action} resumes a stopped object's updates and reaches its completion flag`, () => {
+    const start = action === "end.of.loop" ? 0 : 2;
+    const finish = action === "end.of.loop" ? 2 : 0;
+    const engine = game(
+      `if (!isset(f200)) {
+      set(f200); ${setup} set.cel(o0, ${start}); stop.update(o0);
+      ${action}(o0, f60);
+    } return;`,
+      "2.917",
+    );
+    engine.tick();
+    assert.equal(engine.screenObjects[0]!.earlierPartition, false);
+    assert.equal(engine.flags[60], 0, "startup delay does not finish the animation");
+    engine.tick();
+    engine.tick();
+    assert.equal(engine.flags[60], 1, "the final cel releases the waiting script");
+    assert.equal(engine.screenObjects[0]!.cel, finish);
+    assert.equal(engine.screenObjects[0]!.cycling, false);
+  });
+}

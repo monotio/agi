@@ -3757,6 +3757,7 @@ export class Engine {
       case 0x49: {
         const o = obj(0);
         o.cycleMode = CYCLE_END_OF_LOOP;
+        o.earlierPartition = false; // docs/fidelity.md: completion-animation-updates
         o.cycleDelay = true;
         o.cycleFlag = a(1);
         this.flags[a(1)] = 0;
@@ -3769,6 +3770,7 @@ export class Engine {
       case 0x4b: {
         const o = obj(0);
         o.cycleMode = CYCLE_REVERSE_LOOP;
+        o.earlierPartition = false;
         o.cycleDelay = true;
         o.cycleFlag = a(1);
         this.flags[a(1)] = 0;
