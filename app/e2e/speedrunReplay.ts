@@ -66,22 +66,27 @@ export class BrowserReplay {
     await expect.poll(async () => (await this.read()).revision).toBeGreaterThan(from.revision);
   }
 
+  private async releaseDirection(): Promise<void> {
+    if (!this.heldDirection) return;
+    if (this.phone) {
+      await this.page
+        .getByTestId("touch-controls")
+        .getByRole("button", { name: new RegExp(`^(Walk|Navigate) ${this.heldDirection}$`) })
+        .dispatchEvent("pointerup", { pointerId: 1, pointerType: "touch", button: 0 });
+    } else await this.page.keyboard.up(this.heldDirection);
+    this.heldDirection = null;
+  }
+
   async key(code: number): Promise<void> {
     const before = await this.read();
     const key = KEYS[code] ?? (code >= 33 && code <= 126 ? String.fromCharCode(code) : null);
     if (!key) throw new Error(`Replay key 0x${code.toString(16)} has no UI mapping.`);
+    // A held walking pointer must end before the pad can accept dialog taps.
+    if (before.state.modalKind !== null) await this.releaseDirection();
     if (before.releaseGate !== 0 && DIRECTIONS[code] && before.state.modalKind === null) {
       // A raw navigation word toggles the Node direction. Preserve that
       // gesture through physical key or touch-pointer holds until its stop.
-      if (this.heldDirection) {
-        if (this.phone) {
-          await this.page
-            .getByTestId("touch-controls")
-            .getByRole("button", { name: new RegExp(`^Walk ${this.heldDirection}$`) })
-            .dispatchEvent("pointerup", { pointerId: 1, pointerType: "touch", button: 0 });
-        } else await this.page.keyboard.up(this.heldDirection);
-      }
-      this.heldDirection = null;
+      await this.releaseDirection();
       if (before.state.egoDirection !== NAV_KEYS[code]) {
         this.heldDirection = this.phone ? DIRECTIONS[code]! : key;
         if (this.phone) {
@@ -94,7 +99,8 @@ export class BrowserReplay {
     } else if (!this.phone) await this.page.keyboard.press(key);
     else if (code >= 33 && code <= 126) {
       // Native phone typing preserves case, including uppercase game bindings.
-      await this.page.getByTestId("input-line").fill(key);
+      const input = this.page.getByTestId("input-line");
+      await input.fill((await input.inputValue()) + key);
     } else {
       const pad = this.page.getByTestId("touch-controls");
       const direction = DIRECTIONS[code];

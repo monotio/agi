@@ -37,6 +37,8 @@ for (const phone of [false, true]) {
       await replay.boot("kq1", run.seed);
       await replay.play(run.actions);
       expect((await replay.read()).tick).toBe(run.ticks);
+      for (const letter of "lo") await replay.key(letter.charCodeAt(0));
+      await expect(page.getByTestId("input-line")).toHaveValue("lo");
       await page.screenshot({ path: test.info().outputPath("opening-replay.png") });
     });
 
