@@ -445,7 +445,8 @@ function prepareAgentToolCall(
   name: string,
   args: Record<string, unknown>,
 ): { success: true; args: Record<string, unknown> } | { success: false; error: string } {
-  const definition = AGENT_TOOLS.find((tool) => tool.name === name);
+  const canonicalName = name === "handover" ? "finish_genesis" : name;
+  const definition = AGENT_TOOLS.find((tool) => tool.name === canonicalName);
   if (!definition) return { success: false, error: `Unknown tool: '${name}'.` };
   // Omitted nullable fields become null so handlers see the strict-mode shape.
   args = normalizeToolArguments(definition.parameters, args);
@@ -1001,10 +1002,12 @@ function executeLegacyTool(
         return { success: false, error: `Logic ${num} is not present in the container.` };
       }
       try {
-        const source = disassembleLogic(payload, {
-          dictionary: session.sources.words,
-          profile: session.profile,
-        });
+        const source =
+          authoredLogicSource(session, num) ??
+          disassembleLogic(payload, {
+            dictionary: session.sources.words,
+            profile: session.profile,
+          });
         return {
           success: true,
           message: `Logic ${num} source (re-assembles to the same bytecode):\n${source}`,
@@ -1196,12 +1199,20 @@ function executeLegacyTool(
       }
     }
 
-    case "finish_genesis": {
-      const result = validateGenesis(session);
-      if (result.success) session.genesisComplete = true;
+    case "finish_genesis":
+    case "handover": {
+      if (!session.genesisComplete) {
+        const result = validateGenesis(session);
+        if (result.success) session.genesisComplete = true;
+        return {
+          ...result,
+          details: { ...result.details, genesisComplete: session.genesisComplete },
+        };
+      }
       return {
-        ...result,
-        details: { ...result.details, genesisComplete: session.genesisComplete },
+        success: true,
+        message: "Handover complete. Resuming gameplay.",
+        details: { genesisComplete: true, notes: args["notes"] ?? null },
       };
     }
 
@@ -1405,6 +1416,36 @@ export function authoredPictureSource(session: AgentSessionState, num: number): 
   if (authored === undefined || !payload) return undefined;
   try {
     const compiled = compilePictureSource(authored, { profile: session.profile }).bytes;
+    if (compiled.length !== payload.length) return undefined;
+    for (let index = 0; index < compiled.length; index++)
+      if (compiled[index] !== payload[index]) return undefined;
+    return authored;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The logic text the agent wrote this session, only while it still compiles to
+ * the stored resource bytes.
+ */
+export function authoredLogicSource(session: AgentSessionState, num: number): string | undefined {
+  const authored = session.sources.logics.get(num);
+  const payload = session.container.getResource("logic", num);
+  if (authored === undefined || !payload) return undefined;
+  try {
+    const defined = new Set(
+      [...authored.matchAll(/^\s*#define\s+(\w+)/gm)].map((match) => match[1]),
+    );
+    const bindings = Object.entries(session.authoring.bindings)
+      .filter(([name]) => !defined.has(name))
+      .map(([name, binding]) => `#define ${name} ${binding.num}`)
+      .join("\n");
+    const fullSource = bindings.length ? `${bindings}\n${authored}` : authored;
+    const compiled = assembleLogic(fullSource, {
+      dictionary: session.sources.words,
+      profile: session.profile,
+    }).payload;
     if (compiled.length !== payload.length) return undefined;
     for (let index = 0; index < compiled.length; index++)
       if (compiled[index] !== payload[index]) return undefined;

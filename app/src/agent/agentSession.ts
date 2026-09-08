@@ -59,6 +59,11 @@ export interface PowerUpResult {
   files?: Partial<Record<"WORDS.TOK" | "OBJECT" | "TESTS.JSON", Uint8Array>>;
 }
 
+/** Tools active during Genesis and Room Authoring. Stable across both phases for prompt cache reuse. */
+const AUTHORING_SESSION_TOOLS = AGENT_TOOLS.filter((tool) => tool.name !== "read_frames").map(
+  (tool) => tool.name,
+);
+
 export interface BootResources {
   files: Record<string, Uint8Array>;
   words: [string, number][];
@@ -295,28 +300,31 @@ Answer the player's question using evidence from inspection when needed. For hin
     }
     if (!this.conversation) throw new Error("No conversation provider configured");
 
-    this.conversation.setTools(
-      AGENT_TOOLS.filter((tool) => tool.name !== "finish_genesis").map((tool) => tool.name),
-    );
+    this.conversation.setTools();
 
     const staged = forkAgentState(this.state);
     try {
       let turn = await this.observeTurn(this.conversation.sendUserMessage(prompt));
 
       while (turn.toolCalls.length > 0) {
+        let remixDone = false;
         const results: { toolCallId: string; result: AgentToolResult }[] = [];
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Remix] ${tc.name}`, { tool: tc.name, args: tc.input });
           const candidate = forkAgentState(staged);
-          let res: AgentToolResult =
-            tc.name === "finish_genesis"
-              ? {
-                  success: false,
-                  error: "finish_genesis is available only during initial creation.",
-                }
-              : await executeAgentToolAsync(candidate, tc.name, tc.input, this.runtime);
-          if (res.success) {
+          let res: AgentToolResult;
+          if (tc.name === "finish_genesis" || tc.name === "handover") {
+            remixDone = true;
+            res = {
+              success: true,
+              message: "Remix complete. Handing over to resume gameplay.",
+              details: { genesisComplete: true, remixComplete: true },
+            };
+          } else {
+            res = await executeAgentToolAsync(candidate, tc.name, tc.input, this.runtime);
+          }
+          if (res.success && tc.name !== "finish_genesis" && tc.name !== "handover") {
             Object.assign(staged, candidate);
             if (
               res.details?.["writtenResources"] ||
@@ -338,6 +346,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           results.push({ toolCallId: tc.id, result: res });
         }
         turn = await this.observeTurn(this.conversation.sendToolResults(results));
+        if (remixDone) break;
       }
 
       const patched = changedResources(this.state, staged);
@@ -560,11 +569,7 @@ Answer the player's question using evidence from inspection when needed. For hin
   private async genesis(cartridgeMarkdown: string): Promise<BootResources> {
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating a game.");
-    this.conversation?.setTools(
-      AGENT_TOOLS.filter(
-        (tool) => !["read_frames", "read_state", "read_objects"].includes(tool.name),
-      ).map((tool) => tool.name),
-    );
+    this.conversation?.setTools(AUTHORING_SESSION_TOOLS);
     if (this.stubFallback) {
       this.onEvent("request", "Starting Genesis using offline StubAgent");
       const resources = this.stubFallback.initialResources();
@@ -678,12 +683,8 @@ Answer the player's question using evidence from inspection when needed. For hin
     let staged = forkAgentState(this.state);
     staged.genesisComplete = true;
     staged.sources.objects = readInventoryObjects(staged.getFiles().get("OBJECT"), staged.profile);
-    const allowed = new Set(
-      AGENT_TOOLS.filter((tool) => !["finish_genesis", "read_frames"].includes(tool.name)).map(
-        (tool) => tool.name,
-      ),
-    );
-    this.conversation.setTools([...allowed]);
+    const allowed = new Set(AUTHORING_SESSION_TOOLS);
+    this.conversation.setTools(AUTHORING_SESSION_TOOLS);
     const snapshot: AgentRuntimeDeps = {
       engine: {
         state: () => req.context["state"] ?? null,
@@ -729,22 +730,41 @@ Answer the player's question using evidence from inspection when needed. For hin
           const candidate = forkAgentState(staged);
           let result: AgentToolResult;
           try {
-            result = allowed.has(tc.name)
-              ? await executeAgentToolAsync(candidate, tc.name, tc.input, snapshot)
-              : { success: false, error: "This tool is unavailable during room preparation." };
-            if (result.success) {
-              validateRoomCandidate(this.state, staged, candidate, room);
-              staged = candidate;
+            if (tc.name === "finish_genesis" || tc.name === "handover") {
               if (
-                result.details?.["writtenResources"] ||
-                result.details?.["updatedFiles"] ||
-                result.details?.["authoringChanged"]
-              )
+                staged.container.getResource("logic", room) &&
+                staged.container.getResource("picture", room)
+              ) {
+                completed = true;
                 result = {
-                  ...result,
-                  message: `${result.message ?? "Change prepared."}\nStaged for the new room; live state is the frozen departure snapshot.`,
-                  details: { ...result.details, application: "staged" },
+                  success: true,
+                  message: `Room ${room} authored successfully. Handing over to resume gameplay.`,
+                  details: { genesisComplete: true, roomHandover: room },
                 };
+              } else {
+                result = {
+                  success: false,
+                  error: `Cannot hand over: room ${room} still needs both logic and picture. Author the missing resources before finishing.`,
+                };
+              }
+            } else {
+              result = allowed.has(tc.name)
+                ? await executeAgentToolAsync(candidate, tc.name, tc.input, snapshot)
+                : { success: false, error: "This tool is unavailable during room preparation." };
+              if (result.success) {
+                validateRoomCandidate(this.state, staged, candidate, room);
+                staged = candidate;
+                if (
+                  result.details?.["writtenResources"] ||
+                  result.details?.["updatedFiles"] ||
+                  result.details?.["authoringChanged"]
+                )
+                  result = {
+                    ...result,
+                    message: `${result.message ?? "Change prepared."}\nStaged for the new room; live state is the frozen departure snapshot.`,
+                    details: { ...result.details, application: "staged" },
+                  };
+              }
             }
           } catch (error) {
             result = { success: false, error: String(error) };
@@ -758,6 +778,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           results.push({ toolCallId: tc.id, result });
         }
         turn = await this.observeTurn(this.conversation.sendToolResults(results));
+        if (completed) break;
       }
       if (
         !completed &&

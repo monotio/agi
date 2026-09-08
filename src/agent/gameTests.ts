@@ -623,6 +623,7 @@ export function executeGameTestTool(
     // Validate the replacement fully before assigning any new payload.
     const stored = mode === "replace" ? [] : readStoredTests(session);
     let next: GameTest[];
+    let written: GameTest[] = [];
     if (mode === "remove") {
       const names = namesArgument(args["names"]);
       if (!names?.length) fail("remove needs the names of the tests to delete.");
@@ -633,7 +634,7 @@ export function executeGameTestTool(
     } else {
       const tests = args["tests"];
       if (!Array.isArray(tests) || !tests.length) fail(`${mode} needs at least one test in tests.`);
-      const written = tests.map((test, index) =>
+      written = tests.map((test, index) =>
         validateGameTest(test, `tests[${index}]`, session.profile),
       );
       let probe: ((command: string) => string | null) | null = null;
@@ -667,10 +668,21 @@ export function executeGameTestTool(
       if (next.length > MAX_GAME_TESTS) fail(`A game holds at most ${MAX_GAME_TESTS} tests.`);
     }
     session.testsPayload = serializeGameTests(next);
+    let runResult: AgentToolResult | undefined;
+    if (mode !== "remove" && next.length > 0) {
+      const namesToRun = written.map((test) => test.name);
+      runResult = runGameTests(session, namesToRun);
+    }
+    const verdict = runResult ? ` Test verdict: ${runResult.message ?? runResult.error}` : "";
     return {
       success: true,
-      message: `${next.length} game test${next.length === 1 ? "" : "s"} stored in ${GAME_TESTS_FILE}. Run them with run_game_tests; write tools rerun the ones their change touches.`,
-      details: { stored: next.length, names: next.map((test) => test.name) },
+      message: `${next.length} game test${next.length === 1 ? "" : "s"} stored in ${GAME_TESTS_FILE}.${verdict}`,
+      details: {
+        stored: next.length,
+        names: next.map((test) => test.name),
+        ...(runResult?.details ? { run: runResult.details } : {}),
+      },
+      ...(runResult?.images ? { images: runResult.images } : {}),
     };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };

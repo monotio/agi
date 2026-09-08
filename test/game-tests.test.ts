@@ -571,6 +571,31 @@ test("the extended step vocabulary runs in the simulation", () => {
     instructionBudget: null,
   });
   assert.equal(headed.success, true, headed.error ?? "");
+  // direction with compass name synonym 'east' and move with numeric '3' both work equivalently
+  const headedSynonym = playtestRoom(state, {
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: [step("direction", { direction: "east", ticks: 20 })],
+    expect: expectation({
+      object: { num: 0, view: 0, x0: 82, y0: 118, x1: 159, y1: 122, active: true },
+    }),
+    cycleBudget: null,
+    instructionBudget: null,
+  });
+  assert.equal(headedSynonym.success, true, headedSynonym.error ?? "");
+  const movedNumeric = playtestRoom(state, {
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: [step("move", { direction: 3, ticks: 20 })],
+    expect: expectation({
+      object: { num: 0, view: 0, x0: 82, y0: 118, x1: 159, y1: 122, active: true },
+    }),
+    cycleBudget: null,
+    instructionBudget: null,
+  });
+  assert.equal(movedNumeric.success, true, movedNumeric.error ?? "");
   // walkTo steers to the target; reachable asserts the same from the final state.
   const walked = playtestRoom(state, {
     room: 1,

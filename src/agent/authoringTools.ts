@@ -1,4 +1,5 @@
 import {
+  authoredLogicSource,
   authoredPictureSource,
   executeAgentTool,
   type AgentSessionState,
@@ -338,7 +339,8 @@ export function executeAuthoringTool(
       // fall back to disassembly for pictures never written or since changed.
       const source =
         kind === "logic"
-          ? disassembleLogic(payload, { dictionary: state.sources.words, profile: state.profile })
+          ? (authoredLogicSource(state, num) ??
+            disassembleLogic(payload, { dictionary: state.sources.words, profile: state.profile }))
           : (authoredPictureSource(state, num) ??
             readPictureSource(state.container, num, { profile: state.profile }));
       const find = args["find"];

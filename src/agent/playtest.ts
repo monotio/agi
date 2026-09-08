@@ -11,6 +11,7 @@ import { Engine, type EngineHost } from "../runtime/engine.ts";
 import { AGI_KEY } from "../runtime/keys.ts";
 import { frameToPng, framesToContactSheet, textRows, type AgentFrame } from "./frames.ts";
 import {
+  DIRECTION_SYNONYMS,
   directionForDelta,
   randomSource,
   validateObjectAssertion,
@@ -25,16 +26,6 @@ const DEFAULT_CYCLES = 600;
 const GENESIS_CYCLES = 120;
 const GENESIS_CYCLES_PER_ACK = 30;
 const GENESIS_MAX_ACKS = 16;
-const DIRECTIONS: Readonly<Record<string, number>> = {
-  up: 1,
-  "up-right": 2,
-  right: 3,
-  "down-right": 4,
-  down: 5,
-  "down-left": 6,
-  left: 7,
-  "up-left": 8,
-};
 
 const DIRECTION_DELTAS: Readonly<Record<number, readonly [number, number]>> = {
   1: [0, -1],
@@ -660,20 +651,21 @@ export function playtestRoom(
         )
           throw new Error(`steps[${index}].command must be nonempty and at most 80 characters.`);
         simulation.line = step["command"];
-      } else if (action === "move") {
-        const direction =
-          typeof step["direction"] === "string" ? DIRECTIONS[step["direction"]] : undefined;
-        if (!direction)
+      } else if (action === "move" || action === "direction") {
+        const raw = step["direction"];
+        let dir: number | undefined;
+        if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0 && raw <= 8) {
+          dir = raw;
+        } else if (typeof raw === "string") {
+          dir = DIRECTION_SYNONYMS[raw.trim().toLowerCase()];
+        }
+        if (dir === undefined) {
           throw new Error(
-            `steps[${index}].direction must name one of the eight compass directions.`,
+            `steps[${index}].direction must name a compass direction or an integer from 0 to 8.`,
           );
-        // Same host movement input as the app's direction messages.
-        moveDirection = direction;
-        engine.vars[6] = direction;
-      } else if (action === "direction") {
-        // The numeric form of move: 0..8, one heading decision per cycle.
-        moveDirection = integer(step["direction"], `steps[${index}].direction`, 0, 8);
-        engine.vars[6] = moveDirection;
+        }
+        moveDirection = dir;
+        engine.vars[6] = dir;
       } else if (action === "walkTo") {
         walkTarget = {
           x: integer(step["x"], `steps[${index}].x`, 0, 159),

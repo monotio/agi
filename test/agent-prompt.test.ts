@@ -79,8 +79,10 @@ describe("agent system prompt", () => {
       "vocabulary before said()",
     );
     assert.ok(
-      AGI_SYSTEM_PROMPT.includes("NEVER call finish_genesis in a game that is already running"),
-      "genesis gate invariant",
+      AGI_SYSTEM_PROMPT.includes(
+        "Call finish_genesis when authoring is complete to validate resources and hand over control",
+      ),
+      "handover invariant",
     );
     assert.ok(
       AGI_SYSTEM_PROMPT.includes(

@@ -55,6 +55,73 @@ export const MOVE_DIRECTIONS = [
   "up-left",
 ] as const;
 
+export const DIRECTION_NAMES: Readonly<Record<number, string>> = {
+  0: "stop",
+  1: "up",
+  2: "up-right",
+  3: "right",
+  4: "down-right",
+  5: "down",
+  6: "down-left",
+  7: "left",
+  8: "up-left",
+};
+
+export const DIRECTION_SYNONYMS: Readonly<Record<string, number>> = {
+  stop: 0,
+  none: 0,
+  "0": 0,
+  up: 1,
+  north: 1,
+  n: 1,
+  "1": 1,
+  "up-right": 2,
+  northeast: 2,
+  ne: 2,
+  "north-east": 2,
+  "2": 2,
+  right: 3,
+  east: 3,
+  e: 3,
+  "3": 3,
+  "down-right": 4,
+  southeast: 4,
+  se: 4,
+  "south-east": 4,
+  "4": 4,
+  down: 5,
+  south: 5,
+  s: 5,
+  "5": 5,
+  "down-left": 6,
+  southwest: 6,
+  sw: 6,
+  "south-west": 6,
+  "6": 6,
+  left: 7,
+  west: 7,
+  w: 7,
+  "7": 7,
+  "up-left": 8,
+  northwest: 8,
+  nw: 8,
+  "north-west": 8,
+  "8": 8,
+};
+
+export function normalizeDirection(value: unknown, label: string): { name: string; num: number } {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 8) {
+    return { name: DIRECTION_NAMES[value] ?? "stop", num: value };
+  }
+  if (typeof value === "string") {
+    const num = DIRECTION_SYNONYMS[value.trim().toLowerCase()];
+    if (num !== undefined) {
+      return { name: DIRECTION_NAMES[num] ?? "stop", num };
+    }
+  }
+  fail(`${label} must name a compass direction or an integer from 0 to 8.`);
+}
+
 export interface FlagAssertion {
   readonly id: number;
   readonly value: boolean;
@@ -228,12 +295,6 @@ function optionalText(value: unknown, label: string, max: number): string | null
   return value;
 }
 
-function moveDirection(value: unknown, label: string): string {
-  if (typeof value !== "string" || !(MOVE_DIRECTIONS as readonly string[]).includes(value))
-    fail(`${label} must name one of the eight compass directions.`);
-  return value;
-}
-
 /**
  * Strictly validate one stored step and return its normalized full shape.
  * Imported JSON gets no provider tool-schema validation, so this is the one
@@ -277,9 +338,9 @@ export function validateGameTestStep(value: unknown, label: string): GameTestSte
     command: kind === "command" ? text(step["command"], `${label}.command`, 80) : null,
     direction:
       kind === "move"
-        ? moveDirection(step["direction"], `${label}.direction`)
+        ? normalizeDirection(step["direction"], `${label}.direction`).name
         : kind === "direction"
-          ? integer(step["direction"], `${label}.direction`, 0, 8)
+          ? normalizeDirection(step["direction"], `${label}.direction`).num
           : null,
     key: kind === "key" ? integer(step["key"], `${label}.key`, 0, 65535) : null,
     x: kind === "walkTo" ? integer(step["x"], `${label}.x`, 0, 159) : null,

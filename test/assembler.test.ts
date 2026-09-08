@@ -387,3 +387,37 @@ test("buildLogicResource(parseLogicResource(x)) is identity with absent slots", 
   assert.deepEqual(parsed.messages, [null, "Hi", null]);
   assert.deepEqual([...buildLogicResource(parsed.code, parsed.messages)], [...original]);
 });
+
+test("assembler treats non-directive # as line comments", () => {
+  const bytes = code("# --- commands ---\n# another comment\nreturn;");
+  assert.deepEqual(bytes, [0x00]);
+});
+
+test("assembler accepts infix comparisons and compiles to standard opcodes", () => {
+  // v1 == 2 -> equaln(v1, 2)
+  assert.deepEqual(code("if (v1 == 2) { return; }"), code("if (equaln(v1, 2)) { return; }"));
+  // v1 != 2 -> !equaln(v1, 2)
+  assert.deepEqual(code("if (v1 != 2) { return; }"), code("if (!equaln(v1, 2)) { return; }"));
+  // v1 == v2 -> equalv(v1, v2)
+  assert.deepEqual(code("if (v1 == v2) { return; }"), code("if (equalv(v1, v2)) { return; }"));
+  // v1 < 5 -> lessn(v1, 5)
+  assert.deepEqual(code("if (v1 < 5) { return; }"), code("if (lessn(v1, 5)) { return; }"));
+  // v1 > 5 -> greatern(v1, 5)
+  assert.deepEqual(code("if (v1 > 5) { return; }"), code("if (greatern(v1, 5)) { return; }"));
+  // bare flag f5 -> isset(f5)
+  assert.deepEqual(code("if (f5) { return; }"), code("if (isset(f5)) { return; }"));
+  // bare negated flag !f5 -> !isset(f5)
+  assert.deepEqual(code("if (!f5) { return; }"), code("if (!isset(f5)) { return; }"));
+});
+
+test("assembler accepts infix assignment and compiles to assignn/assignv", () => {
+  // v50 = 1; -> assignn(v50, 1);
+  assert.deepEqual(code("v50 = 1;\nreturn;"), code("assignn(v50, 1);\nreturn;"));
+  // v1 = v2; -> assignv(v1, v2);
+  assert.deepEqual(code("v1 = v2;\nreturn;"), code("assignv(v1, v2);\nreturn;"));
+  // #define v_score 3 \n v_score = 10;
+  assert.deepEqual(
+    code("#define v_score 3\nv_score = 10;\nreturn;"),
+    code("assignn(v3, 10);\nreturn;"),
+  );
+});

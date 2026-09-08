@@ -145,9 +145,7 @@ for (const fail of [false, true])
         await expect(panel.getByTestId("agent-bubble-feed")).toContainText("read_view -> ok");
         const tools = (providerRequests[0]!["tool_choice"] as { tools: { name: string }[] }).tools;
         expect(tools.some((tool) => tool.name === "read_state")).toBe(true);
-        expect(tools.some((tool) => ["finish_genesis", "read_frames"].includes(tool.name))).toBe(
-          false,
-        );
+        expect(tools.some((tool) => tool.name === "finish_genesis")).toBe(true);
         const input = providerRequests[1]!["input"] as {
           type: string;
           call_id?: string;

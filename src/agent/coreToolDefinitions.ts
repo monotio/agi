@@ -405,7 +405,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "finish_genesis",
     description:
-      "Validate genesis by booting the world in a bounded simulation, dismissing messages and key waits like a player. Missing resources, a black screen or an ego placed outside walkable space fail and do not complete genesis. An opening without the parser enabled or without an active ego passes with `warnings` describing what players will meet. Returns observed state and a screenshot. `notes` is optional free text and is not interpreted.",
+      "Hand over control to resume the running game after genesis, room authoring, or remix. Validates authored resources: during initial genesis, boots the world in simulation to verify ego spawn, room display, and modal handling; during room authoring, verifies that the target room's logic and picture are compiled and valid; during remix, verifies all staged resources. Returns observed state and status. `notes` is optional free text explaining the changes or warnings.",
     parameters: {
       type: "object",
       additionalProperties: false,
