@@ -216,14 +216,17 @@ Each route uses normal player inputs and a virtual clock, asserts score and
 inventory milestones, and repeats from a cold boot with seed 1. The KQ2 route
 covers the opening errands, monastery cross, brooch, first door inscription and
 bridge round trip at score 41. The SQ1 route retrieves the cartridge and keycard,
-escapes the Arcada, lands on Kerona and crushes the spider droid with the boulder
-at score 42. Browser tests replay the same routes through the app's controls.
-The same catalog includes KQ1 completion and MH1 Day 1. Each entry defines its
-coverage, route and observable endpoint once for Node, CLI and browser checks.
-`scripts/walkthrough.ts` writes a replay for any catalog entry; for example,
-`npm run prove:walkthrough -- sq1`. Game-specific route modules contain player
-actions and intermediate milestones; `test/speedrun.test.ts` checks the driver.
-KQ2 and SQ1 are partial walkthroughs; their later puzzles and endings are not covered.
+escapes the Arcada, lands on Kerona, crushes the spider droid with the boulder,
+navigates the underground complex, defeats Orat, retrieves the data cartridge
+from the Keronian base, pilots the skimmer across the desert with zero damage,
+and arrives at Ulence Flats at score 108. Browser tests replay the same routes
+through the app's controls. The same catalog includes KQ1 completion and MH1 Day 1.
+Each entry defines its coverage, route and observable endpoint once for Node, CLI
+and browser checks. `scripts/walkthrough.ts` writes a replay for any catalog entry;
+for example, `npm run prove:walkthrough -- sq1`. Game-specific route modules contain
+player actions and intermediate milestones; `test/speedrun.test.ts` checks the driver.
+KQ2 covers the opening chapter and SQ1 covers Act 1 through Ulence Flats; later
+puzzles and endings are not covered.
 
 ### Manhunter Day 1 proof
 
