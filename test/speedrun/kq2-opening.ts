@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import type { Speedrun } from "./runner.ts";
+import { AGI_KEY } from "../../src/runtime/keys.ts";
+import { planWalk, walkPlanned, type Target } from "../../scripts/walkthrough-navigation.ts";
 import { directionForDelta } from "../../src/agent/gameTestSteps.ts";
 
 function carried(run: Speedrun, num: number): boolean {
@@ -9,7 +11,7 @@ function carried(run: Speedrun, num: number): boolean {
 
 function skipIntro(run: Speedrun): void {
   for (let i = 0; i < 6000 && !(run.state().control && run.state().room === 1); i++) {
-    if (i % 30 === 0) run.key(13);
+    if (i % 30 === 0) run.key(AGI_KEY.ENTER);
     run.advance();
   }
   assert.ok(run.state().control, "intro never yielded control");
@@ -162,4 +164,204 @@ export function kq2Opening(run: Speedrun): void {
     run.advance();
   }
   run.checkpoint("Back outside", { room: 3, score: 18 });
+}
+
+function monasteryApproach(run: Speedrun): void {
+  kq2Opening(run);
+  run.walkTo(73, 131);
+  run.walkTo(134, 130);
+  run.walkTo(134, 80);
+  run.walkTo(138, 75);
+  run.exit("N", 45);
+  run.exit("E", 46);
+  run.exit("S", 4);
+  run.wait(() => run.engine.flags[53] !== 0, "LRRH appears", 30000);
+  for (let n = 0; n < 60; n++) {
+    const girl = run.engine.screenObjects[2]!;
+    const s = run.state();
+    if (Math.hypot(girl.x - s.x, girl.y - s.y) <= 20) break;
+    try {
+      run.walkTo(Math.max(2, Math.min(157, girl.x - 6)), Math.max(40, Math.min(165, girl.y)), 300);
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.startsWith("Walk blocked")) throw error;
+      run.advance(60);
+    }
+  }
+  run.command("give basket to girl");
+  assert.ok(carried(run, 52), "bouquet carried");
+  run.checkpoint("Bouquet", { room: 4, score: 22 });
+  run.command("wear cloak");
+  run.command("wear ring");
+  assert.equal(run.engine.flags[70], 1, "cloak worn");
+  assert.equal(run.engine.flags[68], 1, "ring worn");
+  run.checkpoint("Cloak and ring worn", { room: 4, score: 25 });
+  run.exit("E", 5);
+  run.exit("E", 6);
+}
+
+function walkSmart(run: Speedrun, target: Target, attempts = 25): void {
+  for (let n = 0; n < attempts; n++) {
+    const s = run.state();
+    if (s.x >= target.x0 && s.x <= target.x1 && s.y >= target.y0 && s.y <= target.y1) return;
+    const plan = planWalk(run, target);
+    if (!plan.found)
+      throw new Error(`No static path: ${JSON.stringify(plan.reached)} from ${s.x},${s.y}`);
+    let blocked = false;
+    for (const point of plan.waypoints) {
+      try {
+        run.walkTo(point.x, point.y, Math.max(300, plan.steps * 12));
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.startsWith("Walk blocked")) throw error;
+        blocked = true;
+        break;
+      }
+    }
+    if (!blocked) {
+      const reached = run.state();
+      assert.ok(
+        reached.x >= target.x0 &&
+          reached.x <= target.x1 &&
+          reached.y >= target.y0 &&
+          reached.y <= target.y1,
+        "planned target reached",
+      );
+      return;
+    }
+  }
+  throw new Error(
+    `walkSmart exhausted: ${JSON.stringify(run.state())} target ${JSON.stringify(target)}`,
+  );
+}
+
+function monasteryCross(run: Speedrun): void {
+  monasteryApproach(run);
+  run.checkpoint("Monastery approach", { room: 6, score: 25 });
+  walkPlanned(run, { x0: 70, x1: 70, y0: 150, y1: 150 });
+  run.command("open door");
+  run.wait(() => run.state().room === 71, "monastery door opens", 1200);
+  run.checkpoint("Chapel", { room: 71, score: 25 });
+  walkPlanned(run, { x0: 80, x1: 90, y0: 82, y1: 83 });
+  run.command("pray");
+  run.wait(() => run.engine.flags[154] !== 0, "prayer counted", 600);
+  run.checkpoint("Prayed", { room: 71, score: 27 });
+  run.wait(() => run.engine.flags[32] === 0, "monk stands and asks name");
+  run.command("graham");
+  assert.ok(carried(run, 69), "cross carried");
+  run.checkpoint("Cross", { room: 71, score: 29 });
+  run.command("wear cross");
+  assert.equal(run.engine.flags[69], 1, "cross worn");
+  run.checkpoint("Cross worn", { room: 71, score: 31 });
+  walkSmart(run, { x0: 60, x1: 80, y0: 165, y1: 167 });
+  run.exit("S", 6);
+  run.checkpoint("Left monastery", { room: 6, score: 31 });
+}
+
+/** Follow a fixed bridge path one cell at a time, preserving its input timing.
+ * The deck and approaches avoid lethal trigger rims and the bridge object's baseline.
+ * A changed collision or puzzle outcome must fail instead of being routed around.
+ */
+function walkBridge(run: Speedrun, waypoints: readonly (readonly number[])[]): void {
+  for (const point of waypoints) {
+    const targetX = point[0]!,
+      targetY = point[1]!;
+    for (let steps = 0; ; steps++) {
+      const state = run.state();
+      assert.equal(state.room, 48, "bridge room");
+      assert.equal(run.engine.flags[119], 0, "no chasm fall");
+      if (state.x === targetX && state.y === targetY) break;
+      assert.ok(steps < 320, "bridge waypoint reached");
+      run.walkTo(state.x + Math.sign(targetX - state.x), state.y + Math.sign(targetY - state.y));
+    }
+  }
+}
+
+/** Cold boot through the cross, brooch, first inscription and bridge round trip (41 points). */
+export function kq2Bridge(run: Speedrun): void {
+  monasteryCross(run);
+  run.exit("S", 13);
+  walkSmart(run, { x0: 42, x1: 46, y0: 60, y1: 62 });
+  run.command("look in hole");
+  run.command("get brooch");
+  assert.ok(carried(run, 59), "brooch carried");
+  run.checkpoint("Brooch", { room: 13, score: 39 });
+  run.exit("N", 6);
+  walkSmart(run, { x0: 140, x1: 145, y0: 150, y1: 152 });
+  run.exit("N", 48);
+  run.checkpoint("Bridge room", { room: 48, score: 39 });
+  walkBridge(run, [
+    [41, 167],
+    [5, 131],
+    [40, 96],
+    [41, 97],
+    [55, 97],
+    [62, 104],
+  ]);
+  walkBridge(run, [
+    [69, 97],
+    [73, 97],
+    [74, 98],
+    [92, 98],
+    [93, 97],
+    [98, 97],
+    [99, 96],
+    [104, 96],
+    [105, 95],
+    [108, 95],
+    [109, 94],
+    [110, 94],
+    [111, 93],
+    [112, 93],
+    [113, 92],
+    [114, 92],
+    [115, 91],
+    [116, 91],
+    [117, 90],
+    [118, 90],
+    [119, 89],
+    [120, 89],
+    [121, 88],
+    [123, 88],
+    [124, 87],
+    [133, 87],
+    [135, 85],
+    [136, 85],
+    [138, 87],
+  ]);
+  run.checkpoint("Bridge crossed east", { room: 48, score: 40 });
+  run.exit("E", 49);
+  run.exit("N", 42);
+  run.checkpoint("Door room", { room: 42, score: 40 });
+  walkSmart(run, { x0: 75, x1: 84, y0: 102, y1: 105 });
+  run.command("read inscription");
+  run.wait(() => run.engine.flags[67] !== 0, "first inscription read", 600);
+  run.checkpoint("Inscription", { room: 42, score: 40 });
+  run.exit("S", 49);
+  run.exit("W", 48);
+  walkBridge(run, [
+    [154, 42],
+    [154, 79],
+    [146, 87],
+  ]);
+  walkBridge(run, [
+    [122, 111],
+    [121, 111],
+    [120, 112],
+    [119, 112],
+    [118, 113],
+    [117, 113],
+    [116, 114],
+    [114, 114],
+    [113, 115],
+    [112, 115],
+    [111, 116],
+    [105, 116],
+    [104, 117],
+    [86, 117],
+    [85, 118],
+    [84, 118],
+    [83, 119],
+    [79, 119],
+    [72, 112],
+  ]);
+  run.checkpoint("Bridge crossed west", { room: 48, score: 41 });
 }

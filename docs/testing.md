@@ -31,14 +31,14 @@ resource readers still reject unavailable data if the scenario requests it.
 | Game                     | Folder            | Interpreter build / profile | Tests                                                                                                                                                                                                                |
 | ------------------------ | ----------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | King's Quest I           | `games/kq1/`      | 2.917                       | [Full-game completion proof](#kq1-completion-proof) (159 points; Node and browser), [resources](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts) |
-| King's Quest II          | `games/kq2/`      | 2.411                       | [Resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)                                                                        |
+| King's Quest II          | `games/kq2/`      | 2.411                       | [Walkthrough to 41 points](../test/kq2-walkthrough.test.ts), [resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)           |
 | King's Quest III         | `games/kq3/`      | 2.936                       | [Resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)                                                                        |
 | King's Quest IV          | `games/kq4/`      | 3.002.086                   | [Resources](../test/kq4.test.ts), [regressions](../test/kq4-regressions.test.ts)                                                                                                                                     |
 | The Black Cauldron       | `games/bc/`       | 2.439 / 2.440               | [Opening and movement](../test/openings.test.ts)                                                                                                                                                                     |
 | Mixed-Up Mother Goose    | `games/mumg/`     | 2.917                       | [Introduction and movement](../test/openings.test.ts)                                                                                                                                                                |
 | Donald Duck's Playground | `games/ddp/`      | DOS 1.50; 2.272 / 2.440     | [Difficulty selection and movement](../test/openings.test.ts), replayed in the browser                                                                                                                               |
 | Space Quest II           | `games/sq2/`      | 2.936                       | [Opening and movement](../test/openings.test.ts)                                                                                                                                                                     |
-| Space Quest I            | `games/sq1/`      | 2.917                       | [Opening](../test/openings.test.ts)                                                                                                                                                                                  |
+| Space Quest I            | `games/sq1/`      | 2.917                       | [Walkthrough to 42 points](../test/sq1-walkthrough.test.ts), [opening](../test/openings.test.ts)                                                                                                                     |
 | Police Quest I           | `games/pq1/`      | 2.903 / 2.936 fallback      | [Opening](../test/openings.test.ts)                                                                                                                                                                                  |
 | Leisure Suit Larry I     | `games/lsl1/`     | 2.440                       | [Opening](../test/openings.test.ts)                                                                                                                                                                                  |
 | Gold Rush                | `games/gr1/`      | 3.002.149                   | [Opening](../test/openings.test.ts), [binary profile](../test/mh2-profile.test.ts)                                                                                                                                   |
@@ -201,20 +201,23 @@ the game's terminal ending state independently of the report's success label; a
 missing fixture produces an explicit skip. Physical Samsung/iPhone keyboards
 and screen readers still require device testing.
 
-### Opening walkthroughs
+### Walkthrough milestones
 
 After supplying the KQ2 2.411 or SQ1 2.917 fixture described above, run:
 
 ```bash
-node --test --experimental-strip-types --test-name-pattern="opening walkthrough" test/speedrun.test.ts
+node --test --experimental-strip-types test/kq2-walkthrough.test.ts test/sq1-walkthrough.test.ts
+npm --prefix app run e2e -- e2e/walkthrough-milestones.spec.ts
 ```
 
 Each route uses normal player inputs and a virtual clock, asserts score and
 inventory milestones, and repeats from a cold boot with seed 1. The KQ2 route
-covers the basket, soup, earrings, cloak and ring, ending outside the cottage at
-score 18. The SQ1 route retrieves the cartridge and keycard at score 6, entering
-the archive console answer once. These tests cover those opening segments;
-later puzzles and endings require additional routes.
+covers the opening errands, monastery cross, brooch, first door inscription and
+bridge round trip at score 41. The SQ1 route retrieves the cartridge and keycard,
+escapes the Arcada, lands on Kerona and crushes the spider droid with the boulder
+at score 42. Browser tests replay the same routes through the app's controls.
+The shorter opening segments also remain covered in `test/speedrun.test.ts`.
+These are partial walkthroughs; later puzzles and endings are not covered.
 
 ### Manhunter Day 1 proof
 
