@@ -32,14 +32,13 @@ npm run lint:ast                              # ast-grep structural rules and su
 npm run eval:replay                           # stored bad cases, offline
 ```
 
-## Local game data and the public repo
+## Optional game fixtures
 
-- `games/kq1|kq2|kq3` are gitignored Sierra fixtures: never committed, bundled,
-  served or referenced by shipped code. Local loading, patching, saving and ZIP
-  import/export of them are fine; they are not publication.
-- Fixture-dependent tests skip through `test/fixtures.ts` with the `games/<slug>/`
-  setup instruction, never a silent pass. A green run on a fresh clone proves
-  nothing about fixture compatibility.
+- Contributors can enable compatibility tests by placing their own game files
+  in `games/<slug>/`; see CONTRIBUTING.md for supported fixture inputs.
+  Fixture folders are excluded from version control and production builds.
+- Fixture-dependent tests use `test/fixtures.ts` to report missing inputs and
+  setup instructions as explicit skips.
 - The public repo and build hold only original project code and assets plus
   dependencies under their own licenses. No commercial game assets; never imply
   exported third-party assets are MIT. Do not copy implementation code from other
@@ -62,7 +61,7 @@ only for released formats and keep their original fixtures.
   the app, never for imported or fixture games.
 - Container edits preserve resource IDs, record formats and interpreter behavior.
   Repack replaced resources transactionally so superseded data does not accumulate.
-- Fidelity: every opcode an installed fixture uses needs the specified observable
+- Fidelity: every opcode exercised by a fixture needs the specified observable
   behavior, selected per interpreter profile (`src/runtime/profile.ts`). A no-op is
   valid only where the spec says so. `test/games.test.ts` checks dispatch coverage;
   semantics need their own assertions.

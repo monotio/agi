@@ -12,12 +12,9 @@ import { fixtureSkip } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
- * Authentic v3 fixture: a local, gitignored Gold Rush! installation
- * (games/gr1: GRDIR, GRVOL.0-2, WORDS.TOK, OBJECT, plus the interpreter files
- * AGI/AGIDATA.OVL/SIERRA.COM). It is the 3.002.149 game of the compatibility
- * set, the last of the v3 line; AGIDATA.OVL carries the version string.
- * Counts were read from the fixture bytes; the opening was observed in a
- * headless run.
+ * Optional Gold Rush 3.002.149 fixture tests. Supply GRDIR, GRVOL.*,
+ * WORDS.TOK, OBJECT and the interpreter files under games/gr1/.
+ * The suite checks resource decoding, profile detection and the opening.
  */
 const SLUG = "gr1";
 const skip = fixtureSkip(SLUG, ["AGIDATA.OVL"]);

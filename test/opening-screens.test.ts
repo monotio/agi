@@ -7,27 +7,10 @@ import { fixtureSkip } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
- * Opening-screen proofs: every installed game boots from cold start and
- * reaches the opening the shipped interpreter shows.
- *
- * The boot loop mirrors test/speedrun/runner.ts without importing it: a
- * virtual 60 Hz host clock, engine cycles gated by the script cycle delay
- * (v10) through CycleClock, and the same repeatable LCG for randomWord
- * (seed 1). KQ4 picks its copy-protection room and manual question with
- * random(); the pins below are the deterministic seed-1 outcome.
- *
- * Observed with this driver (seed 1; ticks are 60 Hz host ticks, cycles are
- * interpreter cycles within them; Enter is pressed ~1s into key-gated
- * screens). Budgets are the explicit finite until() bounds per stage:
- *
- *   game  profile     opening                              ticks   cycles  budget
- *   sq1   2.917       room 2 (Arcada) after First Name       66      12     600
- *   kq2   2.411       room 1 after credits fade + any-key    588     99     1200+600
- *   kq3   2.936       room 7 after title fade + any-key      543     182    1200+600
- *   pq1   2.936       room 6 after title any-key             63      22     600
- *   lsl1  2.440       age-check prompt in room 6             72      18     600
- *   gr1   3.002.149   room 1 after keyless intro slideshow   7464    1344   9000
- *   kq4   3.002.086   copy-protection question, room 141     3       3      200
+ * Optional fixture tests for title screens and opening input flows.
+ * A seeded random source and virtual 60 Hz host clock make each run repeatable.
+ * CycleClock applies the script's v10 delay; each stage has a bounded wait.
+ * Expected rooms and prompts are asserted in the individual cases below.
  */
 
 /** Repeatable random input (the speedrun harness's LCG), never a chosen result. */
@@ -53,7 +36,10 @@ class Boot {
   private readonly clock = new CycleClock(0);
 
   constructor(slug: string, profileId: string) {
-    const { container, dict, files } = loadGame(slug, { interpreterFiles: true });
+    const { container, dict, files } = loadGame(slug, {
+      interpreterFiles: true,
+      checkVolumes: false,
+    });
     const profile = detectProfile(files);
     assert.equal(
       profile.id,
@@ -239,7 +225,7 @@ test(
   },
 );
 
-const kq4Skip = fixtureSkip("kq4", ["AGIDATA.OVL"]);
+const kq4Skip = fixtureSkip("kq4", ["AGIDATA.OVL"], { checkVolumes: false });
 test("kq4: cold boot reaches the copy-protection question", { skip: kq4Skip }, () => {
   const boot = new Boot("kq4", "3.002.086");
   boot.until(() => boot.engine.textRow(6).includes("legal"), 200, "the manual question");

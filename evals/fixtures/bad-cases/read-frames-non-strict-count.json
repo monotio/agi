@@ -1,6 +1,6 @@
 {
   "name": "read-frames-non-strict-count",
-  "description": "PR #8 enabled non-strict Anthropic tools, but async runtime dispatch bypassed schema validation and coerced a string count. Reject before looking for a live game.",
+  "description": "Non-strict tool calls can supply a string count. Async runtime dispatch must reject it through schema validation before looking for a live game.",
   "async": true,
   "tool": "read_frames",
   "args": { "count": "9" },

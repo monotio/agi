@@ -35,19 +35,11 @@ on your own site, put their resources in public folders and list them in
 `catalog.json`; visitors play them directly from the gallery without importing
 files. See [hosting included games](docs/hosting.md#including-games-on-your-site).
 
-The first visit leads with the tutorial and an expanded **Create a new adventure**
-section. The browser remembers whether you leave Create expanded or collapsed.
-The tutorial can also be collapsed; once you create or import your own games, it
-starts collapsed unless you explicitly chose to keep it open.
-**Add game** accepts a ZIP or folder below these sections.
-Once a game is in your library,
-**Your games** appears as a gallery with a direct **Resume** or **Play** action
-on each card. Games supplied by the site, imports, creations and local development
-fixtures share this gallery. Progress screenshots show the scene captured with the latest safe
-autosave. Rename with the pencil beside its name. The three-dot **Game actions** menu beside
-**Resume** or **Play** holds Start over (once a checkpoint exists), Check opening (for
-unverified imports), Make a copy, Game export, Project and Remove game; **Details**
-contains game metadata.
+**Add game** accepts a ZIP or folder. Your library appears under **Your games**,
+with **Resume** or **Play** on each card and a screenshot from its latest autosave.
+Rename a game with the pencil beside its name. Open **Game actions** to start
+over, check an imported game's opening, make a copy, download or remove a game.
+**Details** contains game metadata.
 
 To create an adventure with an AI provider, pick a starting point under
 **Create a new adventure**:
@@ -190,10 +182,8 @@ adventures target AGI 2.936 with standard bytecode. The browser shell adds a GPU
 CRT display and an in-game command line. The game resources and engine are open
 to inspection.
 
-Where an installed original game or a disassembled Sierra interpreter disagrees
-with the published AGI specification, the engine follows the original. Each
-such behavior is recorded with its evidence and pinning tests in
-[Interpreter fidelity findings](docs/fidelity.md).
+[Interpreter compatibility](docs/fidelity.md) documents profile selection and
+behavior verified against original interpreters, with evidence and regression tests.
 
 See [Contributing](CONTRIBUTING.md) for architecture, tests and local game
 fixtures, [Hosting](docs/hosting.md) for running your own site, and

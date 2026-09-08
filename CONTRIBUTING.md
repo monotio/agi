@@ -2,8 +2,7 @@
 
 Contributions can improve the interpreter, authoring tools, browser experience,
 or original adventures. Read [AGENTS.md](AGENTS.md) for code conventions, the
-verification method and the working agreements; this file covers only what a
-contributor needs to act. Hosting and production releases are in
+verification method and working agreements. Hosting and production releases are in
 [docs/hosting.md](docs/hosting.md).
 
 ## Development
@@ -35,7 +34,7 @@ evaluations.
 
 The gate checks installed dependencies against both manifests before testing.
 After switching branches or pulling dependency updates, run `npm ci` in both
-package roots; a green run against stale dependencies does not verify CI's build.
+package roots to keep local verification aligned with CI.
 
 Both package roots use TypeScript 6.0. In VS Code, select **TypeScript: Select
 TypeScript Version → Use Workspace Version** so editor diagnostics match the gate.
@@ -43,9 +42,10 @@ The root project checks the engine, tests and Node scripts; the app solution
 references separate DOM and worker projects, including Playwright scenarios and
 Vite/Playwright configs. `evals/tsconfig.json` checks the evaluation configs,
 providers, assertions, prompts and regression tests under the same strict rules.
-`npm run check` runs every TypeScript project. The remaining JavaScript tooling
-(ESLint config, suppression scanner and manual HMR proof) has explicit editor
-project coverage; it uses lint and runtime checks rather than TypeScript checking.
+`npm run check` runs every TypeScript project. JavaScript tooling has editor
+project coverage and is checked by lint and runtime checks.
+
+### Recorded game tests
 
 Recorded game tests store a host snapshot and a bounded operation tape in
 `TESTS.JSON`: clocks, consumed input, random draws and prompt replies replay
@@ -81,36 +81,42 @@ when implementing behavior; check the common contract and the selected profile's
 Prefer small, original resources with hand-computed expectations. To test a game
 locally, put its files in `games/<slug>/`. Development discovery recognizes AGI v2
 split directories and v3 combined directories; play them from the same **Your games**
-gallery as saved projects. This development folder discovery is not a publishing
-mechanism; installed game folders are gitignored and excluded from production builds.
+gallery as saved projects. Installed game folders are gitignored and excluded
+from production builds.
 
-The compatibility suite uses these local installations (other editions may differ):
+### Optional fixtures
 
-| Folder            | Interpreter profile           | Container                            |
-| ----------------- | ----------------------------- | ------------------------------------ |
-| `games/kq1/`      | 2.917                         | v2 split                             |
-| `games/kq2/`      | 2.411                         | v2 split                             |
-| `games/kq3/`      | 2.936                         | v2 split                             |
-| `games/demopac4/` | 3.002.102                     | v3 combined (`DMDIR`, `DMVOL.0-1`)   |
-| `games/mh1/`      | 3.002.107 (3.002.102 profile) | v3 combined (`MHDIR`, `MHVOL.0-12`)  |
-| `games/mh2/`      | 3.002.149                     | v3 combined (`MH2DIR`, `MH2VOL.*`)   |
-| `games/gr1/`      | 3.002.149 (`AGIDATA.OVL`)     | v3 combined (`GRDIR`, `GRVOL.0-2`)   |
-| `games/kq4/`      | 3.002.086                     | v3 combined (`KQ4DIR`, `KQ4VOL.0-3`) |
+To enable a game's compatibility tests, supply the edition below in its fixture
+folder. The suites assert edition-specific resource counts and behavior; other
+editions may need separate expectations.
 
-The demo-pack row is a Sierra demonstration pack: six self-running game demos
-whose every logic record is dictionary-compressed. `test/demopac4.test.ts` runs
-all six to completion, which is what proves the combined container, the plain
-message text of compressed logic records and the 3.002.102 profile end to end;
-Manhunter's one directly stored logic beside 65 compressed ones is the
-independent check of that text rule.
+Full resource-census tests require every volume referenced by the directories.
+Tests for individual rooms can use `checkVolumes: false` in the fixture helpers;
+resource readers still reject unavailable data if the scenario requests it.
 
-Where installed game data or the shipped interpreter binaries contradict the
-specification text, the engine follows them. Each such behavior is recorded in
-[docs/fidelity.md](docs/fidelity.md) with its evidence and pinning tests, and the
-code comment cites the entry; that file also holds the disassembly recipe for
-reading the interpreters yourself.
+| Game                 | Folder            | Interpreter build / profile | Tests                                                                                                                                |
+| -------------------- | ----------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| King's Quest I       | `games/kq1/`      | 2.917                       | [Resources and movement](test/games.test.ts), [profiles](test/games-profile.test.ts), [save/restore](test/games-persistence.test.ts) |
+| King's Quest II      | `games/kq2/`      | 2.411                       | [Resources and movement](test/games.test.ts), [profiles](test/games-profile.test.ts), [save/restore](test/games-persistence.test.ts) |
+| King's Quest III     | `games/kq3/`      | 2.936                       | [Resources and movement](test/games.test.ts), [profiles](test/games-profile.test.ts), [save/restore](test/games-persistence.test.ts) |
+| King's Quest IV      | `games/kq4/`      | 3.002.086                   | [Resources](test/kq4.test.ts), [regressions](test/kq4-regressions.test.ts)                                                           |
+| Space Quest I        | `games/sq1/`      | 2.917                       | [Opening](test/opening-screens.test.ts)                                                                                              |
+| Police Quest I       | `games/pq1/`      | 2.903 / 2.936 fallback      | [Opening](test/opening-screens.test.ts)                                                                                              |
+| Leisure Suit Larry I | `games/lsl1/`     | 2.440                       | [Opening](test/opening-screens.test.ts)                                                                                              |
+| Gold Rush            | `games/gr1/`      | 3.002.149                   | [Opening](test/opening-screens.test.ts), [binary profile](test/mh2-profile.test.ts)                                                  |
+| Manhunter: New York  | `games/mh1/`      | 3.002.107 / 3.002.102       | [Resources and Day 1](test/mh1.test.ts)                                                                                              |
+| Manhunter 2          | `games/mh2/`      | 3.002.149                   | [Profile and logic references](test/mh2-profile.test.ts)                                                                             |
+| Sierra demo pack     | `games/demopac4/` | 3.002.102                   | [Resources and six demos](test/demopac4.test.ts)                                                                                     |
 
-Copy the complete game installation, including its uppercase directory files,
+`test/demopac4.test.ts` runs all six demonstrations in the Sierra demo pack to
+completion, exercising v3 containers and compressed logic. See
+[Interpreter compatibility](docs/fidelity.md) for profile selection, behavior
+notes, regression tests and instructions for inspecting original interpreters.
+
+The handler comparison in `test/mh2-profile.test.ts` requires both 3.002.149
+fixtures (`gr1` and `mh2`); its logic-reference test requires only `mh2`.
+
+Copy the complete game installation, including its directory files,
 `WORDS.TOK`, `OBJECT`, every volume file (`VOL.*`, or a v3 game's prefixed
 `<PREFIX>VOL.*`) and the interpreter files. Missing fixtures produce explicit
 skips with the folder and missing filenames in both engine and browser test
@@ -145,9 +151,6 @@ interpreter. Reusable scenario code and regression assertions belong in the
 test suite, gated by fixture availability. Keep captured saves, game resources,
 disassemblies, screenshots and transcripts with local fixtures.
 
-The KQ3 regressions recreate cat movement, teleport arrival and the timed
-punishment from the installed game; the sound tests check all three games'
-resources. Run both with `node --experimental-strip-types --test test/kq3-regressions.test.ts test/games-sound.test.ts`.
 The manual HMR proof in `app/e2e/manual/hmr-resume.mjs` temporarily edits
 source; run it in an isolated checkout as described in the script.
 
@@ -169,7 +172,7 @@ completion runs on the specific game edition and interpreter profile.
 
 ### KQ1 completion proof
 
-With the local KQ1 2.917 installation present, run:
+After supplying the KQ1 2.917 fixture, run:
 
 ```bash
 npm run prove:kq1
@@ -178,9 +181,8 @@ npm run prove:kq1:browser
 ```
 
 The first command executes the walkthrough with a seeded random source and a
-virtual 60 Hz host clock, from the title screen, using walking keys, parser
-commands and prompt replies; it does not teleport, write game variables, patch
-resources or load prepared saves. Deaths, missed score milestones and an
+virtual 60 Hz host clock. It plays from the title screen using walking keys,
+parser commands and prompt replies. Deaths, missed score milestones and an
 incomplete ending fail the run. The JSON report defaults to
 `/tmp/agi-kq1-speedrun.json` (pass another path after `npm run prove:kq1 --`);
 reports contain input events, resource hashes, checkpoints and the observed
@@ -195,7 +197,7 @@ and screen readers still require device testing.
 
 ### Manhunter Day 1 proof
 
-With the local Manhunter: New York 3.002.107 installation present, run:
+After supplying the Manhunter: New York 3.002.107 fixture, run:
 
 ```bash
 npm run prove:mh1
@@ -209,12 +211,8 @@ The maze machine and the sewer network are driven by fixed move lists recorded
 from the engine's own runs, so a changed engine behavior fails the replay
 instead of being routed around. The same route runs as a fixture-gated test in
 `test/mh1.test.ts`, and the JSON report defaults to
-`/tmp/agi-mh1-speedrun.json`. Two engine fixes came out of it: the movement
-pass clearing v2 every cycle (the city map's page turns) and loop selection
-keeping an in-range cel (the knife game's ending re-selects a loop every cycle
-while it waits for the cel to come round). WebKit's automated GPU screenshots
-can capture a stale ending dialog, so each run also attaches the final engine
-frame and completion asserts the interpreter's terminal state instead.
+`/tmp/agi-mh1-speedrun.json`. Coverage ends at the start of Day 2; later days
+need their own walkthroughs.
 
 ## Pull requests
 

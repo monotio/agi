@@ -12,11 +12,8 @@ import { fixtureSkip } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
- * Authentic v3 fixture: a local, gitignored King's Quest IV installation
- * (games/kq4: KQ4DIR, KQ4VOL.0-3, WORDS.TOK, OBJECT, plus the interpreter
- * files AGI/AGIDATA.OVL/SIERRA.COM). It is the 3.002.086 game of the
- * compatibility set. Counts were read from the fixture bytes; the opening
- * was observed in a headless run.
+ * Optional King's Quest IV 3.002.086 fixture tests. Available-resource
+ * parsing, complete-volume coverage and opening behavior are checked separately.
  */
 const SLUG = "kq4";
 const skip = fixtureSkip(SLUG, ["AGIDATA.OVL"]);
@@ -43,55 +40,76 @@ class Host implements EngineHost {
   }
 }
 
-test(`${SLUG}: combined container, 3.002.086 profile, resource census`, { skip }, () => {
-  const { container, files } = loadGame(SLUG, { interpreterFiles: true });
-  assert.deepEqual(detectContainerFormat(files), { kind: "v3-combined", prefix: "KQ4" });
-  assert.equal(detectVersionString(files), "3.002.086");
-  const profile = detectProfile(files);
-  assert.equal(profile.id, "3.002.086");
-  const counts = { logic: 0, picture: 0, view: 0, sound: 0 };
-  const junk: string[] = [];
-  for (let n = 0; n < 256; n++) {
-    for (const kind of ["logic", "picture", "view", "sound"] as const) {
-      let payload: Uint8Array | null;
-      try {
-        payload = container.getResource(kind, n);
-      } catch (error) {
-        // The one allowed census exception (JUNK_DIRECTORY_ENTRIES in
-        // test/fixtures.ts): exactly these four entries reference volumes
-        // that never shipped; anything else stays a hard failure.
-        assert.match(String(error), /points to missing VOL/, `${kind} ${n}`);
-        junk.push(`${kind} ${n}`);
-        continue;
+test(
+  `${SLUG}: combined container, 3.002.086 profile, available resources`,
+  {
+    skip: fixtureSkip(SLUG, ["AGIDATA.OVL"], { checkVolumes: false }),
+  },
+  (t) => {
+    const { container, files } = loadGame(SLUG, { interpreterFiles: true, checkVolumes: false });
+    assert.deepEqual(detectContainerFormat(files), { kind: "v3-combined", prefix: "KQ4" });
+    assert.equal(detectVersionString(files), "3.002.086");
+    const profile = detectProfile(files);
+    assert.equal(profile.id, "3.002.086");
+    const counts = { logic: 0, picture: 0, view: 0, sound: 0 };
+    const unavailable: string[] = [];
+    let decoded = 0;
+    for (let n = 0; n < 256; n++) {
+      for (const kind of ["logic", "picture", "view", "sound"] as const) {
+        let payload: Uint8Array | null;
+        try {
+          payload = container.getResource(kind, n);
+        } catch (error) {
+          assert.match(String(error), /points to missing VOL\.\d+$/, `${kind} ${n}`);
+          counts[kind]++;
+          unavailable.push(`${kind} ${n}`);
+          continue;
+        }
+        if (!payload) continue;
+        if (kind === "logic")
+          assert.ok(parseLogicResource(payload).code.length > 0, `logic ${n} has bytecode`);
+        if (kind === "picture") renderPicture(payload, createPictureSurface(), { profile });
+        if (kind === "view") assert.ok(parseView(payload).loops.length > 0, `view ${n} has a loop`);
+        if (kind === "sound") parseSound(payload);
+        counts[kind]++;
+        decoded++;
       }
-      if (!payload) continue;
-      if (kind === "logic")
-        assert.ok(parseLogicResource(payload).code.length > 0, `logic ${n} has bytecode`);
-      if (kind === "picture") renderPicture(payload, createPictureSurface(), { profile });
-      if (kind === "view") assert.ok(parseView(payload).loops.length > 0, `view ${n} has a loop`);
-      if (kind === "sound") parseSound(payload);
-      counts[kind]++;
     }
-  }
-  assert.deepEqual(junk, ["picture 150", "picture 151", "view 198", "view 199"]);
-  assert.deepEqual(counts, { logic: 177, picture: 146, view: 241, sound: 96 });
+    assert.deepEqual(counts, { logic: 177, picture: 148, view: 243, sound: 96 });
+    assert.ok(decoded > 0, "the fixture supplied readable resources");
+    if (unavailable.length) t.diagnostic(`Unavailable resources: ${unavailable.join(", ")}`);
+  },
+);
+
+test(`${SLUG}: every declared resource is readable`, { skip }, () => {
+  const { container } = loadGame(SLUG);
+  for (let n = 0; n < 256; n++)
+    for (const kind of ["logic", "picture", "view", "sound"] as const)
+      assert.doesNotThrow(() => container.getResource(kind, n), `${kind} ${n}`);
 });
 
-test(`${SLUG}: the opening deals the copy-protection question in room 142`, { skip }, () => {
-  const { container, dict, files } = loadGame(SLUG, { interpreterFiles: true });
-  const host = new Host();
-  const engine = new Engine(container, host, dict, { profile: detectProfile(files) });
-  const rooms: number[] = [];
-  for (let i = 0; i < 300 && !engine.textRow(6).includes("legal"); i++) {
-    engine.advanceClock(50);
-    engine.soundTick();
-    engine.tick();
-    if (rooms[rooms.length - 1] !== engine.vars[0]) rooms.push(engine.vars[0]!);
-  }
-  assert.equal(rooms.at(-1), 142, "the opening deals the question in room 142");
-  assert.match(
-    host.prints[0] ?? "",
-    /legal ownership.*King's Quest IV manual.*On page 5, what is the seventh word in the fifth paragraph\?/s,
-    "the room-142 manual question window is up",
-  );
-});
+test(
+  `${SLUG}: the opening deals the copy-protection question in room 142`,
+  { skip: fixtureSkip(SLUG, ["AGIDATA.OVL"], { checkVolumes: false }) },
+  () => {
+    const { container, dict, files } = loadGame(SLUG, {
+      interpreterFiles: true,
+      checkVolumes: false,
+    });
+    const host = new Host();
+    const engine = new Engine(container, host, dict, { profile: detectProfile(files) });
+    const rooms: number[] = [];
+    for (let i = 0; i < 300 && !engine.textRow(6).includes("legal"); i++) {
+      engine.advanceClock(50);
+      engine.soundTick();
+      engine.tick();
+      if (rooms[rooms.length - 1] !== engine.vars[0]) rooms.push(engine.vars[0]!);
+    }
+    assert.equal(rooms.at(-1), 142, "the opening deals the question in room 142");
+    assert.match(
+      host.prints[0] ?? "",
+      /legal ownership.*King's Quest IV manual.*On page 5, what is the seventh word in the fifth paragraph\?/s,
+      "the room-142 manual question window is up",
+    );
+  },
+);

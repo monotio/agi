@@ -1,6 +1,6 @@
 {
   "name": "write-picture-stipple-plot-without-seed",
-  "description": "GPT-5.6 Sol, 2 of 3 repeats of the picture eval (kq1-room1) round 1: after 'pen N stipple' it gives ONE seed and then bare x,y pairs. Acceptable outcome: the seed carries over to the following pairs (compiles), a plot with no seed at all still fails.",
+  "description": "After 'pen N stipple', a plot can supply one seed followed by multiple x,y pairs. The seed carries over to subsequent pairs; a plot with no seed fails.",
   "tool": "write_picture",
   "args": {
     "room": 1,

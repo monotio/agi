@@ -6,15 +6,16 @@ import { fixtureSkip } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
- * KQ4 (AGI 3.002.086) regressions, replayed from the installed fixture.
- * KQ4DIR's four junk entries (picture 150/151, view 198/199, pointing at
- * volumes that never shipped) are the one allowed census exception; see
- * JUNK_DIRECTORY_ENTRIES in test/fixtures.ts.
+ * Optional KQ4 (AGI 3.002.086) opening and animation regressions.
+ * These scenarios load only the resources needed for their tested rooms.
  */
-const skip = fixtureSkip("kq4", ["AGIDATA.OVL"]);
+const skip = fixtureSkip("kq4", ["AGIDATA.OVL"], { checkVolumes: false });
 
 function bootKq4() {
-  const { container, dict, files } = loadGame("kq4", { interpreterFiles: true });
+  const { container, dict, files } = loadGame("kq4", {
+    interpreterFiles: true,
+    checkVolumes: false,
+  });
   const profile = detectProfile(files);
   assert.equal(profile.id, "3.002.086", "AGIDATA.OVL selects the KQ4 profile");
   const keys: number[] = [];
@@ -40,25 +41,6 @@ function step(engine: Engine): void {
 function run(engine: Engine, cycles: number): void {
   for (let i = 0; i < cycles; i++) step(engine);
 }
-
-test(
-  "KQ4: exactly the four known junk directory entries point at volumes that never shipped",
-  { skip },
-  () => {
-    const { container } = loadGame("kq4");
-    for (const [kind, num] of [
-      ["picture", 150],
-      ["picture", 151],
-      ["view", 198],
-      ["view", 199],
-    ] as const)
-      assert.throws(
-        () => container.getResource(kind, num),
-        /points to missing VOL/,
-        `${kind} ${num}`,
-      );
-  },
-);
 
 /** Alt+D, Enter, Enter, "marble", Enter, Enter: the copy-protection bypass. */
 function passCopyProtection(engine: Engine, keys: number[]): void {

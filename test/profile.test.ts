@@ -1,7 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-  GOLD_RUSH_3_002_149,
+  type AgiProfile,
   PROFILES,
   detectProfile,
   detectVersionString,
@@ -22,6 +22,17 @@ import { Engine, UnimplementedOpcodeError, type EngineHost } from "../src/runtim
  */
 
 const DICT = new Map<string, number>();
+
+// version_profiles.md, 3.002.149: the documented room-alias variant maps
+// immediate destinations 0x7e..0x80 to 0x49. Exercise it as an explicit override.
+const ROOM_ALIAS_PROFILE: AgiProfile = {
+  ...PROFILES["3.002.149"],
+  roomAliases: new Map([
+    [0x7e, 0x49],
+    [0x7f, 0x49],
+    [0x80, 0x49],
+  ]),
+};
 
 class Host implements EngineHost {
   keys: number[] = [];
@@ -100,13 +111,7 @@ describe("profile table", () => {
     assert.equal(p.menuInteractionGate, true);
     assert.equal(p.patternProfile, "v3-center-row");
     assert.equal(p.saveBlock3Xor, true);
-    // The base (MH2) build has no aliases; the Gold Rush build maps
-    // 0x7e/0x7f/0x80 to room 0x49.
     assert.equal(p.roomAliases, null);
-    assert.equal(GOLD_RUSH_3_002_149.roomAliases?.get(0x7e), 0x49);
-    assert.equal(GOLD_RUSH_3_002_149.roomAliases?.get(0x7f), 0x49);
-    assert.equal(GOLD_RUSH_3_002_149.roomAliases?.get(0x80), 0x49);
-    assert.equal(GOLD_RUSH_3_002_149.roomAliases?.get(0x81), undefined);
   });
 
   // Conformance matrix "2.089 variant selection": actions end at 0x9a, 0x86
@@ -270,7 +275,7 @@ describe("profile detection", () => {
       ["AGIDATA.OVL", VERSION_BLOB],
     ]);
     assert.equal(detectProfile(files, "2.089").id, "2.089");
-    assert.equal(detectProfile(files, GOLD_RUSH_3_002_149).roomAliases?.get(0x7e), 0x49);
+    assert.equal(detectProfile(files, ROOM_ALIAS_PROFILE), ROOM_ALIAS_PROFILE);
     assert.throws(
       () => detectProfile(files, "1.000" as never),
       /unknown interpreter profile 1\.000/,
@@ -387,16 +392,20 @@ describe("engine selects behavior by profile field", () => {
     assert.equal(press("3.002.149"), 1, "3.002.149 accepts 49");
   });
 
-  test("immediate room aliases apply only to the Gold Rush build", () => {
-    const ROOM = "if (!isset(f220)) { set(f220); new.room(126); }\nreturn;\n";
+  test("immediate room aliases apply only through an explicit profile override", () => {
     const withRooms = (c: ReturnType<typeof createContainer>): void => {
       const empty = assembleLogic("return;\n", { dictionary: DICT }).payload;
-      c.putResource("logic", 126, empty);
+      for (const room of [126, 127, 128, 129]) c.putResource("logic", room, empty);
       c.putResource("logic", 73, empty);
     };
-    // 0x7e = 126 stays 126 in the base build and becomes 0x49 = 73 in Gold Rush.
-    assert.equal(boot(ROOM, "3.002.149", withRooms).engine.vars[0], 126);
-    assert.equal(boot(ROOM, GOLD_RUSH_3_002_149, withRooms).engine.vars[0], 73);
+    for (const room of [126, 127, 128, 129]) {
+      const source = `if (!isset(f220)) { set(f220); new.room(${room}); }\nreturn;\n`;
+      assert.equal(boot(source, "3.002.149", withRooms).engine.vars[0], room);
+      assert.equal(
+        boot(source, ROOM_ALIAS_PROFILE, withRooms).engine.vars[0],
+        room <= 128 ? 73 : room,
+      );
+    }
   });
 
   test("direction-selected loops follow the profile rule", () => {

@@ -146,10 +146,8 @@ for (const profile of ["2.936", "3.002.149"] as const) {
 }
 
 for (const profile of ["2.089"] as const) {
-  test(`${profile}: prints keep f15 and timed windows keep v21 until the build is verified`, () => {
-    // No local binary verifies these builds' print handler, so the engine
-    // deliberately keeps the flags set there. A base-profile refactor must
-    // not silently adopt the verified builds' consumption.
+  test(`${profile}: prints retain f15 and timed windows retain v21`, () => {
+    // Early profiles preserve both values across print and window closure.
     const e = game('set(f15);print("First.");print("Second.");increment(v200);return;', profile);
     e.tick();
     assert.equal(e.modalKind, null, "both prints stay non-blocking while f15 is kept");

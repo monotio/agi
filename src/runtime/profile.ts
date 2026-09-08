@@ -6,14 +6,8 @@
  *
  * A profile is the single place that records an observable variant. The engine
  * selects behavior by reading these fields; it never compares version strings.
- * Fields whose code path does not exist yet are still recorded here, so the
- * chapter that implements the path lands on an existing, cited value.
- *
- * The promoted profiles are 2.089, 2.230, 2.272, 2.411, 2.440, 2.917, 2.936,
- * 3.002.086, 3.002.102 and 3.002.149 (conformance matrix, "The common core
- * applies to profiles ..."). Similarity to a promoted profile must never be
- * inferred from a version number (version_profiles.md, "Other observed
- * versions").
+ * Detection uses the version string, the documented equivalent builds below,
+ * or a container-family fallback when the version is missing or unrecognized.
  */
 
 /** Identifier of a promoted profile. */
@@ -139,8 +133,8 @@ export interface AgiProfile {
   readonly closeWindowClearsInputWidth: boolean;
   /**
    * Immediate room aliases applied by action 0x12 before the common room
-   * effects. Only the observed Gold Rush 3.002.149 build defines them
-   * (version_profiles.md 3.002.149; logic_bytecode "Entry-boundary selectors").
+   * effects. Supplied through an explicit profile override for build-specific
+   * mappings (version_profiles.md 3.002.149).
    */
   readonly roomAliases: ReadonlyMap<number, number> | null;
   /** Word-sequence condition recognizes 0x270f as the tail terminator (false in 2.089). */
@@ -281,13 +275,6 @@ const BASE_V3: AgiProfile = {
   saveBlock3Xor: true,
 };
 
-/** Gold Rush 3.002.149 immediate-room aliases: 0x7e, 0x7f and 0x80 select room 0x49. */
-const GOLD_RUSH_ROOM_ALIASES: ReadonlyMap<number, number> = new Map([
-  [0x7e, 0x49],
-  [0x7f, 0x49],
-  [0x80, 0x49],
-]);
-
 export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   // version_profiles.md "AGI 2.089 profile"; conformance matrix "2.089 variant selection".
   "2.089": {
@@ -374,23 +361,12 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     releaseGateClearAction: true,
     inputWidthActions: "noop",
     closeWindowClearsInputWidth: false,
-    // docs/fidelity.md: print-handler-output-modes (Gold Rush and MH2 builds verified).
+    // docs/fidelity.md: print-handler-output-modes.
     printConsumesF15: true,
     timedPrintClearsV21: true,
     directionLoops: "four-or-more-f20",
-    // docs/fidelity.md: Local 3.002.149 build identity. The separately
-    // observed alias variant is explicit via GOLD_RUSH_3_002_149.
     roomAliases: null,
   },
-};
-
-/**
- * The observed Gold Rush 3.002.149 build. A conformance claim must state which
- * build variant it uses (version_profiles.md, 3.002.149 section).
- */
-export const GOLD_RUSH_3_002_149: AgiProfile = {
-  ...PROFILES["3.002.149"],
-  roomAliases: GOLD_RUSH_ROOM_ALIASES,
 };
 
 /** String-keyed lookup used by detection (an arbitrary string may name no profile). */
@@ -404,7 +380,6 @@ export const DEFAULT_V3_PROFILE = PROFILES["3.002.149"];
  * Observed builds that the specification states select a promoted profile:
  * 2.915 and the second 2.917 build select 2.917, 2.439 selects 2.440, and
  * 3.002.107 selects 3.002.102 (version_profiles.md, per-profile paragraphs).
- * No other similarity may be assumed.
  */
 const EQUIVALENT_BUILDS: Readonly<Record<string, ProfileId>> = {
   "2.915": "2.917",
@@ -498,9 +473,8 @@ function hasCombinedDirectory(files: ReadonlyMap<string, Uint8Array>): boolean {
  * detection is: an explicit override, then the ASCII version string in an
  * interpreter binary shipped alongside the data, then the container shape
  * (v2 split -> 2.936, v3 combined -> 3.002.149). A version string that names
- * no promoted profile falls back to the container shape as well: similarity to
- * a promoted profile must not be assumed (version_profiles.md, "Other observed
- * versions").
+ * no known profile or documented equivalent also uses the container fallback
+ * (version_profiles.md, "Other observed versions").
  */
 export function detectProfile(
   files: ReadonlyMap<string, Uint8Array>,

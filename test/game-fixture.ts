@@ -2,12 +2,17 @@ import { readFileSync } from "node:fs";
 import { openContainer } from "../src/container/container.ts";
 import { parseWordsTok } from "../src/logic/words.ts";
 import { INTERPRETER_FILES } from "../src/runtime/profile.ts";
-import { combinedDirectory, fixtureDir, fixtureFiles, fixtureSkip } from "./fixtures.ts";
+import {
+  combinedDirectory,
+  fixtureDir,
+  fixtureFiles,
+  fixtureSkip,
+  type FixtureRequirements,
+} from "./fixtures.ts";
 
 /**
- * Shared loader for the local, gitignored authentic Sierra fixtures
- * (games/kq1, games/kq2, games/kq3, a v3 demo installation). Never referenced
- * by shipped code.
+ * Shared loader for optional AGI game fixtures under games/<slug>/.
+ * Used by compatibility tests and development tools.
  */
 export interface GameFixture {
   container: ReturnType<typeof openContainer>;
@@ -16,7 +21,7 @@ export interface GameFixture {
   files: ReadonlyMap<string, Uint8Array>;
 }
 
-export interface LoadGameOptions {
+export interface LoadGameOptions extends Pick<FixtureRequirements, "checkVolumes"> {
   /**
    * Also load AGIDATA.OVL / AGI so profile detection sees the installation's
    * interpreter version. Off by default: the KQ tests select profiles
@@ -27,12 +32,11 @@ export interface LoadGameOptions {
 
 export function loadGame(slug: string, options: LoadGameOptions = {}): GameFixture {
   const dir = fixtureDir(slug);
-  const missing = fixtureSkip(slug);
+  const missing = fixtureSkip(slug, [], options);
   if (missing) throw new Error(missing);
   // One case-insensitive enumeration, keyed by the canonical names the
   // container and profile detection expect (LOGDIR, <PREFIX>VOL.0,
-  // AGIDATA.OVL): installations disagree on case (PQ1 ships every file
-  // lowercase) and Linux lookups are case-sensitive.
+  // AGIDATA.OVL), including on case-sensitive filesystems.
   const onDisk = fixtureFiles(slug)!;
   const combined = combinedDirectory(slug);
   const prefix = combined?.prefix ?? "";

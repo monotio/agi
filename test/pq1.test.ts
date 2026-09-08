@@ -12,13 +12,8 @@ import { fixtureDir, fixtureSkip } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
- * Authentic v2 fixture: a local, gitignored Police Quest installation
- * (games/pq1). Every file ships lowercase (logdir, vol.0, words.tok,
- * agidata.ovl, ...), so the fixture loader resolves installation names
- * case-insensitively; macOS path lookup masks part of that, Linux does not.
- * The interpreter is the observed 2.903 build, which names no promoted
- * profile, so the v2 container shape selects 2.936. Counts were read from
- * the fixture bytes.
+ * Optional Police Quest 2.903 fixture tests. This build uses the v2
+ * container fallback profile, 2.936. Fixture names resolve case-insensitively.
  */
 const SLUG = "pq1";
 const skip = fixtureSkip(SLUG, ["AGIDATA.OVL"]);

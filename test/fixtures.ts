@@ -10,9 +10,8 @@ export function fixtureDir(slug: string): string {
 
 /**
  * On-disk names of an installation, keyed by lowercase name, or null when the
- * installation folder is absent. Installations disagree on case (PQ1 ships
- * every file lowercase) and Linux lookups are case-sensitive, so all fixture
- * access resolves through this map.
+ * installation folder is absent. Resolve fixture names case-insensitively
+ * so the same inputs work on case-sensitive and case-insensitive filesystems.
  */
 export function fixtureFiles(slug: string): ReadonlyMap<string, string> | null {
   const dir = fixtureDir(slug);
@@ -45,26 +44,15 @@ function combinedDirectoryOf(
   return null;
 }
 
-/** Section order of a v3 combined directory. */
-const COMBINED_SECTION_KINDS = ["logic", "picture", "view", "sound"] as const;
-
-/**
- * Shipped directories with junk entries pointing at volumes that never
- * shipped with the game, verified entry by entry. These are excluded from
- * the volume census; any other missing volume still skips the test. KQ4's
- * KQ4DIR points picture 150/151 at KQ4VOL.6 and view 198/199 at KQ4VOL.7,
- * which no KQ4VOL.* contains and no logic ever loads.
- */
-const JUNK_DIRECTORY_ENTRIES: Record<string, readonly string[]> = {
-  kq4: ["picture 150", "picture 151", "view 198", "view 199"],
-};
+export interface FixtureRequirements {
+  /** Require resource directories, vocabulary and object metadata. Defaults to true. */
+  readonly resourceFiles?: boolean;
+  /** Require every volume named by a directory. Set false for tests that read only part of a game. */
+  readonly checkVolumes?: boolean;
+}
 
 /** Volume numbers referenced by a run of three-byte entries (v2 rule: high nibble 0xf is absent). */
-function referencedVolumes(
-  entries: Uint8Array,
-  exactAbsence: boolean,
-  skipEntry?: (num: number, volume: number, offset: number) => boolean,
-): Set<number> {
+function referencedVolumes(entries: Uint8Array, exactAbsence: boolean): Set<number> {
   const volumes = new Set<number>();
   for (let offset = 0; offset + 2 < entries.length; offset += 3) {
     const absent = exactAbsence
@@ -72,9 +60,7 @@ function referencedVolumes(
       : entries[offset]! >> 4 === 15;
     if (!absent) {
       const volume = entries[offset]! >> 4;
-      const resourceOffset =
-        ((entries[offset]! & 15) << 16) | (entries[offset + 1]! << 8) | entries[offset + 2]!;
-      if (!skipEntry?.(offset / 3, volume, resourceOffset)) volumes.add(volume);
+      volumes.add(volume);
     }
   }
   return volumes;
@@ -84,7 +70,7 @@ function referencedVolumes(
 export function fixtureSkip(
   slug: string,
   requiredFiles: readonly string[] = [],
-  options: { readonly resourceFiles?: boolean } = {},
+  options: FixtureRequirements = {},
 ): false | string {
   return fixtureReadiness(slug, fixtureDir(slug), fixtureFiles(slug), requiredFiles, options);
 }
@@ -93,17 +79,19 @@ export function fixtureSkip(
  * The installation census behind fixtureSkip, with the directory and its
  * on-disk names passed in so a synthetic installation can exercise it
  * without a real fixture: the directory file(s), WORDS.TOK, OBJECT, every
- * volume a directory entry references (except the shipped junk entries) and
+ * volume a directory entry references and
  * any caller-required files. Returns the skip message naming what is
- * missing, or false when the installation is complete. Binary-only evidence
+ * missing, or false when the requested inputs are present. Binary-only evidence
  * may set resourceFiles:false with an explicit nonempty list of named files.
+ * Tests that exercise only part of a game can set checkVolumes:false; resource
+ * readers still reject unavailable data when those tests request it.
  */
 export function fixtureReadiness(
   slug: string,
   dir: string,
   onDisk: ReadonlyMap<string, string> | null,
   requiredFiles: readonly string[] = [],
-  options: { readonly resourceFiles?: boolean } = {},
+  options: FixtureRequirements = {},
 ): false | string {
   // Binary evidence has explicit dependencies and does not need playable game
   // resources. An empty list here would turn a missing installation green.
@@ -123,31 +111,16 @@ export function fixtureReadiness(
       : []),
     ...requiredFiles,
   ]);
-  if (resources && combined && onDisk) {
+  if (resources && options.checkVolumes !== false && combined && onDisk) {
     // Four u16le section offsets, then the logic, picture, view and sound entries.
     const bytes = readFileSync(dir + onDisk.get(combined.name.toLowerCase())!);
     const offsets = [0, 1, 2, 3].map((i) => bytes[i * 2]! | (bytes[i * 2 + 1]! << 8));
     offsets.push(bytes.length);
-    const junk = JUNK_DIRECTORY_ENTRIES[slug] ?? [];
     for (let i = 0; i < 4; i++) {
-      const kind = COMBINED_SECTION_KINDS[i]!;
-      for (const volume of referencedVolumes(
-        bytes.subarray(offsets[i], offsets[i + 1]),
-        true,
-        (num, volume, offset) =>
-          junk.includes(`${kind} ${num}`) ||
-          // The complete MH2 logic census never loads these exact missing
-          // sound-tail references (test/mh2-profile.test.ts). A different
-          // entry is not exempt; the census regression also detects a new
-          // logic reference to either missing sound.
-          (slug === "mh2" &&
-            kind === "sound" &&
-            volume === 6 &&
-            ((num === 215 && offset === 79513) || (num === 216 && offset === 79997))),
-      ))
+      for (const volume of referencedVolumes(bytes.subarray(offsets[i], offsets[i + 1]), true))
         required.add(`${prefix}VOL.${volume}`);
     }
-  } else if (resources) {
+  } else if (resources && options.checkVolumes !== false) {
     for (const name of SPLIT_DIRECTORIES) {
       const actual = onDisk?.get(name.toLowerCase());
       if (!actual) continue;
