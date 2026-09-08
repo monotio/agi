@@ -365,3 +365,280 @@ export function kq2Bridge(run: Speedrun): void {
   ]);
   run.checkpoint("Bridge crossed west", { room: 48, score: 41 });
 }
+
+/** Chapter: unlock first door, read second inscription, cross bridge back to room 48 (90 points). */
+export function kq2Door1(run: Speedrun): void {
+  kq2Bridge(run);
+
+  // 1. Leave Room 48 west into 47
+  walkBridge(run, [
+    [62, 104],
+    [55, 97],
+    [41, 97],
+    [40, 96],
+    [5, 131],
+  ]);
+  run.walkTo(0, 131);
+  run.exit("W", 47);
+
+  // 2. Room 47: walk north to Room 40
+  walkSmart(run, { x0: 60, x1: 90, y0: 42, y1: 45 });
+  run.exit("N", 40);
+
+  // In Room 40: get mallet from tree hole (+2, item 60)
+  walkSmart(run, { x0: 72, x1: 96, y0: 80, y1: 95 });
+  run.command("take mallet");
+  run.wait(() => carried(run, 60), "mallet taken");
+  run.checkpoint("Mallet", { room: 40, score: 43 });
+
+  // 3. Room 40 -> 39 -> 38
+  walkSmart(run, { x0: 1, x1: 5, y0: 110, y1: 130 });
+  run.exit("W", 39);
+
+  walkSmart(run, { x0: 1, x1: 5, y0: 110, y1: 130 });
+  run.exit("W", 38);
+
+  // In Room 38: get necklace from hollow log (+7, item 57)
+  walkSmart(run, { x0: 95, x1: 110, y0: 125, y1: 135 });
+  run.command("take necklace");
+  run.wait(() => carried(run, 57), "necklace taken");
+  run.checkpoint("Necklace", { room: 38, score: 50 });
+
+  // 4. Room 38 -> 31 -> 30 -> 23
+  walkSmart(run, { x0: 60, x1: 80, y0: 42, y1: 45 });
+  run.exit("N", 31);
+
+  // In 31: walk along bottom west to 30
+  walkSmart(run, { x0: 1, x1: 5, y0: 155, y1: 165 });
+  run.exit("W", 30);
+
+  // In 30: walk north to 23
+  walkSmart(run, { x0: 70, x1: 85, y0: 42, y1: 45 });
+  run.exit("N", 23);
+
+  // In 23: get stake from tree at (73, 111) (+2, item 54)
+  walkSmart(run, { x0: 70, x1: 76, y0: 115, y1: 120 });
+  run.command("take stake");
+  run.wait(() => carried(run, 54), "stake taken");
+  run.checkpoint("Stake", { room: 23, score: 52 });
+
+  // 5. Room 23 -> 22
+  walkSmart(run, { x0: 1, x1: 5, y0: 110, y1: 130 });
+  run.exit("W", 22);
+
+  // In 22: clam at (100, 100) -> take clam (+0, item 82), take bracelet (+7, item 53)
+  walkSmart(run, { x0: 95, x1: 105, y0: 104, y1: 108 });
+  run.command("take clam");
+  run.wait(() => run.engine.flags[72] !== 0, "clam taken");
+  run.command("take bracelet");
+  run.wait(() => carried(run, 53), "bracelet taken");
+  run.checkpoint("Bracelet", { room: 22, score: 59 });
+
+  // 6. Room 22 -> 29 -> 36
+  walkSmart(run, { x0: 60, x1: 80, y0: 160, y1: 167 });
+  run.exit("S", 29);
+
+  // In Room 29: stay in safe corridor x in [100..110] away from water
+  walkSmart(run, { x0: 100, x1: 110, y0: 100, y1: 120 });
+  walkSmart(run, { x0: 100, x1: 110, y0: 160, y1: 166 });
+  run.exit("S", 36);
+
+  // In 36: navigate east around central tree to reach trident at (130, 140) (+3, item 51)
+  run.walkTo(145, 50);
+  run.walkTo(145, 100);
+  run.walkTo(125, 140);
+  run.command("take trident");
+  run.wait(() => carried(run, 51), "trident taken");
+  run.checkpoint("Trident", { room: 36, score: 62 });
+
+  // 7. Step into water in Room 36 and swim
+  while (run.engine.flags[0] === 0) {
+    run.direction(7); // West
+    run.advance();
+  }
+  run.wait(() => run.engine.vars[95] === 1, "treading water");
+  run.command("swim");
+  run.wait(() => run.engine.vars[95] === 2, "swimming");
+
+  // Exit west into ocean (Room 50)
+  run.exit("W", 50);
+
+  // Swim North 3 times in Room 50 (v73: 36 -> 29 -> 22 -> 15)
+  for (let i = 0; i < 3; i++) {
+    const prev = run.engine.vars[73];
+    while (run.engine.vars[73] === prev) {
+      run.direction(1);
+      run.advance();
+    }
+  }
+  run.direction(0);
+
+  // Exit East onto beach in Room 15
+  run.exit("E", 15);
+
+  // 8. In Room 15: swim north along shore to (12, 80) near mermaid rock
+  run.walkTo(12, 80);
+  run.command("give flowers to mermaid");
+  run.wait(() => run.engine.flags[33] !== 0, "seahorse summoned");
+  run.checkpoint("Mermaid", { room: 15, score: 64 });
+
+  // Ride seahorse
+  run.command("ride seahorse");
+  run.wait(() => run.engine.vars[0] === 54, "entered underwater 54", 10000);
+  run.checkpoint("Seahorse", { room: 54, score: 66 });
+
+  // Transit 54 -> 53 -> 52 -> 51
+  run.wait(() => run.engine.vars[0] === 51, "arrived at King Neptune", 30000);
+
+  // 9. In Room 51: King Neptune at (25, 101)
+  walkSmart(run, { x0: 55, x1: 65, y0: 100, y1: 105 });
+  run.command("give trident to neptune");
+  run.wait(() => run.engine.flags[95] !== 0, "clam opened");
+  run.checkpoint("Neptune", { room: 51, score: 70 });
+
+  // Take gold key from open clam (+5, item 61)
+  walkSmart(run, { x0: 10, x1: 22, y0: 120, y1: 130 });
+  run.command("take key");
+  run.wait(() => run.engine.flags[96] !== 0, "key taken");
+  run.checkpoint("Gold key", { room: 51, score: 75 });
+
+  // Take cloth from bottle (+2, item 73)
+  run.command("take cloth");
+  run.wait(() => carried(run, 73), "cloth taken");
+  run.checkpoint("Cloth", { room: 51, score: 77 });
+
+  // Exit East from 51 -> transit 52 -> 53 -> 54 -> Room 15
+  run.exit("E", 52);
+  run.wait(() => run.engine.vars[0] === 15 && run.state().control, "returned to Room 15", 30000);
+
+  // Walk east out of water onto land in Room 15
+  while (run.engine.vars[95] !== 0) {
+    run.direction(3);
+    run.advance();
+  }
+  run.direction(0);
+
+  // 10. Room 15 -> North 3 times: 15 -> 8 -> 1 -> 43
+  walkSmart(run, { x0: 70, x1: 90, y0: 42, y1: 45 });
+  run.exit("N", 8);
+
+  walkSmart(run, { x0: 70, x1: 90, y0: 42, y1: 45 });
+  run.exit("N", 1);
+
+  walkSmart(run, { x0: 85, x1: 95, y0: 42, y1: 45 });
+  run.exit("N", 43);
+
+  // Exit East into Room 44 (Hagatha cave exterior)
+  walkSmart(run, { x0: 150, x1: 155, y0: 110, y1: 130 });
+  run.exit("E", 44);
+
+  // Enter cave at right into Room 69
+  run.walkTo(125, 95);
+  run.wait(() => run.engine.vars[0] === 69, "entered Hagatha cave", 5000);
+
+  // In 69: walk near cage at (100, 100) (distance <= 20)
+  walkSmart(run, { x0: 84, x1: 90, y0: 100, y1: 102 });
+  run.command("cover cage with cloth");
+  run.wait(() => run.engine.vars[65] === 2, "cage covered");
+  run.checkpoint("Cover cage", { room: 69, score: 79 });
+
+  run.command("take cage");
+  run.wait(() => carried(run, 70), "cage taken");
+  run.checkpoint("Cage", { room: 69, score: 81 });
+
+  // Leave cave back to Room 44 (cloth 73 is automatically retrieved on exit)
+  walkSmart(run, { x0: 5, x1: 15, y0: 115, y1: 125 });
+  run.exit("W", 44);
+
+  // 11. Go east 4 times: 44 -> 45 -> 46 -> 47 -> 48
+  for (const [, toR] of [
+    [44, 45],
+    [45, 46],
+    [46, 47],
+    [47, 48],
+  ] as const) {
+    walkSmart(run, { x0: 150, x1: 155, y0: 110, y1: 130 });
+    run.exit("E", toR);
+  }
+
+  // 12. In 48: cross bridge East (crossing 3, +1) to 49
+  walkBridge(run, [
+    [5, 131],
+    [40, 96],
+    [41, 97],
+    [55, 97],
+    [62, 104],
+    [69, 97],
+    [73, 97],
+    [74, 98],
+    [92, 98],
+    [93, 97],
+    [98, 97],
+    [99, 96],
+    [104, 96],
+    [105, 95],
+    [108, 95],
+    [109, 94],
+    [110, 94],
+    [111, 93],
+    [112, 93],
+    [113, 92],
+    [114, 92],
+    [115, 91],
+    [116, 91],
+    [117, 90],
+    [118, 90],
+    [119, 89],
+    [120, 89],
+    [121, 88],
+    [123, 88],
+    [124, 87],
+    [133, 87],
+    [135, 85],
+    [136, 85],
+    [138, 87],
+  ]);
+  run.checkpoint("Bridge crossed east 2", { room: 48, score: 82 });
+  run.exit("E", 49);
+  run.exit("N", 42);
+
+  // 13. In 42: unlock door with gold key (+7, door 1 open, f85 set)
+  walkSmart(run, { x0: 75, x1: 84, y0: 102, y1: 105 });
+  run.command("unlock door");
+  run.wait(() => run.engine.flags[85] !== 0, "first door unlocked");
+  run.checkpoint("First door unlocked", { room: 42, score: 89 });
+
+  // Read second inscription (sets f134)
+  run.command("read inscription");
+  run.wait(() => run.engine.flags[134] !== 0, "second inscription read");
+  run.checkpoint("Second inscription", { room: 42, score: 89 });
+
+  // 14. Return across bridge West (crossing 4, +1)
+  run.exit("S", 49);
+  run.exit("W", 48);
+  walkBridge(run, [
+    [154, 42],
+    [154, 79],
+    [146, 87],
+    [122, 111],
+    [121, 111],
+    [120, 112],
+    [119, 112],
+    [118, 113],
+    [117, 113],
+    [116, 114],
+    [114, 114],
+    [113, 115],
+    [112, 115],
+    [111, 116],
+    [105, 116],
+    [104, 117],
+    [86, 117],
+    [85, 118],
+    [84, 118],
+    [83, 119],
+    [79, 119],
+    [72, 112],
+  ]);
+  run.checkpoint("Bridge crossed west 2", { room: 48, score: 90 });
+}

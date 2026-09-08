@@ -3,7 +3,7 @@ import type { EngineStateReport } from "../../src/runtime/engine.ts";
 import { Speedrun } from "./runner.ts";
 import { opening } from "./openings.ts";
 import { kq1Complete } from "./kq1.ts";
-import { kq2Bridge } from "./kq2.ts";
+import { kq2Door1 } from "./kq2.ts";
 import { sq1UlenceFlats } from "./sq1.ts";
 import { day1 } from "./mh1-day1.ts";
 
@@ -55,10 +55,15 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
   },
   {
     slug: "kq2",
-    label: "first inscription and bridge round trip",
-    coverage: "partial",
-    route: kq2Bridge,
-    expected: { room: 48, score: 41, flags: { 67: 1, 119: 0 }, carried: [52, 55, 59, 68, 69] },
+    label: "first door unlocked and second inscription read",
+    coverage: "chapter",
+    route: kq2Door1,
+    expected: {
+      room: 48,
+      score: 90,
+      flags: { 67: 1, 85: 1, 134: 1, 119: 0 },
+      carriedExactly: [53, 54, 55, 57, 58, 59, 60, 65, 68, 69, 70, 73, 82],
+    },
   },
   {
     slug: "sq1",
