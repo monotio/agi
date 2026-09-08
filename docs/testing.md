@@ -34,14 +34,14 @@ resource readers still reject unavailable data if the scenario requests it.
 | King's Quest II          | `games/kq2/`      | 2.411                       | [Resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts) |
 | King's Quest III         | `games/kq3/`      | 2.936                       | [Resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts) |
 | King's Quest IV          | `games/kq4/`      | 3.002.086                   | [Resources](../test/kq4.test.ts), [regressions](../test/kq4-regressions.test.ts)                                                              |
-| The Black Cauldron       | `games/bc/`       | 2.439 / 2.440               | [Opening and movement](../test/additional-openings.test.ts)                                                                                   |
-| Mixed-Up Mother Goose    | `games/mumg/`     | 2.917                       | [Introduction and movement](../test/additional-openings.test.ts)                                                                              |
-| Donald Duck's Playground | `games/ddp/`      | DOS 1.50; 2.272 / 2.440     | [Difficulty selection and movement](../test/additional-openings.test.ts), replayed in the browser                                             |
-| Space Quest II           | `games/sq2/`      | 2.936                       | [Opening and movement](../test/additional-openings.test.ts)                                                                                   |
-| Space Quest I            | `games/sq1/`      | 2.917                       | [Opening](../test/opening-screens.test.ts)                                                                                                    |
-| Police Quest I           | `games/pq1/`      | 2.903 / 2.936 fallback      | [Opening](../test/opening-screens.test.ts)                                                                                                    |
-| Leisure Suit Larry I     | `games/lsl1/`     | 2.440                       | [Opening](../test/opening-screens.test.ts)                                                                                                    |
-| Gold Rush                | `games/gr1/`      | 3.002.149                   | [Opening](../test/opening-screens.test.ts), [binary profile](../test/mh2-profile.test.ts)                                                     |
+| The Black Cauldron       | `games/bc/`       | 2.439 / 2.440               | [Opening and movement](../test/openings.test.ts)                                                                                              |
+| Mixed-Up Mother Goose    | `games/mumg/`     | 2.917                       | [Introduction and movement](../test/openings.test.ts)                                                                                         |
+| Donald Duck's Playground | `games/ddp/`      | DOS 1.50; 2.272 / 2.440     | [Difficulty selection and movement](../test/openings.test.ts), replayed in the browser                                                        |
+| Space Quest II           | `games/sq2/`      | 2.936                       | [Opening and movement](../test/openings.test.ts)                                                                                              |
+| Space Quest I            | `games/sq1/`      | 2.917                       | [Opening](../test/openings.test.ts)                                                                                                           |
+| Police Quest I           | `games/pq1/`      | 2.903 / 2.936 fallback      | [Opening](../test/openings.test.ts)                                                                                                           |
+| Leisure Suit Larry I     | `games/lsl1/`     | 2.440                       | [Opening](../test/openings.test.ts)                                                                                                           |
+| Gold Rush                | `games/gr1/`      | 3.002.149                   | [Opening](../test/openings.test.ts), [binary profile](../test/mh2-profile.test.ts)                                                            |
 | Manhunter: New York      | `games/mh1/`      | 3.002.107 / 3.002.102       | [Resources and Day 1](../test/mh1.test.ts)                                                                                                    |
 | Manhunter 2              | `games/mh2/`      | 3.002.149                   | [Profile and logic references](../test/mh2-profile.test.ts)                                                                                   |
 | Sierra demo pack         | `games/demopac4/` | 3.002.102                   | [Resources and six demos](../test/demopac4.test.ts)                                                                                           |
@@ -78,7 +78,7 @@ included.
 
 ```bash
 npm run fixtures:audit -- games .captures/fixture-audit.json
-node --test --experimental-strip-types test/additional-openings.test.ts
+node --test --experimental-strip-types test/openings.test.ts
 npm --prefix app run e2e -- fixture-openings.spec.ts
 ```
 

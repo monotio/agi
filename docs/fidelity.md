@@ -58,7 +58,7 @@ restore update selection; this is distinct from invoking all refresh effects of
 
 Tests: [object-cadence.test.ts](../test/object-cadence.test.ts) covers both directions
 with original synthetic resources. The Mother Goose introduction in
-[additional-openings.test.ts](../test/additional-openings.test.ts) verifies that the
+[openings.test.ts](../test/openings.test.ts) verifies that the
 waiting script reaches player control; [fixture-openings.spec.ts](../app/e2e/fixture-openings.spec.ts)
 replays the same inputs through the browser.
 

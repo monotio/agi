@@ -21,6 +21,10 @@ export class Speedrun {
   readonly engine: Engine;
   readonly actions: Action[] = [];
   readonly messages: string[] = [];
+  /** get.string prompts, in order; the prompt itself is observed, never answered implicitly. */
+  readonly textPrompts: string[] = [];
+  /** get.num prompts with the input row's text at prompt time. */
+  readonly numPrompts: { prompt: string; row: number; room: number; rowText: string }[] = [];
   readonly seed: number;
   readonly slug: string;
   ticks = 0;
@@ -29,11 +33,15 @@ export class Speedrun {
   private readonly keys: number[] = [];
   private line: string | null = null;
   private readonly answers: string[] = [];
+  private readonly numAnswers: number[] = [];
 
-  constructor(slug = "kq1", seed = 1) {
+  constructor(slug = "kq1", seed = 1, load: { checkVolumes?: boolean } = {}) {
     this.seed = seed;
     this.slug = slug;
-    const { container, dict, files } = loadGame(slug, { interpreterFiles: true });
+    const { container, dict, files } = loadGame(slug, {
+      interpreterFiles: true,
+      ...(load.checkVolumes === undefined ? {} : { checkVolumes: load.checkVolumes }),
+    });
     const host: EngineHost = {
       print: (text) => this.messages.push(text),
       displayAt() {},
@@ -50,10 +58,25 @@ export class Speedrun {
         this.actions.push({ kind: "key", code: 13 });
         return 13;
       },
-      promptString: () => {
+      promptString: (prompt) => {
+        this.textPrompts.push(prompt);
         const answer = this.answers.shift();
         assert.notEqual(answer, undefined, "Walkthrough must supply an explicit prompt answer");
         this.actions.push({ kind: "answer", text: answer! });
+        return answer!;
+      },
+      // get.num is a blocking host prompt; like promptString it needs an
+      // explicit queued answer, so a walkthrough never depends on a default.
+      promptNumber: (prompt, row = 23) => {
+        this.numPrompts.push({
+          prompt,
+          row,
+          room: this.engine.vars[0]!,
+          rowText: this.engine.textRow(row),
+        });
+        const answer = this.numAnswers.shift();
+        assert.notEqual(answer, undefined, "Walkthrough must supply an explicit prompt answer");
+        this.actions.push({ kind: "answer", text: String(answer!) });
         return answer!;
       },
       randomWord: randomSource(seed),
@@ -89,6 +112,10 @@ export class Speedrun {
     this.answers.push(text);
   }
 
+  answerNumber(value: number): void {
+    this.numAnswers.push(value);
+  }
+
   advance(ticks = 1): void {
     assert.ok(Number.isInteger(ticks) && ticks > 0);
     for (let i = 0; i < ticks; i++) {
@@ -114,6 +141,19 @@ export class Speedrun {
       if (this.engine.modalKind !== null) this.key(13);
       this.advance();
     }
+  }
+
+  /**
+   * Step until the predicate holds; the budget is an explicit, observed bound.
+   * Unlike wait(), nothing is dismissed — modal windows and prompts stay
+   * observable while time advances them.
+   */
+  until(predicate: () => boolean, budget: number, label: string): void {
+    for (let i = 0; i < budget; i++) {
+      if (predicate()) return;
+      this.advance();
+    }
+    assert.ok(predicate(), `${label} within ${budget} ticks`);
   }
 
   command(text: string): void {
