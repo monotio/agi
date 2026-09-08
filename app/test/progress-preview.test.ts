@@ -155,6 +155,15 @@ test("format-less and corrupt checkpoints are replaceable; future versions are n
   values.set(key, "{not json");
   assert.deepEqual(writeAutosave(storage, checkpoint), checkpoint, "corrupt record");
   assert.deepEqual(JSON.parse(values.get(key)!), checkpoint);
+  for (const version of [undefined, null, "2", 2.5, {}, [], -1, 0]) {
+    values.set(key, JSON.stringify({ ...checkpoint, version }));
+    assert.deepEqual(
+      writeAutosave(storage, checkpoint),
+      checkpoint,
+      `malformed version ${String(version)}`,
+    );
+    assert.deepEqual(JSON.parse(values.get(key)!), checkpoint);
+  }
   const future = JSON.stringify({ ...checkpoint, version: 2 });
   values.set(key, future);
   assert.equal(writeAutosave(storage, checkpoint), null, "future record");

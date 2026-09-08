@@ -61,9 +61,9 @@ export function parseAutosaveRecord(raw: unknown): AutosaveRecord | null {
 }
 
 /**
- * Never replace a checkpoint whose format this release cannot understand. A
- * record without a recognised format (pre-release, or corrupt JSON) protects
- * nothing and is replaced, so a stale slot cannot block autosave for good.
+ * Preserve recognized checkpoints with a future integer version. Malformed
+ * records and unreleased older formats are replaceable, so corrupt metadata
+ * cannot block autosave for good.
  */
 export function writeAutosave(
   storage: Pick<Storage, "getItem" | "setItem">,
@@ -81,8 +81,13 @@ export function writeAutosave(
 
 function isFutureAutosave(raw: string): boolean {
   try {
-    const existing = JSON.parse(raw) as Partial<AutosaveRecord> | null;
-    return existing?.format === "monotio.agi.autosave" && existing.version !== 1;
+    const existing = JSON.parse(raw) as { format?: unknown; version?: unknown } | null;
+    return (
+      existing?.format === "monotio.agi.autosave" &&
+      typeof existing.version === "number" &&
+      Number.isInteger(existing.version) &&
+      existing.version > 1
+    );
   } catch {
     return false;
   }

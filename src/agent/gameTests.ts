@@ -34,6 +34,8 @@ export const MAX_GAME_TESTS = 64;
 export const GAME_TESTS_MAX_BYTES = 262144;
 /** Tests rerun after one patch; keeps a write tool's latency bounded. */
 const RERUN_LIMIT = 8;
+/** JSON text is escaped again in transport; 3000 characters keeps each page comfortably below 12k. */
+const DEFINITION_PAGE_CHARS = 3000;
 
 export interface GameTest {
   readonly name: string;
@@ -477,12 +479,15 @@ export const GAME_TEST_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_game_tests",
     description:
-      "List the game tests stored with the game (TESTS.JSON): name, room, steps and expectations. Null `names` lists all.",
+      "Read stored game tests (TESTS.JSON). Null names lists compact summaries. Specified names returns editable definitions as JSON text in bounded pages; concatenate definition chunks using nextOffset until null. offset is a character offset, null or omitted starts at zero. Opaque recording setup is omitted and preserved by write_game_tests merge edits.",
     parameters: {
       type: "object",
       additionalProperties: false,
-      properties: { names: NAMES_SCHEMA },
-      required: ["names"],
+      properties: {
+        names: NAMES_SCHEMA,
+        offset: { type: ["integer", "null"], minimum: 0 },
+      },
+      required: ["names", "offset"],
     },
   },
   {
@@ -499,7 +504,7 @@ export const GAME_TEST_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_game_tests",
     description:
-      "Add or replace stored game tests by name (`mode` merge, default), replace the whole set (`mode` replace) or delete the tests listed in `names` (`mode` remove, `tests` null). Each test is a playtest_room scenario: `room`, optional `spawnX`/`spawnY`, `steps` and `expect`, optional `cycleBudget`, and an optional `setup` {image, replay} — the base64 host image and optional machine-generated recording JSON text, preserved unchanged by edits, which a recorded test restores and replays before its steps (absent setup boots fresh). Steps are command, move, enter, wait (cycles or an until predicate over room/flag/var), key (PC key word), direction (0..8), walkTo (x, y) and answer (prompt text); expectations add score, var ranges, object and reachable to room, carriedItems, flags, vars, printed and text. Commands must use registered words. Write at least one test per puzzle and rerun them with run_game_tests.",
+      "Add or replace stored game tests by name (`mode` merge, default), replace the whole set (`mode` replace) or delete the tests listed in `names` (`mode` remove, `tests` null). Each test is a playtest_room scenario: `room`, optional `spawnX`/`spawnY`, `steps` and `expect`, optional `cycleBudget`, and an optional `setup` {image, replay} — the base64 host image and optional machine-generated recording JSON text, which a recorded test restores and replays before its steps. Merge preserves existing setup when null or omitted; replace uses only supplied setup (no setup boots fresh). Steps are command, move, enter, wait (cycles or an until predicate over room/flag/var), key (PC key word), direction (0..8), walkTo (x, y) and answer (prompt text); expectations add score, var ranges, object and reachable to room, carriedItems, flags, vars, printed and text. Commands must use registered words. Write at least one test per puzzle and rerun them with run_game_tests.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -566,6 +571,16 @@ export function executeGameTestTool(
       const names = namesArgument(args["names"]);
       const stored = readStoredTests(session);
       const listed = names ? stored.filter((test) => names.includes(test.name)) : stored;
+      const offset = args["offset"] ?? 0;
+      if (typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0)
+        fail("offset must be a nonnegative integer or null.");
+      if (!names && offset !== 0)
+        fail("Specify names to read definition pages; summaries use offset 0.");
+      const definition = names
+        ? JSON.stringify(listed.map(({ setup: _setup, ...test }) => test))
+        : null;
+      if (definition !== null && offset > definition.length)
+        fail("offset is past the end of the selected definitions.");
       return {
         success: true,
         message: listed.length
@@ -573,7 +588,30 @@ export function executeGameTestTool(
           : stored.length
             ? "None of the named tests is stored."
             : "No game tests stored yet. Write one per puzzle with write_game_tests.",
-        details: { tests: listed, stored: stored.length },
+        details:
+          definition === null
+            ? {
+                tests: listed.map((test) => ({
+                  name: test.name,
+                  room: test.room,
+                  steps: test.steps.length,
+                  recorded: !!test.setup,
+                })),
+                stored: stored.length,
+              }
+            : {
+                definition: definition.slice(offset, offset + DEFINITION_PAGE_CHARS),
+                offset,
+                nextOffset:
+                  offset + DEFINITION_PAGE_CHARS < definition.length
+                    ? offset + DEFINITION_PAGE_CHARS
+                    : null,
+                totalChars: definition.length,
+                matched: listed.length,
+                stored: stored.length,
+                recordingSetup:
+                  "Omitted from model output; merge preserves existing setup when setup is null or absent. Remove the test first to create a fresh-boot replacement.",
+              },
       };
     }
     if (name === "run_game_tests") return runGameTests(session, namesArgument(args["names"]));
@@ -619,7 +657,13 @@ export function executeGameTestTool(
       next =
         mode === "replace"
           ? written
-          : [...stored.filter((test) => !seen.has(test.name)), ...written];
+          : [
+              ...stored.filter((test) => !seen.has(test.name)),
+              ...written.map((test) => {
+                const previous = stored.find((entry) => entry.name === test.name);
+                return !test.setup && previous?.setup ? { ...test, setup: previous.setup } : test;
+              }),
+            ];
       if (next.length > MAX_GAME_TESTS) fail(`A game holds at most ${MAX_GAME_TESTS} tests.`);
     }
     session.testsPayload = serializeGameTests(next);

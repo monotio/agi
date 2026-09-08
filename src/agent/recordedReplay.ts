@@ -23,13 +23,18 @@ export const MAX_RECORDED_BYTES = 180000;
 export class OperationRecorder {
   readonly operations: RecordedOperation[] = [];
   private calls: RecordedHostCall[] | null = null;
-  private bytes = 0;
+  // Matches JSON.stringify(operations).length incrementally: 2 for the outer
+  // array brackets, plus one comma per operation and per host call after the
+  // first. Charged below where each element is appended.
+  private bytes = 2;
   error: string | null = null;
   record(operation: RecordedOperation): void {
     if (this.error) return;
+    let bytes = JSON.stringify(operation).length;
+    if (this.operations.length > 0) bytes += 1;
     if (
       this.operations.length >= MAX_RECORDED_OPERATIONS ||
-      (this.bytes += JSON.stringify(operation).length) > MAX_RECORDED_BYTES
+      (this.bytes += bytes) > MAX_RECORDED_BYTES
     ) {
       this.error = "Recording reached its size limit; record a shorter scenario.";
       return;
@@ -42,7 +47,9 @@ export class OperationRecorder {
   }
   host(call: RecordedHostCall): void {
     if (!this.calls || this.error) return;
-    if ((this.bytes += JSON.stringify(call).length) > MAX_RECORDED_BYTES) {
+    let bytes = JSON.stringify(call).length;
+    if (this.calls.length > 0) bytes += 1;
+    if ((this.bytes += bytes) > MAX_RECORDED_BYTES) {
       this.error = "Recording reached its size limit; record a shorter scenario.";
       return;
     }

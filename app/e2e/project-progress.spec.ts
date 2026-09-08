@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { readGameZip } from "../src/gameZip.ts";
+import { buildProjectZip } from "../src/projectArchive.ts";
+import { createContainer } from "../../src/container/container.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
+import { Engine } from "../../src/runtime/engine.ts";
 import {
   isolateStorage,
   openGameOptions,
@@ -11,6 +15,86 @@ import {
 } from "./engineProbe.ts";
 
 const TUTORIAL_SLUG = "catalog-adventure-department-1.0.0";
+
+test("project import names each stored and refused progress entry", async ({ page }, testInfo) => {
+  const container = createContainer();
+  container.putFile("WORDS.TOK", new Uint8Array(52));
+  container.putResource("picture", 1, Uint8Array.of(0xff));
+  for (const [room, source] of [
+    [0, "if(!isset(f200)){set(f200);new.room(1);}call(1);return;"],
+    [1, "if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();accept.input();}return;"],
+  ] as const)
+    container.putResource("logic", room, assembleLogic(source, { dictionary: new Map() }).payload);
+  const engine = new Engine(container, {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  });
+  engine.tick();
+  const image = engine.autosaveImage();
+  expect(image).not.toBeNull();
+  const archive = await buildProjectZip(
+    {
+      slug: "storage-report",
+      title: "Storage report",
+      authoredAt: new Date(0).toISOString(),
+      provider: "stub",
+      model: "stub",
+      files: Object.fromEntries(container.files),
+      words: [],
+    },
+    {
+      saves: { "1": engine.serialize(), "7": engine.serialize() },
+      autosave: {
+        format: "monotio.agi.autosave",
+        version: 1,
+        image: Buffer.from(image!).toString("base64"),
+        cycle: 1,
+        room: 1,
+        savedAt: 1,
+        game: { slug: "storage-report", installed: false, revision: "ab".repeat(32) },
+      },
+    },
+  );
+  await isolateStorage(page);
+  await page.addInitScript(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (
+        key.startsWith("monotio_agi.autosave.") ||
+        (key.startsWith("monotio_agi.saves.") && JSON.parse(value).slots["7"])
+      )
+        throw new Error("Injected storage refusal");
+      original.call(this, key, value);
+    };
+  });
+  await page.goto("/");
+  await page.getByTestId("game-zip-input").setInputFiles({
+    name: "storage-report.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from(archive),
+  });
+  const notice = page.locator(".import-notice");
+  await expect(notice).toContainText("save slot 1 stored");
+  await expect(notice).toContainText("save slot 7 could not be stored");
+  await expect(notice).toContainText("autosave could not be stored");
+  const stored = await page.evaluate(async () => {
+    const { listCachedCartridges } = await import("/src/cartridgeStorage.ts");
+    const { readGameSaves } = await import("/src/gameSaves.ts");
+    const slug = listCachedCartridges()[0]!.slug;
+    return {
+      slots: Object.keys(readGameSaves(localStorage, slug)),
+      autosave: localStorage.getItem(`monotio_agi.autosave.${slug}`),
+    };
+  });
+  expect(stored).toEqual({ slots: ["1"], autosave: null });
+  await page.screenshot({
+    path: testInfo.outputPath("partial-progress-import.png"),
+    fullPage: true,
+  });
+});
 
 /**
  * A project archive carries the player's progress; a game export never does.
@@ -72,7 +156,7 @@ test("the project archive moves the autosave to another browser; the game export
     const other = await fresh.newPage();
     await other.goto(page.url());
     await other.getByTestId("game-zip-input").setInputFiles(savedPath);
-    await expect(other.getByText(/added to your library with your last autosave/)).toBeVisible();
+    await expect(other.getByText(/added to your library.*autosave stored/)).toBeVisible();
     const resume = other.getByTestId("btn-resume-cached");
     await expect(resume).toHaveText("Resume");
     const slug = await other.evaluate(async () => {

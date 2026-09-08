@@ -54,6 +54,10 @@ against current resources. Divergent or unconsumed calls fail the replay.
 this contract, including project export/import. Successful authoring mutations
 rerun affected tests conservatively; the verdict reports any tests not run.
 Stored tests travel only in project archives, never public game exports.
+`read_game_tests` lists compact summaries or pages of editable JSON definitions;
+opaque snapshots and replay tapes stay out of model responses. Merge edits retain
+existing recording setup when it is omitted or null. Full replacement uses only
+the supplied setup; remove a single test before rewriting it to reset its setup.
 
 ## Where things live
 

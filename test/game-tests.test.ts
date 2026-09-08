@@ -13,6 +13,7 @@ import {
 } from "../src/agent/gameTests.ts";
 import { DIRECTION_KEYS, directionForDelta, randomSource } from "../src/agent/gameTestSteps.ts";
 import { playtestRoom } from "../src/agent/playtest.ts";
+import { splitToolResult } from "../src/agent/toolTransport.ts";
 import {
   AGI_SYSTEM_PROMPT,
   createGenesisPrompt,
@@ -322,7 +323,7 @@ test("write_game_tests stores, merges, replaces and removes; commands need regis
   assert.deepEqual(merged.details?.["names"], ["take the key", "look around"]);
   const listed = executeAgentTool(state, "read_game_tests", { names: ["look around"] });
   assert.equal(listed.success, true);
-  assert.equal((listed.details?.["tests"] as unknown[]).length, 1);
+  assert.equal((JSON.parse(listed.details?.["definition"] as string) as unknown[]).length, 1);
   const removed = executeAgentTool(state, "write_game_tests", {
     mode: "remove",
     names: ["look around"],
@@ -798,6 +799,111 @@ function recordSetupImage(state: AgentSessionState): string {
   engine.tick();
   return Buffer.from(engine.serialize()).toString("base64");
 }
+
+test("recorded test reads omit opaque setup and paginate complete editable definitions", () => {
+  const state = world();
+  const engine = new Engine(
+    openContainer(state.getFiles()),
+    {
+      print() {},
+      displayAt() {},
+      statusLine() {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+    },
+    state.sources.words,
+    { profile: state.profile },
+  );
+  engine.tick();
+  const setup = {
+    image: Buffer.from(engine.recordingImage()!).toString("base64"),
+    replay: JSON.stringify({
+      state: engine.captureReplayState(),
+      operations: Array.from({ length: 1000 }, () => ["clock", 1]),
+    }),
+  };
+  state.testsPayload = serializeGameTests([
+    { ...takeKey, setup, steps: Array.from({ length: 256 }, () => step("wait", { ticks: 1 })) },
+  ]);
+  const original = state.testsPayload;
+  const listed = executeAgentTool(state, "read_game_tests", { names: null, offset: null });
+  assert.equal(listed.success, true, listed.error ?? "");
+  assert.ok(splitToolResult(listed).text.length < 12000);
+  assert.equal(JSON.stringify(listed).includes(setup.image), false);
+  let offset: number | null = 0;
+  let definition = "";
+  let pages = 0;
+  do {
+    const page = executeAgentTool(state, "read_game_tests", { names: [takeKey.name], offset });
+    assert.equal(page.success, true, page.error ?? "");
+    assert.ok(splitToolResult(page).text.length < 12000);
+    assert.equal(typeof page.details?.["definition"], "string");
+    definition += page.details!["definition"] as string;
+    const next = page.details!["nextOffset"];
+    assert.ok(next === null || (typeof next === "number" && next > offset));
+    offset = next as number | null;
+    assert.ok(++pages < 100, "pagination makes bounded progress");
+  } while (offset !== null);
+  const decoded = JSON.parse(definition) as GameTest[];
+  assert.equal(decoded.length, 1);
+  assert.equal(decoded[0]!.steps.length, 256);
+  assert.equal(decoded[0]!.setup, undefined);
+  assert.ok(pages > 1);
+  assert.equal(state.testsPayload, original, "reading never mutates the archive");
+  assert.equal(
+    executeAgentTool(state, "read_game_tests", { names: [takeKey.name], offset: -1 }).success,
+    false,
+  );
+});
+
+test("merge edits preserve opaque recorded setup when the model omits it or sends null", () => {
+  const state = world();
+  const setup = { image: recordSetupImage(state) };
+  state.testsPayload = serializeGameTests([{ ...takeKey, setup }]);
+  for (const supplied of [undefined, null]) {
+    const result = executeAgentTool(state, "write_game_tests", {
+      mode: "merge",
+      names: null,
+      tests: [{ ...takeKey, ...(supplied === undefined ? {} : { setup: supplied }) }],
+    });
+    assert.equal(result.success, true, result.error ?? "");
+    assert.deepEqual(parseGameTests(state.testsPayload).tests[0]!.setup, setup);
+  }
+  const replaced = executeAgentTool(state, "write_game_tests", {
+    mode: "replace",
+    names: null,
+    tests: [takeKey],
+  });
+  assert.equal(replaced.success, true, replaced.error ?? "");
+  assert.equal(parseGameTests(state.testsPayload).tests[0]!.setup, undefined);
+});
+
+test("test-read summaries remain bounded at capacity and JSON pages preserve escaped text", () => {
+  const state = world();
+  const tests = Array.from({ length: 64 }, (_, i) => ({
+    ...takeKey,
+    name: String(i).padEnd(60, "x"),
+    expect: { printed: '"\\\n'.repeat(66) },
+  }));
+  state.testsPayload = serializeGameTests(tests);
+  const summary = executeAgentTool(state, "read_game_tests", { names: null });
+  assert.equal(summary.success, true, summary.error ?? "");
+  assert.equal((summary.details!["tests"] as unknown[]).length, 64);
+  assert.ok(splitToolResult(summary).text.length < 12000);
+  const names = tests.map((test) => test.name);
+  let offset: number | null = 0;
+  let definition = "";
+  do {
+    const page = executeAgentTool(state, "read_game_tests", { names, offset });
+    assert.equal(page.success, true, page.error ?? "");
+    assert.ok(splitToolResult(page).text.length < 12000);
+    definition += page.details!["definition"] as string;
+    const next = page.details!["nextOffset"] as number | null;
+    assert.ok(next === null || next > offset);
+    offset = next;
+  } while (offset !== null);
+  assert.deepEqual(JSON.parse(definition), parseGameTests(state.testsPayload).tests);
+});
 
 test("a recorded setup replays from mid-game state against the CURRENT resources", () => {
   const state = world();

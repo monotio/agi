@@ -721,17 +721,23 @@ async function stageLibraryGame(
 /** What a project archive brought along besides the game — and what storage refused. */
 function progressNote(game: OpenedGame, stored: ImportStorageReport | null): string {
   if (!game.progress) return "";
-  const slots = stored?.slots.length ?? 0;
-  const refused =
-    (stored?.failedSlots.length ?? 0) + (game.progress.autosave && !stored?.autosave ? 1 : 0);
-  const parts = [
-    ...(slots > 0 ? [`${slots} saved ${slots === 1 ? "game" : "games"}`] : []),
-    ...(stored?.autosave ? ["your last autosave"] : []),
-  ];
-  const note = parts.length > 0 ? ` with ${parts.join(" and ")}` : "";
-  return refused > 0
-    ? `${note} (${refused} ${refused === 1 ? "save" : "saves"} could not be stored)`
-    : note;
+  const parts = Object.keys(game.progress.saves).map((slot) => {
+    const status = stored?.slots.includes(Number(slot))
+      ? "stored"
+      : stored?.failedSlots.includes(Number(slot))
+        ? "could not be stored"
+        : "storage unconfirmed";
+    return `save slot ${slot} ${status}`;
+  });
+  if (game.progress.autosave) {
+    const status = stored?.autosave
+      ? "stored"
+      : stored
+        ? "could not be stored"
+        : "storage unconfirmed";
+    parts.push(`autosave ${status}`);
+  }
+  return parts.length ? ` (${parts.join("; ")})` : "";
 }
 
 async function onGameZip(file?: File): Promise<void> {
