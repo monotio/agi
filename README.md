@@ -159,6 +159,8 @@ repository's MIT license. A game export starts a fresh authoring conversation; a
 project carries its saved context. A game export starts from the beginning; a
 project archive also carries your twelve save slots and latest autosave, so your
 position moves with it between browsers and computers.
+If the running game cannot save its current progress, the download explains why
+and offers an explicit choice to use only the progress already saved in this browser.
 
 ## How it works
 

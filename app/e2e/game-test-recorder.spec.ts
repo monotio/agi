@@ -73,6 +73,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
     await route.fulfill(respond(turns[Math.min(requests - 1, turns.length - 1)]));
   });
   await isolateStorage(page);
+  await page.addInitScript(() => localStorage.setItem("monotio_agi.touchControls", "on"));
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
@@ -91,17 +92,14 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   await input.fill("paint mural");
   await input.press("Enter");
   await expect.poll(async () => (await textHook(page)).modal).toBe("print");
-  await page.keyboard.press("Enter");
+  await page.locator(".screen").dispatchEvent("pointerdown", { pointerType: "touch" });
+  await page.locator(".screen").dispatchEvent("click");
   await expect.poll(async () => (await textHook(page)).modal).toBeNull();
   await page.getByTestId("record-stop").click();
   const dialog = page.getByTestId("record-dialog");
   await expect(dialog).toBeVisible();
-  // The playthrough's meaningful diffs come preselected.
-  // Logic 0's walk bookkeeping (position mirrors, cycle counters) rides along
-  // as suggestions; the player keeps the puzzle-relevant assertions — that
-  // curation is what the dialog is for.
-  for (const box of await page.locator('[data-testid^="record-check-var-"]').all())
-    if (await box.isChecked()) await box.click();
+  // Keep every preselected assertion, including logic-0 position mirrors,
+  // cycle counters and the clock: exact replay must reproduce them too.
   await expect(page.getByTestId("record-check-flag-30")).toBeChecked();
   await expect(page.getByTestId("record-check-score")).toBeChecked();
   await expect(page.getByTestId("record-check-printed-0")).toBeChecked();
@@ -120,7 +118,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   await page.getByTestId("agent-bubble-input").fill("Change the mural lesson text");
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
-  await expect.poll(() => agentFeed(page)).toContain("Game tests: 1 game test pass, 2 fail");
+  await expect.poll(() => agentFeed(page)).toContain("Game tests: 3 game tests pass, 2 fail");
 
   // Repair: the same rerun reports the whole selection green again.
   await page.getByTestId("power-up").click();
@@ -128,7 +126,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   await page.getByTestId("agent-bubble-input").fill("Restore the mural lesson text");
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
-  await expect.poll(() => agentFeed(page)).toContain("Game tests: 3 game tests pass, 0 fail");
+  await expect.poll(() => agentFeed(page)).toContain("Game tests: 5 game tests pass, 0 fail");
 
   // Export the project; the recorded test travels only in the project archive.
   const download = page.waitForEvent("download");
@@ -139,6 +137,15 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   const testsJson = new TextDecoder().decode(project.files["TESTS.JSON"]);
   expect(testsJson).toContain("recorded mural repair");
   expect(testsJson).toContain('"setup"');
+  const stored = JSON.parse(testsJson).tests.find(
+    (test: { name: string }) => test.name === "recorded mural repair",
+  );
+  const replay = JSON.parse(stored.setup.replay);
+  expect(replay.operations.some((op: unknown[]) => op[0] === "ack")).toBe(true);
+  expect(stored.cycleBudget).toBe(
+    replay.operations.filter((op: unknown[]) => op[0] === "tick").length,
+  );
+  expect(stored.steps).toEqual([]);
 
   // A fresh browser imports the project and reruns every stored test there:
   // the recording replays from its setup image against the same resources.

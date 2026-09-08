@@ -33,6 +33,18 @@ The Playwright server uses Vite's `test` mode with a deterministic test provider
 browser tests mock paid providers. See [evals](evals/README.md) for live model
 evaluations.
 
+The gate checks installed dependencies against both manifests before testing.
+After switching branches or pulling dependency updates, run `npm ci` in both
+package roots; a green run against stale dependencies does not verify CI's build.
+
+Recorded game tests store a host snapshot and a bounded operation tape in
+`TESTS.JSON`: clocks, consumed input, random draws and prompt replies replay
+against current resources. Divergent or unconsumed calls fail the replay.
+`test/recording-replay.test.ts` and `app/e2e/game-test-recorder.spec.ts` verify
+this contract, including project export/import. Successful authoring mutations
+rerun affected tests conservatively; the verdict reports any tests not run.
+Stored tests travel only in project archives, never public game exports.
+
 ## Where things live
 
 | Directory                                                                 | Responsibility                                                |
@@ -67,6 +79,7 @@ The compatibility suite uses these local installations (other editions may diffe
 | `games/kq3/`      | 2.936                         | v2 split                             |
 | `games/demopac4/` | 3.002.102                     | v3 combined (`DMDIR`, `DMVOL.0-1`)   |
 | `games/mh1/`      | 3.002.107 (3.002.102 profile) | v3 combined (`MHDIR`, `MHVOL.0-12`)  |
+| `games/mh2/`      | 3.002.149                     | v3 combined (`MH2DIR`, `MH2VOL.*`)   |
 | `games/gr1/`      | 3.002.149 (`AGIDATA.OVL`)     | v3 combined (`GRDIR`, `GRVOL.0-2`)   |
 | `games/kq4/`      | 3.002.086                     | v3 combined (`KQ4DIR`, `KQ4VOL.0-3`) |
 

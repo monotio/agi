@@ -1,3 +1,5 @@
+import type { EngineReplayState } from "../../src/runtime/replayState.ts";
+import type { RecordedOperation } from "../../src/agent/recordedReplay.ts";
 import type { AgentRunState } from "./agent/agentRun.ts";
 import { reactive } from "vue";
 import type { GameControlBinding, EngineMenuState } from "../../src/runtime/engine.ts";
@@ -105,6 +107,8 @@ export interface EngineState {
   leaving: boolean;
   controls: GameControlBinding[];
   inputEnabled: boolean;
+  /** The worker has started logic and published its input mode. */
+  inputReady: boolean;
   holdToMove: boolean;
   waitingForKey: boolean;
   gameEdit: { text: string } | null;
@@ -229,6 +233,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     leaving: false,
     controls: [],
     inputEnabled: false,
+    inputReady: false,
     holdToMove: false,
     waitingForKey: false,
     gameEdit: null,
@@ -727,6 +732,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     state.modal = null;
     state.controls = [];
     state.inputEnabled = false;
+    state.inputReady = false;
     state.holdToMove = false;
     state.waitingForKey = false;
     pendingKeys.clear();
@@ -959,6 +965,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         pendingKeys.delete(Number(msg.id));
       } else if (msg.type === "frame") {
         state.inputEnabled = Boolean(msg.inputEnabled);
+        state.inputReady = Boolean(msg.inputReady);
         state.holdToMove = Boolean(msg.holdToMove);
         publishText(msg.text, msg.modal ?? null, Boolean(msg.textMode));
         onFrame({
@@ -1774,15 +1781,27 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       const reply = await query<{
         ok: boolean;
         image?: string;
+        replayState?: EngineReplayState;
         cycle?: number;
         state?: RecorderStateSnapshot;
         error?: string;
       }>("startRecording");
-      if (!reply.ok || !reply.image || reply.cycle === undefined || !reply.state) {
+      if (
+        !reply.ok ||
+        !reply.image ||
+        !reply.replayState ||
+        reply.cycle === undefined ||
+        !reply.state
+      ) {
         state.recording.error = String(reply.error ?? "Recording could not start.");
         return;
       }
-      recordingStart = { image: reply.image, cycle: reply.cycle, state: reply.state };
+      recordingStart = {
+        image: reply.image,
+        cycle: reply.cycle,
+        state: reply.state,
+        replayState: reply.replayState,
+      };
       state.recording.active = true;
       logAgent("log", `Recording a game test from room ${reply.state.room}, cycle ${reply.cycle}.`);
     } finally {
@@ -1794,6 +1813,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   async function stopTestRecording(): Promise<RecordingSnapshot | null> {
     if (!state.recording.active || !recordingStart) return null;
     const reply = await query<{
+      operations?: RecordedOperation[];
       events?: RecordedEvent[];
       printed?: string[];
       tainted?: string | null;
@@ -1807,6 +1827,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     if (!reply.state || reply.cycle === undefined) return null;
     return {
       start,
+      operations: reply.operations ?? [],
       events: reply.events ?? [],
       printed: reply.printed ?? [],
       endState: reply.state,
@@ -1840,6 +1861,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   ): Promise<{ ok: boolean; message: string }> {
     const game = booted;
     if (!game || !worker) return { ok: false, message: "No game is running." };
+    if (snapshot.tainted) return { ok: false, message: snapshot.tainted };
     if (!session) {
       const cached = game.installed
         ? await loadGameConversation(game.slug)

@@ -374,12 +374,12 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     releaseGateClearAction: true,
     inputWidthActions: "noop",
     closeWindowClearsInputWidth: false,
-    // docs/fidelity.md: print-handler-output-modes (Gold Rush build verified).
+    // docs/fidelity.md: print-handler-output-modes (Gold Rush and MH2 builds verified).
     printConsumesF15: true,
     timedPrintClearsV21: true,
     directionLoops: "four-or-more-f20",
-    // The base MH2 build defines no aliases; select the Gold Rush build with
-    // goldRushProfile() when a claim uses that data.
+    // docs/fidelity.md: Local 3.002.149 build identity. The separately
+    // observed alias variant is explicit via GOLD_RUSH_3_002_149.
     roomAliases: null,
   },
 };

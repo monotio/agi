@@ -206,6 +206,17 @@ test("SAVES/ counts only beside PROJECT.JSON, ignores other names, and refuses w
   );
 });
 
+test("a malformed-base64 autosave image fails with the SAVES/AUTOSAVE.JSON import error", async () => {
+  const { files, progress } = played();
+  const malformed = { ...progress.autosave!, image: "%%%" };
+  const entries = archiveEntries(files, true);
+  entries.push({ name: "SAVES/AUTOSAVE.JSON", data: JSON.stringify(malformed) });
+  await assert.rejects(
+    readGameZip(buildZip(entries)),
+    /SAVES\/AUTOSAVE\.JSON does not hold a save image for this game/,
+  );
+});
+
 test("imported progress is stored under the library slug and re-addressed to it", () => {
   const { progress } = played();
   const backing = new Map<string, string>();

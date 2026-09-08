@@ -1,3 +1,4 @@
+import { decodeRecordedReplay } from "./recordedReplay.ts";
 /**
  * The game-test step and expectation vocabulary shared by the stored
  * TESTS.JSON format (src/agent/gameTests.ts), the playtest simulation
@@ -172,6 +173,8 @@ export function validateVarAssertion(value: unknown, label: string): VarAssertio
   const max = optionalInteger(variable["max"], `${label}.max`, 0, 255);
   if (equals === null && min === null && max === null)
     fail(`${label} needs an exact value or a min/max range.`);
+  if (equals !== null && (min !== null || max !== null))
+    fail(`${label} needs an exact value or a min/max range, not both.`);
   if (min !== null && max !== null && min > max) fail(`${label}.min must not exceed ${label}.max.`);
   return { id, value: equals, min, max };
 }
@@ -249,6 +252,13 @@ export function validateGameTestStep(value: unknown, label: string): GameTestSte
     if (!ACTION_FIELDS[kind].includes(field) && step[field] != null)
       fail(`${label}.${field} does not apply to a ${kind} step.`);
   const ticks = optionalInteger(step["ticks"], `${label}.ticks`, 1, 60000);
+  if (
+    kind === "answer" &&
+    (ticks !== null || (Array.isArray(step["captureTicks"]) && step["captureTicks"].length))
+  )
+    fail(
+      `${label}: answer queues a reply without advancing time; ticks and captureTicks must be null.`,
+    );
   let captureTicks: readonly number[] | null = null;
   if (step["captureTicks"] != null) {
     if (!Array.isArray(step["captureTicks"]) || step["captureTicks"].length > 9)
@@ -379,8 +389,9 @@ export function validateGameTestExpect(value: unknown, label: string): GameTestE
 }
 
 /**
- * The interpreter state a recorded test replays from: a raw AGI save image
- * (the bytes of engine.serialize()), base64 for JSON storage. A test without
+ * The interpreter state a recorded test replays from: an AGI save image or
+ * host recording envelope, base64 for JSON storage. Machine-generated replay
+ * JSON text retains exact host operations and transient state. A test without
  * `setup` keeps the fresh-boot room simulation; with one, the stored-test
  * runner restores the image into a fresh engine built from the CURRENT staged
  * resources — the interpreter's own save/restore contract, so the image only
@@ -388,6 +399,7 @@ export function validateGameTestExpect(value: unknown, label: string): GameTestE
  */
 export interface GameTestSetup {
   readonly image: string;
+  readonly replay?: string;
 }
 
 const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -417,7 +429,7 @@ export function decodeBase64(text: string, label: string): Uint8Array {
   return out;
 }
 
-const SETUP_FIELDS = ["image"];
+const SETUP_FIELDS = ["image", "replay"];
 /**
  * One setup image can never exceed the 256 KiB TESTS.JSON cap it shares with
  * every test in the file, so anything longer is rejected before decoding.
@@ -436,5 +448,10 @@ export function validateGameTestSetup(value: unknown, label: string): GameTestSe
   if (typeof image !== "string" || image.length > SETUP_IMAGE_MAX_CHARS)
     fail(`${label}.image must be base64 text of at most ${SETUP_IMAGE_MAX_CHARS} characters.`);
   decodeBase64(image, `${label}.image`);
-  return { image };
+  const replay = setup["replay"];
+  if (replay != null) {
+    if (typeof replay !== "string") fail(`${label}.replay must be machine-generated JSON text.`);
+    decodeRecordedReplay(replay);
+  }
+  return { image, ...(typeof replay === "string" ? { replay } : {}) };
 }

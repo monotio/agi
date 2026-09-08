@@ -1,3 +1,4 @@
+import { decodeRecordedReplay } from "./recordedReplay.ts";
 /**
  * Game tests: playthrough regression tests stored with the game.
  *
@@ -21,7 +22,7 @@ import { createContainer } from "../container/container.ts";
 import { assembleLogic } from "../logic/assembler.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import { Engine, type EngineHost } from "../runtime/engine.ts";
-import { decodeSave } from "../runtime/persistence.ts";
+import { decodeHostImage, decodeSave } from "../runtime/persistence.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import type { ResourceKind } from "../types.ts";
 
@@ -72,6 +73,8 @@ function integerOrNull(value: unknown, label: string, min: number, max: number):
     fail(`${label} must be an integer from ${min} to ${max}, or null.`);
   return value;
 }
+/** Top-level fields of one stored test; anything else is a typo, not an option. */
+const TEST_FIELDS = ["name", "room", "spawnX", "spawnY", "steps", "expect", "cycleBudget", "setup"];
 
 /**
  * Strictly shape-check one stored test, including every step and expectation,
@@ -85,6 +88,8 @@ export function validateGameTest(value: unknown, label: string, profile?: AgiPro
   if (!value || typeof value !== "object" || Array.isArray(value))
     fail(`${label} must be an object.`);
   const test = value as Record<string, unknown>;
+  for (const key of Object.keys(test))
+    if (!TEST_FIELDS.includes(key)) fail(`${label}.${key} is not a known field.`);
   const name = test["name"];
   if (typeof name !== "string" || !/^[A-Za-z0-9][A-Za-z0-9 _.,'-]{0,59}$/.test(name))
     fail(`${label}.name must be 1 to 60 characters: letters, digits, spaces, _ . , ' -`);
@@ -99,7 +104,7 @@ export function validateGameTest(value: unknown, label: string, profile?: AgiPro
     test["setup"] == null ? null : validateGameTestSetup(test["setup"], `${label}.setup`);
   if (setup && profile) {
     try {
-      decodeSave(decodeBase64(setup.image, `${label}.setup.image`), profile);
+      decodeSave(decodeHostImage(decodeBase64(setup.image, `${label}.setup.image`)).image, profile);
     } catch (error) {
       fail(
         `${label}.setup.image is not a save image profile ${profile.id} can restore: ${error instanceof Error ? error.message : String(error)}`,
@@ -235,38 +240,60 @@ function scannable(source: string): string {
 }
 
 /**
- * Whether a change to one touched resource can affect one stored test. Uses
- * actual dependencies where they are cheaply known (the room's own logic,
- * literal call() and load.pic/draw.pic references in the room's logic source)
- * and conservatively selects the test whenever dependencies are unknown:
- * runtime-chosen call or picture targets, calls into shared logics that may
- * load the picture, or an unreadable logic source.
+ * The literal call() and new.room() closure of one test's starting room, plus
+ * whether those logics read pictures. Null when any part is unknown — an
+ * unreadable logic source or a runtime-chosen call/room target — because then
+ * no test can be proven unaffected. Following the closure transitively keeps
+ * a change to a shared helper logic from silently selecting zero tests in the
+ * rooms that reach it; new.room() targets are followed because a test can
+ * transition into another room whose logic the change touches.
+ */
+function testDependencies(
+  session: AgentSessionState,
+  room: number,
+): { logics: ReadonlySet<number>; readsPictures: boolean } | null {
+  const logics = new Set<number>();
+  let readsPictures = false;
+  // Logic 0 runs every cycle and may call shared helpers independently of the room.
+  const queue = [0, room];
+  for (let head = 0; head < queue.length; head++) {
+    const num = queue[head]!;
+    if (logics.has(num)) continue;
+    logics.add(num);
+    const source = roomLogicSource(session, num);
+    if (source === null) return null;
+    const code = scannable(source);
+    if (/\bcall\.v\s*\(/.test(code) || /\bnew\.room\.v\s*\(/.test(code)) return null;
+    for (const match of code.matchAll(/\b(?:call|new\.room)\s*\(([^)]*)\)/g)) {
+      // Named constants are valid authoring syntax; unknown is never unaffected.
+      if (!/^\s*\d+\s*$/.test(match[1]!)) return null;
+      const target = Number(match[1]);
+      if (!logics.has(target)) queue.push(target);
+    }
+    // All picture opcodes take a VARIABLE index, including bare numeric syntax.
+    // A source scan cannot prove the runtime value; select any changed picture.
+    if (/\b(?:load|draw|overlay)\.pic\s*\(/.test(code)) readsPictures = true;
+  }
+  return { logics, readsPictures };
+}
+
+/**
+ * Whether a change to one touched resource can affect a test with the given
+ * dependency closure (null: unknown, so conservatively affected). Words,
+ * objects, views and sounds always affect every test: the dictionary and
+ * inventory drive commands anywhere, and any room may load a view or sound by
+ * variable.
  */
 function affectsTest(
-  session: AgentSessionState,
-  test: GameTest,
+  deps: { logics: ReadonlySet<number>; readsPictures: boolean } | null,
   touched: TouchedResource,
 ): boolean {
   const { kind, num } = touched;
   if (kind === "words" || kind === "objects") return true;
   if (kind === "logic" && num === 0) return true;
-  if (kind === "logic") {
-    if (test.room === num) return true;
-    const source = roomLogicSource(session, test.room);
-    if (source === null) return true;
-    const code = scannable(source);
-    if (/\bcall\.v\s*\(/.test(code)) return true;
-    return new RegExp(`\\bcall\\(\\s*${num}\\s*\\)`).test(code);
-  }
-  if (kind === "picture") {
-    const source = roomLogicSource(session, test.room);
-    if (source === null) return true;
-    const code = scannable(source);
-    // A picture may be loaded by a called shared logic or chosen at runtime.
-    if (/\bcall(?:\.v)?\s*\(/.test(code)) return true;
-    if (/\b(?:load|draw|overlay)\.pic\s*\(\s*v\d+\s*\)/.test(code)) return true;
-    return new RegExp(`\\b(?:load|draw|overlay)\\.pic\\s*\\(\\s*${num}\\s*\\)`).test(code);
-  }
+  if (deps === null) return true;
+  if (kind === "logic") return deps.logics.has(num);
+  if (kind === "picture") return deps.readsPictures;
   return true;
 }
 
@@ -276,7 +303,12 @@ export function testsForResource(
   tests: readonly GameTest[],
   touched: readonly TouchedResource[],
 ): readonly GameTest[] {
-  return tests.filter((test) => touched.some((resource) => affectsTest(session, test, resource)));
+  return tests.filter((test) => {
+    // A recorded setup restores interpreter state the stored file does not
+    // describe; its real dependency scope is unknown, so never skip it.
+    const deps = test.setup ? null : testDependencies(session, test.room);
+    return touched.some((resource) => affectsTest(deps, resource));
+  });
 }
 
 interface GameTestOutcome {
@@ -306,7 +338,12 @@ function runOne(
     },
     // A recorded setup replays from the restored interpreter state; the image
     // validated at read time, so this decode cannot fail.
-    test.setup ? { setupImage: decodeBase64(test.setup.image, "setup.image") } : {},
+    test.setup
+      ? {
+          setupImage: decodeBase64(test.setup.image, "setup.image"),
+          ...(test.setup.replay ? { replay: decodeRecordedReplay(test.setup.replay) } : {}),
+        }
+      : {},
   );
   const details = result.details ?? {};
   return {
@@ -462,7 +499,7 @@ export const GAME_TEST_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_game_tests",
     description:
-      "Add or replace stored game tests by name (`mode` merge, default), replace the whole set (`mode` replace) or delete the tests listed in `names` (`mode` remove, `tests` null). Each test is a playtest_room scenario: `room`, optional `spawnX`/`spawnY`, `steps` and `expect`, optional `cycleBudget`, and an optional `setup` {image} — the base64 save image a recorded test restores before its steps (absent setup boots fresh). Steps are command, move, enter, wait (cycles or an until predicate over room/flag/var), key (PC key word), direction (0..8), walkTo (x, y) and answer (prompt text); expectations add score, var ranges, object and reachable to room, carriedItems, flags, vars, printed and text. Commands must use registered words. Write at least one test per puzzle and rerun them with run_game_tests.",
+      "Add or replace stored game tests by name (`mode` merge, default), replace the whole set (`mode` replace) or delete the tests listed in `names` (`mode` remove, `tests` null). Each test is a playtest_room scenario: `room`, optional `spawnX`/`spawnY`, `steps` and `expect`, optional `cycleBudget`, and an optional `setup` {image, replay} — the base64 host image and optional machine-generated recording JSON text, preserved unchanged by edits, which a recorded test restores and replays before its steps (absent setup boots fresh). Steps are command, move, enter, wait (cycles or an until predicate over room/flag/var), key (PC key word), direction (0..8), walkTo (x, y) and answer (prompt text); expectations add score, var ranges, object and reachable to room, carriedItems, flags, vars, printed and text. Commands must use registered words. Write at least one test per puzzle and rerun them with run_game_tests.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -486,8 +523,11 @@ export const GAME_TEST_TOOLS: readonly ToolDefinition[] = [
               setup: {
                 type: ["object", "null"],
                 additionalProperties: false,
-                properties: { image: { type: "string" } },
-                required: ["image"],
+                properties: {
+                  image: { type: "string" },
+                  replay: { type: ["string", "null"], maxLength: 262144 },
+                },
+                required: ["image", "replay"],
               },
             },
             required: [

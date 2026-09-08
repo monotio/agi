@@ -1,3 +1,8 @@
+import {
+  validateRecordedReplay,
+  type RecordedReplay,
+  type RecordedHostCall,
+} from "./recordedReplay.ts";
 /** Bounded, detached execution of authored resources using the real interpreter. */
 import { openContainer } from "../container/container.ts";
 import { parseWordsTok } from "../logic/words.ts";
@@ -113,6 +118,7 @@ class Simulation {
   keys: number[] = [];
   /** Keys the simulation pressed for a blocking wait; only genesis boots allow that. */
   keyPresses = 0;
+  private recordedCalls: RecordedHostCall[] | null = null;
   constructor(
     state: AgentSessionState,
     cycleBudget = DEFAULT_CYCLES,
@@ -137,11 +143,13 @@ class Simulation {
       displayAt: () => {},
       statusLine: () => {},
       takeInputLine: () => {
+        if (this.recordedCalls) return this.recordedValue("line") as string | null;
         const line = this.line;
         this.line = null;
         return line;
       },
       takeKeys: () => {
+        if (this.recordedCalls) return this.recordedValue("keys") as number[];
         const keys = this.keys;
         this.keys = [];
         return keys;
@@ -156,14 +164,26 @@ class Simulation {
         }
         return true;
       },
-      randomWord,
+      versionString: () =>
+        this.recordedCalls ? (this.recordedValue("version") as string) : `AGI ${state.profile.id}`,
+      randomWord: () =>
+        this.recordedCalls ? (this.recordedValue("random") as number) : randomWord(),
+      soundDevice: () => (this.recordedCalls ? (this.recordedValue("soundDevice") as number) : 1),
       waitKey: () => {
+        if (this.recordedCalls) return this.recordedValue("waitKey") as number;
         if (!options.pressKeys) return unsupported("waitKey");
         this.keyPresses += 1;
         return 13;
       },
-      promptNumber: () => unsupported("get.num"),
+      promptNumber: () => {
+        if (this.recordedCalls) return this.recordedValue("number") as number;
+        const answer = this.answers.shift();
+        if (answer === undefined) return unsupported("get.num");
+        const value = Number.parseInt(answer, 10);
+        return Number.isFinite(value) ? value : 0;
+      },
       promptString: () => {
+        if (this.recordedCalls) return this.recordedValue("string") as string;
         const answer = this.answers.shift();
         if (answer === undefined)
           throw new SimulationStop(
@@ -180,6 +200,64 @@ class Simulation {
       profile: state.profile,
       instructionBudget,
     });
+  }
+  private recordedValue(kind: RecordedHostCall[0]): unknown {
+    while (this.recordedCalls?.[0]?.[0] === "clock") {
+      const call = this.recordedCalls.shift()!;
+      this.advanceRecordedClock(call[1] as number);
+    }
+    const call = this.recordedCalls?.shift();
+    if (!call || call[0] !== kind)
+      throw new Error(
+        `Recorded replay diverged: expected host ${call?.[0] ?? "end of tick"}, received ${kind}.`,
+      );
+    return call[1];
+  }
+  private advanceRecordedClock(ticks: number): void {
+    for (let i = 0; i < ticks; i++) {
+      if (i % 1000 === 0 && Date.now() - this.started > 5000)
+        throw new Error("Recorded replay reached its five-second execution deadline.");
+      this.engine.advanceClock(1000 / 60);
+      this.engine.soundTick();
+    }
+    if (this.estimatedGameTimeMs !== null) this.estimatedGameTimeMs += (ticks * 1000) / 60;
+  }
+  replay(recording: RecordedReplay): void {
+    this.engine.restoreReplayState(recording.state);
+    for (const operation of recording.operations) {
+      if (Date.now() - this.started > 5000)
+        throw new Error("Recorded replay reached its five-second execution deadline.");
+      switch (operation[0]) {
+        case "clock":
+          this.advanceRecordedClock(operation[1]);
+          break;
+        case "edit":
+          this.engine.setEditLine(operation[1]);
+          break;
+        case "soundEnabled":
+          this.engine.setSoundEnabled(operation[1] !== 0);
+          break;
+        case "navigate":
+          this.engine.modalNavigate(operation[1]);
+          break;
+        case "ack":
+          this.engine.ackPrint();
+          break;
+        case "release":
+        case "tick":
+          if (operation[0] === "tick" && ++this.cycles > this.cycleBudget)
+            throw new Error(`Simulation cycle limit (${this.cycleBudget}) exceeded.`);
+          this.recordedCalls = operation[1].slice();
+          if (operation[0] === "tick") this.engine.tick();
+          else this.engine.releaseTrackedKey(true);
+          if (this.recordedCalls.length)
+            throw new Error(
+              `Recorded replay diverged: ${this.recordedCalls.length} unconsumed host calls.`,
+            );
+          this.recordedCalls = null;
+          break;
+      }
+    }
   }
   tick(): void {
     if (++this.cycles > this.cycleBudget)
@@ -432,23 +510,33 @@ function occlusionProbe(engine: Engine) {
 export function playtestRoom(
   state: AgentSessionState,
   args: Record<string, unknown>,
-  options: { setupImage?: Uint8Array } = {},
+  options: { setupImage?: Uint8Array; replay?: RecordedReplay } = {},
 ): AgentToolResult {
   let simulation: Simulation | undefined;
   try {
     const room = integer(args["room"], "room", 1, 255);
     const setupImage = options.setupImage;
+    const recording = options.replay ? validateRecordedReplay(options.replay) : null;
+    if (recording && !setupImage) throw new Error("Recorded replay requires its setup image.");
     const steps = args["steps"] ?? [];
     if (!Array.isArray(steps) || steps.length > 256)
       throw new Error("steps must contain at most 256 actions.");
     // walkTo and wait-until poll toward a goal, so their default budget is
     // generous; every other step acts once per default tick.
-    const stepTicks = (action: Record<string, unknown>, index: number): number =>
-      action["ticks"] == null
+    const stepTicks = (action: Record<string, unknown>, index: number): number => {
+      if (action["action"] === "answer") {
+        if (action["ticks"] != null)
+          throw new Error(
+            `steps[${index}]: answer queues a reply without advancing time; ticks must be null.`,
+          );
+        return 0;
+      }
+      return action["ticks"] == null
         ? action["action"] === "walkTo" || (action["action"] === "wait" && action["until"] != null)
           ? 600
           : 1
         : integer(action["ticks"], `steps[${index}].ticks`, 1, 60000);
+    };
     const captureTicksByStep: number[][] = [];
     let totalCaptureTicks = 0;
     for (let index = 0; index < steps.length; index++) {
@@ -502,7 +590,7 @@ export function playtestRoom(
       // disposable engine of the same container before applying it). No boot
       // cycle, no room re-entry and no footprint gate: the restored position
       // is historical, not an authored spawn.
-      engine.restoreImage(setupImage);
+      engine.restoreImage(setupImage, { preservePresentation: Boolean(recording) });
     } else {
       simulation.tick();
       if (engine.vars[0] !== room) {
@@ -519,6 +607,7 @@ export function playtestRoom(
           `Requested room ${room} immediately transitions to room ${engine.vars[0]}.`,
         );
     }
+    if (recording) simulation.replay(recording);
     const ego = engine.screenObjects[0]!;
     const x = args["spawnX"] == null ? ego.x : integer(args["spawnX"], "spawnX", 0, 159);
     const y = args["spawnY"] == null ? ego.y : integer(args["spawnY"], "spawnY", 0, 167);
@@ -690,6 +779,8 @@ export function playtestRoom(
       if (walkTarget !== null) {
         engine.vars[6] = 0;
         engine.screenObjects[0]!.direction = 0;
+        const walker = engine.screenObjects[0]!;
+        reachedTarget ||= walker.x === walkTarget.x && walker.y === walkTarget.y;
         observed["walkTo"] = { ...walkTarget, reached: reachedTarget };
         if (!reachedTarget) {
           const walker = engine.screenObjects[0]!;
@@ -760,6 +851,8 @@ export function playtestRoom(
       )
         throw new Error(`steps[${index}]: the game did not accept the supplied command.`);
     }
+    if (simulation.answers.length)
+      throw new Error("Unused answer steps remain: the game never requested those replies.");
     const expected = args["expect"];
     const failures: string[] = [];
     const nextSteps: string[] = [];
@@ -854,7 +947,8 @@ export function playtestRoom(
         if (typeof assertions["text"] !== "string" || assertions["text"].length > 200)
           throw new Error("expect.text must be text of at most 200 characters.");
         const wanted = assertions["text"];
-        const rows = Array.from({ length: 25 }, (_, row) => engine.textRow(row));
+        const frame = engine.getPresentation();
+        const rows = textRows({ ...frame, cycle: simulation.cycles, picRow: engine.displayBase });
         if (!rows.some((row) => row.includes(wanted))) {
           failures.push(`Expected visible text containing ${JSON.stringify(wanted)}; none shown.`);
           nextSteps.push(
@@ -912,6 +1006,8 @@ export function playtestRoom(
         }
         engine.vars[6] = 0;
         engine.screenObjects[0]!.direction = 0;
+        const finalWalker = engine.screenObjects[0]!;
+        reached ||= finalWalker.x === reachX && finalWalker.y === reachY;
         if (!reached) {
           const walker = engine.screenObjects[0]!;
           failures.push(
@@ -925,7 +1021,12 @@ export function playtestRoom(
     }
     if (failures.length)
       return simulation.result(false, "failed", failures.join(" "), { ...spawn, nextSteps });
-    return simulation.result(true, steps.length ? "passed" : "not_requested", undefined, spawn);
+    return simulation.result(
+      true,
+      steps.length || recording ? "passed" : "not_requested",
+      undefined,
+      spawn,
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const status = error instanceof SimulationStop ? error.status : "failed";

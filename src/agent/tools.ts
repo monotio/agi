@@ -475,6 +475,32 @@ function withGameTestVerdict(
     details: { ...result.details, gameTests: rerun.outcomes, gameTestsRerun: rerun.selection },
   };
 }
+/**
+ * The resources a successful write reports touching: its writtenResources
+ * plus the WORDS.TOK/OBJECT files a composite write updated (a dictionary or
+ * inventory change can affect commands in tests of any room), deduplicated.
+ */
+function touchedResources(result: AgentToolResult): TouchedResource[] {
+  const touched: TouchedResource[] = [];
+  const written = result.details?.["writtenResources"];
+  if (Array.isArray(written))
+    for (const entry of written) {
+      const resource = entry as { kind?: unknown; num?: unknown } | null;
+      if (typeof resource?.kind === "string" && typeof resource.num === "number")
+        touched.push({ kind: resource.kind as TouchedResource["kind"], num: resource.num });
+    }
+  const files = result.details?.["updatedFiles"];
+  if (Array.isArray(files))
+    for (const file of files) {
+      if (file === "WORDS.TOK") touched.push({ kind: "words", num: 0 });
+      else if (file === "OBJECT") touched.push({ kind: "objects", num: 0 });
+    }
+  return touched.filter(
+    (resource, index) =>
+      touched.findIndex((other) => other.kind === resource.kind && other.num === resource.num) ===
+      index,
+  );
+}
 
 /** Internal dispatch for arguments already normalized and checked against the catalog. */
 function executeValidatedAgentTool(
@@ -513,65 +539,45 @@ function executeValidatedAgentTool(
   } catch (error) {
     result = { success: false, error: String(error) };
   }
-  const kind = (
-    {
-      write_logic_source: "logic",
-      write_picture: "picture",
-      write_view: "view",
-      write_sound: "sound",
-    } as Record<string, ResourceKind>
-  )[name];
-  if (result.success && kind) {
-    const num = Number(args["room"] ?? args["num"]);
-    return withGameTestVerdict(
-      session,
+  if (result.success) {
+    // The four legacy writers predate the mutation-metadata contract, so the
+    // wrapper attaches it here; every other writer reports its own
+    // writtenResources/updatedFiles, and rerun selection trusts that metadata
+    // rather than a tool-name list.
+    const legacyKind = (
       {
+        write_logic_source: "logic",
+        write_picture: "picture",
+        write_view: "view",
+        write_sound: "sound",
+      } as Record<string, ResourceKind>
+    )[name];
+    if (legacyKind) {
+      const num = Number(args["room"] ?? args["num"]);
+      result = {
         ...result,
         details: {
           ...result.details,
-          writtenResources: [{ kind, num }],
-          revision: resourceRevision(session.container.getResource(kind, num)),
+          writtenResources: [{ kind: legacyKind, num }],
+          revision: resourceRevision(session.container.getResource(legacyKind, num)),
         },
-      },
-      [{ kind, num }],
-    );
-  }
-  if (result.success && (name === "write_words" || name === "write_inventory_objects"))
-    return withGameTestVerdict(
-      session,
-      {
+      };
+    }
+    if (name === "write_words" || name === "write_inventory_objects")
+      result = {
         ...result,
         details: {
           ...result.details,
           updatedFiles: [name === "write_words" ? "WORDS.TOK" : "OBJECT"],
         },
-      },
-      [{ kind: name === "write_words" ? "words" : "objects", num: 0 }],
-    );
-  if (
-    result.success &&
-    (name === "write_room" || name === "write_scene" || name === "edit_resource_source")
-  ) {
-    // A room or scene write touches several resources; every one of them
-    // selects the stored tests it can affect.
-    const written = result.details?.["writtenResources"];
-    const touched: TouchedResource[] = [];
-    if (Array.isArray(written))
-      for (const entry of written) {
-        const resource = entry as { kind?: unknown; num?: unknown } | null;
-        if (typeof resource?.kind === "string" && typeof resource.num === "number")
-          touched.push({ kind: resource.kind as ResourceKind, num: resource.num });
-      }
-    if (
-      !touched.length &&
-      name === "edit_resource_source" &&
-      typeof args["kind"] === "string" &&
-      args["num"] != null
-    )
-      touched.push({ kind: args["kind"] as ResourceKind, num: Number(args["num"]) });
-    if (!touched.length && typeof args["room"] === "number")
-      touched.push({ kind: "logic", num: args["room"] });
-    if (touched.length) return withGameTestVerdict(session, result, touched);
+      };
+    // Writers that delegate to another write tool (edit_resource_source,
+    // upsert_inventory_item) already carry the inner call's rerun verdict;
+    // never run the tests twice.
+    if (!result.details?.["gameTestsRerun"]) {
+      const touched = touchedResources(result);
+      if (touched.length) return withGameTestVerdict(session, result, touched);
+    }
   }
   if (result.success && (name === "read_logic" || name === "read_picture")) {
     const full = String(result.details?.["source"] ?? "");

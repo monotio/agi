@@ -231,6 +231,12 @@ test("validateGameTest rejects non-spec shapes at parse time, not at runtime", (
 
 test("testsForResource follows real dependencies and stays conservative when they are unknown", () => {
   const state = world();
+  // Isolate the room graph; the normal global call.v dispatcher has unknown reach.
+  state.container.putResource(
+    "logic",
+    0,
+    assembleLogic("return;", { dictionary: DICTIONARY }).payload,
+  );
   const roomTwo = { ...takeKey, name: "room two", room: 2 };
   const roomThree = { ...takeKey, name: "room three", room: 3 };
   const tests = [takeKey, roomTwo, roomThree];
@@ -248,12 +254,13 @@ test("testsForResource follows real dependencies and stays conservative when the
   // A called shared logic affects the caller's tests; an uncalled one does not.
   state.sources.logics.set(1, "call(5);\nreturn;");
   state.sources.logics.set(2, "return;");
+  state.sources.logics.set(5, "return;");
   assert.deepEqual(names([{ kind: "logic", num: 5 }]), ["take the key", "room three"]);
   assert.deepEqual(names([{ kind: "logic", num: 6 }]), ["room three"]);
-  // A literal picture load is a real dependency.
+  // Picture operands always name variables, so their target is unknown.
   state.sources.logics.set(1, "load.pic(2);\ndraw.pic(2);\nreturn;");
   assert.deepEqual(names([{ kind: "picture", num: 2 }]), ["take the key", "room three"]);
-  assert.deepEqual(names([{ kind: "picture", num: 3 }]), ["room three"]);
+  assert.deepEqual(names([{ kind: "picture", num: 3 }]), ["take the key", "room three"]);
   // A runtime-chosen picture or call target is unknown: select the test.
   state.sources.logics.set(1, "assignn(v10, 2);\nload.pic(v10);\nreturn;");
   assert.deepEqual(names([{ kind: "picture", num: 2 }]), ["take the key", "room three"]);
@@ -469,10 +476,10 @@ test("a write tool leads with the verdict and reports selection, coverage and pa
   );
   const outcomes = broken.details?.["gameTests"] as { passed: boolean }[];
   assert.equal(outcomes[0]?.passed, false);
-  // A room the tests do not cover reruns nothing and says nothing about them.
+  // The global dynamic dispatcher means another room cannot be proven irrelevant.
   const elsewhere = executeAgentTool(state, "write_logic_source", { room: 2, source: "return;" });
   assert.equal(elsewhere.success, true, elsewhere.error ?? "");
-  assert.ok(!/Game tests:/.test(elsewhere.message ?? ""));
+  assert.match(elsewhere.message ?? "", /^Game tests:/);
 });
 
 test("reruns report skipped coverage instead of looking like full coverage", () => {

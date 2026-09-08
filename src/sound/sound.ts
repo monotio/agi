@@ -13,6 +13,7 @@
  */
 
 import type { AgiProfile } from "../runtime/profile.ts";
+import { validatePlaybackState, type PlaybackState } from "../runtime/replayState.ts";
 
 export interface SoundNote {
   readonly tone: number; // Original device-profile tone word.
@@ -204,6 +205,31 @@ export class SoundPlayback {
       envelopeIndex: -1,
       envelopeValue: 0,
     }));
+  }
+
+  snapshot(): PlaybackState {
+    return {
+      device: this.device,
+      active: this.active,
+      channels: this.channels.map(({ notes: _notes, ...channel }) => ({ ...channel })),
+    };
+  }
+
+  restore(value: unknown): void {
+    const state = validatePlaybackState(value);
+    if (state.device !== this.device || state.channels.length !== this.channels.length)
+      throw new Error("Recorded sound device differs from playback.");
+    for (let i = 0; i < state.channels.length; i++) {
+      const channel = state.channels[i]!;
+      if (
+        channel.cursor > this.channels[i]!.notes.length + 1 ||
+        channel.envelopeIndex >= DEFAULT_ENVELOPE_TABLE.length
+      )
+        throw new Error("Recorded sound position is outside the current resource.");
+    }
+    this.active = state.active;
+    for (let i = 0; i < state.channels.length; i++)
+      Object.assign(this.channels[i]!, state.channels[i]!);
   }
 
   tick(enabled: boolean, adjustment: number): { outputs: SoundOutput[]; complete: boolean } {

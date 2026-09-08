@@ -20,7 +20,7 @@ import { loadGame } from "./game-fixture.ts";
  * headless run.
  */
 const SLUG = "gr1";
-const skip = fixtureSkip(SLUG);
+const skip = fixtureSkip(SLUG, ["AGIDATA.OVL"]);
 
 class Host implements EngineHost {
   keys: number[] = [];

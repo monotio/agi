@@ -88,6 +88,7 @@ test(`${SLUG}: the opening deals the copy-protection question in room 142`, { sk
     engine.tick();
     if (rooms[rooms.length - 1] !== engine.vars[0]) rooms.push(engine.vars[0]!);
   }
+  assert.equal(rooms.at(-1), 142, "the opening deals the question in room 142");
   assert.match(
     host.prints[0] ?? "",
     /legal ownership.*King's Quest IV manual.*On page 5, what is the seventh word in the fifth paragraph\?/s,

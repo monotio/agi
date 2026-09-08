@@ -30,7 +30,13 @@ const SPLIT_DIRECTORIES = ["LOGDIR", "PICDIR", "VIEWDIR", "SNDDIR"];
  * volumes `<PREFIX>VOL.n`.
  */
 export function combinedDirectory(slug: string): { name: string; prefix: string } | null {
-  const names = fixtureFiles(slug);
+  return combinedDirectoryOf(fixtureFiles(slug));
+}
+
+/** The combined directory among an installation's names, or null. */
+function combinedDirectoryOf(
+  names: ReadonlyMap<string, string> | null,
+): { name: string; prefix: string } | null {
   if (!names) return null;
   for (const [key, actual] of names) {
     if (!/^[a-z0-9_]+dir$/.test(key) || SPLIT_DIRECTORIES.includes(key.toUpperCase())) continue;
@@ -57,32 +63,67 @@ const JUNK_DIRECTORY_ENTRIES: Record<string, readonly string[]> = {
 function referencedVolumes(
   entries: Uint8Array,
   exactAbsence: boolean,
-  skipEntry?: (num: number) => boolean,
+  skipEntry?: (num: number, volume: number, offset: number) => boolean,
 ): Set<number> {
   const volumes = new Set<number>();
   for (let offset = 0; offset + 2 < entries.length; offset += 3) {
     const absent = exactAbsence
       ? entries[offset] === 255 && entries[offset + 1] === 255 && entries[offset + 2] === 255
       : entries[offset]! >> 4 === 15;
-    if (!absent && !skipEntry?.(offset / 3)) volumes.add(entries[offset]! >> 4);
+    if (!absent) {
+      const volume = entries[offset]! >> 4;
+      const resourceOffset =
+        ((entries[offset]! & 15) << 16) | (entries[offset + 1]! << 8) | entries[offset + 2]!;
+      if (!skipEntry?.(offset / 3, volume, resourceOffset)) volumes.add(volume);
+    }
   }
   return volumes;
 }
 
 /** A Node test skip reason, also shared by browser tests and local tools. */
-export function fixtureSkip(slug: string, requiredFiles: readonly string[] = []): false | string {
-  const dir = fixtureDir(slug);
-  const onDisk = fixtureFiles(slug);
-  const combined = combinedDirectory(slug);
+export function fixtureSkip(
+  slug: string,
+  requiredFiles: readonly string[] = [],
+  options: { readonly resourceFiles?: boolean } = {},
+): false | string {
+  return fixtureReadiness(slug, fixtureDir(slug), fixtureFiles(slug), requiredFiles, options);
+}
+
+/**
+ * The installation census behind fixtureSkip, with the directory and its
+ * on-disk names passed in so a synthetic installation can exercise it
+ * without a real fixture: the directory file(s), WORDS.TOK, OBJECT, every
+ * volume a directory entry references (except the shipped junk entries) and
+ * any caller-required files. Returns the skip message naming what is
+ * missing, or false when the installation is complete. Binary-only evidence
+ * may set resourceFiles:false with an explicit nonempty list of named files.
+ */
+export function fixtureReadiness(
+  slug: string,
+  dir: string,
+  onDisk: ReadonlyMap<string, string> | null,
+  requiredFiles: readonly string[] = [],
+  options: { readonly resourceFiles?: boolean } = {},
+): false | string {
+  // Binary evidence has explicit dependencies and does not need playable game
+  // resources. An empty list here would turn a missing installation green.
+  const resources = options.resourceFiles !== false;
+  if (!resources && requiredFiles.length === 0)
+    throw new Error("Binary-only fixture checks require named files.");
+  const combined = combinedDirectoryOf(onDisk);
   const prefix = combined?.prefix ?? "";
   const required = new Set([
-    ...(combined ? [combined.name] : SPLIT_DIRECTORIES),
-    "WORDS.TOK",
-    "OBJECT",
-    `${prefix}VOL.0`,
+    ...(resources
+      ? [
+          ...(combined ? [combined.name] : SPLIT_DIRECTORIES),
+          "WORDS.TOK",
+          "OBJECT",
+          `${prefix}VOL.0`,
+        ]
+      : []),
     ...requiredFiles,
   ]);
-  if (combined && onDisk) {
+  if (resources && combined && onDisk) {
     // Four u16le section offsets, then the logic, picture, view and sound entries.
     const bytes = readFileSync(dir + onDisk.get(combined.name.toLowerCase())!);
     const offsets = [0, 1, 2, 3].map((i) => bytes[i * 2]! | (bytes[i * 2 + 1]! << 8));
@@ -93,11 +134,20 @@ export function fixtureSkip(slug: string, requiredFiles: readonly string[] = [])
       for (const volume of referencedVolumes(
         bytes.subarray(offsets[i], offsets[i + 1]),
         true,
-        (num) => junk.includes(`${kind} ${num}`),
+        (num, volume, offset) =>
+          junk.includes(`${kind} ${num}`) ||
+          // The complete MH2 logic census never loads these exact missing
+          // sound-tail references (test/mh2-profile.test.ts). A different
+          // entry is not exempt; the census regression also detects a new
+          // logic reference to either missing sound.
+          (slug === "mh2" &&
+            kind === "sound" &&
+            volume === 6 &&
+            ((num === 215 && offset === 79513) || (num === 216 && offset === 79997))),
       ))
         required.add(`${prefix}VOL.${volume}`);
     }
-  } else {
+  } else if (resources) {
     for (const name of SPLIT_DIRECTORIES) {
       const actual = onDisk?.get(name.toLowerCase());
       if (!actual) continue;

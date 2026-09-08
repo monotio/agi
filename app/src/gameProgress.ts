@@ -231,8 +231,9 @@ export function readProgressEntries(
     const parsed = parseAutosaveRecord(new TextDecoder().decode(autosaveBytes));
     if (!parsed)
       throw new Error("SAVES/AUTOSAVE.JSON is not an autosave record this app understands.");
-    const hostImage = fromBase64(parsed.image);
+    let hostImage: Uint8Array;
     try {
+      hostImage = fromBase64(parsed.image);
       decodeSave(decodeHostImage(hostImage).image, profile);
     } catch {
       throw new Error("SAVES/AUTOSAVE.JSON does not hold a save image for this game.");

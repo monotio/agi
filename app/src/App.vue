@@ -436,6 +436,7 @@ const copyFeedback = ref<string>("");
 /** Download failures are visible in both the picker and the game. */
 const exportRefusal = ref<string>("");
 const exportBusy = ref(false);
+const exportSavedProgressSlug = ref<string>();
 
 /**
  * Autosave the picker can offer. The app
@@ -515,7 +516,11 @@ const PLAY_HASH_PREFIX = "#play/";
 /** The slug the URL says is being played, or null outside a game. */
 function playHashSlug(): string | null {
   if (!location.hash.startsWith(PLAY_HASH_PREFIX)) return null;
-  return decodeURIComponent(location.hash.slice(PLAY_HASH_PREFIX.length));
+  try {
+    return decodeURIComponent(location.hash.slice(PLAY_HASH_PREFIX.length));
+  } catch {
+    return null;
+  }
 }
 
 /** The URL is the source of truth for "a game is running": name it. */
@@ -902,13 +907,24 @@ async function copySelectedGame(): Promise<void> {
   }
 }
 
-async function onExportAgiZip(live = false, project = false): Promise<void> {
+async function onExportAgiZip(live = false, project = false, savedProgress = false): Promise<void> {
+  const game = live ? currentGame() : null;
+  const useSavedProgress =
+    savedProgress && project && live && game?.slug === exportSavedProgressSlug.value;
+  exportSavedProgressSlug.value = undefined;
   exportRefusal.value = "";
   exportBusy.value = true;
   try {
     // A project is for continuing elsewhere: the live game checkpoints first,
     // and the archive carries the player's save slots and latest autosave.
-    if (live && project) await flushAutosave(2000);
+    if (live && project && !useSavedProgress && !(await flushAutosave(2000))) {
+      if (currentGame()?.slug === game?.slug) exportSavedProgressSlug.value = game?.slug;
+      throw new Error(
+        "Current progress could not be saved. Close any open game window and try again, or download with only the progress already saved in this browser.",
+      );
+    }
+    if (live && currentGame()?.slug !== game?.slug)
+      throw new Error("The game changed during download. Try again.");
     const data = live
       ? await exportCurrentGame()
       : await loadAuthoredCartridge(selectedCartridgeSlug.value);
@@ -1360,7 +1376,7 @@ function onPowerUpKey(ev: KeyboardEvent): void {
 
 function onGlobalKeydown(ev: KeyboardEvent): void {
   resumeAudio();
-  if (state.phase !== "running") return;
+  if (state.phase !== "running" || !state.inputReady) return;
   if (ev.isComposing || ev.keyCode === 229) return;
   if (ev.target instanceof Element && ev.target.closest("dialog[open]")) return;
   // The bubble owns the keyboard while it is open: the world is frozen and
@@ -1978,9 +1994,21 @@ watch(
       @save="applyAiSettings"
       @closed="onAiSettingsClosed"
     />
-    <p v-if="exportRefusal" class="export-refusal" data-testid="export-refusal" role="alert">
-      {{ exportRefusal }}
-    </p>
+    <div v-if="exportRefusal" class="export-refusal" data-testid="export-refusal" role="alert">
+      <p>{{ exportRefusal }}</p>
+      <button
+        v-if="
+          exportSavedProgressSlug !== undefined && exportSavedProgressSlug === currentGame()?.slug
+        "
+        type="button"
+        class="ui-button ui-button--secondary"
+        data-testid="export-saved-progress"
+        :disabled="exportBusy"
+        @click="onExportAgiZip(true, true, true)"
+      >
+        Download without current progress
+      </button>
+    </div>
     <div
       v-if="state.recording.active"
       class="recording-bar"
@@ -2769,7 +2797,7 @@ watch(
         >
           <input
             id="game-command"
-            :disabled="state.powerUp.open"
+            :disabled="state.powerUp.open || !state.inputReady"
             aria-label="Game command"
             aria-describedby="game-input-help"
             ref="inputEl"
@@ -3420,7 +3448,9 @@ watch(
 .export-refusal {
   color: #ffff55;
   font-size: 12px;
-  margin: 6px 0 0;
+  width: var(--shell-width);
+  margin: 6px 0 16px;
+  line-height: 1.5;
 }
 
 .app-container {
