@@ -18,6 +18,11 @@ export function normalizeAuthoredLogic(source: string): {
   // Escaped characters stay intact, including byte escapes from disassembly.
   const normalized = source.replace(/\/\/[^\n]*|"(?:\\[^\n]|[^"\\\n])*"/g, (token) => {
     if (token.startsWith("//")) return token;
+    if (/\(\+\d+\)/.test(token)) {
+      changes.add(
+        "Warning: non-diegetic score indicator '(+N)' detected in message; score belongs in v3, not modal dialogs.",
+      );
+    }
     return token.replace(/\\[^\n]|[\u2018\u2019\u201c\u201d\u2013\u2014\u2026]/g, (char) => {
       const replacement = PUNCTUATION[char];
       if (replacement === undefined) return char;

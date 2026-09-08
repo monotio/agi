@@ -208,3 +208,18 @@ test("world intent is durable and partial updates preserve other facts", () => {
   assert.equal(state.authoring.world.facts["key"], "Belongs to the caretaker.");
   assert.equal(state.authoring.world.rooms["1"]?.exits["east"], 2);
 });
+
+test("write_logic_source warns on non-diegetic (+N) score counters without deleting copy", () => {
+  const state = createAgentSessionState();
+  const source = 'print("Elevator (+1) to roof. (+10)"); return;';
+  const res = executeAgentTool(state, "write_logic_source", {
+    room: 1,
+    source,
+  });
+  assert.equal(res.success, true);
+  assert.ok(
+    res.adjustments?.some((adj) => adj.includes("Warning: non-diegetic score indicator")),
+    "records warning adjustment for score indicator",
+  );
+  assert.equal(state.sources.logics.get(1), source, "preserves authored copy intact");
+});

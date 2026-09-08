@@ -77,6 +77,18 @@ const TEXT_BYTES = 20;
 
 /** Block-1 layout of each promoted profile (spec, the per-profile block tables). */
 const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
+  // 2.001 save images are unverified (no observed 2.001 save); the earliest
+  // documented partition applies. docs/fidelity.md pc-booter-2.001-profile.
+  "2.001": {
+    size: 0x03db,
+    middle: "early",
+    keyMapEntries: 39,
+    keyMapReserved: 0,
+    stringSlots: 6,
+    stringReserved: 6,
+    checkpoint: false,
+    gates: false,
+  },
   // "The source-backed 2.089/2.230/2.272 block-1 partition": 0x03db.
   "2.089": {
     size: 0x03db,

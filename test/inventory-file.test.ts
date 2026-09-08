@@ -72,6 +72,45 @@ test("the engine lists the stub's single item under a v3 profile", () => {
   assert.deepEqual(host.statusItems, [{ num: 0, name: "?" }]);
 });
 
+test("the 2.001 two-byte header table drives inventory without an object-index byte", () => {
+  // Observed 2.001 layout (docs/fidelity.md pc-booter-inventory-file): u16le
+  // item table size, then (nameOffset u16le, location u8) entries, then the
+  // name pool at 2 + tableSize. No maximum-drawable-object-index byte.
+  const OBJECT_2001 = Uint8Array.of(
+    6,
+    0, // two entries
+    6,
+    0,
+    255, // item 0: pool offset 0, carried
+    9,
+    0,
+    10, // item 1: pool offset 3, room 10
+    0x4b,
+    0x45,
+    0x59,
+    0,
+    0x41,
+    0x58,
+    0x45,
+    0, // "KEY", "AXE"
+  );
+  const files = new Map(createContainer().files);
+  files.set("OBJECT", OBJECT_2001);
+  const container = openContainer(files);
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic("status(); return;", {
+      dictionary: new Map(),
+      profile: PROFILES["2.001"],
+    }).payload,
+  );
+  const host = new Host();
+  const engine = new Engine(container, host, undefined, { profile: "2.001" });
+  engine.tick();
+  assert.deepEqual(host.statusItems, [{ num: 0, name: "KEY" }]);
+});
+
 test("authoring over a plain v3 stub keeps the decoded object-record capacity", () => {
   const profile = PROFILES["3.002.102"];
   const replacement = buildObjectFile([{ name: "?", startingRoom: 0 }], profile, 15);
