@@ -56,6 +56,7 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   expect(new URL(page.url()).hash, "a running game must be named in the URL").toBe(
     `#play/${TUTORIAL_SLUG}`,
   );
+  await page.screenshot({ path: test.info().outputPath("remix-before.png") });
   // A checkpoint on the untouched tutorial is what the fork has to move away.
   await waitForAutosaveAfter(page, 0);
   expect(await storedAutosave(page, TUTORIAL_SLUG)).not.toBeNull();
@@ -67,6 +68,7 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
   await expect.poll(() => requests).toBe(2);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("REMIX GALLERY");
+  await page.screenshot({ path: test.info().outputPath("remix-after.png") });
   const remixSlug = await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"));
   expect(remixSlug).not.toBe(TUTORIAL_SLUG);
   expect(new URL(page.url()).hash, "the URL must follow the remix slug").toBe(`#play/${remixSlug}`);

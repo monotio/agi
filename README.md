@@ -10,6 +10,11 @@ real AGI game files, which you can inspect, download and play again. Creating
 and remixing use your own OpenAI or Anthropic API key; playing existing content
 needs no key.
 
+![Adventure Department: paint a mural while playing in the browser](docs/media/tutorial-gallery.png)
+
+See the [media gallery](docs/media/README.md) for picture diagnostics, playtest
+frames, sound previews and reproducible browser captures.
+
 ## Play
 
 Play at [agi.monotio.com](https://agi.monotio.com/), or run it locally.
@@ -188,7 +193,7 @@ behavior verified against original interpreters, with evidence and regression te
 See [Contributing](CONTRIBUTING.md) for architecture, tests and local game
 fixtures, [Hosting](docs/hosting.md) for running your own site, and
 [evals](evals/README.md) for authoring evaluations.
-The [KQ1 completion proof](CONTRIBUTING.md#kq1-completion-proof) runs a local
+The [KQ1 completion proof](docs/testing.md#kq1-completion-proof) runs a local
 walkthrough on a virtual clock and replays it through desktop and phone controls.
 
 ## Back to AGI, thirty years later
