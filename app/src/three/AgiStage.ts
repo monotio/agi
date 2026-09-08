@@ -146,10 +146,26 @@ export class AgiStage {
     return null;
   }
 
+  private renderPending = false;
+
   /** Upload a composed 320x200 RGBA frame and draw it. */
-  render(frame: Uint8Array | Uint8ClampedArray): void {
+  render(frame: Uint8Array | Uint8ClampedArray, immediate = false): void {
     this.rgba.set(frame);
     this.texture.needsUpdate = true;
+    if (immediate || typeof requestAnimationFrame === "undefined") {
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
+    if (!this.renderPending) {
+      this.renderPending = true;
+      requestAnimationFrame(() => {
+        this.renderPending = false;
+        this.renderer.render(this.scene, this.camera);
+      });
+    }
+  }
+
+  flush(): void {
     this.renderer.render(this.scene, this.camera);
   }
 

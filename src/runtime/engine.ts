@@ -486,6 +486,8 @@ export class Engine {
     entryCount: number;
     objectRecords: number;
   } | null = null;
+  /** In 2.001, count configured by action 0x8f (load-module 0x0284). */
+  private maxDrawnObjectsCount: number | null = null;
   private readonly sounds = new Map<number, Uint8Array>();
   private soundPlayback: SoundPlayback | null = null;
   private playingSound: number | null = null;
@@ -742,6 +744,16 @@ export class Engine {
   /** Key-release event gate (action 0xad / 0xb5); nonzero enqueues release events. */
   get releaseGate(): number {
     return this.keyReleaseGate;
+  }
+
+  /** Current game signature set by set.game.id. */
+  get gameSignature(): string {
+    return this.signature;
+  }
+
+  /** Count configured by 2.001 action 0x8f (max.drawn.objects). */
+  get maxDrawnObjects(): number | null {
+    return this.maxDrawnObjectsCount;
   }
 
   /** Screen objects, for tests and hosts that inspect object state. */
@@ -1823,10 +1835,17 @@ export class Engine {
       });
     }
     const tableSize = decoded[0]! | (decoded[1]! << 8);
+    const headerBytes = this.profile.inventoryHeaderBytes;
+    const objectRecords =
+      this.maxDrawnObjectsCount !== null
+        ? this.maxDrawnObjectsCount
+        : headerBytes === 3
+          ? decoded[2]! + 1
+          : 21;
     return (this.inventoryMetaCache = {
-      payload: decoded.subarray(3),
+      payload: decoded.subarray(headerBytes),
       entryCount: Math.floor(tableSize / 3),
-      objectRecords: decoded[2]! + 1,
+      objectRecords,
     });
   }
 
@@ -2035,7 +2054,7 @@ export class Engine {
     const decoded = this.decodedInventoryFile();
     if (!decoded) return (this.itemNameCache = []);
     const tableSize = decoded[0]! | (decoded[1]! << 8);
-    const base = 3; // runtime_inventory_data starts after the 3-byte header
+    const base = this.profile.inventoryHeaderBytes; // runtime_inventory_data starts after the header
     const names: string[] = [];
     const decoder = new TextDecoder();
     for (let at = base; at + 3 <= base + tableSize && at + 3 <= decoded.length; at += 3) {
@@ -4292,12 +4311,25 @@ export class Engine {
           this.menuRequested = true;
         }
         return next;
-      // set.game.id: copies up to seven message bytes into the runtime
-      // signature, which names save files and validates restore candidates
-      // (spec "Save names and signatures").
-      case 0x8f:
-        this.signature = this.message(a(0)).slice(0, 7);
+      case 0x8f: {
+        if (this.profile.action0x8f === "max-drawn-objects") {
+          // In 2.001 (load-module 0x0284), action 0x8f is max.drawn.objects(count):
+          // sets the capacity of the animated/drawn object table. In 2.089+, this
+          // was moved to the third byte of the OBJECT header and 0x8f became set.game.id.
+          const count = a(0);
+          this.maxDrawnObjectsCount = count;
+          if (this.inventoryMetaCache) {
+            this.inventoryMetaCache.objectRecords = count;
+          }
+          return next;
+        }
+        // set.game.id (2.089+): copies up to seven message bytes into the runtime
+        // signature, which names save files and validates restore candidates
+        // (spec "Save names and signatures").
+        const num = a(0);
+        this.signature = this.message(num).slice(0, 7);
         return next;
+      }
       // open.dialogue/close.dialogue: the fixed input-width override exists in
       // every profile except 3.002.149, where both actions do nothing (spec).
       case 0xa3:
@@ -4615,6 +4647,8 @@ export class Engine {
     this.parserCount = 0;
     this.lastInputLine = "";
     for (const o of this.objects) Object.assign(o, newScreenObject());
+    this.maxDrawnObjectsCount = null;
+    this.inventoryMetaCache = null;
     this.initInventory();
     this.modals.length = 0;
     this.persistentWindow = null;

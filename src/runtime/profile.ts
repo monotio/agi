@@ -12,6 +12,7 @@
 
 /** Identifier of a promoted profile. */
 export type ProfileId =
+  | "2.001"
   | "2.089"
   | "2.230"
   | "2.272"
@@ -56,8 +57,9 @@ export type PatternProfile = "none" | "point-2.411" | "shaped-v2" | "v3-center-r
 /** Actions 0x4d/0x4e (conformance matrix, "Movement-clear actions"). */
 export type MovementClearRule = "early" | "later";
 
-/** Sound output family (conformance matrix, "Sound output" / "Sound channels"). */
-export type SoundProfile = "early-2.089" | "early-2.272" | "early-2.411" | "early-2.440" | "common";
+/** Sound output family (conformance matrix, "Sound output" / "Sound channels"; "booter-2.001" per docs/fidelity.md pc-booter-sound-rows). */
+export type SoundProfile =
+  "booter-2.001" | "early-2.089" | "early-2.272" | "early-2.411" | "early-2.440" | "common";
 
 export interface AgiProfile {
   /** Promoted profile identifier, e.g. "2.936". */
@@ -74,6 +76,14 @@ export interface AgiProfile {
    * (conformance matrix, "Resource container" rows for those profiles).
    */
   readonly inventoryMetadataEncrypted: boolean;
+  /**
+   * OBJECT header size in the expanded form: the documented profiles carry
+   * item_table_size u16le plus the maximum drawable object index byte; the
+   * observed 2.001 file is the u16le item table size followed immediately by
+   * the three-byte entries, with no object-index byte and no name pool
+   * (docs/fidelity.md pc-booter-inventory-file).
+   */
+  readonly inventoryHeaderBytes: 2 | 3;
 
   // ---- bytecode ranges (logic_bytecode "Main stream grammar", "Catalog completeness") ----
   /** Highest valid action opcode. Bytes above it are not actions in this profile. */
@@ -82,6 +92,16 @@ export interface AgiProfile {
   readonly maxCondition: number;
   /** Extra v3 action slots 0xb0.. (logic_bytecode "Version 3 extension actions"). */
   readonly extraActions: ExtraActions;
+  /**
+   * Action 0x8f semantics:
+   * - "max-drawn-objects": in 2.001 (load-module 0x0284), action 0x8f is
+   *   `max.drawn.objects(count)`, which configures the animated/drawn object
+   *   table capacity (docs/fidelity.md pc-booter-action-0x8f).
+   * - "set-game-id": in 2.089 and later, action 0x8f is `set.game.id(message_num)`,
+   *   which copies up to seven message bytes into the runtime signature
+   *   (spec "Save names and signatures").
+   */
+  readonly action0x8f: "max-drawn-objects" | "set-game-id";
 
   // ---- exit and menu actions (conformance matrix, "Exit and menu actions") ----
   /**
@@ -197,13 +217,14 @@ export interface AgiProfile {
   /** Sound scheduling/output family. */
   readonly sound: SoundProfile;
 }
-
 /** Shared defaults: the 2.936 contracts every field falls back to. */
 const BASE_2936: AgiProfile = {
   id: "2.936",
   container: "v2-split",
   volumeHeaderBytes: 5,
   inventoryMetadataEncrypted: true,
+  inventoryHeaderBytes: 3,
+  action0x8f: "set-game-id",
   maxAction: 0xaf,
   maxCondition: 0x12,
   extraActions: "none",
@@ -276,6 +297,17 @@ const BASE_V3: AgiProfile = {
 };
 
 export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
+  // PC booter 2.001: no promoted spec profile exists (the catalog starts at
+  // 2.089). Evidence-backed fields only; every other field inherits the
+  // earliest documented contract and is listed as unverified in
+  // docs/fidelity.md (pc-booter-2.001-profile).
+  "2.001": {
+    ...BASE_EARLY,
+    id: "2.001",
+    inventoryHeaderBytes: 2,
+    action0x8f: "max-drawn-objects",
+    sound: "booter-2.001",
+  },
   // version_profiles.md "AGI 2.089 profile"; conformance matrix "2.089 variant selection".
   "2.089": {
     ...BASE_EARLY,

@@ -3,6 +3,7 @@ import { readProgressEntries, type GameProgress } from "./gameProgress.ts";
 import { crc32 } from "./zip.ts";
 import { readPublicMetadata, type PublicGameMetadata } from "./gameMetadata.ts";
 import { openContainer, DIRECTORY_FILES } from "../../src/container/container.ts";
+import { decodeBooter, isBooterImage } from "../../src/container/booter.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import { parseLogicResource } from "../../src/logic/resource.ts";
 
@@ -134,6 +135,23 @@ export async function readGameZip(bytes: Uint8Array): Promise<OpenedGame> {
   return readGameFiles(entries);
 }
 
+/**
+ * A dropped PC booter disk image (any path, detected by geometry and boot
+ * signature) decodes into the ordinary container files at its own folder
+ * root, keeping the native interpreter bytes as AGIDATA.OVL so profile
+ * detection preserves the 2.001 identity across import and reload.
+ */
+function expandBooterImage(entries: Map<string, Uint8Array>): void {
+  const images = [...entries].filter(([, bytes]) => isBooterImage(bytes));
+  if (images.length === 0) return;
+  if (images.length > 1) throw new Error("Choose one PC booter disk image at a time.");
+  const [imagePath, imageBytes] = images[0]!;
+  const decoded = decodeBooter(imageBytes);
+  entries.delete(imagePath);
+  const root = imagePath.slice(0, imagePath.lastIndexOf("/") + 1);
+  for (const [name, bytes] of decoded.files) entries.set(root + name, bytes);
+  entries.set(`${root}AGIDATA.OVL`, decoded.evidence.interpreterData);
+}
 /** Shared folder/ZIP boundary: normalize paths, select one root, then validate AGI resources. */
 export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGame {
   if (input.size > 1024) throw new Error("Choose one AGI game with at most 1024 files.");
@@ -155,6 +173,7 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
       throw new Error("The game exceeds the import size limit.");
     entries.set(name, bytes);
   }
+  expandBooterImage(entries);
   const decoder = new TextDecoder();
   const directories = [...entries.keys()].filter((path) => {
     const name = path.slice(path.lastIndexOf("/") + 1);

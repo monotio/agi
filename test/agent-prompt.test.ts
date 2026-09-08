@@ -244,6 +244,9 @@ describe("agent system prompt", () => {
 
   it("keeps prose concrete and humor restrained", () => {
     assert.ok(AGI_SYSTEM_PROMPT.includes("Direct second-person narration"));
+    assert.ok(AGI_SYSTEM_PROMPT.includes("unmannered prose"));
+    assert.ok(AGI_SYSTEM_PROMPT.includes("never break the fourth wall"));
+    assert.ok(AGI_SYSTEM_PROMPT.includes("variable 3 (v3)"));
     assert.ok(AGI_SYSTEM_PROMPT.includes("Humor is occasional"));
     assert.ok(AGI_SYSTEM_PROMPT.includes("situation-specific"));
     assert.ok(AGI_SYSTEM_PROMPT.includes("Do not force a joke"));
@@ -264,6 +267,12 @@ describe("first-turn prompts", () => {
     assert.ok(userPrompt.includes("# The Lost Kingdom"), "includes cartridge title");
     assert.ok(userPrompt.includes("GENESIS"), "includes genesis instruction");
     assert.ok(userPrompt.includes("finish_genesis"), "names the closing tool");
+    assert.ok(
+      userPrompt.includes("Author ONLY the opening room"),
+      "enforces single-room genesis boundary",
+    );
+    assert.ok(userPrompt.includes("update_world"), "mandates world storage for roadmap");
+    assert.ok(userPrompt.includes("unmannered prose"), "mandates unmannered prose");
   });
 
   it("creates an orientation prompt for an installed original without genesis framing", () => {

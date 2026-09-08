@@ -1,0 +1,11 @@
+{
+  "name": "write-logic-score-indicator",
+  "description": "Polyester Nights Genesis turn emitting non-diegetic score indicator (+10) in message",
+  "tool": "write_logic_source",
+  "args": {
+    "room": 1,
+    "source": "print(\"Tiny opens the door. (+10)\"); return;"
+  },
+  "expectedSuccess": true,
+  "expectedMessageSnippet": "Logic 1 compiled successfully"
+}

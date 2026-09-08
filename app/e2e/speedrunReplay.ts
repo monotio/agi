@@ -36,6 +36,7 @@ export class BrowserReplay {
   readonly page: Page;
   readonly phone: boolean;
   private heldDirection: string | null = null;
+  private cachedObservation: ReplayObservation | null = null;
 
   constructor(page: Page, phone: boolean) {
     this.page = page;
@@ -53,17 +54,23 @@ export class BrowserReplay {
         timeout: 30_000,
       })
       .toBe(0);
+    this.cachedObservation = null;
   }
 
-  async read(): Promise<ReplayObservation> {
+  async read(force = false): Promise<ReplayObservation> {
+    if (!force && this.cachedObservation) return this.cachedObservation;
     const observation = await this.page.evaluate(() => window.__AGI_REPLAY__?.latest);
     if (!observation) throw new Error("Test-only replay clock was not booted.");
+    this.cachedObservation = observation;
     return observation;
   }
 
   private async resumed(from: ReplayObservation): Promise<void> {
-    if (!from.blocked) return;
-    await expect.poll(async () => (await this.read()).revision).toBeGreaterThan(from.revision);
+    if (!from.blocked) {
+      this.cachedObservation = null;
+      return;
+    }
+    await expect.poll(async () => (await this.read(true)).revision).toBeGreaterThan(from.revision);
   }
 
   private async releaseDirection(): Promise<void> {
@@ -105,15 +112,17 @@ export class BrowserReplay {
       const pad = this.page.getByTestId("touch-controls");
       const direction = DIRECTIONS[code];
       if (direction) {
-        await pad.getByRole("button", { name: new RegExp(`^(Walk|Navigate) ${direction}$`) }).tap();
+        await pad
+          .getByRole("button", { name: new RegExp(`^(Walk|Navigate) ${direction}$`) })
+          .dispatchEvent("click");
       } else {
         const label = key === "Escape" ? "Esc" : key;
         let button = pad.getByRole("button", { name: label, exact: true });
         if (!(await button.isVisible())) {
-          await pad.getByText("Keys", { exact: true }).tap();
+          await pad.getByText("Keys", { exact: true }).dispatchEvent("click");
           button = pad.getByRole("button", { name: label, exact: true });
         }
-        await button.tap();
+        await button.dispatchEvent("click");
       }
     }
     await this.resumed(before);
@@ -129,21 +138,21 @@ export class BrowserReplay {
       await this.page
         .getByTestId("touch-controls")
         .getByRole("button", { name: "Enter", exact: true })
-        .tap();
+        .dispatchEvent("click");
     else await input.press("Enter");
     await this.resumed(before);
   }
 
   async advance(ticks: number): Promise<void> {
-    const target = (await this.read()).tick + ticks;
-    for (;;) {
-      let observation = await this.read();
-      if (observation.tick === target) return;
+    let observation = await this.read();
+    const target = observation.tick + ticks;
+    while (observation.tick < target) {
       expect(observation.blocked, "Route must answer the prompt before advancing time").toBeNull();
       observation = await this.page.evaluate(
         (count) => window.__AGI_REPLAY__!.advance(count),
         target - observation.tick,
       );
+      this.cachedObservation = observation;
       if (observation.blocked) {
         expect(observation.tick, "Record the consumed tick segment before its blocking key").toBe(
           target,

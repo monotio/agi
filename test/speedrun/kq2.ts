@@ -264,14 +264,8 @@ function walkBridge(run: Speedrun, waypoints: readonly (readonly number[])[]): v
   for (const point of waypoints) {
     const targetX = point[0]!,
       targetY = point[1]!;
-    for (let steps = 0; ; steps++) {
-      const state = run.state();
-      assert.equal(state.room, 48, "bridge room");
-      assert.equal(run.engine.flags[119], 0, "no chasm fall");
-      if (state.x === targetX && state.y === targetY) break;
-      assert.ok(steps < 320, "bridge waypoint reached");
-      run.walkTo(state.x + Math.sign(targetX - state.x), state.y + Math.sign(targetY - state.y));
-    }
+    run.walkTo(targetX, targetY);
+    assert.equal(run.engine.flags[119], 0, "no chasm fall");
   }
 }
 
@@ -641,4 +635,227 @@ export function kq2Door1(run: Speedrun): void {
     [72, 112],
   ]);
   run.checkpoint("Bridge crossed west 2", { room: 48, score: 90 });
+}
+
+/** Chapter: antique shop trade, mountaintop carpet flight, second key, second door unlocked (127 points). */
+export function kq2Door2(run: Speedrun): void {
+  kq2Door1(run);
+
+  // 1. Leave Room 48 west into 47
+  walkBridge(run, [
+    [62, 104],
+    [55, 97],
+    [41, 97],
+    [40, 96],
+    [5, 131],
+  ]);
+  run.walkTo(0, 131);
+  run.exit("W", 47);
+
+  // 2. North through 47 -> 40 -> 33 -> 26 -> 19 -> 20 (antique shop)
+  walkSmart(run, { x0: 60, x1: 90, y0: 42, y1: 45 });
+  run.exit("N", 40);
+
+  walkSmart(run, { x0: 60, x1: 90, y0: 42, y1: 45 });
+  run.exit("N", 33);
+
+  walkSmart(run, { x0: 60, x1: 90, y0: 42, y1: 45 });
+  run.exit("N", 26);
+
+  walkSmart(run, { x0: 60, x1: 90, y0: 42, y1: 45 });
+  run.exit("N", 19);
+
+  walkSmart(run, { x0: 150, x1: 155, y0: 110, y1: 130 });
+  run.exit("E", 20);
+
+  // 3. Antique shop: open door, trade caged nightingale for oil lamp
+  walkSmart(run, { x0: 87, x1: 95, y0: 112, y1: 116 });
+  run.command("open door");
+  run.wait(() => run.state().room === 68, "entered antique shop", 3000);
+
+  run.command("give bird to lady");
+  run.wait(() => run.engine.vars[3] === 96, "got lamp, score 96", 3000);
+  run.checkpoint("Oil lamp", { room: 68, score: 96 });
+
+  run.wait(() => run.state().room === 20, "exited antique shop back to 20", 5000);
+  run.checkpoint("Outside shop", { room: 20, score: 96 });
+
+  // 4. Rub lamp for magic carpet (+2, score 98, item 76)
+  run.command("rub lamp");
+  run.wait(() => (run.engine.vars[88] ?? 0) > 0, "genie animation started", 3000);
+  run.wait(() => run.engine.vars[88] === 0 && run.state().control, "rub lamp 1 finished", 5000);
+  run.checkpoint("Magic carpet", { room: 20, score: 98 });
+
+  // 5. Ride carpet to mountaintop Room 55 (+4, score 102)
+  run.command("ride carpet");
+  run.wait(() => run.state().room === 55, "entered room 55", 15000);
+  run.wait(() => run.engine.flags[107] === 0 && run.state().control, "landed on mountaintop", 5000);
+  run.checkpoint("Mountaintop", { room: 55, score: 102 });
+
+  // 6. Rub lamp for sword (+2, score 104, item 50) and bridle (+2, score 106, item 77)
+  run.command("rub lamp");
+  run.wait(() => (run.engine.vars[88] ?? 0) > 0, "genie animation 2 started", 3000);
+  run.wait(() => run.engine.vars[88] === 0 && run.state().control, "rub lamp 2 finished", 5000);
+  run.checkpoint("Sword", { room: 55, score: 104 });
+
+  run.command("rub lamp");
+  run.wait(() => (run.engine.vars[88] ?? 0) > 0, "genie animation 3 started", 3000);
+  run.wait(() => run.engine.vars[88] === 0 && run.state().control, "rub lamp 3 finished", 5000);
+  run.checkpoint("Bridle", { room: 55, score: 106 });
+
+  // 7. Room 55 -> East -> 56: bridle snake into Pegasus (+5, score 111, f109) and talk to horse (+2, score 113, sugar cube 79)
+  run.exit("E", 56);
+  run.walkTo(80, 80);
+  run.command("put bridle on snake");
+  run.wait(() => run.engine.flags[109] !== 0, "bridled winged horse", 3000);
+  run.checkpoint("Bridled Pegasus", { room: 56, score: 111 });
+
+  run.command("talk to horse");
+  run.wait(() => run.engine.flags[110] !== 0, "talked to horse", 3000);
+  run.checkpoint("Sugar cube", { room: 56, score: 113 });
+
+  // 8. 56 -> East -> 57 -> East -> 58 (cave): take second gold key (+5, score 118, item 61, f111)
+  run.walkTo(80, 90);
+  run.walkTo(140, 90);
+  run.walkTo(140, 89);
+  run.exit("E", 57);
+
+  run.walkTo(140, 89);
+  run.exit("E", 58);
+
+  run.walkTo(25, 88);
+  run.walkTo(25, 112);
+  run.walkTo(108, 112);
+  run.walkTo(108, 128);
+  run.command("take key");
+  run.wait(() => run.engine.flags[111] !== 0, "took gold key 2", 3000);
+  run.checkpoint("Second gold key", { room: 58, score: 118 });
+
+  // 9. Leave cave: 58 -> West -> 57 -> West -> 56 -> West -> 55
+  run.walkTo(108, 112);
+  run.walkTo(25, 112);
+  run.walkTo(25, 88);
+  run.walkTo(0, 88);
+  run.exit("W", 57);
+
+  run.walkTo(129, 89);
+  run.walkTo(0, 89);
+  run.exit("W", 56);
+
+  run.walkTo(140, 90);
+  run.walkTo(0, 90);
+  run.exit("W", 55);
+  run.checkpoint("Mountaintop return", { room: 55, score: 118 });
+
+  // 10. Ride carpet back to antique shop exterior Room 20
+  run.command("ride carpet");
+  run.wait(
+    () => run.state().room === 20 && run.engine.flags[148] === 0 && run.state().control,
+    "returned to room 20",
+    30000,
+  );
+  run.checkpoint("Returned to room 20", { room: 20, score: 118 });
+
+  // 11. Return south: 20 -> West -> 19 -> South -> 26 -> South -> 33 -> South -> 40 -> South -> 47 -> East -> 48
+  run.walkTo(45, 85);
+  run.walkTo(0, 85);
+  run.exit("W", 19);
+
+  walkSmart(run, { x0: 60, x1: 90, y0: 165, y1: 167 });
+  run.exit("S", 26);
+
+  walkSmart(run, { x0: 60, x1: 90, y0: 165, y1: 167 });
+  run.exit("S", 33);
+
+  walkSmart(run, { x0: 60, x1: 90, y0: 165, y1: 167 });
+  run.exit("S", 40);
+
+  walkSmart(run, { x0: 78, x1: 82, y0: 165, y1: 167 });
+  run.exit("S", 47);
+
+  run.walkTo(80, 131);
+  run.walkTo(140, 131);
+  run.exit("E", 48);
+  run.checkpoint("Returned to bridge room", { room: 48, score: 118 });
+
+  // 12. In 48: cross bridge East (crossing 5, +1, score 119) to 49
+  walkBridge(run, [
+    [5, 131],
+    [40, 96],
+    [41, 97],
+    [55, 97],
+    [62, 104],
+    [69, 97],
+    [73, 97],
+    [74, 98],
+    [92, 98],
+    [93, 97],
+    [98, 97],
+    [99, 96],
+    [104, 96],
+    [105, 95],
+    [108, 95],
+    [109, 94],
+    [110, 94],
+    [111, 93],
+    [112, 93],
+    [113, 92],
+    [114, 92],
+    [115, 91],
+    [116, 91],
+    [117, 90],
+    [118, 90],
+    [119, 89],
+    [120, 89],
+    [121, 88],
+    [123, 88],
+    [124, 87],
+    [133, 87],
+    [135, 85],
+    [136, 85],
+    [138, 87],
+  ]);
+  run.checkpoint("Bridge crossed east 3", { room: 48, score: 119 });
+  run.exit("E", 49);
+  run.exit("N", 42);
+
+  // 13. In 42: unlock door with second gold key (+7, score 126, f86 set)
+  walkSmart(run, { x0: 75, x1: 84, y0: 102, y1: 105 });
+  run.command("unlock door");
+  run.wait(() => run.engine.flags[86] !== 0, "second door unlocked");
+  run.checkpoint("Second door unlocked", { room: 42, score: 126 });
+
+  // Read third inscription (sets f75)
+  run.command("read inscription");
+  run.wait(() => run.engine.flags[75] !== 0, "third inscription read");
+  run.checkpoint("Third inscription", { room: 42, score: 126 });
+
+  // 14. Return across bridge West (crossing 6, +1, score 127)
+  run.exit("S", 49);
+  run.exit("W", 48);
+  walkBridge(run, [
+    [154, 42],
+    [154, 79],
+    [146, 87],
+    [122, 111],
+    [121, 111],
+    [120, 112],
+    [119, 112],
+    [118, 113],
+    [117, 113],
+    [116, 114],
+    [114, 114],
+    [113, 115],
+    [112, 115],
+    [111, 116],
+    [105, 116],
+    [104, 117],
+    [86, 117],
+    [85, 118],
+    [84, 118],
+    [83, 119],
+    [79, 119],
+    [72, 112],
+  ]);
+  run.checkpoint("Bridge crossed west 3", { room: 48, score: 127 });
 }

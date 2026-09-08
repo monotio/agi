@@ -1019,6 +1019,8 @@ async function onRecordSave(): Promise<void> {
  * 320x200 frame, draw it on the 2D probe canvas (Playwright pixel probe and
  * no-GPU fallback) and upload it to the GPU stage when one exists.
  */
+let cachedImageData: ImageData | null = null;
+
 function present(frame: Frame, textOverride?: Uint8Array): void {
   compositeFrame(
     { visual: frame.visual, text: textOverride ?? frame.text, picRow: frame.picRow },
@@ -1026,9 +1028,9 @@ function present(frame: Frame, textOverride?: Uint8Array): void {
   );
   const ctx = canvas.value?.getContext("2d");
   if (ctx) {
-    const img = ctx.createImageData(FRAME_WIDTH, FRAME_HEIGHT);
-    img.data.set(composed);
-    ctx.putImageData(img, 0, 0);
+    cachedImageData ??= ctx.createImageData(FRAME_WIDTH, FRAME_HEIGHT);
+    cachedImageData.data.set(composed);
+    ctx.putImageData(cachedImageData, 0, 0);
   }
   stage?.render(composed);
 }

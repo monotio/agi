@@ -60,6 +60,23 @@ export const DEFAULT_ENVELOPE_TABLE: readonly number[] = [
 export function parseSound(payload: Uint8Array): AgiSound {
   return decodeSound(payload, 4, false);
 }
+/**
+ * PC booter 2.001 sound payload (docs/fidelity.md pc-booter-sound-rows): rows
+ * of raw SN76489 register writes, each row terminated by a zero byte, one row
+ * per sound tick. A row of no writes (two adjacent terminators) skips its
+ * tick. A trailing row without a terminator still plays.
+ */
+export function booterSoundRows(payload: Uint8Array): readonly (readonly number[])[] {
+  const rows: number[][] = [];
+  let start = 0;
+  for (let i = 0; i < payload.length; i++) {
+    if (payload[i] !== 0) continue;
+    rows.push([...payload.subarray(start, i)]);
+    start = i + 1;
+  }
+  if (start < payload.length) rows.push([...payload.subarray(start)]);
+  return rows;
+}
 
 /** Playback recovers bounded channel data; authoring keeps strict offset validation. */
 function decodeSound(
@@ -181,6 +198,12 @@ export class SoundPlayback {
   private readonly device: number;
   private readonly single: boolean;
   private readonly channels: PlaybackChannel[];
+  /**
+   * PC booter 2.001 row stream; the single pseudo-channel's cursor is the row
+   * position so snapshot/restore validation applies unchanged. The notes array
+   * carries one placeholder per row purely to bound the recorded cursor.
+   */
+  private readonly rows: readonly (readonly number[])[] | null;
   /** Longest voice this device plays, in sound ticks; a zero duration counts as 65536 without being ticked through. */
   readonly durationTicks: number;
   private active = true;
@@ -193,7 +216,38 @@ export class SoundPlayback {
   ) {
     this.profile = profile;
     this.device = device & 255;
-    this.single = this.device === 0 || (profile.sound === "common" && this.device === 8);
+    // The booter payload is already raw chip writes; there is no speaker rendition.
+    this.single =
+      profile.sound === "booter-2.001"
+        ? false
+        : this.device === 0 || (profile.sound === "common" && this.device === 8);
+    if (profile.sound === "booter-2.001") {
+      const rows = booterSoundRows(payload);
+      const placeholder: SoundNote = {
+        tone: 0,
+        control: 0,
+        duration: 1,
+        freqDivisor: 0,
+        frequency: 0,
+        attenuation: 15,
+        volume: 0,
+      };
+      this.rows = rows;
+      this.durationTicks = rows.length;
+      this.channels = [
+        {
+          notes: rows.map(() => placeholder),
+          cursor: 0,
+          countdown: 1,
+          terminated: false,
+          base: 15,
+          envelopeIndex: -1,
+          envelopeValue: 0,
+        },
+      ];
+      return;
+    }
+    this.rows = null;
     const decoded = decodeSound(payload, this.single ? 1 : 4, true, onWarning);
     this.durationTicks = decoded.duration;
     this.channels = decoded.channels.map((channel) => ({
@@ -237,6 +291,17 @@ export class SoundPlayback {
     if (!enabled) return { outputs: this.stop(), complete: true };
     const outputs: SoundOutput[] = [];
     adjustment &= 255;
+    if (this.rows) {
+      // One zero-terminated row per tick; completion is payload exhaustion.
+      const channel = this.channels[0]!;
+      if (!channel.terminated) {
+        const row = this.rows[channel.cursor++];
+        if (row === undefined || channel.cursor >= this.rows.length) channel.terminated = true;
+        if (row !== undefined && row.length > 0) outputs.push({ kind: "psg", bytes: row });
+      }
+      if (channel.terminated) outputs.push(...this.stop());
+      return { outputs, complete: !this.active };
+    }
     for (let index = 0; index < this.channels.length; index++) {
       const channel = this.channels[index]!;
       if (channel.terminated) continue;
