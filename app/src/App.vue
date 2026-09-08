@@ -2117,7 +2117,14 @@ watch(
       class="welcome"
       aria-labelledby="welcome-title"
     >
-      <p class="welcome-kicker">Adventure Game Interpreter</p>
+      <p class="welcome-kicker">
+        <a
+          href="https://en.wikipedia.org/wiki/Adventure_Game_Interpreter"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Adventure Game Interpreter</a
+        >
+      </p>
       <h1 id="welcome-title">AGI IS HERE<span>.</span></h1>
       <p class="welcome-line">Dream it. Play it. Remix it.</p>
     </section>
@@ -2719,6 +2726,11 @@ watch(
             hidden
             @change="onGameFolder(($event.target as HTMLInputElement).files ?? undefined)"
           />
+          <p class="verified-games-hint" data-testid="verified-games-hint">
+            Verified to boot: King's Quest I–IV, Space Quest I–II, Police Quest I, Leisure Suit
+            Larry I, The Black Cauldron, Mixed-Up Mother Goose, Donald Duck's Playground, Gold
+            Rush!, Manhunter 1–2, demopac4.
+          </p>
           <p v-if="importError" role="alert" data-testid="game-zip-error">{{ importError }}</p>
           <p
             v-if="importNotice"
@@ -3603,6 +3615,15 @@ h1 {
   text-transform: uppercase;
   margin: 0 0 16px;
 }
+.welcome-kicker a {
+  color: inherit;
+  text-decoration: none;
+}
+.welcome-kicker a:hover,
+.welcome-kicker a:focus-visible {
+  text-decoration: underline;
+  color: #a2e8ea;
+}
 .welcome h1 {
   font:
     900 clamp(38px, 6.6vw, 84px)/1.1 ui-monospace,
@@ -3810,6 +3831,13 @@ details[open] > .section-summary {
 .library-pane .zip-drop-zone p {
   margin: 0;
   font-size: 13px;
+}
+.library-pane .zip-drop-zone p.verified-games-hint {
+  width: 100%;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #7d9c9e;
 }
 .library-pane .saved-world-header {
   align-items: flex-start;
