@@ -8,9 +8,9 @@
     "node": ">=22.22"
   },
   "scripts": {
-    "eval": "promptfoo eval -c configs/genesis.mjs",
-    "eval:effort": "promptfoo eval -c configs/effort.mjs",
-    "eval:replay": "cd .. && node --test \"evals/tests/**/*.test.mjs\"",
+    "eval": "promptfoo eval -c configs/genesis.ts",
+    "eval:effort": "promptfoo eval -c configs/effort.ts",
+    "eval:replay": "cd .. && node --test --experimental-strip-types \"evals/tests/**/*.test.ts\"",
     "test": "npm run eval:replay"
   },
   "devDependencies": {

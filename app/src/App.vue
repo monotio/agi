@@ -44,6 +44,7 @@ import {
 } from "./cartridgeStorage.ts";
 import { buildProjectZip, buildPublicGameZip } from "./projectArchive.ts";
 import { MAX_GAME_ZIP_BYTES, readGameFiles, readGameZip, type OpenedGame } from "./gameZip.ts";
+import { readGameProgress, type ImportStorageReport } from "./gameProgress.ts";
 import { captureGameDrop } from "./gameDrop.ts";
 import { GAME_CATALOG, type GameCatalogEntry } from "./gameCatalog.ts";
 import { loadHostedCatalog } from "./hostedCatalog.ts";
@@ -58,6 +59,11 @@ import {
   movementDirection,
 } from "./gameControls.ts";
 import { copyAiSettings, loadAiSettings, saveAiSettings, type AiSettings } from "./aiSettings.ts";
+import {
+  suggestAssertions,
+  type AssertionSuggestion,
+  type RecordingSnapshot,
+} from "./gameRecording.ts";
 
 const canvas = useTemplateRef("canvas");
 const testMode = import.meta.env.MODE === "test";
@@ -331,6 +337,10 @@ const {
   continueAgent,
   discardAgent,
   exportCurrentGame,
+  startTestRecording,
+  stopTestRecording,
+  cancelTestRecording,
+  saveRecordedTest,
   resumeLastGame,
   resumeFromRecord,
   startOver,
@@ -426,6 +436,7 @@ const copyFeedback = ref<string>("");
 /** Download failures are visible in both the picker and the game. */
 const exportRefusal = ref<string>("");
 const exportBusy = ref(false);
+const exportSavedProgressSlug = ref<string>();
 
 /**
  * Autosave the picker can offer. The app
@@ -498,6 +509,30 @@ async function onPlayLocalGame(slug: string): Promise<void> {
 function refreshPendingAutosave(): void {
   const slug = lastGameSlug();
   pendingAutosave.value = (slug ? readAutosave(slug) : null) ?? undefined;
+}
+
+const PLAY_HASH_PREFIX = "#play/";
+
+/** The slug the URL says is being played, or null outside a game. */
+function playHashSlug(): string | null {
+  if (!location.hash.startsWith(PLAY_HASH_PREFIX)) return null;
+  try {
+    return decodeURIComponent(location.hash.slice(PLAY_HASH_PREFIX.length));
+  } catch {
+    return null;
+  }
+}
+
+/** The URL is the source of truth for "a game is running": name it. */
+function markPlayHash(slug: string): void {
+  const target = `${PLAY_HASH_PREFIX}${encodeURIComponent(slug)}`;
+  if (location.hash !== target) history.replaceState(null, "", target);
+}
+
+/** Back at the picker the URL must not name a game any more. */
+function clearPlayHash(): void {
+  if (location.hash.startsWith(PLAY_HASH_PREFIX))
+    history.replaceState(null, "", `${location.pathname}${location.search}`);
 }
 
 function llmConfig(): LlmConfig {
@@ -668,10 +703,41 @@ async function stageLibraryGame(
   game: OpenedGame,
   title: string,
   source: "zip" | "folder",
-): Promise<void> {
+): Promise<ImportStorageReport | null> {
   const opening = await previewGame(game);
-  const slug = await addLibraryGame(game, game.title ?? title, source, opening);
+  let stored: ImportStorageReport | null = null;
+  const slug = await addLibraryGame(
+    game,
+    game.title ?? title,
+    source,
+    opening,
+    undefined,
+    (report) => (stored = report),
+  );
   refreshLibrary(slug);
+  return stored;
+}
+
+/** What a project archive brought along besides the game — and what storage refused. */
+function progressNote(game: OpenedGame, stored: ImportStorageReport | null): string {
+  if (!game.progress) return "";
+  const parts = Object.keys(game.progress.saves).map((slot) => {
+    const status = stored?.slots.includes(Number(slot))
+      ? "stored"
+      : stored?.failedSlots.includes(Number(slot))
+        ? "could not be stored"
+        : "storage unconfirmed";
+    return `save slot ${slot} ${status}`;
+  });
+  if (game.progress.autosave) {
+    const status = stored?.autosave
+      ? "stored"
+      : stored
+        ? "could not be stored"
+        : "storage unconfirmed";
+    parts.push(`autosave ${status}`);
+  }
+  return parts.length ? ` (${parts.join("; ")})` : "";
 }
 
 async function onGameZip(file?: File): Promise<void> {
@@ -682,8 +748,8 @@ async function onGameZip(file?: File): Promise<void> {
   try {
     if (file.size > MAX_GAME_ZIP_BYTES) throw new Error("Choose a game ZIP smaller than 128 MB.");
     const game = await readGameZip(new Uint8Array(await file.arrayBuffer()));
-    await stageLibraryGame(game, file.name.replace(/\.zip$/i, ""), "zip");
-    importNotice.value = `${game.title ?? file.name.replace(/\.zip$/i, "")} added to your library.`;
+    const stored = await stageLibraryGame(game, file.name.replace(/\.zip$/i, ""), "zip");
+    importNotice.value = `${game.title ?? file.name.replace(/\.zip$/i, "")} added to your library${progressNote(game, stored)}.`;
   } catch (error) {
     importError.value = String(error).replace(/^Error: /, "");
   } finally {
@@ -714,8 +780,8 @@ async function onGameFolder(files?: FileList | File[] | Map<string, File>): Prom
     const game = readGameFiles(entries);
     const firstPath = paths.keys().next().value as string | undefined;
     const title = firstPath?.split("/")[0] || "Imported game";
-    await stageLibraryGame(game, title, "folder");
-    importNotice.value = `${game.title ?? title} added to your library.`;
+    const stored = await stageLibraryGame(game, title, "folder");
+    importNotice.value = `${game.title ?? title} added to your library${progressNote(game, stored)}.`;
   } catch (error) {
     importError.value = String(error).replace(/^Error: /, "");
   } finally {
@@ -847,15 +913,31 @@ async function copySelectedGame(): Promise<void> {
   }
 }
 
-async function onExportAgiZip(live = false, project = false): Promise<void> {
+async function onExportAgiZip(live = false, project = false, savedProgress = false): Promise<void> {
+  const game = live ? currentGame() : null;
+  const useSavedProgress =
+    savedProgress && project && live && game?.slug === exportSavedProgressSlug.value;
+  exportSavedProgressSlug.value = undefined;
   exportRefusal.value = "";
   exportBusy.value = true;
   try {
+    // A project is for continuing elsewhere: the live game checkpoints first,
+    // and the archive carries the player's save slots and latest autosave.
+    if (live && project && !useSavedProgress && !(await flushAutosave(2000))) {
+      if (currentGame()?.slug === game?.slug) exportSavedProgressSlug.value = game?.slug;
+      throw new Error(
+        "Current progress could not be saved. Close any open game window and try again, or download with only the progress already saved in this browser.",
+      );
+    }
+    if (live && currentGame()?.slug !== game?.slug)
+      throw new Error("The game changed during download. Try again.");
     const data = live
       ? await exportCurrentGame()
       : await loadAuthoredCartridge(selectedCartridgeSlug.value);
     if (!data) throw new Error("No saved world is available.");
-    const zipBytes = project ? await buildProjectZip(data) : buildPublicGameZip(data);
+    const zipBytes = project
+      ? await buildProjectZip(data, readGameProgress(localStorage, data.slug))
+      : buildPublicGameZip(data);
     const url = URL.createObjectURL(new Blob([zipBytes], { type: "application/zip" }));
     const a = document.createElement("a");
     a.href = url;
@@ -866,6 +948,68 @@ async function onExportAgiZip(live = false, project = false): Promise<void> {
     exportRefusal.value = `Download failed: ${String(error).replace(/^Error: /, "")}`;
   } finally {
     exportBusy.value = false;
+  }
+}
+
+/** Game-test recording: the worker captures; this dialog names and saves. */
+const recordDialog = useTemplateRef("recordDialog");
+const recordSnapshot = ref<RecordingSnapshot>();
+const recordSuggestions = ref<AssertionSuggestion[]>([]);
+const recordName = ref("");
+const recordError = ref("");
+const recordResult = ref("");
+const recordSaving = ref(false);
+
+async function onRecordStart(): Promise<void> {
+  recordResult.value = "";
+  resumeAudio();
+  await startTestRecording();
+}
+
+async function onRecordStop(): Promise<void> {
+  const snapshot = await stopTestRecording();
+  if (!snapshot) return;
+  if (snapshot.tainted) {
+    recordResult.value = "";
+    state.recording.error = `Recording discarded: ${snapshot.tainted}.`;
+    return;
+  }
+  recordSnapshot.value = snapshot;
+  recordSuggestions.value = suggestAssertions(
+    snapshot.start.state,
+    snapshot.endState,
+    snapshot.printed,
+  );
+  recordName.value = "";
+  recordError.value = "";
+  recordDialog.value?.showModal();
+}
+
+async function onRecordSave(): Promise<void> {
+  const snapshot = recordSnapshot.value;
+  const name = recordName.value.trim();
+  if (!snapshot) return;
+  if (!name) {
+    recordError.value = "Name the test before saving it.";
+    return;
+  }
+  recordSaving.value = true;
+  recordError.value = "";
+  try {
+    const result = await saveRecordedTest(
+      snapshot,
+      name,
+      recordSuggestions.value.filter((suggestion) => suggestion.selected),
+      llmConfig(),
+    );
+    if (!result.ok) {
+      recordError.value = result.message;
+      return;
+    }
+    recordDialog.value?.close();
+    recordResult.value = result.message;
+  } finally {
+    recordSaving.value = false;
   }
 }
 
@@ -1238,7 +1382,7 @@ function onPowerUpKey(ev: KeyboardEvent): void {
 
 function onGlobalKeydown(ev: KeyboardEvent): void {
   resumeAudio();
-  if (state.phase !== "running") return;
+  if (state.phase !== "running" || !state.inputReady) return;
   if (ev.isComposing || ev.keyCode === 229) return;
   if (ev.target instanceof Element && ev.target.closest("dialog[open]")) return;
   // The bubble owns the keyboard while it is open: the world is frozen and
@@ -1578,16 +1722,20 @@ onMounted(async () => {
   void refreshHostedCatalog();
   onMenuHashChange();
   await discoverGames();
-  // Nobody loses progress to a reload: whatever was being played comes back
-  // by itself, restored from the last autosave. The picker only appears when
-  // there is nothing to resume.
+  // Nobody loses progress to a reload: while a game runs the URL names it
+  // (`#play/<slug>`), and only a reload carrying that hash boots straight back
+  // into the autosave. A reload from the picker lands on the picker, which
+  // keeps offering the Resume card from the pending autosave.
   // A hot module update hands the running game over in memory: no reload
   // happened, so there is nothing to read back and the resume is instant.
   const handover = import.meta.hot?.data?.["monotio_agi_resume"] as AutosaveRecord | undefined;
   if (import.meta.hot?.data) delete import.meta.hot.data["monotio_agi_resume"];
   refreshPendingAutosave();
+  const playSlug = playHashSlug();
   if (handover) await resumeFromRecord(handover, llmConfig());
-  else if (pendingAutosave.value) await resumeLastGame(llmConfig());
+  else if (playSlug && playSlug === pendingAutosave.value?.game.slug)
+    await resumeLastGame(llmConfig());
+  if (state.phase === "idle") clearPlayHash();
   if (gpuCanvas.value) {
     stage = await AgiStage.create(gpuCanvas.value);
     gpuBackend.value = stage?.backend ?? undefined;
@@ -1617,13 +1765,24 @@ onUnmounted(() => {
   // worker would otherwise keep ticking (and autosaving) behind the new one.
   if (import.meta.hot) shutdownEngine();
 });
-
-// Back at the picker (the player ejected, or a boot failed): re-read what is
-// left in the autosave slot so the offer below matches storage.
+// The URL is the source of truth for "a game is running": name it while the
+// game runs. A remix can turn the running game into a new cartridge without
+// leaving the running phase, so the unpause after a remix turn re-asserts the
+// hash from whatever is booted then. Back at the picker (the player ejected,
+// or a boot failed) the hash is cleared and the autosave slot is re-read so
+// the offer below matches storage.
 watch(
-  () => state.phase,
-  (phase) => {
+  () => [state.phase, state.paused] as const,
+  ([phase, paused]) => {
+    if (phase === "running") {
+      if (!paused) {
+        const slug = currentGame()?.slug;
+        if (slug) markPlayHash(slug);
+      }
+      return;
+    }
     if (phase === "idle" || phase === "error") {
+      clearPlayHash();
       refreshPendingAutosave();
       savedWorlds.value = listCachedCartridges();
       cachedMeta.value = getCachedCartridgeMeta(selectedCartridgeSlug.value);
@@ -1789,6 +1948,15 @@ watch(
           <button type="button" role="menuitem" data-testid="btn-start-over" @click="onStartOver">
             Start over
           </button>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="btn-record-test"
+            :disabled="state.recording.active || state.recording.starting || state.powerUp.busy"
+            @click="onRecordStart"
+          >
+            <span>Record as game test<small>Replayable project regression test</small></span>
+          </button>
           <div role="separator"></div>
           <button
             type="button"
@@ -1832,9 +2000,114 @@ watch(
       @save="applyAiSettings"
       @closed="onAiSettingsClosed"
     />
-    <p v-if="exportRefusal" class="export-refusal" data-testid="export-refusal" role="alert">
-      {{ exportRefusal }}
+    <div v-if="exportRefusal" class="export-refusal" data-testid="export-refusal" role="alert">
+      <p>{{ exportRefusal }}</p>
+      <button
+        v-if="
+          exportSavedProgressSlug !== undefined && exportSavedProgressSlug === currentGame()?.slug
+        "
+        type="button"
+        class="ui-button ui-button--secondary"
+        data-testid="export-saved-progress"
+        :disabled="exportBusy"
+        @click="onExportAgiZip(true, true, true)"
+      >
+        Download without current progress
+      </button>
+    </div>
+    <div
+      v-if="state.recording.active"
+      class="recording-bar"
+      data-testid="recording-bar"
+      role="status"
+    >
+      <span class="recording-dot" aria-hidden="true"></span>
+      <span>Recording game test</span>
+      <button
+        type="button"
+        class="ui-button ui-button--primary"
+        data-testid="record-stop"
+        @click="onRecordStop"
+      >
+        Stop and name
+      </button>
+      <button
+        type="button"
+        class="ui-button ui-button--secondary"
+        data-testid="record-cancel"
+        @click="cancelTestRecording"
+      >
+        Cancel
+      </button>
+    </div>
+    <p v-if="state.recording.error" class="export-refusal" data-testid="record-error" role="alert">
+      {{ state.recording.error }}
     </p>
+    <p v-if="recordResult" class="record-result" data-testid="record-result" role="status">
+      {{ recordResult }}
+    </p>
+    <dialog
+      ref="recordDialog"
+      class="record-dialog"
+      aria-labelledby="record-dialog-title"
+      data-testid="record-dialog"
+    >
+      <form method="dialog" @submit.prevent="onRecordSave">
+        <header>
+          <h2 id="record-dialog-title">Save as game test</h2>
+        </header>
+        <label for="record-name">Name</label>
+        <input
+          id="record-name"
+          v-model="recordName"
+          data-testid="record-name"
+          maxlength="60"
+          autocomplete="off"
+          placeholder="what this playthrough proves"
+        />
+        <p v-if="recordSnapshot?.usedGetnum" class="record-warning" data-testid="record-warning">
+          This recording answered a get.number prompt, which stored tests cannot replay yet; the
+          saved test will need editing.
+        </p>
+        <fieldset v-if="recordSuggestions.length" class="record-assertions">
+          <legend>Assertions from this playthrough</legend>
+          <label
+            v-for="suggestion in recordSuggestions"
+            :key="suggestion.id"
+            class="record-assertion"
+          >
+            <input
+              v-model="suggestion.selected"
+              type="checkbox"
+              :data-testid="`record-check-${suggestion.id}`"
+            />
+            {{ suggestion.label }}
+          </label>
+        </fieldset>
+        <p v-if="recordError" class="dialog-error" role="alert" data-testid="record-save-error">
+          {{ recordError }}
+        </p>
+        <footer>
+          <button
+            type="button"
+            class="ui-button ui-button--secondary"
+            data-testid="record-save-cancel"
+            :disabled="recordSaving"
+            @click="recordDialog?.close()"
+          >
+            Discard
+          </button>
+          <button
+            type="submit"
+            class="ui-button ui-button--primary"
+            data-testid="record-save"
+            :disabled="recordSaving"
+          >
+            {{ recordSaving ? "Saving…" : "Save test" }}
+          </button>
+        </footer>
+      </form>
+    </dialog>
 
     <section
       v-if="state.phase === 'idle' || state.phase === 'error'"
@@ -2530,7 +2803,7 @@ watch(
         >
           <input
             id="game-command"
-            :disabled="state.powerUp.open"
+            :disabled="state.powerUp.open || !state.inputReady"
             aria-label="Game command"
             aria-describedby="game-input-help"
             ref="inputEl"
@@ -2553,7 +2826,7 @@ watch(
           class="power-up"
           :class="{ armed: state.powerUp.open }"
           data-testid="power-up"
-          :disabled="creatingRoom && state.powerUp.open"
+          :disabled="(creatingRoom && state.powerUp.open) || state.recording.active"
           :aria-label="
             creatingRoom && state.powerUp.open
               ? 'Creating the next room'
@@ -3013,6 +3286,86 @@ watch(
   color: #8da4ac;
   margin-top: 10px;
 }
+.recording-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border: 1px solid #7a2a2a;
+  border-radius: 8px;
+  background: #2a1515;
+  color: #ffd9d9;
+  font-size: 13px;
+}
+.recording-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff4444;
+  animation: recording-pulse 1.2s ease-in-out infinite;
+}
+@keyframes recording-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+.record-result {
+  color: #9fe6a0;
+  font-size: 12px;
+  margin: 6px 0 0;
+}
+.record-dialog {
+  background: #101d22;
+  color: #e3ecee;
+  border: 1px solid #2a4048;
+  border-radius: 10px;
+  padding: 18px 20px;
+  width: min(480px, 92vw);
+}
+.record-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+.record-dialog h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+.record-dialog input[id="record-name"] {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 4px 0 12px;
+  padding: 6px 8px;
+  background: #0a1418;
+  color: inherit;
+  border: 1px solid #2a4048;
+  border-radius: 6px;
+}
+.record-assertions {
+  border: 1px solid #2a4048;
+  border-radius: 8px;
+  margin: 0 0 12px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.record-assertion {
+  display: block;
+  font-size: 13px;
+  margin: 4px 0;
+}
+.record-warning {
+  color: #ffd977;
+  font-size: 12px;
+}
+.dialog-error {
+  color: #ff9b9b;
+  font-size: 13px;
+}
+.record-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
 .agent-activity summary {
   cursor: pointer;
 }
@@ -3101,7 +3454,9 @@ watch(
 .export-refusal {
   color: #ffff55;
   font-size: 12px;
-  margin: 6px 0 0;
+  width: var(--shell-width);
+  margin: 6px 0 16px;
+  line-height: 1.5;
 }
 
 .app-container {

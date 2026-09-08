@@ -122,32 +122,32 @@ for (const profile of ["2.936", "3.002.149"] as const) {
   });
 }
 
-test("a timed print clears v21 when its window closes", () => {
-  const e = game('assignn(v21,2);print("A moment.");increment(v200);return;');
-  e.tick();
-  assert.equal(e.modalKind, "print");
-  e.advanceClock(1000);
-  assert.equal(e.modalKind, null);
-  assert.equal(e.vars[21], 0, "the timeout was consumed");
-  e.tick();
-  assert.equal(e.vars[200], 1);
-});
+for (const profile of ["2.936", "3.002.149"] as const) {
+  test(`${profile}: a timed print clears v21 when its window closes`, () => {
+    const e = game('assignn(v21,2);print("A moment.");increment(v200);return;', profile);
+    e.tick();
+    assert.equal(e.modalKind, "print");
+    e.advanceClock(1000);
+    assert.equal(e.modalKind, null);
+    assert.equal(e.vars[21], 0, "the timeout was consumed");
+    e.tick();
+    assert.equal(e.vars[200], 1);
+  });
 
-test("an early-acknowledged timed print clears v21 too", () => {
-  const e = game('assignn(v21,20);print("Brief.");increment(v200);return;');
-  e.tick();
-  assert.equal(e.modalKind, "print");
-  e.modalKey(13);
-  assert.equal(e.vars[21], 0);
-  e.tick();
-  assert.equal(e.vars[200], 1);
-});
+  test(`${profile}: an early-acknowledged timed print clears v21 too`, () => {
+    const e = game('assignn(v21,20);print("Brief.");increment(v200);return;', profile);
+    e.tick();
+    assert.equal(e.modalKind, "print");
+    e.modalKey(13);
+    assert.equal(e.vars[21], 0);
+    e.tick();
+    assert.equal(e.vars[200], 1);
+  });
+}
 
 for (const profile of ["2.089"] as const) {
-  test(`${profile}: prints keep f15 and timed windows keep v21 until the build is verified`, () => {
-    // No local binary verifies these builds' print handler, so the engine
-    // deliberately keeps the flags set there. A base-profile refactor must
-    // not silently adopt the verified builds' consumption.
+  test(`${profile}: prints retain f15 and timed windows retain v21`, () => {
+    // Early profiles preserve both values across print and window closure.
     const e = game('set(f15);print("First.");print("Second.");increment(v200);return;', profile);
     e.tick();
     assert.equal(e.modalKind, null, "both prints stay non-blocking while f15 is kept");

@@ -1,11 +1,12 @@
 {
-  // App shell typecheck. Mirrors the root tsconfig.json strictness exactly;
+  // Shared app options and editor project discovery. Mirrors root strictness;
   // the only differences are the ones the browser/bundler target forces:
   // bundler module resolution (Vite resolves the `.ts` specifiers and the
   // `three/webgpu` export condition), DOM libs, and vite/client for
-  // import.meta.env / import.meta.hot.
+  // import.meta.env / import.meta.hot. Node types cover adapter tests,
+  // Playwright's driver and Vite configs; page.evaluate uses the DOM libs.
   //
-  // engine.worker.ts is checked by tsconfig.worker.json instead: it needs the
+  // Worker entry points are checked by tsconfig.worker.json: they need the
   // WebWorker lib (self.postMessage / self.onmessage), which cannot share a
   // program with DOM (the two libs redeclare the same globals). Both projects
   // run in `npm --prefix app run typecheck`.
@@ -14,7 +15,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "jsx": "preserve",
     "strict": true,
     "noUncheckedIndexedAccess": true,
@@ -26,11 +27,15 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "checkJs": false,
+    // Vite serves these browser-side dynamic imports at the app root.
+    "paths": { "/src/*": ["./src/*"] },
     "verbatimModuleSyntax": false,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "test/**/*.ts"],
-  "exclude": ["src/engine.worker.ts", "src/preview.worker.ts"]
+  "files": [],
+  "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.worker.json" }]
 }

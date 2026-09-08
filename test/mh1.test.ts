@@ -14,14 +14,9 @@ import { day1 } from "./speedrun/mh1-day1.ts";
 import { Speedrun } from "./speedrun/runner.ts";
 
 /**
- * Authentic v3 fixture: a local, gitignored Manhunter: New York installation
- * (games/mh1: MHDIR, MHVOL.0-12, AGIDATA.OVL "Version 3.002.107", the build
- * the spec folds into the 3.002.102 profile). A shipped commercial v3 game
- * with 65 dictionary-compressed and one directly stored logic, so it is the
- * second, independent proof of the plain-text rule for compressed records.
- * Its title screen skips through a clock busy-wait, which is what proved the
- * need to park a logic pass for the host clock. Expectations were read by
- * hand from the fixture bytes and a headless run.
+ * Optional Manhunter: New York 3.002.107 fixture tests. The specification
+ * maps this build to profile 3.002.102. The suite covers compressed and
+ * directly stored logic, clock waits and the Day 1 route.
  */
 const SLUG = "mh1";
 const skip = fixtureSkip(SLUG, ["AGIDATA.OVL"]);

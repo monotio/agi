@@ -12,15 +12,39 @@
 
 import { createAgentSessionState, executeAgentTool } from "../../src/agent/tools.ts";
 
-function extractToolCalls(output, providerResponse) {
-  const calls = [];
+import type { EntryResult } from "../../scripts/eval-picture.ts";
+
+interface ToolOutput {
+  tool_calls?: Array<{
+    function?: { name?: string; arguments?: string | Record<string, unknown> };
+    name?: string;
+    input?: Record<string, unknown>;
+  }>;
+  output?: ResponseCall[];
+  content?: Array<{ type: string; name: string; input: Record<string, unknown> }>;
+}
+interface ResponseCall {
+  type: string;
+  name: string;
+  arguments?: string | Record<string, unknown>;
+}
+interface AssertionContext {
+  providerResponse?: ToolOutput | ResponseCall[];
+}
+
+function extractToolCalls(
+  output: unknown,
+  providerResponse: ToolOutput | ResponseCall[] | undefined,
+) {
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
 
   // Check parsed output tool calls (Anthropic or OpenAI in promptfoo)
   if (output && typeof output === "object") {
-    if (Array.isArray(output.tool_calls)) {
-      for (const tc of output.tool_calls) {
+    const value = output as ToolOutput;
+    if (Array.isArray(value.tool_calls)) {
+      for (const tc of value.tool_calls) {
         calls.push({
-          name: tc.function?.name || tc.name,
+          name: (tc.function?.name || tc.name)!,
           args:
             typeof tc.function?.arguments === "string"
               ? JSON.parse(tc.function.arguments)
@@ -32,7 +56,8 @@ function extractToolCalls(output, providerResponse) {
 
   // Check providerResponse if available
   if (providerResponse && typeof providerResponse === "object") {
-    const raw = providerResponse.output || providerResponse;
+    const response = providerResponse as ToolOutput;
+    const raw = response.output || providerResponse;
     if (Array.isArray(raw)) {
       for (const item of raw) {
         if (item.type === "function_call") {
@@ -46,8 +71,8 @@ function extractToolCalls(output, providerResponse) {
         }
       }
     }
-    if (Array.isArray(providerResponse.content)) {
-      for (const c of providerResponse.content) {
+    if (Array.isArray(response.content)) {
+      for (const c of response.content) {
         if (c.type === "tool_use") {
           calls.push({
             name: c.name,
@@ -64,7 +89,7 @@ function extractToolCalls(output, providerResponse) {
 /**
  * Validates that all tool calls in the turn compile cleanly through the real engine compiler.
  */
-export function validateGenesisToolCalls(output, context) {
+export function validateGenesisToolCalls(output: unknown, context?: AssertionContext) {
   const calls = extractToolCalls(output, context?.providerResponse);
   if (calls.length === 0) {
     return {
@@ -81,7 +106,7 @@ export function validateGenesisToolCalls(output, context) {
   for (const call of calls) {
     // write_picture takes the picture DSL source; a byte array is the old
     // schema and means the model is working from a stale tool contract.
-    if (call.name === "write_picture" && typeof call.args?.source !== "string") {
+    if (call.name === "write_picture" && typeof call.args?.["source"] !== "string") {
       errors.push(
         `write_picture called without a 'source' string (got keys: ${Object.keys(call.args ?? {}).join(", ") || "none"})`,
       );
@@ -113,7 +138,7 @@ export function validateGenesisToolCalls(output, context) {
 /**
  * Validates that view 0 (Ego) was authored and compiled cleanly with no RangeError.
  */
-export function validateEgoView(output, context) {
+export function validateEgoView(output: unknown, context?: AssertionContext) {
   const calls = extractToolCalls(output, context?.providerResponse);
   const viewCalls = calls.filter((c) => c.name === "write_view");
 
@@ -133,14 +158,19 @@ export function validateEgoView(output, context) {
 }
 
 /**
- * Picture fidelity (evals/configs/picture.mjs). Three layers, cheapest first:
+ * Picture fidelity (evals/configs/picture.ts). Three layers, cheapest first:
  *   1. structure: at least one round compiled and rendered;
  *   2. exact metrics: fill coverage >= 90% and >= 6 distinct colours
  *      (an original Sierra room is ~95-100% painted with 10+ colours);
  *   3. vision-judge rubric: overall >= 6/10 to pass; score = overall / 10.
  */
-export function validatePictureFidelity(output) {
-  const r = typeof output === "string" ? JSON.parse(output) : output;
+export function validatePictureFidelity(
+  output: string | Pick<EntryResult, "recreation" | "judge" | "error">,
+) {
+  const r = (typeof output === "string" ? JSON.parse(output) : output) as Pick<
+    EntryResult,
+    "recreation" | "judge" | "error"
+  >;
   if (!r.recreation) {
     return { pass: false, score: 0, reason: r.error ?? "no successful write_picture_source round" };
   }

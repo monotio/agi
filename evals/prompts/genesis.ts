@@ -1,6 +1,16 @@
 import { AGI_SYSTEM_PROMPT, createGenesisPrompt } from "../../src/agent/prompt.ts";
 
-export default function ({ vars }) {
+interface PromptMessage {
+  role: "system" | "user";
+  content: string;
+}
+
+/** Promptfoo prompt context; `vars` carries the test case's variables. */
+export interface PromptVars {
+  vars: { cartridgeText?: string };
+}
+
+export default function ({ vars }: PromptVars): PromptMessage[] {
   const cartridgeText = vars.cartridgeText || "";
   return [
     {

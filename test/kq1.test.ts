@@ -5,10 +5,9 @@ import { fixtureSkip } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
- * Authentic fixture: the ORIGINAL, unmodified King's Quest 1 resources
- * (local-only, gitignored Sierra data — never shipped). Proves the engine's
- * authenticity claim: real v2 container, real bytecode, real vector pictures,
- * real views, real dictionary.
+ * Optional King's Quest 1 fixture tests for v2 containers, bytecode,
+ * vector pictures, views and dictionary handling. See CONTRIBUTING.md
+ * for the required edition and setup.
  */
 
 class QuietHost implements EngineHost {

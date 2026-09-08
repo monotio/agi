@@ -1,3 +1,5 @@
+import type { EngineReplayState } from "../../src/runtime/replayState.ts";
+import type { RecordedOperation } from "../../src/agent/recordedReplay.ts";
 import type { AgentRunState } from "./agent/agentRun.ts";
 import { reactive } from "vue";
 import type { GameControlBinding, EngineMenuState } from "../../src/runtime/engine.ts";
@@ -12,9 +14,23 @@ import { createBridge, type AgentHandler, type Bridge } from "./agent/sabBridge.
 import { AgentSession } from "./agent/agentSession.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import type { AgentFrame, FrameRequest } from "../../src/agent/frames.ts";
+import { executeAgentTool } from "../../src/agent/tools.ts";
+import {
+  buildRecordedTest,
+  type AssertionSuggestion,
+  type RecordedEvent,
+  type RecorderStateSnapshot,
+  type RecordingSnapshot,
+} from "./gameRecording.ts";
 import type { RingFrame } from "./frameRing.ts";
 import { AgiAudio, type AudioMode } from "./audio/AgiAudio.ts";
-import { isProgressPreview, storeRecordWithPreviewFallback } from "./progressPreview.ts";
+import { isProgressPreview } from "./progressPreview.ts";
+import {
+  autosaveKey,
+  parseAutosaveRecord,
+  writeAutosave,
+  type AutosaveRecord,
+} from "./gameProgress.ts";
 import {
   clearCachedCartridge,
   saveAuthoredCartridge,
@@ -91,6 +107,8 @@ export interface EngineState {
   leaving: boolean;
   controls: GameControlBinding[];
   inputEnabled: boolean;
+  /** The worker has started logic and published its input mode. */
+  inputReady: boolean;
   holdToMove: boolean;
   waitingForKey: boolean;
   gameEdit: { text: string } | null;
@@ -124,6 +142,8 @@ export interface EngineState {
   powerUp: PowerUpUiState;
   /** This boot restored an autosave: the resume caption is showing. */
   resumed: boolean;
+  /** Player-action recording for a stored game test. */
+  recording: { active: boolean; starting: boolean; error: string };
 }
 
 /** Remix bubble state; the transcript slice is the live tool-call feed. */
@@ -156,78 +176,23 @@ export interface Frame {
  * Autosave. A separate, per-game slot:
  * the player's F5 slot is theirs and is never written behind their back, so
  * the two never share a key. `monotio_agi.lastGame` names the slug to resume.
+ * The record and its store live in gameProgress.ts, since a project archive
+ * carries them too.
  */
-const AUTOSAVE_PREFIX = "monotio_agi.autosave.";
 const LAST_GAME_KEY = "monotio_agi.lastGame";
 /** How long the "Resumed where you left off" caption stays up. */
 const RESUME_CAPTION_MS = 10_000;
 
-/** One stored autosave: the save-file image plus what it takes to boot into it. */
-export interface AutosaveRecord {
-  format: "monotio.agi.autosave";
-  version: 1;
-  /** base64 of the authentic save envelope (the bytes save.game would write). */
-  image: string;
-  /** Exact composed engine frame captured with this save image, when available. */
-  preview?: string;
-  /** Menus are session state and are not present in the AGI save envelope. */
-  menus?: EngineMenuState;
-  cycle: number;
-  room: number;
-  savedAt: number;
-  game: { slug: string; installed: boolean; revision: string };
-}
-
-export function autosaveKey(slug: string): string {
-  return `${AUTOSAVE_PREFIX}${slug}`;
-}
+export { autosaveKey, writeAutosave };
+export type { AutosaveRecord };
 
 /** Every storage read is a maybe: a blocked, full or corrupt store is normal. */
 export function readAutosave(slug: string): AutosaveRecord | null {
   try {
-    const raw = localStorage.getItem(autosaveKey(slug));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as AutosaveRecord;
-    if (parsed?.format !== "monotio.agi.autosave" || parsed.version !== 1) return null;
-    if (typeof parsed.image !== "string" || !parsed.image) return null;
-    if (!Number.isInteger(parsed.room) || parsed.room < 0 || parsed.room > 255) return null;
-    if (!Number.isInteger(parsed.cycle) || parsed.cycle < 0 || !Number.isFinite(parsed.savedAt))
-      return null;
-    if (typeof parsed.game?.installed !== "boolean" || !/^[a-f0-9]{64}$/.test(parsed.game.revision))
-      return null;
-    if (parsed?.game?.slug !== slug) return null;
-    if (!isProgressPreview(parsed.preview)) delete parsed.preview;
-    return parsed;
+    const parsed = parseAutosaveRecord(localStorage.getItem(autosaveKey(slug)));
+    return parsed?.game.slug === slug ? parsed : null;
   } catch {
     return null;
-  }
-}
-
-/**
- * Never replace a checkpoint whose format this release cannot understand. A
- * record without a recognised format (pre-release, or corrupt JSON) protects
- * nothing and is replaced, so a stale slot cannot block autosave for good.
- */
-export function writeAutosave(
-  storage: Pick<Storage, "getItem" | "setItem">,
-  record: AutosaveRecord,
-): AutosaveRecord | null {
-  const key = autosaveKey(record.game.slug);
-  try {
-    const raw = storage.getItem(key);
-    if (raw !== null && isFutureAutosave(raw)) return null;
-    return storeRecordWithPreviewFallback(storage, key, record);
-  } catch {
-    return null;
-  }
-}
-
-function isFutureAutosave(raw: string): boolean {
-  try {
-    const existing = JSON.parse(raw) as Partial<AutosaveRecord> | null;
-    return existing?.format === "monotio.agi.autosave" && existing.version !== 1;
-  } catch {
-    return false;
   }
 }
 
@@ -268,6 +233,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     leaving: false,
     controls: [],
     inputEnabled: false,
+    inputReady: false,
     holdToMove: false,
     waitingForKey: false,
     gameEdit: null,
@@ -298,6 +264,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       error: "",
     },
     resumed: false,
+    recording: { active: false, starting: false, error: "" },
   });
 
   let worker: Worker | null = null;
@@ -501,6 +468,8 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   let lastAutosave: AutosaveRecord | null = null;
   let autosaveWrite: Promise<boolean> = Promise.resolve(true);
   let remixNeedsSave = false;
+  /** Record-start capture of the active game-test recording, if one is running. */
+  let recordingStart: RecordingSnapshot["start"] | null = null;
   /** Resolvers waiting for the worker to acknowledge a flush request. */
   const flushWaiters = new Map<number, (saved: boolean) => void>();
 
@@ -748,9 +717,12 @@ export function useEngine(onFrame: (frame: Frame) => void) {
 
   function resetScreenState(): void {
     lastAutosave = null;
-    remixNeedsSave = false;
     state.powerUp.open = false;
     state.powerUp.busy = false;
+    recordingStart = null;
+    state.recording.active = false;
+    state.recording.starting = false;
+    state.recording.error = "";
     audio.setPaused(false);
     state.paused = false;
     state.resumed = false;
@@ -760,6 +732,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     state.modal = null;
     state.controls = [];
     state.inputEnabled = false;
+    state.inputReady = false;
     state.holdToMove = false;
     state.waitingForKey = false;
     pendingKeys.clear();
@@ -992,6 +965,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         pendingKeys.delete(Number(msg.id));
       } else if (msg.type === "frame") {
         state.inputEnabled = Boolean(msg.inputEnabled);
+        state.inputReady = Boolean(msg.inputReady);
         state.holdToMove = Boolean(msg.holdToMove);
         publishText(msg.text, msg.modal ?? null, Boolean(msg.textMode));
         onFrame({
@@ -1058,6 +1032,12 @@ export function useEngine(onFrame: (frame: Frame) => void) {
           // the game is already running its normal boot behind this.
           logAgent("log", `Autosave discarded (${String(msg.message)}); starting a fresh game.`);
           if (booted) clearAutosave(booted.slug);
+        }
+      } else if (msg.type === "recordingStarted" || msg.type === "recordingStopped") {
+        const resolve = pendingQueries.get(Number(msg.id));
+        if (resolve) {
+          pendingQueries.delete(Number(msg.id));
+          resolve(msg);
         }
       } else if (msg.type === "log") {
         logAgent("log", String(msg.text));
@@ -1776,6 +1756,153 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     worker.postMessage({ type: "key", id, code });
   }
 
+  /**
+   * Start capturing player actions for a stored game test. The worker takes
+   * the record-start save image at a safe cycle boundary and stamps every
+   * later action with the interpreter cycle; refusal (an open window, a text
+   * screen, a blocking prompt) lands in state.recording.error.
+   */
+  async function startTestRecording(): Promise<void> {
+    state.recording.error = "";
+    if (!worker || state.phase !== "running") return;
+    if (
+      state.powerUp.open ||
+      state.powerUp.busy ||
+      state.modal !== null ||
+      state.prompt !== null ||
+      state.waitingForKey
+    ) {
+      state.recording.error =
+        "Close the open window, prompt or assistant before recording a game test.";
+      return;
+    }
+    state.recording.starting = true;
+    try {
+      const reply = await query<{
+        ok: boolean;
+        image?: string;
+        replayState?: EngineReplayState;
+        cycle?: number;
+        state?: RecorderStateSnapshot;
+        error?: string;
+      }>("startRecording");
+      if (
+        !reply.ok ||
+        !reply.image ||
+        !reply.replayState ||
+        reply.cycle === undefined ||
+        !reply.state
+      ) {
+        state.recording.error = String(reply.error ?? "Recording could not start.");
+        return;
+      }
+      recordingStart = {
+        image: reply.image,
+        cycle: reply.cycle,
+        state: reply.state,
+        replayState: reply.replayState,
+      };
+      state.recording.active = true;
+      logAgent("log", `Recording a game test from room ${reply.state.room}, cycle ${reply.cycle}.`);
+    } finally {
+      state.recording.starting = false;
+    }
+  }
+
+  /** Stop capturing and return everything the worker recorded, or null. */
+  async function stopTestRecording(): Promise<RecordingSnapshot | null> {
+    if (!state.recording.active || !recordingStart) return null;
+    const reply = await query<{
+      operations?: RecordedOperation[];
+      events?: RecordedEvent[];
+      printed?: string[];
+      tainted?: string | null;
+      usedGetnum?: boolean;
+      cycle?: number;
+      state?: RecorderStateSnapshot | null;
+    }>("stopRecording");
+    state.recording.active = false;
+    const start = recordingStart;
+    recordingStart = null;
+    if (!reply.state || reply.cycle === undefined) return null;
+    return {
+      start,
+      operations: reply.operations ?? [],
+      events: reply.events ?? [],
+      printed: reply.printed ?? [],
+      endState: reply.state,
+      endCycle: reply.cycle,
+      tainted: reply.tainted ?? null,
+      usedGetnum: Boolean(reply.usedGetnum),
+    };
+  }
+
+  /** Discard the active recording without saving anything. */
+  function cancelTestRecording(): void {
+    if (!state.recording.active) return;
+    worker?.postMessage({ type: "cancelRecording" });
+    state.recording.active = false;
+    recordingStart = null;
+    logAgent("log", "Game test recording discarded.");
+  }
+
+  /**
+   * Store a recorded test through the SAME write path write_game_tests uses
+   * (validation, dictionary probe, TESTS.JSON serialization), then ship and
+   * persist the updated file exactly like a remix. On an installed or catalog
+   * game this is the established remix conversion: the project becomes a
+   * writable cartridge copy, since originals cannot store tests.
+   */
+  async function saveRecordedTest(
+    snapshot: RecordingSnapshot,
+    name: string,
+    selected: readonly AssertionSuggestion[],
+    config: LlmConfig,
+  ): Promise<{ ok: boolean; message: string }> {
+    const game = booted;
+    if (!game || !worker) return { ok: false, message: "No game is running." };
+    if (snapshot.tainted) return { ok: false, message: snapshot.tainted };
+    if (!session) {
+      const cached = game.installed
+        ? await loadGameConversation(game.slug)
+        : await loadAuthoredCartridge(game.slug);
+      session = AgentSession.fromAuthoredData(
+        config,
+        logAgent,
+        game.files,
+        game.words,
+        cached ? continuationTranscript(cached, config.provider, config.model) : undefined,
+        cached?.provider === config.provider && cached.model === config.model
+          ? cached.sessionId
+          : undefined,
+        cached?.authoringState,
+      );
+    }
+    const author = session;
+    const result = executeAgentTool(author.state, "write_game_tests", {
+      mode: "merge",
+      names: null,
+      tests: [buildRecordedTest(name, snapshot, selected)],
+    });
+    if (!result.success)
+      return { ok: false, message: result.error ?? "The recorded test was rejected." };
+    remixNeedsSave = true;
+    worker.postMessage({
+      type: "patchMetadata",
+      files: { "TESTS.JSON": new Uint8Array(author.state.testsPayload!) },
+    });
+    const files = await query<Record<string, Uint8Array> | null>("exportFiles");
+    if (!files || booted !== game)
+      return { ok: false, message: "The game changed while saving the recording. Try again." };
+    await persistRemix(game, author, files);
+    await flushAutosave(2000);
+    logAgent("response", `[Record] ${result.message}`, {
+      tool: "write_game_tests",
+      args: { name },
+    });
+    return { ok: true, message: result.message ?? "Recorded test stored." };
+  }
+
   function toggleMute(): boolean {
     const muted = audio.toggleMute();
     state.soundMuted = muted;
@@ -1830,6 +1957,10 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     isInstalledGame,
     currentGame,
     exportCurrentGame,
+    startTestRecording,
+    stopTestRecording,
+    cancelTestRecording,
+    saveRecordedTest,
     resumeLastGame,
     resumeFromRecord,
     startOver,

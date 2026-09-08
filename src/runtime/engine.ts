@@ -30,6 +30,7 @@ import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "..
 import { detectProfile, type AgiProfile, type ProfileId } from "./profile.ts";
 import { TraceWindow } from "./trace.ts";
 import { InputQueue, NAV_KEYS } from "./inputQueue.ts";
+import { validateEngineReplayState, type EngineReplayState } from "./replayState.ts";
 import { runSaveDialog, type SaveSlot } from "./saveDialog.ts";
 import {
   newScreenObject,
@@ -296,10 +297,35 @@ class RoomChange {
  */
 class ContinuationAbort {}
 
+type ClockConditionTerm =
+  | { kind: "fixed"; value: boolean | undefined }
+  | {
+      kind: "clock";
+      comparison: number;
+      left: number;
+      right: number;
+      leftClock: number;
+      rightClock: number;
+      negate: boolean;
+    };
+
+interface ClockBranch {
+  alternate: number;
+  result: boolean;
+  clock: number[];
+  clauses: ClockConditionTerm[][];
+}
+
 interface LogicFrame {
   logic: number;
   resource: LogicResource;
   pc: number;
+  /** Clock conditions evaluated in this invocation and their untaken successors. */
+  clockBranches?: Map<number, ClockBranch>;
+  clockWrites?: Map<number, number[]>;
+  clockWriteGeneration?: number;
+  clockBackEdges?: Map<number, number>;
+  clockFeasibility?: Map<number, { key: string; result: boolean }>;
 }
 
 /**
@@ -341,15 +367,14 @@ export class Engine {
   /** have.key polls without a key inside one cycle (busy-loop bound). */
   private haveKeyPolls = 0;
   /**
-   * Clock busy-wait parking state for the current host tick: backward jumps
-   * taken, and the logic and offset of the latest scalar comparison against a
-   * clock variable. A loop parks only when that comparison lies inside its
-   * own byte range, so a clock read elsewhere in the pass cannot shield an
-   * unrelated runaway loop from the playtest budget.
+   * Clock busy-wait parking state for the current host tick. A clock read is
+   * insufficient: its condition's alternative must leave the backward edge's
+   * loop, rather than rejoin the same unrelated loop body.
    */
   private backwardJumps = 0;
   private clockReadLogic = -1;
   private clockReadPc = -1;
+  private readonly conditionOutcomes = new Map<number, boolean>();
   /** Host milliseconds spent parked in the current clock busy-wait. */
   private clockWaitMs = 0;
   /** Current room number mirrors vars[0]. */
@@ -531,9 +556,14 @@ export class Engine {
   }
 
   /** Replace cartridge metadata while preserving the player's existing item locations. */
-  patchAuxiliaryFiles(files: { words?: Uint8Array; objects?: Uint8Array }): void {
+  patchAuxiliaryFiles(files: {
+    words?: Uint8Array;
+    objects?: Uint8Array;
+    tests?: Uint8Array;
+  }): void {
     const existingItems = this.inventoryMetadata().entryCount;
     if (files.words) this.container.putFile("WORDS.TOK", files.words);
+    if (files.tests) this.container.putFile("TESTS.JSON", files.tests);
     if (files.objects) {
       this.container.putFile("OBJECT", files.objects);
       this.inventoryMetaCache = null;
@@ -543,7 +573,7 @@ export class Engine {
         this.itemLocations[item] = meta.payload[item * 3 + 2] ?? 0;
       }
     }
-    if (files.words || files.objects) this.patchGen++;
+    if (files.words || files.objects || files.tests) this.patchGen++;
   }
 
   /**
@@ -896,10 +926,8 @@ export class Engine {
     const m = this.modals.pop();
     if (!m) return;
     if (this.printsPending > 0) this.printsPending--;
-    // A timed print consumes v21: the verified print handlers zero the
-    // variable when the window closes, whether by timeout or key (2.411 at
-    // 0x1d2d, 2.440 at 0x1d43, 2.917/2.936 at 0x1d80, 3.002.086 at 0x2039,
-    // 3.002.102/3.002.107 at 0x204f).
+    // A timed print zeroes v21 when its window closes, by timeout or key.
+    // docs/fidelity.md: print-handler-output-modes
     if (m.kind === "print" && m.remainingMs !== null && this.profile.timedPrintClearsV21)
       this.vars[21] = 0;
     if (m.kind !== "showPri") this.text.restore(m.saved);
@@ -931,10 +959,8 @@ export class Engine {
     );
     drawWindow(this.text, box, lines, attr(0, 15), attr(4, 15));
     if (!forceAcknowledgement && this.flags[15] !== 0) {
-      // The verified print handlers consume f15: a print that opens a
-      // non-blocking window resets the flag as it returns, so the next print
-      // blocks again (2.411 at 0x1cb9, 2.440 at 0x1ccf, 2.917 at 0x1d0c,
-      // 2.936 at 0x1d0c, 3.002.086 at 0x1fc5, 3.002.102/3.002.107 at 0x1fdb).
+      // A print that opens a non-blocking window consumes f15 as it returns.
+      // docs/fidelity.md: print-handler-output-modes
       if (this.profile.printConsumesF15) this.flags[15] = 0;
       this.persistentWindow = saved;
     } else {
@@ -1379,6 +1405,104 @@ export class Engine {
     return record;
   }
 
+  /** A recorder covers every runtime object, including ones outside save.game's allocation. */
+  recordingImage(): Uint8Array | null {
+    const snapshot = this.autosaveImage();
+    if (!snapshot) return null;
+    const { image, screen, presentation } = decodeHostImage(snapshot);
+    const state = decodeSave(image, this.profile);
+    state.objects = this.objects.map((_, num) => this.objectRecord(num));
+    return encodeHostImage(
+      encodeSave(state, this.profile),
+      screen ?? [],
+      presentation ?? undefined,
+    );
+  }
+
+  /** Capture transient host-recording state at an autosave-safe boundary. */
+  captureReplayState(): EngineReplayState {
+    if (!this.autosaveImage()) throw new Error("Recording requires a resumable cycle boundary.");
+    return {
+      clockRemainderMs: this.clockRemainderMs,
+      pictureShown: this.pictureShown,
+      terminated: this.terminated,
+      statusRefreshRequested: this.statusRefreshRequested,
+      priorityBase: this.priorityBase,
+      key: this.vars[V_KEY]!,
+      egoHidden: this.flags[1]!,
+      inputReady: this.flags[F_INPUT_READY]!,
+      saidMatched: this.flags[F_SAID_MATCHED]!,
+      controllers: [...this.controllers],
+      parsedWords: [...this.parsedWords],
+      parsedWordTexts: [...this.parsedWordTexts],
+      parserCount: this.parserCount,
+      lastInputLine: this.lastInputLine,
+      editLine: this.editLine,
+      acceptedLine: this.acceptedLine,
+      inputWidthCap: this.inputWidthCap,
+      pendingController: this.pendingController,
+      inputQueue: this.inputQueue.snapshot(),
+      menu: this.menu.map((m) => ({ ...m, items: m.items.map((item) => ({ ...item })) })),
+      menuFinalized: this.menuFinalized,
+      menuHeading: this.menuHeading,
+      menuRequested: this.menuRequested,
+      objectExtras: this.objects.map(({ priority, cycleFlag, wanderCount }) => ({
+        priority,
+        cycleFlag,
+        wanderCount,
+      })),
+      sound:
+        this.soundPlayback && this.playingSound !== null && this.soundDoneFlag !== null
+          ? {
+              num: this.playingSound,
+              doneFlag: this.soundDoneFlag,
+              playback: this.soundPlayback.snapshot(),
+            }
+          : null,
+    };
+  }
+
+  /** Restore host-only recording state after restoreImage; authentic save semantics stay unchanged. */
+  restoreReplayState(value: unknown): void {
+    const state = validateEngineReplayState(value);
+    let sound: SoundPlayback | null = null;
+    if (state.sound) {
+      const payload = this.container.getResource("sound", state.sound.num);
+      if (!payload) throw new Error("Recorded sound resource is missing.");
+      sound = new SoundPlayback(this.profile, payload, state.sound.playback.device);
+      sound.restore(state.sound.playback);
+    }
+    this.clockRemainderMs = state.clockRemainderMs;
+    this.pictureShown = state.pictureShown;
+    this.terminated = state.terminated;
+    this.statusRefreshRequested = state.statusRefreshRequested;
+    this.priorityBase = state.priorityBase;
+    this.vars[V_KEY] = state.key;
+    this.flags[1] = state.egoHidden;
+    this.flags[F_INPUT_READY] = state.inputReady;
+    this.flags[F_SAID_MATCHED] = state.saidMatched;
+    this.controllers.set(state.controllers);
+    this.parsedWords = state.parsedWords;
+    this.parsedWordTexts = state.parsedWordTexts;
+    this.parserCount = state.parserCount;
+    this.lastInputLine = state.lastInputLine;
+    this.editLine = state.editLine;
+    this.acceptedLine = state.acceptedLine;
+    this.inputWidthCap = state.inputWidthCap;
+    this.pendingController = state.pendingController;
+    this.inputQueue.clear();
+    for (const event of state.inputQueue) this.inputQueue.enqueue(event);
+    this.menu = state.menu;
+    this.menuFinalized = state.menuFinalized;
+    this.menuHeading = state.menuHeading;
+    this.menuRequested = state.menuRequested;
+    for (let i = 0; i < this.objects.length; i++)
+      Object.assign(this.objects[i]!, state.objectExtras[i]!);
+    this.soundPlayback = sound;
+    this.playingSound = state.sound?.num ?? null;
+    this.soundDoneFlag = state.sound?.doneFlag ?? null;
+  }
+
   /**
    * Host-initiated save image for an autosave, or null when this cycle
    * boundary is not a safe one to snapshot.
@@ -1437,7 +1561,7 @@ export class Engine {
    * `decodeSave` before any state is replaced, so a failed restore leaves the
    * game untouched.
    */
-  restoreImage(bytes: Uint8Array): void {
+  restoreImage(bytes: Uint8Array, options: { preservePresentation?: boolean } = {}): void {
     const { image, screen, presentation } = decodeHostImage(bytes);
     // Run the same restore against disposable state and a silent host first.
     // This validates both packet grammar and referenced resources before the
@@ -1478,8 +1602,10 @@ export class Engine {
         Object.assign(this.objects[i]!, presentation.draws[i]!);
       // Parser edits are transient, as in an authentic restore; redraw the
       // engine-owned controls over the restored game captions.
-      this.drawStatus();
-      this.drawInputRow();
+      if (!options.preservePresentation) {
+        this.drawStatus();
+        this.drawInputRow();
+      }
       this.host.setTextMode?.(false);
     }
   }
@@ -2069,6 +2195,8 @@ export class Engine {
     this.flags[F_SCRIPT_0] = 0;
     // 10. Post-logic object update (movement + cycling).
     if (!this.textMode) {
+      // An open text window never suspends this update.
+      // docs/fidelity.md: window-update-gate
       this.updateObjects();
       this.updateEgoVisibility();
     }
@@ -2078,11 +2206,9 @@ export class Engine {
    * Targeted motion on object 0 selects object-to-v6 coupling (program
    * control) until it completes, and completion or a border stop restores
    * v6-to-object coupling with v6 cleared. The spec's movement chapter is
-   * silent on this; the shipped 2.936 and 3.002.x interpreters do it (their
-   * move.obj, move.obj.v and wander handlers write 0 to the coupling selector
-   * for object 0, and their motion-stop routine writes 1 and zeroes v6 for
-   * object 0). Game scripts rely on it: a zero-distance move.obj on ego is the
-   * idiom that hands control back after a scripted placement.
+   * silent on this; game scripts rely on it: a zero-distance move.obj on ego
+   * is the idiom that hands control back after a scripted placement.
+   * docs/fidelity.md: ego-direction-coupling
    */
   private startMoveObj(o: ScreenObject, x: number, y: number, step: number, flag: number): void {
     o.motionMode = MOTION_MOVE_OBJ;
@@ -2096,11 +2222,8 @@ export class Engine {
 
   private updateObjects(): void {
     // The movement pass starts by clearing the border bytes v2, v4 and v5, so a
-    // border contact is visible to logic for exactly one cycle. The spec clears
-    // v4 and v5 at the cycle start and v2 only on room entry; the shipped 2.936
-    // and 3.002.x interpreters zero all three here (their movement pass opens
-    // with stores to variables 5, 4 and 2), and a v3 city map that polls v2 for
-    // page turns depends on it.
+    // border contact is visible to logic for exactly one cycle.
+    // docs/fidelity.md: border-variables-cleared
     this.vars[V_EDGE] = 0;
     this.vars[V_OBJ_HIT] = 0;
     this.vars[V_OBJ_EDGE] = 0;
@@ -2323,16 +2446,10 @@ export class Engine {
    * - water (f0): set only when EVERY scanned cell is control 3.
    *
    * The spec's "Footprint control acceptance" states a final-cell rule for
-   * both classes. The shipped 3.002.102 and 3.002.107 interpreters disagree:
-   * their scan (load-module offset 0x5ae2, disassembled from the installed
-   * AGI binaries) starts with the water state set, clears it on any cell that
-   * is not water and latches the trigger state on control 2, then feeds both
-   * to f3/f0 for object 0 and applies the on-water/on-land gates to the
-   * all-water state. Observed data agrees: a 3.002.102 demo repositions ego
-   * along a control-2 line and waits for exactly (67,128), which a final-cell
-   * trigger never reaches (test "reposition rides a trigger line"). Priority
-   * 15 skips the scan, accepts the footprint, and for object 0 clears both
-   * flags, as the same routine does.
+   * both classes; the shipped interpreters and observed game data disagree.
+   * Priority 15 skips the scan, accepts the footprint, and for object 0
+   * clears both flags, as the same routine does.
+   * docs/fidelity.md: footprint-class-flags
    */
   private footprintAccepts(obj: ScreenObject, nx: number, ny: number): boolean {
     if (!obj.fixedPriority) obj.priority = this.priorityForY(ny);
@@ -2406,12 +2523,11 @@ export class Engine {
   }
 
   /**
-   * View binding (the interpreters' SetView, 3.002.102 load-module offset
-   * 0x3e9a; 2.917 and 2.936 match): the object keeps its current loop when the
-   * new view has that many loops and otherwise takes loop 0, then selects the
-   * loop through setLoop. The spec's "set.view" text reads "select its default
-   * loop and cel"; the binaries only fall back to the defaults when the kept
-   * indices are out of range.
+   * View binding: the object keeps its current loop when the new view has
+   * that many loops and otherwise takes loop 0, then selects the loop through
+   * setLoop. The spec's "set.view" text reads "select its default loop and
+   * cel"; the interpreters only fall back to the defaults when the kept
+   * indices are out of range. docs/fidelity.md: view-loop-index-retention
    */
   private setView(obj: ScreenObject, view: number): void {
     obj.view = view;
@@ -2420,13 +2536,13 @@ export class Engine {
   }
 
   /**
-   * Loop selection (SetLoop, 3.002.102 offset 0x3f6a with its core at 0x3fce;
-   * 2.917 and 2.936 at 0x3c1x): set.loop, set.loop.v, set.view and the
-   * direction-driven loop change all route here. The current cel survives
-   * when the new loop has that many cels and otherwise becomes 0; SetCel then
-   * refreshes the size. Manhunter's knife game (logic 118) depends on the
-   * survival: while it waits for the barker's cel to cycle it re-selects loop
-   * 0 every cycle, which a reset-to-0 would freeze forever.
+   * Loop selection: set.loop, set.loop.v, set.view and the direction-driven
+   * loop change all route here. The current cel survives when the new loop
+   * has that many cels and otherwise becomes 0; SetCel then refreshes the
+   * size. Manhunter's knife game (logic 118) depends on the survival: while
+   * it waits for the barker's cel to cycle it re-selects loop 0 every cycle,
+   * which a reset-to-0 would freeze forever.
+   * docs/fidelity.md: view-loop-index-retention
    */
   private setLoop(obj: ScreenObject, loop: number): void {
     obj.loop = loop;
@@ -2701,13 +2817,26 @@ export class Engine {
         if (op === GOTO) {
           const target = pc + 3 + readS16(code, pc + 1);
           frame.pc = target;
-          if (
+          const writes = this.loopClockWrites(frame, target, pc);
+          const clockWait =
             target <= pc &&
             ++this.backwardJumps >= CLOCK_WAIT_JUMPS &&
-            this.clockReadLogic === frame.logic &&
-            this.clockReadPc >= target &&
-            this.clockReadPc < pc
-          ) {
+            Array.from(frame.clockBranches ?? []).some(
+              ([condition, branch]) =>
+                condition >= target &&
+                condition < pc &&
+                this.clockCanSelectAlternate(frame, condition, branch, writes) &&
+                this.clockBranchExitsLoop(code, branch.alternate, target, pc),
+            );
+          // A skipped condition on the next iteration must not inherit an
+          // earlier clock guard. Keep enclosing guards for nested loops.
+          if (target <= pc) {
+            frame.clockBackEdges ??= new Map();
+            frame.clockBackEdges.set(pc, frame.clockWriteGeneration ?? 0);
+            for (const condition of frame.clockBranches?.keys() ?? [])
+              if (condition >= target && condition < pc) frame.clockBranches!.delete(condition);
+          }
+          if (clockWait) {
             // A clock busy-wait: resume at the loop head on the next host tick.
             if (this.clockWaitMs > CLOCK_WAIT_LIMIT_MS)
               throw new Error(
@@ -2719,8 +2848,21 @@ export class Engine {
           continue;
         }
         if (op === IF) {
+          this.clockReadPc = -1;
+          this.conditionOutcomes.clear();
           const { result, next } = this.evalConditionList(code, pc + 1);
-          frame.pc = result ? next + 2 : next + 2 + readS16(code, next);
+          const body = next + 2;
+          const end = body + readS16(code, next);
+          if (this.clockReadLogic === frame.logic && this.clockReadPc > pc) {
+            frame.clockBranches ??= new Map();
+            frame.clockBranches.set(pc, {
+              alternate: result ? end : body,
+              result,
+              clock: Array.from(this.vars.subarray(11, 15)),
+              clauses: this.clockCondition(code, pc + 1),
+            });
+          } else frame.clockBranches?.delete(pc);
+          frame.pc = result ? body : end;
           continue;
         }
         if (op === 0x16 || op === 0x17) {
@@ -2729,6 +2871,20 @@ export class Engine {
           frame.pc = pc + 2;
           frames.push({ logic, resource, pc: this.scanStart.get(logic) ?? 0 });
           continue;
+        }
+        const clockWrites = this.actionClockWrites(code, pc);
+        if (clockWrites !== 0) {
+          for (const active of frames) {
+            // Ancestors are suspended just after their two-byte call action.
+            const at = active === frame ? pc : active.pc - 2;
+            active.clockWrites ??= new Map();
+            const generations = active.clockWrites.get(at) ?? [0, 0, 0, 0];
+            const generation = (active.clockWriteGeneration ?? 0) + 1;
+            active.clockWriteGeneration = generation;
+            for (let unit = 0; unit < 4; unit++)
+              if (clockWrites & (1 << unit)) generations[unit] = generation;
+            active.clockWrites.set(at, generations);
+          }
         }
         frame.pc = this.dispatchAction(code, pc);
         if (this.modal !== null) {
@@ -2739,6 +2895,202 @@ export class Engine {
     } finally {
       this.activation = caller;
     }
+  }
+
+  /** Snapshot the CNF condition without re-running said/have.key side effects. */
+  private clockCondition(code: Uint8Array, from: number): ClockConditionTerm[][] {
+    const clauses: ClockConditionTerm[][] = [];
+    let group: ClockConditionTerm[] | null = null;
+    let negate = false;
+    for (let pc = from; code[pc] !== IF;) {
+      const op = code[pc]!;
+      if (op === NOT) {
+        negate = true;
+        pc++;
+        continue;
+      }
+      if (op === OR) {
+        if (group) clauses.push(group);
+        group = group ? null : [];
+        pc++;
+        continue;
+      }
+      const first = code[pc + 1]!;
+      const second = code[pc + 2]!;
+      const leftClock = op >= 1 && op <= 6 && first >= 11 && first <= 14 ? first - 11 : -1;
+      const rightClock =
+        op >= 1 && op <= 6 && op % 2 === 0 && second >= 11 && second <= 14 ? second - 11 : -1;
+      let term: ClockConditionTerm;
+      if (leftClock >= 0 || rightClock >= 0) {
+        term = {
+          kind: "clock",
+          comparison: (op - 1) >> 1,
+          left: this.vars[first]!,
+          right: op % 2 === 0 ? this.vars[second]! : second,
+          leftClock,
+          rightClock,
+          negate,
+        };
+      } else {
+        let value = this.conditionOutcomes.get(pc);
+        if (value === undefined && op !== 0x0d && op !== 0x0e)
+          value = this.evaluateCondition(code, pc).result;
+        term = { kind: "fixed", value: value === undefined ? undefined : value !== negate };
+      }
+      if (group) group.push(term);
+      else clauses.push([term]);
+      negate = false;
+      pc = this.skipCondition(code, pc);
+    }
+    return clauses;
+  }
+
+  /**
+   * Sample coherent future clock states within the host-time ceiling. Treating
+   * each comparison as independently flippable would accept tautologies such
+   * as seconds<1 || seconds>0. Non-clock outcomes stay frozen, and skipped
+   * side-effecting predicates remain unknown rather than being executed.
+   */
+  private clockCanSelectAlternate(
+    frame: LogicFrame,
+    condition: number,
+    branch: ClockBranch,
+    writes: number,
+  ): boolean {
+    const key = JSON.stringify([branch.result, branch.clock, branch.clauses, writes]);
+    const cached = frame.clockFeasibility?.get(condition);
+    if (cached?.key === key) return cached.result;
+    const clock = branch.clock.slice();
+    let possible = false;
+    for (let seconds = 0; seconds < CLOCK_WAIT_LIMIT_MS / 1000; seconds++) {
+      for (let unit = 0; unit < 4; unit++) {
+        clock[unit] = (clock[unit]! + 1) & 255;
+        if (unit === 3 || clock[unit] !== (unit < 2 ? 60 : 24)) break;
+        clock[unit] = 0;
+      }
+      let result: boolean | undefined = true;
+      for (const clause of branch.clauses) {
+        let clauseResult: boolean | undefined = false;
+        for (const term of clause) {
+          let value: boolean | undefined;
+          if (term.kind === "fixed") value = term.value;
+          else {
+            // A script reset of a lower unit also prevents its carry into
+            // higher units. Unaffected units still advance together.
+            const left =
+              term.leftClock >= 0 && !(writes & ((1 << (term.leftClock + 1)) - 1))
+                ? clock[term.leftClock]!
+                : term.left;
+            const right =
+              term.rightClock >= 0 && !(writes & ((1 << (term.rightClock + 1)) - 1))
+                ? clock[term.rightClock]!
+                : term.right;
+            value =
+              (term.comparison === 0
+                ? left === right
+                : term.comparison === 1
+                  ? left < right
+                  : left > right) !== term.negate;
+          }
+          if (value === true) {
+            clauseResult = true;
+            break;
+          }
+          if (value === undefined) clauseResult = undefined;
+        }
+        if (clauseResult === false) {
+          result = false;
+          break;
+        }
+        if (clauseResult === undefined) result = undefined;
+      }
+      if (result !== undefined && result !== branch.result) {
+        possible = true;
+        break;
+      }
+    }
+    frame.clockFeasibility ??= new Map();
+    frame.clockFeasibility.set(condition, { key, result: possible });
+    return possible;
+  }
+
+  /** Clock writes executed since this particular back edge's last iteration. */
+  private loopClockWrites(frame: LogicFrame, start: number, backEdge: number): number {
+    const after = frame.clockBackEdges?.get(backEdge) ?? 0;
+    let mask = 0;
+    for (const [pc, generations] of frame.clockWrites ?? []) {
+      if (pc < start || pc >= backEdge) continue;
+      for (let unit = 0; unit < 4; unit++) if (generations[unit]! > after) mask |= 1 << unit;
+    }
+    return mask;
+  }
+
+  /** Scalar destinations of AGI actions, including indirect assignment. */
+  private actionClockWrites(code: Uint8Array, pc: number): number {
+    const op = code[pc]!;
+    const first = code[pc + 1]!;
+    let destinations: number[];
+    if ((op >= 1 && op <= 8) || op === 0x0a || (op >= 0xa5 && op <= 0xa8)) destinations = [first];
+    else if (op === 0x09 || op === 0x0b) destinations = [this.vars[first]!];
+    else if (op === 0x27) destinations = [code[pc + 2]!, code[pc + 3]!];
+    else if ((op >= 0x31 && op <= 0x35) || op === 0x39 || op === 0x57 || op === 0x61 || op === 0x76)
+      destinations = [code[pc + 2]!];
+    else if (op === 0x45 || op === 0x82) destinations = [code[pc + 3]!];
+    else return 0;
+    let mask = 0;
+    for (const destination of destinations)
+      if (destination >= 11 && destination <= 14) mask |= 1 << (destination - 11);
+    return mask;
+  }
+
+  /**
+   * Does every path from an untaken clock branch leave this loop? Following
+   * the alternative distinguishes a controlling condition from an incidental
+   * display/counter branch. Never execute conditions here: said/have.key have
+   * side effects. A cycle in the alternative is conservatively not an exit.
+   */
+  private clockBranchExitsLoop(
+    code: Uint8Array,
+    from: number,
+    start: number,
+    backEdge: number,
+  ): boolean {
+    const pending: { pc: number; finish: boolean }[] = [{ pc: from, finish: false }];
+    const visiting = new Set<number>();
+    const exited = new Set<number>();
+    while (pending.length > 0) {
+      const { pc, finish } = pending.pop()!;
+      if (finish) {
+        visiting.delete(pc);
+        exited.add(pc);
+        continue;
+      }
+      if (pc < start || pc > backEdge || code[pc] === 0x00 || exited.has(pc)) continue;
+      if (pc === backEdge || visiting.has(pc)) return false;
+      visiting.add(pc);
+      pending.push({ pc, finish: true });
+      const op = code[pc]!;
+      if (op === GOTO) {
+        pending.push({ pc: pc + 3 + readS16(code, pc + 1), finish: false });
+      } else if (op === IF) {
+        let next = pc + 1;
+        while (code[next] !== IF) {
+          if (next >= code.length) return false;
+          next =
+            code[next] === NOT || code[next] === OR ? next + 1 : this.skipCondition(code, next);
+        }
+        const body = next + 3;
+        pending.push(
+          { pc: body, finish: false },
+          { pc: body + readS16(code, next + 1), finish: false },
+        );
+      } else {
+        const spec = actionSpec(op, this.profile);
+        if (!spec) return false;
+        pending.push({ pc: pc + 1 + spec.operands.length, finish: false });
+      }
+    }
+    return true;
   }
 
   /** Evaluate a condition list starting at `from` (just after opening 0xff). */
@@ -2819,6 +3171,7 @@ export class Engine {
 
   private evalOneCondition(code: Uint8Array, pc: number): { result: boolean; next: number } {
     const outcome = this.evaluateCondition(code, pc);
+    this.conditionOutcomes.set(pc, outcome.result);
     this.traceInstruction(code, pc, outcome.result);
     return outcome;
   }
@@ -2988,16 +3341,12 @@ export class Engine {
     return this.itemLocations[item]!;
   }
 
-  /** display / display.v: text at a cell position with the current attribute. */
   /**
-   * display: the interpreters' character output (3.002.102 load-module offset
-   * 0x2d48; 2.411, 2.917 and 2.936 match) treats CR and LF as a line break to
-   * the next row, capped at row 24, and wraps the character after column 39
-   * the same way. Both continue at the routine's start column, which only a
-   * message window sets, so a display call resumes at column 0. The spec
-   * leaves the layout of display text unspecified; games rely on embedded
-   * newlines (a Leisure Suit Larry demonstration and the Space Quest intro
-   * display two-line captions this way).
+   * display / display.v: text at a cell position with the current attribute.
+   * CR and LF break to the next row, capped at row 24, and the character
+   * after column 39 wraps the same way; both continue at the routine's start
+   * column, which only a message window sets, so a display call resumes at
+   * column 0. docs/fidelity.md: display-line-layout
    */
   private display(row: number, col: number, text: string): void {
     const a = this.textAttr();
@@ -3360,9 +3709,13 @@ export class Engine {
       case 0x3b:
         if (obj(0).active) obj(0).earlierPartition = false;
         return next;
-      // force.update: getFrame() recomposites every active object on every
-      // call (no damage tracking), so the forced redraw is already inherent.
+      // Object behavior: force.update refreshes both object lists, including
+      // stopped objects, without advancing motion/cycling. Restore every old
+      // rectangle before stamping any new draw (docs/fidelity.md:
+      // text-under-later-graphics); the operand does not restrict the refresh.
       case 0x3c:
+        for (const o of this.objects) if (o.active) this.restoreBehind(o);
+        for (const o of this.objects) if (o.active) this.stampDraw(o);
         this.updateEgoVisibility();
         return next;
       case 0x3d:

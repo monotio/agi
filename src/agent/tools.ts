@@ -44,6 +44,12 @@ import {
 } from "./commandReference.ts";
 import { ROOM_TOOLS, executeRoomTool } from "./roomTools.ts";
 import { AUTHORING_GUIDE_TOOL, readAuthoringGuide } from "./authoringGuide.ts";
+import {
+  GAME_TEST_TOOLS,
+  executeGameTestTool,
+  rerunAffectedTests,
+  type TouchedResource,
+} from "./gameTests.ts";
 import { playtestRoom, validateGenesis } from "./playtest.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import {
@@ -199,6 +205,8 @@ export interface AgentSessionState {
   readonly profile: AgiProfile;
   wordsPayload?: Uint8Array | undefined;
   objectPayload?: Uint8Array | undefined;
+  /** Stored game tests (TESTS.JSON) written this session; see gameTests.ts. */
+  testsPayload?: Uint8Array | undefined;
   genesisComplete: boolean;
   /**
    * write_picture calls made per picture number this session. The harness
@@ -340,6 +348,7 @@ export function createAgentSessionState(existingContainer?: GameContainer): Agen
     profile: detectProfile(container.files),
     wordsPayload,
     objectPayload,
+    testsPayload: undefined,
     genesisComplete: false,
     pictureRounds: new Map<number, number>(),
     getFiles() {
@@ -350,6 +359,7 @@ export function createAgentSessionState(existingContainer?: GameContainer): Agen
       if (this.objectPayload) {
         files.set("OBJECT", this.objectPayload);
       }
+      if (this.testsPayload) files.set("TESTS.JSON", this.testsPayload);
       return files;
     },
   };
@@ -364,6 +374,7 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
   ...ROOM_TOOLS,
   COMMAND_REFERENCE_TOOL,
   AUTHORING_GUIDE_TOOL,
+  ...GAME_TEST_TOOLS,
   ...CORE_AGENT_TOOLS,
 ];
 
@@ -447,6 +458,50 @@ function prepareAgentToolCall(
   return { success: true, args };
 }
 
+/**
+ * A write's result carries the verdict of the stored game tests its change can
+ * affect: verdict first, so the agent sees the consequence in the same turn.
+ */
+function withGameTestVerdict(
+  session: AgentSessionState,
+  result: AgentToolResult,
+  touched: readonly TouchedResource[],
+): AgentToolResult {
+  const rerun = rerunAffectedTests(session, touched);
+  if (!rerun) return result;
+  return {
+    ...result,
+    message: `Game tests: ${rerun.line}${result.message ? ` ${result.message}` : ""}`,
+    details: { ...result.details, gameTests: rerun.outcomes, gameTestsRerun: rerun.selection },
+  };
+}
+/**
+ * The resources a successful write reports touching: its writtenResources
+ * plus the WORDS.TOK/OBJECT files a composite write updated (a dictionary or
+ * inventory change can affect commands in tests of any room), deduplicated.
+ */
+function touchedResources(result: AgentToolResult): TouchedResource[] {
+  const touched: TouchedResource[] = [];
+  const written = result.details?.["writtenResources"];
+  if (Array.isArray(written))
+    for (const entry of written) {
+      const resource = entry as { kind?: unknown; num?: unknown } | null;
+      if (typeof resource?.kind === "string" && typeof resource.num === "number")
+        touched.push({ kind: resource.kind as TouchedResource["kind"], num: resource.num });
+    }
+  const files = result.details?.["updatedFiles"];
+  if (Array.isArray(files))
+    for (const file of files) {
+      if (file === "WORDS.TOK") touched.push({ kind: "words", num: 0 });
+      else if (file === "OBJECT") touched.push({ kind: "objects", num: 0 });
+    }
+  return touched.filter(
+    (resource, index) =>
+      touched.findIndex((other) => other.kind === resource.kind && other.num === resource.num) ===
+      index,
+  );
+}
+
 /** Internal dispatch for arguments already normalized and checked against the catalog. */
 function executeValidatedAgentTool(
   session: AgentSessionState,
@@ -455,6 +510,12 @@ function executeValidatedAgentTool(
 ): AgentToolResult {
   if (name === "read_command_reference") return readCommandReference(session.profile, args);
   if (name === "read_authoring_guide") return readAuthoringGuide(args);
+  const gameTest = executeGameTestTool(session, name, args);
+  if (gameTest) {
+    if (name === "write_game_tests" && gameTest.success)
+      return { ...gameTest, details: { ...gameTest.details, updatedFiles: ["TESTS.JSON"] } };
+    return gameTest;
+  }
   let result: AgentToolResult;
   for (const field of ["offset", "limit"]) {
     const value = args[field];
@@ -478,33 +539,46 @@ function executeValidatedAgentTool(
   } catch (error) {
     result = { success: false, error: String(error) };
   }
-  const kind = (
-    {
-      write_logic_source: "logic",
-      write_picture: "picture",
-      write_view: "view",
-      write_sound: "sound",
-    } as Record<string, ResourceKind>
-  )[name];
-  if (result.success && kind) {
-    const num = Number(args["room"] ?? args["num"]);
-    return {
-      ...result,
-      details: {
-        ...result.details,
-        writtenResources: [{ kind, num }],
-        revision: resourceRevision(session.container.getResource(kind, num)),
-      },
-    };
+  if (result.success) {
+    // The four legacy writers predate the mutation-metadata contract, so the
+    // wrapper attaches it here; every other writer reports its own
+    // writtenResources/updatedFiles, and rerun selection trusts that metadata
+    // rather than a tool-name list.
+    const legacyKind = (
+      {
+        write_logic_source: "logic",
+        write_picture: "picture",
+        write_view: "view",
+        write_sound: "sound",
+      } as Record<string, ResourceKind>
+    )[name];
+    if (legacyKind) {
+      const num = Number(args["room"] ?? args["num"]);
+      result = {
+        ...result,
+        details: {
+          ...result.details,
+          writtenResources: [{ kind: legacyKind, num }],
+          revision: resourceRevision(session.container.getResource(legacyKind, num)),
+        },
+      };
+    }
+    if (name === "write_words" || name === "write_inventory_objects")
+      result = {
+        ...result,
+        details: {
+          ...result.details,
+          updatedFiles: [name === "write_words" ? "WORDS.TOK" : "OBJECT"],
+        },
+      };
+    // Writers that delegate to another write tool (edit_resource_source,
+    // upsert_inventory_item) already carry the inner call's rerun verdict;
+    // never run the tests twice.
+    if (!result.details?.["gameTestsRerun"]) {
+      const touched = touchedResources(result);
+      if (touched.length) return withGameTestVerdict(session, result, touched);
+    }
   }
-  if (result.success && (name === "write_words" || name === "write_inventory_objects"))
-    return {
-      ...result,
-      details: {
-        ...result.details,
-        updatedFiles: [name === "write_words" ? "WORDS.TOK" : "OBJECT"],
-      },
-    };
   if (result.success && (name === "read_logic" || name === "read_picture")) {
     const full = String(result.details?.["source"] ?? "");
     const lines = full.split("\n");
@@ -1352,6 +1426,8 @@ export const ASK_TOOLS: readonly string[] = [
   "preview_sound",
   "read_command_reference",
   "read_authoring_guide",
+  "read_game_tests",
+  "run_game_tests",
   "inspect_world_bible",
   "playtest_room",
   "read_frames",

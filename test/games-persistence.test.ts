@@ -8,8 +8,7 @@ import { fixtureDir, fixtureSkip } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
- * Authentic save/restore against the ORIGINAL King's Quest 1/2/3 resources
- * (local-only, gitignored — never shipped, skipped when absent).
+ * Optional save/restore tests for the King's Quest editions below.
  *
  * The block dimensions below are the spec's own per-game tables from "Rooms,
  * Replay, and Persistence", not values read back from this encoder:

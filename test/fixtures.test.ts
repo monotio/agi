@@ -1,8 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { combinedDirectory, fixtureDir, fixtureSkip, hasFixture } from "./fixtures.ts";
+import { loadGame } from "./game-fixture.ts";
+import {
+  combinedDirectory,
+  fixtureDir,
+  fixtureReadiness,
+  fixtureSkip,
+  hasFixture,
+} from "./fixtures.ts";
 
 test("missing fixtures report the installation folder instead of passing silently", () => {
   const slug = "missing-fixture-test";
@@ -48,4 +55,51 @@ test("a v3 combined installation is checked through its prefixed directory and v
     writeFileSync(join(dir, name), new Uint8Array());
   }
   assert.equal(fixtureSkip(slug), false);
+});
+
+test("partial fixture checks require metadata and explicit files while deferring volume checks", (t) => {
+  const dir = mkdtempSync(fixtureDir("fixture-partial-").slice(0, -1));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  // Logic in volume 0; picture, view and sound in three additional volumes.
+  writeFileSync(
+    join(dir, "TESTDIR"),
+    Uint8Array.of(8, 0, 11, 0, 14, 0, 17, 0, 0, 0, 0, 0x30, 0, 0, 0x50, 0, 0, 0x80, 0, 0),
+  );
+  for (const name of ["OBJECT", "TESTVOL.0"]) writeFileSync(join(dir, name), new Uint8Array());
+  const names = () => new Map(readdirSync(dir).map((name) => [name.toLowerCase(), name]));
+  const partial = { checkVolumes: false };
+  assert.match(String(fixtureReadiness("example", `${dir}/`, names(), [], partial)), /WORDS\.TOK/);
+  writeFileSync(join(dir, "WORDS.TOK"), new Uint8Array(52));
+  assert.equal(fixtureReadiness("example", `${dir}/`, names(), [], partial), false);
+  assert.match(String(fixtureReadiness("example", `${dir}/`, names(), ["AGI"], partial)), /AGI/);
+  const complete = String(fixtureReadiness("example", `${dir}/`, names()));
+  for (const volume of [3, 5, 8]) assert.ok(complete.includes(`TESTVOL.${volume}`));
+  assert.throws(() => loadGame(basename(dir)), /TESTVOL\.3/);
+  const { container } = loadGame(basename(dir), partial);
+  assert.throws(() => container.getResource("picture", 0), /points to missing VOL/);
+});
+
+test("binary-only fixture requirements neither demand resources nor hide a missing named binary", (t) => {
+  const dir = mkdtempSync(fixtureDir("fixture-binary-check-").slice(0, -1));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, "agi"), new Uint8Array());
+  const names = () => new Map(readdirSync(dir).map((name) => [name.toLowerCase(), name]));
+  const options = { resourceFiles: false };
+  const missing = String(
+    fixtureReadiness("mh2", `${dir}/`, names(), ["AGI", "AGIDATA.OVL"], options),
+  );
+  assert.match(missing, /AGIDATA\.OVL/);
+  assert.doesNotMatch(missing, /WORDS|VOL|LOGDIR/);
+  writeFileSync(join(dir, "agidata.ovl"), new Uint8Array());
+  assert.equal(fixtureReadiness("mh2", `${dir}/`, names(), ["AGI", "AGIDATA.OVL"], options), false);
+  assert.match(
+    String(fixtureReadiness("mh2", `${dir}/`, names())),
+    /LOGDIR/,
+    "normal game tests retain the complete census",
+  );
+  assert.throws(
+    () => fixtureReadiness("mh2", `${dir}/`, names(), [], options),
+    /named files/,
+    "an empty dependency list cannot silently pass",
+  );
 });

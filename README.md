@@ -33,21 +33,13 @@ a connection; it is not yet an installable offline app.
 The built-in catalog includes Adventure Department 1.0.0. To include more games
 on your own site, put their resources in public folders and list them in
 `catalog.json`; visitors play them directly from the gallery without importing
-files. See [hosting included games](CONTRIBUTING.md#including-games-on-your-site).
+files. See [hosting included games](docs/hosting.md#including-games-on-your-site).
 
-The first visit leads with the tutorial and an expanded **Create a new adventure**
-section. The browser remembers whether you leave Create expanded or collapsed.
-The tutorial can also be collapsed; once you create or import your own games, it
-starts collapsed unless you explicitly chose to keep it open.
-**Add game** accepts a ZIP or folder below these sections.
-Once a game is in your library,
-**Your games** appears as a gallery with a direct **Resume** or **Play** action
-on each card. Games supplied by the site, imports, creations and local development
-fixtures share this gallery. Progress screenshots show the scene captured with the latest safe
-autosave. Rename with the pencil beside its name. The three-dot **Game actions** menu beside
-**Resume** or **Play** holds Start over (once a checkpoint exists), Check opening (for
-unverified imports), Make a copy, Game export, Project and Remove game; **Details**
-contains game metadata.
+**Add game** accepts a ZIP or folder. Your library appears under **Your games**,
+with **Resume** or **Play** on each card and a screenshot from its latest autosave.
+Rename a game with the pencil beside its name. Open **Game actions** to start
+over, check an imported game's opening, make a copy, download or remove a game.
+**Details** contains game metadata.
 
 To create an adventure with an AI provider, pick a starting point under
 **Create a new adventure**:
@@ -147,17 +139,20 @@ These saves preserve the AGI binary format and are separate from autosave.
 Browser storage supplies the save directory; DOS drive and path dialogs are not
 emulated. Clearing browser data removes these local saves.
 
-| Export                         | What travels with it                                                                   |
-| ------------------------------ | -------------------------------------------------------------------------------------- |
-| **Game actions → Game export** | Playable resources and public game metadata.                                           |
-| **Game actions → Project**     | The game plus its authoring conversation, images, source descriptions and world notes. |
+| Export                         | What travels with it                                                                                                                           |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Game actions → Game export** | Playable resources and public game metadata.                                                                                                   |
+| **Game actions → Project**     | The game plus its authoring conversation, images, source descriptions, world notes, stored game tests, and your saved games and last autosave. |
 
 Both downloads are ZIPs you can reopen with **Add game → ZIP file**. Public game
 exports can include a description, author, license and remix provenance in
 `GAME.JSON`. They exclude local thumbnails, validation results and conversations. A missing license remains unknown rather than inheriting this
 repository's MIT license. A game export starts a fresh authoring conversation; a
-project carries its saved context. Downloaded games start from the beginning.
-Your saved position stays in the browser.
+project carries its saved context. A game export starts from the beginning; a
+project archive also carries your twelve save slots and latest autosave, so your
+position moves with it between browsers and computers.
+If the running game cannot save its current progress, the download explains why
+and offers an explicit choice to use only the progress already saved in this browser.
 
 ## How it works
 
@@ -187,8 +182,12 @@ adventures target AGI 2.936 with standard bytecode. The browser shell adds a GPU
 CRT display and an in-game command line. The game resources and engine are open
 to inspection.
 
-See [Contributing](CONTRIBUTING.md) for architecture, tests, local game fixtures
-and hosting, and [evals](evals/README.md) for authoring evaluations.
+[Interpreter compatibility](docs/fidelity.md) documents profile selection and
+behavior verified against original interpreters, with evidence and regression tests.
+
+See [Contributing](CONTRIBUTING.md) for architecture, tests and local game
+fixtures, [Hosting](docs/hosting.md) for running your own site, and
+[evals](evals/README.md) for authoring evaluations.
 The [KQ1 completion proof](CONTRIBUTING.md#kq1-completion-proof) runs a local
 walkthrough on a virtual clock and replays it through desktop and phone controls.
 

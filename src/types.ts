@@ -56,7 +56,7 @@ export interface GameContainer {
   putResource(kind: ResourceKind, num: number, payload: Uint8Array): void;
 
   /** Replace auxiliary game metadata with an owned copy for live remix and export. */
-  putFile(name: "WORDS.TOK" | "OBJECT", payload: Uint8Array): void;
+  putFile(name: "WORDS.TOK" | "OBJECT" | "TESTS.JSON", payload: Uint8Array): void;
 
   /** Raw container files, e.g. "LOGDIR" -> bytes, "VOL.0" -> bytes. For persistence. */
   readonly files: ReadonlyMap<string, Uint8Array>;

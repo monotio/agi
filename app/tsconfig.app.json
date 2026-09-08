@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.vue",
+    "test/**/*.ts",
+    "e2e/**/*.ts",
+    "e2e/**/*.mjs",
+    "production/**/*.ts",
+    "*.config.ts"
+  ],
+  "exclude": ["src/engine.worker.ts", "src/preview.worker.ts"]
+}

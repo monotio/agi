@@ -1,9 +1,22 @@
+import {
+  validateRecordedReplay,
+  type RecordedReplay,
+  type RecordedHostCall,
+} from "./recordedReplay.ts";
 /** Bounded, detached execution of authored resources using the real interpreter. */
 import { openContainer } from "../container/container.ts";
 import { parseWordsTok } from "../logic/words.ts";
 import { TIMER_INCREMENT_MS } from "../runtime/cycleClock.ts";
 import { Engine, type EngineHost } from "../runtime/engine.ts";
 import { frameToPng, framesToContactSheet, textRows, type AgentFrame } from "./frames.ts";
+import {
+  directionForDelta,
+  randomSource,
+  validateObjectAssertion,
+  validateUntilPredicate,
+  validateVarAssertion,
+  type UntilPredicate,
+} from "./gameTestSteps.ts";
 import type { AgentSessionState, AgentToolResult } from "./tools.ts";
 
 const DEFAULT_CYCLES = 600;
@@ -32,6 +45,35 @@ const DIRECTION_DELTAS: Readonly<Record<number, readonly [number, number]>> = {
   7: [-1, 0],
   8: [-1, -1],
 };
+/** Every non-null condition of a wait-until predicate must hold. */
+function untilMet(engine: Engine, until: UntilPredicate): boolean {
+  if (until.room !== null && engine.vars[0] !== until.room) return false;
+  if (until.flag !== null && (engine.flags[until.flag.id] !== 0) !== until.flag.value) return false;
+  if (until.var !== null) {
+    const value = engine.vars[until.var.id]!;
+    if (until.var.value !== null) {
+      if (value !== until.var.value) return false;
+    } else {
+      if (until.var.min !== null && value < until.var.min) return false;
+      if (until.var.max !== null && value > until.var.max) return false;
+    }
+  }
+  return true;
+}
+
+/** A compact readout of a wait-until predicate for failure messages. */
+function describeUntil(until: UntilPredicate): string {
+  const parts: string[] = [];
+  if (until.room !== null) parts.push(`room ${until.room}`);
+  if (until.flag !== null) parts.push(`f${until.flag.id}=${until.flag.value}`);
+  if (until.var !== null)
+    parts.push(
+      until.var.value !== null
+        ? `v${until.var.id}=${until.var.value}`
+        : `v${until.var.id} in ${until.var.min ?? 0}..${until.var.max ?? 255}`,
+    );
+  return parts.join(", ");
+}
 
 class SimulationStop extends Error {
   readonly status: "needs_host" | "needs_authoring" | "needs_input";
@@ -64,6 +106,8 @@ class Simulation {
   readonly engine: Engine;
   readonly messages: string[] = [];
   readonly missingRooms: number[] = [];
+  /** Answers queued by answer steps for the game's get.string prompts. */
+  readonly answers: string[] = [];
   readonly steps: Record<string, unknown>[] = [];
   readonly checkpoints: CapturedCheckpoint[] = [];
   cycles = 0;
@@ -74,6 +118,7 @@ class Simulation {
   keys: number[] = [];
   /** Keys the simulation pressed for a blocking wait; only genesis boots allow that. */
   keyPresses = 0;
+  private recordedCalls: RecordedHostCall[] | null = null;
   constructor(
     state: AgentSessionState,
     cycleBudget = DEFAULT_CYCLES,
@@ -84,7 +129,7 @@ class Simulation {
     const container = openContainer(state.getFiles(), { kind: state.profile.container });
     const words = container.files.get("WORDS.TOK");
     const dictionary = new Map(words ? parseWordsTok(words).map(({ word, id }) => [word, id]) : []);
-    let random = 123456789;
+    const randomWord = randomSource(123456789);
     const unsupported = (name: string): never => {
       throw new SimulationStop(
         `Simulation requires host service ${name}; no external action was performed.`,
@@ -98,11 +143,13 @@ class Simulation {
       displayAt: () => {},
       statusLine: () => {},
       takeInputLine: () => {
+        if (this.recordedCalls) return this.recordedValue("line") as string | null;
         const line = this.line;
         this.line = null;
         return line;
       },
       takeKeys: () => {
+        if (this.recordedCalls) return this.recordedValue("keys") as number[];
         const keys = this.keys;
         this.keys = [];
         return keys;
@@ -117,17 +164,34 @@ class Simulation {
         }
         return true;
       },
-      randomWord: () => {
-        random = (Math.imul(random, 1664525) + 1013904223) >>> 0;
-        return random >>> 16;
-      },
+      versionString: () =>
+        this.recordedCalls ? (this.recordedValue("version") as string) : `AGI ${state.profile.id}`,
+      randomWord: () =>
+        this.recordedCalls ? (this.recordedValue("random") as number) : randomWord(),
+      soundDevice: () => (this.recordedCalls ? (this.recordedValue("soundDevice") as number) : 1),
       waitKey: () => {
+        if (this.recordedCalls) return this.recordedValue("waitKey") as number;
         if (!options.pressKeys) return unsupported("waitKey");
         this.keyPresses += 1;
         return 13;
       },
-      promptNumber: () => unsupported("get.num"),
-      promptString: () => unsupported("get.string"),
+      promptNumber: () => {
+        if (this.recordedCalls) return this.recordedValue("number") as number;
+        const answer = this.answers.shift();
+        if (answer === undefined) return unsupported("get.num");
+        const value = Number.parseInt(answer, 10);
+        return Number.isFinite(value) ? value : 0;
+      },
+      promptString: () => {
+        if (this.recordedCalls) return this.recordedValue("string") as string;
+        const answer = this.answers.shift();
+        if (answer === undefined)
+          throw new SimulationStop(
+            "Simulation requires host service get.string; no answer step supplied one and no external action was performed.",
+            "needs_host",
+          );
+        return answer;
+      },
       saveGame: () => unsupported("save.game"),
       restoreGame: () => unsupported("restore.game"),
       quit: () => unsupported("quit"),
@@ -136,6 +200,64 @@ class Simulation {
       profile: state.profile,
       instructionBudget,
     });
+  }
+  private recordedValue(kind: RecordedHostCall[0]): unknown {
+    while (this.recordedCalls?.[0]?.[0] === "clock") {
+      const call = this.recordedCalls.shift()!;
+      this.advanceRecordedClock(call[1] as number);
+    }
+    const call = this.recordedCalls?.shift();
+    if (!call || call[0] !== kind)
+      throw new Error(
+        `Recorded replay diverged: expected host ${call?.[0] ?? "end of tick"}, received ${kind}.`,
+      );
+    return call[1];
+  }
+  private advanceRecordedClock(ticks: number): void {
+    for (let i = 0; i < ticks; i++) {
+      if (i % 1000 === 0 && Date.now() - this.started > 5000)
+        throw new Error("Recorded replay reached its five-second execution deadline.");
+      this.engine.advanceClock(1000 / 60);
+      this.engine.soundTick();
+    }
+    if (this.estimatedGameTimeMs !== null) this.estimatedGameTimeMs += (ticks * 1000) / 60;
+  }
+  replay(recording: RecordedReplay): void {
+    this.engine.restoreReplayState(recording.state);
+    for (const operation of recording.operations) {
+      if (Date.now() - this.started > 5000)
+        throw new Error("Recorded replay reached its five-second execution deadline.");
+      switch (operation[0]) {
+        case "clock":
+          this.advanceRecordedClock(operation[1]);
+          break;
+        case "edit":
+          this.engine.setEditLine(operation[1]);
+          break;
+        case "soundEnabled":
+          this.engine.setSoundEnabled(operation[1] !== 0);
+          break;
+        case "navigate":
+          this.engine.modalNavigate(operation[1]);
+          break;
+        case "ack":
+          this.engine.ackPrint();
+          break;
+        case "release":
+        case "tick":
+          if (operation[0] === "tick" && ++this.cycles > this.cycleBudget)
+            throw new Error(`Simulation cycle limit (${this.cycleBudget}) exceeded.`);
+          this.recordedCalls = operation[1].slice();
+          if (operation[0] === "tick") this.engine.tick();
+          else this.engine.releaseTrackedKey(true);
+          if (this.recordedCalls.length)
+            throw new Error(
+              `Recorded replay diverged: ${this.recordedCalls.length} unconsumed host calls.`,
+            );
+          this.recordedCalls = null;
+          break;
+      }
+    }
   }
   tick(): void {
     if (++this.cycles > this.cycleBudget)
@@ -388,13 +510,33 @@ function occlusionProbe(engine: Engine) {
 export function playtestRoom(
   state: AgentSessionState,
   args: Record<string, unknown>,
+  options: { setupImage?: Uint8Array; replay?: RecordedReplay } = {},
 ): AgentToolResult {
   let simulation: Simulation | undefined;
   try {
     const room = integer(args["room"], "room", 1, 255);
+    const setupImage = options.setupImage;
+    const recording = options.replay ? validateRecordedReplay(options.replay) : null;
+    if (recording && !setupImage) throw new Error("Recorded replay requires its setup image.");
     const steps = args["steps"] ?? [];
     if (!Array.isArray(steps) || steps.length > 256)
       throw new Error("steps must contain at most 256 actions.");
+    // walkTo and wait-until poll toward a goal, so their default budget is
+    // generous; every other step acts once per default tick.
+    const stepTicks = (action: Record<string, unknown>, index: number): number => {
+      if (action["action"] === "answer") {
+        if (action["ticks"] != null)
+          throw new Error(
+            `steps[${index}]: answer queues a reply without advancing time; ticks must be null.`,
+          );
+        return 0;
+      }
+      return action["ticks"] == null
+        ? action["action"] === "walkTo" || (action["action"] === "wait" && action["until"] != null)
+          ? 600
+          : 1
+        : integer(action["ticks"], `steps[${index}].ticks`, 1, 60000);
+    };
     const captureTicksByStep: number[][] = [];
     let totalCaptureTicks = 0;
     for (let index = 0; index < steps.length; index++) {
@@ -402,8 +544,7 @@ export function playtestRoom(
       if (!step || typeof step !== "object" || Array.isArray(step))
         throw new Error(`steps[${index}] must be an action object.`);
       const action = step as Record<string, unknown>;
-      const ticks =
-        action["ticks"] == null ? 1 : integer(action["ticks"], `steps[${index}].ticks`, 1, 60000);
+      const ticks = stepTicks(action, index);
       const requested = action["captureTicks"];
       if (requested == null) {
         captureTicksByStep.push([]);
@@ -440,23 +581,37 @@ export function playtestRoom(
         : integer(args["instructionBudget"], "instructionBudget", 1, 1000000),
     );
     const engine = simulation.engine;
-    simulation.tick();
     let enteredDirectly = false;
-    if (engine.vars[0] !== room) {
-      // This is explicit room setup, not evidence that a player can reach it.
-      for (let i = 0; engine.modalKind && i < 8; i++) engine.ackPrint();
-      if (engine.modalKind)
-        throw new Error("Room setup is blocked by more than eight stacked modals.");
-      engine.reenterRoom(room);
+    if (setupImage) {
+      // A recorded test replays from the interpreter state at record-start:
+      // the engine under test is built from the CURRENT staged resources and
+      // the image only supplies interpreter state — the interpreter's own
+      // save/restore contract (restoreImage validates the image against a
+      // disposable engine of the same container before applying it). No boot
+      // cycle, no room re-entry and no footprint gate: the restored position
+      // is historical, not an authored spawn.
+      engine.restoreImage(setupImage, { preservePresentation: Boolean(recording) });
+    } else {
       simulation.tick();
-      enteredDirectly = true;
+      if (engine.vars[0] !== room) {
+        // This is explicit room setup, not evidence that a player can reach it.
+        for (let i = 0; engine.modalKind && i < 8; i++) engine.ackPrint();
+        if (engine.modalKind)
+          throw new Error("Room setup is blocked by more than eight stacked modals.");
+        engine.reenterRoom(room);
+        simulation.tick();
+        enteredDirectly = true;
+      }
+      if (engine.vars[0] !== room)
+        throw new Error(
+          `Requested room ${room} immediately transitions to room ${engine.vars[0]}.`,
+        );
     }
-    if (engine.vars[0] !== room)
-      throw new Error(`Requested room ${room} immediately transitions to room ${engine.vars[0]}.`);
+    if (recording) simulation.replay(recording);
     const ego = engine.screenObjects[0]!;
     const x = args["spawnX"] == null ? ego.x : integer(args["spawnX"], "spawnX", 0, 159);
     const y = args["spawnY"] == null ? ego.y : integer(args["spawnY"], "spawnY", 0, 167);
-    const problems = footprint(engine, x, y);
+    const problems = setupImage ? [] : footprint(engine, x, y);
     const spawn = {
       room,
       spawnX: x,
@@ -465,6 +620,7 @@ export function playtestRoom(
       spawnHeight: ego.height,
       spawnClear: problems.length === 0,
       enteredDirectly,
+      restored: Boolean(setupImage),
     };
     if (problems.length)
       return simulation.result(false, "spawn_blocked", problems.join(" "), spawn);
@@ -477,12 +633,15 @@ export function playtestRoom(
       const step = steps[index] as Record<string, unknown>;
       if (!step || typeof step !== "object" || Array.isArray(step))
         throw new Error(`steps[${index}] must be an action object.`);
-      const ticks =
-        step["ticks"] == null ? 1 : integer(step["ticks"], `steps[${index}].ticks`, 1, 60000);
+      const ticks = stepTicks(step, index);
       const captureTicks = captureTicksByStep[index]!;
       const action = step["action"];
       let moveDirection: number | null = null;
+      let walkTarget: { x: number; y: number } | null = null;
+      let until: UntilPredicate | null = null;
       if (action === "enter") simulation.keys.push(13);
+      else if (action === "key")
+        simulation.keys.push(integer(step["key"], `steps[${index}].key`, 0, 65535));
       else if (action === "command") {
         if (engine.modalKind)
           throw new Error(
@@ -509,8 +668,38 @@ export function playtestRoom(
         // Same host movement input as the app's direction messages.
         moveDirection = direction;
         engine.vars[6] = direction;
-      } else if (action !== "wait")
-        throw new Error(`steps[${index}].action must be command, move, enter or wait.`);
+      } else if (action === "direction") {
+        if (engine.modalKind)
+          throw new Error(
+            `steps[${index}]: acknowledge the ${engine.modalKind} modal before moving.`,
+          );
+        // The numeric form of move: 0..8, one heading decision per cycle.
+        moveDirection = integer(step["direction"], `steps[${index}].direction`, 0, 8);
+        engine.vars[6] = moveDirection;
+      } else if (action === "walkTo") {
+        if (engine.modalKind)
+          throw new Error(
+            `steps[${index}]: acknowledge the ${engine.modalKind} modal before moving.`,
+          );
+        walkTarget = {
+          x: integer(step["x"], `steps[${index}].x`, 0, 159),
+          y: integer(step["y"], `steps[${index}].y`, 0, 167),
+        };
+      } else if (action === "answer") {
+        if (
+          typeof step["answer"] !== "string" ||
+          !step["answer"].trim() ||
+          step["answer"].length > 80
+        )
+          throw new Error(`steps[${index}].answer must be nonempty and at most 80 characters.`);
+        simulation.answers.push(step["answer"]);
+      } else if (action === "wait") {
+        if (step["until"] != null)
+          until = validateUntilPredicate(step["until"], `steps[${index}].until`);
+      } else
+        throw new Error(
+          `steps[${index}].action must be command, move, enter, wait, key, direction, walkTo or answer.`,
+        );
       const observed: Record<string, unknown> = {
         index,
         action,
@@ -520,7 +709,11 @@ export function playtestRoom(
         yBefore: engine.screenObjects[0]!.y,
       };
       if (action === "command") observed["command"] = step["command"];
-      if (action === "move") observed["direction"] = step["direction"];
+      if (action === "move" || action === "direction") observed["direction"] = step["direction"];
+      if (action === "key") observed["key"] = step["key"];
+      if (walkTarget !== null) observed["walkTo"] = walkTarget;
+      if (action === "answer") observed["answer"] = step["answer"];
+      if (until !== null) observed["until"] = until;
       simulation.steps.push(observed);
       const active = engine.readObjects();
       const observations = active.slice(0, 8).map((object) => ({
@@ -548,12 +741,26 @@ export function playtestRoom(
       let positionChanges = 0;
       let previousEgoX = engine.screenObjects[0]!.x;
       let previousEgoY = engine.screenObjects[0]!.y;
+      let reachedTarget = false;
       for (let cycle = 0; cycle < ticks; cycle++) {
-        if (action === "wait" && engine.modalKind)
-          throw new SimulationStop(
-            `steps[${index}]: the ${engine.modalKind} modal pauses animation. Add an enter action before waiting to observe animation. Completed ${cycle} of ${ticks} requested cycles.`,
-            "needs_input",
-          );
+        if (action === "wait") {
+          if (until !== null && untilMet(engine, until)) break;
+          if (engine.modalKind)
+            throw new SimulationStop(
+              `steps[${index}]: the ${engine.modalKind} modal pauses animation. Add an enter action before waiting to observe animation. Completed ${cycle} of ${ticks} requested cycles.`,
+              "needs_input",
+            );
+        }
+        if (walkTarget !== null) {
+          const walker = engine.screenObjects[0]!;
+          const dx = Math.sign(walkTarget.x - walker.x);
+          const dy = Math.sign(walkTarget.y - walker.y);
+          if (dx === 0 && dy === 0) {
+            reachedTarget = true;
+            break;
+          }
+          engine.vars[6] = directionForDelta(dx, dy);
+        }
         simulation.tick();
         observed["completedTicks"] = cycle + 1;
         const currentEgo = engine.screenObjects[0]!;
@@ -569,6 +776,23 @@ export function playtestRoom(
         }
         if (captureTicks.includes(cycle + 1)) simulation.captureCheckpoint(index, cycle + 1);
       }
+      if (walkTarget !== null) {
+        engine.vars[6] = 0;
+        engine.screenObjects[0]!.direction = 0;
+        const walker = engine.screenObjects[0]!;
+        reachedTarget ||= walker.x === walkTarget.x && walker.y === walkTarget.y;
+        observed["walkTo"] = { ...walkTarget, reached: reachedTarget };
+        if (!reachedTarget) {
+          const walker = engine.screenObjects[0]!;
+          throw new Error(
+            `steps[${index}]: walkTo did not reach (${walkTarget.x},${walkTarget.y}) within ${ticks} cycles; ego stopped at (${walker.x},${walker.y}).`,
+          );
+        }
+      }
+      if (action === "wait" && until !== null && !untilMet(engine, until))
+        throw new Error(
+          `steps[${index}]: wait did not satisfy ${describeUntil(until)} within ${ticks} cycles.`,
+        );
       Object.assign(observed, {
         roomAfter: engine.vars[0],
         xAfter: engine.screenObjects[0]!.x,
@@ -581,7 +805,7 @@ export function playtestRoom(
             : simulation.estimatedGameTimeMs - estimatedStart,
         occlusion: occlusionProbe(engine),
       });
-      if (action === "move" && moveDirection !== null) {
+      if (moveDirection !== null) {
         const xBefore = observed["xBefore"] as number;
         const yBefore = observed["yBefore"] as number;
         const xAfter = engine.screenObjects[0]!.x;
@@ -616,7 +840,7 @@ export function playtestRoom(
           issue,
         };
       }
-      if (action === "move") {
+      if (moveDirection !== null) {
         engine.vars[6] = 0;
         engine.screenObjects[0]!.direction = 0;
       }
@@ -627,6 +851,8 @@ export function playtestRoom(
       )
         throw new Error(`steps[${index}]: the game did not accept the supplied command.`);
     }
+    if (simulation.answers.length)
+      throw new Error("Unused answer steps remain: the game never requested those replies.");
     const expected = args["expect"];
     const failures: string[] = [];
     const nextSteps: string[] = [];
@@ -679,9 +905,128 @@ export function playtestRoom(
         }
       }
     }
+    if (expected != null) {
+      const assertions = expected as Record<string, unknown>;
+      if (assertions["vars"] != null) {
+        if (!Array.isArray(assertions["vars"]) || assertions["vars"].length > 256)
+          throw new Error("expect.vars must be an array of at most 256 assertions.");
+        for (const value of assertions["vars"]) {
+          const variable = validateVarAssertion(value, "expect.vars entry");
+          const observed = engine.vars[variable.id]!;
+          const holds =
+            variable.value !== null
+              ? observed === variable.value
+              : (variable.min === null || observed >= variable.min) &&
+                (variable.max === null || observed <= variable.max);
+          if (!holds) {
+            failures.push(
+              variable.value !== null
+                ? `Expected v${variable.id}=${variable.value}; observed ${observed}.`
+                : `Expected v${variable.id} in ${variable.min ?? 0}..${variable.max ?? 255}; observed ${observed}.`,
+            );
+            nextSteps.push(
+              `Inspect every assignment to v${variable.id} on the path the steps take; a counter that is reset on room entry or decremented each cycle reads differently from the value the logic stored last.`,
+            );
+          }
+        }
+      }
+      if (assertions["printed"] != null) {
+        if (typeof assertions["printed"] !== "string" || assertions["printed"].length > 200)
+          throw new Error("expect.printed must be text of at most 200 characters.");
+        const wanted = assertions["printed"];
+        if (!simulation.messages.some((message) => message.includes(wanted))) {
+          failures.push(
+            `Expected a printed message containing ${JSON.stringify(wanted)}; none did.`,
+          );
+          nextSteps.push(
+            "Compare the printed messages in details.messages with the said() handler or event that should print this text; check the words are registered and the handler's conditions hold on this path.",
+          );
+        }
+      }
+      if (assertions["text"] != null) {
+        if (typeof assertions["text"] !== "string" || assertions["text"].length > 200)
+          throw new Error("expect.text must be text of at most 200 characters.");
+        const wanted = assertions["text"];
+        const frame = engine.getPresentation();
+        const rows = textRows({ ...frame, cycle: simulation.cycles, picRow: engine.displayBase });
+        if (!rows.some((row) => row.includes(wanted))) {
+          failures.push(`Expected visible text containing ${JSON.stringify(wanted)}; none shown.`);
+          nextSteps.push(
+            "Compare details.text with the display call that should show it; text shows only while nothing repaints its rows, and an open window pauses the room.",
+          );
+        }
+      }
+      if (assertions["score"] != null) {
+        const wanted = integer(assertions["score"], "expect.score", 0, 255);
+        if (engine.vars[3] !== wanted) {
+          failures.push(`Expected score ${wanted}; observed ${engine.vars[3]}.`);
+          nextSteps.push(
+            "Inspect every addn/subn to v3 on the path the steps take; the score changes in the logic that awards it, not at the assertion.",
+          );
+        }
+      }
+      if (assertions["object"] != null) {
+        const spec = validateObjectAssertion(assertions["object"], "expect.object");
+        const target = engine.screenObjects[spec.num]!;
+        const misses: string[] = [];
+        if (spec.active !== null && target.active !== spec.active)
+          misses.push(`active=${spec.active}; observed ${target.active}`);
+        if (spec.view !== null && target.view !== spec.view)
+          misses.push(`view ${spec.view}; observed ${target.view}`);
+        if (spec.x0 !== null && target.x < spec.x0)
+          misses.push(`x >= ${spec.x0}; observed ${target.x}`);
+        if (spec.x1 !== null && target.x > spec.x1)
+          misses.push(`x <= ${spec.x1}; observed ${target.x}`);
+        if (spec.y0 !== null && target.y < spec.y0)
+          misses.push(`y >= ${spec.y0}; observed ${target.y}`);
+        if (spec.y1 !== null && target.y > spec.y1)
+          misses.push(`y <= ${spec.y1}; observed ${target.y}`);
+        if (misses.length) {
+          failures.push(`Expected object ${spec.num} ${misses.join(", ")}.`);
+          nextSteps.push(
+            `Inspect object ${spec.num} with read_objects and the logic that draws, positions or moves it; check the view is loaded and the motion reaches the asserted box on this path.`,
+          );
+        }
+      }
+      if (assertions["reachable"] != null) {
+        const target = assertions["reachable"] as Record<string, unknown>;
+        const reachX = integer(target["x"], "expect.reachable.x", 0, 159);
+        const reachY = integer(target["y"], "expect.reachable.y", 0, 167);
+        let reached = false;
+        for (let n = 0; n < 600 && !reached && simulation.cycles < simulation.cycleBudget; n++) {
+          const walker = engine.screenObjects[0]!;
+          const dx = Math.sign(reachX - walker.x);
+          const dy = Math.sign(reachY - walker.y);
+          if (dx === 0 && dy === 0) {
+            reached = true;
+            break;
+          }
+          engine.vars[6] = directionForDelta(dx, dy);
+          simulation.tick();
+        }
+        engine.vars[6] = 0;
+        engine.screenObjects[0]!.direction = 0;
+        const finalWalker = engine.screenObjects[0]!;
+        reached ||= finalWalker.x === reachX && finalWalker.y === reachY;
+        if (!reached) {
+          const walker = engine.screenObjects[0]!;
+          failures.push(
+            `Expected (${reachX},${reachY}) reachable on foot; ego stopped at (${walker.x},${walker.y}).`,
+          );
+          nextSteps.push(
+            "Walk the route in the composed frame: read the priority and control lines between ego and the target with read_room_context and check the walkTo observation for where progress stopped.",
+          );
+        }
+      }
+    }
     if (failures.length)
       return simulation.result(false, "failed", failures.join(" "), { ...spawn, nextSteps });
-    return simulation.result(true, steps.length ? "passed" : "not_requested", undefined, spawn);
+    return simulation.result(
+      true,
+      steps.length || recording ? "passed" : "not_requested",
+      undefined,
+      spawn,
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const status = error instanceof SimulationStop ? error.status : "failed";

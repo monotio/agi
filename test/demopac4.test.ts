@@ -12,13 +12,9 @@ import { fixtureSkip } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
- * Authentic v3 fixture: a local, gitignored Sierra demonstration installation
- * (games/demopac4: DMDIR, DMVOL.0-1, AGIDATA.OVL "Version 3.002.102"). It is
- * the only installed game whose every logic record is dictionary-compressed,
- * so it is what proves the combined container and the 3.002.102 profile end
- * to end: resources expand, text decodes, and the scripted demonstrations
- * run to completion without a key press. Expectations were read by hand from
- * the fixture bytes and its disassembled bytecode.
+ * Optional Sierra demo-pack fixture: supply DMDIR, DMVOL.0-1 and the
+ * 3.002.102 interpreter under games/demopac4/. The suite checks compressed
+ * resource expansion, message decoding and completion of all six demos.
  */
 const SLUG = "demopac4";
 const skip = fixtureSkip(SLUG, ["AGIDATA.OVL"]);

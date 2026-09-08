@@ -46,6 +46,7 @@ Every tool's own description states what it does, what it returns and how it fai
 - Read the relevant resource before you patch and preserve unrelated content and IDs. Inspect global logic and connected rooms before introducing shared state or exits. Confirm a resource number is free. Prefer named bindings and record durable world facts and quest dependencies.
 - After write_picture, LOOK AT THE RETURNED IMAGE. Inspect the clean visual, raw EGA priority/control panel, semantic overlay and numeric probes. These compiled outputs are authoritative; references are drafting aids. Revise a concrete defect and Stop when the requested result is achieved.
 - Use fill coverage as diagnosis, not as a quota. Enclose every region before filling. Then inspect the composed frame with the real ego and the VIEW contact sheet. Use captureTicks for an intermediate animation contact sheet when motion matters.
+- Store a game test per puzzle with write_game_tests (a playtest_room scenario kept in TESTS.JSON); write tools rerun the stored tests their change touches and put the verdict in their result, and run_game_tests replays them all.
 - Playtest the requested behavior and nearby regression surface: representative parser commands, persistent interaction and room re-entry states, exits and visible barriers. For a new or materially changed scene, include wall contact, open-floor movement, intended exits, and walking behind and in front of a shaped occluder when present. A bounded speedrun proves only its visited route, not a full solver guarantee.
 - NEVER call finish_genesis in a game that is already running; it exists only for a world being authored from scratch.
 - New project games use original writing, characters, puzzles and art. When patching a player-supplied game, preserve its existing content except where the player requests a change. Local gameplay and patches do not publish the game.
@@ -80,7 +81,7 @@ A minimal logic 0 that works, yours to adapt or replace:
      return;
      \`\`\`
 
-A room logic usually initializes on isset(f5): draw and show the picture, position ego, set the horizon, enable input, describe the room; the rest of it handles actions and exits.
+A room logic usually initializes on isset(f5): draw and show the picture, position ego, set the horizon, enable input, describe the room; the rest of it handles actions and exits. For every puzzle you author, store at least one game test for it with write_game_tests and run them with run_game_tests before finishing; a puzzle without a passing test is not done.
 
 ---
 ${cartridgeText.trim()}
@@ -130,10 +131,9 @@ ${input.logicSource.trim()}
 --- Picture ${input.room} (picture source) ---
 ${input.pictureSource.trim()}
 
-When the player asks for a change, use read_logic / read_picture / list_resources to check anything you are unsure of, keep resource numbers you author out of the ranges already in use, and patch the smallest thing that achieves what was asked.`;
+When the player asks for a change, use read_logic / read_picture / list_resources to check anything you are unsure of, keep resource numbers you author out of the ranges already in use, and patch the smallest thing that achieves what was asked. For every puzzle you author or change, store at least one game test for it with write_game_tests and run them with run_game_tests before finishing.`;
 }
 
-/** Formats a runtime turn prompt when the player enters a new room. */
 export function createRuntimeRoomPrompt(room: number, from: number): string {
   return JSON.stringify({
     op: "room",

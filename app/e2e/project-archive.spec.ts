@@ -61,6 +61,11 @@ test("Download project resumes private history in a fresh browser; Download game
   const projectDownload = page.waitForEvent("download");
   await openGameOptions(page, "game-actions-menu");
   await page.getByTestId("btn-save-live-project").click();
+  // This authoring-only fixture has no drawn room or resumable player state.
+  await expect(page.getByTestId("export-refusal")).toContainText(
+    "Current progress could not be saved",
+  );
+  await page.getByTestId("export-saved-progress").click();
   const saved = await projectDownload;
   expect(saved.suggestedFilename()).toMatch(/-project.zip$/);
   const data = await readGameZip(new Uint8Array(await readFile((await saved.path())!)));
@@ -110,7 +115,8 @@ test("Download project resumes private history in a fresh browser; Download game
     expect(calls).toBe(0);
     await other.screenshot({ path: "test-results/project-ready.png" });
     await other.getByTestId("btn-resume-cached").click();
-    await other.unroute("**/api/**");
+    // Keep interception enabled while the worker imports its modules. The
+    // specific mock below overrides the API-blocking fallback without a gap.
     const requests: Record<string, unknown>[] = [];
     await other.route("**/api/openai/v1/responses", async (route) => {
       requests.push(route.request().postDataJSON());
@@ -141,6 +147,10 @@ test("Download project resumes private history in a fresh browser; Download game
     const continuationDownload = other.waitForEvent("download");
     await openGameOptions(other, "game-actions-menu");
     await other.getByTestId("btn-save-live-project").click();
+    await expect(other.getByTestId("export-refusal")).toContainText(
+      "Current progress could not be saved",
+    );
+    await other.getByTestId("export-saved-progress").click();
     const continued = await continuationDownload;
     const continuation = await readGameZip(
       new Uint8Array(await readFile((await continued.path())!)),
@@ -159,7 +169,12 @@ test("Download project resumes private history in a fresh browser; Download game
 test("unavailable project storage cannot publish a library index", async ({ page }) => {
   await isolateStorage(page);
   await page.addInitScript(() => {
-    indexedDB.open = () => {
+    // Patch the factory prototype: an instance override did not consistently
+    // intercept WebKit's opens. Count failures so the test proves injection.
+    const failures = { opens: 0 };
+    Object.assign(window, { __projectStorageFailures: failures });
+    IDBFactory.prototype.open = () => {
+      failures.opens++;
       throw new Error("Storage unavailable");
     };
   });
@@ -174,7 +189,14 @@ test("unavailable project storage cannot publish a library index", async ({ page
       files: { "VOL.0": new Uint8Array([1, 2, 3]) },
       words: [],
     });
-    return { saved, index: localStorage.getItem(storage.getStorageKey("blocked")) };
+    const failures = (window as unknown as { __projectStorageFailures: { opens: number } })
+      .__projectStorageFailures;
+    return {
+      saved,
+      index: localStorage.getItem(storage.getStorageKey("blocked")),
+      failedOpens: failures.opens,
+    };
   });
-  expect(result).toEqual({ saved: false, index: null });
+  expect(result.failedOpens).toBeGreaterThan(0);
+  expect({ saved: result.saved, index: result.index }).toEqual({ saved: false, index: null });
 });

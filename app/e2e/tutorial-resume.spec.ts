@@ -4,6 +4,7 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import {
   cacheGame,
   isolateStorage,
+  savedGameCard,
   storedAutosave,
   textHook,
   waitForAutosaveAfter,
@@ -40,6 +41,7 @@ test("the tutorial shelf offers Resume and restores the checkpoint exactly", asy
 
   await page.getByTestId("btn-eject").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
+  expect(new URL(page.url()).hash, "the menu must not name a game in the URL").toBe("");
   const tutorial = page.getByTestId("tutorial-disclosure");
   if ((await tutorial.getAttribute("open")) === null)
     await page.getByTestId("tutorial-toggle").click();
@@ -50,6 +52,7 @@ test("the tutorial shelf offers Resume and restores the checkpoint exactly", asy
 
   await play.click();
   await expect.poll(async () => (await textHook(page)).room).toBe(stopped.room);
+  await expect(page).toHaveURL(new RegExp(`#play/${TUTORIAL_SLUG}$`));
   await expect
     .poll(async () => (await textHook(page)).egoX, {
       message: "the checkpoint must be restored, not overwritten by a boot from room 1",
@@ -98,10 +101,59 @@ test("a caption drawn only on room entry survives a browser reload", async ({ pa
     .poll(async () => (await textHook(page)).rows[5])
     .toContain("Only drawn on room entry.");
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  await expect(page).toHaveURL(/#play\/caption-resume$/);
   await page.reload();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect
     .poll(async () => (await textHook(page)).rows[5])
     .toContain("Only drawn on room entry.");
   await page.screenshot({ path: test.info().outputPath("resumed-caption.png") });
+});
+
+test("reloading from the menu stays on the menu and keeps offering Resume", async ({ page }) => {
+  const game = createContainer();
+  game.putResource(
+    "logic",
+    0,
+    assembleLogic("if(equaln(v0,0)){new.room(1);}call(1);return;", { dictionary: new Map() })
+      .payload,
+  );
+  game.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      "if(isset(f5)){assignn(v60,1);load.pic(v60);draw.pic(v60);show.pic();accept.input();}return;",
+      { dictionary: new Map() },
+    ).payload,
+  );
+  game.putResource("picture", 1, Uint8Array.of(0xf0, 1, 0xf8, 0, 0, 0xff));
+  await isolateStorage(page);
+  await page.goto("/");
+  await cacheGame(page, {
+    slug: "menu-reload",
+    title: "Menu reload",
+    provider: "stub",
+    model: "local-playback",
+    imported: true,
+    roomGeneration: false,
+    files: Object.fromEntries(game.files),
+    words: [],
+  });
+  await page.reload();
+  await page.getByTestId("btn-resume-cached").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  await expect(page).toHaveURL(/#play\/menu-reload$/);
+
+  // Eject into the menu with the checkpoint still stored: the URL must no
+  // longer name a game, so a reload lands on the picker, not in the game.
+  await page.getByTestId("btn-eject").click();
+  await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
+  await expect.poll(() => new URL(page.url()).hash).toBe("");
+
+  await page.reload();
+  await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
+  const card = savedGameCard(page, "Menu reload");
+  await expect(card.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
+  expect((await textHook(page)).room, "no game may boot from a menu reload").toBe(0);
 });

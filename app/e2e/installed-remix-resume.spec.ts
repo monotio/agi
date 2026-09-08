@@ -101,6 +101,7 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   });
   expect(record.game.installed).toBe(false);
   expect(record.game.slug).not.toBe("sample");
+  expect(new URL(page.url()).hash, "the menu must not name a game in the URL").toBe("");
   const reads = fixtureReads;
   await card.getByRole("button", { name: "Resume", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
@@ -108,7 +109,13 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   expect(await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"))).toBe(
     record.game.slug,
   );
+  expect(new URL(page.url()).hash, "a running game must be named in the URL").toBe(
+    `#play/${record.game.slug}`,
+  );
   await page.reload();
+  expect(new URL(page.url()).hash, "a running game must be named in the URL").toBe(
+    `#play/${record.game.slug}`,
+  );
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
   expect(fixtureReads).toBe(reads);
   const pending = page.waitForEvent("download");

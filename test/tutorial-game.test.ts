@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { GAME_TESTS_FILE, readStoredTests, runGameTests } from "../src/agent/gameTests.ts";
+import { createAgentSessionState } from "../src/agent/tools.ts";
 import { openContainer } from "../src/container/container.ts";
+import { TUTORIAL_GAME_TESTS } from "../games/adventure-department/tests.ts";
 import { renderPicture, type PictureFillDiagnostic } from "../src/picture/renderer.ts";
 import { compilePictureSource } from "../src/picture/source.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
@@ -261,8 +264,8 @@ test("every tutorial picture fill seed lands on a white interior", () => {
 test("tutorial resources are pinned to the released catalog version", async () => {
   assert.equal(
     await gameRevision(buildTutorial().files),
-    "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b",
-    "tutorial resources changed: bump the GAME_CATALOG version in app/src/gameCatalog.ts and re-pin this revision",
+    "dcd6f07a28acda1ec6b2c1e4508fe3348080fc463b14f47afbb0e58214aa26ee",
+    "tutorial resources changed: re-pin this revision (the version stays 1.0.0 until the release; bump it in app/src/gameCatalog.ts only for a published release)",
   );
 });
 
@@ -885,4 +888,16 @@ test("graduation triggers regardless of which exhibit is repaired last", () => {
   assert.equal(engine.flags[33], 1);
   assert.equal(engine.vars[3], 30);
   assert.match(host.prints.at(-1) ?? "", /graduated.*PICTURE.*VIEW.*PRIORITY.*LOGIC.*main menu/i);
+});
+
+test("the tutorial ships stored game tests that its cartridge passes", () => {
+  const tutorial = buildTutorial();
+  const files = new Map(Object.entries(tutorial.files));
+  assert.ok(files.has(GAME_TESTS_FILE), "TESTS.JSON travels in the cartridge");
+  const session = createAgentSessionState(openContainer(files));
+  for (const [word, id] of tutorial.words) session.sources.words.set(word, id);
+  assert.equal(readStoredTests(session).length, TUTORIAL_GAME_TESTS.length);
+  const verdict = runGameTests(session, null);
+  assert.equal(verdict.success, true, verdict.error ?? "");
+  assert.match(verdict.message ?? "", /^4 game tests pass, 0 fail\./);
 });

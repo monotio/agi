@@ -262,11 +262,9 @@ interface Expectation {
 }
 
 /**
- * Hand-verified against the installed fixtures: every logic in all three games
- * disassembles with no warning and re-assembles to the identical PAYLOAD —
- * bytecode, message table shape and encrypted text alike. Any drop below these
- * numbers is a regression in the assembler, the disassembler or the resource
- * framing, and the failing logic's warnings say which.
+ * Expected logic counts for the optional fixture editions. Each logic must
+ * disassemble without warnings and reassemble to the identical payload:
+ * bytecode, message table shape and encrypted text.
  */
 const EXPECTED: readonly Expectation[] = [
   { slug: "kq1", logics: 90, clean: 90, codeIdentical: 90 },

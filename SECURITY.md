@@ -38,7 +38,7 @@ include API keys or private game transcripts in public reports.
 ## Release controls
 
 Production releases require a PR merged by `@joakimriedel` into protected `main`
-and successful CI. External PRs do not receive Azure credentials. Actions use
+and successful CI. External PRs do not receive deployment credentials. Actions use
 read-only tokens by default and immutable action references; secret scanning,
 push protection, Dependabot security updates and private vulnerability reporting
 are enabled in the repository settings. Account and organization administrators

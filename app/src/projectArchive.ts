@@ -6,6 +6,7 @@ import { buildObjectFile, buildSound, type SoundTrackInput } from "../../src/age
 import { compactContainer } from "../../src/container/container.ts";
 import { detectProfile } from "../../src/runtime/profile.ts";
 import type { CachedCartridgeData } from "./cartridgeTypes.ts";
+import { progressEntries, type GameProgress } from "./gameProgress.ts";
 
 export interface ProjectContext {
   provider: string;
@@ -48,9 +49,20 @@ export function buildPublicGameZip(
   return finishArchive(gameEntries(data));
 }
 
-/** Archive a complete conversation; repeated image bytes become one ZIP attachment. */
-export async function buildProjectZip(data: CachedCartridgeData): Promise<Uint8Array<ArrayBuffer>> {
+/**
+ * Archive a complete conversation; repeated image bytes become one ZIP attachment.
+ * A project is for continuing the work elsewhere, so it also carries what a
+ * published game must not reveal: the stored game tests are walkthroughs, and
+ * the player's progress (save slots and latest autosave) is theirs alone.
+ */
+export async function buildProjectZip(
+  data: CachedCartridgeData,
+  progress?: GameProgress,
+): Promise<Uint8Array<ArrayBuffer>> {
   const entries = gameEntries(data);
+  const tests = data.files["TESTS.JSON"];
+  if (tests) entries.push({ name: "TESTS.JSON", data: tests });
+  if (progress) entries.push(...progressEntries(progress));
   const attachments = new Map<string, string>();
   async function visit(value: unknown): Promise<unknown> {
     if (typeof value === "string" && /^(data:image\/(?:png|jpeg|webp);base64,)/.test(value)) {

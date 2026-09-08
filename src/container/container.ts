@@ -192,8 +192,8 @@ class ResourceContainer implements GameContainer {
     return this.#files;
   }
 
-  putFile(name: "WORDS.TOK" | "OBJECT", payload: Uint8Array): void {
-    if (name !== "WORDS.TOK" && name !== "OBJECT")
+  putFile(name: "WORDS.TOK" | "OBJECT" | "TESTS.JSON", payload: Uint8Array): void {
+    if (name !== "WORDS.TOK" && name !== "OBJECT" && name !== "TESTS.JSON")
       throw new Error("Only auxiliary game metadata can be replaced directly.");
     this.#files.set(name, payload.slice());
   }

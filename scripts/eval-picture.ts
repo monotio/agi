@@ -51,7 +51,7 @@
  * the entire pipeline (including one syntax-error retry) so the harness
  * itself is testable. Sierra images, briefs and results never enter git.
  *
- * Programmatic use (promptfoo lane, evals/configs/picture.mjs):
+ * Programmatic use (promptfoo lane, evals/configs/picture.ts):
  *   import { runPictureEntry, loadManifest } from "./eval-picture.ts"
  */
 

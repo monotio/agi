@@ -49,6 +49,13 @@ export class InputQueue {
     return event;
   }
 
+  snapshot(): InputEvent[] {
+    const events: InputEvent[] = [];
+    for (let at = this.read; at !== this.write; at = (at + 1) % 20)
+      events.push({ ...this.slots[at]! });
+    return events;
+  }
+
   clear(): void {
     this.slots.fill(undefined);
     this.read = 0;

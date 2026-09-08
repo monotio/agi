@@ -3,13 +3,26 @@ import { test } from "node:test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
+import { Engine } from "../../src/runtime/engine.ts";
 import { readGameFiles, readGameZip } from "../src/gameZip.ts";
 import { gameRevision, normalizeLibraryMetadata, readPublicMetadata } from "../src/gameMetadata.ts";
 import { addLibraryGame, copyLibraryGame } from "../src/gameLibrary.ts";
 import { loadAuthoredCartridge, updateAuthoredCartridgeFiles } from "../src/cartridgeStorage.ts";
 import { inspectGame } from "../src/gameInspection.ts";
 import { buildPublicGameZip } from "../src/projectArchive.ts";
+import {
+  readGameProgress,
+  type AutosaveRecord,
+  type GameProgress,
+  type ImportStorageReport,
+} from "../src/gameProgress.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
 
 installIndexedDbFixture();
 
@@ -333,4 +346,124 @@ test("trusted catalog projects deduplicate while imported project archives remai
     version: "1",
   });
   assert.equal(repeated, first);
+});
+
+test("import stores saves and autosave without a progress observer", async (t) => {
+  installLocalStorage(t);
+  const container = createContainer();
+  container.putResource("picture", 0, Uint8Array.of(0xff));
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic("load.pic(v0); draw.pic(v0); show.pic(); return;", { dictionary: new Map() })
+      .payload,
+  );
+  const engine = new Engine(container, {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  });
+  engine.tick();
+  const image = engine.autosaveImage();
+  assert.ok(image);
+  const slot = engine.serialize();
+  const files = Object.fromEntries(container.files);
+  const progress: GameProgress = {
+    saves: { "3": slot },
+    autosave: {
+      format: "monotio.agi.autosave",
+      version: 1,
+      image: toBase64(image),
+      cycle: 1,
+      room: 0,
+      savedAt: 1757000000000,
+      game: { slug: "source", installed: false, revision: "ab".repeat(32) },
+    },
+  };
+  const slug = await addLibraryGame({ files, words: [], progress }, "No observer", "zip", opening);
+  const stored = readGameProgress(localStorage, slug);
+  assert.deepEqual(stored.saves["3"], slot);
+  assert.equal(stored.autosave?.image, progress.autosave?.image);
+  assert.equal(stored.autosave?.game.slug, slug);
+  assert.equal(stored.autosave?.game.revision, await gameRevision(files));
+});
+
+test("import reports which progress entries browser storage refused", async (t) => {
+  installLocalStorage(t);
+  // A game the engine has played one cycle, saved as a slot and an autosave.
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) { set(f200); assignn(v0, 1); new.room.v(v0); } call.v(v0); return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  container.putResource(
+    "logic",
+    1,
+    assembleLogic(`load.pic(1); draw.pic(1); show.pic(); accept.input(); return;`, {
+      dictionary: new Map(),
+    }).payload,
+  );
+  container.putResource("picture", 1, Uint8Array.of(0xf0, 2, 0xf8, 0, 0, 0xff));
+  container.putFile("WORDS.TOK", buildWordsTok([]));
+  const engine = new Engine(container, {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  });
+  engine.tick();
+  const slot = engine.serialize();
+  const autosave: AutosaveRecord = {
+    format: "monotio.agi.autosave",
+    version: 1,
+    image: toBase64(engine.autosaveImage()!),
+    cycle: 1,
+    room: 1,
+    savedAt: 1_757_000_000_000,
+    game: { slug: "refused", installed: false, revision: "ab".repeat(32) },
+  };
+  const progress: GameProgress = { saves: { "1": slot, "7": slot }, autosave };
+  // Browser storage refuses every progress write after the first. Install a
+  // fresh storage object: the suite's IndexedDB fixture proxies localStorage,
+  // so patching setItem on it is unreliable.
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+  });
+  const values = new Map<string, string>();
+  let writes = 0;
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string): string | null => values.get(key) ?? null,
+      setItem(key: string, value: string): void {
+        if (key.startsWith("monotio_agi.saves.") || key.startsWith("monotio_agi.autosave")) {
+          writes += 1;
+          if (writes > 1) throw new Error("quota exceeded");
+        }
+        values.set(key, value);
+      },
+      removeItem: (key: string): void => {
+        values.delete(key);
+      },
+    },
+  });
+  let report: ImportStorageReport | null = null;
+  const slug = await addLibraryGame(
+    { files: Object.fromEntries(container.files), words: [], progress },
+    "Refused",
+    "zip",
+    opening,
+    undefined,
+    (stored) => (report = stored),
+  );
+  assert.ok(slug);
+  assert.deepEqual(report, { slots: [1], failedSlots: [7], autosave: null });
 });

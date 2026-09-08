@@ -1,6 +1,6 @@
 {
   "name": "agi-is-here-app",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "private": true,
   "type": "module",
   "engines": {
@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "e2e": "playwright test",
     "e2e:phone": "playwright test --config playwright.phone.config.ts",
-    "typecheck": "vue-tsc --noEmit -p tsconfig.json && vue-tsc --noEmit -p tsconfig.worker.json",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && vue-tsc --noEmit -p tsconfig.worker.json",
     "e2e:production": "playwright test --config playwright.production.config.ts",
     "e2e:ui": "playwright test --ui"
   },
@@ -26,7 +26,7 @@
     "@playwright/test": "^1.63.0",
     "@types/three": "^0.185.4",
     "@vitejs/plugin-vue": "^6.0.0",
-    "typescript": "^5.8.0",
+    "typescript": "~6.0.3",
     "vite": "^8.2.2",
     "vue-tsc": "^3.3.11"
   }

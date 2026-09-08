@@ -134,8 +134,9 @@ test("Resume shows the same saved scene and position, including after reopening 
   const saved = await page.evaluate(async () => {
     const slug = localStorage.getItem("monotio_agi.lastGame")!;
     const record = JSON.parse(localStorage.getItem(`monotio_agi.autosave.${slug}`)!);
-    const observed = (window as Window & { menuSaveObservation: SaveObservation })
+    const observed = (window as Window & { menuSaveObservation?: SaveObservation })
       .menuSaveObservation;
+    if (!observed) throw new Error("No save observation was installed");
     if (!record.preview) throw new Error("The saved progress has no screenshot");
     if (!observed.frame) throw new Error("No frame accompanied the save observation");
     const { compositeFrame } = await import("/src/composite.ts");
@@ -195,7 +196,10 @@ test("Resume shows the same saved scene and position, including after reopening 
   await expect(page.locator(".saved-game-strip")).toHaveCount(0);
   await card.screenshot({ path: test.info().outputPath("saved-progress.png") });
 
+  // The reload happened from the menu, so the app stays on the menu and offers Resume.
   await page.reload();
+  await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
+  await card.getByRole("button", { name: "Resume", exact: true }).click();
   await expect(page.getByTestId("resume-caption")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   expect((await textHook(page)).egoX).toBeGreaterThan(spawnX + 12);
@@ -304,12 +308,19 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByRole("button", { name: "Menu", exact: true }).click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
+  const originalSlug = await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame")!);
   const copy = await page.evaluate(async () => {
     const path = "/src/gameLibrary.ts";
     const { copyLibraryGame } = await import(path);
     return copyLibraryGame(localStorage.getItem("monotio_agi.lastGame")!);
   });
+  // The reload happened from the menu, so the app stays on the menu; resume the original.
   await page.reload();
+  await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
+  await page
+    .getByTestId(`saved-game-card-${originalSlug}`)
+    .getByRole("button", { name: "Resume", exact: true })
+    .click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByRole("button", { name: "Menu", exact: true }).click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
@@ -343,6 +354,11 @@ test("a checkpoint cannot resume against changed game resources and remains reco
     return { slug, key, raw, original };
   });
   await page.reload();
+  // The reload happened from the menu, so the app stays on the menu; the card's Resume runs the checkpoint validation.
+  await page
+    .getByTestId(`saved-game-card-${checkpoint.slug}`)
+    .getByRole("button", { name: "Resume", exact: true })
+    .click();
   await expect(page.getByTestId("error-panel")).toContainText("different revision");
   expect(
     await page.evaluate(({ key, raw }) => localStorage.getItem(key) === raw, checkpoint),
@@ -359,6 +375,10 @@ test("a checkpoint cannot resume against changed game resources and remains reco
     );
   }, checkpoint);
   await page.reload();
+  await page
+    .getByTestId(`saved-game-card-${checkpoint.slug}`)
+    .getByRole("button", { name: "Resume", exact: true })
+    .click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 });
 
@@ -412,9 +432,9 @@ test("own games collapse the tutorial by default while an explicit choice takes 
   }
   await page.getByTestId("tutorial-toggle").click();
   await expect(tutorial).toHaveAttribute("open");
+  // The reload happened from the menu, so the app stays on the menu; the explicit choice survives.
   await page.reload();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await page.getByTestId("btn-eject").click();
+  await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   await expect(tutorial).toHaveAttribute("open");
 });
 

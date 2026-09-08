@@ -7,14 +7,10 @@ import { loadGame } from "./game-fixture.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 
 /**
- * Interpreter-profile detection against the local, gitignored authentic
- * fixtures (games/kq1, kq2, kq3 — never shipped, skipped when absent).
- *
- * The version string is not in the resource data: each installation carries it
- * as ASCII in AGIDATA.OVL ("Adventure Game Interpreter\n      Version 2.917"),
- * verified by hand on all three folders. KQ1 ships the 2.917 interpreter, KQ2
- * the 2.411 interpreter, and KQ3 the 2.936 interpreter — which is exactly the
- * profile split the spec records for the selected KQ1/KQ2/KQ3 data.
+ * Optional profile-detection tests for the editions listed in EXPECTED.
+ * Supply their resource files and interpreter binaries under games/<slug>/.
+ * Detection reads the ASCII interpreter version from AGIDATA.OVL or AGI;
+ * resource files alone select a container-family fallback.
  */
 
 const EXPECTED: readonly { slug: string; version: string; profile: string; maxAction: number }[] = [
@@ -45,7 +41,7 @@ class Host implements EngineHost {
   }
 }
 
-describe("installed game profiles", () => {
+describe("fixture interpreter profiles", () => {
   for (const game of EXPECTED) {
     test(
       `${game.slug} reports interpreter ${game.version}`,

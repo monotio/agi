@@ -11,12 +11,9 @@ import { fixtureSkip } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
- * Authentic fixtures: the ORIGINAL Sierra King's Quest 1/2/3 resources
- * (local-only, gitignored — never shipped). One table drives every test so
- * the three games prove the same contracts: every resource parses, every
- * opcode is known and dispatched, the game boots, the parser answers, and
- * ego walks. All expectations below were hand-verified against the fixture
- * data (see comments) — never snapshot-then-trust.
+ * Optional King's Quest fixture tests. GAMES specifies the editions and
+ * expected resource counts, opening state and parser responses. Each suite
+ * checks resource parsing, opcode dispatch, boot, input and movement.
  */
 
 interface GameCase {

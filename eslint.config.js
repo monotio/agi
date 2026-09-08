@@ -47,8 +47,10 @@ export default defineConfig([
       "test/**/*.ts",
       "app/src/**/*.ts",
       "app/e2e/**/*.ts",
+      "app/production/**/*.ts",
       "app/test/**/*.ts",
       "scripts/**/*.ts",
+      "evals/**/*.ts",
     ],
     rules: {
       "no-restricted-syntax": ["error", ...stripTypesSafeSyntax],
@@ -228,7 +230,7 @@ export default defineConfig([
 
   {
     name: "monotio_agi/evals-and-config",
-    files: ["evals/**/*.mjs", "*.js", "*.mjs"],
+    files: ["evals/**/*.ts", "*.js", "*.mjs"],
     languageOptions: { globals: { ...globals.node } },
   },
 ]);

@@ -73,6 +73,7 @@ test("remix progress follows activity, preserves reading position and jumps to l
     });
     await page.getByTestId("btn-resume-cached").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    await expect(page).toHaveURL(/#play\//);
     await page.getByTestId("power-up").click();
     await configureAi(page, { provider: "openai", key: "test-placeholder" });
     await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();

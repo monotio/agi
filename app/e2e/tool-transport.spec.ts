@@ -80,18 +80,18 @@ for (const provider of ["openai", "anthropic"] as const) {
     expect(sizes).toBeGreaterThan(0);
     expect(requests).toHaveLength(4);
     if (provider === "openai")
-      expect(requests[0]!.prompt_cache_options).toEqual({ mode: "implicit", ttl: "30m" });
+      expect(requests[0]!["prompt_cache_options"]).toEqual({ mode: "implicit", ttl: "30m" });
     const allowed =
       provider === "openai"
-        ? (requests[0]!.tool_choice as { tools: { name: string }[] }).tools
-        : (requests[0]!.tools as { name: string }[]);
+        ? (requests[0]!["tool_choice"] as { tools: { name: string }[] }).tools
+        : (requests[0]!["tools"] as { name: string }[]);
     expect(allowed.map((tool) => tool.name).sort()).toEqual(["read_picture", "read_view"]);
-    if (provider === "openai") expect(requests[0]!.tools).toEqual(requests[1]!.tools);
+    if (provider === "openai") expect(requests[0]!["tools"]).toEqual(requests[1]!["tools"]);
     expect(
-      (requests[1]!.tools as { name: string }[]).some((tool) => tool.name === "write_view"),
+      (requests[1]!["tools"] as { name: string }[]).some((tool) => tool.name === "write_view"),
     ).toBe(true);
     expect(
-      (requests[1]!.tools as { name: string }[]).some(
+      (requests[1]!["tools"] as { name: string }[]).some(
         (tool) => tool.name === "read_command_reference",
       ),
     ).toBe(true);

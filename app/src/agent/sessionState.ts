@@ -12,6 +12,7 @@ export function forkAgentState(source: AgentSessionState): AgentSessionState {
   next.authoring = validateAuthoringState(source.authoring);
   next.wordsPayload = source.wordsPayload?.slice();
   next.objectPayload = source.objectPayload?.slice();
+  next.testsPayload = source.testsPayload?.slice();
   next.genesisComplete = source.genesisComplete;
   for (const [num, count] of source.pictureRounds) next.pictureRounds.set(num, count);
   return next;
