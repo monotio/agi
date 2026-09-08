@@ -41,7 +41,7 @@ export const SPRITE_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_actor",
     description:
-      'Compile four-facing actor view `num` from equal-width EGA hex rows; `transparentColor` is the see-through index and `description` an optional label. Each direction lists cels as row-string arrays, e.g. [["01","10"],["10","01"]]. Loops are right, left, down, up; mirrorLeftFromRight requires left null. Rows are never padded. Returns a contact sheet and revision.',
+      'Compile four-facing actor view `num` from equal-width EGA hex rows; `transparentColor` is the see-through index and `description` an optional label. Each direction lists cels as row-string arrays, e.g. [["01","10"],["10","01"]]. Loops are right, left, down, up. At least one direction must be provided; omitted directions are safely filled from available facings with warnings. mirrorLeftFromRight requires left null; mirrorUpFromDown requires up null. Rows are never padded. Returns a contact sheet and revision.',
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -57,7 +57,10 @@ export const SPRITE_TOOLS: readonly ToolDefinition[] = [
           maximum: 15,
         },
         mirrorLeftFromRight: {
-          type: "boolean",
+          type: ["boolean", "null"],
+        },
+        mirrorUpFromDown: {
+          type: ["boolean", "null"],
         },
         right: DIRECTION_SCHEMA,
         left: DIRECTION_SCHEMA,
@@ -69,6 +72,7 @@ export const SPRITE_TOOLS: readonly ToolDefinition[] = [
         "description",
         "transparentColor",
         "mirrorLeftFromRight",
+        "mirrorUpFromDown",
         "right",
         "left",
         "down",
@@ -336,6 +340,17 @@ function reverseRows(cel: BuildCelInput): BuildCelInput {
   return { ...cel, pixels };
 }
 
+function reverseColumns(cel: BuildCelInput): BuildCelInput {
+  const pixels = new Uint8Array(cel.width * cel.height);
+  for (let y = 0; y < cel.height; y++) {
+    const srcY = cel.height - 1 - y;
+    for (let x = 0; x < cel.width; x++) {
+      pixels[y * cel.width + x] = cel.pixels[srcY * cel.width + x]!;
+    }
+  }
+  return { ...cel, pixels };
+}
+
 function applyMetadata(payload: Uint8Array, packed: boolean, plans: readonly MetadataPlan[]): void {
   for (const plan of plans) {
     const loopStart = u16le(payload, 5 + plan.loop * 2);
@@ -417,27 +432,85 @@ export function executeSpriteTool(
     try {
       const num = integer(args["num"], "View number", 0, 255);
       const transparentColor = integer(args["transparentColor"], "Transparent color", 0, 15);
-      if (typeof args["mirrorLeftFromRight"] !== "boolean") {
-        throw new Error("mirrorLeftFromRight must be a boolean.");
+      const mirrorLeftFromRight = args["mirrorLeftFromRight"];
+      if (mirrorLeftFromRight != null && typeof mirrorLeftFromRight !== "boolean") {
+        throw new Error("mirrorLeftFromRight must be a boolean or null.");
+      }
+      const mirrorUpFromDown = args["mirrorUpFromDown"];
+      if (mirrorUpFromDown != null && typeof mirrorUpFromDown !== "boolean") {
+        throw new Error("mirrorUpFromDown must be a boolean or null.");
       }
       const description = args["description"];
       if (description !== null && (typeof description !== "string" || description.length > 512)) {
         throw new Error("Description must be null or at most 512 characters.");
       }
       const adjustments: string[] = [];
-      const right = direction(args["right"], "right", transparentColor, adjustments);
-      const down = direction(args["down"], "down", transparentColor, adjustments);
-      const up = direction(args["up"], "up", transparentColor, adjustments);
-      let left: BuildLoopInput;
-      if (args["mirrorLeftFromRight"]) {
-        if (args["left"] !== null)
-          throw new Error("left must be null when mirrorLeftFromRight is true.");
-        left = { mirrorLoop: 0 };
-      } else {
-        left = { cels: direction(args["left"], "left", transparentColor, adjustments) };
+
+      const rawRight = args["right"];
+      const rawLeft = args["left"];
+      const rawDown = args["down"];
+      const rawUp = args["up"];
+
+      if (rawRight == null && rawLeft == null && rawDown == null && rawUp == null) {
+        throw new Error("At least one direction (right, left, down, or up) must be provided.");
       }
+
+      let rightCels: BuildCelInput[] | null =
+        rawRight != null ? direction(rawRight, "right", transparentColor, adjustments) : null;
+      const leftCels: BuildCelInput[] | null =
+        rawLeft != null ? direction(rawLeft, "left", transparentColor, adjustments) : null;
+      let downCels: BuildCelInput[] | null =
+        rawDown != null ? direction(rawDown, "down", transparentColor, adjustments) : null;
+      let upCels: BuildCelInput[] | null =
+        rawUp != null ? direction(rawUp, "up", transparentColor, adjustments) : null;
+
+      const primary = rightCels ?? downCels ?? leftCels ?? upCels!;
+      const primaryName = rightCels ? "right" : downCels ? "down" : leftCels ? "left" : "up";
+
+      if (!rightCels) {
+        rightCels = primary.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) }));
+        adjustments.push(`Warning: 'right' was omitted; reused '${primaryName}' cels.`);
+      }
+
+      let left: BuildLoopInput;
+      if (
+        mirrorLeftFromRight === true ||
+        (rawLeft == null && leftCels == null && mirrorLeftFromRight !== false)
+      ) {
+        if (rawLeft != null) throw new Error("left must be null when mirrorLeftFromRight is true.");
+        left = { mirrorLoop: 0 };
+        if (mirrorLeftFromRight !== true) {
+          adjustments.push("'left' was omitted; mirrored from 'right' (loop 0).");
+        }
+      } else if (leftCels) {
+        left = { cels: leftCels };
+      } else {
+        left = { cels: rightCels.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) })) };
+        adjustments.push("Warning: 'left' was omitted; reused 'right' cels unmirrored.");
+      }
+
+      if (!downCels) {
+        downCels = rightCels.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) }));
+        adjustments.push(
+          "Warning: 'down' was omitted; reused 'right' cels. The actor will use this facing when moving down.",
+        );
+      }
+
+      if (mirrorUpFromDown === true) {
+        if (rawUp != null) throw new Error("up must be null when mirrorUpFromDown is true.");
+        upCels = downCels.map(reverseColumns);
+        adjustments.push("Flipped 'up' vertically from 'down'.");
+      } else if (!upCels) {
+        const sourceName = rawDown != null ? "down" : "right";
+        const sourceCels = rawDown != null ? downCels : rightCels;
+        upCels = sourceCels.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) }));
+        adjustments.push(
+          `Warning: 'up' was omitted; reused '${sourceName}' cels. The actor will use this facing when moving up.`,
+        );
+      }
+
       const spec: BuildViewInput = {
-        loops: [{ cels: right }, left, { cels: down }, { cels: up }],
+        loops: [{ cels: rightCels }, left, { cels: downCels }, { cels: upCels }],
         ...(description === null ? {} : { description }),
       };
       const payload = buildView(spec, state.profile);

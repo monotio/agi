@@ -246,15 +246,13 @@ export function executeRoomTool(
       "room_ego_current_x",
       "room_ego_current_y",
     ] as const;
+    const reserved = executeAuthoringTool(staged, "reserve_binding", {
+      bindings: variableNames.map((name) => ({ name, kind: "variable", id: null })),
+    });
+    if (!reserved?.success)
+      throw new Error(reserved?.error ?? "Could not allocate room variables.");
     const roomVariables: Record<string, number> = {};
     for (const variableName of variableNames) {
-      const reserved = executeAuthoringTool(staged, "reserve_binding", {
-        name: variableName,
-        kind: "variable",
-        id: null,
-      });
-      if (!reserved?.success)
-        throw new Error(reserved?.error ?? `Could not allocate ${variableName}.`);
       roomVariables[variableName] = staged.authoring.bindings[variableName]!.num;
     }
     const pictureVariable = roomVariables["room_picture_number"]!;

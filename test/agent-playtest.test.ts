@@ -137,6 +137,17 @@ test("scripted Enter acknowledges a real modal before the next command", () => {
   assert.ok((result.details?.["messages"] as string[]).includes("Welcome"));
 });
 
+test("playtest automatically acknowledges open modal before sending a command without requiring enter", () => {
+  const state = world('if (!isset(f31)) {set(f31);print("Welcome");}');
+  const result = playtestRoom(state, {
+    room: 1,
+    steps: [{ action: "command", command: "take key" }],
+    expect: { carriedItems: [0] },
+  });
+  assert.equal(result.success, true, result.error ?? "");
+  assert.ok((result.details?.["messages"] as string[]).includes("Welcome"));
+});
+
 test("genesis executes actual boot logic and accepts a start room other than one", () => {
   const state = world("", 7);
   const result = validateGenesis(state);
