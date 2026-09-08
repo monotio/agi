@@ -4,7 +4,7 @@ import { Speedrun } from "./runner.ts";
 import { opening } from "./openings.ts";
 import { kq1Complete } from "./kq1.ts";
 import { kq2Bridge } from "./kq2.ts";
-import { sq1Boulder } from "./sq1.ts";
+import { sq1UlenceFlats } from "./sq1.ts";
 import { day1 } from "./mh1-day1.ts";
 
 /** Observable endpoint shared by the Node, CLI and browser walkthrough runners. */
@@ -62,15 +62,13 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
   },
   {
     slug: "sq1",
-    label: "spider droid crushed",
-    coverage: "partial",
-    route: sq1Boulder,
+    label: "arrival at Ulence Flats",
+    coverage: "chapter",
+    route: sq1UlenceFlats,
     expected: {
-      room: 19,
-      score: 42,
-      flags: { 165: 1, 161: 1 },
-      vars: { 108: 2 },
-      carriedExactly: [1, 3, 5, 6, 12, 19, 22],
+      room: 35,
+      score: 108,
+      carriedExactly: [1, 3, 5, 6, 19, 22],
     },
     requiresAnswer: true,
   },

@@ -337,6 +337,525 @@ export function sq1Boulder(run: Speedrun): void {
   assert.equal(eng.vars[108], 2, "boulder resting on the droid");
 }
 
+function hasCarried(run: Speedrun, num: number): boolean {
+  return run.engine.readState().inventory.some((item) => item.num === num && item.room === 255);
+}
+
+/**
+ * SQ1 Kerona underground through arrival at Ulence Flats:
+ * - Return across mesa and plateau to Room 17 arch columns, ride elevator to underground (+2, f177).
+ * - Room 25: take rock.
+ * - Room 26: avoid grate monster, put rock in geyser (+4, f84) to open cave door.
+ * - Room 28: reflect laser beams with glass (+5, f121).
+ * - Room 27 upper ledge: navigate 3 acid drop cycles (+3, f178).
+ * - Room 26: turn on translator (f154), enter alien chamber (Room 29).
+ * - Room 29: hologram assigns Orat quest (v82=1), teleports ego to mesa (Room 15).
+ * - Mesa descent: Rooms 15 -> 18 -> 19 -> 20 ledge -> 23 ramp (reset f92) -> Room 20 ground.
+ * - Orat cave (Room 24): throw water at Orat (+5, v82=2), take orat part (+2, item 4).
+ * - Return to Room 29: exit cave to Room 20 ground -> Room 23 ramp (set f92) -> 20 ledge -> 19 mesa -> 18 -> 15 -> 16 -> 17 arch elevator -> 32 -> 25 -> 26 -> 27 -> 28 -> 27 -> 26 -> 29.
+ * - Room 29: drop orat part (+10, v82=3), enter secret doorway to Room 31.
+ * - Room 31: insert cartridge into console (+5, f179), read 4 pages, take cartridge (+5, f180), board skimmer and start engine.
+ * - Room 78 -> 33: navigate skimmer across desert boulder field with 0 damage.
+ * - Room 35: arrival at Ulence Flats (+25, score 108).
+ */
+export function sq1UlenceFlats(run: Speedrun): void {
+  const eng = run.engine;
+  sq1Boulder(run);
+
+  // Return west across mesa to Room 18
+  for (const [x, y] of [
+    [38, 46],
+    [32, 46],
+    [21, 57],
+    [20, 57],
+    [19, 58],
+    [17, 58],
+    [16, 59],
+    [15, 59],
+    [1, 73],
+  ] as const) {
+    run.walkTo(x, y);
+  }
+  run.exit("W", 18);
+
+  walkPlanned(run, { x0: 127, y0: 41, x1: 127, y1: 41 });
+  run.exit("N", 15);
+
+  for (const [x, y] of [
+    [153, 160],
+    [153, 149],
+    [151, 147],
+    [151, 140],
+    [139, 128],
+    [139, 126],
+    [140, 125],
+    [140, 120],
+    [141, 119],
+    [141, 114],
+    [142, 113],
+    [142, 111],
+    [153, 100],
+    [153, 85],
+  ] as const) {
+    run.walkTo(x, y);
+  }
+  run.exit("E", 16);
+
+  for (const [x, y] of [
+    [12, 82],
+    [13, 82],
+    [15, 80],
+    [16, 80],
+    [17, 79],
+    [22, 79],
+    [44, 79],
+    [53, 70],
+    [64, 70],
+    [67, 73],
+    [73, 73],
+    [74, 74],
+    [77, 74],
+    [81, 70],
+    [89, 70],
+    [93, 74],
+    [104, 74],
+    [114, 64],
+    [122, 64],
+    [125, 61],
+    [132, 61],
+    [133, 62],
+    [135, 62],
+    [136, 63],
+    [137, 63],
+    [140, 66],
+    [142, 66],
+    [142, 58],
+    [153, 58],
+  ] as const) {
+    run.walkTo(x, y);
+  }
+  run.exit("E", 17);
+
+  // Room 17: step through arch columns to activate tube elevator (+2, f177)
+  for (let x = eng.screenObjects[0]!.x; x <= 98; x += 2) {
+    run.walkTo(x, 58);
+    if (eng.flags[177] !== 0) break;
+  }
+  run.wait(
+    () => eng.vars[0] === 25 && eng.screenObjects[0]!.y >= 160 && run.state().control,
+    "land in room 25",
+    15000,
+  );
+  run.checkpoint("Kerona underground", { room: 25, score: 44 });
+
+  // Room 25: take rock
+  walkPlanned(run, { x0: 65, y0: 148, x1: 75, y1: 152 });
+  run.command("take rock");
+  run.wait(() => hasCarried(run, 2), "rock taken", 2000);
+  walkPlanned(run, { x0: 1, y0: 145, x1: 5, y1: 150 });
+  run.exit("W", 26);
+
+  // Room 26: walk past grate along y=129, put rock in geyser (+4, f84)
+  run.walkTo(75, 138);
+  run.walkTo(75, 129);
+  run.walkTo(45, 129);
+  run.walkTo(30, 144);
+  run.command("put rock in geyser");
+  run.wait(() => eng.flags[84] !== 0, "geyser plugged (f84)", 3000);
+  run.checkpoint("Geyser plugged", { room: 26, score: 48 });
+
+  // Walk to open cave door at x=14
+  run.walkTo(17, 130);
+  run.walkTo(14, 122);
+  run.exit("N", 27);
+
+  // Room 27 lower level: walk West to Room 28
+  walkPlanned(run, { x0: 1, y0: 105, x1: 5, y1: 107 });
+  run.exit("W", 28);
+
+  // Room 28: reflect laser beams with glass (+5, f121)
+  walkPlanned(run, { x0: 65, y0: 126, x1: 68, y1: 130 });
+  run.command("use glass");
+  run.wait(() => eng.flags[121] !== 0 && run.state().control, "beams destroyed (f121)", 5000);
+  run.checkpoint("Laser beams destroyed", { room: 28, score: 53 });
+
+  // Walk up ramp to upper ledge
+  walkPlanned(run, { x0: 145, y0: 40, x1: 155, y1: 45 });
+  run.exit("E", 27);
+
+  // Room 27 upper ledge: navigate 3 acid drops (+3, f178)
+  run.walkTo(82, 42);
+  run.wait(() => (eng.vars[31] ?? 0) >= 20, "drop 1 fell", 5000);
+  run.walkTo(92, 42);
+  run.wait(() => (eng.vars[32] ?? 0) >= 20, "drop 2 fell", 5000);
+  run.walkTo(106, 42);
+  run.wait(() => (eng.vars[33] ?? 0) >= 20, "drop 3 fell", 5000);
+  run.walkTo(130, 42);
+  run.exit("E", 26);
+  run.checkpoint("Acid drops navigated", { room: 26, score: 56 });
+
+  // Room 26 upper ledge: turn on translator and enter alien chamber
+  run.command("turn on translator");
+  run.wait(() => eng.flags[154] !== 0, "translator turned on (f154)", 2000);
+  walkPlanned(run, { x0: 145, y0: 55, x1: 155, y1: 65 });
+  run.exit("E", 29);
+
+  // Room 29: hologram assigns quest and teleports ego to Room 15 on mesa top
+  run.wait(() => eng.vars[0] === 15 && run.state().control, "teleported to room 15", 30000);
+
+  // Room 15: walk south path to exit South into Room 18
+  for (const [x, y] of [
+    [140, 120],
+    [140, 125],
+    [139, 126],
+    [139, 128],
+    [151, 140],
+    [151, 147],
+    [153, 149],
+    [153, 160],
+  ] as const) {
+    run.walkTo(x, y);
+  }
+  run.exit("S", 18);
+
+  // Room 18: mesa top east to Room 19
+  run.walkTo(127, 41);
+  run.walkTo(142, 56);
+  run.walkTo(146, 58);
+  run.walkTo(153, 59);
+  run.exit("E", 19);
+
+  // Room 19: cross bridge deck east into Room 20
+  for (const [x, y] of [
+    [15, 59],
+    [16, 59],
+    [17, 58],
+    [19, 58],
+    [20, 57],
+    [21, 57],
+    [32, 46],
+    [38, 46],
+    [50, 58],
+    [70, 58],
+    [85, 58],
+    [110, 58],
+    [145, 61],
+  ] as const) {
+    run.walkTo(x, y);
+  }
+  run.exit("E", 20);
+
+  // Room 20 ledge: walk along x=27 to exit South
+  run.walkTo(26, 63);
+  run.walkTo(27, 72);
+  run.walkTo(27, 100);
+  run.walkTo(27, 130);
+  run.walkTo(27, 160);
+  run.exit("S", 23);
+
+  // Room 23: walk down the ramp to step on (28, 133) to reset f92
+  for (const [x, y] of [
+    [38, 76],
+    [38, 86],
+    [37, 87],
+    [37, 89],
+    [36, 89],
+    [36, 91],
+    [35, 91],
+    [35, 93],
+    [34, 93],
+    [34, 95],
+    [33, 95],
+    [39, 101],
+    [38, 102],
+    [38, 103],
+    [37, 104],
+    [37, 108],
+    [41, 112],
+    [41, 113],
+    [42, 114],
+    [42, 115],
+    [41, 116],
+    [41, 119],
+    [28, 132],
+    [28, 133],
+  ] as const) {
+    run.walkTo(x, y);
+  }
+  assert.equal(eng.flags[92], 0, "f92 reset at base of ramp");
+
+  // Walk into Room 20 ground level
+  walkPlanned(run, { x0: 63, y0: 80, x1: 95, y1: 95 });
+  run.exit("N", 20);
+
+  // Room 20 ground level: walk to cave entrance
+  for (const [x, y] of [
+    [110, 119],
+    [111, 119],
+    [113, 121],
+    [129, 121],
+    [132, 118],
+    [146, 118],
+    [148, 120],
+  ] as const) {
+    run.walkTo(x, y);
+  }
+  run.wait(() => eng.vars[0] === 24, "entered Orat cave (room 24)", 5000);
+
+  // Room 24: throw water at Orat (+5, v82=2)
+  run.command("throw water");
+  run.wait(() => eng.vars[82] === 2 && run.state().control, "Orat exploded (v82=2)", 10000);
+  run.checkpoint("Orat defeated", { room: 24, score: 61 });
+
+  // Take Orat part (+2, item 4)
+  walkPlanned(run, { x0: 120, y0: 125, x1: 135, y1: 135 });
+  run.command("take orat part");
+  run.wait(() => hasCarried(run, 4), "took orat part (item 4)", 3000);
+  run.checkpoint("Orat part taken", { room: 24, score: 63 });
+  assertCarried(run, 4, "Orat part");
+
+  // Exit Orat cave back to Room 20 ground level
+  walkPlanned(run, { x0: 16, y0: 134, x1: 18, y1: 136 });
+  run.walkTo(19, 132);
+  run.walkTo(19, 128);
+  run.wait(() => eng.vars[0] === 20, "exited cave to Room 20", 5000);
+
+  // Room 20 ground level: walk South to Room 23
+  walkPlanned(run, { x0: 63, y0: 160, x1: 95, y1: 167 });
+  run.exit("S", 23);
+
+  // Room 23 ground level: walk to ramp to set f92
+  walkPlanned(run, { x0: 26, y0: 133, x1: 30, y1: 134 });
+  run.walkTo(28, 133);
+  run.walkTo(28, 132);
+  assert.ok(eng.flags[92] !== 0, "f92 set on ramp");
+
+  // Walk up the ramp
+  for (const [x, y] of [
+    [30, 115],
+    [31, 114],
+    [32, 111],
+    [33, 110],
+    [33, 95],
+    [34, 93],
+    [35, 91],
+    [36, 89],
+    [37, 87],
+    [38, 86],
+    [38, 76],
+    [44, 70],
+  ] as const) {
+    run.walkTo(x, y);
+  }
+  run.exit("N", 20);
+
+  // Room 20 ledge: walk to exit West into Room 19
+  run.walkTo(27, 130);
+  run.walkTo(27, 100);
+  run.walkTo(27, 72);
+  run.walkTo(26, 63);
+  run.exit("W", 19);
+
+  // Walk West across Room 19 mesa to Room 18
+  for (const [x, y] of [
+    [110, 58],
+    [85, 58],
+    [70, 58],
+    [50, 58],
+    [38, 46],
+    [32, 46],
+    [21, 57],
+    [20, 57],
+    [19, 58],
+    [17, 58],
+    [16, 59],
+    [15, 59],
+    [1, 73],
+  ] as const) {
+    run.walkTo(x, y);
+  }
+  run.exit("W", 18);
+
+  walkPlanned(run, { x0: 127, y0: 41, x1: 127, y1: 41 });
+  run.exit("N", 15);
+
+  for (const [x, y] of [
+    [153, 160],
+    [153, 149],
+    [151, 147],
+    [151, 140],
+    [139, 128],
+    [139, 126],
+    [140, 125],
+    [140, 120],
+    [141, 119],
+    [141, 114],
+    [142, 113],
+    [142, 111],
+    [153, 100],
+    [153, 85],
+  ] as const) {
+    run.walkTo(x, y);
+  }
+  run.exit("E", 16);
+
+  for (const [x, y] of [
+    [12, 82],
+    [13, 82],
+    [15, 80],
+    [16, 80],
+    [17, 79],
+    [22, 79],
+    [44, 79],
+    [53, 70],
+    [64, 70],
+    [67, 73],
+    [73, 73],
+    [74, 74],
+    [77, 74],
+    [81, 70],
+    [89, 70],
+    [93, 74],
+    [104, 74],
+    [114, 64],
+    [122, 64],
+    [125, 61],
+    [132, 61],
+    [133, 62],
+    [135, 62],
+    [136, 63],
+    [137, 63],
+    [140, 66],
+    [142, 66],
+    [142, 58],
+    [153, 58],
+  ] as const) {
+    run.walkTo(x, y);
+  }
+  run.exit("E", 17);
+
+  // Step into arch to activate tube elevator
+  for (let x = eng.screenObjects[0]!.x; x <= 98; x += 2) {
+    run.walkTo(x, 58);
+    if (eng.flags[92] === 0) break;
+  }
+  run.wait(
+    () => eng.vars[0] === 25 && eng.screenObjects[0]!.y >= 160 && run.state().control,
+    "land in room 25",
+    15000,
+  );
+
+  // Room 25 -> 26
+  walkPlanned(run, { x0: 1, y0: 145, x1: 5, y1: 150 });
+  run.exit("W", 26);
+
+  // Room 26: walk past grate and through already open door
+  run.walkTo(75, 138);
+  run.walkTo(75, 129);
+  run.walkTo(45, 129);
+  walkPlanned(run, { x0: 12, y0: 121, x1: 16, y1: 123 });
+  run.walkTo(14, 122);
+  run.exit("N", 27);
+
+  // Room 27: lower level walk West to Room 28
+  walkPlanned(run, { x0: 1, y0: 105, x1: 5, y1: 107 });
+  run.exit("W", 28);
+
+  // Room 28: lasers dead, walk up ramp to upper ledge
+  walkPlanned(run, { x0: 145, y0: 40, x1: 155, y1: 45 });
+  run.exit("E", 27);
+
+  // Room 27 upper ledge: navigate 3 acid drops
+  run.walkTo(82, 42);
+  run.wait(() => (eng.vars[31] ?? 0) >= 20, "drop 1 fell", 5000);
+  run.walkTo(92, 42);
+  run.wait(() => (eng.vars[32] ?? 0) >= 20, "drop 2 fell", 5000);
+  run.walkTo(106, 42);
+  run.wait(() => (eng.vars[33] ?? 0) >= 20, "drop 3 fell", 5000);
+  run.walkTo(130, 42);
+  run.exit("E", 26);
+
+  // Room 26 upper ledge: translator already on, walk East to Room 29
+  walkPlanned(run, { x0: 145, y0: 55, x1: 155, y1: 65 });
+  run.exit("E", 29);
+
+  // Room 29: alien chamber
+  run.wait(() => eng.flags[39] !== 0 && run.state().control, "alien asks for proof (f39)", 15000);
+  run.command("drop orat part");
+  run.wait(() => eng.vars[82] === 3, "doorway opened (v82=3)", 10000);
+  run.dismiss();
+  run.advance(60);
+  run.dismiss();
+  run.checkpoint("Alien chamber opened", { room: 29, score: 73 });
+
+  // Walk into doorway to enter Room 31
+  run.walkTo(78, 114);
+  run.wait(() => eng.vars[0] === 31, "entered Keronian base (room 31)", 5000);
+
+  // Room 31: cartridge reader (+5, f179)
+  walkPlanned(run, { x0: 78, y0: 118, x1: 85, y1: 124 });
+  run.command("insert cartridge");
+  run.wait(() => eng.flags[179] !== 0, "inserted cartridge (f179)", 5000);
+
+  // Read cartridge pages
+  for (let page = 1; page <= 4; page++) {
+    run.key(AGI_KEY.ENTER);
+    run.advance(10);
+  }
+  run.wait(() => run.state().control, "text screen dismissed", 5000);
+
+  // Retrieve cartridge (+5, f180)
+  run.command("take cartridge");
+  run.wait(() => eng.flags[180] !== 0, "took cartridge (f180)", 5000);
+  run.checkpoint("Cartridge data read", { room: 31, score: 83 });
+
+  // Board skimmer and start engine
+  walkPlanned(run, { x0: 115, y0: 125, x1: 125, y1: 135 });
+  run.command("board skimmer");
+  run.wait(() => eng.vars[41] === 2, "boarded skimmer", 5000);
+  run.command("turn key");
+  run.wait(() => eng.vars[0] === 78, "entered cutscene (room 78)", 10000);
+
+  // Cutscene Room 78 -> Room 33
+  run.dismiss();
+  run.wait(() => eng.vars[0] === 33, "entered skimmer minigame (room 33)", 15000);
+
+  // Room 33: navigate boulder field
+  run.walkTo(10, 146);
+  let targetX = 10;
+  while (eng.vars[0] === 33 && (eng.vars[42] ?? 0) < 5) {
+    const o3 = eng.screenObjects[3]!;
+    if (o3.active && o3.x < 32 && o3.y >= 65 && o3.y <= 135) {
+      if (targetX !== 40) {
+        targetX = 40;
+        run.walkTo(40, 146);
+      }
+    } else {
+      if (targetX !== 10) {
+        targetX = 10;
+        run.walkTo(10, 146);
+      }
+    }
+    if (eng.modalKind !== null) {
+      run.dismiss();
+    } else {
+      run.advance(1);
+    }
+  }
+  if (eng.modalKind !== null) run.dismiss();
+
+  // Arrival at Ulence Flats (+25, score 108)
+  run.checkpoint("Arrival at Ulence Flats", { room: 35, score: 108 });
+  assert.equal(eng.vars[0], 35, "in Ulence Flats (room 35)");
+  assert.equal(eng.vars[3], 108, "final score 108");
+  assertCarried(run, 1, "Cartridge");
+  assertCarried(run, 3, "Gadget");
+  assertCarried(run, 5, "Keycard");
+  assertCarried(run, 6, "Glass");
+  assertCarried(run, 19, "Xenon Army Knife");
+  assertCarried(run, 22, "Survival Kit");
+}
+
 function assertCarried(run: Speedrun, num: number, name: string): void {
   assert.ok(
     run.engine.readState().inventory.some((item) => item.num === num && item.room === 255),
