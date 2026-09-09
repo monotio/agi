@@ -199,7 +199,7 @@ function monasteryApproach(run: Speedrun): void {
   run.exit("E", 6);
 }
 
-function walkSmart(run: Speedrun, target: Target, attempts = 25): void {
+export function walkSmart(run: Speedrun, target: Target, attempts = 25): void {
   for (let n = 0; n < attempts; n++) {
     const s = run.state();
     if (s.x >= target.x0 && s.x <= target.x1 && s.y >= target.y0 && s.y <= target.y1) return;
@@ -233,6 +233,34 @@ function walkSmart(run: Speedrun, target: Target, attempts = 25): void {
   );
 }
 
+export function exitNorthSafe(
+  run: Speedrun,
+  toRoom: number,
+  target: Target = { x0: 60, x1: 90, y0: 42, y1: 45 },
+): void {
+  const fromRoom = run.state().room;
+  for (let n = 0; n < 10; n++) {
+    walkSmart(run, target);
+    run.exit("N", toRoom);
+    if (run.engine.flags[40] === 0 && run.engine.flags[234] === 0) return;
+    run.exit("S", fromRoom);
+  }
+}
+
+export function exitSouthSafe(
+  run: Speedrun,
+  toRoom: number,
+  target: Target = { x0: 60, x1: 90, y0: 165, y1: 167 },
+): void {
+  const fromRoom = run.state().room;
+  for (let n = 0; n < 10; n++) {
+    walkSmart(run, target);
+    run.exit("S", toRoom);
+    if (run.engine.flags[40] === 0 && run.engine.flags[234] === 0) return;
+    run.exit("N", fromRoom);
+  }
+}
+
 function monasteryCross(run: Speedrun): void {
   monasteryApproach(run);
   run.checkpoint("Monastery approach", { room: 6, score: 25 });
@@ -260,7 +288,7 @@ function monasteryCross(run: Speedrun): void {
  * The deck and approaches avoid lethal trigger rims and the bridge object's baseline.
  * A changed collision or puzzle outcome must fail instead of being routed around.
  */
-function walkBridge(run: Speedrun, waypoints: readonly (readonly number[])[]): void {
+export function walkBridge(run: Speedrun, waypoints: readonly (readonly number[])[]): void {
   for (const point of waypoints) {
     const targetX = point[0]!,
       targetY = point[1]!;
@@ -653,17 +681,10 @@ export function kq2Door2(run: Speedrun): void {
   run.exit("W", 47);
 
   // 2. North through 47 -> 40 -> 33 -> 26 -> 19 -> 20 (antique shop)
-  walkSmart(run, { x0: 60, x1: 90, y0: 42, y1: 45 });
-  run.exit("N", 40);
-
-  walkSmart(run, { x0: 60, x1: 90, y0: 42, y1: 45 });
-  run.exit("N", 33);
-
-  walkSmart(run, { x0: 60, x1: 90, y0: 42, y1: 45 });
-  run.exit("N", 26);
-
-  walkSmart(run, { x0: 60, x1: 90, y0: 42, y1: 45 });
-  run.exit("N", 19);
+  exitNorthSafe(run, 40);
+  exitNorthSafe(run, 33);
+  exitNorthSafe(run, 26);
+  exitNorthSafe(run, 19);
 
   walkSmart(run, { x0: 150, x1: 155, y0: 110, y1: 130 });
   run.exit("E", 20);
@@ -761,17 +782,10 @@ export function kq2Door2(run: Speedrun): void {
   run.walkTo(0, 85);
   run.exit("W", 19);
 
-  walkSmart(run, { x0: 60, x1: 90, y0: 165, y1: 167 });
-  run.exit("S", 26);
-
-  walkSmart(run, { x0: 60, x1: 90, y0: 165, y1: 167 });
-  run.exit("S", 33);
-
-  walkSmart(run, { x0: 60, x1: 90, y0: 165, y1: 167 });
-  run.exit("S", 40);
-
-  walkSmart(run, { x0: 78, x1: 82, y0: 165, y1: 167 });
-  run.exit("S", 47);
+  exitSouthSafe(run, 26);
+  exitSouthSafe(run, 33);
+  exitSouthSafe(run, 40);
+  exitSouthSafe(run, 47, { x0: 78, x1: 82, y0: 165, y1: 167 });
 
   run.walkTo(80, 131);
   run.walkTo(140, 131);
@@ -858,4 +872,420 @@ export function kq2Door2(run: Speedrun): void {
     [72, 112],
   ]);
   run.checkpoint("Bridge crossed west 3", { room: 48, score: 127 });
+}
+
+/** Infiltrate Dracula's castle, retrieve keys and tiara, cross bridge 4 and unlock third door into Cloudland. */
+export function kq2Castle(run: Speedrun): void {
+  kq2Door2(run);
+
+  // 1. Leave Room 48 west into 47
+  walkBridge(run, [
+    [62, 104],
+    [55, 97],
+    [41, 97],
+    [40, 96],
+    [5, 131],
+  ]);
+  run.walkTo(0, 131);
+  run.exit("W", 47);
+
+  // 2. North through 47 -> 40 -> 33
+  exitNorthSafe(run, 40);
+  exitNorthSafe(run, 33);
+
+  // 3. West into 32
+  walkSmart(run, { x0: 1, x1: 5, y0: 110, y1: 130 });
+  run.exit("W", 32);
+
+  // 4. In 32: enter boat
+  walkSmart(run, { x0: 95, x1: 105, y0: 125, y1: 130 });
+  run.command("enter boat");
+  run.wait(() => run.state().room === 25, "arrived in room 25", 20000);
+  run.wait(() => run.engine.flags[31] !== 0, "boat reached shore in 25", 5000);
+
+  // 5. Exit boat in 25
+  run.command("exit boat");
+  run.wait(() => run.engine.flags[32] !== 0, "exited boat", 5000);
+
+  // 6. Eat sugar cube (+1, score 128, f157)
+  run.command("eat sugar");
+  run.wait(() => run.engine.flags[157] !== 0, "ate sugar cube", 3000);
+
+  // 7. North into 18 (castle exterior)
+  walkSmart(run, { x0: 65, x1: 75, y0: 51, y1: 53 });
+  run.exit("N", 18);
+
+  // 8. Castle door in 18
+  run.walkTo(70, 146);
+  run.command("open door");
+  run.wait(() => run.state().room === 61, "entered castle", 15000);
+
+  // 9. West into 60 (ramp tower)
+  walkSmart(run, { x0: 20, x1: 25, y0: 120, y1: 125 });
+  run.exit("W", 60);
+
+  // 10. Ascend spiral staircase in 60 to 59
+  const ascentWaypoints: [number, number][] = [
+    [120, 154],
+    [120, 131],
+    [85, 93],
+    [40, 70],
+    [25, 75],
+    [22, 85],
+    [35, 100],
+    [60, 90],
+    [65, 88],
+    [85, 83],
+    [88, 76],
+    [95, 70],
+    [105, 55],
+    [115, 45],
+    [118, 32],
+  ];
+  for (const [x, y] of ascentWaypoints) run.walkTo(x, y);
+  run.exit("N", 59);
+
+  // 11. Room 59 Dresser & Candle Retrieval
+  run.walkTo(121, 128);
+  run.walkTo(91, 98);
+  run.walkTo(71, 98);
+  run.walkTo(44, 116);
+  run.command("open drawer");
+  run.wait(() => run.engine.vars[98] === 1, "drawer opened", 5000);
+  run.command("take candle");
+  run.wait(() => run.engine.flags[141] !== 0, "took candle", 5000);
+
+  // 12. Room 59 Exit back to Room 60
+  run.walkTo(71, 98);
+  run.walkTo(91, 98);
+  run.walkTo(121, 128);
+  run.walkTo(121, 160);
+  run.exit("S", 60);
+
+  // 13. Room 60 Descent to Torch & Lighting Candle
+  const descentWaypoints: [number, number][] = [
+    [115, 45],
+    [105, 55],
+    [95, 70],
+    [88, 76],
+    [85, 83],
+    [65, 88],
+    [60, 90],
+    [35, 100],
+    [22, 85],
+    [25, 75],
+    [40, 70],
+  ];
+  for (const [x, y] of descentWaypoints) run.walkTo(x, y);
+  run.command("light candle");
+  run.wait(() => run.engine.flags[106] !== 0, "candle lit", 5000);
+
+  // 14. Room 60 Exit down to 61
+  const exit60Waypoints: [number, number][] = [
+    [62, 70],
+    [85, 93],
+    [120, 131],
+    [120, 154],
+    [140, 163],
+  ];
+  for (const [x, y] of exit60Waypoints) run.walkTo(x, y);
+  run.exit("E", 61);
+
+  // 15. 61 -> 64 (dining room)
+  run.walkTo(130, 123);
+  run.exit("E", 64);
+
+  // 16. In 64: take ham (+2, score 133)
+  run.walkTo(25, 132);
+  run.walkTo(75, 132);
+  run.command("take ham");
+  run.wait(() => run.engine.flags[140] !== 0, "took ham", 5000);
+
+  // 17. 64 -> 65
+  run.walkTo(135, 132);
+  run.exit("E", 65);
+
+  // 18. 65 -> 66
+  run.walkTo(131, 166);
+  run.exit("S", 66);
+
+  // 19. 66 -> 67 (Dracula's tomb)
+  const descend66Waypoints: [number, number][] = [
+    [95, 56],
+    [95, 68],
+    [67, 107],
+    [67, 112],
+    [75, 137],
+    [75, 150],
+    [14, 150],
+  ];
+  for (const [x, y] of descend66Waypoints) run.walkTo(x, y);
+  run.exit("W", 67);
+
+  // 20. In 67: Dracula check & defeat
+  while (run.engine.vars[92] !== 1) {
+    run.exit("E", 66);
+    run.exit("W", 67);
+  }
+  run.walkTo(75, 110);
+  run.command("open coffin");
+  run.wait(() => run.engine.vars[91] === 1, "coffin opened", 5000);
+  run.command("kill dracula");
+  run.wait(() => run.engine.vars[92] === 2 && run.engine.flags[92] === 0, "dracula killed", 10000);
+  run.command("take pillow");
+  run.wait(() => run.engine.flags[137] !== 0, "took pillow", 5000);
+  run.command("take keys");
+  run.wait(() => run.engine.flags[138] !== 0 && run.engine.flags[139] !== 0, "took keys", 5000);
+
+  // 21. Return from 67: 67 -> 66 -> 65 -> 64 -> 63 -> 62
+  run.walkTo(132, 130);
+  run.exit("E", 66);
+
+  const ascend66Waypoints: [number, number][] = [
+    [75, 150],
+    [75, 137],
+    [67, 112],
+    [67, 107],
+    [95, 68],
+    [95, 56],
+    [73, 37],
+  ];
+  for (const [x, y] of ascend66Waypoints) run.walkTo(x, y);
+  run.exit("N", 65);
+
+  run.walkTo(26, 61);
+  run.walkTo(20, 55);
+  run.exit("W", 64);
+
+  run.walkTo(128, 129);
+  run.walkTo(85, 86);
+  run.exit("N", 63);
+
+  run.walkTo(75, 155);
+  const ascend63Waypoints: [number, number][] = [
+    [90, 145],
+    [105, 130],
+    [115, 115],
+    [120, 95],
+    [122, 80],
+    [122, 70],
+    [116, 60],
+    [106, 50],
+    [96, 40],
+    [90, 34],
+  ];
+  for (const [x, y] of ascend63Waypoints) run.walkTo(x, y);
+  run.exit("N", 62);
+
+  // In 62: chest & tiara
+  run.walkTo(120, 126);
+  run.command("unlock chest");
+  run.wait(() => run.engine.vars[93] === 1, "unlocked chest", 5000);
+
+  run.command("open chest");
+  run.wait(() => run.engine.vars[93] === 2, "opened chest", 5000);
+
+  run.command("take tiara");
+  run.wait(() => run.engine.flags[143] !== 0, "took tiara", 5000);
+
+  // 62 -> 63
+  run.walkTo(86, 126);
+  run.walkTo(62, 150);
+  run.walkTo(46, 163);
+  run.exit("S", 63);
+
+  const descend63Waypoints: [number, number][] = [
+    [95, 40],
+    [105, 50],
+    [115, 60],
+    [120, 70],
+    [120, 80],
+    [118, 95],
+    [115, 115],
+    [105, 130],
+    [90, 145],
+    [75, 155],
+    [50, 165],
+  ];
+  for (const [x, y] of descend63Waypoints) run.walkTo(x, y);
+  run.exit("S", 64);
+
+  // 64 -> 61
+  run.walkTo(85, 85);
+  run.walkTo(128, 128);
+  run.walkTo(128, 132);
+  run.walkTo(25, 132);
+  run.walkTo(25, 120);
+  run.exit("W", 61);
+
+  // 61 -> 18
+  run.walkTo(70, 150);
+  run.exit("S", 18);
+
+  // 18 -> 25
+  run.walkTo(71, 160);
+  run.exit("S", 25);
+
+  // In 25: enter boat
+  run.walkTo(45, 73);
+  run.walkTo(45, 80);
+  run.walkTo(73, 108);
+  run.walkTo(74, 108);
+  run.walkTo(76, 110);
+  run.walkTo(76, 118);
+  run.walkTo(70, 124);
+  run.walkTo(70, 155);
+  run.command("enter boat");
+  run.wait(() => run.state().room === 32, "arrived in 32", 20000);
+  run.wait(() => run.engine.flags[35] !== 0, "boat reached shore in 32", 10000);
+
+  // Return to bridge in 48
+  run.walkTo(140, 140);
+  run.walkTo(154, 140);
+  run.exit("E", 33);
+
+  exitSouthSafe(run, 40);
+  exitSouthSafe(run, 47, { x0: 78, x1: 82, y0: 165, y1: 167 });
+
+  run.walkTo(80, 131);
+  run.walkTo(140, 131);
+  run.exit("E", 48);
+
+  // Cross bridge East #4 into 49
+  walkBridge(run, [
+    [5, 131],
+    [40, 96],
+    [41, 97],
+    [55, 97],
+    [62, 104],
+    [69, 97],
+    [73, 97],
+    [74, 98],
+    [92, 98],
+    [93, 97],
+    [98, 97],
+    [99, 96],
+    [104, 96],
+    [105, 95],
+    [108, 95],
+    [109, 94],
+    [110, 94],
+    [111, 93],
+    [112, 93],
+    [113, 92],
+    [114, 92],
+    [115, 91],
+    [116, 91],
+    [117, 90],
+    [118, 90],
+    [119, 89],
+    [120, 89],
+    [121, 88],
+    [123, 88],
+    [124, 87],
+    [133, 87],
+    [135, 85],
+    [136, 85],
+    [138, 87],
+  ]);
+  run.checkpoint("Bridge crossed east 4", { room: 48, score: 156 });
+  run.exit("E", 49);
+  run.exit("N", 42);
+
+  // Unlock third door in 42
+  walkSmart(run, { x0: 75, x1: 84, y0: 102, y1: 105 });
+  run.command("unlock door");
+  run.wait(() => run.engine.flags[87] !== 0, "third door unlocked");
+  run.wait(() => run.state().room === 80, "teleported to cloudland", 15000);
+  run.checkpoint("Third door unlocked", { room: 80, score: 163 });
+}
+
+/** Full KQ2 walkthrough to maximum score 185 and ending credits in Room 106. */
+export function kq2Complete(run: Speedrun): void {
+  kq2Castle(run);
+
+  // Cloudland: 80 -> 75
+  run.exit("N", 75);
+  run.checkpoint("Cloudland shore", { room: 75, score: 163 });
+
+  // Take net and fish
+  walkSmart(run, { x0: 55, x1: 65, y0: 100, y1: 105 });
+  run.command("take net");
+  run.wait(() => run.engine.flags[113] !== 0, "took net");
+  run.checkpoint("Net taken", { room: 75, score: 164 });
+
+  run.walkTo(95, 105);
+  run.command("cast net");
+  run.dismiss();
+  run.wait(() => run.engine.flags[231] !== 0, "net cast, fish caught");
+  run.dismiss();
+  run.checkpoint("Fish caught", { room: 75, score: 166 });
+
+  run.walkTo(88, 108);
+  run.command("take fish");
+  run.wait(() => carried(run, 80), "took fish");
+  run.dismiss();
+
+  run.command("throw fish");
+  run.wait(() => run.engine.flags[232] !== 0, "threw fish back");
+  run.dismiss();
+  run.checkpoint("Fish released", { room: 75, score: 169 });
+
+  run.command("ride fish");
+  run.checkpoint("Fish ridden", { room: 75, score: 170 });
+  run.wait(() => run.state().room === 77 && run.state().control, "arrived on island", 30000);
+  run.checkpoint("Island arrived", { room: 77, score: 170 });
+
+  // Island: 77 -> 78
+  run.exit("E", 78);
+  run.checkpoint("Amulet room", { room: 78, score: 170 });
+
+  run.walkPath(16, 88);
+  run.command("take amulet");
+  run.wait(() => run.engine.flags[122] !== 0, "took amulet");
+  run.checkpoint("Amulet taken", { room: 78, score: 173 });
+  run.walkPath({ x0: 50, x1: 70, y0: 165, y1: 167 });
+  run.exit("S", 83);
+  run.checkpoint("Tower exterior", { room: 83, score: 173 });
+
+  // Quartz tower exterior & entrance
+  run.walkPath({ x0: 45, x1: 55, y0: 155, y1: 165 });
+  run.command("open door");
+  run.wait(() => run.state().room === 93, "entered tower", 10000);
+  run.checkpoint("Tower entrance", { room: 93, score: 173 });
+
+  // Tower stairs 93
+  run.direction(7);
+  run.wait(() => run.engine.flags[32] !== 0, "stairs mounted", 5000);
+  const p93 = planWalk(run, { x0: 50, x1: 100, y0: 50, y1: 59 }, { avoidTriggers: true });
+  for (const wp of p93.waypoints) run.walkTo(wp.x, wp.y);
+  run.wait(() => run.state().room === 92, "entered mid tower", 5000);
+  run.checkpoint("Tower middle", { room: 92, score: 173 });
+
+  // Tower stairs 92
+  run.walkTo(75, 137);
+  run.walkTo(61, 57);
+  run.walkTo(69, 49);
+  run.wait(() => run.state().room === 91, "entered tower top", 5000);
+  run.checkpoint("Tower top", { room: 91, score: 173 });
+
+  // Lion room 91
+  run.walkTo(64, 155);
+  run.command("feed ham to lion");
+  run.wait(() => run.engine.vars[75] === 2, "lion asleep", 10000);
+  run.checkpoint("Lion fed", { room: 91, score: 177 });
+
+  const p91 = planWalk(run, { x0: 80, x1: 95, y0: 120, y1: 128 }, { avoidTriggers: true });
+  for (const wp of p91.waypoints) run.walkTo(wp.x, wp.y);
+  run.command("open door");
+  run.wait(() => run.state().room === 90, "entered princess room", 10000);
+  run.checkpoint("Princess room", { room: 90, score: 182 });
+
+  // Princess room 90 -> Finale
+  run.command("home");
+  run.wait(() => run.state().room === 107, "wedding cutscene", 10000);
+  run.checkpoint("Wedding", { room: 107, score: 185 });
+
+  run.wait(() => run.state().room === 106, "ending credits", 30000);
+  run.checkpoint("KQ2 completed with maximum score", { room: 106, score: 185 });
 }

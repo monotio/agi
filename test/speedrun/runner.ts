@@ -5,6 +5,12 @@ import { CycleClock } from "../../src/runtime/cycleClock.ts";
 import { detectProfile } from "../../src/runtime/profile.ts";
 import { DIRECTION_KEYS, directionForDelta, randomSource } from "../../src/agent/gameTestSteps.ts";
 import { loadGame } from "../game-fixture.ts";
+import {
+  walkPlanned,
+  type Plan,
+  type PlanOptions,
+  type Target,
+} from "../../scripts/walkthrough-navigation.ts";
 
 // The step vocabulary is shared with stored game tests (src/agent/gameTestSteps.ts)
 // so speedrun proofs and TESTS.JSON can never disagree; re-export the pieces
@@ -207,6 +213,32 @@ export class Speedrun {
       this.advance();
     }
     throw new Error(`Walk blocked at ${JSON.stringify(this.state())}, target ${x},${y}`);
+  }
+
+  walkPath(
+    targetOrX: Target | number,
+    yOrOptions?: number | PlanOptions,
+    options?: PlanOptions,
+  ): Plan {
+    let target: Target;
+    let opts = options;
+    if (typeof targetOrX === "number") {
+      const x = targetOrX;
+      const y = typeof yOrOptions === "number" ? yOrOptions : 0;
+      if (typeof yOrOptions === "object") opts = yOrOptions;
+      const ego = this.engine.screenObjects[0];
+      const maxX = ego ? 160 - ego.width : 159;
+      const minY = ego
+        ? Math.max(ego.height - 1, ego.observeHorizon ? this.engine.horizon + 1 : 0)
+        : 0;
+      const clampedX = Math.max(0, Math.min(x, maxX));
+      const clampedY = Math.max(minY, Math.min(y, 167));
+      target = { x0: clampedX, x1: clampedX, y0: clampedY, y1: clampedY };
+    } else {
+      target = targetOrX;
+      if (typeof yOrOptions === "object") opts = yOrOptions;
+    }
+    return walkPlanned(this, target, opts);
   }
 
   exit(dir: "N" | "E" | "S" | "W", room: number, max = 10000): void {

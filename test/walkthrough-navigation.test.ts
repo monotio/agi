@@ -151,3 +151,27 @@ test("navigation image has a separate JSON sidecar and rejects ambiguous output 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("navigation collapses direct lines of sight into a single waypoint without micro-steps", () => {
+  const run = world();
+  const directTarget = { x0: 50, x1: 50, y0: 125, y1: 125 };
+  const plan = planWalk(run, directTarget);
+  assert.equal(plan.found, true);
+  assert.equal(plan.waypoints.length, 1);
+  assert.deepEqual(plan.waypoints[0], { x: 50, y: 125 });
+});
+
+test("navigation respects avoidTriggers option to route around trigger lines", () => {
+  const run = world();
+  // Place a trigger line (control color 2) from y=95 to y=105 at x=20.
+  for (let y = 95; y <= 105; y++) run.engine.surface.priority[y * 160 + 20] = 2;
+  const normalPlan = planWalk(run, target);
+  assert.equal(normalPlan.found, true);
+  // Default allows crossing triggers in a single line-of-sight step.
+  assert.equal(normalPlan.waypoints.length, 1);
+
+  const safePlan = planWalk(run, target, { avoidTriggers: true });
+  assert.equal(safePlan.found, true);
+  // With avoidTriggers, it must detour around the line.
+  assert.ok(safePlan.waypoints.some((p) => p.y < 95 || p.y > 105));
+});

@@ -442,7 +442,7 @@ export function sq1UlenceFlats(run: Speedrun): void {
     if (eng.flags[177] !== 0) break;
   }
   run.wait(
-    () => eng.vars[0] === 25 && eng.screenObjects[0]!.y >= 160 && run.state().control,
+    () => eng.vars[0] === 25 && eng.flags[64] !== 0 && run.state().control,
     "land in room 25",
     15000,
   );
@@ -740,7 +740,7 @@ export function sq1UlenceFlats(run: Speedrun): void {
     if (eng.flags[92] === 0) break;
   }
   run.wait(
-    () => eng.vars[0] === 25 && eng.screenObjects[0]!.y >= 160 && run.state().control,
+    () => eng.vars[0] === 25 && eng.flags[64] !== 0 && run.state().control,
     "land in room 25",
     15000,
   );
@@ -870,33 +870,15 @@ export function sq1DeltaurDeparture(run: Speedrun): void {
   sq1UlenceFlats(run);
 
   // 1. Sell skimmer
-  while (!run.engine.flags[32]) {
-    if (run.engine.modalKind !== null) run.dismiss();
-    run.advance(1);
-  }
-  if (run.engine.modalKind !== null) run.dismiss();
+  run.wait(() => Boolean(run.engine.flags[32]), "skimmer parked");
   run.command("take key");
-  run.advance(10);
-  if (run.engine.modalKind !== null) run.dismiss();
   run.command("get off skimmer");
-  run.advance(10);
-  if (run.engine.modalKind !== null) run.dismiss();
 
-  while (run.engine.vars[58] !== 4 && run.engine.vars[58] !== 7) {
-    if (run.engine.modalKind !== null) run.dismiss();
-    run.advance(1);
-  }
-  if (run.engine.modalKind !== null) run.dismiss();
+  run.wait(() => run.engine.vars[58] === 4 || run.engine.vars[58] === 7, "buyer offered price");
   run.command("no");
-  run.advance(10);
-  while (run.engine.vars[58] !== 7) {
-    if (run.engine.modalKind !== null) run.dismiss();
-    run.advance(1);
-  }
-  if (run.engine.modalKind !== null) run.dismiss();
+  run.wait(() => run.engine.vars[58] === 7, "buyer counter-offered");
   run.command("yes");
-  run.advance(20);
-  if (run.engine.modalKind !== null) run.dismiss();
+  run.wait(() => run.engine.flags[58] !== 0, "skimmer sold");
   run.checkpoint("Skimmer sold", { room: 35, score: 113 });
   assertCarried(run, 9, "Jetpack");
 
@@ -904,72 +886,53 @@ export function sq1DeltaurDeparture(run: Speedrun): void {
   run.walkTo(68, 111);
   run.walkTo(95, 111);
   run.direction(3);
-  while (run.state().room === 35) run.advance(1);
+  run.wait(() => run.state().room === 70, "entered bar");
   run.checkpoint("Entered bar", { room: 70, score: 113 });
 
   // Drink 3 beers
   run.walkTo(120, 155);
   for (let beer = 1; beer <= 3; beer++) {
-    while (!run.engine.flags[41]) {
-      if (run.engine.modalKind !== null) run.dismiss();
-      run.advance(1);
-    }
-    if (run.engine.modalKind !== null) run.dismiss();
+    run.wait(() => Boolean(run.engine.flags[41]), "barkeeper ready");
     run.command("buy beer");
-    run.advance(5);
-    if (run.engine.modalKind !== null) run.dismiss();
     run.command("drink beer");
-    run.advance(5);
-    while (run.engine.modalKind !== null) run.dismiss();
   }
   run.checkpoint("Coordinates overheard", { room: 70, score: 118 });
   assert.equal(run.engine.flags[181], 1, "sector coordinates overheard");
 
   // 3. Wait for slot machine player to clear (f40)
-  while (run.engine.flags[40]) {
-    if (run.engine.modalKind !== null) run.dismiss();
-    run.advance(1);
-  }
+  run.wait(() => !run.engine.flags[40], "slot machine clear");
 
   // Enter slot machine (Room 75)
   run.walkTo(120, 144);
   run.walkTo(119, 143);
   run.walkTo(120, 142);
   run.direction(3);
-  while (run.state().room === 70) run.advance(1);
+  run.wait(() => run.state().room === 75, "entered slot machine");
   run.checkpoint("Slot machine", { room: 75, score: 118 });
-
-  run.advance(20);
-  if (run.engine.modalKind !== null) run.dismiss();
 
   function spin(cheatNum: number) {
     run.answerNumber(cheatNum);
     run.command("holy asshole");
-    run.advance(5);
-    if (run.engine.modalKind !== null) run.dismiss();
+    const target = run.engine.vars[124]! - 3 + 60;
     run.key(AGI_KEY.F8);
-    run.advance(1);
-    while (
-      run.state().room === 75 &&
-      (run.engine.flags[126] || run.engine.flags[134] || run.engine.flags[124])
-    ) {
-      if (run.engine.modalKind !== null) run.dismiss();
-      run.advance(1);
-    }
-    if (run.engine.modalKind !== null) run.dismiss();
+    run.wait(
+      () =>
+        run.state().room !== 75 || run.engine.vars[124] === target || run.engine.vars[124]! >= 250,
+      "payout reached",
+    );
+    run.wait(() => run.state().room !== 75 || run.engine.inputEnabled, "ready for next spin");
   }
 
-  spin(3);
-  spin(3);
-  spin(3);
-  spin(3);
+  while (run.state().room === 75 && run.engine.vars[124]! < 250) {
+    spin(3);
+  }
   run.checkpoint("Slots jackpot", { room: 70, score: 118 });
   assert.equal(run.engine.vars[124], 250, "max buckazoids won");
 
   // 4. Exit bar to Room 35
   walkPlanned(run, { x0: 0, y0: 126, x1: 1, y1: 128 });
   run.direction(7);
-  while (run.state().room === 70) run.advance(1);
+  run.wait(() => run.state().room === 35, "exited bar");
 
   // Room 35 to Room 34
   run.exit("W", 34);
@@ -980,14 +943,8 @@ export function sq1DeltaurDeparture(run: Speedrun): void {
   run.checkpoint("Tiny used ships lot", { room: 37, score: 118 });
 
   // Buy spaceship
-  while (!run.engine.flags[43]) {
-    if (run.engine.modalKind !== null) run.dismiss();
-    run.advance(1);
-  }
-  if (run.engine.modalKind !== null) run.dismiss();
+  run.wait(() => Boolean(run.engine.flags[43]), "salesman approached");
   run.command("buy ship");
-  run.advance(10);
-  while (run.engine.modalKind !== null) run.dismiss();
   run.checkpoint("Spaceship purchased", { room: 37, score: 122 });
   assert.equal(run.engine.flags[74], 1, "spaceship purchased");
 
@@ -999,17 +956,11 @@ export function sq1DeltaurDeparture(run: Speedrun): void {
   run.checkpoint("Droids-B-Us", { room: 71, score: 122 });
 
   // Wait for salesman
-  while (!run.engine.flags[38]) {
-    if (run.engine.modalKind !== null) run.dismiss();
-    run.advance(1);
-  }
-  if (run.engine.modalKind !== null) run.dismiss();
+  run.wait(() => Boolean(run.engine.flags[38]), "salesman approached");
 
   // Buy pilot droid
   walkPlanned(run, { x0: 95, y0: 66, x1: 105, y1: 68 });
   run.command("buy droid");
-  run.advance(10);
-  while (run.engine.modalKind !== null) run.dismiss();
   run.checkpoint("Pilot droid purchased", { room: 71, score: 126 });
   assert.equal(run.engine.flags[60], 1, "pilot droid acquired");
 
@@ -1025,28 +976,16 @@ export function sq1DeltaurDeparture(run: Speedrun): void {
   run.walkTo(109, 150);
   run.walkTo(109, 132);
   run.command("climb ladder");
-  while (!run.engine.flags[117]) {
-    if (run.engine.modalKind !== null) run.dismiss();
-    run.advance(1);
-  }
-  if (run.engine.modalKind !== null) run.dismiss();
+  run.wait(() => Boolean(run.engine.flags[117]), "in cockpit");
 
   run.command("press load");
-  while (!run.engine.flags[34]) {
-    if (run.engine.modalKind !== null) run.dismiss();
-    run.advance(1);
-  }
-  if (run.engine.modalKind !== null) run.dismiss();
+  run.wait(() => Boolean(run.engine.flags[34]), "droid loaded");
   run.checkpoint("Droid loaded", { room: 37, score: 126 });
   assert.equal(run.engine.flags[69], 1, "droid loaded in ship");
 
   // 7. Enter sector HH and launch to Deltaur!
   run.command("sector hh");
-  while (run.state().room !== 43) {
-    if (run.engine.modalKind !== null) run.dismiss();
-    run.advance(1);
-  }
-  if (run.engine.modalKind !== null) run.dismiss();
+  run.wait(() => run.state().room === 43, "arrived at Deltaur");
   run.checkpoint("Deltaur arrival", { room: 43, score: 151 });
   assert.equal(run.state().room, 43, "arrived at Deltaur");
   assert.equal(run.state().score, 151, "score 151");

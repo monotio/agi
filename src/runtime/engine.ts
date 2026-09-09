@@ -761,6 +761,11 @@ export class Engine {
     return this.objects;
   }
 
+  /** Read a loaded view resource by number, or null if not loaded. */
+  getView(num: number): AgiView | null {
+    return this.views.get(num) ?? null;
+  }
+
   /**
    * Slot writes outside the profile's string range are ignored
    * (spec "String slots": six slots before 2.411, twelve afterwards).

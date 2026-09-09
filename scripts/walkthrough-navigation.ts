@@ -28,6 +28,9 @@ export interface Plan {
   waypoints: { x: number; y: number }[];
   assumptions: string[];
 }
+export interface PlanOptions {
+  avoidTriggers?: boolean;
+}
 function validateTarget(target: Target): void {
   if (
     ![target.x0, target.x1, target.y0, target.y1].every(Number.isInteger) ||
@@ -50,8 +53,56 @@ const dirs = [
   [-1, 0],
   [-1, -1],
 ] as const;
+
+function canWalkDirect(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  step: number,
+  maxX: number,
+  minY: number,
+  valid: Uint8Array,
+  ego: { width: number; observeBlocks: boolean; observeObjects: boolean },
+  save: {
+    blockEnabled: boolean | number;
+    blockLeft: number;
+    blockRight: number;
+    blockTop: number;
+    blockBottom: number;
+  },
+  inside: (x: number, y: number) => boolean,
+  objects: { x: number; y: number; width: number; height: number }[],
+): boolean {
+  let cx = x1;
+  let cy = y1;
+  while (cx !== x2 || cy !== y2) {
+    const dx = Math.sign(x2 - cx);
+    const dy = Math.sign(y2 - cy);
+    const nx = Math.abs(x2 - cx) < step ? x2 : cx + dx * step;
+    const ny = Math.abs(y2 - cy) < step ? y2 : cy + dy * step;
+    if (nx < 0 || nx > maxX || ny < minY || ny > 167) return false;
+    if (!valid[ny * 160 + nx]) return false;
+    if (ego.observeBlocks && Boolean(save.blockEnabled) && inside(cx, cy) !== inside(nx, ny))
+      return false;
+    if (
+      ego.observeObjects &&
+      objects.some(
+        (o) =>
+          !(nx + ego.width < o.x || nx > o.x + o.width) &&
+          (ny === o.y || (ny > o.y && cy < o.y) || (ny < o.y && cy > o.y)),
+      )
+    ) {
+      return false;
+    }
+    cx = nx;
+    cy = ny;
+  }
+  return true;
+}
+
 /** Advisory static geometry only. This function reads state; it never moves or restores an engine. */
-export function planWalk(run: NavigationState, target: Target): Plan {
+export function planWalk(run: NavigationState, target: Target, options?: PlanOptions): Plan {
   validateTarget(target);
   const engine = run.engine,
     ego = { ...engine.screenObjects[0]! };
@@ -73,10 +124,19 @@ export function planWalk(run: NavigationState, target: Target): Plan {
   const objects = engine.screenObjects
     .filter((o, i) => i > 0 && o.active && o.update && o.observeObjects)
     .map((o) => ({ ...o }));
+  const view = engine.getView(ego.view);
+  let egoWidth = ego.width;
+  if (view) {
+    for (const loop of view.loops) {
+      for (const cel of loop.cels) {
+        if (cel.width > egoWidth) egoWidth = cel.width;
+      }
+    }
+  }
   const control = engine.surface.priority.slice();
   const step = Math.max(1, ego.stepSize);
   const minY = Math.max(ego.height - 1, ego.observeHorizon ? engine.horizon + 1 : 0);
-  const maxX = 160 - ego.width;
+  const maxX = Math.max(ego.x, 160 - egoWidth);
   const inside = (x: number, y: number) =>
     x > save.blockLeft && x < save.blockRight && y > save.blockTop && y < save.blockBottom;
   const valid = new Uint8Array(160 * 168);
@@ -85,13 +145,17 @@ export function planWalk(run: NavigationState, target: Target): Plan {
       let accepted = true,
         water = true;
       if (!(ego.fixedPriority && ego.priority === 15)) {
-        for (let dx = 0; dx < ego.width; dx++) {
+        for (let dx = 0; dx < egoWidth; dx++) {
           const c = control[y * 160 + x + dx]!;
           if (c === 0 || (c === 1 && ego.observeBlocks)) {
             accepted = false;
             break;
           }
-          if (c !== 3) water = false;
+          if (options?.avoidTriggers && c === 2 && (x !== ego.x || y !== ego.y)) {
+            accepted = false;
+            break;
+          }
+          if (dx < ego.width && c !== 3) water = false;
         }
         if (ego.waterGate === "on" && !water) accepted = false;
         if (ego.waterGate === "off" && water) accepted = false;
@@ -129,7 +193,7 @@ export function planWalk(run: NavigationState, target: Target): Plan {
         ego.observeObjects &&
         objects.some(
           (o) =>
-            !(nx + ego.width < o.x || nx > o.x + o.width) &&
+            !(nx + egoWidth < o.x || nx > o.x + o.width) &&
             (ny === o.y || (ny > o.y && y < o.y) || (ny < o.y && y > o.y)),
         )
       )
@@ -142,12 +206,45 @@ export function planWalk(run: NavigationState, target: Target): Plan {
   if (end >= 0) for (let n = end; n >= 0; n = parent[n]!) chain.push(n);
   chain.reverse();
   const waypoints: { x: number; y: number }[] = [];
-  for (let i = 1; i < chain.length; i++) {
-    const previous = chain[i - 1]!,
-      at = chain[i]!,
-      next = chain[i + 1];
-    if (next === undefined || at - previous !== next - at)
-      waypoints.push({ x: at % 160, y: Math.floor(at / 160) });
+  if (chain.length > 1) {
+    let curr = 0;
+    while (curr < chain.length - 1) {
+      let furthest = curr + 1;
+      for (let next = chain.length - 1; next > curr; next--) {
+        const pCurr = chain[curr]!;
+        const pNext = chain[next]!;
+        const x1 = pCurr % 160;
+        const y1 = Math.floor(pCurr / 160);
+        const x2 = pNext % 160;
+        const y2 = Math.floor(pNext / 160);
+        if (
+          canWalkDirect(
+            x1,
+            y1,
+            x2,
+            y2,
+            step,
+            maxX,
+            minY,
+            valid,
+            {
+              width: egoWidth,
+              observeBlocks: ego.observeBlocks,
+              observeObjects: ego.observeObjects,
+            },
+            save,
+            inside,
+            objects,
+          )
+        ) {
+          furthest = next;
+          break;
+        }
+      }
+      const pt = chain[furthest]!;
+      waypoints.push({ x: pt % 160, y: Math.floor(pt / 160) });
+      curr = furthest;
+    }
   }
   const reached = end >= 0 ? end : best;
   return {
@@ -203,8 +300,8 @@ export function describePosition(run: NavigationState): unknown {
   };
 }
 /** Execute only a found candidate through the existing ordinary-input driver. Errors propagate. */
-export function walkPlanned(run: NavigationRun, target: Target): Plan {
-  const plan = planWalk(run, target);
+export function walkPlanned(run: NavigationRun, target: Target, options?: PlanOptions): Plan {
+  const plan = planWalk(run, target, options);
   if (!plan.found)
     throw new Error("No static path: " + JSON.stringify({ plan, state: describePosition(run) }));
   for (const point of plan.waypoints) {
