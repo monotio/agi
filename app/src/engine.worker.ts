@@ -144,6 +144,16 @@ function recordedClock(): void {
 let lastKeyId = 0;
 let timer: number | null = null;
 let soundTimer: number | null = null;
+function stopTimers(): void {
+  if (timer !== null) {
+    clearInterval(timer);
+    timer = null;
+  }
+  if (soundTimer !== null) {
+    clearInterval(soundTimer);
+    soundTimer = null;
+  }
+}
 const soundClock = new SoundClock(performance.now());
 const cycleClock = new CycleClock(performance.now());
 /** Poll input/modal services at display cadence; v10 separately gates logic cycles. */
@@ -509,8 +519,7 @@ const host: EngineHost = {
     return value;
   },
   quit() {
-    clearInterval(timer ?? undefined);
-    clearInterval(soundTimer ?? undefined);
+    stopTimers();
     self.postMessage({ type: "quit" });
   },
   /** Playback state only; the engine emits scheduled audio commands separately. */
@@ -658,6 +667,55 @@ function serveFrames(id: unknown, count: number, stride: number, since: number |
   );
 }
 
+function startTimers(): void {
+  if (soundTimer === null) {
+    soundTimer = setInterval(() => {
+      try {
+        advanceSoundClock();
+      } catch (error) {
+        self.postMessage({ type: "error", message: String(error) });
+        stopTimers();
+      }
+    }, 1000 / 60) as unknown as number;
+  }
+  if (timer === null) {
+    timer = setInterval(() => {
+      try {
+        const now = performance.now();
+        if (bridge && Atomics.load(bridge.i32, BRIDGE_PAUSE_SLOT) === 1) {
+          cycleClock.poll(now, engine!.vars[10]!, true);
+          return;
+        }
+        advanceSoundClock();
+        if (engine!.modalKind !== null || engine!.continuationPending) {
+          tickEngine();
+          postFrame();
+        } else if (cycleClock.poll(now, engine!.vars[10]!)) {
+          flushDeferredMovement();
+          tickEngine();
+          cycleCount++;
+          postFrame(true);
+        }
+        if (now - lastCycleReportAt >= CYCLE_REPORT_MS) {
+          lastCycleReportAt = now;
+          const scalars = engine!.readState();
+          self.postMessage({
+            type: "cycle",
+            cycle: cycleCount,
+            room: scalars.room,
+            egoX: scalars.egoX,
+            egoY: scalars.egoY,
+          });
+        }
+        if (Date.now() - lastAutosaveAt >= autosaveIntervalMs) autosave(false);
+      } catch (e) {
+        self.postMessage({ type: "error", message: String(e) });
+        stopTimers();
+      }
+    }, HOST_POLL_MS) as unknown as number;
+  }
+}
+
 self.onmessage = (ev: MessageEvent) => {
   const msg = ev.data;
   try {
@@ -788,10 +846,9 @@ self.onmessage = (ev: MessageEvent) => {
     if (msg.type === "boot") {
       initialLogicStarted = false;
       const boot = msg as BootMsg;
-      replay =
-        import.meta.env.MODE === "test" && Number.isInteger(boot.replaySeed)
-          ? { tick: 0, revision: 0, random: boot.replaySeed! >>> 0, yielded: false }
-          : null;
+      replay = Number.isInteger(boot.replaySeed)
+        ? { tick: 0, revision: 0, random: boot.replaySeed! >>> 0, yielded: false }
+        : null;
       bridge = {
         i32: new Int32Array(boot.sab, 0, 4),
         bytes: new Uint8Array(boot.sab, BRIDGE_HEADER_BYTES),
@@ -819,8 +876,7 @@ self.onmessage = (ev: MessageEvent) => {
       lastControls = "";
       lastInputEdit = "";
       lastSoundEnabled = null;
-      clearInterval(timer ?? undefined);
-      clearInterval(soundTimer ?? undefined);
+      stopTimers();
       soundClock.reset(performance.now());
       cycleClock.reset(replay ? 0 : performance.now());
       lastCycleReportAt = performance.now();
@@ -855,71 +911,20 @@ self.onmessage = (ev: MessageEvent) => {
           self.postMessage({ type: "restored", ok: false, message: String(e) });
         }
       }
-      if (!replay)
-        soundTimer = setInterval(() => {
-          try {
-            advanceSoundClock();
-          } catch (error) {
-            self.postMessage({ type: "error", message: String(error) });
-            clearInterval(soundTimer ?? undefined);
-            clearInterval(timer ?? undefined);
-          }
-        }, 1000 / 60) as unknown as number;
-      if (!replay)
-        timer = setInterval(() => {
-          try {
-            // Remix freeze: the interpreter parks BETWEEN cycles, so the
-            // world stops mid-step and resumes on exactly the state it left.
-            // The worker deliberately stays responsive while parked: read_frames,
-            // read_state and patch all have to work on a frozen game.
-            const now = performance.now();
-            if (bridge && Atomics.load(bridge.i32, BRIDGE_PAUSE_SLOT) === 1) {
-              cycleClock.poll(now, engine!.vars[10]!, true);
-              return;
-            }
-            advanceSoundClock();
-            if (engine!.modalKind !== null || engine!.continuationPending) {
-              // Acknowledgement resumes the suspended instruction's call stack.
-              // Let timer increments accumulate while a normal game modal is open.
-              tickEngine();
-              postFrame();
-            } else if (cycleClock.poll(now, engine!.vars[10]!)) {
-              flushDeferredMovement();
-              tickEngine();
-              cycleCount++;
-              postFrame(true);
-            }
-            // Liveness heartbeat. Frames are posted only when the screen
-            // changes, so a static room posts nothing and the host cannot tell
-            // "parked" from "nothing moved". This counter always advances while
-            // the interpreter is cycling and stops dead the moment it parks.
-            if (now - lastCycleReportAt >= CYCLE_REPORT_MS) {
-              lastCycleReportAt = now;
-              // The heartbeat carries the scalars a host (and a proof run) needs
-              // to say WHERE the game is, not just that it is alive: a resumed
-              // game has to land in the room and on the spot it left.
-              const scalars = engine!.readState();
-              self.postMessage({
-                type: "cycle",
-                cycle: cycleCount,
-                room: scalars.room,
-                egoX: scalars.egoX,
-                egoY: scalars.egoY,
-              });
-            }
-            // Autosave: on the cadence, and always between cycles rather than
-            // inside one. A boundary the engine refuses (an open window, a text
-            // screen) is simply skipped and retried on the next tick, which is
-            // why this is a poll and not a timer of its own.
-            if (Date.now() - lastAutosaveAt >= autosaveIntervalMs) autosave(false);
-          } catch (e) {
-            self.postMessage({ type: "error", message: String(e) });
-            clearInterval(timer ?? undefined);
-            clearInterval(soundTimer ?? undefined);
-          }
-        }, HOST_POLL_MS) as unknown as number;
+      if (!replay) startTimers();
       self.postMessage({ type: "booted", profile: engine.profile.id });
       postReplay(null);
+      return;
+    }
+    if (msg.type === "exitReplay") {
+      replay = null;
+      soundClock.reset(performance.now());
+      cycleClock.reset(performance.now());
+      lastCycleReportAt = performance.now();
+      stopTimers();
+      startTimers();
+      postFrame();
+      self.postMessage({ type: "exitedReplay" });
       return;
     }
     if (msg.type === "flush") {

@@ -1,5 +1,11 @@
 import { AGI_KEY, NAV_KEYS } from "../../src/runtime/keys.ts";
-import type { ReplayAction, ReplayBatchResult, ReplayDriver, ReplayObservation } from "./replay.ts";
+import type {
+  ReplayAction,
+  ReplayBatchOptions,
+  ReplayBatchResult,
+  ReplayDriver,
+  ReplayObservation,
+} from "./replay.ts";
 import type { Frame } from "./useEngine.ts";
 
 export const REPLAY_KEYS: Record<number, string> = {
@@ -83,9 +89,11 @@ export async function computeScreenHash(frame: Frame | null): Promise<string> {
 export async function runReplayBatch(
   driver: ReplayDriver,
   actions: readonly ReplayAction[],
-  options?: { phone?: boolean; getLatestFrame?: () => Frame | null },
+  options?: ReplayBatchOptions & { getLatestFrame?: () => Frame | null },
 ): Promise<ReplayBatchResult> {
   const phone = options?.phone ?? Boolean(document.querySelector('[data-testid="touch-controls"]'));
+  const rawSpeed = options?.speed;
+  const getSpeed: () => number = typeof rawSpeed === "function" ? rawSpeed : () => rawSpeed ?? 0;
   let heldDirection: string | null = null;
 
   function releaseDirection(): void {
@@ -141,10 +149,24 @@ export async function runReplayBatch(
     if (!observation) throw new Error("No replay observation available");
     const target = observation.tick + ticks;
     while (observation.tick < target) {
+      if (options?.signal?.aborted) return;
       if (observation.blocked) {
         throw new Error("Route must answer the prompt before advancing time");
       }
-      observation = await driver.advance(target - observation.tick);
+      const remaining = target - observation.tick;
+      const speed = getSpeed();
+      if (speed <= 0) {
+        observation = await driver.advance(remaining);
+      } else {
+        const currentSpeed = Math.max(0.1, speed);
+        const chunk = Math.min(remaining, Math.max(1, Math.round(currentSpeed)));
+        const delayMs = Math.max(1, (chunk * (1000 / 60)) / currentSpeed);
+        const t0 = performance.now();
+        observation = await driver.advance(chunk);
+        const elapsed = performance.now() - t0;
+        const sleep = delayMs - elapsed;
+        if (sleep > 0) await new Promise((resolve) => setTimeout(resolve, sleep));
+      }
       if (observation.blocked) {
         if (observation.tick !== target) {
           throw new Error(
@@ -323,13 +345,33 @@ export async function runReplayBatch(
 
   try {
     for (const [index, action] of actions.entries()) {
+      if (options?.signal?.aborted) break;
+      if (driver.latest && options?.onProgress) {
+        options.onProgress({
+          actionIndex: index,
+          totalActions: actions.length,
+          tick: driver.latest.tick,
+          room: driver.latest.state.room,
+          score: driver.latest.state.vars[3] ?? 0,
+        });
+      }
       try {
         switch (action.kind) {
           case "key":
             await key(action.code);
+            if (getSpeed() > 0) {
+              await new Promise((resolve) =>
+                setTimeout(resolve, Math.min(80, Math.max(10, 40 / getSpeed()))),
+              );
+            }
             break;
           case "command":
             await text(action.text);
+            if (getSpeed() > 0) {
+              await new Promise((resolve) =>
+                setTimeout(resolve, Math.min(100, Math.max(15, 60 / getSpeed()))),
+              );
+            }
             break;
           case "answer":
             if (!driver.latest?.blocked) {
@@ -355,20 +397,34 @@ export async function runReplayBatch(
               x: action.x,
               y: action.y,
             };
-            if (
-              actual.room !== expected.room ||
-              actual.score !== expected.score ||
-              actual.x !== expected.x ||
-              actual.y !== expected.y
-            ) {
+            if (actual.room !== expected.room || actual.score !== expected.score) {
               throw new Error(
-                `Checkpoint "${action.label}" failed: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+                `Checkpoint "${action.label}" failed: expected room ${expected.room} score ${expected.score}, got room ${actual.room} score ${actual.score}`,
               );
             }
+            if (actual.x !== expected.x || actual.y !== expected.y) {
+              if (getSpeed() <= 0) {
+                throw new Error(
+                  `Checkpoint "${action.label}" coordinate failed: expected (${expected.x},${expected.y}), got (${actual.x},${actual.y})`,
+                );
+              } else {
+                console.warn(
+                  `[Walkthrough] Checkpoint "${action.label}" position mismatch: expected (${expected.x},${expected.y}), got (${actual.x},${actual.y})`,
+                );
+              }
+            }
+            options?.onCheckpoint?.({
+              label: action.label,
+              room: actual.room,
+              score: actual.score,
+              x: actual.x,
+              y: actual.y,
+            });
             break;
           }
         }
       } catch (error) {
+        if (options?.signal?.aborted) break;
         const obs = driver.latest;
         throw new Error(
           `Replay action ${index} ${JSON.stringify(action)} at tick ${obs?.tick}: ${String(error)}\n${obs?.rows.join("\n")}`,

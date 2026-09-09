@@ -23,6 +23,7 @@
     "test:app": "node --test --experimental-strip-types 'app/test/*.test.ts'",
     "test:e2e": "npm --prefix app run e2e",
     "prove:walkthrough": "node --experimental-strip-types scripts/walkthrough.ts",
+    "walkthrough:generate": "node --experimental-strip-types scripts/generate-walkthroughs.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p evals/tsconfig.json --noEmit",
     "typecheck:app": "npm --prefix app run typecheck",
     "check:dependencies": "npm ls --depth=0 && npm --prefix app ls --depth=0",

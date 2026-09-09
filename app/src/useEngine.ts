@@ -11,6 +11,7 @@ import { parseWordsTok } from "../../src/logic/words.ts";
 import type { SoundOutput } from "../../src/sound/sound.ts";
 import type { ReplayDriver, ReplayObservation } from "./replay.ts";
 import { runReplayBatch } from "./replayRunner.ts";
+import { loadWalkthrough } from "./walkthrough.ts";
 import { createBridge, type AgentHandler, type Bridge } from "./agent/sabBridge.ts";
 import { AgentSession } from "./agent/agentSession.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
@@ -145,6 +146,24 @@ export interface EngineState {
   resumed: boolean;
   /** Player-action recording for a stored game test. */
   recording: { active: boolean; starting: boolean; error: string };
+  /** Real-time walkthrough playback. */
+  walkthrough: WalkthroughUiState;
+}
+
+export interface WalkthroughUiState {
+  active: boolean;
+  slug: string | null;
+  speed: number;
+  label: string | null;
+  checkpointIndex: number;
+  totalCheckpoints: number;
+  room: number | null;
+  score: number | null;
+  tick: number;
+  totalTicks: number;
+  percent: number;
+  status: "idle" | "playing" | "completed" | "stopped" | "error";
+  error: string;
 }
 
 /** Remix bubble state; the transcript slice is the live tool-call feed. */
@@ -266,8 +285,24 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     },
     resumed: false,
     recording: { active: false, starting: false, error: "" },
+    walkthrough: {
+      active: false,
+      slug: null,
+      speed: 1,
+      label: null,
+      checkpointIndex: 0,
+      totalCheckpoints: 0,
+      room: null,
+      score: null,
+      tick: 0,
+      totalTicks: 0,
+      percent: 0,
+      status: "idle",
+      error: "",
+    },
   });
 
+  let walkthroughAbortController: AbortController | null = null;
   let worker: Worker | null = null;
   let bridge: Bridge | null = null;
   /** The authoring session for the game currently in the slot, if one exists. */
@@ -287,47 +322,46 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   /** In-flight worker queries (frames / state / objects), keyed by request id. */
   const pendingQueries = new Map<number, (value: unknown) => void>();
   let nextQueryId = 1;
-  const replaySeedText =
+  const urlReplaySeedText =
     import.meta.env.MODE === "test" ? new URLSearchParams(location.search).get("replaySeed") : null;
-  const replaySeed = replaySeedText === null ? null : Number(replaySeedText);
+  const urlReplaySeed = urlReplaySeedText === null ? null : Number(urlReplaySeedText);
+  let activeReplaySeed: number | null =
+    urlReplaySeed !== null && Number.isInteger(urlReplaySeed) ? urlReplaySeed : null;
   const observationListeners = new Set<(obs: ReplayObservation) => void>();
   let latestFrame: Frame | null = null;
-  const replayDriver: ReplayDriver | null =
-    replaySeed !== null && Number.isInteger(replaySeed)
-      ? {
-          latest: null,
-          advance: (ticks) => query<ReplayObservation>("replayAdvance", { ticks }),
-          waitForRevision: (minRevision: number) => {
-            if (replayDriver!.latest && replayDriver!.latest.revision > minRevision) {
-              return Promise.resolve(replayDriver!.latest);
-            }
-            return new Promise<ReplayObservation>((resolve, reject) => {
-              const timer = setTimeout(() => {
-                observationListeners.delete(listener);
-                reject(
-                  new Error(
-                    `Timeout waiting for revision > ${minRevision} (current: ${replayDriver!.latest?.revision})`,
-                  ),
-                );
-              }, 10_000);
-              const listener = (obs: ReplayObservation) => {
-                if (obs.revision > minRevision) {
-                  clearTimeout(timer);
-                  observationListeners.delete(listener);
-                  resolve(obs);
-                }
-              };
-              observationListeners.add(listener);
-            });
-          },
-          playBatch: (actions, options) =>
-            runReplayBatch(replayDriver!, actions, {
-              ...options,
-              getLatestFrame: () => latestFrame,
-            }),
-        }
-      : null;
-  if (replayDriver) window.__AGI_REPLAY__ = replayDriver;
+  const replayDriver: ReplayDriver = {
+    latest: null,
+    advance: (ticks) => query<ReplayObservation>("replayAdvance", { ticks }),
+    waitForRevision: (minRevision: number) => {
+      if (replayDriver.latest && replayDriver.latest.revision > minRevision) {
+        return Promise.resolve(replayDriver.latest);
+      }
+      return new Promise<ReplayObservation>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          observationListeners.delete(listener);
+          reject(
+            new Error(
+              `Timeout waiting for revision > ${minRevision} (current: ${replayDriver.latest?.revision})`,
+            ),
+          );
+        }, 15_000);
+        const listener = (obs: ReplayObservation) => {
+          if (obs.revision > minRevision) {
+            clearTimeout(timer);
+            observationListeners.delete(listener);
+            resolve(obs);
+          }
+        };
+        observationListeners.add(listener);
+      });
+    },
+    playBatch: (actions, options) =>
+      runReplayBatch(replayDriver, actions, {
+        ...options,
+        getLatestFrame: () => latestFrame,
+      }),
+  };
+  window.__AGI_REPLAY__ = replayDriver;
   let shakeTimer: number | null = null;
   /** Resolves the pending getnum/getstring bridge request. */
   let promptResolver: ((value: string) => void) | null = null;
@@ -726,7 +760,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       // A successful remix is saved as its own local cartridge before playback resumes.
       worker.postMessage({
         type: "boot",
-        ...(replayDriver ? { replaySeed } : {}),
+        ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
         soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
         files,
         words,
@@ -1579,6 +1613,13 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       return;
     }
     state.leaving = false;
+    if (walkthroughAbortController) {
+      walkthroughAbortController.abort();
+      walkthroughAbortController = null;
+    }
+    state.walkthrough.active = false;
+    state.walkthrough.status = "stopped";
+    activeReplaySeed = null;
     // Keep the player's saved position available from the menu.
     state.resumed = false;
     clearTimeout(resumeCaptionTimer ?? undefined);
@@ -1670,7 +1711,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
           };
           worker.postMessage({
             type: "boot",
-            ...(replayDriver ? { replaySeed } : {}),
+            ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
             soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
             files: cached.files,
             words: cached.words,
@@ -1737,7 +1778,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         sab: bridge.sab,
         autosaveFiles: true,
         authorRooms: true,
-        ...(replayDriver ? { replaySeed } : {}),
+        ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
       });
     } catch (e) {
       state.phase = "error";
@@ -1957,6 +1998,141 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     return audio.resume();
   }
 
+  async function startWalkthrough(slug: string, speed = 1): Promise<void> {
+    const artifact = await loadWalkthrough(slug);
+    if (!artifact) {
+      state.walkthrough.error = `No walkthrough found for "${slug}".`;
+      state.walkthrough.status = "error";
+      return;
+    }
+    if (walkthroughAbortController) {
+      walkthroughAbortController.abort();
+      walkthroughAbortController = null;
+    }
+    const abortController = new AbortController();
+    walkthroughAbortController = abortController;
+
+    state.walkthrough.active = true;
+    state.walkthrough.slug = slug;
+    state.walkthrough.speed = speed;
+    state.walkthrough.status = "playing";
+    state.walkthrough.error = "";
+    state.walkthrough.label = "Starting…";
+    state.walkthrough.checkpointIndex = 0;
+    const totalCheckpoints = artifact.actions.filter((a) => a.kind === "checkpoint").length;
+    state.walkthrough.totalCheckpoints = totalCheckpoints;
+    state.walkthrough.tick = 0;
+    state.walkthrough.totalTicks = artifact.virtualTicks;
+    state.walkthrough.percent = 0;
+    state.walkthrough.room = null;
+    state.walkthrough.score = null;
+
+    activeReplaySeed = artifact.seed;
+
+    // Reset pending resume so we boot clean from the beginning
+    pendingResumeRecord = null;
+    state.resumed = false;
+    clearTimeout(resumeCaptionTimer ?? undefined);
+    resumeCaptionTimer = null;
+
+    // Boot game with the seed
+    if (isInstalledGame(slug)) {
+      await bootGame(slug);
+    } else if (getCachedCartridgeMeta(slug)) {
+      await bootCartridgeGame(
+        "",
+        configForCartridge(slug, {
+          provider: "stub",
+          apiKey: "",
+          model: "offline-stub",
+        }),
+        { slug, useCached: true },
+      );
+    } else {
+      await bootGame(slug);
+    }
+
+    if (state.phase === "error") {
+      state.walkthrough.status = "error";
+      state.walkthrough.error = state.error || "Failed to boot game for walkthrough.";
+      return;
+    }
+
+    // Wait until boot completes and replay driver has initial observation
+    if (replayDriver.latest === null) {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          observationListeners.delete(listener);
+          reject(new Error("Timeout waiting for game replay to initialize"));
+        }, 15_000);
+        const listener = (obs: ReplayObservation) => {
+          if (obs.tick === 0) {
+            clearTimeout(timeout);
+            observationListeners.delete(listener);
+            resolve();
+          }
+        };
+        observationListeners.add(listener);
+      });
+    }
+
+    // Run the batch!
+    try {
+      await replayDriver.playBatch(artifact.actions, {
+        speed: () => state.walkthrough.speed,
+        signal: abortController.signal,
+        onCheckpoint: (cp) => {
+          state.walkthrough.checkpointIndex++;
+          state.walkthrough.label = cp.label;
+          state.walkthrough.room = cp.room;
+          state.walkthrough.score = cp.score;
+        },
+        onProgress: (prog) => {
+          state.walkthrough.tick = prog.tick;
+          state.walkthrough.room = prog.room;
+          state.walkthrough.score = prog.score;
+          if (artifact.virtualTicks > 0) {
+            state.walkthrough.percent = Math.min(
+              100,
+              Math.round((prog.tick / artifact.virtualTicks) * 100),
+            );
+          }
+        },
+      });
+      if (!abortController.signal.aborted) {
+        state.walkthrough.status = "completed";
+        state.walkthrough.percent = 100;
+      }
+    } catch (err) {
+      if (abortController.signal.aborted) {
+        state.walkthrough.status = "stopped";
+      } else {
+        state.walkthrough.status = "error";
+        state.walkthrough.error = String(err);
+      }
+    }
+  }
+
+  async function stopWalkthrough(takeControl = false): Promise<void> {
+    if (walkthroughAbortController) {
+      walkthroughAbortController.abort();
+      walkthroughAbortController = null;
+    }
+    state.walkthrough.active = false;
+    activeReplaySeed = null;
+    if (takeControl) {
+      state.walkthrough.status = "stopped";
+      worker?.postMessage({ type: "exitReplay" });
+    } else {
+      state.walkthrough.status = "stopped";
+      await ejectGame();
+    }
+  }
+
+  function setWalkthroughSpeed(speed: number): void {
+    state.walkthrough.speed = Math.max(0.1, speed);
+  }
+
   return {
     stopAgent: () => session?.task.stop(),
     continueAgent: () => session?.task.resume(),
@@ -1971,6 +2147,9 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     bootGame,
     bootAgentGame,
     bootCartridgeGame,
+    startWalkthrough,
+    stopWalkthrough,
+    setWalkthroughSpeed,
     sendInput,
     sendEdit,
     sendDirection,

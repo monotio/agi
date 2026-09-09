@@ -48,6 +48,7 @@ import { readGameProgress, type ImportStorageReport } from "./gameProgress.ts";
 import { captureGameDrop } from "./gameDrop.ts";
 import { GAME_CATALOG, type GameCatalogEntry } from "./gameCatalog.ts";
 import { loadHostedCatalog } from "./hostedCatalog.ts";
+import { hasWalkthrough } from "./walkthrough.ts";
 import { previewGame } from "./gamePreview.ts";
 import { addLibraryGame, copyLibraryGame, type CheckedOpening } from "./gameLibrary.ts";
 import { gameRevision } from "./gameMetadata.ts";
@@ -321,6 +322,9 @@ const {
   bootGame,
   bootAgentGame,
   bootCartridgeGame,
+  startWalkthrough,
+  stopWalkthrough,
+  setWalkthroughSpeed,
   sendInput,
   sendEdit,
   sendDirection,
@@ -505,6 +509,12 @@ async function onPlayLocalGame(slug: string): Promise<void> {
   const checkpoint = readAutosave(slug);
   if (checkpoint) await resumeFromRecord(checkpoint, llmConfig());
   else await bootGame(slug);
+}
+
+async function onStartWalkthrough(slug: string): Promise<void> {
+  await resumeAudio();
+  clearPlayHash();
+  await startWalkthrough(slug);
 }
 
 function refreshPendingAutosave(): void {
@@ -1386,6 +1396,7 @@ function onPowerUpKey(ev: KeyboardEvent): void {
 function onGlobalKeydown(ev: KeyboardEvent): void {
   resumeAudio();
   if (state.phase !== "running" || !state.inputReady) return;
+  if (state.walkthrough.active && state.walkthrough.status === "playing" && ev.isTrusted) return;
   if (ev.isComposing || ev.keyCode === 229) return;
   if (ev.target instanceof Element && ev.target.closest("dialog[open]")) return;
   // The bubble owns the keyboard while it is open: the world is frozen and
@@ -1624,6 +1635,14 @@ function onVirtualKey(code: number): void {
 function releaseMovement(): void {
   if (heldMovementKeys.size) sendDirection(0);
   heldMovementKeys.clear();
+}
+
+function onTakeControl(): void {
+  releaseMovement();
+  stopWalkthrough(true);
+  nextTick(() => {
+    inputEl.value?.focus();
+  });
 }
 
 function resizeViewport(): void {
@@ -1950,6 +1969,15 @@ watch(
           icon-only
           test-id="game-actions-menu"
         >
+          <button
+            v-if="hasWalkthrough(currentGame()?.slug ?? '') && !state.walkthrough.active"
+            type="button"
+            role="menuitem"
+            data-testid="btn-run-walkthrough"
+            @click="onStartWalkthrough(currentGame()!.slug)"
+          >
+            <span>Run walkthrough<small>Watch real-time playthrough</small></span>
+          </button>
           <button type="button" role="menuitem" data-testid="btn-start-over" @click="onStartOver">
             Start over
           </button>
@@ -2045,6 +2073,87 @@ watch(
         Cancel
       </button>
     </div>
+    <div
+      v-if="state.walkthrough.active"
+      class="walkthrough-bar"
+      data-testid="walkthrough-bar"
+      role="status"
+    >
+      <span class="walkthrough-badge">
+        <span class="walkthrough-dot" aria-hidden="true"></span>
+        Walkthrough
+      </span>
+      <span
+        v-if="state.walkthrough.label"
+        class="walkthrough-label"
+        data-testid="walkthrough-label"
+      >
+        {{ state.walkthrough.label }}
+      </span>
+      <span
+        v-if="typeof state.walkthrough.score === 'number'"
+        class="walkthrough-score"
+        data-testid="walkthrough-score"
+      >
+        Score: {{ state.walkthrough.score }}
+      </span>
+      <span
+        v-if="state.walkthrough.percent > 0"
+        class="walkthrough-percent"
+        data-testid="walkthrough-percent"
+      >
+        {{ state.walkthrough.percent }}%
+      </span>
+      <span v-if="state.walkthrough.status === 'completed'" class="walkthrough-completed-badge">
+        Completed!
+      </span>
+      <div
+        v-if="state.walkthrough.status === 'playing'"
+        class="walkthrough-speed-group"
+        role="group"
+        aria-label="Playback speed"
+      >
+        <button
+          v-for="s in [1, 2, 4]"
+          :key="s"
+          type="button"
+          class="ui-button ui-button--secondary walkthrough-speed-btn"
+          :class="{ 'walkthrough-speed-btn--active': state.walkthrough.speed === s }"
+          :data-testid="`walkthrough-speed-${s}`"
+          @click="setWalkthroughSpeed(s)"
+        >
+          {{ s }}×
+        </button>
+      </div>
+      <div class="walkthrough-actions">
+        <button
+          type="button"
+          class="ui-button ui-button--primary walkthrough-btn"
+          data-testid="btn-walkthrough-take-control"
+          title="Take control of the game right here"
+          @click="onTakeControl"
+        >
+          Take control
+        </button>
+        <button
+          type="button"
+          class="ui-button ui-button--secondary walkthrough-btn"
+          data-testid="btn-walkthrough-stop"
+          title="Stop walkthrough and return to menu"
+          @click="stopWalkthrough(false)"
+        >
+          {{ state.walkthrough.status === "completed" ? "Done" : "Stop" }}
+        </button>
+      </div>
+    </div>
+    <p
+      v-if="state.walkthrough.error"
+      class="export-refusal"
+      data-testid="walkthrough-error"
+      role="alert"
+    >
+      {{ state.walkthrough.error }}
+    </p>
     <p v-if="state.recording.error" class="export-refusal" data-testid="record-error" role="alert">
       {{ state.recording.error }}
     </p>
@@ -2422,6 +2531,15 @@ watch(
                   :test-id="`game-actions-${world.slug}`"
                 >
                   <button
+                    v-if="hasWalkthrough(world.slug)"
+                    type="button"
+                    role="menuitem"
+                    data-testid="run-walkthrough"
+                    @click="onStartWalkthrough(world.slug)"
+                  >
+                    <span>Run walkthrough<small>Watch real-time playthrough</small></span>
+                  </button>
+                  <button
                     v-if="libraryAutosaves[world.slug]"
                     type="button"
                     role="menuitem"
@@ -2546,12 +2664,23 @@ watch(
                   {{ libraryAutosaves[slug] ? "Resume" : "Play" }}
                 </button>
                 <ActionMenu
-                  v-if="libraryAutosaves[slug]"
+                  v-if="libraryAutosaves[slug] || hasWalkthrough(slug)"
                   label="Game actions"
                   icon="more"
                   icon-only
+                  :test-id="`game-actions-${slug}`"
                 >
                   <button
+                    v-if="hasWalkthrough(slug)"
+                    type="button"
+                    role="menuitem"
+                    data-testid="run-walkthrough"
+                    @click="onStartWalkthrough(slug)"
+                  >
+                    <span>Run walkthrough<small>Watch real-time playthrough</small></span>
+                  </button>
+                  <button
+                    v-if="libraryAutosaves[slug]"
                     type="button"
                     role="menuitem"
                     @click="
@@ -3331,6 +3460,82 @@ watch(
   color: #9fe6a0;
   font-size: 12px;
   margin: 6px 0 0;
+}
+.walkthrough-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 6px 0 0;
+  padding: 6px 12px;
+  border: 1px solid #1a5259;
+  border-radius: 8px;
+  background: #0f2428;
+  color: #c9eff2;
+  font-size: 13px;
+}
+.walkthrough-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: #5ce1e6;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+}
+.walkthrough-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #5ce1e6;
+  animation: walkthrough-pulse 1.5s ease-in-out infinite;
+}
+@keyframes walkthrough-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.85);
+  }
+}
+.walkthrough-label {
+  color: #ffffff;
+  font-weight: 500;
+}
+.walkthrough-score,
+.walkthrough-percent {
+  color: #9fe6a0;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+.walkthrough-completed-badge {
+  color: #ffd700;
+  font-weight: 600;
+}
+.walkthrough-speed-group {
+  display: inline-flex;
+  gap: 4px;
+}
+.walkthrough-speed-btn {
+  padding: 2px 8px;
+  font-size: 12px;
+  min-height: 24px;
+  line-height: 1;
+}
+.walkthrough-speed-btn--active {
+  background: #1a5259;
+  border-color: #5ce1e6;
+  color: #ffffff;
+  font-weight: 600;
+}
+.walkthrough-actions {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: auto;
 }
 .record-dialog {
   background: #101d22;
