@@ -169,6 +169,16 @@ export async function runReplayBatch(
     // A held walking pointer must end before the pad can accept dialog taps.
     if (before.state.modalKind !== null) releaseDirection();
 
+    if (before.blocked && before.blocked !== "waitkey") {
+      const start = Date.now();
+      while (!document.querySelector('[data-testid="prompt-hint"]')) {
+        if (Date.now() - start > 10_000) {
+          throw new Error("Timeout waiting for prompt-hint to appear in DOM");
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    }
+
     if (before.releaseGate !== 0 && REPLAY_DIRECTIONS[code] && before.state.modalKind === null) {
       releaseDirection();
       if (before.state.egoDirection !== NAV_KEYS[code]) {
