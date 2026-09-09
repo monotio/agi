@@ -10,7 +10,7 @@ import {
   type Plan,
   type PlanOptions,
   type Target,
-} from "../../scripts/walkthrough-navigation.ts";
+} from "../../src/agent/navigation.ts";
 
 // The step vocabulary is shared with stored game tests (src/agent/gameTestSteps.ts)
 // so speedrun proofs and TESTS.JSON can never disagree; re-export the pieces

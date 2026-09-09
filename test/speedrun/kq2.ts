@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import type { Speedrun } from "./runner.ts";
 import { AGI_KEY } from "../../src/runtime/keys.ts";
-import { planWalk, type Target } from "../../scripts/walkthrough-navigation.ts";
+import { planWalk, type Target } from "../../src/agent/navigation.ts";
 
 function skipIntro(run: Speedrun): void {
   run.repeatUntil(

@@ -1,8 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildView } from "../src/view/view.ts";
@@ -11,9 +8,9 @@ import { DIRECTION_KEYS, directionForDelta } from "../src/agent/gameTestSteps.ts
 import {
   planWalk,
   walkPlanned,
-  renderLive,
+  renderNavigationSnapshot,
   type NavigationRun,
-} from "../scripts/walkthrough-navigation.ts";
+} from "../src/agent/navigation.ts";
 
 function world(extra = ""): NavigationRun {
   const game = createContainer();
@@ -136,20 +133,12 @@ test("navigation does not execute another waypoint after an unexpected room tran
   assert.equal(calls, 1);
 });
 
-test("navigation image has a separate JSON sidecar and rejects ambiguous output paths", () => {
-  const dir = mkdtempSync(join(tmpdir(), "agi-navigation-"));
-  try {
-    const run = world();
-    assert.throws(() => renderLive(run, target, join(dir, "map")), /png/i);
-    const file = join(dir, "map.png");
-    renderLive(run, target, file);
-    const bytes = readFileSync(file);
-    assert.equal(bytes.readUInt32BE(16), 640);
-    assert.equal(bytes.readUInt32BE(20), 336);
-    assert.equal(JSON.parse(readFileSync(join(dir, "map.json"), "utf8")).plan.found, true);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+test("navigation snapshot produces a PNG and separate JSON sidecar", () => {
+  const run = world();
+  const snapshot = renderNavigationSnapshot(run, target);
+  assert.equal(Buffer.from(snapshot.png).readUInt32BE(16), 640);
+  assert.equal(Buffer.from(snapshot.png).readUInt32BE(20), 336);
+  assert.equal(JSON.parse(snapshot.json).plan.found, true);
 });
 
 test("navigation collapses direct lines of sight into a single waypoint without micro-steps", () => {

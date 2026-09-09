@@ -167,6 +167,62 @@ function flag(state: AgentSessionState, value: unknown): number | null {
   return state.authoring.bindings[value]!.num;
 }
 
+function findReachableEdges(
+  priority: Uint8Array,
+  celWidth: number,
+  startX: number,
+  startY: number,
+  horizon: number,
+): { top: boolean; bottom: boolean; left: boolean; right: boolean } {
+  const maxX = 160 - celWidth;
+  const minY = horizon + 1;
+  const visited = new Uint8Array(160 * 168);
+  const queue = new Int32Array(160 * 168);
+  const start = startY * 160 + startX;
+  visited[start] = 1;
+  queue[0] = start;
+  let head = 0;
+  let tail = 1;
+  let reachedTop = startY === minY;
+  let reachedBottom = startY === 167;
+  let reachedLeft = startX === 0;
+  let reachedRight = startX === maxX;
+  while (head < tail) {
+    const at = queue[head++]!;
+    const cx = at % 160;
+    const cy = Math.floor(at / 160);
+    for (const [dx, dy] of [
+      [0, -1],
+      [0, 1],
+      [-1, 0],
+      [1, 0],
+    ] as const) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (nx < 0 || nx > maxX || ny < minY || ny > 167) continue;
+      const next = ny * 160 + nx;
+      if (visited[next]) continue;
+      let passable = true;
+      for (let px = 0; px < celWidth; px++) {
+        const c = priority[ny * 160 + nx + px]!;
+        if (c === 0 || c === 1) {
+          passable = false;
+          break;
+        }
+      }
+      if (!passable) continue;
+      visited[next] = 1;
+      queue[tail++] = next;
+      if (ny === minY) reachedTop = true;
+      if (ny === 167) reachedBottom = true;
+      if (nx === 0) reachedLeft = true;
+      if (nx === maxX) reachedRight = true;
+    }
+    if (reachedTop && reachedBottom && reachedLeft && reachedRight) break;
+  }
+  return { top: reachedTop, bottom: reachedBottom, left: reachedLeft, right: reachedRight };
+}
+
 export function executeRoomTool(
   state: AgentSessionState,
   name: string,
@@ -188,7 +244,8 @@ export function executeRoomTool(
     const picturePayload = state.container.getResource("picture", picture);
     if (!picturePayload)
       throw new Error(`Picture ${picture} is missing. Write it before creating the room.`);
-    renderPicture(picturePayload, createPictureSurface(), { profile: state.profile });
+    const surface = createPictureSurface();
+    renderPicture(picturePayload, surface, { profile: state.profile });
     const viewPayload = state.container.getResource("view", egoView);
     const cel = viewPayload && readViewCel(parseView(viewPayload, state.profile), 0, 0);
     if (!cel)
@@ -201,6 +258,14 @@ export function executeRoomTool(
       throw new Error(
         `Spawn must fit the ${cel.width}x${cel.height} ego inside the picture and below horizon ${horizon}.`,
       );
+    for (let px = 0; px < cel.width; px++) {
+      const pri = surface.priority[y * 160 + x + px]!;
+      if (pri === 0 || pri === 1) {
+        throw new Error(
+          `Spawn (${x},${y}) intersects ${pri === 0 ? "barrier" : "conditional barrier"} priority ${pri}; ego cannot move.`,
+        );
+      }
+    }
     const exits = args["exits"],
       interactions = args["interactions"];
     if (!Array.isArray(exits) || exits.length > 4)
@@ -278,6 +343,9 @@ export function executeRoomTool(
       `if (equalv(v${currentXVariable}, v${previousXVariable}) && equalv(v${currentYVariable}, v${previousYVariable})) { stop.cycling(0); }`,
       `assignv(v${previousXVariable}, v${currentXVariable}); assignv(v${previousYVariable}, v${currentYVariable});`,
     ];
+    const warnings: string[] = [];
+    const reachableEdges =
+      exits.length > 0 ? findReachableEdges(surface.priority, cel.width, x, y, horizon) : null;
     const namedExits: Record<string, number> = {};
     for (const raw of exits) {
       const exit = object(raw, "exit");
@@ -285,6 +353,11 @@ export function executeRoomTool(
       if (typeof edge !== "string" || !EDGES[edge])
         throw new Error("edge must be top, right, bottom or left.");
       if (Object.hasOwn(namedExits, edge)) throw new Error(`Duplicate exit for edge '${edge}'.`);
+      if (reachableEdges && !reachableEdges[edge as keyof typeof reachableEdges]) {
+        warnings.push(
+          `Declared exit '${edge}' is not reachable from spawn (${x},${y}) without crossing a priority barrier.`,
+        );
+      }
       const destination = referenceId(staged, exit["destination"], "logic", "exit destination", 1);
       namedExits[edge] = destination;
       const required = flag(staged, exit["requiresFlag"]);
@@ -395,6 +468,7 @@ export function executeRoomTool(
         addedWordCount: addedWords.length,
         bindings,
         exits: namedExits,
+        warnings,
         bytes: compiled.payload.length,
       },
     };

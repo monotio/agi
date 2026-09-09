@@ -1,4 +1,5 @@
 import { decodeRecordedReplay } from "./recordedReplay.ts";
+import { validateTarget, type Target } from "./navigation.ts";
 /**
  * The game-test step and expectation vocabulary shared by the stored
  * TESTS.JSON format (src/agent/gameTests.ts), the playtest simulation
@@ -40,6 +41,8 @@ export const STEP_ACTIONS = [
   "direction",
   "walkTo",
   "answer",
+  "walkWaypoints",
+  "walkPath",
 ] as const;
 export type StepAction = (typeof STEP_ACTIONS)[number];
 
@@ -171,6 +174,8 @@ export type GameTestStep = {
   readonly y: number | null;
   readonly answer: string | null;
   readonly until: UntilPredicate | null;
+  readonly waypoints: readonly (readonly [number, number])[] | null;
+  readonly target: Target | null;
   readonly ticks: number | null;
   readonly captureTicks: readonly number[] | null;
 };
@@ -266,6 +271,8 @@ const STEP_FIELDS = [
   "y",
   "answer",
   "until",
+  "waypoints",
+  "target",
   "ticks",
   "captureTicks",
 ];
@@ -280,6 +287,8 @@ const ACTION_FIELDS: Readonly<Record<StepAction, readonly string[]>> = {
   direction: ["direction"],
   walkTo: ["x", "y"],
   answer: ["answer"],
+  walkWaypoints: ["waypoints"],
+  walkPath: ["target"],
 };
 
 function text(value: unknown, label: string, max: number): string {
@@ -307,7 +316,17 @@ export function validateGameTestStep(value: unknown, label: string): GameTestSte
   if (typeof action !== "string" || !(STEP_ACTIONS as readonly string[]).includes(action))
     fail(`${label}.action must be one of ${STEP_ACTIONS.join(", ")}.`);
   const kind = action as StepAction;
-  for (const field of ["command", "direction", "key", "x", "y", "answer", "until"] as const)
+  for (const field of [
+    "command",
+    "direction",
+    "key",
+    "x",
+    "y",
+    "answer",
+    "until",
+    "waypoints",
+    "target",
+  ] as const)
     if (!ACTION_FIELDS[kind].includes(field) && step[field] != null)
       fail(`${label}.${field} does not apply to a ${kind} step.`);
   const ticks = optionalInteger(step["ticks"], `${label}.ticks`, 1, 60000);
@@ -318,6 +337,48 @@ export function validateGameTestStep(value: unknown, label: string): GameTestSte
     fail(
       `${label}: answer queues a reply without advancing time; ticks and captureTicks must be null.`,
     );
+  let waypoints: readonly (readonly [number, number])[] | null = null;
+  if (step["waypoints"] != null) {
+    if (
+      !Array.isArray(step["waypoints"]) ||
+      step["waypoints"].length < 1 ||
+      step["waypoints"].length > 32
+    )
+      fail(`${label}.waypoints must be an array of 1 to 32 coordinate pairs.`);
+    waypoints = (step["waypoints"] as unknown[]).map((point, index) => {
+      if (Array.isArray(point) && point.length === 2) {
+        return [
+          integer(point[0], `${label}.waypoints[${index}][0]`, 0, 159),
+          integer(point[1], `${label}.waypoints[${index}][1]`, 0, 167),
+        ] as const;
+      }
+      if (point && typeof point === "object" && !Array.isArray(point)) {
+        const pt = point as Record<string, unknown>;
+        return [
+          integer(pt["x"], `${label}.waypoints[${index}].x`, 0, 159),
+          integer(pt["y"], `${label}.waypoints[${index}].y`, 0, 167),
+        ] as const;
+      }
+      fail(`${label}.waypoints[${index}] must be [x, y] or {x, y}.`);
+    });
+  }
+  if (kind === "walkWaypoints" && waypoints === null)
+    fail(`${label}.waypoints must be specified for a walkWaypoints step.`);
+
+  let target: Target | null = null;
+  if (step["target"] != null) {
+    const rawTarget = object(step["target"], `${label}.target`);
+    target = {
+      x0: integer(rawTarget["x0"], `${label}.target.x0`, 0, 159),
+      y0: integer(rawTarget["y0"], `${label}.target.y0`, 0, 167),
+      x1: integer(rawTarget["x1"], `${label}.target.x1`, 0, 159),
+      y1: integer(rawTarget["y1"], `${label}.target.y1`, 0, 167),
+    };
+    validateTarget(target);
+  }
+  if (kind === "walkPath" && target === null)
+    fail(`${label}.target must be specified for a walkPath step.`);
+
   let captureTicks: readonly number[] | null = null;
   if (step["captureTicks"] != null) {
     if (!Array.isArray(step["captureTicks"]) || step["captureTicks"].length > 9)
@@ -350,6 +411,8 @@ export function validateGameTestStep(value: unknown, label: string): GameTestSte
       kind === "wait" && step["until"] != null
         ? validateUntilPredicate(step["until"], `${label}.until`)
         : null,
+    waypoints: kind === "walkWaypoints" ? waypoints : null,
+    target: kind === "walkPath" ? target : null,
     ticks,
     captureTicks,
   };

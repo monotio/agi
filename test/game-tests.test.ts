@@ -100,6 +100,8 @@ const step = (action: string, fields: Record<string, unknown> = {}) => ({
   until: null,
   ticks: null,
   captureTicks: null,
+  waypoints: null,
+  target: null,
   ...fields,
 });
 /** One stored expectation set in the normalized full shape. */
@@ -610,6 +612,39 @@ test("the extended step vocabulary runs in the simulation", () => {
     instructionBudget: null,
   });
   assert.equal(walked.success, true, walked.error ?? "");
+  // walkWaypoints steers through intermediate points to a destination.
+  const waypointed = playtestRoom(state, {
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: [
+      step("walkWaypoints", {
+        waypoints: [
+          [85, 120],
+          [85, 125],
+        ],
+      }),
+    ],
+    expect: expectation({
+      object: { num: 0, view: null, x0: 84, y0: 124, x1: 86, y1: 126, active: true },
+    }),
+    cycleBudget: null,
+    instructionBudget: null,
+  });
+  assert.equal(waypointed.success, true, waypointed.error ?? "");
+  // walkPath routes ego into a target bounding box.
+  const pathWalked = playtestRoom(state, {
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: [step("walkPath", { target: { x0: 90, y0: 120, x1: 95, y1: 125 } })],
+    expect: expectation({
+      object: { num: 0, view: null, x0: 89, y0: 119, x1: 96, y1: 126, active: true },
+    }),
+    cycleBudget: null,
+    instructionBudget: null,
+  });
+  assert.equal(pathWalked.success, true, pathWalked.error ?? "");
   // A barrier blocks both walkTo and reachable.
   const blocked = world();
   blocked.container.putResource("picture", 1, Uint8Array.of(0xf2, 0, 0xf6, 156, 0, 156, 167, 0xff));

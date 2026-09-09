@@ -286,8 +286,8 @@ decoded. The CLI follows this manifest automatically. Matching input and tool
 fingerprints reuse the cache; changed inputs create a new generation and retain
 the previous one. Generated reference data stays in the selected output directory.
 
-[`scripts/walkthrough-navigation.ts`](../scripts/walkthrough-navigation.ts)
-provides `planWalk`, `walkPlanned`, `describePosition` and `renderLive`. It accepts
+[`src/agent/navigation.ts`](../src/agent/navigation.ts)
+provides `planWalk`, `walkPlanned`, `describePosition` and `renderNavigationSnapshot`. It accepts
 a runner exposing an engine, a room/position state reader, and a `walkTo` input
 driver, such as [Speedrun](../test/speedrun/runner.ts). Read-only planning and
 rendering need only the engine and state reader.
@@ -296,7 +296,7 @@ rendering need only the engine and state reader.
 player's whole baseline footprint. It returns candidate waypoints or the nearest
 reachable position. `walkPlanned` sends those waypoints through the runner's
 normal movement inputs and stops on errors or an unexpected room transition.
-`renderLive(run, target, "map.png")` writes the scene, control map, object bounds
+`renderNavigationSnapshot(run, target)` returns `{ png, json }` containing the scene, control map, object bounds
 and path, with a JSON sidecar describing the current geometry.
 
 This is an advisory static planner. Moving objects, animation, changing sprite

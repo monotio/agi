@@ -5,8 +5,8 @@ import { resolve } from "node:path";
 import { buildTutorial } from "../games/adventure-department/game.ts";
 import { TUTORIAL_GAME_TESTS } from "../games/adventure-department/tests.ts";
 import { Engine } from "../src/runtime/engine.ts";
-import { planWalk, renderLive } from "./walkthrough-navigation.ts";
 import { openContainer } from "../src/container/container.ts";
+import { planWalk, renderNavigationSnapshot } from "../src/agent/navigation.ts";
 import {
   createAgentSessionState,
   executeAgentTool,
@@ -89,8 +89,9 @@ const navigation = {
 };
 const target = { x0: 120, x1: 120, y0: 140, y1: 140 };
 const plan = planWalk(navigation, target);
-assert.equal(plan.found, true, "Expected an open gallery path");
-renderLive(navigation, target, resolve(output, "gallery-navigation.png"), plan);
+const snapshot = renderNavigationSnapshot(navigation, target, plan);
+writeFileSync(resolve(output, "gallery-navigation.png"), snapshot.png);
+writeFileSync(resolve(output, "gallery-navigation.json"), snapshot.json);
 manifest.push({
   name: "gallery-navigation",
   files: [

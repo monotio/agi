@@ -1,12 +1,12 @@
-import { writeFileSync } from "node:fs";
-import { decodeSave } from "../src/runtime/persistence.ts";
-import { EGA_RGB, encodePngRgb } from "../src/picture/png.ts";
-import type { Engine } from "../src/runtime/engine.ts";
+import { decodeSave } from "../runtime/persistence.ts";
+import type { Engine } from "../runtime/engine.ts";
+import { EGA_RGB, encodePngRgb } from "../picture/png.ts";
 
 export interface NavigationState {
   readonly engine: Engine;
   state(): { room: number; x: number; y: number };
 }
+
 export interface NavigationRun extends NavigationState {
   walkTo(x: number, y: number, maxTicks?: number): void;
 }
@@ -17,6 +17,7 @@ export interface Target {
   x1: number;
   y1: number;
 }
+
 export interface Plan {
   found: boolean;
   room: number;
@@ -28,11 +29,13 @@ export interface Plan {
   waypoints: { x: number; y: number }[];
   assumptions: string[];
 }
+
 export interface PlanOptions {
   avoidTriggers?: boolean;
   attempts?: number;
 }
-function validateTarget(target: Target): void {
+
+export function validateTarget(target: Target): void {
   if (
     ![target.x0, target.x1, target.y0, target.y1].every(Number.isInteger) ||
     target.x0 < 0 ||
@@ -44,7 +47,8 @@ function validateTarget(target: Target): void {
   )
     throw new RangeError("Target must be an ordered integer rectangle within 160x168.");
 }
-const dirs = [
+
+const DIRS = [
   [0, -1],
   [1, -1],
   [1, 0],
@@ -55,7 +59,7 @@ const dirs = [
   [-1, -1],
 ] as const;
 
-function canWalkDirect(
+export function canWalkDirect(
   x1: number,
   y1: number,
   x2: number,
@@ -105,8 +109,8 @@ function canWalkDirect(
 /** Advisory static geometry only. This function reads state; it never moves or restores an engine. */
 export function planWalk(run: NavigationState, target: Target, options?: PlanOptions): Plan {
   validateTarget(target);
-  const engine = run.engine,
-    ego = { ...engine.screenObjects[0]! };
+  const engine = run.engine;
+  const ego = { ...engine.screenObjects[0]! };
   if (
     ![ego.x, ego.y, ego.width, ego.height, ego.stepSize].every(Number.isInteger) ||
     !ego.active ||
@@ -143,8 +147,8 @@ export function planWalk(run: NavigationState, target: Target, options?: PlanOpt
   const valid = new Uint8Array(160 * 168);
   for (let y = minY; y < 168; y++)
     for (let x = 0; x <= maxX; x++) {
-      let accepted = true,
-        water = true;
+      let accepted = true;
+      let water = true;
       if (!(ego.fixedPriority && ego.priority === 15)) {
         for (let dx = 0; dx < egoWidth; dx++) {
           const c = control[y * 160 + x + dx]!;
@@ -164,28 +168,28 @@ export function planWalk(run: NavigationState, target: Target, options?: PlanOpt
       if (accepted) valid[y * 160 + x] = 1;
     }
   const start = ego.y * 160 + ego.x;
-  const parent = new Int32Array(160 * 168).fill(-2),
-    queue = new Int32Array(160 * 168);
+  const parent = new Int32Array(160 * 168).fill(-2);
+  const queue = new Int32Array(160 * 168);
   parent[start] = -1;
   queue[0] = start;
-  let head = 0,
-    tail = 1,
-    end = -1,
-    best = start;
+  let head = 0;
+  let tail = 1;
+  let end = -1;
+  let best = start;
   const distance = (x: number, y: number) =>
     Math.max(target.x0 - x, 0, x - target.x1) + Math.max(target.y0 - y, 0, y - target.y1);
   while (head < tail) {
-    const at = queue[head++]!,
-      x = at % 160,
-      y = Math.floor(at / 160);
+    const at = queue[head++]!;
+    const x = at % 160;
+    const y = Math.floor(at / 160);
     if (distance(x, y) < distance(best % 160, Math.floor(best / 160))) best = at;
     if (distance(x, y) === 0) {
       end = at;
       break;
     }
-    for (const [dx, dy] of dirs) {
-      const nx = x + dx * step,
-        ny = y + dy * step;
+    for (const [dx, dy] of DIRS) {
+      const nx = x + dx * step;
+      const ny = y + dy * step;
       if (nx < 0 || nx > maxX || ny < minY || ny > 167) continue;
       const next = ny * 160 + nx;
       if (parent[next] !== -2 || !valid[next]) continue;
@@ -263,10 +267,11 @@ export function planWalk(run: NavigationState, target: Target, options?: PlanOpt
     ],
   };
 }
+
 export function describePosition(run: NavigationState): unknown {
-  const e = run.engine,
-    o = e.screenObjects[0]!,
-    s = decodeSave(e.serialize(), e.profile);
+  const e = run.engine;
+  const o = e.screenObjects[0]!;
+  const s = decodeSave(e.serialize(), e.profile);
   return {
     room: e.vars[0],
     ego: {
@@ -300,6 +305,7 @@ export function describePosition(run: NavigationState): unknown {
     ),
   };
 }
+
 /** Execute only a found candidate through the existing ordinary-input driver. Errors propagate. */
 export function walkPlanned(run: NavigationRun, target: Target, options?: PlanOptions): Plan {
   const attempts = options?.attempts ?? 5;
@@ -362,15 +368,19 @@ export function walkPlanned(run: NavigationRun, target: Target, options?: PlanOp
   const state = run.state();
   throw new Error("Planned walk did not reach target: " + JSON.stringify({ state, target }));
 }
-/** Live frame plus control map, footprint and target; coordinates remain AGI logical pixels. */
-export function renderLive(
+
+export interface NavigationSnapshot {
+  readonly png: Uint8Array;
+  readonly json: string;
+}
+
+/** Render a 2-panel navigation overlay (composed visual + EGA priority/control plane with path). */
+export function renderNavigationSnapshot(
   run: NavigationState,
   target: Target,
-  path: string,
   plan = planWalk(run, target),
-): void {
+): NavigationSnapshot {
   validateTarget(target);
-  if (!path.endsWith(".png")) throw new Error("Navigation image path must end in .png.");
   for (const point of [plan.from, ...plan.waypoints])
     validateTarget({ x0: point.x, x1: point.x, y0: point.y, y1: point.y });
   const e = run.engine,
@@ -379,7 +389,7 @@ export function renderLive(
   const width = 640,
     height = 336,
     rgb = new Uint8Array(width * height * 3);
-  const controls = [
+  const controls: readonly (readonly [number, number, number])[] = [
     [255, 60, 60],
     [255, 255, 255],
     [255, 0, 255],
@@ -402,7 +412,7 @@ export function renderLive(
         v < 4 ? controls[v]! : x % 10 === 0 || y % 10 === 0 ? [70, 70, 70] : [20, 20, 20],
       );
     }
-  const box = (x0: number, y0: number, x1: number, y1: number, color: number[]) => {
+  const box = (x0: number, y0: number, x1: number, y1: number, color: readonly number[]) => {
     for (let x = x0; x <= x1; x++) {
       pixel(1, x, y0, color);
       pixel(1, x, y1, color);
@@ -428,18 +438,16 @@ export function renderLive(
     from = point;
   }
   for (let x = o.x; x < o.x + o.width; x++) pixel(1, x, o.y, [0, 120, 255]);
-  writeFileSync(path, encodePngRgb(width, height, rgb));
-  writeFileSync(
-    path.replace(/\.png$/, ".json"),
-    JSON.stringify(
-      {
-        legend:
-          "Left: composed scene. Right: red=solid, white=conditional block, magenta=trigger, cyan=water, orange=objects, blue=ego baseline, green=target, yellow=candidate path; grid every 10 pixels.",
-        plan,
-        state: describePosition(run),
-      },
-      null,
-      2,
-    ),
+  const png = encodePngRgb(width, height, rgb);
+  const json = JSON.stringify(
+    {
+      legend:
+        "Left: composed scene. Right: red=solid, white=conditional block, magenta=trigger, cyan=water, orange=objects, blue=ego baseline, green=target, yellow=candidate path; grid every 10 pixels.",
+      plan,
+      state: describePosition(run),
+    },
+    null,
+    2,
   );
+  return { png, json };
 }

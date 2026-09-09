@@ -25,7 +25,18 @@ export const PLAYTEST_STEPS_SCHEMA = {
     properties: {
       action: {
         type: "string",
-        enum: ["command", "move", "enter", "wait", "key", "direction", "walkTo", "answer"],
+        enum: [
+          "command",
+          "move",
+          "enter",
+          "wait",
+          "key",
+          "direction",
+          "walkTo",
+          "answer",
+          "walkWaypoints",
+          "walkPath",
+        ],
       },
       command: { type: ["string", "null"], maxLength: 80 },
       direction: {
@@ -73,6 +84,27 @@ export const PLAYTEST_STEPS_SCHEMA = {
         },
         required: ["room", "flag", "var"],
       },
+      waypoints: {
+        type: ["array", "null"],
+        maxItems: 32,
+        items: {
+          type: "array",
+          minItems: 2,
+          maxItems: 2,
+          items: { type: "integer", minimum: 0, maximum: 167 },
+        },
+      },
+      target: {
+        type: ["object", "null"],
+        additionalProperties: false,
+        properties: {
+          x0: { type: "integer", minimum: 0, maximum: 159 },
+          y0: { type: "integer", minimum: 0, maximum: 167 },
+          x1: { type: "integer", minimum: 0, maximum: 159 },
+          y1: { type: "integer", minimum: 0, maximum: 167 },
+        },
+        required: ["x0", "y0", "x1", "y1"],
+      },
       ticks: { type: ["integer", "null"], minimum: 1, maximum: 60000 },
       captureTicks: {
         type: ["array", "null"],
@@ -89,6 +121,8 @@ export const PLAYTEST_STEPS_SCHEMA = {
       "y",
       "answer",
       "until",
+      "waypoints",
+      "target",
       "ticks",
       "captureTicks",
     ],
