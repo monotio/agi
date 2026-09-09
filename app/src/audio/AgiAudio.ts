@@ -146,6 +146,7 @@ export class AgiAudio {
       const register = this.latchedRegister;
       const channel = register >> 1;
       if (register & 1) {
+        // Attenuation registers are latch-only; data bytes are ignored (docs/fidelity.md: SN76489 attenuation latching and rest notes).
         if (!latch) continue;
         const attenuation = byte & 15;
         this.channelGains[channel]!.gain.setValueAtTime(
@@ -163,6 +164,7 @@ export class AgiAudio {
           ctx.currentTime,
         );
       } else {
+        // Noise control register is latch-only (docs/fidelity.md: SN76489 attenuation latching and rest notes).
         if (!latch) continue;
         // Noise timbre is a presentation approximation; command timing and gain are exact.
         const rate = byte & 3;
