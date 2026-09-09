@@ -5,7 +5,7 @@ import { opening } from "./openings.ts";
 import { kq1Complete } from "./kq1.ts";
 import { kq2Complete } from "./kq2.ts";
 import { sq1Complete } from "./sq1.ts";
-import { day1 } from "./mh1-day1.ts";
+import { mh1Complete } from "./mh1.ts";
 
 /** Observable endpoint shared by the Node, CLI and browser walkthrough runners. */
 export interface WalkthroughOutcome {
@@ -49,7 +49,7 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
     slug: "mh1",
     label: "Day 1 completed",
     coverage: "chapter",
-    route: day1,
+    route: mh1Complete,
     expected: { room: 104, vars: { 60: 2 }, carriedExactly: [11, 13, 14, 15] },
     requiresAnswer: true,
   },

@@ -237,7 +237,7 @@ After supplying the Manhunter: New York 3.002.107 fixture, run:
 npm run prove:walkthrough -- mh1
 ```
 
-The route in `test/speedrun/mh1-day1.ts` plays the first day from the title
+The route in `test/speedrun/mh1.ts` plays the first day from the title
 screen to the return home that starts Day 2, using only the game's own inputs:
 arrow keys steer the cursor onto hotspots, Enter performs them, F3, C and Tab
 open the map, the MAD and the inventory, and the Orbs' name prompt is typed.

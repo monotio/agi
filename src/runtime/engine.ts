@@ -3363,8 +3363,8 @@ export class Engine {
 
   private readonly itemLocations = new Uint8Array(256);
 
-  private itemLocation(item: number): number {
-    return this.itemLocations[item]!;
+  itemLocation(item: number): number {
+    return this.itemLocations[item] ?? 0;
   }
 
   /**

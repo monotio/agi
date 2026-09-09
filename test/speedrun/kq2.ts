@@ -1,43 +1,19 @@
 import assert from "node:assert/strict";
 import type { Speedrun } from "./runner.ts";
 import { AGI_KEY } from "../../src/runtime/keys.ts";
-import { planWalk, walkPlanned, type Target } from "../../scripts/walkthrough-navigation.ts";
-import { directionForDelta } from "../../src/agent/gameTestSteps.ts";
-
-function carried(run: Speedrun, num: number): boolean {
-  const item = run.engine.readState().inventory.find((entry) => entry.num === num);
-  return item?.room === 255;
-}
+import { planWalk, type Target } from "../../scripts/walkthrough-navigation.ts";
 
 function skipIntro(run: Speedrun): void {
-  for (let i = 0; i < 6000 && !(run.state().control && run.state().room === 1); i++) {
-    if (i % 30 === 0) run.key(AGI_KEY.ENTER);
-    run.advance();
-  }
+  run.repeatUntil(
+    () => {
+      run.key(AGI_KEY.ENTER);
+      run.advance(30);
+    },
+    () => run.state().control && run.state().room === 1,
+    "intro yielded control",
+    200,
+  );
   assert.ok(run.state().control, "intro never yielded control");
-}
-
-/** Walk toward (x,y) until flag `flag` sets or the bounded loop ends. */
-function walkUntilFlag(
-  run: Speedrun,
-  x: number,
-  y: number,
-  flag: number,
-  label: string,
-  max = 3000,
-): void {
-  const room = run.state().room;
-  for (let n = 0; n < max; n++) {
-    run.dismiss();
-    if (run.engine.flags[flag] !== 0) return;
-    const s = run.state();
-    assert.equal(s.room, room, `Unexpected room during ${label}`);
-    const dx = Math.sign(x - s.x);
-    const dy = Math.sign(y - s.y);
-    run.direction(directionForDelta(dx, dy));
-    run.advance();
-  }
-  throw new Error(`walkUntilFlag ${label} timed out: ${JSON.stringify(run.state())}`);
 }
 
 /** Opening errands through the cloak and ring; later puzzles are outside this route. */
@@ -53,7 +29,7 @@ export function kq2Opening(run: Speedrun): void {
   run.command("open mailbox");
   run.wait(() => run.engine.flags[54] !== 0, "mailbox open", 600);
   run.command("get basket");
-  assert.ok(carried(run, 63), "basket carried");
+  run.assertCarried(63, "basket");
   run.checkpoint("Basket", { room: 3, score: 3 });
   // North exit is a narrow control-screen corridor: pass the x139 barrier at
   // center 134, then shift east around the y60-63 blob before crossing.
@@ -65,35 +41,35 @@ export function kq2Opening(run: Speedrun): void {
   run.exit("E", 46);
   run.walkTo(102, 135);
   run.command("open door");
-  run.wait(() => run.state().room === 72, "tree door opens", 1200);
+  run.waitForRoom(72, "tree door opens", 1200);
   run.checkpoint("Tree house", { room: 72, score: 3 });
   // Ladder: walk onto the hole; f31 marks the climbing view. Then descend.
-  walkUntilFlag(run, 90, 115, 31, "climb onto ladder");
+  run.walkToUntil(90, 115, () => run.engine.flags[31] !== 0, "climb onto ladder");
   run.exit("S", 73);
   // Arrive on the ladder (f31); climb down until the logic dismounts ego.
-  for (let n = 0; n < 3000 && run.engine.flags[31] !== 0; n++) {
-    run.dismiss();
-    run.direction(5);
-    run.advance();
-  }
+  run.walkDirection("S", () => run.engine.flags[31] === 0, "dismount at ladder foot");
   assert.equal(run.engine.flags[31], 0, "dismounted at ladder foot");
   run.exit("E", 74);
   // Dwarf: f33 means he is home; leave west and re-enter until he is gone.
-  for (let n = 0; run.engine.flags[33] !== 0; n++) {
-    assert.ok(n < 12, "dwarf never left");
-    run.exit("W", 73);
-    run.exit("E", 74);
-  }
+  run.repeatUntil(
+    () => {
+      run.exit("W", 73);
+      run.exit("E", 74);
+    },
+    () => run.engine.flags[33] === 0,
+    "dwarf never left",
+    12,
+  );
   run.walkTo(50, 120);
   run.command("get soup");
-  assert.ok(carried(run, 67), "soup carried");
+  run.assertCarried(67, "soup");
   run.checkpoint("Soup", { room: 74, score: 5 });
   // Rock barriers force an east-then-south approach to the trunk.
   run.walkTo(100, 122);
   run.walkTo(98, 140);
   run.command("open chest");
   run.command("get earrings");
-  assert.ok(carried(run, 58), "earrings carried");
+  run.assertCarried(58, "earrings");
   run.checkpoint("Earrings", { room: 74, score: 12 });
   // Leave the tree house: back north through the rock corridor, then west.
   run.walkTo(100, 122);
@@ -102,31 +78,16 @@ export function kq2Opening(run: Speedrun): void {
   // Climb up: stand in the trigger strip (y120-121) facing north to re-mount;
   // the row above is a conditional wall.
   run.walkTo(105, 121);
-  for (let n = 0; n < 3000 && run.engine.flags[31] === 0; n++) {
-    run.dismiss();
-    run.direction(1);
-    run.advance();
-  }
+  run.walkDirection("N", () => run.engine.flags[31] !== 0, "climbing the ladder");
   assert.equal(run.engine.flags[31], 1, "climbing the ladder");
   run.exit("N", 72);
   // Arrive climbing (f31); walk onto the hole trigger to regain normal view.
-  for (let n = 0; n < 3000 && run.engine.flags[31] !== 0; n++) {
-    run.dismiss();
-    const s = run.state();
-    const dx = Math.sign(90 - s.x);
-    const dy = Math.sign(112 - s.y);
-    run.direction(directionForDelta(dx, dy));
-    run.advance();
-  }
+  run.walkToUntil(90, 112, () => run.engine.flags[31] === 0, "step off ladder hole");
   // Leave west along y110: clears the ladder triggers (y112+) and the walls
   // at y104 and y116; the x=30 column is the door back outside.
   run.walkTo(90, 110);
   run.walkTo(33, 110);
-  for (let n = 0; n < 3000 && run.state().room === 72; n++) {
-    run.dismiss();
-    run.direction(7);
-    run.advance();
-  }
+  run.walkDirection("W", () => run.state().room !== 72, "exit tree house");
   run.checkpoint("Outside again", { room: 46, score: 12 });
   // Back to Grandma's cottage: west, then south through the same corridor.
   run.exit("W", 45);
@@ -137,32 +98,29 @@ export function kq2Opening(run: Speedrun): void {
   run.walkTo(73, 131);
   run.walkTo(73, 112);
   // The wolf is home on some entries (f31); leave south and retry until not.
-  for (let n = 0; ; n++) {
-    assert.ok(n < 12, "wolf never left");
-    run.command("open door");
-    run.wait(() => run.state().room === 70, "cottage door opens", 1200);
-    if (run.engine.flags[31] === 0) break;
-    for (let m = 0; m < 3000 && run.state().room === 70; m++) {
-      run.dismiss();
-      run.direction(5);
-      run.advance();
-    }
-    assert.equal(run.state().room, 3, "fled the wolf");
-    run.walkTo(73, 112);
-  }
+  run.repeatUntil(
+    () => {
+      run.command("open door");
+      run.waitForRoom(70, "cottage door opens", 1200);
+      if (run.engine.flags[31] !== 0) {
+        run.walkDirection("S", () => run.state().room !== 70, "flee the wolf");
+        assert.equal(run.state().room, 3, "fled the wolf");
+        run.walkTo(73, 112);
+      }
+    },
+    () => run.state().room === 70 && run.engine.flags[31] === 0,
+    "wolf never left",
+    12,
+  );
   run.walkTo(40, 110);
   run.command("give soup to grandma");
   run.wait(() => run.engine.flags[98] !== 0, "grandma fed", 600);
   run.command("look under bed");
-  assert.ok(carried(run, 55), "ruby ring carried");
-  assert.ok(carried(run, 68), "cloak carried");
+  run.assertCarried(55, "ruby ring");
+  run.assertCarried(68, "cloak");
   run.checkpoint("Cloak and ring", { room: 70, score: 18 });
   run.walkTo(14, 157);
-  for (let n = 0; n < 3000 && run.state().room === 70; n++) {
-    run.dismiss();
-    run.direction(5);
-    run.advance();
-  }
+  run.walkDirection("S", () => run.state().room !== 70, "leave cottage");
   run.checkpoint("Back outside", { room: 3, score: 18 });
 }
 
@@ -176,19 +134,30 @@ function monasteryApproach(run: Speedrun): void {
   run.exit("E", 46);
   run.exit("S", 4);
   run.wait(() => run.engine.flags[53] !== 0, "LRRH appears", 30000);
-  for (let n = 0; n < 60; n++) {
-    const girl = run.engine.screenObjects[2]!;
-    const s = run.state();
-    if (Math.hypot(girl.x - s.x, girl.y - s.y) <= 20) break;
-    try {
-      run.walkTo(Math.max(2, Math.min(157, girl.x - 6)), Math.max(40, Math.min(165, girl.y)), 300);
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.startsWith("Walk blocked")) throw error;
-      run.advance(60);
-    }
-  }
+  run.repeatUntil(
+    () => {
+      const girl = run.engine.screenObjects[2]!;
+      try {
+        run.walkTo(
+          Math.max(2, Math.min(157, girl.x - 6)),
+          Math.max(40, Math.min(165, girl.y)),
+          300,
+        );
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.startsWith("Walk blocked")) throw error;
+        run.advance(60);
+      }
+    },
+    () => {
+      const girl = run.engine.screenObjects[2]!;
+      const s = run.state();
+      return Math.hypot(girl.x - s.x, girl.y - s.y) <= 20;
+    },
+    "approach LRRH",
+    60,
+  );
   run.command("give basket to girl");
-  assert.ok(carried(run, 52), "bouquet carried");
+  run.assertCarried(52, "bouquet");
   run.checkpoint("Bouquet", { room: 4, score: 22 });
   run.command("wear cloak");
   run.command("wear ring");
@@ -199,25 +168,6 @@ function monasteryApproach(run: Speedrun): void {
   run.exit("E", 6);
 }
 
-export function walkSmart(run: Speedrun, target: Target, attempts = 5): void {
-  for (let n = 0; n < attempts; n++) {
-    const s = run.state();
-    if (s.x >= target.x0 && s.x <= target.x1 && s.y >= target.y0 && s.y <= target.y1) return;
-    try {
-      run.walkPath(target);
-      return;
-    } catch (error) {
-      if (
-        n === attempts - 1 ||
-        !(error instanceof Error) ||
-        !error.message.startsWith("Walk blocked")
-      )
-        throw error;
-      run.advance(5);
-    }
-  }
-}
-
 export function exitNorthSafe(
   run: Speedrun,
   toRoom: number,
@@ -225,7 +175,7 @@ export function exitNorthSafe(
 ): void {
   const fromRoom = run.state().room;
   for (let n = 0; n < 10; n++) {
-    walkSmart(run, target);
+    run.walkPath(target);
     run.exit("N", toRoom);
     if (run.engine.flags[40] === 0 && run.engine.flags[234] === 0) return;
     run.exit("S", fromRoom);
@@ -239,7 +189,7 @@ export function exitSouthSafe(
 ): void {
   const fromRoom = run.state().room;
   for (let n = 0; n < 10; n++) {
-    walkSmart(run, target);
+    run.walkPath(target);
     run.exit("S", toRoom);
     if (run.engine.flags[40] === 0 && run.engine.flags[234] === 0) return;
     run.exit("N", fromRoom);
@@ -249,22 +199,22 @@ export function exitSouthSafe(
 function monasteryCross(run: Speedrun): void {
   monasteryApproach(run);
   run.checkpoint("Monastery approach", { room: 6, score: 25 });
-  walkPlanned(run, { x0: 70, x1: 70, y0: 150, y1: 150 });
+  run.walkPath({ x0: 70, x1: 70, y0: 150, y1: 150 });
   run.command("open door");
-  run.wait(() => run.state().room === 71, "monastery door opens", 1200);
+  run.waitForRoom(71, "monastery door opens", 1200);
   run.checkpoint("Chapel", { room: 71, score: 25 });
-  walkPlanned(run, { x0: 80, x1: 90, y0: 82, y1: 83 });
+  run.walkPath({ x0: 80, x1: 90, y0: 82, y1: 83 });
   run.command("pray");
-  run.wait(() => run.engine.flags[154] !== 0, "prayer counted", 600);
+  run.waitForFlag(154, "prayer counted", 600);
   run.checkpoint("Prayed", { room: 71, score: 27 });
   run.wait(() => run.engine.flags[32] === 0, "monk stands and asks name");
   run.command("graham");
-  assert.ok(carried(run, 69), "cross carried");
+  run.assertCarried(69, "cross");
   run.checkpoint("Cross", { room: 71, score: 29 });
   run.command("wear cross");
   assert.equal(run.engine.flags[69], 1, "cross worn");
   run.checkpoint("Cross worn", { room: 71, score: 31 });
-  walkSmart(run, { x0: 60, x1: 80, y0: 165, y1: 167 });
+  run.walkPath({ x0: 60, x1: 80, y0: 165, y1: 167 });
   run.exit("S", 6);
   run.checkpoint("Left monastery", { room: 6, score: 31 });
 }
@@ -286,13 +236,13 @@ export function walkBridge(run: Speedrun, waypoints: readonly (readonly number[]
 export function kq2Bridge(run: Speedrun): void {
   monasteryCross(run);
   run.exit("S", 13);
-  walkSmart(run, { x0: 42, x1: 46, y0: 60, y1: 62 });
+  run.walkPath({ x0: 42, x1: 46, y0: 60, y1: 62 });
   run.command("look in hole");
   run.command("get brooch");
-  assert.ok(carried(run, 59), "brooch carried");
+  run.assertCarried(59, "brooch");
   run.checkpoint("Brooch", { room: 13, score: 39 });
   run.exit("N", 6);
-  walkSmart(run, { x0: 140, x1: 145, y0: 150, y1: 152 });
+  run.walkPath({ x0: 140, x1: 145, y0: 150, y1: 152 });
   run.exit("N", 48);
   run.checkpoint("Bridge room", { room: 48, score: 39 });
   walkBridge(run, [
@@ -304,41 +254,40 @@ export function kq2Bridge(run: Speedrun): void {
     [62, 104],
   ]);
   walkBridge(run, [
-    [69, 97],
-    [73, 97],
-    [74, 98],
-    [92, 98],
-    [93, 97],
-    [98, 97],
-    [99, 96],
-    [104, 96],
-    [105, 95],
-    [108, 95],
-    [109, 94],
-    [110, 94],
-    [111, 93],
-    [112, 93],
-    [113, 92],
-    [114, 92],
-    [115, 91],
-    [116, 91],
-    [117, 90],
-    [118, 90],
-    [119, 89],
-    [120, 89],
-    [121, 88],
-    [123, 88],
-    [124, 87],
-    [133, 87],
-    [135, 85],
-    [136, 85],
+    [72, 112],
+    [79, 119],
+    [83, 119],
+    [84, 118],
+    [85, 118],
+    [86, 117],
+    [104, 117],
+    [105, 116],
+    [111, 116],
+    [112, 115],
+    [113, 115],
+    [114, 114],
+    [116, 114],
+    [117, 113],
+    [118, 113],
+    [119, 112],
+    [120, 112],
+    [121, 111],
+    [122, 111],
+  ]);
+  walkBridge(run, [
+    [146, 87],
+    [154, 79],
+    [154, 42],
+  ]);
+  walkBridge(run, [
+    [146, 87],
     [138, 87],
   ]);
   run.checkpoint("Bridge crossed east", { room: 48, score: 40 });
   run.exit("E", 49);
   run.exit("N", 42);
   run.checkpoint("Door room", { room: 42, score: 40 });
-  walkSmart(run, { x0: 75, x1: 84, y0: 102, y1: 105 });
+  run.walkPath({ x0: 75, x1: 84, y0: 102, y1: 105 });
   run.command("read inscription");
   run.wait(() => run.engine.flags[67] !== 0, "first inscription read", 600);
   run.checkpoint("Inscription", { room: 42, score: 40 });
@@ -389,65 +338,65 @@ export function kq2Door1(run: Speedrun): void {
   run.exit("W", 47);
 
   // 2. Room 47: walk north to Room 40
-  walkSmart(run, { x0: 60, x1: 90, y0: 42, y1: 45 });
+  run.walkPath({ x0: 60, x1: 90, y0: 42, y1: 45 });
   run.exit("N", 40);
 
   // In Room 40: get mallet from tree hole (+2, item 60)
-  walkSmart(run, { x0: 72, x1: 96, y0: 80, y1: 95 });
+  run.walkPath({ x0: 72, x1: 96, y0: 80, y1: 95 });
   run.command("take mallet");
-  run.wait(() => carried(run, 60), "mallet taken");
+  run.waitForItem(60, "mallet taken");
   run.checkpoint("Mallet", { room: 40, score: 43 });
 
   // 3. Room 40 -> 39 -> 38
-  walkSmart(run, { x0: 1, x1: 5, y0: 110, y1: 130 });
+  run.walkPath({ x0: 1, x1: 5, y0: 110, y1: 130 });
   run.exit("W", 39);
 
-  walkSmart(run, { x0: 1, x1: 5, y0: 110, y1: 130 });
+  run.walkPath({ x0: 1, x1: 5, y0: 110, y1: 130 });
   run.exit("W", 38);
 
   // In Room 38: get necklace from hollow log (+7, item 57)
-  walkSmart(run, { x0: 95, x1: 110, y0: 125, y1: 135 });
+  run.walkPath({ x0: 95, x1: 110, y0: 125, y1: 135 });
   run.command("take necklace");
-  run.wait(() => carried(run, 57), "necklace taken");
+  run.waitForItem(57, "necklace taken");
   run.checkpoint("Necklace", { room: 38, score: 50 });
 
   // 4. Room 38 -> 31 -> 30 -> 23
-  walkSmart(run, { x0: 60, x1: 80, y0: 42, y1: 45 });
+  run.walkPath({ x0: 60, x1: 80, y0: 42, y1: 45 });
   run.exit("N", 31);
 
   // In 31: walk along bottom west to 30
-  walkSmart(run, { x0: 1, x1: 5, y0: 155, y1: 165 });
+  run.walkPath({ x0: 1, x1: 5, y0: 155, y1: 165 });
   run.exit("W", 30);
 
   // In 30: walk north to 23
-  walkSmart(run, { x0: 70, x1: 85, y0: 42, y1: 45 });
+  run.walkPath({ x0: 70, x1: 85, y0: 42, y1: 45 });
   run.exit("N", 23);
 
   // In 23: get stake from tree at (73, 111) (+2, item 54)
-  walkSmart(run, { x0: 70, x1: 76, y0: 115, y1: 120 });
+  run.walkPath({ x0: 70, x1: 76, y0: 115, y1: 120 });
   run.command("take stake");
-  run.wait(() => carried(run, 54), "stake taken");
+  run.waitForItem(54, "stake taken");
   run.checkpoint("Stake", { room: 23, score: 52 });
 
   // 5. Room 23 -> 22
-  walkSmart(run, { x0: 1, x1: 5, y0: 110, y1: 130 });
+  run.walkPath({ x0: 1, x1: 5, y0: 110, y1: 130 });
   run.exit("W", 22);
 
   // In 22: clam at (100, 100) -> take clam (+0, item 82), take bracelet (+7, item 53)
-  walkSmart(run, { x0: 95, x1: 105, y0: 104, y1: 108 });
+  run.walkPath({ x0: 95, x1: 105, y0: 104, y1: 108 });
   run.command("take clam");
   run.wait(() => run.engine.flags[72] !== 0, "clam taken");
   run.command("take bracelet");
-  run.wait(() => carried(run, 53), "bracelet taken");
+  run.waitForItem(53, "bracelet taken");
   run.checkpoint("Bracelet", { room: 22, score: 59 });
 
   // 6. Room 22 -> 29 -> 36
-  walkSmart(run, { x0: 60, x1: 80, y0: 160, y1: 167 });
+  run.walkPath({ x0: 60, x1: 80, y0: 160, y1: 167 });
   run.exit("S", 29);
 
   // In Room 29: stay in safe corridor x in [100..110] away from water
-  walkSmart(run, { x0: 100, x1: 110, y0: 100, y1: 120 });
-  walkSmart(run, { x0: 100, x1: 110, y0: 160, y1: 166 });
+  run.walkPath({ x0: 100, x1: 110, y0: 100, y1: 120 });
+  run.walkPath({ x0: 100, x1: 110, y0: 160, y1: 166 });
   run.exit("S", 36);
 
   // In 36: navigate east around central tree to reach trident at (130, 140) (+3, item 51)
@@ -455,15 +404,11 @@ export function kq2Door1(run: Speedrun): void {
   run.walkTo(145, 100);
   run.walkTo(125, 140);
   run.command("take trident");
-  run.wait(() => carried(run, 51), "trident taken");
+  run.waitForItem(51, "trident taken");
   run.checkpoint("Trident", { room: 36, score: 62 });
 
   // 7. Step into water in Room 36 and swim
-  for (let n = 0; run.engine.flags[0] === 0; n++) {
-    assert.ok(n < 1000, "Timed out stepping into water in room 36");
-    run.direction(7); // West
-    run.advance();
-  }
+  run.walkDirection("W", () => run.engine.flags[0] !== 0, "stepping into water in room 36");
   run.wait(() => run.engine.vars[95] === 1, "treading water");
   run.command("swim");
   run.wait(() => run.engine.vars[95] === 2, "swimming");
@@ -474,13 +419,8 @@ export function kq2Door1(run: Speedrun): void {
   // Swim North 3 times in Room 50 (v73: 36 -> 29 -> 22 -> 15)
   for (let i = 0; i < 3; i++) {
     const prev = run.engine.vars[73];
-    for (let n = 0; run.engine.vars[73] === prev; n++) {
-      assert.ok(n < 3000, "Timed out swimming north in room 50");
-      run.direction(1);
-      run.advance();
-    }
+    run.walkDirection("N", () => run.engine.vars[73] !== prev, "swimming north in room 50");
   }
-  run.direction(0);
 
   // Exit East onto beach in Room 15
   run.exit("E", 15);
@@ -500,20 +440,20 @@ export function kq2Door1(run: Speedrun): void {
   run.wait(() => run.engine.vars[0] === 51, "arrived at King Neptune", 30000);
 
   // 9. In Room 51: King Neptune at (25, 101)
-  walkSmart(run, { x0: 55, x1: 65, y0: 100, y1: 105 });
+  run.walkPath({ x0: 55, x1: 65, y0: 100, y1: 105 });
   run.command("give trident to neptune");
   run.wait(() => run.engine.flags[95] !== 0, "clam opened");
   run.checkpoint("Neptune", { room: 51, score: 70 });
 
   // Take gold key from open clam (+5, item 61)
-  walkSmart(run, { x0: 10, x1: 22, y0: 120, y1: 130 });
+  run.walkPath({ x0: 10, x1: 22, y0: 120, y1: 130 });
   run.command("take key");
   run.wait(() => run.engine.flags[96] !== 0, "key taken");
   run.checkpoint("Gold key", { room: 51, score: 75 });
 
   // Take cloth from bottle (+2, item 73)
   run.command("take cloth");
-  run.wait(() => carried(run, 73), "cloth taken");
+  run.waitForItem(73, "cloth taken");
   run.checkpoint("Cloth", { room: 51, score: 77 });
 
   // Exit East from 51 -> transit 52 -> 53 -> 54 -> Room 15
@@ -521,25 +461,20 @@ export function kq2Door1(run: Speedrun): void {
   run.wait(() => run.engine.vars[0] === 15 && run.state().control, "returned to Room 15", 30000);
 
   // Walk east out of water onto land in Room 15
-  for (let n = 0; run.engine.vars[95] !== 0; n++) {
-    assert.ok(n < 1000, "Timed out walking out of water in room 15");
-    run.direction(3);
-    run.advance();
-  }
-  run.direction(0);
+  run.walkDirection("E", () => run.engine.vars[95] === 0, "walking out of water in room 15");
 
   // 10. Room 15 -> North 3 times: 15 -> 8 -> 1 -> 43
-  walkSmart(run, { x0: 70, x1: 90, y0: 42, y1: 45 });
+  run.walkPath({ x0: 70, x1: 90, y0: 42, y1: 45 });
   run.exit("N", 8);
 
-  walkSmart(run, { x0: 70, x1: 90, y0: 42, y1: 45 });
+  run.walkPath({ x0: 70, x1: 90, y0: 42, y1: 45 });
   run.exit("N", 1);
 
-  walkSmart(run, { x0: 85, x1: 95, y0: 42, y1: 45 });
+  run.walkPath({ x0: 85, x1: 95, y0: 42, y1: 45 });
   run.exit("N", 43);
 
   // Exit East into Room 44 (Hagatha cave exterior)
-  walkSmart(run, { x0: 150, x1: 155, y0: 110, y1: 130 });
+  run.walkPath({ x0: 150, x1: 155, y0: 110, y1: 130 });
   run.exit("E", 44);
 
   // Enter cave at right into Room 69
@@ -547,17 +482,17 @@ export function kq2Door1(run: Speedrun): void {
   run.wait(() => run.engine.vars[0] === 69, "entered Hagatha cave", 5000);
 
   // In 69: walk near cage at (100, 100) (distance <= 20)
-  walkSmart(run, { x0: 84, x1: 90, y0: 100, y1: 102 });
+  run.walkPath({ x0: 84, x1: 90, y0: 100, y1: 102 });
   run.command("cover cage with cloth");
   run.wait(() => run.engine.vars[65] === 2, "cage covered");
   run.checkpoint("Cover cage", { room: 69, score: 79 });
 
   run.command("take cage");
-  run.wait(() => carried(run, 70), "cage taken");
+  run.waitForItem(70, "cage taken");
   run.checkpoint("Cage", { room: 69, score: 81 });
 
   // Leave cave back to Room 44 (cloth 73 is automatically retrieved on exit)
-  walkSmart(run, { x0: 5, x1: 15, y0: 115, y1: 125 });
+  run.walkPath({ x0: 5, x1: 15, y0: 115, y1: 125 });
   run.exit("W", 44);
 
   // 11. Go east 4 times: 44 -> 45 -> 46 -> 47 -> 48
@@ -567,7 +502,7 @@ export function kq2Door1(run: Speedrun): void {
     [46, 47],
     [47, 48],
   ] as const) {
-    walkSmart(run, { x0: 150, x1: 155, y0: 110, y1: 130 });
+    run.walkPath({ x0: 150, x1: 155, y0: 110, y1: 130 });
     run.exit("E", toR);
   }
 
@@ -613,7 +548,7 @@ export function kq2Door1(run: Speedrun): void {
   run.exit("N", 42);
 
   // 13. In 42: unlock door with gold key (+7, door 1 open, f85 set)
-  walkSmart(run, { x0: 75, x1: 84, y0: 102, y1: 105 });
+  run.walkPath({ x0: 75, x1: 84, y0: 102, y1: 105 });
   run.command("unlock door");
   run.wait(() => run.engine.flags[85] !== 0, "first door unlocked");
   run.checkpoint("First door unlocked", { room: 42, score: 89 });
@@ -674,11 +609,11 @@ export function kq2Door2(run: Speedrun): void {
   exitNorthSafe(run, 26);
   exitNorthSafe(run, 19);
 
-  walkSmart(run, { x0: 150, x1: 155, y0: 110, y1: 130 });
+  run.walkPath({ x0: 150, x1: 155, y0: 110, y1: 130 });
   run.exit("E", 20);
 
   // 3. Antique shop: open door, trade caged nightingale for oil lamp
-  walkSmart(run, { x0: 87, x1: 95, y0: 112, y1: 116 });
+  run.walkPath({ x0: 87, x1: 95, y0: 112, y1: 116 });
   run.command("open door");
   run.wait(() => run.state().room === 68, "entered antique shop", 3000);
 
@@ -822,7 +757,7 @@ export function kq2Door2(run: Speedrun): void {
   run.exit("N", 42);
 
   // 13. In 42: unlock door with second gold key (+7, score 126, f86 set)
-  walkSmart(run, { x0: 75, x1: 84, y0: 102, y1: 105 });
+  run.walkPath({ x0: 75, x1: 84, y0: 102, y1: 105 });
   run.command("unlock door");
   run.wait(() => run.engine.flags[86] !== 0, "second door unlocked");
   run.checkpoint("Second door unlocked", { room: 42, score: 126 });
@@ -882,11 +817,11 @@ export function kq2Castle(run: Speedrun): void {
   exitNorthSafe(run, 33);
 
   // 3. West into 32
-  walkSmart(run, { x0: 1, x1: 5, y0: 110, y1: 130 });
+  run.walkPath({ x0: 1, x1: 5, y0: 110, y1: 130 });
   run.exit("W", 32);
 
   // 4. In 32: enter boat
-  walkSmart(run, { x0: 95, x1: 105, y0: 125, y1: 130 });
+  run.walkPath({ x0: 95, x1: 105, y0: 125, y1: 130 });
   run.command("enter boat");
   run.wait(() => run.state().room === 25, "arrived in room 25", 20000);
   run.wait(() => run.engine.flags[31] !== 0, "boat reached shore in 25", 5000);
@@ -900,7 +835,7 @@ export function kq2Castle(run: Speedrun): void {
   run.wait(() => run.engine.flags[157] !== 0, "ate sugar cube", 3000);
 
   // 7. North into 18 (castle exterior)
-  walkSmart(run, { x0: 65, x1: 75, y0: 51, y1: 53 });
+  run.walkPath({ x0: 65, x1: 75, y0: 51, y1: 53 });
   run.exit("N", 18);
 
   // 8. Castle door in 18
@@ -909,7 +844,7 @@ export function kq2Castle(run: Speedrun): void {
   run.wait(() => run.state().room === 61, "entered castle", 15000);
 
   // 9. West into 60 (ramp tower)
-  walkSmart(run, { x0: 20, x1: 25, y0: 120, y1: 125 });
+  run.walkPath({ x0: 20, x1: 25, y0: 120, y1: 125 });
   run.exit("W", 60);
 
   // 10. Ascend spiral staircase in 60 to 59
@@ -930,24 +865,28 @@ export function kq2Castle(run: Speedrun): void {
     [115, 45],
     [118, 32],
   ];
-  for (const [x, y] of ascentWaypoints) run.walkTo(x, y);
+  run.walkWaypoints(ascentWaypoints);
   run.exit("N", 59);
 
   // 11. Room 59 Dresser & Candle Retrieval
-  run.walkTo(121, 128);
-  run.walkTo(91, 98);
-  run.walkTo(71, 98);
-  run.walkTo(44, 116);
+  run.walkWaypoints([
+    [121, 128],
+    [91, 98],
+    [71, 98],
+    [44, 116],
+  ]);
   run.command("open drawer");
   run.wait(() => run.engine.vars[98] === 1, "drawer opened", 5000);
   run.command("take candle");
   run.wait(() => run.engine.flags[141] !== 0, "took candle", 5000);
 
   // 12. Room 59 Exit back to Room 60
-  run.walkTo(71, 98);
-  run.walkTo(91, 98);
-  run.walkTo(121, 128);
-  run.walkTo(121, 160);
+  run.walkWaypoints([
+    [71, 98],
+    [91, 98],
+    [121, 128],
+    [121, 160],
+  ]);
   run.exit("S", 60);
 
   // 13. Room 60 Descent to Torch & Lighting Candle
@@ -964,7 +903,7 @@ export function kq2Castle(run: Speedrun): void {
     [25, 75],
     [40, 70],
   ];
-  for (const [x, y] of descentWaypoints) run.walkTo(x, y);
+  run.walkWaypoints(descentWaypoints);
   run.command("light candle");
   run.wait(() => run.engine.flags[106] !== 0, "candle lit", 5000);
 
@@ -976,7 +915,7 @@ export function kq2Castle(run: Speedrun): void {
     [120, 154],
     [140, 163],
   ];
-  for (const [x, y] of exit60Waypoints) run.walkTo(x, y);
+  run.walkWaypoints(exit60Waypoints);
   run.exit("E", 61);
 
   // 15. 61 -> 64 (dining room)
@@ -1002,11 +941,15 @@ export function kq2Castle(run: Speedrun): void {
   run.exit("W", 67);
 
   // 20. In 67: Dracula check & defeat
-  for (let n = 0; run.engine.vars[92] !== 1; n++) {
-    assert.ok(n < 50, "Timed out waiting for Dracula in coffin in room 67");
-    run.exit("E", 66);
-    run.exit("W", 67);
-  }
+  run.repeatUntil(
+    () => {
+      run.exit("E", 66);
+      run.exit("W", 67);
+    },
+    () => run.engine.vars[92] === 1,
+    "waiting for Dracula in coffin in room 67",
+    50,
+  );
   run.walkTo(75, 110);
   run.command("open coffin");
   run.wait(() => run.engine.vars[91] === 1, "coffin opened", 5000);
@@ -1045,7 +988,7 @@ export function kq2Castle(run: Speedrun): void {
     [96, 40],
     [90, 34],
   ];
-  for (const [x, y] of ascend63Waypoints) run.walkTo(x, y);
+  run.walkWaypoints(ascend63Waypoints);
   run.exit("N", 62);
 
   // In 62: chest & tiara
@@ -1060,9 +1003,11 @@ export function kq2Castle(run: Speedrun): void {
   run.wait(() => run.engine.flags[143] !== 0, "took tiara", 5000);
 
   // 62 -> 63
-  run.walkTo(86, 126);
-  run.walkTo(62, 150);
-  run.walkTo(46, 163);
+  run.walkWaypoints([
+    [86, 126],
+    [62, 150],
+    [46, 163],
+  ]);
   run.exit("S", 63);
 
   const descend63Waypoints: [number, number][] = [
@@ -1078,15 +1023,17 @@ export function kq2Castle(run: Speedrun): void {
     [75, 155],
     [50, 165],
   ];
-  for (const [x, y] of descend63Waypoints) run.walkTo(x, y);
+  run.walkWaypoints(descend63Waypoints);
   run.exit("S", 64);
 
   // 64 -> 61
-  run.walkTo(85, 85);
-  run.walkTo(128, 128);
-  run.walkTo(128, 132);
-  run.walkTo(25, 132);
-  run.walkTo(25, 120);
+  run.walkWaypoints([
+    [85, 85],
+    [128, 128],
+    [128, 132],
+    [25, 132],
+    [25, 120],
+  ]);
   run.exit("W", 61);
 
   // 61 -> 18
@@ -1164,7 +1111,7 @@ export function kq2Castle(run: Speedrun): void {
   run.exit("N", 42);
 
   // Unlock third door in 42
-  walkSmart(run, { x0: 75, x1: 84, y0: 102, y1: 105 });
+  run.walkPath({ x0: 75, x1: 84, y0: 102, y1: 105 });
   run.command("unlock door");
   run.wait(() => run.engine.flags[87] !== 0, "third door unlocked");
   run.wait(() => run.state().room === 80, "teleported to cloudland", 15000);
@@ -1180,7 +1127,7 @@ export function kq2Complete(run: Speedrun): void {
   run.checkpoint("Cloudland shore", { room: 75, score: 163 });
 
   // Take net and fish
-  walkSmart(run, { x0: 55, x1: 65, y0: 100, y1: 105 });
+  run.walkPath({ x0: 55, x1: 65, y0: 100, y1: 105 });
   run.command("take net");
   run.wait(() => run.engine.flags[113] !== 0, "took net");
   run.checkpoint("Net taken", { room: 75, score: 164 });
@@ -1194,7 +1141,7 @@ export function kq2Complete(run: Speedrun): void {
 
   run.walkTo(88, 108);
   run.command("take fish");
-  run.wait(() => carried(run, 80), "took fish");
+  run.waitForItem(80, "took fish");
   run.dismiss();
 
   run.command("throw fish");
@@ -1234,9 +1181,11 @@ export function kq2Complete(run: Speedrun): void {
   run.checkpoint("Tower middle", { room: 92, score: 173 });
 
   // Tower stairs 92
-  run.walkTo(75, 137);
-  run.walkTo(61, 57);
-  run.walkTo(69, 49);
+  run.walkWaypoints([
+    [75, 137],
+    [61, 57],
+    [69, 49],
+  ]);
   run.wait(() => run.state().room === 91, "entered tower top", 5000);
   run.checkpoint("Tower top", { room: 91, score: 173 });
 

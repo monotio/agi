@@ -30,6 +30,7 @@ export interface Plan {
 }
 export interface PlanOptions {
   avoidTriggers?: boolean;
+  attempts?: number;
 }
 function validateTarget(target: Target): void {
   if (
@@ -301,24 +302,65 @@ export function describePosition(run: NavigationState): unknown {
 }
 /** Execute only a found candidate through the existing ordinary-input driver. Errors propagate. */
 export function walkPlanned(run: NavigationRun, target: Target, options?: PlanOptions): Plan {
-  const plan = planWalk(run, target, options);
-  if (!plan.found)
-    throw new Error("No static path: " + JSON.stringify({ plan, state: describePosition(run) }));
-  for (const point of plan.waypoints) {
-    run.walkTo(point.x, point.y, Math.max(300, plan.steps * 12));
-    if (run.state().room !== plan.room)
-      throw new Error("Unexpected room transition during planned walk.");
+  const attempts = options?.attempts ?? 5;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const s = run.state();
+    if (s.x >= target.x0 && s.x <= target.x1 && s.y >= target.y0 && s.y <= target.y1) {
+      return {
+        found: true,
+        room: s.room,
+        from: { x: s.x, y: s.y },
+        target,
+        reached: { x: s.x, y: s.y },
+        cells: 0,
+        steps: 0,
+        waypoints: [],
+        assumptions: [],
+      };
+    }
+    const plan = planWalk(run, target, options);
+    if (!plan.found) {
+      if (attempt === attempts - 1) {
+        throw new Error(
+          "No static path: " + JSON.stringify({ plan, state: describePosition(run) }),
+        );
+      }
+      continue;
+    }
+    let blocked = false;
+    for (const point of plan.waypoints) {
+      try {
+        run.walkTo(point.x, point.y, Math.max(300, plan.steps * 12));
+      } catch (error) {
+        if (
+          attempt < attempts - 1 &&
+          error instanceof Error &&
+          error.message.startsWith("Walk blocked")
+        ) {
+          blocked = true;
+          break;
+        }
+        throw error;
+      }
+      if (run.state().room !== plan.room) {
+        throw new Error("Unexpected room transition during planned walk.");
+      }
+    }
+    if (!blocked) {
+      const state = run.state();
+      if (
+        state.room === plan.room &&
+        state.x >= target.x0 &&
+        state.x <= target.x1 &&
+        state.y >= target.y0 &&
+        state.y <= target.y1
+      ) {
+        return plan;
+      }
+    }
   }
   const state = run.state();
-  if (
-    state.room !== plan.room ||
-    state.x < target.x0 ||
-    state.x > target.x1 ||
-    state.y < target.y0 ||
-    state.y > target.y1
-  )
-    throw new Error("Planned walk did not reach target: " + JSON.stringify({ plan, state }));
-  return plan;
+  throw new Error("Planned walk did not reach target: " + JSON.stringify({ state, target }));
 }
 /** Live frame plus control map, footprint and target; coordinates remain AGI logical pixels. */
 export function renderLive(

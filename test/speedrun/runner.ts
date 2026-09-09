@@ -17,6 +17,26 @@ import {
 // this module has always provided.
 export { DIRECTION_KEYS, randomSource };
 
+export type DirectionInput = "N" | "NE" | "E" | "SE" | "S" | "SW" | "W" | "NW" | number;
+
+export const COMPASS_DIRS: Record<string, number> = {
+  N: 1,
+  NE: 2,
+  E: 3,
+  SE: 4,
+  S: 5,
+  SW: 6,
+  W: 7,
+  NW: 8,
+};
+
+export function parseDirection(dir: DirectionInput): number {
+  if (typeof dir === "number") return dir;
+  const parsed = COMPASS_DIRS[dir];
+  if (parsed === undefined) throw new RangeError(`Unknown direction: ${dir}`);
+  return parsed;
+}
+
 export type Action =
   | { kind: "key"; code: number }
   | { kind: "command"; text: string }
@@ -182,10 +202,16 @@ export class Speedrun {
     this.dismiss();
   }
 
-  direction(dir: number): void {
+  press(key: number, waitTicks = 5): void {
+    this.key(key);
+    this.advance(waitTicks);
+  }
+
+  direction(dir: DirectionInput): void {
+    const d = parseDirection(dir);
     const current = this.engine.screenObjects[0]?.direction ?? 0;
-    if (current === dir) return;
-    this.key(DIRECTION_KEYS[dir || current]!);
+    if (current === d) return;
+    this.key(DIRECTION_KEYS[d || current]!);
     const from = this.cycles;
     for (let n = 0; this.cycles === from; n++) {
       assert.ok(n < 1000, "Direction input did not reach a cycle");
@@ -194,13 +220,110 @@ export class Speedrun {
     }
   }
 
+  private diagnostics(label: string): string {
+    const s = this.state();
+    const recent = this.actions
+      .slice(-5)
+      .map((a) => {
+        if (a.kind === "key") return `key(${a.code})`;
+        if (a.kind === "command") return `command("${a.text}")`;
+        if (a.kind === "advance") return `advance(${a.ticks})`;
+        if (a.kind === "answer") return `answer("${a.text}")`;
+        if (a.kind === "checkpoint") return `checkpoint("${a.label}")`;
+        return JSON.stringify(a);
+      })
+      .join(", ");
+    return `Timed out: ${label}; room ${s.room}, score ${s.score}, pos (${s.x},${s.y}), dir ${s.direction}; recent actions: [${recent}]`;
+  }
+
+  walkDirection(dir: DirectionInput, until: () => boolean, label: string, max = 3000): void {
+    const d = parseDirection(dir);
+    for (let n = 0; n < max; n++) {
+      if (this.engine.modalKind !== null || this.engine.continuationPending) this.dismiss();
+      if (until()) {
+        this.direction(0);
+        return;
+      }
+      this.direction(d);
+      this.advance();
+    }
+    this.direction(0);
+    throw new Error(this.diagnostics(`walking ${dir}: ${label}`));
+  }
+
+  walkToUntil(x: number, y: number, until: () => boolean, label: string, max = 3000): void {
+    const ego = this.engine.screenObjects[0]!;
+    for (let n = 0; n < max; n++) {
+      if (this.engine.modalKind !== null || this.engine.continuationPending) this.dismiss();
+      if (until()) {
+        this.direction(0);
+        return;
+      }
+      const dx = Math.sign(x - ego.x);
+      const dy = Math.sign(y - ego.y);
+      if (!dx && !dy) {
+        this.direction(0);
+        break;
+      }
+      this.direction(directionForDelta(dx, dy));
+      this.advance();
+    }
+    this.direction(0);
+    if (!until()) {
+      throw new Error(this.diagnostics(`walking toward (${x},${y}): ${label}`));
+    }
+  }
+
+  walkWaypoints(points: readonly (readonly [number, number])[]): void {
+    for (const [x, y] of points) {
+      this.walkTo(x, y);
+    }
+  }
+
+  repeatUntil(action: () => void, until: () => boolean, label: string, maxAttempts = 100): void {
+    for (let n = 0; n < maxAttempts; n++) {
+      action();
+      if (until()) return;
+    }
+    throw new Error(this.diagnostics(`after ${maxAttempts} attempts: ${label}`));
+  }
+
+  carried(item: number): boolean {
+    return this.engine.itemLocation(item) === 0xff;
+  }
+
+  assertCarried(item: number, name?: string): void {
+    assert.equal(
+      this.engine.itemLocation(item),
+      0xff,
+      `${name ? name + " " : ""}(item ${item}) must be carried`,
+    );
+  }
+
+  waitForItem(item: number, label?: string, max?: number): void {
+    this.wait(() => this.carried(item), label ?? `item ${item} carried`, max);
+  }
+
+  take(command: string, item: number, label?: string): void {
+    this.command(command);
+    this.waitForItem(item, label ?? `${command} -> carried`);
+  }
+
+  waitForRoom(room: number, label?: string, max?: number): void {
+    this.wait(() => this.state().room === room, label ?? `entered room ${room}`, max);
+  }
+
+  waitForFlag(flag: number, label?: string, max?: number): void {
+    this.wait(() => this.engine.flags[flag] !== 0, label ?? `flag ${flag} set`, max);
+  }
+
   wait(predicate: () => boolean, label: string, max = 30000): void {
     for (let n = 0; n < max; n++) {
       if (this.engine.modalKind !== null || this.engine.continuationPending) this.dismiss();
       if (predicate()) return;
       this.advance();
     }
-    throw new Error(`Timed out: ${label}; ${JSON.stringify(this.state())}`);
+    throw new Error(this.diagnostics(label));
   }
 
   walkTo(x: number, y: number, max = 3000): void {
@@ -247,12 +370,12 @@ export class Speedrun {
     return walkPlanned(this, target, opts);
   }
 
-  exit(dir: "N" | "E" | "S" | "W", room: number, max = 10000): void {
+  exit(dir: DirectionInput, room: number, max = 10000): void {
     const from = this.state().room;
-    const dirs = { N: 1, E: 3, S: 5, W: 7 };
+    const d = parseDirection(dir);
     for (let n = 0; n < max && this.state().room === from; n++) {
       this.dismiss();
-      this.direction(dirs[dir]);
+      this.direction(d);
       this.advance();
     }
     assert.equal(this.state().room, room, `Exit ${dir} from ${from}`);
