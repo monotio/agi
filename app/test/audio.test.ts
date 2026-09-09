@@ -113,4 +113,16 @@ describe("audio command backend", () => {
     assert.equal(gains[0]!.gain.value, 0.5);
     assert.equal(gains[1]!.gain.value, Math.pow(10, -4 / 10) * 0.25);
   });
+  it("stops and cleans up all active nodes cleanly on stop()", () => {
+    const { audio, oscillators } = context();
+    audio.output({ kind: "psg", bytes: [0x82, 0x0e, 0x90] });
+    assert.equal(audio.isPlaying, true);
+    assert.equal(oscillators[0]!.stopped, false);
+    audio.stop();
+    assert.equal(audio.isPlaying, false);
+    assert.equal(oscillators[0]!.stopped, true);
+    // Safe and idempotent to call multiple times
+    audio.stop();
+    assert.equal(audio.isPlaying, false);
+  });
 });

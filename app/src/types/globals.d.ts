@@ -7,6 +7,7 @@
  */
 import type { AgentLogEntry, EngineState, TextHook } from "../useEngine.ts";
 import type { ReplayDriver } from "../replay.ts";
+import type { AgiAudio } from "../audio/AgiAudio.ts";
 
 declare global {
   interface Window {
@@ -18,5 +19,7 @@ declare global {
     __AGI_REPLAY__?: ReplayDriver;
     /** Live engine reactive state for inspection in tests. */
     __AGI_STATE__?: EngineState;
+    /** Live audio presentation instance for inspection in tests. */
+    __AGI_AUDIO__?: AgiAudio;
   }
 }

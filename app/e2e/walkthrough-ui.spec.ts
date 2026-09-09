@@ -422,4 +422,50 @@ test.describe("Walkthrough UI", () => {
       )
       .toBe(130);
   });
+
+  test("dragging timeline thumb to the end of kq1 silences audio and stops playback cleanly", async ({
+    page,
+  }) => {
+    test.skip(Boolean(missing), missing || "");
+    await isolateStorage(page);
+    await page.goto("/");
+
+    const menuBtn = page.getByTestId("game-actions-kq1");
+    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
+    await menuBtn.click();
+
+    const runBtn = page.getByTestId("run-walkthrough");
+    await expect(runBtn).toBeVisible();
+    await runBtn.click();
+
+    const timeline = page.getByTestId("walkthrough-timeline");
+    await expect(timeline).toBeVisible({ timeout: 15_000 });
+
+    const box = await timeline.boundingBox();
+    if (box) {
+      await page.mouse.move(box.x + box.width * 0.1, box.y + box.height * 0.5);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width, box.y + box.height * 0.5, { steps: 5 });
+      await page.mouse.up();
+    }
+
+    await expect
+      .poll(
+        async () => {
+          return page.evaluate(() => ({
+            status: window.__AGI_STATE__?.walkthrough.status,
+            percent: window.__AGI_STATE__?.walkthrough.percent,
+            audioPlaying: window.__AGI_AUDIO__?.isPlaying ?? false,
+            soundPlaying: window.__AGI_STATE__?.soundPlaying ?? false,
+          }));
+        },
+        { timeout: 30_000 },
+      )
+      .toEqual({
+        status: "completed",
+        percent: 100,
+        audioPlaying: false,
+        soundPlaying: false,
+      });
+  });
 });

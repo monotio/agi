@@ -415,6 +415,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   };
   window.__AGI_REPLAY__ = replayDriver;
   (window as unknown as { __AGI_STATE__: EngineState }).__AGI_STATE__ = state;
+  (window as unknown as { __AGI_AUDIO__: AgiAudio }).__AGI_AUDIO__ = audio;
   let shakeTimer: number | null = null;
   /** Resolves the pending getnum/getstring bridge request. */
   let promptResolver: ((value: string) => void) | null = null;
@@ -2169,6 +2170,12 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       state.walkthrough.seeking = false;
     }
 
+    state.soundPlaying = false;
+    audio.stop();
+    if (target > 0 || keepPaused) {
+      audio.setPaused(true);
+    }
+
     activeReplaySeed = artifact.seed;
 
     // Reset pending resume so we boot clean from the beginning
@@ -2300,8 +2307,12 @@ export function useEngine(onFrame: (frame: Frame) => void) {
               state.walkthrough.checkpointIndex = cp.index;
             }
           }
-          if (state.walkthrough.status === "playing") {
+          if (state.walkthrough.status === "playing" && !state.walkthrough.scrubbing) {
             audio.setPaused(false);
+          } else {
+            state.soundPlaying = false;
+            audio.stop();
+            audio.setPaused(true);
           }
           worker?.postMessage({ type: "renderFrame" });
         },
@@ -2363,6 +2374,8 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       if (activeWalkthroughSession === sessionId && !abortController.signal.aborted) {
         state.walkthrough.status = "completed";
         state.walkthrough.percent = 100;
+        state.soundPlaying = false;
+        audio.stop();
       }
     } catch (err) {
       if (activeWalkthroughSession !== sessionId) {
@@ -2377,6 +2390,8 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         state.walkthrough.status = "error";
         state.walkthrough.error = String(err);
       }
+      state.soundPlaying = false;
+      audio.stop();
     }
   }
 
@@ -2392,7 +2407,8 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     activeReplaySeed = null;
     seekTargetTick = null;
     state.walkthrough.seeking = false;
-    audio.setPaused(false);
+    state.soundPlaying = false;
+    audio.stop();
     notifyResume();
     if (takeControl) {
       state.walkthrough.status = "stopped";
@@ -2427,6 +2443,8 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       state.walkthrough.room = targetCp.room;
       state.walkthrough.score = targetCp.score;
     }
+    state.soundPlaying = false;
+    audio.stop();
     audio.setPaused(true);
 
     if (clamped < currentTick || state.walkthrough.status === "completed") {
@@ -2445,6 +2463,8 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   function pauseWalkthrough(): void {
     if (state.walkthrough.active && state.walkthrough.status === "playing") {
       state.walkthrough.status = "paused";
+      state.soundPlaying = false;
+      audio.stop();
       audio.setPaused(true);
       if (skipDialogDwell) {
         const skip = skipDialogDwell;

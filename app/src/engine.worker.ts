@@ -746,7 +746,7 @@ self.onmessage = (ev: MessageEvent) => {
         throw new Error("Replay advance requires 1..100000 virtual ticks.");
       const seeking = Boolean(msg.seeking);
       const renderFinal = Boolean(msg.renderFinal);
-      isSeeking = seeking && !renderFinal;
+      isSeeking = seeking;
       replayRequest = Number(msg.id);
       replay.yielded = false;
       for (let i = 0; i < ticks; i++) {
@@ -971,6 +971,7 @@ self.onmessage = (ev: MessageEvent) => {
       if (typeof msg.sessionId === "number") currentSessionId = msg.sessionId;
       initialLogicStarted = false;
       isSeeking = Boolean(msg.seeking);
+      if (engine) engine.stopSoundPlayback();
       const seed =
         typeof msg.seed === "number" ? msg.seed : lastReplaySeed !== null ? lastReplaySeed : 0;
       replay = { tick: 0, revision: 0, random: seed >>> 0, yielded: false };
