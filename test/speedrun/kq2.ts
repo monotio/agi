@@ -459,7 +459,8 @@ export function kq2Door1(run: Speedrun): void {
   run.checkpoint("Trident", { room: 36, score: 62 });
 
   // 7. Step into water in Room 36 and swim
-  while (run.engine.flags[0] === 0) {
+  for (let n = 0; run.engine.flags[0] === 0; n++) {
+    assert.ok(n < 1000, "Timed out stepping into water in room 36");
     run.direction(7); // West
     run.advance();
   }
@@ -473,7 +474,8 @@ export function kq2Door1(run: Speedrun): void {
   // Swim North 3 times in Room 50 (v73: 36 -> 29 -> 22 -> 15)
   for (let i = 0; i < 3; i++) {
     const prev = run.engine.vars[73];
-    while (run.engine.vars[73] === prev) {
+    for (let n = 0; run.engine.vars[73] === prev; n++) {
+      assert.ok(n < 3000, "Timed out swimming north in room 50");
       run.direction(1);
       run.advance();
     }
@@ -519,7 +521,8 @@ export function kq2Door1(run: Speedrun): void {
   run.wait(() => run.engine.vars[0] === 15 && run.state().control, "returned to Room 15", 30000);
 
   // Walk east out of water onto land in Room 15
-  while (run.engine.vars[95] !== 0) {
+  for (let n = 0; run.engine.vars[95] !== 0; n++) {
+    assert.ok(n < 1000, "Timed out walking out of water in room 15");
     run.direction(3);
     run.advance();
   }
@@ -999,7 +1002,8 @@ export function kq2Castle(run: Speedrun): void {
   run.exit("W", 67);
 
   // 20. In 67: Dracula check & defeat
-  while (run.engine.vars[92] !== 1) {
+  for (let n = 0; run.engine.vars[92] !== 1; n++) {
+    assert.ok(n < 50, "Timed out waiting for Dracula in coffin in room 67");
     run.exit("E", 66);
     run.exit("W", 67);
   }

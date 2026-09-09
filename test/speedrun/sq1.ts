@@ -771,7 +771,8 @@ export function sq1UlenceFlats(run: Speedrun): void {
   // Room 33: navigate boulder field
   run.walkTo(10, 146);
   let targetX = 10;
-  while (eng.vars[0] === 33 && (eng.vars[42] ?? 0) < 5) {
+  for (let n = 0; eng.vars[0] === 33 && (eng.vars[42] ?? 0) < 5; n++) {
+    assert.ok(n < 10000, "Timed out navigating skimmer in room 33");
     const o3 = eng.screenObjects[3]!;
     if (o3.active && o3.x < 32 && o3.y >= 65 && o3.y <= 135) {
       if (targetX !== 40) {
@@ -871,7 +872,8 @@ export function sq1DeltaurDeparture(run: Speedrun): void {
     run.wait(() => run.state().room !== 75 || run.engine.inputEnabled, "ready for next spin");
   }
 
-  while (run.state().room === 75 && run.engine.vars[124]! < 250) {
+  for (let n = 0; run.state().room === 75 && run.engine.vars[124]! < 250; n++) {
+    assert.ok(n < 50, "Timed out hitting slots jackpot");
     spin(3);
   }
   run.checkpoint("Slots jackpot", { room: 70, score: 118 });
@@ -951,4 +953,255 @@ function assertCarried(run: Speedrun, num: number, name: string): void {
     run.engine.readState().inventory.some((item) => item.num === num && item.room === 255),
     `${name} is carried`,
   );
+}
+
+/**
+ * Space Quest I complete-game speedrun walkthrough reaching maximum score 202.
+ * Covers all five chapters:
+ * 1. Arcada evacuation (score 32).
+ * 2. Kerona surface & underground (score 83).
+ * 3. Ulence Flats settlement & spaceship acquisition (score 126).
+ * 4. Deltaur flight (score 151).
+ * 5. Deltaur infiltration, Star Generator sabotage, and shuttle escape (score 202):
+ *    - Airlock entry into Deltaur interior (Room 57, +1 pt, score 152).
+ *    - Trunk transport to laundry (Room 53, +3 pts, score 155).
+ *    - Vent exploration (Room 52 & return, +3 pts total, score 158).
+ *    - Laundry washing cycle disguise (Room 53, +5 pts, score 163).
+ *    - Sarien ID acquisition from uniform pocket.
+ *    - Corridor guard kiss and KQ trivia quiz (Room 54, +7 pts total, score 170).
+ *    - Armory heist: gas grenade theft and pulseray issue (Room 51, +4 pts total, score 174).
+ *    - Gas grenade drop on catwalk guard (Room 50, +5 pts, score 179).
+ *    - Cover blown by tripping gag in Room 48; shoot lower guard with pulseray (Room 49, +3 pts, score 182).
+ *    - Search knocked-out guard for remote control (Room 50, +3 pts, score 185).
+ *    - Deactivate force field via remote button (Room 50, +3 pts, score 188).
+ *    - Star Generator self-destruct armed with code 6858 on Room 65 keypad (+10 pts, score 198).
+ *    - Corridor escape to Shuttle Bay (Room 62, +1 pt, score 199).
+ *    - Launch shuttle to safety (+3 pts, score 202).
+ *    - Finale: Deltaur explosion, escape to Xenon, ending ceremony in Room 64.
+ */
+export function sq1Complete(run: Speedrun): void {
+  sq1DeltaurDeparture(run);
+
+  // 1. Room 43 -> 45: Wait for docking, equip jetpack and enter Deltaur airlock
+  run.wait(() => run.engine.vars[36] === 5, "ship stopped");
+  run.command("wear jetpack");
+  run.command("exit ship");
+  run.wait(() => run.state().room === 45, "room 45");
+  run.walkTo(78, 104);
+  run.command("open door");
+  run.wait(() => run.engine.flags[30] !== 0, "door open");
+  run.direction(1);
+  run.wait(() => run.state().room === 61, "room 61");
+
+  // Room 61: dodge patrolling droid into Room 57
+  run.walkTo(90, 153);
+  run.walkTo(90, 115);
+  run.wait(
+    () => run.engine.vars[32] === 1 && (run.engine.screenObjects[2]?.y ?? 0) > 105,
+    "droid passed",
+  );
+  run.walkTo(76, 115);
+  run.walkTo(76, 105);
+  run.wait(() => run.state().room === 57, "entered room 57");
+  run.checkpoint("Deltaur airlock interior", { room: 57, score: 152 });
+
+  // 2. Room 57: hide in trunk, ride to laundry room 53
+  run.walkTo(50, 125);
+  run.command("open trunk");
+  run.command("get in trunk");
+  run.wait(() => run.state().room === 53, "in room 53");
+  run.checkpoint("Laundry trunk", { room: 53, score: 155 });
+  run.key(AGI_KEY.ENTER);
+  run.advance(5);
+  run.wait(() => run.state().control, "graphics restored");
+
+  // Vent shaft exploration: Room 53 -> 52 -> 53 (+3 pts total)
+  run.command("open trunk");
+  run.command("close trunk");
+  run.command("climb trunk");
+  run.command("open vent");
+  run.command("enter vent");
+  run.wait(() => run.state().room === 52, "in room 52");
+  run.checkpoint("Vent shaft explored", { room: 52, score: 157 });
+  run.exit("E", 53);
+  run.checkpoint("Laundry vent exit", { room: 53, score: 158 });
+  run.command("climb down");
+
+  // Laundry wash cycle disguise (+5 pts)
+  run.walkTo(67, 110);
+  run.command("open washer");
+  run.wait(() => run.engine.vars[72] === 3, "washer opened");
+  run.command("climb in washer");
+  run.wait(() => run.engine.vars[72] === 5, "wash cycle completed", 15000);
+  run.command("open washer");
+  run.wait(() => run.state().control, "emerged in disguise");
+  run.checkpoint("Sarien disguise equipped", { room: 53, score: 163 });
+
+  // Sarien ID card
+  run.command("look in pocket");
+  assertCarried(run, 13, "Sarien ID");
+
+  // 3. Room 54 corridor: kiss and talk to guard (+7 pts)
+  run.walkTo(125, 115);
+  run.direction(3);
+  run.wait(() => run.state().room === 54, "entered room 54");
+  run.walkTo(120, 115);
+  run.command("kiss guard");
+  run.checkpoint("Guard kissed", { room: 54, score: 164 });
+  run.command("talk to guard");
+  run.checkpoint("Guard conversed", { room: 54, score: 165 });
+  for (let n = 0; !run.engine.flags[218]; n++) {
+    assert.ok(n < 100, "Guard trivia prompt did not appear within 100 attempts");
+    run.command("talk to guard");
+  }
+  run.command("yes");
+  run.checkpoint("KQ trivia answered", { room: 54, score: 170 });
+
+  // 4. Elevator 54 -> lower 49 -> lower 48 -> upper 48 -> upper 49 -> 50 -> 51 Armory
+  run.walkTo(66, 115);
+  run.walkTo(66, 100);
+  run.wait(() => run.engine.vars[30] === 1 || run.engine.vars[30] === 3, "elevator door open");
+  run.direction(1);
+  run.wait(() => run.state().room === 49, "entered room 49");
+  run.wait(() => run.state().y >= 130 && run.state().control, "stepped out in 49");
+  run.walkTo(62, 153);
+  run.walkTo(20, 153);
+  run.exit("W", 48);
+  run.walkTo(48, 148);
+  run.walkTo(48, 135);
+  run.wait(() => run.engine.vars[32] === 1, "elevator door opened in 48");
+  run.direction(1);
+  run.wait(() => run.state().y < 80, "elevator rode up to upper level");
+  run.wait(() => run.state().control, "stepped out on upper level");
+  run.walkTo(48, 60);
+  run.exit("E", 49);
+  run.exit("E", 50);
+  run.exit("E", 51);
+  run.checkpoint("Armory counter", { room: 51, score: 170 });
+
+  // Armory: show ID, steal grenade, receive pulseray (+4 pts)
+  run.walkTo(100, 120);
+  run.command("show id");
+  run.walkTo(100, 140);
+  run.walkTo(123, 140);
+  run.command("take grenade");
+  run.checkpoint("Grenade stolen", { room: 51, score: 171 });
+  run.walkTo(100, 140);
+  run.walkTo(100, 120);
+  run.wait(() => run.engine.flags[38] !== 0, "droid returned with pulseray", 10000);
+  run.advance(10);
+  if (run.engine.modalKind !== null) run.dismiss();
+  run.checkpoint("Pulseray acquired", { room: 51, score: 174 });
+  assertCarried(run, 14, "Pulseray");
+  assertCarried(run, 15, "Grenade");
+
+  // 5. Catwalk: knock out Room 50 guard with gas grenade (+5 pts)
+  run.walkTo(20, 124);
+  run.exit("W", 50);
+  run.walkTo(77, 41);
+  run.command("drop grenade");
+  run.wait(() => run.engine.flags[171] !== 0, "guard knocked out by gas");
+  run.checkpoint("Guard gassed", { room: 50, score: 179 });
+
+  // 6. Blow disguise and shoot patrolling guard (+3 pts)
+  run.exit("W", 49);
+  run.exit("W", 48);
+  run.walkTo(100, 60);
+  run.wait(() => run.state().control, "tripping animation finished");
+  run.walkTo(48, 60);
+  run.walkTo(48, 50);
+  run.wait(() => run.engine.vars[31] === 1, "elevator door open");
+  run.direction(1);
+  run.wait(() => run.state().y > 100, "elevator rode down");
+  run.wait(() => run.state().control, "stepped out on lower level");
+  run.walkTo(48, 148);
+  run.exit("E", 49);
+
+  // Shoot guard in room 49 with pulseray
+  run.direction(3);
+  run.key(AGI_KEY.F6);
+  run.wait(() => run.engine.flags[207] !== 0, "guard shot by pulseray", 10000);
+  run.checkpoint("Guard shot", { room: 49, score: 182 });
+
+  // 7. Room 50 main floor: acquire remote and lower force field (+6 pts)
+  run.walkTo(62, 145);
+  run.exit("E", 50);
+  run.walkPath({ x0: 72, x1: 84, y0: 156, y1: 160 });
+  run.command("search guard");
+  run.checkpoint("Remote taken", { room: 50, score: 185 });
+  assertCarried(run, 16, "Remote Control");
+
+  run.command("push button");
+  run.advance(5);
+  run.checkpoint("Force field lowered", { room: 50, score: 188 });
+
+  // 8. Arm Star Generator self-destruct via Room 65 keypad (+10 pts)
+  run.walkTo(86, 156);
+  run.walkTo(86, 142);
+  run.walkTo(76, 142);
+  run.walkTo(76, 122);
+  run.command("look console");
+  run.wait(() => run.state().room === 65, "entered keypad (room 65)");
+
+  // Code 6 8 5 8 + Enter
+  run.walkTo(92, 122);
+  run.key(AGI_KEY.F6);
+  run.advance(5);
+  run.walkTo(80, 142);
+  run.key(AGI_KEY.F6);
+  run.advance(5);
+  run.walkTo(80, 122);
+  run.key(AGI_KEY.F6);
+  run.advance(5);
+  run.walkTo(80, 142);
+  run.key(AGI_KEY.F6);
+  run.advance(5);
+  run.walkTo(80, 86);
+  run.key(AGI_KEY.F6);
+  run.advance(5);
+  run.wait(() => run.state().room === 50, "returned to room 50 after arming self-destruct");
+  run.checkpoint("Self-destruct armed", { room: 50, score: 198 });
+  assert.equal(run.engine.vars[144], 10, "10-minute self-destruct countdown initiated");
+
+  // 9. Escape to Shuttle Bay (Room 62) (+1 pt)
+  run.walkTo(76, 142);
+  run.walkTo(20, 142);
+  run.walkTo(20, 138);
+  run.exit("W", 49);
+
+  // Eliminate corridor guard and take elevator to Room 54
+  run.direction(7);
+  run.key(AGI_KEY.F6);
+  run.advance(20);
+  run.walkTo(62, 145);
+  run.walkTo(62, 135);
+  run.wait(() => run.engine.vars[30] === 1, "elevator door open in 49");
+  run.direction(1);
+  run.wait(() => run.state().room === 54, "entered room 54 from elevator");
+  run.wait(() => run.state().control && run.state().y >= 95, "stepped out in 54");
+
+  // Take right elevator to Room 62 (unlocked during self-destruct)
+  run.walkTo(66, 115);
+  run.walkTo(91, 115);
+  run.walkTo(91, 100);
+  run.wait(
+    () => run.engine.vars[31] === 1 || run.engine.vars[31] === 3,
+    "right elevator door open",
+  );
+  run.direction(1);
+  run.wait(() => run.state().room === 62, "entered shuttle bay (room 62)");
+  run.checkpoint("Shuttle bay entered", { room: 62, score: 199 });
+  run.wait(() => run.state().control && run.state().y >= 75, "stepped out in 62");
+
+  // 10. Board shuttle and launch to victory (+3 pts, score 202)
+  run.walkPath({ x0: 5, x1: 20, y0: 121, y1: 123 });
+  run.command("enter ship");
+  run.command("push button");
+  run.wait(() => run.engine.flags[38] !== 0, "launched shuttle");
+  run.checkpoint("Shuttle launched", { room: 62, score: 202 });
+  assert.equal(run.state().score, 202, "Final maximum score 202 achieved!");
+
+  // Wait for ending sequence: room 62 -> 43 -> 63 -> 64
+  run.wait(() => run.state().room === 64, "ending ceremony (room 64)", 40000);
+  run.checkpoint("Ending ceremony", { room: 64, score: 202 });
 }

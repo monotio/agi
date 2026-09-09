@@ -4,7 +4,7 @@ import { Speedrun } from "./runner.ts";
 import { opening } from "./openings.ts";
 import { kq1Complete } from "./kq1.ts";
 import { kq2Complete } from "./kq2.ts";
-import { sq1DeltaurDeparture } from "./sq1.ts";
+import { sq1Complete } from "./sq1.ts";
 import { day1 } from "./mh1-day1.ts";
 
 /** Observable endpoint shared by the Node, CLI and browser walkthrough runners. */
@@ -66,15 +66,13 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
   },
   {
     slug: "sq1",
-    label: "departure to the Deltaur",
-    coverage: "chapter",
-    route: sq1DeltaurDeparture,
+    label: "completed ceremony and ending credits with maximum score",
+    coverage: "complete-game",
+    route: sq1Complete,
     expected: {
-      room: 43,
-      score: 151,
-      flags: { 69: 1, 74: 1, 181: 1 },
-      vars: { 124: 0 },
-      carriedExactly: [1, 3, 5, 6, 9, 19, 22],
+      room: 64,
+      score: 202,
+      carriedExactly: [1, 3, 5, 6, 13, 14, 16, 19, 22],
     },
     requiresAnswer: true,
   },

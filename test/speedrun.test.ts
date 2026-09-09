@@ -45,3 +45,13 @@ test(
     ]);
   },
 );
+
+test(
+  "Speedrun rejects ticks beyond its global ceiling",
+  { skip: fixtureSkip("kq1", ["AGIDATA.OVL"]) },
+  () => {
+    const run = new Speedrun("kq1", 1, { maxTicks: 50 });
+    run.advance(30);
+    assert.throws(() => run.advance(25), /Speedrun tick ceiling exceeded \(55 > 50\)/);
+  },
+);

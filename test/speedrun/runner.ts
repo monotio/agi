@@ -36,15 +36,17 @@ export class Speedrun {
   readonly slug: string;
   ticks = 0;
   cycles = 0;
+  readonly maxTicks: number;
   private readonly clock = new CycleClock(0);
   private readonly keys: number[] = [];
   private line: string | null = null;
   private readonly answers: string[] = [];
   private readonly numAnswers: number[] = [];
 
-  constructor(slug = "kq1", seed = 1, load: { checkVolumes?: boolean } = {}) {
+  constructor(slug = "kq1", seed = 1, load: { checkVolumes?: boolean; maxTicks?: number } = {}) {
     this.seed = seed;
     this.slug = slug;
+    this.maxTicks = load.maxTicks ?? 500_000;
     const { container, dict, files } = loadGame(slug, {
       interpreterFiles: true,
       ...(load.checkVolumes === undefined ? {} : { checkVolumes: load.checkVolumes }),
@@ -125,6 +127,10 @@ export class Speedrun {
 
   advance(ticks = 1): void {
     assert.ok(Number.isInteger(ticks) && ticks > 0);
+    assert.ok(
+      this.ticks + ticks <= this.maxTicks,
+      `Speedrun tick ceiling exceeded (${this.ticks + ticks} > ${this.maxTicks})`,
+    );
     for (let i = 0; i < ticks; i++) {
       const previous = this.actions.at(-1);
       if (previous?.kind === "advance") previous.ticks++;
