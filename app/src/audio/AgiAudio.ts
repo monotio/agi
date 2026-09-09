@@ -130,13 +130,12 @@ export class AgiAudio {
     const ctx = this.initContext();
     if (ctx.state === "suspended") ctx.resume().catch(() => {});
     this.playing = true;
+    const maxFreq = (ctx.sampleRate || 48000) / 2;
     if (!this.channelGains.length) this.createChannels(ctx, event.kind === "speaker" ? 1 : 4);
     if (event.kind === "speaker") {
       const divisor = event.divisor;
-      this.oscillators[0]!.frequency.setValueAtTime(
-        divisor ? 1193180 / divisor : 0,
-        ctx.currentTime,
-      );
+      const rawFreq = divisor ? 1193180 / divisor : 0;
+      this.oscillators[0]!.frequency.setValueAtTime(Math.min(maxFreq, rawFreq), ctx.currentTime);
       this.channelGains[0]!.gain.setValueAtTime(divisor === null ? 0 : 0.4, ctx.currentTime);
       return;
     }
@@ -157,16 +156,17 @@ export class AgiAudio {
           ? (this.divisors[channel]! & 0x3f0) | (byte & 15)
           : (this.divisors[channel]! & 15) | ((byte & 63) << 4);
         const divisor = this.divisors[channel]!;
+        const rawFreq = divisor ? PIT_BASE_FREQ / divisor : 0;
         this.oscillators[channel]!.frequency.setValueAtTime(
-          divisor ? PIT_BASE_FREQ / divisor : 0,
+          Math.min(maxFreq, rawFreq),
           ctx.currentTime,
         );
       } else {
         // Noise timbre is a presentation approximation; command timing and gain are exact.
         const rate = byte & 3;
-        const frequency =
+        const rawFreq =
           rate === 3 ? PIT_BASE_FREQ / Math.max(1, this.divisors[2]!) : 4000 / (1 << rate);
-        this.noiseFilter!.frequency.setValueAtTime(frequency, ctx.currentTime);
+        this.noiseFilter!.frequency.setValueAtTime(Math.min(maxFreq, rawFreq), ctx.currentTime);
       }
     }
   }

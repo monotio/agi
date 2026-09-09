@@ -125,4 +125,10 @@ describe("audio command backend", () => {
     audio.stop();
     assert.equal(audio.isPlaying, false);
   });
+  it("clamps ultrasonic intermediate divisors to Nyquist limit to avoid Web Audio warnings", () => {
+    const { audio, oscillators, ctx } = context();
+    // Low divisor 1 gives 99431.67 Hz, which exceeds sampleRate/2 (4000 Hz in test context)
+    audio.output({ kind: "psg", bytes: [0x81] });
+    assert.equal(oscillators[0]!.frequency.value, ctx.sampleRate / 2);
+  });
 });
