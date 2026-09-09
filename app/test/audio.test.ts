@@ -131,4 +131,14 @@ describe("audio command backend", () => {
     audio.output({ kind: "psg", bytes: [0x81] });
     assert.equal(oscillators[0]!.frequency.value, ctx.sampleRate / 2);
   });
+  it("ignores data bytes sent while attenuation or noise registers are latched", () => {
+    const { audio, gains } = context();
+    // Latch channel 0 attenuation to 15 (silence)
+    audio.output({ kind: "psg", bytes: [0x9f] });
+    assert.equal(gains[1]!.gain.value, 0);
+    // Send stray data bytes 0x00 without bit 7 set
+    audio.output({ kind: "psg", bytes: [0x00, 0x00] });
+    // Channel 0 must remain silent (not corrupted to gain 0.25 / attenuation 0)
+    assert.equal(gains[1]!.gain.value, 0);
+  });
 });

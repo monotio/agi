@@ -146,6 +146,7 @@ export class AgiAudio {
       const register = this.latchedRegister;
       const channel = register >> 1;
       if (register & 1) {
+        if (!latch) continue;
         const attenuation = byte & 15;
         this.channelGains[channel]!.gain.setValueAtTime(
           attenuation === 15 ? 0 : Math.pow(10, -attenuation / 10) * 0.25,
@@ -162,6 +163,7 @@ export class AgiAudio {
           ctx.currentTime,
         );
       } else {
+        if (!latch) continue;
         // Noise timbre is a presentation approximation; command timing and gain are exact.
         const rate = byte & 3;
         const rawFreq =
