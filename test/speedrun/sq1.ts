@@ -856,6 +856,209 @@ export function sq1UlenceFlats(run: Speedrun): void {
   assertCarried(run, 22, "Survival Kit");
 }
 
+/**
+ * Ulence Flats to Deltaur departure:
+ * 1. Sell skimmer: wait for f32, take key, get off skimmer, decline 30 buckazoids offer, accept 30 buckazoids + jetpack (+5 score -> 113).
+ * 2. Bar (room 70): walk to bar counter, order and drink 3 beers to overhear sector HH coordinates (+5 score -> 118, f181).
+ * 3. Slot machine (room 75): wait for previous player to be swept away (f40), enter slots, bet $3 until circuit failure gives max 250 buckazoids.
+ * 4. Tiny's Used Ships (room 37): exit bar to room 35, walk west to room 34, then north to room 37 (sets f65); buy spaceship (+4 score -> 122, f74).
+ * 5. Droids-B-Us (room 71): walk east to room 38, east to room 39, enter room 71, walk upstairs to pilot droid, buy pilot droid (+4 score -> 126, f60).
+ * 6. Return to room 37 with pilot droid following: climb ladder, enter ship, press load button to load droid (f34), enter sector HH.
+ * 7. Launch to Deltaur: cutscenes 13, 41, 42, 43; escape Kerona (+25 score -> 151). Arrive at Deltaur exterior (room 43, score 151).
+ */
+export function sq1DeltaurDeparture(run: Speedrun): void {
+  sq1UlenceFlats(run);
+
+  // 1. Sell skimmer
+  while (!run.engine.flags[32]) {
+    if (run.engine.modalKind !== null) run.dismiss();
+    run.advance(1);
+  }
+  if (run.engine.modalKind !== null) run.dismiss();
+  run.command("take key");
+  run.advance(10);
+  if (run.engine.modalKind !== null) run.dismiss();
+  run.command("get off skimmer");
+  run.advance(10);
+  if (run.engine.modalKind !== null) run.dismiss();
+
+  while (run.engine.vars[58] !== 4 && run.engine.vars[58] !== 7) {
+    if (run.engine.modalKind !== null) run.dismiss();
+    run.advance(1);
+  }
+  if (run.engine.modalKind !== null) run.dismiss();
+  run.command("no");
+  run.advance(10);
+  while (run.engine.vars[58] !== 7) {
+    if (run.engine.modalKind !== null) run.dismiss();
+    run.advance(1);
+  }
+  if (run.engine.modalKind !== null) run.dismiss();
+  run.command("yes");
+  run.advance(20);
+  if (run.engine.modalKind !== null) run.dismiss();
+  run.checkpoint("Skimmer sold", { room: 35, score: 113 });
+  assertCarried(run, 9, "Jetpack");
+
+  // 2. Enter bar (Room 70)
+  run.walkTo(68, 111);
+  run.walkTo(95, 111);
+  run.direction(3);
+  while (run.state().room === 35) run.advance(1);
+  run.checkpoint("Entered bar", { room: 70, score: 113 });
+
+  // Drink 3 beers
+  run.walkTo(120, 155);
+  for (let beer = 1; beer <= 3; beer++) {
+    while (!run.engine.flags[41]) {
+      if (run.engine.modalKind !== null) run.dismiss();
+      run.advance(1);
+    }
+    if (run.engine.modalKind !== null) run.dismiss();
+    run.command("buy beer");
+    run.advance(5);
+    if (run.engine.modalKind !== null) run.dismiss();
+    run.command("drink beer");
+    run.advance(5);
+    while (run.engine.modalKind !== null) run.dismiss();
+  }
+  run.checkpoint("Coordinates overheard", { room: 70, score: 118 });
+  assert.equal(run.engine.flags[181], 1, "sector coordinates overheard");
+
+  // 3. Wait for slot machine player to clear (f40)
+  while (run.engine.flags[40]) {
+    if (run.engine.modalKind !== null) run.dismiss();
+    run.advance(1);
+  }
+
+  // Enter slot machine (Room 75)
+  run.walkTo(120, 144);
+  run.walkTo(119, 143);
+  run.walkTo(120, 142);
+  run.direction(3);
+  while (run.state().room === 70) run.advance(1);
+  run.checkpoint("Slot machine", { room: 75, score: 118 });
+
+  run.advance(20);
+  if (run.engine.modalKind !== null) run.dismiss();
+
+  function spin(cheatNum: number) {
+    run.answerNumber(cheatNum);
+    run.command("holy asshole");
+    run.advance(5);
+    if (run.engine.modalKind !== null) run.dismiss();
+    run.key(AGI_KEY.F8);
+    run.advance(1);
+    while (
+      run.state().room === 75 &&
+      (run.engine.flags[126] || run.engine.flags[134] || run.engine.flags[124])
+    ) {
+      if (run.engine.modalKind !== null) run.dismiss();
+      run.advance(1);
+    }
+    if (run.engine.modalKind !== null) run.dismiss();
+  }
+
+  spin(3);
+  spin(3);
+  spin(3);
+  spin(3);
+  run.checkpoint("Slots jackpot", { room: 70, score: 118 });
+  assert.equal(run.engine.vars[124], 250, "max buckazoids won");
+
+  // 4. Exit bar to Room 35
+  walkPlanned(run, { x0: 0, y0: 126, x1: 1, y1: 128 });
+  run.direction(7);
+  while (run.state().room === 70) run.advance(1);
+
+  // Room 35 to Room 34
+  run.exit("W", 34);
+
+  // Room 34 to Room 37
+  run.walkTo(130, 116);
+  run.exit("N", 37);
+  run.checkpoint("Tiny used ships lot", { room: 37, score: 118 });
+
+  // Buy spaceship
+  while (!run.engine.flags[43]) {
+    if (run.engine.modalKind !== null) run.dismiss();
+    run.advance(1);
+  }
+  if (run.engine.modalKind !== null) run.dismiss();
+  run.command("buy ship");
+  run.advance(10);
+  while (run.engine.modalKind !== null) run.dismiss();
+  run.checkpoint("Spaceship purchased", { room: 37, score: 122 });
+  assert.equal(run.engine.flags[74], 1, "spaceship purchased");
+
+  // 5. Go to Droids-B-Us (Room 38 -> Room 39 -> Room 71)
+  run.exit("E", 38);
+  run.exit("E", 39);
+  walkPlanned(run, { x0: 45, y0: 130, x1: 65, y1: 134 });
+  run.exit("N", 71);
+  run.checkpoint("Droids-B-Us", { room: 71, score: 122 });
+
+  // Wait for salesman
+  while (!run.engine.flags[38]) {
+    if (run.engine.modalKind !== null) run.dismiss();
+    run.advance(1);
+  }
+  if (run.engine.modalKind !== null) run.dismiss();
+
+  // Buy pilot droid
+  walkPlanned(run, { x0: 95, y0: 66, x1: 105, y1: 68 });
+  run.command("buy droid");
+  run.advance(10);
+  while (run.engine.modalKind !== null) run.dismiss();
+  run.checkpoint("Pilot droid purchased", { room: 71, score: 126 });
+  assert.equal(run.engine.flags[60], 1, "pilot droid acquired");
+
+  // 6. Exit Room 71 and return to Room 37 with droid
+  walkPlanned(run, { x0: 65, y0: 160, x1: 75, y1: 165 });
+  run.exit("S", 39);
+  walkPlanned(run, { x0: 0, y0: 140, x1: 5, y1: 167 });
+  run.exit("W", 38);
+  run.exit("W", 37);
+  run.checkpoint("Boarding ship", { room: 37, score: 126 });
+
+  // Board ship and load droid
+  run.walkTo(109, 150);
+  run.walkTo(109, 132);
+  run.command("climb ladder");
+  while (!run.engine.flags[117]) {
+    if (run.engine.modalKind !== null) run.dismiss();
+    run.advance(1);
+  }
+  if (run.engine.modalKind !== null) run.dismiss();
+
+  run.command("press load");
+  while (!run.engine.flags[34]) {
+    if (run.engine.modalKind !== null) run.dismiss();
+    run.advance(1);
+  }
+  if (run.engine.modalKind !== null) run.dismiss();
+  run.checkpoint("Droid loaded", { room: 37, score: 126 });
+  assert.equal(run.engine.flags[69], 1, "droid loaded in ship");
+
+  // 7. Enter sector HH and launch to Deltaur!
+  run.command("sector hh");
+  while (run.state().room !== 43) {
+    if (run.engine.modalKind !== null) run.dismiss();
+    run.advance(1);
+  }
+  if (run.engine.modalKind !== null) run.dismiss();
+  run.checkpoint("Deltaur arrival", { room: 43, score: 151 });
+  assert.equal(run.state().room, 43, "arrived at Deltaur");
+  assert.equal(run.state().score, 151, "score 151");
+  assertCarried(run, 1, "Cartridge");
+  assertCarried(run, 3, "Gadget");
+  assertCarried(run, 5, "Keycard");
+  assertCarried(run, 6, "Glass");
+  assertCarried(run, 9, "Jetpack");
+  assertCarried(run, 19, "Xenon Army Knife");
+  assertCarried(run, 22, "Survival Kit");
+}
+
 function assertCarried(run: Speedrun, num: number, name: string): void {
   assert.ok(
     run.engine.readState().inventory.some((item) => item.num === num && item.room === 255),
