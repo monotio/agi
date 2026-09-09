@@ -22,6 +22,7 @@ import {
   removeLibraryGame,
   type Frame,
   type AutosaveRecord,
+  type ModalKind,
 } from "./useEngine.ts";
 import { AgiStage } from "./three/AgiStage.ts";
 import { FRAME_HEIGHT, FRAME_WIDTH, compositeFrame } from "./composite.ts";
@@ -48,7 +49,7 @@ import { readGameProgress, type ImportStorageReport } from "./gameProgress.ts";
 import { captureGameDrop } from "./gameDrop.ts";
 import { GAME_CATALOG, type GameCatalogEntry } from "./gameCatalog.ts";
 import { loadHostedCatalog } from "./hostedCatalog.ts";
-import { hasWalkthrough } from "./walkthrough.ts";
+import { hasWalkthrough, type WalkthroughCheckpoint } from "./walkthrough.ts";
 import { previewGame } from "./gamePreview.ts";
 import { addLibraryGame, copyLibraryGame, type CheckedOpening } from "./gameLibrary.ts";
 import { gameRevision } from "./gameMetadata.ts";
@@ -83,7 +84,11 @@ watch(touchControls, (enabled) =>
   localStorage.setItem("monotio_agi.touchControls", enabled ? "on" : "off"),
 );
 const gpuBackend = ref<string>();
-const crtEnabled = ref<boolean>(localStorage.getItem("monotio_agi.crt") !== "off");
+const crtEnabled = ref<boolean>(
+  testMode
+    ? localStorage.getItem("monotio_agi.crt") === "on"
+    : localStorage.getItem("monotio_agi.crt") !== "off",
+);
 let stage: AgiStage | null = null;
 let lastFrame: Frame | null = null;
 /** Composed 320x200 RGBA frame shared by the probe canvas and the GPU stage. */
@@ -91,7 +96,10 @@ const composed = new Uint8ClampedArray(FRAME_WIDTH * FRAME_HEIGHT * 4);
 
 watch(crtEnabled, (on) => {
   localStorage.setItem("monotio_agi.crt", on ? "on" : "off");
-  if (stage) stage.crt = on;
+  if (stage) {
+    stage.crt = on;
+    stage.flush();
+  }
 });
 const heldMovementKeys = new Set<string>();
 let touchMovementActive = false;
@@ -325,6 +333,12 @@ const {
   startWalkthrough,
   stopWalkthrough,
   setWalkthroughSpeed,
+  toggleWalkthroughPause,
+  toggleWalkthroughPauseOnDialog,
+  advanceDialog,
+  resumeWalkthrough,
+  seekToTick,
+  seekToCheckpoint,
   sendInput,
   sendEdit,
   sendDirection,
@@ -1059,6 +1073,13 @@ function onScreenPointerDown(ev: PointerEvent): void {
 function onScreenClick(): void {
   resumeAudio();
   if (state.phase !== "running") return;
+  if (state.walkthrough.active) {
+    if (advanceDialog()) return;
+    if (state.walkthrough.status === "paused") {
+      resumeWalkthrough();
+      return;
+    }
+  }
   if (state.prompt) {
     inputEl.value?.focus();
     return;
@@ -1190,7 +1211,11 @@ function onPromptKey(ev: KeyboardEvent): void {
 
 /** Keys while an engine modal (print window, inventory, menu…) is open. */
 function onModalKey(ev: KeyboardEvent): void {
-  if (state.waitingForKey || state.modal === "save" || state.modal === "restore") {
+  const activeModal =
+    state.walkthrough.active && window.__AGI_REPLAY__?.latest?.state.modalKind
+      ? (window.__AGI_REPLAY__?.latest?.state.modalKind as ModalKind)
+      : state.modal;
+  if (state.waitingForKey || activeModal === "save" || activeModal === "restore") {
     const code = pcKey(ev);
     if (code !== undefined) {
       ev.preventDefault();
@@ -1395,8 +1420,29 @@ function onPowerUpKey(ev: KeyboardEvent): void {
 
 function onGlobalKeydown(ev: KeyboardEvent): void {
   resumeAudio();
-  if (state.phase !== "running" || !state.inputReady) return;
-  if (state.walkthrough.active && state.walkthrough.status === "playing" && ev.isTrusted) return;
+  const isInputReady = state.walkthrough.active ? true : state.inputReady;
+  if (state.phase !== "running" || !isInputReady) return;
+  if (
+    state.walkthrough.active &&
+    (state.walkthrough.status === "playing" ||
+      state.walkthrough.status === "paused" ||
+      state.walkthrough.status === "completed")
+  ) {
+    if (ev.key === " " && !state.powerUp.open) {
+      ev.preventDefault();
+      toggleWalkthroughPause();
+      return;
+    }
+    if (ev.key === "Enter" && !state.powerUp.open) {
+      ev.preventDefault();
+      if (advanceDialog()) return;
+      if (state.walkthrough.status === "paused") {
+        resumeWalkthrough();
+        return;
+      }
+    }
+    if (ev.isTrusted) return;
+  }
   if (ev.isComposing || ev.keyCode === 229) return;
   if (ev.target instanceof Element && ev.target.closest("dialog[open]")) return;
   // The bubble owns the keyboard while it is open: the world is frozen and
@@ -1429,13 +1475,21 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
     onPromptKey(ev);
     return;
   }
-  if (state.modal !== null) {
+  const activeModal =
+    state.walkthrough.active && window.__AGI_REPLAY__?.latest?.state.modalKind
+      ? (window.__AGI_REPLAY__?.latest?.state.modalKind as ModalKind)
+      : state.modal;
+  if (activeModal !== null) {
     onModalKey(ev);
     return;
   }
 
   // Text screens can ask a specific question: preserve the actual key.
-  if (state.textMode || state.waitingForKey) {
+  if (
+    state.textMode ||
+    state.waitingForKey ||
+    (state.walkthrough.active && window.__AGI_REPLAY__?.latest?.blocked === "waitkey")
+  ) {
     const key = pcKey(ev);
     if (key !== undefined) {
       ev.preventDefault();
@@ -1614,8 +1668,12 @@ function onVirtualKey(code: number): void {
     }
     return;
   }
+  const activeModal =
+    state.walkthrough.active && window.__AGI_REPLAY__?.latest?.state.modalKind
+      ? (window.__AGI_REPLAY__?.latest?.state.modalKind as ModalKind)
+      : state.modal;
   if (
-    state.modal !== null ||
+    activeModal !== null ||
     state.textMode ||
     state.waitingForKey ||
     !state.inputEnabled ||
@@ -1645,6 +1703,158 @@ function onTakeControl(): void {
   });
 }
 
+interface HoverInfo {
+  percent: number;
+  label: string;
+  details?: string;
+}
+
+const timelineEl = useTemplateRef("timelineEl");
+const hoverInfo = ref<HoverInfo>();
+const isScrubbing = ref(false);
+const scrubPercent = ref<number>();
+
+function getTimelinePercent(clientX: number): number {
+  const el = timelineEl.value;
+  if (!el) return 0;
+  const rect = el.getBoundingClientRect();
+  if (rect.width <= 0) return 0;
+  const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+  return (x / rect.width) * 100;
+}
+
+function findNearbyCheckpoint(pct: number): WalkthroughCheckpoint | null {
+  let closestCp: WalkthroughCheckpoint | null = null;
+  let minDiff = Infinity;
+  for (const cp of state.walkthrough.checkpoints) {
+    const diff = Math.abs(cp.percent - pct);
+    if (diff < minDiff && diff < 5) {
+      minDiff = diff;
+      closestCp = cp;
+    }
+  }
+  return closestCp;
+}
+
+function updateHover(clientX: number): void {
+  if (state.walkthrough.totalTicks <= 0) return;
+  const pct = getTimelinePercent(clientX);
+  const cp = findNearbyCheckpoint(pct);
+
+  if (cp) {
+    hoverInfo.value = {
+      percent: cp.percent,
+      label: cp.label,
+      details: `Score: ${cp.score} · Room ${cp.room}`,
+    };
+  } else {
+    hoverInfo.value = {
+      percent: pct,
+      label: `${Math.round(pct)}%`,
+    };
+  }
+}
+
+let hasDraggedDuringScrub = false;
+let scrubRafId: number | null = null;
+let pendingScrubTick: number | null = null;
+
+function scheduleScrubSeek(tick: number): void {
+  pendingScrubTick = tick;
+  if (scrubRafId === null) {
+    scrubRafId = requestAnimationFrame(() => {
+      scrubRafId = null;
+      if (pendingScrubTick !== null) {
+        const target = pendingScrubTick;
+        pendingScrubTick = null;
+        void seekToTick(target);
+      }
+    });
+  }
+}
+
+function onTimelinePointerDown(ev: PointerEvent): void {
+  if (state.walkthrough.totalTicks <= 0) return;
+  hasDraggedDuringScrub = false;
+  isScrubbing.value = true;
+  state.walkthrough.scrubbing = true;
+  if (scrubRafId !== null) {
+    cancelAnimationFrame(scrubRafId);
+    scrubRafId = null;
+  }
+  pendingScrubTick = null;
+  const pct = getTimelinePercent(ev.clientX);
+  scrubPercent.value = pct;
+  updateHover(ev.clientX);
+  const targetTick = Math.round((pct / 100) * state.walkthrough.totalTicks);
+  void seekToTick(targetTick);
+
+  window.addEventListener("pointermove", onTimelinePointerMove);
+  window.addEventListener("pointerup", onTimelinePointerUp);
+  window.addEventListener("pointercancel", onTimelinePointerUp);
+}
+
+function onTimelinePointerMove(ev: PointerEvent): void {
+  if (isScrubbing.value) {
+    hasDraggedDuringScrub = true;
+    const pct = getTimelinePercent(ev.clientX);
+    scrubPercent.value = pct;
+    updateHover(ev.clientX);
+    const targetTick = Math.round((pct / 100) * state.walkthrough.totalTicks);
+    scheduleScrubSeek(targetTick);
+  }
+}
+
+function onTimelineHover(ev: PointerEvent): void {
+  if (!isScrubbing.value) {
+    updateHover(ev.clientX);
+  }
+}
+
+function onTimelinePointerUp(ev: PointerEvent): void {
+  window.removeEventListener("pointermove", onTimelinePointerMove);
+  window.removeEventListener("pointerup", onTimelinePointerUp);
+  window.removeEventListener("pointercancel", onTimelinePointerUp);
+
+  if (scrubRafId !== null) {
+    cancelAnimationFrame(scrubRafId);
+    scrubRafId = null;
+  }
+  pendingScrubTick = null;
+
+  if (isScrubbing.value) {
+    const finalPct = scrubPercent.value ?? getTimelinePercent(ev.clientX);
+    isScrubbing.value = false;
+    state.walkthrough.scrubbing = false;
+    scrubPercent.value = undefined;
+    const targetTick = Math.round((finalPct / 100) * state.walkthrough.totalTicks);
+    void seekToTick(targetTick);
+  }
+}
+
+function onTimelinePointerLeave(): void {
+  if (!isScrubbing.value) {
+    hoverInfo.value = undefined;
+  }
+}
+
+function onTimelineKeydown(ev: KeyboardEvent): void {
+  if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+    ev.preventDefault();
+    const delta = ev.key === "ArrowRight" ? 0.05 : -0.05;
+    const currentPct = scrubPercent.value ?? state.walkthrough.percent;
+    const newPct = Math.max(0, Math.min(100, currentPct + delta * 100));
+    const targetTick = Math.round((newPct / 100) * state.walkthrough.totalTicks);
+    void seekToTick(targetTick);
+  }
+}
+
+async function onMarkerClick(cp: WalkthroughCheckpoint): Promise<void> {
+  if (hasDraggedDuringScrub) return;
+  hoverInfo.value = undefined;
+  await seekToCheckpoint(cp);
+}
+
 function resizeViewport(): void {
   viewportHeight.value = window.visualViewport?.height ?? window.innerHeight;
 }
@@ -1663,6 +1873,7 @@ function submit(): void {
   }
   sendInput(text);
   inputLine.value = "";
+  if (inputEl.value) inputEl.value.value = "";
   sendEdit("");
 }
 
@@ -1784,6 +1995,13 @@ onUnmounted(() => {
   window.removeEventListener("hashchange", onMenuHashChange);
   document.removeEventListener("visibilitychange", onPageHidden);
   window.removeEventListener("pagehide", onPageHide);
+  window.removeEventListener("pointermove", onTimelinePointerMove);
+  window.removeEventListener("pointerup", onTimelinePointerUp);
+  window.removeEventListener("pointercancel", onTimelinePointerUp);
+  if (scrubRafId !== null) {
+    cancelAnimationFrame(scrubRafId);
+    scrubRafId = null;
+  }
   releaseAgentAudioPreviews();
   // Development only: this instance is being replaced by a hot update, and its
   // worker would otherwise keep ticking (and autosaving) behind the new one.
@@ -2098,33 +2316,15 @@ watch(
         Score: {{ state.walkthrough.score }}
       </span>
       <span
-        v-if="state.walkthrough.percent > 0"
-        class="walkthrough-percent"
-        data-testid="walkthrough-percent"
+        v-if="typeof state.walkthrough.room === 'number'"
+        class="walkthrough-room"
+        data-testid="walkthrough-room"
       >
-        {{ state.walkthrough.percent }}%
+        Room {{ state.walkthrough.room }}
       </span>
       <span v-if="state.walkthrough.status === 'completed'" class="walkthrough-completed-badge">
         Completed!
       </span>
-      <div
-        v-if="state.walkthrough.status === 'playing'"
-        class="walkthrough-speed-group"
-        role="group"
-        aria-label="Playback speed"
-      >
-        <button
-          v-for="s in [1, 2, 4]"
-          :key="s"
-          type="button"
-          class="ui-button ui-button--secondary walkthrough-speed-btn"
-          :class="{ 'walkthrough-speed-btn--active': state.walkthrough.speed === s }"
-          :data-testid="`walkthrough-speed-${s}`"
-          @click="setWalkthroughSpeed(s)"
-        >
-          {{ s }}×
-        </button>
-      </div>
       <div class="walkthrough-actions">
         <button
           type="button"
@@ -2134,15 +2334,6 @@ watch(
           @click="onTakeControl"
         >
           Take control
-        </button>
-        <button
-          type="button"
-          class="ui-button ui-button--secondary walkthrough-btn"
-          data-testid="btn-walkthrough-stop"
-          title="Stop walkthrough and return to menu"
-          @click="stopWalkthrough(false)"
-        >
-          {{ state.walkthrough.status === "completed" ? "Done" : "Stop" }}
         </button>
       </div>
     </div>
@@ -2949,7 +3140,7 @@ watch(
         >
           <input
             id="game-command"
-            :disabled="state.powerUp.open || !state.inputReady"
+            :disabled="state.powerUp.open || (!state.inputReady && !state.walkthrough.active)"
             aria-label="Game command"
             aria-describedby="game-input-help"
             ref="inputEl"
@@ -3169,6 +3360,177 @@ watch(
         </div>
       </div>
 
+      <!-- Walkthrough Transport Bar (Directly below the CRT screen) -->
+      <div
+        v-if="state.walkthrough.active && state.phase === 'running'"
+        class="walkthrough-transport"
+        data-testid="walkthrough-transport"
+      >
+        <button
+          type="button"
+          class="walkthrough-transport-play-btn"
+          data-testid="btn-walkthrough-pause"
+          :title="
+            state.walkthrough.status === 'paused'
+              ? 'Play (Space)'
+              : state.walkthrough.status === 'completed'
+                ? 'Replay from start'
+                : 'Pause (Space)'
+          "
+          :aria-label="
+            state.walkthrough.status === 'paused'
+              ? 'Play'
+              : state.walkthrough.status === 'completed'
+                ? 'Replay'
+                : 'Pause'
+          "
+          @click="toggleWalkthroughPause"
+        >
+          <svg
+            v-if="state.walkthrough.status === 'paused'"
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M8 5v14l11-7z" />
+          </svg>
+          <svg
+            v-else-if="state.walkthrough.status === 'completed'"
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"
+            />
+          </svg>
+          <svg
+            v-else
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+          </svg>
+        </button>
+
+        <!-- Scrubbable Timeline Track -->
+        <div
+          ref="timelineEl"
+          class="walkthrough-timeline"
+          data-testid="walkthrough-timeline"
+          role="slider"
+          tabindex="0"
+          aria-label="Walkthrough timeline"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :aria-valuenow="Math.round(scrubPercent ?? state.walkthrough.percent)"
+          @pointerdown="onTimelinePointerDown"
+          @pointermove="onTimelineHover"
+          @pointerleave="onTimelinePointerLeave"
+          @keydown="onTimelineKeydown"
+        >
+          <div class="walkthrough-track">
+            <!-- Progress Fill -->
+            <div
+              class="walkthrough-progress-fill"
+              data-testid="walkthrough-progress-fill"
+              :style="{ width: `${scrubPercent ?? state.walkthrough.percent}%` }"
+            ></div>
+
+            <!-- Chapter Marker Notches -->
+            <button
+              v-for="cp in state.walkthrough.checkpoints"
+              :key="cp.index"
+              type="button"
+              class="walkthrough-marker"
+              :class="{
+                'walkthrough-marker--passed':
+                  (scrubPercent ?? state.walkthrough.percent) >= cp.percent,
+              }"
+              :style="{ left: `${cp.percent}%` }"
+              :data-testid="`walkthrough-marker-${cp.index}`"
+              :title="`${cp.label} (Score: ${cp.score} · Room ${cp.room})`"
+              @click.stop="onMarkerClick(cp)"
+            ></button>
+
+            <!-- Thumb / Scrubber Handle -->
+            <div
+              class="walkthrough-thumb"
+              data-testid="walkthrough-thumb"
+              :style="{ left: `${scrubPercent ?? state.walkthrough.percent}%` }"
+            ></div>
+          </div>
+
+          <!-- Hover / Scrub Tooltip -->
+          <div
+            v-if="hoverInfo"
+            class="walkthrough-tooltip"
+            :style="{ left: `${hoverInfo.percent}%` }"
+          >
+            <span class="walkthrough-tooltip-label">{{ hoverInfo.label }}</span>
+            <span v-if="hoverInfo.details" class="walkthrough-tooltip-details">{{
+              hoverInfo.details
+            }}</span>
+          </div>
+        </div>
+
+        <!-- Playback Speed Controls -->
+        <div class="walkthrough-speed-group" role="group" aria-label="Playback speed">
+          <button
+            v-for="s in [1, 2, 4, 8]"
+            :key="s"
+            type="button"
+            class="ui-button ui-button--secondary walkthrough-speed-btn"
+            :class="{ 'walkthrough-speed-btn--active': state.walkthrough.speed === s }"
+            :data-testid="`walkthrough-speed-${s}`"
+            :title="`Set playback speed to ${s}×`"
+            @click="setWalkthroughSpeed(s)"
+          >
+            {{ s }}×
+          </button>
+        </div>
+
+        <!-- Auto-pause on story dialogue toggle -->
+        <button
+          type="button"
+          class="ui-button ui-button--secondary walkthrough-speed-btn walkthrough-dialog-pause-btn"
+          :class="{ 'walkthrough-speed-btn--active': state.walkthrough.pauseOnDialog }"
+          data-testid="btn-walkthrough-pause-on-dialog"
+          :title="
+            state.walkthrough.pauseOnDialog
+              ? 'Story pause: enabled (pauses on dialogue)'
+              : 'Story pause: disabled (auto-advances with reading dwell)'
+          "
+          :aria-label="
+            state.walkthrough.pauseOnDialog
+              ? 'Disable pause on dialogue'
+              : 'Enable pause on dialogue'
+          "
+          @click="toggleWalkthroughPauseOnDialog"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="13"
+            height="13"
+            fill="currentColor"
+            aria-hidden="true"
+            class="walkthrough-dialog-pause-icon"
+          >
+            <path
+              d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 4h5v8l-2.5-1.5L6 12V4z"
+            />
+          </svg>
+          Story pause
+        </button>
+      </div>
+
       <!-- Captions under the screen (never overlays: all game text is on the CRT) -->
       <TouchControls
         v-if="touchControls && state.phase === 'running'"
@@ -3180,7 +3542,7 @@ watch(
         @keyboard="inputEl?.focus()"
       />
     </div>
-    <div v-if="state.phase === 'running'" class="screen-captions">
+    <div v-if="state.phase === 'running' && !state.walkthrough.seeking" class="screen-captions">
       <span v-if="state.resumed" class="caption resume-caption" data-testid="resume-caption">
         Resumed where you left off
       </span>
@@ -3222,7 +3584,6 @@ watch(
     <details v-if="state.agentLog.length || testMode" class="agent-panel" data-testid="agent-panel">
       <summary data-testid="developer-activity-summary">Developer activity</summary>
       <div class="agent-panel-header">
-        <h2>Agent activity</h2>
         <span class="backend-tag" data-testid="gpu-backend">{{ gpuBackend || "canvas2d" }}</span>
         <div class="agent-panel-actions">
           <button
@@ -3506,8 +3867,7 @@ watch(
   color: #ffffff;
   font-weight: 500;
 }
-.walkthrough-score,
-.walkthrough-percent {
+.walkthrough-score {
   color: #9fe6a0;
   font-family: var(--font-mono, monospace);
   font-size: 12px;
@@ -3532,10 +3892,163 @@ watch(
   color: #ffffff;
   font-weight: 600;
 }
+.walkthrough-dialog-pause-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.walkthrough-dialog-pause-icon {
+  flex-shrink: 0;
+}
 .walkthrough-actions {
   display: inline-flex;
   gap: 8px;
   margin-left: auto;
+}
+.walkthrough-room {
+  color: #8da4ac;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+.walkthrough-transport {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: var(--game-width);
+  box-sizing: border-box;
+  margin-top: -6px;
+  padding: 6px 12px;
+  background: #0b171b;
+  border: 1px solid #1a5259;
+  border-radius: 8px;
+  user-select: none;
+}
+.walkthrough-transport-play-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid #2e717b;
+  border-radius: 6px;
+  background: #163b42;
+  color: #5ce1e6;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    color 0.15s,
+    transform 0.1s;
+}
+.walkthrough-transport-play-btn:hover {
+  background: #1c4d56;
+  border-color: #5ce1e6;
+  color: #ffffff;
+}
+.walkthrough-transport-play-btn:active {
+  transform: scale(0.95);
+}
+.walkthrough-timeline {
+  position: relative;
+  flex: 1;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  touch-action: none;
+  outline: none;
+}
+.walkthrough-timeline:focus-visible .walkthrough-track {
+  box-shadow: 0 0 0 2px #5ce1e6;
+}
+.walkthrough-track {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+  transition: height 0.15s ease;
+}
+.walkthrough-timeline:hover .walkthrough-track {
+  height: 8px;
+}
+.walkthrough-progress-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, #1fa2a6, #5ce1e6);
+  border-radius: 3px;
+  pointer-events: none;
+}
+.walkthrough-marker {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 10px;
+  padding: 0;
+  border: 1px solid #0b171b;
+  border-radius: 1px;
+  background: #ffd700;
+  z-index: 2;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    background-color 0.15s ease;
+}
+.walkthrough-marker:hover {
+  transform: translate(-50%, -50%) scale(1.6);
+  background: #ffffff;
+  z-index: 4;
+}
+.walkthrough-marker--passed {
+  background: #fff080;
+}
+.walkthrough-thumb {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #5ce1e6;
+  box-shadow: 0 0 6px rgba(92, 225, 230, 0.7);
+  z-index: 3;
+  pointer-events: none;
+  transition: transform 0.1s ease;
+}
+.walkthrough-timeline:hover .walkthrough-thumb {
+  transform: translate(-50%, -50%) scale(1.2);
+}
+.walkthrough-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  background: #0f2428;
+  border: 1px solid #2e717b;
+  border-radius: 6px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.walkthrough-tooltip-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #ffffff;
+}
+.walkthrough-tooltip-details {
+  font-size: 10px;
+  color: #9fe6a0;
+  font-family: var(--font-mono, monospace);
 }
 .record-dialog {
   background: #101d22;
@@ -4736,13 +5249,6 @@ details[open] > .section-summary {
   margin: 0.5rem 0;
 }
 
-.agent-panel h2 {
-  font-size: 0.7rem;
-  letter-spacing: 0.2em;
-  color: #666;
-  margin: 0;
-}
-
 .agent-panel-actions {
   display: flex;
   align-items: center;
@@ -4823,9 +5329,15 @@ details[open] > .section-summary {
   color: #fa0;
 }
 
+.agent-entry.input .agent-kind {
+  color: #5ce1e6;
+}
+
 .agent-detail {
   flex: 1;
-  word-break: break-all;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .agent-expand-toggle {

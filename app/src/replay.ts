@@ -46,17 +46,36 @@ export interface ReplayBatchOptions {
   phone?: boolean;
   /** Speed multiplier for real-time watching: 1 = 1x real time, 2 = 2x, etc. 0 = unthrottled fast-forward (default) */
   speed?: number | (() => number);
+  /** Callback to check if playback is currently paused */
+  isPaused?: () => boolean;
+  /** Async function resolving when pause or scrub wait should wake up */
+  waitForResume?: () => Promise<void>;
+  /** Optional target tick to fast-forward unthrottled towards when seeking */
+  getSeekTarget?: () => number | null;
+  /** Callback fired when a seek target tick is reached */
+  onSeekComplete?: () => void;
   /** Callback fired whenever a checkpoint is reached */
   onCheckpoint?: (checkpoint: ReplayCheckpointEvent) => void;
   /** Callback fired for progress updates */
   onProgress?: (progress: ReplayProgressEvent) => void;
   /** Signal to pause or abort playback cleanly */
   signal?: AbortSignal;
+  /** Whether to pause playback whenever a story dialogue modal or waitkey opens */
+  pauseOnDialog?: () => boolean;
+  /** Callback fired when auto-pausing on a dialogue screen */
+  onDialogPause?: () => void;
+  /** Async function resolving after the calculated dialogue dwell duration or on early user advance */
+  dwellOnDialog?: (ms: number) => Promise<void>;
+}
+
+export interface ReplayAdvanceOptions {
+  seeking?: boolean;
+  renderFinal?: boolean;
 }
 
 export interface ReplayDriver {
   latest: ReplayObservation | null;
-  advance(ticks: number): Promise<ReplayObservation>;
+  advance(ticks: number, options?: ReplayAdvanceOptions): Promise<ReplayObservation>;
   waitForRevision?(minRevision: number): Promise<ReplayObservation>;
   playBatch(
     actions: readonly ReplayAction[],

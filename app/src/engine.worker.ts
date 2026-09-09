@@ -98,6 +98,22 @@ interface BootMsg {
 }
 
 let engine: Engine | null = null;
+let isSeeking = false;
+
+// Central seek guard: during fast-forward seek replay, intermediate cycles
+// must not flood the main thread with audio, display, print, shake, or UI events.
+// Only RPC responses ("replay") and catastrophic failures ("error") are permitted.
+const rawPostMessage = self.postMessage.bind(self);
+self.postMessage = ((message: unknown, options?: unknown) => {
+  if (isSeeking && message && typeof message === "object" && "type" in message) {
+    const type = (message as { type: string }).type;
+    if (type !== "replay" && type !== "error") {
+      return;
+    }
+  }
+  return (rawPostMessage as (msg: unknown, opts?: unknown) => void)(message, options);
+}) as typeof self.postMessage;
+
 let authorRooms = false;
 let selectedSoundDevice = 1;
 let liveDictionary = new Map<string, number>();
@@ -160,6 +176,9 @@ const cycleClock = new CycleClock(performance.now());
 const HOST_POLL_MS = 1000 / 60;
 let replay: { tick: number; revision: number; random: number; yielded: boolean } | null = null;
 let replayRequest: number | null = null;
+let currentBootFiles: Map<string, Uint8Array> | null = null;
+let currentDictionary: Map<string, number> | null = null;
+let lastReplaySeed: number | null = null;
 
 function postReplay(blocked: string | null): void {
   if (!replay || !engine) return;
@@ -551,7 +570,7 @@ let lastInputEdit = "";
 let lastSoundEnabled: boolean | null = null;
 
 function postFrame(capture = false): void {
-  if (!engine) return;
+  if (!engine || isSeeking) return;
   const enabled = engine.flags[9] !== 0;
   if (enabled !== lastSoundEnabled) {
     lastSoundEnabled = enabled;
@@ -723,6 +742,9 @@ self.onmessage = (ev: MessageEvent) => {
       const ticks = Number(msg.ticks);
       if (!Number.isInteger(ticks) || ticks < 1 || ticks > 100_000)
         throw new Error("Replay advance requires 1..100000 virtual ticks.");
+      const seeking = Boolean(msg.seeking);
+      const renderFinal = Boolean(msg.renderFinal);
+      isSeeking = seeking && !renderFinal;
       replayRequest = Number(msg.id);
       replay.yielded = false;
       for (let i = 0; i < ticks; i++) {
@@ -736,8 +758,18 @@ self.onmessage = (ev: MessageEvent) => {
         }
         if (replay.yielded) break;
       }
-      postFrame();
+      if (!seeking || renderFinal) {
+        isSeeking = false;
+        postFrame();
+      }
       postReplay(null);
+      return;
+    }
+    if (msg.type === "renderFrame" && engine) {
+      isSeeking = false;
+      lastVisual = null;
+      lastText = null;
+      postFrame();
       return;
     }
     if (msg.type === "frames") {
@@ -855,6 +887,9 @@ self.onmessage = (ev: MessageEvent) => {
       };
       const files = new Map<string, Uint8Array>(Object.entries(boot.files));
       liveDictionary = new Map<string, number>(boot.words);
+      currentBootFiles = files;
+      currentDictionary = liveDictionary;
+      lastReplaySeed = Number.isInteger(boot.replaySeed) ? boot.replaySeed! : null;
       authoredWords = null;
       authorRooms = boot.authorRooms === true;
       selectedSoundDevice = boot.soundDevice === 0 ? 0 : 1;
@@ -866,6 +901,7 @@ self.onmessage = (ev: MessageEvent) => {
       deferredMovement.length = 0;
       recording = null;
       lastKeyId = 0;
+      isSeeking = false;
       lastVisual = null;
       lastText = null;
       lastPicRow = -1;
@@ -918,6 +954,7 @@ self.onmessage = (ev: MessageEvent) => {
     }
     if (msg.type === "exitReplay") {
       replay = null;
+      isSeeking = false;
       soundClock.reset(performance.now());
       cycleClock.reset(performance.now());
       lastCycleReportAt = performance.now();
@@ -925,6 +962,43 @@ self.onmessage = (ev: MessageEvent) => {
       startTimers();
       postFrame();
       self.postMessage({ type: "exitedReplay" });
+      return;
+    }
+    if (msg.type === "resetReplay" && currentBootFiles && currentDictionary) {
+      initialLogicStarted = false;
+      isSeeking = Boolean(msg.seeking);
+      const seed =
+        typeof msg.seed === "number" ? msg.seed : lastReplaySeed !== null ? lastReplaySeed : 0;
+      replay = { tick: 0, revision: 0, random: seed >>> 0, yielded: false };
+      engine = new Engine(openContainer(currentBootFiles), host, currentDictionary);
+      engine.flags[9] = 1;
+      inputBuffer = [];
+      keyBuffer = [];
+      deferredMovement.length = 0;
+      recording = null;
+      lastKeyId = 0;
+      lastVisual = null;
+      lastText = null;
+      lastPicRow = -1;
+      lastTextMode = false;
+      lastInputEnabled = false;
+      lastReleaseGate = 0;
+      lastModal = null;
+      lastControls = "";
+      lastInputEdit = "";
+      lastSoundEnabled = null;
+      stopTimers();
+      soundClock.reset(performance.now());
+      cycleClock.reset(0);
+      lastCycleReportAt = performance.now();
+      lastHistoryAt = performance.now();
+      cycleCount = 0;
+      recentRing.reset();
+      historyRing.reset();
+      if (!msg.seeking) {
+        postFrame();
+      }
+      postReplay(null);
       return;
     }
     if (msg.type === "flush") {

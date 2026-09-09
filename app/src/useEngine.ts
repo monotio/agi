@@ -11,7 +11,7 @@ import { parseWordsTok } from "../../src/logic/words.ts";
 import type { SoundOutput } from "../../src/sound/sound.ts";
 import type { ReplayDriver, ReplayObservation } from "./replay.ts";
 import { runReplayBatch } from "./replayRunner.ts";
-import { loadWalkthrough } from "./walkthrough.ts";
+import { extractCheckpoints, loadWalkthrough, type WalkthroughCheckpoint } from "./walkthrough.ts";
 import { createBridge, type AgentHandler, type Bridge } from "./agent/sabBridge.ts";
 import { AgentSession } from "./agent/agentSession.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
@@ -92,7 +92,7 @@ export interface TextHook {
 export interface AgentLogEntry {
   id: string;
   timestamp: number;
-  kind: "request" | "response" | "error" | "log";
+  kind: "request" | "response" | "error" | "log" | "input";
   detail: string;
   data?: unknown;
   /** Ephemeral browser-only previews. Never copied into logs or project data. */
@@ -154,15 +154,19 @@ export interface WalkthroughUiState {
   active: boolean;
   slug: string | null;
   speed: number;
+  pauseOnDialog: boolean;
   label: string | null;
   checkpointIndex: number;
   totalCheckpoints: number;
+  checkpoints: WalkthroughCheckpoint[];
   room: number | null;
   score: number | null;
   tick: number;
   totalTicks: number;
   percent: number;
-  status: "idle" | "playing" | "completed" | "stopped" | "error";
+  status: "idle" | "playing" | "paused" | "completed" | "stopped" | "error";
+  seeking: boolean;
+  scrubbing: boolean;
   error: string;
 }
 
@@ -289,15 +293,19 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       active: false,
       slug: null,
       speed: 1,
+      pauseOnDialog: false,
       label: null,
       checkpointIndex: 0,
       totalCheckpoints: 0,
+      checkpoints: [],
       room: null,
       score: null,
       tick: 0,
       totalTicks: 0,
       percent: 0,
       status: "idle",
+      seeking: false,
+      scrubbing: false,
       error: "",
     },
   });
@@ -331,7 +339,12 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   let latestFrame: Frame | null = null;
   const replayDriver: ReplayDriver = {
     latest: null,
-    advance: (ticks) => query<ReplayObservation>("replayAdvance", { ticks }),
+    advance: (ticks, options) =>
+      query<ReplayObservation>("replayAdvance", {
+        ticks,
+        ...(options?.seeking !== undefined ? { seeking: options.seeking } : {}),
+        ...(options?.renderFinal !== undefined ? { renderFinal: options.renderFinal } : {}),
+      }),
     waitForRevision: (minRevision: number) => {
       if (replayDriver.latest && replayDriver.latest.revision > minRevision) {
         return Promise.resolve(replayDriver.latest);
@@ -362,6 +375,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       }),
   };
   window.__AGI_REPLAY__ = replayDriver;
+  (window as unknown as { __AGI_STATE__: EngineState }).__AGI_STATE__ = state;
   let shakeTimer: number | null = null;
   /** Resolves the pending getnum/getstring bridge request. */
   let promptResolver: ((value: string) => void) | null = null;
@@ -462,7 +476,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   }
 
   function logAgent(
-    kind: "request" | "response" | "error" | "log",
+    kind: "request" | "response" | "error" | "log" | "input",
     detail: string,
     data?: unknown,
   ): void {
@@ -701,6 +715,9 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   /** Player submitted (or cancelled) the blocking prompt modal. */
   function submitPrompt(value: string, cancelled = false): void {
     if (!promptResolver) return;
+    if (!cancelled && !state.walkthrough.seeking && value.trim().length > 0) {
+      logAgent("input", value.trim());
+    }
     const resolve = promptResolver;
     const response =
       state.prompt?.kind === "saveDescription"
@@ -805,6 +822,9 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     state.rows = [];
     state.prompt = null;
     state.soundPlaying = false;
+    state.shake = false;
+    clearTimeout(shakeTimer ?? undefined);
+    shakeTimer = null;
     hook.modal = null;
     hook.textMode = false;
     hook.rows = [];
@@ -1048,7 +1068,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       } else if (msg.type === "inputEdit") {
         state.gameEdit = { text: String(msg.text) };
       } else if (msg.type === "print") {
-        logAgent("log", `print: ${String(msg.text).slice(0, 80)}`);
+        logAgent("log", `print: ${String(msg.text)}`);
       } else if (msg.type === "status") {
         state.status = msg.text;
       } else if (msg.type === "shake") {
@@ -1109,10 +1129,17 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         logAgent("log", String(msg.text));
       } else if (msg.type === "replay" && replayDriver) {
         replayDriver.latest = msg.observation as ReplayObservation;
-        hook.cycle = replayDriver.latest.cycle;
-        hook.room = replayDriver.latest.state.room;
-        hook.egoX = replayDriver.latest.state.egoX;
-        hook.egoY = replayDriver.latest.state.egoY;
+        const obs = replayDriver.latest;
+        state.inputReady = true;
+        state.inputEnabled = Boolean(obs.state.inputEnabled);
+        state.modal = (obs.state.modalKind as ModalKind | null) ?? null;
+        state.rows = obs.rows;
+        hook.modal = state.modal;
+        hook.rows = obs.rows;
+        hook.cycle = obs.cycle;
+        hook.room = obs.state.room;
+        hook.egoX = obs.state.egoX;
+        hook.egoY = obs.state.egoY;
         publishHook();
         for (const listener of observationListeners) listener(replayDriver.latest);
         const resolve = pendingQueries.get(Number(msg.id));
@@ -1799,6 +1826,9 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   }
 
   function sendInput(text: string): void {
+    if (!state.walkthrough.seeking) {
+      logAgent("input", text);
+    }
     worker?.postMessage({ type: "input", text });
   }
 
@@ -1998,7 +2028,35 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     return audio.resume();
   }
 
-  async function startWalkthrough(slug: string, speed = 1): Promise<void> {
+  let seekTargetTick: number | null = null;
+  const resumeWaiters = new Set<() => void>();
+  let skipDialogDwell: (() => void) | null = null;
+
+  function advanceDialog(): boolean {
+    if (skipDialogDwell) {
+      const skip = skipDialogDwell;
+      skipDialogDwell = null;
+      skip();
+      return true;
+    }
+    return false;
+  }
+
+  function notifyResume(): void {
+    const waiters = Array.from(resumeWaiters);
+    resumeWaiters.clear();
+    for (const waiter of waiters) waiter();
+    if (skipDialogDwell) {
+      const skip = skipDialogDwell;
+      skipDialogDwell = null;
+      skip();
+    }
+  }
+
+  async function startWalkthrough(
+    slug: string,
+    options?: { speed?: number; initialTick?: number; keepPaused?: boolean } | number,
+  ): Promise<void> {
     const artifact = await loadWalkthrough(slug);
     if (!artifact) {
       state.walkthrough.error = `No walkthrough found for "${slug}".`;
@@ -2012,20 +2070,39 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     const abortController = new AbortController();
     walkthroughAbortController = abortController;
 
+    const speed =
+      typeof options === "number" ? options : (options?.speed ?? state.walkthrough.speed ?? 1);
+    const initialTick = typeof options === "object" ? (options.initialTick ?? 0) : 0;
+    const keepPaused = typeof options === "object" ? Boolean(options.keepPaused) : false;
+    const checkpoints = extractCheckpoints(artifact.actions, artifact.virtualTicks);
+    const target = seekTargetTick ?? initialTick;
+    const targetCp = target > 0 ? [...checkpoints].reverse().find((c) => c.tick <= target) : null;
+
     state.walkthrough.active = true;
     state.walkthrough.slug = slug;
     state.walkthrough.speed = speed;
-    state.walkthrough.status = "playing";
+    state.walkthrough.status = keepPaused ? "paused" : "playing";
     state.walkthrough.error = "";
-    state.walkthrough.label = "Starting…";
-    state.walkthrough.checkpointIndex = 0;
-    const totalCheckpoints = artifact.actions.filter((a) => a.kind === "checkpoint").length;
-    state.walkthrough.totalCheckpoints = totalCheckpoints;
-    state.walkthrough.tick = 0;
+    state.walkthrough.label = targetCp ? targetCp.label : "Starting…";
+    state.walkthrough.checkpointIndex = targetCp ? targetCp.index : 0;
+    state.walkthrough.totalCheckpoints = checkpoints.length;
+    state.walkthrough.checkpoints = checkpoints;
     state.walkthrough.totalTicks = artifact.virtualTicks;
-    state.walkthrough.percent = 0;
-    state.walkthrough.room = null;
-    state.walkthrough.score = null;
+    state.walkthrough.tick = target;
+    state.walkthrough.percent =
+      artifact.virtualTicks > 0 && target > 0
+        ? Math.min(100, Math.round((target / artifact.virtualTicks) * 100))
+        : 0;
+    state.walkthrough.room = targetCp ? targetCp.room : null;
+    state.walkthrough.score = targetCp ? targetCp.score : null;
+
+    if (target > 0) {
+      seekTargetTick = target;
+      state.walkthrough.seeking = true;
+    } else {
+      seekTargetTick = null;
+      state.walkthrough.seeking = false;
+    }
 
     activeReplaySeed = artifact.seed;
 
@@ -2035,8 +2112,31 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     clearTimeout(resumeCaptionTimer ?? undefined);
     resumeCaptionTimer = null;
 
-    // Boot game with the seed
-    if (isInstalledGame(slug)) {
+    // Clear stale replay observation and prepare to wait for tick 0
+    replayDriver.latest = null;
+    const observationPromise = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        observationListeners.delete(listener);
+        reject(new Error("Timeout waiting for game replay to initialize"));
+      }, 15_000);
+      const listener = (obs: ReplayObservation) => {
+        if (obs.tick === 0) {
+          clearTimeout(timeout);
+          observationListeners.delete(listener);
+          resolve();
+        }
+      };
+      observationListeners.add(listener);
+    });
+
+    // Boot game with the seed (or fast reset if already booted in worker)
+    if (worker && booted?.slug === slug) {
+      worker.postMessage({
+        type: "resetReplay",
+        seed: artifact.seed,
+        seeking: Boolean(target > 0),
+      });
+    } else if (isInstalledGame(slug)) {
       await bootGame(slug);
     } else if (getCachedCartridgeMeta(slug)) {
       await bootCartridgeGame(
@@ -2058,36 +2158,108 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       return;
     }
 
-    // Wait until boot completes and replay driver has initial observation
-    if (replayDriver.latest === null) {
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          observationListeners.delete(listener);
-          reject(new Error("Timeout waiting for game replay to initialize"));
-        }, 15_000);
-        const listener = (obs: ReplayObservation) => {
-          if (obs.tick === 0) {
-            clearTimeout(timeout);
-            observationListeners.delete(listener);
-            resolve();
-          }
-        };
-        observationListeners.add(listener);
-      });
+    try {
+      await observationPromise;
+    } finally {
+      isResetting = false;
     }
+    if (abortController.signal.aborted) return;
 
     // Run the batch!
     try {
       await replayDriver.playBatch(artifact.actions, {
         speed: () => state.walkthrough.speed,
+        isPaused: () => state.walkthrough.scrubbing || state.walkthrough.status === "paused",
+        waitForResume: () =>
+          new Promise<void>((resolve) => {
+            if (!state.walkthrough.scrubbing && state.walkthrough.status !== "paused") {
+              resolve();
+              return;
+            }
+            const onResume = () => {
+              cleanup();
+              resolve();
+            };
+            const onAbort = () => {
+              cleanup();
+              resolve();
+            };
+            const cleanup = () => {
+              resumeWaiters.delete(onResume);
+              abortController.signal.removeEventListener("abort", onAbort);
+            };
+            resumeWaiters.add(onResume);
+            abortController.signal.addEventListener("abort", onAbort, { once: true });
+          }),
+        getSeekTarget: () => seekTargetTick,
+        onSeekComplete: () => {
+          seekTargetTick = null;
+          state.walkthrough.seeking = false;
+          if (replayDriver.latest) {
+            state.walkthrough.tick = replayDriver.latest.tick;
+            state.walkthrough.room = replayDriver.latest.state.room;
+            state.walkthrough.score = replayDriver.latest.state.vars[3] ?? 0;
+            if (artifact.virtualTicks > 0) {
+              state.walkthrough.percent = Math.min(
+                100,
+                Math.round((replayDriver.latest.tick / artifact.virtualTicks) * 100),
+              );
+            }
+            const cp = [...state.walkthrough.checkpoints]
+              .reverse()
+              .find((c) => c.tick <= replayDriver.latest!.tick);
+            if (cp) {
+              state.walkthrough.label = cp.label;
+              state.walkthrough.checkpointIndex = cp.index;
+            }
+          }
+          if (state.walkthrough.status === "playing") {
+            audio.setPaused(false);
+          }
+          worker?.postMessage({ type: "renderFrame" });
+        },
         signal: abortController.signal,
+        pauseOnDialog: () => state.walkthrough.pauseOnDialog,
+        onDialogPause: () => {
+          pauseWalkthrough();
+        },
+        dwellOnDialog: (ms) =>
+          new Promise<void>((resolve) => {
+            if (
+              abortController.signal.aborted ||
+              state.walkthrough.seeking ||
+              state.walkthrough.speed <= 0
+            ) {
+              resolve();
+              return;
+            }
+            let timer: number | null = null;
+            const finish = () => {
+              if (timer !== null) {
+                clearTimeout(timer);
+                timer = null;
+              }
+              if (skipDialogDwell === finish) {
+                skipDialogDwell = null;
+              }
+              abortController.signal.removeEventListener("abort", finish);
+              resolve();
+            };
+            skipDialogDwell = finish;
+            timer = window.setTimeout(finish, ms);
+            abortController.signal.addEventListener("abort", finish, { once: true });
+          }),
         onCheckpoint: (cp) => {
+          if (walkthroughAbortController !== abortController) return;
+          if (state.walkthrough.seeking) return;
           state.walkthrough.checkpointIndex++;
           state.walkthrough.label = cp.label;
           state.walkthrough.room = cp.room;
           state.walkthrough.score = cp.score;
         },
         onProgress: (prog) => {
+          if (walkthroughAbortController !== abortController) return;
+          if (state.walkthrough.seeking) return;
           state.walkthrough.tick = prog.tick;
           state.walkthrough.room = prog.room;
           state.walkthrough.score = prog.score;
@@ -2099,11 +2271,14 @@ export function useEngine(onFrame: (frame: Frame) => void) {
           }
         },
       });
-      if (!abortController.signal.aborted) {
+      if (walkthroughAbortController === abortController && !abortController.signal.aborted) {
         state.walkthrough.status = "completed";
         state.walkthrough.percent = 100;
       }
     } catch (err) {
+      if (walkthroughAbortController !== abortController) {
+        return;
+      }
       if (abortController.signal.aborted) {
         state.walkthrough.status = "stopped";
       } else {
@@ -2114,12 +2289,17 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   }
 
   async function stopWalkthrough(takeControl = false): Promise<void> {
+    isResetting = false;
     if (walkthroughAbortController) {
       walkthroughAbortController.abort();
       walkthroughAbortController = null;
     }
     state.walkthrough.active = false;
     activeReplaySeed = null;
+    seekTargetTick = null;
+    state.walkthrough.seeking = false;
+    audio.setPaused(false);
+    notifyResume();
     if (takeControl) {
       state.walkthrough.status = "stopped";
       worker?.postMessage({ type: "exitReplay" });
@@ -2129,8 +2309,88 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     }
   }
 
+  let isResetting = false;
+
+  async function seekToTick(targetTick: number, options?: { keepPaused?: boolean }): Promise<void> {
+    const clamped = Math.max(0, Math.min(state.walkthrough.totalTicks, Math.round(targetTick)));
+    const currentTick = state.walkthrough.tick;
+    const currentSlug = state.walkthrough.slug;
+    if (!currentSlug || !state.walkthrough.active) return;
+    const wasPaused = options?.keepPaused ?? state.walkthrough.status === "paused";
+
+    seekTargetTick = clamped;
+    state.walkthrough.seeking = true;
+    state.walkthrough.tick = clamped;
+    notifyResume();
+    if (state.walkthrough.totalTicks > 0) {
+      state.walkthrough.percent = Math.min(
+        100,
+        Math.round((clamped / state.walkthrough.totalTicks) * 100),
+      );
+    }
+    const targetCp = [...state.walkthrough.checkpoints].reverse().find((c) => c.tick <= clamped);
+    if (targetCp) {
+      state.walkthrough.label = targetCp.label;
+      state.walkthrough.checkpointIndex = targetCp.index;
+      state.walkthrough.room = targetCp.room;
+      state.walkthrough.score = targetCp.score;
+    }
+    audio.setPaused(true);
+
+    if (isResetting) {
+      return;
+    }
+
+    if (clamped < currentTick || state.walkthrough.status === "completed") {
+      isResetting = true;
+      void startWalkthrough(currentSlug, {
+        speed: state.walkthrough.speed,
+        initialTick: clamped,
+        keepPaused: wasPaused,
+      });
+    }
+  }
+
+  async function seekToCheckpoint(cp: WalkthroughCheckpoint): Promise<void> {
+    await seekToTick(cp.tick);
+  }
+
+  function pauseWalkthrough(): void {
+    if (state.walkthrough.active && state.walkthrough.status === "playing") {
+      state.walkthrough.status = "paused";
+      audio.setPaused(true);
+      if (skipDialogDwell) {
+        const skip = skipDialogDwell;
+        skipDialogDwell = null;
+        skip();
+      }
+    }
+  }
+
+  function resumeWalkthrough(): void {
+    if (state.walkthrough.active && state.walkthrough.status === "paused") {
+      state.walkthrough.status = "playing";
+      audio.setPaused(false);
+      notifyResume();
+    }
+  }
+
+  function toggleWalkthroughPause(): void {
+    if (state.walkthrough.status === "paused") {
+      resumeWalkthrough();
+    } else if (state.walkthrough.status === "playing") {
+      pauseWalkthrough();
+    } else if (state.walkthrough.status === "completed" && state.walkthrough.slug) {
+      void startWalkthrough(state.walkthrough.slug, { speed: state.walkthrough.speed });
+    }
+  }
+
   function setWalkthroughSpeed(speed: number): void {
     state.walkthrough.speed = Math.max(0.1, speed);
+  }
+
+  function toggleWalkthroughPauseOnDialog(): void {
+    state.walkthrough.pauseOnDialog = !state.walkthrough.pauseOnDialog;
   }
 
   return {
@@ -2150,6 +2410,13 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     startWalkthrough,
     stopWalkthrough,
     setWalkthroughSpeed,
+    toggleWalkthroughPause,
+    toggleWalkthroughPauseOnDialog,
+    advanceDialog,
+    pauseWalkthrough,
+    resumeWalkthrough,
+    seekToTick,
+    seekToCheckpoint,
     sendInput,
     sendEdit,
     sendDirection,

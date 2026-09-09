@@ -83,6 +83,47 @@ export async function computeScreenHash(frame: Frame | null): Promise<string> {
 }
 
 /**
+ * Detects whether the engine is currently displaying a story dialogue modal
+ * (such as a print window or showObj description) or a full-screen waitkey screen.
+ */
+export function isStoryDialogue(obs: ReplayObservation | null): boolean {
+  if (!obs) return false;
+  return (
+    obs.state.modalKind === "print" ||
+    obs.state.modalKind === "showObj" ||
+    obs.blocked === "waitkey"
+  );
+}
+
+/**
+ * Extracts readable words from screen text rows, excluding the top status line.
+ */
+export function extractDialogWords(rows: readonly string[]): string[] {
+  if (!rows || rows.length <= 1) return [];
+  // Row 0 is normally the status line (e.g. "Score: 0 Sound: on")
+  const content = rows.slice(1).join(" ");
+  const matches = content.match(/[A-Za-z0-9']{2,}/g);
+  return matches ?? [];
+}
+
+/**
+ * Calculates a comfortable adaptive reading dwell time in milliseconds based on
+ * dialogue word count and current playback speed.
+ *
+ * Scales inversely with speed, capped between 1.5s and 5.0s at 1x speed.
+ * Returns 0 when speed <= 0 (unthrottled / fast-forward / seeking).
+ */
+export function calculateModalDwellMs(rows: readonly string[], speed: number): number {
+  if (speed <= 0) return 0;
+  const words = extractDialogWords(rows);
+  // ~200 words/min baseline reading pace (1800ms base recognition + 120ms/word)
+  const baseMs = 1800;
+  const perWordMs = 120;
+  const rawMs = Math.min(5000, Math.max(1500, baseMs + words.length * perWordMs));
+  return Math.max(50, Math.round(rawMs / Math.max(0.1, speed)));
+}
+
+/**
  * Evaluates walkthrough actions directly in-page without CDP roundtripping.
  * Dispatches actual DOM events against app controls and advances virtual ticks.
  */
@@ -95,6 +136,22 @@ export async function runReplayBatch(
   const rawSpeed = options?.speed;
   const getSpeed: () => number = typeof rawSpeed === "function" ? rawSpeed : () => rawSpeed ?? 0;
   let heldDirection: string | null = null;
+
+  function isSeeking(): boolean {
+    const target = options?.getSeekTarget?.();
+    if (target === null || target === undefined) return false;
+    const current = driver.latest?.tick ?? 0;
+    if (current >= target) {
+      options?.onSeekComplete?.();
+      return false;
+    }
+    return true;
+  }
+
+  function getEffectiveSpeed(): number {
+    if (isSeeking()) return 0;
+    return getSpeed();
+  }
 
   function releaseDirection(): void {
     if (!heldDirection) return;
@@ -144,19 +201,54 @@ export async function runReplayBatch(
     }
   }
 
-  async function advance(ticks: number): Promise<void> {
+  async function checkPaused(): Promise<void> {
+    while (options?.isPaused?.() && !isSeeking() && !options?.signal?.aborted) {
+      if (options?.waitForResume) {
+        await options.waitForResume();
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+  }
+
+  async function advance(ticks: number, actionIndex?: number): Promise<void> {
     let observation = driver.latest;
     if (!observation) throw new Error("No replay observation available");
     const target = observation.tick + ticks;
     while (observation.tick < target) {
       if (options?.signal?.aborted) return;
+      await checkPaused();
+      if (options?.signal?.aborted) return;
       if (observation.blocked) {
         throw new Error("Route must answer the prompt before advancing time");
       }
-      const remaining = target - observation.tick;
-      const speed = getSpeed();
+      const seekTarget = options?.getSeekTarget?.();
+      const advanceLimit =
+        seekTarget !== null && seekTarget !== undefined && seekTarget > observation.tick
+          ? Math.min(target, seekTarget)
+          : target;
+      const remaining = advanceLimit - observation.tick;
+      if (remaining <= 0) {
+        await checkPaused();
+        if (options?.signal?.aborted) return;
+        if ((options?.getSeekTarget?.() ?? 0) <= observation.tick) {
+          if (options?.waitForResume) {
+            await options.waitForResume();
+          } else {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+        }
+        continue;
+      }
+      const speed = getEffectiveSpeed();
       if (speed <= 0) {
-        observation = await driver.advance(remaining);
+        const seeking = isSeeking();
+        const willReachSeekTarget =
+          seekTarget !== null &&
+          seekTarget !== undefined &&
+          observation.tick + remaining >= seekTarget;
+        const renderFinal = !seeking || willReachSeekTarget;
+        observation = await driver.advance(remaining, { seeking, renderFinal });
       } else {
         const currentSpeed = Math.max(0.1, speed);
         const chunk = Math.min(remaining, Math.max(1, Math.round(currentSpeed)));
@@ -166,6 +258,15 @@ export async function runReplayBatch(
         const elapsed = performance.now() - t0;
         const sleep = delayMs - elapsed;
         if (sleep > 0) await new Promise((resolve) => setTimeout(resolve, sleep));
+      }
+      if (options?.onProgress && actionIndex !== undefined && !isSeeking()) {
+        options.onProgress({
+          actionIndex,
+          totalActions: actions.length,
+          tick: observation.tick,
+          room: observation.state.room,
+          score: observation.state.vars[3] ?? 0,
+        });
       }
       if (observation.blocked) {
         if (observation.tick !== target) {
@@ -313,12 +414,61 @@ export async function runReplayBatch(
     }
     const input = document.querySelector<HTMLInputElement>('[data-testid="input-line"]');
     if (!input) throw new Error('Input element [data-testid="input-line"] not found');
-    if (input.value !== "") {
-      input.value = "";
+    const speed = getEffectiveSpeed();
+    if (speed > 0 && !isSeeking() && inputText.length > 0) {
+      const charDelay = Math.max(5, Math.min(35, Math.round(22 / speed)));
+      if (input.value !== "") {
+        input.value = "";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      let completedTyping = true;
+      let skipped = false;
+      for (let i = 1; i <= inputText.length; i++) {
+        if (options?.signal?.aborted) break;
+        if (isSeeking()) {
+          completedTyping = false;
+          break;
+        }
+        await checkPaused();
+        if (options?.signal?.aborted) break;
+        if (isSeeking()) {
+          completedTyping = false;
+          break;
+        }
+        input.value = inputText.slice(0, i);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        if (charDelay > 0 && !skipped && i < inputText.length) {
+          const t0 = Date.now();
+          if (options?.dwellOnDialog) {
+            await options.dwellOnDialog(charDelay);
+          } else {
+            await new Promise((resolve) => setTimeout(resolve, charDelay));
+          }
+          if (Date.now() - t0 < Math.max(1, charDelay / 2)) {
+            skipped = true;
+          }
+        }
+      }
+      if (!completedTyping) {
+        input.value = inputText;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      } else if (!options?.signal?.aborted && !isSeeking() && !skipped) {
+        const enterDelay = Math.max(15, Math.min(120, Math.round(80 / speed)));
+        if (options?.dwellOnDialog) {
+          await options.dwellOnDialog(enterDelay);
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, enterDelay));
+        }
+      }
+    } else {
+      if (input.value !== "") {
+        input.value = "";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      input.value = inputText;
       input.dispatchEvent(new Event("input", { bubbles: true }));
     }
-    input.value = inputText;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+
     if (phone) {
       const pad = document.querySelector('[data-testid="touch-controls"]');
       const enterBtn = Array.from(pad?.querySelectorAll("button") ?? []).find(
@@ -340,13 +490,19 @@ export async function runReplayBatch(
         );
       }
     }
+    input.value = "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
     await resumed(before);
   }
+
+  let lastDwelledRevision: number | null = null;
 
   try {
     for (const [index, action] of actions.entries()) {
       if (options?.signal?.aborted) break;
-      if (driver.latest && options?.onProgress) {
+      await checkPaused();
+      if (options?.signal?.aborted) break;
+      if (driver.latest && options?.onProgress && !isSeeking()) {
         options.onProgress({
           actionIndex: index,
           totalActions: actions.length,
@@ -358,18 +514,44 @@ export async function runReplayBatch(
       try {
         switch (action.kind) {
           case "key":
+            if (
+              driver.latest &&
+              isStoryDialogue(driver.latest) &&
+              !isSeeking() &&
+              getEffectiveSpeed() > 0 &&
+              driver.latest.revision !== lastDwelledRevision
+            ) {
+              lastDwelledRevision = driver.latest.revision;
+              if (options?.pauseOnDialog?.()) {
+                options.onDialogPause?.();
+                await checkPaused();
+                if (options?.signal?.aborted) break;
+              } else {
+                const dwellMs = calculateModalDwellMs(driver.latest.rows, getEffectiveSpeed());
+                if (dwellMs > 0) {
+                  if (options?.dwellOnDialog) {
+                    await options.dwellOnDialog(dwellMs);
+                  } else {
+                    await new Promise<void>((resolve) => setTimeout(resolve, dwellMs));
+                  }
+                  if (options?.signal?.aborted) break;
+                  await checkPaused();
+                  if (options?.signal?.aborted) break;
+                }
+              }
+            }
             await key(action.code);
-            if (getSpeed() > 0) {
+            if (getEffectiveSpeed() > 0) {
               await new Promise((resolve) =>
-                setTimeout(resolve, Math.min(80, Math.max(10, 40 / getSpeed()))),
+                setTimeout(resolve, Math.min(80, Math.max(5, 40 / getEffectiveSpeed()))),
               );
             }
             break;
           case "command":
             await text(action.text);
-            if (getSpeed() > 0) {
+            if (getEffectiveSpeed() > 0) {
               await new Promise((resolve) =>
-                setTimeout(resolve, Math.min(100, Math.max(15, 60 / getSpeed()))),
+                setTimeout(resolve, Math.min(100, Math.max(8, 60 / getEffectiveSpeed()))),
               );
             }
             break;
@@ -380,7 +562,7 @@ export async function runReplayBatch(
             await text(action.text);
             break;
           case "advance":
-            await advance(action.ticks);
+            await advance(action.ticks, index);
             break;
           case "checkpoint": {
             const obs = driver.latest;
@@ -403,7 +585,7 @@ export async function runReplayBatch(
               );
             }
             if (actual.x !== expected.x || actual.y !== expected.y) {
-              if (getSpeed() <= 0) {
+              if (getEffectiveSpeed() <= 0) {
                 throw new Error(
                   `Checkpoint "${action.label}" coordinate failed: expected (${expected.x},${expected.y}), got (${actual.x},${actual.y})`,
                 );
@@ -413,13 +595,15 @@ export async function runReplayBatch(
                 );
               }
             }
-            options?.onCheckpoint?.({
-              label: action.label,
-              room: actual.room,
-              score: actual.score,
-              x: actual.x,
-              y: actual.y,
-            });
+            if (!isSeeking()) {
+              options?.onCheckpoint?.({
+                label: action.label,
+                room: actual.room,
+                score: actual.score,
+                x: actual.x,
+                y: actual.y,
+              });
+            }
             break;
           }
         }

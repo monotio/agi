@@ -66,3 +66,38 @@ export async function loadWalkthrough(slug: string): Promise<WalkthroughArtifact
   }
   return (await response.json()) as WalkthroughArtifact;
 }
+
+export interface WalkthroughCheckpoint {
+  readonly index: number;
+  readonly label: string;
+  readonly room: number;
+  readonly score: number;
+  readonly tick: number;
+  readonly percent: number;
+  readonly actionIndex: number;
+}
+
+export function extractCheckpoints(
+  actions: readonly ReplayAction[],
+  totalTicks: number,
+): WalkthroughCheckpoint[] {
+  let currentTick = 0;
+  const checkpoints: WalkthroughCheckpoint[] = [];
+  for (let i = 0; i < actions.length; i++) {
+    const a = actions[i]!;
+    if (a.kind === "advance") {
+      currentTick += a.ticks;
+    } else if (a.kind === "checkpoint") {
+      checkpoints.push({
+        index: checkpoints.length,
+        label: a.label,
+        room: a.room,
+        score: a.score,
+        tick: currentTick,
+        percent: totalTicks > 0 ? (currentTick / totalTicks) * 100 : 0,
+        actionIndex: i,
+      });
+    }
+  }
+  return checkpoints;
+}
