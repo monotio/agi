@@ -56,6 +56,7 @@ export interface Bridge {
   isPaused(): boolean;
   cancel(): void;
   dispose(): void;
+  pollNow(): void;
 }
 
 /** Header size in bytes: four i32 slots before the payload region. */
@@ -81,7 +82,7 @@ export function createBridge(handler: AgentHandler, onEvent: AgentEventSink): Br
   const i32 = new Int32Array(sab, 0, 4);
   const bytes = new Uint8Array(sab, BRIDGE_HEADER_BYTES);
 
-  const timer = setInterval(() => {
+  function checkPending(): void {
     if (Atomics.load(i32, 0) !== BRIDGE_STATE_REQUEST) return;
     const len = Atomics.load(i32, 1);
     const req = JSON.parse(new TextDecoder().decode(bytes.slice(0, len))) as LlmRequest;
@@ -99,7 +100,9 @@ export function createBridge(handler: AgentHandler, onEvent: AgentEventSink): Br
         respond("");
         onEvent("response", `agent error: ${String(e)}`);
       });
-  }, 50);
+  }
+
+  const timer = setInterval(checkPending, 50);
 
   function respond(result: string): void {
     const encoded = new TextEncoder().encode(result);
@@ -133,6 +136,9 @@ export function createBridge(handler: AgentHandler, onEvent: AgentEventSink): Br
     dispose(): void {
       clearInterval(timer);
       Atomics.store(i32, BRIDGE_PAUSE_SLOT, 0);
+    },
+    pollNow(): void {
+      checkPending();
     },
   };
 }

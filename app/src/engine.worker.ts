@@ -1102,6 +1102,14 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "key") {
+      if (
+        replay &&
+        typeof msg.sessionId === "number" &&
+        msg.sessionId !== 0 &&
+        msg.sessionId !== currentSessionId
+      ) {
+        return;
+      }
       if (typeof msg.id === "number") {
         if (msg.id <= lastKeyId) return;
         lastKeyId = msg.id;

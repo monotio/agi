@@ -1760,18 +1760,35 @@ function updateHover(clientX: number): void {
 let hasDraggedDuringScrub = false;
 let scrubRafId: number | null = null;
 let pendingScrubTick: number | null = null;
+let scrubBackwardTimer: ReturnType<typeof setTimeout> | null = null;
 
 function scheduleScrubSeek(tick: number): void {
   pendingScrubTick = tick;
-  if (scrubRafId === null) {
-    scrubRafId = requestAnimationFrame(() => {
-      scrubRafId = null;
+  if (tick < state.walkthrough.tick) {
+    if (scrubBackwardTimer !== null) clearTimeout(scrubBackwardTimer);
+    scrubBackwardTimer = setTimeout(() => {
+      scrubBackwardTimer = null;
       if (pendingScrubTick !== null) {
         const target = pendingScrubTick;
         pendingScrubTick = null;
         void seekToTick(target);
       }
-    });
+    }, 120);
+  } else {
+    if (scrubBackwardTimer !== null) {
+      clearTimeout(scrubBackwardTimer);
+      scrubBackwardTimer = null;
+    }
+    if (scrubRafId === null) {
+      scrubRafId = requestAnimationFrame(() => {
+        scrubRafId = null;
+        if (pendingScrubTick !== null) {
+          const target = pendingScrubTick;
+          pendingScrubTick = null;
+          void seekToTick(target);
+        }
+      });
+    }
   }
 }
 
@@ -1783,6 +1800,10 @@ function onTimelinePointerDown(ev: PointerEvent): void {
   if (scrubRafId !== null) {
     cancelAnimationFrame(scrubRafId);
     scrubRafId = null;
+  }
+  if (scrubBackwardTimer !== null) {
+    clearTimeout(scrubBackwardTimer);
+    scrubBackwardTimer = null;
   }
   pendingScrubTick = null;
   const pct = getTimelinePercent(ev.clientX);
@@ -1821,6 +1842,10 @@ function onTimelinePointerUp(ev: PointerEvent): void {
   if (scrubRafId !== null) {
     cancelAnimationFrame(scrubRafId);
     scrubRafId = null;
+  }
+  if (scrubBackwardTimer !== null) {
+    clearTimeout(scrubBackwardTimer);
+    scrubBackwardTimer = null;
   }
   pendingScrubTick = null;
 

@@ -349,6 +349,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
 
   function cancelPendingBridgeWaits(): void {
     bridge?.cancel();
+    pendingKeys.clear();
     if (keyWaitResolver) {
       keyWaitResolver("0");
       keyWaitResolver = null;
@@ -382,9 +383,12 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         ...(options?.seeking !== undefined ? { seeking: options.seeking } : {}),
         ...(options?.renderFinal !== undefined ? { renderFinal: options.renderFinal } : {}),
       }),
-    waitForRevision: (minRevision: number) => {
-      if (replayDriver.latest && replayDriver.latest.revision > minRevision) {
-        return Promise.resolve(replayDriver.latest);
+    waitForRevision: (minRevision: number, opts?: { unblocked?: boolean }) => {
+      const requireUnblocked = opts?.unblocked ?? false;
+      const matches = (obs: ReplayObservation | null) =>
+        obs !== null && obs.revision > minRevision && (!requireUnblocked || obs.blocked === null);
+      if (matches(replayDriver.latest)) {
+        return Promise.resolve(replayDriver.latest!);
       }
       return new Promise<ReplayObservation>((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -396,7 +400,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
           );
         }, 15_000);
         const listener = (obs: ReplayObservation) => {
-          if (obs.revision > minRevision) {
+          if (matches(obs)) {
             clearTimeout(timer);
             observationListeners.delete(listener);
             resolve(obs);
@@ -1184,6 +1188,9 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         ) {
           return;
         }
+        if (obs.blocked !== null) {
+          bridge?.pollNow();
+        }
         replayDriver.latest = obs;
         state.inputReady = true;
         state.inputEnabled = Boolean(obs.state.inputEnabled);
@@ -1905,8 +1912,15 @@ export function useEngine(onFrame: (frame: Frame) => void) {
 
   function sendKey(code: number): void {
     if (!worker) return;
+    bridge?.pollNow();
     const id = ++nextKeyId;
     pendingKeys.set(id, code);
+    const keyMsg = {
+      type: "key",
+      id,
+      code,
+      ...(activeWalkthroughSession > 0 ? { sessionId: activeWalkthroughSession } : {}),
+    };
     if (keyWaitResolver) {
       const resolve = keyWaitResolver;
       keyWaitResolver = null;
@@ -1916,10 +1930,10 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       resolve(JSON.stringify({ id: queued[0], code: queued[1] }));
       // If the worker resumes normal execution instead of waiting again, it
       // still receives this key. The sequence ID suppresses bridge duplicates.
-      worker.postMessage({ type: "key", id, code });
+      worker.postMessage(keyMsg);
       return;
     }
-    worker.postMessage({ type: "key", id, code });
+    worker.postMessage(keyMsg);
   }
 
   /**

@@ -90,7 +90,10 @@ export interface ReplayDriver {
   latest: ReplayObservation | null;
   status?: ReplayStatus;
   advance(ticks: number, options?: ReplayAdvanceOptions): Promise<ReplayObservation>;
-  waitForRevision?(minRevision: number): Promise<ReplayObservation>;
+  waitForRevision?(
+    minRevision: number,
+    options?: { unblocked?: boolean },
+  ): Promise<ReplayObservation>;
   playBatch(
     actions: readonly ReplayAction[],
     options?: ReplayBatchOptions,

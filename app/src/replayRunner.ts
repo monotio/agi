@@ -218,10 +218,13 @@ export async function runReplayBatch(
   async function resumed(before: ReplayObservation): Promise<void> {
     if (!before.blocked) return;
     if (driver.waitForRevision) {
-      await driver.waitForRevision(before.revision);
+      await driver.waitForRevision(before.revision, { unblocked: true });
     } else {
       const start = Date.now();
-      while (driver.latest && driver.latest.revision <= before.revision) {
+      while (
+        driver.latest &&
+        (driver.latest.revision <= before.revision || driver.latest.blocked !== null)
+      ) {
         checkAborted();
         if (Date.now() - start > 10_000) {
           throw new Error(`Timeout waiting for revision > ${before.revision}`);
@@ -251,6 +254,11 @@ export async function runReplayBatch(
       checkAborted();
       await checkPaused();
       checkAborted();
+      if (observation.blocked) {
+        if (driver.latest && !driver.latest.blocked) {
+          observation = driver.latest;
+        }
+      }
       if (observation.blocked) {
         throw new Error("Route must answer the prompt before advancing time");
       }
