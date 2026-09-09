@@ -2,6 +2,7 @@ import type { EngineStateReport } from "../../src/runtime/engine.ts";
 
 /** Test-only clock observations. The replay driver cannot write interpreter state. */
 export interface ReplayObservation {
+  sessionId?: number;
   revision: number;
   tick: number;
   cycle: number;
@@ -11,6 +12,14 @@ export interface ReplayObservation {
   egoView: number;
   /** Current key-release gate; input adapters must preserve held movement. */
   releaseGate: number;
+}
+
+export interface ReplayStatus {
+  sessionId: number;
+  requestId: number | null;
+  observedTick: number;
+  revision: number;
+  status: string;
 }
 
 export type ReplayAction =
@@ -43,6 +52,8 @@ export interface ReplayProgressEvent {
 }
 
 export interface ReplayBatchOptions {
+  sessionId?: number;
+  isCurrentSession?: () => boolean;
   phone?: boolean;
   /** Speed multiplier for real-time watching: 1 = 1x real time, 2 = 2x, etc. 0 = unthrottled fast-forward (default) */
   speed?: number | (() => number);
@@ -69,12 +80,15 @@ export interface ReplayBatchOptions {
 }
 
 export interface ReplayAdvanceOptions {
+  sessionId?: number;
   seeking?: boolean;
   renderFinal?: boolean;
 }
 
 export interface ReplayDriver {
+  sessionId?: number;
   latest: ReplayObservation | null;
+  status?: ReplayStatus;
   advance(ticks: number, options?: ReplayAdvanceOptions): Promise<ReplayObservation>;
   waitForRevision?(minRevision: number): Promise<ReplayObservation>;
   playBatch(

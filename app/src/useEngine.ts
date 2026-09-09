@@ -162,6 +162,7 @@ export interface WalkthroughUiState {
   room: number | null;
   score: number | null;
   tick: number;
+  requestedTick: number;
   totalTicks: number;
   percent: number;
   status: "idle" | "playing" | "paused" | "completed" | "stopped" | "error";
@@ -301,6 +302,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       room: null,
       score: null,
       tick: 0,
+      requestedTick: 0,
       totalTicks: 0,
       percent: 0,
       status: "idle",
@@ -310,6 +312,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     },
   });
 
+  let activeWalkthroughSession = 0;
   let walkthroughAbortController: AbortController | null = null;
   let worker: Worker | null = null;
   let bridge: Bridge | null = null;
@@ -327,9 +330,37 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     words: [string, number][];
     cartridge?: CachedCartridgeData;
   } | null = null;
+  interface PendingQuery {
+    resolve: (value: unknown) => void;
+    reject: (err: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }
   /** In-flight worker queries (frames / state / objects), keyed by request id. */
-  const pendingQueries = new Map<number, (value: unknown) => void>();
+  const pendingQueries = new Map<number, PendingQuery>();
   let nextQueryId = 1;
+
+  function drainPendingQueries(err: Error = new Error("Operation aborted")): void {
+    for (const q of pendingQueries.values()) {
+      clearTimeout(q.timer);
+      q.reject(err);
+    }
+    pendingQueries.clear();
+  }
+
+  function cancelPendingBridgeWaits(): void {
+    bridge?.cancel();
+    if (keyWaitResolver) {
+      keyWaitResolver("0");
+      keyWaitResolver = null;
+    }
+    if (promptResolver) {
+      promptResolver("");
+      promptResolver = null;
+    }
+    state.waitingForKey = false;
+    state.prompt = null;
+  }
+
   const urlReplaySeedText =
     import.meta.env.MODE === "test" ? new URLSearchParams(location.search).get("replaySeed") : null;
   const urlReplaySeed = urlReplaySeedText === null ? null : Number(urlReplaySeedText);
@@ -338,10 +369,16 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   const observationListeners = new Set<(obs: ReplayObservation) => void>();
   let latestFrame: Frame | null = null;
   const replayDriver: ReplayDriver = {
+    sessionId: activeWalkthroughSession,
     latest: null,
     advance: (ticks, options) =>
       query<ReplayObservation>("replayAdvance", {
         ticks,
+        ...(options?.sessionId !== undefined
+          ? { sessionId: options.sessionId }
+          : activeWalkthroughSession > 0
+            ? { sessionId: activeWalkthroughSession }
+            : {}),
         ...(options?.seeking !== undefined ? { seeking: options.seeking } : {}),
         ...(options?.renderFinal !== undefined ? { renderFinal: options.renderFinal } : {}),
       }),
@@ -370,6 +407,8 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     },
     playBatch: (actions, options) =>
       runReplayBatch(replayDriver, actions, {
+        sessionId: options?.sessionId ?? activeWalkthroughSession,
+        isCurrentSession: options?.isCurrentSession ?? (() => true),
         ...options,
         getLatestFrame: () => latestFrame,
       }),
@@ -777,6 +816,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       // A successful remix is saved as its own local cartridge before playback resumes.
       worker.postMessage({
         type: "boot",
+        sessionId: activeWalkthroughSession,
         ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
         soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
         files,
@@ -972,7 +1012,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     worker = null;
     bridge = null;
     session = null;
-    pendingQueries.clear();
+    drainPendingQueries();
     for (const done of flushWaiters.values()) done(false);
     flushWaiters.clear();
   }
@@ -1120,16 +1160,23 @@ export function useEngine(onFrame: (frame: Frame) => void) {
           if (booted) clearAutosave(booted.slug);
         }
       } else if (msg.type === "recordingStarted" || msg.type === "recordingStopped") {
-        const resolve = pendingQueries.get(Number(msg.id));
-        if (resolve) {
+        const q = pendingQueries.get(Number(msg.id));
+        if (q) {
           pendingQueries.delete(Number(msg.id));
-          resolve(msg);
+          q.resolve(msg);
         }
       } else if (msg.type === "log") {
         logAgent("log", String(msg.text));
       } else if (msg.type === "replay" && replayDriver) {
-        replayDriver.latest = msg.observation as ReplayObservation;
-        const obs = replayDriver.latest;
+        const obs = msg.observation as ReplayObservation;
+        if (
+          typeof obs.sessionId === "number" &&
+          obs.sessionId !== 0 &&
+          obs.sessionId !== activeWalkthroughSession
+        ) {
+          return;
+        }
+        replayDriver.latest = obs;
         state.inputReady = true;
         state.inputEnabled = Boolean(obs.state.inputEnabled);
         state.modal = (obs.state.modalKind as ModalKind | null) ?? null;
@@ -1142,10 +1189,10 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         hook.egoY = obs.state.egoY;
         publishHook();
         for (const listener of observationListeners) listener(replayDriver.latest);
-        const resolve = pendingQueries.get(Number(msg.id));
-        if (resolve) {
+        const q = pendingQueries.get(Number(msg.id));
+        if (q) {
           pendingQueries.delete(Number(msg.id));
-          resolve(replayDriver.latest);
+          q.resolve(replayDriver.latest);
         }
       } else if (
         msg.type === "frames" ||
@@ -1153,10 +1200,10 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         msg.type === "objects" ||
         msg.type === "exportFiles"
       ) {
-        const resolve = pendingQueries.get(Number(msg.id));
-        if (resolve) {
+        const q = pendingQueries.get(Number(msg.id));
+        if (q) {
           pendingQueries.delete(Number(msg.id));
-          resolve(
+          q.resolve(
             msg.type === "frames"
               ? msg.frames
               : msg.type === "objects"
@@ -1209,9 +1256,16 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         pendingQueries.delete(id);
         reject(new Error(`engine query '${type}' timed out`));
       }, 5_000);
-      pendingQueries.set(id, (value) => {
-        clearTimeout(timer);
-        resolve(value as T);
+      pendingQueries.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer);
+          resolve(value as T);
+        },
+        reject: (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+        timer,
       });
       worker!.postMessage({ type, id, ...extra });
     });
@@ -1640,10 +1694,13 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       return;
     }
     state.leaving = false;
+    activeWalkthroughSession++;
     if (walkthroughAbortController) {
       walkthroughAbortController.abort();
       walkthroughAbortController = null;
     }
+    cancelPendingBridgeWaits();
+    drainPendingQueries();
     state.walkthrough.active = false;
     state.walkthrough.status = "stopped";
     activeReplaySeed = null;
@@ -1659,7 +1716,6 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     booted = null;
     worker = null;
     bridge = null;
-    pendingQueries.clear();
     state.paused = false;
     state.powerUp = {
       mode: "remix",
@@ -1677,10 +1733,6 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     state.error = "";
     state.status = "";
     resetScreenState();
-    if (keyWaitResolver) {
-      keyWaitResolver("0");
-      keyWaitResolver = null;
-    }
   }
 
   /**
@@ -1738,6 +1790,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
           };
           worker.postMessage({
             type: "boot",
+            sessionId: activeWalkthroughSession,
             ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
             soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
             files: cached.files,
@@ -1799,6 +1852,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
 
       worker.postMessage({
         type: "boot",
+        sessionId: activeWalkthroughSession,
         soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
         files,
         words,
@@ -2057,18 +2111,28 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     slug: string,
     options?: { speed?: number; initialTick?: number; keepPaused?: boolean } | number,
   ): Promise<void> {
+    const sessionId = ++activeWalkthroughSession;
+    replayDriver.sessionId = sessionId;
+
+    // Load artifact (memoized with validation and failure eviction)
     const artifact = await loadWalkthrough(slug);
+    if (activeWalkthroughSession !== sessionId) return;
+
     if (!artifact) {
       state.walkthrough.error = `No walkthrough found for "${slug}".`;
       state.walkthrough.status = "error";
       return;
     }
+
     if (walkthroughAbortController) {
       walkthroughAbortController.abort();
       walkthroughAbortController = null;
     }
     const abortController = new AbortController();
     walkthroughAbortController = abortController;
+
+    cancelPendingBridgeWaits();
+    drainPendingQueries(new DOMException("Walkthrough reset", "AbortError"));
 
     const speed =
       typeof options === "number" ? options : (options?.speed ?? state.walkthrough.speed ?? 1);
@@ -2088,6 +2152,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     state.walkthrough.totalCheckpoints = checkpoints.length;
     state.walkthrough.checkpoints = checkpoints;
     state.walkthrough.totalTicks = artifact.virtualTicks;
+    state.walkthrough.requestedTick = target;
     state.walkthrough.tick = target;
     state.walkthrough.percent =
       artifact.virtualTicks > 0 && target > 0
@@ -2120,13 +2185,27 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         reject(new Error("Timeout waiting for game replay to initialize"));
       }, 15_000);
       const listener = (obs: ReplayObservation) => {
-        if (obs.tick === 0) {
+        if (activeWalkthroughSession !== sessionId || abortController.signal.aborted) {
+          clearTimeout(timeout);
+          observationListeners.delete(listener);
+          return;
+        }
+        if (obs.sessionId === sessionId && obs.tick === 0) {
           clearTimeout(timeout);
           observationListeners.delete(listener);
           resolve();
         }
       };
       observationListeners.add(listener);
+      abortController.signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timeout);
+          observationListeners.delete(listener);
+          reject(new DOMException("Walkthrough aborted", "AbortError"));
+        },
+        { once: true },
+      );
     });
 
     // Boot game with the seed (or fast reset if already booted in worker)
@@ -2135,6 +2214,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         type: "resetReplay",
         seed: artifact.seed,
         seeking: Boolean(target > 0),
+        sessionId,
       });
     } else if (isInstalledGame(slug)) {
       await bootGame(slug);
@@ -2152,6 +2232,8 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       await bootGame(slug);
     }
 
+    if (activeWalkthroughSession !== sessionId || abortController.signal.aborted) return;
+
     if (state.phase === "error") {
       state.walkthrough.status = "error";
       state.walkthrough.error = state.error || "Failed to boot game for walkthrough.";
@@ -2160,14 +2242,17 @@ export function useEngine(onFrame: (frame: Frame) => void) {
 
     try {
       await observationPromise;
-    } finally {
-      isResetting = false;
+    } catch (e) {
+      if (activeWalkthroughSession !== sessionId || abortController.signal.aborted) return;
+      throw e;
     }
-    if (abortController.signal.aborted) return;
+    if (activeWalkthroughSession !== sessionId || abortController.signal.aborted) return;
 
     // Run the batch!
     try {
       await replayDriver.playBatch(artifact.actions, {
+        sessionId,
+        isCurrentSession: () => activeWalkthroughSession === sessionId,
         speed: () => state.walkthrough.speed,
         isPaused: () => state.walkthrough.scrubbing || state.walkthrough.status === "paused",
         waitForResume: () =>
@@ -2193,10 +2278,12 @@ export function useEngine(onFrame: (frame: Frame) => void) {
           }),
         getSeekTarget: () => seekTargetTick,
         onSeekComplete: () => {
+          if (activeWalkthroughSession !== sessionId || abortController.signal.aborted) return;
           seekTargetTick = null;
           state.walkthrough.seeking = false;
           if (replayDriver.latest) {
             state.walkthrough.tick = replayDriver.latest.tick;
+            state.walkthrough.requestedTick = replayDriver.latest.tick;
             state.walkthrough.room = replayDriver.latest.state.room;
             state.walkthrough.score = replayDriver.latest.state.vars[3] ?? 0;
             if (artifact.virtualTicks > 0) {
@@ -2227,6 +2314,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
           new Promise<void>((resolve) => {
             if (
               abortController.signal.aborted ||
+              activeWalkthroughSession !== sessionId ||
               state.walkthrough.seeking ||
               state.walkthrough.speed <= 0
             ) {
@@ -2250,7 +2338,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
             abortController.signal.addEventListener("abort", finish, { once: true });
           }),
         onCheckpoint: (cp) => {
-          if (walkthroughAbortController !== abortController) return;
+          if (activeWalkthroughSession !== sessionId || abortController.signal.aborted) return;
           if (state.walkthrough.seeking) return;
           state.walkthrough.checkpointIndex++;
           state.walkthrough.label = cp.label;
@@ -2258,9 +2346,10 @@ export function useEngine(onFrame: (frame: Frame) => void) {
           state.walkthrough.score = cp.score;
         },
         onProgress: (prog) => {
-          if (walkthroughAbortController !== abortController) return;
+          if (activeWalkthroughSession !== sessionId || abortController.signal.aborted) return;
           if (state.walkthrough.seeking) return;
           state.walkthrough.tick = prog.tick;
+          state.walkthrough.requestedTick = prog.tick;
           state.walkthrough.room = prog.room;
           state.walkthrough.score = prog.score;
           if (artifact.virtualTicks > 0) {
@@ -2271,15 +2360,18 @@ export function useEngine(onFrame: (frame: Frame) => void) {
           }
         },
       });
-      if (walkthroughAbortController === abortController && !abortController.signal.aborted) {
+      if (activeWalkthroughSession === sessionId && !abortController.signal.aborted) {
         state.walkthrough.status = "completed";
         state.walkthrough.percent = 100;
       }
     } catch (err) {
-      if (walkthroughAbortController !== abortController) {
+      if (activeWalkthroughSession !== sessionId) {
         return;
       }
-      if (abortController.signal.aborted) {
+      if (
+        abortController.signal.aborted ||
+        (err instanceof DOMException && err.name === "AbortError")
+      ) {
         state.walkthrough.status = "stopped";
       } else {
         state.walkthrough.status = "error";
@@ -2289,11 +2381,13 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   }
 
   async function stopWalkthrough(takeControl = false): Promise<void> {
-    isResetting = false;
+    activeWalkthroughSession++;
     if (walkthroughAbortController) {
       walkthroughAbortController.abort();
       walkthroughAbortController = null;
     }
+    cancelPendingBridgeWaits();
+    drainPendingQueries(new DOMException("Walkthrough stopped", "AbortError"));
     state.walkthrough.active = false;
     activeReplaySeed = null;
     seekTargetTick = null;
@@ -2309,8 +2403,6 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     }
   }
 
-  let isResetting = false;
-
   async function seekToTick(targetTick: number, options?: { keepPaused?: boolean }): Promise<void> {
     const clamped = Math.max(0, Math.min(state.walkthrough.totalTicks, Math.round(targetTick)));
     const currentTick = state.walkthrough.tick;
@@ -2320,7 +2412,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
 
     seekTargetTick = clamped;
     state.walkthrough.seeking = true;
-    state.walkthrough.tick = clamped;
+    state.walkthrough.requestedTick = clamped;
     notifyResume();
     if (state.walkthrough.totalTicks > 0) {
       state.walkthrough.percent = Math.min(
@@ -2337,12 +2429,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     }
     audio.setPaused(true);
 
-    if (isResetting) {
-      return;
-    }
-
     if (clamped < currentTick || state.walkthrough.status === "completed") {
-      isResetting = true;
       void startWalkthrough(currentSlug, {
         speed: state.walkthrough.speed,
         initialTick: clamped,

@@ -1428,20 +1428,22 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
       state.walkthrough.status === "paused" ||
       state.walkthrough.status === "completed")
   ) {
-    if (ev.key === " " && !state.powerUp.open) {
-      ev.preventDefault();
-      toggleWalkthroughPause();
-      return;
-    }
-    if (ev.key === "Enter" && !state.powerUp.open) {
-      ev.preventDefault();
-      if (advanceDialog()) return;
-      if (state.walkthrough.status === "paused") {
-        resumeWalkthrough();
+    if (ev.isTrusted) {
+      if (ev.key === " " && !state.powerUp.open) {
+        ev.preventDefault();
+        toggleWalkthroughPause();
         return;
       }
+      if (ev.key === "Enter" && !state.powerUp.open) {
+        ev.preventDefault();
+        if (advanceDialog()) return;
+        if (state.walkthrough.status === "paused") {
+          resumeWalkthrough();
+          return;
+        }
+      }
+      return;
     }
-    if (ev.isTrusted) return;
   }
   if (ev.isComposing || ev.keyCode === 229) return;
   if (ev.target instanceof Element && ev.target.closest("dialog[open]")) return;

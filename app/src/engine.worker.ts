@@ -73,6 +73,7 @@ interface BootMsg {
   files: Record<string, Uint8Array>;
   words: [string, number][];
   sab: SharedArrayBuffer;
+  sessionId?: number;
   /** Browser-selected sound device: 0 speaker, 1 four-channel output. */
   soundDevice?: number;
   /** Autosave cadence override; the host owns the policy, the worker the timing. */
@@ -99,20 +100,16 @@ interface BootMsg {
 
 let engine: Engine | null = null;
 let isSeeking = false;
+let currentSessionId = 0;
 
-// Central seek guard: during fast-forward seek replay, intermediate cycles
-// must not flood the main thread with audio, display, print, shake, or UI events.
-// Only RPC responses ("replay") and catastrophic failures ("error") are permitted.
-const rawPostMessage = self.postMessage.bind(self);
-self.postMessage = ((message: unknown, options?: unknown) => {
-  if (isSeeking && message && typeof message === "object" && "type" in message) {
-    const type = (message as { type: string }).type;
-    if (type !== "replay" && type !== "error") {
-      return;
-    }
-  }
-  return (rawPostMessage as (msg: unknown, opts?: unknown) => void)(message, options);
-}) as typeof self.postMessage;
+function sendControl(message: unknown, options?: unknown): void {
+  self.postMessage(message, options as StructuredSerializeOptions);
+}
+
+function sendPresentation(message: unknown, options?: unknown): void {
+  if (isSeeking) return;
+  self.postMessage(message, options as StructuredSerializeOptions);
+}
 
 let authorRooms = false;
 let selectedSoundDevice = 1;
@@ -183,6 +180,7 @@ let lastReplaySeed: number | null = null;
 function postReplay(blocked: string | null): void {
   if (!replay || !engine) return;
   const observation: ReplayObservation = {
+    sessionId: currentSessionId,
     revision: ++replay.revision,
     tick: replay.tick,
     cycle: cycleCount,
@@ -192,7 +190,7 @@ function postReplay(blocked: string | null): void {
     egoView: engine.screenObjects[0]!.view,
     releaseGate: engine.releaseGate,
   };
-  self.postMessage({ type: "replay", id: replayRequest, observation });
+  sendControl({ type: "replay", sessionId: currentSessionId, id: replayRequest, observation });
   replayRequest = null;
 }
 
@@ -246,7 +244,7 @@ function autosave(force: boolean): boolean {
   try {
     image = engine.autosaveImage();
   } catch (error) {
-    self.postMessage({ type: "log", text: `Autosave snapshot failed: ${String(error)}` });
+    sendPresentation({ type: "log", text: `Autosave snapshot failed: ${String(error)}` });
     return false;
   }
   if (!image) return false;
@@ -265,7 +263,7 @@ function autosave(force: boolean): boolean {
       picRow: engine.displayBase,
     });
   } catch (error) {
-    self.postMessage({ type: "log", text: `Autosave preview skipped: ${String(error)}` });
+    sendPresentation({ type: "log", text: `Autosave preview skipped: ${String(error)}` });
   }
   // The patched container travels only when a patch really landed since the
   // host last saw one: a resource snapshot on every tick would cost far more
@@ -277,7 +275,7 @@ function autosave(force: boolean): boolean {
     msg["files"] = files;
     lastPatchGeneration = engine.patchGeneration;
   }
-  self.postMessage(msg);
+  sendPresentation(msg);
   lastAutosaveCycle = cycleCount;
   lastAutosaveAt = Date.now();
   return true;
@@ -324,13 +322,17 @@ function bridgeCall(op: string, context: string): string {
     postReplay(op);
   }
   const authoring = op === "room";
-  if (authoring) self.postMessage({ type: "soundPaused", paused: true });
+  if (authoring) sendPresentation({ type: "soundPaused", paused: true });
   try {
     // The main thread may claim state 1 as state 3 before we reach the wait.
     // Wait through either state, never decode our own request.
     for (;;) {
       const state = Atomics.load(bridge.i32, 0);
       if (state === 2) break;
+      if (state === 4) {
+        Atomics.store(bridge.i32, 0, 0);
+        throw new Error("Worker bridge call cancelled");
+      }
       // Timer callbacks cannot run inside Atomics.wait. Wake once per sound
       // interval so host prompts keep producing audio and completion flags.
       Atomics.wait(bridge.i32, 0, state, 1000 / 60);
@@ -352,7 +354,7 @@ function bridgeCall(op: string, context: string): string {
   } finally {
     if (authoring) {
       cycleClock.reset(replay ? (replay.tick * 1000) / 60 : performance.now());
-      self.postMessage({ type: "soundPaused", paused: false });
+      sendPresentation({ type: "soundPaused", paused: false });
     }
   }
 }
@@ -370,19 +372,19 @@ const host: EngineHost = {
   },
   print(text) {
     if (recording && recording.printed.length < 16) recording.printed.push(text.slice(0, 400));
-    self.postMessage({ type: "print", text });
+    sendPresentation({ type: "print", text });
   },
   displayAt(row, col, text) {
-    self.postMessage({ type: "display", row, col, text });
+    sendPresentation({ type: "display", row, col, text });
   },
   clearText() {
-    self.postMessage({ type: "clearText" });
+    sendPresentation({ type: "clearText" });
   },
   clearLines(fromRow, toRow, color) {
-    self.postMessage({ type: "clearLines", fromRow, toRow, color });
+    sendPresentation({ type: "clearLines", fromRow, toRow, color });
   },
   setTextMode(active) {
-    self.postMessage({ type: "textMode", active });
+    sendPresentation({ type: "textMode", active });
   },
   /**
    * Blocking key wait for have.key busy loops. The worker cannot receive key
@@ -402,7 +404,7 @@ const host: EngineHost = {
         const key = JSON.parse(res) as { id: number; code: number };
         if (key.id <= lastKeyId) continue;
         lastKeyId = key.id;
-        self.postMessage({ type: "keyAccepted", id: key.id });
+        sendControl({ type: "keyAccepted", id: key.id });
         const accepted = key.code & 0xffff;
         // A key claimed by the blocking wait never arrives as a key message.
         recordEvent({ cycle: cycleCount, kind: "key", code: accepted });
@@ -411,14 +413,16 @@ const host: EngineHost = {
       }
       // Direct host/test bridges retain the original numeric reply contract.
       const code = Number.parseInt(res, 10);
-      const fallback = Number.isFinite(code) ? code : 0x000d;
-      recordEvent({ cycle: cycleCount, kind: "key", code: fallback });
-      recording?.tape.host(["waitKey", fallback]);
-      return fallback;
+      if (Number.isFinite(code)) {
+        recordEvent({ cycle: cycleCount, kind: "key", code });
+        recording?.tape.host(["waitKey", code]);
+        return code;
+      }
+      return 0;
     }
   },
   statusLine(text) {
-    self.postMessage({ type: "status", text });
+    sendPresentation({ type: "status", text });
   },
   takeInputLine() {
     const line = inputBuffer.shift() ?? null;
@@ -459,25 +463,25 @@ const host: EngineHost = {
       });
       return true;
     } catch (error) {
-      self.postMessage({ type: "log", text: `Room ${room} authoring failed: ${String(error)}` });
+      sendPresentation({ type: "log", text: `Room ${room} authoring failed: ${String(error)}` });
       return false;
     }
   },
   /** 0x6e shake.screen: cosmetic jitter on the main thread. */
   shakeScreen(count) {
-    self.postMessage({ type: "shake", count });
+    sendPresentation({ type: "shake", count });
   },
   /** 0x81/0xa2 show.obj: modal view popup (engine pauses via printsPending). */
   showObj(viewNum) {
-    self.postMessage({ type: "showObj", viewNum });
+    sendPresentation({ type: "showObj", viewNum });
   },
   /** 0x1d show.pri.screen: modal priority-surface view. */
   showPriScreen() {
-    self.postMessage({ type: "showPri" });
+    sendPresentation({ type: "showPri" });
   },
   /** 0x7c status: modal inventory list. */
   statusScreen(items) {
-    self.postMessage({ type: "statusScreen", items });
+    sendPresentation({ type: "statusScreen", items });
   },
   /** 0x76 get.num: blocking prompt through the SAB bridge; edited at (row, col). */
   promptNumber(prompt, row, col) {
@@ -529,7 +533,7 @@ const host: EngineHost = {
   },
   /** 0x90 log / 0x85 obj.status.v / 0x87 show.mem: debug log stream. */
   logText(text) {
-    self.postMessage({ type: "log", text });
+    sendPresentation({ type: "log", text });
   },
   /** 0x8d version: stored into a string slot by the engine. */
   versionString() {
@@ -539,22 +543,22 @@ const host: EngineHost = {
   },
   quit() {
     stopTimers();
-    self.postMessage({ type: "quit" });
+    sendPresentation({ type: "quit" });
   },
   /** Playback state only; the engine emits scheduled audio commands separately. */
   playSound(soundNum) {
-    self.postMessage({ type: "sound", soundNum });
+    sendPresentation({ type: "sound", soundNum });
   },
   soundDevice() {
     recording?.tape.host(["soundDevice", selectedSoundDevice]);
     return selectedSoundDevice;
   },
   soundOutput(output) {
-    self.postMessage({ type: "soundOutput", output });
+    sendPresentation({ type: "soundOutput", output });
   },
   /** 0x64 stop.sound: silence playback on the main thread. */
   stopSound() {
-    self.postMessage({ type: "stopSound" });
+    sendPresentation({ type: "stopSound" });
   },
 };
 
@@ -574,17 +578,17 @@ function postFrame(capture = false): void {
   const enabled = engine.flags[9] !== 0;
   if (enabled !== lastSoundEnabled) {
     lastSoundEnabled = enabled;
-    self.postMessage({ type: "soundEnabled", enabled });
+    sendPresentation({ type: "soundEnabled", enabled });
   }
   const controls = engine.readControls();
   const serialized = JSON.stringify(controls);
   if (serialized !== lastControls) {
     lastControls = serialized;
-    self.postMessage({ type: "controls", controls });
+    sendPresentation({ type: "controls", controls });
   }
   if (engine.inputEdit !== lastInputEdit) {
     lastInputEdit = engine.inputEdit;
-    self.postMessage({ type: "inputEdit", text: lastInputEdit });
+    sendPresentation({ type: "inputEdit", text: lastInputEdit });
   }
   const frame = engine.getPresentation();
   if (capture) captureFrame(frame);
@@ -628,7 +632,7 @@ function postFrame(capture = false): void {
   lastReleaseGate = engine.releaseGate;
   lastModal = modal;
   const text = textCells.slice();
-  self.postMessage(
+  sendPresentation(
     {
       type: "frame",
       visual: frame.visual,
@@ -680,10 +684,7 @@ function serveFrames(id: unknown, count: number, stride: number, since: number |
     frames.reverse();
   }
   const transfer = frames.flatMap((f) => [f.visual.buffer, f.priority.buffer, f.text.buffer]);
-  self.postMessage(
-    { type: "frames", id, source: useHistory ? "history" : "recent", frames },
-    transfer,
-  );
+  sendControl({ type: "frames", id, source: useHistory ? "history" : "recent", frames }, transfer);
 }
 
 function startTimers(): void {
@@ -692,7 +693,7 @@ function startTimers(): void {
       try {
         advanceSoundClock();
       } catch (error) {
-        self.postMessage({ type: "error", message: String(error) });
+        sendControl({ type: "error", message: String(error) });
         stopTimers();
       }
     }, 1000 / 60) as unknown as number;
@@ -718,7 +719,7 @@ function startTimers(): void {
         if (now - lastCycleReportAt >= CYCLE_REPORT_MS) {
           lastCycleReportAt = now;
           const scalars = engine!.readState();
-          self.postMessage({
+          sendPresentation({
             type: "cycle",
             cycle: cycleCount,
             room: scalars.room,
@@ -728,7 +729,7 @@ function startTimers(): void {
         }
         if (Date.now() - lastAutosaveAt >= autosaveIntervalMs) autosave(false);
       } catch (e) {
-        self.postMessage({ type: "error", message: String(e) });
+        sendControl({ type: "error", message: String(e) });
         stopTimers();
       }
     }, HOST_POLL_MS) as unknown as number;
@@ -739,6 +740,7 @@ self.onmessage = (ev: MessageEvent) => {
   const msg = ev.data;
   try {
     if (msg.type === "replayAdvance" && replay && engine) {
+      if (typeof msg.sessionId === "number") currentSessionId = msg.sessionId;
       const ticks = Number(msg.ticks);
       if (!Number.isInteger(ticks) || ticks < 1 || ticks > 100_000)
         throw new Error("Replay advance requires 1..100000 virtual ticks.");
@@ -777,7 +779,7 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "state") {
-      self.postMessage({
+      sendControl({
         type: "engineState",
         id: msg.id,
         state: engine ? engine.readState() : null,
@@ -785,7 +787,7 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "objects") {
-      self.postMessage({
+      sendControl({
         type: "objects",
         id: msg.id,
         objects: engine ? engine.readObjects() : [],
@@ -794,7 +796,7 @@ self.onmessage = (ev: MessageEvent) => {
     }
     if (msg.type === "startRecording") {
       if (!engine) {
-        self.postMessage({
+        sendControl({
           type: "recordingStarted",
           id: msg.id,
           ok: false,
@@ -806,7 +808,7 @@ self.onmessage = (ev: MessageEvent) => {
       // screen or the pre-first-room gap cannot resume from a save image.
       const hostImage = engine.recordingImage();
       if (!hostImage) {
-        self.postMessage({
+        sendControl({
           type: "recordingStarted",
           id: msg.id,
           ok: false,
@@ -822,7 +824,7 @@ self.onmessage = (ev: MessageEvent) => {
         tainted: null,
         usedGetnum: false,
       };
-      self.postMessage({
+      sendControl({
         type: "recordingStarted",
         id: msg.id,
         ok: true,
@@ -836,7 +838,7 @@ self.onmessage = (ev: MessageEvent) => {
     if (msg.type === "stopRecording") {
       const taken = recording;
       recording = null;
-      self.postMessage({
+      sendControl({
         type: "recordingStopped",
         id: msg.id,
         operations: taken?.tape.operations ?? [],
@@ -860,7 +862,7 @@ self.onmessage = (ev: MessageEvent) => {
         for (const [name, bytes] of engine.containerFiles) files[name] = bytes.slice();
         if (authoredWords) files["WORDS.TOK"] = authoredWords;
       }
-      self.postMessage({ type: "exportFiles", id: msg.id, files });
+      sendControl({ type: "exportFiles", id: msg.id, files });
       return;
     }
     if (msg.type === "reenter" && engine) {
@@ -872,12 +874,13 @@ self.onmessage = (ev: MessageEvent) => {
       for (let guard = 0; engine.modalKind !== null && guard < 16; guard++) engine.ackPrint();
       engine.reenterRoom(typeof msg.room === "number" ? msg.room : undefined);
       postFrame(true);
-      self.postMessage({ type: "reentered", room: engine.vars[0] });
+      sendControl({ type: "reentered", room: engine.vars[0] });
       return;
     }
     if (msg.type === "boot") {
       initialLogicStarted = false;
       const boot = msg as BootMsg;
+      currentSessionId = typeof boot.sessionId === "number" ? boot.sessionId : 0;
       replay = Number.isInteger(boot.replaySeed)
         ? { tick: 0, revision: 0, random: boot.replaySeed! >>> 0, yielded: false }
         : null;
@@ -936,7 +939,7 @@ self.onmessage = (ev: MessageEvent) => {
           engine.restoreImage(base64ToBytes(boot.restoreImage));
           engine.restoreMenuState(boot.restoreMenus);
           const restored = engine.readState();
-          self.postMessage({
+          sendControl({
             type: "restored",
             ok: true,
             room: restored.room,
@@ -944,11 +947,11 @@ self.onmessage = (ev: MessageEvent) => {
             egoY: restored.egoY,
           });
         } catch (e) {
-          self.postMessage({ type: "restored", ok: false, message: String(e) });
+          sendControl({ type: "restored", ok: false, message: String(e) });
         }
       }
       if (!replay) startTimers();
-      self.postMessage({ type: "booted", profile: engine.profile.id });
+      sendControl({ type: "booted", profile: engine.profile.id });
       postReplay(null);
       return;
     }
@@ -961,10 +964,11 @@ self.onmessage = (ev: MessageEvent) => {
       stopTimers();
       startTimers();
       postFrame();
-      self.postMessage({ type: "exitedReplay" });
+      sendControl({ type: "exitedReplay" });
       return;
     }
     if (msg.type === "resetReplay" && currentBootFiles && currentDictionary) {
+      if (typeof msg.sessionId === "number") currentSessionId = msg.sessionId;
       initialLogicStarted = false;
       isSeeking = Boolean(msg.seeking);
       const seed =
@@ -1006,7 +1010,7 @@ self.onmessage = (ev: MessageEvent) => {
       // autosave is posted first, so a host that awaits the acknowledgement
       // can await browser storage before resolving this request.
       const taken = autosave(true);
-      self.postMessage({ type: "flushed", id: msg.id, taken });
+      sendControl({ type: "flushed", id: msg.id, taken });
       return;
     }
     if (msg.type === "patchMetadata" && engine) {
@@ -1028,7 +1032,7 @@ self.onmessage = (ev: MessageEvent) => {
         for (const { word, id } of entries) liveDictionary.set(word, id);
         authoredWords = words;
       }
-      self.postMessage({ type: "metadataPatched" });
+      sendControl({ type: "metadataPatched" });
       return;
     }
     if (msg.type === "patch" && engine) {
@@ -1076,7 +1080,7 @@ self.onmessage = (ev: MessageEvent) => {
       if (typeof msg.id === "number") {
         if (msg.id <= lastKeyId) return;
         lastKeyId = msg.id;
-        self.postMessage({ type: "keyAccepted", id: msg.id });
+        sendControl({ type: "keyAccepted", id: msg.id });
       }
       flushDeferredMovement();
       const key = Number(msg.code) & 0xffff;
@@ -1124,6 +1128,6 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
   } catch (e) {
-    self.postMessage({ type: "error", message: String(e) });
+    sendControl({ type: "error", message: String(e) });
   }
 };

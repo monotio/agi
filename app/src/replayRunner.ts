@@ -136,6 +136,35 @@ export async function runReplayBatch(
   const rawSpeed = options?.speed;
   const getSpeed: () => number = typeof rawSpeed === "function" ? rawSpeed : () => rawSpeed ?? 0;
   let heldDirection: string | null = null;
+  const currentSessionId = options?.sessionId ?? driver.sessionId ?? 0;
+  let currentRequestId = 0;
+
+  function updateStatus(status: string, requestId = currentRequestId): void {
+    driver.status = {
+      sessionId: currentSessionId,
+      requestId,
+      observedTick: driver.latest?.tick ?? 0,
+      revision: driver.latest?.revision ?? 0,
+      status,
+    };
+  }
+
+  updateStatus("running");
+
+  function isRunActive(): boolean {
+    if (options?.signal?.aborted) return false;
+    if (options?.isCurrentSession && !options.isCurrentSession()) return false;
+    return true;
+  }
+
+  function checkAborted(): void {
+    if (options?.signal?.aborted) {
+      throw new DOMException("Replay aborted", "AbortError");
+    }
+    if (options?.isCurrentSession && !options.isCurrentSession()) {
+      throw new DOMException("Replay superseded by new session", "AbortError");
+    }
+  }
 
   function isSeeking(): boolean {
     const target = options?.getSeekTarget?.();
@@ -193,21 +222,24 @@ export async function runReplayBatch(
     } else {
       const start = Date.now();
       while (driver.latest && driver.latest.revision <= before.revision) {
+        checkAborted();
         if (Date.now() - start > 10_000) {
           throw new Error(`Timeout waiting for revision > ${before.revision}`);
         }
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
     }
+    checkAborted();
   }
 
   async function checkPaused(): Promise<void> {
-    while (options?.isPaused?.() && !isSeeking() && !options?.signal?.aborted) {
+    while (options?.isPaused?.() && !isSeeking() && isRunActive()) {
       if (options?.waitForResume) {
         await options.waitForResume();
       } else {
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 50));
       }
+      checkAborted();
     }
   }
 
@@ -216,9 +248,9 @@ export async function runReplayBatch(
     if (!observation) throw new Error("No replay observation available");
     const target = observation.tick + ticks;
     while (observation.tick < target) {
-      if (options?.signal?.aborted) return;
+      checkAborted();
       await checkPaused();
-      if (options?.signal?.aborted) return;
+      checkAborted();
       if (observation.blocked) {
         throw new Error("Route must answer the prompt before advancing time");
       }
@@ -230,7 +262,7 @@ export async function runReplayBatch(
       const remaining = advanceLimit - observation.tick;
       if (remaining <= 0) {
         await checkPaused();
-        if (options?.signal?.aborted) return;
+        checkAborted();
         if ((options?.getSeekTarget?.() ?? 0) <= observation.tick) {
           if (options?.waitForResume) {
             await options.waitForResume();
@@ -238,6 +270,7 @@ export async function runReplayBatch(
             await new Promise((resolve) => setTimeout(resolve, 50));
           }
         }
+        checkAborted();
         continue;
       }
       const speed = getEffectiveSpeed();
@@ -248,17 +281,29 @@ export async function runReplayBatch(
           seekTarget !== undefined &&
           observation.tick + remaining >= seekTarget;
         const renderFinal = !seeking || willReachSeekTarget;
-        observation = await driver.advance(remaining, { seeking, renderFinal });
+        currentRequestId++;
+        updateStatus("advancing", currentRequestId);
+        observation = await driver.advance(remaining, {
+          sessionId: currentSessionId,
+          seeking,
+          renderFinal,
+        });
+        updateStatus("running", currentRequestId);
       } else {
         const currentSpeed = Math.max(0.1, speed);
         const chunk = Math.min(remaining, Math.max(1, Math.round(currentSpeed)));
         const delayMs = Math.max(1, (chunk * (1000 / 60)) / currentSpeed);
         const t0 = performance.now();
-        observation = await driver.advance(chunk);
+        currentRequestId++;
+        updateStatus("advancing", currentRequestId);
+        observation = await driver.advance(chunk, { sessionId: currentSessionId });
+        updateStatus("running", currentRequestId);
+        checkAborted();
         const elapsed = performance.now() - t0;
         const sleep = delayMs - elapsed;
         if (sleep > 0) await new Promise((resolve) => setTimeout(resolve, sleep));
       }
+      checkAborted();
       if (options?.onProgress && actionIndex !== undefined && !isSeeking()) {
         options.onProgress({
           actionIndex,
@@ -280,6 +325,7 @@ export async function runReplayBatch(
   }
 
   async function key(code: number): Promise<void> {
+    checkAborted();
     const before = driver.latest;
     if (!before) throw new Error("No replay observation available before key");
     const domKey =
@@ -295,12 +341,14 @@ export async function runReplayBatch(
     if (before.blocked && before.blocked !== "waitkey") {
       const start = Date.now();
       while (!document.querySelector('[data-testid="prompt-hint"]')) {
+        checkAborted();
         if (Date.now() - start > 10_000) {
           throw new Error("Timeout waiting for prompt-hint to appear in DOM");
         }
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
     }
+    checkAborted();
 
     if (before.releaseGate !== 0 && REPLAY_DIRECTIONS[code] && before.state.modalKind === null) {
       releaseDirection();
@@ -397,21 +445,26 @@ export async function runReplayBatch(
         }
       }
     }
+    checkAborted();
     await resumed(before);
+    checkAborted();
   }
 
   async function text(inputText: string): Promise<void> {
+    checkAborted();
     const before = driver.latest;
     if (!before) throw new Error("No replay observation available before text");
     if (before.blocked && before.blocked !== "waitkey") {
       const start = Date.now();
       while (!document.querySelector('[data-testid="prompt-hint"]')) {
+        checkAborted();
         if (Date.now() - start > 10_000) {
           throw new Error("Timeout waiting for prompt-hint to appear in DOM");
         }
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
     }
+    checkAborted();
     const input = document.querySelector<HTMLInputElement>('[data-testid="input-line"]');
     if (!input) throw new Error('Input element [data-testid="input-line"] not found');
     const speed = getEffectiveSpeed();
@@ -424,13 +477,13 @@ export async function runReplayBatch(
       let completedTyping = true;
       let skipped = false;
       for (let i = 1; i <= inputText.length; i++) {
-        if (options?.signal?.aborted) break;
+        checkAborted();
         if (isSeeking()) {
           completedTyping = false;
           break;
         }
         await checkPaused();
-        if (options?.signal?.aborted) break;
+        checkAborted();
         if (isSeeking()) {
           completedTyping = false;
           break;
@@ -444,21 +497,24 @@ export async function runReplayBatch(
           } else {
             await new Promise((resolve) => setTimeout(resolve, charDelay));
           }
+          checkAborted();
           if (Date.now() - t0 < Math.max(1, charDelay / 2)) {
             skipped = true;
           }
         }
       }
+      checkAborted();
       if (!completedTyping) {
         input.value = inputText;
         input.dispatchEvent(new Event("input", { bubbles: true }));
-      } else if (!options?.signal?.aborted && !isSeeking() && !skipped) {
+      } else if (!skipped) {
         const enterDelay = Math.max(15, Math.min(120, Math.round(80 / speed)));
         if (options?.dwellOnDialog) {
           await options.dwellOnDialog(enterDelay);
         } else {
           await new Promise((resolve) => setTimeout(resolve, enterDelay));
         }
+        checkAborted();
       }
     } else {
       if (input.value !== "") {
@@ -469,6 +525,7 @@ export async function runReplayBatch(
       input.dispatchEvent(new Event("input", { bubbles: true }));
     }
 
+    checkAborted();
     if (phone) {
       const pad = document.querySelector('[data-testid="touch-controls"]');
       const enterBtn = Array.from(pad?.querySelectorAll("button") ?? []).find(
@@ -492,16 +549,18 @@ export async function runReplayBatch(
     }
     input.value = "";
     input.dispatchEvent(new Event("input", { bubbles: true }));
+    checkAborted();
     await resumed(before);
+    checkAborted();
   }
 
   let lastDwelledRevision: number | null = null;
 
   try {
     for (const [index, action] of actions.entries()) {
-      if (options?.signal?.aborted) break;
+      checkAborted();
       await checkPaused();
-      if (options?.signal?.aborted) break;
+      checkAborted();
       if (driver.latest && options?.onProgress && !isSeeking()) {
         options.onProgress({
           actionIndex: index,
@@ -525,7 +584,7 @@ export async function runReplayBatch(
               if (options?.pauseOnDialog?.()) {
                 options.onDialogPause?.();
                 await checkPaused();
-                if (options?.signal?.aborted) break;
+                checkAborted();
               } else {
                 const dwellMs = calculateModalDwellMs(driver.latest.rows, getEffectiveSpeed());
                 if (dwellMs > 0) {
@@ -534,25 +593,29 @@ export async function runReplayBatch(
                   } else {
                     await new Promise<void>((resolve) => setTimeout(resolve, dwellMs));
                   }
-                  if (options?.signal?.aborted) break;
+                  checkAborted();
                   await checkPaused();
-                  if (options?.signal?.aborted) break;
+                  checkAborted();
                 }
               }
             }
             await key(action.code);
+            checkAborted();
             if (getEffectiveSpeed() > 0) {
               await new Promise((resolve) =>
                 setTimeout(resolve, Math.min(80, Math.max(5, 40 / getEffectiveSpeed()))),
               );
+              checkAborted();
             }
             break;
           case "command":
             await text(action.text);
+            checkAborted();
             if (getEffectiveSpeed() > 0) {
               await new Promise((resolve) =>
                 setTimeout(resolve, Math.min(100, Math.max(8, 60 / getEffectiveSpeed()))),
               );
+              checkAborted();
             }
             break;
           case "answer":
@@ -560,11 +623,14 @@ export async function runReplayBatch(
               throw new Error("Recorded answer requires a real prompt");
             }
             await text(action.text);
+            checkAborted();
             break;
           case "advance":
             await advance(action.ticks, index);
+            checkAborted();
             break;
           case "checkpoint": {
+            checkAborted();
             const obs = driver.latest;
             if (!obs) throw new Error("No observation at checkpoint");
             const actual = {
@@ -585,16 +651,11 @@ export async function runReplayBatch(
               );
             }
             if (actual.x !== expected.x || actual.y !== expected.y) {
-              if (getEffectiveSpeed() <= 0) {
-                throw new Error(
-                  `Checkpoint "${action.label}" coordinate failed: expected (${expected.x},${expected.y}), got (${actual.x},${actual.y})`,
-                );
-              } else {
-                console.warn(
-                  `[Walkthrough] Checkpoint "${action.label}" position mismatch: expected (${expected.x},${expected.y}), got (${actual.x},${actual.y})`,
-                );
-              }
+              throw new Error(
+                `Checkpoint "${action.label}" coordinate failed: expected (${expected.x},${expected.y}), got (${actual.x},${actual.y})`,
+              );
             }
+            checkAborted();
             if (!isSeeking()) {
               options?.onCheckpoint?.({
                 label: action.label,
@@ -608,7 +669,11 @@ export async function runReplayBatch(
           }
         }
       } catch (error) {
-        if (options?.signal?.aborted) break;
+        if (!isRunActive() || (error instanceof DOMException && error.name === "AbortError")) {
+          updateStatus("stopped");
+          throw new DOMException("Replay aborted", "AbortError");
+        }
+        updateStatus("error");
         const obs = driver.latest;
         throw new Error(
           `Replay action ${index} ${JSON.stringify(action)} at tick ${obs?.tick}: ${String(error)}\n${obs?.rows.join("\n")}`,
@@ -618,14 +683,19 @@ export async function runReplayBatch(
     }
   } finally {
     if (heldDirection) {
-      releaseDirection();
+      if (isRunActive()) {
+        releaseDirection();
+      }
       heldDirection = null;
     }
   }
 
+  checkAborted();
   const finalObs = driver.latest;
   if (!finalObs) throw new Error("No final observation after batch completion");
   const screenHash = await computeScreenHash(options?.getLatestFrame?.() ?? null);
+  checkAborted();
+  updateStatus("completed");
   return {
     ...finalObs,
     score: finalObs.state.vars[3] ?? 0,

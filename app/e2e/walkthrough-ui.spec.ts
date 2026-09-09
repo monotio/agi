@@ -373,4 +373,53 @@ test.describe("Walkthrough UI", () => {
       )
       .toBeGreaterThan(3600);
   });
+
+  test("scrubs mh1 walkthrough rapidly and reaches Bellevue Hospital checkpoint cleanly", async ({
+    page,
+  }) => {
+    const mh1Missing = fixtureSkip("mh1", ["AGIDATA.OVL"]);
+    test.skip(Boolean(mh1Missing), mh1Missing || "");
+    await isolateStorage(page);
+    await page.goto("/");
+
+    const menuBtn = page.getByTestId("game-actions-mh1");
+    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
+    await menuBtn.click();
+
+    const runBtn = page.getByTestId("run-walkthrough");
+    await expect(runBtn).toBeVisible();
+    await runBtn.click();
+
+    const timeline = page.getByTestId("walkthrough-timeline");
+    await expect(timeline).toBeVisible({ timeout: 15_000 });
+
+    const box = await timeline.boundingBox();
+    if (box) {
+      // Rapid scrubbing back and forth across multiple checkpoints
+      await page.mouse.move(box.x + box.width * 0.08, box.y + box.height * 0.5);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.5);
+      await page.mouse.move(box.x + box.width * 0.04, box.y + box.height * 0.5);
+      // Land right around ~11% (Bellevue Hospital is tick 10110 out of ~90000 total virtual ticks)
+      await page.mouse.move(box.x + box.width * 0.12, box.y + box.height * 0.5);
+      await page.mouse.up();
+    }
+
+    // Verify seeking or fast-forward reaches room 130 (Bellevue Hospital) without error
+    await expect
+      .poll(
+        async () => {
+          const res = await page.evaluate(() => ({
+            room: window.__AGI_STATE__?.walkthrough.room,
+            tick: window.__AGI_STATE__?.walkthrough.tick ?? 0,
+            status: window.__AGI_STATE__?.walkthrough.status,
+            error: window.__AGI_STATE__?.walkthrough.error,
+          }));
+          if (res.error) throw new Error(`Walkthrough failed: ${res.error}`);
+          return res.room;
+        },
+        { timeout: 45_000 },
+      )
+      .toBe(130);
+  });
 });
