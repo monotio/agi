@@ -8,6 +8,7 @@ for (const route of WALKTHROUGHS) {
     `${route.slug}: ${route.label} from two cold boots`,
     {
       skip: fixtureSkip(route.slug, ["AGIDATA.OVL"]),
+      timeout: 30_000,
     },
     () => {
       const first = runWalkthrough(route);

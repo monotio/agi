@@ -636,3 +636,100 @@ test("playtest can request longer sequences while retaining an execution budget"
   assert.equal(limited.success, false);
   assert.match(limited.error!, /cycle limit/);
 });
+
+test("playtest executes walkWaypoints across consecutive coordinates", () => {
+  const result = playtestRoom(world(), {
+    room: 1,
+    steps: [
+      {
+        action: "walkWaypoints",
+        waypoints: [
+          [83, 120],
+          [83, 124],
+        ],
+      },
+    ],
+  });
+  assert.equal(result.success, true, result.error ?? "");
+  const step = (result.details?.["steps"] as Record<string, unknown>[])[0]!;
+  assert.equal(step["xAfter"], 83);
+  assert.equal(step["yAfter"], 124);
+  assert.deepEqual(step["walkWaypoints"], {
+    totalWaypoints: 2,
+    completedWaypoints: 2,
+    reached: true,
+  });
+});
+
+test("playtest executes walkPath to reach a target bounding box", () => {
+  const result = playtestRoom(world(), {
+    room: 1,
+    steps: [{ action: "walkPath", target: { x0: 84, y0: 122, x1: 88, y1: 125 } }],
+  });
+  assert.equal(result.success, true, result.error ?? "");
+  const step = (result.details?.["steps"] as Record<string, unknown>[])[0]!;
+  const x = step["xAfter"] as number;
+  const y = step["yAfter"] as number;
+  assert.ok(x >= 84 && x <= 88, `x (${x}) should be in 84..88`);
+  assert.ok(y >= 122 && y <= 125, `y (${y}) should be in 122..125`);
+});
+
+test("playtest walkTo and expect.reachable navigate around barrier obstacles", () => {
+  const state = world();
+  // Draw a barrier wall across x=85 from y=115 to y=125. Spawn is at (80, 120).
+  state.container.putResource(
+    "picture",
+    1,
+    Uint8Array.of(0xf0, 2, 0xf2, 0, 0xf6, 85, 115, 85, 125, 0xff),
+  );
+  // Target is at (88, 120), behind the wall. WalkTo routes around it.
+  const result = playtestRoom(state, {
+    room: 1,
+    steps: [{ action: "walkTo", x: 88, y: 120, ticks: 60 }],
+    expect: { reachable: { x: 80, y: 120 } },
+  });
+  assert.equal(result.success, true, result.error ?? "");
+  const step = (result.details?.["steps"] as Record<string, unknown>[])[0]!;
+  assert.equal(step["xAfter"], 88);
+  assert.equal(step["yAfter"], 120);
+});
+
+test("failure details record recentActions history for diagnosis", () => {
+  const result = playtestRoom(world(), {
+    room: 1,
+    steps: [
+      { action: "walkTo", x: 82, y: 120 },
+      { action: "command", command: "take key" },
+    ],
+    expect: { room: 99 },
+  });
+  assert.equal(result.success, false);
+  assert.ok(Array.isArray(result.details?.["recentActions"]));
+  assert.deepEqual(result.details?.["recentActions"], ["walkTo(82,120)", 'command("take key")']);
+});
+
+test("navigation failure attaches a dual-plane navigation diagnostic snapshot", () => {
+  const state = world();
+  // Draw a solid wall completely cutting off x>=85
+  state.container.putResource(
+    "picture",
+    1,
+    Uint8Array.of(0xf0, 2, 0xf2, 0, 0xf6, 85, 0, 85, 167, 0xff),
+  );
+  const result = playtestRoom(state, {
+    room: 1,
+    steps: [{ action: "walkTo", x: 100, y: 120, ticks: 20 }],
+  });
+  assert.equal(result.success, false);
+  assert.match(result.error ?? "", /walkTo did not reach/);
+  assert.equal(result.images?.length, 2);
+  const visual = result.images![0]!;
+  assert.match(visual.caption, /Isolated simulation/);
+  const diag = result.images![1]!;
+  assert.match(
+    diag.caption,
+    /Navigation diagnostic: left=visual, right=EGA priority\/control plane/,
+  );
+  assert.equal(Buffer.from(diag.png).readUInt32BE(16), 640);
+  assert.equal(Buffer.from(diag.png).readUInt32BE(20), 336);
+});

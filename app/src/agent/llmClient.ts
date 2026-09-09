@@ -286,6 +286,20 @@ export function createAnthropicConversation(
     },
     async sendUserMessage(text: string): Promise<LlmTurnResult> {
       closePending("the previous turn ended before the harness executed it.");
+      // Checkpoint the previous conversation phase (e.g. Genesis) so its history remains cached.
+      if (messages.length > 0) {
+        const lastMsg = messages[messages.length - 1]!;
+        if (typeof lastMsg.content === "string") {
+          lastMsg.content = [
+            { type: "text", text: lastMsg.content, cache_control: { type: "ephemeral" } },
+          ];
+        } else if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
+          const lastBlock = lastMsg.content[lastMsg.content.length - 1]!;
+          (lastBlock as { cache_control?: { type: "ephemeral" } }).cache_control = {
+            type: "ephemeral",
+          };
+        }
+      }
       messages.push({ role: "user", content: text });
       return step();
     },

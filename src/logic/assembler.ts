@@ -138,7 +138,12 @@ function lex(source: string): Token[] {
       const c = col();
       i++;
       while (i < source.length && /[a-zA-Z]/.test(source[i]!)) i++;
-      tokens.push({ type: "directive", text: source.slice(start, i), line, col: c });
+      const dir = source.slice(start, i);
+      if (dir === "#message" || dir === "#define") {
+        tokens.push({ type: "directive", text: dir, line, col: c });
+        continue;
+      }
+      while (i < source.length && source[i] !== "\n") i++;
       continue;
     }
     if (ch === '"') {
@@ -204,6 +209,41 @@ function lex(source: string): Token[] {
     if (ch === "|" && source[i + 1] === "|") {
       tokens.push({ type: "punct", text: "||", line, col: col() });
       i += 2;
+      continue;
+    }
+    if (ch === "=" && source[i + 1] === "=") {
+      tokens.push({ type: "punct", text: "==", line, col: col() });
+      i += 2;
+      continue;
+    }
+    if (ch === "!" && source[i + 1] === "=") {
+      tokens.push({ type: "punct", text: "!=", line, col: col() });
+      i += 2;
+      continue;
+    }
+    if (ch === "<" && source[i + 1] === "=") {
+      tokens.push({ type: "punct", text: "<=", line, col: col() });
+      i += 2;
+      continue;
+    }
+    if (ch === ">" && source[i + 1] === "=") {
+      tokens.push({ type: "punct", text: ">=", line, col: col() });
+      i += 2;
+      continue;
+    }
+    if (ch === "<") {
+      tokens.push({ type: "punct", text: "<", line, col: col() });
+      i++;
+      continue;
+    }
+    if (ch === ">") {
+      tokens.push({ type: "punct", text: ">", line, col: col() });
+      i++;
+      continue;
+    }
+    if (ch === "=") {
+      tokens.push({ type: "punct", text: "=", line, col: col() });
+      i++;
       continue;
     }
     if ("(){};:,!".includes(ch)) {
@@ -367,6 +407,24 @@ class Parser {
       }
       return { type: "if", test, then, else_ };
     }
+    if (this.peek().text === "=") {
+      this.next();
+      const right = this.parseRef();
+      this.expect("punct", ";");
+      let left: Ref;
+      const m = /^v(\d{1,3})$/.exec(tok.text);
+      if (m) {
+        left = { kind: "v", index: Number(m[1]) };
+      } else {
+        const defined = this.defines.get(tok.text);
+        if (defined !== undefined) left = { kind: "v", index: defined };
+        else throw new AssemblerError(`cannot assign to '${tok.text}'`, tok.line, tok.col);
+      }
+      if (right.kind === "num")
+        return { type: "action", name: "assignn", args: [left, right], tok };
+      if (right.kind === "v") return { type: "action", name: "assignv", args: [left, right], tok };
+      throw new AssemblerError(`cannot assign ${right.kind} to variable`, tok.line, tok.col);
+    }
     if (tok.text === "return") {
       this.expect("punct", ";");
       return { type: "return" };
@@ -495,9 +553,98 @@ class Parser {
         tok.col,
       );
     }
+    const nextTok = this.tokens[this.pos + 1];
+    if (nextTok && ["==", "!=", "<", ">", "<=", ">="].includes(nextTok.text)) {
+      const left = this.parseRef();
+      const op = this.next().text;
+      const right = this.parseRef();
+      return this.buildComparison(left, op, right, tok);
+    }
+    if (nextTok?.text !== "(") {
+      const m = /^f(\d{1,3})$/.exec(tok.text);
+      if (m) {
+        const ref = this.parseRef();
+        return { type: "cond", name: "isset", args: [ref], tok };
+      }
+    }
     this.next();
     const args = this.parseTestArgs();
     return { type: "cond", name: tok.text, args, tok };
+  }
+
+  private buildComparison(left: Ref, op: string, right: Ref, tok: Token): TestExpr {
+    if (left.kind === "f") {
+      const isTrue = right.kind === "num" && right.value === 1;
+      const isFalse = right.kind === "num" && right.value === 0;
+      if (op === "==") {
+        if (isTrue) return { type: "cond", name: "isset", args: [left], tok };
+        if (isFalse)
+          return { type: "not", inner: { type: "cond", name: "isset", args: [left], tok } };
+      }
+      if (op === "!=") {
+        if (isTrue)
+          return { type: "not", inner: { type: "cond", name: "isset", args: [left], tok } };
+        if (isFalse) return { type: "cond", name: "isset", args: [left], tok };
+      }
+      throw new AssemblerError(`unsupported flag comparison '${op}'`, tok.line, tok.col);
+    }
+    if (left.kind === "v") {
+      if (right.kind === "num") {
+        switch (op) {
+          case "==":
+            return { type: "cond", name: "equaln", args: [left, right], tok };
+          case "!=":
+            return {
+              type: "not",
+              inner: { type: "cond", name: "equaln", args: [left, right], tok },
+            };
+          case "<":
+            return { type: "cond", name: "lessn", args: [left, right], tok };
+          case ">":
+            return { type: "cond", name: "greatern", args: [left, right], tok };
+          case "<=":
+            return {
+              type: "not",
+              inner: { type: "cond", name: "greatern", args: [left, right], tok },
+            };
+          case ">=":
+            return {
+              type: "not",
+              inner: { type: "cond", name: "lessn", args: [left, right], tok },
+            };
+        }
+      }
+      if (right.kind === "v") {
+        switch (op) {
+          case "==":
+            return { type: "cond", name: "equalv", args: [left, right], tok };
+          case "!=":
+            return {
+              type: "not",
+              inner: { type: "cond", name: "equalv", args: [left, right], tok },
+            };
+          case "<":
+            return { type: "cond", name: "lessv", args: [left, right], tok };
+          case ">":
+            return { type: "cond", name: "greaterv", args: [left, right], tok };
+          case "<=":
+            return {
+              type: "not",
+              inner: { type: "cond", name: "greaterv", args: [left, right], tok },
+            };
+          case ">=":
+            return {
+              type: "not",
+              inner: { type: "cond", name: "lessv", args: [left, right], tok },
+            };
+        }
+      }
+    }
+    throw new AssemblerError(
+      `unsupported comparison operands (${left.kind} ${op} ${right.kind})`,
+      tok.line,
+      tok.col,
+    );
   }
 }
 

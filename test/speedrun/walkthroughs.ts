@@ -3,9 +3,9 @@ import type { EngineStateReport } from "../../src/runtime/engine.ts";
 import { Speedrun } from "./runner.ts";
 import { opening } from "./openings.ts";
 import { kq1Complete } from "./kq1.ts";
-import { kq2Door2 } from "./kq2.ts";
-import { sq1UlenceFlats } from "./sq1.ts";
-import { day1 } from "./mh1-day1.ts";
+import { kq2Complete } from "./kq2.ts";
+import { sq1Complete } from "./sq1.ts";
+import { mh1Complete } from "./mh1.ts";
 
 /** Observable endpoint shared by the Node, CLI and browser walkthrough runners. */
 export interface WalkthroughOutcome {
@@ -49,31 +49,30 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
     slug: "mh1",
     label: "Day 1 completed",
     coverage: "chapter",
-    route: day1,
+    route: mh1Complete,
     expected: { room: 104, vars: { 60: 2 }, carriedExactly: [11, 13, 14, 15] },
     requiresAnswer: true,
   },
   {
     slug: "kq2",
-    label: "second door unlocked and third inscription read",
-    coverage: "chapter",
-    route: kq2Door2,
+    label: "completed wedding and ending credits with maximum score",
+    coverage: "complete-game",
+    route: kq2Complete,
     expected: {
-      room: 48,
-      score: 127,
-      flags: { 67: 1, 85: 1, 134: 1, 86: 1, 75: 1, 119: 0 },
-      carriedExactly: [50, 53, 54, 55, 57, 58, 59, 60, 65, 68, 69, 73, 76, 79, 82],
+      room: 106,
+      score: 185,
+      carriedExactly: [50, 53, 54, 55, 56, 57, 58, 59, 60, 65, 68, 69, 73, 74, 75, 76, 78, 82, 83],
     },
   },
   {
     slug: "sq1",
-    label: "arrival at Ulence Flats",
-    coverage: "chapter",
-    route: sq1UlenceFlats,
+    label: "completed ceremony and ending credits with maximum score",
+    coverage: "complete-game",
+    route: sq1Complete,
     expected: {
-      room: 35,
-      score: 108,
-      carriedExactly: [1, 3, 5, 6, 19, 22],
+      room: 64,
+      score: 202,
+      carriedExactly: [1, 3, 5, 6, 13, 14, 16, 19, 22],
     },
     requiresAnswer: true,
   },

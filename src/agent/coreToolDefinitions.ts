@@ -25,7 +25,18 @@ export const PLAYTEST_STEPS_SCHEMA = {
     properties: {
       action: {
         type: "string",
-        enum: ["command", "move", "enter", "wait", "key", "direction", "walkTo", "answer"],
+        enum: [
+          "command",
+          "move",
+          "enter",
+          "wait",
+          "key",
+          "direction",
+          "walkTo",
+          "answer",
+          "walkWaypoints",
+          "walkPath",
+        ],
       },
       command: { type: ["string", "null"], maxLength: 80 },
       direction: {
@@ -73,6 +84,27 @@ export const PLAYTEST_STEPS_SCHEMA = {
         },
         required: ["room", "flag", "var"],
       },
+      waypoints: {
+        type: ["array", "null"],
+        maxItems: 32,
+        items: {
+          type: "array",
+          minItems: 2,
+          maxItems: 2,
+          items: { type: "integer", minimum: 0, maximum: 167 },
+        },
+      },
+      target: {
+        type: ["object", "null"],
+        additionalProperties: false,
+        properties: {
+          x0: { type: "integer", minimum: 0, maximum: 159 },
+          y0: { type: "integer", minimum: 0, maximum: 167 },
+          x1: { type: "integer", minimum: 0, maximum: 159 },
+          y1: { type: "integer", minimum: 0, maximum: 167 },
+        },
+        required: ["x0", "y0", "x1", "y1"],
+      },
       ticks: { type: ["integer", "null"], minimum: 1, maximum: 60000 },
       captureTicks: {
         type: ["array", "null"],
@@ -89,6 +121,8 @@ export const PLAYTEST_STEPS_SCHEMA = {
       "y",
       "answer",
       "until",
+      "waypoints",
+      "target",
       "ticks",
       "captureTicks",
     ],
@@ -405,7 +439,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "finish_genesis",
     description:
-      "Validate genesis by booting the world in a bounded simulation, dismissing messages and key waits like a player. Missing resources, a black screen or an ego placed outside walkable space fail and do not complete genesis. An opening without the parser enabled or without an active ego passes with `warnings` describing what players will meet. Returns observed state and a screenshot. `notes` is optional free text and is not interpreted.",
+      "Hand over control to resume the running game after genesis, room authoring, or remix. Validates authored resources: during initial genesis, boots the world in simulation to verify ego spawn, room display, and modal handling; during room authoring, verifies that the target room's logic and picture are compiled and valid; during remix, verifies all staged resources. Returns observed state and status. `notes` is optional free text explaining the changes or warnings.",
     parameters: {
       type: "object",
       additionalProperties: false,

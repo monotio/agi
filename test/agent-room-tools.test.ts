@@ -291,3 +291,31 @@ test("room command scaffolds retain existing multiword dictionary phrases and sy
     assert.equal(played.success, true, played.error ?? "");
   }
 });
+
+test("write_room rejects spawn points intersecting barrier priority", () => {
+  const state = setup();
+  // Draw a barrier line covering (80, 120)
+  state.container.putResource(
+    "picture",
+    1,
+    Uint8Array.of(0xf0, 2, 0xf2, 0, 0xf6, 70, 120, 90, 120, 0xff),
+  );
+  const result = executeRoomTool(state, "write_room", args())!;
+  assert.equal(result.success, false);
+  assert.match(result.error ?? "", /intersects barrier priority 0/i);
+});
+
+test("write_room warns when declared edge exit is blocked by priority barrier", () => {
+  const state = setup();
+  // Draw a barrier line covering the entire right edge x=150 from y=36 to y=167
+  state.container.putResource(
+    "picture",
+    1,
+    Uint8Array.of(0xf0, 2, 0xf2, 0, 0xf6, 150, 36, 150, 167, 0xff),
+  );
+  const result = executeRoomTool(state, "write_room", args())!;
+  assert.equal(result.success, true, result.error ?? "");
+  const warnings = result.details?.["warnings"] as string[];
+  assert.ok(Array.isArray(warnings));
+  assert.ok(warnings.some((w) => w.includes("Declared exit 'right' is not reachable")));
+});

@@ -1,4 +1,5 @@
 import { decodeRecordedReplay } from "./recordedReplay.ts";
+import { validateTarget, type Target } from "./navigation.ts";
 /**
  * The game-test step and expectation vocabulary shared by the stored
  * TESTS.JSON format (src/agent/gameTests.ts), the playtest simulation
@@ -40,6 +41,8 @@ export const STEP_ACTIONS = [
   "direction",
   "walkTo",
   "answer",
+  "walkWaypoints",
+  "walkPath",
 ] as const;
 export type StepAction = (typeof STEP_ACTIONS)[number];
 
@@ -54,6 +57,73 @@ export const MOVE_DIRECTIONS = [
   "left",
   "up-left",
 ] as const;
+
+export const DIRECTION_NAMES: Readonly<Record<number, string>> = {
+  0: "stop",
+  1: "up",
+  2: "up-right",
+  3: "right",
+  4: "down-right",
+  5: "down",
+  6: "down-left",
+  7: "left",
+  8: "up-left",
+};
+
+export const DIRECTION_SYNONYMS: Readonly<Record<string, number>> = {
+  stop: 0,
+  none: 0,
+  "0": 0,
+  up: 1,
+  north: 1,
+  n: 1,
+  "1": 1,
+  "up-right": 2,
+  northeast: 2,
+  ne: 2,
+  "north-east": 2,
+  "2": 2,
+  right: 3,
+  east: 3,
+  e: 3,
+  "3": 3,
+  "down-right": 4,
+  southeast: 4,
+  se: 4,
+  "south-east": 4,
+  "4": 4,
+  down: 5,
+  south: 5,
+  s: 5,
+  "5": 5,
+  "down-left": 6,
+  southwest: 6,
+  sw: 6,
+  "south-west": 6,
+  "6": 6,
+  left: 7,
+  west: 7,
+  w: 7,
+  "7": 7,
+  "up-left": 8,
+  northwest: 8,
+  nw: 8,
+  "north-west": 8,
+  "8": 8,
+};
+
+export function normalizeDirection(value: unknown, label: string): { name: string; num: number } {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 8) {
+    return { name: DIRECTION_NAMES[value] ?? "stop", num: value };
+  }
+  if (typeof value === "string") {
+    const num = DIRECTION_SYNONYMS[value.trim().toLowerCase()];
+    if (num !== undefined) {
+      return { name: DIRECTION_NAMES[num] ?? "stop", num };
+    }
+  }
+  fail(`${label} must name a compass direction or an integer from 0 to 8.`);
+}
 
 export interface FlagAssertion {
   readonly id: number;
@@ -104,6 +174,8 @@ export type GameTestStep = {
   readonly y: number | null;
   readonly answer: string | null;
   readonly until: UntilPredicate | null;
+  readonly waypoints: readonly (readonly [number, number])[] | null;
+  readonly target: Target | null;
   readonly ticks: number | null;
   readonly captureTicks: readonly number[] | null;
 };
@@ -199,6 +271,8 @@ const STEP_FIELDS = [
   "y",
   "answer",
   "until",
+  "waypoints",
+  "target",
   "ticks",
   "captureTicks",
 ];
@@ -213,6 +287,8 @@ const ACTION_FIELDS: Readonly<Record<StepAction, readonly string[]>> = {
   direction: ["direction"],
   walkTo: ["x", "y"],
   answer: ["answer"],
+  walkWaypoints: ["waypoints"],
+  walkPath: ["target"],
 };
 
 function text(value: unknown, label: string, max: number): string {
@@ -228,12 +304,6 @@ function optionalText(value: unknown, label: string, max: number): string | null
   return value;
 }
 
-function moveDirection(value: unknown, label: string): string {
-  if (typeof value !== "string" || !(MOVE_DIRECTIONS as readonly string[]).includes(value))
-    fail(`${label} must name one of the eight compass directions.`);
-  return value;
-}
-
 /**
  * Strictly validate one stored step and return its normalized full shape.
  * Imported JSON gets no provider tool-schema validation, so this is the one
@@ -246,7 +316,17 @@ export function validateGameTestStep(value: unknown, label: string): GameTestSte
   if (typeof action !== "string" || !(STEP_ACTIONS as readonly string[]).includes(action))
     fail(`${label}.action must be one of ${STEP_ACTIONS.join(", ")}.`);
   const kind = action as StepAction;
-  for (const field of ["command", "direction", "key", "x", "y", "answer", "until"] as const)
+  for (const field of [
+    "command",
+    "direction",
+    "key",
+    "x",
+    "y",
+    "answer",
+    "until",
+    "waypoints",
+    "target",
+  ] as const)
     if (!ACTION_FIELDS[kind].includes(field) && step[field] != null)
       fail(`${label}.${field} does not apply to a ${kind} step.`);
   const ticks = optionalInteger(step["ticks"], `${label}.ticks`, 1, 60000);
@@ -257,6 +337,48 @@ export function validateGameTestStep(value: unknown, label: string): GameTestSte
     fail(
       `${label}: answer queues a reply without advancing time; ticks and captureTicks must be null.`,
     );
+  let waypoints: readonly (readonly [number, number])[] | null = null;
+  if (step["waypoints"] != null) {
+    if (
+      !Array.isArray(step["waypoints"]) ||
+      step["waypoints"].length < 1 ||
+      step["waypoints"].length > 32
+    )
+      fail(`${label}.waypoints must be an array of 1 to 32 coordinate pairs.`);
+    waypoints = (step["waypoints"] as unknown[]).map((point, index) => {
+      if (Array.isArray(point) && point.length === 2) {
+        return [
+          integer(point[0], `${label}.waypoints[${index}][0]`, 0, 159),
+          integer(point[1], `${label}.waypoints[${index}][1]`, 0, 167),
+        ] as const;
+      }
+      if (point && typeof point === "object" && !Array.isArray(point)) {
+        const pt = point as Record<string, unknown>;
+        return [
+          integer(pt["x"], `${label}.waypoints[${index}].x`, 0, 159),
+          integer(pt["y"], `${label}.waypoints[${index}].y`, 0, 167),
+        ] as const;
+      }
+      fail(`${label}.waypoints[${index}] must be [x, y] or {x, y}.`);
+    });
+  }
+  if (kind === "walkWaypoints" && waypoints === null)
+    fail(`${label}.waypoints must be specified for a walkWaypoints step.`);
+
+  let target: Target | null = null;
+  if (step["target"] != null) {
+    const rawTarget = object(step["target"], `${label}.target`);
+    target = {
+      x0: integer(rawTarget["x0"], `${label}.target.x0`, 0, 159),
+      y0: integer(rawTarget["y0"], `${label}.target.y0`, 0, 167),
+      x1: integer(rawTarget["x1"], `${label}.target.x1`, 0, 159),
+      y1: integer(rawTarget["y1"], `${label}.target.y1`, 0, 167),
+    };
+    validateTarget(target);
+  }
+  if (kind === "walkPath" && target === null)
+    fail(`${label}.target must be specified for a walkPath step.`);
+
   let captureTicks: readonly number[] | null = null;
   if (step["captureTicks"] != null) {
     if (!Array.isArray(step["captureTicks"]) || step["captureTicks"].length > 9)
@@ -277,9 +399,9 @@ export function validateGameTestStep(value: unknown, label: string): GameTestSte
     command: kind === "command" ? text(step["command"], `${label}.command`, 80) : null,
     direction:
       kind === "move"
-        ? moveDirection(step["direction"], `${label}.direction`)
+        ? normalizeDirection(step["direction"], `${label}.direction`).name
         : kind === "direction"
-          ? integer(step["direction"], `${label}.direction`, 0, 8)
+          ? normalizeDirection(step["direction"], `${label}.direction`).num
           : null,
     key: kind === "key" ? integer(step["key"], `${label}.key`, 0, 65535) : null,
     x: kind === "walkTo" ? integer(step["x"], `${label}.x`, 0, 159) : null,
@@ -289,6 +411,8 @@ export function validateGameTestStep(value: unknown, label: string): GameTestSte
       kind === "wait" && step["until"] != null
         ? validateUntilPredicate(step["until"], `${label}.until`)
         : null,
+    waypoints: kind === "walkWaypoints" ? waypoints : null,
+    target: kind === "walkPath" ? target : null,
     ticks,
     captureTicks,
   };

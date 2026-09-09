@@ -11,6 +11,7 @@ import { Engine, type EngineHost } from "../runtime/engine.ts";
 import { AGI_KEY } from "../runtime/keys.ts";
 import { frameToPng, framesToContactSheet, textRows, type AgentFrame } from "./frames.ts";
 import {
+  DIRECTION_SYNONYMS,
   directionForDelta,
   randomSource,
   validateObjectAssertion,
@@ -18,6 +19,7 @@ import {
   validateVarAssertion,
   type UntilPredicate,
 } from "./gameTestSteps.ts";
+import { planWalk, renderNavigationSnapshot, validateTarget, type Target } from "./navigation.ts";
 import type { AgentSessionState, AgentToolResult } from "./tools.ts";
 
 const DEFAULT_CYCLES = 600;
@@ -25,16 +27,6 @@ const DEFAULT_CYCLES = 600;
 const GENESIS_CYCLES = 120;
 const GENESIS_CYCLES_PER_ACK = 30;
 const GENESIS_MAX_ACKS = 16;
-const DIRECTIONS: Readonly<Record<string, number>> = {
-  up: 1,
-  "up-right": 2,
-  right: 3,
-  "down-right": 4,
-  down: 5,
-  "down-left": 6,
-  left: 7,
-  "up-left": 8,
-};
 
 const DIRECTION_DELTAS: Readonly<Record<number, readonly [number, number]>> = {
   1: [0, -1],
@@ -111,6 +103,7 @@ class Simulation {
   readonly answers: string[] = [];
   readonly steps: Record<string, unknown>[] = [];
   readonly checkpoints: CapturedCheckpoint[] = [];
+  readonly actionHistory: string[] = [];
   cycles = 0;
   readonly cycleBudget: number;
   private readonly started = Date.now();
@@ -120,6 +113,12 @@ class Simulation {
   /** Keys the simulation pressed for a blocking wait; only genesis boots allow that. */
   keyPresses = 0;
   private recordedCalls: RecordedHostCall[] | null = null;
+  navigationFailureTarget: Target | null = null;
+
+  recordAction(actionStr: string): void {
+    if (this.actionHistory.length >= 32) this.actionHistory.shift();
+    this.actionHistory.push(actionStr);
+  }
   constructor(
     state: AgentSessionState,
     cycleBudget = DEFAULT_CYCLES,
@@ -353,6 +352,26 @@ class Simulation {
         png: checkpointSheet.png,
         caption: `${this.checkpoints.length} requested intermediate composed frame${this.checkpoints.length === 1 ? "" : "s"} in row-major order (${checkpointSheet.grid.cols} columns by ${checkpointSheet.grid.rows} rows). Tile timing and object state are listed in details.checkpoints.`,
       });
+    if (!success && this.navigationFailureTarget) {
+      try {
+        const navState = {
+          engine,
+          state: () => ({
+            room: engine.vars[0]!,
+            x: engine.screenObjects[0]!.x,
+            y: engine.screenObjects[0]!.y,
+          }),
+        };
+        const snapshot = renderNavigationSnapshot(navState, this.navigationFailureTarget);
+        images.push({
+          png: snapshot.png,
+          caption:
+            "Navigation diagnostic: left=visual, right=EGA priority/control plane (red=barrier, white=conditional barrier, magenta=trigger, cyan=water, orange=objects, blue=ego baseline, green=target, yellow=candidate path; grid every 10 pixels).",
+        });
+      } catch {
+        // Fall back gracefully if snapshot generation cannot run
+      }
+    }
     return {
       success,
       ...(error
@@ -392,6 +411,7 @@ class Simulation {
         messages: this.messages,
         text: textRows(frame).filter((row) => row.trim()),
         checkpoints,
+        recentActions: this.actionHistory.slice(-5),
         ...extra,
       },
       images,
@@ -403,6 +423,12 @@ function integer(value: unknown, label: string, min: number, max: number): numbe
   if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max)
     throw new Error(`${label} must be an integer from ${min} to ${max}.`);
   return value;
+}
+
+function object(value: unknown, label: string): Record<string, unknown> {
+  if (value == null || typeof value !== "object" || Array.isArray(value))
+    throw new Error(`${label} must be an object.`);
+  return value as Record<string, unknown>;
 }
 
 /** Validate the actor's entire AGI baseline, dimensions, horizon and object overlaps. */
@@ -532,6 +558,19 @@ export function playtestRoom(
           );
         return 0;
       }
+      if (action["action"] === "walkWaypoints") {
+        const waypoints = action["waypoints"];
+        return action["ticks"] == null
+          ? Array.isArray(waypoints)
+            ? Math.max(600, waypoints.length * 300)
+            : 1200
+          : integer(action["ticks"], `steps[${index}].ticks`, 1, 60000);
+      }
+      if (action["action"] === "walkPath") {
+        return action["ticks"] == null
+          ? 1200
+          : integer(action["ticks"], `steps[${index}].ticks`, 1, 60000);
+      }
       return action["ticks"] == null
         ? action["action"] === "walkTo" || (action["action"] === "wait" && action["until"] != null)
           ? 600
@@ -639,6 +678,9 @@ export function playtestRoom(
       const action = step["action"];
       let moveDirection: number | null = null;
       let walkTarget: { x: number; y: number } | null = null;
+      let walkTargetRect: Target | null = null;
+      let walkWaypointsList: { x: number; y: number }[] | null = null;
+      let currentWaypointIndex = 0;
       let until: UntilPredicate | null = null;
       if (
         (engine.modalKind || engine.continuationPending) &&
@@ -649,10 +691,14 @@ export function playtestRoom(
         while (engine.modalKind) engine.ackPrint();
         if (engine.continuationPending) simulation.tick();
       }
-      if (action === "enter") simulation.keys.push(AGI_KEY.ENTER);
-      else if (action === "key")
-        simulation.keys.push(integer(step["key"], `steps[${index}].key`, 0, 65535));
-      else if (action === "command") {
+      if (action === "enter") {
+        simulation.keys.push(AGI_KEY.ENTER);
+        simulation.recordAction("enter");
+      } else if (action === "key") {
+        const code = integer(step["key"], `steps[${index}].key`, 0, 65535);
+        simulation.keys.push(code);
+        simulation.recordAction(`key(${code})`);
+      } else if (action === "command") {
         if (
           typeof step["command"] !== "string" ||
           !step["command"].trim() ||
@@ -660,25 +706,91 @@ export function playtestRoom(
         )
           throw new Error(`steps[${index}].command must be nonempty and at most 80 characters.`);
         simulation.line = step["command"];
-      } else if (action === "move") {
-        const direction =
-          typeof step["direction"] === "string" ? DIRECTIONS[step["direction"]] : undefined;
-        if (!direction)
+        simulation.recordAction(`command("${step["command"]}")`);
+      } else if (action === "move" || action === "direction") {
+        const raw = step["direction"];
+        let dir: number | undefined;
+        if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0 && raw <= 8) {
+          dir = raw;
+        } else if (typeof raw === "string") {
+          dir = DIRECTION_SYNONYMS[raw.trim().toLowerCase()];
+        }
+        if (dir === undefined) {
           throw new Error(
-            `steps[${index}].direction must name one of the eight compass directions.`,
+            `steps[${index}].direction must name a compass direction or an integer from 0 to 8.`,
           );
-        // Same host movement input as the app's direction messages.
-        moveDirection = direction;
-        engine.vars[6] = direction;
-      } else if (action === "direction") {
-        // The numeric form of move: 0..8, one heading decision per cycle.
-        moveDirection = integer(step["direction"], `steps[${index}].direction`, 0, 8);
-        engine.vars[6] = moveDirection;
+        }
+        moveDirection = dir;
+        engine.vars[6] = dir;
+        simulation.recordAction(`direction(${dir})`);
       } else if (action === "walkTo") {
         walkTarget = {
           x: integer(step["x"], `steps[${index}].x`, 0, 159),
           y: integer(step["y"], `steps[${index}].y`, 0, 167),
         };
+        simulation.recordAction(`walkTo(${walkTarget.x},${walkTarget.y})`);
+        const navState = {
+          engine,
+          state: () => ({
+            room: engine.vars[0]!,
+            x: engine.screenObjects[0]!.x,
+            y: engine.screenObjects[0]!.y,
+          }),
+        };
+        const plan = planWalk(navState, {
+          x0: walkTarget.x,
+          x1: walkTarget.x,
+          y0: walkTarget.y,
+          y1: walkTarget.y,
+        });
+        walkWaypointsList = plan.found ? plan.waypoints : [{ x: walkTarget.x, y: walkTarget.y }];
+      } else if (action === "walkWaypoints") {
+        const rawWps = step["waypoints"];
+        if (!Array.isArray(rawWps) || !rawWps.length)
+          throw new Error(`steps[${index}].waypoints must be a non-empty array of coordinates.`);
+        walkWaypointsList = rawWps.map((p, i) => {
+          if (Array.isArray(p) && p.length === 2) {
+            return {
+              x: integer(p[0], `steps[${index}].waypoints[${i}][0]`, 0, 159),
+              y: integer(p[1], `steps[${index}].waypoints[${i}][1]`, 0, 167),
+            };
+          }
+          const pt = object(p, `steps[${index}].waypoints[${i}]`);
+          return {
+            x: integer(pt["x"], `steps[${index}].waypoints[${i}].x`, 0, 159),
+            y: integer(pt["y"], `steps[${index}].waypoints[${i}].y`, 0, 167),
+          };
+        });
+        simulation.recordAction(`walkWaypoints(${walkWaypointsList.length} pts)`);
+      } else if (action === "walkPath") {
+        const rawTarget = object(step["target"], `steps[${index}].target`);
+        walkTargetRect = {
+          x0: integer(rawTarget["x0"], `steps[${index}].target.x0`, 0, 159),
+          y0: integer(rawTarget["y0"], `steps[${index}].target.y0`, 0, 167),
+          x1: integer(rawTarget["x1"], `steps[${index}].target.x1`, 0, 159),
+          y1: integer(rawTarget["y1"], `steps[${index}].target.y1`, 0, 167),
+        };
+        validateTarget(walkTargetRect);
+        simulation.recordAction(
+          `walkPath(${walkTargetRect.x0}..${walkTargetRect.x1},${walkTargetRect.y0}..${walkTargetRect.y1})`,
+        );
+        const navState = {
+          engine,
+          state: () => ({
+            room: engine.vars[0]!,
+            x: engine.screenObjects[0]!.x,
+            y: engine.screenObjects[0]!.y,
+          }),
+        };
+        const plan = planWalk(navState, walkTargetRect);
+        if (!plan.found) {
+          simulation.navigationFailureTarget = walkTargetRect;
+          const walker = engine.screenObjects[0]!;
+          throw new Error(
+            `steps[${index}]: walkPath found no passable route to target (${walkTargetRect.x0}..${walkTargetRect.x1},${walkTargetRect.y0}..${walkTargetRect.y1}); ego is at (${walker.x},${walker.y}).`,
+          );
+        }
+        walkWaypointsList = plan.waypoints;
       } else if (action === "answer") {
         if (
           typeof step["answer"] !== "string" ||
@@ -687,12 +799,14 @@ export function playtestRoom(
         )
           throw new Error(`steps[${index}].answer must be nonempty and at most 80 characters.`);
         simulation.answers.push(step["answer"]);
+        simulation.recordAction(`answer("${step["answer"]}")`);
       } else if (action === "wait") {
         if (step["until"] != null)
           until = validateUntilPredicate(step["until"], `steps[${index}].until`);
+        simulation.recordAction(until ? `wait(${describeUntil(until)})` : `wait(${ticks}t)`);
       } else
         throw new Error(
-          `steps[${index}].action must be command, move, enter, wait, key, direction, walkTo or answer.`,
+          `steps[${index}].action must be command, move, enter, wait, key, direction, walkTo, walkWaypoints, walkPath or answer.`,
         );
       const observed: Record<string, unknown> = {
         index,
@@ -706,6 +820,9 @@ export function playtestRoom(
       if (action === "move" || action === "direction") observed["direction"] = step["direction"];
       if (action === "key") observed["key"] = step["key"];
       if (walkTarget !== null) observed["walkTo"] = walkTarget;
+      if (walkWaypointsList !== null && action === "walkWaypoints")
+        observed["walkWaypoints"] = walkWaypointsList;
+      if (walkTargetRect !== null) observed["walkPath"] = walkTargetRect;
       if (action === "answer") observed["answer"] = step["answer"];
       if (until !== null) observed["until"] = until;
       simulation.steps.push(observed);
@@ -745,15 +862,47 @@ export function playtestRoom(
               "needs_input",
             );
         }
-        if (walkTarget !== null) {
+        if (walkTargetRect !== null) {
           const walker = engine.screenObjects[0]!;
-          const dx = Math.sign(walkTarget.x - walker.x);
-          const dy = Math.sign(walkTarget.y - walker.y);
-          if (dx === 0 && dy === 0) {
+          if (
+            walker.x >= walkTargetRect.x0 &&
+            walker.x <= walkTargetRect.x1 &&
+            walker.y >= walkTargetRect.y0 &&
+            walker.y <= walkTargetRect.y1
+          ) {
             reachedTarget = true;
             break;
           }
-          engine.vars[6] = directionForDelta(dx, dy);
+        }
+        if (walkWaypointsList !== null) {
+          const walker = engine.screenObjects[0]!;
+          while (
+            currentWaypointIndex < walkWaypointsList.length &&
+            walker.x === walkWaypointsList[currentWaypointIndex]!.x &&
+            walker.y === walkWaypointsList[currentWaypointIndex]!.y
+          ) {
+            currentWaypointIndex++;
+          }
+          if (currentWaypointIndex >= walkWaypointsList.length) {
+            if (walkTarget !== null) {
+              reachedTarget = walker.x === walkTarget.x && walker.y === walkTarget.y;
+            } else if (walkTargetRect !== null) {
+              reachedTarget =
+                walker.x >= walkTargetRect.x0 &&
+                walker.x <= walkTargetRect.x1 &&
+                walker.y >= walkTargetRect.y0 &&
+                walker.y <= walkTargetRect.y1;
+            } else {
+              reachedTarget = true;
+            }
+            if (reachedTarget) break;
+          } else {
+            const wp = walkWaypointsList[currentWaypointIndex]!;
+            engine.vars[6] = directionForDelta(
+              Math.sign(wp.x - walker.x),
+              Math.sign(wp.y - walker.y),
+            );
+          }
         }
         simulation.tick();
         observed["completedTicks"] = cycle + 1;
@@ -770,17 +919,58 @@ export function playtestRoom(
         }
         if (captureTicks.includes(cycle + 1)) simulation.captureCheckpoint(index, cycle + 1);
       }
-      if (walkTarget !== null) {
+      if (walkWaypointsList !== null) {
         engine.vars[6] = 0;
         engine.screenObjects[0]!.direction = 0;
         const walker = engine.screenObjects[0]!;
-        reachedTarget ||= walker.x === walkTarget.x && walker.y === walkTarget.y;
-        observed["walkTo"] = { ...walkTarget, reached: reachedTarget };
-        if (!reachedTarget) {
-          const walker = engine.screenObjects[0]!;
-          throw new Error(
-            `steps[${index}]: walkTo did not reach (${walkTarget.x},${walkTarget.y}) within ${ticks} cycles; ego stopped at (${walker.x},${walker.y}).`,
-          );
+        if (walkTarget !== null) {
+          reachedTarget ||= walker.x === walkTarget.x && walker.y === walkTarget.y;
+          observed["walkTo"] = { ...walkTarget, reached: reachedTarget };
+          if (!reachedTarget) {
+            simulation.navigationFailureTarget = {
+              x0: walkTarget.x,
+              y0: walkTarget.y,
+              x1: walkTarget.x,
+              y1: walkTarget.y,
+            };
+            throw new Error(
+              `steps[${index}]: walkTo did not reach (${walkTarget.x},${walkTarget.y}) within ${ticks} cycles; ego stopped at (${walker.x},${walker.y}).`,
+            );
+          }
+        } else if (walkTargetRect !== null) {
+          reachedTarget ||=
+            walker.x >= walkTargetRect.x0 &&
+            walker.x <= walkTargetRect.x1 &&
+            walker.y >= walkTargetRect.y0 &&
+            walker.y <= walkTargetRect.y1;
+          observed["walkPath"] = { target: walkTargetRect, reached: reachedTarget };
+          if (!reachedTarget) {
+            simulation.navigationFailureTarget = walkTargetRect;
+            throw new Error(
+              `steps[${index}]: walkPath did not reach target rectangle (${walkTargetRect.x0}..${walkTargetRect.x1},${walkTargetRect.y0}..${walkTargetRect.y1}) within ${ticks} cycles; ego stopped at (${walker.x},${walker.y}).`,
+            );
+          }
+        } else if (action === "walkWaypoints") {
+          reachedTarget ||= currentWaypointIndex >= walkWaypointsList.length;
+          observed["walkWaypoints"] = {
+            totalWaypoints: walkWaypointsList.length,
+            completedWaypoints: currentWaypointIndex,
+            reached: reachedTarget,
+          };
+          if (!reachedTarget) {
+            const currentWp =
+              walkWaypointsList[currentWaypointIndex] ??
+              walkWaypointsList[walkWaypointsList.length - 1]!;
+            simulation.navigationFailureTarget = {
+              x0: currentWp.x,
+              y0: currentWp.y,
+              x1: currentWp.x,
+              y1: currentWp.y,
+            };
+            throw new Error(
+              `steps[${index}]: walkWaypoints did not complete all ${walkWaypointsList.length} waypoints within ${ticks} cycles; stopped at (${walker.x},${walker.y}) on waypoint ${currentWaypointIndex + 1}.`,
+            );
+          }
         }
       }
       if (action === "wait" && until !== null && !untilMet(engine, until))
@@ -857,6 +1047,12 @@ export function playtestRoom(
       if (assertions["room"] != null) {
         const wanted = integer(assertions["room"], "expect.room", 0, 255);
         if (engine.vars[0] !== wanted) {
+          const lastMove = simulation.steps[simulation.steps.length - 1]?.["movement"] as
+            Record<string, unknown> | undefined;
+          if (lastMove?.["blockedAtEnd"] && lastMove["attemptedBaseline"]) {
+            const b = lastMove["attemptedBaseline"] as { x0: number; y: number; x1: number };
+            simulation.navigationFailureTarget = { x0: b.x0, y0: b.y, x1: b.x1, y1: b.y };
+          }
           failures.push(`Expected room ${wanted}; observed room ${engine.vars[0]}.`);
           nextSteps.push(
             "Use read_room_context to inspect the exit logic and priority/control plane. For edge exits, check ego boundary variable v2, horizon, footprint and blocking pixels; for portals, check the position condition that should call new.room. Replay the actual movement after repair.",
@@ -987,15 +1183,52 @@ export function playtestRoom(
         const reachX = integer(target["x"], "expect.reachable.x", 0, 159);
         const reachY = integer(target["y"], "expect.reachable.y", 0, 167);
         let reached = false;
+        const navState = {
+          engine,
+          state: () => ({
+            room: engine.vars[0]!,
+            x: engine.screenObjects[0]!.x,
+            y: engine.screenObjects[0]!.y,
+          }),
+        };
+        let waypoints: Array<{ x: number; y: number }> = [{ x: reachX, y: reachY }];
+        try {
+          const plan = planWalk(navState, { x0: reachX, y0: reachY, x1: reachX, y1: reachY });
+          if (plan.found && plan.waypoints.length > 0) {
+            waypoints = plan.waypoints;
+          }
+        } catch {
+          // If ego is uninitialized or planWalk cannot run, fall back to direct walk
+        }
+        let currentWpIndex = 0;
         for (let n = 0; n < 600 && !reached && simulation.cycles < simulation.cycleBudget; n++) {
           const walker = engine.screenObjects[0]!;
-          const dx = Math.sign(reachX - walker.x);
-          const dy = Math.sign(reachY - walker.y);
-          if (dx === 0 && dy === 0) {
+          if (walker.x === reachX && walker.y === reachY) {
             reached = true;
             break;
           }
-          engine.vars[6] = directionForDelta(dx, dy);
+          while (
+            currentWpIndex < waypoints.length &&
+            walker.x === waypoints[currentWpIndex]!.x &&
+            walker.y === waypoints[currentWpIndex]!.y
+          ) {
+            currentWpIndex++;
+          }
+          if (currentWpIndex < waypoints.length) {
+            const wp = waypoints[currentWpIndex]!;
+            engine.vars[6] = directionForDelta(
+              Math.sign(wp.x - walker.x),
+              Math.sign(wp.y - walker.y),
+            );
+          } else {
+            const dx = Math.sign(reachX - walker.x);
+            const dy = Math.sign(reachY - walker.y);
+            if (dx === 0 && dy === 0) {
+              reached = true;
+              break;
+            }
+            engine.vars[6] = directionForDelta(dx, dy);
+          }
           simulation.tick();
         }
         engine.vars[6] = 0;
@@ -1003,6 +1236,12 @@ export function playtestRoom(
         const finalWalker = engine.screenObjects[0]!;
         reached ||= finalWalker.x === reachX && finalWalker.y === reachY;
         if (!reached) {
+          simulation.navigationFailureTarget = {
+            x0: reachX,
+            y0: reachY,
+            x1: reachX,
+            y1: reachY,
+          };
           const walker = engine.screenObjects[0]!;
           failures.push(
             `Expected (${reachX},${reachY}) reachable on foot; ego stopped at (${walker.x},${walker.y}).`,
