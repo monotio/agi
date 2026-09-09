@@ -1087,6 +1087,13 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     w.onmessage = (ev: MessageEvent) => {
       if (worker !== w) return;
       const msg = ev.data;
+      if (
+        typeof msg.sessionId === "number" &&
+        msg.sessionId > 0 &&
+        msg.sessionId !== activeWalkthroughSession
+      ) {
+        return;
+      }
       if (msg.type === "keyAccepted") {
         pendingKeys.delete(Number(msg.id));
       } else if (msg.type === "frame") {

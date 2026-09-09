@@ -44,7 +44,12 @@ import { OperationRecorder } from "../../src/agent/recordedReplay.ts";
 import type { RecordedEvent } from "./gameRecording.ts";
 import { Engine, type EngineHost, type EngineMenuState } from "../../src/runtime/engine.ts";
 import { AGI_KEY, DIRECTION_KEYS, NAV_KEYS } from "../../src/runtime/keys.ts";
-import { BRIDGE_HEADER_BYTES, BRIDGE_PAUSE_SLOT } from "./agent/sabBridge.ts";
+import {
+  BRIDGE_HEADER_BYTES,
+  BRIDGE_PAUSE_SLOT,
+  BRIDGE_STATE_CANCELLED,
+  WorkerBridgeAbortError,
+} from "./agent/sabBridge.ts";
 import { FrameRing } from "./frameRing.ts";
 import { CycleClock } from "../../src/runtime/cycleClock.ts";
 import { SoundClock } from "./soundClock.ts";
@@ -103,11 +108,17 @@ let isSeeking = false;
 let currentSessionId = 0;
 
 function sendControl(message: unknown, options?: unknown): void {
+  if (message && typeof message === "object" && currentSessionId > 0 && !("sessionId" in message)) {
+    (message as Record<string, unknown>)["sessionId"] = currentSessionId;
+  }
   self.postMessage(message, options as StructuredSerializeOptions);
 }
 
 function sendPresentation(message: unknown, options?: unknown): void {
   if (isSeeking) return;
+  if (message && typeof message === "object" && currentSessionId > 0 && !("sessionId" in message)) {
+    (message as Record<string, unknown>)["sessionId"] = currentSessionId;
+  }
   self.postMessage(message, options as StructuredSerializeOptions);
 }
 
@@ -329,9 +340,9 @@ function bridgeCall(op: string, context: string): string {
     for (;;) {
       const state = Atomics.load(bridge.i32, 0);
       if (state === 2) break;
-      if (state === 4) {
+      if (state === BRIDGE_STATE_CANCELLED) {
         Atomics.store(bridge.i32, 0, 0);
-        throw new Error("Worker bridge call cancelled");
+        throw new WorkerBridgeAbortError();
       }
       // Timer callbacks cannot run inside Atomics.wait. Wake once per sound
       // interval so host prompts keep producing audio and completion flags.
@@ -729,8 +740,11 @@ function startTimers(): void {
         }
         if (Date.now() - lastAutosaveAt >= autosaveIntervalMs) autosave(false);
       } catch (e) {
-        sendControl({ type: "error", message: String(e) });
         stopTimers();
+        if (e instanceof WorkerBridgeAbortError) {
+          return;
+        }
+        sendControl({ type: "error", message: String(e) });
       }
     }, HOST_POLL_MS) as unknown as number;
   }
@@ -749,16 +763,25 @@ self.onmessage = (ev: MessageEvent) => {
       isSeeking = seeking;
       replayRequest = Number(msg.id);
       replay.yielded = false;
-      for (let i = 0; i < ticks; i++) {
-        replay.tick++;
-        recordedClock();
-        if (engine.modalKind !== null || engine.continuationPending) tickEngine();
-        else if (cycleClock.poll((replay.tick * 1000) / 60, engine.vars[10]!)) {
-          flushDeferredMovement();
-          tickEngine();
-          cycleCount++;
+      try {
+        for (let i = 0; i < ticks; i++) {
+          replay.tick++;
+          recordedClock();
+          if (engine.modalKind !== null || engine.continuationPending) tickEngine();
+          else if (cycleClock.poll((replay.tick * 1000) / 60, engine.vars[10]!)) {
+            flushDeferredMovement();
+            tickEngine();
+            cycleCount++;
+          }
+          if (replay.yielded) break;
         }
-        if (replay.yielded) break;
+      } catch (e) {
+        if (e instanceof WorkerBridgeAbortError) {
+          isSeeking = false;
+          replayRequest = null;
+          return;
+        }
+        throw e;
       }
       if (!seeking || renderFinal) {
         isSeeking = false;
@@ -957,6 +980,7 @@ self.onmessage = (ev: MessageEvent) => {
     }
     if (msg.type === "exitReplay") {
       replay = null;
+      currentSessionId = 0;
       isSeeking = false;
       soundClock.reset(performance.now());
       cycleClock.reset(performance.now());
@@ -1129,6 +1153,9 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
   } catch (e) {
+    if (e instanceof WorkerBridgeAbortError) {
+      return;
+    }
     sendControl({ type: "error", message: String(e) });
   }
 };

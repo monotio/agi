@@ -468,4 +468,53 @@ test.describe("Walkthrough UI", () => {
         soundPlaying: false,
       });
   });
+
+  test("scrubbing back and forth in kq1 during dialogue does not throw bridge cancellation error", async ({
+    page,
+  }) => {
+    test.skip(Boolean(missing), missing || "");
+    await isolateStorage(page);
+    await page.goto("/");
+
+    const menuBtn = page.getByTestId("game-actions-kq1");
+    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
+    await menuBtn.click();
+
+    const runBtn = page.getByTestId("run-walkthrough");
+    await expect(runBtn).toBeVisible();
+    await runBtn.click();
+
+    const timeline = page.getByTestId("walkthrough-timeline");
+    await expect(timeline).toBeVisible({ timeout: 15_000 });
+
+    const box = await timeline.boundingBox();
+    if (box) {
+      // Rapidly scrub forward and backward multiple times while King Edward dialogue is active
+      await page.mouse.move(box.x + box.width * 0.05, box.y + box.height * 0.5);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width * 0.1, box.y + box.height * 0.5);
+      await page.mouse.move(box.x + box.width * 0.02, box.y + box.height * 0.5);
+      await page.mouse.move(box.x + box.width * 0.08, box.y + box.height * 0.5);
+      await page.mouse.move(box.x + box.width * 0.03, box.y + box.height * 0.5);
+      await page.mouse.up();
+    }
+
+    // Verify engine stays running or playing without error or aborting to main menu
+    await expect
+      .poll(
+        async () => {
+          return page.evaluate(() => ({
+            phase: window.__AGI_STATE__?.phase,
+            walkthroughError: window.__AGI_STATE__?.walkthrough.error,
+            engineError: window.__AGI_STATE__?.error,
+          }));
+        },
+        { timeout: 15_000 },
+      )
+      .toEqual({
+        phase: "running",
+        walkthroughError: "",
+        engineError: "",
+      });
+  });
 });

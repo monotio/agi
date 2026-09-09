@@ -69,6 +69,13 @@ export const BRIDGE_STATE_RESPONSE = 2;
 export const BRIDGE_STATE_CLAIMED = 3;
 export const BRIDGE_STATE_CANCELLED = 4;
 
+export class WorkerBridgeAbortError extends Error {
+  constructor(message = "Worker bridge call cancelled") {
+    super(message);
+    this.name = "WorkerBridgeAbortError";
+  }
+}
+
 export function createBridge(handler: AgentHandler, onEvent: AgentEventSink): Bridge {
   const sab = new SharedArrayBuffer(BRIDGE_HEADER_BYTES + 4 * 1024 * 1024);
   const i32 = new Int32Array(sab, 0, 4);
