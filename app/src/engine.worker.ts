@@ -1128,6 +1128,14 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "direction" && engine) {
+      if (
+        replay &&
+        typeof msg.sessionId === "number" &&
+        msg.sessionId !== 0 &&
+        msg.sessionId !== currentSessionId
+      ) {
+        return;
+      }
       const dir = Number(msg.dir) & 0xff;
       if (dir === 0) {
         // The main thread captures the gate even while save/restore blocks us.

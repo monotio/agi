@@ -250,7 +250,10 @@ export async function removeLibraryGame(slug: string): Promise<void> {
   clearGameSaves(localStorage, slug);
 }
 
-export function useEngine(onFrame: (frame: Frame) => void) {
+export function useEngine(
+  onFrame: (frame: Frame) => void,
+  engineOptions?: { onResetControls?: () => void },
+) {
   const audio = new AgiAudio();
 
   const state = reactive<EngineState>({
@@ -383,7 +386,13 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         ...(options?.seeking !== undefined ? { seeking: options.seeking } : {}),
         ...(options?.renderFinal !== undefined ? { renderFinal: options.renderFinal } : {}),
       }),
-    waitForRevision: (minRevision: number, opts?: { unblocked?: boolean }) => {
+    pollNow: () => {
+      bridge?.pollNow();
+    },
+    waitForRevision: (
+      minRevision: number,
+      opts?: { unblocked?: boolean; signal?: AbortSignal | undefined },
+    ) => {
       const requireUnblocked = opts?.unblocked ?? false;
       const matches = (obs: ReplayObservation | null) =>
         obs !== null && obs.revision > minRevision && (!requireUnblocked || obs.blocked === null);
@@ -391,8 +400,20 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         return Promise.resolve(replayDriver.latest!);
       }
       return new Promise<ReplayObservation>((resolve, reject) => {
+        const onAbort = () => {
+          clearTimeout(timer);
+          observationListeners.delete(listener);
+          opts?.signal?.removeEventListener("abort", onAbort);
+          reject(new DOMException("Replay revision wait aborted", "AbortError"));
+        };
+        if (opts?.signal?.aborted) {
+          onAbort();
+          return;
+        }
+        opts?.signal?.addEventListener("abort", onAbort, { once: true });
         const timer = setTimeout(() => {
           observationListeners.delete(listener);
+          opts?.signal?.removeEventListener("abort", onAbort);
           reject(
             new Error(
               `Timeout waiting for revision > ${minRevision} (current: ${replayDriver.latest?.revision})`,
@@ -402,6 +423,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         const listener = (obs: ReplayObservation) => {
           if (matches(obs)) {
             clearTimeout(timer);
+            opts?.signal?.removeEventListener("abort", onAbort);
             observationListeners.delete(listener);
             resolve(obs);
           }
@@ -850,6 +872,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     state.recording.active = false;
     state.recording.starting = false;
     state.recording.error = "";
+    state.walkthrough.error = "";
     audio.setPaused(false);
     state.paused = false;
     state.resumed = false;
@@ -1907,7 +1930,12 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   }
 
   function sendDirection(dir: number): void {
-    worker?.postMessage({ type: "direction", dir, releaseEligible: state.holdToMove });
+    worker?.postMessage({
+      type: "direction",
+      dir,
+      releaseEligible: state.holdToMove,
+      ...(activeWalkthroughSession > 0 ? { sessionId: activeWalkthroughSession } : {}),
+    });
   }
 
   function sendKey(code: number): void {
@@ -2133,8 +2161,17 @@ export function useEngine(onFrame: (frame: Frame) => void) {
     slug: string,
     options?: { speed?: number; initialTick?: number; keepPaused?: boolean } | number,
   ): Promise<void> {
+    if (walkthroughAbortController) {
+      walkthroughAbortController.abort();
+      walkthroughAbortController = null;
+    }
+    cancelPendingBridgeWaits();
+    drainPendingQueries(new DOMException("Walkthrough reset", "AbortError"));
+    engineOptions?.onResetControls?.();
+
     const sessionId = ++activeWalkthroughSession;
     replayDriver.sessionId = sessionId;
+    state.walkthrough.error = "";
 
     // Load artifact (memoized with validation and failure eviction)
     const artifact = await loadWalkthrough(slug);
@@ -2146,15 +2183,8 @@ export function useEngine(onFrame: (frame: Frame) => void) {
       return;
     }
 
-    if (walkthroughAbortController) {
-      walkthroughAbortController.abort();
-      walkthroughAbortController = null;
-    }
     const abortController = new AbortController();
     walkthroughAbortController = abortController;
-
-    cancelPendingBridgeWaits();
-    drainPendingQueries(new DOMException("Walkthrough reset", "AbortError"));
 
     const speed =
       typeof options === "number" ? options : (options?.speed ?? state.walkthrough.speed ?? 1);
@@ -2417,14 +2447,16 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   }
 
   async function stopWalkthrough(takeControl = false): Promise<void> {
-    activeWalkthroughSession++;
     if (walkthroughAbortController) {
       walkthroughAbortController.abort();
       walkthroughAbortController = null;
     }
     cancelPendingBridgeWaits();
     drainPendingQueries(new DOMException("Walkthrough stopped", "AbortError"));
+    engineOptions?.onResetControls?.();
+    activeWalkthroughSession++;
     state.walkthrough.active = false;
+    state.walkthrough.error = "";
     activeReplaySeed = null;
     seekTargetTick = null;
     state.walkthrough.seeking = false;
@@ -2442,7 +2474,8 @@ export function useEngine(onFrame: (frame: Frame) => void) {
 
   async function seekToTick(targetTick: number, options?: { keepPaused?: boolean }): Promise<void> {
     const clamped = Math.max(0, Math.min(state.walkthrough.totalTicks, Math.round(targetTick)));
-    const currentTick = state.walkthrough.tick;
+    const engineTick = replayDriver.latest?.tick ?? state.walkthrough.tick;
+    const currentTick = Math.max(state.walkthrough.tick, engineTick);
     const currentSlug = state.walkthrough.slug;
     if (!currentSlug || !state.walkthrough.active) return;
     const wasPaused = options?.keepPaused ?? state.walkthrough.status === "paused";

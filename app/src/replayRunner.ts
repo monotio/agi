@@ -218,7 +218,7 @@ export async function runReplayBatch(
   async function resumed(before: ReplayObservation): Promise<void> {
     if (!before.blocked) return;
     if (driver.waitForRevision) {
-      await driver.waitForRevision(before.revision, { unblocked: true });
+      await driver.waitForRevision(before.revision, { unblocked: true, signal: options?.signal });
     } else {
       const start = Date.now();
       while (
@@ -344,6 +344,30 @@ export async function runReplayBatch(
     }
   }
 
+  async function waitForPromptReady(before: ReplayObservation): Promise<void> {
+    if (!before.blocked || before.blocked === "waitkey") return;
+    const start = Date.now();
+    while (isRunActive()) {
+      checkAborted();
+      driver.pollNow?.();
+      const agiState = (window as unknown as { __AGI_STATE__?: { prompt: unknown } }).__AGI_STATE__;
+      const promptReady = agiState ? agiState.prompt !== null : true;
+      if (promptReady) {
+        if (isSeeking()) {
+          // While seeking, screen captions are suppressed in the DOM to prevent thrashing.
+          return;
+        }
+        if (document.querySelector('[data-testid="prompt-hint"]')) {
+          return;
+        }
+      }
+      if (Date.now() - start > 10_000) {
+        throw new Error("Timeout waiting for prompt-hint to appear in DOM");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
   async function key(code: number): Promise<void> {
     checkAborted();
     const before = driver.latest;
@@ -358,16 +382,7 @@ export async function runReplayBatch(
     // A held walking pointer must end before the pad can accept dialog taps.
     if (before.state.modalKind !== null) releaseDirection();
 
-    if (before.blocked && before.blocked !== "waitkey") {
-      const start = Date.now();
-      while (!document.querySelector('[data-testid="prompt-hint"]')) {
-        checkAborted();
-        if (Date.now() - start > 10_000) {
-          throw new Error("Timeout waiting for prompt-hint to appear in DOM");
-        }
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
-    }
+    await waitForPromptReady(before);
     checkAborted();
 
     if (before.releaseGate !== 0 && REPLAY_DIRECTIONS[code] && before.state.modalKind === null) {
@@ -474,16 +489,7 @@ export async function runReplayBatch(
     checkAborted();
     const before = driver.latest;
     if (!before) throw new Error("No replay observation available before text");
-    if (before.blocked && before.blocked !== "waitkey") {
-      const start = Date.now();
-      while (!document.querySelector('[data-testid="prompt-hint"]')) {
-        checkAborted();
-        if (Date.now() - start > 10_000) {
-          throw new Error("Timeout waiting for prompt-hint to appear in DOM");
-        }
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
-    }
+    await waitForPromptReady(before);
     checkAborted();
     const input = document.querySelector<HTMLInputElement>('[data-testid="input-line"]');
     if (!input) throw new Error('Input element [data-testid="input-line"] not found');
@@ -691,9 +697,7 @@ export async function runReplayBatch(
     }
   } finally {
     if (heldDirection) {
-      if (isRunActive()) {
-        releaseDirection();
-      }
+      releaseDirection();
       heldDirection = null;
     }
   }

@@ -423,6 +423,182 @@ test.describe("Walkthrough UI", () => {
       .toBe(130);
   });
 
+  test("scrubs sq1 past name prompt and reaches Hallway checkpoint cleanly", async ({ page }) => {
+    const sq1Missing = fixtureSkip("sq1", ["AGIDATA.OVL"]);
+    test.skip(Boolean(sq1Missing), sq1Missing || "");
+    await isolateStorage(page);
+    await page.goto("/");
+
+    const menuBtn = page.getByTestId("game-actions-sq1");
+    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
+    await menuBtn.click();
+
+    const runBtn = page.getByTestId("run-walkthrough");
+    await expect(runBtn).toBeVisible();
+    await runBtn.click();
+
+    const timeline = page.getByTestId("walkthrough-timeline");
+    await expect(timeline).toBeVisible({ timeout: 15_000 });
+
+    const cpMarker = page.getByTestId("walkthrough-marker-1");
+    await expect(cpMarker).toBeVisible({ timeout: 10_000 });
+    await cpMarker.click();
+
+    // Verify seeking past prompt (Action 43 "ROGER") reaches room 1 without prompt-hint timeout
+    await expect
+      .poll(
+        async () => {
+          const res = await page.evaluate(() => ({
+            room: window.__AGI_STATE__?.walkthrough.room,
+            error: window.__AGI_STATE__?.walkthrough.error,
+          }));
+          if (res.error) throw new Error(`Walkthrough failed: ${res.error}`);
+          return res.room;
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(1);
+  });
+
+  test("scrubs mh1 past MAD terminal answers to Trinity Church checkpoint cleanly", async ({
+    page,
+  }) => {
+    const mh1Missing = fixtureSkip("mh1", ["AGIDATA.OVL"]);
+    test.skip(Boolean(mh1Missing), mh1Missing || "");
+    await isolateStorage(page);
+    await page.goto("/");
+
+    const menuBtn = page.getByTestId("game-actions-mh1");
+    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
+    await menuBtn.click();
+
+    const runBtn = page.getByTestId("run-walkthrough");
+    await expect(runBtn).toBeVisible();
+    await runBtn.click();
+
+    const timeline = page.getByTestId("walkthrough-timeline");
+    await expect(timeline).toBeVisible({ timeout: 15_000 });
+
+    const cpMarker = page.locator('.walkthrough-marker[title*="Trinity Church"]');
+    await expect(cpMarker).toBeVisible({ timeout: 10_000 });
+    await cpMarker.click();
+
+    // Verify seeking past MAD terminal answers (actions 166 and 170) reaches room 111 cleanly
+    await expect
+      .poll(
+        async () => {
+          const res = await page.evaluate(() => ({
+            room: window.__AGI_STATE__?.walkthrough.room,
+            error: window.__AGI_STATE__?.walkthrough.error,
+          }));
+          if (res.error) throw new Error(`Walkthrough failed: ${res.error}`);
+          return res.room;
+        },
+        { timeout: 45_000 },
+      )
+      .toBe(111);
+  });
+
+  test("seeking to 87% then backward seeking to 29% in mh1 avoids direction leakage and reaches Maze cleanly", async ({
+    page,
+  }) => {
+    const mh1Missing = fixtureSkip("mh1", ["AGIDATA.OVL"]);
+    test.skip(Boolean(mh1Missing), mh1Missing || "");
+    await isolateStorage(page);
+    await page.goto("/");
+
+    const menuBtn = page.getByTestId("game-actions-mh1");
+    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
+    await menuBtn.click();
+
+    const runBtn = page.getByTestId("run-walkthrough");
+    await expect(runBtn).toBeVisible();
+    await runBtn.click();
+
+    const timeline = page.getByTestId("walkthrough-timeline");
+    await expect(timeline).toBeVisible({ timeout: 15_000 });
+
+    const box = await timeline.boundingBox();
+    if (box) {
+      await page.mouse.click(box.x + box.width * 0.87, box.y + box.height * 0.5);
+    }
+
+    // Wait until 87% is reached (Sewers, room 128)
+    await expect
+      .poll(
+        async () => {
+          const res = await page.evaluate(() => ({
+            room: window.__AGI_STATE__?.walkthrough.room,
+            error: window.__AGI_STATE__?.walkthrough.error,
+          }));
+          if (res.error) throw new Error(`Walkthrough failed: ${res.error}`);
+          return res.room;
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(128);
+
+    // Wait for frame to render and settle
+    await page.waitForTimeout(1000);
+
+    // Now seek backward to 29% (Maze, room 126)
+    if (box) {
+      await page.mouse.click(box.x + box.width * 0.29, box.y + box.height * 0.5);
+    }
+
+    // Verify backward seek cleanly resets and reaches room 126 (Maze) without Bellevue Hospital failure
+    await expect
+      .poll(
+        async () => {
+          const res = await page.evaluate(() => ({
+            room: window.__AGI_STATE__?.walkthrough.room,
+            tick: window.__AGI_STATE__?.walkthrough.tick,
+            error: window.__AGI_STATE__?.walkthrough.error,
+          }));
+          if (res.error) throw new Error(`Walkthrough failed: ${res.error}`);
+          return res.room;
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(126);
+
+    // Seek forward again to 87% (Sewers)
+    if (box) {
+      await page.mouse.click(box.x + box.width * 0.87, box.y + box.height * 0.5);
+    }
+    await expect
+      .poll(
+        async () => {
+          const res = await page.evaluate(() => ({
+            room: window.__AGI_STATE__?.walkthrough.room,
+            error: window.__AGI_STATE__?.walkthrough.error,
+          }));
+          if (res.error) throw new Error(`Walkthrough failed: ${res.error}`);
+          return res.room;
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(128);
+
+    // Seek backward again to 29% (Maze)
+    if (box) {
+      await page.mouse.click(box.x + box.width * 0.29, box.y + box.height * 0.5);
+    }
+    await expect
+      .poll(
+        async () => {
+          const res = await page.evaluate(() => ({
+            room: window.__AGI_STATE__?.walkthrough.room,
+            error: window.__AGI_STATE__?.walkthrough.error,
+          }));
+          if (res.error) throw new Error(`Walkthrough failed: ${res.error}`);
+          return res.room;
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(126);
+  });
+
   test("dragging timeline thumb to the end of kq1 silences audio and stops playback cleanly", async ({
     page,
   }) => {

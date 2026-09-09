@@ -369,10 +369,17 @@ const {
   pauseEngine,
   resumeEngine,
   updateAiConfig,
-} = useEngine((frame) => {
-  lastFrame = frame;
-  present(frame);
-});
+} = useEngine(
+  (frame) => {
+    lastFrame = frame;
+    present(frame);
+  },
+  {
+    onResetControls: () => {
+      heldMovementKeys.clear();
+    },
+  },
+);
 
 const aiSettingsDialog = useTemplateRef("aiSettingsDialog");
 const aiSettingsSaving = ref(false);
@@ -1081,7 +1088,7 @@ function onScreenClick(): void {
     }
   }
   if (state.prompt) {
-    inputEl.value?.focus();
+    inputEl.value?.focus({ preventScroll: true });
     return;
   }
   // A tap (touch or pen) still advances title screens and acknowledges
@@ -1099,14 +1106,14 @@ function onScreenClick(): void {
     sendKey(0x000d);
     return;
   }
-  inputEl.value?.focus();
+  inputEl.value?.focus({ preventScroll: true });
 }
 watch(
   () => state.phase,
   (phase) => {
     if (phase === "running" && !touchControls.value) {
       nextTick(() => {
-        inputEl.value?.focus();
+        inputEl.value?.focus({ preventScroll: true });
       });
     }
   },
@@ -1152,7 +1159,7 @@ function triggerKey(code: number): void {
   resumeAudio();
   closeNavMenus();
   sendKey(code);
-  if (!touchControls.value) inputEl.value?.focus();
+  if (!touchControls.value) inputEl.value?.focus({ preventScroll: true });
 }
 
 /**
@@ -1165,11 +1172,12 @@ watch(
   () => state.prompt,
   (prompt) => {
     promptLine.value = "";
-    if (prompt) echoPrompt();
+    if (prompt && !state.walkthrough.seeking) echoPrompt();
   },
 );
 
 function echoPrompt(): void {
+  if (state.walkthrough.seeking) return;
   const prompt = state.prompt;
   if (!prompt || !lastFrame) return;
   const text = lastFrame.text.slice();
@@ -1367,7 +1375,7 @@ watch(
   async (open, wasOpen) => {
     await nextTick();
     if (open && creatingRoom.value) progressFeedEl.value?.focus({ preventScroll: true });
-    else if (!open && wasOpen && creatingRoom.value) inputEl.value?.focus();
+    else if (!open && wasOpen && creatingRoom.value) inputEl.value?.focus({ preventScroll: true });
   },
 );
 watch(progressFeedEl, (el) => {
@@ -1383,13 +1391,13 @@ async function onPowerUp(): Promise<void> {
   if (state.powerUp.busy) return;
   if (state.powerUp.open) {
     closePowerUp();
-    inputEl.value?.focus();
+    inputEl.value?.focus({ preventScroll: true });
     return;
   }
   powerUpLine.value = "";
   await openPowerUp(llmConfig());
   await nextTick();
-  powerUpEl.value?.focus();
+  powerUpEl.value?.focus({ preventScroll: true });
 }
 
 async function onPowerUpSubmit(): Promise<void> {
@@ -1398,10 +1406,10 @@ async function onPowerUpSubmit(): Promise<void> {
   followProgress.value = true;
   powerUpLine.value = "";
   await submitPowerUp(text);
-  if (!state.powerUp.open) inputEl.value?.focus();
+  if (!state.powerUp.open) inputEl.value?.focus({ preventScroll: true });
   else {
     await nextTick();
-    powerUpEl.value?.focus();
+    powerUpEl.value?.focus({ preventScroll: true });
   }
 }
 
@@ -1415,7 +1423,7 @@ function onPowerUpKey(ev: KeyboardEvent): void {
   ev.preventDefault();
   ev.stopPropagation();
   closePowerUp();
-  inputEl.value?.focus();
+  inputEl.value?.focus({ preventScroll: true });
 }
 
 function onGlobalKeydown(ev: KeyboardEvent): void {
@@ -1453,7 +1461,7 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
     if (ev.key === "Escape") {
       ev.preventDefault();
       closePowerUp();
-      if (!state.powerUp.open) inputEl.value?.focus();
+      if (!state.powerUp.open) inputEl.value?.focus({ preventScroll: true });
     }
     return;
   }
@@ -1557,7 +1565,7 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
       // so the same character landed twice (the "llook" after Start over).
       // No waitKey can be pending here: a blocking key wait sets
       // state.waitingForKey, handled by the raw-key branch above.
-      input?.focus();
+      input?.focus({ preventScroll: true });
       inputLine.value += ev.key;
       sendEdit(inputLine.value);
       ev.preventDefault();
@@ -1575,7 +1583,7 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
 function onGlobalKeyup(ev: KeyboardEvent): void {
   const physicalKey = ev.code && ev.code !== "Unidentified" ? ev.code : ev.key;
   if (!heldMovementKeys.delete(physicalKey)) return;
-  if (state.phase === "running") {
+  if (state.phase === "running" && (!state.walkthrough.active || !ev.isTrusted)) {
     sendDirection(0);
     ev.preventDefault();
   }
@@ -1693,7 +1701,7 @@ function onVirtualKey(code: number): void {
 }
 
 function releaseMovement(): void {
-  if (heldMovementKeys.size) sendDirection(0);
+  if (!state.walkthrough.active && heldMovementKeys.size) sendDirection(0);
   heldMovementKeys.clear();
 }
 
@@ -1701,7 +1709,7 @@ function onTakeControl(): void {
   releaseMovement();
   stopWalkthrough(true);
   nextTick(() => {
-    inputEl.value?.focus();
+    inputEl.value?.focus({ preventScroll: true });
   });
 }
 
@@ -1854,8 +1862,10 @@ function onTimelinePointerUp(ev: PointerEvent): void {
     isScrubbing.value = false;
     state.walkthrough.scrubbing = false;
     scrubPercent.value = undefined;
-    const targetTick = Math.round((finalPct / 100) * state.walkthrough.totalTicks);
-    void seekToTick(targetTick);
+    if (hasDraggedDuringScrub) {
+      const targetTick = Math.round((finalPct / 100) * state.walkthrough.totalTicks);
+      void seekToTick(targetTick);
+    }
   }
 }
 
@@ -3566,31 +3576,33 @@ watch(
         :hold="state.holdToMove"
         @direction="onTouchDirection"
         @key="onVirtualKey"
-        @keyboard="inputEl?.focus()"
+        @keyboard="inputEl?.focus({ preventScroll: true })"
       />
     </div>
-    <div v-if="state.phase === 'running' && !state.walkthrough.seeking" class="screen-captions">
-      <span v-if="state.resumed" class="caption resume-caption" data-testid="resume-caption">
-        Resumed where you left off
-      </span>
-      <span v-if="state.prompt" class="caption" data-testid="prompt-hint">
-        [ Type your answer on the screen, Enter to accept, Esc to cancel ]
-      </span>
-      <span v-else-if="state.textMode" class="caption" data-testid="text-mode-hint">
-        [ Use the keys requested by the game ]
-      </span>
-      <span v-else-if="hasKeyPrompt" class="caption" data-testid="title-prompt-hint">
-        [ {{ touchControls ? "Tap screen or press" : "Press" }} Enter / Space to start ]
-      </span>
-      <span v-else-if="state.modal === 'menu'" class="caption" data-testid="menu-hint">
-        [ Arrows to navigate, Enter to select, Esc to close ]
-      </span>
-      <span v-else-if="state.modal === 'inventory'" class="caption" data-testid="inventory-hint">
-        [ Arrows to select, Enter to choose, Esc to return ]
-      </span>
-      <span v-else-if="state.modal !== null" class="caption" data-testid="modal-hint">
-        [ Press Enter to continue ]
-      </span>
+    <div v-if="state.phase === 'running'" class="screen-captions">
+      <template v-if="!state.walkthrough.seeking">
+        <span v-if="state.resumed" class="caption resume-caption" data-testid="resume-caption">
+          Resumed where you left off
+        </span>
+        <span v-if="state.prompt" class="caption" data-testid="prompt-hint">
+          [ Type your answer on the screen, Enter to accept, Esc to cancel ]
+        </span>
+        <span v-else-if="state.textMode" class="caption" data-testid="text-mode-hint">
+          [ Use the keys requested by the game ]
+        </span>
+        <span v-else-if="hasKeyPrompt" class="caption" data-testid="title-prompt-hint">
+          [ {{ touchControls ? "Tap screen or press" : "Press" }} Enter / Space to start ]
+        </span>
+        <span v-else-if="state.modal === 'menu'" class="caption" data-testid="menu-hint">
+          [ Arrows to navigate, Enter to select, Esc to close ]
+        </span>
+        <span v-else-if="state.modal === 'inventory'" class="caption" data-testid="inventory-hint">
+          [ Arrows to select, Enter to choose, Esc to return ]
+        </span>
+        <span v-else-if="state.modal !== null" class="caption" data-testid="modal-hint">
+          [ Press Enter to continue ]
+        </span>
+      </template>
     </div>
 
     <p v-if="state.phase === 'running'" id="game-input-help" class="input-help">
