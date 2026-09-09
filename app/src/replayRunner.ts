@@ -304,6 +304,18 @@ export async function runReplayBatch(
         if (sleep > 0) await new Promise((resolve) => setTimeout(resolve, sleep));
       }
       checkAborted();
+      if (
+        options?.pauseOnDialog?.() &&
+        isStoryDialogue(observation) &&
+        !isSeeking() &&
+        getEffectiveSpeed() > 0 &&
+        observation.revision !== lastDwelledRevision
+      ) {
+        lastDwelledRevision = observation.revision;
+        options.onDialogPause?.();
+        await checkPaused();
+        checkAborted();
+      }
       if (options?.onProgress && actionIndex !== undefined && !isSeeking()) {
         options.onProgress({
           actionIndex,
@@ -585,18 +597,6 @@ export async function runReplayBatch(
                 options.onDialogPause?.();
                 await checkPaused();
                 checkAborted();
-              } else {
-                const dwellMs = calculateModalDwellMs(driver.latest.rows, getEffectiveSpeed());
-                if (dwellMs > 0) {
-                  if (options?.dwellOnDialog) {
-                    await options.dwellOnDialog(dwellMs);
-                  } else {
-                    await new Promise<void>((resolve) => setTimeout(resolve, dwellMs));
-                  }
-                  checkAborted();
-                  await checkPaused();
-                  checkAborted();
-                }
               }
             }
             await key(action.code);

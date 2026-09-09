@@ -23,9 +23,9 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 1115,
-  "virtualTicks": 68074,
-  "cycles": 18076,
+  "elapsedMs": 1161,
+  "virtualTicks": 68532,
+  "cycles": 18089,
   "actions": [
     {
       "kind": "advance",
@@ -45,7 +45,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1800
+      "ticks": 2006
     },
     {
       "kind": "key",
@@ -53,7 +53,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 2046
+      "ticks": 2044
     },
     {
       "kind": "key",
@@ -61,7 +61,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 3
+      "ticks": 195
     },
     {
       "kind": "key",
@@ -69,7 +69,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 5775
+      "ticks": 5778
     },
     {
       "kind": "checkpoint",
@@ -397,7 +397,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 166
+      "ticks": 165
     },
     {
       "kind": "key",
@@ -405,7 +405,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 17
+      "ticks": 18
     },
     {
       "kind": "key",
@@ -1233,7 +1233,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1242
+      "ticks": 1251
     },
     {
       "kind": "key",
@@ -3017,7 +3017,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1092
+      "ticks": 1140
     },
     {
       "kind": "key",
@@ -3897,7 +3897,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1440
+      "ticks": 1443
     },
     {
       "kind": "checkpoint",
@@ -45677,7 +45677,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 171
+      "ticks": 170
     },
     {
       "kind": "key",
@@ -45685,7 +45685,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 17
+      "ticks": 18
     },
     {
       "kind": "key",
@@ -45721,7 +45721,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1341
+      "ticks": 1338
     },
     {
       "kind": "key",
@@ -45773,7 +45773,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1393
+      "ticks": 1395
     },
     {
       "kind": "checkpoint",

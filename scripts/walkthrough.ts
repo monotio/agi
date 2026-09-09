@@ -12,7 +12,7 @@ if (missing) {
 } else {
   const output = resolve(process.argv[3] ?? `/tmp/agi-${route.slug}-speedrun.json`);
   const started = performance.now();
-  const run = new Speedrun(route.slug, 1);
+  const run = new Speedrun(route.slug, 1, { dwellModals: true });
   const fixtureHashes = walkthroughFixtureHashes(route.slug);
   let failure: string | null = null;
   try {

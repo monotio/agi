@@ -54,6 +54,7 @@ export class Speedrun {
   readonly numPrompts: { prompt: string; row: number; room: number; rowText: string }[] = [];
   readonly seed: number;
   readonly slug: string;
+  readonly dwellModals: boolean;
   ticks = 0;
   cycles = 0;
   readonly maxTicks: number;
@@ -63,9 +64,14 @@ export class Speedrun {
   private readonly answers: string[] = [];
   private readonly numAnswers: number[] = [];
 
-  constructor(slug = "kq1", seed = 1, load: { checkVolumes?: boolean; maxTicks?: number } = {}) {
+  constructor(
+    slug = "kq1",
+    seed = 1,
+    load: { checkVolumes?: boolean; maxTicks?: number; dwellModals?: boolean } = {},
+  ) {
     this.seed = seed;
     this.slug = slug;
+    this.dwellModals = load.dwellModals ?? false;
     this.maxTicks = load.maxTicks ?? 500_000;
     const { container, dict, files } = loadGame(slug, {
       interpreterFiles: true,
@@ -168,10 +174,36 @@ export class Speedrun {
     }
   }
 
+  private calculateModalDwellTicks(): number {
+    const rows = Array.from({ length: 25 }, (_, row) => this.engine.textRow(row));
+    if (!rows || rows.length <= 1) return 0;
+    const content = rows.slice(1).join(" ");
+    const matches = content.match(/[A-Za-z0-9']{2,}/g);
+    const words = matches ? matches.length : 0;
+    // ~200 words/min baseline reading pace at 60Hz: 1.8s (108 ticks) + 120ms (7.2 ticks) per word
+    const baseTicks = 108;
+    const perWordTicks = 7;
+    const rawTicks = Math.min(300, Math.max(90, baseTicks + words * perWordTicks));
+    if (this.engine.vars[21] !== 0) {
+      return Math.min(rawTicks, this.engine.vars[21]! * 30);
+    }
+    return rawTicks;
+  }
+
   dismiss(): void {
     for (let n = 0; this.engine.modalKind !== null || this.engine.continuationPending; n++) {
       assert.ok(n < 100, `Unsettled modal: ${this.state().text}`);
-      if (this.engine.modalKind !== null) this.key(AGI_KEY.ENTER);
+      if (this.engine.modalKind !== null) {
+        if (this.dwellModals) {
+          const dwellTicks = this.calculateModalDwellTicks();
+          if (dwellTicks > 0) {
+            this.advance(dwellTicks);
+          }
+        }
+        if (this.engine.modalKind !== null) {
+          this.key(AGI_KEY.ENTER);
+        }
+      }
       this.advance();
     }
   }
