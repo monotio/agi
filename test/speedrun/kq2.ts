@@ -199,38 +199,23 @@ function monasteryApproach(run: Speedrun): void {
   run.exit("E", 6);
 }
 
-export function walkSmart(run: Speedrun, target: Target, attempts = 25): void {
+export function walkSmart(run: Speedrun, target: Target, attempts = 5): void {
   for (let n = 0; n < attempts; n++) {
     const s = run.state();
     if (s.x >= target.x0 && s.x <= target.x1 && s.y >= target.y0 && s.y <= target.y1) return;
-    const plan = planWalk(run, target);
-    if (!plan.found)
-      throw new Error(`No static path: ${JSON.stringify(plan.reached)} from ${s.x},${s.y}`);
-    let blocked = false;
-    for (const point of plan.waypoints) {
-      try {
-        run.walkTo(point.x, point.y, Math.max(300, plan.steps * 12));
-      } catch (error) {
-        if (!(error instanceof Error) || !error.message.startsWith("Walk blocked")) throw error;
-        blocked = true;
-        break;
-      }
-    }
-    if (!blocked) {
-      const reached = run.state();
-      assert.ok(
-        reached.x >= target.x0 &&
-          reached.x <= target.x1 &&
-          reached.y >= target.y0 &&
-          reached.y <= target.y1,
-        "planned target reached",
-      );
+    try {
+      run.walkPath(target);
       return;
+    } catch (error) {
+      if (
+        n === attempts - 1 ||
+        !(error instanceof Error) ||
+        !error.message.startsWith("Walk blocked")
+      )
+        throw error;
+      run.advance(5);
     }
   }
-  throw new Error(
-    `walkSmart exhausted: ${JSON.stringify(run.state())} target ${JSON.stringify(target)}`,
-  );
 }
 
 export function exitNorthSafe(
@@ -1010,16 +995,7 @@ export function kq2Castle(run: Speedrun): void {
   run.exit("S", 66);
 
   // 19. 66 -> 67 (Dracula's tomb)
-  const descend66Waypoints: [number, number][] = [
-    [95, 56],
-    [95, 68],
-    [67, 107],
-    [67, 112],
-    [75, 137],
-    [75, 150],
-    [14, 150],
-  ];
-  for (const [x, y] of descend66Waypoints) run.walkTo(x, y);
+  run.walkPath(14, 150);
   run.exit("W", 67);
 
   // 20. In 67: Dracula check & defeat
@@ -1041,16 +1017,7 @@ export function kq2Castle(run: Speedrun): void {
   run.walkTo(132, 130);
   run.exit("E", 66);
 
-  const ascend66Waypoints: [number, number][] = [
-    [75, 150],
-    [75, 137],
-    [67, 112],
-    [67, 107],
-    [95, 68],
-    [95, 56],
-    [73, 37],
-  ];
-  for (const [x, y] of ascend66Waypoints) run.walkTo(x, y);
+  run.walkPath(73, 37);
   run.exit("N", 65);
 
   run.walkTo(26, 61);

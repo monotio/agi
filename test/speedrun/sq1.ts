@@ -219,21 +219,7 @@ export function sq1Boulder(run: Speedrun): void {
   run.checkpoint("Plateau trail (f92)", { room: 23, score: 37 });
 
   // Room 23 upper maze to the bridge approach; f92 ignores blocks here.
-  for (const [x, y] of [
-    [30, 115],
-    [31, 114],
-    [32, 111],
-    [33, 110],
-    [33, 95],
-    [34, 93],
-    [35, 91],
-    [36, 89],
-    [37, 87],
-    [38, 86],
-    [38, 76],
-    [44, 70],
-  ] as const)
-    run.walkTo(x, y);
+  run.walkPath(44, 70);
   run.exit("N", 20); // bridge box (33,66)-(70,66)
 
   // Room 20: corridor north, then NW around the fatal trigger diagonal.
@@ -306,18 +292,7 @@ export function sq1Boulder(run: Speedrun): void {
   run.exit("E", 19);
 
   // Room 19: across the bridge deck to behind the boulder.
-  for (const [x, y] of [
-    [15, 59],
-    [16, 59],
-    [17, 58],
-    [19, 58],
-    [20, 57],
-    [21, 57],
-    [32, 46],
-    [38, 46],
-    [50, 58],
-  ] as const)
-    run.walkTo(x, y);
+  run.walkPath(50, 58);
   run.checkpoint("Behind the boulder", { room: 19, score: 37 });
 
   // Wait for the spider droid to activate and wander into the drop zone.
@@ -363,19 +338,7 @@ export function sq1UlenceFlats(run: Speedrun): void {
   sq1Boulder(run);
 
   // Return west across mesa to Room 18
-  for (const [x, y] of [
-    [38, 46],
-    [32, 46],
-    [21, 57],
-    [20, 57],
-    [19, 58],
-    [17, 58],
-    [16, 59],
-    [15, 59],
-    [1, 73],
-  ] as const) {
-    run.walkTo(x, y);
-  }
+  run.walkPath(1, 73);
   run.exit("W", 18);
 
   walkPlanned(run, { x0: 127, y0: 41, x1: 127, y1: 41 });
@@ -631,22 +594,7 @@ export function sq1UlenceFlats(run: Speedrun): void {
   assert.ok(eng.flags[92] !== 0, "f92 set on ramp");
 
   // Walk up the ramp
-  for (const [x, y] of [
-    [30, 115],
-    [31, 114],
-    [32, 111],
-    [33, 110],
-    [33, 95],
-    [34, 93],
-    [35, 91],
-    [36, 89],
-    [37, 87],
-    [38, 86],
-    [38, 76],
-    [44, 70],
-  ] as const) {
-    run.walkTo(x, y);
-  }
+  run.walkPath(44, 70);
   run.exit("N", 20);
 
   // Room 20 ledge: walk to exit West into Room 19

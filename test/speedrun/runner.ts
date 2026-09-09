@@ -177,20 +177,20 @@ export class Speedrun {
   }
 
   direction(dir: number): void {
-    const current = this.state().direction;
+    const current = this.engine.screenObjects[0]?.direction ?? 0;
     if (current === dir) return;
     this.key(DIRECTION_KEYS[dir || current]!);
     const from = this.cycles;
     for (let n = 0; this.cycles === from; n++) {
       assert.ok(n < 1000, "Direction input did not reach a cycle");
-      this.dismiss();
+      if (this.engine.modalKind !== null || this.engine.continuationPending) this.dismiss();
       this.advance();
     }
   }
 
   wait(predicate: () => boolean, label: string, max = 30000): void {
     for (let n = 0; n < max; n++) {
-      this.dismiss();
+      if (this.engine.modalKind !== null || this.engine.continuationPending) this.dismiss();
       if (predicate()) return;
       this.advance();
     }
@@ -198,13 +198,13 @@ export class Speedrun {
   }
 
   walkTo(x: number, y: number, max = 3000): void {
-    const room = this.state().room;
+    const room = this.engine.vars[0]!;
+    const ego = this.engine.screenObjects[0]!;
     for (let n = 0; n < max; n++) {
-      this.dismiss();
-      const state = this.state();
-      assert.equal(state.room, room, `Unexpected room while walking to ${x},${y}`);
-      const dx = Math.sign(x - state.x);
-      const dy = Math.sign(y - state.y);
+      if (this.engine.modalKind !== null || this.engine.continuationPending) this.dismiss();
+      assert.equal(this.engine.vars[0]!, room, `Unexpected room while walking to ${x},${y}`);
+      const dx = Math.sign(x - ego.x);
+      const dy = Math.sign(y - ego.y);
       if (!dx && !dy) {
         this.direction(0);
         return;
