@@ -10,6 +10,7 @@ import { serializeAgentLog } from "../../src/agent/toolTransport.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import type { SoundOutput } from "../../src/sound/sound.ts";
 import type { ReplayDriver, ReplayObservation } from "./replay.ts";
+import { runReplayBatch } from "./replayRunner.ts";
 import { createBridge, type AgentHandler, type Bridge } from "./agent/sabBridge.ts";
 import { AgentSession } from "./agent/agentSession.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
@@ -289,11 +290,41 @@ export function useEngine(onFrame: (frame: Frame) => void) {
   const replaySeedText =
     import.meta.env.MODE === "test" ? new URLSearchParams(location.search).get("replaySeed") : null;
   const replaySeed = replaySeedText === null ? null : Number(replaySeedText);
+  const observationListeners = new Set<(obs: ReplayObservation) => void>();
+  let latestFrame: Frame | null = null;
   const replayDriver: ReplayDriver | null =
     replaySeed !== null && Number.isInteger(replaySeed)
       ? {
           latest: null,
           advance: (ticks) => query<ReplayObservation>("replayAdvance", { ticks }),
+          waitForRevision: (minRevision: number) => {
+            if (replayDriver!.latest && replayDriver!.latest.revision > minRevision) {
+              return Promise.resolve(replayDriver!.latest);
+            }
+            return new Promise<ReplayObservation>((resolve, reject) => {
+              const timer = setTimeout(() => {
+                observationListeners.delete(listener);
+                reject(
+                  new Error(
+                    `Timeout waiting for revision > ${minRevision} (current: ${replayDriver!.latest?.revision})`,
+                  ),
+                );
+              }, 10_000);
+              const listener = (obs: ReplayObservation) => {
+                if (obs.revision > minRevision) {
+                  clearTimeout(timer);
+                  observationListeners.delete(listener);
+                  resolve(obs);
+                }
+              };
+              observationListeners.add(listener);
+            });
+          },
+          playBatch: (actions, options) =>
+            runReplayBatch(replayDriver!, actions, {
+              ...options,
+              getLatestFrame: () => latestFrame,
+            }),
         }
       : null;
   if (replayDriver) window.__AGI_REPLAY__ = replayDriver;
@@ -968,12 +999,13 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         state.inputReady = Boolean(msg.inputReady);
         state.holdToMove = Boolean(msg.holdToMove);
         publishText(msg.text, msg.modal ?? null, Boolean(msg.textMode));
-        onFrame({
+        latestFrame = {
           visual: msg.visual,
           priority: msg.priority,
           text: msg.text,
           picRow: Number(msg.picRow),
-        });
+        };
+        onFrame(latestFrame);
         // Counted after the frame is drawn, so tests can poll for painted pixels.
         hook.frame++;
         publishHook();
@@ -1048,6 +1080,7 @@ export function useEngine(onFrame: (frame: Frame) => void) {
         hook.egoX = replayDriver.latest.state.egoX;
         hook.egoY = replayDriver.latest.state.egoY;
         publishHook();
+        for (const listener of observationListeners) listener(replayDriver.latest);
         const resolve = pendingQueries.get(Number(msg.id));
         if (resolve) {
           pendingQueries.delete(Number(msg.id));

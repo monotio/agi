@@ -1,7 +1,7 @@
 import { expect, type Page } from "@playwright/test";
 import { AGI_KEY, NAV_KEYS } from "../../src/runtime/keys.ts";
 import type { Action } from "../../test/speedrun/runner.ts";
-import type { ReplayObservation } from "../src/replay.ts";
+import type { ReplayObservation, ReplayBatchResult } from "../src/replay.ts";
 import { isolateStorage } from "./engineProbe.ts";
 
 const KEYS: Record<number, string> = {
@@ -162,42 +162,12 @@ export class BrowserReplay {
     }
   }
 
-  async play(actions: readonly Action[]): Promise<void> {
-    for (const [index, action] of actions.entries()) {
-      try {
-        switch (action.kind) {
-          case "key":
-            await this.key(action.code);
-            break;
-          case "command":
-            await this.text(action.text);
-            break;
-          case "answer":
-            expect(
-              (await this.read()).blocked,
-              "Recorded answer requires a real prompt",
-            ).not.toBeNull();
-            await this.text(action.text);
-            break;
-          case "advance":
-            await this.advance(action.ticks);
-            break;
-          case "checkpoint": {
-            const { state } = await this.read();
-            expect(
-              { room: state.room, score: state.vars[3], x: state.egoX, y: state.egoY },
-              action.label,
-            ).toEqual({ room: action.room, score: action.score, x: action.x, y: action.y });
-            break;
-          }
-        }
-      } catch (error) {
-        const observation = await this.read();
-        throw new Error(
-          `Replay action ${index} ${JSON.stringify(action)} at tick ${observation.tick}: ${String(error)}\n${observation.rows.join("\n")}`,
-          { cause: error },
-        );
-      }
-    }
+  async play(actions: readonly Action[]): Promise<ReplayBatchResult> {
+    const result = await this.page.evaluate(
+      ({ actions, phone }) => window.__AGI_REPLAY__!.playBatch(actions, { phone }),
+      { actions, phone: this.phone },
+    );
+    this.cachedObservation = result;
+    return result;
   }
 }
