@@ -13,7 +13,7 @@ type WorkerReply =
   | { type: "exportFiles"; id: number; files: Record<string, Uint8Array> };
 type Reply<T extends WorkerReply["type"]> = Extract<WorkerReply, { type: T }>;
 
-test("power-up vocabulary and inventory reach the live worker and exported cartridge", async ({
+test("power-up vocabulary and inventory reach the live worker and exported game", async ({
   page,
 }) => {
   let requests = 0;

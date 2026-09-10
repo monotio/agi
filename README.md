@@ -64,7 +64,7 @@ To create an adventure with an AI provider, pick a starting point under
 
 Each template opens a Markdown brief you can edit. Or choose **Your own
 adventure** and describe the hero, setting and trouble. Plain language and
-structured [cartridge briefs](games/README.md) both work. Connect your provider in
+structured [adventure briefs](games/README.md) both work. Connect your provider in
 **Connect AI**, then click **Create adventure**.
 
 The agent builds the opening room, including its artwork, characters and game

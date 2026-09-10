@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { disassembleLogic, disassembleLogicWarnings } from "../src/logic/disassembler.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildLogicResource, parseLogicResource } from "../src/logic/resource.ts";
-import { fixtureSkip } from "./fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
@@ -252,7 +252,8 @@ test("round-trip: every source shape the assembler tests cover", () => {
 // ---------- Authentic fixtures (local-only, skipped when absent) ----------
 
 interface Expectation {
-  readonly slug: string;
+  readonly hash: string;
+  readonly gameId: string;
   /** Logic resources present in LOGDIR. */
   readonly logics: number;
   /** Logics whose disassembly carries no round-trip warning at all. */
@@ -267,17 +268,17 @@ interface Expectation {
  * bytecode, message table shape and encrypted text.
  */
 const EXPECTED: readonly Expectation[] = [
-  { slug: "kq1", logics: 90, clean: 90, codeIdentical: 90 },
-  { slug: "kq2", logics: 133, clean: 133, codeIdentical: 133 },
-  { slug: "kq3", logics: 125, clean: 125, codeIdentical: 125 },
+  { hash: KNOWN_GAME_HASH.KQ1, gameId: "kq1", logics: 90, clean: 90, codeIdentical: 90 },
+  { hash: KNOWN_GAME_HASH.KQ2, gameId: "kq2", logics: 133, clean: 133, codeIdentical: 133 },
+  { hash: KNOWN_GAME_HASH.KQ3, gameId: "kq3", logics: 125, clean: 125, codeIdentical: 125 },
 ];
 
 for (const expected of EXPECTED) {
   test(
-    `fixture ${expected.slug}: every logic round-trips or says why not`,
-    { skip: fixtureSkip(expected.slug) },
+    `fixture ${expected.gameId}: every logic round-trips or says why not`,
+    { skip: fixtureSkip(expected.hash) },
     () => {
-      const { container, dict } = loadGame(expected.slug);
+      const { container, dict } = loadGame(expected.hash);
       let logics = 0;
       let clean = 0;
       let codeIdentical = 0;
@@ -291,7 +292,7 @@ for (const expected of EXPECTED) {
         const warns = disassembleLogicWarnings(payload, { dictionary: dict });
         // Nothing is dropped in silence: every warning is visible in the source.
         for (const w of warns)
-          assert.ok(source.includes(w), `${expected.slug} logic ${num}: warning not in source`);
+          assert.ok(source.includes(w), `${expected.gameId} logic ${num}: warning not in source`);
         if (warns.length === 0) clean++;
 
         let assembled: ReturnType<typeof assembleLogic> | null = null;
@@ -300,7 +301,7 @@ for (const expected of EXPECTED) {
         } catch (e) {
           assert.ok(
             warns.length > 0,
-            `${expected.slug} logic ${num}: source failed to assemble with no warning: ${(e as Error).message}`,
+            `${expected.gameId} logic ${num}: source failed to assemble with no warning: ${(e as Error).message}`,
           );
         }
         if (assembled === null) continue;
@@ -311,7 +312,7 @@ for (const expected of EXPECTED) {
         // A warning-free logic MUST be byte-identical.
         assert.ok(
           same || warns.length > 0,
-          `${expected.slug} logic ${num}: bytecode differs with no warning`,
+          `${expected.gameId} logic ${num}: bytecode differs with no warning`,
         );
 
         // The resource framing is identity on its own: parse -> build gives
@@ -319,14 +320,14 @@ for (const expected of EXPECTED) {
         assert.deepEqual(
           [...buildLogicResource(original.code, original.messages)],
           [...payload],
-          `${expected.slug} logic ${num}: parse->build is not identity`,
+          `${expected.gameId} logic ${num}: parse->build is not identity`,
         );
         // ...and so is the whole assemble(disassemble(x)) pipeline.
         payloadChecked++;
         assert.deepEqual(
           [...assembled.payload],
           [...payload],
-          `${expected.slug} logic ${num}: payload differs`,
+          `${expected.gameId} logic ${num}: payload differs`,
         );
       }
       assert.equal(logics, expected.logics, "logic count");

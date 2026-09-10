@@ -9,7 +9,7 @@ import {
   REST_OF_LINE,
   type WordEntry,
 } from "../src/logic/words.ts";
-import { fixtureSkip, KQ1_DIR } from "./fixtures.ts";
+import { fixtureDir, fixtureFiles, fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 
 // Hand-computed WORDS.TOK for look=100, lookout=101, take=200.
 //
@@ -206,23 +206,34 @@ describe("reserved word ids", () => {
   });
 });
 
-const FIXTURE = KQ1_DIR + "WORDS.TOK";
+const TARGET_HASH = KNOWN_GAME_HASH.KQ1;
 
-describe("authentic KQ1 WORDS.TOK fixture", { skip: fixtureSkip("kq1") }, () => {
-  const raw = readFileSync(FIXTURE);
-  const entries = parseWordsTok(new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength));
+describe("authentic KQ1 WORDS.TOK fixture", { skip: fixtureSkip(TARGET_HASH) }, () => {
+  let cached: WordEntry[] | null = null;
+  function getEntries(): WordEntry[] {
+    if (!cached) {
+      const onDisk = fixtureFiles(TARGET_HASH)!;
+      const wordsFile = onDisk.get("words.tok")!;
+      const raw = readFileSync(fixtureDir(TARGET_HASH) + wordsFile);
+      cached = parseWordsTok(new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength));
+    }
+    return cached;
+  }
 
   it("parses a full-size dictionary", () => {
+    const entries = getEntries();
     // Observed: the authentic KQ1 dictionary decodes to 495 entries.
     assert.ok(entries.length > 400, `expected >400 entries, got ${entries.length}`);
   });
 
   it("finds a nonzero id for 'look'", () => {
+    const entries = getEntries();
     const id = lookupWord(entries, "look");
     assert.ok(id !== null && id !== 0, `expected nonzero id for 'look', got ${id}`);
   });
 
   it("is alphabetically ordered within each initial", () => {
+    const entries = getEntries();
     for (let i = 0; i + 1 < entries.length; i++) {
       const a = entries[i] as WordEntry;
       const b = entries[i + 1] as WordEntry;
@@ -233,6 +244,7 @@ describe("authentic KQ1 WORDS.TOK fixture", { skip: fixtureSkip("kq1") }, () => 
   });
 
   it("keeps every id within u16", () => {
+    const entries = getEntries();
     for (const e of entries) {
       assert.ok(Number.isInteger(e.id) && e.id >= 0 && e.id <= 0xffff, `bad id ${e.id}`);
     }

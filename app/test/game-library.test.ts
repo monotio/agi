@@ -7,7 +7,7 @@ import { Engine } from "../../src/runtime/engine.ts";
 import { readGameFiles, readGameZip } from "../src/gameZip.ts";
 import { gameRevision, normalizeLibraryMetadata, readPublicMetadata } from "../src/gameMetadata.ts";
 import { addLibraryGame, copyLibraryGame } from "../src/gameLibrary.ts";
-import { loadAuthoredCartridge, updateAuthoredCartridgeFiles } from "../src/cartridgeStorage.ts";
+import { loadAuthoredGame, updateAuthoredGameFiles } from "../src/gameStorage.ts";
 import { inspectGame } from "../src/gameInspection.ts";
 import { buildPublicGameZip } from "../src/projectArchive.ts";
 import {
@@ -182,27 +182,27 @@ test("ZIP and folder imports deduplicate the same resources and normalize room g
       Object.entries(zipGame.files).map(([name, bytes]) => [`Folder/${name.toLowerCase()}`, bytes]),
     ),
   );
-  const zipSlug = await addLibraryGame(zipGame, "ZIP title", "zip", opening);
-  const folderSlug = await addLibraryGame(folderGame, "Folder title", "folder", opening);
-  assert.equal(folderSlug, zipSlug);
+  const zipGameId = await addLibraryGame(zipGame, "ZIP title", "zip", opening);
+  const folderGameId = await addLibraryGame(folderGame, "Folder title", "folder", opening);
+  assert.equal(folderGameId, zipGameId);
   assert.equal(
     await addLibraryGame({ files: zipGame.files, words: zipGame.words }, "No flag", "zip", opening),
-    zipSlug,
+    zipGameId,
   );
-  assert.equal((await loadAuthoredCartridge(zipSlug))?.title, "ZIP title");
+  assert.equal((await loadAuthoredGame(zipGameId))?.title, "ZIP title");
 });
 
 test("room authoring is kept only for project imports, never from public metadata", async (t) => {
   installLocalStorage(t);
   const files = game();
-  const publicSlug = await addLibraryGame(
+  const publicGameId = await addLibraryGame(
     { files, words: [], roomGeneration: true },
     "Public claim",
     "zip",
     opening,
   );
-  assert.equal((await loadAuthoredCartridge(publicSlug))?.roomGeneration, false);
-  const projectSlug = await addLibraryGame(
+  assert.equal((await loadAuthoredGame(publicGameId))?.roomGeneration, false);
+  const projectGameId = await addLibraryGame(
     {
       files,
       words: [],
@@ -213,15 +213,15 @@ test("room authoring is kept only for project imports, never from public metadat
     "zip",
     opening,
   );
-  assert.equal((await loadAuthoredCartridge(projectSlug))?.roomGeneration, true);
-  const catalogSlug = await addLibraryGame(
+  assert.equal((await loadAuthoredGame(projectGameId))?.roomGeneration, true);
+  const catalogGameId = await addLibraryGame(
     { files, words: [], roomGeneration: true },
     "Hosted",
     "catalog",
     opening,
     { id: "hosted", version: "1.0.0" },
   );
-  assert.equal((await loadAuthoredCartridge(catalogSlug))?.roomGeneration, false);
+  assert.equal((await loadAuthoredGame(catalogGameId))?.roomGeneration, false);
 });
 
 test("project imports with identical resources retain separate private histories", async (t) => {
@@ -248,29 +248,34 @@ test("project imports with identical resources retain separate private histories
     opening,
   );
   assert.notEqual(second, first);
-  assert.equal((await loadAuthoredCartridge(first))?.model, "one");
-  assert.equal((await loadAuthoredCartridge(second))?.model, "two");
+  assert.equal((await loadAuthoredGame(first))?.model, "one");
+  assert.equal((await loadAuthoredGame(second))?.model, "two");
 });
 
 test("a remix copy gets independent identity and bytes while preserving its original", async (t) => {
   installLocalStorage(t);
-  const originalSlug = await addLibraryGame({ files: game(), words: [] }, "Garden", "zip", opening);
-  const before = (await loadAuthoredCartridge(originalSlug))!;
-  const copySlug = await copyLibraryGame(originalSlug);
-  const copy = (await loadAuthoredCartridge(copySlug))!;
+  const originalGameId = await addLibraryGame(
+    { files: game(), words: [] },
+    "Garden",
+    "zip",
+    opening,
+  );
+  const before = (await loadAuthoredGame(originalGameId))!;
+  const copyGameId = await copyLibraryGame(originalGameId);
+  const copy = (await loadAuthoredGame(copyGameId))!;
   assert.notEqual(copy.library?.gameId, before.library?.gameId);
   assert.deepEqual(copy.library?.parent, {
     gameId: before.library?.gameId,
     revision: before.library?.revision,
   });
   assert.equal(
-    await updateAuthoredCartridgeFiles(copySlug, {
+    await updateAuthoredGameFiles(copyGameId, {
       ...copy.files,
       "VOL.0": Uint8Array.of(...copy.files["VOL.0"]!, 1),
     }),
     true,
   );
-  assert.deepEqual((await loadAuthoredCartridge(originalSlug))!, before);
+  assert.deepEqual((await loadAuthoredGame(originalGameId))!, before);
 });
 
 test("catalog resources cannot be overwritten in place", async (t) => {
@@ -281,22 +286,22 @@ test("catalog resources cannot be overwritten in place", async (t) => {
     console.error = originalError;
   });
   console.error = (...values: unknown[]) => errors.push(values.map(String).join(" "));
-  const slug = await addLibraryGame(
+  const gameId = await addLibraryGame(
     { files: game(), words: [] },
     "Catalog game",
     "catalog",
     opening,
     { id: "garden", version: "1" },
   );
-  const before = (await loadAuthoredCartridge(slug))!;
+  const before = (await loadAuthoredGame(gameId))!;
   assert.equal(
-    await updateAuthoredCartridgeFiles(slug, {
+    await updateAuthoredGameFiles(gameId, {
       ...before.files,
       "VOL.0": Uint8Array.of(...before.files["VOL.0"]!, 1),
     }),
     false,
   );
-  assert.deepEqual(await loadAuthoredCartridge(slug), before);
+  assert.deepEqual(await loadAuthoredGame(gameId), before);
   assert.match(errors.join("\n"), /Catalog resources are immutable/);
 });
 
@@ -318,11 +323,11 @@ test("catalog identity remains stable across separately stored releases", async 
   );
   assert.notEqual(second, first);
   assert.equal(
-    (await loadAuthoredCartridge(second))?.library?.gameId,
-    (await loadAuthoredCartridge(first))?.library?.gameId,
+    (await loadAuthoredGame(second))?.library?.gameId,
+    (await loadAuthoredGame(first))?.library?.gameId,
   );
-  assert.equal((await loadAuthoredCartridge(first))?.library?.catalog?.version, "1");
-  assert.equal((await loadAuthoredCartridge(second))?.library?.catalog?.version, "2");
+  assert.equal((await loadAuthoredGame(first))?.library?.catalog?.version, "1");
+  assert.equal((await loadAuthoredGame(second))?.library?.catalog?.version, "2");
 });
 
 test("trusted catalog projects deduplicate while imported project archives remain separate", async (t) => {
@@ -379,14 +384,19 @@ test("import stores saves and autosave without a progress observer", async (t) =
       cycle: 1,
       room: 0,
       savedAt: 1757000000000,
-      game: { slug: "source", installed: false, revision: "ab".repeat(32) },
+      game: { gameId: "source", installed: false, revision: "ab".repeat(32) },
     },
   };
-  const slug = await addLibraryGame({ files, words: [], progress }, "No observer", "zip", opening);
-  const stored = readGameProgress(localStorage, slug);
+  const gameId = await addLibraryGame(
+    { files, words: [], progress },
+    "No observer",
+    "zip",
+    opening,
+  );
+  const stored = readGameProgress(localStorage, gameId);
   assert.deepEqual(stored.saves["3"], slot);
   assert.equal(stored.autosave?.image, progress.autosave?.image);
-  assert.equal(stored.autosave?.game.slug, slug);
+  assert.equal(stored.autosave?.game.gameId, gameId);
   assert.equal(stored.autosave?.game.revision, await gameRevision(files));
 });
 
@@ -427,7 +437,7 @@ test("import reports which progress entries browser storage refused", async (t) 
     cycle: 1,
     room: 1,
     savedAt: 1_757_000_000_000,
-    game: { slug: "refused", installed: false, revision: "ab".repeat(32) },
+    game: { gameId: "refused", installed: false, revision: "ab".repeat(32) },
   };
   const progress: GameProgress = { saves: { "1": slot, "7": slot }, autosave };
   // Browser storage refuses every progress write after the first. Install a
@@ -456,7 +466,7 @@ test("import reports which progress entries browser storage refused", async (t) 
     },
   });
   let report: ImportStorageReport | null = null;
-  const slug = await addLibraryGame(
+  const gameId = await addLibraryGame(
     { files: Object.fromEntries(container.files), words: [], progress },
     "Refused",
     "zip",
@@ -464,6 +474,6 @@ test("import reports which progress entries browser storage refused", async (t) 
     undefined,
     (stored) => (report = stored),
   );
-  assert.ok(slug);
+  assert.ok(gameId);
   assert.deepEqual(report, { slots: [1], failedSlots: [7], autosave: null });
 });

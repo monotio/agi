@@ -8,16 +8,17 @@ import { parseView } from "../src/view/view.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { detectProfile, detectVersionString } from "../src/runtime/profile.ts";
 import { createPictureSurface } from "../src/types.ts";
-import { fixtureSkip } from "./fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
  * Optional Gold Rush 3.002.149 fixture tests. Supply GRDIR, GRVOL.*,
- * WORDS.TOK, OBJECT and the interpreter files under games/gr1/.
+ * WORDS.TOK, OBJECT and the interpreter files under games/.
  * The suite checks resource decoding, profile detection and the opening.
  */
-const SLUG = "gr1";
-const skip = fixtureSkip(SLUG, ["AGIDATA.OVL"]);
+const GAME_ID = "gr1";
+const TARGET_HASH = KNOWN_GAME_HASH.GR1;
+const skip = fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"]);
 
 class Host implements EngineHost {
   keys: number[] = [];
@@ -35,43 +36,47 @@ class Host implements EngineHost {
   }
 }
 
-test(`${SLUG}: combined container, 3.002.149 profile by default, resource census`, { skip }, () => {
-  const { container, files } = loadGame(SLUG, { interpreterFiles: true });
-  assert.deepEqual(detectContainerFormat(files), { kind: "v3-combined", prefix: "GR" });
-  assert.equal(detectVersionString(files), "3.002.149");
-  const profile = detectProfile(files);
-  assert.equal(profile.id, "3.002.149");
-  const counts = { logic: 0, picture: 0, view: 0, sound: 0 };
-  for (let n = 0; n < 256; n++) {
-    const logic = container.getResource("logic", n);
-    if (logic) {
-      assert.ok(parseLogicResource(logic).code.length > 0, `logic ${n} has bytecode`);
-      counts.logic++;
-    }
-    const picture = container.getResource("picture", n);
-    if (picture) {
-      renderPicture(picture, createPictureSurface(), { profile });
-      counts.picture++;
-    }
-    const view = container.getResource("view", n);
-    if (view) {
-      assert.ok(parseView(view).loops.length > 0, `view ${n} has a loop`);
-      counts.view++;
-    }
-    const sound = container.getResource("sound", n);
-    if (sound) {
-      parseSound(sound);
-      counts.sound++;
-    }
-  }
-  assert.deepEqual(counts, { logic: 182, picture: 186, view: 247, sound: 44 });
-});
-
 test(
-  `${SLUG}: the opening runs from the title into the first street with its status line`,
+  `${GAME_ID}: combined container, 3.002.149 profile by default, resource census`,
   { skip },
   () => {
-    const { container, dict, files } = loadGame(SLUG, { interpreterFiles: true });
+    const { container, files } = loadGame(TARGET_HASH, { interpreterFiles: true });
+    assert.deepEqual(detectContainerFormat(files), { kind: "v3-combined", prefix: "GR" });
+    assert.equal(detectVersionString(files), "3.002.149");
+    const profile = detectProfile(files);
+    assert.equal(profile.id, "3.002.149");
+    const counts = { logic: 0, picture: 0, view: 0, sound: 0 };
+    for (let n = 0; n < 256; n++) {
+      const logic = container.getResource("logic", n);
+      if (logic) {
+        assert.ok(parseLogicResource(logic).code.length > 0, `logic ${n} has bytecode`);
+        counts.logic++;
+      }
+      const picture = container.getResource("picture", n);
+      if (picture) {
+        renderPicture(picture, createPictureSurface(), { profile });
+        counts.picture++;
+      }
+      const view = container.getResource("view", n);
+      if (view) {
+        assert.ok(parseView(view).loops.length > 0, `view ${n} has a loop`);
+        counts.view++;
+      }
+      const sound = container.getResource("sound", n);
+      if (sound) {
+        parseSound(sound);
+        counts.sound++;
+      }
+    }
+    assert.deepEqual(counts, { logic: 182, picture: 186, view: 247, sound: 44 });
+  },
+);
+
+test(
+  `${GAME_ID}: the opening runs from the title into the first street with its status line`,
+  { skip },
+  () => {
+    const { container, dict, files } = loadGame(TARGET_HASH, { interpreterFiles: true });
     const host = new Host();
     const engine = new Engine(container, host, dict, { profile: detectProfile(files) });
     const rooms: number[] = [];

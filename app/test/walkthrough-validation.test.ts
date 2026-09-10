@@ -51,7 +51,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
     /Unsupported walkthrough schema/,
   );
 
-  // Unknown game slug
+  // Unknown game identifier
   assert.throws(
     () =>
       validateWalkthroughArtifact({
@@ -223,7 +223,7 @@ test("loadWalkthrough memoizes results and evicts failed fetches", async () => {
     assert.equal(secondResult.game, "kq1");
     assert.equal(fetchCount, 2);
 
-    // 3. Subsequent request for the same slug should be memoized
+    // 3. Subsequent request for the same game should be memoized
     const thirdResult = await loadWalkthrough("kq1");
     assert.equal(thirdResult, secondResult);
     assert.equal(fetchCount, 2);

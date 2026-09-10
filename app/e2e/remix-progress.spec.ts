@@ -119,10 +119,10 @@ test("remix progress follows activity, preserves reading position and jumps to l
     await expect(page.getByTestId("agent-bubble")).toBeHidden();
     const savedTranscript = await page.evaluate(async () => {
       const key = Object.keys(localStorage).find((k) => k.startsWith("monotio_agi.authored."))!;
-      const modulePath = "/src/cartridgeStorage.ts";
-      const { loadAuthoredCartridge } = await import(modulePath);
+      const modulePath = "/src/gameStorage.ts";
+      const { loadAuthoredGame } = await import(modulePath);
       return JSON.stringify(
-        (await loadAuthoredCartridge(key.slice("monotio_agi.authored.".length)))?.transcript,
+        (await loadAuthoredGame(key.slice("monotio_agi.authored.".length)))?.transcript,
       );
     });
     expect(savedTranscript).toContain("Give the adventurer a blue coat");

@@ -19,7 +19,7 @@ test("first visit has one route per action and aligned sections", async ({ page 
   );
   await expect(page.getByText(/AI for this adventure|Not configured/)).toHaveCount(0);
   await expect(page.getByTestId("connect-create-ai")).toHaveText("Connect AI");
-  await expect(page.getByTestId("boot-cartridge")).toBeHidden();
+  await expect(page.getByTestId("boot-game")).toBeHidden();
   await expect(page.locator(".create-pane input[type=number]")).toHaveCount(0);
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });

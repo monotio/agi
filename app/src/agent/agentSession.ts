@@ -1,7 +1,7 @@
 import { AgentRun } from "./agentRun.ts";
 /**
  * Agent Session: Manages the ever-growing, append-only frontier LLM session
- * starting from Genesis (the cartridge) and continuing through runtime turns
+ * starting from Genesis (the adventure template) and continuing through runtime turns
  * (room preparation and explicit live patches), preserving the cached prefix.
  */
 
@@ -473,7 +473,7 @@ Answer the player's question using evidence from inspection when needed. For hin
   }
 
   /**
-   * Reconstitute an active AgentSession from previously authored cartridge files
+   * Reconstitute an active AgentSession from previously authored game files
    * (bypassing Genesis, ready for room preparation and explicit live patches).
    */
   static fromAuthoredData(
@@ -561,12 +561,12 @@ Answer the player's question using evidence from inspection when needed. For hin
 
   /**
    * Author the Genesis world (words, view 0, picture 1, logic 0, logic 1)
-   * by feeding the raw cartridge markdown into the agent loop.
+   * by feeding the raw template markdown into the agent loop.
    */
-  startGenesis(cartridgeMarkdown: string): Promise<BootResources> {
-    return this.task.run(() => this.genesis(cartridgeMarkdown));
+  startGenesis(templateMarkdown: string): Promise<BootResources> {
+    return this.task.run(() => this.genesis(templateMarkdown));
   }
-  private async genesis(cartridgeMarkdown: string): Promise<BootResources> {
+  private async genesis(templateMarkdown: string): Promise<BootResources> {
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating a game.");
     this.conversation?.setTools(AUTHORING_SESSION_TOOLS);
@@ -602,7 +602,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       `Beginning Genesis authoring with ${this.config.provider} (${this.config.model})`,
     );
 
-    const genesisPrompt = createGenesisPrompt(cartridgeMarkdown);
+    const genesisPrompt = createGenesisPrompt(templateMarkdown);
     let turn = await this.observeTurn(this.conversation.sendUserMessage(genesisPrompt));
 
     while (!this.state.genesisComplete) {

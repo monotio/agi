@@ -7,13 +7,16 @@ import { kq2Complete } from "./kq2.ts";
 import { sq1Complete } from "./sq1.ts";
 import { mh1Complete } from "./mh1.ts";
 
+import { KNOWN_GAME_HASH, resolveGameHash } from "../../src/games/knownGames.ts";
+
 /** Observable endpoint shared by the Node, CLI and browser walkthrough runners. */
 export interface WalkthroughOutcome {
   state: EngineStateReport;
   egoView: number;
 }
 export interface Walkthrough {
-  slug: string;
+  hash: string;
+  gameId: string;
   label: string;
   coverage: "complete-game" | "chapter" | "partial";
   route(run: Speedrun): void;
@@ -32,7 +35,8 @@ export interface Walkthrough {
 
 export const WALKTHROUGHS: readonly Walkthrough[] = [
   {
-    slug: "kq1",
+    hash: KNOWN_GAME_HASH.KQ1,
+    gameId: "kq1",
     label: "completed throne-room ending",
     coverage: "complete-game",
     route: kq1Complete,
@@ -46,7 +50,8 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
     },
   },
   {
-    slug: "mh1",
+    hash: KNOWN_GAME_HASH.MH1,
+    gameId: "mh1",
     label: "Day 1 completed",
     coverage: "chapter",
     route: mh1Complete,
@@ -54,7 +59,8 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
     requiresAnswer: true,
   },
   {
-    slug: "kq2",
+    hash: KNOWN_GAME_HASH.KQ2,
+    gameId: "kq2",
     label: "completed wedding and ending credits with maximum score",
     coverage: "complete-game",
     route: kq2Complete,
@@ -65,7 +71,8 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
     },
   },
   {
-    slug: "sq1",
+    hash: KNOWN_GAME_HASH.SQ1,
+    gameId: "sq1",
     label: "completed ceremony and ending credits with maximum score",
     coverage: "complete-game",
     route: sq1Complete,
@@ -78,11 +85,15 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
   },
 ];
 
-export function walkthrough(slug: string): Walkthrough {
-  const entry = WALKTHROUGHS.find((route) => route.slug === slug);
+export function walkthrough(hashOrAlias: string): Walkthrough {
+  const norm = hashOrAlias.toLowerCase();
+  const resolved = resolveGameHash(norm) ?? norm;
+  const entry = WALKTHROUGHS.find(
+    (route) => route.hash.toLowerCase() === resolved || route.gameId.toLowerCase() === norm,
+  );
   assert.ok(
     entry,
-    `Unknown walkthrough ${slug}; choose ${WALKTHROUGHS.map((route) => route.slug).join(", ")}`,
+    `Unknown walkthrough ${hashOrAlias}; choose ${WALKTHROUGHS.map((route) => route.gameId).join(", ")}`,
   );
   return entry;
 }
@@ -93,8 +104,8 @@ export function verifyWalkthrough(
 ): void {
   const expected = route.expected;
   assert.ok(
-    opening(route.slug).profiles.includes(state.profile),
-    `${route.slug}: supported interpreter profile`,
+    opening(route.gameId).profiles.includes(state.profile),
+    `${route.gameId}: supported interpreter profile`,
   );
   assert.equal(state.room, expected.room, route.label);
   if (expected.score !== undefined) assert.equal(state.vars[3], expected.score, "milestone score");
@@ -115,8 +126,8 @@ export function verifyWalkthrough(
   if (expected.egoView !== undefined) assert.equal(egoView, expected.egoView, "ending view");
 }
 
-export function runWalkthrough(route: Walkthrough, run = new Speedrun(route.slug, 1)): Speedrun {
-  assert.equal(run.slug, route.slug, "walkthrough fixture");
+export function runWalkthrough(route: Walkthrough, run = new Speedrun(route.hash, 1)): Speedrun {
+  assert.ok(run.gameId === route.gameId || run.gameId === route.hash, "walkthrough fixture");
   route.route(run);
   verifyWalkthrough(route, {
     state: run.engine.readState(),

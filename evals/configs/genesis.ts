@@ -1,16 +1,16 @@
 /**
- * Promptfoo Evaluation Lane: Genesis Cartridge Authoring.
+ * Promptfoo Evaluation Lane: Genesis Adventure Authoring.
  *
  * Compares OpenAI GPT-5.6 Sol/Terra and Claude Opus-5 / Fable-5 models on authoring
- * foundational game resources directly from authentic pastiche cartridge specifications.
+ * foundational game resources directly from authentic pastiche adventure specifications.
  */
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { providerMatrix } from "./providers.ts";
 
-function loadCartridge(slug: string) {
-  return readFileSync(resolve(import.meta.dirname, `../../games/${slug}/SKILL.md`), "utf-8");
+function loadTemplate(id: string) {
+  return readFileSync(resolve(import.meta.dirname, `../../games/${id}/SKILL.md`), "utf-8");
 }
 
 export default {
@@ -31,29 +31,29 @@ export default {
     {
       description: "Genesis - Knights Trial (KQ pastiche)",
       vars: {
-        cartridgeSlug: "knights-trial",
-        cartridgeText: loadCartridge("knights-trial"),
+        templateId: "knights-trial",
+        templateText: loadTemplate("knights-trial"),
       },
     },
     {
       description: "Genesis - Badge of Millhaven (PQ pastiche)",
       vars: {
-        cartridgeSlug: "badge-of-millhaven",
-        cartridgeText: loadCartridge("badge-of-millhaven"),
+        templateId: "badge-of-millhaven",
+        templateText: loadTemplate("badge-of-millhaven"),
       },
     },
     {
       description: "Genesis - Mop Jockey (SQ pastiche)",
       vars: {
-        cartridgeSlug: "mop-jockey",
-        cartridgeText: loadCartridge("mop-jockey"),
+        templateId: "mop-jockey",
+        templateText: loadTemplate("mop-jockey"),
       },
     },
     {
       description: "Genesis - Polyester Nights (LSL pastiche)",
       vars: {
-        cartridgeSlug: "polyester-nights",
-        cartridgeText: loadCartridge("polyester-nights"),
+        templateId: "polyester-nights",
+        templateText: loadTemplate("polyester-nights"),
       },
     },
   ],

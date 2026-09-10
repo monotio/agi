@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { buildCartridgeWordEntries, parseCartridge } from "../src/cartridge/cartridge.ts";
+import { buildTemplateWordEntries, parseAdventureTemplate } from "../src/template/template.ts";
 import { buildWordsTok, lookupWord, parseWordsTok } from "../src/logic/words.ts";
 
-const MINIMAL_CARTRIDGE = `---
-name: test-cartridge
-description: A test cartridge for unit testing.
+const MINIMAL_TEMPLATE = `---
+name: test-template
+description: A test template for unit testing.
 ---
 
 # Test Adventure
@@ -50,11 +50,11 @@ The stone foyer with exits east and west.
 - Drinking the unlabeled flask
 `;
 
-describe("parseCartridge", () => {
-  it("parses minimal valid cartridge with frontmatter and core sections", () => {
-    const c = parseCartridge(MINIMAL_CARTRIDGE);
-    assert.equal(c.slug, "test-cartridge");
-    assert.equal(c.description, "A test cartridge for unit testing.");
+describe("parseAdventureTemplate", () => {
+  it("parses minimal valid template with frontmatter and core sections", () => {
+    const c = parseAdventureTemplate(MINIMAL_TEMPLATE);
+    assert.equal(c.id, "test-template");
+    assert.equal(c.description, "A test template for unit testing.");
     assert.equal(c.title, "Test Adventure");
     assert.equal(c.premise, "Escape the labyrinth before sunset.");
     assert.equal(c.tone, "Whimsical and lighthearted. PG.");
@@ -84,7 +84,7 @@ describe("parseCartridge", () => {
   });
 
   it("parses synonym slashes into grouped vocabulary", () => {
-    const c = parseCartridge(MINIMAL_CARTRIDGE);
+    const c = parseAdventureTemplate(MINIMAL_TEMPLATE);
     assert.ok(c.lexicon.verbs.includes("look"));
     assert.ok(c.lexicon.verbs.includes("take"));
     assert.ok(c.lexicon.verbs.includes("get"));
@@ -95,8 +95,8 @@ describe("parseCartridge", () => {
   });
 
   it("builds WORDS.TOK entries with shared IDs for synonyms", () => {
-    const c = parseCartridge(MINIMAL_CARTRIDGE);
-    const entries = buildCartridgeWordEntries(c);
+    const c = parseAdventureTemplate(MINIMAL_TEMPLATE);
+    const entries = buildTemplateWordEntries(c);
     const dict = buildWordsTok(entries);
     const parsed = parseWordsTok(dict);
 
@@ -109,40 +109,40 @@ describe("parseCartridge", () => {
     assert.notEqual(takeId, lookId, "distinct words have distinct ids");
   });
 
-  it("parses all four committed cartridges without error", () => {
+  it("parses all four committed templates without error", () => {
     const gamesDir = join(import.meta.dirname, "..", "games");
-    const cartridges = [
+    const templates = [
       {
-        slug: "knights-trial",
+        id: "knights-trial",
         title: "Knight's Trial",
         max: 230,
         protoLead: "Wenna",
       },
       {
-        slug: "badge-of-millhaven",
+        id: "badge-of-millhaven",
         title: "Badge of Millhaven",
         max: 215,
         protoLead: "Dana",
       },
       {
-        slug: "mop-jockey",
+        id: "mop-jockey",
         title: "Mop Jockey",
         max: 250,
         protoLead: "Pip",
       },
       {
-        slug: "polyester-nights",
+        id: "polyester-nights",
         title: "Polyester Nights",
         max: 200,
         protoLead: "Dale",
       },
     ];
 
-    for (const spec of cartridges) {
-      const path = join(gamesDir, spec.slug, "SKILL.md");
+    for (const spec of templates) {
+      const path = join(gamesDir, spec.id, "SKILL.md");
       const md = readFileSync(path, "utf-8");
-      const c = parseCartridge(md);
-      assert.equal(c.slug, spec.slug);
+      const c = parseAdventureTemplate(md);
+      assert.equal(c.id, spec.id);
       assert.equal(c.title, spec.title);
       assert.equal(c.maxPoints, spec.max);
       assert.ok(c.protagonist.includes(spec.protoLead), `protagonist mentions ${spec.protoLead}`);
@@ -150,7 +150,7 @@ describe("parseCartridge", () => {
       assert.equal(
         c.pointTable.reduce((total, entry) => total + entry.points, 0),
         c.maxPoints,
-        `${spec.slug}: the walkthrough's point awards add up to its maximum`,
+        `${spec.id}: the walkthrough's point awards add up to its maximum`,
       );
       assert.ok(c.beats.length > 0, "beats present");
       assert.ok(c.npcSeeds.length > 0, "npc seeds present");
@@ -160,10 +160,10 @@ describe("parseCartridge", () => {
   });
 
   it("validates missing required sections", () => {
-    assert.throws(() => parseCartridge("Just some text"), Error);
+    assert.throws(() => parseAdventureTemplate("Just some text"), Error);
     assert.throws(
       () =>
-        parseCartridge(`---
+        parseAdventureTemplate(`---
 name: missing-title
 description: foo
 ---

@@ -1,8 +1,8 @@
 import type { LibraryMetadata } from "./gameMetadata.ts";
 
-export interface CachedCartridgeMeta {
+export interface CachedGameMeta {
   library?: LibraryMetadata | undefined;
-  slug: string;
+  gameId: string;
   title: string;
   authoredAt: string;
   provider: string;
@@ -12,7 +12,7 @@ export interface CachedCartridgeMeta {
   roomGeneration?: boolean | undefined;
 }
 
-export interface CachedCartridgeData extends CachedCartridgeMeta {
+export interface CachedGameData extends CachedGameMeta {
   files: Record<string, Uint8Array>;
   words: [string, number][];
   transcript?: unknown[] | undefined;

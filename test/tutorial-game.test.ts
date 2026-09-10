@@ -890,10 +890,10 @@ test("graduation triggers regardless of which exhibit is repaired last", () => {
   assert.match(host.prints.at(-1) ?? "", /graduated.*PICTURE.*VIEW.*PRIORITY.*LOGIC.*main menu/i);
 });
 
-test("the tutorial ships stored game tests that its cartridge passes", () => {
+test("the tutorial ships stored game tests that its game passes", () => {
   const tutorial = buildTutorial();
   const files = new Map(Object.entries(tutorial.files));
-  assert.ok(files.has(GAME_TESTS_FILE), "TESTS.JSON travels in the cartridge");
+  assert.ok(files.has(GAME_TESTS_FILE), "TESTS.JSON travels in the game");
   const session = createAgentSessionState(openContainer(files));
   for (const [word, id] of tutorial.words) session.sources.words.set(word, id);
   assert.equal(readStoredTests(session).length, TUTORIAL_GAME_TESTS.length);

@@ -32,7 +32,7 @@ print(1); return;`;
   assert.deepEqual(state.container.getResource("logic", 1), before);
 });
 
-test("world inspection reads compiled resources and inventory after reopening a cartridge", () => {
+test("world inspection reads compiled resources and inventory after reopening a game", () => {
   const original = createAgentSessionState();
   executeAgentTool(original, "write_words", { words: ["key", "brass"] });
   executeAgentTool(original, "write_logic_source", { room: 7, source: "return;" });

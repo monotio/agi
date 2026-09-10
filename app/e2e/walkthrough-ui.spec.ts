@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { fixtureSkip } from "../../test/fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { isolateStorage } from "./engineProbe.ts";
 
-const missing = fixtureSkip("kq1", ["AGIDATA.OVL"]);
+const missing = fixtureSkip(KNOWN_GAME_HASH.KQ1, ["AGIDATA.OVL"]);
 
 /** Live percent of a named walkthrough checkpoint, read from the running app. */
 async function checkpointPercent(page: Page, label: string): Promise<number> {
@@ -387,7 +387,7 @@ test.describe("Walkthrough UI", () => {
   test("scrubs mh1 walkthrough rapidly and reaches Bellevue Hospital checkpoint cleanly", async ({
     page,
   }) => {
-    const mh1Missing = fixtureSkip("mh1", ["AGIDATA.OVL"]);
+    const mh1Missing = fixtureSkip(KNOWN_GAME_HASH.MH1, ["AGIDATA.OVL"]);
     test.skip(Boolean(mh1Missing), mh1Missing || "");
     await isolateStorage(page);
     await page.goto("/");
@@ -435,7 +435,7 @@ test.describe("Walkthrough UI", () => {
   });
 
   test("scrubs sq1 past name prompt and reaches Hallway checkpoint cleanly", async ({ page }) => {
-    const sq1Missing = fixtureSkip("sq1", ["AGIDATA.OVL"]);
+    const sq1Missing = fixtureSkip(KNOWN_GAME_HASH.SQ1, ["AGIDATA.OVL"]);
     test.skip(Boolean(sq1Missing), sq1Missing || "");
     await isolateStorage(page);
     await page.goto("/");
@@ -474,7 +474,7 @@ test.describe("Walkthrough UI", () => {
   test("scrubs mh1 past MAD terminal answers to Trinity Church checkpoint cleanly", async ({
     page,
   }) => {
-    const mh1Missing = fixtureSkip("mh1", ["AGIDATA.OVL"]);
+    const mh1Missing = fixtureSkip(KNOWN_GAME_HASH.MH1, ["AGIDATA.OVL"]);
     test.skip(Boolean(mh1Missing), mh1Missing || "");
     await isolateStorage(page);
     await page.goto("/");
@@ -513,7 +513,7 @@ test.describe("Walkthrough UI", () => {
   test("seeking forward to Sewers then back to Maze in mh1 avoids direction leakage", async ({
     page,
   }) => {
-    const mh1Missing = fixtureSkip("mh1", ["AGIDATA.OVL"]);
+    const mh1Missing = fixtureSkip(KNOWN_GAME_HASH.MH1, ["AGIDATA.OVL"]);
     test.skip(Boolean(mh1Missing), mh1Missing || "");
     await isolateStorage(page);
     await page.goto("/");

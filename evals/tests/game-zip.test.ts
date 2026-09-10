@@ -7,7 +7,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 
-function cartridgeFiles() {
+function gameFiles() {
   const container = createContainer();
   container.putResource("logic", 0, assembleLogic("return;", { dictionary: new Map() }).payload);
   const files = Object.fromEntries(container.files);
@@ -16,7 +16,7 @@ function cartridgeFiles() {
 }
 
 test("imports a nested ZIP and retains exact AGI bytes", async () => {
-  const files = cartridgeFiles();
+  const files = gameFiles();
   const zip = buildZip(
     Object.entries(files).map(([name, data]) => ({ name: `my-game/${name.toLowerCase()}`, data })),
   );
@@ -24,7 +24,7 @@ test("imports a nested ZIP and retains exact AGI bytes", async () => {
 });
 
 test("rejects corrupt archives, duplicate files, traversal and non-games", async () => {
-  const files = cartridgeFiles();
+  const files = gameFiles();
   const entries = Object.entries(files).map(([name, data]) => ({ name, data }));
   const broken = buildZip(entries);
   broken[30 + "LOGDIR".length] = broken[30 + "LOGDIR".length]! ^ 1;
@@ -39,7 +39,7 @@ test("rejects corrupt archives, duplicate files, traversal and non-games", async
 });
 
 test("imports deflated files from ordinary ZIP applications", async () => {
-  const files = cartridgeFiles();
+  const files = gameFiles();
   const entries = Object.entries(files);
   const locals = [],
     centrals = [];
@@ -79,7 +79,7 @@ test("imports deflated files from ordinary ZIP applications", async () => {
 });
 
 test("does not reject a bootable local game for an unused broken sound reference", async () => {
-  const files = cartridgeFiles();
+  const files = gameFiles();
   files["SNDDIR"] = Uint8Array.of(0x20, 0, 0);
   const zip = buildZip(Object.entries(files).map(([name, data]) => ({ name, data })));
   assert.deepEqual((await readGameZip(zip)).files["SNDDIR"], files["SNDDIR"]);

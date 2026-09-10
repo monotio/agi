@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
-import { fixtureSkip } from "./fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
@@ -9,6 +9,7 @@ import { loadGame } from "./game-fixture.ts";
  * vector pictures, views and dictionary handling. See CONTRIBUTING.md
  * for the required edition and setup.
  */
+const TARGET_HASH = KNOWN_GAME_HASH.KQ1;
 
 class QuietHost implements EngineHost {
   prints: string[] = [];
@@ -33,9 +34,9 @@ class QuietHost implements EngineHost {
 
 test(
   "authentic KQ1 boots and runs room 1 for 30 cycles (restarted mode)",
-  { skip: fixtureSkip("kq1") },
+  { skip: fixtureSkip(TARGET_HASH) },
   () => {
-    const { container, dict } = loadGame("kq1");
+    const { container, dict } = loadGame(TARGET_HASH);
     const engine = new Engine(container, new QuietHost(), dict, { restarted: true });
     for (let i = 0; i < 30; i++) engine.tick();
 
@@ -56,9 +57,9 @@ test(
 
 test(
   "authentic KQ1 cold boot loads room 83 (title screen), handles Tab inventory and Alt+D debug",
-  { skip: fixtureSkip("kq1") },
+  { skip: fixtureSkip(TARGET_HASH) },
   () => {
-    const { container, dict } = loadGame("kq1");
+    const { container, dict } = loadGame(TARGET_HASH);
     class KeyHost extends QuietHost {
       pendingKeys: number[] = [];
       override takeKeys(): number[] {

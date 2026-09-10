@@ -1,4 +1,4 @@
-import { fixtureSkip } from "../../test/fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { expect, test } from "@playwright/test";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 
@@ -10,7 +10,7 @@ import { isolateStorage, textHook } from "./engineProbe.ts";
  * records decode. Skips when the fixture is absent. Every wait polls state the
  * app publishes through the text hook; there are no wall-clock sleeps.
  */
-const missingFixture = fixtureSkip("demopac4", ["AGIDATA.OVL"]);
+const missingFixture = fixtureSkip(KNOWN_GAME_HASH.DEMOPAC4, ["AGIDATA.OVL"]);
 test.skip(Boolean(missingFixture), missingFixture || "");
 if (missingFixture) console.warn(`[fixture skipped] ${missingFixture}`);
 
@@ -22,7 +22,12 @@ test("boots the v3 demo pack, shows its intro text and starts a demonstration", 
   page,
 }) => {
   await page.goto("/");
-  await page.getByTestId("boot-demopac4").click();
+  await page
+    .locator(
+      `[data-hash="${KNOWN_GAME_HASH.DEMOPAC4}"], [data-game-id="demopac4"], [data-testid="boot-demopac4"]`,
+    )
+    .first()
+    .click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
   // The loader ships AGIDATA.OVL, whose ASCII version string selects 3.002.102.
   await expect

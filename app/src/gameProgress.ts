@@ -1,7 +1,7 @@
 /**
  * A player's progress in one game: the twelve numbered save slots (the raw
  * AGI save images save.game wrote) and the host's latest autosave record. It
- * lives in browser storage per game slug, and it travels only with a project
+ * lives in browser storage per game, and it travels only with a project
  * archive (under `SAVES/`), never with a published game.
  */
 import { Engine, type EngineHost, type EngineMenuState } from "../../src/runtime/engine.ts";
@@ -28,16 +28,16 @@ export interface AutosaveRecord {
   cycle: number;
   room: number;
   savedAt: number;
-  game: { slug: string; installed: boolean; revision: string };
+  game: { gameId: string; installed: boolean; revision: string };
 }
 
-export function autosaveKey(slug: string): string {
-  return `${AUTOSAVE_PREFIX}${slug}`;
+export function autosaveKey(gameId: string): string {
+  return `${AUTOSAVE_PREFIX}${gameId}`;
 }
 
 /**
  * The autosave a stored or archived JSON describes, or null when it is not one
- * this release understands. The slug it names is the caller's to check.
+ * this release understands. The gameId it names is the caller's to check.
  */
 export function parseAutosaveRecord(raw: unknown): AutosaveRecord | null {
   try {
@@ -47,12 +47,21 @@ export function parseAutosaveRecord(raw: unknown): AutosaveRecord | null {
     if (!Number.isInteger(parsed.room) || parsed.room < 0 || parsed.room > 255) return null;
     if (!Number.isInteger(parsed.cycle) || parsed.cycle < 0 || !Number.isFinite(parsed.savedAt))
       return null;
+    const rawGame = parsed.game as
+      { gameId?: unknown; installed?: unknown; revision?: unknown } | undefined;
+    const gameId = typeof rawGame?.gameId === "string" ? rawGame.gameId : null;
     if (
-      typeof parsed.game?.slug !== "string" ||
-      typeof parsed.game.installed !== "boolean" ||
-      !/^[a-f0-9]{64}$/.test(parsed.game.revision)
+      !gameId ||
+      typeof rawGame?.installed !== "boolean" ||
+      typeof rawGame?.revision !== "string" ||
+      !/^[a-f0-9]{64}$/.test(rawGame.revision)
     )
       return null;
+    parsed.game = {
+      gameId,
+      installed: rawGame.installed,
+      revision: rawGame.revision,
+    };
     if (!isProgressPreview(parsed.preview)) delete parsed.preview;
     return parsed;
   } catch {
@@ -69,7 +78,7 @@ export function writeAutosave(
   storage: Pick<Storage, "getItem" | "setItem">,
   record: AutosaveRecord,
 ): AutosaveRecord | null {
-  const key = autosaveKey(record.game.slug);
+  const key = autosaveKey(record.game.gameId);
   try {
     const raw = storage.getItem(key);
     if (raw !== null && isFutureAutosave(raw)) return null;
@@ -150,12 +159,12 @@ export interface GameProgress {
 /** The progress browser storage holds for a game; a corrupt entry stays behind. */
 export function readGameProgress(
   storage: Pick<Storage, "getItem" | "setItem">,
-  slug: string,
+  gameId: string,
 ): GameProgress {
   const saves: Record<string, Uint8Array> = {};
   let slots: Record<string, string>;
   try {
-    slots = readGameSaves(storage, slug);
+    slots = readGameSaves(storage, gameId);
   } catch {
     slots = {};
   }
@@ -168,11 +177,11 @@ export function readGameProgress(
   }
   let autosave: AutosaveRecord | null;
   try {
-    autosave = parseAutosaveRecord(storage.getItem(autosaveKey(slug)));
+    autosave = parseAutosaveRecord(storage.getItem(autosaveKey(gameId)));
   } catch {
     autosave = null;
   }
-  if (autosave && autosave.game.slug !== slug) autosave = null;
+  if (autosave && autosave.game.gameId !== gameId) autosave = null;
   return { saves, autosave };
 }
 
@@ -260,8 +269,8 @@ export interface ImportStorageReport {
 }
 
 /**
- * Store imported progress under the library slug the game received. The
- * autosave is re-addressed to that slug and to the imported revision: the
+ * Store imported progress under the library gameId the game received. The
+ * autosave is re-addressed to that gameId and to the imported revision: the
  * export compacts the container, so the bytes it wrote are not the bytes the
  * autosave hashed, and the interpreter restores its saves without such a
  * check anyway. What is checked is that every image decodes for the game's
@@ -273,7 +282,7 @@ export interface ImportStorageReport {
  */
 export function storeImportedProgress(
   storage: Pick<Storage, "getItem" | "setItem">,
-  slug: string,
+  gameId: string,
   revision: string,
   progress: GameProgress,
 ): ImportStorageReport {
@@ -283,14 +292,14 @@ export function storeImportedProgress(
     .filter((slot) => Number.isInteger(slot))
     .sort((a, b) => a - b);
   for (const slot of slots) {
-    if (writeGameSave(storage, slug, slot, toBase64(progress.saves[String(slot)]!)))
+    if (writeGameSave(storage, gameId, slot, toBase64(progress.saves[String(slot)]!)))
       report.slots.push(slot);
     else report.failedSlots.push(slot);
   }
   if (progress.autosave)
     report.autosave = writeAutosave(storage, {
       ...progress.autosave,
-      game: { slug, installed: false, revision },
+      game: { gameId, installed: false, revision },
     });
   return report;
 }

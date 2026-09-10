@@ -302,7 +302,7 @@ interface LoadedView {
   packed: boolean;
 }
 
-// Loaded orientations belong to this decoded resource, never to cartridge
+// Loaded orientations belong to this decoded resource, never to container
 // bytes. Aliased offsets share state; loading the resource again resets it.
 const loadedViews = new WeakMap<AgiView, LoadedView>();
 

@@ -1,5 +1,5 @@
 import { openGameOptions } from "./engineProbe.ts";
-import { fixtureSkip } from "../../test/fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { readFile } from "node:fs/promises";
 import { readGameZip } from "../src/gameZip.ts";
 import { openContainer } from "../../src/container/container.ts";
@@ -35,7 +35,7 @@ import {
  * presented-frame counter, locator visibility, canvas pixels). There are no
  * wall-clock sleeps: see e2e/engineProbe.ts.
  */
-const missingFixture = fixtureSkip("kq1", ["AGIDATA.OVL"]);
+const missingFixture = fixtureSkip(KNOWN_GAME_HASH.KQ1, ["AGIDATA.OVL"]);
 test.skip(Boolean(missingFixture), missingFixture || "");
 if (missingFixture) console.warn(`[fixture skipped] ${missingFixture}`);
 
@@ -55,7 +55,10 @@ async function clickGameKey(page: Page, key: number): Promise<void> {
 
 /** Boot KQ1 and wait for the title screen (room 83) to be up and drawn. */
 async function bootKq1(page: Page): Promise<void> {
-  await page.getByTestId("boot-kq1").click();
+  await page
+    .locator(`[data-hash="${KNOWN_GAME_HASH.KQ1}"], [data-game-id="kq1"], [data-testid="boot-kq1"]`)
+    .first()
+    .click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 15_000 });
 }
@@ -91,8 +94,7 @@ test("boots authentic KQ1 to the title screen and advances to courtyard", async 
 
 test("KQ1 boots on the interpreter profile detected from its own AGIDATA.OVL", async ({ page }) => {
   await page.goto("/");
-  await page.getByTestId("boot-kq1").click();
-  await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
+  await bootKq1(page);
   // games/kq1/AGIDATA.OVL carries "Adventure Game Interpreter\n      Version 2.917";
   // the loader ships that file to the worker, which detects the 2.917 profile
   // (actions 0x00..0xad, exactly-four-loop direction selection) instead of the
@@ -124,7 +126,7 @@ test("intro credits in room 83 land on the engine's text rows below the picture"
   page,
 }) => {
   await page.goto("/");
-  await page.getByTestId("boot-kq1").click();
+  await bootKq1(page);
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
   // Room 83 configures display base 0: the copyright line and the key prompt
   // are display()ed on rows 22 and 24 (hand-checked in logic 83), each once.
@@ -563,7 +565,10 @@ test("returning to the menu preserves the installed game autosave", async ({ pag
   await expect(page.locator(".setup-panel")).toBeVisible();
   expect((await storedAutosave(page, "kq1"))?.room).toBe(1);
   await page
-    .getByTestId("local-game-card-kq1")
+    .locator(
+      `[data-hash="${KNOWN_GAME_HASH.KQ1}"], [data-game-id="kq1"], [data-testid="local-game-card-kq1"]`,
+    )
+    .first()
     .getByRole("button", { name: "Resume", exact: true })
     .click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
@@ -604,16 +609,16 @@ test("game frame is hidden until game is running, clicking screen advances title
 
   // 2. Creating without a configured key opens shared AI settings and preserves the draft.
   await openCreateAdventure(page);
-  await page.getByTestId("cartridge-knights-trial").click();
-  const draft = await page.getByTestId("custom-cartridge-input").inputValue();
+  await page.getByTestId("template-knights-trial").click();
+  const draft = await page.getByTestId("custom-adventure-input").inputValue();
   await page.getByTestId("connect-create-ai").click();
   await expect(page.getByTestId("ai-settings-dialog")).toBeVisible();
-  await expect(page.getByTestId("custom-cartridge-input")).toHaveValue(draft);
+  await expect(page.getByTestId("custom-adventure-input")).toHaveValue(draft);
   await page.getByTestId("ai-settings-cancel").click();
   await expect(page.locator(".screen")).toBeHidden();
 
   // 3. Boot KQ1: screen becomes visible
-  await page.getByTestId("boot-kq1").click();
+  await bootKq1(page);
   await expect(page.locator(".screen")).toBeVisible({ timeout: 15_000 });
   await expect(page.locator(".setup-panel")).toBeHidden();
 
@@ -723,7 +728,7 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
   expect(await page.evaluate(() => localStorage.getItem("monotio_agi.authored.kq1"))).toBeNull();
   await page.getByTestId("btn-eject").click();
 
-  // The remix is a saved cartridge of its own; it must not overwrite the
+  // The remix is a saved game of its own; it must not overwrite the
   // installed game's storage identity.
   const stored = await page.evaluate(() =>
     Object.keys(localStorage).filter((k) => k.includes("kq1")),

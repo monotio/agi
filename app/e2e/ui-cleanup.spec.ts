@@ -16,8 +16,8 @@ test("the start page uses concise tutorial copy and readable primary actions", a
 
   await expect(page.getByTestId("create-adventure-disclosure")).toHaveAttribute("open", "");
   await openCreateAdventure(page);
-  await page.getByTestId("cartridge-custom").click();
-  await page.getByTestId("custom-cartridge-input").fill("A concise test adventure.");
+  await page.getByTestId("template-custom").click();
+  await page.getByTestId("custom-adventure-input").fill("A concise test adventure.");
   await openAiSettings(page);
   const dialog = page.getByTestId("ai-settings-dialog");
   const keyLink = dialog.getByRole("link", { name: "Get an API key" });

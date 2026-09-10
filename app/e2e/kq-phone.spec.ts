@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { fixtureSkip } from "../../test/fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { isolateStorage, textHook, waitForCycles, waitForFrames } from "./engineProbe.ts";
 
 test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
@@ -32,16 +32,21 @@ async function coloredFraction(page: Page): Promise<number> {
 // Local Sierra resources only. These runs establish opening-room input and
 // persistence behavior; they do not claim that the complete games were played.
 for (const game of [
-  { slug: "kq1", intro: 83, room: 1, profile: "2.917", maxScore: 158 },
-  { slug: "kq2", intro: 97, room: 1, profile: "2.411", maxScore: 185 },
-  { slug: "kq3", intro: 45, room: 7, profile: "2.936", maxScore: 210 },
+  { hash: KNOWN_GAME_HASH.KQ1, gameId: "kq1", intro: 83, room: 1, profile: "2.917", maxScore: 158 },
+  { hash: KNOWN_GAME_HASH.KQ2, gameId: "kq2", intro: 97, room: 1, profile: "2.411", maxScore: 185 },
+  { hash: KNOWN_GAME_HASH.KQ3, gameId: "kq3", intro: 45, room: 7, profile: "2.936", maxScore: 210 },
 ]) {
-  const missing = fixtureSkip(game.slug, ["AGIDATA.OVL"]);
-  test(`${game.slug} opens, walks, saves and restores using phone controls`, async ({ page }) => {
+  const missing = fixtureSkip(game.hash, ["AGIDATA.OVL"]);
+  test(`${game.gameId} opens, walks, saves and restores using phone controls`, async ({ page }) => {
     test.skip(Boolean(missing), missing || "");
     await isolateStorage(page);
     await page.goto("/");
-    await page.getByTestId(`boot-${game.slug}`).tap();
+    await page
+      .locator(
+        `[data-hash="${game.hash}"], [data-game-id="${game.gameId}"], [data-testid="boot-${game.gameId}"]`,
+      )
+      .first()
+      .tap();
     await expect.poll(async () => (await textHook(page)).profile).toBe(game.profile);
     await expect.poll(async () => (await textHook(page)).room).toBe(game.intro);
     const pad = page.getByTestId("touch-controls");
@@ -102,6 +107,6 @@ for (const game of [
     await waitForFrames(page, 2);
     // The GPU image must contain the colored room, not the gray save selector.
     await expect.poll(() => coloredFraction(page)).toBeGreaterThan(0.1);
-    await page.screenshot({ path: test.info().outputPath(`${game.slug}-phone.png`) });
+    await page.screenshot({ path: test.info().outputPath(`${game.gameId}-phone.png`) });
   });
 }

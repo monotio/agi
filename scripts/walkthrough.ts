@@ -6,14 +6,14 @@ import { walkthrough, runWalkthrough } from "../test/speedrun/walkthroughs.ts";
 import { walkthroughFixtureHashes, type WalkthroughArtifact } from "../test/speedrun/artifact.ts";
 
 const route = walkthrough(process.argv[2] ?? "");
-const missing = fixtureSkip(route.slug, ["AGIDATA.OVL"]);
+const missing = fixtureSkip(route.hash, ["AGIDATA.OVL"]);
 if (missing) {
   process.stdout.write(`SKIP: ${missing}\n`);
 } else {
-  const output = resolve(process.argv[3] ?? `/tmp/agi-${route.slug}-speedrun.json`);
+  const output = resolve(process.argv[3] ?? `/tmp/agi-${route.gameId}-speedrun.json`);
   const started = performance.now();
-  const run = new Speedrun(route.slug, 1, { dwellModals: true });
-  const fixtureHashes = walkthroughFixtureHashes(route.slug);
+  const run = new Speedrun(route.hash, 1, { dwellModals: true });
+  const fixtureHashes = walkthroughFixtureHashes(route.hash);
   let failure: string | null = null;
   try {
     runWalkthrough(route, run);
@@ -24,7 +24,7 @@ if (missing) {
   const elapsedMs = Math.round(performance.now() - started);
   const artifact: WalkthroughArtifact = {
     schema: "monotio_agi.walkthrough.v1",
-    game: route.slug,
+    game: route.gameId,
     coverage: route.coverage,
     profile: run.engine.profile.id,
     seed: run.seed,

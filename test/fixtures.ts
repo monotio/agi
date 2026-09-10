@@ -1,36 +1,31 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import {
+  KNOWN_GAME_HASH,
+  getKnownGameByHash,
+  getKnownGameById,
+  resolveGameHash,
+  type GameHash,
+  type KnownAgiGame,
+} from "../src/games/knownGames.ts";
 
-/**
- * Locate a local game installation under games/<slug>/. Always ends with "/".
- */
-export function fixtureDir(slug: string): string {
-  return fileURLToPath(new URL(`../games/${slug}/`, import.meta.url));
-}
+export { KNOWN_GAME_HASH, type GameHash };
 
-/**
- * On-disk names of an installation, keyed by lowercase name, or null when the
- * installation folder is absent. Resolve fixture names case-insensitively
- * so the same inputs work on case-sensitive and case-insensitive filesystems.
- */
-export function fixtureFiles(slug: string): ReadonlyMap<string, string> | null {
-  const dir = fixtureDir(slug);
-  if (!existsSync(dir)) return null;
-  const names = new Map<string, string>();
-  for (const name of readdirSync(dir)) names.set(name.toLowerCase(), name);
-  return names;
+export interface DiscoveredFixture {
+  readonly hash: GameHash;
+  readonly dir: string;
+  readonly files: ReadonlyMap<string, string>;
+  readonly combined: { name: string; prefix: string } | null;
+  readonly known: KnownAgiGame | null | undefined;
+  readonly title: string;
+  readonly author?: string | undefined;
+  readonly wordsSha256?: string | undefined;
+  readonly objectSha256?: string | undefined;
 }
 
 const SPLIT_DIRECTORIES = ["LOGDIR", "PICDIR", "VIEWDIR", "SNDDIR"];
-
-/**
- * The v3 combined directory of an installation (`<PREFIX>DIR`, e.g. GRDIR),
- * or null for a v2 split installation. Combined installations name their
- * volumes `<PREFIX>VOL.n`.
- */
-export function combinedDirectory(slug: string): { name: string; prefix: string } | null {
-  return combinedDirectoryOf(fixtureFiles(slug));
-}
 
 /** The combined directory among an installation's names, or null. */
 function combinedDirectoryOf(
@@ -44,14 +39,170 @@ function combinedDirectoryOf(
   return null;
 }
 
+let cachedScan: {
+  byWordsHash: Map<string, DiscoveredFixture>;
+  byDirName: Map<string, DiscoveredFixture>;
+  all: readonly DiscoveredFixture[];
+} | null = null;
+
+export function clearFixtureCache(): void {
+  cachedScan = null;
+}
+
+/**
+ * Scan games/ subfolders, hashing WORDS.TOK (and OBJECT) to discover fixtures
+ * by content hash regardless of local folder name.
+ */
+export function scanFixtures(): {
+  byWordsHash: Map<string, DiscoveredFixture>;
+  byDirName: Map<string, DiscoveredFixture>;
+  all: readonly DiscoveredFixture[];
+} {
+  if (cachedScan) return cachedScan;
+  const gamesRoot = fileURLToPath(new URL("../games/", import.meta.url));
+  const byWordsHash = new Map<string, DiscoveredFixture>();
+  const byDirName = new Map<string, DiscoveredFixture>();
+  const all: DiscoveredFixture[] = [];
+
+  if (existsSync(gamesRoot)) {
+    for (const folder of readdirSync(gamesRoot)) {
+      const folderPath = join(gamesRoot, folder);
+      if (!statSync(folderPath, { throwIfNoEntry: false })?.isDirectory()) continue;
+      const fileList = readdirSync(folderPath);
+      const names = new Map<string, string>();
+      for (const name of fileList) names.set(name.toLowerCase(), name);
+
+      const wordsActual = names.get("words.tok");
+      const objActual = names.get("object");
+      let wordsSha256: string | undefined;
+      let objectSha256: string | undefined;
+
+      if (wordsActual) {
+        try {
+          wordsSha256 = createHash("sha256")
+            .update(readFileSync(join(folderPath, wordsActual)))
+            .digest("hex");
+        } catch {
+          // Unreadable file
+        }
+      }
+      if (objActual) {
+        try {
+          objectSha256 = createHash("sha256")
+            .update(readFileSync(join(folderPath, objActual)))
+            .digest("hex");
+        } catch {
+          // Unreadable file
+        }
+      }
+
+      const known = wordsSha256 ? getKnownGameByHash(wordsSha256) : null;
+      let title: string | undefined = known?.title;
+      let author: string | undefined = known?.author;
+
+      const metaActual = names.get("metadata.json");
+      if (!title && metaActual) {
+        try {
+          const parsed = JSON.parse(readFileSync(join(folderPath, metaActual), "utf8"));
+          if (typeof parsed.title === "string") title = parsed.title;
+          if (typeof parsed.author === "string") author = parsed.author;
+        } catch {
+          // Invalid json
+        }
+      }
+
+      const combined = combinedDirectoryOf(names);
+      const fixture: DiscoveredFixture = {
+        hash: wordsSha256 ?? folder,
+        dir: folderPath.endsWith("/") ? folderPath : `${folderPath}/`,
+        files: names,
+        combined,
+        known: known ?? null,
+        title: title ?? folder,
+        ...(wordsSha256 !== undefined ? { wordsSha256 } : {}),
+        ...(objectSha256 !== undefined ? { objectSha256 } : {}),
+        ...(author !== undefined ? { author } : {}),
+      };
+
+      if (wordsSha256) byWordsHash.set(wordsSha256.toLowerCase(), fixture);
+      byDirName.set(folder.toLowerCase(), fixture);
+      all.push(fixture);
+    }
+  }
+
+  cachedScan = { byWordsHash, byDirName, all };
+  return cachedScan;
+}
+
+/**
+ * Find an installed fixture by its content hash (WORDS.TOK SHA-256) or alias/folder key.
+ * Resolves by hash first so folder names are completely arbitrary.
+ */
+export function findFixture(hashOrAlias: string): DiscoveredFixture | null {
+  const { byWordsHash, byDirName } = scanFixtures();
+  const norm = hashOrAlias.toLowerCase();
+  const byHash = byWordsHash.get(norm);
+  if (byHash) return byHash;
+  const resolved = resolveGameHash(norm);
+  if (resolved) {
+    const matched = byWordsHash.get(resolved.toLowerCase());
+    if (matched) return matched;
+  }
+  const byDir = byDirName.get(norm);
+  if (byDir) return byDir;
+
+  // If a directory was created dynamically at runtime (e.g. temp test fixture):
+  const gamesRoot = fileURLToPath(new URL("../games/", import.meta.url));
+  const candidate = join(gamesRoot, hashOrAlias);
+  if (existsSync(candidate) && statSync(candidate).isDirectory()) {
+    const fileList = readdirSync(candidate);
+    const names = new Map<string, string>();
+    for (const name of fileList) names.set(name.toLowerCase(), name);
+    return {
+      hash: hashOrAlias,
+      dir: candidate.endsWith("/") ? candidate : `${candidate}/`,
+      files: names,
+      combined: combinedDirectoryOf(names),
+      known: null,
+      title: hashOrAlias,
+    };
+  }
+  return null;
+}
+
+/**
+ * Locate a local game installation by content hash or alias.
+ * Always ends with "/".
+ */
+export function fixtureDir(hashOrAlias: string): string {
+  const fixture = findFixture(hashOrAlias);
+  if (fixture) return fixture.dir;
+  return fileURLToPath(new URL(`../games/${hashOrAlias}/`, import.meta.url));
+}
+
+/**
+ * On-disk names of an installation, keyed by lowercase name, or null when the
+ * installation folder is absent.
+ */
+export function fixtureFiles(hashOrAlias: string): ReadonlyMap<string, string> | null {
+  const fixture = findFixture(hashOrAlias);
+  return fixture ? fixture.files : null;
+}
+
+/**
+ * The v3 combined directory of an installation (`<PREFIX>DIR`, e.g. GRDIR),
+ * or null for a v2 split installation.
+ */
+export function combinedDirectory(hashOrAlias: string): { name: string; prefix: string } | null {
+  const fixture = findFixture(hashOrAlias);
+  return fixture ? fixture.combined : null;
+}
+
 export interface FixtureRequirements {
-  /** Require resource directories, vocabulary and object metadata. Defaults to true. */
   readonly resourceFiles?: boolean;
-  /** Require every volume named by a directory. Set false for tests that read only part of a game. */
   readonly checkVolumes?: boolean;
 }
 
-/** Volume numbers referenced by a run of three-byte entries (v2 rule: high nibble 0xf is absent). */
 function referencedVolumes(entries: Uint8Array, exactAbsence: boolean): Set<number> {
   const volumes = new Set<number>();
   for (let offset = 0; offset + 2 < entries.length; offset += 3) {
@@ -66,35 +217,30 @@ function referencedVolumes(entries: Uint8Array, exactAbsence: boolean): Set<numb
   return volumes;
 }
 
-/** A Node test skip reason, also shared by browser tests and local tools. */
+/** A Node test skip reason, resolved by content hash or key. */
 export function fixtureSkip(
-  slug: string,
+  hashOrKey: string,
   requiredFiles: readonly string[] = [],
   options: FixtureRequirements = {},
 ): false | string {
-  return fixtureReadiness(slug, fixtureDir(slug), fixtureFiles(slug), requiredFiles, options);
+  const fixture = findFixture(hashOrKey);
+  const dir = fixture ? fixture.dir : fixtureDir(hashOrKey);
+  const onDisk = fixtureFiles(hashOrKey);
+  if (!existsSync(dir) || !onDisk) {
+    const known = getKnownGameByHash(hashOrKey) ?? getKnownGameById(hashOrKey);
+    const label = known ? `${known.title} (${known.wordsSha256})` : `games/${hashOrKey}/`;
+    return `Place your own game files in ${label} to run this test.`;
+  }
+  return fixtureReadiness(hashOrKey, dir, onDisk, requiredFiles, options);
 }
 
-/**
- * The installation census behind fixtureSkip, with the directory and its
- * on-disk names passed in so a synthetic installation can exercise it
- * without a real fixture: the directory file(s), WORDS.TOK, OBJECT, every
- * volume a directory entry references and
- * any caller-required files. Returns the skip message naming what is
- * missing, or false when the requested inputs are present. Binary-only evidence
- * may set resourceFiles:false with an explicit nonempty list of named files.
- * Tests that exercise only part of a game can set checkVolumes:false; resource
- * readers still reject unavailable data when those tests request it.
- */
 export function fixtureReadiness(
-  slug: string,
+  gameId: string,
   dir: string,
   onDisk: ReadonlyMap<string, string> | null,
   requiredFiles: readonly string[] = [],
   options: FixtureRequirements = {},
 ): false | string {
-  // Binary evidence has explicit dependencies and does not need playable game
-  // resources. An empty list here would turn a missing installation green.
   const resources = options.resourceFiles !== false;
   if (!resources && requiredFiles.length === 0)
     throw new Error("Binary-only fixture checks require named files.");
@@ -112,7 +258,6 @@ export function fixtureReadiness(
     ...requiredFiles,
   ]);
   if (resources && options.checkVolumes !== false && combined && onDisk) {
-    // Four u16le section offsets, then the logic, picture, view and sound entries.
     const bytes = readFileSync(dir + onDisk.get(combined.name.toLowerCase())!);
     const offsets = [0, 1, 2, 3].map((i) => bytes[i * 2]! | (bytes[i * 2 + 1]! << 8));
     offsets.push(bytes.length);
@@ -129,13 +274,12 @@ export function fixtureReadiness(
     }
   }
   const missing = [...required].filter((name) => !onDisk?.has(name.toLowerCase()));
-  return missing.length
-    ? `Place your own game files in games/${slug}/ to run this test (missing: ${missing.join(", ")}).`
-    : false;
+  if (!missing.length) return false;
+  const known = getKnownGameByHash(gameId);
+  const targetDesc = known ? `${known.title}` : `games/${gameId}/`;
+  return `Place your own game files in ${targetDesc} to run this test (missing: ${missing.join(", ")}).`;
 }
 
-export function hasFixture(slug: string): boolean {
-  return fixtureSkip(slug) === false;
+export function hasFixture(hashOrKey: string): boolean {
+  return fixtureSkip(hashOrKey) === false;
 }
-
-export const KQ1_DIR = fixtureDir("kq1");

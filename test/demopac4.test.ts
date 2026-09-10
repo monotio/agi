@@ -8,7 +8,7 @@ import { parseView } from "../src/view/view.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { detectProfile } from "../src/runtime/profile.ts";
 import { createPictureSurface } from "../src/types.ts";
-import { fixtureSkip } from "./fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
@@ -16,8 +16,9 @@ import { loadGame } from "./game-fixture.ts";
  * 3.002.102 interpreter under games/demopac4/. The suite checks compressed
  * resource expansion, message decoding and completion of all six demos.
  */
-const SLUG = "demopac4";
-const skip = fixtureSkip(SLUG, ["AGIDATA.OVL"]);
+const GAME_ID = "demopac4";
+const TARGET_HASH = KNOWN_GAME_HASH.DEMOPAC4;
+const skip = fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"]);
 
 /** Sound numbers the bytecode loads (load.sound operands in logics 51..201). */
 const REFERENCED_SOUNDS = [
@@ -42,7 +43,7 @@ class Host implements EngineHost {
 }
 
 function boot(): { engine: Engine; host: Host } {
-  const { container, dict, files } = loadGame(SLUG, { interpreterFiles: true });
+  const { container, dict, files } = loadGame(TARGET_HASH, { interpreterFiles: true });
   const host = new Host();
   const engine = new Engine(container, host, dict, { profile: detectProfile(files) });
   return { engine, host };
@@ -59,8 +60,8 @@ function cycle(engine: Engine, host: Host): void {
   }
 }
 
-test(`${SLUG}: combined container, 3.002.102 profile and resource census`, { skip }, () => {
-  const { container, files } = loadGame(SLUG, { interpreterFiles: true });
+test(`${GAME_ID}: combined container, 3.002.102 profile and resource census`, { skip }, () => {
+  const { container, files } = loadGame(TARGET_HASH, { interpreterFiles: true });
   assert.deepEqual(detectContainerFormat(files), { kind: "v3-combined", prefix: "DM" });
   assert.equal(detectProfile(files).id, "3.002.102");
   const counts = { logic: 0, picture: 0, view: 0, sound: 0 };
@@ -88,8 +89,8 @@ test(`${SLUG}: combined container, 3.002.102 profile and resource census`, { ski
   for (const n of REFERENCED_SOUNDS) parseSound(container.getResource("sound", n)!);
 });
 
-test(`${SLUG}: dictionary-compressed logic text decodes as plain messages`, { skip }, () => {
-  const { container } = loadGame(SLUG);
+test(`${GAME_ID}: dictionary-compressed logic text decodes as plain messages`, { skip }, () => {
+  const { container } = loadGame(TARGET_HASH);
   const menu = parseLogicResource(container.getResource("logic", 1)!).messages;
   assert.equal(menu[10], "Hi.  Which of our games");
   assert.equal(menu[12], "Press number of demo to select/deselect");
@@ -99,7 +100,7 @@ test(`${SLUG}: dictionary-compressed logic text decodes as plain messages`, { sk
   assert.match(parseLogicResource(container.getResource("logic", 61)!).messages[0]!, /^GOLD RUSH!/);
 });
 
-test(`${SLUG}: every demonstration runs to completion and returns to the menu`, { skip }, () => {
+test(`${GAME_ID}: every demonstration runs to completion and returns to the menu`, { skip }, () => {
   const { engine, host } = boot();
   const rooms: number[] = [];
   const visit = (): void => {

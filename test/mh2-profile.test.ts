@@ -4,32 +4,32 @@ import { readFileSync } from "node:fs";
 import { disassembleLogic } from "../src/logic/disassembler.ts";
 import { loadGame } from "./game-fixture.ts";
 import { detectProfile, detectVersionString } from "../src/runtime/profile.ts";
-import { fixtureDir, fixtureFiles, fixtureSkip } from "./fixtures.ts";
+import { fixtureDir, fixtureFiles, fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 
 // Optional 3.002.149 fixture comparison; handler offsets are documented in docs/fidelity.md.
 test(
   "3.002.149 fixture binaries select the shared print and room behavior",
   {
     skip:
-      fixtureSkip("mh2", ["AGI", "AGIDATA.OVL"], { resourceFiles: false }) ||
-      fixtureSkip("gr1", ["AGI", "AGIDATA.OVL"], { resourceFiles: false }),
+      fixtureSkip(KNOWN_GAME_HASH.MH2, ["AGI", "AGIDATA.OVL"], { resourceFiles: false }) ||
+      fixtureSkip(KNOWN_GAME_HASH.GR1, ["AGI", "AGIDATA.OVL"], { resourceFiles: false }),
   },
   () => {
     const binaries: Uint8Array[] = [];
-    for (const slug of ["mh2", "gr1"]) {
-      const onDisk = fixtureFiles(slug)!;
+    for (const gameHash of [KNOWN_GAME_HASH.MH2, KNOWN_GAME_HASH.GR1]) {
+      const onDisk = fixtureFiles(gameHash)!;
       const files = new Map(
         ["AGI", "AGIDATA.OVL"].map((name) => [
           name,
-          new Uint8Array(readFileSync(fixtureDir(slug) + onDisk.get(name.toLowerCase())!)),
+          new Uint8Array(readFileSync(fixtureDir(gameHash) + onDisk.get(name.toLowerCase())!)),
         ]),
       );
-      assert.equal(detectVersionString(files), "3.002.149", `${slug} reports its own build`);
+      assert.equal(detectVersionString(files), "3.002.149", `${gameHash} reports its own build`);
       const binary = files.get("AGI")!;
       const profile = detectProfile(files);
       assert.equal(profile.printConsumesF15, true);
       assert.equal(profile.timedPrintClearsV21, true);
-      assert.equal(profile.roomAliases, null, `${slug}: room destinations pass through`);
+      assert.equal(profile.roomAliases, null, `${gameHash}: room destinations pass through`);
       binaries.push(binary);
     }
     for (const [start, end] of [
@@ -47,10 +47,13 @@ test(
 test(
   "MH2 logic resources reference available sounds",
   {
-    skip: fixtureSkip("mh2", ["AGIDATA.OVL"], { checkVolumes: false }),
+    skip: fixtureSkip(KNOWN_GAME_HASH.MH2, ["AGIDATA.OVL"], { checkVolumes: false }),
   },
   () => {
-    const { container, files } = loadGame("mh2", { interpreterFiles: true, checkVolumes: false });
+    const { container, files } = loadGame(KNOWN_GAME_HASH.MH2, {
+      interpreterFiles: true,
+      checkVolumes: false,
+    });
     assert.equal(detectVersionString(files), "3.002.149");
     let logics = 0;
     let highestSound = 0;

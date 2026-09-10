@@ -2,16 +2,11 @@ import { readFileSync } from "node:fs";
 import { openContainer } from "../src/container/container.ts";
 import { parseWordsTok } from "../src/logic/words.ts";
 import { INTERPRETER_FILES } from "../src/runtime/profile.ts";
-import {
-  combinedDirectory,
-  fixtureDir,
-  fixtureFiles,
-  fixtureSkip,
-  type FixtureRequirements,
-} from "./fixtures.ts";
+import { findFixture, fixtureSkip, type FixtureRequirements, type GameHash } from "./fixtures.ts";
 
 /**
- * Shared loader for optional AGI game fixtures under games/<slug>/.
+ * Shared loader for optional AGI game fixtures under games/.
+ * Resolves fixtures by content hash (WORDS.TOK SHA-256) so folder names are arbitrary.
  * Used by compatibility tests and development tools.
  */
 export interface GameFixture {
@@ -30,15 +25,13 @@ export interface LoadGameOptions extends Pick<FixtureRequirements, "checkVolumes
   readonly interpreterFiles?: boolean;
 }
 
-export function loadGame(slug: string, options: LoadGameOptions = {}): GameFixture {
-  const dir = fixtureDir(slug);
-  const missing = fixtureSkip(slug, [], options);
+export function loadGame(hashOrAlias: GameHash, options: LoadGameOptions = {}): GameFixture {
+  const missing = fixtureSkip(hashOrAlias, [], options);
   if (missing) throw new Error(missing);
-  // One case-insensitive enumeration, keyed by the canonical names the
-  // container and profile detection expect (LOGDIR, <PREFIX>VOL.0,
-  // AGIDATA.OVL), including on case-sensitive filesystems.
-  const onDisk = fixtureFiles(slug)!;
-  const combined = combinedDirectory(slug);
+  const fixture = findFixture(hashOrAlias)!;
+  const dir = fixture.dir;
+  const onDisk = fixture.files;
+  const combined = fixture.combined;
   const prefix = combined?.prefix ?? "";
   const files = new Map<string, Uint8Array>();
   const load = (canonical: string): void => {

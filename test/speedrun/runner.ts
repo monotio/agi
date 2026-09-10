@@ -4,6 +4,7 @@ import { Engine, type EngineHost } from "../../src/runtime/engine.ts";
 import { CycleClock } from "../../src/runtime/cycleClock.ts";
 import { detectProfile } from "../../src/runtime/profile.ts";
 import { DIRECTION_KEYS, directionForDelta, randomSource } from "../../src/agent/gameTestSteps.ts";
+import { KNOWN_GAME_HASH } from "../fixtures.ts";
 import { loadGame } from "../game-fixture.ts";
 import {
   walkPlanned,
@@ -54,7 +55,7 @@ export class Speedrun {
   /** get.num prompts with the input row's text at prompt time. */
   readonly numPrompts: { prompt: string; row: number; room: number; rowText: string }[] = [];
   readonly seed: number;
-  readonly slug: string;
+  readonly gameId: string;
   readonly dwellModals: boolean;
   ticks = 0;
   cycles = 0;
@@ -65,15 +66,15 @@ export class Speedrun {
   private readonly numAnswers: number[] = [];
 
   constructor(
-    slug = "kq1",
+    gameId: string = KNOWN_GAME_HASH.KQ1,
     seed = 1,
     load: { checkVolumes?: boolean; maxTicks?: number; dwellModals?: boolean } = {},
   ) {
     this.seed = seed;
-    this.slug = slug;
+    this.gameId = gameId;
     this.dwellModals = load.dwellModals ?? false;
     this.maxTicks = load.maxTicks ?? 500_000;
-    const { container, dict, files } = loadGame(slug, {
+    const { container, dict, files } = loadGame(gameId, {
       interpreterFiles: true,
       ...(load.checkVolumes === undefined ? {} : { checkVolumes: load.checkVolumes }),
     });
@@ -167,7 +168,10 @@ export class Speedrun {
         this.engine.tick();
         this.cycles++;
       }
-      if (this.slug === "kq1" && this.engine.flags[63] !== 0)
+      if (
+        (this.gameId === "kq1" || this.gameId === KNOWN_GAME_HASH.KQ1) &&
+        this.engine.flags[63] !== 0
+      )
         assert.fail(`Graham died: ${JSON.stringify(this.state())}`);
     }
   }

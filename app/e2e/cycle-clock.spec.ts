@@ -3,7 +3,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
 
-function cartridge(delay: number, modal = false) {
+function makeGameContainer(delay: number, modal = false) {
   const game = createContainer();
   game.putResource(
     "logic",
@@ -146,7 +146,7 @@ test("worker honors v10 pace while modal keys and pause remain responsive", asyn
         prompt!.worker.terminate();
       }
     },
-    [cartridge(1), cartridge(4), cartridge(20, true)],
+    [makeGameContainer(1), makeGameContainer(4), makeGameContainer(20, true)],
   );
   expect(observations.errors).toEqual([]);
   expect(observations.clockFast).toBeGreaterThanOrEqual(2);

@@ -2,6 +2,13 @@
  * Walkthrough definitions and loaders for autonomous real-time playback.
  */
 import type { ReplayAction } from "./replay.ts";
+import {
+  KNOWN_GAMES,
+  getKnownGameById,
+  getKnownGameByHash,
+  getKnownGameByRevision,
+  detectKnownGameByHashes,
+} from "./knownGames.ts";
 
 export interface WalkthroughArtifact {
   schema: "monotio_agi.walkthrough.v1";
@@ -16,41 +23,44 @@ export interface WalkthroughArtifact {
 }
 
 export interface WalkthroughMeta {
-  readonly slug: string;
+  readonly gameId: string;
   readonly title: string;
   readonly label: string;
   readonly coverage: "complete-game" | "chapter" | "partial";
 }
 
-export const KNOWN_WALKTHROUGHS: Record<string, WalkthroughMeta> = {
-  kq1: {
-    slug: "kq1",
-    title: "King's Quest I",
-    label: "Completed throne-room ending (159 pts)",
-    coverage: "complete-game",
-  },
-  kq2: {
-    slug: "kq2",
-    title: "King's Quest II",
-    label: "Completed wedding & credits (185 pts)",
-    coverage: "complete-game",
-  },
-  sq1: {
-    slug: "sq1",
-    title: "Space Quest I",
-    label: "Completed ceremony & credits (202 pts)",
-    coverage: "complete-game",
-  },
-  mh1: {
-    slug: "mh1",
-    title: "Manhunter: New York",
-    label: "Completed Day 1",
-    coverage: "chapter",
-  },
-};
+export const KNOWN_WALKTHROUGHS: Record<string, WalkthroughMeta> = Object.fromEntries(
+  KNOWN_GAMES.filter((g) => g.walkthroughLabel).map((g) => [
+    g.id,
+    {
+      gameId: g.id,
+      title: g.title,
+      label: g.walkthroughLabel!,
+      coverage: g.walkthroughCoverage ?? "complete-game",
+    },
+  ]),
+);
 
-export function hasWalkthrough(slug: string): boolean {
-  return Boolean(KNOWN_WALKTHROUGHS[slug.toLowerCase()]);
+export function hasWalkthrough(hashOrId: string): boolean {
+  if (!hashOrId) return false;
+  const normalized = hashOrId.toLowerCase();
+  const known =
+    getKnownGameByHash(normalized) ??
+    getKnownGameById(normalized) ??
+    getKnownGameByRevision(normalized) ??
+    detectKnownGameByHashes(normalized);
+  return Boolean(known?.walkthroughLabel);
+}
+
+export function resolveWalkthrough(hashOrId: string): string | null {
+  if (!hashOrId) return null;
+  const normalized = hashOrId.toLowerCase();
+  const known =
+    getKnownGameByHash(normalized) ??
+    getKnownGameById(normalized) ??
+    getKnownGameByRevision(normalized) ??
+    detectKnownGameByHashes(normalized);
+  return known?.walkthroughLabel ? known.id : null;
 }
 
 export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact {
@@ -183,9 +193,9 @@ export function clearWalkthroughCache(): void {
   artifactCache.clear();
 }
 
-export function loadWalkthrough(slug: string): Promise<WalkthroughArtifact> {
-  const norm = slug.toLowerCase();
-  const cached = artifactCache.get(norm);
+export function loadWalkthrough(hashOrId: string): Promise<WalkthroughArtifact> {
+  const resolved = resolveWalkthrough(hashOrId) ?? hashOrId.toLowerCase();
+  const cached = artifactCache.get(resolved);
   if (cached) return cached;
 
   const promise = (async () => {
@@ -193,20 +203,20 @@ export function loadWalkthrough(slug: string): Promise<WalkthroughArtifact> {
       typeof import.meta !== "undefined" && import.meta.env?.BASE_URL
         ? import.meta.env.BASE_URL
         : "/";
-    const url = `${base}walkthroughs/${norm}.json`;
+    const url = `${base}walkthroughs/${resolved}.json`;
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`Walkthrough for "${slug}" not found (HTTP ${response.status})`);
+      throw new Error(`Walkthrough for "${hashOrId}" not found (HTTP ${response.status})`);
     }
     const json = await response.json();
     return validateWalkthroughArtifact(json);
   })().catch((err) => {
     // Evict failures so retries can succeed
-    artifactCache.delete(norm);
+    artifactCache.delete(resolved);
     throw err;
   });
 
-  artifactCache.set(norm, promise);
+  artifactCache.set(resolved, promise);
   return promise;
 }
 

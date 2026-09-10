@@ -5,7 +5,7 @@ interface MemoryRequest<T> {
   onerror: (() => void) | null;
 }
 
-/** The smallest IndexedDB surface needed by cartridge storage tests. */
+/** The smallest IndexedDB surface needed by game storage tests. */
 export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
   const records = new Map<IDBValidKey, unknown>();
   const request = <T>(transaction: Record<string, unknown>, operation: () => T): IDBRequest<T> => {
@@ -64,10 +64,11 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
             return value === undefined ? undefined : structuredClone(value);
           }),
         getAll: () => request(transaction, () => structuredClone([...records.values()])),
-        put: (value: { slug: IDBValidKey }) =>
+        put: (value: { gameId: IDBValidKey }) =>
           request(transaction, () => {
-            records.set(value.slug, structuredClone(value));
-            return value.slug;
+            const key = value.gameId;
+            records.set(key, structuredClone(value));
+            return key;
           }),
         delete: (key: IDBValidKey) =>
           request(transaction, () => {

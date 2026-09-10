@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fixtureSkip } from "./fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { Speedrun, randomSource } from "./speedrun/runner.ts";
+
+const TARGET_HASH = KNOWN_GAME_HASH.KQ1;
 
 test("speedrun randomness has a stable seed contract", () => {
   const next = randomSource(1);
@@ -10,7 +12,7 @@ test("speedrun randomness has a stable seed contract", () => {
 
 test(
   "KQ1 speedrun builds death diagnostics only when Graham dies",
-  { skip: fixtureSkip("kq1", ["AGIDATA.OVL"]) },
+  { skip: fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"]) },
   (t) => {
     const run = new Speedrun();
     const state = t.mock.method(run, "state");
@@ -25,7 +27,7 @@ test(
 test(
   "KQ1 speedrun cold boots using inputs and rejects a false progress claim",
   {
-    skip: fixtureSkip("kq1", ["AGIDATA.OVL"]),
+    skip: fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"]),
   },
   () => {
     const run = new Speedrun();
@@ -48,9 +50,9 @@ test(
 
 test(
   "Speedrun rejects ticks beyond its global ceiling",
-  { skip: fixtureSkip("kq1", ["AGIDATA.OVL"]) },
+  { skip: fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"]) },
   () => {
-    const run = new Speedrun("kq1", 1, { maxTicks: 50 });
+    const run = new Speedrun(TARGET_HASH, 1, { maxTicks: 50 });
     run.advance(30);
     assert.throws(() => run.advance(25), /Speedrun tick ceiling exceeded \(55 > 50\)/);
   },
@@ -58,7 +60,7 @@ test(
 
 test(
   "Speedrun walkDirection, walkToUntil, and repeatUntil helpers navigate and terminate cleanly",
-  { skip: fixtureSkip("kq1", ["AGIDATA.OVL"]) },
+  { skip: fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"]) },
   () => {
     const run = new Speedrun();
     run.advance(30);

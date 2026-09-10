@@ -5,6 +5,7 @@ import { reactive } from "vue";
 import type { GameControlBinding, EngineMenuState } from "../../src/runtime/engine.ts";
 import { continuationTranscript } from "./projectArchive.ts";
 import { gameRevision } from "./gameMetadata.ts";
+import { detectKnownGame } from "./knownGames.ts";
 import { clearGameSaves, readGameSaves, writeGameSave } from "./gameSaves.ts";
 import { serializeAgentLog } from "../../src/agent/toolTransport.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
@@ -34,16 +35,16 @@ import {
   type AutosaveRecord,
 } from "./gameProgress.ts";
 import {
-  clearCachedCartridge,
-  saveAuthoredCartridge,
+  clearCachedGame,
+  saveAuthoredGame,
   saveGameConversation,
   loadGameConversation,
-  getCachedCartridgeMeta,
-  type CachedCartridgeData,
-  loadAuthoredCartridge,
-  updateAuthoredCartridgeFiles,
-  updateCartridgeConversation,
-} from "./cartridgeStorage.ts";
+  getCachedGameMeta,
+  type CachedGameData,
+  loadAuthoredGame,
+  updateAuthoredGameFiles,
+  updateGameConversation,
+} from "./gameStorage.ts";
 
 /** Engine modal kinds (the engine draws them on its text surface). */
 export type ModalKind = "print" | "inventory" | "menu" | "showObj" | "showPri" | "save" | "restore";
@@ -104,6 +105,17 @@ export interface AgentLogAudio {
   caption: string;
 }
 
+export interface InstalledGameDescriptor {
+  readonly hash: string;
+  readonly gameId: string;
+  readonly title: string;
+  readonly author?: string | undefined;
+  readonly walkthroughLabel?: string | undefined;
+  readonly wordsSha256?: string | undefined;
+  readonly objectSha256?: string | undefined;
+  readonly folder?: string | undefined;
+}
+
 export interface EngineState {
   agentTask: AgentRunState | null;
   leaving: boolean;
@@ -125,7 +137,7 @@ export interface EngineState {
   /** Text rows of the engine's surface (transparent cells read as spaces). */
   rows: string[];
   /** Installed games autodiscovered under games/. */
-  installedGames: string[] | null;
+  installedGames: InstalledGameDescriptor[] | null;
   /** Interpreter profile the engine detected for the booted game, e.g. "2.917". */
   profile: string | null;
   /** Debug screen: live agent activity (requests, responses, patches). */
@@ -152,7 +164,7 @@ export interface EngineState {
 
 export interface WalkthroughUiState {
   active: boolean;
-  slug: string | null;
+  gameId: string | null;
   speed: number;
   pauseOnDialog: boolean;
   label: string | null;
@@ -200,7 +212,7 @@ export interface Frame {
 /**
  * Autosave. A separate, per-game slot:
  * the player's F5 slot is theirs and is never written behind their back, so
- * the two never share a key. `monotio_agi.lastGame` names the slug to resume.
+ * the two never share a key. `monotio_agi.lastGame` names the gameId to resume.
  * The record and its store live in gameProgress.ts, since a project archive
  * carries them too.
  */
@@ -212,26 +224,26 @@ export { autosaveKey, writeAutosave };
 export type { AutosaveRecord };
 
 /** Every storage read is a maybe: a blocked, full or corrupt store is normal. */
-export function readAutosave(slug: string): AutosaveRecord | null {
+export function readAutosave(gameId: string): AutosaveRecord | null {
   try {
-    const parsed = parseAutosaveRecord(localStorage.getItem(autosaveKey(slug)));
-    return parsed?.game.slug === slug ? parsed : null;
+    const parsed = parseAutosaveRecord(localStorage.getItem(autosaveKey(gameId)));
+    return parsed?.game.gameId === gameId ? parsed : null;
   } catch {
     return null;
   }
 }
 
-export function clearAutosave(slug: string): void {
+export function clearAutosave(gameId: string): void {
   try {
-    localStorage.removeItem(autosaveKey(slug));
-    if (localStorage.getItem(LAST_GAME_KEY) === slug) localStorage.removeItem(LAST_GAME_KEY);
+    localStorage.removeItem(autosaveKey(gameId));
+    if (localStorage.getItem(LAST_GAME_KEY) === gameId) localStorage.removeItem(LAST_GAME_KEY);
   } catch {
     /* nothing to clear in a store we cannot reach */
   }
 }
 
-/** The slug an autosave exists for, or null. Used by the picker. */
-export function lastGameSlug(): string | null {
+/** The gameId an autosave exists for, or null. Used by the picker. */
+export function lastGameId(): string | null {
   try {
     return localStorage.getItem(LAST_GAME_KEY);
   } catch {
@@ -241,13 +253,13 @@ export function lastGameSlug(): string | null {
 
 /**
  * Forget a library game completely: its project body and conversation, its
- * checkpoint, its numbered saves and the resume pointer. Slugs are
+ * checkpoint, its numbered saves and the resume pointer. Game IDs are
  * deterministic, so anything left behind would resurface on the next import.
  */
-export async function removeLibraryGame(slug: string): Promise<void> {
-  await clearCachedCartridge(slug);
-  clearAutosave(slug);
-  clearGameSaves(localStorage, slug);
+export async function removeLibraryGame(gameId: string): Promise<void> {
+  await clearCachedGame(gameId);
+  clearAutosave(gameId);
+  clearGameSaves(localStorage, gameId);
 }
 
 export function useEngine(
@@ -295,7 +307,7 @@ export function useEngine(
     recording: { active: false, starting: false, error: "" },
     walkthrough: {
       active: false,
-      slug: null,
+      gameId: null,
       speed: 1,
       pauseOnDialog: false,
       label: null,
@@ -325,13 +337,16 @@ export function useEngine(
   const currentSessionAgent: AgentHandler = {
     handle: async (request) => session?.handle(request) ?? "",
   };
-  /** What booted, so a remix can build a session for an installed original. */
   let booted: {
-    slug: string;
+    hash?: string | undefined;
+    gameId: string;
+    folder?: string | undefined;
+    title: string;
+    revision: string;
     installed: boolean;
     files: Record<string, Uint8Array>;
     words: [string, number][];
-    cartridge?: CachedCartridgeData;
+    authoredGame?: CachedGameData | undefined;
   } | null = null;
   interface PendingQuery {
     resolve: (value: unknown) => void;
@@ -664,7 +679,7 @@ export function useEngine(
             const slot = Number(req.context["slot"]);
             saved =
               booted && Number.isInteger(slot)
-                ? readGameSaves(localStorage, booted.slug)[String(slot)]
+                ? readGameSaves(localStorage, booted.gameId)[String(slot)]
                 : null;
           } catch {
             saved = null;
@@ -679,7 +694,7 @@ export function useEngine(
         if (req.op === "saveList") {
           if (!booted) return "[]";
           try {
-            const slots = readGameSaves(localStorage, booted.slug);
+            const slots = readGameSaves(localStorage, booted.gameId);
             // Only the description/signature header is needed for the selector.
             // Full images are fetched on restore, keeping the SAB reply bounded.
             return JSON.stringify(
@@ -701,7 +716,7 @@ export function useEngine(
               booted &&
               writeGameSave(
                 localStorage,
-                booted.slug,
+                booted.gameId,
                 Number(req.context["slot"]),
                 String(req.context["image"]),
               ),
@@ -759,8 +774,8 @@ export function useEngine(
             state.powerUp.open = false;
             if (game && booted === game && author) {
               if (
-                !(await updateCartridgeConversation(
-                  game.slug,
+                !(await updateGameConversation(
+                  game.gameId,
                   author.getTranscript(),
                   author.getSessionId(),
                   author.getAuthoringState(),
@@ -803,19 +818,49 @@ export function useEngine(
     if (!import.meta.env.DEV) return;
     try {
       const res = await fetch("/fixtures/");
-      state.installedGames = res.ok ? await res.json() : [];
+      if (!res.ok) {
+        state.installedGames = [];
+        return;
+      }
+      const raw = await res.json();
+      state.installedGames = Array.isArray(raw)
+        ? raw.map((item) => {
+            if (typeof item === "string") {
+              return { hash: item, gameId: item, title: item.toUpperCase() };
+            }
+            return {
+              hash: item.hash ?? item.wordsSha256 ?? item.folder,
+              gameId: item.gameId ?? item.folder,
+              title: item.title ?? (item.folder ? item.folder.toUpperCase() : "AGI GAME"),
+              ...(item.author ? { author: item.author } : {}),
+              ...(item.walkthroughLabel ? { walkthroughLabel: item.walkthroughLabel } : {}),
+              ...(item.wordsSha256 ? { wordsSha256: item.wordsSha256 } : {}),
+              ...(item.objectSha256 ? { objectSha256: item.objectSha256 } : {}),
+              ...(item.folder ? { folder: item.folder } : {}),
+            } as InstalledGameDescriptor;
+          })
+        : [];
     } catch {
       state.installedGames = [];
     }
   }
 
-  async function bootGame(slug: string): Promise<void> {
+  async function bootGame(hashOrAlias: string): Promise<void> {
     if (!import.meta.env.DEV) throw new Error("Installed fixtures are development-only");
     state.phase = "loading";
     state.error = "";
     try {
+      const norm = hashOrAlias.toLowerCase();
+      const match = (state.installedGames ?? []).find(
+        (g) =>
+          g.hash.toLowerCase() === norm ||
+          g.gameId.toLowerCase() === norm ||
+          g.wordsSha256?.toLowerCase() === norm ||
+          g.folder?.toLowerCase() === norm,
+      );
+      const target = match?.wordsSha256 ?? match?.hash ?? hashOrAlias;
       // Directory manifest lists every file (no 404 probing).
-      const manifest: string[] = await (await fetch(`/fixtures/${slug}/`)).json();
+      const manifest: string[] = await (await fetch(`/fixtures/${target}/`)).json();
       const names = manifest.filter((name) =>
         /^([A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/i.test(
           name,
@@ -823,7 +868,7 @@ export function useEngine(
       );
       const files: Record<string, Uint8Array> = {};
       for (const name of names) {
-        const res = await fetch(`/fixtures/${slug}/${name}`);
+        const res = await fetch(`/fixtures/${target}/${name}`);
         if (!res.ok) throw new Error(`fixture fetch failed: ${name}`);
         files[name.toUpperCase()] = new Uint8Array(await res.arrayBuffer());
       }
@@ -831,6 +876,12 @@ export function useEngine(
       const words = parseWordsTok(files["WORDS.TOK"]!).map(
         (e) => [e.word, e.id] as [string, number],
       );
+      const known = await detectKnownGame(files);
+      const revision = await gameRevision(files);
+      const folder = match?.folder ?? hashOrAlias;
+      const gameId = known?.id ?? match?.gameId ?? hashOrAlias;
+      const title = known?.title ?? match?.title ?? folder.toUpperCase();
+      const hash = match?.hash ?? target;
 
       worker?.terminate();
       bridge?.dispose();
@@ -843,9 +894,18 @@ export function useEngine(
       // No authoring session exists yet: the remix builds and orients one
       // over this container on first use.
       session = null;
-      booted = { slug, installed: true, files, words };
+      booted = {
+        hash,
+        folder,
+        gameId,
+        title,
+        revision,
+        installed: true,
+        files,
+        words,
+      };
       bridge = createBridge(hostBridgeHandler(currentSessionAgent), logAgent);
-      // A successful remix is saved as its own local cartridge before playback resumes.
+      // A successful remix is saved as its own local game before playback resumes.
       worker.postMessage({
         type: "boot",
         sessionId: activeWalkthroughSession,
@@ -934,7 +994,7 @@ export function useEngine(
         if (booted.installed) return false;
         // Memory follows storage: bytes the container refused (a catalog
         // original) must not become the revision a later checkpoint records.
-        if (!(await updateAuthoredCartridgeFiles(game.slug, msg.files))) return false;
+        if (!(await updateAuthoredGameFiles(game.gameId, msg.files))) return false;
         if (booted !== game) return false;
         game.files = msg.files;
       }
@@ -948,7 +1008,7 @@ export function useEngine(
         room: Number(msg.room),
         savedAt: Date.now(),
         game: {
-          slug: game.slug,
+          gameId: game.gameId,
           installed: game.installed,
           revision: await gameRevision(game.files),
         },
@@ -960,7 +1020,7 @@ export function useEngine(
         return false;
       }
       try {
-        localStorage.setItem(LAST_GAME_KEY, game.slug);
+        localStorage.setItem(LAST_GAME_KEY, game.folder ?? game.gameId);
       } catch (e) {
         logAgent("log", `autosave resume pointer failed: ${String(e)}`);
       }
@@ -1051,8 +1111,8 @@ export function useEngine(
   }
 
   /** Keep the selected provider and its key together; archives carry no credentials. */
-  function configForCartridge(slug: string, config: LlmConfig): LlmConfig {
-    const cached = getCachedCartridgeMeta(slug);
+  function configForGame(gameId: string, config: LlmConfig): LlmConfig {
+    const cached = getCachedGameMeta(gameId);
     return cached?.provider === "stub" && !cached.imported
       ? { provider: "stub", model: "offline-stub", apiKey: "" }
       : config;
@@ -1066,19 +1126,32 @@ export function useEngine(
    * whose container was cleared) — the caller then shows the picker.
    */
   async function resumeLastGame(config: LlmConfig): Promise<boolean> {
-    const slug = lastGameSlug();
-    if (!slug) return false;
-    const record = readAutosave(slug);
+    const key = lastGameId();
+    if (!key) return false;
+    const record = readAutosave(key);
     if (!record) return false;
-    if (record.game.installed ? !isInstalledGame(slug) : !getCachedCartridgeMeta(slug)) {
-      logAgent("log", `Autosave for "${slug}" has no game to boot; starting fresh.`);
-      clearAutosave(slug);
+    const gameId = record.game.gameId;
+    if (record.game.installed ? !isInstalledGame(gameId) : !getCachedGameMeta(gameId)) {
+      logAgent("log", `Autosave for "${gameId}" has no game to boot; starting fresh.`);
+      clearAutosave(gameId);
       return false;
     }
     pendingResumeRecord = record;
     try {
-      if (record.game.installed) await bootGame(slug);
-      else await bootCartridgeGame("", configForCartridge(slug, config), { slug, useCached: true });
+      if (record.game.installed) {
+        const match = (state.installedGames ?? []).find(
+          (g) =>
+            (typeof g === "string" ? g : g.gameId) === gameId ||
+            (typeof g === "string" ? g : g.folder) === gameId,
+        );
+        const targetFolder = typeof match === "string" ? match : (match?.folder ?? gameId);
+        await bootGame(targetFolder);
+      } else {
+        await bootAuthoredGame("", configForGame(gameId, config), {
+          gameId,
+          useCached: true,
+        });
+      }
     } finally {
       if (state.phase === "error") pendingResumeRecord = null;
     }
@@ -1090,13 +1163,24 @@ export function useEngine(
    * storage (the HMR module handover). Same boot path as `resumeLastGame`.
    */
   async function resumeFromRecord(record: AutosaveRecord, config: LlmConfig): Promise<boolean> {
-    const slug = record.game.slug;
-    if (record.game.installed ? !isInstalledGame(slug) : !getCachedCartridgeMeta(slug))
-      return false;
+    const gameId = record.game.gameId;
+    if (record.game.installed ? !isInstalledGame(gameId) : !getCachedGameMeta(gameId)) return false;
     pendingResumeRecord = record;
     try {
-      if (record.game.installed) await bootGame(slug);
-      else await bootCartridgeGame("", configForCartridge(slug, config), { slug, useCached: true });
+      if (record.game.installed) {
+        const match = (state.installedGames ?? []).find(
+          (g) =>
+            (typeof g === "string" ? g : g.gameId) === gameId ||
+            (typeof g === "string" ? g : g.folder) === gameId,
+        );
+        const targetFolder = typeof match === "string" ? match : (match?.folder ?? gameId);
+        await bootGame(targetFolder);
+      } else {
+        await bootAuthoredGame("", configForGame(gameId, config), {
+          gameId,
+          useCached: true,
+        });
+      }
     } finally {
       if (state.phase === "error") pendingResumeRecord = null;
     }
@@ -1104,15 +1188,20 @@ export function useEngine(
   }
 
   /** Discard a game's autosave and boot it from the beginning. */
-  async function startOver(slug: string, config: LlmConfig): Promise<void> {
-    const record = readAutosave(slug);
-    clearAutosave(slug);
+  async function startOver(gameId: string, config: LlmConfig): Promise<void> {
+    const record = readAutosave(gameId);
+    clearAutosave(gameId);
     pendingResumeRecord = null;
     state.resumed = false;
     clearTimeout(resumeCaptionTimer ?? undefined);
-    if (record?.game.installed ?? isInstalledGame(slug)) await bootGame(slug);
-    else if (getCachedCartridgeMeta(slug))
-      await bootCartridgeGame("", configForCartridge(slug, config), { slug, useCached: true });
+    if (record?.game.installed ?? isInstalledGame(gameId)) {
+      await bootGame(gameId);
+    } else if (getCachedGameMeta(gameId)) {
+      await bootAuthoredGame("", configForGame(gameId, config), {
+        gameId,
+        useCached: true,
+      });
+    }
   }
 
   function wireWorker(w: Worker): void {
@@ -1197,7 +1286,7 @@ export function useEngine(
           // A corrupt or profile-mismatched image is discarded, never shown:
           // the game is already running its normal boot behind this.
           logAgent("log", `Autosave discarded (${String(msg.message)}); starting a fresh game.`);
-          if (booted) clearAutosave(booted.slug);
+          if (booted) clearAutosave(booted.gameId);
         }
       } else if (msg.type === "recordingStarted" || msg.type === "recordingStopped") {
         const q = pendingQueries.get(Number(msg.id));
@@ -1265,7 +1354,7 @@ export function useEngine(
       } else if (msg.type === "booted") {
         if (booted) {
           try {
-            localStorage.setItem(LAST_GAME_KEY, booted.slug);
+            localStorage.setItem(LAST_GAME_KEY, booted.hash ?? booted.gameId);
           } catch {
             /* Playback can continue without browser storage. */
           }
@@ -1348,13 +1437,34 @@ export function useEngine(
   }
 
   /** Whether this development environment offers the original game files. */
-  function isInstalledGame(slug: string): boolean {
-    return (state.installedGames ?? []).includes(slug);
+  function isInstalledGame(hashOrId: string): boolean {
+    const norm = hashOrId.toLowerCase();
+    return (state.installedGames ?? []).some(
+      (entry) =>
+        entry.hash.toLowerCase() === norm ||
+        entry.gameId.toLowerCase() === norm ||
+        entry.wordsSha256?.toLowerCase() === norm ||
+        entry.folder?.toLowerCase() === norm,
+    );
   }
 
   /** The game currently in the slot, or null when nothing is booted. */
-  function currentGame(): { slug: string; installed: boolean } | null {
-    return booted ? { slug: booted.slug, installed: booted.installed } : null;
+  function currentGame(): {
+    gameId: string;
+    title: string;
+    revision: string;
+    installed: boolean;
+    folder?: string | undefined;
+  } | null {
+    return booted
+      ? {
+          gameId: booted.gameId,
+          title: booted.title,
+          revision: booted.revision,
+          installed: booted.installed,
+          folder: booted.folder,
+        }
+      : null;
   }
 
   async function exportCurrentGame() {
@@ -1362,22 +1472,22 @@ export function useEngine(
       throw new Error("Wait for the current authoring turn to finish before saving.");
     const game = booted;
     if (!game) throw new Error("No game is running.");
-    const data: CachedCartridgeData | null = game.installed
+    const data: CachedGameData | null = game.installed
       ? {
-          slug: game.slug,
-          title: game.slug.toUpperCase(),
+          gameId: game.gameId,
+          title: game.title,
           provider: "stub",
           model: state.profile ?? "unknown",
           authoredAt: "",
           files: game.files,
           words: game.words,
         }
-      : ((await loadAuthoredCartridge(game.slug).catch(() => null)) ?? game.cartridge ?? null);
-    if (!data) throw new Error("The current cartridge metadata is unavailable.");
+      : ((await loadAuthoredGame(game.gameId).catch(() => null)) ?? game.authoredGame ?? null);
+    if (!data) throw new Error("The current game metadata is unavailable.");
     const files = await query<Record<string, Uint8Array> | null>("exportFiles");
     if (!files || booted !== game) throw new Error("The game changed during export. Try again.");
     game.files = files;
-    if (!game.installed && !(await updateAuthoredCartridgeFiles(game.slug, files))) {
+    if (!game.installed && !(await updateAuthoredGameFiles(game.gameId, files))) {
       logAgent("error", "Browser storage could not save this world. Keep the downloaded ZIP.");
     }
     return {
@@ -1432,8 +1542,8 @@ export function useEngine(
           return;
         }
         const cached = booted.installed
-          ? await loadGameConversation(booted.slug)
-          : await loadAuthoredCartridge(booted.slug);
+          ? await loadGameConversation(booted.gameId)
+          : await loadAuthoredGame(booted.gameId);
         session = AgentSession.fromAuthoredData(
           config,
           logAgent,
@@ -1453,9 +1563,9 @@ export function useEngine(
         return;
       }
       session.setRuntime({ frames: { read: readFrames }, engine: engineSource });
-      if (booted?.installed || (booted && getCachedCartridgeMeta(booted.slug)?.imported)) {
+      if (booted?.installed || (booted && getCachedGameMeta(booted.gameId)?.imported)) {
         session.setOrientation({
-          gameId: booted.slug,
+          gameId: booted.gameId,
           profile: String(engineState?.profile ?? "unknown"),
         });
       }
@@ -1484,8 +1594,8 @@ export function useEngine(
       const game = booted;
       if (!game) return;
       const cached = game.installed
-        ? await loadGameConversation(game.slug)
-        : await loadAuthoredCartridge(game.slug);
+        ? await loadGameConversation(game.gameId)
+        : await loadAuthoredGame(game.gameId);
       if (booted !== game || session)
         throw new Error("The game changed while applying AI settings. Try again.");
       replacement = AgentSession.fromAuthoredData(
@@ -1499,9 +1609,9 @@ export function useEngine(
           : undefined,
         cached?.authoringState,
       );
-      if (game.installed || getCachedCartridgeMeta(game.slug)?.imported) {
+      if (game.installed || getCachedGameMeta(game.gameId)?.imported) {
         replacement.setOrientation({
-          gameId: game.slug,
+          gameId: game.gameId,
           profile: state.profile ?? "unknown",
         });
       }
@@ -1519,15 +1629,15 @@ export function useEngine(
     const context = replacement.getProviderContext();
     try {
       if (game.installed) {
-        await saveGameConversation(game.slug, {
+        await saveGameConversation(game.gameId, {
           ...context,
           transcript: replacement.getTranscript(),
           sessionId: replacement.getSessionId(),
           authoringState: replacement.getAuthoringState(),
         });
       } else if (
-        !(await updateCartridgeConversation(
-          game.slug,
+        !(await updateGameConversation(
+          game.gameId,
           replacement.getTranscript(),
           replacement.getSessionId(),
           replacement.getAuthoringState(),
@@ -1562,24 +1672,24 @@ export function useEngine(
     const words = files["WORDS.TOK"]
       ? parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id] as [string, number])
       : game.words;
-    const original = game.installed ? null : await loadAuthoredCartridge(game.slug);
+    const original = game.installed ? null : await loadAuthoredGame(game.gameId);
     const revision = await gameRevision(files);
     const catalogChanged =
       original?.library?.source === "catalog" && original.library.revision !== revision;
     if (game.installed || catalogChanged) {
-      const slug = `remix-${crypto.randomUUID()}`;
-      const data: Omit<CachedCartridgeData, "slug" | "authoredAt"> = {
-        title: `${original?.title ?? game.slug.toUpperCase()} Remix`,
+      const remixGameId = `remix-${crypto.randomUUID()}`;
+      const data: Omit<CachedGameData, "gameId" | "authoredAt"> = {
+        title: `${original?.title ?? game.title} Remix`,
         library: {
           ...original?.library,
           version: 1,
-          gameId: slug,
+          gameId: remixGameId,
           revision,
           source: "remix",
           catalog: undefined,
           preview: undefined,
           parent: {
-            gameId: original?.library?.gameId ?? game.slug,
+            gameId: original?.library?.gameId ?? game.gameId,
             revision: original?.library?.revision ?? (await gameRevision(game.files)),
           },
           validation: {
@@ -1596,23 +1706,23 @@ export function useEngine(
         imported: true,
         roomGeneration: false,
       };
-      if (!(await saveAuthoredCartridge(slug, data)))
+      if (!(await saveAuthoredGame(remixGameId, data)))
         throw new Error(
           "Browser storage could not save this remix. Use Game actions → Project to keep it.",
         );
       // The checkpoint moves with the progress: the original card must never
       // offer a snapshot taken under resources its own container does not have.
-      clearAutosave(game.slug);
-      game.slug = slug;
+      clearAutosave(game.gameId);
+      game.gameId = remixGameId;
       game.installed = false;
-      game.cartridge = { ...data, slug, authoredAt: new Date().toISOString() };
-      // An original-game snapshot must never stand in for the new cartridge's checkpoint.
-      localStorage.setItem(LAST_GAME_KEY, slug);
+      game.authoredGame = { ...data, gameId: remixGameId, authoredAt: new Date().toISOString() };
+      // An original-game snapshot must never stand in for the new game's checkpoint.
+      localStorage.setItem(LAST_GAME_KEY, remixGameId);
       lastAutosave = null;
       hook.autosave = -1;
     } else if (
-      !(await updateCartridgeConversation(
-        game.slug,
+      !(await updateGameConversation(
+        game.gameId,
         author.getTranscript(),
         author.getSessionId(),
         author.getAuthoringState(),
@@ -1652,7 +1762,7 @@ export function useEngine(
         state.powerUp.reply = text;
         state.powerUp.messages.push({ role: "assistant", text });
         if (booted?.installed) {
-          await saveGameConversation(booted.slug, {
+          await saveGameConversation(booted.gameId, {
             ...session.getProviderContext(),
             transcript: session.getTranscript(),
             sessionId: session.getSessionId(),
@@ -1662,8 +1772,8 @@ export function useEngine(
         if (booted && !booted.installed) {
           const context = session.getProviderContext();
           if (
-            !(await updateCartridgeConversation(
-              booted.slug,
+            !(await updateGameConversation(
+              booted.gameId,
               session.getTranscript(),
               session.getSessionId(),
               session.getAuthoringState(),
@@ -1782,10 +1892,10 @@ export function useEngine(
    * Boot an agent-authored adventure using the unified AgentSession.
    * Can run either with live LLM (Anthropic / OpenAI) or offline deterministic stub.
    */
-  async function bootCartridgeGame(
-    cartridgeMarkdown: string,
+  async function bootAuthoredGame(
+    templateMarkdown: string,
     config: LlmConfig,
-    options?: { slug?: string; title?: string; useCached?: boolean },
+    options?: { gameId?: string; title?: string; useCached?: boolean },
   ): Promise<void> {
     state.phase = "loading";
     state.error = "";
@@ -1797,17 +1907,17 @@ export function useEngine(
       worker = new Worker(new URL("./engine.worker.ts", import.meta.url), { type: "module" });
       wireWorker(worker);
 
-      const slug = options?.slug || "custom";
-      const title = options?.title || slug;
+      const gameId = options?.gameId || "custom";
+      const title = options?.title || gameId;
 
       if (options?.useCached) {
-        const cached = await loadAuthoredCartridge(slug);
+        const cached = await loadAuthoredGame(gameId);
         if (cached) {
           logAgent(
             "log",
             `⚡ Booting saved world for "${cached.title}" (authored ${new Date(cached.authoredAt).toLocaleTimeString()}${cached.transcript ? `, ${cached.transcript.length} saved messages` : ""})`,
           );
-          const cachedConfig = configForCartridge(slug, config);
+          const cachedConfig = configForGame(gameId, config);
           const cachedSession =
             cached.imported || (cachedConfig.provider !== "stub" && !cachedConfig.apiKey.trim())
               ? null
@@ -1824,12 +1934,16 @@ export function useEngine(
                 );
           session = cachedSession;
           bridge = createBridge(hostBridgeHandler(currentSessionAgent), logAgent);
+          const known = await detectKnownGame(cached.files);
+          const revision = cached.library?.revision || (await gameRevision(cached.files));
           booted = {
-            slug,
+            gameId: cached.library?.gameId ?? known?.id ?? gameId,
+            title: cached.title ?? known?.title ?? title,
+            revision,
             installed: false,
             files: cached.files,
             words: cached.words,
-            cartridge: cached,
+            authoredGame: cached,
           };
           worker.postMessage({
             type: "boot",
@@ -1855,9 +1969,9 @@ export function useEngine(
       bridge = createBridge(hostBridgeHandler(currentSessionAgent), logAgent);
 
       const { files, words, transcript, sessionId } =
-        await authoring.startGenesis(cartridgeMarkdown);
-      const cartridge: CachedCartridgeData = {
-        slug,
+        await authoring.startGenesis(templateMarkdown);
+      const authoredGame: CachedGameData = {
+        gameId,
         title,
         authoredAt: new Date().toISOString(),
         provider: config.provider,
@@ -1869,9 +1983,19 @@ export function useEngine(
         authoringState: authoring.getAuthoringState(),
         roomGeneration: true,
       };
-      booted = { slug, installed: false, files, words, cartridge };
+      const known = await detectKnownGame(files);
+      const revision = await gameRevision(files);
+      booted = {
+        gameId: known?.id ?? gameId,
+        title,
+        revision,
+        installed: false,
+        files,
+        words,
+        authoredGame,
+      };
 
-      const saved = await saveAuthoredCartridge(slug, {
+      const saved = await saveAuthoredGame(gameId, {
         title,
         provider: config.provider,
         model: config.model,
@@ -1890,7 +2014,7 @@ export function useEngine(
       if (saved)
         logAgent(
           "log",
-          `Saved the world and its authoring conversation in this browser (${slug}).`,
+          `Saved the world and its authoring conversation in this browser (${gameId}).`,
         );
 
       worker.postMessage({
@@ -1919,7 +2043,7 @@ export function useEngine(
       apiKey: "",
       model: "offline-stub",
     };
-    return bootCartridgeGame("", stubConfig);
+    return bootAuthoredGame("", stubConfig);
   }
 
   function sendInput(text: string): void {
@@ -2066,7 +2190,7 @@ export function useEngine(
    * (validation, dictionary probe, TESTS.JSON serialization), then ship and
    * persist the updated file exactly like a remix. On an installed or catalog
    * game this is the established remix conversion: the project becomes a
-   * writable cartridge copy, since originals cannot store tests.
+   * writable project copy, since originals cannot store tests.
    */
   async function saveRecordedTest(
     snapshot: RecordingSnapshot,
@@ -2079,8 +2203,8 @@ export function useEngine(
     if (snapshot.tainted) return { ok: false, message: snapshot.tainted };
     if (!session) {
       const cached = game.installed
-        ? await loadGameConversation(game.slug)
-        : await loadAuthoredCartridge(game.slug);
+        ? await loadGameConversation(game.gameId)
+        : await loadAuthoredGame(game.gameId);
       session = AgentSession.fromAuthoredData(
         config,
         logAgent,
@@ -2165,7 +2289,7 @@ export function useEngine(
   }
 
   async function startWalkthrough(
-    slug: string,
+    gameId: string,
     options?: { speed?: number; initialTick?: number; keepPaused?: boolean } | number,
   ): Promise<void> {
     if (walkthroughAbortController) {
@@ -2180,11 +2304,11 @@ export function useEngine(
     state.walkthrough.error = "";
 
     // Load artifact (memoized with validation and failure eviction)
-    const artifact = await loadWalkthrough(slug);
+    const artifact = await loadWalkthrough(gameId);
     if (activeWalkthroughSession !== sessionId) return;
 
     if (!artifact) {
-      state.walkthrough.error = `No walkthrough found for "${slug}".`;
+      state.walkthrough.error = `No walkthrough found for "${gameId}".`;
       state.walkthrough.status = "error";
       return;
     }
@@ -2201,7 +2325,7 @@ export function useEngine(
     const targetCp = target > 0 ? [...checkpoints].reverse().find((c) => c.tick <= target) : null;
 
     state.walkthrough.active = true;
-    state.walkthrough.slug = slug;
+    state.walkthrough.gameId = gameId;
     state.walkthrough.speed = speed;
     state.walkthrough.status = keepPaused ? "paused" : "playing";
     state.walkthrough.error = "";
@@ -2273,27 +2397,41 @@ export function useEngine(
     });
 
     // Boot game with the seed (or fast reset if already booted in worker)
-    if (worker && booted?.slug === slug) {
+    const isCurrentGame = worker && (booted?.gameId === gameId || booted?.folder === gameId);
+
+    if (isCurrentGame && worker) {
       worker.postMessage({
         type: "resetReplay",
         seed: artifact.seed,
         seeking: Boolean(target > 0),
         sessionId,
       });
-    } else if (isInstalledGame(slug)) {
-      await bootGame(slug);
-    } else if (getCachedCartridgeMeta(slug)) {
-      await bootCartridgeGame(
+    } else if (isInstalledGame(gameId)) {
+      const match = (state.installedGames ?? []).find(
+        (g) =>
+          (typeof g === "string" ? g : g.gameId) === gameId ||
+          (typeof g === "string" ? g : g.folder) === gameId,
+      );
+      const targetFolder = typeof match === "string" ? match : (match?.folder ?? gameId);
+      await bootGame(targetFolder);
+    } else if (getCachedGameMeta(gameId)) {
+      await bootAuthoredGame(
         "",
-        configForCartridge(slug, {
+        configForGame(gameId, {
           provider: "stub",
           apiKey: "",
           model: "offline-stub",
         }),
-        { slug, useCached: true },
+        { gameId, useCached: true },
       );
     } else {
-      await bootGame(slug);
+      const match = (state.installedGames ?? []).find(
+        (g) =>
+          (typeof g === "string" ? g : g.gameId) === gameId ||
+          (typeof g === "string" ? g : g.folder) === gameId,
+      );
+      const targetFolder = typeof match === "string" ? match : (match?.folder ?? gameId);
+      await bootGame(targetFolder);
     }
 
     if (activeWalkthroughSession !== sessionId || abortController.signal.aborted) return;
@@ -2486,8 +2624,8 @@ export function useEngine(
     const clamped = Math.max(0, Math.min(state.walkthrough.totalTicks, Math.round(targetTick)));
     const engineTick = replayDriver.latest?.tick ?? state.walkthrough.tick;
     const currentTick = Math.max(state.walkthrough.tick, engineTick);
-    const currentSlug = state.walkthrough.slug;
-    if (!currentSlug || !state.walkthrough.active) return;
+    const currentGameId = state.walkthrough.gameId;
+    if (!currentGameId || !state.walkthrough.active) return;
     const wasPaused = options?.keepPaused ?? state.walkthrough.status === "paused";
 
     seekTargetTick = clamped;
@@ -2512,7 +2650,7 @@ export function useEngine(
     audio.setPaused(true);
 
     if (clamped < currentTick || state.walkthrough.status === "completed") {
-      void startWalkthrough(currentSlug, {
+      void startWalkthrough(currentGameId, {
         speed: state.walkthrough.speed,
         initialTick: clamped,
         keepPaused: wasPaused,
@@ -2551,8 +2689,8 @@ export function useEngine(
       resumeWalkthrough();
     } else if (state.walkthrough.status === "playing") {
       pauseWalkthrough();
-    } else if (state.walkthrough.status === "completed" && state.walkthrough.slug) {
-      void startWalkthrough(state.walkthrough.slug, { speed: state.walkthrough.speed });
+    } else if (state.walkthrough.status === "completed" && state.walkthrough.gameId) {
+      void startWalkthrough(state.walkthrough.gameId, { speed: state.walkthrough.speed });
     }
   }
 
@@ -2577,7 +2715,7 @@ export function useEngine(
     discoverGames,
     bootGame,
     bootAgentGame,
-    bootCartridgeGame,
+    bootAuthoredGame,
     startWalkthrough,
     stopWalkthrough,
     setWalkthroughSpeed,

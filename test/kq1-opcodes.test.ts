@@ -4,7 +4,7 @@ import { createContainer } from "../src/container/container.ts";
 import { buildLogicResource, parseLogicResource } from "../src/logic/resource.ts";
 import { ACTION_BY_CODE, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../src/logic/opcodes.ts";
 import { Engine, UnimplementedOpcodeError, type EngineHost } from "../src/runtime/engine.ts";
-import { fixtureSkip } from "./fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
@@ -13,6 +13,7 @@ import { loadGame } from "./game-fixture.ts";
  * prove each used action has dispatch semantics by executing a probe bytecode
  * through the real engine. Replaces playtest-driven opcode discovery.
  */
+const TARGET_HASH = KNOWN_GAME_HASH.KQ1;
 
 /** Linear bytecode walk; see module doc for the padding rule. */
 function census(code: Uint8Array, actions: Set<number>, conditions: Set<number>): void {
@@ -145,35 +146,39 @@ function probeAction(code: number): void {
   }
 }
 
-test("every opcode KQ1 uses has engine dispatch semantics", { skip: fixtureSkip("kq1") }, () => {
-  const { container } = loadGame("kq1");
-  const actions = new Set<number>();
-  const conditions = new Set<number>();
-  let logicCount = 0;
-  for (let n = 0; n < 256; n++) {
-    const payload = container.getResource("logic", n);
-    if (!payload) continue;
-    logicCount++;
-    census(parseLogicResource(payload).code, actions, conditions);
-  }
-  assert.equal(logicCount, 90, "static census covers every KQ1 logic resource in LOGDIR");
+test(
+  "every opcode KQ1 uses has engine dispatch semantics",
+  { skip: fixtureSkip(TARGET_HASH) },
+  () => {
+    const { container } = loadGame(TARGET_HASH);
+    const actions = new Set<number>();
+    const conditions = new Set<number>();
+    let logicCount = 0;
+    for (let n = 0; n < 256; n++) {
+      const payload = container.getResource("logic", n);
+      if (!payload) continue;
+      logicCount++;
+      census(parseLogicResource(payload).code, actions, conditions);
+    }
+    assert.equal(logicCount, 90, "static census covers every KQ1 logic resource in LOGDIR");
 
-  // The 13 actions this completeness milestone was driven by: KQ1 really
-  // does use all of them.
-  for (const code of [
-    0x1d, 0x6e, 0x76, 0x7a, 0x7c, 0x7e, 0x85, 0x87, 0x8b, 0x8c, 0x8d, 0x90, 0xa2,
-  ]) {
-    assert.ok(actions.has(code), `expected KQ1 to use action 0x${code.toString(16)}`);
-  }
+    // The 13 actions this completeness milestone was driven by: KQ1 really
+    // does use all of them.
+    for (const code of [
+      0x1d, 0x6e, 0x76, 0x7a, 0x7c, 0x7e, 0x85, 0x87, 0x8b, 0x8c, 0x8d, 0x90, 0xa2,
+    ]) {
+      assert.ok(actions.has(code), `expected KQ1 to use action 0x${code.toString(16)}`);
+    }
 
-  for (const code of conditions) {
-    assert.ok(CONDITION_BY_CODE.has(code), `condition 0x${code.toString(16)} in table`);
-  }
-  for (const code of actions) probeAction(code);
-});
+    for (const code of conditions) {
+      assert.ok(CONDITION_BY_CODE.has(code), `condition 0x${code.toString(16)} in table`);
+    }
+    for (const code of actions) probeAction(code);
+  },
+);
 
-test("KQ1 OBJECT file decodes to real inventory names", { skip: fixtureSkip("kq1") }, () => {
-  const { container } = loadGame("kq1");
+test("KQ1 OBJECT file decodes to real inventory names", { skip: fixtureSkip(TARGET_HASH) }, () => {
+  const { container } = loadGame(TARGET_HASH);
   // get(0); status(); return; — lists item 0 by its OBJECT-file name.
   container.putResource(
     "logic",

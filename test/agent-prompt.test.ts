@@ -264,9 +264,9 @@ describe("agent system prompt", () => {
 });
 
 describe("first-turn prompts", () => {
-  it("creates a genesis prompt carrying the instructions and the cartridge", () => {
+  it("creates a genesis prompt carrying the instructions and the adventure template", () => {
     const userPrompt = createGenesisPrompt("# The Lost Kingdom\nA test adventure.");
-    assert.ok(userPrompt.includes("# The Lost Kingdom"), "includes cartridge title");
+    assert.ok(userPrompt.includes("# The Lost Kingdom"), "includes template title");
     assert.ok(userPrompt.includes("GENESIS"), "includes genesis instruction");
     assert.ok(userPrompt.includes("finish_genesis"), "names the closing tool");
     assert.ok(

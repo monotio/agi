@@ -6,7 +6,7 @@ import { test } from "node:test";
 const configUrl = new URL("../configs/genesis.ts", import.meta.url);
 for (const location of ["../../", "../"]) {
   const cwd = fileURLToPath(new URL(location, import.meta.url));
-  test(`Genesis config loads original cartridges from ${location} working directory`, () => {
+  test(`Genesis config loads original templates from ${location} working directory`, () => {
     const result = spawnSync(
       process.execPath,
       [
@@ -14,8 +14,8 @@ for (const location of ["../../", "../"]) {
         "--input-type=module",
         "-e",
         `const { default: config } = await import(${JSON.stringify(configUrl.href)});
-         if (config.tests.length !== 4 || config.tests.some(test => !test.vars.cartridgeText.trim()))
-           throw new Error("The Genesis cartridge cases did not load");`,
+         if (config.tests.length !== 4 || config.tests.some(test => !test.vars.templateText.trim()))
+           throw new Error("The Genesis template cases did not load");`,
       ],
       {
         cwd,

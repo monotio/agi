@@ -2,21 +2,33 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseSound, SoundPlayback } from "../src/sound/sound.ts";
 import { detectProfile, type ProfileId } from "../src/runtime/profile.ts";
-import { fixtureSkip } from "./fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
-const games: { slug: string; profile: ProfileId; damaged: number[]; unreadable: number[] }[] = [
-  { slug: "kq1", profile: "2.917", damaged: [], unreadable: [34, 35, 36, 37] },
-  { slug: "kq2", profile: "2.411", damaged: [], unreadable: [] },
-  { slug: "kq3", profile: "2.936", damaged: [36], unreadable: [] },
+const games: {
+  hash: string;
+  gameId: string;
+  profile: ProfileId;
+  damaged: number[];
+  unreadable: number[];
+}[] = [
+  {
+    hash: KNOWN_GAME_HASH.KQ1,
+    gameId: "kq1",
+    profile: "2.917",
+    damaged: [],
+    unreadable: [34, 35, 36, 37],
+  },
+  { hash: KNOWN_GAME_HASH.KQ2, gameId: "kq2", profile: "2.411", damaged: [], unreadable: [] },
+  { hash: KNOWN_GAME_HASH.KQ3, gameId: "kq3", profile: "2.936", damaged: [36], unreadable: [] },
 ];
 
 for (const game of games) {
   test(
-    `${game.slug}: every installed sound completes bounded playback`,
-    { skip: fixtureSkip(game.slug) },
+    `${game.gameId}: every installed sound completes bounded playback`,
+    { skip: fixtureSkip(game.hash) },
     () => {
-      const { container } = loadGame(game.slug);
+      const { container } = loadGame(game.hash);
       const damaged: number[] = [];
       const unreadable: number[] = [];
       let count = 0;

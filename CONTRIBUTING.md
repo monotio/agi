@@ -66,7 +66,7 @@ when implementing behavior; check the common contract and the selected profile's
 
 Use small, original resources for engine regressions. Optional compatibility
 suites also run against game files supplied by the contributor in
-`games/<slug>/`; those fixture folders are gitignored and excluded from production
+`games/<gameId>/`; those fixture folders are gitignored and excluded from production
 builds. Missing inputs produce explicit test skips.
 
 See [Testing](docs/testing.md) for fixture editions and setup, walkthrough

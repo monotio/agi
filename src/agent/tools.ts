@@ -1369,11 +1369,11 @@ function executeLegacyTool(
         return {
           success: true,
           message:
-            "Current cartridge resource index. Inventory array indices are object IDs; startingRoom is the initial location.",
+            "Current game resource index. Inventory array indices are object IDs; startingRoom is the initial location.",
           details,
         };
       } catch (err) {
-        return { success: false, error: `Cannot inspect cartridge: ${String(err)}` };
+        return { success: false, error: `Cannot inspect game: ${String(err)}` };
       }
     }
 

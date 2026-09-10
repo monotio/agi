@@ -60,8 +60,8 @@ Every tool's own description states what it does, what it returns and how it fai
 - When changing a running game, read before you patch and make the smallest complete change.
 `;
 
-/** Formats the initial Genesis turn prompt containing the cartridge markdown. */
-export function createGenesisPrompt(cartridgeText: string): string {
+/** Formats the initial Genesis turn prompt containing the template markdown. */
+export function createGenesisPrompt(templateText: string): string {
   return `### GENESIS PHASE: Build the opening of the game
 
 Author ONLY the opening room (Logic 0 + the initial room, picture 1 and logic 1 unless the brief specifies an intro/cutscene) and its required views, actors and vocabulary. DO NOT author Room 2 or subsequent rooms during Genesis. When the player walks through an exit into an unbuilt room, the engine pauses gameplay and prompts you to author that specific room just-in-time.
@@ -94,12 +94,12 @@ A minimal logic 0 that works, yours to adapt or replace:
 A room logic usually initializes on isset(f5): draw and show the picture, position ego, set the horizon, enable input, describe the room; the rest of it handles actions and exits. For every puzzle you author, store at least one game test for it with write_game_tests and run them with run_game_tests before finishing; a puzzle without a passing test is not done. Consult read_authoring_guide only if you need reference patterns for cutscenes or interfaces.
 
 ---
-${cartridgeText.trim()}
+${templateText.trim()}
 ---`;
 }
 
 export interface OrientationInput {
-  /** Game folder slug, e.g. "kq1". */
+  /** Game identifier, e.g. "kq1". */
   gameId: string;
   /** Interpreter profile the engine selected for this game, e.g. "2.936". */
   profile: string;

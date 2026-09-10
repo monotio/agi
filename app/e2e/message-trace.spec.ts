@@ -34,7 +34,7 @@ test("timed messages resume promptly, persistent windows allow play, and Scroll 
   game.putResource("logic", 10, buildLogicResource(Uint8Array.of(0), names));
   await page.goto("/");
   await cacheGame(page, {
-    slug: "message-trace",
+    gameId: "message-trace",
     title: "Window and trace test",
     provider: "stub",
     model: "local-playback",

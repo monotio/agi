@@ -36,7 +36,7 @@ test("a first visit leads with tutorial and creation while keeping import availa
   await expect(page.getByTestId("saved-game-gallery")).toHaveCount(0);
   const create = page.getByTestId("create-adventure-disclosure");
   await expect(create).toHaveAttribute("open");
-  await expect(page.getByTestId("cartridge-custom")).toBeVisible();
+  await expect(page.getByTestId("template-custom")).toBeVisible();
   expect(
     await create.evaluate((element) => {
       const importer = document.querySelector('[data-testid="game-zip-drop"]')!;
@@ -132,8 +132,8 @@ test("Resume shows the same saved scene and position, including after reopening 
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
 
   const saved = await page.evaluate(async () => {
-    const slug = localStorage.getItem("monotio_agi.lastGame")!;
-    const record = JSON.parse(localStorage.getItem(`monotio_agi.autosave.${slug}`)!);
+    const gameId = localStorage.getItem("monotio_agi.lastGame")!;
+    const record = JSON.parse(localStorage.getItem(`monotio_agi.autosave.${gameId}`)!);
     const observed = (window as Window & { menuSaveObservation?: SaveObservation })
       .menuSaveObservation;
     if (!observed) throw new Error("No save observation was installed");
@@ -163,7 +163,7 @@ test("Resume shows the same saved scene and position, including after reopening 
       if (index % 4 !== 3 && rgba[index] !== actual[index]) differences++;
     }
     return {
-      slug,
+      gameId,
       preview: record.preview,
       room: record.room,
       matchingSave:
@@ -179,7 +179,7 @@ test("Resume shows the same saved scene and position, including after reopening 
   expect(saved.matchingSave).toBe(true);
   expect([saved.width, saved.height]).toEqual([320, 200]);
   expect(saved.differences, "preview must match the composed frame of its own save").toBe(0);
-  const card = page.getByTestId(`saved-game-card-${saved.slug}`);
+  const card = page.getByTestId(`saved-game-card-${saved.gameId}`);
   expect(
     (await card.boundingBox())!.width,
     "a single game keeps a readable card size",
@@ -222,11 +222,11 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
     const { GAME_CATALOG } = await import("/src/gameCatalog.ts");
     const { previewGame } = await import("/src/gamePreview.ts");
     const { addLibraryGame, copyLibraryGame } = await import("/src/gameLibrary.ts");
-    const { renameAuthoredCartridge } = await import("/src/cartridgeStorage.ts");
+    const { renameAuthoredGame } = await import("/src/gameStorage.ts");
     const entry = GAME_CATALOG[0]!;
     const game = await entry.load();
     const opening = await previewGame(game);
-    const slug = await addLibraryGame(game, game.title!, "catalog", opening, {
+    const gameId = await addLibraryGame(game, game.title!, "catalog", opening, {
       id: entry.id,
       version: entry.version,
     });
@@ -234,19 +234,19 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
       "The Clockmaker and the Exceptionally Long Afternoon",
       "A Small Adventure",
     ]) {
-      const copy = await copyLibraryGame(slug);
-      await renameAuthoredCartridge(copy, title);
+      const copy = await copyLibraryGame(gameId);
+      await renameAuthoredGame(copy, title);
     }
   });
   await page.reload();
   const gallery = page.getByTestId("saved-game-gallery");
-  const cards = gallery.locator("[data-slug]");
+  const cards = gallery.locator("[data-game-id]");
   const create = page.getByTestId("create-adventure-disclosure");
   await expect(cards).toHaveCount(3);
   await expect(page.getByTestId("saved-world-select")).toHaveCount(0);
   await expect(page.locator(".saved-game-strip")).toHaveCount(0);
   await expect(create).not.toHaveAttribute("open");
-  await expect(page.getByTestId("cartridge-custom")).toBeHidden();
+  await expect(page.getByTestId("template-custom")).toBeHidden();
   const typography = (element: Element) => {
     const style = getComputedStyle(element);
     return { family: style.fontFamily, size: style.fontSize, weight: style.fontWeight };
@@ -288,7 +288,7 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
   await page.setViewportSize({ width: 1440, height: 1000 });
   await openCreateAdventure(page);
   await expect(create).toHaveAttribute("open");
-  await expect(page.getByTestId("cartridge-custom")).toBeVisible();
+  await expect(page.getByTestId("template-custom")).toBeVisible();
   const toggle = page.getByTestId("create-adventure-toggle");
   await toggle.focus();
   await page.keyboard.press("Enter");
@@ -308,7 +308,7 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByRole("button", { name: "Menu", exact: true }).click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
-  const originalSlug = await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame")!);
+  const originalGameId = await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame")!);
   const copy = await page.evaluate(async () => {
     const path = "/src/gameLibrary.ts";
     const { copyLibraryGame } = await import(path);
@@ -318,7 +318,7 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   await page.reload();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   await page
-    .getByTestId(`saved-game-card-${originalSlug}`)
+    .getByTestId(`saved-game-card-${originalGameId}`)
     .getByRole("button", { name: "Resume", exact: true })
     .click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
@@ -332,13 +332,13 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   await page.getByRole("button", { name: "Menu", exact: true }).click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   const checkpoint = await page.evaluate(async () => {
-    const path = "/src/cartridgeStorage.ts";
+    const path = "/src/gameStorage.ts";
     const storage = await import(path);
-    const slug = localStorage.getItem("monotio_agi.lastGame")!;
-    const key = `monotio_agi.autosave.${slug}`;
+    const gameId = localStorage.getItem("monotio_agi.lastGame")!;
+    const key = `monotio_agi.autosave.${gameId}`;
     const raw = localStorage.getItem(key);
     if (!raw) throw new Error("No checkpoint was stored before returning to the menu");
-    const cached = await storage.loadAuthoredCartridge(slug);
+    const cached = await storage.loadAuthoredGame(gameId);
     const original = Object.fromEntries(
       Object.entries(cached.files as Record<string, Uint8Array>).map(([name, bytes]) => [
         name,
@@ -349,14 +349,14 @@ test("a checkpoint cannot resume against changed game resources and remains reco
       ...cached.files,
       "AGIDATA.OVL": new TextEncoder().encode("release-check 2.936"),
     };
-    if (!(await storage.updateAuthoredCartridgeFiles(slug, changed)))
+    if (!(await storage.updateAuthoredGameFiles(gameId, changed)))
       throw new Error("Fixture update failed");
-    return { slug, key, raw, original };
+    return { gameId, key, raw, original };
   });
   await page.reload();
   // The reload happened from the menu, so the app stays on the menu; the card's Resume runs the checkpoint validation.
   await page
-    .getByTestId(`saved-game-card-${checkpoint.slug}`)
+    .getByTestId(`saved-game-card-${checkpoint.gameId}`)
     .getByRole("button", { name: "Resume", exact: true })
     .click();
   await expect(page.getByTestId("error-panel")).toContainText("different revision");
@@ -364,11 +364,11 @@ test("a checkpoint cannot resume against changed game resources and remains reco
     await page.evaluate(({ key, raw }) => localStorage.getItem(key) === raw, checkpoint),
     "Rejected resume preserves the checkpoint bytes",
   ).toBe(true);
-  await page.evaluate(async ({ slug, original }) => {
-    const path = "/src/cartridgeStorage.ts";
+  await page.evaluate(async ({ gameId, original }) => {
+    const path = "/src/gameStorage.ts";
     const storage = await import(path);
-    await storage.updateAuthoredCartridgeFiles(
-      slug,
+    await storage.updateAuthoredGameFiles(
+      gameId,
       Object.fromEntries(
         Object.entries(original).map(([name, bytes]) => [name, new Uint8Array(bytes)]),
       ),
@@ -376,7 +376,7 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   }, checkpoint);
   await page.reload();
   await page
-    .getByTestId(`saved-game-card-${checkpoint.slug}`)
+    .getByTestId(`saved-game-card-${checkpoint.gameId}`)
     .getByRole("button", { name: "Resume", exact: true })
     .click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
@@ -452,7 +452,7 @@ test("local folders and saved projects share one gallery and local progress resu
   });
   await page.goto("/");
   await cacheGame(page, {
-    slug: "my-project",
+    gameId: "my-project",
     title: "My project",
     provider: "stub",
     model: "offline-stub",

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import * as storage from "../src/cartridgeStorage.ts";
+import * as storage from "../src/gameStorage.ts";
 import { readGameSaves, writeGameSave } from "../src/gameSaves.ts";
 import {
-  lastGameSlug,
+  lastGameId,
   readAutosave,
   removeLibraryGame,
   writeAutosave,
@@ -13,7 +13,7 @@ import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 
 const indexedDbRecords = installIndexedDbFixture();
 
-test("renaming preserves cartridge resources, conversation and save identity", async (t) => {
+test("renaming preserves game resources, conversation and save identity", async (t) => {
   const values = new Map<string, string>();
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   t.after(() => {
@@ -28,24 +28,24 @@ test("renaming preserves cartridge resources, conversation and save identity", a
       removeItem: (key: string) => values.delete(key),
     },
   });
-  await storage.saveAuthoredCartridge("custom", {
-    title: "Custom Cartridge",
+  await storage.saveAuthoredGame("custom", {
+    title: "Custom Adventure",
     provider: "stub",
     model: "stub",
     files: { "VOL.0": Uint8Array.of(1, 2, 3) },
     words: [],
     transcript: [{ text: "Original" }],
   });
-  const original = (await storage.loadAuthoredCartridge("custom"))!;
+  const original = (await storage.loadAuthoredGame("custom"))!;
   const gameId = original.library?.gameId;
-  assert.equal(await storage.renameAuthoredCartridge("custom", "  My adventure  "), true);
-  assert.deepEqual(await storage.loadAuthoredCartridge("custom"), {
+  assert.equal(await storage.renameAuthoredGame("custom", "  My adventure  "), true);
+  assert.deepEqual(await storage.loadAuthoredGame("custom"), {
     ...original,
     title: "My adventure",
   });
-  assert.equal((await storage.loadAuthoredCartridge("custom"))?.library?.gameId, gameId);
-  assert.equal(await storage.renameAuthoredCartridge("custom", "   "), false);
-  assert.equal(await storage.renameAuthoredCartridge("absent", "New title"), false);
+  assert.equal((await storage.loadAuthoredGame("custom"))?.library?.gameId, gameId);
+  assert.equal(await storage.renameAuthoredGame("custom", "   "), false);
+  assert.equal(await storage.renameAuthoredGame("absent", "New title"), false);
 });
 
 test("pre-release localStorage project bodies are left untouched", async (t) => {
@@ -66,7 +66,7 @@ test("pre-release localStorage project bodies are left untouched", async (t) => 
   values.set(
     storage.getStorageKey("old-project"),
     JSON.stringify({
-      slug: "old-project",
+      gameId: "old-project",
       title: "Old project",
       authoredAt: "2025-01-01T00:00:00.000Z",
       provider: "stub",
@@ -75,8 +75,8 @@ test("pre-release localStorage project bodies are left untouched", async (t) => 
       words: [],
     }),
   );
-  await assert.rejects(storage.loadAuthoredCartridge("old-project"), /version/);
-  assert.equal(storage.getCachedCartridgeMeta("old-project"), null);
+  await assert.rejects(storage.loadAuthoredGame("old-project"), /version/);
+  assert.equal(storage.getCachedGameMeta("old-project"), null);
   assert.match(values.get(storage.getStorageKey("old-project"))!, /filesBase64/);
 });
 
@@ -102,11 +102,11 @@ test("future project bodies and indexes are rejected without being overwritten",
     storage: "indexeddb",
   });
   values.set(key, futureIndex);
-  await assert.rejects(storage.loadAuthoredCartridge("future-index"), /version/);
-  assert.equal(await storage.renameAuthoredCartridge("future-index", "Changed"), false);
+  await assert.rejects(storage.loadAuthoredGame("future-index"), /version/);
+  assert.equal(await storage.renameAuthoredGame("future-index", "Changed"), false);
   assert.equal(values.get(key), futureIndex);
 
-  await storage.saveAuthoredCartridge("future-body", {
+  await storage.saveAuthoredGame("future-body", {
     title: "Current",
     provider: "stub",
     model: "stub",
@@ -117,8 +117,8 @@ test("future project bodies and indexes are rejected without being overwritten",
   body["version"] = 2;
   indexedDbRecords.set("future-body", body);
   const before = structuredClone(body);
-  await assert.rejects(storage.loadAuthoredCartridge("future-body"), /version/);
-  assert.equal(await storage.renameAuthoredCartridge("future-body", "Changed"), false);
+  await assert.rejects(storage.loadAuthoredGame("future-body"), /version/);
+  assert.equal(await storage.renameAuthoredGame("future-body", "Changed"), false);
   assert.deepEqual(indexedDbRecords.get("future-body"), before);
 });
 
@@ -137,7 +137,7 @@ test("reconciliation and conversation writes preserve future-version records", a
       removeItem: (key: string) => values.delete(key),
     },
   });
-  await storage.saveAuthoredCartridge("future-reconcile", {
+  await storage.saveAuthoredGame("future-reconcile", {
     title: "Current",
     provider: "stub",
     model: "stub",
@@ -154,7 +154,7 @@ test("reconciliation and conversation writes preserve future-version records", a
   values.set(indexKey, futureIndex);
   const bodyBeforeSave = structuredClone(indexedDbRecords.get("future-reconcile"));
   assert.equal(
-    await storage.saveAuthoredCartridge("future-reconcile", {
+    await storage.saveAuthoredGame("future-reconcile", {
       title: "Replacement",
       provider: "stub",
       model: "stub",
@@ -165,12 +165,12 @@ test("reconciliation and conversation writes preserve future-version records", a
   );
   assert.equal(values.get(indexKey), futureIndex);
   assert.deepEqual(indexedDbRecords.get("future-reconcile"), bodyBeforeSave);
-  await storage.reconcileCartridgeIndex();
+  await storage.reconcileGameIndex();
   assert.equal(values.get(indexKey), futureIndex);
 
   const conversationKey = "conversation/future";
   const futureConversation = {
-    slug: conversationKey,
+    gameId: conversationKey,
     format: "monotio.agi.conversation",
     version: 2,
     privateFutureField: true,
@@ -211,7 +211,7 @@ test("unavailable IndexedDB fails clearly without creating a localStorage body",
   });
   Reflect.deleteProperty(globalThis, "indexedDB");
   assert.equal(
-    await storage.saveAuthoredCartridge("no-database", {
+    await storage.saveAuthoredGame("no-database", {
       title: "Unsaved",
       provider: "stub",
       model: "stub",
@@ -240,7 +240,7 @@ test("previews survive metadata-only saves and invalidate when resource bytes ch
     },
   });
   const preview = "data:image/png;base64,iVBORw0KGgo=";
-  await storage.saveAuthoredCartridge("preview", {
+  await storage.saveAuthoredGame("preview", {
     title: "Preview",
     provider: "stub",
     model: "stub",
@@ -258,16 +258,16 @@ test("previews survive metadata-only saves and invalidate when resource bytes ch
     version: 1,
   };
   indexedDbRecords.set("preview", storedPreview);
-  const revision = (await storage.loadAuthoredCartridge("preview"))!.library!.revision;
+  const revision = (await storage.loadAuthoredGame("preview"))!.library!.revision;
   assert.equal(
-    await storage.updateCartridgePreview("preview", revision, preview, {
+    await storage.updateGamePreview("preview", revision, preview, {
       status: "ready",
       message: "Opening checked.",
       profile: "2.936",
     }),
     true,
   );
-  await storage.updateCartridgeConversation("preview", [{ role: "user", content: "hello" }]);
+  await storage.updateGameConversation("preview", [{ role: "user", content: "hello" }]);
   assert.deepEqual(
     (
       (indexedDbRecords.get("preview") as Record<string, unknown>)["library"] as Record<
@@ -277,16 +277,16 @@ test("previews survive metadata-only saves and invalidate when resource bytes ch
     )["additiveExtension"],
     { retained: true },
   );
-  assert.equal((await storage.loadAuthoredCartridge("preview"))?.library?.preview, preview);
+  assert.equal((await storage.loadAuthoredGame("preview"))?.library?.preview, preview);
   assert.equal(
-    await storage.updateAuthoredCartridgeFiles("preview", { "VOL.0": Uint8Array.of(2) }),
+    await storage.updateAuthoredGameFiles("preview", { "VOL.0": Uint8Array.of(2) }),
     true,
   );
-  const changed = (await storage.loadAuthoredCartridge("preview"))!;
+  const changed = (await storage.loadAuthoredGame("preview"))!;
   assert.equal(changed.library?.preview, undefined);
   assert.equal(changed.library?.validation.status, "unverified");
   assert.equal(
-    await storage.updateCartridgePreview(
+    await storage.updateGamePreview(
       "preview",
       changed.library!.revision,
       "https://example.com/tracker.png",
@@ -295,7 +295,7 @@ test("previews survive metadata-only saves and invalidate when resource bytes ch
     false,
   );
   assert.equal(
-    await storage.updateCartridgePreview(
+    await storage.updateGamePreview(
       "preview",
       changed.library!.revision,
       "data:image/png;base64,AAAA",
@@ -305,7 +305,7 @@ test("previews survive metadata-only saves and invalidate when resource bytes ch
   );
 });
 
-test("preview updates serialize revision verification with writes to the same cartridge", async (t) => {
+test("preview updates serialize revision verification with writes to the same game", async (t) => {
   const values = new Map<string, string>();
   const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   const cryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
@@ -322,14 +322,14 @@ test("preview updates serialize revision verification with writes to the same ca
       removeItem: (key: string) => values.delete(key),
     },
   });
-  await storage.saveAuthoredCartridge("race", {
+  await storage.saveAuthoredGame("race", {
     title: "Before",
     provider: "stub",
     model: "stub",
     files: { "VOL.0": Uint8Array.of(1) },
     words: [],
   });
-  const revision = (await storage.loadAuthoredCartridge("race"))!.library!.revision;
+  const revision = (await storage.loadAuthoredGame("race"))!.library!.revision;
   const preview = "data:image/png;base64,iVBORw0KGgo=";
 
   const digest = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
@@ -359,19 +359,19 @@ test("preview updates serialize revision verification with writes to the same ca
     },
   });
 
-  const update = storage.updateCartridgePreview("race", revision, preview, {
+  const update = storage.updateGamePreview("race", revision, preview, {
     status: "ready",
     message: "Opening checked.",
   });
   await firstStarted;
-  const rename = storage.renameAuthoredCartridge("race", "After");
+  const rename = storage.renameAuthoredGame("race", "After");
   await new Promise<void>((resolve) => setImmediate(resolve));
   const callsBeforeRelease = digestCalls;
   releaseFirst();
   assert.equal(await update, true);
   assert.equal(await rename, true);
   assert.equal(callsBeforeRelease, 1, "the rename waits for the in-flight revision check");
-  const after = (await storage.loadAuthoredCartridge("race"))!;
+  const after = (await storage.loadAuthoredGame("race"))!;
   assert.equal(after.title, "After");
   assert.equal(after.library?.preview, preview);
 });
@@ -391,7 +391,7 @@ test("released bodies load with normalized library text; identity checks re-hash
       removeItem: (key: string) => values.delete(key),
     },
   });
-  await storage.saveAuthoredCartridge("bounded", {
+  await storage.saveAuthoredGame("bounded", {
     title: "Bounded",
     provider: "stub",
     model: "stub",
@@ -403,7 +403,7 @@ test("released bodies load with normalized library text; identity checks re-hash
   library["description"] = "d".repeat(700);
   library["additiveExtension"] = { retained: true };
   indexedDbRecords.set("bounded", body);
-  const loaded = (await storage.loadAuthoredCartridge("bounded"))!;
+  const loaded = (await storage.loadAuthoredGame("bounded"))!;
   assert.equal(loaded.library?.description, "d".repeat(600));
   assert.deepEqual((loaded.library as unknown as Record<string, unknown>)["additiveExtension"], {
     retained: true,
@@ -414,29 +414,24 @@ test("released bodies load with normalized library text; identity checks re-hash
   const revision = loaded.library!.revision;
   (body["files"] as Record<string, Uint8Array>)["VOL.0"] = Uint8Array.of(7);
   indexedDbRecords.set("bounded", body);
-  assert.deepEqual((await storage.loadAuthoredCartridge("bounded"))?.files, {
+  assert.deepEqual((await storage.loadAuthoredGame("bounded"))?.files, {
     "VOL.0": Uint8Array.of(7),
   });
   assert.equal(
-    await storage.updateCartridgePreview(
-      "bounded",
-      revision,
-      "data:image/png;base64,iVBORw0KGgo=",
-      {
-        status: "ready",
-        message: "Opening checked.",
-      },
-    ),
+    await storage.updateGamePreview("bounded", revision, "data:image/png;base64,iVBORw0KGgo=", {
+      status: "ready",
+      message: "Opening checked.",
+    }),
     false,
   );
 
   library["revision"] = "not-a-revision";
   indexedDbRecords.set("bounded", body);
-  await assert.rejects(storage.loadAuthoredCartridge("bounded"), /invalid library metadata/);
+  await assert.rejects(storage.loadAuthoredGame("bounded"), /invalid library metadata/);
   library["revision"] = revision;
   library["version"] = 2;
   indexedDbRecords.set("bounded", body);
-  await assert.rejects(storage.loadAuthoredCartridge("bounded"), /version/);
+  await assert.rejects(storage.loadAuthoredGame("bounded"), /version/);
 });
 
 test("format-less records are replaced while future versions stay untouched", async (t) => {
@@ -455,7 +450,7 @@ test("format-less records are replaced while future versions stay untouched", as
     },
   });
   indexedDbRecords.set("formatless", {
-    slug: "formatless",
+    gameId: "formatless",
     title: "Pre-release",
     provider: "stub",
     model: "stub",
@@ -463,7 +458,7 @@ test("format-less records are replaced while future versions stay untouched", as
     words: [],
   });
   assert.equal(
-    await storage.saveAuthoredCartridge("formatless", {
+    await storage.saveAuthoredGame("formatless", {
       title: "Replacement",
       provider: "stub",
       model: "stub",
@@ -472,10 +467,10 @@ test("format-less records are replaced while future versions stay untouched", as
     }),
     true,
   );
-  assert.equal((await storage.loadAuthoredCartridge("formatless"))?.title, "Replacement");
+  assert.equal((await storage.loadAuthoredGame("formatless"))?.title, "Replacement");
 
   indexedDbRecords.set("conversation/formatless", {
-    slug: "conversation/formatless",
+    gameId: "conversation/formatless",
     transcript: [{ text: "pre-release" }],
   });
   const conversation = {
@@ -503,7 +498,7 @@ test("removing a library game clears its conversation, checkpoint, save slots an
       removeItem: (key: string) => values.delete(key),
     },
   });
-  await storage.saveAuthoredCartridge("gone", {
+  await storage.saveAuthoredGame("gone", {
     title: "Gone",
     provider: "stub",
     model: "stub",
@@ -525,19 +520,19 @@ test("removing a library game clears its conversation, checkpoint, save slots an
     cycle: 3,
     room: 1,
     savedAt: 1,
-    game: { slug: "gone", installed: false, revision: "0".repeat(64) },
+    game: { gameId: "gone", installed: false, revision: "0".repeat(64) },
   };
   assert.deepEqual(writeAutosave(localStorage, checkpoint), checkpoint);
   assert.equal(writeGameSave(localStorage, "gone", 1, "AAAA"), true);
   localStorage.setItem("monotio_agi.lastGame", "gone");
 
   await removeLibraryGame("gone");
-  assert.equal(await storage.loadAuthoredCartridge("gone"), null);
-  assert.equal(storage.getCachedCartridgeMeta("gone"), null);
+  assert.equal(await storage.loadAuthoredGame("gone"), null);
+  assert.equal(storage.getCachedGameMeta("gone"), null);
   assert.equal(await storage.loadGameConversation("gone"), undefined, "conversation");
   assert.equal(readAutosave("gone"), null, "checkpoint");
   assert.deepEqual(readGameSaves(localStorage, "gone"), {}, "save slots");
-  assert.equal(lastGameSlug(), null, "resume pointer");
+  assert.equal(lastGameId(), null, "resume pointer");
 });
 
 test("a database open that finishes after being blocked closes its abandoned connection", async (t) => {
@@ -579,10 +574,10 @@ test("a database open that finishes after being blocked closes its abandoned con
       },
     },
   });
-  const modulePath = "../src/cartridgeStorage.ts?blocked-open";
+  const modulePath = "../src/gameStorage.ts?blocked-open";
   const fresh = await import(modulePath);
   assert.equal(
-    await fresh.saveAuthoredCartridge("blocked", {
+    await fresh.saveAuthoredGame("blocked", {
       title: "Blocked",
       provider: "stub",
       model: "offline-stub",

@@ -165,7 +165,7 @@ test("a friend opens an exported world in a fresh browser without a key", async 
   }
 });
 
-test("a v3 cartridge can be imported, remixed, exported and opened in a fresh session", async ({
+test("a v3 game can be imported, remixed, exported and opened in a fresh session", async ({
   page,
   browser,
 }) => {
@@ -176,9 +176,9 @@ test("a v3 cartridge can be imported, remixed, exported and opened in a fresh se
   ]);
   const original = 'display(5, 2, "A shared v3 adventure."); accept.input(); return;';
   const patched = 'display(5, 2, "A remixed v3 adventure."); accept.input(); return;';
-  const cartridge = openContainer(files);
-  cartridge.putResource("logic", 0, assembleLogic(original, { dictionary: new Map() }).payload);
-  const zip = buildZip([...cartridge.files].map(([name, data]) => ({ name, data })));
+  const container = openContainer(files);
+  container.putResource("logic", 0, assembleLogic(original, { dictionary: new Map() }).payload);
+  const zip = buildZip([...container.files].map(([name, data]) => ({ name, data })));
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("game-zip-input").setInputFiles({
@@ -287,18 +287,18 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
   const zip = buildZip([...game.files].map(([name, data]) => ({ name, data })));
   await page.goto("/");
   await page.getByTestId("game-zip-input").setInputFiles({
-    name: "Custom Cartridge.zip",
+    name: "Custom Adventure.zip",
     mimeType: "application/zip",
     buffer: Buffer.from(zip),
   });
-  await savedGameCard(page, "Custom Cartridge").getByTestId("btn-resume-cached").click();
+  await savedGameCard(page, "Custom Adventure").getByTestId("btn-resume-cached").click();
   await expect(page.getByTestId("input-line")).toBeVisible();
   await page.getByTestId("btn-eject").click();
   const before = await page.evaluate(() => {
     const key = Object.keys(localStorage).find((k) => k.startsWith("monotio_agi.authored."))!;
     return { key, data: JSON.parse(localStorage.getItem(key)!) };
   });
-  const card = savedGameCard(page, "Custom Cartridge");
+  const card = savedGameCard(page, "Custom Adventure");
   await openSavedGameDetails(card);
   await card.getByTestId("rename-game").click();
   const name = card.getByRole("textbox", { name: "Game name", exact: true });

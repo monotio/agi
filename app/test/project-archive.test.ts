@@ -15,7 +15,7 @@ test("exports supply an empty OBJECT file and preserve an existing inventory", a
   const opened = await readGameZip(buildPublicGameZip(data));
   // Empty table, maximum drawable object index 255, encrypted with the AGI key.
   assert.deepEqual(opened.files["OBJECT"], Uint8Array.of(65, 118, 150));
-  assert.equal(data.files["OBJECT"], undefined, "export leaves the live cartridge unchanged");
+  assert.equal(data.files["OBJECT"], undefined, "export leaves the live game unchanged");
   const existing = Uint8Array.of(65, 118, 121);
   data.files["OBJECT"] = existing;
   assert.deepEqual((await readGameZip(buildPublicGameZip(data))).files["OBJECT"], existing);
@@ -26,7 +26,7 @@ test("project round trip retains private history and deduplicates images; public
   container.putResource("logic", 0, assembleLogic("return;", { dictionary: new Map() }).payload);
   const image = "data:image/png;base64,iVBORw0KGgo=";
   const data = {
-    slug: "demo",
+    gameId: "demo",
     title: "Garden",
     provider: "openai",
     model: "gpt-5.6-sol",

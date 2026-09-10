@@ -1,7 +1,7 @@
 /**
  * Production Genesis effort and prompt-size comparison.
  *
- * The default plan is one cartridge, one repeat, four models and a bounded
+ * The default plan is one template, one repeat, four models and a bounded
  * lean/default -> lean/low sequence. Baseline and medium stages remain opt-in. Set
  * EVAL_EFFORT_STAGES, EVAL_EFFORT_CASES or EVAL_EFFORT_REPEATS to narrow or
  * expand a paid run. Promptfoo is kept at concurrency one because request
@@ -55,7 +55,7 @@ interface EffortLane {
 
 interface EffortTest {
   description: string;
-  vars: { caseName: string; cartridgeText: string; repeat: number };
+  vars: { caseName: string; templateText: string; repeat: number };
 }
 
 const providers: EffortLane[] = [];
@@ -85,14 +85,14 @@ if (providers.length === 0)
 
 const tests: EffortTest[] = [];
 for (const caseName of cases) {
-  const cartridgeText = readFileSync(
+  const templateText = readFileSync(
     resolve(import.meta.dirname, `../../games/${caseName}/SKILL.md`),
     "utf8",
   );
   for (let repeat = 1; repeat <= repeats; repeat++)
     tests.push({
       description: `Genesis effort - ${caseName} repeat ${repeat}`,
-      vars: { caseName, cartridgeText, repeat },
+      vars: { caseName, templateText, repeat },
     });
 }
 

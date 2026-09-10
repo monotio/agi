@@ -5,7 +5,7 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { inspectGame } from "../src/gameInspection.ts";
 import { readdirSync, readFileSync } from "node:fs";
 import { readGameFiles } from "../src/gameZip.ts";
-import { fixtureSkip, fixtureDir } from "../../test/fixtures.ts";
+import { fixtureSkip, fixtureDir, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 
 test("preview stops at an unanswered modal and leaves source resources untouched", () => {
   const container = createContainer();
@@ -38,16 +38,16 @@ test("preview never invents an answer to a game's text prompt", () => {
   assert.ok(opening.rows.join(" ").includes("What is your name?"));
 });
 
-for (const [slug, profile] of [
-  ["kq1", "2.917"],
-  ["kq2", "2.411"],
-  ["kq3", "2.936"],
+for (const [targetHash, gameId, profile] of [
+  [KNOWN_GAME_HASH.KQ1, "kq1", "2.917"],
+  [KNOWN_GAME_HASH.KQ2, "kq2", "2.411"],
+  [KNOWN_GAME_HASH.KQ3, "kq3", "2.936"],
 ] as const) {
   test(
-    `${slug} opening preview renders local game bytes without authoring or player input`,
-    { skip: fixtureSkip(slug, ["AGIDATA.OVL"]) },
+    `${gameId} opening preview renders local game bytes without authoring or player input`,
+    { skip: fixtureSkip(targetHash, ["AGIDATA.OVL"]) },
     () => {
-      const dir = fixtureDir(slug);
+      const dir = fixtureDir(targetHash);
       const game = readGameFiles(
         new Map(
           readdirSync(dir, { withFileTypes: true })

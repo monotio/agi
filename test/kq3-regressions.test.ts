@@ -1,13 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
-import { fixtureSkip } from "./fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
-const skip = fixtureSkip("kq3");
+const TARGET_HASH = KNOWN_GAME_HASH.KQ3;
+const skip = fixtureSkip(TARGET_HASH);
 
 function game(restarted = true, overrides: Partial<EngineHost> = {}) {
-  const { container, dict } = loadGame("kq3");
+  const { container, dict } = loadGame(TARGET_HASH);
   const host: EngineHost = {
     print() {},
     displayAt() {},

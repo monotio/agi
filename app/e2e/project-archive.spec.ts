@@ -97,14 +97,14 @@ test("Download project resumes private history in a fresh browser; Download game
     await other.reload();
     await expect(other.getByTestId("btn-resume-cached")).toBeVisible();
     const restored = await other.evaluate(async () => {
-      const path = "/src/cartridgeStorage.ts";
+      const path = "/src/gameStorage.ts";
       const store = await import(path);
-      const meta = store.listCachedCartridges()[0];
-      const body = await store.loadAuthoredCartridge(meta.slug);
+      const meta = store.listCachedGames()[0];
+      const body = await store.loadAuthoredGame(meta.gameId);
       return {
         transcript: body.transcript,
         authoringState: body.authoringState,
-        index: JSON.parse(localStorage.getItem(store.getStorageKey(meta.slug))!),
+        index: JSON.parse(localStorage.getItem(store.getStorageKey(meta.gameId))!),
       };
     });
     expect(restored.transcript).toEqual(transcript);
@@ -180,9 +180,9 @@ test("unavailable project storage cannot publish a library index", async ({ page
   });
   await page.goto("/");
   const result = await page.evaluate(async () => {
-    const path = "/src/cartridgeStorage.ts";
+    const path = "/src/gameStorage.ts";
     const storage = await import(path);
-    const saved = await storage.saveAuthoredCartridge("blocked", {
+    const saved = await storage.saveAuthoredGame("blocked", {
       title: "Cannot save",
       provider: "stub",
       model: "offline-stub",

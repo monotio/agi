@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
-import { openContainer } from "../src/container/container.ts";
 import { createPictureSurface, SCREEN_WIDTH, type PictureSurface } from "../src/types.ts";
 import { buildView, drawCel, parseView, type ViewCel } from "../src/view/view.ts";
-import { fixtureSkip, KQ1_DIR } from "./fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
+import { loadGame } from "./game-fixture.ts";
 
 function makeCel(
   width: number,
@@ -366,14 +365,11 @@ describe("drawCel", () => {
   });
 });
 
-const KQ1_NAMES = ["VIEWDIR", "VOL.0", "VOL.1", "VOL.2"];
+const TARGET_HASH = KNOWN_GAME_HASH.KQ1;
 
-describe("authentic KQ1 view fixtures", { skip: fixtureSkip("kq1", KQ1_NAMES) }, () => {
-  const files = new Map<string, Uint8Array>();
-  for (const name of KQ1_NAMES) files.set(name, new Uint8Array(readFileSync(KQ1_DIR + name)));
-  const container = openContainer(files);
-
+describe("authentic KQ1 view fixtures", { skip: fixtureSkip(TARGET_HASH) }, () => {
   it("view 0 parses into in-bounds loops and cels", () => {
+    const { container } = loadGame(TARGET_HASH);
     const payload = container.getResource("view", 0);
     assert.ok(payload, "view 0 present in KQ1");
     const view = parseView(payload);
@@ -392,6 +388,7 @@ describe("authentic KQ1 view fixtures", { skip: fixtureSkip("kq1", KQ1_NAMES) },
   });
 
   it("every view resource in VIEWDIR parses without throwing", () => {
+    const { container } = loadGame(TARGET_HASH);
     let count = 0;
     for (let num = 0; num < 256; num++) {
       const payload = container.getResource("view", num);

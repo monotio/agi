@@ -8,7 +8,7 @@ import { parseView } from "../src/view/view.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { detectProfile, detectVersionString } from "../src/runtime/profile.ts";
 import { createPictureSurface } from "../src/types.ts";
-import { fixtureSkip } from "./fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
@@ -16,8 +16,9 @@ import { loadGame } from "./game-fixture.ts";
  * maps this build to profile 3.002.102. The suite covers compressed and
  * directly stored logic and clock waits. Walkthrough coverage uses the shared suite.
  */
-const SLUG = "mh1";
-const skip = fixtureSkip(SLUG, ["AGIDATA.OVL"]);
+const GAME_ID = "mh1";
+const TARGET_HASH = KNOWN_GAME_HASH.MH1;
+const skip = fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"]);
 
 class Host implements EngineHost {
   keys: number[] = [];
@@ -44,8 +45,8 @@ function printable(text: string): number {
   return text.length ? ok / text.length : 1;
 }
 
-test(`${SLUG}: combined container, 3.002.107 build, resource census`, { skip }, () => {
-  const { container, files } = loadGame(SLUG, { interpreterFiles: true });
+test(`${GAME_ID}: combined container, 3.002.107 build, resource census`, { skip }, () => {
+  const { container, files } = loadGame(TARGET_HASH, { interpreterFiles: true });
   assert.deepEqual(detectContainerFormat(files), { kind: "v3-combined", prefix: "MH" });
   assert.equal(detectVersionString(files), "3.002.107");
   const profile = detectProfile(files);
@@ -88,10 +89,10 @@ test(`${SLUG}: combined container, 3.002.107 build, resource census`, { skip }, 
 });
 
 test(
-  `${SLUG}: the title screen skips through its clock busy-wait into the opening`,
+  `${GAME_ID}: the title screen skips through its clock busy-wait into the opening`,
   { skip },
   () => {
-    const { container, dict, files } = loadGame(SLUG, { interpreterFiles: true });
+    const { container, dict, files } = loadGame(TARGET_HASH, { interpreterFiles: true });
     const host = new Host();
     const engine = new Engine(container, host, dict, { profile: detectProfile(files) });
     const cycle = (): void => {

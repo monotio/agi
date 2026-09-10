@@ -555,7 +555,7 @@ export class Engine {
     this.patchGen++;
   }
 
-  /** Replace cartridge metadata while preserving the player's existing item locations. */
+  /** Replace game metadata while preserving the player's existing item locations. */
   patchAuxiliaryFiles(files: {
     words?: Uint8Array;
     objects?: Uint8Array;
@@ -3995,16 +3995,16 @@ export class Engine {
         return next;
       }
       case 0x87: {
-        // This allocator retains the cartridge and reserves replay capacity;
+        // This allocator retains the container and reserves replay capacity;
         // the spec defines the diagnostic categories, not a DOS heap layout.
-        const cartridgeBytes = Array.from(this.container.files.values()).reduce(
+        const containerBytes = Array.from(this.container.files.values()).reduce(
           (sum, bytes) => sum + bytes.length,
           0,
         );
         const capacity = Math.max(this.scriptCapacity, this.maximumReplayPairs);
         const lines = [
-          `heap size: ${cartridgeBytes + capacity * 2}`,
-          `current/max use: ${cartridgeBytes + this.replay.length * 2}/${cartridgeBytes + this.maximumReplayPairs * 2}`,
+          `heap size: ${containerBytes + capacity * 2}`,
+          `current/max use: ${containerBytes + this.replay.length * 2}/${containerBytes + this.maximumReplayPairs * 2}`,
           `maximum script use: ${this.maximumReplayPairs * 2}`,
         ];
         if (this.profile.heapDiagnosticExtraLine)

@@ -8,7 +8,7 @@ export interface PublicGameMetadata {
 
 export interface LibraryMetadata extends PublicGameMetadata {
   version: 1;
-  /** Stable game lineage, independent of its title, local storage slug or resource revision. */
+  /** Stable game lineage, independent of its title, local storage ID or resource revision. */
   gameId: string;
   revision: string;
   source: "catalog" | "zip" | "folder" | "authored" | "remix";

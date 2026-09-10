@@ -5,7 +5,7 @@ import { buildView, type BuildViewInput } from "../../src/view/view.ts";
 import { buildObjectFile, buildSound, type SoundTrackInput } from "../../src/agent/tools.ts";
 import { compactContainer } from "../../src/container/container.ts";
 import { detectProfile } from "../../src/runtime/profile.ts";
-import type { CachedCartridgeData } from "./cartridgeTypes.ts";
+import type { CachedGameData } from "./gameTypes.ts";
 import { progressEntries, type GameProgress } from "./gameProgress.ts";
 
 export interface ProjectContext {
@@ -19,7 +19,7 @@ export interface ProjectContext {
 
 /** Only current game resources and interpreter identification travel publicly. */
 function gameEntries(
-  data: Pick<CachedCartridgeData, "files" | "title" | "roomGeneration" | "library">,
+  data: Pick<CachedGameData, "files" | "title" | "roomGeneration" | "library">,
 ): ZipFileInput[] {
   const packed = compactContainer(new Map(Object.entries(data.files)));
   if (!packed.has("OBJECT")) packed.set("OBJECT", buildObjectFile([], detectProfile(packed)));
@@ -44,7 +44,7 @@ function gameEntries(
 }
 
 export function buildPublicGameZip(
-  data: Pick<CachedCartridgeData, "files" | "title" | "roomGeneration" | "library">,
+  data: Pick<CachedGameData, "files" | "title" | "roomGeneration" | "library">,
 ): Uint8Array<ArrayBuffer> {
   return finishArchive(gameEntries(data));
 }
@@ -56,7 +56,7 @@ export function buildPublicGameZip(
  * the player's progress (save slots and latest autosave) is theirs alone.
  */
 export async function buildProjectZip(
-  data: CachedCartridgeData,
+  data: CachedGameData,
   progress?: GameProgress,
 ): Promise<Uint8Array<ArrayBuffer>> {
   const entries = gameEntries(data);
@@ -336,7 +336,7 @@ export function readProjectContext(
 
 /** Provider changes retain a readable archive without replaying incompatible protocol items. */
 export function continuationTranscript(
-  data: Pick<CachedCartridgeData, "provider" | "model" | "transcript">,
+  data: Pick<CachedGameData, "provider" | "model" | "transcript">,
   provider: string,
   model?: string,
 ): unknown[] | undefined {
