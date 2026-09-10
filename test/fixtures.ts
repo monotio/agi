@@ -226,6 +226,9 @@ export function fixtureSkip(
   requiredFiles: readonly string[] = [],
   options: FixtureRequirements = {},
 ): false | string {
+  if (hashOrKey === KNOWN_GAME_HASH.SYNTHETIC || hashOrKey.toLowerCase() === "synthetic") {
+    return false;
+  }
   const fixture = findFixture(hashOrKey);
   const dir = fixture ? fixture.dir : fixtureDir(hashOrKey);
   const onDisk = fixtureFiles(hashOrKey);

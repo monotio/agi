@@ -83,6 +83,38 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
     },
     requiresAnswer: true,
   },
+  {
+    hash: KNOWN_GAME_HASH.SYNTHETIC,
+    alias: "synthetic",
+    label: "Synthetic Test Chamber route",
+    coverage: "complete-game",
+    route: (run) => {
+      run.advance(10);
+      run.checkpoint("Start", { room: 1, score: 0 });
+      run.direction(3);
+      run.advance(60);
+      run.checkpoint("Corridor", { room: 1, score: 0 });
+      run.advance(80);
+      run.checkpoint("Chamber", { room: 2, score: 0 });
+      run.direction(0);
+      run.advance(5);
+      run.answerNumber(42);
+      run.command("answer");
+      run.checkpoint("Solved", { room: 2, score: 50 });
+      run.direction(7);
+      run.advance(40);
+      run.checkpoint("Complete", { room: 1, score: 50 });
+      run.direction(0);
+      run.advance(5);
+    },
+    expected: {
+      room: 1,
+      score: 50,
+      vars: { 3: 50, 60: 42 },
+      flags: { 32: 1 },
+    },
+    requiresAnswer: true,
+  },
 ];
 
 export function walkthrough(hashOrAlias: string): Walkthrough {

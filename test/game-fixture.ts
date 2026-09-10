@@ -2,7 +2,14 @@ import { readFileSync } from "node:fs";
 import { openContainer } from "../src/container/container.ts";
 import { parseWordsTok } from "../src/logic/words.ts";
 import { INTERPRETER_FILES } from "../src/runtime/profile.ts";
-import { findFixture, fixtureSkip, type FixtureRequirements, type GameHash } from "./fixtures.ts";
+import {
+  findFixture,
+  fixtureSkip,
+  type FixtureRequirements,
+  type GameHash,
+  KNOWN_GAME_HASH,
+} from "./fixtures.ts";
+import { buildSyntheticGame } from "../src/games/syntheticCartridge.ts";
 
 /**
  * Shared loader for optional AGI game fixtures under games/.
@@ -28,6 +35,11 @@ export interface LoadGameOptions extends Pick<FixtureRequirements, "checkVolumes
 export function loadGame(hashOrAlias: GameHash, options: LoadGameOptions = {}): GameFixture {
   const missing = fixtureSkip(hashOrAlias, [], options);
   if (missing) throw new Error(missing);
+  if (hashOrAlias === KNOWN_GAME_HASH.SYNTHETIC || hashOrAlias.toLowerCase() === "synthetic") {
+    const game = buildSyntheticGame();
+    const files = new Map(Object.entries(game.files));
+    return { container: openContainer(files), dict: new Map(game.words), files };
+  }
   const fixture = findFixture(hashOrAlias)!;
   const dir = fixture.dir;
   const onDisk = fixture.files;

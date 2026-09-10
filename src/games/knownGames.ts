@@ -34,9 +34,21 @@ export const KNOWN_GAME_HASH = {
   DDP: "ea3856277ff2bca73bd85884d7b2f5d269a0be8f115c0b824c7f8e98da30d116",
   MUMG: "a718ca71030b946726a197e891998ab44ad3fe363e346810fa2d720151aa1d3e",
   DEMOPAC4: "6c7456ae306ad62ed6be4d3442f03d853e66c773661dcad79ae4b2f0152ccdec",
+  SYNTHETIC: "d00cc5981820a66d3a56c802f8d747a73fe153d394a80463accf313947623fa1",
 } as const;
 
 export const KNOWN_GAMES: readonly KnownAgiGame[] = [
+  {
+    alias: "synthetic",
+    title: "Synthetic Test Chamber",
+    author: "Monotio",
+    era: "v2-split",
+    profile: "2.936",
+    wordsSha256: KNOWN_GAME_HASH.SYNTHETIC,
+    objectSha256: "f58e6871c43d8639afca350562544a1f040dc94475c545ca069f4e69635d6425",
+    walkthroughLabel: "Complete route (50 pts)",
+    walkthroughCoverage: "complete-game",
+  },
   {
     alias: "kq1",
     title: "King's Quest I: Quest for the Crown",

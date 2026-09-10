@@ -183,44 +183,41 @@ test.describe("Walkthrough UI", () => {
 
     // Test hover tooltip on timeline
     const box = await timeline.boundingBox();
-    if (box) {
-      await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.5);
-      await expect(page.locator(".walkthrough-tooltip")).toBeVisible();
-      await page.mouse.move(0, 0);
-      await expect(page.locator(".walkthrough-tooltip")).toBeHidden();
-    }
+    expect(box).not.toBeNull();
+    await page.mouse.move(box!.x + box!.width * 0.4, box!.y + box!.height * 0.5);
+    await expect(page.locator(".walkthrough-tooltip")).toBeVisible();
+    await page.mouse.move(0, 0);
+    await expect(page.locator(".walkthrough-tooltip")).toBeHidden();
 
     // Test seeking via timeline marker click
     const marker3 = page.getByTestId("walkthrough-marker-3");
-    if (await marker3.isVisible()) {
-      await marker3.click();
-      // Verify seek jumps forward
-      await expect
-        .poll(
-          async () => {
-            const tick = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
-            return tick;
-          },
-          { timeout: 10_000 },
-        )
-        .toBeGreaterThan(tickPaused + 100);
-    }
+    await expect(marker3).toBeVisible();
+    await marker3.click();
+    // Verify seek jumps forward
+    await expect
+      .poll(
+        async () => {
+          const tick = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
+          return tick;
+        },
+        { timeout: 10_000 },
+      )
+      .toBeGreaterThan(tickPaused + 100);
 
     // Test backward seek (rewind) by clicking an earlier marker
     const marker1Early = page.getByTestId("walkthrough-marker-1");
-    if (await marker1Early.isVisible()) {
-      const tickBeforeRewind = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
-      await marker1Early.click({ force: true });
-      await expect
-        .poll(
-          async () => {
-            const tick = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
-            return tick;
-          },
-          { timeout: 10_000 },
-        )
-        .toBeLessThan(tickBeforeRewind);
-    }
+    await expect(marker1Early).toBeVisible();
+    const tickBeforeRewind = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
+    await marker1Early.click({ force: true });
+    await expect
+      .poll(
+        async () => {
+          const tick = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
+          return tick;
+        },
+        { timeout: 10_000 },
+      )
+      .toBeLessThan(tickBeforeRewind);
 
     // Test live drag scrubbing (drag forward, then backward)
     const dragBox = await timeline.boundingBox();
@@ -364,9 +361,8 @@ test.describe("Walkthrough UI", () => {
 
     const timeline = page.getByTestId("walkthrough-timeline");
     const box = await timeline.boundingBox();
-    if (box) {
-      await page.mouse.click(box.x + box.width * 0.2, box.y + box.height * 0.5);
-    }
+    expect(box).not.toBeNull();
+    await page.mouse.click(box!.x + box!.width * 0.2, box!.y + box!.height * 0.5);
 
     await expect
       .poll(
@@ -586,12 +582,11 @@ test.describe("Walkthrough UI", () => {
     await expect(timeline).toBeVisible({ timeout: 15_000 });
 
     const box = await timeline.boundingBox();
-    if (box) {
-      await page.mouse.move(box.x + box.width * 0.1, box.y + box.height * 0.5);
-      await page.mouse.down();
-      await page.mouse.move(box.x + box.width, box.y + box.height * 0.5, { steps: 5 });
-      await page.mouse.up();
-    }
+    expect(box).not.toBeNull();
+    await page.mouse.move(box!.x + box!.width * 0.1, box!.y + box!.height * 0.5);
+    await page.mouse.down();
+    await page.mouse.move(box!.x + box!.width, box!.y + box!.height * 0.5, { steps: 5 });
+    await page.mouse.up();
 
     await expect
       .poll(
@@ -603,7 +598,7 @@ test.describe("Walkthrough UI", () => {
             soundPlaying: window.__AGI_STATE__?.soundPlaying ?? false,
           }));
         },
-        { timeout: 30_000 },
+        { timeout: 10_000 },
       )
       .toEqual({
         status: "completed",
@@ -632,16 +627,15 @@ test.describe("Walkthrough UI", () => {
     await expect(timeline).toBeVisible({ timeout: 15_000 });
 
     const box = await timeline.boundingBox();
-    if (box) {
-      // Rapidly scrub forward and backward multiple times while King Edward dialogue is active
-      await page.mouse.move(box.x + box.width * 0.05, box.y + box.height * 0.5);
-      await page.mouse.down();
-      await page.mouse.move(box.x + box.width * 0.1, box.y + box.height * 0.5);
-      await page.mouse.move(box.x + box.width * 0.02, box.y + box.height * 0.5);
-      await page.mouse.move(box.x + box.width * 0.08, box.y + box.height * 0.5);
-      await page.mouse.move(box.x + box.width * 0.03, box.y + box.height * 0.5);
-      await page.mouse.up();
-    }
+    expect(box).not.toBeNull();
+    // Rapidly scrub forward and backward multiple times while King Edward dialogue is active
+    await page.mouse.move(box!.x + box!.width * 0.05, box!.y + box!.height * 0.5);
+    await page.mouse.down();
+    await page.mouse.move(box!.x + box!.width * 0.1, box!.y + box!.height * 0.5);
+    await page.mouse.move(box!.x + box!.width * 0.02, box!.y + box!.height * 0.5);
+    await page.mouse.move(box!.x + box!.width * 0.08, box!.y + box!.height * 0.5);
+    await page.mouse.move(box!.x + box!.width * 0.03, box!.y + box!.height * 0.5);
+    await page.mouse.up();
 
     // Verify engine stays running or playing without error or aborting to main menu
     await expect
@@ -660,5 +654,96 @@ test.describe("Walkthrough UI", () => {
         walkthroughError: "",
         engineError: "",
       });
+  });
+
+  test("runs synthetic walkthrough from game actions menu with speed, seek, and take-control", async ({
+    page,
+  }) => {
+    await isolateStorage(page);
+    await page.goto("/");
+
+    // Open ActionMenu next to Play for synthetic
+    const menuBtn = page.getByTestId("game-actions-synthetic");
+    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
+    await menuBtn.click();
+
+    // Verify "Run walkthrough" item is visible
+    const runBtn = page.getByTestId("run-walkthrough");
+    await expect(runBtn).toBeVisible();
+    await expect(runBtn).toContainText("Run walkthrough");
+    await runBtn.click();
+
+    // Verify walkthrough HUD bar and bottom transport bar appear
+    const bar = page.getByTestId("walkthrough-bar");
+    await expect(bar).toBeVisible({ timeout: 15_000 });
+    await expect(bar).toContainText("Walkthrough");
+
+    const transport = page.getByTestId("walkthrough-transport");
+    await expect(transport).toBeVisible();
+
+    // Verify speed controls
+    const speed4 = page.getByTestId("walkthrough-speed-4");
+    await expect(speed4).toBeVisible();
+    await speed4.click();
+    await expect(speed4).toHaveClass(/walkthrough-speed-btn--active/);
+
+    // Timeline and markers
+    const timeline = page.getByTestId("walkthrough-timeline");
+    await expect(timeline).toBeVisible();
+    await expect(page.getByTestId("walkthrough-progress-fill")).toBeVisible();
+    await expect(page.getByTestId("walkthrough-thumb")).toBeVisible();
+
+    // Checkpoint markers (5 checkpoints: Start, Corridor, Chamber, Solved, Complete)
+    const marker1 = page.getByTestId("walkthrough-marker-1");
+    await expect(marker1).toBeVisible();
+
+    // Verify walkthrough room advances to room 2
+    await expect
+      .poll(
+        async () => {
+          const obs = await page.evaluate(() => window.__AGI_REPLAY__?.latest);
+          return obs?.state.room;
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(2);
+
+    // Verify score reaches 50
+    await expect
+      .poll(
+        async () => {
+          const obs = await page.evaluate(() => window.__AGI_REPLAY__?.latest);
+          return obs?.state.vars[3] ?? 0;
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(50);
+
+    // Test marker click seek back to Start (marker 0)
+    const marker0 = page.getByTestId("walkthrough-marker-0");
+    await expect(marker0).toBeVisible();
+    await marker0.click();
+
+    await expect
+      .poll(
+        async () => {
+          const tick = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
+          return tick;
+        },
+        { timeout: 10_000 },
+      )
+      .toBeLessThan(50);
+
+    // Test Take Control
+    const takeControlBtn = page.getByTestId("btn-walkthrough-take-control");
+    await expect(takeControlBtn).toBeVisible();
+    await takeControlBtn.click();
+
+    // Walkthrough HUD bar should disappear
+    await expect(page.getByTestId("walkthrough-bar")).toBeHidden({ timeout: 5_000 });
+    await expect(page.getByTestId("walkthrough-transport")).toBeHidden();
+
+    // Game remains running under player control
+    await expect.poll(async () => page.evaluate(() => window.__AGI_STATE__?.phase)).toBe("running");
   });
 });

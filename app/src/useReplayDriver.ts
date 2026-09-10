@@ -25,6 +25,9 @@ export function createReplayDriver(ctx: ReplayDriverContext): ReplayDriver {
     get sessionId() {
       return ctx.getActiveWalkthroughSession();
     },
+    set sessionId(_id: number) {
+      // Walkthrough session is managed through ctx.nextSessionId
+    },
     latest: null,
     advance: (ticks, options) => {
       const activeSession = ctx.getActiveWalkthroughSession();

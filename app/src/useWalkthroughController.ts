@@ -149,7 +149,6 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     ctx.drainPendingQueries(new DOMException("Walkthrough reset", "AbortError"));
 
     const sessionId = ctx.nextSessionId();
-    replayDriver.sessionId = sessionId;
     state.walkthrough.error = "";
 
     // Load artifact (memoized with validation and failure eviction)
@@ -184,10 +183,11 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     state.walkthrough.checkpoints = checkpoints;
     state.walkthrough.totalTicks = artifact.virtualTicks;
     state.walkthrough.requestedTick = target;
-    state.walkthrough.tick = target;
+    const initialObservedTick = target > 0 ? (replayDriver.latest?.tick ?? 0) : 0;
+    state.walkthrough.tick = initialObservedTick;
     state.walkthrough.percent =
-      artifact.virtualTicks > 0 && target > 0
-        ? Math.min(100, Math.round((target / artifact.virtualTicks) * 100))
+      artifact.virtualTicks > 0 && initialObservedTick > 0
+        ? Math.min(100, Math.round((initialObservedTick / artifact.virtualTicks) * 100))
         : 0;
     state.walkthrough.room = targetCp ? targetCp.room : null;
     state.walkthrough.score = targetCp ? targetCp.score : null;

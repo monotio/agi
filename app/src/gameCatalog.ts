@@ -20,4 +20,13 @@ export const GAME_CATALOG: readonly GameCatalogEntry[] = [
     license: "MIT",
     load: async () => (await import("../../games/adventure-department/game.ts")).buildTutorial(),
   },
+  {
+    id: "synthetic",
+    version: "1.0.0",
+    title: "Synthetic Test Chamber",
+    description: "Autonomous verification fixture for simulation, replay, and playback.",
+    author: "Monotio",
+    license: "MIT",
+    load: async () => (await import("../../src/games/syntheticCartridge.ts")).buildSyntheticGame(),
+  },
 ];

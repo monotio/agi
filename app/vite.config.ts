@@ -2,7 +2,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import vue from "@vitejs/plugin-vue";
 import { defineConfig, type Plugin } from "vite";
-import { scanFixtures } from "../test/fixtures.ts";
+import { scanFixtures, KNOWN_GAME_HASH } from "../test/fixtures.ts";
+import { buildSyntheticGame } from "../src/games/syntheticCartridge.ts";
 
 export interface InstalledFixtureDescriptor {
   readonly folder: string;
@@ -23,9 +24,9 @@ export interface InstalledFixtureDescriptor {
  * NEVER shipped: build output contains no fixture data.
  */
 function fixtureServer(): Plugin {
-  const gamesRoot = join(__dirname, "..", "games");
+  const gamesRoot = join(import.meta.dirname, "..", "games");
   const installedGames = (): InstalledFixtureDescriptor[] => {
-    return scanFixtures().all.map((fixture) => {
+    const list: InstalledFixtureDescriptor[] = scanFixtures().all.map((fixture) => {
       const known = fixture.known;
       return {
         folder: fixture.folder,
@@ -38,6 +39,16 @@ function fixtureServer(): Plugin {
         ...(known?.walkthroughLabel ? { walkthroughLabel: known.walkthroughLabel } : {}),
       };
     });
+    if (!list.some((g) => g.hash === KNOWN_GAME_HASH.SYNTHETIC || g.alias === "synthetic")) {
+      list.push({
+        folder: "synthetic",
+        hash: KNOWN_GAME_HASH.SYNTHETIC,
+        alias: "synthetic",
+        title: "Synthetic Test Chamber",
+        walkthroughLabel: "Synthetic Test Chamber",
+      });
+    }
+    return list;
   };
   return {
     name: "agi-fixture-server",
@@ -56,6 +67,27 @@ function fixtureServer(): Plugin {
           return;
         }
         const [segment0, ...restSegments] = rel.split("/");
+        if (
+          segment0!.toLowerCase() === "synthetic" ||
+          segment0!.toLowerCase() === KNOWN_GAME_HASH.SYNTHETIC.toLowerCase()
+        ) {
+          const synth = buildSyntheticGame();
+          if (restSegments.length === 0) {
+            res.setHeader("content-type", "application/json");
+            res.end(JSON.stringify(Object.keys(synth.files)));
+            return;
+          }
+          const fileName = restSegments[0]!.toUpperCase();
+          const bytes = synth.files[fileName] ?? synth.files[restSegments[0]!];
+          if (bytes) {
+            res.setHeader("content-type", "application/octet-stream");
+            res.end(Buffer.from(bytes));
+            return;
+          }
+          res.statusCode = 404;
+          res.end("not found");
+          return;
+        }
         const gameMatch = installedGames().find(
           (g) =>
             g.hash?.toLowerCase() === segment0!.toLowerCase() ||
