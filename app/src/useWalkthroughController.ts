@@ -8,12 +8,15 @@ import type {
 import {
   getOrExtractCheckpoints,
   loadWalkthrough,
+  type WalkthroughArtifact,
   type WalkthroughCheckpoint,
 } from "./walkthrough.ts";
 import { findInstalledFolder, type InstalledGameDescriptor } from "./gameTypes.ts";
 import type { AgentLogEntry } from "./agent/agentLog.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
-import { getCachedGameMeta, type ProjectId } from "./gameStorage.ts";
+import { getCachedGameMeta, listCachedGames, type ProjectId } from "./gameStorage.ts";
+import { sha256Hex } from "./crypto.ts";
+import type { BootedGame } from "./gameTypes.ts";
 
 export interface WalkthroughUiState {
   active: boolean;
@@ -71,6 +74,7 @@ export interface WalkthroughControllerContext {
   readonly audio: AgiAudio;
   readonly replayDriver: ReplayDriver;
   readonly getWorker: () => Worker | null;
+  readonly getBootedGame: () => BootedGame | null;
   readonly isCurrentGame: (targetGame: string) => boolean;
   readonly nextSessionId: () => number;
   readonly getActiveSessionId: () => number;
@@ -155,15 +159,19 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     const sessionId = ctx.nextSessionId();
     state.walkthrough.error = "";
 
-    // Load artifact (memoized with validation and failure eviction)
-    const artifact = await loadWalkthrough(targetGame);
-    if (ctx.getActiveSessionId() !== sessionId) return;
-
-    if (!artifact) {
-      state.walkthrough.error = `No walkthrough found for "${targetGame}".`;
+    // Load artifact (memoized with validation and failure eviction); the
+    // loader throws on fetch or validation failure, so surface that here
+    // rather than letting it escape the click handler as a rejection.
+    let artifact: WalkthroughArtifact;
+    try {
+      artifact = await loadWalkthrough(targetGame);
+    } catch (e) {
+      if (ctx.getActiveSessionId() !== sessionId) return;
       state.walkthrough.status = "error";
+      state.walkthrough.error = e instanceof Error ? e.message : String(e);
       return;
     }
+    if (ctx.getActiveSessionId() !== sessionId) return;
 
     const abortController = new AbortController();
     walkthroughAbortController = abortController;
@@ -255,18 +263,34 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
       });
     } else if (ctx.isInstalledGame(targetGame)) {
       await ctx.bootGame(findInstalledFolder(ctx.state.installedGames, targetGame));
-    } else if (getCachedGameMeta(targetGame)) {
-      await ctx.bootAuthoredGame(
-        "",
-        ctx.configForGame(targetGame, {
-          provider: "stub",
-          apiKey: "",
-          model: "offline-stub",
-        }),
-        { projectId: targetGame, useCached: true },
-      );
     } else {
-      await ctx.bootGame(findInstalledFolder(ctx.state.installedGames, targetGame));
+      // A walkthrough is addressed by alias or hash; saved library copies
+      // (catalog releases, imports, authored projects) resolve to their
+      // projectId before booting from the browser cache.
+      const norm = targetGame.toLowerCase();
+      const saved =
+        getCachedGameMeta(targetGame) ??
+        listCachedGames().find((game) => game.library?.alias?.toLowerCase() === norm);
+      if (saved) {
+        await ctx.bootAuthoredGame(
+          "",
+          ctx.configForGame(saved.projectId, {
+            provider: "stub",
+            apiKey: "",
+            model: "offline-stub",
+          }),
+          { projectId: saved.projectId, useCached: true },
+        );
+      } else if (!import.meta.env?.DEV) {
+        void observationPromise.catch(() => {});
+        abortController.abort();
+        state.walkthrough.active = false;
+        state.walkthrough.status = "error";
+        state.walkthrough.error = "Add this game to your library first, then run its walkthrough.";
+        return;
+      } else {
+        await ctx.bootGame(findInstalledFolder(ctx.state.installedGames, targetGame));
+      }
     }
 
     if (ctx.getActiveSessionId() !== sessionId || abortController.signal.aborted) return;
@@ -276,6 +300,29 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
       state.walkthrough.error = state.error || "Failed to boot game for walkthrough.";
       return;
     }
+
+    // The artifact's binding names the build the tape was recorded on; refuse
+    // a different edition up front instead of failing at a later checkpoint.
+    if (artifact.targetHash || artifact.supportedHashes?.length) {
+      const words = ctx.getBootedGame()?.files["WORDS.TOK"];
+      const wordsSha = words ? (await sha256Hex(words)).toLowerCase() : null;
+      const supported = new Set(
+        [artifact.targetHash, ...(artifact.supportedHashes ?? [])].filter(
+          (h): h is string => typeof h === "string",
+        ),
+      );
+      if (!wordsSha || !supported.has(wordsSha)) {
+        if (ctx.getActiveSessionId() !== sessionId || abortController.signal.aborted) return;
+        // Reject the pending observation wait so its listener is released.
+        void observationPromise.catch(() => {});
+        abortController.abort();
+        state.walkthrough.active = false;
+        state.walkthrough.status = "error";
+        state.walkthrough.error = `This walkthrough was recorded for a different edition of the game.`;
+        return;
+      }
+    }
+    if (ctx.getActiveSessionId() !== sessionId || abortController.signal.aborted) return;
 
     try {
       await observationPromise;
@@ -441,13 +488,12 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     state.soundPlaying = false;
     audio.stop();
     notifyResume();
+    state.walkthrough.status = "stopped";
     if (takeControl) {
-      state.walkthrough.status = "stopped";
       ctx.getWorker()?.postMessage({ type: "exitReplay" });
       // A replay halted mid-hold must not carry ego's heading into live play.
       ctx.sendDirection(0);
     } else {
-      state.walkthrough.status = "stopped";
       await ctx.ejectGame();
     }
   }

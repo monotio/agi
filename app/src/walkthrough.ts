@@ -8,6 +8,7 @@ import {
   getKnownGameByHash,
   getKnownGameByRevision,
   detectKnownGameByHashes,
+  type KnownAgiGame,
 } from "../../src/games/knownGames.ts";
 
 export interface WalkthroughArtifact {
@@ -32,36 +33,38 @@ export interface WalkthroughMeta {
 }
 
 export const KNOWN_WALKTHROUGHS: Record<string, WalkthroughMeta> = Object.fromEntries(
-  KNOWN_GAMES.filter((g) => g.walkthroughLabel).map((g) => [
+  KNOWN_GAMES.filter((g): g is KnownAgiGame & { walkthroughLabel: string } =>
+    Boolean(g.walkthroughLabel),
+  ).map((g) => [
     g.alias,
     {
       alias: g.alias,
       title: g.title,
-      label: g.walkthroughLabel!,
+      label: g.walkthroughLabel,
       coverage: g.walkthroughCoverage ?? "complete-game",
     },
   ]),
 );
 
-export function hasWalkthrough(hashOrAlias: string): boolean {
-  if (!hashOrAlias) return false;
+/** Resolve a hash-or-alias to its catalog entry (WORDS.TOK hash, bundle revision, or alias). */
+function knownGameFor(hashOrAlias: string): KnownAgiGame | null {
   const normalized = hashOrAlias.toLowerCase();
-  const known =
+  return (
     getKnownGameByHash(normalized) ??
     getKnownGameByAlias(normalized) ??
     getKnownGameByRevision(normalized) ??
-    detectKnownGameByHashes(normalized);
-  return Boolean(known?.walkthroughLabel);
+    detectKnownGameByHashes(normalized)
+  );
+}
+
+export function hasWalkthrough(hashOrAlias: string): boolean {
+  if (!hashOrAlias) return false;
+  return Boolean(knownGameFor(hashOrAlias)?.walkthroughLabel);
 }
 
 export function resolveWalkthrough(hashOrAlias: string): string | null {
   if (!hashOrAlias) return null;
-  const normalized = hashOrAlias.toLowerCase();
-  const known =
-    getKnownGameByHash(normalized) ??
-    getKnownGameByAlias(normalized) ??
-    getKnownGameByRevision(normalized) ??
-    detectKnownGameByHashes(normalized);
+  const known = knownGameFor(hashOrAlias);
   return known?.walkthroughLabel ? known.alias : null;
 }
 
