@@ -60,6 +60,7 @@ import {
   fetchFixtureFiles,
   resolveFixtureTarget,
 } from "./gameDiscovery.ts";
+import { createWorkerQueries } from "./workerQueries.ts";
 export type { PromptState };
 
 /** Engine modal kinds (the engine draws them on its text surface). */
@@ -213,22 +214,8 @@ export function useEngine(
     handle: async (request) => authoringController.getSession()?.handle(request) ?? "",
   };
   let booted: BootedGame | null = null;
-  interface PendingQuery {
-    resolve: (value: unknown) => void;
-    reject: (err: Error) => void;
-    timer: ReturnType<typeof setTimeout>;
-  }
-  /** In-flight worker queries (frames / state / objects), keyed by request id. */
-  const pendingQueries = new Map<number, PendingQuery>();
-  let nextQueryId = 1;
-
-  function drainPendingQueries(err: Error = new Error("Operation aborted")): void {
-    for (const q of pendingQueries.values()) {
-      clearTimeout(q.timer);
-      q.reject(err);
-    }
-    pendingQueries.clear();
-  }
+  const workerQueries = createWorkerQueries();
+  const drainPendingQueries = (err?: Error) => workerQueries.drainPendingQueries(err);
 
   const { logAgent, clearAgentLog, releaseAgentAudioPreviews } = createAgentLogger(state);
   const promptController = usePromptController({ state, logAgent });
@@ -601,11 +588,7 @@ export function useEngine(
       } else if (msg.type === "restored") {
         autosaveController.handleRestored(msg);
       } else if (msg.type === "recordingStarted" || msg.type === "recordingStopped") {
-        const q = pendingQueries.get(Number(msg.id));
-        if (q) {
-          pendingQueries.delete(Number(msg.id));
-          q.resolve(msg);
-        }
+        workerQueries.resolveQuery(Number(msg.id), msg);
       } else if (msg.type === "log") {
         logAgent("log", String(msg.text));
       } else if (msg.type === "replay" && replayDriver) {
@@ -633,30 +616,23 @@ export function useEngine(
         hook.egoY = obs.state.egoY;
         publishHook();
         for (const listener of observationListeners) listener(replayDriver.latest);
-        const q = pendingQueries.get(Number(msg.id));
-        if (q) {
-          pendingQueries.delete(Number(msg.id));
-          q.resolve(replayDriver.latest);
-        }
+        workerQueries.resolveQuery(Number(msg.id), replayDriver.latest);
       } else if (
         msg.type === "frames" ||
         msg.type === "engineState" ||
         msg.type === "objects" ||
         msg.type === "exportFiles"
       ) {
-        const q = pendingQueries.get(Number(msg.id));
-        if (q) {
-          pendingQueries.delete(Number(msg.id));
-          q.resolve(
-            msg.type === "frames"
-              ? msg.frames
-              : msg.type === "objects"
-                ? msg.objects
-                : msg.type === "exportFiles"
-                  ? msg.files
-                  : msg.state,
-          );
-        }
+        workerQueries.resolveQuery(
+          Number(msg.id),
+          msg.type === "frames"
+            ? msg.frames
+            : msg.type === "objects"
+              ? msg.objects
+              : msg.type === "exportFiles"
+                ? msg.files
+                : msg.state,
+        );
       } else if (msg.type === "cycle") {
         hook.cycle = Number(msg.cycle);
         hook.room = Number(msg.room ?? 0);
@@ -696,26 +672,7 @@ export function useEngine(
    * whole point: the agent inspects a frozen game.
    */
   function query<T>(type: string, extra: Record<string, unknown> = {}): Promise<T> {
-    if (!worker) return Promise.reject(new Error("no engine running"));
-    const id = nextQueryId++;
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pendingQueries.delete(id);
-        reject(new Error(`engine query '${type}' timed out`));
-      }, 5_000);
-      pendingQueries.set(id, {
-        resolve: (value) => {
-          clearTimeout(timer);
-          resolve(value as T);
-        },
-        reject: (err) => {
-          clearTimeout(timer);
-          reject(err);
-        },
-        timer,
-      });
-      worker!.postMessage({ type, id, ...extra });
-    });
+    return workerQueries.query<T>(() => worker, type, extra);
   }
 
   /**
