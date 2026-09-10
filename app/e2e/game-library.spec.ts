@@ -321,7 +321,11 @@ test("the first catalog edit forks a remix and preserves the original", async ({
   expect(after.originalRevision).toBe(before.revision);
   expect(after.originalActualRevision).toBe(before.actualRevision);
   expect(after.remixSource).toBe("remix");
-  expect(after.parent).toEqual({ projectId: before.projectId, revision: before.revision });
+  expect(after.parent).toEqual({
+    alias: "adventure-department",
+    projectId: before.projectId,
+    revision: before.revision,
+  });
   expect(after.currentProjectId).toBe(after.remixProjectId);
 });
 

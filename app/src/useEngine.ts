@@ -355,9 +355,9 @@ export function useEngine(
     publishHook();
   }
 
-  /** Mirror the test/debug hook onto the window (tests read window.__AGI_TEXT__). */
+  /** Mirror the text hook onto the window: production e2e verifies engine text through it. */
   function publishHook(): void {
-    if (import.meta.env?.DEV && typeof window !== "undefined") window.__AGI_TEXT__ = hook;
+    if (typeof window !== "undefined") window.__AGI_TEXT__ = hook;
   }
 
   /**
@@ -636,7 +636,7 @@ export function useEngine(
         hook.room = Number(msg["room"] ?? 0);
         hook.egoX = Number(msg["egoX"] ?? 0);
         hook.egoY = Number(msg["egoY"] ?? 0);
-        if (import.meta.env?.DEV && typeof window !== "undefined") window.__AGI_TEXT__ = hook;
+        if (typeof window !== "undefined") window.__AGI_TEXT__ = hook;
       },
       booted: (msg) => {
         if (booted) {

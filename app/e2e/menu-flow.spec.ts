@@ -102,7 +102,9 @@ test("library puts rename inline and secondary actions into menus", async ({ pag
   await expect(menu.getByTestId("btn-save-project")).toBeVisible();
   await expect(menu.getByRole("separator")).toHaveCount(2);
   const items = await menu.getByRole("menuitem").allInnerTexts();
-  expect(items[0]).toBe("Start over");
+  // A saved copy of the tutorial keeps its walkthrough action at the top.
+  expect(items[0]).toMatch(/^Run walkthrough/);
+  expect(items).toContain("Start over");
   expect(items.at(-1)).toBe("Remove game");
   expect(items.indexOf("Make a copy")).toBeLessThan(items.findIndex((t) => /Game export/.test(t)));
   for (const width of [1440, 390]) {
