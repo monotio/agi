@@ -15,7 +15,6 @@ interface PromptMessage {
 export interface OrientationVars {
   vars: {
     game?: string;
-    gameId?: string;
     profile?: string;
     room?: number | string;
     resourceListing?: string;
@@ -34,7 +33,7 @@ export default function ({ vars }: OrientationVars): PromptMessage[] {
     {
       role: "user",
       content: createOrientationPrompt({
-        game: vars.game || vars.gameId || "unknown",
+        game: vars.game || "unknown",
         profile: vars.profile || "2.936",
         room: Number(vars.room ?? 1),
         resourceListing: vars.resourceListing || "",

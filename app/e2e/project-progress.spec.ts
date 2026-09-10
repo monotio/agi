@@ -159,13 +159,13 @@ test("the project archive moves the autosave to another browser; the game export
     await expect(other.getByText(/added to your library.*autosave stored/)).toBeVisible();
     const resume = other.getByTestId("btn-resume-cached");
     await expect(resume).toHaveText("Resume");
-    const gameId = await other.evaluate(async () => {
+    const projectId = await other.evaluate(async () => {
       const path = "/src/gameStorage.ts";
       const store = await import(path);
-      return store.listCachedGames()[0].gameId as string;
+      return store.listCachedGames()[0].projectId as string;
     });
-    expect(gameId).not.toBe(TUTORIAL_GAME_ID);
-    expect((await storedAutosave(other, gameId))?.room).toBe(1);
+    expect(projectId).not.toBe(TUTORIAL_GAME_ID);
+    expect((await storedAutosave(other, projectId))?.room).toBe(1);
     await resume.click();
     await expect.poll(async () => (await textHook(other)).room).toBe(1);
     await expect

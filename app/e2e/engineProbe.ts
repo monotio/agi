@@ -176,13 +176,13 @@ export async function waitForAutosaveAfter(
   return (await textHook(page)).autosave;
 }
 
-/** The autosave record the host stored for `gameId`, straight out of localStorage. */
+/** The autosave record the host stored for `gameKey`, straight out of localStorage. */
 export async function storedAutosave(
   page: Page,
-  gameId: string,
+  gameKey: string,
 ): Promise<{ room: number; cycle: number; imageLength: number } | null> {
-  return page.evaluate((id) => {
-    const raw = localStorage.getItem(`monotio_agi.autosave.${id}`);
+  return page.evaluate((key) => {
+    const raw = localStorage.getItem(`monotio_agi.autosave.${key}`);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return {
@@ -190,7 +190,7 @@ export async function storedAutosave(
       cycle: Number(parsed.cycle),
       imageLength: atob(String(parsed.image)).length,
     };
-  }, gameId);
+  }, gameKey);
 }
 
 /**

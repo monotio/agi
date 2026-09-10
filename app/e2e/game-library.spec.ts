@@ -71,8 +71,8 @@ test("ZIP import is checked and staged before Play, with a stable duplicate", as
   await expect(card.getByTestId("btn-resume-cached")).toBeEnabled();
   await expect(card.getByTestId("library-thumbnail")).toHaveAttribute("src", /^data:image\/png/);
   await expect(page.getByTestId("input-line")).toBeHidden();
-  const firstGameId = await card.getAttribute("data-game-id");
-  expect(firstGameId).toBeTruthy();
+  const firstProjectId = await card.getAttribute("data-project-id");
+  expect(firstProjectId).toBeTruthy();
   await page.getByTestId("game-zip-input").setInputFiles({
     name: "renamed.zip",
     mimeType: "application/zip",
@@ -80,7 +80,7 @@ test("ZIP import is checked and staged before Play, with a stable duplicate", as
   });
   await expect(page.getByTestId("game-import-ready")).toContainText("added to your library");
   await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(1);
-  await expect(card).toHaveAttribute("data-game-id", firstGameId!);
+  await expect(card).toHaveAttribute("data-project-id", firstProjectId!);
   await card.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 });
@@ -333,15 +333,15 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
   const upload = { name: "forgettable.zip", mimeType: "application/zip", buffer: roomGame() };
   await page.getByTestId("game-zip-input").setInputFiles(upload);
   const card = savedGameCard(page, "forgettable");
-  const gameId = (await card.getAttribute("data-game-id"))!;
-  expect(gameId).toMatch(/^imported-[a-f0-9]{64}$/);
+  const projectId = (await card.getAttribute("data-project-id"))!;
+  expect(projectId).toMatch(/^imported-[a-f0-9]{64}$/);
   await card.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await waitForCycles(page, 4);
   // Leaving flushes a checkpoint; the card must offer it before the game is removed.
   await page.getByTestId("btn-eject").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
-  await expect.poll(() => storedAutosave(page, gameId)).not.toBeNull();
+  await expect.poll(() => storedAutosave(page, projectId)).not.toBeNull();
   await expect(card.getByTestId("btn-resume-cached")).toHaveText("Resume");
 
   await openLibraryActions(page, card);
@@ -358,14 +358,14 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
             (key.startsWith("monotio_agi.autosave.") || key.startsWith("monotio_agi.saves.")) &&
             key.includes(s),
         ),
-      gameId,
+      projectId,
     ),
   ).toEqual([]);
   expect(await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"))).toBeNull();
 
   await page.getByTestId("game-zip-input").setInputFiles(upload);
   const readded = savedGameCard(page, "forgettable");
-  await expect(readded).toHaveAttribute("data-game-id", gameId);
+  await expect(readded).toHaveAttribute("data-project-id", projectId);
   await expect(readded.getByTestId("btn-resume-cached")).toHaveText("Play");
   await expect(readded.getByText("IN PROGRESS", { exact: true })).toHaveCount(0);
 });

@@ -43,12 +43,12 @@ export class BrowserReplay {
     this.phone = phone;
   }
 
-  async boot(gameIdOrHash: string, seed: number): Promise<void> {
+  async boot(target: string, seed: number): Promise<void> {
     await isolateStorage(this.page);
     await this.page.goto(`/?replaySeed=${seed}`);
     const boot = this.page
       .locator(
-        `[data-hash="${gameIdOrHash}"], [data-game-id="${gameIdOrHash}"], [data-testid="boot-${gameIdOrHash}"]`,
+        `[data-hash="${target}"], [data-project-id="${target}"], [data-game-id="${target}"], [data-testid="boot-${target}"]`,
       )
       .first();
     if (this.phone) await boot.tap();
