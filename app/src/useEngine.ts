@@ -55,6 +55,11 @@ export { findInstalledFolder };
 
 import { usePromptController, type PromptState } from "./usePromptController.ts";
 import { useSaveSlotController } from "./useSaveSlotController.ts";
+import {
+  discoverInstalledGames,
+  fetchFixtureFiles,
+  resolveFixtureTarget,
+} from "./gameDiscovery.ts";
 export type { PromptState };
 
 /** Engine modal kinds (the engine draws them on its text surface). */
@@ -395,35 +400,19 @@ export function useEngine(
     promptController.submitPrompt(value, cancelled);
   }
 
+  function spawnWorker(): Worker {
+    worker?.terminate();
+    bridge?.dispose();
+    audio.stop();
+    resetScreenState();
+    const w = new Worker(new URL("./engine.worker.ts", import.meta.url), { type: "module" });
+    wireWorker(w);
+    worker = w;
+    return w;
+  }
+
   async function discoverGames(): Promise<void> {
-    if (!import.meta.env.DEV) return;
-    try {
-      const res = await fetch("/fixtures/");
-      if (!res.ok) {
-        state.installedGames = [];
-        return;
-      }
-      const raw = await res.json();
-      state.installedGames = Array.isArray(raw)
-        ? raw.map((item) => {
-            if (typeof item === "string") {
-              return { hash: item, alias: item, title: item.toUpperCase() };
-            }
-            return {
-              hash: item.hash ?? item.wordsSha256 ?? item.folder,
-              alias: item.alias ?? item.folder,
-              title: item.title ?? (item.folder ? item.folder.toUpperCase() : "AGI GAME"),
-              ...(item.author ? { author: item.author } : {}),
-              ...(item.walkthroughLabel ? { walkthroughLabel: item.walkthroughLabel } : {}),
-              ...(item.wordsSha256 ? { wordsSha256: item.wordsSha256 } : {}),
-              ...(item.objectSha256 ? { objectSha256: item.objectSha256 } : {}),
-              ...(item.folder ? { folder: item.folder } : {}),
-            } as InstalledGameDescriptor;
-          })
-        : [];
-    } catch {
-      state.installedGames = [];
-    }
+    state.installedGames = await discoverInstalledGames();
   }
 
   async function bootGame(hashOrAlias: string): Promise<void> {
@@ -431,28 +420,8 @@ export function useEngine(
     state.phase = "loading";
     state.error = "";
     try {
-      const norm = hashOrAlias.toLowerCase();
-      const match = (state.installedGames ?? []).find(
-        (g) =>
-          g.hash.toLowerCase() === norm ||
-          g.alias.toLowerCase() === norm ||
-          g.wordsSha256?.toLowerCase() === norm ||
-          g.folder?.toLowerCase() === norm,
-      );
-      const target = match?.wordsSha256 ?? match?.hash ?? hashOrAlias;
-      // Directory manifest lists every file (no 404 probing).
-      const manifest: string[] = await (await fetch(`/fixtures/${target}/`)).json();
-      const names = manifest.filter((name) =>
-        /^([A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/i.test(
-          name,
-        ),
-      );
-      const files: Record<string, Uint8Array> = {};
-      for (const name of names) {
-        const res = await fetch(`/fixtures/${target}/${name}`);
-        if (!res.ok) throw new Error(`fixture fetch failed: ${name}`);
-        files[name.toUpperCase()] = new Uint8Array(await res.arrayBuffer());
-      }
+      const { target, match } = resolveFixtureTarget(state.installedGames, hashOrAlias);
+      const files = await fetchFixtureFiles(target);
       // Parse the dictionary on the main thread; ship entries to the worker.
       const words = parseWordsTok(files["WORDS.TOK"]!).map(
         (e) => [e.word, e.id] as [string, number],
@@ -464,16 +433,7 @@ export function useEngine(
       const title = known?.title ?? match?.title ?? folder.toUpperCase();
       const hash = match?.hash ?? target;
 
-      worker?.terminate();
-      bridge?.dispose();
-      audio.stop();
-      resetScreenState();
-      worker = new Worker(new URL("./engine.worker.ts", import.meta.url), { type: "module" });
-      wireWorker(worker);
-      // Installed games use only host services; the bridge carries the host
-      // services (getnum/getstring/restore) and satisfies the boot contract.
-      // No authoring session exists yet: the remix builds and orients one
-      // over this container on first use.
+      const w = spawnWorker();
       authoringController.resetSession();
       booted = {
         installed: true,
@@ -487,7 +447,7 @@ export function useEngine(
       };
       bridge = createBridge(hostBridgeHandler(currentSessionAgent), logAgent);
       // A successful remix is saved as its own local game before playback resumes.
-      worker.postMessage({
+      w.postMessage({
         type: "boot",
         sessionId: activeWalkthroughSession,
         ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
@@ -939,12 +899,7 @@ export function useEngine(
     state.phase = "loading";
     state.error = "";
     try {
-      worker?.terminate();
-      bridge?.dispose();
-      audio.stop();
-      resetScreenState();
-      worker = new Worker(new URL("./engine.worker.ts", import.meta.url), { type: "module" });
-      wireWorker(worker);
+      spawnWorker();
 
       const projectId = options?.projectId || "custom";
       const title = options?.title || projectId;
