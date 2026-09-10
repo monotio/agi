@@ -193,7 +193,7 @@ const libraryAutosaves = computed<Record<string, AutosaveRecord>>(() =>
       ...savedGames.value.map((game) => game.projectId),
       ...(state.installedGames ?? []).flatMap((item) => [
         item.hash,
-        item.gameId,
+        item.alias,
         ...(item.folder ? [item.folder] : []),
       ]),
     ].flatMap((key) => {
@@ -500,18 +500,18 @@ const localGames = computed(() => {
       !savedGames.value.some(
         (game) =>
           game.projectId === item.hash ||
-          game.projectId === item.gameId ||
+          game.projectId === item.alias ||
           (item.folder && game.projectId === item.folder),
       ),
   );
 });
 
-const localGameIds = computed(() => localGames.value.map((g) => g.gameId));
+const localGameIds = computed(() => localGames.value.map((g) => g.alias));
 
 function localAutosave(game: InstalledGameDescriptor): AutosaveRecord | undefined {
   return (
     libraryAutosaves.value[game.hash] ??
-    libraryAutosaves.value[game.gameId] ??
+    libraryAutosaves.value[game.alias] ??
     (game.folder ? libraryAutosaves.value[game.folder] : undefined)
   );
 }
@@ -2893,7 +2893,7 @@ watch(
             v-for="game in localGames"
             :key="`local-${game.hash}`"
             class="saved-game-card"
-            :data-testid="`local-game-card-${game.gameId || game.folder || game.hash}`"
+            :data-testid="`local-game-card-${game.alias || game.folder || game.hash}`"
           >
             <div class="saved-game-media">
               <img
@@ -2905,7 +2905,7 @@ watch(
                 :alt="`${game.title}, current progress in room ${localAutosave(game)?.room}`"
               />
               <div v-else class="saved-game-cover" aria-hidden="true">
-                {{ (game.gameId || game.hash).slice(0, 8).toUpperCase() }}
+                {{ (game.alias || game.hash).slice(0, 8).toUpperCase() }}
               </div>
               <span v-if="localAutosave(game)" class="saved-world-badge">IN PROGRESS</span>
             </div>
@@ -2923,8 +2923,8 @@ watch(
                   type="button"
                   class="ui-button ui-button--primary"
                   :data-hash="game.hash"
-                  :data-game-id="game.gameId"
-                  :data-testid="`boot-${game.gameId || game.folder || game.hash}`"
+                  :data-alias="game.alias"
+                  :data-testid="`boot-${game.alias || game.folder || game.hash}`"
                   :disabled="libraryActionBusy || importBusy"
                   @click="onPlayLocalGame(game.hash)"
                 >
@@ -2935,7 +2935,7 @@ watch(
                   label="Game actions"
                   icon="more"
                   icon-only
-                  :test-id="`game-actions-${game.gameId || game.folder || game.hash}`"
+                  :test-id="`game-actions-${game.alias || game.folder || game.hash}`"
                 >
                   <button
                     v-if="hasWalkthrough(game.hash)"

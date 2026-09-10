@@ -7,7 +7,6 @@ import {
   detectKnownGame,
   detectKnownGameByHashes,
   getKnownGameByAlias,
-  getKnownGameById,
   getKnownGameByRevision,
 } from "../src/knownGames.ts";
 import { KNOWN_WALKTHROUGHS, hasWalkthrough, resolveWalkthrough } from "../src/walkthrough.ts";
@@ -87,11 +86,10 @@ test("detectKnownGameByHashes identifies games case-insensitively and avoids col
   assert.equal(unknown, null);
 });
 
-test("getKnownGameByAlias, getKnownGameById and getKnownGameByRevision look up games accurately", () => {
+test("getKnownGameByAlias and getKnownGameByRevision look up games accurately", () => {
   const kq1 = getKnownGameByAlias("kq1");
   assert.equal(kq1?.alias, "kq1");
   assert.equal(getKnownGameByAlias("KQ1")?.alias, "kq1");
-  assert.equal(getKnownGameById("KQ1")?.alias, "kq1");
   assert.equal(getKnownGameByAlias("nonexistent"), null);
 
   const mh1 = KNOWN_GAMES.find((g) => g.alias === "mh1")!;

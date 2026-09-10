@@ -212,11 +212,6 @@ export function getKnownGameByAlias(alias: string): KnownAgiGame | null {
   return BY_ALIAS.get(alias.toLowerCase()) ?? null;
 }
 
-/** Look up a known game by its canonical ID/alias (compatibility helper). */
-export function getKnownGameById(id: string): KnownAgiGame | null {
-  return getKnownGameByAlias(id);
-}
-
 /** Look up a known game by content hash (WORDS.TOK hash or bundle revision). */
 export function getKnownGameByHash(hash: string): KnownAgiGame | null {
   const norm = hash.toLowerCase();

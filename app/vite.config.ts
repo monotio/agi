@@ -7,8 +7,7 @@ import { scanFixtures } from "../test/fixtures.ts";
 export interface InstalledFixtureDescriptor {
   readonly folder: string;
   readonly hash?: string | undefined;
-  readonly alias?: string | undefined;
-  readonly gameId: string;
+  readonly alias: string;
   readonly title: string;
   readonly author?: string | undefined;
   readonly wordsSha256?: string | undefined;
@@ -31,8 +30,7 @@ function fixtureServer(): Plugin {
       return {
         folder: fixture.folder,
         hash: fixture.hash,
-        alias: known?.alias,
-        gameId: known?.alias ?? fixture.folder,
+        alias: known?.alias ?? fixture.folder,
         title: known?.title ?? fixture.title,
         ...(fixture.author ? { author: fixture.author } : {}),
         ...(fixture.wordsSha256 ? { wordsSha256: fixture.wordsSha256 } : {}),

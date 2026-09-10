@@ -4,7 +4,6 @@ export {
   KNOWN_GAME_HASH,
   KNOWN_GAMES,
   getKnownGameByAlias,
-  getKnownGameById,
   getKnownGameByHash,
   getKnownGameByRevision,
   detectKnownGameByHashes,

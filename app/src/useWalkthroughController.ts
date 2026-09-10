@@ -6,7 +6,7 @@ import type {
   ReplayProgressEvent,
 } from "./replay.ts";
 import { extractCheckpoints, loadWalkthrough, type WalkthroughCheckpoint } from "./walkthrough.ts";
-import type { InstalledGameDescriptor } from "./useEngine.ts";
+import { findInstalledFolder, type InstalledGameDescriptor } from "./useEngine.ts";
 import type { AgentLogEntry } from "./agent/agentLog.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import { getCachedGameMeta } from "./gameStorage.ts";
@@ -103,18 +103,6 @@ export interface WalkthroughController {
   toggleWalkthroughPauseOnDialog(): void;
   advanceDialog(): boolean;
   abort(): void;
-}
-
-function findInstalledFolder(
-  installedGames: readonly (string | InstalledGameDescriptor)[] | null | undefined,
-  gameId: string,
-): string {
-  const match = (installedGames ?? []).find(
-    (g) =>
-      (typeof g === "string" ? g : g.gameId) === gameId ||
-      (typeof g === "string" ? g : g.folder) === gameId,
-  );
-  return typeof match === "string" ? match : (match?.folder ?? gameId);
 }
 
 export function useWalkthroughController(ctx: WalkthroughControllerContext): WalkthroughController {

@@ -102,13 +102,30 @@ export type { WalkthroughUiState };
 
 export interface InstalledGameDescriptor {
   readonly hash: string;
-  readonly gameId: string;
+  readonly alias: string;
   readonly title: string;
   readonly author?: string | undefined;
   readonly walkthroughLabel?: string | undefined;
   readonly wordsSha256?: string | undefined;
   readonly objectSha256?: string | undefined;
   readonly folder?: string | undefined;
+}
+
+export function findInstalledFolder(
+  installedGames: readonly (string | InstalledGameDescriptor)[] | null | undefined,
+  aliasOrHash: string,
+): string {
+  const norm = aliasOrHash.toLowerCase();
+  const match = (installedGames ?? []).find((g) => {
+    if (typeof g === "string") return g.toLowerCase() === norm;
+    return (
+      g.hash.toLowerCase() === norm ||
+      g.alias.toLowerCase() === norm ||
+      g.folder?.toLowerCase() === norm ||
+      g.wordsSha256?.toLowerCase() === norm
+    );
+  });
+  return typeof match === "string" ? match : (match?.folder ?? aliasOrHash);
 }
 
 export interface EngineState {
@@ -667,11 +684,11 @@ export function useEngine(
       state.installedGames = Array.isArray(raw)
         ? raw.map((item) => {
             if (typeof item === "string") {
-              return { hash: item, gameId: item, title: item.toUpperCase() };
+              return { hash: item, alias: item, title: item.toUpperCase() };
             }
             return {
               hash: item.hash ?? item.wordsSha256 ?? item.folder,
-              gameId: item.gameId ?? item.folder,
+              alias: item.alias ?? item.folder,
               title: item.title ?? (item.folder ? item.folder.toUpperCase() : "AGI GAME"),
               ...(item.author ? { author: item.author } : {}),
               ...(item.walkthroughLabel ? { walkthroughLabel: item.walkthroughLabel } : {}),
@@ -695,7 +712,7 @@ export function useEngine(
       const match = (state.installedGames ?? []).find(
         (g) =>
           g.hash.toLowerCase() === norm ||
-          g.gameId.toLowerCase() === norm ||
+          g.alias.toLowerCase() === norm ||
           g.wordsSha256?.toLowerCase() === norm ||
           g.folder?.toLowerCase() === norm,
       );
@@ -720,7 +737,7 @@ export function useEngine(
       const known = await detectKnownGame(files);
       const revision = await gameRevision(files);
       const folder = match?.folder ?? hashOrAlias;
-      const gameId = known?.alias ?? match?.gameId ?? hashOrAlias;
+      const gameId = known?.alias ?? match?.alias ?? hashOrAlias;
       const title = known?.title ?? match?.title ?? folder.toUpperCase();
       const hash = match?.hash ?? target;
 
@@ -959,13 +976,8 @@ export function useEngine(
       : config;
   }
 
-  function findInstalledFolder(gameId: string): string {
-    const match = (state.installedGames ?? []).find(
-      (g) =>
-        (typeof g === "string" ? g : g.gameId) === gameId ||
-        (typeof g === "string" ? g : g.folder) === gameId,
-    );
-    return typeof match === "string" ? match : (match?.folder ?? gameId);
+  function getInstalledFolder(aliasOrHash: string): string {
+    return findInstalledFolder(state.installedGames, aliasOrHash);
   }
 
   /**
@@ -998,17 +1010,17 @@ export function useEngine(
     pendingResumeRecord = record;
     try {
       if (record.game.installed) {
-        await bootGame(findInstalledFolder(gameId));
+        await bootGame(getInstalledFolder(gameId));
       } else {
         await bootAuthoredGame("", configForGame(gameId, config), {
           gameId,
           useCached: true,
         });
       }
+      return true;
     } finally {
-      if (state.phase === "error") pendingResumeRecord = null;
+      pendingResumeRecord = null;
     }
-    return state.phase !== "error";
   }
 
   /** Discard a game's autosave and boot it from the beginning. */
@@ -1018,8 +1030,11 @@ export function useEngine(
     pendingResumeRecord = null;
     state.resumed = false;
     clearTimeout(resumeCaptionTimer ?? undefined);
+    if (!record) {
+      logAgent("log", `startOver: no autosave found for "${gameId}"; continuing`);
+    }
     if (record?.game.installed ?? isInstalledGame(gameId)) {
-      await bootGame(findInstalledFolder(gameId));
+      await bootGame(getInstalledFolder(gameId));
     } else if (getCachedGameMeta(gameId)) {
       await bootAuthoredGame("", configForGame(gameId, config), {
         gameId,
@@ -1263,12 +1278,12 @@ export function useEngine(
   }
 
   /** Whether this development environment offers the original game files. */
-  function isInstalledGame(hashOrId: string): boolean {
-    const norm = hashOrId.toLowerCase();
+  function isInstalledGame(aliasOrHash: string): boolean {
+    const norm = aliasOrHash.toLowerCase();
     return (state.installedGames ?? []).some(
       (entry) =>
         entry.hash.toLowerCase() === norm ||
-        entry.gameId.toLowerCase() === norm ||
+        entry.alias.toLowerCase() === norm ||
         entry.wordsSha256?.toLowerCase() === norm ||
         entry.folder?.toLowerCase() === norm,
     );
