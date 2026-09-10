@@ -9,6 +9,7 @@ import {
   type AutosaveControllerContext,
 } from "../src/useAutosaveController.ts";
 import { writeAutosave, type AutosaveRecord } from "../src/gameProgress.ts";
+import { gameRevision } from "../src/gameMetadata.ts";
 import type { BootedGame } from "../src/gameTypes.ts";
 
 test("autosaveMatches distinguishes installed and authored games correctly", () => {
@@ -224,4 +225,52 @@ test("useAutosaveController flushAutosave and drainFlushWaiters interact properl
   controller.drainFlushWaiters();
   const drainedResult = await secondFlush;
   assert.equal(drainedResult, false);
+});
+
+test("resetScreen preserves pending resume record while full reset clears it", async () => {
+  let restoreImageDuringBoot = "";
+  const ctx: AutosaveControllerContext = {
+    state: { resumed: false },
+    getBootedGame: () => null,
+    getWorker: () => null,
+    logAgent: () => {},
+    isInstalledGame: () => true,
+    bootGame: async () => {
+      // Simulate spawnWorker() inside bootGame:
+      controller.resetScreen();
+      // And takeResumeState during boot:
+      const state = await controller.takeResumeState({});
+      restoreImageDuringBoot = state.restoreImage;
+    },
+    bootAuthoredGame: async () => {},
+    configForGame: (_p, config) => config,
+  };
+  const controller = useAutosaveController(ctx);
+  const revision = await gameRevision({});
+  const record: AutosaveRecord = {
+    format: "monotio.agi.autosave",
+    version: 1,
+    savedAt: Date.now(),
+    cycle: 10,
+    room: 2,
+    game: {
+      installed: true,
+      alias: "kq1",
+      revision,
+    },
+    image: "base64image",
+  };
+
+  const resumed = await controller.resumeFromRecord(record, {
+    provider: "stub",
+    apiKey: "",
+    model: "offline-stub",
+  });
+  assert.equal(resumed, true);
+  assert.equal(restoreImageDuringBoot, "base64image");
+
+  // Full reset clears pendingResumeRecord
+  controller.reset();
+  const emptyState = await controller.takeResumeState({});
+  assert.equal(emptyState.restoreImage, "");
 });

@@ -136,6 +136,7 @@ export interface AutosaveController {
   startOver(targetKey: string, config: LlmConfig): Promise<void>;
   drainFlushWaiters(): void;
   reset(): void;
+  resetScreen(): void;
 }
 
 export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveController {
@@ -369,14 +370,18 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     flushWaiters.clear();
   }
 
-  function reset(): void {
+  function resetScreen(): void {
     lastAutosave = null;
-    pendingResumeRecord = null;
     ctx.state.resumed = false;
     if (resumeCaptionTimer !== null) {
       clearTimeout(resumeCaptionTimer);
       resumeCaptionTimer = null;
     }
+  }
+
+  function reset(): void {
+    resetScreen();
+    pendingResumeRecord = null;
   }
 
   return {
@@ -394,5 +399,6 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     startOver,
     drainFlushWaiters,
     reset,
+    resetScreen,
   };
 }

@@ -62,7 +62,7 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   expect(await storedAutosave(page, TUTORIAL_PROJECT_ID)).not.toBeNull();
 
   // Author a change to trigger a remix fork
-  await page.getByTestId("agent-bubble-toggle").click();
+  await page.getByTestId("power-up").click();
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await page.getByTestId("agent-bubble-input").fill("Rename the gallery");
   await page.getByTestId("agent-bubble-send").click();

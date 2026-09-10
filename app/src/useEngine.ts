@@ -449,7 +449,7 @@ export function useEngine(
   }
 
   function resetScreenState(): void {
-    autosaveController.reset();
+    autosaveController.resetScreen();
     state.powerUp.open = false;
     state.powerUp.busy = false;
     testRecorder.reset();
