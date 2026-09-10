@@ -85,6 +85,7 @@ export interface ReplayAdvanceOptions {
   sessionId?: number;
   seeking?: boolean;
   renderFinal?: boolean;
+  fullState?: boolean;
 }
 
 export interface ReplayDriver {

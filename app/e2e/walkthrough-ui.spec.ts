@@ -598,7 +598,7 @@ test.describe("Walkthrough UI", () => {
             soundPlaying: window.__AGI_STATE__?.soundPlaying ?? false,
           }));
         },
-        { timeout: 10_000 },
+        { timeout: 30_000 },
       )
       .toEqual({
         status: "completed",

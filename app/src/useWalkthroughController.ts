@@ -5,7 +5,11 @@ import type {
   ReplayObservation,
   ReplayProgressEvent,
 } from "./replay.ts";
-import { extractCheckpoints, loadWalkthrough, type WalkthroughCheckpoint } from "./walkthrough.ts";
+import {
+  getOrExtractCheckpoints,
+  loadWalkthrough,
+  type WalkthroughCheckpoint,
+} from "./walkthrough.ts";
 import { findInstalledFolder, type InstalledGameDescriptor } from "./gameTypes.ts";
 import type { AgentLogEntry } from "./agent/agentLog.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
@@ -19,7 +23,7 @@ export interface WalkthroughUiState {
   label: string | null;
   checkpointIndex: number;
   totalCheckpoints: number;
-  checkpoints: WalkthroughCheckpoint[];
+  checkpoints: readonly WalkthroughCheckpoint[];
   room: number | null;
   score: number | null;
   tick: number;
@@ -168,7 +172,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
       typeof options === "number" ? options : (options?.speed ?? state.walkthrough.speed ?? 1);
     const initialTick = typeof options === "object" ? (options.initialTick ?? 0) : 0;
     const keepPaused = typeof options === "object" ? Boolean(options.keepPaused) : false;
-    const checkpoints = extractCheckpoints(artifact.actions, artifact.virtualTicks);
+    const checkpoints = getOrExtractCheckpoints(artifact);
     const target = seekTargetTick ?? initialTick;
     const targetCp = target > 0 ? [...checkpoints].reverse().find((c) => c.tick <= target) : null;
 

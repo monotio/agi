@@ -4849,6 +4849,36 @@ export class Engine {
   }
 
   /**
+   * Fast, allocation-minimal state snapshot for replay progress and observations.
+   * Copies essential scalar coordinates and vars while omitting full inventory/string/flag
+   * array allocations.
+   */
+  readLeanState(): EngineStateReport {
+    const ego = this.objects[0]!;
+    return {
+      profile: this.profile.id,
+      room: this.vars[V_ROOM]!,
+      previousRoom: this.vars[V_PREV_ROOM]!,
+      egoX: ego.x,
+      egoY: ego.y,
+      egoDirection: this.vars[V_EGO_DIR]!,
+      vars: Array.from(this.vars),
+      flags: [],
+      strings: [],
+      parsedWords: [],
+      parsedWordTexts: [],
+      parserCount: this.parserCount,
+      lastInputLine: this.lastInputLine,
+      horizon: this.horizon,
+      modalKind: this.modalKind,
+      inputEnabled: this.inputAccepted,
+      pictureShown: this.pictureShown,
+      terminated: this.terminated,
+      inventory: [],
+    };
+  }
+
+  /**
    * Host-driven room re-entry, for live patching: after the harness patches
    * the current room's logic/picture/view it re-enters the room so the new
    * resources take effect, exactly as `new.room(v0)` from bytecode would.

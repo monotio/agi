@@ -188,16 +188,19 @@ let currentBootFiles: Map<string, Uint8Array> | null = null;
 let currentDictionary: Map<string, number> | null = null;
 let lastReplaySeed: number | null = null;
 
-function postReplay(blocked: string | null): void {
+function postReplay(blocked: string | null, fullState = false): void {
   if (!replay || !engine) return;
+  const isFull = fullState || blocked !== null;
+  const state = isFull ? engine.readState() : engine.readLeanState();
+  const rows = isFull ? Array.from({ length: 25 }, (_, row) => engine!.textRow(row)) : [];
   const observation: ReplayObservation = {
     sessionId: currentSessionId,
     revision: ++replay.revision,
     tick: replay.tick,
     cycle: cycleCount,
     blocked,
-    state: engine.readState(),
-    rows: Array.from({ length: 25 }, (_, row) => engine!.textRow(row)),
+    state,
+    rows,
     egoView: engine.screenObjects[0]!.view,
     releaseGate: engine.releaseGate,
   };
@@ -760,34 +763,63 @@ self.onmessage = (ev: MessageEvent) => {
         throw new Error("Replay advance requires 1..100000 virtual ticks.");
       const seeking = Boolean(msg.seeking);
       const renderFinal = Boolean(msg.renderFinal);
+      const fullState = Boolean(msg.fullState);
       isSeeking = seeking;
       replayRequest = Number(msg.id);
       replay.yielded = false;
-      try {
-        for (let i = 0; i < ticks; i++) {
-          replay.tick++;
-          recordedClock();
-          if (engine.modalKind !== null || engine.continuationPending) tickEngine();
-          else if (cycleClock.poll((replay.tick * 1000) / 60, engine.vars[10]!)) {
-            flushDeferredMovement();
-            tickEngine();
-            cycleCount++;
+
+      let remaining = ticks;
+      const thisRequest = replayRequest;
+      const thisSession = currentSessionId;
+
+      const advanceChunk = () => {
+        if (!replay || !engine) return;
+        if (replayRequest !== thisRequest || currentSessionId !== thisSession) return;
+
+        const startTime = performance.now();
+        let chunkTicks = 0;
+        const maxChunkTicks = seeking ? 2500 : 250;
+        const maxChunkMs = seeking ? 16 : 12;
+        try {
+          while (remaining > 0 && chunkTicks < maxChunkTicks) {
+            replay.tick++;
+            remaining--;
+            chunkTicks++;
+            recordedClock();
+            if (engine.modalKind !== null || engine.continuationPending) tickEngine();
+            else if (cycleClock.poll((replay.tick * 1000) / 60, engine.vars[10]!)) {
+              flushDeferredMovement();
+              tickEngine();
+              cycleCount++;
+            }
+            if (replay.yielded) break;
+            if ((chunkTicks & 63) === 0 && performance.now() - startTime >= maxChunkMs) {
+              break;
+            }
           }
-          if (replay.yielded) break;
-        }
-      } catch (e) {
-        if (e instanceof WorkerBridgeAbortError) {
-          isSeeking = false;
-          replayRequest = null;
+        } catch (e) {
+          if (e instanceof WorkerBridgeAbortError) {
+            isSeeking = false;
+            replayRequest = null;
+            return;
+          }
+          sendControl({ type: "error", id: thisRequest, message: String(e) });
           return;
         }
-        throw e;
-      }
-      if (!seeking || renderFinal) {
-        isSeeking = false;
-        postFrame();
-      }
-      postReplay(null);
+
+        if (remaining > 0 && !replay.yielded) {
+          setTimeout(advanceChunk, 0);
+          return;
+        }
+
+        if (!seeking || renderFinal) {
+          isSeeking = false;
+          postFrame();
+        }
+        postReplay(null, fullState);
+      };
+
+      advanceChunk();
       return;
     }
     if (msg.type === "renderFrame" && engine) {

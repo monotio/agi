@@ -40,6 +40,7 @@ export function createReplayDriver(ctx: ReplayDriverContext): ReplayDriver {
             : {}),
         ...(options?.seeking !== undefined ? { seeking: options.seeking } : {}),
         ...(options?.renderFinal !== undefined ? { renderFinal: options.renderFinal } : {}),
+        ...(options?.fullState !== undefined ? { fullState: options.fullState } : {}),
       });
     },
     key: (code, sessionId) => ctx.sendKey(code, sessionId),

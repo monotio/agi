@@ -661,8 +661,17 @@ export function useEngine(
    * between cycles and work while the interpreter is paused, which is the
    * whole point: the agent inspects a frozen game.
    */
-  function query<T>(type: string, extra: Record<string, unknown> = {}): Promise<T> {
-    return workerQueries.query<T>(() => worker, type, extra);
+  function query<T>(
+    type: string,
+    extra: Record<string, unknown> = {},
+    timeoutMs?: number,
+  ): Promise<T> {
+    const effectiveTimeout =
+      timeoutMs ??
+      (type === "replayAdvance"
+        ? Math.max(20_000, Math.ceil(Number(extra["ticks"] ?? 0) / 2))
+        : 5000);
+    return workerQueries.query<T>(() => worker, type, extra, effectiveTimeout);
   }
 
   /**

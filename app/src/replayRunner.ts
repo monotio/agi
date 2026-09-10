@@ -107,6 +107,8 @@ export async function runReplayBatch(
   // The tape is a keystream: printable keys accumulate into the command line
   // and Enter submits it. Reconstruct typed commands for the activity log.
   let typedLine = "";
+  let lastProgressAt = 0;
+  let lastProgressActionIndex = -1;
 
   async function resumed(before: ReplayObservation): Promise<void> {
     if (!before.blocked) return;
@@ -218,13 +220,18 @@ export async function runReplayBatch(
         checkAborted();
       }
       if (options?.onProgress && actionIndex !== undefined && !isSeeking()) {
-        options.onProgress({
-          actionIndex,
-          totalActions: actions.length,
-          tick: observation.tick,
-          room: observation.state.room,
-          score: observation.state.vars[3] ?? 0,
-        });
+        const now = performance.now();
+        if (now - lastProgressAt >= 100 || actionIndex !== lastProgressActionIndex) {
+          lastProgressAt = now;
+          lastProgressActionIndex = actionIndex;
+          options.onProgress({
+            actionIndex,
+            totalActions: actions.length,
+            tick: observation.tick,
+            room: observation.state.room,
+            score: observation.state.vars[3] ?? 0,
+          });
+        }
       }
       if (observation.blocked) {
         if (observation.tick !== target) {
@@ -417,6 +424,15 @@ export async function runReplayBatch(
   checkAborted();
   const finalObs = driver.latest;
   if (!finalObs) throw new Error("No final observation after batch completion");
+  if (options?.onProgress) {
+    options.onProgress({
+      actionIndex: actions.length,
+      totalActions: actions.length,
+      tick: finalObs.tick,
+      room: finalObs.state.room,
+      score: finalObs.state.vars[3] ?? 0,
+    });
+  }
   const screenHash = await computeScreenHash(options?.getLatestFrame?.() ?? null);
   checkAborted();
   updateStatus("completed");

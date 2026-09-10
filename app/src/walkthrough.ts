@@ -283,3 +283,16 @@ export function extractCheckpoints(
   }
   return checkpoints;
 }
+
+const checkpointsCache = new WeakMap<WalkthroughArtifact, readonly WalkthroughCheckpoint[]>();
+
+export function getOrExtractCheckpoints(
+  artifact: WalkthroughArtifact,
+): readonly WalkthroughCheckpoint[] {
+  let cp = checkpointsCache.get(artifact);
+  if (!cp) {
+    cp = extractCheckpoints(artifact.actions, artifact.virtualTicks);
+    checkpointsCache.set(artifact, cp);
+  }
+  return cp;
+}
