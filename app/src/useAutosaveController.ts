@@ -276,9 +276,10 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     }
 
     const lastCycle = lastAutosave?.cycle;
+    const isCleanOpening = cycle === 0;
     const isUnchanged = lastCycle !== undefined && cycle <= lastCycle;
 
-    if (isUnchanged) {
+    if (isCleanOpening || isUnchanged) {
       legacyResolve?.(true);
       detailedResolve?.({ status: "already_durable", cycle });
       return;
