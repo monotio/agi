@@ -55,35 +55,16 @@ export async function saveGameConversation(
   context: GameConversation,
 ): Promise<void> {
   const key = `conversation/${gameId}`;
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction("projects", "readwrite");
-    const store = transaction.objectStore("projects");
-    const existing = store.get(key);
-    let contractError: Error | undefined;
-    existing.onsuccess = () => {
-      const value = existing.result as Record<string, unknown> | undefined;
-      // Only a record this release recognises as newer is protected; a
-      // format-less pre-release record is replaced rather than blocking saves.
-      if (value && value["format"] === "monotio.agi.conversation" && value["version"] !== 1) {
-        contractError = new Error("This game conversation version is not supported by this app.");
-        transaction.abort();
-        return;
-      }
-      store.put({
-        ...context,
-        gameId: key,
-        format: "monotio.agi.conversation",
-        version: 1,
-      });
-    };
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(contractError ?? transaction.error);
-    transaction.onabort = () =>
-      reject(
-        contractError ?? transaction.error ?? new Error("Project storage transaction aborted."),
-      );
-  });
+  await putVersionedRecord(
+    key,
+    {
+      ...context,
+      gameId: key,
+      format: "monotio.agi.conversation",
+      version: 1,
+    },
+    "This game conversation version is not supported by this app.",
+  );
 }
 
 export async function loadGameConversation(gameId: string): Promise<GameConversation | undefined> {
@@ -210,21 +191,27 @@ async function bodyTransaction<T>(
       reject(transaction.error ?? new Error("Project storage transaction aborted."));
   });
 }
-async function writeCurrentBody(data: CachedGameData): Promise<void> {
+async function putVersionedRecord<T extends { format: string; version: number }>(
+  key: string,
+  record: T,
+  versionError: string,
+): Promise<void> {
   const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     const transaction = db.transaction("projects", "readwrite");
     const store = transaction.objectStore("projects");
-    const existing = store.get(data.gameId);
+    const existing = store.get(key);
     let contractError: Error | undefined;
     existing.onsuccess = () => {
-      const value = existing.result as Partial<StoredGameBody> | undefined;
-      if (value && value.format === "monotio.agi.project" && value.version !== 1) {
-        contractError = new Error("This saved project version is not supported by this app.");
+      const value = existing.result as Record<string, unknown> | undefined;
+      // Only a record this release recognises as newer is protected; a
+      // format-less pre-release record is replaced rather than blocking saves.
+      if (value && value["format"] === record.format && value["version"] !== record.version) {
+        contractError = new Error(versionError);
         transaction.abort();
         return;
       }
-      store.put(storedBody(data));
+      store.put(record);
     };
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(contractError ?? transaction.error);
@@ -233,6 +220,14 @@ async function writeCurrentBody(data: CachedGameData): Promise<void> {
         contractError ?? transaction.error ?? new Error("Project storage transaction aborted."),
       );
   });
+}
+
+async function writeCurrentBody(data: CachedGameData): Promise<void> {
+  await putVersionedRecord(
+    data.gameId,
+    storedBody(data),
+    "This saved project version is not supported by this app.",
+  );
 }
 function metadata(data: CachedGameData): CachedGameMeta {
   return {
@@ -364,8 +359,6 @@ async function writeBody(data: CachedGameData): Promise<void> {
 }
 function serializeWrite<T>(gameId: string, operation: () => Promise<T>): Promise<T> {
   const next = (writes.get(gameId) ?? Promise.resolve()).catch(() => {}).then(operation);
-  writes.set(gameId, next);
-  void next;
   writes.set(gameId, next);
   void next
     .finally(() => {
