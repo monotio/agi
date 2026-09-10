@@ -54,6 +54,8 @@ const emit = defineEmits<{ takeControl: [] }>();
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
+  width: var(--game-width);
+  box-sizing: border-box;
   margin: 6px 0 0;
   padding: 6px 12px;
   border: 1px solid #1a5259;
