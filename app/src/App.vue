@@ -57,6 +57,7 @@ import { hasWalkthrough, resolveWalkthrough, type WalkthroughCheckpoint } from "
 import { previewGame } from "./gamePreview.ts";
 import { addLibraryGame, copyLibraryGame, type CheckedOpening } from "./gameLibrary.ts";
 import { gameRevision } from "./gameMetadata.ts";
+import { getKnownGameByAlias } from "../../src/games/knownGames.ts";
 import {
   FUNCTION_KEYS,
   gameShortcuts,
@@ -563,6 +564,24 @@ async function onStartWalkthrough(targetGame: string): Promise<void> {
   await resumeAudio();
   clearPlayHash();
   await startWalkthrough(targetGame);
+}
+
+/** Short provenance line for a saved card: remixes name their parent, imports say so. */
+function libraryProvenance(game: CachedGameMeta): string | null {
+  const lib = game.library;
+  if (!lib) return null;
+  if (lib.source === "remix") {
+    const parent = lib.parent;
+    const parentTitle =
+      (parent?.projectId
+        ? savedGames.value.find((g) => g.projectId === parent.projectId)?.title
+        : undefined) ??
+      (parent?.alias ? getKnownGameByAlias(parent.alias)?.title : undefined) ??
+      parent?.alias;
+    return parentTitle ? `Remix of ${parentTitle}` : "Remix";
+  }
+  if (lib.source === "zip" || lib.source === "folder") return "Imported copy";
+  return null;
 }
 
 function refreshPendingAutosave(): void {
@@ -2718,6 +2737,9 @@ watch(
                     <UiIcon name="pencil" />
                   </button>
                 </div>
+                <p v-if="libraryProvenance(game)" class="saved-world-source">
+                  {{ libraryProvenance(game) }}
+                </p>
                 <p v-if="libraryAutosaves[game.projectId]" class="saved-world-time">
                   Room {{ libraryAutosaves[game.projectId]?.room }} · Saved
                   {{ new Date(libraryAutosaves[game.projectId]!.savedAt).toLocaleString() }}
@@ -2860,6 +2882,9 @@ watch(
                 <div class="saved-game-heading">
                   <h3 class="saved-world-title">{{ game.title }}</h3>
                 </div>
+                <p v-if="game.folder && game.folder !== game.alias" class="saved-world-source">
+                  {{ game.folder }}
+                </p>
                 <p v-if="localAutosave(game)" class="saved-world-time">
                   Room {{ localAutosave(game)?.room }}
                 </p>
@@ -5107,6 +5132,11 @@ details[open] > .section-summary {
 .saved-world-time {
   color: #8bbfa3;
   font-size: 0.75rem;
+}
+.saved-world-source {
+  color: #7f999b;
+  font-size: 0.72rem;
+  margin: 0 0 2px;
 }
 
 .ai-connect {
