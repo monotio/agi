@@ -15,7 +15,7 @@ import { loadGame } from "./game-fixture.ts";
  * Optional King's Quest IV 3.002.086 fixture tests. Available-resource
  * parsing, complete-volume coverage and opening behavior are checked separately.
  */
-const GAME_ID = "kq4";
+const GAME_ALIAS = "kq4";
 const TARGET_HASH = KNOWN_GAME_HASH.KQ4;
 const skip = fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"]);
 
@@ -42,7 +42,7 @@ class Host implements EngineHost {
 }
 
 test(
-  `${GAME_ID}: combined container, 3.002.086 profile, available resources`,
+  `${GAME_ALIAS}: combined container, 3.002.086 profile, available resources`,
   {
     skip: fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"], { checkVolumes: false }),
   },
@@ -85,7 +85,7 @@ test(
   },
 );
 
-test(`${GAME_ID}: every declared resource is readable`, { skip }, () => {
+test(`${GAME_ALIAS}: every declared resource is readable`, { skip }, () => {
   const { container } = loadGame(TARGET_HASH);
   for (let n = 0; n < 256; n++)
     for (const kind of ["logic", "picture", "view", "sound"] as const)
@@ -93,7 +93,7 @@ test(`${GAME_ID}: every declared resource is readable`, { skip }, () => {
 });
 
 test(
-  `${GAME_ID}: the opening deals the copy-protection question in room 142`,
+  `${GAME_ALIAS}: the opening deals the copy-protection question in room 142`,
   { skip: fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"], { checkVolumes: false }) },
   () => {
     const { container, dict, files } = loadGame(TARGET_HASH, {

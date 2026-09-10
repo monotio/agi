@@ -48,7 +48,7 @@ export class BrowserReplay {
     await this.page.goto(`/?replaySeed=${seed}`);
     const boot = this.page
       .locator(
-        `[data-hash="${target}"], [data-project-id="${target}"], [data-game-id="${target}"], [data-testid="boot-${target}"]`,
+        `[data-hash="${target}"], [data-project-id="${target}"], [data-alias="${target}"], [data-testid="boot-${target}"]`,
       )
       .first();
     if (this.phone) await boot.tap();

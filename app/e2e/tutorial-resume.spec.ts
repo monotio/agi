@@ -11,7 +11,7 @@ import {
   waitForCycles,
 } from "./engineProbe.ts";
 
-const TUTORIAL_GAME_ID = "catalog-adventure-department-1.0.0";
+const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.0.0";
 
 test("the tutorial shelf offers Resume and restores the checkpoint exactly", async ({ page }) => {
   await isolateStorage(page);
@@ -36,7 +36,7 @@ test("the tutorial shelf offers Resume and restores the checkpoint exactly", asy
 
   // The host must have STORED a checkpoint taken after the walk before it is relied on.
   await waitForAutosaveAfter(page, stopped.cycle);
-  const checkpoint = await storedAutosave(page, TUTORIAL_GAME_ID);
+  const checkpoint = await storedAutosave(page, TUTORIAL_PROJECT_ID);
   expect(checkpoint?.room).toBe(1);
 
   await page.getByTestId("btn-eject").click();
@@ -52,7 +52,7 @@ test("the tutorial shelf offers Resume and restores the checkpoint exactly", asy
 
   await play.click();
   await expect.poll(async () => (await textHook(page)).room).toBe(stopped.room);
-  await expect(page).toHaveURL(new RegExp(`#play/${TUTORIAL_GAME_ID}$`));
+  await expect(page).toHaveURL(new RegExp(`#play/${TUTORIAL_PROJECT_ID}$`));
   await expect
     .poll(async () => (await textHook(page)).egoX, {
       message: "the checkpoint must be restored, not overwritten by a boot from room 1",

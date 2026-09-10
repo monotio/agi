@@ -2726,7 +2726,6 @@ watch(
             :class="{ selected: selectedProjectId === game.projectId }"
             :data-testid="`saved-game-card-${game.projectId}`"
             :data-project-id="game.projectId"
-            :data-game-id="game.projectId"
           >
             <div class="saved-game-media">
               <img

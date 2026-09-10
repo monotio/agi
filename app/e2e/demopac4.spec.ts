@@ -24,7 +24,7 @@ test("boots the v3 demo pack, shows its intro text and starts a demonstration", 
   await page.goto("/");
   await page
     .locator(
-      `[data-hash="${KNOWN_GAME_HASH.DEMOPAC4}"], [data-game-id="demopac4"], [data-testid="boot-demopac4"]`,
+      `[data-hash="${KNOWN_GAME_HASH.DEMOPAC4}"], [data-alias="demopac4"], [data-testid="boot-demopac4"]`,
     )
     .first()
     .click();

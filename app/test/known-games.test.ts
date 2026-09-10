@@ -101,8 +101,8 @@ test("getKnownGameByAlias and getKnownGameByRevision look up games accurately", 
   assert.equal(getKnownGameByRevision("0000000000000000000000000000000000000000"), null);
 });
 
-test("hasWalkthrough and resolveWalkthrough resolve by game ID or content hashes", () => {
-  // Direct walkthrough ID
+test("hasWalkthrough and resolveWalkthrough resolve by alias or content hashes", () => {
+  // Direct walkthrough alias
   assert.equal(hasWalkthrough("kq1"), true);
   assert.equal(hasWalkthrough("kq2"), true);
   assert.equal(hasWalkthrough("sq1"), true);

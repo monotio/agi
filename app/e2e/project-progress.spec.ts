@@ -14,7 +14,7 @@ import {
   waitForCycles,
 } from "./engineProbe.ts";
 
-const TUTORIAL_GAME_ID = "catalog-adventure-department-1.0.0";
+const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.0.0";
 
 test("project import names each stored and refused progress entry", async ({ page }, testInfo) => {
   const container = createContainer();
@@ -120,7 +120,7 @@ test("the project archive moves the autosave to another browser; the game export
   await waitForCycles(page, 2);
   expect((await textHook(page)).egoX, "ego stands still before the checkpoint").toBe(stopped.egoX);
   await waitForAutosaveAfter(page, stopped.cycle);
-  expect((await storedAutosave(page, TUTORIAL_GAME_ID))?.room).toBe(1);
+  expect((await storedAutosave(page, TUTORIAL_PROJECT_ID))?.room).toBe(1);
 
   // The project download from the running game carries the checkpoint.
   const projectDownload = page.waitForEvent("download");
@@ -130,7 +130,7 @@ test("the project archive moves the autosave to another browser; the game export
   const savedPath = (await saved.path())!;
   const project = await readGameZip(new Uint8Array(await readFile(savedPath)));
   expect(project.progress?.autosave?.room).toBe(1);
-  expect(project.progress?.autosave?.game.projectId).toBe(TUTORIAL_GAME_ID);
+  expect(project.progress?.autosave?.game.projectId).toBe(TUTORIAL_PROJECT_ID);
   expect(Object.keys(project.progress?.saves ?? {})).toEqual([]);
 
   // The game export is for publishing: no progress in it.
@@ -164,7 +164,7 @@ test("the project archive moves the autosave to another browser; the game export
       const store = await import(path);
       return store.listCachedGames()[0].projectId as string;
     });
-    expect(projectId).not.toBe(TUTORIAL_GAME_ID);
+    expect(projectId).not.toBe(TUTORIAL_PROJECT_ID);
     expect((await storedAutosave(other, projectId))?.room).toBe(1);
     await resume.click();
     await expect.poll(async () => (await textHook(other)).room).toBe(1);

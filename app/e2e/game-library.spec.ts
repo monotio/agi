@@ -300,21 +300,21 @@ test("the first catalog edit forks a remix and preserves the original", async ({
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
   await expect.poll(() => requests).toBe(2);
-  const after = await page.evaluate(async (originalGameId) => {
+  const after = await page.evaluate(async (originalProjectId) => {
     const storage = await import("/src/gameStorage.ts");
     const metadata = await import("/src/gameMetadata.ts");
     const games = storage.listCachedGames();
-    const original = games.find((game) => game.projectId === originalGameId)!;
+    const original = games.find((game) => game.projectId === originalProjectId)!;
     const remix = games.find((game) => game.library?.source === "remix")!;
     const originalData = await storage.loadAuthoredGame(original.projectId);
     return {
       count: games.length,
       originalRevision: original.library!.revision,
       originalActualRevision: await metadata.gameRevision(originalData!.files),
-      remixGameId: remix.projectId,
+      remixProjectId: remix.projectId,
       remixSource: remix.library!.source,
       parent: remix.library!.parent,
-      currentGameId: localStorage.getItem("monotio_agi.lastGame"),
+      currentProjectId: localStorage.getItem("monotio_agi.lastGame"),
     };
   }, before.projectId);
   expect(after.count).toBe(2);
@@ -322,7 +322,7 @@ test("the first catalog edit forks a remix and preserves the original", async ({
   expect(after.originalActualRevision).toBe(before.actualRevision);
   expect(after.remixSource).toBe("remix");
   expect(after.parent).toEqual({ projectId: before.projectId, revision: before.revision });
-  expect(after.currentGameId).toBe(after.remixGameId);
+  expect(after.currentProjectId).toBe(after.remixProjectId);
 });
 
 test("removing a game forgets its progress, so the same bytes come back fresh", async ({

@@ -56,7 +56,7 @@ async function clickGameKey(page: Page, key: number): Promise<void> {
 /** Boot KQ1 and wait for the title screen (room 83) to be up and drawn. */
 async function bootKq1(page: Page): Promise<void> {
   await page
-    .locator(`[data-hash="${KNOWN_GAME_HASH.KQ1}"], [data-game-id="kq1"], [data-testid="boot-kq1"]`)
+    .locator(`[data-hash="${KNOWN_GAME_HASH.KQ1}"], [data-alias="kq1"], [data-testid="boot-kq1"]`)
     .first()
     .click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
@@ -565,9 +565,7 @@ test("returning to the menu preserves the installed game autosave", async ({ pag
   await expect(page.locator(".setup-panel")).toBeVisible();
   expect((await storedAutosave(page, "kq1"))?.room).toBe(1);
   await page
-    .locator(
-      `[data-hash="${KNOWN_GAME_HASH.KQ1}"], [data-game-id="kq1"], [data-testid="local-game-card-kq1"]`,
-    )
+    .locator(`[data-hash="${KNOWN_GAME_HASH.KQ1}"], [data-testid="local-game-card-kq1"]`)
     .first()
     .getByRole("button", { name: "Resume", exact: true })
     .click();

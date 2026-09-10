@@ -16,7 +16,7 @@ import { loadGame } from "./game-fixture.ts";
  * 3.002.102 interpreter under games/demopac4/. The suite checks compressed
  * resource expansion, message decoding and completion of all six demos.
  */
-const GAME_ID = "demopac4";
+const GAME_ALIAS = "demopac4";
 const TARGET_HASH = KNOWN_GAME_HASH.DEMOPAC4;
 const skip = fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"]);
 
@@ -60,7 +60,7 @@ function cycle(engine: Engine, host: Host): void {
   }
 }
 
-test(`${GAME_ID}: combined container, 3.002.102 profile and resource census`, { skip }, () => {
+test(`${GAME_ALIAS}: combined container, 3.002.102 profile and resource census`, { skip }, () => {
   const { container, files } = loadGame(TARGET_HASH, { interpreterFiles: true });
   assert.deepEqual(detectContainerFormat(files), { kind: "v3-combined", prefix: "DM" });
   assert.equal(detectProfile(files).id, "3.002.102");
@@ -89,7 +89,7 @@ test(`${GAME_ID}: combined container, 3.002.102 profile and resource census`, { 
   for (const n of REFERENCED_SOUNDS) parseSound(container.getResource("sound", n)!);
 });
 
-test(`${GAME_ID}: dictionary-compressed logic text decodes as plain messages`, { skip }, () => {
+test(`${GAME_ALIAS}: dictionary-compressed logic text decodes as plain messages`, { skip }, () => {
   const { container } = loadGame(TARGET_HASH);
   const menu = parseLogicResource(container.getResource("logic", 1)!).messages;
   assert.equal(menu[10], "Hi.  Which of our games");
@@ -100,41 +100,45 @@ test(`${GAME_ID}: dictionary-compressed logic text decodes as plain messages`, {
   assert.match(parseLogicResource(container.getResource("logic", 61)!).messages[0]!, /^GOLD RUSH!/);
 });
 
-test(`${GAME_ID}: every demonstration runs to completion and returns to the menu`, { skip }, () => {
-  const { engine, host } = boot();
-  const rooms: number[] = [];
-  const visit = (): void => {
-    if (rooms[rooms.length - 1] !== engine.vars[0]) rooms.push(engine.vars[0]!);
-  };
-  // Cold boot: logic 0 maps the keys and enters room 1, whose intro animation
-  // waits on have.key with "Press any key..." at (24,22) (logic 1, message 40).
-  for (let i = 0; i < 50; i++) {
-    cycle(engine, host);
-    visit();
-  }
-  assert.equal(engine.textRow(24).slice(22, 38), "Press any key...");
-  host.keys.push(0x20);
-  for (let i = 0; i < 10; i++) cycle(engine, host);
-  assert.equal(engine.textRow(7).slice(1, 24), "Hi.  Which of our games");
-  assert.equal(engine.textRow(0).slice(1, 40), "Press number of demo to select/deselect");
-  // Select every demonstration (keys '1'..'6' map to controllers 1..6) and run.
-  for (const key of [0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x0d]) {
-    host.keys.push(key);
-    cycle(engine, host);
-    cycle(engine, host);
-  }
-  // Observed run: rooms 61 at cycle ~160, 62 ~1310, 51 ~2100, 159 ~3600,
-  // 161 ~4700, 201 ~5700, 121 ~6800 and the menu again at ~8080. The Gold
-  // Rush room 61 walks ego along a trigger line to exactly (67,128) before
-  // it can hand over to room 62.
-  for (let i = 0; i < 9000 && rooms[rooms.length - 1] !== 121; i++) {
-    cycle(engine, host);
-    visit();
-  }
-  for (let i = 0; i < 2000 && engine.vars[0] !== 1; i++) {
-    cycle(engine, host);
-    visit();
-  }
-  assert.deepEqual(rooms, [1, 61, 62, 51, 159, 161, 201, 121, 1]);
-  assert.equal(engine.modalKind, null);
-});
+test(
+  `${GAME_ALIAS}: every demonstration runs to completion and returns to the menu`,
+  { skip },
+  () => {
+    const { engine, host } = boot();
+    const rooms: number[] = [];
+    const visit = (): void => {
+      if (rooms[rooms.length - 1] !== engine.vars[0]) rooms.push(engine.vars[0]!);
+    };
+    // Cold boot: logic 0 maps the keys and enters room 1, whose intro animation
+    // waits on have.key with "Press any key..." at (24,22) (logic 1, message 40).
+    for (let i = 0; i < 50; i++) {
+      cycle(engine, host);
+      visit();
+    }
+    assert.equal(engine.textRow(24).slice(22, 38), "Press any key...");
+    host.keys.push(0x20);
+    for (let i = 0; i < 10; i++) cycle(engine, host);
+    assert.equal(engine.textRow(7).slice(1, 24), "Hi.  Which of our games");
+    assert.equal(engine.textRow(0).slice(1, 40), "Press number of demo to select/deselect");
+    // Select every demonstration (keys '1'..'6' map to controllers 1..6) and run.
+    for (const key of [0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x0d]) {
+      host.keys.push(key);
+      cycle(engine, host);
+      cycle(engine, host);
+    }
+    // Observed run: rooms 61 at cycle ~160, 62 ~1310, 51 ~2100, 159 ~3600,
+    // 161 ~4700, 201 ~5700, 121 ~6800 and the menu again at ~8080. The Gold
+    // Rush room 61 walks ego along a trigger line to exactly (67,128) before
+    // it can hand over to room 62.
+    for (let i = 0; i < 9000 && rooms[rooms.length - 1] !== 121; i++) {
+      cycle(engine, host);
+      visit();
+    }
+    for (let i = 0; i < 2000 && engine.vars[0] !== 1; i++) {
+      cycle(engine, host);
+      visit();
+    }
+    assert.deepEqual(rooms, [1, 61, 62, 51, 159, 161, 201, 121, 1]);
+    assert.equal(engine.modalKind, null);
+  },
+);

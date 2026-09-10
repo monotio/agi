@@ -16,7 +16,7 @@ import { loadGame } from "./game-fixture.ts";
  * maps this build to profile 3.002.102. The suite covers compressed and
  * directly stored logic and clock waits. Walkthrough coverage uses the shared suite.
  */
-const GAME_ID = "mh1";
+const GAME_ALIAS = "mh1";
 const TARGET_HASH = KNOWN_GAME_HASH.MH1;
 const skip = fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"]);
 
@@ -45,7 +45,7 @@ function printable(text: string): number {
   return text.length ? ok / text.length : 1;
 }
 
-test(`${GAME_ID}: combined container, 3.002.107 build, resource census`, { skip }, () => {
+test(`${GAME_ALIAS}: combined container, 3.002.107 build, resource census`, { skip }, () => {
   const { container, files } = loadGame(TARGET_HASH, { interpreterFiles: true });
   assert.deepEqual(detectContainerFormat(files), { kind: "v3-combined", prefix: "MH" });
   assert.equal(detectVersionString(files), "3.002.107");
@@ -89,7 +89,7 @@ test(`${GAME_ID}: combined container, 3.002.107 build, resource census`, { skip 
 });
 
 test(
-  `${GAME_ID}: the title screen skips through its clock busy-wait into the opening`,
+  `${GAME_ALIAS}: the title screen skips through its clock busy-wait into the opening`,
   { skip },
   () => {
     const { container, dict, files } = loadGame(TARGET_HASH, { interpreterFiles: true });

@@ -10,8 +10,8 @@ import {
   waitForAutosaveAfter,
 } from "./engineProbe.ts";
 
-/** The catalog installs the bundled tutorial under a deterministic game ID. */
-const TUTORIAL_GAME_ID = "catalog-adventure-department-1.0.0";
+/** The catalog installs the bundled tutorial under a deterministic project ID. */
+const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.0.0";
 
 test("forking the tutorial moves its checkpoint to the remix card", async ({ page }) => {
   const original = TUTORIAL_LOGIC_SOURCES[1]!;
@@ -54,12 +54,12 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("PICTURE GALLERY");
   await expect(page, "catalog cards must mount under their release identity").toHaveURL(
-    new RegExp(`#play/${TUTORIAL_GAME_ID}$`),
+    new RegExp(`#play/${TUTORIAL_PROJECT_ID}$`),
   );
   await page.screenshot({ path: test.info().outputPath("remix-before.png") });
   // A checkpoint on the untouched tutorial is what the fork has to move away.
   await waitForAutosaveAfter(page, 0);
-  expect(await storedAutosave(page, TUTORIAL_GAME_ID)).not.toBeNull();
+  expect(await storedAutosave(page, TUTORIAL_PROJECT_ID)).not.toBeNull();
 
   // Author a change to trigger a remix fork
   await page.getByTestId("agent-bubble-toggle").click();
@@ -70,13 +70,13 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   await expect.poll(() => requests).toBe(2);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("REMIX GALLERY");
   await page.screenshot({ path: test.info().outputPath("remix-after.png") });
-  const remixGameId = await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"));
-  expect(remixGameId).not.toBe(TUTORIAL_GAME_ID);
-  expect(new URL(page.url()).hash, "the URL must follow the remix game ID").toBe(
-    `#play/${remixGameId}`,
+  const remixProjectId = await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"));
+  expect(remixProjectId).not.toBe(TUTORIAL_PROJECT_ID);
+  expect(new URL(page.url()).hash, "the URL must follow the remix project ID").toBe(
+    `#play/${remixProjectId}`,
   );
   // Progress now belongs to the remix: the original card must not offer a checkpoint.
-  expect(await storedAutosave(page, TUTORIAL_GAME_ID)).toBeNull();
+  expect(await storedAutosave(page, TUTORIAL_PROJECT_ID)).toBeNull();
 
   await page.getByTestId("btn-eject").click();
   await expect.poll(() => new URL(page.url()).hash).toBe("");
@@ -90,7 +90,7 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("PICTURE GALLERY");
   expect(new URL(page.url()).hash, "the replayed tutorial must be named in the URL").toBe(
-    `#play/${TUTORIAL_GAME_ID}`,
+    `#play/${TUTORIAL_PROJECT_ID}`,
   );
   expect((await textHook(page)).rows.join(" ")).not.toContain("REMIX GALLERY");
   await expect(page.getByText(/different revision/)).toHaveCount(0);

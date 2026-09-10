@@ -15,12 +15,12 @@ import { loadGame } from "./game-fixture.ts";
  * Optional Police Quest 2.903 fixture tests. This build uses the v2
  * container fallback profile, 2.936. Fixture names resolve case-insensitively.
  */
-const GAME_ID = "pq1";
+const GAME_ALIAS = "pq1";
 const TARGET_HASH = KNOWN_GAME_HASH.PQ1;
 const skip = fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"]);
 
 test(
-  `${GAME_ID}: lowercase installation names enumerate into canonical container files`,
+  `${GAME_ALIAS}: lowercase installation names enumerate into canonical container files`,
   { skip },
   () => {
     const onDisk = readdirSync(fixtureDir(TARGET_HASH));
@@ -45,7 +45,7 @@ test(
 );
 
 test(
-  `${GAME_ID}: v2 split container, 2.936 profile by container shape, resource census`,
+  `${GAME_ALIAS}: v2 split container, 2.936 profile by container shape, resource census`,
   { skip },
   () => {
     const { container, files } = loadGame(TARGET_HASH, { interpreterFiles: true });

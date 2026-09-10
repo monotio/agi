@@ -16,7 +16,7 @@ import { loadGame } from "./game-fixture.ts";
  * WORDS.TOK, OBJECT and the interpreter files under games/.
  * The suite checks resource decoding, profile detection and the opening.
  */
-const GAME_ID = "gr1";
+const GAME_ALIAS = "gr1";
 const TARGET_HASH = KNOWN_GAME_HASH.GR1;
 const skip = fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"]);
 
@@ -37,7 +37,7 @@ class Host implements EngineHost {
 }
 
 test(
-  `${GAME_ID}: combined container, 3.002.149 profile by default, resource census`,
+  `${GAME_ALIAS}: combined container, 3.002.149 profile by default, resource census`,
   { skip },
   () => {
     const { container, files } = loadGame(TARGET_HASH, { interpreterFiles: true });
@@ -73,7 +73,7 @@ test(
 );
 
 test(
-  `${GAME_ID}: the opening runs from the title into the first street with its status line`,
+  `${GAME_ALIAS}: the opening runs from the title into the first street with its status line`,
   { skip },
   () => {
     const { container, dict, files } = loadGame(TARGET_HASH, { interpreterFiles: true });

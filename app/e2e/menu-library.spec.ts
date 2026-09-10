@@ -308,7 +308,9 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByRole("button", { name: "Menu", exact: true }).click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
-  const originalGameId = await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame")!);
+  const originalProjectId = await page.evaluate(() =>
+    localStorage.getItem("monotio_agi.lastGame")!,
+  );
   const copy = await page.evaluate(async () => {
     const path = "/src/gameLibrary.ts";
     const { copyLibraryGame } = await import(path);
@@ -318,7 +320,7 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   await page.reload();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   await page
-    .getByTestId(`saved-game-card-${originalGameId}`)
+    .getByTestId(`saved-game-card-${originalProjectId}`)
     .getByRole("button", { name: "Resume", exact: true })
     .click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
