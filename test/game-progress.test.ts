@@ -114,7 +114,7 @@ function played(): { files: Record<string, Uint8Array>; progress: GameProgress }
     cycle: 1,
     room: 1,
     savedAt: 1_757_000_000_000,
-    game: { gameId: "on-the-laptop", installed: false, revision: REVISION_A },
+    game: { projectId: "on-the-laptop", installed: false, revision: REVISION_A },
   };
   return {
     files: Object.fromEntries(container.files),
@@ -232,7 +232,7 @@ test("imported progress is stored under the library game ID and re-addressed to 
   assert.deepEqual(Object.keys(readGameSaves(storage, "imported-1234")), ["1", "7"]);
   const stored = parseAutosaveRecord(storage.getItem("monotio_agi.autosave.imported-1234"));
   assert.deepEqual(stored?.game, {
-    gameId: "imported-1234",
+    projectId: "imported-1234",
     installed: false,
     revision: REVISION_B,
   });
@@ -361,7 +361,7 @@ test("re-addressing is the revision contract: export compaction makes equality i
     cycle: 1,
     room: 1,
     savedAt: 1_757_000_000_000,
-    game: { gameId: "on-the-laptop", installed: false, revision: preExportRevision },
+    game: { projectId: "on-the-laptop", installed: false, revision: preExportRevision },
   };
   const progress: GameProgress = { saves: { "1": engine.serialize() }, autosave };
   const imported = await readGameZip(await buildProjectZip(cachedGame(files), progress));

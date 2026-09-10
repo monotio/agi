@@ -384,19 +384,19 @@ test("import stores saves and autosave without a progress observer", async (t) =
       cycle: 1,
       room: 0,
       savedAt: 1757000000000,
-      game: { gameId: "source", installed: false, revision: "ab".repeat(32) },
+      game: { projectId: "source", installed: false, revision: "ab".repeat(32) },
     },
   };
-  const gameId = await addLibraryGame(
+  const projectId = await addLibraryGame(
     { files, words: [], progress },
     "No observer",
     "zip",
     opening,
   );
-  const stored = readGameProgress(localStorage, gameId);
+  const stored = readGameProgress(localStorage, projectId);
   assert.deepEqual(stored.saves["3"], slot);
   assert.equal(stored.autosave?.image, progress.autosave?.image);
-  assert.equal(stored.autosave?.game.gameId, gameId);
+  assert.equal(stored.autosave?.game.projectId, projectId);
   assert.equal(stored.autosave?.game.revision, await gameRevision(files));
 });
 
@@ -437,7 +437,7 @@ test("import reports which progress entries browser storage refused", async (t) 
     cycle: 1,
     room: 1,
     savedAt: 1_757_000_000_000,
-    game: { gameId: "refused", installed: false, revision: "ab".repeat(32) },
+    game: { projectId: "refused", installed: false, revision: "ab".repeat(32) },
   };
   const progress: GameProgress = { saves: { "1": slot, "7": slot }, autosave };
   // Browser storage refuses every progress write after the first. Install a

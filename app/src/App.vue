@@ -18,6 +18,7 @@ import {
 import {
   useEngine,
   readAutosave,
+  lastGameKey,
   lastGameId,
   removeLibraryGame,
   type Frame,
@@ -456,9 +457,9 @@ watch(
   (busy) => {
     if (busy) return;
     const game = currentGame();
-    if (game && !game.installed) {
-      selectedGameId.value = game.gameId;
-      cachedMeta.value = getCachedGameMeta(game.gameId);
+    if (game && !game.installed && game.projectId) {
+      selectedGameId.value = game.projectId;
+      cachedMeta.value = getCachedGameMeta(game.projectId);
       savedGames.value = listCachedGames();
     }
   },
@@ -603,10 +604,15 @@ function llmConfig(): LlmConfig {
 
 /** Discard the resumed game's progress and boot it from the top. */
 async function onStartOver(): Promise<void> {
-  const gameId = currentGame()?.gameId ?? pendingAutosave.value?.game.gameId ?? lastGameId();
-  if (!gameId) return;
+  const target =
+    currentGame()?.projectId ??
+    currentGame()?.hash ??
+    pendingAutosave.value?.game.projectId ??
+    pendingAutosave.value?.game.hash ??
+    lastGameKey();
+  if (!target) return;
   await resumeAudio();
-  await startOver(gameId, llmConfig());
+  await startOver(target, llmConfig());
   refreshPendingAutosave();
 }
 
@@ -630,13 +636,15 @@ async function copyDebugBundle(): Promise<void> {
     exportedAt: new Date().toISOString(),
     game: current
       ? {
-          gameId: current.gameId,
+          projectId: current.projectId,
+          alias: current.alias,
+          hash: current.hash,
           title: current.title,
           revision: current.revision,
           source: current.installed ? "installed" : "authored",
         }
       : {
-          gameId: activeTemplate.value.id,
+          projectId: activeTemplate.value.id,
           title: activeTemplate.value.title,
           source: "draft",
         },
@@ -675,12 +683,12 @@ async function onBootSelectedTemplate(): Promise<void> {
   }
   await resumeAudio();
   await bootAuthoredGame(activeTemplate.value.rawMarkdown, llmConfig(), {
-    gameId: activeTemplate.value.id,
+    projectId: activeTemplate.value.id,
     title: activeTemplate.value.title,
     useCached: false,
   });
   const game = currentGame();
-  if (game && !game.installed) selectedGameId.value = game.gameId;
+  if (game && !game.installed && game.projectId) selectedGameId.value = game.projectId;
   cachedMeta.value = getCachedGameMeta(selectedGameId.value);
 }
 
@@ -691,7 +699,7 @@ async function onBootSavedGame(alreadyBusy = false): Promise<void> {
   try {
     await resumeAudio();
     await bootAuthoredGame(activeTemplate.value.rawMarkdown, llmConfig(), {
-      gameId: selectedGameId.value,
+      projectId: selectedGameId.value,
       title: cachedMeta.value?.title ?? selectedGameId.value,
       useCached: true,
     });
@@ -979,8 +987,9 @@ async function copySelectedGame(): Promise<void> {
 
 async function onExportAgiZip(live = false, project = false, savedProgress = false): Promise<void> {
   const game = live ? currentGame() : null;
+  const gameKey = game ? (game.installed ? (game.hash ?? game.alias) : game.projectId) : undefined;
   const useSavedProgress =
-    savedProgress && project && live && game?.gameId === exportSavedProgressGameId.value;
+    savedProgress && project && live && gameKey === exportSavedProgressGameId.value;
   exportSavedProgressGameId.value = undefined;
   exportRefusal.value = "";
   exportBusy.value = true;
@@ -988,12 +997,24 @@ async function onExportAgiZip(live = false, project = false, savedProgress = fal
     // A project is for continuing elsewhere: the live game checkpoints first,
     // and the archive carries the player's save slots and latest autosave.
     if (live && project && !useSavedProgress && !(await flushAutosave(2000))) {
-      if (currentGame()?.gameId === game?.gameId) exportSavedProgressGameId.value = game?.gameId;
+      const current = currentGame();
+      const currentKey = current
+        ? current.installed
+          ? (current.hash ?? current.alias)
+          : current.projectId
+        : undefined;
+      if (currentKey === gameKey) exportSavedProgressGameId.value = gameKey;
       throw new Error(
         "Current progress could not be saved. Close any open game window and try again, or download with only the progress already saved in this browser.",
       );
     }
-    if (live && currentGame()?.gameId !== game?.gameId)
+    const current = currentGame();
+    const currentKey = current
+      ? current.installed
+        ? (current.hash ?? current.alias)
+        : current.projectId
+      : undefined;
+    if (live && currentKey !== gameKey)
       throw new Error("The game changed during download. Try again.");
     const data = live ? await exportCurrentGame() : await loadAuthoredGame(selectedGameId.value);
     if (!data) throw new Error("No saved game is available.");
@@ -2034,7 +2055,12 @@ onMounted(async () => {
   refreshPendingAutosave();
   const playId = playHashGameId();
   if (handover) await resumeFromRecord(handover, llmConfig());
-  else if (playId && playId === pendingAutosave.value?.game.gameId)
+  else if (
+    playId &&
+    (playId === pendingAutosave.value?.game.projectId ||
+      playId === pendingAutosave.value?.game.hash ||
+      playId === pendingAutosave.value?.game.alias)
+  )
     await resumeLastGame(llmConfig());
   if (state.phase === "idle") clearPlayHash();
   if (gpuCanvas.value) {
@@ -2084,8 +2110,9 @@ watch(
   ([phase, paused]) => {
     if (phase === "running") {
       if (!paused) {
-        const gameId = currentGame()?.gameId;
-        if (gameId) markPlayHash(gameId);
+        const playIdentifier =
+          currentGame()?.alias ?? currentGame()?.projectId ?? currentGame()?.hash;
+        if (playIdentifier) markPlayHash(playIdentifier);
       }
       return;
     }
@@ -2254,11 +2281,11 @@ watch(
           test-id="game-actions-menu"
         >
           <button
-            v-if="hasWalkthrough(currentGame()?.gameId ?? '') && !state.walkthrough.active"
+            v-if="hasWalkthrough(currentGame()?.alias ?? '') && !state.walkthrough.active"
             type="button"
             role="menuitem"
             data-testid="btn-run-walkthrough"
-            @click="onStartWalkthrough(currentGame()!.gameId)"
+            @click="onStartWalkthrough(currentGame()!.alias!)"
           >
             <span>Run walkthrough<small>Watch real-time playthrough</small></span>
           </button>
@@ -2322,7 +2349,7 @@ watch(
       <button
         v-if="
           exportSavedProgressGameId !== undefined &&
-          exportSavedProgressGameId === currentGame()?.gameId
+          exportSavedProgressGameId === (currentGame()?.projectId ?? currentGame()?.hash)
         "
         type="button"
         class="ui-button ui-button--secondary"
@@ -3029,8 +3056,11 @@ watch(
         <div
           v-if="
             pendingAutosave &&
-            !savedGames.some((game) => game.projectId === pendingAutosave?.game.gameId) &&
-            !localGameIds.includes(pendingAutosave.game.gameId)
+            !savedGames.some((game) => game.projectId === pendingAutosave?.game.projectId) &&
+            !localGames.some(
+              (g) =>
+                g.hash === pendingAutosave?.game.hash || g.alias === pendingAutosave?.game.alias,
+            )
           "
           class="saved-world-card autosave-fallback"
           data-testid="autosave-panel"
@@ -3041,12 +3071,14 @@ watch(
             data-testid="library-thumbnail"
             data-preview-kind="progress"
             :src="pendingAutosave.preview"
-            :alt="`${pendingAutosave.game.gameId}, current progress in room ${pendingAutosave.room}`"
+            :alt="`${pendingAutosave.game.alias ?? pendingAutosave.game.projectId ?? 'Saved game'}, current progress in room ${pendingAutosave.room}`"
           />
           <div class="saved-world-header">
             <div class="saved-world-tag">
               <span class="saved-world-badge">IN PROGRESS</span>
-              <span class="saved-world-title">{{ pendingAutosave.game.gameId }}</span>
+              <span class="saved-world-title">{{
+                pendingAutosave.game.alias ?? pendingAutosave.game.projectId
+              }}</span>
             </div>
             <span class="saved-world-time">
               Room {{ pendingAutosave.room }} · Saved

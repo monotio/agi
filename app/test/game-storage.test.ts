@@ -520,7 +520,7 @@ test("removing a library game clears its conversation, checkpoint, save slots an
     cycle: 3,
     room: 1,
     savedAt: 1,
-    game: { gameId: "gone", installed: false, revision: "0".repeat(64) },
+    game: { projectId: "gone", installed: false, revision: "0".repeat(64) },
   };
   assert.deepEqual(writeAutosave(localStorage, checkpoint), checkpoint);
   assert.equal(writeGameSave(localStorage, "gone", 1, "AAAA"), true);

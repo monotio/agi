@@ -54,7 +54,7 @@ test("project import names each stored and refused progress entry", async ({ pag
         cycle: 1,
         room: 1,
         savedAt: 1,
-        game: { gameId: "storage-report", installed: false, revision: "ab".repeat(32) },
+        game: { projectId: "storage-report", installed: false, revision: "ab".repeat(32) },
       },
     },
   );
@@ -130,7 +130,7 @@ test("the project archive moves the autosave to another browser; the game export
   const savedPath = (await saved.path())!;
   const project = await readGameZip(new Uint8Array(await readFile(savedPath)));
   expect(project.progress?.autosave?.room).toBe(1);
-  expect(project.progress?.autosave?.game.gameId).toBe(TUTORIAL_GAME_ID);
+  expect(project.progress?.autosave?.game.projectId).toBe(TUTORIAL_GAME_ID);
   expect(Object.keys(project.progress?.saves ?? {})).toEqual([]);
 
   // The game export is for publishing: no progress in it.

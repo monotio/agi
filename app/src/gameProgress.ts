@@ -12,8 +12,17 @@ import { openContainer } from "../../src/container/container.ts";
 import { readGameSaves, writeGameSave } from "./gameSaves.ts";
 import { isProgressPreview, storeRecordWithPreviewFallback } from "./progressPreview.ts";
 import type { ZipFileInput } from "./zip.ts";
+import type { ProjectId } from "./gameTypes.ts";
 
 const AUTOSAVE_PREFIX = "monotio_agi.autosave.";
+
+export interface AutosaveGame {
+  readonly installed: boolean;
+  readonly revision: string;
+  readonly projectId?: ProjectId | undefined;
+  readonly hash?: string | undefined;
+  readonly alias?: string | undefined;
+}
 
 /** One stored autosave: the save-file image plus what it takes to boot into it. */
 export interface AutosaveRecord {
@@ -28,16 +37,20 @@ export interface AutosaveRecord {
   cycle: number;
   room: number;
   savedAt: number;
-  game: { gameId: string; installed: boolean; revision: string };
+  game: AutosaveGame;
 }
 
-export function autosaveKey(gameId: string): string {
-  return `${AUTOSAVE_PREFIX}${gameId}`;
+export function autosaveTargetKey(game: AutosaveGame): string {
+  return game.installed ? (game.hash ?? game.alias ?? "") : (game.projectId ?? "");
+}
+
+export function autosaveKey(target: string): string {
+  return `${AUTOSAVE_PREFIX}${target}`;
 }
 
 /**
  * The autosave a stored or archived JSON describes, or null when it is not one
- * this release understands. The gameId it names is the caller's to check.
+ * this release understands.
  */
 export function parseAutosaveRecord(raw: unknown): AutosaveRecord | null {
   try {
@@ -48,19 +61,32 @@ export function parseAutosaveRecord(raw: unknown): AutosaveRecord | null {
     if (!Number.isInteger(parsed.cycle) || parsed.cycle < 0 || !Number.isFinite(parsed.savedAt))
       return null;
     const rawGame = parsed.game as
-      { gameId?: unknown; installed?: unknown; revision?: unknown } | undefined;
-    const gameId = typeof rawGame?.gameId === "string" ? rawGame.gameId : null;
+      | {
+          projectId?: unknown;
+          hash?: unknown;
+          alias?: unknown;
+          installed?: unknown;
+          revision?: unknown;
+        }
+      | undefined;
     if (
-      !gameId ||
       typeof rawGame?.installed !== "boolean" ||
       typeof rawGame?.revision !== "string" ||
       !/^[a-f0-9]{64}$/.test(rawGame.revision)
     )
       return null;
+    const installed = rawGame.installed;
+    const revision = rawGame.revision;
+    const projectId = typeof rawGame.projectId === "string" ? rawGame.projectId : undefined;
+    const hash = typeof rawGame.hash === "string" ? rawGame.hash : undefined;
+    const alias = typeof rawGame.alias === "string" ? rawGame.alias : undefined;
+    if (installed ? !hash && !alias : !projectId) return null;
     parsed.game = {
-      gameId,
-      installed: rawGame.installed,
-      revision: rawGame.revision,
+      installed,
+      revision,
+      ...(installed
+        ? { ...(hash ? { hash } : {}), ...(alias ? { alias } : {}) }
+        : { projectId: projectId! }),
     };
     if (!isProgressPreview(parsed.preview)) delete parsed.preview;
     return parsed;
@@ -78,7 +104,9 @@ export function writeAutosave(
   storage: Pick<Storage, "getItem" | "setItem">,
   record: AutosaveRecord,
 ): AutosaveRecord | null {
-  const key = autosaveKey(record.game.gameId);
+  const target = autosaveTargetKey(record.game);
+  if (!target) return null;
+  const key = autosaveKey(target);
   try {
     const raw = storage.getItem(key);
     if (raw !== null && isFutureAutosave(raw)) return null;
@@ -181,7 +209,7 @@ export function readGameProgress(
   } catch {
     autosave = null;
   }
-  if (autosave && autosave.game.gameId !== gameId) autosave = null;
+  if (autosave && autosaveTargetKey(autosave.game) !== gameId) autosave = null;
   return { saves, autosave };
 }
 
@@ -282,7 +310,7 @@ export interface ImportStorageReport {
  */
 export function storeImportedProgress(
   storage: Pick<Storage, "getItem" | "setItem">,
-  gameId: string,
+  projectId: ProjectId,
   revision: string,
   progress: GameProgress,
 ): ImportStorageReport {
@@ -292,14 +320,14 @@ export function storeImportedProgress(
     .filter((slot) => Number.isInteger(slot))
     .sort((a, b) => a - b);
   for (const slot of slots) {
-    if (writeGameSave(storage, gameId, slot, toBase64(progress.saves[String(slot)]!)))
+    if (writeGameSave(storage, projectId, slot, toBase64(progress.saves[String(slot)]!)))
       report.slots.push(slot);
     else report.failedSlots.push(slot);
   }
   if (progress.autosave)
     report.autosave = writeAutosave(storage, {
       ...progress.autosave,
-      game: { gameId, installed: false, revision },
+      game: { projectId, installed: false, revision },
     });
   return report;
 }
