@@ -1,5 +1,5 @@
 /**
- * Synthetic AGI cartridge and route for zero-skip offline CI verification.
+ * Synthetic AGI game fixture and route for zero-skip offline CI verification.
  * Zero external runtime dependencies, authentic AGI 2.936 bytecode.
  */
 import { createContainer } from "../container/container.ts";

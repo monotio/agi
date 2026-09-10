@@ -3,7 +3,7 @@ import { join } from "node:path";
 import vue from "@vitejs/plugin-vue";
 import { defineConfig, type Plugin } from "vite";
 import { scanFixtures, KNOWN_GAME_HASH } from "../test/fixtures.ts";
-import { buildSyntheticGame } from "../src/games/syntheticCartridge.ts";
+import { buildSyntheticGame } from "../src/games/syntheticGame.ts";
 
 export interface InstalledFixtureDescriptor {
   readonly folder: string;

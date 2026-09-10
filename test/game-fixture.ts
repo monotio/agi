@@ -9,7 +9,7 @@ import {
   type GameHash,
   KNOWN_GAME_HASH,
 } from "./fixtures.ts";
-import { buildSyntheticGame } from "../src/games/syntheticCartridge.ts";
+import { buildSyntheticGame } from "../src/games/syntheticGame.ts";
 
 /**
  * Shared loader for optional AGI game fixtures under games/.

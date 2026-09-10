@@ -27,6 +27,6 @@ export const GAME_CATALOG: readonly GameCatalogEntry[] = [
     description: "Autonomous verification fixture for simulation, replay, and playback.",
     author: "Monotio",
     license: "MIT",
-    load: async () => (await import("../../src/games/syntheticCartridge.ts")).buildSyntheticGame(),
+    load: async () => (await import("../../src/games/syntheticGame.ts")).buildSyntheticGame(),
   },
 ];
