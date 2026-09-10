@@ -54,20 +54,11 @@ import {
 export type { BootedGame, CurrentGame, Frame, InstalledGameDescriptor, ProjectId };
 export { findInstalledFolder };
 
+import { usePromptController, type PromptState } from "./usePromptController.ts";
+export type { PromptState };
+
 /** Engine modal kinds (the engine draws them on its text surface). */
 export type ModalKind = "print" | "inventory" | "menu" | "showObj" | "showPri" | "save" | "restore";
-
-/**
- * Blocking get.num / get.string prompt awaiting player input. The engine has
- * drawn the prompt at (row, col); the host echoes the live edit after it.
- */
-export interface PromptState {
-  kind: "getnum" | "getstring" | "saveDescription";
-  prompt: string;
-  maxLen: number;
-  row: number;
-  col: number;
-}
 
 /** Test/debug hook mirrored onto window.__AGI_TEXT__ every frame. */
 export interface TextHook {
@@ -234,14 +225,13 @@ export function useEngine(
     pendingQueries.clear();
   }
 
+  const { logAgent, clearAgentLog, releaseAgentAudioPreviews } = createAgentLogger(state);
+  const promptController = usePromptController({ state, logAgent });
+
   function cancelPendingBridgeWaits(): void {
     bridge?.cancel();
     input.resetKeys();
-    if (promptResolver) {
-      promptResolver("");
-      promptResolver = null;
-    }
-    state.prompt = null;
+    promptController.cancelPrompt();
   }
 
   const urlReplaySeedText =
@@ -255,9 +245,9 @@ export function useEngine(
     query,
     sendKey: (code, sessionId) => sendKey(code, sessionId),
     sendDirection: (dir, sessionId) => sendDirection(dir, sessionId),
-    submitPrompt: (text) => submitPrompt(text),
+    submitPrompt: (text) => promptController.submitPrompt(text),
     setPromptEcho: (text) => engineOptions?.onPromptType?.(text),
-    isPromptPending: () => promptResolver !== null,
+    isPromptPending: () => promptController.isPromptPending(),
     pollNow: () => {
       bridge?.pollNow();
     },
@@ -269,9 +259,6 @@ export function useEngine(
   (window as unknown as { __AGI_STATE__: EngineState }).__AGI_STATE__ = state;
   (window as unknown as { __AGI_AUDIO__: AgiAudio }).__AGI_AUDIO__ = audio;
   let shakeTimer: number | null = null;
-  /** Resolves the pending getnum/getstring bridge request. */
-  let promptResolver: ((value: string) => void) | null = null;
-  const { logAgent, clearAgentLog, releaseAgentAudioPreviews } = createAgentLogger(state);
 
   const input = useInputController({
     getWorker: () => worker,
@@ -452,19 +439,7 @@ export function useEngine(
           return input.handleWaitKey();
         }
         if (req.op === "getnum" || req.op === "getstring" || req.op === "saveDescription") {
-          // Captured before the executor: narrowing of a parameter does not
-          // survive into a nested closure.
-          const kind = req.op;
-          return new Promise<string>((resolve) => {
-            promptResolver = resolve;
-            state.prompt = {
-              kind,
-              prompt: String(req.context["prompt"] ?? ""),
-              maxLen: Number(req.context["maxLen"] ?? (kind === "getnum" ? 4 : 40)),
-              row: Number(req.context["row"] ?? 22),
-              col: Number(req.context["col"] ?? 0),
-            };
-          });
+          return promptController.handlePromptRequest(req.op, req.context);
         }
         const game = booted;
         const author = authoringController.getSession();
@@ -517,18 +492,7 @@ export function useEngine(
 
   /** Player submitted (or cancelled) the blocking prompt modal. */
   function submitPrompt(value: string, cancelled = false): void {
-    if (!promptResolver) return;
-    if (!cancelled && !state.walkthrough.seeking && value.trim().length > 0) {
-      logAgent("input", value.trim());
-    }
-    const resolve = promptResolver;
-    const response =
-      state.prompt?.kind === "saveDescription"
-        ? JSON.stringify({ value: cancelled ? null : value })
-        : value;
-    promptResolver = null;
-    state.prompt = null;
-    resolve(response);
+    promptController.submitPrompt(value, cancelled);
   }
 
   async function discoverGames(): Promise<void> {
@@ -666,7 +630,7 @@ export function useEngine(
     input.resetKeys();
     state.gameEdit = null;
     state.rows = [];
-    state.prompt = null;
+    promptController.cancelPrompt();
     state.soundPlaying = false;
     state.shake = false;
     clearTimeout(shakeTimer ?? undefined);
