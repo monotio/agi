@@ -9,6 +9,8 @@ import { walkthrough, type Walkthrough } from "./walkthroughs.ts";
 export interface WalkthroughArtifact {
   schema: "monotio_agi.walkthrough.v1";
   game: string;
+  targetHash?: string | undefined;
+  supportedHashes?: readonly string[] | undefined;
   coverage: Walkthrough["coverage"];
   profile: string;
   seed: number;
@@ -39,7 +41,20 @@ export function walkthroughFixtureHashes(target: string): Record<string, string>
 export function readWalkthroughArtifact(path: string): WalkthroughArtifact {
   const recording = JSON.parse(readFileSync(path, "utf8")) as WalkthroughArtifact;
   assert.equal(recording.schema, "monotio_agi.walkthrough.v1");
-  walkthrough(recording.game);
+  const route = walkthrough(recording.game);
+  if (recording.targetHash) {
+    assert.equal(
+      recording.targetHash.toLowerCase(),
+      route.hash.toLowerCase(),
+      "target hash matches route",
+    );
+  }
+  if (recording.supportedHashes) {
+    assert.ok(
+      recording.supportedHashes.map((h) => h.toLowerCase()).includes(route.hash.toLowerCase()),
+      "route hash included in supported hashes",
+    );
+  }
   assert.equal(recording.status, "completed", "the recorded route completed");
   assert.ok(Array.isArray(recording.actions), "recorded input tape");
   assert.ok(Number.isSafeInteger(recording.seed), "recorded seed");

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { Speedrun, randomSource } from "./speedrun/runner.ts";
+import { readWalkthroughArtifact } from "./speedrun/artifact.ts";
 
 const TARGET_HASH = KNOWN_GAME_HASH.KQ1;
 
@@ -103,3 +107,36 @@ test(
     assert.throws(() => run.assertCarried(1, "Test item"), /Test item \(item 1\) must be carried/);
   },
 );
+
+test("readWalkthroughArtifact validates cryptographic binding of targetHash and supportedHashes", () => {
+  const kq1Artifact = readWalkthroughArtifact("app/public/walkthroughs/kq1.json");
+  assert.equal(kq1Artifact.game, "kq1");
+  assert.equal(kq1Artifact.targetHash, KNOWN_GAME_HASH.KQ1);
+  assert.deepEqual(kq1Artifact.supportedHashes, [KNOWN_GAME_HASH.KQ1]);
+
+  const tempPath = join(tmpdir(), `agi-test-binding-${Date.now()}.json`);
+  try {
+    // Mismatch targetHash
+    const badTarget = { ...kq1Artifact, targetHash: KNOWN_GAME_HASH.SQ1 };
+    writeFileSync(tempPath, JSON.stringify(badTarget));
+    assert.throws(() => readWalkthroughArtifact(tempPath), /target hash matches route/);
+
+    // Mismatch supportedHashes
+    const badSupported = {
+      ...kq1Artifact,
+      targetHash: KNOWN_GAME_HASH.KQ1,
+      supportedHashes: [KNOWN_GAME_HASH.SQ1],
+    };
+    writeFileSync(tempPath, JSON.stringify(badSupported));
+    assert.throws(
+      () => readWalkthroughArtifact(tempPath),
+      /route hash included in supported hashes/,
+    );
+  } finally {
+    try {
+      unlinkSync(tempPath);
+    } catch {
+      // ignore
+    }
+  }
+});

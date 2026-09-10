@@ -25,6 +25,8 @@ if (missing) {
   const artifact: WalkthroughArtifact = {
     schema: "monotio_agi.walkthrough.v1",
     game: route.alias,
+    targetHash: route.hash,
+    supportedHashes: [route.hash],
     coverage: route.coverage,
     profile: run.engine.profile.id,
     seed: run.seed,

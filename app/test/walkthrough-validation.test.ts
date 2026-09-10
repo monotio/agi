@@ -178,6 +178,96 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   );
 });
 
+test("validateWalkthroughArtifact validates targetHash and supportedHashes when present", () => {
+  const validHash = "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780";
+  const validUpper = "41D863172326C712C0AEBADF12FC63B049FF5D892743F4EE990004C344EB3780";
+
+  // Valid targetHash and supportedHashes (normalized to lowercase)
+  const result = validateWalkthroughArtifact({
+    schema: "monotio_agi.walkthrough.v1",
+    game: "kq1",
+    targetHash: validUpper,
+    supportedHashes: [validUpper],
+    coverage: "complete-game",
+    profile: "2.917",
+    seed: 1,
+    virtualTicks: 100,
+    cycles: 10,
+    elapsedMs: 50,
+    actions: [],
+  });
+  assert.equal(result.targetHash, validHash);
+  assert.deepEqual(result.supportedHashes, [validHash]);
+
+  // Invalid targetHash (too short, non-hex, wrong type)
+  assert.throws(
+    () =>
+      validateWalkthroughArtifact({
+        schema: "monotio_agi.walkthrough.v1",
+        game: "kq1",
+        targetHash: "not-a-hash",
+        coverage: "complete-game",
+        profile: "2.917",
+        seed: 1,
+        virtualTicks: 100,
+        cycles: 10,
+        elapsedMs: 50,
+        actions: [],
+      }),
+    /Invalid walkthrough targetHash/,
+  );
+  assert.throws(
+    () =>
+      validateWalkthroughArtifact({
+        schema: "monotio_agi.walkthrough.v1",
+        game: "kq1",
+        targetHash: 12345,
+        coverage: "complete-game",
+        profile: "2.917",
+        seed: 1,
+        virtualTicks: 100,
+        cycles: 10,
+        elapsedMs: 50,
+        actions: [],
+      }),
+    /Invalid walkthrough targetHash/,
+  );
+
+  // Invalid supportedHashes (not array, entry invalid)
+  assert.throws(
+    () =>
+      validateWalkthroughArtifact({
+        schema: "monotio_agi.walkthrough.v1",
+        game: "kq1",
+        supportedHashes: "not-an-array",
+        coverage: "complete-game",
+        profile: "2.917",
+        seed: 1,
+        virtualTicks: 100,
+        cycles: 10,
+        elapsedMs: 50,
+        actions: [],
+      }),
+    /supportedHashes must be an array/,
+  );
+  assert.throws(
+    () =>
+      validateWalkthroughArtifact({
+        schema: "monotio_agi.walkthrough.v1",
+        game: "kq1",
+        supportedHashes: ["short"],
+        coverage: "complete-game",
+        profile: "2.917",
+        seed: 1,
+        virtualTicks: 100,
+        cycles: 10,
+        elapsedMs: 50,
+        actions: [],
+      }),
+    /Invalid walkthrough supportedHash at index 0/,
+  );
+});
+
 test("loadWalkthrough memoizes results and evicts failed fetches", async () => {
   clearWalkthroughCache();
 

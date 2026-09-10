@@ -13,6 +13,8 @@ import {
 export interface WalkthroughArtifact {
   schema: "monotio_agi.walkthrough.v1";
   game: string;
+  targetHash?: string | undefined;
+  supportedHashes?: readonly string[] | undefined;
   coverage: "complete-game" | "chapter" | "partial";
   profile: string;
   seed: number;
@@ -75,6 +77,31 @@ export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact 
     throw new Error(`Unsupported game in walkthrough: ${String(obj["game"])}`);
   }
   const game = obj["game"].toLowerCase();
+  const HASH_REGEX = /^[0-9a-f]{64}$/i;
+
+  let targetHash: string | undefined;
+  if (obj["targetHash"] !== undefined) {
+    if (typeof obj["targetHash"] !== "string" || !HASH_REGEX.test(obj["targetHash"])) {
+      throw new Error(`Invalid walkthrough targetHash: ${String(obj["targetHash"])}`);
+    }
+    targetHash = obj["targetHash"].toLowerCase();
+  }
+
+  let supportedHashes: string[] | undefined;
+  if (obj["supportedHashes"] !== undefined) {
+    if (!Array.isArray(obj["supportedHashes"])) {
+      throw new Error("Walkthrough supportedHashes must be an array.");
+    }
+    supportedHashes = [];
+    for (let i = 0; i < obj["supportedHashes"].length; i++) {
+      const h = obj["supportedHashes"][i];
+      if (typeof h !== "string" || !HASH_REGEX.test(h)) {
+        throw new Error(`Invalid walkthrough supportedHash at index ${i}: ${String(h)}`);
+      }
+      supportedHashes.push(h.toLowerCase());
+    }
+  }
+
   const coverage = obj["coverage"];
   if (coverage !== "complete-game" && coverage !== "chapter" && coverage !== "partial") {
     throw new Error(`Invalid walkthrough coverage: ${String(coverage)}`);
@@ -177,6 +204,8 @@ export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact 
   return {
     schema: "monotio_agi.walkthrough.v1",
     game,
+    ...(targetHash !== undefined ? { targetHash } : {}),
+    ...(supportedHashes !== undefined ? { supportedHashes } : {}),
     coverage,
     profile: String(obj["profile"]),
     seed,
