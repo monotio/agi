@@ -24,28 +24,20 @@ class MemoryStorage {
   }
 }
 
-const LEGACY_KEYS = ["monotio_agi.provider", "monotio_agi.apiKey", "monotio_agi.model"];
-
 const defaults = {
   openai: "gpt-default",
   anthropic: "claude-default",
   stub: "offline-stub",
 } as const;
 
-test("first-release settings discard pre-release keys unread without copying credentials", () => {
+test("settings load defaults when absent without writing storage", () => {
   const storage = new MemoryStorage();
-  storage.values.set("monotio_agi.provider", "anthropic");
-  storage.values.set("monotio_agi.apiKey", "unreleased-secret");
-  storage.values.set("monotio_agi.model", "unreleased-model");
   const loaded = loadAiSettings(storage, defaults, true);
   assert.equal(loaded.provider, "openai");
   assert.equal(loaded.profiles.openai.apiKey, "");
   assert.equal(loaded.profiles.anthropic.apiKey, "");
   assert.equal(loaded.profiles.anthropic.model, defaults.anthropic);
-  for (const key of LEGACY_KEYS) {
-    assert.equal(storage.values.has(key), false, `${key} is removed`);
-    assert.equal(storage.reads.includes(key), false, `${key} is never read`);
-  }
+  assert.deepEqual(storage.reads, [AI_SETTINGS_KEY]);
   assert.equal(storage.values.size, 0, "loading writes no settings record");
 });
 

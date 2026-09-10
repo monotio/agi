@@ -19,14 +19,11 @@ export interface AiSettings {
   profiles: Record<AiSettingsProvider, AiProviderSettings>;
 }
 
-type SettingsStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+type SettingsStorage = Pick<Storage, "getItem" | "setItem">;
 type DefaultModels = Record<AiSettingsProvider, string>;
 type AllowedModels = Record<AiSettingsProvider, readonly string[]>;
 
 export const AI_SETTINGS_KEY = "monotio_agi.aiSettings";
-
-/** Pre-release storage kept the key in its own entry; a release load discards these unread. */
-const LEGACY_KEYS = ["monotio_agi.provider", "monotio_agi.apiKey", "monotio_agi.model"];
 
 /** Ids the settings dialog offers; any other stored id would render a blank model select. */
 const KNOWN_MODEL_IDS: AllowedModels = {
@@ -79,11 +76,6 @@ export function loadAiSettings(
   allowStub: boolean,
   allowedModels: AllowedModels = KNOWN_MODEL_IDS,
 ): AiSettings {
-  try {
-    for (const key of LEGACY_KEYS) storage.removeItem(key);
-  } catch {
-    /* Unavailable storage holds nothing to discard. */
-  }
   const settings = defaults(models);
   const value = storedRecord(storage);
   if (!value || value["version"] !== 1) return settings;
