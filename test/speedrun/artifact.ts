@@ -23,11 +23,11 @@ export interface WalkthroughArtifact {
 }
 
 /** Hash the same canonical resource/interpreter files the fixture loader consumes. */
-export function walkthroughFixtureHashes(gameId: string): Record<string, string> {
-  const { files } = loadGame(gameId, { interpreterFiles: true });
-  const wordsName = fixtureFiles(gameId)!.get("words.tok")!;
+export function walkthroughFixtureHashes(target: string): Record<string, string> {
+  const { files } = loadGame(target, { interpreterFiles: true });
+  const wordsName = fixtureFiles(target)!.get("words.tok")!;
   const inputs = new Map(files);
-  inputs.set("WORDS.TOK", new Uint8Array(readFileSync(fixtureDir(gameId) + wordsName)));
+  inputs.set("WORDS.TOK", new Uint8Array(readFileSync(fixtureDir(target) + wordsName)));
   return Object.fromEntries(
     [...inputs]
       .sort(([a], [b]) => a.localeCompare(b))

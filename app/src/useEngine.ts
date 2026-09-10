@@ -53,6 +53,7 @@ import {
   updateGameConversation,
 } from "./gameStorage.ts";
 import type { ProjectId } from "./gameTypes.ts";
+export type { ProjectId };
 
 /** Engine modal kinds (the engine draws them on its text surface). */
 export type ModalKind = "print" | "inventory" | "menu" | "showObj" | "showPri" | "save" | "restore";
@@ -287,10 +288,10 @@ export const lastGameId = lastGameKey;
  * checkpoint, its numbered saves and the resume pointer. Game IDs are
  * deterministic, so anything left behind would resurface on the next import.
  */
-export async function removeLibraryGame(gameId: string): Promise<void> {
-  await clearCachedGame(gameId);
-  clearAutosave(gameId);
-  clearGameSaves(localStorage, gameId);
+export async function removeLibraryGame(projectId: ProjectId): Promise<void> {
+  await clearCachedGame(projectId);
+  clearAutosave(projectId);
+  clearGameSaves(localStorage, projectId);
 }
 
 export function useEngine(
@@ -996,8 +997,8 @@ export function useEngine(
   }
 
   /** Keep the selected provider and its key together; archives carry no credentials. */
-  function configForGame(gameId: string, config: LlmConfig): LlmConfig {
-    const cached = getCachedGameMeta(gameId);
+  function configForGame(projectId: ProjectId, config: LlmConfig): LlmConfig {
+    const cached = getCachedGameMeta(projectId);
     return cached?.provider === "stub" && !cached.imported
       ? { provider: "stub", model: "offline-stub", apiKey: "" }
       : config;
@@ -1424,7 +1425,7 @@ export function useEngine(
     s.setRuntime({ frames: { read: readFrames }, engine: engineSource });
     if (game.installed || (game.projectId && getCachedGameMeta(game.projectId)?.imported)) {
       s.setOrientation({
-        gameId: game.alias ?? game.projectId ?? game.hash ?? "game",
+        game: game.alias ?? game.projectId ?? game.hash ?? "game",
         profile,
       });
     }
@@ -1553,18 +1554,20 @@ export function useEngine(
       original?.library?.source === "catalog" && original.library.revision !== revision;
     if (game.installed || catalogChanged) {
       const remixProjectId = `remix-${crypto.randomUUID()}`;
+      const parentProjectId = original?.projectId ?? game.projectId;
       const data: Omit<CachedGameData, "projectId" | "authoredAt"> = {
         title: `${original?.title ?? game.title} Remix`,
         library: {
           ...original?.library,
           version: 1,
-          gameId: remixProjectId,
+          alias: undefined,
           revision,
           source: "remix",
           catalog: undefined,
           preview: undefined,
           parent: {
-            gameId: original?.projectId ?? game.projectId ?? game.alias ?? game.hash ?? "",
+            ...(parentProjectId ? { projectId: parentProjectId } : {}),
+            ...(game.alias ? { alias: game.alias } : {}),
             revision: original?.library?.revision ?? (await gameRevision(game.files)),
           },
           validation: {
@@ -1592,7 +1595,7 @@ export function useEngine(
       booted = {
         installed: false,
         projectId: remixProjectId,
-        alias: original?.library?.gameId ?? game.alias,
+        alias: original?.library?.alias ?? game.alias,
         title: `${original?.title ?? game.title} Remix`,
         revision,
         files,
@@ -1820,7 +1823,7 @@ export function useEngine(
           booted = {
             installed: false,
             projectId,
-            alias: cached.library?.gameId ?? known?.alias,
+            alias: cached.library?.alias ?? known?.alias,
             title: cached.title ?? known?.title ?? title,
             revision,
             files: cached.files,

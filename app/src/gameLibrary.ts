@@ -40,17 +40,21 @@ export async function addLibraryGame(
   // claim the flag, so it counts only when the authoring context travels with it.
   const roomGeneration =
     source !== "catalog" && game.project !== undefined && game.roomGeneration === true;
-  const gameId = catalog ? `catalog-${catalog.id}` : known ? known.alias : `imported-${revision}`;
-  const preferredId = catalog ? `${gameId}-${catalog.version}` : gameId;
+  const basePrefix = catalog
+    ? `catalog-${catalog.id}`
+    : known
+      ? known.alias
+      : `imported-${revision}`;
+  const preferredId = catalog ? `${basePrefix}-${catalog.version}` : basePrefix;
   // Imported projects carry independent histories. Trusted catalog sources are repeatable fixtures.
   if (!game.project || source === "catalog") {
     const existing = listCachedGames().find((entry) => {
       const library = entry.library;
       return (
-        library?.gameId === gameId &&
-        library.revision === revision &&
+        library?.revision === revision &&
         entry.roomGeneration === roomGeneration &&
-        (!catalog || library.catalog?.version === catalog.version)
+        (!catalog ||
+          (library?.catalog?.id === catalog.id && library.catalog?.version === catalog.version))
       );
     });
     if (existing) return existing.projectId;
@@ -63,7 +67,7 @@ export async function addLibraryGame(
   const library: LibraryMetadata = {
     ...game.metadata,
     version: 1,
-    gameId,
+    ...(known?.alias ? { alias: known.alias } : {}),
     revision,
     source,
     ...(catalog ? { catalog } : {}),
@@ -117,11 +121,15 @@ export async function copyLibraryGame(projectId: ProjectId): Promise<ProjectId> 
       library: {
         ...original.library,
         version: 1,
-        gameId: id,
+        alias: undefined,
         revision,
         source: "remix",
         catalog: undefined,
-        parent: { gameId: original.library?.gameId ?? original.projectId, revision },
+        parent: {
+          projectId: original.projectId,
+          ...(original.library?.alias ? { alias: original.library.alias } : {}),
+          revision,
+        },
         validation: original.library?.validation ?? {
           status: "unverified",
           message: "Opening not checked yet.",

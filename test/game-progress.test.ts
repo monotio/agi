@@ -245,7 +245,10 @@ test("imported progress is stored under the library game ID and re-addressed to 
   // Another game's autosave under this game ID's key is not this game's progress.
   backing.set(
     "monotio_agi.autosave.imported-1234",
-    JSON.stringify({ ...progress.autosave, game: { ...progress.autosave!.game, gameId: "other" } }),
+    JSON.stringify({
+      ...progress.autosave,
+      game: { ...progress.autosave!.game, projectId: "other" },
+    }),
   );
   assert.equal(readGameProgress(storage, "imported-1234").autosave, null);
   assert.equal(parseAutosaveRecord("{"), null);

@@ -7,25 +7,25 @@ import { loadGame } from "./game-fixture.ts";
 
 const games: {
   hash: string;
-  gameId: string;
+  alias: string;
   profile: ProfileId;
   damaged: number[];
   unreadable: number[];
 }[] = [
   {
     hash: KNOWN_GAME_HASH.KQ1,
-    gameId: "kq1",
+    alias: "kq1",
     profile: "2.917",
     damaged: [],
     unreadable: [34, 35, 36, 37],
   },
-  { hash: KNOWN_GAME_HASH.KQ2, gameId: "kq2", profile: "2.411", damaged: [], unreadable: [] },
-  { hash: KNOWN_GAME_HASH.KQ3, gameId: "kq3", profile: "2.936", damaged: [36], unreadable: [] },
+  { hash: KNOWN_GAME_HASH.KQ2, alias: "kq2", profile: "2.411", damaged: [], unreadable: [] },
+  { hash: KNOWN_GAME_HASH.KQ3, alias: "kq3", profile: "2.936", damaged: [36], unreadable: [] },
 ];
 
 for (const game of games) {
   test(
-    `${game.gameId}: every installed sound completes bounded playback`,
+    `${game.alias}: every installed sound completes bounded playback`,
     { skip: fixtureSkip(game.hash) },
     () => {
       const { container } = loadGame(game.hash);

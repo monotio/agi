@@ -204,12 +204,12 @@ test(
       rgba: new Uint8Array(),
     };
 
-    const gameId = await addLibraryGame(openedGame, "My Uploaded Game", "zip", opening);
+    const projectId = await addLibraryGame(openedGame, "My Uploaded Game", "zip", opening);
 
-    const loaded = await loadAuthoredGame(gameId);
+    const loaded = await loadAuthoredGame(projectId);
     assert.ok(loaded);
-    assert.equal(loaded.library?.gameId, "mh1");
-    assert.equal(hasWalkthrough(loaded.library?.gameId ?? ""), true);
+    assert.equal(loaded.library?.alias, "mh1");
+    assert.equal(hasWalkthrough(loaded.library?.alias ?? ""), true);
     assert.equal(loaded.title, "Manhunter: New York");
     assert.equal(loaded.library?.validation.profile, "3.002.102");
   },

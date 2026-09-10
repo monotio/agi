@@ -238,7 +238,7 @@ export function fixtureSkip(
 }
 
 export function fixtureReadiness(
-  gameId: string,
+  hashOrKey: string,
   dir: string,
   onDisk: ReadonlyMap<string, string> | null,
   requiredFiles: readonly string[] = [],
@@ -278,8 +278,8 @@ export function fixtureReadiness(
   }
   const missing = [...required].filter((name) => !onDisk?.has(name.toLowerCase()));
   if (!missing.length) return false;
-  const known = getKnownGameByHash(gameId);
-  const targetDesc = known ? `${known.title}` : `games/${gameId}/`;
+  const known = getKnownGameByHash(hashOrKey);
+  const targetDesc = known ? `${known.title}` : `games/${hashOrKey}/`;
   return `Place your own game files in ${targetDesc} to run this test (missing: ${missing.join(", ")}).`;
 }
 

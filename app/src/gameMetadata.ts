@@ -5,13 +5,13 @@ export interface PublicGameMetadata {
   description?: string | undefined;
   author?: string | undefined;
   license?: string | undefined;
-  parent?: { gameId: string; revision: string } | undefined;
+  parent?:
+    { projectId?: string | undefined; alias?: string | undefined; revision: string } | undefined;
 }
 
 export interface LibraryMetadata extends PublicGameMetadata {
   version: 1;
-  /** Stable game lineage, independent of its title, local storage ID or resource revision. */
-  gameId: string;
+  alias?: string | undefined;
   revision: string;
   source: "catalog" | "zip" | "folder" | "authored" | "remix";
   catalog?: { id: string; version: string } | undefined;
@@ -54,23 +54,32 @@ export function publicGameMetadata(value?: PublicGameMetadata): PublicGameMetada
     const text = boundedText(value?.[key], key === "description" ? 600 : 160);
     if (text) result[key] = text;
   }
-  const parentId = boundedText(value?.parent?.gameId, 160);
-  if (parentId && SHA256.test(value?.parent?.revision ?? ""))
-    result.parent = { gameId: parentId, revision: value!.parent!.revision };
+  const revision = value?.parent?.revision;
+  if (revision && SHA256.test(revision)) {
+    const projectId = boundedText(value?.parent?.projectId, 160);
+    const alias = boundedText(value?.parent?.alias, 80);
+    if (projectId || alias) {
+      result.parent = {
+        revision,
+        ...(projectId ? { projectId } : {}),
+        ...(alias ? { alias } : {}),
+      };
+    }
+  }
   return result;
 }
 
 /** Validate the released version-1 library record, or create one for a new project. */
 export function normalizeLibraryMetadata(
   raw: unknown,
-  defaults: Pick<LibraryMetadata, "gameId" | "revision" | "source">,
+  defaults: Pick<LibraryMetadata, "revision" | "source"> & { alias?: string },
 ): LibraryMetadata {
   if (raw !== undefined && (!raw || typeof raw !== "object"))
     throw new Error("Invalid library metadata.");
   const value = (raw as Record<string, unknown> | undefined) ?? {};
   if (raw !== undefined && value["version"] !== 1)
     throw new Error("This library metadata version is not supported by this app.");
-  const gameId = boundedText(value["gameId"], 160) ?? defaults.gameId;
+  const alias = boundedText(value["alias"], 80) ?? defaults.alias;
   const revision =
     typeof value["revision"] === "string" && SHA256.test(value["revision"])
       ? value["revision"]
@@ -88,7 +97,7 @@ export function normalizeLibraryMetadata(
   return {
     ...publicGameMetadata(value as PublicGameMetadata),
     version: 1,
-    gameId,
+    ...(alias ? { alias } : {}),
     revision,
     source,
     ...(source === "catalog" && catalogId && catalogVersion

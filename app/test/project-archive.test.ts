@@ -54,13 +54,12 @@ test("project round trip retains private history and deduplicates images; public
     roomGeneration: true,
     library: {
       version: 1 as const,
-      gameId: "garden-local",
       revision: "1".repeat(64),
       source: "authored" as const,
       description: "A public garden adventure.",
       author: "Example Author",
       license: "unknown",
-      parent: { gameId: "seed", revision: "2".repeat(64) },
+      parent: { projectId: "seed", revision: "2".repeat(64) },
       preview: image,
       validation: { status: "ready" as const, message: "Private local status." },
     },
@@ -79,7 +78,7 @@ test("project round trip retains private history and deduplicates images; public
     description: "A public garden adventure.",
     author: "Example Author",
     license: "unknown",
-    parent: { gameId: "seed", revision: "2".repeat(64) },
+    parent: { projectId: "seed", revision: "2".repeat(64) },
   });
   assert.equal(JSON.stringify(publicGame).includes("Private local status."), false);
 });

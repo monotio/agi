@@ -187,12 +187,12 @@ export interface GameProgress {
 /** The progress browser storage holds for a game; a corrupt entry stays behind. */
 export function readGameProgress(
   storage: Pick<Storage, "getItem" | "setItem">,
-  gameId: string,
+  targetKey: string,
 ): GameProgress {
   const saves: Record<string, Uint8Array> = {};
   let slots: Record<string, string>;
   try {
-    slots = readGameSaves(storage, gameId);
+    slots = readGameSaves(storage, targetKey);
   } catch {
     slots = {};
   }
@@ -205,11 +205,11 @@ export function readGameProgress(
   }
   let autosave: AutosaveRecord | null;
   try {
-    autosave = parseAutosaveRecord(storage.getItem(autosaveKey(gameId)));
+    autosave = parseAutosaveRecord(storage.getItem(autosaveKey(targetKey)));
   } catch {
     autosave = null;
   }
-  if (autosave && autosaveTargetKey(autosave.game) !== gameId) autosave = null;
+  if (autosave && autosaveTargetKey(autosave.game) !== targetKey) autosave = null;
   return { saves, autosave };
 }
 
@@ -297,8 +297,8 @@ export interface ImportStorageReport {
 }
 
 /**
- * Store imported progress under the library gameId the game received. The
- * autosave is re-addressed to that gameId and to the imported revision: the
+ * Store imported progress under the project ID the game received. The
+ * autosave is re-addressed to that project ID and to the imported revision: the
  * export compacts the container, so the bytes it wrote are not the bytes the
  * autosave hashed, and the interpreter restores its saves without such a
  * check anyway. What is checked is that every image decodes for the game's

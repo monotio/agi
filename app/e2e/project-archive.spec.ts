@@ -100,11 +100,11 @@ test("Download project resumes private history in a fresh browser; Download game
       const path = "/src/gameStorage.ts";
       const store = await import(path);
       const meta = store.listCachedGames()[0];
-      const body = await store.loadAuthoredGame(meta.gameId);
+      const body = await store.loadAuthoredGame(meta.projectId);
       return {
         transcript: body.transcript,
         authoringState: body.authoringState,
-        index: JSON.parse(localStorage.getItem(store.getStorageKey(meta.gameId))!),
+        index: JSON.parse(localStorage.getItem(store.getStorageKey(meta.projectId))!),
       };
     });
     expect(restored.transcript).toEqual(transcript);

@@ -100,7 +100,7 @@ test("Astra is the new-user default; Stop and budget pauses retain a staged remi
     const words = await page.evaluate(async () => {
       const path = "/src/gameStorage.ts";
       const { listCachedGames, loadAuthoredGame } = await import(path);
-      return (await loadAuthoredGame(listCachedGames()[0].gameId)).words;
+      return (await loadAuthoredGame(listCachedGames()[0].projectId)).words;
     });
     expect(words.map(([word]: [string, number]) => word)).toContain("sparkle");
   } finally {

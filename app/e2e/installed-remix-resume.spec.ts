@@ -96,25 +96,25 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   const card = savedGameCard(page, "SAMPLE Remix");
   await expect(card.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
   const record = await page.evaluate(() => {
-    const gameId = localStorage.getItem("monotio_agi.lastGame")!;
-    return JSON.parse(localStorage.getItem("monotio_agi.autosave." + gameId)!);
+    const key = localStorage.getItem("monotio_agi.lastGame")!;
+    return JSON.parse(localStorage.getItem("monotio_agi.autosave." + key)!);
   });
   expect(record.game.installed).toBe(false);
-  expect(record.game.gameId).not.toBe("sample");
+  expect(record.game.projectId).not.toBe("sample");
   expect(new URL(page.url()).hash, "the menu must not name a game in the URL").toBe("");
   const reads = fixtureReads;
   await card.getByRole("button", { name: "Resume", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
   expect(fixtureReads).toBe(reads);
   expect(await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"))).toBe(
-    record.game.gameId,
+    record.game.projectId,
   );
   expect(new URL(page.url()).hash, "a running game must be named in the URL").toBe(
-    `#play/${record.game.gameId}`,
+    `#play/${record.game.projectId}`,
   );
   await page.reload();
   expect(new URL(page.url()).hash, "a running game must be named in the URL").toBe(
-    `#play/${record.game.gameId}`,
+    `#play/${record.game.projectId}`,
   );
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
   expect(fixtureReads).toBe(reads);

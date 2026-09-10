@@ -25,6 +25,7 @@ import {
   type AutosaveRecord,
   type ModalKind,
   type InstalledGameDescriptor,
+  type ProjectId,
 } from "./useEngine.ts";
 import { AgiStage } from "./three/AgiStage.ts";
 import { FRAME_HEIGHT, FRAME_WIDTH, compositeFrame } from "./composite.ts";
@@ -272,13 +273,13 @@ function onMenuHashChange(): void {
   if (location.hash === "#create-adventure") void openCreateSection(false);
 }
 
-function onGameDetailsToggle(gameId: string, event: Event): void {
+function onGameDetailsToggle(projectId: ProjectId, event: Event): void {
   const details = event.currentTarget as HTMLDetailsElement;
   if (details.open) {
-    expandedGameId.value = gameId;
-    const game = savedGames.value.find((entry) => entry.projectId === gameId);
+    expandedGameId.value = projectId;
+    const game = savedGames.value.find((entry) => entry.projectId === projectId);
     if (game) selectLibraryGame(game);
-  } else if (expandedGameId.value === gameId) {
+  } else if (expandedGameId.value === projectId) {
     expandedGameId.value = undefined;
     renaming.value = false;
   }
@@ -550,28 +551,28 @@ watch(
   { immediate: true },
 );
 
-async function onPlayLocalGame(gameIdOrFolder: string): Promise<void> {
+async function onPlayLocalGame(aliasOrHash: string): Promise<void> {
   await resumeAudio();
-  const checkpoint = readAutosave(gameIdOrFolder);
+  const checkpoint = readAutosave(aliasOrHash);
   if (checkpoint) await resumeFromRecord(checkpoint, llmConfig());
-  else await bootGame(gameIdOrFolder);
+  else await bootGame(aliasOrHash);
 }
 
-async function onStartWalkthrough(gameId: string): Promise<void> {
+async function onStartWalkthrough(targetGame: string): Promise<void> {
   await resumeAudio();
   clearPlayHash();
-  await startWalkthrough(gameId);
+  await startWalkthrough(targetGame);
 }
 
 function refreshPendingAutosave(): void {
-  const gameId = lastGameId();
-  pendingAutosave.value = (gameId ? readAutosave(gameId) : null) ?? undefined;
+  const key = lastGameKey();
+  pendingAutosave.value = (key ? readAutosave(key) : null) ?? undefined;
 }
 
 const PLAY_HASH_PREFIX = "#play/";
 
-/** The gameId the URL says is being played, or null outside a game. */
-function playHashGameId(): string | null {
+/** The target key the URL says is being played, or null outside a game. */
+function playHashGameKey(): string | null {
   if (!location.hash.startsWith(PLAY_HASH_PREFIX)) return null;
   try {
     return decodeURIComponent(location.hash.slice(PLAY_HASH_PREFIX.length));
@@ -581,8 +582,8 @@ function playHashGameId(): string | null {
 }
 
 /** The URL is the source of truth for "a game is running": name it. */
-function markPlayHash(gameId: string): void {
-  const target = `${PLAY_HASH_PREFIX}${encodeURIComponent(gameId)}`;
+function markPlayHash(targetKey: string): void {
+  const target = `${PLAY_HASH_PREFIX}${encodeURIComponent(targetKey)}`;
   if (location.hash !== target) history.replaceState(null, "", target);
 }
 
@@ -716,10 +717,10 @@ async function onClearSavedGame(): Promise<void> {
   refreshPendingAutosave();
 }
 
-function refreshLibrary(gameId?: string): void {
+function refreshLibrary(projectId?: ProjectId): void {
   savedGames.value = listCachedGames();
-  if (gameId) {
-    selectedGameId.value = gameId;
+  if (projectId) {
+    selectedGameId.value = projectId;
   } else if (!savedGames.value.some((entry) => entry.projectId === selectedGameId.value))
     selectedGameId.value = savedGames.value[0]?.projectId ?? "";
   cachedMeta.value = selectedGameId.value ? getCachedGameMeta(selectedGameId.value) : null;
@@ -2053,13 +2054,13 @@ onMounted(async () => {
   const handover = import.meta.hot?.data?.["monotio_agi_resume"] as AutosaveRecord | undefined;
   if (import.meta.hot?.data) delete import.meta.hot.data["monotio_agi_resume"];
   refreshPendingAutosave();
-  const playId = playHashGameId();
+  const playKey = playHashGameKey();
   if (handover) await resumeFromRecord(handover, llmConfig());
   else if (
-    playId &&
-    (playId === pendingAutosave.value?.game.projectId ||
-      playId === pendingAutosave.value?.game.hash ||
-      playId === pendingAutosave.value?.game.alias)
+    playKey &&
+    (playKey === pendingAutosave.value?.game.projectId ||
+      playKey === pendingAutosave.value?.game.hash ||
+      playKey === pendingAutosave.value?.game.alias)
   )
     await resumeLastGame(llmConfig());
   if (state.phase === "idle") clearPlayHash();
@@ -2821,11 +2822,11 @@ watch(
                   :test-id="`game-actions-${game.projectId}`"
                 >
                   <button
-                    v-if="hasWalkthrough(game.library?.gameId ?? game.projectId)"
+                    v-if="hasWalkthrough(game.library?.alias ?? game.projectId)"
                     type="button"
                     role="menuitem"
                     data-testid="run-walkthrough"
-                    @click="onStartWalkthrough(game.library?.gameId ?? game.projectId)"
+                    @click="onStartWalkthrough(game.library?.alias ?? game.projectId)"
                   >
                     <span>Run walkthrough<small>Watch real-time playthrough</small></span>
                   </button>

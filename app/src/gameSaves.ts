@@ -1,12 +1,12 @@
 /** Browser storage for the engine's twelve authentic save images, scoped per game. */
 type SaveStorage = Pick<Storage, "getItem" | "setItem">;
 
-export function gameSavesKey(gameId: string): string {
-  return `monotio_agi.saves.${encodeURIComponent(gameId)}`;
+export function gameSavesKey(targetKey: string): string {
+  return `monotio_agi.saves.${encodeURIComponent(targetKey)}`;
 }
 
-export function readGameSaves(storage: SaveStorage, gameId: string): Record<string, string> {
-  const stored = storage.getItem(gameSavesKey(gameId));
+export function readGameSaves(storage: SaveStorage, targetKey: string): Record<string, string> {
+  const stored = storage.getItem(gameSavesKey(targetKey));
   if (stored === null) return {};
   const value: unknown = JSON.parse(stored);
   if (value === null || typeof value !== "object" || Array.isArray(value))
@@ -26,16 +26,16 @@ export function readGameSaves(storage: SaveStorage, gameId: string): Record<stri
 
 export function writeGameSave(
   storage: SaveStorage,
-  gameId: string,
+  targetKey: string,
   slot: number,
   image: string,
 ): boolean {
   if (!Number.isInteger(slot) || slot < 1 || slot > 12) return false;
   try {
-    const slots = readGameSaves(storage, gameId);
+    const slots = readGameSaves(storage, targetKey);
     slots[String(slot)] = image;
     storage.setItem(
-      gameSavesKey(gameId),
+      gameSavesKey(targetKey),
       JSON.stringify({ format: "monotio.agi.saves", version: 1, slots }),
     );
     return true;
@@ -44,7 +44,7 @@ export function writeGameSave(
   }
 }
 
-/** Forget a game's numbered saves: a game added again under the same gameId starts with empty slots. */
-export function clearGameSaves(storage: Pick<Storage, "removeItem">, gameId: string): void {
-  storage.removeItem(gameSavesKey(gameId));
+/** Forget a game's numbered saves: a game added again under the same key starts with empty slots. */
+export function clearGameSaves(storage: Pick<Storage, "removeItem">, targetKey: string): void {
+  storage.removeItem(gameSavesKey(targetKey));
 }

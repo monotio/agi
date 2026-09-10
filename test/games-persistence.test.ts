@@ -24,7 +24,7 @@ import { loadGame } from "./game-fixture.ts";
 
 interface PersistenceCase {
   hash: string;
-  gameId: string;
+  alias: string;
   profile: string;
   /** First playable room a restarted boot lands in. */
   firstRoom: number;
@@ -42,7 +42,7 @@ interface PersistenceCase {
 const GAMES: readonly PersistenceCase[] = [
   {
     hash: KNOWN_GAME_HASH.KQ1,
-    gameId: "kq1",
+    alias: "kq1",
     profile: "2.917",
     firstRoom: 1,
     blocks: [0x05e1, 0x0306, 0x0148, 0x00c8],
@@ -53,7 +53,7 @@ const GAMES: readonly PersistenceCase[] = [
   },
   {
     hash: KNOWN_GAME_HASH.KQ2,
-    gameId: "kq2",
+    alias: "kq2",
     profile: "2.411",
     firstRoom: 1,
     blocks: [0x05df, 0x02db, 0x0256, 0x0078],
@@ -64,7 +64,7 @@ const GAMES: readonly PersistenceCase[] = [
   },
   {
     hash: KNOWN_GAME_HASH.KQ3,
-    gameId: "kq3",
+    alias: "kq3",
     profile: "2.936",
     firstRoom: 7,
     blocks: [0x05e1, 0x02db, 0x0307, 0x00fe],
@@ -158,8 +158,8 @@ function blockLengths(image: Uint8Array, count: number): number[] {
 for (const game of GAMES) {
   const skip = fixtureSkip(game.hash, ["AGIDATA.OVL"]);
 
-  describe(`${game.gameId} persistence`, { skip }, () => {
-    test(`save blocks match the spec's ${game.profile} ${game.gameId} dimensions`, (t) => {
+  describe(`${game.alias} persistence`, { skip }, () => {
+    test(`save blocks match the spec's ${game.profile} ${game.alias} dimensions`, (t) => {
       // A cold boot runs the intro, which is where these games configure their
       // replay-pair capacity with script.size.
       const { engine } = boot(game.hash, { restarted: false, cycles: 400 });
@@ -197,7 +197,7 @@ for (const game of GAMES) {
         assert.equal(lengths[4], (state.logicResume.length + 2) * 4);
       }
       t.diagnostic(
-        `${game.gameId}: blocks ${lengths.map((l) => `0x${l.toString(16)}`).join(" ")}, ` +
+        `${game.alias}: blocks ${lengths.map((l) => `0x${l.toString(16)}`).join(" ")}, ` +
           `${state.replayActive} active replay pairs, ${state.logicResume.length} cached logics`,
       );
     });
@@ -259,7 +259,7 @@ for (const game of GAMES) {
       assert.deepEqual(Array.from(fresh.surface.visual), beforeVisual, "visual buffer");
       assert.deepEqual(Array.from(fresh.surface.priority), beforePriority, "priority buffer");
       t.diagnostic(
-        `${game.gameId}: ${colors.size} visual colours and ` +
+        `${game.alias}: ${colors.size} visual colours and ` +
           `${new Set(beforePriority).size} priority bands reproduced exactly`,
       );
     });

@@ -279,7 +279,7 @@ describe("first-turn prompts", () => {
 
   it("creates an orientation prompt for an installed original without genesis framing", () => {
     const prompt = createOrientationPrompt({
-      gameId: "kq1",
+      game: "kq1",
       profile: "2.917",
       room: 1,
       resourceListing: "logic: 2 present [0-1]; next free: 2",

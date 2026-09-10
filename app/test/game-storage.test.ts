@@ -37,13 +37,13 @@ test("renaming preserves game resources, conversation and save identity", async 
     transcript: [{ text: "Original" }],
   });
   const original = (await storage.loadAuthoredGame("custom"))!;
-  const gameId = original.library?.gameId;
+  const revision = original.library?.revision;
   assert.equal(await storage.renameAuthoredGame("custom", "  My adventure  "), true);
   assert.deepEqual(await storage.loadAuthoredGame("custom"), {
     ...original,
     title: "My adventure",
   });
-  assert.equal((await storage.loadAuthoredGame("custom"))?.library?.gameId, gameId);
+  assert.equal((await storage.loadAuthoredGame("custom"))?.library?.revision, revision);
   assert.equal(await storage.renameAuthoredGame("custom", "   "), false);
   assert.equal(await storage.renameAuthoredGame("absent", "New title"), false);
 });
@@ -250,7 +250,6 @@ test("previews survive metadata-only saves and invalidate when resource bytes ch
   const storedPreview = indexedDbRecords.get("preview") as Record<string, unknown>;
   const library = storedPreview["library"] as Record<string, unknown>;
   storedPreview["library"] = {
-    gameId: library["gameId"],
     revision: library["revision"],
     source: library["source"],
     validation: library["validation"],

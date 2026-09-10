@@ -259,7 +259,6 @@ test("the first catalog edit forks a remix and preserves the original", async ({
     const data = await storage.loadAuthoredGame(original.projectId);
     return {
       projectId: original.projectId,
-      gameId: original.library!.gameId,
       revision: original.library!.revision,
       actualRevision: await metadata.gameRevision(data!.files),
     };
@@ -322,7 +321,7 @@ test("the first catalog edit forks a remix and preserves the original", async ({
   expect(after.originalRevision).toBe(before.revision);
   expect(after.originalActualRevision).toBe(before.actualRevision);
   expect(after.remixSource).toBe("remix");
-  expect(after.parent).toEqual({ gameId: before.gameId, revision: before.revision });
+  expect(after.parent).toEqual({ projectId: before.projectId, revision: before.revision });
   expect(after.currentGameId).toBe(after.remixGameId);
 });
 

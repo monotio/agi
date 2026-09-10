@@ -105,7 +105,7 @@ export class AgentSession implements AgentHandler {
   private runtime: AgentRuntimeDeps = {};
   /** Context is attached to the first submitted request, never sent on panel open. */
   private oriented = false;
-  private orientation: Pick<OrientationInput, "gameId" | "profile"> | undefined;
+  private orientation: Pick<OrientationInput, "game" | "profile"> | undefined;
 
   constructor(
     config: LlmConfig,
@@ -222,7 +222,7 @@ Answer the player's question using evidence from inspection when needed. For hin
   }
 
   /** Register local context; opening or connecting the panel never calls the provider. */
-  setOrientation(input: Pick<OrientationInput, "gameId" | "profile">): void {
+  setOrientation(input: Pick<OrientationInput, "game" | "profile">): void {
     if (!this.oriented) this.orientation = input;
   }
 
@@ -252,7 +252,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     });
     this.onEvent(
       "request",
-      `[Orientation] ${input.gameId} room ${input.room} (profile ${input.profile})`,
+      `[Orientation] ${input.game} room ${input.room} (profile ${input.profile})`,
       {
         prompt,
       },

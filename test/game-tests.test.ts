@@ -785,7 +785,7 @@ test("genesis and orientation prompts require a stored test per puzzle", () => {
   assert.match(genesis, /run_game_tests/);
   assert.match(genesis, /each puzzle|every puzzle/);
   const orientation = createOrientationPrompt({
-    gameId: "kq1",
+    game: "kq1",
     profile: "2.917",
     room: 1,
     resourceListing: "logic 1",

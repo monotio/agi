@@ -99,8 +99,8 @@ ${templateText.trim()}
 }
 
 export interface OrientationInput {
-  /** Game identifier, e.g. "kq1". */
-  gameId: string;
+  /** Game identifier, alias or title, e.g. "kq1". */
+  game: string;
   /** Interpreter profile the engine selected for this game, e.g. "2.936". */
   profile: string;
   /** Room the player is standing in right now. */
@@ -124,7 +124,7 @@ export function createOrientationPrompt(input: OrientationInput): string {
 
 This game is loaded and running. Use the context below to address the player's accompanying request in the selected Ask or Remix mode.
 
-Game: ${input.gameId}
+Game: ${input.game}
 Interpreter profile: ${input.profile} (use read_command_reference for exact commands)
 
 Current room: ${input.room}

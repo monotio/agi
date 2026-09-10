@@ -9,7 +9,7 @@ import { extractCheckpoints, loadWalkthrough, type WalkthroughCheckpoint } from 
 import { findInstalledFolder, type InstalledGameDescriptor } from "./useEngine.ts";
 import type { AgentLogEntry } from "./agent/agentLog.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
-import { getCachedGameMeta } from "./gameStorage.ts";
+import { getCachedGameMeta, type ProjectId } from "./gameStorage.ts";
 
 export interface WalkthroughUiState {
   active: boolean;
@@ -67,7 +67,7 @@ export interface WalkthroughControllerContext {
   readonly audio: AgiAudio;
   readonly replayDriver: ReplayDriver;
   readonly getWorker: () => Worker | null;
-  readonly isCurrentGame: (gameId: string) => boolean;
+  readonly isCurrentGame: (targetGame: string) => boolean;
   readonly nextSessionId: () => number;
   readonly getActiveSessionId: () => number;
   readonly setActiveReplaySeed: (seed: number | null) => void;
@@ -78,19 +78,19 @@ export interface WalkthroughControllerContext {
   readonly bootAuthoredGame: (
     prompt: string,
     config: LlmConfig,
-    options: { gameId: string; useCached: boolean },
+    options?: { projectId?: ProjectId; title?: string; useCached?: boolean },
   ) => Promise<void>;
-  readonly configForGame: (gameId: string, config: LlmConfig) => LlmConfig;
+  readonly configForGame: (projectId: ProjectId, config: LlmConfig) => LlmConfig;
   readonly ejectGame: () => Promise<void>;
   readonly sendDirection: (dir: number) => void;
   readonly logAgent: (kind: AgentLogEntry["kind"], message: string, details?: unknown) => void;
-  readonly isInstalledGame: (gameId: string) => boolean;
+  readonly isInstalledGame: (targetGame: string) => boolean;
   readonly onWalkthroughReset: () => void;
 }
 
 export interface WalkthroughController {
   startWalkthrough(
-    gameId: string,
+    targetGame: string,
     options?: { speed?: number; initialTick?: number; keepPaused?: boolean } | number,
   ): Promise<void>;
   stopWalkthrough(takeControl?: boolean): Promise<void>;
@@ -141,7 +141,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
   }
 
   async function startWalkthrough(
-    gameId: string,
+    targetGame: string,
     options?: { speed?: number; initialTick?: number; keepPaused?: boolean } | number,
   ): Promise<void> {
     abort();
@@ -153,11 +153,11 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     state.walkthrough.error = "";
 
     // Load artifact (memoized with validation and failure eviction)
-    const artifact = await loadWalkthrough(gameId);
+    const artifact = await loadWalkthrough(targetGame);
     if (ctx.getActiveSessionId() !== sessionId) return;
 
     if (!artifact) {
-      state.walkthrough.error = `No walkthrough found for "${gameId}".`;
+      state.walkthrough.error = `No walkthrough found for "${targetGame}".`;
       state.walkthrough.status = "error";
       return;
     }
@@ -242,27 +242,27 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
 
     // Boot game with the seed (or fast reset if already booted in worker)
     const worker = ctx.getWorker();
-    if (ctx.isCurrentGame(gameId) && worker) {
+    if (ctx.isCurrentGame(targetGame) && worker) {
       worker.postMessage({
         type: "resetReplay",
         seed: artifact.seed,
         seeking: Boolean(target > 0),
         sessionId,
       });
-    } else if (ctx.isInstalledGame(gameId)) {
-      await ctx.bootGame(findInstalledFolder(ctx.state.installedGames, gameId));
-    } else if (getCachedGameMeta(gameId)) {
+    } else if (ctx.isInstalledGame(targetGame)) {
+      await ctx.bootGame(findInstalledFolder(ctx.state.installedGames, targetGame));
+    } else if (getCachedGameMeta(targetGame)) {
       await ctx.bootAuthoredGame(
         "",
-        ctx.configForGame(gameId, {
+        ctx.configForGame(targetGame, {
           provider: "stub",
           apiKey: "",
           model: "offline-stub",
         }),
-        { gameId, useCached: true },
+        { projectId: targetGame, useCached: true },
       );
     } else {
-      await ctx.bootGame(findInstalledFolder(ctx.state.installedGames, gameId));
+      await ctx.bootGame(findInstalledFolder(ctx.state.installedGames, targetGame));
     }
 
     if (ctx.getActiveSessionId() !== sessionId || abortController.signal.aborted) return;

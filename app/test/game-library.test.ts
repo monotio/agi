@@ -157,7 +157,7 @@ test("public metadata is versioned, bounded and cannot carry private history or 
   assert.equal(
     normalizeLibraryMetadata(
       { version: 1, source: "toString" },
-      { gameId: "safe", revision: "1".repeat(64), source: "zip" },
+      { revision: "1".repeat(64), source: "zip" },
     ).source,
     "zip",
   );
@@ -254,28 +254,28 @@ test("project imports with identical resources retain separate private histories
 
 test("a remix copy gets independent identity and bytes while preserving its original", async (t) => {
   installLocalStorage(t);
-  const originalGameId = await addLibraryGame(
+  const originalProjectId = await addLibraryGame(
     { files: game(), words: [] },
     "Garden",
     "zip",
     opening,
   );
-  const before = (await loadAuthoredGame(originalGameId))!;
-  const copyGameId = await copyLibraryGame(originalGameId);
-  const copy = (await loadAuthoredGame(copyGameId))!;
-  assert.notEqual(copy.library?.gameId, before.library?.gameId);
+  const before = (await loadAuthoredGame(originalProjectId))!;
+  const copyProjectId = await copyLibraryGame(originalProjectId);
+  const copy = (await loadAuthoredGame(copyProjectId))!;
+  assert.notEqual(copy.projectId, before.projectId);
   assert.deepEqual(copy.library?.parent, {
-    gameId: before.library?.gameId,
+    projectId: before.projectId,
     revision: before.library?.revision,
   });
   assert.equal(
-    await updateAuthoredGameFiles(copyGameId, {
+    await updateAuthoredGameFiles(copyProjectId, {
       ...copy.files,
       "VOL.0": Uint8Array.of(...copy.files["VOL.0"]!, 1),
     }),
     true,
   );
-  assert.deepEqual((await loadAuthoredGame(originalGameId))!, before);
+  assert.deepEqual((await loadAuthoredGame(originalProjectId))!, before);
 });
 
 test("catalog resources cannot be overwritten in place", async (t) => {
@@ -323,8 +323,8 @@ test("catalog identity remains stable across separately stored releases", async 
   );
   assert.notEqual(second, first);
   assert.equal(
-    (await loadAuthoredGame(second))?.library?.gameId,
-    (await loadAuthoredGame(first))?.library?.gameId,
+    (await loadAuthoredGame(second))?.library?.catalog?.id,
+    (await loadAuthoredGame(first))?.library?.catalog?.id,
   );
   assert.equal((await loadAuthoredGame(first))?.library?.catalog?.version, "1");
   assert.equal((await loadAuthoredGame(second))?.library?.catalog?.version, "2");

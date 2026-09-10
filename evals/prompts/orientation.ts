@@ -14,6 +14,7 @@ interface PromptMessage {
 /** Orientation lane variables; every field falls back when promptfoo omits it. */
 export interface OrientationVars {
   vars: {
+    game?: string;
     gameId?: string;
     profile?: string;
     room?: number | string;
@@ -33,7 +34,7 @@ export default function ({ vars }: OrientationVars): PromptMessage[] {
     {
       role: "user",
       content: createOrientationPrompt({
-        gameId: vars.gameId || "unknown",
+        game: vars.game || vars.gameId || "unknown",
         profile: vars.profile || "2.936",
         room: Number(vars.room ?? 1),
         resourceListing: vars.resourceListing || "",

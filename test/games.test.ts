@@ -18,7 +18,7 @@ import { loadGame } from "./game-fixture.ts";
 
 interface GameCase {
   hash: string;
-  gameId: string;
+  alias: string;
   /** Room entered on a cold boot (title / intro screen). */
   introRoom: number;
   /** First playable room (restarted boot lands here directly). */
@@ -41,7 +41,7 @@ interface GameCase {
 const GAMES: readonly GameCase[] = [
   {
     hash: KNOWN_GAME_HASH.KQ1,
-    gameId: "kq1",
+    alias: "kq1",
     introRoom: 83,
     firstRoom: 1,
     firstPicture: 1,
@@ -57,7 +57,7 @@ const GAMES: readonly GameCase[] = [
   },
   {
     hash: KNOWN_GAME_HASH.KQ2,
-    gameId: "kq2",
+    alias: "kq2",
     introRoom: 97,
     firstRoom: 1,
     firstPicture: 1,
@@ -71,7 +71,7 @@ const GAMES: readonly GameCase[] = [
   },
   {
     hash: KNOWN_GAME_HASH.KQ3,
-    gameId: "kq3",
+    alias: "kq3",
     introRoom: 45,
     firstRoom: 7,
     firstPicture: 7,
@@ -239,7 +239,7 @@ for (const game of GAMES) {
   const skip = fixtureSkip(game.hash);
 
   test(
-    `${game.gameId}: every LOGDIR/VIEWDIR/PICDIR entry parses and the census matches`,
+    `${game.alias}: every LOGDIR/VIEWDIR/PICDIR entry parses and the census matches`,
     { skip },
     () => {
       const { container } = loadGame(game.hash);
@@ -267,25 +267,25 @@ for (const game of GAMES) {
   );
 
   test(
-    `${game.gameId}: bytecode walk decodes every logic with only known opcodes`,
+    `${game.alias}: bytecode walk decodes every logic with only known opcodes`,
     { skip },
     (t) => {
-      const { actions, conditions } = usedOpcodes(game.gameId);
+      const { actions, conditions } = usedOpcodes(game.hash);
       for (const code of actions) assert.ok(ACTION_BY_CODE.has(code));
       for (const code of conditions) assert.ok(CONDITION_BY_CODE.has(code));
       const names = [...actions].map((c) => ACTION_BY_CODE.get(c)!.name).sort();
       // Every AGI game exercises the core vocabulary; these anchor the walk.
       for (const name of ["new.room", "print", "draw.pic", "animate.obj", "set.view", "position"]) {
-        assert.ok(names.includes(name), `${game.gameId} uses ${name}`);
+        assert.ok(names.includes(name), `${game.alias} uses ${name}`);
       }
-      assert.ok(conditions.has(0x0e), `${game.gameId} uses said()`);
-      assert.ok(actions.has(0xa1), `${game.gameId} uses menu.input`);
-      t.diagnostic(`${game.gameId} distinct actions (${names.length}): ${names.join(" ")}`);
+      assert.ok(conditions.has(0x0e), `${game.alias} uses said()`);
+      assert.ok(actions.has(0xa1), `${game.alias} uses menu.input`);
+      t.diagnostic(`${game.alias} distinct actions (${names.length}): ${names.join(" ")}`);
     },
   );
 
   test(
-    `${game.gameId}: every used action opcode has a real (non-stub) engine handler`,
+    `${game.alias}: every used action opcode has a real (non-stub) engine handler`,
     { skip },
     () => {
       const { actions } = usedOpcodes(game.hash);
@@ -302,12 +302,12 @@ for (const game of GAMES) {
             stubs.push(`0x${hex} ${ACTION_BY_CODE.get(code)!.name}: ${line.trim()}`);
         }
       }
-      assert.deepEqual(stubs, [], `stubbed handlers for opcodes ${game.gameId} uses`);
+      assert.deepEqual(stubs, [], `stubbed handlers for opcodes ${game.alias} uses`);
     },
   );
 
   test(
-    `${game.gameId}: cold boot visits intro room ${game.introRoom} then room ${game.firstRoom}`,
+    `${game.alias}: cold boot visits intro room ${game.introRoom} then room ${game.firstRoom}`,
     { skip },
     () => {
       const { container, dict } = loadGame(game.hash);
@@ -324,7 +324,7 @@ for (const game of GAMES) {
   );
 
   test(
-    `${game.gameId}: restarted boot lands in room ${game.firstRoom} with ego on a drawn picture`,
+    `${game.alias}: restarted boot lands in room ${game.firstRoom} with ego on a drawn picture`,
     { skip },
     () => {
       const { engine } = bootRestarted(game);
@@ -354,7 +354,7 @@ for (const game of GAMES) {
   );
 
   test(
-    `${game.gameId}: parser answers "${game.look.phrase}" and an unknown word in the first room`,
+    `${game.alias}: parser answers "${game.look.phrase}" and an unknown word in the first room`,
     { skip },
     () => {
       const { engine, host } = bootRestarted(game);
@@ -379,7 +379,7 @@ for (const game of GAMES) {
     },
   );
 
-  test(`${game.gameId}: ego walks when v6 (ego direction) is set`, { skip }, () => {
+  test(`${game.alias}: ego walks when v6 (ego direction) is set`, { skip }, () => {
     const { engine, host } = bootRestarted(game);
     const before = egoPosition(engine);
     // Direction 3 = right (1 = up, clockwise). The pre-logic mirror copies v6

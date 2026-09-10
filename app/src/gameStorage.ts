@@ -29,7 +29,7 @@ const SHA256 = /^[a-f0-9]{64}$/;
 /** Every released library field; a version-1 reader keeps anything else as an additive extension. */
 const LIBRARY_FIELDS: Record<keyof LibraryMetadata, true> = {
   version: true,
-  gameId: true,
+  alias: true,
   revision: true,
   source: true,
   catalog: true,
@@ -102,7 +102,6 @@ export function getCachedGameMeta(projectId: string): CachedGameMeta | null {
       typeof libraryValue["revision"] === "string" &&
       SHA256.test(libraryValue["revision"])
         ? normalizeLibraryMetadata(libraryValue, {
-            gameId: projectId,
             revision: libraryValue["revision"],
             source: parsed.imported ? "zip" : "authored",
           })
@@ -302,7 +301,6 @@ function readLibrary(data: CachedGameData): LibraryMetadata {
   )
     throw new Error("The saved project has invalid library metadata.");
   const normalized = normalizeLibraryMetadata(raw, {
-    gameId: data.projectId,
     revision: raw["revision"],
     source: data.imported ? "zip" : "authored",
   });
@@ -320,7 +318,6 @@ async function stampLibraryMetadata(
   if (protectCatalog && previous?.source === "catalog" && previous.revision !== revision)
     throw new Error("Catalog resources are immutable. Create a remix before changing them.");
   const next = normalizeLibraryMetadata(previous, {
-    gameId: data.projectId,
     revision,
     source: data.imported ? "zip" : "authored",
   });
@@ -492,7 +489,6 @@ export function updateGamePreview(
     data.library = {
       ...(data.library ?? {
         version: 1,
-        gameId: projectId,
         revision,
         source: data.imported ? "zip" : "authored",
       }),
