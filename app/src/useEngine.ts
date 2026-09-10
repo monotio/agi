@@ -17,6 +17,7 @@ import {
   createInitialWalkthroughState,
   type WalkthroughUiState,
 } from "./useWalkthroughController.ts";
+import { useInputController } from "./useInputController.ts";
 import { createBridge, type AgentHandler, type Bridge } from "./agent/sabBridge.ts";
 import { AgentSession } from "./agent/agentSession.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
@@ -336,16 +337,11 @@ export function useEngine(
 
   function cancelPendingBridgeWaits(): void {
     bridge?.cancel();
-    pendingKeys.clear();
-    if (keyWaitResolver) {
-      keyWaitResolver("0");
-      keyWaitResolver = null;
-    }
+    input.resetKeys();
     if (promptResolver) {
       promptResolver("");
       promptResolver = null;
     }
-    state.waitingForKey = false;
     state.prompt = null;
   }
 
@@ -434,17 +430,19 @@ export function useEngine(
   let shakeTimer: number | null = null;
   /** Resolves the pending getnum/getstring bridge request. */
   let promptResolver: ((value: string) => void) | null = null;
-  /**
-   * Resolves the pending waitkey bridge request (a have.key busy loop blocked
-   * the worker); sendKey resolves it in graphics mode as well as text mode.
-   */
-  let keyWaitResolver: ((value: string) => void) | null = null;
-  // Keys remain here until the worker acknowledges receipt. A synchronous
-  // AGI wait can claim a key whose postMessage is still waiting to dispatch.
-  const pendingKeys = new Map<number, number>();
-  let nextKeyId = 0;
-
   const { logAgent, clearAgentLog, releaseAgentAudioPreviews } = createAgentLogger(state);
+
+  const input = useInputController({
+    getWorker: () => worker,
+    getBridge: () => bridge,
+    isSeeking: () => state.walkthrough.seeking,
+    isHoldToMove: () => state.holdToMove,
+    setWaitingForKey: (waiting) => {
+      state.waitingForKey = waiting;
+    },
+    logAgent,
+    getActiveWalkthroughSession: () => activeWalkthroughSession,
+  });
 
   const hook: TextHook = {
     rows: [],
@@ -575,15 +573,7 @@ export function useEngine(
           );
         }
         if (req.op === "waitkey") {
-          const queued = pendingKeys.entries().next().value;
-          if (queued) {
-            pendingKeys.delete(queued[0]);
-            return JSON.stringify({ id: queued[0], code: queued[1] });
-          }
-          return new Promise<string>((resolve) => {
-            state.waitingForKey = true;
-            keyWaitResolver = resolve;
-          });
+          return input.handleWaitKey();
         }
         if (req.op === "getnum" || req.op === "getstring" || req.op === "saveDescription") {
           // Captured before the executor: narrowing of a parameter does not
@@ -801,7 +791,7 @@ export function useEngine(
     state.inputReady = false;
     state.holdToMove = false;
     state.waitingForKey = false;
-    pendingKeys.clear();
+    input.resetKeys();
     state.gameEdit = null;
     state.rows = [];
     state.prompt = null;
@@ -1050,7 +1040,7 @@ export function useEngine(
         return;
       }
       if (msg.type === "keyAccepted") {
-        pendingKeys.delete(Number(msg.id));
+        input.acknowledgeKey(Number(msg.id));
       } else if (msg.type === "frame") {
         state.inputEnabled = Boolean(msg.inputEnabled);
         state.inputReady = Boolean(msg.inputReady);
@@ -1879,54 +1869,7 @@ export function useEngine(
     return bootAuthoredGame("", stubConfig);
   }
 
-  function sendInput(text: string): void {
-    if (!state.walkthrough.seeking) {
-      logAgent("input", text);
-    }
-    worker?.postMessage({ type: "input", text });
-  }
-
-  /** Mirror the host input widget's live text onto the engine's input row. */
-  function sendEdit(text: string): void {
-    worker?.postMessage({ type: "edit", text });
-  }
-
-  function sendDirection(dir: number, sessionId?: number): void {
-    const session = sessionId ?? (activeWalkthroughSession > 0 ? activeWalkthroughSession : 0);
-    worker?.postMessage({
-      type: "direction",
-      dir,
-      releaseEligible: state.holdToMove,
-      ...(session > 0 ? { sessionId: session } : {}),
-    });
-  }
-
-  function sendKey(code: number, sessionId?: number): void {
-    if (!worker) return;
-    bridge?.pollNow();
-    const id = ++nextKeyId;
-    pendingKeys.set(id, code);
-    const session = sessionId ?? (activeWalkthroughSession > 0 ? activeWalkthroughSession : 0);
-    const keyMsg = {
-      type: "key",
-      id,
-      code,
-      ...(session > 0 ? { sessionId: session } : {}),
-    };
-    if (keyWaitResolver) {
-      const resolve = keyWaitResolver;
-      keyWaitResolver = null;
-      state.waitingForKey = false;
-      const queued = pendingKeys.entries().next().value!;
-      pendingKeys.delete(queued[0]);
-      resolve(JSON.stringify({ id: queued[0], code: queued[1] }));
-      // If the worker resumes normal execution instead of waiting again, it
-      // still receives this key. The sequence ID suppresses bridge duplicates.
-      worker.postMessage(keyMsg);
-      return;
-    }
-    worker.postMessage(keyMsg);
-  }
+  const { sendInput, sendEdit, sendDirection, sendKey } = input;
 
   /**
    * Start capturing player actions for a stored game test. The worker takes
