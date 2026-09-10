@@ -8,7 +8,7 @@ import { parseView } from "../src/view/view.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { detectProfile, detectVersionString } from "../src/runtime/profile.ts";
 import { createPictureSurface } from "../src/types.ts";
-import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
+import { fixtureSkip } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
@@ -17,8 +17,7 @@ import { loadGame } from "./game-fixture.ts";
  * The suite checks resource decoding, profile detection and the opening.
  */
 const GAME_ALIAS = "gr1";
-const TARGET_HASH = KNOWN_GAME_HASH.GR1;
-const skip = fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"]);
+const skip = fixtureSkip(GAME_ALIAS, ["AGIDATA.OVL"]);
 
 class Host implements EngineHost {
   keys: number[] = [];
@@ -40,7 +39,7 @@ test(
   `${GAME_ALIAS}: combined container, 3.002.149 profile by default, resource census`,
   { skip },
   () => {
-    const { container, files } = loadGame(TARGET_HASH, { interpreterFiles: true });
+    const { container, files } = loadGame(GAME_ALIAS, { interpreterFiles: true });
     assert.deepEqual(detectContainerFormat(files), { kind: "v3-combined", prefix: "GR" });
     assert.equal(detectVersionString(files), "3.002.149");
     const profile = detectProfile(files);
@@ -76,7 +75,7 @@ test(
   `${GAME_ALIAS}: the opening runs from the title into the first street with its status line`,
   { skip },
   () => {
-    const { container, dict, files } = loadGame(TARGET_HASH, { interpreterFiles: true });
+    const { container, dict, files } = loadGame(GAME_ALIAS, { interpreterFiles: true });
     const host = new Host();
     const engine = new Engine(container, host, dict, { profile: detectProfile(files) });
     const rooms: number[] = [];

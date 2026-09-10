@@ -485,9 +485,9 @@ export function detectVersionString(files: ReadonlyMap<string, Uint8Array>): str
 }
 
 /** True when the file map looks like a combined v3 container (`<PREFIX>DIR` + `<PREFIX>VOL.n`). */
-function hasCombinedDirectory(files: ReadonlyMap<string, Uint8Array>): boolean {
+export function hasCombinedDirectory(files: ReadonlyMap<string, Uint8Array>): boolean {
   for (const name of files.keys()) {
-    const m = /^(.+)DIR$/.exec(name);
+    const m = /^(.*)DIR$/.exec(name);
     if (!m) continue;
     const prefix = m[1]!;
     if (prefix === "LOG" || prefix === "PIC" || prefix === "VIEW" || prefix === "SND") continue;

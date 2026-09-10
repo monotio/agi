@@ -22,17 +22,17 @@ test("resolveFixtureTarget resolves matching games by alias, hash, wordsSha256 o
 
   // Match by alias
   const byAlias = resolveFixtureTarget(games, "KQ1");
-  assert.equal(byAlias.target, "words-sha-kq1");
+  assert.equal(byAlias.target, "kings-quest");
   assert.equal(byAlias.match?.alias, "kq1");
 
   // Match by folder
   const byFolder = resolveFixtureTarget(games, "space-quest");
-  assert.equal(byFolder.target, "hash-sq1");
+  assert.equal(byFolder.target, "space-quest");
   assert.equal(byFolder.match?.alias, "sq1");
 
   // Match by hash
   const byHash = resolveFixtureTarget(games, "hash-kq1");
-  assert.equal(byHash.target, "words-sha-kq1");
+  assert.equal(byHash.target, "kings-quest");
 
   // Fallback when not found
   const unknown = resolveFixtureTarget(games, "unknown-game");
@@ -43,4 +43,33 @@ test("resolveFixtureTarget resolves matching games by alias, hash, wordsSha256 o
   const nullList = resolveFixtureTarget(null, "kq1");
   assert.equal(nullList.target, "kq1");
   assert.equal(nullList.match, undefined);
+});
+
+test("resolveFixtureTarget handles shared vocabulary and requires disambiguation", () => {
+  const games: InstalledGameDescriptor[] = [
+    {
+      hash: "edition-a",
+      alias: "edition-a",
+      folder: "edition-a",
+      wordsSha256: "shared-words-sha",
+      title: "Edition A",
+    },
+    {
+      hash: "edition-b",
+      alias: "edition-b",
+      folder: "edition-b",
+      wordsSha256: "shared-words-sha",
+      title: "Edition B",
+    },
+  ];
+
+  // Resolving by folder is unambiguous
+  assert.equal(resolveFixtureTarget(games, "edition-a").target, "edition-a");
+  assert.equal(resolveFixtureTarget(games, "edition-b").target, "edition-b");
+
+  // Resolving by shared words hash throws ambiguous error
+  assert.throws(
+    () => resolveFixtureTarget(games, "shared-words-sha"),
+    /Ambiguous fixture query.*specify the fixture folder/,
+  );
 });

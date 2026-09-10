@@ -40,17 +40,50 @@ export async function discoverInstalledGames(): Promise<InstalledGameDescriptor[
 export function resolveFixtureTarget(
   installedGames: readonly InstalledGameDescriptor[] | null,
   hashOrAlias: string,
-): { target: string; match?: InstalledGameDescriptor } {
+): { target: string; match?: InstalledGameDescriptor | undefined } {
   const norm = hashOrAlias.toLowerCase();
-  const match = (installedGames ?? []).find(
-    (g) =>
-      g.hash.toLowerCase() === norm ||
-      g.alias.toLowerCase() === norm ||
-      g.wordsSha256?.toLowerCase() === norm ||
-      g.folder?.toLowerCase() === norm,
-  );
-  const target = match?.wordsSha256 ?? match?.hash ?? hashOrAlias;
-  return match ? { target, match } : { target };
+  const games = installedGames ?? [];
+
+  // Match folder first for unambiguous exact instance selection
+  const byFolder = games.find((g) => g.folder?.toLowerCase() === norm);
+  if (byFolder) {
+    return { target: byFolder.folder ?? hashOrAlias, match: byFolder };
+  }
+
+  // Match by exact hash
+  const byHash = games.filter((g) => g.hash.toLowerCase() === norm);
+  if (byHash.length === 1) {
+    const match = byHash[0]!;
+    return { target: match.folder ?? match.hash, match };
+  } else if (byHash.length > 1) {
+    throw new Error(
+      `Ambiguous fixture query "${hashOrAlias}" matches multiple editions (${byHash.map((g) => g.folder).join(", ")}); specify the fixture folder.`,
+    );
+  }
+
+  // Match by wordsSha256
+  const byWords = games.filter((g) => g.wordsSha256?.toLowerCase() === norm);
+  if (byWords.length === 1) {
+    const match = byWords[0]!;
+    return { target: match.folder ?? match.wordsSha256 ?? match.hash, match };
+  } else if (byWords.length > 1) {
+    throw new Error(
+      `Ambiguous fixture query "${hashOrAlias}" matches multiple editions (${byWords.map((g) => g.folder).join(", ")}); specify the fixture folder.`,
+    );
+  }
+
+  // Match by alias
+  const byAlias = games.filter((g) => g.alias.toLowerCase() === norm);
+  if (byAlias.length === 1) {
+    const match = byAlias[0]!;
+    return { target: match.folder ?? match.alias, match };
+  } else if (byAlias.length > 1) {
+    throw new Error(
+      `Ambiguous fixture query "${hashOrAlias}" matches multiple editions (${byAlias.map((g) => g.folder).join(", ")}); specify the fixture folder.`,
+    );
+  }
+
+  return { target: hashOrAlias };
 }
 
 /**

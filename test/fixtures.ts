@@ -29,19 +29,19 @@ export interface DiscoveredFixture {
 const SPLIT_DIRECTORIES = ["LOGDIR", "PICDIR", "VIEWDIR", "SNDDIR"];
 
 /** The combined directory among an installation's names, or null. */
-function combinedDirectoryOf(
+export function combinedDirectoryOf(
   names: ReadonlyMap<string, string> | null,
 ): { name: string; prefix: string } | null {
   if (!names) return null;
   for (const [key, actual] of names) {
-    if (!/^[a-z0-9_]+dir$/.test(key) || SPLIT_DIRECTORIES.includes(key.toUpperCase())) continue;
+    if (!/^[a-z0-9_]*dir$/.test(key) || SPLIT_DIRECTORIES.includes(key.toUpperCase())) continue;
     return { name: actual, prefix: actual.slice(0, -3).toUpperCase() };
   }
   return null;
 }
 
 let cachedScan: {
-  byWordsHash: Map<string, DiscoveredFixture>;
+  byWordsHash: Map<string, DiscoveredFixture[]>;
   byDirName: Map<string, DiscoveredFixture>;
   all: readonly DiscoveredFixture[];
 } | null = null;
@@ -55,23 +55,31 @@ export function clearFixtureCache(): void {
  * by content hash regardless of local folder name.
  */
 export function scanFixtures(): {
-  byWordsHash: Map<string, DiscoveredFixture>;
+  byWordsHash: Map<string, DiscoveredFixture[]>;
   byDirName: Map<string, DiscoveredFixture>;
   all: readonly DiscoveredFixture[];
 } {
   if (cachedScan) return cachedScan;
   const gamesRoot = fileURLToPath(new URL("../games/", import.meta.url));
-  const byWordsHash = new Map<string, DiscoveredFixture>();
+  const byWordsHash = new Map<string, DiscoveredFixture[]>();
   const byDirName = new Map<string, DiscoveredFixture>();
   const all: DiscoveredFixture[] = [];
 
   if (existsSync(gamesRoot)) {
     for (const folder of readdirSync(gamesRoot)) {
+      if (folder.startsWith(".")) continue;
       const folderPath = join(gamesRoot, folder);
       if (!statSync(folderPath, { throwIfNoEntry: false })?.isDirectory()) continue;
       const fileList = readdirSync(folderPath);
       const names = new Map<string, string>();
       for (const name of fileList) names.set(name.toLowerCase(), name);
+
+      const combined = combinedDirectoryOf(names);
+      const hasSplitDir = SPLIT_DIRECTORIES.some((d) => names.has(d.toLowerCase()));
+      const hasVol = [...names.keys()].some((k) => /vol\.\d+$/.test(k));
+      const hasGameJson = names.has("game.json");
+      const hasWords = names.has("words.tok");
+      if (!hasGameJson && !hasWords && !((combined !== null || hasSplitDir) && hasVol)) continue;
 
       const wordsActual = names.get("words.tok");
       const objActual = names.get("object");
@@ -101,6 +109,21 @@ export function scanFixtures(): {
       let title: string | undefined = known?.title;
       let author: string | undefined = known?.author;
 
+      const gameActual = names.get("game.json");
+      if (gameActual) {
+        try {
+          const parsed = JSON.parse(readFileSync(join(folderPath, gameActual), "utf8"));
+          if (parsed && typeof parsed === "object") {
+            if (typeof parsed.title === "string") title = parsed.title;
+            if (parsed.metadata && typeof parsed.metadata === "object") {
+              if (typeof parsed.metadata.author === "string") author = parsed.metadata.author;
+            }
+          }
+        } catch {
+          // Invalid json
+        }
+      }
+
       const metaActual = names.get("metadata.json");
       if (!title && metaActual) {
         try {
@@ -112,7 +135,6 @@ export function scanFixtures(): {
         }
       }
 
-      const combined = combinedDirectoryOf(names);
       const fixture: DiscoveredFixture = {
         folder,
         hash: wordsSha256 ?? folder,
@@ -126,7 +148,12 @@ export function scanFixtures(): {
         ...(author !== undefined ? { author } : {}),
       };
 
-      if (wordsSha256) byWordsHash.set(wordsSha256.toLowerCase(), fixture);
+      if (wordsSha256) {
+        const key = wordsSha256.toLowerCase();
+        const list = byWordsHash.get(key) ?? [];
+        list.push(fixture);
+        byWordsHash.set(key, list);
+      }
       byDirName.set(folder.toLowerCase(), fixture);
       all.push(fixture);
     }
@@ -138,20 +165,32 @@ export function scanFixtures(): {
 
 /**
  * Find an installed fixture by its content hash (WORDS.TOK SHA-256) or alias/folder key.
- * Resolves by hash first so folder names are completely arbitrary.
+ * Resolves by exact folder first, then unique content hash.
  */
 export function findFixture(hashOrAlias: string): DiscoveredFixture | null {
   const { byWordsHash, byDirName } = scanFixtures();
   const norm = hashOrAlias.toLowerCase();
-  const byHash = byWordsHash.get(norm);
-  if (byHash) return byHash;
+  const byDir = byDirName.get(norm);
+  if (byDir) return byDir;
+
+  const matches = byWordsHash.get(norm);
+  if (matches) {
+    if (matches.length === 1) return matches[0]!;
+    throw new Error(
+      `Ambiguous fixture query "${hashOrAlias}" matches multiple editions (${matches.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
+    );
+  }
+
   const resolved = resolveGameHash(norm);
   if (resolved) {
     const matched = byWordsHash.get(resolved.toLowerCase());
-    if (matched) return matched;
+    if (matched) {
+      if (matched.length === 1) return matched[0]!;
+      throw new Error(
+        `Ambiguous fixture query "${hashOrAlias}" matches multiple editions (${matched.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
+      );
+    }
   }
-  const byDir = byDirName.get(norm);
-  if (byDir) return byDir;
 
   // If a directory was created dynamically at runtime (e.g. temp test fixture):
   const gamesRoot = fileURLToPath(new URL("../games/", import.meta.url));
@@ -173,23 +212,26 @@ export function findFixture(hashOrAlias: string): DiscoveredFixture | null {
   return null;
 }
 
-/**
- * Locate a local game installation by content hash or alias.
- * Always ends with "/".
- */
+/** Absolute path to an installed game's folder, ending with a slash. */
 export function fixtureDir(hashOrAlias: string): string {
-  const fixture = findFixture(hashOrAlias);
-  if (fixture) return fixture.dir;
-  return fileURLToPath(new URL(`../games/${hashOrAlias}/`, import.meta.url));
+  try {
+    const fixture = findFixture(hashOrAlias);
+    if (fixture) return fixture.dir;
+  } catch {
+    // Ambiguous query
+  }
+  const gamesRoot = fileURLToPath(new URL("../games/", import.meta.url));
+  return join(gamesRoot, hashOrAlias) + "/";
 }
 
-/**
- * On-disk names of an installation, keyed by lowercase name, or null when the
- * installation folder is absent.
- */
+/** Case-normalized file map of an installation, or null if missing. */
 export function fixtureFiles(hashOrAlias: string): ReadonlyMap<string, string> | null {
-  const fixture = findFixture(hashOrAlias);
-  return fixture ? fixture.files : null;
+  try {
+    const fixture = findFixture(hashOrAlias);
+    return fixture ? fixture.files : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -197,8 +239,12 @@ export function fixtureFiles(hashOrAlias: string): ReadonlyMap<string, string> |
  * or null for a v2 split installation.
  */
 export function combinedDirectory(hashOrAlias: string): { name: string; prefix: string } | null {
-  const fixture = findFixture(hashOrAlias);
-  return fixture ? fixture.combined : null;
+  try {
+    const fixture = findFixture(hashOrAlias);
+    return fixture ? fixture.combined : null;
+  } catch {
+    return null;
+  }
 }
 
 export interface FixtureRequirements {
@@ -229,7 +275,12 @@ export function fixtureSkip(
   if (hashOrKey === KNOWN_GAME_HASH.SYNTHETIC || hashOrKey.toLowerCase() === "synthetic") {
     return false;
   }
-  const fixture = findFixture(hashOrKey);
+  let fixture: DiscoveredFixture | null;
+  try {
+    fixture = findFixture(hashOrKey);
+  } catch (err) {
+    return (err as Error).message;
+  }
   const dir = fixture ? fixture.dir : fixtureDir(hashOrKey);
   const onDisk = fixtureFiles(hashOrKey);
   if (!existsSync(dir) || !onDisk) {

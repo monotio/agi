@@ -84,7 +84,7 @@ export class Speedrun {
     this.alias = known?.alias;
     this.dwellModals = load.dwellModals ?? false;
     this.maxTicks = load.maxTicks ?? 500_000;
-    const { container, dict, files } = loadGame(this.hash, {
+    const { container, dict, files } = loadGame(game, {
       interpreterFiles: true,
       ...(load.checkVolumes === undefined ? {} : { checkVolumes: load.checkVolumes }),
     });

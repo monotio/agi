@@ -12,11 +12,11 @@ test(
   {
     skip:
       fixtureSkip(KNOWN_GAME_HASH.MH2, ["AGI", "AGIDATA.OVL"], { resourceFiles: false }) ||
-      fixtureSkip(KNOWN_GAME_HASH.GR1, ["AGI", "AGIDATA.OVL"], { resourceFiles: false }),
+      fixtureSkip("gr1", ["AGI", "AGIDATA.OVL"], { resourceFiles: false }),
   },
   () => {
     const binaries: Uint8Array[] = [];
-    for (const gameHash of [KNOWN_GAME_HASH.MH2, KNOWN_GAME_HASH.GR1]) {
+    for (const gameHash of [KNOWN_GAME_HASH.MH2, "gr1"]) {
       const onDisk = fixtureFiles(gameHash)!;
       const files = new Map(
         ["AGI", "AGIDATA.OVL"].map((name) => [

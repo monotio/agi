@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { compactContainer, openContainer } from "../src/container/container.ts";
+import {
+  compactContainer,
+  openContainer,
+  detectContainerFormat,
+} from "../src/container/container.ts";
+import { detectProfile } from "../src/runtime/profile.ts";
 import {
   buildLogicResource,
   parseLogicResource,
@@ -241,4 +246,30 @@ it("leaves all files unchanged when a combined directory cannot grow", () => {
   const before = new Map([...c.files].map(([name, bytes]) => [name, bytes.slice()]));
   assert.throws(() => c.putResource("logic", 255, Uint8Array.of(7)), /Combined directory exceeds/);
   assert.deepEqual(c.files, before);
+});
+
+it("unifies detection and profile for empty-prefix v3 container (DIR and VOL.0)", () => {
+  const original = record([5, 6]);
+  const sections = RESOURCE_KINDS.flatMap((k) => (k === "logic" ? [0, 0, 0] : [255, 255, 255]));
+  const files = new Map<string, Uint8Array>([
+    ["DIR", Uint8Array.from([8, 0, 11, 0, 14, 0, 17, 0, ...sections])],
+    ["VOL.0", original],
+  ]);
+
+  // 1. Container format detection detects v3-combined with empty prefix
+  const detected = detectContainerFormat(files);
+  assert.deepEqual(detected, { kind: "v3-combined", prefix: "" });
+
+  // 2. Profile detection detects v3 container and DEFAULT_V3_PROFILE without interpreter binary
+  const profile = detectProfile(files);
+  assert.equal(profile.container, "v3-combined");
+  assert.equal(profile.id, "3.002.149");
+
+  // 3. Opening container works seamlessly with empty prefix
+  const c = openContainer(files);
+  assert.deepEqual(c.getResource("logic", 0), Uint8Array.of(5, 6));
+  c.putResource("logic", 0, Uint8Array.of(99));
+  assert.equal(c.files.has("DIR"), true);
+  assert.equal(c.files.has("VOL.0"), true);
+  assert.equal(c.files.has("DEMODIR"), false);
 });

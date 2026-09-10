@@ -89,13 +89,31 @@ function fixtureServer(): Plugin {
           return;
         }
         const gameMatch = installedGames().find(
-          (g) =>
-            g.hash?.toLowerCase() === segment0!.toLowerCase() ||
-            g.wordsSha256?.toLowerCase() === segment0!.toLowerCase() ||
-            g.alias?.toLowerCase() === segment0!.toLowerCase() ||
-            g.folder.toLowerCase() === segment0!.toLowerCase(),
+          (g) => g.folder.toLowerCase() === segment0!.toLowerCase(),
         );
-        const resolvedFolder = gameMatch ? gameMatch.folder : segment0!;
+        let resolvedFolder = gameMatch?.folder;
+        if (!resolvedFolder) {
+          const matches = installedGames().filter(
+            (g) =>
+              g.hash?.toLowerCase() === segment0!.toLowerCase() ||
+              g.wordsSha256?.toLowerCase() === segment0!.toLowerCase() ||
+              g.alias?.toLowerCase() === segment0!.toLowerCase(),
+          );
+          if (matches.length > 1) {
+            res.statusCode = 400;
+            res.setHeader("content-type", "application/json");
+            res.end(
+              JSON.stringify({
+                error: `Ambiguous fixture query "${segment0}" matches multiple editions (${matches.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
+              }),
+            );
+            return;
+          }
+          if (matches.length === 1) {
+            resolvedFolder = matches[0]!.folder;
+          }
+        }
+        resolvedFolder = resolvedFolder ?? segment0!;
         const subPath = restSegments.join("/");
         const path = subPath
           ? join(gamesRoot, resolvedFolder, subPath)

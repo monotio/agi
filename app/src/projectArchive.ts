@@ -236,6 +236,10 @@ export function validateTranscript(messages: unknown, provider: string): unknown
   return messages;
 }
 
+export const MAX_PROJECT_DEPTH = 40;
+export const MAX_PROJECT_NODES = 25_000;
+export const MAX_RECONSTRUCTED_CONTENT_CHARS = 8 * 1024 * 1024;
+
 export function readProjectContext(
   bytes: Uint8Array,
   entries: Map<string, Uint8Array>,
@@ -250,27 +254,88 @@ export function readProjectContext(
     throw new Error("This project version is not supported.");
   if (!["openai", "anthropic", "stub"].includes(raw.provider) || typeof raw.model !== "string")
     throw new Error("Invalid project model metadata.");
+
+  let nodeCount = 0;
+  let reconstructedChars = 0;
+
+  function scanRaw(value: unknown, depth = 0): void {
+    if (depth > MAX_PROJECT_DEPTH) {
+      throw new Error("Project conversation nesting is too deep.");
+    }
+    nodeCount++;
+    if (nodeCount > MAX_PROJECT_NODES) {
+      throw new Error("Project structure exceeds node count limit.");
+    }
+    if (typeof value === "string") {
+      reconstructedChars += value.length;
+      if (reconstructedChars > MAX_RECONSTRUCTED_CONTENT_CHARS) {
+        throw new Error("Project reconstructed size exceeds content budget.");
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        scanRaw(item, depth + 1);
+      }
+      return;
+    }
+    if (value && typeof value === "object") {
+      const object = value as Record<string, unknown>;
+      if (typeof object["projectImage"] === "string") {
+        const path = object["projectImage"];
+        if (!/^IMAGES\/[a-f0-9]{64}\.(png|jpeg|webp)$/.test(path)) {
+          throw new Error("Invalid project image reference.");
+        }
+        const image = entries.get(`${root}${path}`.toUpperCase());
+        if (!image) {
+          throw new Error("A project image attachment is missing.");
+        }
+        const estimatedBase64Chars = Math.ceil((image.length * 4) / 3) + 64;
+        reconstructedChars += estimatedBase64Chars;
+        if (reconstructedChars > MAX_RECONSTRUCTED_CONTENT_CHARS) {
+          throw new Error("Project reconstructed size exceeds content budget.");
+        }
+        return;
+      }
+      for (const [key, child] of Object.entries(object)) {
+        if (["__proto__", "constructor", "prototype"].includes(key)) {
+          throw new Error("Invalid project data key.");
+        }
+        reconstructedChars += key.length;
+        scanRaw(child, depth + 1);
+      }
+    }
+  }
+
+  scanRaw(raw.conversation.messages);
+  scanRaw(raw.authoringState);
+  if (raw.conversationHistory) {
+    scanRaw(raw.conversationHistory);
+  }
+
+  const attachmentCache = new Map<string, unknown>();
+
   function restore(value: unknown): unknown {
     if (Array.isArray(value)) return value.map(restore);
     if (value && typeof value === "object") {
       const object = value as Record<string, unknown>;
       if (typeof object["projectImage"] === "string") {
         const path = object["projectImage"];
-        if (!/^IMAGES\/[a-f0-9]{64}\.(png|jpeg|webp)$/.test(path))
-          throw new Error("Invalid project image reference.");
-        const image = entries.get(`${root}${path}`.toUpperCase());
-        if (!image) throw new Error("A project image attachment is missing.");
+        const isAnthropic = Boolean(object["anthropicSource"]);
+        const cacheKey = `${isAnthropic ? "anthropic:" : "data:"}${path}`;
+        const cached = attachmentCache.get(cacheKey);
+        if (cached !== undefined) return cached;
+
+        const image = entries.get(`${root}${path}`.toUpperCase())!;
         let binary = "";
         for (const byte of image) binary += String.fromCharCode(byte);
         const mime = `image/${path.split(".").pop()}`;
-        return object["anthropicSource"]
+        const encoded = isAnthropic
           ? { type: "base64", media_type: mime, data: btoa(binary) }
           : `data:${mime};base64,${btoa(binary)}`;
+        attachmentCache.set(cacheKey, encoded);
+        return encoded;
       }
-      if (
-        Object.keys(object).some((key) => ["__proto__", "constructor", "prototype"].includes(key))
-      )
-        throw new Error("Invalid project data key.");
       return Object.fromEntries(
         Object.entries(object).map(([key, child]) => [key, restore(child)]),
       );

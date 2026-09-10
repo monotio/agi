@@ -140,9 +140,9 @@ test(
 
 test(
   "gr1: cold boot reaches Jerrod's street through the keyless intro slideshow",
-  { skip: fixtureSkip(KNOWN_GAME_HASH.GR1, ["AGIDATA.OVL"]) },
+  { skip: fixtureSkip("gr1", ["AGIDATA.OVL"]) },
   () => {
-    const run = coldBoot(KNOWN_GAME_HASH.GR1);
+    const run = coldBoot("gr1");
     // The slideshow (rooms 129, 73, 191, 196, 199, 200) plays on timers alone.
     run.until(() => run.engine.inputEnabled, 9000, "first playable room");
     assert.equal(run.state().room, 1, "the opening room");

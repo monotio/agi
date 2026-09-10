@@ -132,3 +132,66 @@ test("fixtures resolve by content hash regardless of folder name, supporting fan
     .digest("hex");
   assert.equal(findFixture(wrongHash), null);
 });
+
+test("duplicate vocabulary editions remain separately resolvable by folder, while ambiguous hash queries require disambiguation", (t) => {
+  const dirA = mkdtempSync(fixtureDir("edition-a-").slice(0, -1));
+  const dirB = mkdtempSync(fixtureDir("edition-b-").slice(0, -1));
+  const folderA = basename(dirA);
+  const folderB = basename(dirB);
+
+  t.after(() => {
+    rmSync(dirA, { recursive: true, force: true });
+    rmSync(dirB, { recursive: true, force: true });
+    clearFixtureCache();
+  });
+
+  // Shared WORDS.TOK bytes between both editions
+  const wordsBytes = new Uint8Array(56);
+  wordsBytes[0] = 0xaa;
+  wordsBytes[1] = 0xbb;
+  writeFileSync(join(dirA, "WORDS.TOK"), wordsBytes);
+  writeFileSync(join(dirB, "WORDS.TOK"), wordsBytes);
+
+  // Different logic/content or manifests
+  writeFileSync(
+    join(dirA, "GAME.JSON"),
+    JSON.stringify({
+      format: "monotio.agi",
+      version: 1,
+      title: "Edition Alpha",
+      metadata: { author: "Author Alpha" },
+    }),
+  );
+  writeFileSync(
+    join(dirB, "GAME.JSON"),
+    JSON.stringify({
+      format: "monotio.agi",
+      version: 1,
+      title: "Edition Beta",
+      metadata: { author: "Author Beta" },
+    }),
+  );
+
+  const sharedHash = createHash("sha256").update(wordsBytes).digest("hex");
+
+  clearFixtureCache();
+
+  // 1. Each edition resolves unambiguously by its folder
+  const fixtureA = findFixture(folderA);
+  assert.ok(fixtureA);
+  assert.equal(fixtureA.folder, folderA);
+  assert.equal(fixtureA.title, "Edition Alpha");
+  assert.equal(fixtureA.author, "Author Alpha");
+
+  const fixtureB = findFixture(folderB);
+  assert.ok(fixtureB);
+  assert.equal(fixtureB.folder, folderB);
+  assert.equal(fixtureB.title, "Edition Beta");
+  assert.equal(fixtureB.author, "Author Beta");
+
+  // 2. Querying by the ambiguous shared vocabulary hash throws an actionable disambiguation error
+  assert.throws(
+    () => findFixture(sharedHash),
+    /Ambiguous fixture query.*specify the fixture folder/,
+  );
+});
