@@ -49,6 +49,7 @@ import {
   type InstalledGameDescriptor,
   type ProjectId,
   findInstalledFolder,
+  decodeTextRows,
 } from "./gameTypes.ts";
 export type { BootedGame, CurrentGame, Frame, InstalledGameDescriptor, ProjectId };
 export { findInstalledFolder };
@@ -337,15 +338,7 @@ export function useEngine(
 
   /** Publish the engine's text surface for tests and the debug bundle. */
   function publishText(text: Uint8Array, modal: ModalKind | null, textMode: boolean): void {
-    const rows: string[] = [];
-    for (let r = 0; r < 25; r++) {
-      let line = "";
-      for (let c = 0; c < 40; c++) {
-        const ch = text[(r * 40 + c) * 2]!;
-        line += ch === 0 ? " " : ch >= 0x80 ? "#" : String.fromCharCode(ch);
-      }
-      rows.push(line);
-    }
+    const rows = decodeTextRows(text);
     state.rows = rows;
     state.modal = modal;
     state.textMode = textMode;
@@ -759,29 +752,7 @@ export function useEngine(
     if (!game.installed && !(await updateAuthoredGameFiles(game.projectId!, files))) {
       logAgent("error", "Browser storage could not save this world. Keep the downloaded ZIP.");
     }
-    return {
-      ...data,
-      files,
-      words: game.words,
-      roomGeneration: data.roomGeneration ?? false,
-      conversationHistory:
-        session &&
-        (data.provider !== session.getProviderContext().provider ||
-          data.model !== session.getProviderContext().model) &&
-        data.transcript?.length
-          ? [
-              ...(data.conversationHistory ?? []),
-              { provider: data.provider, model: data.model, transcript: data.transcript },
-            ]
-          : data.conversationHistory,
-      ...(session
-        ? {
-            transcript: session.getTranscript(),
-            authoringState: session.getAuthoringState(),
-            ...session.getProviderContext(),
-          }
-        : {}),
-    };
+    return authoringController.assembleExportData(data, game, session, files);
   }
 
   const { openPowerUp, closePowerUp, submitPowerUp, updateAiConfig } = authoringController;

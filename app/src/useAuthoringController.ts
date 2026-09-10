@@ -81,6 +81,12 @@ export interface AuthoringController {
     agent: AgentHandler,
     sendDirection: (dir: number) => void,
   ): Promise<string>;
+  assembleExportData(
+    data: CachedGameData,
+    game: BootedGame,
+    session: AgentSession | null,
+    files: Record<string, Uint8Array>,
+  ): CachedGameData;
 }
 
 export function useAuthoringController(options: AuthoringControllerOptions): AuthoringController {
@@ -497,6 +503,37 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     }
   }
 
+  function assembleExportData(
+    data: CachedGameData,
+    game: BootedGame,
+    session: AgentSession | null,
+    files: Record<string, Uint8Array>,
+  ): CachedGameData {
+    return {
+      ...data,
+      files,
+      words: game.words,
+      roomGeneration: data.roomGeneration ?? false,
+      conversationHistory:
+        session &&
+        (data.provider !== session.getProviderContext().provider ||
+          data.model !== session.getProviderContext().model) &&
+        data.transcript?.length
+          ? [
+              ...(data.conversationHistory ?? []),
+              { provider: data.provider, model: data.model, transcript: data.transcript },
+            ]
+          : data.conversationHistory,
+      ...(session
+        ? {
+            transcript: session.getTranscript(),
+            authoringState: session.getAuthoringState(),
+            ...session.getProviderContext(),
+          }
+        : {}),
+    };
+  }
+
   return {
     openPowerUp,
     closePowerUp,
@@ -512,5 +549,6 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     setRemixNeedsSave,
     resetSession,
     handleRoomAuthoring,
+    assembleExportData,
   };
 }

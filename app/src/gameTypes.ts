@@ -82,3 +82,17 @@ export interface Frame {
   /** Text row where picture row 0 is presented. */
   picRow: number;
 }
+
+/** Decodes 40x25 [char, attr] text buffer into 25 display rows. */
+export function decodeTextRows(text: Uint8Array): string[] {
+  const rows: string[] = [];
+  for (let r = 0; r < 25; r++) {
+    let line = "";
+    for (let c = 0; c < 40; c++) {
+      const ch = text[(r * 40 + c) * 2]!;
+      line += ch === 0 ? " " : ch >= 0x80 ? "#" : String.fromCharCode(ch);
+    }
+    rows.push(line);
+  }
+  return rows;
+}
