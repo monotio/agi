@@ -13,13 +13,13 @@ const TARGET_HASHES = [
 for (const hash of TARGET_HASHES) {
   const missing = fixtureSkip(hash, ["AGIDATA.OVL"]);
   const known = getKnownGameByHash(hash);
-  const gameId = known?.id ?? hash.slice(0, 8);
+  const alias = known?.alias ?? hash.slice(0, 8);
   if (missing) {
-    process.stdout.write(`SKIP ${gameId}: ${missing}\n`);
+    process.stdout.write(`SKIP ${alias}: ${missing}\n`);
     continue;
   }
-  const target = resolve(`app/public/walkthroughs/${gameId}.json`);
-  process.stdout.write(`Generating walkthrough artifact for ${gameId} -> ${target}...\n`);
+  const target = resolve(`app/public/walkthroughs/${alias}.json`);
+  process.stdout.write(`Generating walkthrough artifact for ${alias} -> ${target}...\n`);
   execFileSync(
     process.execPath,
     ["--experimental-strip-types", "scripts/walkthrough.ts", hash, target],

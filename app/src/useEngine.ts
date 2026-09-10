@@ -730,7 +730,7 @@ export function useEngine(
       const known = await detectKnownGame(files);
       const revision = await gameRevision(files);
       const folder = match?.folder ?? hashOrAlias;
-      const gameId = known?.id ?? match?.gameId ?? hashOrAlias;
+      const gameId = known?.alias ?? match?.gameId ?? hashOrAlias;
       const title = known?.title ?? match?.title ?? folder.toUpperCase();
       const hash = match?.hash ?? target;
 
@@ -1770,7 +1770,7 @@ export function useEngine(
           const known = await detectKnownGame(cached.files);
           const revision = cached.library?.revision || (await gameRevision(cached.files));
           booted = {
-            gameId: cached.library?.gameId ?? known?.id ?? gameId,
+            gameId: cached.library?.gameId ?? known?.alias ?? gameId,
             title: cached.title ?? known?.title ?? title,
             revision,
             installed: false,
@@ -1819,7 +1819,7 @@ export function useEngine(
       const known = await detectKnownGame(files);
       const revision = await gameRevision(files);
       booted = {
-        gameId: known?.id ?? gameId,
+        gameId: known?.alias ?? gameId,
         title,
         revision,
         installed: false,

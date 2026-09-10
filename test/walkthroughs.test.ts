@@ -5,7 +5,7 @@ import { WALKTHROUGHS, runWalkthrough } from "./speedrun/walkthroughs.ts";
 
 for (const route of WALKTHROUGHS) {
   test(
-    `${route.gameId}: ${route.label} from two cold boots`,
+    `${route.alias}: ${route.label} from two cold boots`,
     {
       skip: fixtureSkip(route.hash, ["AGIDATA.OVL"]),
       timeout: 30_000,

@@ -53,7 +53,7 @@ export const OPENINGS: readonly Opening[] = Object.entries(OPENING_DETAILS).map(
     return {
       hash: known.wordsSha256,
       alias: known.alias,
-      gameId: known.id,
+      gameId: known.alias,
       profiles: details.profiles ?? [known.profile],
       titleRoom: details.titleRoom,
       ...(details.openingRoom !== undefined ? { openingRoom: details.openingRoom } : {}),

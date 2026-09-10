@@ -23,52 +23,55 @@ test("known games catalog is internally consistent and collision-free", () => {
   const wordsHashes = new Set<string>();
 
   for (const game of KNOWN_GAMES) {
-    assert.equal(game.alias, game.id, `game.alias matches game.id: ${game.alias}`);
     assert.ok(!aliases.has(game.alias), `Duplicate known game alias: ${game.alias}`);
     aliases.add(game.alias);
 
     assert.ok(
       !wordsHashes.has(game.wordsSha256),
-      `Collision on WORDS.TOK hash for ${game.id}: ${game.wordsSha256}`,
+      `Collision on WORDS.TOK hash for ${game.alias}: ${game.wordsSha256}`,
     );
     wordsHashes.add(game.wordsSha256);
 
-    assert.match(game.wordsSha256, hex64, `${game.id} wordsSha256 must be a 64-char hex string`);
-    assert.match(game.objectSha256, hex64, `${game.id} objectSha256 must be a 64-char hex string`);
+    assert.match(game.wordsSha256, hex64, `${game.alias} wordsSha256 must be a 64-char hex string`);
+    assert.match(
+      game.objectSha256,
+      hex64,
+      `${game.alias} objectSha256 must be a 64-char hex string`,
+    );
     if (game.targetRevision) {
       assert.match(
         game.targetRevision,
         hex64,
-        `${game.id} targetRevision must be a 64-char hex string`,
+        `${game.alias} targetRevision must be a 64-char hex string`,
       );
     }
 
-    if (KNOWN_WALKTHROUGHS[game.id]) {
-      assert.equal(KNOWN_WALKTHROUGHS[game.id]?.gameId, game.id);
+    if (KNOWN_WALKTHROUGHS[game.alias]) {
+      assert.equal(KNOWN_WALKTHROUGHS[game.alias]?.alias, game.alias);
     }
   }
 });
 
 test("detectKnownGameByHashes identifies games case-insensitively and avoids collisions", () => {
-  const mh1 = KNOWN_GAMES.find((g) => g.id === "mh1")!;
+  const mh1 = KNOWN_GAMES.find((g) => g.alias === "mh1")!;
   assert.ok(mh1);
 
   // Exact match
   const matchExact = detectKnownGameByHashes(mh1.wordsSha256, mh1.objectSha256);
-  assert.equal(matchExact?.id, "mh1");
+  assert.equal(matchExact?.alias, "mh1");
   assert.equal(matchExact?.title, "Manhunter: New York");
-  assert.equal(hasWalkthrough(matchExact?.id ?? ""), true);
+  assert.equal(hasWalkthrough(matchExact?.alias ?? ""), true);
 
   // Uppercase hash matching
   const matchUpper = detectKnownGameByHashes(
     mh1.wordsSha256.toUpperCase(),
     mh1.objectSha256.toUpperCase(),
   );
-  assert.equal(matchUpper?.id, "mh1");
+  assert.equal(matchUpper?.alias, "mh1");
 
   // Match without object hash
   const matchWordsOnly = detectKnownGameByHashes(mh1.wordsSha256);
-  assert.equal(matchWordsOnly?.id, "mh1");
+  assert.equal(matchWordsOnly?.alias, "mh1");
 
   // Mismatched object hash rejects
   const mismatchedObj = detectKnownGameByHashes(
@@ -87,9 +90,8 @@ test("detectKnownGameByHashes identifies games case-insensitively and avoids col
 test("getKnownGameByAlias, getKnownGameById and getKnownGameByRevision look up games accurately", () => {
   const kq1 = getKnownGameByAlias("kq1");
   assert.equal(kq1?.alias, "kq1");
-  assert.equal(kq1?.id, "kq1");
   assert.equal(getKnownGameByAlias("KQ1")?.alias, "kq1");
-  assert.equal(getKnownGameById("KQ1")?.id, "kq1");
+  assert.equal(getKnownGameById("KQ1")?.alias, "kq1");
   assert.equal(getKnownGameByAlias("nonexistent"), null);
 
   const mh1 = KNOWN_GAMES.find((g) => g.alias === "mh1")!;
@@ -114,7 +116,7 @@ test("hasWalkthrough and resolveWalkthrough resolve by game ID or content hashes
   assert.equal(resolveWalkthrough("unknown"), null);
 
   // By WORDS.TOK hash
-  const mh1 = KNOWN_GAMES.find((g) => g.id === "mh1")!;
+  const mh1 = KNOWN_GAMES.find((g) => g.alias === "mh1")!;
   assert.equal(hasWalkthrough(mh1.wordsSha256), true);
   assert.equal(resolveWalkthrough(mh1.wordsSha256), "mh1");
 
@@ -142,7 +144,7 @@ for (const targetHash of [KNOWN_GAME_HASH.MH1, KNOWN_GAME_HASH.KQ1, KNOWN_GAME_H
       assert.ok(detected, `Expected game to be detected from fixture files`);
       assert.equal(detected.wordsSha256, targetHash);
       assert.ok(detected.title.length > 0);
-      assert.equal(hasWalkthrough(detected.id), true);
+      assert.equal(hasWalkthrough(detected.alias), true);
     },
   );
 }

@@ -7,7 +7,6 @@ export type GameHash = string;
 
 export interface KnownAgiGame {
   readonly alias: string;
-  readonly id: string;
   readonly title: string;
   readonly author: string;
   readonly era: "v2-split" | "v3-combined";
@@ -40,7 +39,6 @@ export const KNOWN_GAME_HASH = {
 export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   {
     alias: "kq1",
-    id: "kq1",
     title: "King's Quest I: Quest for the Crown",
     author: "Roberta Williams (Sierra On-Line)",
     era: "v2-split",
@@ -53,7 +51,6 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   },
   {
     alias: "kq2",
-    id: "kq2",
     title: "King's Quest II: Romancing the Throne",
     author: "Roberta Williams (Sierra On-Line)",
     era: "v2-split",
@@ -66,7 +63,6 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   },
   {
     alias: "kq3",
-    id: "kq3",
     title: "King's Quest III: To Heir Is Human",
     author: "Roberta Williams (Sierra On-Line)",
     era: "v2-split",
@@ -77,7 +73,6 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   },
   {
     alias: "kq4",
-    id: "kq4",
     title: "King's Quest IV: The Perils of Rosella",
     author: "Roberta Williams (Sierra On-Line)",
     era: "v3-combined",
@@ -88,7 +83,6 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   },
   {
     alias: "sq1",
-    id: "sq1",
     title: "Space Quest I: The Sarien Encounter",
     author: "Mark Crowe, Scott Murphy (Sierra On-Line)",
     era: "v2-split",
@@ -101,7 +95,6 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   },
   {
     alias: "sq2",
-    id: "sq2",
     title: "Space Quest II: Vohaul's Revenge",
     author: "Mark Crowe, Scott Murphy (Sierra On-Line)",
     era: "v2-split",
@@ -112,7 +105,6 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   },
   {
     alias: "mh1",
-    id: "mh1",
     title: "Manhunter: New York",
     author: "Dave Murry, Barry Murry (Sierra On-Line)",
     era: "v3-combined",
@@ -125,7 +117,6 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   },
   {
     alias: "mh2",
-    id: "mh2",
     title: "Manhunter 2: San Francisco",
     author: "Dave Murry, Barry Murry (Sierra On-Line)",
     era: "v3-combined",
@@ -136,7 +127,6 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   },
   {
     alias: "pq1",
-    id: "pq1",
     title: "Police Quest: In Pursuit of the Death Angel",
     author: "Jim Walls (Sierra On-Line)",
     era: "v2-split",
@@ -147,7 +137,6 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   },
   {
     alias: "lsl1",
-    id: "lsl1",
     title: "Leisure Suit Larry in the Land of the Lounge Lizards",
     author: "Al Lowe (Sierra On-Line)",
     era: "v2-split",
@@ -158,7 +147,6 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   },
   {
     alias: "bc",
-    id: "bc",
     title: "The Black Cauldron",
     author: "Al Lowe (Sierra On-Line / Walt Disney)",
     era: "v2-split",
@@ -169,7 +157,6 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   },
   {
     alias: "gr1",
-    id: "gr1",
     title: "Gold Rush!",
     author: "Doug MacNeill, Ken MacNeill (Sierra On-Line)",
     era: "v3-combined",
@@ -180,7 +167,6 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   },
   {
     alias: "ddp",
-    id: "ddp",
     title: "Donald Duck's Playground",
     author: "Al Lowe (Sierra On-Line / Walt Disney)",
     era: "v2-split",
@@ -191,7 +177,6 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   },
   {
     alias: "mumg",
-    id: "mumg",
     title: "Mixed-Up Mother Goose",
     author: "Roberta Williams (Sierra On-Line)",
     era: "v2-split",
@@ -202,7 +187,6 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   },
   {
     alias: "demopac4",
-    id: "demopac4",
     title: "Sierra AGI Demo Pack 4",
     author: "Sierra On-Line",
     era: "v3-combined",

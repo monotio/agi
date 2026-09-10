@@ -4,7 +4,7 @@
 import type { ReplayAction } from "./replay.ts";
 import {
   KNOWN_GAMES,
-  getKnownGameById,
+  getKnownGameByAlias,
   getKnownGameByHash,
   getKnownGameByRevision,
   detectKnownGameByHashes,
@@ -23,6 +23,7 @@ export interface WalkthroughArtifact {
 }
 
 export interface WalkthroughMeta {
+  readonly alias: string;
   readonly gameId: string;
   readonly title: string;
   readonly label: string;
@@ -31,9 +32,10 @@ export interface WalkthroughMeta {
 
 export const KNOWN_WALKTHROUGHS: Record<string, WalkthroughMeta> = Object.fromEntries(
   KNOWN_GAMES.filter((g) => g.walkthroughLabel).map((g) => [
-    g.id,
+    g.alias,
     {
-      gameId: g.id,
+      alias: g.alias,
+      gameId: g.alias,
       title: g.title,
       label: g.walkthroughLabel!,
       coverage: g.walkthroughCoverage ?? "complete-game",
@@ -41,26 +43,26 @@ export const KNOWN_WALKTHROUGHS: Record<string, WalkthroughMeta> = Object.fromEn
   ]),
 );
 
-export function hasWalkthrough(hashOrId: string): boolean {
-  if (!hashOrId) return false;
-  const normalized = hashOrId.toLowerCase();
+export function hasWalkthrough(hashOrAlias: string): boolean {
+  if (!hashOrAlias) return false;
+  const normalized = hashOrAlias.toLowerCase();
   const known =
     getKnownGameByHash(normalized) ??
-    getKnownGameById(normalized) ??
+    getKnownGameByAlias(normalized) ??
     getKnownGameByRevision(normalized) ??
     detectKnownGameByHashes(normalized);
   return Boolean(known?.walkthroughLabel);
 }
 
-export function resolveWalkthrough(hashOrId: string): string | null {
-  if (!hashOrId) return null;
-  const normalized = hashOrId.toLowerCase();
+export function resolveWalkthrough(hashOrAlias: string): string | null {
+  if (!hashOrAlias) return null;
+  const normalized = hashOrAlias.toLowerCase();
   const known =
     getKnownGameByHash(normalized) ??
-    getKnownGameById(normalized) ??
+    getKnownGameByAlias(normalized) ??
     getKnownGameByRevision(normalized) ??
     detectKnownGameByHashes(normalized);
-  return known?.walkthroughLabel ? known.id : null;
+  return known?.walkthroughLabel ? known.alias : null;
 }
 
 export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact {

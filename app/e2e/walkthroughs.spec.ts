@@ -43,11 +43,11 @@ for (const phone of [false, true]) {
     });
 
     for (const route of WALKTHROUGHS) {
-      test(`${route.gameId}: ${route.label} through actual controls`, async ({ page }) => {
+      test(`${route.alias}: ${route.label} through actual controls`, async ({ page }) => {
         const unavailable = fixtureSkip(route.hash, ["AGIDATA.OVL"]);
         test.skip(Boolean(unavailable), unavailable || "");
         test.skip(
-          recording !== null && recording.game !== route.gameId,
+          recording !== null && recording.game !== route.alias,
           "Another walkthrough was selected by AGI_SPEEDRUN_FILE.",
         );
         test.setTimeout(15 * 60_000);
@@ -79,7 +79,7 @@ for (const phone of [false, true]) {
           body: Buffer.from(probePng.split(",")[1]!, "base64"),
           contentType: "image/png",
         });
-        await page.screenshot({ path: test.info().outputPath(`${route.gameId}-milestone.png`) });
+        await page.screenshot({ path: test.info().outputPath(`${route.alias}-milestone.png`) });
       });
     }
   });

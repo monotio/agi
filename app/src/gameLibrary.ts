@@ -35,7 +35,7 @@ export async function addLibraryGame(
   // claim the flag, so it counts only when the authoring context travels with it.
   const roomGeneration =
     source !== "catalog" && game.project !== undefined && game.roomGeneration === true;
-  const gameId = catalog ? `catalog-${catalog.id}` : known ? known.id : `imported-${revision}`;
+  const gameId = catalog ? `catalog-${catalog.id}` : known ? known.alias : `imported-${revision}`;
   const preferredId = catalog ? `${gameId}-${catalog.version}` : gameId;
   // Imported projects carry independent histories. Trusted catalog sources are repeatable fixtures.
   if (!game.project || source === "catalog") {

@@ -98,7 +98,7 @@ export function walkthrough(hashOrAlias: string): Walkthrough {
   );
   assert.ok(
     entry,
-    `Unknown walkthrough ${hashOrAlias}; choose ${WALKTHROUGHS.map((route) => route.gameId).join(", ")}`,
+    `Unknown walkthrough ${hashOrAlias}; choose ${WALKTHROUGHS.map((route) => route.alias).join(", ")}`,
   );
   return entry;
 }
@@ -109,8 +109,8 @@ export function verifyWalkthrough(
 ): void {
   const expected = route.expected;
   assert.ok(
-    opening(route.gameId).profiles.includes(state.profile),
-    `${route.gameId}: supported interpreter profile`,
+    opening(route.alias).profiles.includes(state.profile),
+    `${route.alias}: supported interpreter profile`,
   );
   assert.equal(state.room, expected.room, route.label);
   if (expected.score !== undefined) assert.equal(state.vars[3], expected.score, "milestone score");

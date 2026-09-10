@@ -5,7 +5,7 @@ import { join } from "node:path";
 import {
   KNOWN_GAME_HASH,
   getKnownGameByHash,
-  getKnownGameById,
+  getKnownGameByAlias,
   resolveGameHash,
   type GameHash,
   type KnownAgiGame,
@@ -230,7 +230,7 @@ export function fixtureSkip(
   const dir = fixture ? fixture.dir : fixtureDir(hashOrKey);
   const onDisk = fixtureFiles(hashOrKey);
   if (!existsSync(dir) || !onDisk) {
-    const known = getKnownGameByHash(hashOrKey) ?? getKnownGameById(hashOrKey);
+    const known = getKnownGameByHash(hashOrKey) ?? getKnownGameByAlias(hashOrKey);
     const label = known ? `${known.title} (${known.wordsSha256})` : `games/${hashOrKey}/`;
     return `Place your own game files in ${label} to run this test.`;
   }
