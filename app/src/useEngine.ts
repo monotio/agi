@@ -1,5 +1,3 @@
-import type { EngineReplayState } from "../../src/runtime/replayState.ts";
-import type { RecordedOperation } from "../../src/agent/recordedReplay.ts";
 import type { AgentRunState } from "./agent/agentRun.ts";
 import { reactive } from "vue";
 import type { GameControlBinding, EngineMenuState } from "../../src/runtime/engine.ts";
@@ -18,18 +16,11 @@ import {
   type WalkthroughUiState,
 } from "./useWalkthroughController.ts";
 import { useInputController } from "./useInputController.ts";
+import { useTestRecorder } from "./useTestRecorder.ts";
 import { createBridge, type AgentHandler, type Bridge } from "./agent/sabBridge.ts";
 import { AgentSession } from "./agent/agentSession.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import type { AgentFrame, FrameRequest } from "../../src/agent/frames.ts";
-import { executeAgentTool } from "../../src/agent/tools.ts";
-import {
-  buildRecordedTest,
-  type AssertionSuggestion,
-  type RecordedEvent,
-  type RecorderStateSnapshot,
-  type RecordingSnapshot,
-} from "./gameRecording.ts";
 import type { RingFrame } from "./frameRing.ts";
 import { AgiAudio, type AudioMode } from "./audio/AgiAudio.ts";
 import { useAudioController, type AudioController } from "./audio/useAudioController.ts";
@@ -122,6 +113,19 @@ export interface CurrentGame {
   readonly alias?: string | undefined;
   readonly projectId?: ProjectId | undefined;
   readonly folder?: string | undefined;
+}
+
+export interface BootedGame {
+  readonly installed: boolean;
+  readonly title: string;
+  readonly revision: string;
+  files: Record<string, Uint8Array>;
+  words: [string, number][];
+  readonly hash?: string | undefined;
+  readonly alias?: string | undefined;
+  readonly folder?: string | undefined;
+  readonly projectId?: ProjectId | undefined;
+  authoredGame?: CachedGameData | undefined;
 }
 
 export function findInstalledFolder(
@@ -350,18 +354,7 @@ export function useEngine(
   const currentSessionAgent: AgentHandler = {
     handle: async (request) => session?.handle(request) ?? "",
   };
-  let booted: {
-    readonly installed: boolean;
-    readonly title: string;
-    readonly revision: string;
-    files: Record<string, Uint8Array>;
-    words: [string, number][];
-    readonly hash?: string | undefined;
-    readonly alias?: string | undefined;
-    readonly folder?: string | undefined;
-    readonly projectId?: ProjectId | undefined;
-    authoredGame?: CachedGameData | undefined;
-  } | null = null;
+  let booted: BootedGame | null = null;
   interface PendingQuery {
     resolve: (value: unknown) => void;
     reject: (err: Error) => void;
@@ -488,6 +481,23 @@ export function useEngine(
     getActiveWalkthroughSession: () => activeWalkthroughSession,
   });
 
+  const testRecorder = useTestRecorder({
+    state,
+    getWorker: () => worker,
+    query,
+    logAgent,
+    getBootedGame: () => booted,
+    getOrCreateSession: async (game, config) => {
+      if (!session) session = await createGameSession(game, config);
+      return session;
+    },
+    markRemixNeedsSave: () => {
+      remixNeedsSave = true;
+    },
+    persistRemix,
+    flushAutosave,
+  });
+
   const hook: TextHook = {
     rows: [],
     modal: null,
@@ -513,8 +523,6 @@ export function useEngine(
   let lastAutosave: AutosaveRecord | null = null;
   let autosaveWrite: Promise<boolean> = Promise.resolve(true);
   let remixNeedsSave = false;
-  /** Record-start capture of the active game-test recording, if one is running. */
-  let recordingStart: RecordingSnapshot["start"] | null = null;
   /** Resolvers waiting for the worker to acknowledge a flush request. */
   const flushWaiters = new Map<number, (saved: boolean) => void>();
 
@@ -813,10 +821,7 @@ export function useEngine(
     lastAutosave = null;
     state.powerUp.open = false;
     state.powerUp.busy = false;
-    recordingStart = null;
-    state.recording.active = false;
-    state.recording.starting = false;
-    state.recording.error = "";
+    testRecorder.reset();
     state.walkthrough.error = "";
     audio.setPaused(false);
     state.paused = false;
@@ -1934,139 +1939,8 @@ export function useEngine(
 
   const { sendInput, sendEdit, sendDirection, sendKey } = input;
 
-  /**
-   * Start capturing player actions for a stored game test. The worker takes
-   * the record-start save image at a safe cycle boundary and stamps every
-   * later action with the interpreter cycle; refusal (an open window, a text
-   * screen, a blocking prompt) lands in state.recording.error.
-   */
-  async function startTestRecording(): Promise<void> {
-    state.recording.error = "";
-    if (!worker || state.phase !== "running") return;
-    if (
-      state.powerUp.open ||
-      state.powerUp.busy ||
-      state.modal !== null ||
-      state.prompt !== null ||
-      state.waitingForKey
-    ) {
-      state.recording.error =
-        "Close the open window, prompt or assistant before recording a game test.";
-      return;
-    }
-    state.recording.starting = true;
-    try {
-      const reply = await query<{
-        ok: boolean;
-        image?: string;
-        replayState?: EngineReplayState;
-        cycle?: number;
-        state?: RecorderStateSnapshot;
-        error?: string;
-      }>("startRecording");
-      if (
-        !reply.ok ||
-        !reply.image ||
-        !reply.replayState ||
-        reply.cycle === undefined ||
-        !reply.state
-      ) {
-        state.recording.error = String(reply.error ?? "Recording could not start.");
-        return;
-      }
-      recordingStart = {
-        image: reply.image,
-        cycle: reply.cycle,
-        state: reply.state,
-        replayState: reply.replayState,
-      };
-      state.recording.active = true;
-      logAgent("log", `Recording a game test from room ${reply.state.room}, cycle ${reply.cycle}.`);
-    } finally {
-      state.recording.starting = false;
-    }
-  }
-
-  /** Stop capturing and return everything the worker recorded, or null. */
-  async function stopTestRecording(): Promise<RecordingSnapshot | null> {
-    if (!state.recording.active || !recordingStart) return null;
-    const reply = await query<{
-      operations?: RecordedOperation[];
-      events?: RecordedEvent[];
-      printed?: string[];
-      tainted?: string | null;
-      usedGetnum?: boolean;
-      cycle?: number;
-      state?: RecorderStateSnapshot | null;
-    }>("stopRecording");
-    state.recording.active = false;
-    const start = recordingStart;
-    recordingStart = null;
-    if (!reply.state || reply.cycle === undefined) return null;
-    return {
-      start,
-      operations: reply.operations ?? [],
-      events: reply.events ?? [],
-      printed: reply.printed ?? [],
-      endState: reply.state,
-      endCycle: reply.cycle,
-      tainted: reply.tainted ?? null,
-      usedGetnum: Boolean(reply.usedGetnum),
-    };
-  }
-
-  /** Discard the active recording without saving anything. */
-  function cancelTestRecording(): void {
-    if (!state.recording.active) return;
-    worker?.postMessage({ type: "cancelRecording" });
-    state.recording.active = false;
-    recordingStart = null;
-    logAgent("log", "Game test recording discarded.");
-  }
-
-  /**
-   * Store a recorded test through the SAME write path write_game_tests uses
-   * (validation, dictionary probe, TESTS.JSON serialization), then ship and
-   * persist the updated file exactly like a remix. On an installed or catalog
-   * game this is the established remix conversion: the project becomes a
-   * writable project copy, since originals cannot store tests.
-   */
-  async function saveRecordedTest(
-    snapshot: RecordingSnapshot,
-    name: string,
-    selected: readonly AssertionSuggestion[],
-    config: LlmConfig,
-  ): Promise<{ ok: boolean; message: string }> {
-    const game = booted;
-    if (!game || !worker) return { ok: false, message: "No game is running." };
-    if (snapshot.tainted) return { ok: false, message: snapshot.tainted };
-    if (!session) {
-      session = await createGameSession(game, config);
-    }
-    const author = session;
-    const result = executeAgentTool(author.state, "write_game_tests", {
-      mode: "merge",
-      names: null,
-      tests: [buildRecordedTest(name, snapshot, selected)],
-    });
-    if (!result.success)
-      return { ok: false, message: result.error ?? "The recorded test was rejected." };
-    remixNeedsSave = true;
-    worker.postMessage({
-      type: "patchMetadata",
-      files: { "TESTS.JSON": new Uint8Array(author.state.testsPayload!) },
-    });
-    const files = await query<Record<string, Uint8Array> | null>("exportFiles");
-    if (!files || booted !== game)
-      return { ok: false, message: "The game changed while saving the recording. Try again." };
-    await persistRemix(game, author, files);
-    await flushAutosave(2000);
-    logAgent("response", `[Record] ${result.message}`, {
-      tool: "write_game_tests",
-      args: { name },
-    });
-    return { ok: true, message: result.message ?? "Recorded test stored." };
-  }
+  const { startTestRecording, stopTestRecording, cancelTestRecording, saveRecordedTest } =
+    testRecorder;
 
   const { toggleMute, setAudioMode, setAudioVolume, resumeAudio } = useAudioController(
     audio,
