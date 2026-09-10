@@ -38,7 +38,7 @@ export interface LoadGameOptions extends Pick<FixtureRequirements, "checkVolumes
  * Games whose resources are assembled by project code (KnownAgiGame.builtin)
  * rather than stored under games/. Keyed by wordsSha256 and by alias.
  */
-const BUILTIN_GAME_BUILDERS: Record<
+export const BUILTIN_GAME_BUILDERS: Record<
   string,
   () => { files: Record<string, Uint8Array>; words: [string, number][] }
 > = {
