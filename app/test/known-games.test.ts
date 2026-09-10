@@ -6,6 +6,7 @@ import {
   KNOWN_GAMES,
   detectKnownGame,
   detectKnownGameByHashes,
+  getKnownGameByAlias,
   getKnownGameById,
   getKnownGameByRevision,
 } from "../src/knownGames.ts";
@@ -18,12 +19,13 @@ installIndexedDbFixture();
 
 test("known games catalog is internally consistent and collision-free", () => {
   const hex64 = /^[0-9a-f]{64}$/;
-  const ids = new Set<string>();
+  const aliases = new Set<string>();
   const wordsHashes = new Set<string>();
 
   for (const game of KNOWN_GAMES) {
-    assert.ok(!ids.has(game.id), `Duplicate known game id: ${game.id}`);
-    ids.add(game.id);
+    assert.equal(game.alias, game.id, `game.alias matches game.id: ${game.alias}`);
+    assert.ok(!aliases.has(game.alias), `Duplicate known game alias: ${game.alias}`);
+    aliases.add(game.alias);
 
     assert.ok(
       !wordsHashes.has(game.wordsSha256),
@@ -82,17 +84,19 @@ test("detectKnownGameByHashes identifies games case-insensitively and avoids col
   assert.equal(unknown, null);
 });
 
-test("getKnownGameById and getKnownGameByRevision look up games accurately", () => {
-  const kq1 = getKnownGameById("kq1");
+test("getKnownGameByAlias, getKnownGameById and getKnownGameByRevision look up games accurately", () => {
+  const kq1 = getKnownGameByAlias("kq1");
+  assert.equal(kq1?.alias, "kq1");
   assert.equal(kq1?.id, "kq1");
+  assert.equal(getKnownGameByAlias("KQ1")?.alias, "kq1");
   assert.equal(getKnownGameById("KQ1")?.id, "kq1");
-  assert.equal(getKnownGameById("nonexistent"), null);
+  assert.equal(getKnownGameByAlias("nonexistent"), null);
 
-  const mh1 = KNOWN_GAMES.find((g) => g.id === "mh1")!;
+  const mh1 = KNOWN_GAMES.find((g) => g.alias === "mh1")!;
   if (mh1.targetRevision) {
     const byRev = getKnownGameByRevision(mh1.targetRevision);
-    assert.equal(byRev?.id, "mh1");
-    assert.equal(getKnownGameByRevision(mh1.targetRevision.toUpperCase())?.id, "mh1");
+    assert.equal(byRev?.alias, "mh1");
+    assert.equal(getKnownGameByRevision(mh1.targetRevision.toUpperCase())?.alias, "mh1");
   }
   assert.equal(getKnownGameByRevision("0000000000000000000000000000000000000000"), null);
 });

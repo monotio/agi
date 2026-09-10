@@ -12,6 +12,7 @@ import { KNOWN_GAME_HASH, resolveGameHash } from "../../src/games/knownGames.ts"
 
 export interface Opening {
   readonly hash: string;
+  readonly alias: string;
   readonly gameId: string;
   /** Supported profiles selected from the supplied interpreter binary. */
   readonly profiles: readonly string[];
@@ -22,32 +23,78 @@ export interface Opening {
 }
 
 export const OPENINGS: readonly Opening[] = [
-  { hash: KNOWN_GAME_HASH.BC, gameId: "bc", profiles: ["2.440"], titleRoom: 67, openingRoom: 8 },
+  {
+    hash: KNOWN_GAME_HASH.BC,
+    alias: "bc",
+    gameId: "bc",
+    profiles: ["2.440"],
+    titleRoom: 67,
+    openingRoom: 8,
+  },
   {
     hash: KNOWN_GAME_HASH.DDP,
+    alias: "ddp",
     gameId: "ddp",
     profiles: ["2.272", "2.440"],
     titleRoom: 1,
   },
-  { hash: KNOWN_GAME_HASH.DEMOPAC4, gameId: "demopac4", profiles: ["3.002.102"], titleRoom: 1 },
-  { hash: KNOWN_GAME_HASH.GR1, gameId: "gr1", profiles: ["3.002.149"], titleRoom: 129 },
-  { hash: KNOWN_GAME_HASH.KQ1, gameId: "kq1", profiles: ["2.917"], titleRoom: 83 },
-  { hash: KNOWN_GAME_HASH.KQ2, gameId: "kq2", profiles: ["2.411"], titleRoom: 97 },
-  { hash: KNOWN_GAME_HASH.KQ3, gameId: "kq3", profiles: ["2.936"], titleRoom: 45 },
-  { hash: KNOWN_GAME_HASH.KQ4, gameId: "kq4", profiles: ["3.002.086"], titleRoom: 140 },
-  { hash: KNOWN_GAME_HASH.LSL1, gameId: "lsl1", profiles: ["2.440"], titleRoom: 1 },
-  { hash: KNOWN_GAME_HASH.MH1, gameId: "mh1", profiles: ["3.002.102"], titleRoom: 153 },
-  { hash: KNOWN_GAME_HASH.MH2, gameId: "mh2", profiles: ["3.002.149"], titleRoom: 153 },
+  {
+    hash: KNOWN_GAME_HASH.DEMOPAC4,
+    alias: "demopac4",
+    gameId: "demopac4",
+    profiles: ["3.002.102"],
+    titleRoom: 1,
+  },
+  {
+    hash: KNOWN_GAME_HASH.GR1,
+    alias: "gr1",
+    gameId: "gr1",
+    profiles: ["3.002.149"],
+    titleRoom: 129,
+  },
+  { hash: KNOWN_GAME_HASH.KQ1, alias: "kq1", gameId: "kq1", profiles: ["2.917"], titleRoom: 83 },
+  { hash: KNOWN_GAME_HASH.KQ2, alias: "kq2", gameId: "kq2", profiles: ["2.411"], titleRoom: 97 },
+  { hash: KNOWN_GAME_HASH.KQ3, alias: "kq3", gameId: "kq3", profiles: ["2.936"], titleRoom: 45 },
+  {
+    hash: KNOWN_GAME_HASH.KQ4,
+    alias: "kq4",
+    gameId: "kq4",
+    profiles: ["3.002.086"],
+    titleRoom: 140,
+  },
+  { hash: KNOWN_GAME_HASH.LSL1, alias: "lsl1", gameId: "lsl1", profiles: ["2.440"], titleRoom: 1 },
+  {
+    hash: KNOWN_GAME_HASH.MH1,
+    alias: "mh1",
+    gameId: "mh1",
+    profiles: ["3.002.102"],
+    titleRoom: 153,
+  },
+  {
+    hash: KNOWN_GAME_HASH.MH2,
+    alias: "mh2",
+    gameId: "mh2",
+    profiles: ["3.002.149"],
+    titleRoom: 153,
+  },
   {
     hash: KNOWN_GAME_HASH.MUMG,
+    alias: "mumg",
     gameId: "mumg",
     profiles: ["2.917"],
     titleRoom: 96,
     openingRoom: 32,
   },
-  { hash: KNOWN_GAME_HASH.PQ1, gameId: "pq1", profiles: ["2.936"], titleRoom: 1 },
-  { hash: KNOWN_GAME_HASH.SQ1, gameId: "sq1", profiles: ["2.917"], titleRoom: 67 },
-  { hash: KNOWN_GAME_HASH.SQ2, gameId: "sq2", profiles: ["2.936"], titleRoom: 140, openingRoom: 2 },
+  { hash: KNOWN_GAME_HASH.PQ1, alias: "pq1", gameId: "pq1", profiles: ["2.936"], titleRoom: 1 },
+  { hash: KNOWN_GAME_HASH.SQ1, alias: "sq1", gameId: "sq1", profiles: ["2.917"], titleRoom: 67 },
+  {
+    hash: KNOWN_GAME_HASH.SQ2,
+    alias: "sq2",
+    gameId: "sq2",
+    profiles: ["2.936"],
+    titleRoom: 140,
+    openingRoom: 2,
+  },
 ];
 
 /** Catalog entry for one fixture, resolved by content hash or alias. */
@@ -55,7 +102,7 @@ export function opening(hashOrAlias: string): Opening {
   const norm = hashOrAlias.toLowerCase();
   const resolved = resolveGameHash(norm) ?? norm;
   const entry = OPENINGS.find(
-    (game) => game.hash.toLowerCase() === resolved || game.gameId.toLowerCase() === norm,
+    (game) => game.hash.toLowerCase() === resolved || game.alias.toLowerCase() === norm,
   );
   assert.ok(entry, `unknown opening fixture ${hashOrAlias}`);
   return entry;

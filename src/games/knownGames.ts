@@ -6,6 +6,7 @@
 export type GameHash = string;
 
 export interface KnownAgiGame {
+  readonly alias: string;
   readonly id: string;
   readonly title: string;
   readonly author: string;
@@ -38,6 +39,7 @@ export const KNOWN_GAME_HASH = {
 
 export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   {
+    alias: "kq1",
     id: "kq1",
     title: "King's Quest I: Quest for the Crown",
     author: "Roberta Williams (Sierra On-Line)",
@@ -50,6 +52,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     walkthroughCoverage: "complete-game",
   },
   {
+    alias: "kq2",
     id: "kq2",
     title: "King's Quest II: Romancing the Throne",
     author: "Roberta Williams (Sierra On-Line)",
@@ -62,6 +65,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     walkthroughCoverage: "complete-game",
   },
   {
+    alias: "kq3",
     id: "kq3",
     title: "King's Quest III: To Heir Is Human",
     author: "Roberta Williams (Sierra On-Line)",
@@ -72,6 +76,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: "fcb5fc83e2b4844d38aa5c0fcfcc291b6e41a97df2015aacad85b7f42b73a399",
   },
   {
+    alias: "kq4",
     id: "kq4",
     title: "King's Quest IV: The Perils of Rosella",
     author: "Roberta Williams (Sierra On-Line)",
@@ -82,6 +87,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: "ad3bef3648923e5082ef5b5f318aa47e3afd47c5492b60d69705b441bbb074f9",
   },
   {
+    alias: "sq1",
     id: "sq1",
     title: "Space Quest I: The Sarien Encounter",
     author: "Mark Crowe, Scott Murphy (Sierra On-Line)",
@@ -94,6 +100,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     walkthroughCoverage: "complete-game",
   },
   {
+    alias: "sq2",
     id: "sq2",
     title: "Space Quest II: Vohaul's Revenge",
     author: "Mark Crowe, Scott Murphy (Sierra On-Line)",
@@ -104,6 +111,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: "90b7a965bf889351bb79340ca710ce4abf1eae1777c8e10de409d40263df7cbb",
   },
   {
+    alias: "mh1",
     id: "mh1",
     title: "Manhunter: New York",
     author: "Dave Murry, Barry Murry (Sierra On-Line)",
@@ -116,6 +124,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     walkthroughCoverage: "chapter",
   },
   {
+    alias: "mh2",
     id: "mh2",
     title: "Manhunter 2: San Francisco",
     author: "Dave Murry, Barry Murry (Sierra On-Line)",
@@ -126,6 +135,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: "eea0ebc7f22ef50d2fc4f7c3557622f6331242ab1b8152a57badf855d761dd60",
   },
   {
+    alias: "pq1",
     id: "pq1",
     title: "Police Quest: In Pursuit of the Death Angel",
     author: "Jim Walls (Sierra On-Line)",
@@ -136,6 +146,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: "cb643573c06cb9799fa2c08fcf4eec77db3a2102d07b199a6703a0d49c5164b3",
   },
   {
+    alias: "lsl1",
     id: "lsl1",
     title: "Leisure Suit Larry in the Land of the Lounge Lizards",
     author: "Al Lowe (Sierra On-Line)",
@@ -146,6 +157,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: "2e604e7968796317b407bd87708e75f985b43737f2677e09591191af100cd470",
   },
   {
+    alias: "bc",
     id: "bc",
     title: "The Black Cauldron",
     author: "Al Lowe (Sierra On-Line / Walt Disney)",
@@ -156,6 +168,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: "76a1c27b07d3c22cd336aaa69838fb3f35bce1bf6c7851e4f72c2b225bd051ef",
   },
   {
+    alias: "gr1",
     id: "gr1",
     title: "Gold Rush!",
     author: "Doug MacNeill, Ken MacNeill (Sierra On-Line)",
@@ -166,6 +179,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: "0be9505e2a9582c5fe99347acc5713459bab81fb65063bcc46985fd5c49d8433",
   },
   {
+    alias: "ddp",
     id: "ddp",
     title: "Donald Duck's Playground",
     author: "Al Lowe (Sierra On-Line / Walt Disney)",
@@ -176,6 +190,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: "4ae970dd2e680033206d042b0fddf295ae91b29e6bd303d8c0cfc9635c766a15",
   },
   {
+    alias: "mumg",
     id: "mumg",
     title: "Mixed-Up Mother Goose",
     author: "Roberta Williams (Sierra On-Line)",
@@ -186,6 +201,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: "0c20e2c06cf48a1738b76f3dd82753967f50ec2f635dfe2f91b524857301cfba",
   },
   {
+    alias: "demopac4",
     id: "demopac4",
     title: "Sierra AGI Demo Pack 4",
     author: "Sierra On-Line",
@@ -197,7 +213,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   },
 ];
 
-const BY_ID = new Map<string, KnownAgiGame>(KNOWN_GAMES.map((g) => [g.id.toLowerCase(), g]));
+const BY_ALIAS = new Map<string, KnownAgiGame>(KNOWN_GAMES.map((g) => [g.alias.toLowerCase(), g]));
 const BY_WORDS_HASH = new Map<string, KnownAgiGame>(
   KNOWN_GAMES.map((g) => [g.wordsSha256.toLowerCase(), g]),
 );
@@ -207,9 +223,14 @@ const BY_REVISION = new Map<string, KnownAgiGame>(
   ).map((g) => [g.targetRevision.toLowerCase(), g]),
 );
 
-/** Look up a known game by its canonical ID (e.g. "mh1", "kq1"). */
+/** Look up a known game by its human-friendly alias (e.g. "mh1", "kq1"). */
+export function getKnownGameByAlias(alias: string): KnownAgiGame | null {
+  return BY_ALIAS.get(alias.toLowerCase()) ?? null;
+}
+
+/** Look up a known game by its canonical ID/alias (compatibility helper). */
 export function getKnownGameById(id: string): KnownAgiGame | null {
-  return BY_ID.get(id.toLowerCase()) ?? null;
+  return getKnownGameByAlias(id);
 }
 
 /** Look up a known game by content hash (WORDS.TOK hash or bundle revision). */
@@ -243,8 +264,8 @@ export function detectKnownGameByHashes(
 export function resolveGameHash(aliasOrHash: string): GameHash | null {
   if (!aliasOrHash) return null;
   const norm = aliasOrHash.toLowerCase().trim();
-  const byId = getKnownGameById(norm);
-  if (byId) return byId.wordsSha256;
+  const byAlias = getKnownGameByAlias(norm);
+  if (byAlias) return byAlias.wordsSha256;
   const byHash = getKnownGameByHash(norm);
   if (byHash) return byHash.wordsSha256;
   if (/^[0-9a-f]{64}$/i.test(norm)) return norm;

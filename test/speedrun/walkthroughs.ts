@@ -16,6 +16,7 @@ export interface WalkthroughOutcome {
 }
 export interface Walkthrough {
   hash: string;
+  alias: string;
   gameId: string;
   label: string;
   coverage: "complete-game" | "chapter" | "partial";
@@ -36,6 +37,7 @@ export interface Walkthrough {
 export const WALKTHROUGHS: readonly Walkthrough[] = [
   {
     hash: KNOWN_GAME_HASH.KQ1,
+    alias: "kq1",
     gameId: "kq1",
     label: "completed throne-room ending",
     coverage: "complete-game",
@@ -51,6 +53,7 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
   },
   {
     hash: KNOWN_GAME_HASH.MH1,
+    alias: "mh1",
     gameId: "mh1",
     label: "Day 1 completed",
     coverage: "chapter",
@@ -60,6 +63,7 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
   },
   {
     hash: KNOWN_GAME_HASH.KQ2,
+    alias: "kq2",
     gameId: "kq2",
     label: "completed wedding and ending credits with maximum score",
     coverage: "complete-game",
@@ -72,6 +76,7 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
   },
   {
     hash: KNOWN_GAME_HASH.SQ1,
+    alias: "sq1",
     gameId: "sq1",
     label: "completed ceremony and ending credits with maximum score",
     coverage: "complete-game",
@@ -89,7 +94,7 @@ export function walkthrough(hashOrAlias: string): Walkthrough {
   const norm = hashOrAlias.toLowerCase();
   const resolved = resolveGameHash(norm) ?? norm;
   const entry = WALKTHROUGHS.find(
-    (route) => route.hash.toLowerCase() === resolved || route.gameId.toLowerCase() === norm,
+    (route) => route.hash.toLowerCase() === resolved || route.alias.toLowerCase() === norm,
   );
   assert.ok(
     entry,
@@ -127,7 +132,7 @@ export function verifyWalkthrough(
 }
 
 export function runWalkthrough(route: Walkthrough, run = new Speedrun(route.hash, 1)): Speedrun {
-  assert.ok(run.gameId === route.gameId || run.gameId === route.hash, "walkthrough fixture");
+  assert.equal(run.hash, route.hash, "walkthrough fixture hash");
   route.route(run);
   verifyWalkthrough(route, {
     state: run.engine.readState(),

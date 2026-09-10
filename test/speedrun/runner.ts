@@ -4,7 +4,13 @@ import { Engine, type EngineHost } from "../../src/runtime/engine.ts";
 import { CycleClock } from "../../src/runtime/cycleClock.ts";
 import { detectProfile } from "../../src/runtime/profile.ts";
 import { DIRECTION_KEYS, directionForDelta, randomSource } from "../../src/agent/gameTestSteps.ts";
-import { KNOWN_GAME_HASH } from "../fixtures.ts";
+import {
+  KNOWN_GAME_HASH,
+  resolveGameHash,
+  getKnownGameByHash,
+  getKnownGameByAlias,
+  type GameHash,
+} from "../../src/games/knownGames.ts";
 import { loadGame } from "../game-fixture.ts";
 import {
   walkPlanned,
@@ -55,7 +61,11 @@ export class Speedrun {
   /** get.num prompts with the input row's text at prompt time. */
   readonly numPrompts: { prompt: string; row: number; room: number; rowText: string }[] = [];
   readonly seed: number;
-  readonly gameId: string;
+  readonly hash: GameHash;
+  readonly alias?: string | undefined;
+  get gameId(): string {
+    return this.alias ?? this.hash;
+  }
   readonly dwellModals: boolean;
   ticks = 0;
   cycles = 0;
@@ -66,15 +76,18 @@ export class Speedrun {
   private readonly numAnswers: number[] = [];
 
   constructor(
-    gameId: string = KNOWN_GAME_HASH.KQ1,
+    game: string = KNOWN_GAME_HASH.KQ1,
     seed = 1,
     load: { checkVolumes?: boolean; maxTicks?: number; dwellModals?: boolean } = {},
   ) {
     this.seed = seed;
-    this.gameId = gameId;
+    const resolved = resolveGameHash(game);
+    const known = resolved ? getKnownGameByHash(resolved) : getKnownGameByAlias(game);
+    this.hash = resolved ?? (known ? known.wordsSha256 : game);
+    this.alias = known?.alias;
     this.dwellModals = load.dwellModals ?? false;
     this.maxTicks = load.maxTicks ?? 500_000;
-    const { container, dict, files } = loadGame(gameId, {
+    const { container, dict, files } = loadGame(this.hash, {
       interpreterFiles: true,
       ...(load.checkVolumes === undefined ? {} : { checkVolumes: load.checkVolumes }),
     });
@@ -168,10 +181,7 @@ export class Speedrun {
         this.engine.tick();
         this.cycles++;
       }
-      if (
-        (this.gameId === "kq1" || this.gameId === KNOWN_GAME_HASH.KQ1) &&
-        this.engine.flags[63] !== 0
-      )
+      if (this.hash === KNOWN_GAME_HASH.KQ1 && this.engine.flags[63] !== 0)
         assert.fail(`Graham died: ${JSON.stringify(this.state())}`);
     }
   }
