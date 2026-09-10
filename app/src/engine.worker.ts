@@ -1182,8 +1182,14 @@ self.onmessage = (ev: MessageEvent) => {
       const dir = Number(msg.dir) & 0xff;
       if (dir === 0) {
         // The main thread captures the gate even while save/restore blocks us.
-        const eligible =
-          typeof msg.releaseEligible === "boolean" ? msg.releaseEligible : engine.releaseGate !== 0;
+        // In replay the tape's ordering is exact, so the engine's own gate is
+        // truth; the mirrored holdToMove goes stale while frames are
+        // suppressed during seeking.
+        const eligible = replay
+          ? engine.releaseGate !== 0
+          : typeof msg.releaseEligible === "boolean"
+            ? msg.releaseEligible
+            : engine.releaseGate !== 0;
         if (eligible && deferredMovement.length < 19) deferredMovement.push(0);
         if (eligible) recordEvent({ cycle: cycleCount, kind: "release" });
         flushDeferredMovement();
