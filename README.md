@@ -35,6 +35,16 @@ keeps the catalog original intact; **Game actions → Project** includes the tut
 editable logic, picture, view and sound sources. The exported AGI game can also run
 offline in a compatible interpreter. Loading this website itself still needs
 a connection; it is not yet an installable offline app.
+
+**Watch a playthrough** runs a recorded completion on the real interpreter —
+every keystroke replayed on the game's own clock, nothing pre-recorded or
+faked. The transport under the screen offers pause, speed, a scrubbable
+timeline with named checkpoints, and a story-pause toggle that waits at
+dialogue; **Take control** hands the running game to you at any point. The
+tutorial ships with a walkthrough, and verified Sierra releases get one when
+you import your own copy; each recording is bound to the exact game edition it
+was captured on, so it refuses to play against a different build.
+
 The built-in catalog includes Adventure Department 1.0.0. To include more games
 on your own site, put their resources in public folders and list them in
 `catalog.json`; visitors play them directly from the gallery without importing

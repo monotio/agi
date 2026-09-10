@@ -84,6 +84,39 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
     requiresAnswer: true,
   },
   {
+    hash: KNOWN_GAME_HASH.ADVENTURE_DEPARTMENT,
+    alias: "adventure-department",
+    label: "repaired all three exhibits and graduated",
+    coverage: "complete-game",
+    route: (run) => {
+      run.wait(() => run.state().room === 1, "boot into the gallery", 300);
+      // Picture Gallery: the frame's posn() box is x 45–110, y 112–167.
+      run.checkpoint("Picture Gallery", { room: 1, score: 0 });
+      run.walkTo(77, 140);
+      run.command("paint mural");
+      run.checkpoint("Mural painted", { room: 1, score: 10 });
+      run.command("east");
+      // Sprite Lab: the doorway drops ego inside the lever's box (x 8–52).
+      run.checkpoint("Sprite Lab", { room: 2, score: 10 });
+      run.command("pull lever");
+      // The lever's end.of.loop runs ~16 cycles, then f34 prints the result.
+      run.advance(24);
+      run.dismiss();
+      run.checkpoint("Robot awake", { room: 2, score: 20 });
+      run.command("east");
+      // Priority Archive: show the depth numbers, then fix Felix's.
+      run.checkpoint("Priority Archive", { room: 3, score: 20 });
+      run.command("show priority");
+      run.command("fix priority");
+      run.checkpoint("Graduated", { room: 3, score: 30 });
+    },
+    expected: {
+      room: 3,
+      score: 30,
+      flags: { 30: 1, 31: 1, 32: 1, 33: 1 },
+    },
+  },
+  {
     hash: KNOWN_GAME_HASH.SYNTHETIC,
     alias: "synthetic",
     label: "Synthetic Test Chamber route",

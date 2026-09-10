@@ -10,6 +10,8 @@ import {
   KNOWN_GAME_HASH,
 } from "./fixtures.ts";
 import { buildSyntheticGame } from "../src/games/syntheticGame.ts";
+import { buildTutorial } from "../games/adventure-department/game.ts";
+import { resolveGameHash } from "../src/games/knownGames.ts";
 
 /**
  * Shared loader for optional AGI game fixtures under games/.
@@ -32,11 +34,28 @@ export interface LoadGameOptions extends Pick<FixtureRequirements, "checkVolumes
   readonly interpreterFiles?: boolean;
 }
 
+/**
+ * Games whose resources are assembled by project code (KnownAgiGame.builtin)
+ * rather than stored under games/. Keyed by wordsSha256 and by alias.
+ */
+const BUILTIN_GAME_BUILDERS: Record<
+  string,
+  () => { files: Record<string, Uint8Array>; words: [string, number][] }
+> = {
+  [KNOWN_GAME_HASH.SYNTHETIC]: buildSyntheticGame,
+  synthetic: buildSyntheticGame,
+  [KNOWN_GAME_HASH.ADVENTURE_DEPARTMENT]: buildTutorial,
+  "adventure-department": buildTutorial,
+};
+
 export function loadGame(hashOrAlias: GameHash, options: LoadGameOptions = {}): GameFixture {
   const missing = fixtureSkip(hashOrAlias, [], options);
   if (missing) throw new Error(missing);
-  if (hashOrAlias === KNOWN_GAME_HASH.SYNTHETIC || hashOrAlias.toLowerCase() === "synthetic") {
-    const game = buildSyntheticGame();
+  const builtin =
+    BUILTIN_GAME_BUILDERS[hashOrAlias.toLowerCase()] ??
+    BUILTIN_GAME_BUILDERS[resolveGameHash(hashOrAlias.toLowerCase()) ?? ""];
+  if (builtin) {
+    const game = builtin();
     const files = new Map(Object.entries(game.files));
     return { container: openContainer(files), dict: new Map(game.words), files };
   }

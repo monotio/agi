@@ -28,6 +28,7 @@ interface OpeningDetails {
 }
 
 const OPENING_DETAILS: Record<string, OpeningDetails> = {
+  "adventure-department": { titleRoom: 1, openingRoom: 1, profiles: ["2.936"] },
   bc: { titleRoom: 67, openingRoom: 8 },
   ddp: { titleRoom: 1, profiles: ["2.272", "2.440"] },
   demopac4: { titleRoom: 1 },

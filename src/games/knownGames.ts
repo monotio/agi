@@ -16,6 +16,12 @@ export interface KnownAgiGame {
   readonly targetRevision?: string | undefined;
   readonly walkthroughLabel?: string | undefined;
   readonly walkthroughCoverage?: "complete-game" | "chapter" | "partial" | undefined;
+  /**
+   * The game's resources are assembled by project code, so no fixture files
+   * need to exist on disk: the loader builds it from source. See the builder
+   * registry in test/game-fixture.ts.
+   */
+  readonly builtin?: true;
 }
 
 export const KNOWN_GAME_HASH = {
@@ -35,6 +41,7 @@ export const KNOWN_GAME_HASH = {
   MUMG: "a718ca71030b946726a197e891998ab44ad3fe363e346810fa2d720151aa1d3e",
   DEMOPAC4: "6c7456ae306ad62ed6be4d3442f03d853e66c773661dcad79ae4b2f0152ccdec",
   SYNTHETIC: "d00cc5981820a66d3a56c802f8d747a73fe153d394a80463accf313947623fa1",
+  ADVENTURE_DEPARTMENT: "c9085eb86d115abce91442186553a4b4a39cf30a2729fc8faaf259d74c07175d",
 } as const;
 
 export const KNOWN_GAMES: readonly KnownAgiGame[] = [
@@ -48,6 +55,19 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     objectSha256: "f58e6871c43d8639afca350562544a1f040dc94475c545ca069f4e69635d6425",
     walkthroughLabel: "Complete route (50 pts)",
     walkthroughCoverage: "complete-game",
+    builtin: true,
+  },
+  {
+    alias: "adventure-department",
+    title: "Adventure Department",
+    author: "Monotio",
+    era: "v2-split",
+    profile: "2.936",
+    wordsSha256: KNOWN_GAME_HASH.ADVENTURE_DEPARTMENT,
+    objectSha256: "1a3d0818f9664f9d92b8e1b4721bc2568419849067c44bf36fc1a4ed0e8d67a9",
+    walkthroughLabel: "Complete route (30 pts)",
+    walkthroughCoverage: "complete-game",
+    builtin: true,
   },
   {
     alias: "kq1",

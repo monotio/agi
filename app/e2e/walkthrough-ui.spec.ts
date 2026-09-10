@@ -14,6 +14,27 @@ async function checkpointPercent(page: Page, label: string): Promise<number> {
   return cp.percent;
 }
 
+/**
+ * Wait until the engine's replay observation reports `room`, failing fast on a
+ * walkthrough error. state.walkthrough.room reflects the seek target's label,
+ * so it cannot detect a diverged seek; the observation is the engine's truth.
+ */
+async function engineRoomIs(page: Page, room: number, timeout = 45_000): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const res = await page.evaluate(() => ({
+          room: window.__AGI_REPLAY__?.latest?.state.room,
+          error: window.__AGI_STATE__?.walkthrough.error,
+        }));
+        if (res.error) throw new Error(`Walkthrough failed: ${res.error}`);
+        return res.room;
+      },
+      { timeout },
+    )
+    .toBe(room);
+}
+
 test.describe("Walkthrough UI", () => {
   test("runs real-time walkthrough from game actions menu with speed controls, take control, and pause/resume", async ({
     page,
@@ -413,21 +434,7 @@ test.describe("Walkthrough UI", () => {
     await page.mouse.up();
 
     // Verify seeking or fast-forward reaches room 130 (Bellevue Hospital) without error
-    await expect
-      .poll(
-        async () => {
-          const res = await page.evaluate(() => ({
-            room: window.__AGI_STATE__?.walkthrough.room,
-            tick: window.__AGI_STATE__?.walkthrough.tick ?? 0,
-            status: window.__AGI_STATE__?.walkthrough.status,
-            error: window.__AGI_STATE__?.walkthrough.error,
-          }));
-          if (res.error) throw new Error(`Walkthrough failed: ${res.error}`);
-          return res.room;
-        },
-        { timeout: 45_000 },
-      )
-      .toBe(130);
+    await engineRoomIs(page, 130);
   });
 
   test("scrubs sq1 past name prompt and reaches Hallway checkpoint cleanly", async ({ page }) => {
@@ -452,19 +459,7 @@ test.describe("Walkthrough UI", () => {
     await cpMarker.click();
 
     // Verify seeking past prompt (Action 43 "ROGER") reaches room 1 without prompt-hint timeout
-    await expect
-      .poll(
-        async () => {
-          const res = await page.evaluate(() => ({
-            room: window.__AGI_STATE__?.walkthrough.room,
-            error: window.__AGI_STATE__?.walkthrough.error,
-          }));
-          if (res.error) throw new Error(`Walkthrough failed: ${res.error}`);
-          return res.room;
-        },
-        { timeout: 15_000 },
-      )
-      .toBe(1);
+    await engineRoomIs(page, 1, 15_000);
   });
 
   test("scrubs mh1 past MAD terminal answers to Trinity Church checkpoint cleanly", async ({
@@ -491,19 +486,7 @@ test.describe("Walkthrough UI", () => {
     await cpMarker.click();
 
     // Verify seeking past MAD terminal answers (actions 166 and 170) reaches room 111 cleanly
-    await expect
-      .poll(
-        async () => {
-          const res = await page.evaluate(() => ({
-            room: window.__AGI_STATE__?.walkthrough.room,
-            error: window.__AGI_STATE__?.walkthrough.error,
-          }));
-          if (res.error) throw new Error(`Walkthrough failed: ${res.error}`);
-          return res.room;
-        },
-        { timeout: 45_000 },
-      )
-      .toBe(111);
+    await engineRoomIs(page, 111);
   });
 
   test("seeking forward to Sewers then back to Maze in mh1 avoids direction leakage", async ({
@@ -532,35 +515,100 @@ test.describe("Walkthrough UI", () => {
       page.mouse.click(box!.x + (box!.width * pct) / 100, box!.y + box!.height * 0.5);
     await clickAt(sewersPct);
 
-    const roomIs = async (room: number) => {
-      await expect
-        .poll(
-          async () => {
-            const res = await page.evaluate(() => ({
-              room: window.__AGI_STATE__?.walkthrough.room,
-              error: window.__AGI_STATE__?.walkthrough.error,
-            }));
-            if (res.error) throw new Error(`Walkthrough failed: ${res.error}`);
-            return res.room;
-          },
-          { timeout: 30_000 },
-        )
-        .toBe(room);
-    };
-
     // Forward seek lands in the Sewers (room 128); let the frame settle.
-    await roomIs(128);
+    await engineRoomIs(page, 128, 30_000);
     await page.waitForTimeout(1000);
 
     // Backward seek cleanly resets and reaches the Maze (room 126).
     await clickAt(mazePct);
-    await roomIs(126);
+    await engineRoomIs(page, 126, 30_000);
 
     // And again in both directions: no direction state leaks across sessions.
     await clickAt(sewersPct);
-    await roomIs(128);
+    await engineRoomIs(page, 128, 30_000);
     await clickAt(mazePct);
-    await roomIs(126);
+    await engineRoomIs(page, 126, 30_000);
+  });
+
+  test("seeking mh1 backward from a tap-to-move section still releases held directions on the map", async ({
+    page,
+  }) => {
+    const mh1Missing = fixtureSkip(KNOWN_GAME_HASH.MH1, ["AGIDATA.OVL"]);
+    test.skip(Boolean(mh1Missing), mh1Missing || "");
+    await isolateStorage(page);
+    await page.goto("/");
+
+    const menuBtn = page.getByTestId("game-actions-mh1");
+    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
+    await menuBtn.click();
+
+    const runBtn = page.getByTestId("run-walkthrough");
+    await expect(runBtn).toBeVisible();
+    await runBtn.click();
+
+    const timeline = page.getByTestId("walkthrough-timeline");
+    await expect(timeline).toBeVisible({ timeout: 15_000 });
+
+    const roomIs = (room: number) => engineRoomIs(page, room);
+
+    // The Kewpie baseball minigame runs with the release gate cleared
+    // (hold.key off, holdToMove false) for several seconds. Scrubbing back
+    // while that is the last posted frame leaves the mirrored gate stale: the
+    // fast-forward replays the map cursor's hold-to-move presses, and a stale
+    // releaseEligible would skip every release — the cursor drifts off the
+    // Bellevue hotspot and the replay stays in room 114.
+    const kewpie = page.locator('.walkthrough-marker[title*="Kewpie"]');
+    await expect(kewpie).toBeVisible({ timeout: 10_000 });
+    await kewpie.click();
+    await roomIs(129);
+    // holdToMove mirrors the engine's release gate through frame messages —
+    // wait until a posted frame actually reports the cleared gate.
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.holdToMove ?? null), {
+        timeout: 15_000,
+      })
+      .toBe(false);
+
+    // Scrub back to the Bellevue checkpoint itself so the map cursor's
+    // hold-to-move presses and releases all replay inside the fast-forward,
+    // under the stale mirror. The checkpoint then verifies in the seek.
+    const bellevue = page.locator('.walkthrough-marker[title*="Bellevue"]');
+    await bellevue.click();
+    await roomIs(130);
+  });
+
+  test("catalog Watch boots the tutorial and runs its walkthrough to completion", async ({
+    page,
+  }) => {
+    // No fixture needed: the tutorial is code-assembled (builtin) and its tape
+    // is generated from the same source the catalog entry builds.
+    await isolateStorage(page);
+    await page.goto("/");
+
+    // The tutorial disclosure opens by default for a fresh library; expand it
+    // explicitly so the test does not depend on the stored preference.
+    const disclosure = page.getByTestId("tutorial-disclosure");
+    if (!(await disclosure.evaluate((el) => (el as HTMLDetailsElement).open))) {
+      await page.getByTestId("tutorial-toggle").click();
+    }
+
+    const watch = page.getByTestId("catalog-run-walkthrough");
+    await expect(watch).toBeVisible({ timeout: 15_000 });
+    await watch.click();
+
+    const bar = page.getByTestId("walkthrough-bar");
+    await expect(bar).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId("walkthrough-speed-8").click();
+
+    await expect(page.getByTestId("walkthrough-label")).toHaveText("Graduated", {
+      timeout: 60_000,
+    });
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status ?? ""), {
+        timeout: 60_000,
+      })
+      .toBe("completed");
+    await expect(page.getByTestId("walkthrough-score")).toHaveText("Score: 30");
   });
 
   test("dragging timeline thumb to the end of kq1 silences audio and stops playback cleanly", async ({

@@ -272,9 +272,9 @@ export function fixtureSkip(
   requiredFiles: readonly string[] = [],
   options: FixtureRequirements = {},
 ): false | string {
-  if (hashOrKey === KNOWN_GAME_HASH.SYNTHETIC || hashOrKey.toLowerCase() === "synthetic") {
-    return false;
-  }
+  // Code-assembled games have no fixture directory; the loader builds them.
+  const known = getKnownGameByHash(hashOrKey) ?? getKnownGameByAlias(hashOrKey.toLowerCase());
+  if (known?.builtin) return false;
   let fixture: DiscoveredFixture | null;
   try {
     fixture = findFixture(hashOrKey);
