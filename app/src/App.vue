@@ -1220,9 +1220,12 @@ const hasKeyPrompt = computed(() =>
  */
 const keyPromptHint = computed(() => {
   const mapped = new Set(state.controls.map((b) => b.key));
-  const usable = ([[AGI_KEY.ENTER, "Enter"], [0x20, "Space"]] as [number, string][]).filter(
-    ([key]) => !mapped.has(key),
-  );
+  const usable = (
+    [
+      [AGI_KEY.ENTER, "Enter"],
+      [0x20, "Space"],
+    ] as [number, string][]
+  ).filter(([key]) => !mapped.has(key));
   if (usable.length === 0) return "Press any key to start";
   return `Press ${usable.map(([, name]) => name).join(" / ")} to start`;
 });
