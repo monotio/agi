@@ -8,7 +8,7 @@ import { Speedrun } from "./runner.ts";
  * The Node opening suite, the browser title smoke checks and the browser
  * route replays all consume these definitions.
  */
-import { KNOWN_GAME_HASH, resolveGameHash } from "../../src/games/knownGames.ts";
+import { getKnownGameByAlias, resolveGameHash } from "../../src/games/knownGames.ts";
 
 export interface Opening {
   readonly hash: string;
@@ -19,83 +19,47 @@ export interface Opening {
   /** First title or introductory room after a cold boot. */
   readonly titleRoom: number;
   /** Present when the suite has a route through player-controlled movement. */
-  readonly openingRoom?: number;
+  readonly openingRoom?: number | undefined;
 }
 
-export const OPENINGS: readonly Opening[] = [
-  {
-    hash: KNOWN_GAME_HASH.BC,
-    alias: "bc",
-    gameId: "bc",
-    profiles: ["2.440"],
-    titleRoom: 67,
-    openingRoom: 8,
+interface OpeningDetails {
+  readonly titleRoom: number;
+  readonly openingRoom?: number | undefined;
+  readonly profiles?: readonly string[] | undefined;
+}
+
+const OPENING_DETAILS: Record<string, OpeningDetails> = {
+  bc: { titleRoom: 67, openingRoom: 8 },
+  ddp: { titleRoom: 1, profiles: ["2.272", "2.440"] },
+  demopac4: { titleRoom: 1 },
+  gr1: { titleRoom: 129 },
+  kq1: { titleRoom: 83 },
+  kq2: { titleRoom: 97 },
+  kq3: { titleRoom: 45 },
+  kq4: { titleRoom: 140 },
+  lsl1: { titleRoom: 1 },
+  mh1: { titleRoom: 153 },
+  mh2: { titleRoom: 153 },
+  mumg: { titleRoom: 96, openingRoom: 32 },
+  pq1: { titleRoom: 1, profiles: ["2.903", "2.936"] },
+  sq1: { titleRoom: 67 },
+  sq2: { titleRoom: 140, openingRoom: 2 },
+};
+
+export const OPENINGS: readonly Opening[] = Object.entries(OPENING_DETAILS).map(
+  ([alias, details]) => {
+    const known = getKnownGameByAlias(alias);
+    if (!known) throw new Error(`Unknown opening fixture: ${alias}`);
+    return {
+      hash: known.wordsSha256,
+      alias: known.alias,
+      gameId: known.id,
+      profiles: details.profiles ?? [known.profile],
+      titleRoom: details.titleRoom,
+      ...(details.openingRoom !== undefined ? { openingRoom: details.openingRoom } : {}),
+    };
   },
-  {
-    hash: KNOWN_GAME_HASH.DDP,
-    alias: "ddp",
-    gameId: "ddp",
-    profiles: ["2.272", "2.440"],
-    titleRoom: 1,
-  },
-  {
-    hash: KNOWN_GAME_HASH.DEMOPAC4,
-    alias: "demopac4",
-    gameId: "demopac4",
-    profiles: ["3.002.102"],
-    titleRoom: 1,
-  },
-  {
-    hash: KNOWN_GAME_HASH.GR1,
-    alias: "gr1",
-    gameId: "gr1",
-    profiles: ["3.002.149"],
-    titleRoom: 129,
-  },
-  { hash: KNOWN_GAME_HASH.KQ1, alias: "kq1", gameId: "kq1", profiles: ["2.917"], titleRoom: 83 },
-  { hash: KNOWN_GAME_HASH.KQ2, alias: "kq2", gameId: "kq2", profiles: ["2.411"], titleRoom: 97 },
-  { hash: KNOWN_GAME_HASH.KQ3, alias: "kq3", gameId: "kq3", profiles: ["2.936"], titleRoom: 45 },
-  {
-    hash: KNOWN_GAME_HASH.KQ4,
-    alias: "kq4",
-    gameId: "kq4",
-    profiles: ["3.002.086"],
-    titleRoom: 140,
-  },
-  { hash: KNOWN_GAME_HASH.LSL1, alias: "lsl1", gameId: "lsl1", profiles: ["2.440"], titleRoom: 1 },
-  {
-    hash: KNOWN_GAME_HASH.MH1,
-    alias: "mh1",
-    gameId: "mh1",
-    profiles: ["3.002.102"],
-    titleRoom: 153,
-  },
-  {
-    hash: KNOWN_GAME_HASH.MH2,
-    alias: "mh2",
-    gameId: "mh2",
-    profiles: ["3.002.149"],
-    titleRoom: 153,
-  },
-  {
-    hash: KNOWN_GAME_HASH.MUMG,
-    alias: "mumg",
-    gameId: "mumg",
-    profiles: ["2.917"],
-    titleRoom: 96,
-    openingRoom: 32,
-  },
-  { hash: KNOWN_GAME_HASH.PQ1, alias: "pq1", gameId: "pq1", profiles: ["2.936"], titleRoom: 1 },
-  { hash: KNOWN_GAME_HASH.SQ1, alias: "sq1", gameId: "sq1", profiles: ["2.917"], titleRoom: 67 },
-  {
-    hash: KNOWN_GAME_HASH.SQ2,
-    alias: "sq2",
-    gameId: "sq2",
-    profiles: ["2.936"],
-    titleRoom: 140,
-    openingRoom: 2,
-  },
-];
+);
 
 /** Catalog entry for one fixture, resolved by content hash or alias. */
 export function opening(hashOrAlias: string): Opening {
