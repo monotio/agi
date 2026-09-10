@@ -759,8 +759,8 @@ self.onmessage = (ev: MessageEvent) => {
     if (msg.type === "replayAdvance" && replay && engine) {
       if (typeof msg.sessionId === "number") currentSessionId = msg.sessionId;
       const ticks = Number(msg.ticks);
-      if (!Number.isInteger(ticks) || ticks < 1 || ticks > 100_000)
-        throw new Error("Replay advance requires 1..100000 virtual ticks.");
+      if (!Number.isInteger(ticks) || ticks < 0 || ticks > 100_000)
+        throw new Error("Replay advance requires 0..100000 virtual ticks.");
       const seeking = Boolean(msg.seeking);
       const renderFinal = Boolean(msg.renderFinal);
       const fullState = Boolean(msg.fullState);

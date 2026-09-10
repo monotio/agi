@@ -421,7 +421,12 @@ export async function runReplayBatch(
   }
 
   checkAborted();
-  const finalObs = driver.latest;
+  // The last advance's observation is lean (no flags/strings); take a full
+  // snapshot so completion state is verifiable.
+  const finalObs = await driver.advance(0, {
+    sessionId: currentSessionId,
+    fullState: true,
+  });
   if (!finalObs) throw new Error("No final observation after batch completion");
   if (options?.onProgress) {
     options.onProgress({
