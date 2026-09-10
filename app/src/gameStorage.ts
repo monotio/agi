@@ -26,7 +26,7 @@ interface StoredGameBody extends CachedGameData {
 
 const STORAGE_PREFIX = "monotio_agi.authored.";
 const SHA256 = /^[a-f0-9]{64}$/;
-/** Every released library field; a version-1 reader keeps anything else as an additive extension. */
+/** Every recognized library field; a version-1 reader keeps anything else as an additive extension. */
 const LIBRARY_FIELDS: Record<keyof LibraryMetadata, true> = {
   version: true,
   alias: true,
