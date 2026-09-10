@@ -11,13 +11,7 @@ export {
   resolveGameHash,
 } from "../../src/games/knownGames.ts";
 import { detectKnownGameByHashes, type KnownAgiGame } from "../../src/games/knownGames.ts";
-
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const copy = new Uint8Array(bytes.byteLength);
-  copy.set(bytes);
-  const hash = await crypto.subtle.digest("SHA-256", copy.buffer);
-  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
+import { sha256Hex } from "./crypto.ts";
 
 /** Identify a collection of game files by hashing WORDS.TOK. */
 export async function detectKnownGame(

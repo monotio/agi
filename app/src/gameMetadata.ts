@@ -1,3 +1,5 @@
+import { sha256Hex } from "./crypto.ts";
+
 /** Versioned library metadata. Resource revisions and local project IDs have separate jobs. */
 export interface PublicGameMetadata {
   description?: string | undefined;
@@ -150,7 +152,5 @@ export async function gameRevision(files: Record<string, Uint8Array>): Promise<s
     packed.set(bytes, offset + 8 + name.length);
     offset += 8 + name.length + bytes.length;
   }
-  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", packed))]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return sha256Hex(packed);
 }

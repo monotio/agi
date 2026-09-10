@@ -1,4 +1,5 @@
 import { buildZip, type ZipFileInput } from "./zip.ts";
+import { sha256Hex } from "./crypto.ts";
 import { publicGameMetadata } from "./gameMetadata.ts";
 import { validateAuthoringState } from "../../src/agent/authoringState.ts";
 import { buildView, type BuildViewInput } from "../../src/view/view.ts";
@@ -94,9 +95,7 @@ export async function buildProjectZip(
   async function attach(b64: string, mime: string): Promise<string> {
     const binary = atob(b64);
     const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-    const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
-      .map((v) => v.toString(16).padStart(2, "0"))
-      .join("");
+    const hash = await sha256Hex(bytes);
     let path = attachments.get(hash);
     if (!path) {
       path = `IMAGES/${hash}.${mime.split("/")[1]}`;
