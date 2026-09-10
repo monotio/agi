@@ -899,7 +899,7 @@ export function useEngine(
     state.phase = "loading";
     state.error = "";
     try {
-      spawnWorker();
+      const w = spawnWorker();
 
       const projectId = options?.projectId || "custom";
       const title = options?.title || projectId;
@@ -940,7 +940,7 @@ export function useEngine(
             words: cached.words,
             authoredGame: cached,
           };
-          worker.postMessage({
+          w.postMessage({
             type: "boot",
             sessionId: activeWalkthroughSession,
             ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
@@ -1013,7 +1013,7 @@ export function useEngine(
           `Saved the world and its authoring conversation in this browser (${projectId}).`,
         );
 
-      worker.postMessage({
+      w.postMessage({
         type: "boot",
         sessionId: activeWalkthroughSession,
         soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,

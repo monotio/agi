@@ -50,7 +50,7 @@ export function resolveFixtureTarget(
       g.folder?.toLowerCase() === norm,
   );
   const target = match?.wordsSha256 ?? match?.hash ?? hashOrAlias;
-  return { target, match };
+  return match ? { target, match } : { target };
 }
 
 /**
