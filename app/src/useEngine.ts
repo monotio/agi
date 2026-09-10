@@ -217,6 +217,7 @@ export function useEngine(
     handle: async (request) => authoringController.getSession()?.handle(request) ?? "",
   };
   let booted: BootedGame | null = null;
+  let activeLlmConfig: LlmConfig = { provider: "stub", apiKey: "", model: "offline-stub" };
   const workerQueries = createWorkerQueries();
   const drainPendingQueries = (err?: Error) => workerQueries.drainPendingQueries(err);
 
@@ -323,6 +324,8 @@ export function useEngine(
       autosaveController.reset();
       hook.autosave = -1;
     },
+    configForGame,
+    getLlmConfig: () => activeLlmConfig,
   });
 
   const testRecorder = useTestRecorder({
@@ -763,7 +766,12 @@ export function useEngine(
     return { data: assembled, progressKey };
   }
 
-  const { openPowerUp, closePowerUp, submitPowerUp, updateAiConfig } = authoringController;
+  const { openPowerUp, closePowerUp, submitPowerUp } = authoringController;
+
+  async function updateAiConfig(config: LlmConfig): Promise<void> {
+    activeLlmConfig = config;
+    await authoringController.updateAiConfig(config);
+  }
 
   async function ejectGame(options?: { abandonUnsaved?: boolean }): Promise<void> {
     if (state.leaving || state.powerUp.busy) return;
@@ -868,6 +876,7 @@ export function useEngine(
             `⚡ Booting saved world for "${cached.title}" (authored ${new Date(cached.authoredAt).toLocaleTimeString()}${cached.transcript ? `, ${cached.transcript.length} saved messages` : ""})`,
           );
           const cachedConfig = configForGame(projectId, config);
+          activeLlmConfig = cachedConfig;
           const isConfigured =
             cachedConfig.provider === "stub" || Boolean(cachedConfig.apiKey.trim());
           const canAuthor = Boolean(cached.roomGeneration);
@@ -899,6 +908,9 @@ export function useEngine(
             words: cached.words,
             authoredGame: cached,
           };
+          if (cachedSession) {
+            authoringController.attachSessionRuntime(cachedSession, booted);
+          }
           w.postMessage({
             type: "boot",
             sessionId: activeWalkthroughSession,
@@ -925,6 +937,7 @@ export function useEngine(
         projectId = safeId;
       }
 
+      activeLlmConfig = config;
       const genesisSession = new AgentSession(config, logAgent);
       authoringController.setSession(genesisSession);
       bridge = createBridge(hostBridgeHandler(currentSessionAgent), logAgent);
@@ -957,6 +970,7 @@ export function useEngine(
         words,
         authoredGame,
       };
+      authoringController.attachSessionRuntime(genesisSession, booted);
 
       const saved = await saveAuthoredGame(projectId, {
         templateId,

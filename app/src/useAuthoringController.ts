@@ -58,6 +58,8 @@ export interface AuthoringControllerOptions {
   readonly getAutosaveWrite: () => Promise<boolean>;
   readonly clearAutosave: (targetKey: string) => void;
   readonly onRemixCreated?: ((remixProjectId: string) => void) | undefined;
+  readonly configForGame?: ((projectId: string, fallback: LlmConfig) => LlmConfig) | undefined;
+  readonly getLlmConfig?: (() => LlmConfig) | undefined;
 }
 
 export interface AuthoringController {
@@ -106,6 +108,8 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     getAutosaveWrite,
     clearAutosave,
     onRemixCreated,
+    configForGame,
+    getLlmConfig,
   } = options;
 
   let session: AgentSession | null = null;
@@ -461,10 +465,25 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     sendDirection: (dir: number) => void,
   ): Promise<string> {
     const game = getBootedGame();
-    const author = getSession();
+    let author = getSession();
+    if (!author && game && !game.installed && game.projectId) {
+      const meta = getCachedGameMeta(game.projectId);
+      if (meta?.roomGeneration && configForGame && getLlmConfig) {
+        const config = configForGame(game.projectId, getLlmConfig());
+        if (config.provider === "stub" || Boolean(config.apiKey.trim())) {
+          author = await createGameSession(game, config);
+          attachSessionRuntime(author, game);
+          setSession(author);
+        }
+      }
+    }
+    if (!author) {
+      state.powerUp.needsConfig = true;
+      throw new Error("The next room could not be created. Connect your model and try again.");
+    }
     state.powerUp = {
       mode: "room",
-      messages: [],
+      messages: author.getMessages(),
       open: true,
       needsConfig: false,
       busy: true,

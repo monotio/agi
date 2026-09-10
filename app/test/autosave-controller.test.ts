@@ -11,6 +11,10 @@ import {
 import { writeAutosave, type AutosaveRecord } from "../src/gameProgress.ts";
 import { gameRevision } from "../src/gameMetadata.ts";
 import type { BootedGame } from "../src/gameTypes.ts";
+import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+import { saveAuthoredGame, clearCachedGame } from "../src/gameStorage.ts";
+
+installIndexedDbFixture();
 
 test("autosaveMatches distinguishes installed and authored games correctly", () => {
   // Installed game matching by hash or alias
@@ -186,6 +190,91 @@ test("useAutosaveController stores autosave and notifies lifecycle callbacks", a
   } finally {
     clearAutosave("kq1");
     clearAutosave("41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780");
+  }
+});
+
+test("remixed project with Sierra alias uses projectId for autosave identity and resume, refusing alias collision", async (t) => {
+  installLocalStorageMock(t);
+  const dummyFiles: Record<string, Uint8Array> = {
+    LOGDIR: new Uint8Array([0, 1]),
+  };
+
+  await saveAuthoredGame("remix-project-789", {
+    title: "King's Quest Remix",
+    provider: "stub",
+    model: "offline-stub",
+    files: dummyFiles,
+    words: [],
+    roomGeneration: true,
+  });
+
+  const revision = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+  const remixGame: BootedGame = {
+    installed: false,
+    projectId: "remix-project-789",
+    alias: "kq1", // presentation alias preserved from Sierra KQ1
+    title: "King's Quest Remix",
+    revision,
+    files: dummyFiles,
+    words: [],
+  };
+
+  let bootedProjectId: string | null = null;
+  let bootedGameTarget: string | null = null;
+
+  const ctx: AutosaveControllerContext = {
+    state: { resumed: false },
+    getBootedGame: () => remixGame,
+    getWorker: () => null,
+    logAgent: () => {},
+    isInstalledGame: (target) => target === "kq1",
+    bootGame: async (target) => {
+      bootedGameTarget = target;
+    },
+    bootAuthoredGame: async (_m, _c, opts) => {
+      bootedProjectId = opts?.projectId ?? null;
+    },
+    configForGame: (_p, config) => config,
+  };
+
+  const controller = useAutosaveController(ctx);
+  try {
+    controller.handleAutosave({
+      image: "remix-image-1",
+      cycle: 100,
+      room: 5,
+    });
+    await controller.getAutosaveWrite();
+
+    // 1. Stored under projectId, not alias
+    assert.equal(lastGameKey(), "remix-project-789");
+    const record = readAutosave("remix-project-789");
+    assert.notEqual(record, null);
+    assert.equal(record?.game.projectId, "remix-project-789");
+    assert.equal(record?.game.installed, false);
+    // Presentation alias is intentionally omitted from local project autosave
+    assert.equal(record?.game.alias, undefined);
+
+    // 2. autosaveMatches refuses presentation alias for local project
+    assert.equal(autosaveMatches(record!.game, "remix-project-789"), true);
+    assert.equal(autosaveMatches(record!.game, "kq1"), false);
+
+    // 3. readAutosave by presentation alias returns null, preventing cross-project collision
+    assert.equal(readAutosave("kq1"), null);
+
+    // 4. resumeFromRecord boots the project ID via bootAuthoredGame, not the alias via bootGame
+    const resumed = await controller.resumeFromRecord(record!, {
+      provider: "stub",
+      apiKey: "",
+      model: "offline-stub",
+    });
+    assert.equal(resumed, true);
+    assert.equal(bootedProjectId, "remix-project-789");
+    assert.equal(bootedGameTarget, null);
+  } finally {
+    clearAutosave("remix-project-789");
+    clearAutosave("kq1");
+    await clearCachedGame("remix-project-789");
   }
 });
 
