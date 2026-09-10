@@ -40,7 +40,7 @@ for (const fail of [false, true])
     await page.goto("/");
     await configureAi(page, { provider: "openai", key: "test-placeholder" });
     await cacheGame(page, {
-      gameId: "progress",
+      projectId: "progress",
       title: "A growing world",
       provider: "openai",
       model: "gpt-6-astra",

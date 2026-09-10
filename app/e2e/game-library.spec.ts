@@ -186,7 +186,7 @@ test("index recovery preserves a game saved while another entry is being reconci
         await recovery;
         return storage
           .listCachedGames()
-          .map(({ gameId }) => gameId)
+          .map(({ projectId }) => projectId)
           .sort();
       } finally {
         release();
@@ -256,8 +256,9 @@ test("the first catalog edit forks a remix and preserves the original", async ({
     const storage = await import("/src/gameStorage.ts");
     const metadata = await import("/src/gameMetadata.ts");
     const original = storage.listCachedGames().find((game) => game.library?.source === "catalog")!;
-    const data = await storage.loadAuthoredGame(original.gameId);
+    const data = await storage.loadAuthoredGame(original.projectId);
     return {
+      projectId: original.projectId,
       gameId: original.library!.gameId,
       revision: original.library!.revision,
       actualRevision: await metadata.gameRevision(data!.files),
@@ -304,19 +305,19 @@ test("the first catalog edit forks a remix and preserves the original", async ({
     const storage = await import("/src/gameStorage.ts");
     const metadata = await import("/src/gameMetadata.ts");
     const games = storage.listCachedGames();
-    const original = games.find((game) => game.gameId === originalGameId)!;
+    const original = games.find((game) => game.projectId === originalGameId)!;
     const remix = games.find((game) => game.library?.source === "remix")!;
-    const originalData = await storage.loadAuthoredGame(original.gameId);
+    const originalData = await storage.loadAuthoredGame(original.projectId);
     return {
       count: games.length,
       originalRevision: original.library!.revision,
       originalActualRevision: await metadata.gameRevision(originalData!.files),
-      remixGameId: remix.gameId,
+      remixGameId: remix.projectId,
       remixSource: remix.library!.source,
       parent: remix.library!.parent,
       currentGameId: localStorage.getItem("monotio_agi.lastGame"),
     };
-  }, before.gameId);
+  }, before.projectId);
   expect(after.count).toBe(2);
   expect(after.originalRevision).toBe(before.revision);
   expect(after.originalActualRevision).toBe(before.actualRevision);

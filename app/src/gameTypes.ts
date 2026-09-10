@@ -1,8 +1,11 @@
 import type { LibraryMetadata } from "./gameMetadata.ts";
 
+/** Canonical identifier for an authored browser workspace / mutable user project. */
+export type ProjectId = string;
+
 export interface CachedGameMeta {
   library?: LibraryMetadata | undefined;
-  gameId: string;
+  projectId: ProjectId;
   title: string;
   authoredAt: string;
   provider: string;

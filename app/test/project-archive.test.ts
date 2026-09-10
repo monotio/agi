@@ -26,7 +26,7 @@ test("project round trip retains private history and deduplicates images; public
   container.putResource("logic", 0, assembleLogic("return;", { dictionary: new Map() }).payload);
   const image = "data:image/png;base64,iVBORw0KGgo=";
   const data = {
-    gameId: "demo",
+    projectId: "demo",
     title: "Garden",
     provider: "openai",
     model: "gpt-5.6-sol",

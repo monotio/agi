@@ -37,7 +37,7 @@ test("project import names each stored and refused progress entry", async ({ pag
   expect(image).not.toBeNull();
   const archive = await buildProjectZip(
     {
-      gameId: "storage-report",
+      projectId: "storage-report",
       title: "Storage report",
       authoredAt: new Date(0).toISOString(),
       provider: "stub",
@@ -83,10 +83,10 @@ test("project import names each stored and refused progress entry", async ({ pag
   const stored = await page.evaluate(async () => {
     const { listCachedGames } = await import("/src/gameStorage.ts");
     const { readGameSaves } = await import("/src/gameSaves.ts");
-    const gameId = listCachedGames()[0]!.gameId;
+    const projectId = listCachedGames()[0]!.projectId;
     return {
-      slots: Object.keys(readGameSaves(localStorage, gameId)),
-      autosave: localStorage.getItem(`monotio_agi.autosave.${gameId}`),
+      slots: Object.keys(readGameSaves(localStorage, projectId)),
+      autosave: localStorage.getItem(`monotio_agi.autosave.${projectId}`),
     };
   });
   expect(stored).toEqual({ slots: ["1"], autosave: null });

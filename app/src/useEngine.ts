@@ -1300,7 +1300,7 @@ export function useEngine(
     if (!game) throw new Error("No game is running.");
     const data: CachedGameData | null = game.installed
       ? {
-          gameId: game.gameId,
+          projectId: game.gameId,
           title: game.title,
           provider: "stub",
           model: state.profile ?? "unknown",
@@ -1503,7 +1503,7 @@ export function useEngine(
       original?.library?.source === "catalog" && original.library.revision !== revision;
     if (game.installed || catalogChanged) {
       const remixGameId = `remix-${crypto.randomUUID()}`;
-      const data: Omit<CachedGameData, "gameId" | "authoredAt"> = {
+      const data: Omit<CachedGameData, "projectId" | "authoredAt"> = {
         title: `${original?.title ?? game.title} Remix`,
         library: {
           ...original?.library,
@@ -1541,7 +1541,7 @@ export function useEngine(
       if (game.installed && game.gameId) clearAutosave(game.gameId);
       game.gameId = remixGameId;
       game.installed = false;
-      game.authoredGame = { ...data, gameId: remixGameId, authoredAt: new Date().toISOString() };
+      game.authoredGame = { ...data, projectId: remixGameId, authoredAt: new Date().toISOString() };
       // An original-game snapshot must never stand in for the new game's checkpoint.
       localStorage.setItem(LAST_GAME_KEY, remixGameId);
       lastAutosave = null;
@@ -1794,7 +1794,7 @@ export function useEngine(
       const { files, words, transcript, sessionId } =
         await authoring.startGenesis(templateMarkdown);
       const authoredGame: CachedGameData = {
-        gameId,
+        projectId: gameId,
         title,
         authoredAt: new Date().toISOString(),
         provider: config.provider,

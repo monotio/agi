@@ -450,7 +450,7 @@ test("format-less records are replaced while future versions stay untouched", as
     },
   });
   indexedDbRecords.set("formatless", {
-    gameId: "formatless",
+    projectId: "formatless",
     title: "Pre-release",
     provider: "stub",
     model: "stub",
@@ -470,7 +470,7 @@ test("format-less records are replaced while future versions stay untouched", as
   assert.equal((await storage.loadAuthoredGame("formatless"))?.title, "Replacement");
 
   indexedDbRecords.set("conversation/formatless", {
-    gameId: "conversation/formatless",
+    projectId: "conversation/formatless",
     transcript: [{ text: "pre-release" }],
   });
   const conversation = {

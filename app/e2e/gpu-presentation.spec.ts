@@ -47,7 +47,7 @@ test("saved game keeps its message visible through resize, then changes rooms an
   );
   await page.goto("/");
   await cacheGame(page, {
-    gameId: "presentation",
+    projectId: "presentation",
     title: "Saved adventure",
     provider: "stub",
     model: "local-playback",

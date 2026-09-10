@@ -86,7 +86,7 @@ test("a caption drawn only on room entry survives a browser reload", async ({ pa
   await isolateStorage(page);
   await page.goto("/");
   await cacheGame(page, {
-    gameId: "caption-resume",
+    projectId: "caption-resume",
     title: "Caption resume",
     provider: "stub",
     model: "local-playback",
@@ -130,7 +130,7 @@ test("reloading from the menu stays on the menu and keeps offering Resume", asyn
   await isolateStorage(page);
   await page.goto("/");
   await cacheGame(page, {
-    gameId: "menu-reload",
+    projectId: "menu-reload",
     title: "Menu reload",
     provider: "stub",
     model: "local-playback",

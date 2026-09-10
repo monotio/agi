@@ -326,7 +326,7 @@ export async function cacheGame(
     async ({ metadata, files }) => {
       const path = "/src/gameStorage.ts";
       const { saveAuthoredGame } = await import(path);
-      return saveAuthoredGame(metadata.gameId, {
+      return saveAuthoredGame(metadata.projectId, {
         ...metadata,
         files: Object.fromEntries(
           Object.entries(files).map(([name, bytes]) => [name, new Uint8Array(bytes)]),

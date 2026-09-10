@@ -107,7 +107,7 @@ let touchMovementActive = false;
 
 // Game and LLM state
 const initialGames = listCachedGames();
-const initialGameId = lastGameId() ?? initialGames[0]?.gameId ?? "knights-trial";
+const initialGameId = lastGameId() ?? initialGames[0]?.projectId ?? "knights-trial";
 const savedGames = ref<CachedGameMeta[]>(initialGames);
 const selectedGameId = ref<string>(initialGameId);
 const zipInput = useTemplateRef("zipInput");
@@ -190,7 +190,7 @@ const createPreference = ref<"open" | "closed" | null>(storedCreatePreference);
 const libraryAutosaves = computed<Record<string, AutosaveRecord>>(() =>
   Object.fromEntries(
     [
-      ...savedGames.value.map((game) => game.gameId),
+      ...savedGames.value.map((game) => game.projectId),
       ...(state.installedGames ?? []).flatMap((item) => [
         item.hash,
         item.gameId,
@@ -209,11 +209,11 @@ function catalogHasProgress(entry: GameCatalogEntry): boolean {
     (item) =>
       item.library?.catalog?.id === entry.id && item.library.catalog.version === entry.version,
   );
-  return game !== undefined && libraryAutosaves.value[game.gameId] !== undefined;
+  return game !== undefined && libraryAutosaves.value[game.projectId] !== undefined;
 }
 
 function selectLibraryGame(game: CachedGameMeta): void {
-  selectedGameId.value = game.gameId;
+  selectedGameId.value = game.projectId;
   cachedMeta.value = game;
 }
 
@@ -275,7 +275,7 @@ function onGameDetailsToggle(gameId: string, event: Event): void {
   const details = event.currentTarget as HTMLDetailsElement;
   if (details.open) {
     expandedGameId.value = gameId;
-    const game = savedGames.value.find((entry) => entry.gameId === gameId);
+    const game = savedGames.value.find((entry) => entry.projectId === gameId);
     if (game) selectLibraryGame(game);
   } else if (expandedGameId.value === gameId) {
     expandedGameId.value = undefined;
@@ -499,9 +499,9 @@ const localGames = computed(() => {
     (item) =>
       !savedGames.value.some(
         (game) =>
-          game.gameId === item.hash ||
-          game.gameId === item.gameId ||
-          (item.folder && game.gameId === item.folder),
+          game.projectId === item.hash ||
+          game.projectId === item.gameId ||
+          (item.folder && game.projectId === item.folder),
       ),
   );
 });
@@ -712,14 +712,14 @@ function refreshLibrary(gameId?: string): void {
   savedGames.value = listCachedGames();
   if (gameId) {
     selectedGameId.value = gameId;
-  } else if (!savedGames.value.some((entry) => entry.gameId === selectedGameId.value))
-    selectedGameId.value = savedGames.value[0]?.gameId ?? "";
+  } else if (!savedGames.value.some((entry) => entry.projectId === selectedGameId.value))
+    selectedGameId.value = savedGames.value[0]?.projectId ?? "";
   cachedMeta.value = selectedGameId.value ? getCachedGameMeta(selectedGameId.value) : null;
 }
 
 async function onPlayLibraryGame(game: CachedGameMeta): Promise<void> {
   selectLibraryGame(game);
-  const autosave = readAutosave(game.gameId);
+  const autosave = readAutosave(game.projectId);
   if (!autosave) {
     await onBootSavedGame();
     return;
@@ -740,7 +740,7 @@ async function onPlayLibraryGame(game: CachedGameMeta): Promise<void> {
 async function onStartLibraryGameOver(game: CachedGameMeta): Promise<void> {
   selectLibraryGame(game);
   await resumeAudio();
-  await startOver(game.gameId, llmConfig());
+  await startOver(game.projectId, llmConfig());
 }
 
 async function onCheckLibraryGame(game: CachedGameMeta): Promise<void> {
@@ -953,9 +953,9 @@ async function checkSelectedOpening(): Promise<void> {
     if (!game) throw new Error("This game is no longer in your library. Import it again.");
     const opening = await previewGame(game);
     const revision = game.library?.revision ?? (await gameRevision(game.files));
-    if (!(await updateGamePreview(game.gameId, revision, opening.preview, opening)))
+    if (!(await updateGamePreview(game.projectId, revision, opening.preview, opening)))
       throw new Error("The game changed while its opening was being checked. Try again.");
-    refreshLibrary(selectedGameId.value === selected ? game.gameId : undefined);
+    refreshLibrary(selectedGameId.value === selected ? game.projectId : undefined);
   } catch (error) {
     libraryActionError.value = String(error).replace(/^Error: /, "");
   } finally {
@@ -998,12 +998,12 @@ async function onExportAgiZip(live = false, project = false, savedProgress = fal
     const data = live ? await exportCurrentGame() : await loadAuthoredGame(selectedGameId.value);
     if (!data) throw new Error("No saved game is available.");
     const zipBytes = project
-      ? await buildProjectZip(data, readGameProgress(localStorage, data.gameId))
+      ? await buildProjectZip(data, readGameProgress(localStorage, data.projectId))
       : buildPublicGameZip(data);
     const url = URL.createObjectURL(new Blob([zipBytes], { type: "application/zip" }));
     const a = document.createElement("a");
     a.href = url;
-    a.download = `agi-${data.gameId}-${project ? "project" : "game"}.zip`;
+    a.download = `agi-${data.projectId}-${project ? "project" : "game"}.zip`;
     a.click();
     URL.revokeObjectURL(url);
   } catch (error) {
@@ -2694,40 +2694,43 @@ watch(
         >
           <article
             v-for="game in savedGames"
-            :key="game.gameId"
+            :key="game.projectId"
             class="saved-game-card"
-            :class="{ selected: selectedGameId === game.gameId }"
-            :data-testid="`saved-game-card-${game.gameId}`"
-            :data-game-id="game.gameId"
+            :class="{ selected: selectedGameId === game.projectId }"
+            :data-testid="`saved-game-card-${game.projectId}`"
+            :data-project-id="game.projectId"
+            :data-game-id="game.projectId"
           >
             <div class="saved-game-media">
               <img
-                v-if="libraryAutosaves[game.gameId]?.preview || game.library?.preview"
+                v-if="libraryAutosaves[game.projectId]?.preview || game.library?.preview"
                 class="library-thumbnail"
                 data-testid="library-thumbnail"
-                :data-preview-kind="libraryAutosaves[game.gameId]?.preview ? 'progress' : 'opening'"
-                :src="libraryAutosaves[game.gameId]?.preview ?? game.library?.preview"
+                :data-preview-kind="
+                  libraryAutosaves[game.projectId]?.preview ? 'progress' : 'opening'
+                "
+                :src="libraryAutosaves[game.projectId]?.preview ?? game.library?.preview"
                 :alt="
-                  libraryAutosaves[game.gameId]?.preview
-                    ? `${game.title}, current progress in room ${libraryAutosaves[game.gameId]?.room}`
+                  libraryAutosaves[game.projectId]?.preview
+                    ? `${game.title}, current progress in room ${libraryAutosaves[game.projectId]?.room}`
                     : `${game.title} opening scene`
                 "
               />
               <div v-else class="saved-game-cover" aria-hidden="true">AGI</div>
-              <span v-if="libraryAutosaves[game.gameId]" class="saved-world-badge"
+              <span v-if="libraryAutosaves[game.projectId]" class="saved-world-badge"
                 >IN PROGRESS</span
               >
             </div>
             <div class="saved-game-card-body">
               <form
-                v-if="renaming && selectedGameId === game.gameId"
+                v-if="renaming && selectedGameId === game.projectId"
                 class="game-rename"
                 data-testid="rename-game-form"
                 @submit.prevent="saveGameTitle"
               >
-                <label :for="`game-title-${game.gameId}`">Game name</label>
+                <label :for="`game-title-${game.projectId}`">Game name</label>
                 <input
-                  :id="`game-title-${game.gameId}`"
+                  :id="`game-title-${game.projectId}`"
                   :ref="setTitleInput"
                   v-model="gameTitle"
                   maxlength="100"
@@ -2750,7 +2753,10 @@ watch(
                 </button>
                 <p v-if="renameError" role="alert">{{ renameError }}</p>
               </form>
-              <div v-show="!(renaming && selectedGameId === game.gameId)" class="saved-game-info">
+              <div
+                v-show="!(renaming && selectedGameId === game.projectId)"
+                class="saved-game-info"
+              >
                 <div class="saved-game-heading">
                   <h3 class="saved-world-title" data-testid="saved-game-title">
                     {{ game.title }}
@@ -2766,9 +2772,9 @@ watch(
                     <UiIcon name="pencil" />
                   </button>
                 </div>
-                <p v-if="libraryAutosaves[game.gameId]" class="saved-world-time">
-                  Room {{ libraryAutosaves[game.gameId]?.room }} · Saved
-                  {{ new Date(libraryAutosaves[game.gameId]!.savedAt).toLocaleString() }}
+                <p v-if="libraryAutosaves[game.projectId]" class="saved-world-time">
+                  Room {{ libraryAutosaves[game.projectId]?.room }} · Saved
+                  {{ new Date(libraryAutosaves[game.projectId]!.savedAt).toLocaleString() }}
                 </p>
               </div>
               <div class="saved-game-play-row">
@@ -2779,25 +2785,25 @@ watch(
                   :disabled="libraryActionBusy || importBusy"
                   @click="onPlayLibraryGame(game)"
                 >
-                  {{ libraryAutosaves[game.gameId] ? "Resume" : "Play" }}
+                  {{ libraryAutosaves[game.projectId] ? "Resume" : "Play" }}
                 </button>
                 <ActionMenu
                   label="Game actions"
                   icon="more"
                   icon-only
-                  :test-id="`game-actions-${game.gameId}`"
+                  :test-id="`game-actions-${game.projectId}`"
                 >
                   <button
-                    v-if="hasWalkthrough(game.gameId)"
+                    v-if="hasWalkthrough(game.library?.gameId ?? game.projectId)"
                     type="button"
                     role="menuitem"
                     data-testid="run-walkthrough"
-                    @click="onStartWalkthrough(game.gameId)"
+                    @click="onStartWalkthrough(game.library?.gameId ?? game.projectId)"
                   >
                     <span>Run walkthrough<small>Watch real-time playthrough</small></span>
                   </button>
                   <button
-                    v-if="libraryAutosaves[game.gameId]"
+                    v-if="libraryAutosaves[game.projectId]"
                     type="button"
                     role="menuitem"
                     data-testid="start-library-game-over"
@@ -2857,9 +2863,9 @@ watch(
               </div>
               <details
                 class="library-details-disclosure"
-                :open="expandedGameId === game.gameId"
-                :data-testid="`game-details-${game.gameId}`"
-                @toggle="onGameDetailsToggle(game.gameId, $event)"
+                :open="expandedGameId === game.projectId"
+                :data-testid="`game-details-${game.projectId}`"
+                @toggle="onGameDetailsToggle(game.projectId, $event)"
               >
                 <summary>Details</summary>
 
@@ -3023,7 +3029,7 @@ watch(
         <div
           v-if="
             pendingAutosave &&
-            !savedGames.some((game) => game.gameId === pendingAutosave?.game.gameId) &&
+            !savedGames.some((game) => game.projectId === pendingAutosave?.game.gameId) &&
             !localGameIds.includes(pendingAutosave.game.gameId)
           "
           class="saved-world-card autosave-fallback"

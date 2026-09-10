@@ -64,9 +64,9 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
             return value === undefined ? undefined : structuredClone(value);
           }),
         getAll: () => request(transaction, () => structuredClone([...records.values()])),
-        put: (value: { gameId: IDBValidKey }) =>
+        put: (value: { projectId?: IDBValidKey; gameId?: IDBValidKey }) =>
           request(transaction, () => {
-            const key = value.gameId;
+            const key = (value.projectId ?? value.gameId)!;
             records.set(key, structuredClone(value));
             return key;
           }),

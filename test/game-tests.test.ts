@@ -813,7 +813,7 @@ test("TESTS.JSON travels in the project archive and never in the game export", a
   const state = world();
   executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [takeKey] });
   const data = {
-    gameId: "world",
+    projectId: "world",
     title: "World",
     authoredAt: "2026-09-07T00:00:00.000Z",
     provider: "stub",

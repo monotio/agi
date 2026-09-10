@@ -124,7 +124,7 @@ function played(): { files: Record<string, Uint8Array>; progress: GameProgress }
 
 function cachedGame(files: Record<string, Uint8Array>): CachedGameData {
   return {
-    gameId: "on-the-laptop",
+    projectId: "on-the-laptop",
     title: "Laptop",
     authoredAt: "2026-09-07T00:00:00.000Z",
     provider: "stub",

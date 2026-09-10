@@ -1,6 +1,11 @@
 import { gameRevision, isLocalGamePreview, type LibraryMetadata } from "./gameMetadata.ts";
 import { storeImportedProgress, type ImportStorageReport } from "./gameProgress.ts";
-import { loadAuthoredGame, saveAuthoredGame, listCachedGames } from "./gameStorage.ts";
+import {
+  loadAuthoredGame,
+  saveAuthoredGame,
+  listCachedGames,
+  type ProjectId,
+} from "./gameStorage.ts";
 import type { OpenedGame } from "./gameZip.ts";
 import { detectKnownGame } from "./knownGames.ts";
 
@@ -19,7 +24,7 @@ export async function addLibraryGame(
   opening: CheckedOpening,
   catalog?: { id: string; version: string },
   onProgressStored?: (report: ImportStorageReport) => void,
-): Promise<string> {
+): Promise<ProjectId> {
   if (!isLocalGamePreview(opening.preview))
     throw new Error("The checked opening did not produce a local PNG preview.");
   if ((source === "catalog") !== Boolean(catalog))
@@ -48,12 +53,12 @@ export async function addLibraryGame(
         (!catalog || library.catalog?.version === catalog.version)
       );
     });
-    if (existing) return existing.gameId;
+    if (existing) return existing.projectId;
   }
-  let targetGameId = preferredId;
-  if ((game.project && source !== "catalog") || (await loadAuthoredGame(targetGameId))) {
-    do targetGameId = `${preferredId}-${crypto.randomUUID()}`;
-    while (await loadAuthoredGame(targetGameId));
+  let targetProjectId = preferredId;
+  if ((game.project && source !== "catalog") || (await loadAuthoredGame(targetProjectId))) {
+    do targetProjectId = `${preferredId}-${crypto.randomUUID()}`;
+    while (await loadAuthoredGame(targetProjectId));
   }
   const library: LibraryMetadata = {
     ...game.metadata,
@@ -72,7 +77,7 @@ export async function addLibraryGame(
   };
   const effectiveTitle = game.title ?? known?.title ?? title;
   if (
-    !(await saveAuthoredGame(targetGameId, {
+    !(await saveAuthoredGame(targetProjectId, {
       title: effectiveTitle,
       library,
       provider: game.project?.provider ?? "stub",
@@ -91,17 +96,17 @@ export async function addLibraryGame(
       "Your browser could not save this game. Free some storage space and try again.",
     );
   if (game.progress) {
-    const report = storeImportedProgress(localStorage, targetGameId, revision, game.progress);
+    const report = storeImportedProgress(localStorage, targetProjectId, revision, game.progress);
     onProgressStored?.(report);
   }
-  return targetGameId;
+  return targetProjectId;
 }
 
 /** Copies keep provenance but have independent resources, history and save slots. */
-export async function copyLibraryGame(gameId: string): Promise<string> {
-  const original = await loadAuthoredGame(gameId);
+export async function copyLibraryGame(projectId: ProjectId): Promise<ProjectId> {
+  const original = await loadAuthoredGame(projectId);
   if (!original) throw new Error("This game is no longer in your library. Import it again.");
-  let id: string;
+  let id: ProjectId;
   do id = `remix-${crypto.randomUUID()}`;
   while (await loadAuthoredGame(id));
   const revision = await gameRevision(original.files);
@@ -116,7 +121,7 @@ export async function copyLibraryGame(gameId: string): Promise<string> {
         revision,
         source: "remix",
         catalog: undefined,
-        parent: { gameId: original.library?.gameId ?? original.gameId, revision },
+        parent: { gameId: original.library?.gameId ?? original.projectId, revision },
         validation: original.library?.validation ?? {
           status: "unverified",
           message: "Opening not checked yet.",

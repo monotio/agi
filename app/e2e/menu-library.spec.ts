@@ -452,7 +452,7 @@ test("local folders and saved projects share one gallery and local progress resu
   });
   await page.goto("/");
   await cacheGame(page, {
-    gameId: "my-project",
+    projectId: "my-project",
     title: "My project",
     provider: "stub",
     model: "offline-stub",

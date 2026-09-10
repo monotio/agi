@@ -11,7 +11,7 @@ import {
  */
 
 import type { CachedGameMeta, CachedGameData } from "./gameTypes.ts";
-export type { CachedGameMeta, CachedGameData } from "./gameTypes.ts";
+export type { CachedGameMeta, CachedGameData, ProjectId } from "./gameTypes.ts";
 
 interface StoredGameIndex extends CachedGameMeta {
   format: "monotio.agi.project-index";
@@ -51,15 +51,15 @@ export interface GameConversation {
 
 /** Local discussions of installed games, without copying game resources into a project. */
 export async function saveGameConversation(
-  gameId: string,
+  projectId: string,
   context: GameConversation,
 ): Promise<void> {
-  const key = `conversation/${gameId}`;
+  const key = `conversation/${projectId}`;
   await putVersionedRecord(
     key,
     {
       ...context,
-      gameId: key,
+      projectId: key,
       format: "monotio.agi.conversation",
       version: 1,
     },
@@ -67,25 +67,27 @@ export async function saveGameConversation(
   );
 }
 
-export async function loadGameConversation(gameId: string): Promise<GameConversation | undefined> {
+export async function loadGameConversation(
+  projectId: string,
+): Promise<GameConversation | undefined> {
   const stored = await bodyTransaction<(GameConversation & Record<string, unknown>) | undefined>(
     "readonly",
-    (store) => store.get(`conversation/${gameId}`),
+    (store) => store.get(`conversation/${projectId}`),
   );
   if (!stored) return undefined;
   if (stored["format"] !== "monotio.agi.conversation" || stored["version"] !== 1)
     throw new Error("This game conversation version is not supported by this app.");
-  const { format: _format, version: _version, gameId: _gameId, ...context } = stored;
+  const { format: _format, version: _version, projectId: _projectId, ...context } = stored;
   return context as unknown as GameConversation;
 }
 
-export function getStorageKey(gameId: string): string {
-  return `${STORAGE_PREFIX}${gameId}`;
+export function getStorageKey(projectId: string): string {
+  return `${STORAGE_PREFIX}${projectId}`;
 }
 
-export function getCachedGameMeta(gameId: string): CachedGameMeta | null {
+export function getCachedGameMeta(projectId: string): CachedGameMeta | null {
   try {
-    const raw = localStorage.getItem(getStorageKey(gameId));
+    const raw = localStorage.getItem(getStorageKey(projectId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as StoredGameIndex;
     if (
@@ -100,15 +102,15 @@ export function getCachedGameMeta(gameId: string): CachedGameMeta | null {
       typeof libraryValue["revision"] === "string" &&
       SHA256.test(libraryValue["revision"])
         ? normalizeLibraryMetadata(libraryValue, {
-            gameId,
+            gameId: projectId,
             revision: libraryValue["revision"],
             source: parsed.imported ? "zip" : "authored",
           })
         : undefined;
-    const effectiveGameId = parsed.gameId ?? gameId;
+    const effectiveProjectId = parsed.projectId ?? projectId;
     return {
       ...(library ? { library } : {}),
-      gameId: effectiveGameId,
+      projectId: effectiveProjectId,
       title: parsed.title,
       authoredAt: parsed.authoredAt,
       provider: parsed.provider,
@@ -145,7 +147,7 @@ function openDatabase(): Promise<IDBDatabase> {
     let abandoned = false;
     const request = indexedDB.open("monotio-agi-projects", 1);
     request.onupgradeneeded = () =>
-      request.result.createObjectStore("projects", { keyPath: "gameId" });
+      request.result.createObjectStore("projects", { keyPath: "projectId" });
     request.onsuccess = () => {
       const opened = request.result;
       if (abandoned) {
@@ -224,14 +226,14 @@ async function putVersionedRecord<T extends { format: string; version: number }>
 
 async function writeCurrentBody(data: CachedGameData): Promise<void> {
   await putVersionedRecord(
-    data.gameId,
+    data.projectId,
     storedBody(data),
     "This saved project version is not supported by this app.",
   );
 }
 function metadata(data: CachedGameData): CachedGameMeta {
   return {
-    gameId: data.gameId,
+    projectId: data.projectId,
     library: data.library,
     title: data.title,
     authoredAt: data.authoredAt,
@@ -253,16 +255,17 @@ function storedIndex(data: CachedGameData): StoredGameIndex {
 function storedBody(data: CachedGameData): StoredGameBody {
   return { ...data, format: "monotio.agi.project", version: 1 };
 }
-function readStoredBody(raw: StoredGameBody, gameId: string): CachedGameData {
+function readStoredBody(raw: StoredGameBody, projectId: string): CachedGameData {
   if (raw.format !== "monotio.agi.project" || raw.version !== 1)
     throw new Error("This saved project version is not supported by this app.");
-  const storedId = raw.gameId;
-  if (storedId !== gameId) throw new Error("The saved project identity does not match its index.");
+  const storedId = raw.projectId;
+  if (storedId !== projectId)
+    throw new Error("The saved project identity does not match its index.");
   const { format: _format, version: _version, ...data } = raw;
-  return { ...data, gameId };
+  return { ...data, projectId };
 }
-async function readBody(gameId: string): Promise<CachedGameData | null> {
-  const raw = localStorage.getItem(getStorageKey(gameId));
+async function readBody(projectId: string): Promise<CachedGameData | null> {
+  const raw = localStorage.getItem(getStorageKey(projectId));
   if (!raw) return null;
   const index = JSON.parse(raw) as Record<string, unknown>;
   if (
@@ -272,13 +275,13 @@ async function readBody(gameId: string): Promise<CachedGameData | null> {
   )
     throw new Error("This saved project version is not supported by this app.");
   const stored = await bodyTransaction<StoredGameBody | undefined>("readonly", (store) =>
-    store.get(gameId),
+    store.get(projectId),
   );
   if (!stored)
     throw new Error(
       "The saved project data is unavailable. Open a downloaded project to recover it.",
     );
-  const data = readStoredBody(stored, gameId);
+  const data = readStoredBody(stored, projectId);
   data.library = readLibrary(data);
   return data;
 }
@@ -299,7 +302,7 @@ function readLibrary(data: CachedGameData): LibraryMetadata {
   )
     throw new Error("The saved project has invalid library metadata.");
   const normalized = normalizeLibraryMetadata(raw, {
-    gameId: data.gameId,
+    gameId: data.projectId,
     revision: raw["revision"],
     source: data.imported ? "zip" : "authored",
   });
@@ -317,7 +320,7 @@ async function stampLibraryMetadata(
   if (protectCatalog && previous?.source === "catalog" && previous.revision !== revision)
     throw new Error("Catalog resources are immutable. Create a remix before changing them.");
   const next = normalizeLibraryMetadata(previous, {
-    gameId: data.gameId,
+    gameId: data.projectId,
     revision,
     source: data.imported ? "zip" : "authored",
   });
@@ -338,7 +341,7 @@ async function stampLibraryMetadata(
   return changed;
 }
 async function writeBody(data: CachedGameData): Promise<void> {
-  const existingIndex = localStorage.getItem(getStorageKey(data.gameId));
+  const existingIndex = localStorage.getItem(getStorageKey(data.projectId));
   if (existingIndex) {
     let index: Record<string, unknown>;
     try {
@@ -355,29 +358,29 @@ async function writeBody(data: CachedGameData): Promise<void> {
   }
   await stampLibraryMetadata(data, true);
   await writeCurrentBody(data);
-  localStorage.setItem(getStorageKey(data.gameId), JSON.stringify(storedIndex(data)));
+  localStorage.setItem(getStorageKey(data.projectId), JSON.stringify(storedIndex(data)));
 }
-function serializeWrite<T>(gameId: string, operation: () => Promise<T>): Promise<T> {
-  const next = (writes.get(gameId) ?? Promise.resolve()).catch(() => {}).then(operation);
-  writes.set(gameId, next);
+function serializeWrite<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
+  const next = (writes.get(projectId) ?? Promise.resolve()).catch(() => {}).then(operation);
+  writes.set(projectId, next);
   void next
     .finally(() => {
-      if (writes.get(gameId) === next) writes.delete(gameId);
+      if (writes.get(projectId) === next) writes.delete(projectId);
     })
     .catch(() => {});
   return next;
 }
-export async function loadAuthoredGame(gameId: string): Promise<CachedGameData | null> {
-  return serializeWrite(gameId, () => readBody(gameId));
+export async function loadAuthoredGame(projectId: string): Promise<CachedGameData | null> {
+  return serializeWrite(projectId, () => readBody(projectId));
 }
 
 export function saveAuthoredGame(
-  gameId: string,
-  data: Omit<CachedGameData, "gameId" | "authoredAt">,
+  projectId: string,
+  data: Omit<CachedGameData, "projectId" | "authoredAt">,
 ): Promise<boolean> {
-  return serializeWrite(gameId, async () => {
+  return serializeWrite(projectId, async () => {
     try {
-      await writeBody({ ...data, gameId, authoredAt: new Date().toISOString() });
+      await writeBody({ ...data, projectId, authoredAt: new Date().toISOString() });
       return true;
     } catch (error) {
       console.error("Project storage failed:", error);
@@ -387,12 +390,12 @@ export function saveAuthoredGame(
 }
 
 export function updateAuthoredGameFiles(
-  gameId: string,
+  projectId: string,
   files: Record<string, Uint8Array>,
 ): Promise<boolean> {
-  return serializeWrite(gameId, async () => {
+  return serializeWrite(projectId, async () => {
     try {
-      const data = await readBody(gameId);
+      const data = await readBody(projectId);
       if (!data) return false;
       data.files = files;
       if (files["WORDS.TOK"])
@@ -407,7 +410,7 @@ export function updateAuthoredGameFiles(
 }
 
 export function updateGameConversation(
-  gameId: string,
+  projectId: string,
   transcript: unknown[],
   sessionId?: string,
   authoringState?: Record<string, unknown>,
@@ -415,9 +418,9 @@ export function updateGameConversation(
   model?: string,
   files?: Record<string, Uint8Array>,
 ): Promise<boolean> {
-  return serializeWrite(gameId, async () => {
+  return serializeWrite(projectId, async () => {
     try {
-      const data = await readBody(gameId);
+      const data = await readBody(projectId);
       if (!data) return false;
       if (
         provider &&
@@ -447,12 +450,12 @@ export function updateGameConversation(
   });
 }
 
-export function renameAuthoredGame(gameId: string, title: string): Promise<boolean> {
-  return serializeWrite(gameId, async () => {
+export function renameAuthoredGame(projectId: string, title: string): Promise<boolean> {
+  return serializeWrite(projectId, async () => {
     const name = title.trim();
     if (!name || name.length > 100) return false;
     try {
-      const data = await readBody(gameId);
+      const data = await readBody(projectId);
       if (!data) return false;
       data.title = name;
       await writeBody(data);
@@ -463,33 +466,33 @@ export function renameAuthoredGame(gameId: string, title: string): Promise<boole
   });
 }
 
-export function clearCachedGame(gameId: string): Promise<void> {
-  return serializeWrite(gameId, async () => {
-    // The body and its conversation leave together: gameIds are deterministic,
+export function clearCachedGame(projectId: string): Promise<void> {
+  return serializeWrite(projectId, async () => {
+    // The body and its conversation leave together: projectIds are deterministic,
     // so a game added again must not inherit the removed one's history.
     await bodyTransaction("readwrite", (store) => {
-      store.delete(`conversation/${gameId}`);
-      return store.delete(gameId);
+      store.delete(`conversation/${projectId}`);
+      return store.delete(projectId);
     });
-    localStorage.removeItem(getStorageKey(gameId));
+    localStorage.removeItem(getStorageKey(projectId));
   });
 }
 
 /** Store a newly checked preview only if it describes the exact current revision. */
 export function updateGamePreview(
-  gameId: string,
+  projectId: string,
   revision: string,
   preview: string,
   validation: NonNullable<CachedGameMeta["library"]>["validation"],
 ): Promise<boolean> {
-  return serializeWrite(gameId, async () => {
-    const data = await readBody(gameId);
+  return serializeWrite(projectId, async () => {
+    const data = await readBody(projectId);
     if (!data || !isLocalGamePreview(preview) || (await gameRevision(data.files)) !== revision)
       return false;
     data.library = {
       ...(data.library ?? {
         version: 1,
-        gameId,
+        gameId: projectId,
         revision,
         source: data.imported ? "zip" : "authored",
       }),
@@ -504,26 +507,26 @@ export function updateGamePreview(
 /** Rebuild the disposable index from committed IndexedDB bodies after an interrupted write. */
 export async function reconcileGameIndex(): Promise<void> {
   const bodies = await bodyTransaction<StoredGameBody[]>("readonly", (store) => store.getAll());
-  const gameIds = bodies
+  const projectIds = bodies
     .filter(
       (data) =>
         data.format === "monotio.agi.project" &&
         data.version === 1 &&
-        typeof data.gameId === "string" &&
-        !data.gameId.startsWith("conversation/") &&
+        typeof data.projectId === "string" &&
+        !data.projectId.startsWith("conversation/") &&
         data.files &&
         typeof data.files === "object",
     )
-    .map((data) => data.gameId);
-  for (const gameId of gameIds) {
-    await serializeWrite(gameId, async () => {
+    .map((data) => data.projectId);
+  for (const projectId of projectIds) {
+    await serializeWrite(projectId, async () => {
       const stored = await bodyTransaction<StoredGameBody | undefined>("readonly", (store) =>
-        store.get(gameId),
+        store.get(projectId),
       );
       if (!stored) return;
-      const data = readStoredBody(stored, gameId);
+      const data = readStoredBody(stored, projectId);
       if (!data.library) return;
-      const current = localStorage.getItem(getStorageKey(data.gameId));
+      const current = localStorage.getItem(getStorageKey(data.projectId));
       if (current) {
         try {
           const parsed = JSON.parse(current) as Record<string, unknown>;
@@ -532,12 +535,12 @@ export async function reconcileGameIndex(): Promise<void> {
           return;
         }
       }
-      localStorage.setItem(getStorageKey(data.gameId), JSON.stringify(storedIndex(data)));
+      localStorage.setItem(getStorageKey(data.projectId), JSON.stringify(storedIndex(data)));
     });
   }
   for (const key of Object.keys(localStorage).filter((key) => key.startsWith(STORAGE_PREFIX))) {
-    const gameId = key.slice(STORAGE_PREFIX.length);
-    await serializeWrite(gameId, async () => {
+    const projectId = key.slice(STORAGE_PREFIX.length);
+    await serializeWrite(projectId, async () => {
       const raw = localStorage.getItem(key);
       if (!raw) return;
       let index: Record<string, unknown>;
@@ -554,7 +557,7 @@ export async function reconcileGameIndex(): Promise<void> {
       )
         return;
       const data = await bodyTransaction<StoredGameBody | undefined>("readonly", (store) =>
-        store.get(gameId),
+        store.get(projectId),
       );
       if (!data) localStorage.removeItem(key);
     });
