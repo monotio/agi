@@ -152,7 +152,7 @@ export function createAgentLogger(
   }
 
   function installTraceGetter(): void {
-    if (typeof window === "undefined") return;
+    if (!import.meta.env?.DEV || typeof window === "undefined") return;
     try {
       Object.defineProperty(window, "__AGI_TRACE__", {
         get: () => traceAgentLog(),

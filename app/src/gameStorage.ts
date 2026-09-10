@@ -424,7 +424,6 @@ async function stampLibraryMetadata(
   });
   next.revision = revision;
   if (!previous || previous.revision !== revision) {
-    delete next.preview;
     next.validation = previous
       ? {
           status: "unverified",

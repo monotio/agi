@@ -252,9 +252,12 @@ export function useEngine(
     getLatestFrame: () => latestFrame,
     observationListeners,
   });
-  window.__AGI_REPLAY__ = replayDriver;
-  (window as unknown as { __AGI_STATE__: EngineState }).__AGI_STATE__ = state;
-  (window as unknown as { __AGI_AUDIO__: AgiAudio }).__AGI_AUDIO__ = audio;
+  // Test/debug automation surface; dev and e2e only, never in production builds.
+  if (import.meta.env?.DEV) {
+    window.__AGI_REPLAY__ = replayDriver;
+    (window as unknown as { __AGI_STATE__: EngineState }).__AGI_STATE__ = state;
+    (window as unknown as { __AGI_AUDIO__: AgiAudio }).__AGI_AUDIO__ = audio;
+  }
   let shakeTimer: number | null = null;
 
   const input = useInputController({
@@ -354,7 +357,7 @@ export function useEngine(
 
   /** Mirror the test/debug hook onto the window (tests read window.__AGI_TEXT__). */
   function publishHook(): void {
-    if (typeof window !== "undefined") window.__AGI_TEXT__ = hook;
+    if (import.meta.env?.DEV && typeof window !== "undefined") window.__AGI_TEXT__ = hook;
   }
 
   /**
@@ -400,7 +403,7 @@ export function useEngine(
   }
 
   async function bootGame(hashOrAlias: string): Promise<void> {
-    if (!import.meta.env.DEV) throw new Error("Installed fixtures are development-only");
+    if (!import.meta.env?.DEV) throw new Error("Installed fixtures are development-only");
     state.phase = "loading";
     state.error = "";
     try {
@@ -517,42 +520,47 @@ export function useEngine(
   }
 
   function wireWorker(w: Worker): void {
-    w.onmessage = (ev: MessageEvent) => {
-      if (worker !== w) return;
-      const msg = ev.data;
-      if (
-        typeof msg.sessionId === "number" &&
-        msg.sessionId > 0 &&
-        msg.sessionId !== activeWalkthroughSession
-      ) {
-        return;
-      }
-      if (msg.type === "keyAccepted") {
-        input.acknowledgeKey(Number(msg.id));
-      } else if (msg.type === "frame") {
-        state.inputEnabled = Boolean(msg.inputEnabled);
-        state.inputReady = Boolean(msg.inputReady);
-        state.holdToMove = Boolean(msg.holdToMove);
-        publishText(msg.text, msg.modal ?? null, Boolean(msg.textMode));
+    const resolveQueryPayload = (msg: Record<string, unknown>) =>
+      msg["type"] === "frames"
+        ? msg["frames"]
+        : msg["type"] === "objects"
+          ? msg["objects"]
+          : msg["type"] === "exportFiles"
+            ? msg["files"]
+            : msg["state"];
+    const handlers: Record<string, (msg: Record<string, unknown>) => void> = {
+      keyAccepted: (msg) => input.acknowledgeKey(Number(msg["id"])),
+      frame: (msg) => {
+        state.inputEnabled = Boolean(msg["inputEnabled"]);
+        state.inputReady = Boolean(msg["inputReady"]);
+        state.holdToMove = Boolean(msg["holdToMove"]);
+        publishText(
+          msg["text"] as Uint8Array,
+          (msg["modal"] as ModalKind | null) ?? null,
+          Boolean(msg["textMode"]),
+        );
         latestFrame = {
-          visual: msg.visual,
-          priority: msg.priority,
-          text: msg.text,
-          picRow: Number(msg.picRow),
+          visual: msg["visual"] as Uint8Array,
+          priority: msg["priority"] as Uint8Array,
+          text: msg["text"] as Uint8Array,
+          picRow: Number(msg["picRow"]),
         };
         onFrame(latestFrame);
         // Counted after the frame is drawn, so tests can poll for painted pixels.
         hook.frame++;
         publishHook();
-      } else if (msg.type === "controls") {
-        state.controls = msg.controls;
-      } else if (msg.type === "inputEdit") {
-        state.gameEdit = { text: String(msg.text) };
-      } else if (msg.type === "print") {
-        logAgent("log", `print: ${String(msg.text)}`);
-      } else if (msg.type === "status") {
-        state.status = msg.text;
-      } else if (msg.type === "shake") {
+      },
+      controls: (msg) => {
+        state.controls = msg["controls"] as typeof state.controls;
+      },
+      inputEdit: (msg) => {
+        state.gameEdit = { text: String(msg["text"]) };
+      },
+      print: (msg) => logAgent("log", `print: ${String(msg["text"])}`),
+      status: (msg) => {
+        state.status = msg["text"] as string;
+      },
+      shake: (msg) => {
         state.shake = true;
         clearTimeout(shakeTimer ?? undefined);
         shakeTimer = setTimeout(
@@ -560,32 +568,40 @@ export function useEngine(
             state.shake = false;
             shakeTimer = null;
           },
-          Number(msg.count) * 100,
+          Number(msg["count"]) * 100,
         ) as unknown as number;
-      } else if (msg.type === "soundEnabled") {
-        state.soundMuted = !msg.enabled;
+      },
+      soundEnabled: (msg) => {
+        state.soundMuted = !msg["enabled"];
         audio.setMuted(state.soundMuted);
-      } else if (msg.type === "sound") {
+      },
+      sound: () => {
         state.soundPlaying = true;
-      } else if (msg.type === "soundOutput") {
-        audio.output(msg.output as SoundOutput);
-      } else if (msg.type === "soundPaused") {
-        audio.setPaused(Boolean(msg.paused) || state.paused);
-      } else if (msg.type === "stopSound") {
+      },
+      soundOutput: (msg) => audio.output(msg["output"] as SoundOutput),
+      soundPaused: (msg) => audio.setPaused(Boolean(msg["paused"]) || state.paused),
+      stopSound: () => {
         state.soundPlaying = false;
         audio.stop();
-      } else if (msg.type === "autosave") {
-        autosaveController.handleAutosave(msg);
-      } else if (msg.type === "flushed") {
-        autosaveController.handleFlushed(msg);
-      } else if (msg.type === "restored") {
-        autosaveController.handleRestored(msg);
-      } else if (msg.type === "recordingStarted" || msg.type === "recordingStopped") {
-        workerQueries.resolveQuery(Number(msg.id), msg);
-      } else if (msg.type === "log") {
-        logAgent("log", String(msg.text));
-      } else if (msg.type === "replay" && replayDriver) {
-        const obs = msg.observation as ReplayObservation;
+      },
+      autosave: (msg) =>
+        autosaveController.handleAutosave(
+          msg as Parameters<typeof autosaveController.handleAutosave>[0],
+        ),
+      flushed: (msg) =>
+        autosaveController.handleFlushed(
+          msg as Parameters<typeof autosaveController.handleFlushed>[0],
+        ),
+      restored: (msg) =>
+        autosaveController.handleRestored(
+          msg as Parameters<typeof autosaveController.handleRestored>[0],
+        ),
+      recordingStarted: (msg) => workerQueries.resolveQuery(Number(msg["id"]), msg),
+      recordingStopped: (msg) => workerQueries.resolveQuery(Number(msg["id"]), msg),
+      log: (msg) => logAgent("log", String(msg["text"])),
+      replay: (msg) => {
+        if (!replayDriver) return;
+        const obs = msg["observation"] as ReplayObservation;
         if (
           typeof obs.sessionId === "number" &&
           obs.sessionId !== 0 &&
@@ -609,30 +625,20 @@ export function useEngine(
         hook.egoY = obs.state.egoY;
         publishHook();
         for (const listener of observationListeners) listener(replayDriver.latest);
-        workerQueries.resolveQuery(Number(msg.id), replayDriver.latest);
-      } else if (
-        msg.type === "frames" ||
-        msg.type === "engineState" ||
-        msg.type === "objects" ||
-        msg.type === "exportFiles"
-      ) {
-        workerQueries.resolveQuery(
-          Number(msg.id),
-          msg.type === "frames"
-            ? msg.frames
-            : msg.type === "objects"
-              ? msg.objects
-              : msg.type === "exportFiles"
-                ? msg.files
-                : msg.state,
-        );
-      } else if (msg.type === "cycle") {
-        hook.cycle = Number(msg.cycle);
-        hook.room = Number(msg.room ?? 0);
-        hook.egoX = Number(msg.egoX ?? 0);
-        hook.egoY = Number(msg.egoY ?? 0);
-        if (typeof window !== "undefined") window.__AGI_TEXT__ = hook;
-      } else if (msg.type === "booted") {
+        workerQueries.resolveQuery(Number(msg["id"]), replayDriver.latest);
+      },
+      frames: (msg) => workerQueries.resolveQuery(Number(msg["id"]), resolveQueryPayload(msg)),
+      engineState: (msg) => workerQueries.resolveQuery(Number(msg["id"]), resolveQueryPayload(msg)),
+      objects: (msg) => workerQueries.resolveQuery(Number(msg["id"]), resolveQueryPayload(msg)),
+      exportFiles: (msg) => workerQueries.resolveQuery(Number(msg["id"]), resolveQueryPayload(msg)),
+      cycle: (msg) => {
+        hook.cycle = Number(msg["cycle"]);
+        hook.room = Number(msg["room"] ?? 0);
+        hook.egoX = Number(msg["egoX"] ?? 0);
+        hook.egoY = Number(msg["egoY"] ?? 0);
+        if (import.meta.env?.DEV && typeof window !== "undefined") window.__AGI_TEXT__ = hook;
+      },
+      booted: (msg) => {
         if (booted) {
           try {
             localStorage.setItem(
@@ -646,16 +652,30 @@ export function useEngine(
         state.phase = "running";
         state.error = "";
         // The worker reports the profile it detected from the shipped files.
-        const profile = typeof msg.profile === "string" ? msg.profile : null;
+        const profile = typeof msg["profile"] === "string" ? msg["profile"] : null;
         state.profile = profile;
         hook.profile = profile;
         publishHook();
-      } else if (msg.type === "error") {
+      },
+      error: (msg) => {
         state.phase = "error";
-        state.error = msg.message;
-      } else if (msg.type === "quit") {
+        state.error = msg["message"] as string;
+      },
+      quit: () => {
         ejectGame();
+      },
+    };
+    w.onmessage = (ev: MessageEvent) => {
+      if (worker !== w) return;
+      const msg = ev.data as Record<string, unknown>;
+      if (
+        typeof msg["sessionId"] === "number" &&
+        msg["sessionId"] > 0 &&
+        msg["sessionId"] !== activeWalkthroughSession
+      ) {
+        return;
       }
+      handlers[String(msg["type"])]?.(msg);
     };
   }
 
@@ -1042,6 +1062,7 @@ export function useEngine(
     audio,
     replayDriver,
     getWorker: () => worker,
+    getBootedGame: () => booted,
     isCurrentGame: (target) =>
       Boolean(
         worker &&

@@ -109,6 +109,7 @@ export async function runReplayBatch(
   let typedLine = "";
   let lastProgressAt = 0;
   let lastProgressActionIndex = -1;
+  let lastDwelledRevision: number | null = null;
 
   async function resumed(before: ReplayObservation): Promise<void> {
     if (!before.blocked) return;
@@ -316,8 +317,6 @@ export async function runReplayBatch(
     await resumed(before);
     checkAborted();
   }
-
-  let lastDwelledRevision: number | null = null;
 
   for (const [index, action] of actions.entries()) {
     checkAborted();
