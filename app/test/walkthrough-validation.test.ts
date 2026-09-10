@@ -9,7 +9,7 @@ import {
 
 test("validateWalkthroughArtifact accepts valid walkthrough structure", () => {
   const valid: WalkthroughArtifact = {
-    schema: "monotio_agi.walkthrough.v1",
+    schema: "monotio.agi.walkthrough.v1",
     game: "kq1",
     coverage: "complete-game",
     profile: "2.917",
@@ -55,7 +55,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio_agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v1",
         game: "unknown-game",
         coverage: "complete-game",
         profile: "2.917",
@@ -72,7 +72,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio_agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v1",
         game: "kq1",
         coverage: "complete-game",
         profile: "2.917",
@@ -87,7 +87,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio_agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v1",
         game: "kq1",
         coverage: "complete-game",
         profile: "2.917",
@@ -102,7 +102,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio_agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v1",
         game: "kq1",
         coverage: "complete-game",
         profile: "2.917",
@@ -119,7 +119,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio_agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v1",
         game: "kq1",
         coverage: "complete-game",
         profile: "2.917",
@@ -134,7 +134,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio_agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v1",
         game: "kq1",
         coverage: "complete-game",
         profile: "2.917",
@@ -149,7 +149,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio_agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v1",
         game: "kq1",
         coverage: "complete-game",
         profile: "2.917",
@@ -164,7 +164,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio_agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v1",
         game: "kq1",
         coverage: "complete-game",
         profile: "2.917",
@@ -184,7 +184,7 @@ test("validateWalkthroughArtifact validates targetHash and supportedHashes when 
 
   // Valid targetHash and supportedHashes (normalized to lowercase)
   const result = validateWalkthroughArtifact({
-    schema: "monotio_agi.walkthrough.v1",
+    schema: "monotio.agi.walkthrough.v1",
     game: "kq1",
     targetHash: validUpper,
     supportedHashes: [validUpper],
@@ -203,7 +203,7 @@ test("validateWalkthroughArtifact validates targetHash and supportedHashes when 
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio_agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v1",
         game: "kq1",
         targetHash: "not-a-hash",
         coverage: "complete-game",
@@ -219,7 +219,7 @@ test("validateWalkthroughArtifact validates targetHash and supportedHashes when 
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio_agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v1",
         game: "kq1",
         targetHash: 12345,
         coverage: "complete-game",
@@ -237,7 +237,7 @@ test("validateWalkthroughArtifact validates targetHash and supportedHashes when 
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio_agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v1",
         game: "kq1",
         supportedHashes: "not-an-array",
         coverage: "complete-game",
@@ -253,7 +253,7 @@ test("validateWalkthroughArtifact validates targetHash and supportedHashes when 
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio_agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v1",
         game: "kq1",
         supportedHashes: ["short"],
         coverage: "complete-game",
@@ -288,7 +288,7 @@ test("loadWalkthrough memoizes results and evicts failed fetches", async () => {
       ok: true,
       status: 200,
       json: async () => ({
-        schema: "monotio_agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v1",
         game: "kq1",
         coverage: "complete-game",
         profile: "2.917",

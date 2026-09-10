@@ -11,7 +11,7 @@ import {
 } from "./knownGames.ts";
 
 export interface WalkthroughArtifact {
-  schema: "monotio_agi.walkthrough.v1";
+  schema: "monotio.agi.walkthrough.v1";
   game: string;
   targetHash?: string | undefined;
   supportedHashes?: readonly string[] | undefined;
@@ -70,7 +70,7 @@ export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact 
     throw new Error("Walkthrough artifact must be an object.");
   }
   const obj = data as Record<string, unknown>;
-  if (obj["schema"] !== "monotio_agi.walkthrough.v1") {
+  if (obj["schema"] !== "monotio.agi.walkthrough.v1") {
     throw new Error(`Unsupported walkthrough schema: ${String(obj["schema"])}`);
   }
   if (typeof obj["game"] !== "string" || !KNOWN_WALKTHROUGHS[obj["game"].toLowerCase()]) {
@@ -202,7 +202,7 @@ export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact 
   }
 
   return {
-    schema: "monotio_agi.walkthrough.v1",
+    schema: "monotio.agi.walkthrough.v1",
     game,
     ...(targetHash !== undefined ? { targetHash } : {}),
     ...(supportedHashes !== undefined ? { supportedHashes } : {}),

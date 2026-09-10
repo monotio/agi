@@ -1,5 +1,5 @@
 {
-  "schema": "monotio_agi.walkthrough.v1",
+  "schema": "monotio.agi.walkthrough.v1",
   "game": "kq2",
   "targetHash": "d404578e135a58dafd390b722e9f7bef57e30a693cf08608c824fc6315c73d93",
   "supportedHashes": [

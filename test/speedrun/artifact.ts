@@ -7,7 +7,7 @@ import type { Action } from "./runner.ts";
 import { walkthrough, type Walkthrough } from "./walkthroughs.ts";
 
 export interface WalkthroughArtifact {
-  schema: "monotio_agi.walkthrough.v1";
+  schema: "monotio.agi.walkthrough.v1";
   game: string;
   targetHash?: string | undefined;
   supportedHashes?: readonly string[] | undefined;
@@ -40,7 +40,7 @@ export function walkthroughFixtureHashes(target: string): Record<string, string>
 /** Read a completed replay; consumers also match its hashes to their fixture files. */
 export function readWalkthroughArtifact(path: string): WalkthroughArtifact {
   const recording = JSON.parse(readFileSync(path, "utf8")) as WalkthroughArtifact;
-  assert.equal(recording.schema, "monotio_agi.walkthrough.v1");
+  assert.equal(recording.schema, "monotio.agi.walkthrough.v1");
   const route = walkthrough(recording.game);
   if (recording.targetHash) {
     assert.equal(
