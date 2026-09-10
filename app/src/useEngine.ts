@@ -17,6 +17,7 @@ import {
 } from "./useWalkthroughController.ts";
 import { useInputController } from "./useInputController.ts";
 import { useTestRecorder } from "./useTestRecorder.ts";
+import { useAuthoringController, type PowerUpUiState } from "./useAuthoringController.ts";
 import { createBridge, type AgentHandler, type Bridge } from "./agent/sabBridge.ts";
 import { AgentSession } from "./agent/agentSession.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
@@ -35,8 +36,6 @@ import {
 import {
   clearCachedGame,
   saveAuthoredGame,
-  saveGameConversation,
-  loadGameConversation,
   getCachedGameMeta,
   type CachedGameData,
   loadAuthoredGame,
@@ -92,7 +91,7 @@ export interface TextHook {
 
 export type { AgentLogEntry, AgentLogAudio };
 export { useAudioController, type AudioController };
-export type { WalkthroughUiState };
+export type { WalkthroughUiState, PowerUpUiState };
 
 export interface InstalledGameDescriptor {
   readonly hash: string;
@@ -189,23 +188,6 @@ export interface EngineState {
   recording: { active: boolean; starting: boolean; error: string };
   /** Real-time walkthrough playback. */
   walkthrough: WalkthroughUiState;
-}
-
-/** Remix bubble state; the transcript slice is the live tool-call feed. */
-export interface PowerUpUiState {
-  mode: "ask" | "remix" | "room";
-  messages: { role: "user" | "assistant"; text: string }[];
-  open: boolean;
-  needsConfig: boolean;
-  /** An agent turn is in flight; the prompt line is disabled. */
-  busy: boolean;
-  /** Index into agentLog where this remix turn's feed begins. */
-  feedStart: number;
-  /** The agent's closing sentence, once it has one. */
-  reply: string;
-  /** Room the world froze in. */
-  room: number;
-  error: string;
 }
 
 export interface Frame {
@@ -348,11 +330,9 @@ export function useEngine(
   let walkthroughAbort: () => void = () => {};
   let worker: Worker | null = null;
   let bridge: Bridge | null = null;
-  /** The authoring session for the game currently in the slot, if one exists. */
-  let session: AgentSession | null = null;
   /** Every worker bridge follows the current idle-boundary session replacement. */
   const currentSessionAgent: AgentHandler = {
-    handle: async (request) => session?.handle(request) ?? "",
+    handle: async (request) => authoringController.getSession()?.handle(request) ?? "",
   };
   let booted: BootedGame | null = null;
   interface PendingQuery {
@@ -481,22 +461,8 @@ export function useEngine(
     getActiveWalkthroughSession: () => activeWalkthroughSession,
   });
 
-  const testRecorder = useTestRecorder({
-    state,
-    getWorker: () => worker,
-    query,
-    logAgent,
-    getBootedGame: () => booted,
-    getOrCreateSession: async (game, config) => {
-      if (!session) session = await createGameSession(game, config);
-      return session;
-    },
-    markRemixNeedsSave: () => {
-      remixNeedsSave = true;
-    },
-    persistRemix,
-    flushAutosave,
-  });
+  let autosaveWrite: Promise<boolean> = Promise.resolve(true);
+  let lastAutosave: AutosaveRecord | null = null;
 
   const hook: TextHook = {
     rows: [],
@@ -512,6 +478,40 @@ export function useEngine(
     egoY: 0,
   };
 
+  const authoringController = useAuthoringController({
+    state,
+    getWorker: () => worker,
+    query,
+    logAgent,
+    readFrames,
+    pauseEngine,
+    resumeEngine,
+    getBootedGame: () => booted,
+    setBootedGame: (game) => {
+      booted = game;
+    },
+    flushAutosave,
+    getAutosaveWrite: () => autosaveWrite,
+    clearAutosave,
+    onRemixCreated: (remixProjectId) => {
+      localStorage.setItem(LAST_GAME_KEY, remixProjectId);
+      lastAutosave = null;
+      hook.autosave = -1;
+    },
+  });
+
+  const testRecorder = useTestRecorder({
+    state,
+    getWorker: () => worker,
+    query,
+    logAgent,
+    getBootedGame: () => booted,
+    getOrCreateSession: authoringController.getOrCreateSession,
+    markRemixNeedsSave: () => authoringController.setRemixNeedsSave(true),
+    persistRemix: authoringController.persistRemix,
+    flushAutosave,
+  });
+
   /**
    * A save image waiting for the boot it belongs to: the resume path parks it
    * here and the next boot message carries it into the worker, which replays
@@ -519,10 +519,6 @@ export function useEngine(
    */
   let pendingResumeRecord: AutosaveRecord | null = null;
   let resumeCaptionTimer: number | null = null;
-  /** The newest autosave this session stored; the HMR handover carries it. */
-  let lastAutosave: AutosaveRecord | null = null;
-  let autosaveWrite: Promise<boolean> = Promise.resolve(true);
-  let remixNeedsSave = false;
   /** Resolvers waiting for the worker to acknowledge a flush request. */
   const flushWaiters = new Map<number, (saved: boolean) => void>();
 
@@ -638,7 +634,7 @@ export function useEngine(
           });
         }
         const game = booted;
-        const author = session;
+        const author = authoringController.getSession();
         state.powerUp = {
           mode: "room",
           messages: [],
@@ -781,7 +777,7 @@ export function useEngine(
       // services (getnum/getstring/restore) and satisfies the boot contract.
       // No authoring session exists yet: the remix builds and orients one
       // over this container on first use.
-      session = null;
+      authoringController.resetSession();
       booted = {
         installed: true,
         hash,
@@ -988,14 +984,13 @@ export function useEngine(
    * deliberate-departure path and waits for storage before leaving.
    */
   function shutdownEngine(): void {
-    session?.task.cancel();
     worker?.terminate();
     bridge?.dispose();
     audio.stop();
     releaseAgentAudioPreviews();
     worker = null;
     bridge = null;
-    session = null;
+    authoringController.resetSession();
     drainPendingQueries();
     for (const done of flushWaiters.values()) done(false);
     flushWaiters.clear();
@@ -1354,6 +1349,7 @@ export function useEngine(
       throw new Error("Wait for the current authoring turn to finish before saving.");
     const game = booted;
     if (!game) throw new Error("No game is running.");
+    const session = authoringController.getSession();
     const data: CachedGameData | null = game.installed
       ? {
           projectId: game.alias ?? game.hash ?? "installed",
@@ -1397,324 +1393,7 @@ export function useEngine(
     };
   }
 
-  const engineSource = {
-    objects: () => query<unknown>("objects"),
-    state: () => query<unknown>("state"),
-  };
-
-  async function createGameSession(
-    game: NonNullable<typeof booted>,
-    config: LlmConfig,
-  ): Promise<AgentSession> {
-    const cached = game.installed
-      ? await loadGameConversation(game.hash ?? game.alias ?? "installed")
-      : await loadAuthoredGame(game.projectId!);
-    return AgentSession.fromAuthoredData(
-      config,
-      logAgent,
-      game.files,
-      game.words,
-      cached ? continuationTranscript(cached, config.provider, config.model) : undefined,
-      cached?.provider === config.provider && cached.model === config.model
-        ? cached.sessionId
-        : undefined,
-      cached?.authoringState,
-    );
-  }
-
-  function attachSessionRuntime(
-    s: AgentSession,
-    game: NonNullable<typeof booted>,
-    profile = state.profile ?? "unknown",
-  ): void {
-    s.setRuntime({ frames: { read: readFrames }, engine: engineSource });
-    if (game.installed || (game.projectId && getCachedGameMeta(game.projectId)?.imported)) {
-      s.setOrientation({
-        game: game.alias ?? game.projectId ?? game.hash ?? "game",
-        profile,
-      });
-    }
-  }
-
-  /**
-   * Enter remix mode: pause the interpreter, freeze ego in place, and open
-   * the assistant bubble for the current room.
-   */
-  async function openPowerUp(config: LlmConfig): Promise<void> {
-    if (state.powerUp.open && state.powerUp.mode === "room") return;
-    if (state.powerUp.mode === "room") state.powerUp.mode = "remix";
-    pauseEngine();
-    state.powerUp.open = true;
-    // Busy until the room is known: the prompt line must not accept an
-    // instruction before we know which room the world froze in.
-    state.powerUp.busy = true;
-    state.powerUp.reply = "";
-    state.powerUp.error = "";
-    state.powerUp.needsConfig = false;
-    state.powerUp.feedStart = state.agentLog.length;
-    try {
-      const engineState = await query<{ room: number; profile: string } | null>("state");
-      state.powerUp.room = Number(engineState?.room ?? 0);
-      if (!session && booted) {
-        if (config.provider !== "stub" && !config.apiKey.trim()) {
-          state.powerUp.needsConfig = true;
-          return;
-        }
-        session = await createGameSession(booted, config);
-      }
-      if (!session) throw new Error("no game is running");
-      state.powerUp.messages = session.getMessages();
-      if (!session.isConfigured()) {
-        state.powerUp.needsConfig = true;
-        return;
-      }
-      attachSessionRuntime(
-        session,
-        booted!,
-        String(engineState?.profile ?? state.profile ?? "unknown"),
-      );
-    } catch (e) {
-      state.powerUp.error = String(e);
-    } finally {
-      state.powerUp.busy = false;
-    }
-  }
-
-  /** Apply shared AI settings to the next turn without replacing authored game state. */
-  async function updateAiConfig(config: LlmConfig): Promise<void> {
-    if (state.powerUp.busy)
-      throw new Error("Wait for the current agent task to finish before changing AI settings.");
-
-    const current = session;
-    let replacement: AgentSession;
-    if (current) {
-      replacement = current.reconfigure(config);
-      replacement.setRuntime({ frames: { read: readFrames }, engine: engineSource });
-    } else {
-      const game = booted;
-      if (!game) return;
-      replacement = await createGameSession(game, config);
-      if (booted !== game || session)
-        throw new Error("The game changed while applying AI settings. Try again.");
-      attachSessionRuntime(replacement, game);
-    }
-
-    session = replacement;
-    state.agentTask = replacement.task.snapshot();
-    state.powerUp.messages = replacement.getMessages();
-    state.powerUp.needsConfig = !replacement.isConfigured();
-    state.powerUp.error = "";
-
-    const game = booted;
-    if (!game) return;
-    const context = replacement.getProviderContext();
-    try {
-      if (game.installed) {
-        await saveGameConversation(game.hash ?? game.alias ?? "installed", {
-          ...context,
-          transcript: replacement.getTranscript(),
-          sessionId: replacement.getSessionId(),
-          authoringState: replacement.getAuthoringState(),
-        });
-      } else if (
-        !(await updateGameConversation(
-          game.projectId!,
-          replacement.getTranscript(),
-          replacement.getSessionId(),
-          replacement.getAuthoringState(),
-          context.provider,
-          context.model,
-        ))
-      ) {
-        logAgent("error", "Browser storage could not save the updated AI session.");
-      }
-    } catch {
-      logAgent("error", "Browser storage could not save the updated AI session.");
-    }
-  }
-
-  /** Close the bubble without asking for anything; the world resumes untouched. */
-  function closePowerUp(): void {
-    if (state.powerUp.busy) return;
-    state.powerUp.open = false;
-    state.powerUp.busy = false;
-    resumeEngine();
-  }
-
-  /** Persist resource bytes and their matching authoring history as one project snapshot. */
-  async function persistRemix(
-    game: NonNullable<typeof booted>,
-    author: AgentSession,
-    files: Record<string, Uint8Array>,
-  ): Promise<void> {
-    await autosaveWrite;
-    if (booted !== game) throw new Error("The game changed while saving the remix.");
-    const context = author.getProviderContext();
-    const words = files["WORDS.TOK"]
-      ? parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id] as [string, number])
-      : game.words;
-    const original = game.installed ? null : await loadAuthoredGame(game.projectId!);
-    const revision = await gameRevision(files);
-    const catalogChanged =
-      original?.library?.source === "catalog" && original.library.revision !== revision;
-    if (game.installed || catalogChanged) {
-      const remixProjectId = `remix-${crypto.randomUUID()}`;
-      const parentProjectId = original?.projectId ?? game.projectId;
-      const data: Omit<CachedGameData, "projectId" | "authoredAt"> = {
-        title: `${original?.title ?? game.title} Remix`,
-        library: {
-          ...original?.library,
-          version: 1,
-          alias: undefined,
-          revision,
-          source: "remix",
-          catalog: undefined,
-          preview: undefined,
-          parent: {
-            ...(parentProjectId ? { projectId: parentProjectId } : {}),
-            ...(game.alias ? { alias: game.alias } : {}),
-            revision: original?.library?.revision ?? (await gameRevision(game.files)),
-          },
-          validation: {
-            status: "unverified",
-            message: "Remixed resources. Check the opening to create a new preview.",
-          },
-        },
-        files,
-        words,
-        ...context,
-        transcript: author.getTranscript(),
-        sessionId: author.getSessionId(),
-        authoringState: author.getAuthoringState(),
-        imported: true,
-        roomGeneration: false,
-      };
-      if (!(await saveAuthoredGame(remixProjectId, data)))
-        throw new Error(
-          "Browser storage could not save this remix. Use Game actions → Project to keep it.",
-        );
-      // The checkpoint moves with the progress: the original card must never
-      // offer a snapshot taken under resources its own container does not have.
-      clearAutosave(game.installed ? (game.hash ?? game.alias!) : game.projectId!);
-      if (game.installed && game.alias) clearAutosave(game.alias);
-      booted = {
-        installed: false,
-        projectId: remixProjectId,
-        alias: original?.library?.alias ?? game.alias,
-        title: `${original?.title ?? game.title} Remix`,
-        revision,
-        files,
-        words,
-        authoredGame: { ...data, projectId: remixProjectId, authoredAt: new Date().toISOString() },
-      };
-      // An original-game snapshot must never stand in for the new game's checkpoint.
-      localStorage.setItem(LAST_GAME_KEY, remixProjectId);
-      lastAutosave = null;
-      hook.autosave = -1;
-    } else if (
-      !(await updateGameConversation(
-        game.projectId!,
-        author.getTranscript(),
-        author.getSessionId(),
-        author.getAuthoringState(),
-        context.provider,
-        context.model,
-        files,
-      ))
-    ) {
-      throw new Error(
-        "Browser storage could not save this remix. Use Game actions → Project to keep it.",
-      );
-    }
-    game.files = files;
-    game.words = words;
-    remixNeedsSave = false;
-  }
-
-  /**
-   * Run one remix turn: the agent loops over its tools (streamed into the
-   * bubble through logAgent), then everything it patched goes into the live
-   * container, the room re-enters if the current room changed underneath the
-   * player, and the interpreter resumes on exactly the cycle it parked on.
-   */
-  async function submitPowerUp(instruction: string): Promise<void> {
-    if (!session || state.powerUp.busy || state.powerUp.mode === "room") return;
-    if (!session.isConfigured()) {
-      state.powerUp.needsConfig = true;
-      return;
-    }
-    state.powerUp.busy = true;
-    state.powerUp.error = "";
-    state.powerUp.messages.push({ role: "user", text: instruction });
-    try {
-      const room = state.powerUp.room;
-      if (state.powerUp.mode === "ask") {
-        const text = await session.runAsk(instruction, room);
-        state.powerUp.reply = text;
-        state.powerUp.messages.push({ role: "assistant", text });
-        if (booted?.installed) {
-          const key = booted.hash ?? booted.alias ?? "installed";
-          await saveGameConversation(key, {
-            ...session.getProviderContext(),
-            transcript: session.getTranscript(),
-            sessionId: session.getSessionId(),
-            authoringState: session.getAuthoringState(),
-          });
-        }
-        if (booted && !booted.installed) {
-          const context = session.getProviderContext();
-          if (
-            !(await updateGameConversation(
-              booted.projectId!,
-              session.getTranscript(),
-              session.getSessionId(),
-              session.getAuthoringState(),
-              context.provider,
-              context.model,
-            ))
-          )
-            throw new Error(
-              "Conversation could not be saved. Use Game actions → Project to keep it.",
-            );
-        }
-        return;
-      }
-      const { text, patched, files } = await session.runPowerUp(instruction, room);
-      state.powerUp.reply = text;
-      state.powerUp.messages.push({ role: "assistant", text });
-      remixNeedsSave = true;
-      if (files) worker?.postMessage({ type: "patchMetadata", files });
-      for (const res of patched) {
-        const payload = new Uint8Array(res.payload);
-        worker?.postMessage(
-          { type: "patch", kind: res.kind, num: res.num, payload: payload.buffer },
-          [payload.buffer],
-        );
-      }
-      // Worker messages are ordered: snapshot after every patch has landed, before persisting the matching conversation.
-      if (booted) {
-        const game = booted;
-        const currentFiles = await query<Record<string, Uint8Array> | null>("exportFiles");
-        if (!currentFiles) throw new Error("The remixed game snapshot is unavailable.");
-        await persistRemix(game, session, currentFiles);
-      }
-      const touchedRoom = patched.some(
-        (p) =>
-          ((p.kind === "logic" || p.kind === "picture") && p.num === room) || p.kind === "view",
-      );
-      if (touchedRoom) {
-        logAgent("log", `Re-entering room ${room} so the patch takes effect.`);
-        worker?.postMessage({ type: "reenter", room });
-      }
-      await flushAutosave(2000);
-      state.powerUp.open = false;
-      resumeEngine();
-    } catch (e) {
-      state.powerUp.error = String(e);
-    } finally {
-      state.powerUp.busy = false;
-    }
-  }
+  const { openPowerUp, closePowerUp, submitPowerUp, updateAiConfig } = authoringController;
 
   async function ejectGame(): Promise<void> {
     if (state.leaving || state.powerUp.busy) return;
@@ -1722,13 +1401,14 @@ export function useEngine(
     pauseEngine();
     try {
       const game = booted;
-      if (game && session && (!game.installed || remixNeedsSave)) {
+      const session = authoringController.getSession();
+      if (game && session && (!game.installed || authoringController.isRemixNeedsSave())) {
         const files = await query<Record<string, Uint8Array> | null>("exportFiles");
         if (!files)
           throw new Error(
             "The current game could not be saved. Try Game actions → Project before leaving.",
           );
-        await persistRemix(game, session, files);
+        await authoringController.persistRemix(game, session, files);
       }
       await flushAutosave(2000);
       await autosaveWrite;
@@ -1754,7 +1434,7 @@ export function useEngine(
     worker?.terminate();
     bridge?.dispose();
     audio.stop();
-    session = null;
+    authoringController.resetSession();
     booted = null;
     worker = null;
     bridge = null;
@@ -1770,7 +1450,6 @@ export function useEngine(
       room: 0,
       error: "",
     };
-    remixNeedsSave = false;
     state.phase = "idle";
     state.error = "";
     state.status = "";
@@ -1821,7 +1500,7 @@ export function useEngine(
                     : undefined,
                   cached.authoringState,
                 );
-          session = cachedSession;
+          authoringController.setSession(cachedSession);
           bridge = createBridge(hostBridgeHandler(currentSessionAgent), logAgent);
           const known = await detectKnownGame(cached.files);
           const revision = cached.library?.revision || (await gameRevision(cached.files));
@@ -1854,12 +1533,12 @@ export function useEngine(
         );
       }
 
-      const authoring = new AgentSession(config, logAgent);
-      session = authoring;
+      const genesisSession = new AgentSession(config, logAgent);
+      authoringController.setSession(genesisSession);
       bridge = createBridge(hostBridgeHandler(currentSessionAgent), logAgent);
 
       const { files, words, transcript, sessionId } =
-        await authoring.startGenesis(templateMarkdown);
+        await genesisSession.startGenesis(templateMarkdown);
       const authoredGame: CachedGameData = {
         projectId,
         title,
@@ -1870,7 +1549,7 @@ export function useEngine(
         words,
         transcript,
         sessionId,
-        authoringState: authoring.getAuthoringState(),
+        authoringState: genesisSession.getAuthoringState(),
         roomGeneration: true,
       };
       const known = await detectKnownGame(files);
@@ -1894,7 +1573,7 @@ export function useEngine(
         words,
         transcript,
         sessionId,
-        authoringState: authoring.getAuthoringState(),
+        authoringState: genesisSession.getAuthoringState(),
         roomGeneration: true,
       });
       if (!saved)
@@ -1986,9 +1665,9 @@ export function useEngine(
   walkthroughAbort = walkthrough.abort;
 
   return {
-    stopAgent: () => session?.task.stop(),
-    continueAgent: () => session?.task.resume(),
-    discardAgent: () => session?.task.cancel(),
+    stopAgent: () => authoringController.getSession()?.task.stop(),
+    continueAgent: () => authoringController.getSession()?.task.resume(),
+    discardAgent: () => authoringController.getSession()?.task.cancel(),
     state,
     audio,
     toggleMute,
