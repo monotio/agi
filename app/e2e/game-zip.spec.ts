@@ -316,7 +316,12 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
   const renamedCard = savedGameCard(page, "The Midnight Appointment");
   await expect(renamedCard.getByTestId("saved-game-title")).toHaveText("The Midnight Appointment");
   const after = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), before.key);
-  expect(after).toEqual({ ...before.data, title: "The Midnight Appointment" });
+  // Rename is a serialized write: it bumps the optimistic-concurrency generation.
+  expect(after).toEqual({
+    ...before.data,
+    title: "The Midnight Appointment",
+    generation: before.data.generation + 1,
+  });
   await page.reload();
   await expect(renamedCard.getByTestId("saved-game-title")).toHaveText("The Midnight Appointment");
   await openSavedGameDetails(renamedCard);
