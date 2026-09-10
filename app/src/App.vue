@@ -1213,6 +1213,19 @@ function present(frame: Frame, textOverride?: Uint8Array, immediate = false): vo
 const hasKeyPrompt = computed(() =>
   state.rows.some((r) => r.toLowerCase().includes("press any key")),
 );
+/**
+ * Name the keys that satisfy have.key for this screen. Keys the script maps
+ * to controllers (set.key) are not raw keys — Enter on the demo pack selects
+ * a demo instead of dismissing its "press any key" page.
+ */
+const keyPromptHint = computed(() => {
+  const mapped = new Set(state.controls.map((b) => b.key));
+  const usable = ([[AGI_KEY.ENTER, "Enter"], [0x20, "Space"]] as [number, string][]).filter(
+    ([key]) => !mapped.has(key),
+  );
+  if (usable.length === 0) return "Press any key to start";
+  return `Press ${usable.map(([, name]) => name).join(" / ")} to start`;
+});
 
 /** Pointer type of the last screen press; the click event carries none. */
 let screenPointerType = "mouse";
@@ -3457,7 +3470,7 @@ watch(
           [ Use the keys requested by the game ]
         </span>
         <span v-else-if="hasKeyPrompt" class="caption" data-testid="title-prompt-hint">
-          [ {{ touchControls ? "Tap screen or press" : "Press" }} Enter / Space to start ]
+          [ {{ touchControls ? `Tap screen or: ${keyPromptHint}` : keyPromptHint }} ]
         </span>
         <span v-else-if="state.modal === 'menu'" class="caption" data-testid="menu-hint">
           [ Arrows to navigate, Enter to select, Esc to close ]
