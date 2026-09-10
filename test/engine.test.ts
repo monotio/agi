@@ -206,3 +206,44 @@ test("byte outside the action table throws a descriptive error", () => {
   const engine = new Engine(container, new ScriptedHost(), DICT);
   assert.throws(() => engine.tick(), /unimplemented opcode 0xb0 \(<not an action>\) at logic 0/);
 });
+
+test("presentation caching reuses composed frame across repeated queries and invalidates on tick", () => {
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `
+      #message 1 "Hello world"
+      if (isset(f5)) {
+        assignn(v50, 1);
+        load.pic(v50);
+        draw.pic(v50);
+        show.pic();
+      }
+      if (isset(f200)) {
+        display(10, 5, 1);
+      }
+      return;
+      `,
+      { dictionary: DICT },
+    ).payload,
+  );
+  container.putResource("picture", 1, PICTURE_1);
+  const host = new ScriptedHost();
+  const engine = new Engine(container, host, DICT);
+  host.engine = engine;
+
+  engine.tick();
+  const p1 = engine.getPresentation();
+  const p2 = engine.getPresentation();
+  assert.deepEqual(p1.visual, p2.visual);
+  assert.deepEqual(p1.priority, p2.priority);
+  assert.deepEqual(p1.text, p2.text);
+
+  // Triggering text print invalidates cached presentation
+  engine.flags[200] = 1;
+  engine.tick();
+  const p3 = engine.getPresentation();
+  assert.notDeepEqual(p1.text, p3.text);
+});

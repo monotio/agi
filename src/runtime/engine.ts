@@ -438,6 +438,19 @@ export class Engine {
   private pendingController: number | null = null;
   /** Tracked key-release gate (action 0xad; spec "Tracked key release"). */
   private keyReleaseGate = 0;
+  /** Scratch arrays and cached composition for presentation and ego visibility. */
+  private readonly scratchVisual = new Uint8Array(SCREEN_WIDTH * 168);
+  private readonly scratchPriority = new Uint8Array(SCREEN_WIDTH * 168);
+  private readonly scratchOwnership = new Uint16Array(SCREEN_WIDTH * 168);
+  private readonly cachedVisual = new Uint8Array(SCREEN_WIDTH * 168);
+  private readonly cachedPriority = new Uint8Array(SCREEN_WIDTH * 168);
+  private readonly cachedText = new Uint8Array(TEXT_COLS * TEXT_ROWS * 2);
+  private cachedEgoVisible = false;
+  private presentationDirty = true;
+  private lastComposedTextDirty = -1;
+  private lastComposedModal: Modal | null = null;
+  private lastComposedTraceDirty = -1;
+  private lastComposedTraceVisible = false;
   /** A gated release enqueued a movement value 0 for the next input phase. */
   private readonly inputQueue = new InputQueue();
   /**
@@ -549,9 +562,13 @@ export class Engine {
   ): void {
     this.container.putResource(kind, num, payload);
     if (kind === "logic") this.logics.delete(num);
-    else if (kind === "picture") this.pictures.delete(num);
-    else if (kind === "view") this.views.delete(num);
-    else this.sounds.delete(num);
+    else if (kind === "picture") {
+      this.pictures.delete(num);
+      this.presentationDirty = true;
+    } else if (kind === "view") {
+      this.views.delete(num);
+      this.presentationDirty = true;
+    } else this.sounds.delete(num);
     this.patchGen++;
   }
 
@@ -1517,6 +1534,7 @@ export class Engine {
     this.soundPlayback = sound;
     this.playingSound = state.sound?.num ?? null;
     this.soundDoneFlag = state.sound?.doneFlag ?? null;
+    this.presentationDirty = true;
   }
 
   /**
@@ -1709,6 +1727,7 @@ export class Engine {
 
     // 3. Rebind object views and refresh picture, objects, status and input.
     this.rebindObjectViews();
+    this.presentationDirty = true;
     this.updateEgoVisibility();
     this.modals.length = 0;
     this.persistentWindow = null;
@@ -1977,6 +1996,7 @@ export class Engine {
       const to = Math.min(SCREEN_WIDTH, x + c.width);
       for (let dx = from; dx < to; dx++) this.surface.priority[y * SCREEN_WIDTH + dx] = margin;
     }
+    this.presentationDirty = true;
   }
 
   /**
@@ -2107,6 +2127,7 @@ export class Engine {
     }
     if (this.printsPending > 0) return;
     if (this.pendingLogic === null) {
+      this.presentationDirty = true;
       // The timer tick accumulator serialized as the save's tick count.
       this.timerTicks = (this.timerTicks + 1) >>> 0;
       // 2. Clear transient mapped events, f2, f4.
@@ -2221,6 +2242,7 @@ export class Engine {
       // An open text window never suspends this update.
       // docs/fidelity.md: window-update-gate
       this.updateObjects();
+      this.presentationDirty = true;
       this.updateEgoVisibility();
     }
   }
@@ -2665,42 +2687,25 @@ export class Engine {
       this.drawInputRow();
     }
     this.host.clearText?.();
+    this.presentationDirty = true;
     void room;
   }
 
   /**
-   * Composite the presentable frame: picture surface plus active objects
-   * drawn in baseline order (classic painter's algorithm by priority).
-   * Returns fresh copies — the worker transfers these to the renderer.
+   * Composite the presentable frame into reusable scratch buffers and update
+   * the cached presentation product.
    */
-  getFrame(): { visual: Uint8Array; priority: Uint8Array } {
-    return this.composeFrame(false).frame;
-  }
+  private composePresentation(): void {
+    this.scratchVisual.set(this.surface.visual);
+    this.scratchPriority.set(this.surface.priority);
+    this.scratchOwnership.fill(0);
 
-  /** Pixels and text from one completed composition; buffers may be transferred by the host. */
-  getPresentation(): { visual: Uint8Array; priority: Uint8Array; text: Uint8Array } {
-    const { frame, ownership, sprites } = this.composeFrame(!this.textMode);
-    // Only the final owner of a pixel can obscure text. Intermediate paints
-    // may themselves be covered by another sprite in the same pass.
-    const text = this.mergeTraceText(this.hideTextUnderSprites(ownership, sprites)).slice();
-    return { ...frame, text };
-  }
+    const frame: PictureSurface = {
+      visual: this.scratchVisual,
+      priority: this.scratchPriority,
+      reset(): void {},
+    };
 
-  /** f1 is engine state, updated when sprites draw rather than when a host asks for pixels. */
-  private updateEgoVisibility(): void {
-    if (this.objects[0]!.active) this.flags[1] = this.composeFrame(true).egoVisible ? 0 : 1;
-  }
-
-  private composeFrame(trackOwnership: boolean): {
-    frame: { visual: Uint8Array; priority: Uint8Array };
-    egoVisible: boolean;
-    ownership: Uint16Array | null;
-    sprites: ScreenObject[];
-  } {
-    const visual = this.surface.visual.slice();
-    const priority = this.surface.priority.slice();
-    const ownership = trackOwnership ? new Uint16Array(visual.length) : null;
-    const frame: PictureSurface = { visual, priority, reset(): void {} };
     // Stable sorting retains object-number order for equal drawing keys.
     // Positive fixed priorities sort after every baseline in the table mode.
     const active = this.objects
@@ -2712,6 +2717,7 @@ export class Engine {
         const bKey = b.fixedPriority ? (b.priority === 0 ? -1 : SCREEN_HEIGHT) : b.y;
         return aKey - bKey;
       });
+
     for (const [slot, o] of active.entries()) {
       const view = this.views.get(o.view);
       const cel = view && readViewCel(view, o.loop, o.cel);
@@ -2719,17 +2725,15 @@ export class Engine {
       const pri = o.fixedPriority ? o.priority : this.priorityForY(o.y);
       drawCel(frame, cel, o.x, o.y, {
         priority: pri,
-        ...(ownership
-          ? {
-              onPixel: (index: number) => {
-                ownership[index] = slot + 1;
-              },
-            }
-          : {}),
+        onPixel: (index: number) => {
+          this.scratchOwnership[index] = slot + 1;
+        },
       });
     }
+
     const egoSlot = active.indexOf(this.objects[0]!);
-    const egoVisible = egoSlot >= 0 && (ownership?.includes(egoSlot + 1) ?? false);
+    this.cachedEgoVisible = egoSlot >= 0 && this.scratchOwnership.includes(egoSlot + 1);
+
     if (this.modal?.kind === "showObj") {
       // show.obj preview: the view's first cel, bottom centre of the picture.
       const view = this.views.get(this.modal.view);
@@ -2737,14 +2741,67 @@ export class Engine {
       if (cel)
         drawCel(frame, cel, (SCREEN_WIDTH - cel.width) >> 1, SCREEN_HEIGHT - 1, { priority: 15 });
     }
-    if (this.modal?.kind === "showPri")
-      return {
-        frame: { visual: priority.slice(), priority },
-        egoVisible,
-        ownership,
-        sprites: active,
-      };
-    return { frame: { visual, priority }, egoVisible, ownership, sprites: active };
+
+    if (this.modal?.kind === "showPri") {
+      this.cachedVisual.set(this.scratchPriority);
+      this.cachedPriority.set(this.scratchPriority);
+    } else {
+      this.cachedVisual.set(this.scratchVisual);
+      this.cachedPriority.set(this.scratchPriority);
+    }
+
+    const ownership = !this.textMode ? this.scratchOwnership : null;
+    const text = this.mergeTraceText(this.hideTextUnderSprites(ownership, active));
+    this.cachedText.set(text);
+    this.lastComposedTextDirty = this.text.dirty;
+    this.lastComposedModal = this.modal;
+    this.lastComposedTraceDirty = this.trace.surface.dirty;
+    this.lastComposedTraceVisible = this.traceOverlayVisible;
+    this.presentationDirty = false;
+  }
+
+  private ensurePresentationCurrent(): void {
+    const traceVisible = this.traceOverlayVisible;
+    if (
+      this.presentationDirty ||
+      this.text.dirty !== this.lastComposedTextDirty ||
+      this.modal !== this.lastComposedModal ||
+      traceVisible !== this.lastComposedTraceVisible ||
+      (traceVisible && this.trace.surface.dirty !== this.lastComposedTraceDirty)
+    ) {
+      this.composePresentation();
+    }
+  }
+
+  /**
+   * Composite the presentable frame: picture surface plus active objects
+   * drawn in baseline order (classic painter's algorithm by priority).
+   * Returns fresh copies — the worker transfers these to the renderer.
+   */
+  getFrame(): { visual: Uint8Array; priority: Uint8Array } {
+    this.ensurePresentationCurrent();
+    return {
+      visual: this.cachedVisual.slice(),
+      priority: this.cachedPriority.slice(),
+    };
+  }
+
+  /** Pixels and text from one completed composition; buffers may be transferred by the host. */
+  getPresentation(): { visual: Uint8Array; priority: Uint8Array; text: Uint8Array } {
+    this.ensurePresentationCurrent();
+    return {
+      visual: this.cachedVisual.slice(),
+      priority: this.cachedPriority.slice(),
+      text: this.cachedText.slice(),
+    };
+  }
+
+  /** f1 is engine state, updated when sprites draw rather than when a host asks for pixels. */
+  private updateEgoVisibility(): void {
+    if (this.objects[0]!.active) {
+      this.ensurePresentationCurrent();
+      this.flags[1] = this.cachedEgoVisible ? 0 : 1;
+    }
   }
 
   /** Baseline priority bands (spec "Priority and horizon" and set.pri.base). */
@@ -3616,6 +3673,7 @@ export class Engine {
         // The cel now covers whatever text lies under it (hideTextUnderSprites);
         // text written from here on lies on top of it.
         this.stampDraw(o);
+        this.presentationDirty = true;
         this.updateEgoVisibility();
         return next;
       }
@@ -3625,6 +3683,7 @@ export class Engine {
         // written since then is gone.
         if (o.active) this.restoreBehind(o);
         o.active = false;
+        this.presentationDirty = true;
         this.updateEgoVisibility();
         return next;
       }
@@ -4497,12 +4556,14 @@ export class Engine {
     renderPicture(this.picturePayload(num), this.surface, { profile: this.profile });
     this.pictureShown = false;
     this.lastPicture = num;
+    this.presentationDirty = true;
   }
 
   /** overlay.pic: decode over the logical picture without clearing it first. */
   private overlayPicture(num: number): void {
     renderPicture(this.picturePayload(num), this.surface, { overlay: true, profile: this.profile });
     this.lastPicture = num;
+    this.presentationDirty = true;
   }
 
   private loadLogicRecorded(num: number): void {
@@ -4674,6 +4735,7 @@ export class Engine {
     this.surface.reset();
     this.pictureShown = false;
     this.text.clear();
+    this.presentationDirty = true;
     // The two timing accumulators.
     this.timerTicks = 0;
     this.clockRemainderMs = 0;
