@@ -42,6 +42,12 @@ export class AgiStage {
   private readonly scanPeriod = uniform(2);
   private readonly isWebGpu: boolean;
   private readonly observer: ResizeObserver | null;
+  private readonly quad: THREE.Mesh;
+  private readonly geometry: THREE.PlaneGeometry;
+  private readonly crtMaterial: MeshBasicNodeMaterial;
+  private readonly flatMaterial: MeshBasicNodeMaterial;
+  private pendingRaf: number | null = null;
+  private disposed = false;
 
   private constructor(renderer: WebGPURenderer, isWebGpu: boolean, canvas: HTMLCanvasElement) {
     this.renderer = renderer;
@@ -61,8 +67,20 @@ export class AgiStage {
     const frame = this.texture;
     const crt = this.crtUniform;
     const scanPeriod = this.scanPeriod;
-    const material = new MeshBasicNodeMaterial();
-    material.colorNode = Fn(() => {
+
+    this.geometry = new THREE.PlaneGeometry(2, 2);
+
+    // Cheap flat material for CRT-off mode: one direct texture fetch, zero warp/scanlines/triads/halo
+    this.flatMaterial = new MeshBasicNodeMaterial();
+    this.flatMaterial.colorNode = Fn(() => {
+      const p = uv();
+      const sampleUv = vec2(p.x, float(1.0).sub(p.y));
+      return texture(frame, sampleUv);
+    })();
+
+    // Full CRT material with curvature, scanlines, triads, vignette, and halo
+    this.crtMaterial = new MeshBasicNodeMaterial();
+    this.crtMaterial.colorNode = Fn(() => {
       // Quad UV, origin bottom-left. The frame is stored top-down, so flip v.
       const p = uv();
       // Barrel warp around the centre (strength scaled by the crt toggle).
@@ -101,8 +119,8 @@ export class AgiStage {
       return shaded.mul(inside);
     })();
 
-    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    this.scene.add(quad);
+    this.quad = new THREE.Mesh(this.geometry, this.crtMaterial);
+    this.scene.add(this.quad);
   }
 
   /** GPU flavour actually in use ("webgpu" | "webgl2"), surfaced in the debug UI. */
@@ -112,15 +130,19 @@ export class AgiStage {
 
   /** Enable or disable the CRT pass. */
   set crt(on: boolean) {
+    if (this.disposed) return;
     this.crtUniform.value = on ? 1 : 0;
+    this.quad.material = on ? this.crtMaterial : this.flatMaterial;
     // Static rooms and paused games may not emit another frame. Apply the
     // display setting immediately using the texture already on the GPU.
     this.renderer.render(this.scene, this.camera);
   }
 
-  /** Match the backing store to the displayed size in device pixels. */
+  /** Match the backing store to the displayed size in device pixels with a max DPR cap. */
   private fit(canvas: HTMLCanvasElement): void {
-    const dpr = typeof devicePixelRatio === "number" ? devicePixelRatio : 1;
+    if (this.disposed) return;
+    const rawDpr = typeof devicePixelRatio === "number" ? devicePixelRatio : 1;
+    const dpr = Math.min(Math.max(1, rawDpr), 2);
     const width = Math.max(1, Math.round((canvas.clientWidth || FRAME_WIDTH * 2) * dpr));
     const height = Math.max(1, Math.round((canvas.clientHeight || FRAME_HEIGHT * 2) * dpr));
     this.renderer.setSize(width, height, false);
@@ -132,44 +154,74 @@ export class AgiStage {
   static async create(canvas: HTMLCanvasElement): Promise<AgiStage | null> {
     const attempts: { forceWebGL: boolean }[] = [{ forceWebGL: false }, { forceWebGL: true }];
     for (const { forceWebGL } of attempts) {
+      let renderer: WebGPURenderer | null = null;
       try {
-        const renderer = new WebGPURenderer({ canvas, antialias: false, forceWebGL });
+        renderer = new WebGPURenderer({ canvas, antialias: false, forceWebGL });
         await renderer.init();
         const gpu =
           !forceWebGL &&
           Boolean((renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend);
         return new AgiStage(renderer, gpu, canvas);
       } catch {
-        // fall through to the next backend
+        try {
+          renderer?.dispose();
+        } catch {
+          // fall through to next backend
+        }
       }
     }
     return null;
   }
 
-  private renderPending = false;
-
   /** Upload a composed 320x200 RGBA frame and draw it. */
   render(frame: Uint8Array | Uint8ClampedArray, immediate = false): void {
+    if (this.disposed) return;
     this.rgba.set(frame);
     this.texture.needsUpdate = true;
     if (immediate || typeof requestAnimationFrame === "undefined") {
+      if (this.pendingRaf !== null && typeof cancelAnimationFrame !== "undefined") {
+        cancelAnimationFrame(this.pendingRaf);
+        this.pendingRaf = null;
+      }
       this.renderer.render(this.scene, this.camera);
       return;
     }
-    if (!this.renderPending) {
-      this.renderPending = true;
-      requestAnimationFrame(() => {
-        this.renderPending = false;
-        this.renderer.render(this.scene, this.camera);
+    if (this.pendingRaf === null) {
+      this.pendingRaf = requestAnimationFrame(() => {
+        this.pendingRaf = null;
+        if (!this.disposed) {
+          this.renderer.render(this.scene, this.camera);
+        }
       });
     }
   }
 
   flush(): void {
+    if (this.disposed) return;
+    if (this.pendingRaf !== null && typeof cancelAnimationFrame !== "undefined") {
+      cancelAnimationFrame(this.pendingRaf);
+      this.pendingRaf = null;
+    }
     this.renderer.render(this.scene, this.camera);
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    if (this.pendingRaf !== null && typeof cancelAnimationFrame !== "undefined") {
+      cancelAnimationFrame(this.pendingRaf);
+      this.pendingRaf = null;
+    }
     this.observer?.disconnect();
+    this.scene.remove(this.quad);
+    this.geometry.dispose();
+    this.flatMaterial.dispose();
+    this.crtMaterial.dispose();
+    this.texture.dispose();
+    try {
+      this.renderer.dispose();
+    } catch {
+      // safe teardown
+    }
   }
 }

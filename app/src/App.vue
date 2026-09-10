@@ -100,7 +100,6 @@ watch(crtEnabled, (on) => {
   localStorage.setItem("monotio_agi.crt", on ? "on" : "off");
   if (stage) {
     stage.crt = on;
-    stage.flush();
   }
 });
 const heldMovementKeys = new Set<string>();
@@ -1102,19 +1101,52 @@ async function onRecordSave(): Promise<void> {
  * no-GPU fallback) and upload it to the GPU stage when one exists.
  */
 let cachedImageData: ImageData | null = null;
+let pendingPresentationFrame: Frame | null = null;
+let pendingTextOverride: Uint8Array | undefined = undefined;
+let presentationRaf: number | null = null;
 
-function present(frame: Frame, textOverride?: Uint8Array): void {
+function renderFrameNow(frame: Frame, textOverride?: Uint8Array): void {
   compositeFrame(
     { visual: frame.visual, text: textOverride ?? frame.text, picRow: frame.picRow },
     composed,
   );
-  const ctx = canvas.value?.getContext("2d");
-  if (ctx) {
-    cachedImageData ??= ctx.createImageData(FRAME_WIDTH, FRAME_HEIGHT);
-    cachedImageData.data.set(composed);
-    ctx.putImageData(cachedImageData, 0, 0);
+  if (!stage || testMode) {
+    const ctx = canvas.value?.getContext("2d");
+    if (ctx) {
+      cachedImageData ??= ctx.createImageData(FRAME_WIDTH, FRAME_HEIGHT);
+      cachedImageData.data.set(composed);
+      ctx.putImageData(cachedImageData, 0, 0);
+    }
   }
-  stage?.render(composed);
+  stage?.render(composed, true);
+}
+
+function present(frame: Frame, textOverride?: Uint8Array, immediate = false): void {
+  lastFrame = frame;
+  if (immediate || textOverride !== undefined || typeof requestAnimationFrame === "undefined") {
+    if (presentationRaf !== null) {
+      cancelAnimationFrame(presentationRaf);
+      presentationRaf = null;
+    }
+    pendingPresentationFrame = null;
+    pendingTextOverride = undefined;
+    renderFrameNow(frame, textOverride);
+    return;
+  }
+  pendingPresentationFrame = frame;
+  pendingTextOverride = undefined;
+  if (presentationRaf === null) {
+    presentationRaf = requestAnimationFrame(() => {
+      presentationRaf = null;
+      const targetFrame = pendingPresentationFrame;
+      const targetText = pendingTextOverride;
+      pendingPresentationFrame = null;
+      pendingTextOverride = undefined;
+      if (targetFrame) {
+        renderFrameNow(targetFrame, targetText);
+      }
+    });
+  }
 }
 
 const hasKeyPrompt = computed(() =>
@@ -2084,6 +2116,10 @@ onUnmounted(() => {
   window.removeEventListener("blur", releaseMovement);
   window.visualViewport?.removeEventListener("resize", resizeViewport);
   window.removeEventListener("resize", resizeViewport);
+  if (presentationRaf !== null && typeof cancelAnimationFrame !== "undefined") {
+    cancelAnimationFrame(presentationRaf);
+    presentationRaf = null;
+  }
   stage?.dispose();
   stage = null;
   window.removeEventListener("keydown", onGlobalKeydown);

@@ -663,7 +663,7 @@ function postFrame(capture = false): void {
 
 /** Copy the same presentation into the rings before postFrame transfers its buffers. */
 function captureFrame(frame: ReturnType<Engine["getPresentation"]>): void {
-  if (!engine) return;
+  if (!engine || replay !== null) return;
   recentRing.push(cycleCount, frame.visual, frame.priority, frame.text, engine.displayBase);
   const now = performance.now();
   if (now - lastHistoryAt >= 1000) {
@@ -982,6 +982,8 @@ self.onmessage = (ev: MessageEvent) => {
       replay = null;
       currentSessionId = 0;
       isSeeking = false;
+      recentRing.reset();
+      historyRing.reset();
       soundClock.reset(performance.now());
       cycleClock.reset(performance.now());
       lastCycleReportAt = performance.now();
