@@ -267,10 +267,10 @@ function autosave(force: boolean): boolean {
     room: engine.vars[0],
   };
   try {
-    const frame = engine.getFrame();
+    const presentation = engine.getPresentation();
     msg["preview"] = createProgressPreview({
-      visual: frame.visual,
-      text: engine.textCells,
+      visual: presentation.visual,
+      text: presentation.text,
       picRow: engine.displayBase,
     });
   } catch (error) {

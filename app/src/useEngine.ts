@@ -125,6 +125,7 @@ export interface EngineState {
   profile: string | null;
   /** Debug screen: live agent activity (requests, responses, patches). */
   agentLog: AgentLogEntry[];
+  omittedLogEntries?: number;
   /** True while a shake.screen effect is animating. */
   shake: boolean;
   /** Active blocking prompt (0x76 get.num / 0x73 get.string), if any. */
@@ -183,6 +184,7 @@ export function useEngine(
     installedGames: null,
     profile: null,
     agentLog: [],
+    omittedLogEntries: 0,
     shake: false,
     prompt: null,
     soundPlaying: false,
@@ -196,6 +198,7 @@ export function useEngine(
       needsConfig: false,
       busy: false,
       feedStart: 0,
+      feedStartSeq: 1,
       reply: "",
       room: 0,
       error: "",

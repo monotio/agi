@@ -1328,7 +1328,12 @@ const powerUpEl = useTemplateRef("powerUpEl");
 /** The live tool-call feed for this remix turn: the transcript tail. */
 const asking = computed(() => state.powerUp.mode === "ask");
 const creatingRoom = computed(() => state.powerUp.mode === "room");
-const powerUpFeed = computed(() => state.agentLog.slice(state.powerUp.feedStart));
+const powerUpFeed = computed(() => {
+  if (state.powerUp.feedStartSeq !== undefined) {
+    return state.agentLog.filter((entry) => (entry.seq ?? 0) >= state.powerUp.feedStartSeq!);
+  }
+  return state.agentLog.slice(state.powerUp.feedStart);
+});
 const powerUpAudio = computed(() => powerUpFeed.value.flatMap((entry) => entry.audio ?? []));
 const latestAgentAudio = computed(
   () => [...state.agentLog].reverse().find((entry) => entry.audio?.length)?.audio ?? [],

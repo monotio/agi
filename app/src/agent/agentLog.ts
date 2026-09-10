@@ -12,6 +12,7 @@ export interface AgentLogEntry {
   kind: "request" | "response" | "error" | "log" | "input";
   detail: string;
   data?: unknown;
+  seq?: number;
   /** Ephemeral browser-only previews. Never copied into logs or project data. */
   audio?: AgentLogAudio[];
 }
@@ -19,6 +20,11 @@ export interface AgentLogEntry {
 export interface AgentLoggerState {
   agentLog: AgentLogEntry[];
   agentTask: AgentRunState | null;
+  omittedEntries?: number;
+  powerUp?: {
+    feedStart: number;
+    feedStartSeq?: number;
+  };
 }
 
 export interface AgentLogger {
@@ -34,6 +40,9 @@ export interface AgentLogger {
 
 const MAX_AUDIO_PREVIEWS = 8;
 const MAX_AUDIO_PREVIEW_BYTES = 8 * 1024 * 1024;
+
+export const MAX_LOG_ENTRIES = 500;
+export const MAX_LOG_BYTES = 2 * 1024 * 1024;
 
 export function isWave(bytes: Uint8Array): boolean {
   if (!(
@@ -105,8 +114,28 @@ export function takeAudio(data: unknown): { previews: AgentLogAudio[]; serializa
 }
 
 /** Create an isolated agent activity logger and audio preview manager. */
-export function createAgentLogger(state: AgentLoggerState): AgentLogger {
+export function createAgentLogger(
+  state: AgentLoggerState,
+  options?: { maxEntries?: number; maxBytes?: number },
+): AgentLogger {
+  const maxEntries = options?.maxEntries ?? MAX_LOG_ENTRIES;
+  const maxBytes = options?.maxBytes ?? MAX_LOG_BYTES;
+  let nextSeq = 0;
+  let omittedEntries = 0;
+  let currentBytes = 0;
   const audioPreviewUrls: { entryId: string; url: string }[] = [];
+
+  function estimateEntryBytes(entry: AgentLogEntry): number {
+    let size = entry.detail.length + 48;
+    if (entry.data !== undefined) {
+      try {
+        size += JSON.stringify(entry.data).length;
+      } catch {
+        size += 128;
+      }
+    }
+    return size;
+  }
 
   function traceAgentLog(): AgentLogEntry[] {
     return state.agentLog.map((entry) => {
@@ -122,6 +151,26 @@ export function createAgentLogger(state: AgentLoggerState): AgentLogger {
     for (const entry of state.agentLog) delete entry.audio;
   }
 
+  function installTraceGetter(): void {
+    if (typeof window === "undefined") return;
+    try {
+      Object.defineProperty(window, "__AGI_TRACE__", {
+        get: () => traceAgentLog(),
+        set: (val: unknown) => {
+          if (Array.isArray(val) && val.length === 0) {
+            clearAgentLog();
+          }
+        },
+        configurable: true,
+        enumerable: true,
+      });
+    } catch {
+      (window as unknown as { __AGI_TRACE__?: AgentLogEntry[] }).__AGI_TRACE__ = traceAgentLog();
+    }
+  }
+
+  installTraceGetter();
+
   function logAgent(
     kind: "request" | "response" | "error" | "log" | "input",
     detail: string,
@@ -133,9 +182,11 @@ export function createAgentLogger(state: AgentLoggerState): AgentLogger {
     }
 
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    nextSeq++;
     const extracted = takeAudio(data);
     const entry: AgentLogEntry = {
       id,
+      seq: nextSeq,
       timestamp: Date.now(),
       kind,
       detail,
@@ -145,7 +196,10 @@ export function createAgentLogger(state: AgentLoggerState): AgentLogger {
           : undefined,
     };
     if (extracted.previews.length) entry.audio = extracted.previews;
+    const entryBytes = estimateEntryBytes(entry);
+    currentBytes += entryBytes;
     state.agentLog.push(entry);
+
     for (const preview of extracted.previews)
       audioPreviewUrls.push({ entryId: id, url: preview.url });
     while (audioPreviewUrls.length > MAX_AUDIO_PREVIEWS) {
@@ -156,16 +210,38 @@ export function createAgentLogger(state: AgentLoggerState): AgentLogger {
       oldEntry.audio = oldEntry.audio.filter(({ url }) => url !== evicted.url);
       if (!oldEntry.audio.length) delete oldEntry.audio;
     }
-    if (typeof window !== "undefined") {
-      (window as unknown as { __AGI_TRACE__?: AgentLogEntry[] }).__AGI_TRACE__ = traceAgentLog();
+
+    // Bounded eviction by entry count and byte cap
+    while (
+      state.agentLog.length > 1 &&
+      (state.agentLog.length > maxEntries || currentBytes > maxBytes)
+    ) {
+      const evicted = state.agentLog.shift()!;
+      currentBytes = Math.max(0, currentBytes - estimateEntryBytes(evicted));
+      omittedEntries++;
+      state.omittedEntries = omittedEntries;
+      if (state.powerUp && state.powerUp.feedStart > 0) {
+        state.powerUp.feedStart = Math.max(0, state.powerUp.feedStart - 1);
+      }
+      if (evicted.audio) {
+        for (const preview of evicted.audio) {
+          URL.revokeObjectURL(preview.url);
+          const idx = audioPreviewUrls.findIndex((p) => p.url === preview.url);
+          if (idx !== -1) audioPreviewUrls.splice(idx, 1);
+        }
+      }
     }
   }
 
   function clearAgentLog(): void {
     releaseAgentAudioPreviews();
     state.agentLog = [];
-    if (typeof window !== "undefined") {
-      (window as unknown as { __AGI_TRACE__?: AgentLogEntry[] }).__AGI_TRACE__ = [];
+    currentBytes = 0;
+    omittedEntries = 0;
+    state.omittedEntries = 0;
+    if (state.powerUp) {
+      state.powerUp.feedStart = 0;
+      state.powerUp.feedStartSeq = nextSeq + 1;
     }
   }
 

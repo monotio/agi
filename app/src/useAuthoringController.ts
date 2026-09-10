@@ -29,6 +29,8 @@ export interface PowerUpUiState {
   busy: boolean;
   /** Index into agentLog where this remix turn's feed begins. */
   feedStart: number;
+  /** Sequence cursor in agentLog where this remix turn's feed begins. */
+  feedStartSeq?: number;
   /** The agent's closing sentence, once it has one. */
   reply: string;
   /** Room the world froze in. */
@@ -188,6 +190,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     state.powerUp.error = "";
     state.powerUp.needsConfig = false;
     state.powerUp.feedStart = state.agentLog.length;
+    state.powerUp.feedStartSeq = (state.agentLog.at(-1)?.seq ?? 0) + 1;
     try {
       const engineState = await query<{ room: number; profile: string } | null>("state");
       state.powerUp.room = Number(engineState?.room ?? 0);
@@ -467,6 +470,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       needsConfig: false,
       busy: true,
       feedStart: state.agentLog.length,
+      feedStartSeq: (state.agentLog.at(-1)?.seq ?? 0) + 1,
       reply: "",
       room: Number(req.context["room"]),
       error: "",
