@@ -5,7 +5,7 @@ import { reactive } from "vue";
 import type { GameControlBinding, EngineMenuState } from "../../src/runtime/engine.ts";
 import { continuationTranscript } from "./projectArchive.ts";
 import { gameRevision } from "./gameMetadata.ts";
-import { detectKnownGame } from "./knownGames.ts";
+import { detectKnownGame, resolveGameHash } from "./knownGames.ts";
 import { clearGameSaves, readGameSaves, writeGameSave } from "./gameSaves.ts";
 import { serializeAgentLog } from "../../src/agent/toolTransport.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
@@ -226,8 +226,14 @@ export type { AutosaveRecord };
 /** Every storage read is a maybe: a blocked, full or corrupt store is normal. */
 export function readAutosave(gameId: string): AutosaveRecord | null {
   try {
-    const parsed = parseAutosaveRecord(localStorage.getItem(autosaveKey(gameId)));
-    return parsed?.game.gameId === gameId ? parsed : null;
+    const direct = parseAutosaveRecord(localStorage.getItem(autosaveKey(gameId)));
+    if (direct?.game.gameId === gameId) return direct;
+    const resolved = resolveGameHash(gameId);
+    if (resolved && resolved !== gameId) {
+      const byHash = parseAutosaveRecord(localStorage.getItem(autosaveKey(resolved)));
+      if (byHash) return byHash;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -236,7 +242,16 @@ export function readAutosave(gameId: string): AutosaveRecord | null {
 export function clearAutosave(gameId: string): void {
   try {
     localStorage.removeItem(autosaveKey(gameId));
-    if (localStorage.getItem(LAST_GAME_KEY) === gameId) localStorage.removeItem(LAST_GAME_KEY);
+    const resolved = resolveGameHash(gameId);
+    if (resolved && resolved !== gameId) {
+      localStorage.removeItem(autosaveKey(resolved));
+    }
+    if (
+      localStorage.getItem(LAST_GAME_KEY) === gameId ||
+      (resolved && localStorage.getItem(LAST_GAME_KEY) === resolved)
+    ) {
+      localStorage.removeItem(LAST_GAME_KEY);
+    }
   } catch {
     /* nothing to clear in a store we cannot reach */
   }
@@ -671,16 +686,28 @@ export function useEngine(
   function hostBridgeHandler(agent: AgentHandler): AgentHandler {
     return {
       async handle(req) {
+        const activeSaveKey = (): string | null => {
+          if (!booted) return null;
+          return booted.installed ? (booted.hash ?? booted.gameId) : booted.gameId;
+        };
+        const readActiveSlots = (): Record<string, string> => {
+          const key = activeSaveKey();
+          if (!key) return {};
+          let slots = readGameSaves(localStorage, key);
+          if (Object.keys(slots).length === 0 && booted?.installed && booted.gameId !== key) {
+            const legacy = readGameSaves(localStorage, booted.gameId);
+            if (Object.keys(legacy).length > 0) slots = legacy;
+          }
+          return slots;
+        };
+
         if (req.op === "restore") {
           // The stored value is the base64 save-file image itself; an empty
           // reply is the engine's "cancelled / no save" answer.
           let saved: string | undefined | null;
           try {
             const slot = Number(req.context["slot"]);
-            saved =
-              booted && Number.isInteger(slot)
-                ? readGameSaves(localStorage, booted.gameId)[String(slot)]
-                : null;
+            saved = Number.isInteger(slot) ? readActiveSlots()[String(slot)] : null;
           } catch {
             saved = null;
           }
@@ -694,7 +721,7 @@ export function useEngine(
         if (req.op === "saveList") {
           if (!booted) return "[]";
           try {
-            const slots = readGameSaves(localStorage, booted.gameId);
+            const slots = readActiveSlots();
             // Only the description/signature header is needed for the selector.
             // Full images are fetched on restore, keeping the SAB reply bounded.
             return JSON.stringify(
@@ -711,12 +738,13 @@ export function useEngine(
           }
         }
         if (req.op === "saveWrite") {
+          const key = activeSaveKey();
           return String(
             Boolean(
-              booted &&
+              key &&
               writeGameSave(
                 localStorage,
-                booted.gameId,
+                key,
                 Number(req.context["slot"]),
                 String(req.context["image"]),
               ),
@@ -1008,7 +1036,7 @@ export function useEngine(
         room: Number(msg.room),
         savedAt: Date.now(),
         game: {
-          gameId: game.gameId,
+          gameId: game.installed ? (game.hash ?? game.gameId) : game.gameId,
           installed: game.installed,
           revision: await gameRevision(game.files),
         },
@@ -1020,7 +1048,7 @@ export function useEngine(
         return false;
       }
       try {
-        localStorage.setItem(LAST_GAME_KEY, game.folder ?? game.gameId);
+        localStorage.setItem(LAST_GAME_KEY, record.game.gameId);
       } catch (e) {
         logAgent("log", `autosave resume pointer failed: ${String(e)}`);
       }
@@ -1286,7 +1314,9 @@ export function useEngine(
           // A corrupt or profile-mismatched image is discarded, never shown:
           // the game is already running its normal boot behind this.
           logAgent("log", `Autosave discarded (${String(msg.message)}); starting a fresh game.`);
-          if (booted) clearAutosave(booted.gameId);
+          if (booted) {
+            clearAutosave(booted.installed ? (booted.hash ?? booted.gameId) : booted.gameId);
+          }
         }
       } else if (msg.type === "recordingStarted" || msg.type === "recordingStopped") {
         const q = pendingQueries.get(Number(msg.id));
@@ -1712,7 +1742,8 @@ export function useEngine(
         );
       // The checkpoint moves with the progress: the original card must never
       // offer a snapshot taken under resources its own container does not have.
-      clearAutosave(game.gameId);
+      clearAutosave(game.installed ? (game.hash ?? game.gameId) : game.gameId);
+      if (game.installed && game.gameId) clearAutosave(game.gameId);
       game.gameId = remixGameId;
       game.installed = false;
       game.authoredGame = { ...data, gameId: remixGameId, authoredAt: new Date().toISOString() };
