@@ -15,7 +15,7 @@ import {
   updateGameConversation,
   type CachedGameData,
 } from "./gameStorage.ts";
-import type { BootedGame } from "./useEngine.ts";
+import type { BootedGame } from "./gameTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
 
 /** Remix bubble state; the transcript slice is the live tool-call feed. */

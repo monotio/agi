@@ -8,8 +8,8 @@ import { clearGameSaves, readGameSaves, writeGameSave } from "./gameSaves.ts";
 import { createAgentLogger, type AgentLogEntry, type AgentLogAudio } from "./agent/agentLog.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import type { SoundOutput } from "../../src/sound/sound.ts";
-import type { ReplayDriver, ReplayObservation } from "./replay.ts";
-import { runReplayBatch } from "./replayRunner.ts";
+import type { ReplayObservation } from "./replay.ts";
+import { createReplayDriver } from "./useReplayDriver.ts";
 import {
   useWalkthroughController,
   createInitialWalkthroughState,
@@ -43,8 +43,16 @@ import {
   updateAuthoredGameFiles,
   updateGameConversation,
 } from "./gameStorage.ts";
-import type { BootedGame, ProjectId } from "./gameTypes.ts";
-export type { BootedGame, ProjectId };
+import {
+  type BootedGame,
+  type CurrentGame,
+  type Frame,
+  type InstalledGameDescriptor,
+  type ProjectId,
+  findInstalledFolder,
+} from "./gameTypes.ts";
+export type { BootedGame, CurrentGame, Frame, InstalledGameDescriptor, ProjectId };
+export { findInstalledFolder };
 
 /** Engine modal kinds (the engine draws them on its text surface). */
 export type ModalKind = "print" | "inventory" | "menu" | "showObj" | "showPri" | "save" | "restore";
@@ -94,44 +102,6 @@ export type { AgentLogEntry, AgentLogAudio };
 export { useAudioController, type AudioController };
 export type { WalkthroughUiState, PowerUpUiState };
 
-export interface InstalledGameDescriptor {
-  readonly hash: string;
-  readonly alias: string;
-  readonly title: string;
-  readonly author?: string | undefined;
-  readonly walkthroughLabel?: string | undefined;
-  readonly wordsSha256?: string | undefined;
-  readonly objectSha256?: string | undefined;
-  readonly folder?: string | undefined;
-}
-
-export interface CurrentGame {
-  readonly installed: boolean;
-  readonly title: string;
-  readonly revision: string;
-  readonly hash?: string | undefined;
-  readonly alias?: string | undefined;
-  readonly projectId?: ProjectId | undefined;
-  readonly folder?: string | undefined;
-}
-
-export function findInstalledFolder(
-  installedGames: readonly (string | InstalledGameDescriptor)[] | null | undefined,
-  aliasOrHash: string,
-): string {
-  const norm = aliasOrHash.toLowerCase();
-  const match = (installedGames ?? []).find((g) => {
-    if (typeof g === "string") return g.toLowerCase() === norm;
-    return (
-      g.hash.toLowerCase() === norm ||
-      g.alias.toLowerCase() === norm ||
-      g.folder?.toLowerCase() === norm ||
-      g.wordsSha256?.toLowerCase() === norm
-    );
-  });
-  return typeof match === "string" ? match : (match?.folder ?? aliasOrHash);
-}
-
 export interface EngineState {
   agentTask: AgentRunState | null;
   leaving: boolean;
@@ -176,15 +146,6 @@ export interface EngineState {
   recording: { active: boolean; starting: boolean; error: string };
   /** Real-time walkthrough playback. */
   walkthrough: WalkthroughUiState;
-}
-
-export interface Frame {
-  visual: Uint8Array;
-  priority: Uint8Array;
-  /** 40x25 [char, attr] text cells. */
-  text: Uint8Array;
-  /** Text row where picture row 0 is presented. */
-  picRow: number;
 }
 
 export { autosaveKey, clearAutosave, lastGameKey, readAutosave, writeAutosave };
@@ -290,78 +251,20 @@ export function useEngine(
     urlReplaySeed !== null && Number.isInteger(urlReplaySeed) ? urlReplaySeed : null;
   const observationListeners = new Set<(obs: ReplayObservation) => void>();
   let latestFrame: Frame | null = null;
-  const replayDriver: ReplayDriver = {
-    sessionId: activeWalkthroughSession,
-    latest: null,
-    advance: (ticks, options) =>
-      query<ReplayObservation>("replayAdvance", {
-        ticks,
-        ...(options?.sessionId !== undefined
-          ? { sessionId: options.sessionId }
-          : activeWalkthroughSession > 0
-            ? { sessionId: activeWalkthroughSession }
-            : {}),
-        ...(options?.seeking !== undefined ? { seeking: options.seeking } : {}),
-        ...(options?.renderFinal !== undefined ? { renderFinal: options.renderFinal } : {}),
-      }),
-    key: (code, sessionId) => sendKey(code, sessionId),
-    direction: (dir, sessionId) => sendDirection(dir, sessionId),
-    answer: (text) => submitPrompt(text),
+  const replayDriver = createReplayDriver({
+    query,
+    sendKey: (code, sessionId) => sendKey(code, sessionId),
+    sendDirection: (dir, sessionId) => sendDirection(dir, sessionId),
+    submitPrompt: (text) => submitPrompt(text),
     setPromptEcho: (text) => engineOptions?.onPromptType?.(text),
-    promptPending: () => promptResolver !== null,
+    isPromptPending: () => promptResolver !== null,
     pollNow: () => {
       bridge?.pollNow();
     },
-    waitForRevision: (
-      minRevision: number,
-      opts?: { unblocked?: boolean; signal?: AbortSignal | undefined },
-    ) => {
-      const requireUnblocked = opts?.unblocked ?? false;
-      const matches = (obs: ReplayObservation | null) =>
-        obs !== null && obs.revision > minRevision && (!requireUnblocked || obs.blocked === null);
-      if (matches(replayDriver.latest)) {
-        return Promise.resolve(replayDriver.latest!);
-      }
-      return new Promise<ReplayObservation>((resolve, reject) => {
-        const onAbort = () => {
-          clearTimeout(timer);
-          observationListeners.delete(listener);
-          opts?.signal?.removeEventListener("abort", onAbort);
-          reject(new DOMException("Replay revision wait aborted", "AbortError"));
-        };
-        if (opts?.signal?.aborted) {
-          onAbort();
-          return;
-        }
-        opts?.signal?.addEventListener("abort", onAbort, { once: true });
-        const timer = setTimeout(() => {
-          observationListeners.delete(listener);
-          opts?.signal?.removeEventListener("abort", onAbort);
-          reject(
-            new Error(
-              `Timeout waiting for revision > ${minRevision} (current: ${replayDriver.latest?.revision})`,
-            ),
-          );
-        }, 15_000);
-        const listener = (obs: ReplayObservation) => {
-          if (matches(obs)) {
-            clearTimeout(timer);
-            opts?.signal?.removeEventListener("abort", onAbort);
-            observationListeners.delete(listener);
-            resolve(obs);
-          }
-        };
-        observationListeners.add(listener);
-      });
-    },
-    playBatch: (actions, options) =>
-      runReplayBatch(replayDriver, actions, {
-        sessionId: options?.sessionId ?? activeWalkthroughSession,
-        isCurrentSession: options?.isCurrentSession ?? (() => true),
-        ...options,
-        getLatestFrame: () => latestFrame,
-      }),
-  };
+    getActiveWalkthroughSession: () => activeWalkthroughSession,
+    getLatestFrame: () => latestFrame,
+    observationListeners,
+  });
   window.__AGI_REPLAY__ = replayDriver;
   (window as unknown as { __AGI_STATE__: EngineState }).__AGI_STATE__ = state;
   (window as unknown as { __AGI_AUDIO__: AgiAudio }).__AGI_AUDIO__ = audio;

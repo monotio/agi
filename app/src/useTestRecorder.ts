@@ -10,7 +10,7 @@ import {
   type RecorderStateSnapshot,
   type RecordingSnapshot,
 } from "./gameRecording.ts";
-import type { BootedGame } from "./useEngine.ts";
+import type { BootedGame } from "./gameTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
 
 export interface TestRecorderState {

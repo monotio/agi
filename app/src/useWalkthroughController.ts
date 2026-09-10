@@ -6,7 +6,7 @@ import type {
   ReplayProgressEvent,
 } from "./replay.ts";
 import { extractCheckpoints, loadWalkthrough, type WalkthroughCheckpoint } from "./walkthrough.ts";
-import { findInstalledFolder, type InstalledGameDescriptor } from "./useEngine.ts";
+import { findInstalledFolder, type InstalledGameDescriptor } from "./gameTypes.ts";
 import type { AgentLogEntry } from "./agent/agentLog.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import { getCachedGameMeta, type ProjectId } from "./gameStorage.ts";

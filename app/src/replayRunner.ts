@@ -13,7 +13,7 @@ import type {
   ReplayDriver,
   ReplayObservation,
 } from "./replay.ts";
-import type { Frame } from "./useEngine.ts";
+import type { Frame } from "./gameTypes.ts";
 
 /** Deterministic FNV-1a hash of the composited frame for regression checks. */
 export async function computeScreenHash(frame: Frame | null): Promise<string> {
