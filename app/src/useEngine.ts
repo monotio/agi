@@ -4,7 +4,7 @@ import type { GameControlBinding } from "../../src/runtime/engine.ts";
 import { continuationTranscript } from "./projectArchive.ts";
 import { gameRevision } from "./gameMetadata.ts";
 import { detectKnownGame } from "./knownGames.ts";
-import { clearGameSaves, readGameSaves, writeGameSave } from "./gameSaves.ts";
+import { clearGameSaves } from "./gameSaves.ts";
 import { createAgentLogger, type AgentLogEntry, type AgentLogAudio } from "./agent/agentLog.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import type { SoundOutput } from "../../src/sound/sound.ts";
@@ -54,6 +54,7 @@ export type { BootedGame, CurrentGame, Frame, InstalledGameDescriptor, ProjectId
 export { findInstalledFolder };
 
 import { usePromptController, type PromptState } from "./usePromptController.ts";
+import { useSaveSlotController } from "./useSaveSlotController.ts";
 export type { PromptState };
 
 /** Engine modal kinds (the engine draws them on its text surface). */
@@ -226,6 +227,7 @@ export function useEngine(
 
   const { logAgent, clearAgentLog, releaseAgentAudioPreviews } = createAgentLogger(state);
   const promptController = usePromptController({ state, logAgent });
+  const saveSlotController = useSaveSlotController({ getBootedGame: () => booted, logAgent });
 
   function cancelPendingBridgeWaits(): void {
     bridge?.cancel();
@@ -374,65 +376,8 @@ export function useEngine(
   function hostBridgeHandler(agent: AgentHandler): AgentHandler {
     return {
       async handle(req) {
-        const activeSaveKey = (): string | null => {
-          if (!booted) return null;
-          return booted.installed ? (booted.hash ?? null) : (booted.projectId ?? null);
-        };
-        const readActiveSlots = (): Record<string, string> => {
-          const key = activeSaveKey();
-          if (!key) return {};
-          return readGameSaves(localStorage, key);
-        };
-
-        if (req.op === "restore") {
-          // The stored value is the base64 save-file image itself; an empty
-          // reply is the engine's "cancelled / no save" answer.
-          let saved: string | undefined | null;
-          try {
-            const slot = Number(req.context["slot"]);
-            saved = Number.isInteger(slot) ? readActiveSlots()[String(slot)] : null;
-          } catch {
-            saved = null;
-          }
-          if (!saved) {
-            logAgent("log", "No saved game found in local storage.");
-            return Promise.resolve("");
-          }
-          logAgent("log", "Restoring saved game from local storage...");
-          return Promise.resolve(saved);
-        }
-        if (req.op === "saveList") {
-          if (!booted) return "[]";
-          try {
-            const slots = readActiveSlots();
-            // Only the description/signature header is needed for the selector.
-            // Full images are fetched on restore, keeping the SAB reply bounded.
-            return JSON.stringify(
-              Object.entries(slots).flatMap(([slot, image]) => {
-                try {
-                  return [{ slot: Number(slot), image: btoa(atob(image).slice(0, 40)) }];
-                } catch {
-                  return [];
-                }
-              }),
-            );
-          } catch {
-            return "storage-error";
-          }
-        }
-        if (req.op === "saveWrite") {
-          const key = activeSaveKey();
-          return String(
-            Boolean(
-              key &&
-              writeGameSave(
-                localStorage,
-                key,
-                Number(req.context["slot"]),
-                String(req.context["image"]),
-              ),
-            ),
-          );
+        if (req.op === "restore" || req.op === "saveList" || req.op === "saveWrite") {
+          return saveSlotController.handleSaveSlotRequest(req.op, req.context);
         }
         if (req.op === "waitkey") {
           return input.handleWaitKey();
