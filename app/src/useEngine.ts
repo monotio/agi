@@ -41,7 +41,6 @@ import {
   type CachedGameData,
   loadAuthoredGame,
   updateAuthoredGameFiles,
-  updateGameConversation,
 } from "./gameStorage.ts";
 import {
   type BootedGame,
@@ -441,51 +440,7 @@ export function useEngine(
         if (req.op === "getnum" || req.op === "getstring" || req.op === "saveDescription") {
           return promptController.handlePromptRequest(req.op, req.context);
         }
-        const game = booted;
-        const author = authoringController.getSession();
-        state.powerUp = {
-          mode: "room",
-          messages: [],
-          open: true,
-          needsConfig: false,
-          busy: true,
-          feedStart: state.agentLog.length,
-          reply: "",
-          room: Number(req.context["room"]),
-          error: "",
-        };
-        const progress = state.powerUp;
-        sendDirection(0);
-        try {
-          const result = await agent.handle(req);
-          if (!result)
-            throw new Error(
-              "The next room could not be created. Connect your model and try again.",
-            );
-          if (state.powerUp === progress) {
-            state.powerUp.open = false;
-            if (game && booted === game && author) {
-              if (
-                !(await updateGameConversation(
-                  game.projectId!,
-                  author.getTranscript(),
-                  author.getSessionId(),
-                  author.getAuthoringState(),
-                  author.getProviderContext().provider,
-                  author.getProviderContext().model,
-                  Object.fromEntries(author.state.getFiles()),
-                ))
-              )
-                logAgent("error", "Browser storage could not save the room conversation.");
-            }
-          }
-          return result;
-        } catch (error) {
-          if (state.powerUp === progress) state.powerUp.error = String(error);
-          throw error;
-        } finally {
-          if (state.powerUp === progress) state.powerUp.busy = false;
-        }
+        return authoringController.handleRoomAuthoring(req, agent, (dir) => sendDirection(dir));
       },
     };
   }

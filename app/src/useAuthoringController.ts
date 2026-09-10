@@ -1,4 +1,5 @@
 import { AgentSession } from "./agent/agentSession.ts";
+import type { AgentHandler, LlmRequest } from "./agent/sabBridge.ts";
 import type { AgentRunState } from "./agent/agentRun.ts";
 import type { AgentLogEntry } from "./agent/agentLog.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
@@ -75,6 +76,11 @@ export interface AuthoringController {
   isRemixNeedsSave(): boolean;
   setRemixNeedsSave(value: boolean): void;
   resetSession(): void;
+  handleRoomAuthoring(
+    req: LlmRequest,
+    agent: AgentHandler,
+    sendDirection: (dir: number) => void,
+  ): Promise<string>;
 }
 
 export function useAuthoringController(options: AuthoringControllerOptions): AuthoringController {
@@ -441,6 +447,56 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     }
   }
 
+  async function handleRoomAuthoring(
+    req: LlmRequest,
+    agent: AgentHandler,
+    sendDirection: (dir: number) => void,
+  ): Promise<string> {
+    const game = getBootedGame();
+    const author = getSession();
+    state.powerUp = {
+      mode: "room",
+      messages: [],
+      open: true,
+      needsConfig: false,
+      busy: true,
+      feedStart: state.agentLog.length,
+      reply: "",
+      room: Number(req.context["room"]),
+      error: "",
+    };
+    const progress = state.powerUp;
+    sendDirection(0);
+    try {
+      const result = await agent.handle(req);
+      if (!result)
+        throw new Error("The next room could not be created. Connect your model and try again.");
+      if (state.powerUp === progress) {
+        state.powerUp.open = false;
+        if (game && getBootedGame() === game && author && game.projectId) {
+          if (
+            !(await updateGameConversation(
+              game.projectId,
+              author.getTranscript(),
+              author.getSessionId(),
+              author.getAuthoringState(),
+              author.getProviderContext().provider,
+              author.getProviderContext().model,
+              Object.fromEntries(author.state.getFiles()),
+            ))
+          )
+            logAgent("error", "Browser storage could not save the room conversation.");
+        }
+      }
+      return result;
+    } catch (error) {
+      if (state.powerUp === progress) state.powerUp.error = String(error);
+      throw error;
+    } finally {
+      if (state.powerUp === progress) state.powerUp.busy = false;
+    }
+  }
+
   return {
     openPowerUp,
     closePowerUp,
@@ -455,5 +511,6 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     isRemixNeedsSave,
     setRemixNeedsSave,
     resetSession,
+    handleRoomAuthoring,
   };
 }
