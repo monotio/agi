@@ -13,14 +13,14 @@ import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 
 const EXPECTED: readonly {
   hash: string;
-  gameId: string;
+  alias: string;
   version: string;
   profile: string;
   maxAction: number;
 }[] = [
-  { hash: KNOWN_GAME_HASH.KQ1, gameId: "kq1", version: "2.917", profile: "2.917", maxAction: 0xad },
-  { hash: KNOWN_GAME_HASH.KQ2, gameId: "kq2", version: "2.411", profile: "2.411", maxAction: 0xa9 },
-  { hash: KNOWN_GAME_HASH.KQ3, gameId: "kq3", version: "2.936", profile: "2.936", maxAction: 0xaf },
+  { hash: KNOWN_GAME_HASH.KQ1, alias: "kq1", version: "2.917", profile: "2.917", maxAction: 0xad },
+  { hash: KNOWN_GAME_HASH.KQ2, alias: "kq2", version: "2.411", profile: "2.411", maxAction: 0xa9 },
+  { hash: KNOWN_GAME_HASH.KQ3, alias: "kq3", version: "2.936", profile: "2.936", maxAction: 0xaf },
 ];
 
 class Host implements EngineHost {
@@ -38,7 +38,7 @@ class Host implements EngineHost {
 describe("fixture interpreter profiles", () => {
   for (const game of EXPECTED) {
     test(
-      `${game.gameId} reports interpreter ${game.version}`,
+      `${game.alias} reports interpreter ${game.version}`,
       { skip: fixtureSkip(game.hash, ["AGIDATA.OVL"]) },
       () => {
         const { files } = loadGame(game.hash, { interpreterFiles: true });
@@ -50,7 +50,7 @@ describe("fixture interpreter profiles", () => {
     );
 
     test(
-      `${game.gameId} boots on its detected profile`,
+      `${game.alias} boots on its detected profile`,
       { skip: fixtureSkip(game.hash, ["AGIDATA.OVL"]) },
       () => {
         // The container carries only the resource files, so detection from the

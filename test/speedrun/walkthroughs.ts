@@ -17,7 +17,6 @@ export interface WalkthroughOutcome {
 export interface Walkthrough {
   hash: string;
   alias: string;
-  gameId: string;
   label: string;
   coverage: "complete-game" | "chapter" | "partial";
   route(run: Speedrun): void;
@@ -38,7 +37,6 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
   {
     hash: KNOWN_GAME_HASH.KQ1,
     alias: "kq1",
-    gameId: "kq1",
     label: "completed throne-room ending",
     coverage: "complete-game",
     route: kq1Complete,
@@ -54,7 +52,6 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
   {
     hash: KNOWN_GAME_HASH.MH1,
     alias: "mh1",
-    gameId: "mh1",
     label: "Day 1 completed",
     coverage: "chapter",
     route: mh1Complete,
@@ -64,7 +61,6 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
   {
     hash: KNOWN_GAME_HASH.KQ2,
     alias: "kq2",
-    gameId: "kq2",
     label: "completed wedding and ending credits with maximum score",
     coverage: "complete-game",
     route: kq2Complete,
@@ -77,7 +73,6 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
   {
     hash: KNOWN_GAME_HASH.SQ1,
     alias: "sq1",
-    gameId: "sq1",
     label: "completed ceremony and ending credits with maximum score",
     coverage: "complete-game",
     route: sq1Complete,

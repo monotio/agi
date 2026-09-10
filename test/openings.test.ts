@@ -168,9 +168,9 @@ test(
   },
 );
 
-for (const { gameId, hash } of OPENING_ROUTES) {
+for (const { alias, hash } of OPENING_ROUTES) {
   test(
-    `${gameId}: opening walkthrough reaches player control and moves twice`,
+    `${alias}: opening walkthrough reaches player control and moves twice`,
     {
       skip: fixtureSkip(hash, ["AGIDATA.OVL"]),
     },

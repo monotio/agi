@@ -13,7 +13,7 @@ import { getCachedGameMeta } from "./gameStorage.ts";
 
 export interface WalkthroughUiState {
   active: boolean;
-  gameId: string | null;
+  alias: string | null;
   speed: number;
   pauseOnDialog: boolean;
   label: string | null;
@@ -35,7 +35,7 @@ export interface WalkthroughUiState {
 export function createInitialWalkthroughState(): WalkthroughUiState {
   return {
     active: false,
-    gameId: null,
+    alias: null,
     speed: 1,
     pauseOnDialog: false,
     label: null,
@@ -186,7 +186,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     const targetCp = target > 0 ? [...checkpoints].reverse().find((c) => c.tick <= target) : null;
 
     state.walkthrough.active = true;
-    state.walkthrough.gameId = gameId;
+    state.walkthrough.alias = artifact.game;
     state.walkthrough.speed = speed;
     state.walkthrough.status = keepPaused ? "paused" : "playing";
     state.walkthrough.error = "";
@@ -464,8 +464,8 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     const clamped = Math.max(0, Math.min(state.walkthrough.totalTicks, Math.round(targetTick)));
     const engineTick = replayDriver.latest?.tick ?? state.walkthrough.tick;
     const currentTick = Math.max(state.walkthrough.tick, engineTick);
-    const currentGameId = state.walkthrough.gameId;
-    if (!currentGameId || !state.walkthrough.active) return;
+    const currentAlias = state.walkthrough.alias;
+    if (!currentAlias || !state.walkthrough.active) return;
     const wasPaused = options?.keepPaused ?? state.walkthrough.status === "paused";
 
     seekTargetTick = clamped;
@@ -490,7 +490,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     audio.setPaused(true);
 
     if (clamped < currentTick || state.walkthrough.status === "completed") {
-      void startWalkthrough(currentGameId, {
+      void startWalkthrough(currentAlias, {
         speed: state.walkthrough.speed,
         initialTick: clamped,
         keepPaused: wasPaused,
@@ -529,8 +529,8 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
       resumeWalkthrough();
     } else if (state.walkthrough.status === "playing") {
       pauseWalkthrough();
-    } else if (state.walkthrough.status === "completed" && state.walkthrough.gameId) {
-      void startWalkthrough(state.walkthrough.gameId, { speed: state.walkthrough.speed });
+    } else if (state.walkthrough.status === "completed" && state.walkthrough.alias) {
+      void startWalkthrough(state.walkthrough.alias, { speed: state.walkthrough.speed });
     }
   }
 

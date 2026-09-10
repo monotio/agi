@@ -63,9 +63,6 @@ export class Speedrun {
   readonly seed: number;
   readonly hash: GameHash;
   readonly alias?: string | undefined;
-  get gameId(): string {
-    return this.alias ?? this.hash;
-  }
   readonly dwellModals: boolean;
   ticks = 0;
   cycles = 0;

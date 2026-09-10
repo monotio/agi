@@ -24,7 +24,6 @@ export interface WalkthroughArtifact {
 
 export interface WalkthroughMeta {
   readonly alias: string;
-  readonly gameId: string;
   readonly title: string;
   readonly label: string;
   readonly coverage: "complete-game" | "chapter" | "partial";
@@ -35,7 +34,6 @@ export const KNOWN_WALKTHROUGHS: Record<string, WalkthroughMeta> = Object.fromEn
     g.alias,
     {
       alias: g.alias,
-      gameId: g.alias,
       title: g.title,
       label: g.walkthroughLabel!,
       coverage: g.walkthroughCoverage ?? "complete-game",

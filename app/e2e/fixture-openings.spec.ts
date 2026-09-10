@@ -8,7 +8,7 @@ import { BrowserReplay } from "./speedrunReplay.ts";
 // Complete resource validation is a separate fixtures:audit command.
 for (const game of TITLE_SCREENS) {
   const missing = fixtureSkip(game.hash, ["AGIDATA.OVL"], { checkVolumes: false });
-  test(`${game.gameId}: gallery opens the fixture in its expected profile and title room`, async ({
+  test(`${game.alias}: gallery opens the fixture in its expected profile and title room`, async ({
     page,
   }) => {
     test.skip(Boolean(missing), missing || "");
@@ -18,7 +18,7 @@ for (const game of TITLE_SCREENS) {
     await page.goto("/?replaySeed=1");
     await page
       .locator(
-        `[data-hash="${game.hash}"], [data-game-id="${game.gameId}"], [data-testid="boot-${game.gameId}"]`,
+        `[data-hash="${game.hash}"], [data-alias="${game.alias}"], [data-testid="boot-${game.alias}"]`,
       )
       .first()
       .press("Enter");
@@ -36,9 +36,9 @@ for (const game of TITLE_SCREENS) {
 }
 
 for (const game of OPENING_ROUTES) {
-  const { gameId, hash } = game;
+  const { alias, hash } = game;
   const missing = fixtureSkip(hash, ["AGIDATA.OVL"]);
-  test(`${gameId}: browser replays the opening through player-controlled movement`, async ({
+  test(`${alias}: browser replays the opening through player-controlled movement`, async ({
     page,
   }) => {
     test.skip(Boolean(missing), missing || "");
