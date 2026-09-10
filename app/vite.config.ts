@@ -1,13 +1,13 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { createHash } from "node:crypto";
 import { join } from "node:path";
 import vue from "@vitejs/plugin-vue";
 import { defineConfig, type Plugin } from "vite";
-import { detectKnownGameByHashes } from "./src/knownGames.ts";
+import { scanFixtures } from "../test/fixtures.ts";
 
 export interface InstalledFixtureDescriptor {
   readonly folder: string;
   readonly hash?: string | undefined;
+  readonly alias?: string | undefined;
   readonly gameId: string;
   readonly title: string;
   readonly author?: string | undefined;
@@ -26,55 +26,17 @@ export interface InstalledFixtureDescriptor {
 function fixtureServer(): Plugin {
   const gamesRoot = join(__dirname, "..", "games");
   const installedGames = (): InstalledFixtureDescriptor[] => {
-    if (!existsSync(gamesRoot)) return [];
-    const entries = readdirSync(gamesRoot)
-      .filter((folder) => /^[a-z0-9_-]+$/i.test(folder))
-      .filter((folder) => {
-        const path = join(gamesRoot, folder);
-        return (
-          statSync(path, { throwIfNoEntry: false })?.isDirectory() &&
-          readdirSync(path).some((name) => /^(?:LOG|[A-Z0-9_]+)DIR$/i.test(name))
-        );
-      })
-      .sort();
-
-    return entries.map((folder) => {
-      const folderPath = join(gamesRoot, folder);
-      const files = readdirSync(folderPath);
-      const wordsFile = files.find((f) => f.toUpperCase() === "WORDS.TOK");
-      const objFile = files.find((f) => f.toUpperCase() === "OBJECT");
-      const metaFile = files.find((f) => f.toUpperCase() === "METADATA.JSON");
-      let metadataTitle: string | undefined;
-      let metadataAuthor: string | undefined;
-      if (metaFile) {
-        try {
-          const parsed = JSON.parse(readFileSync(join(folderPath, metaFile), "utf8"));
-          if (typeof parsed.title === "string") metadataTitle = parsed.title;
-          if (typeof parsed.author === "string") metadataAuthor = parsed.author;
-        } catch {
-          // ignore
-        }
-      }
-      const wordsSha256 = wordsFile
-        ? createHash("sha256")
-            .update(readFileSync(join(folderPath, wordsFile)))
-            .digest("hex")
-        : undefined;
-      const objectSha256 = objFile
-        ? createHash("sha256")
-            .update(readFileSync(join(folderPath, objFile)))
-            .digest("hex")
-        : undefined;
-      const known = wordsSha256 ? detectKnownGameByHashes(wordsSha256, objectSha256) : null;
-      const author = known?.author ?? metadataAuthor;
+    return scanFixtures().all.map((fixture) => {
+      const known = fixture.known;
       return {
-        folder,
-        hash: wordsSha256 ?? folder,
-        gameId: known?.id ?? folder,
-        title: known?.title ?? metadataTitle ?? folder.toUpperCase(),
-        ...(author ? { author } : {}),
-        ...(wordsSha256 ? { wordsSha256 } : {}),
-        ...(objectSha256 ? { objectSha256 } : {}),
+        folder: fixture.folder,
+        hash: fixture.hash,
+        alias: known?.alias,
+        gameId: known?.alias ?? fixture.folder,
+        title: known?.title ?? fixture.title,
+        ...(fixture.author ? { author: fixture.author } : {}),
+        ...(fixture.wordsSha256 ? { wordsSha256: fixture.wordsSha256 } : {}),
+        ...(fixture.objectSha256 ? { objectSha256: fixture.objectSha256 } : {}),
         ...(known?.walkthroughLabel ? { walkthroughLabel: known.walkthroughLabel } : {}),
       };
     });
@@ -98,7 +60,9 @@ function fixtureServer(): Plugin {
         const [segment0, ...restSegments] = rel.split("/");
         const gameMatch = installedGames().find(
           (g) =>
+            g.hash?.toLowerCase() === segment0!.toLowerCase() ||
             g.wordsSha256?.toLowerCase() === segment0!.toLowerCase() ||
+            g.alias?.toLowerCase() === segment0!.toLowerCase() ||
             g.folder.toLowerCase() === segment0!.toLowerCase(),
         );
         const resolvedFolder = gameMatch ? gameMatch.folder : segment0!;

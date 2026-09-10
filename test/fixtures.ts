@@ -14,6 +14,7 @@ import {
 export { KNOWN_GAME_HASH, type GameHash };
 
 export interface DiscoveredFixture {
+  readonly folder: string;
   readonly hash: GameHash;
   readonly dir: string;
   readonly files: ReadonlyMap<string, string>;
@@ -113,6 +114,7 @@ export function scanFixtures(): {
 
       const combined = combinedDirectoryOf(names);
       const fixture: DiscoveredFixture = {
+        folder,
         hash: wordsSha256 ?? folder,
         dir: folderPath.endsWith("/") ? folderPath : `${folderPath}/`,
         files: names,
@@ -159,6 +161,7 @@ export function findFixture(hashOrAlias: string): DiscoveredFixture | null {
     const names = new Map<string, string>();
     for (const name of fileList) names.set(name.toLowerCase(), name);
     return {
+      folder: hashOrAlias,
       hash: hashOrAlias,
       dir: candidate.endsWith("/") ? candidate : `${candidate}/`,
       files: names,
