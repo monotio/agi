@@ -33,6 +33,9 @@ export type { AutosaveRecord, AutosaveGame };
 export function autosaveMatches(game: AutosaveGame, targetKey: string): boolean {
   if (game.installed) {
     const norm = targetKey.toLowerCase();
+    // Folder-scoped records belong to that one edition: two fixture folders can
+    // share a WORDS.TOK hash, and progress on one must not mark the other.
+    if (game.folder) return game.folder.toLowerCase() === norm;
     return (
       game.hash?.toLowerCase() === norm ||
       game.alias?.toLowerCase() === norm ||
@@ -50,7 +53,7 @@ export function readAutosave(targetKey: string): AutosaveRecord | null {
     const resolved = resolveGameHash(targetKey);
     if (resolved && resolved !== targetKey) {
       const byHash = parseAutosaveRecord(localStorage.getItem(autosaveKey(resolved)));
-      if (byHash) return byHash;
+      if (byHash && autosaveMatches(byHash.game, targetKey)) return byHash;
     }
     return null;
   } catch {
@@ -210,6 +213,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
             ? {
                 ...(game.hash ? { hash: game.hash } : {}),
                 ...(game.alias ? { alias: game.alias } : {}),
+                ...(game.folder ? { folder: game.folder } : {}),
               }
             : { projectId: game.projectId! }),
         },
@@ -221,7 +225,9 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         return false;
       }
       try {
-        const resumePointer = game.installed ? (game.hash ?? game.alias!) : game.projectId!;
+        const resumePointer = game.installed
+          ? (game.folder ?? game.hash ?? game.alias!)
+          : game.projectId!;
         localStorage.setItem(LAST_GAME_KEY, resumePointer);
       } catch (e) {
         ctx.logAgent("log", `autosave resume pointer failed: ${String(e)}`);
@@ -312,7 +318,9 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       ctx.logAgent("log", `Autosave discarded (${String(msg.message)}); starting a fresh game.`);
       const booted = ctx.getBootedGame();
       if (booted) {
-        clearAutosave(booted.installed ? (booted.hash ?? booted.alias!) : booted.projectId!);
+        clearAutosave(
+          booted.installed ? (booted.folder ?? booted.hash ?? booted.alias!) : booted.projectId!,
+        );
       }
     }
   }
@@ -374,7 +382,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     const record = readAutosave(key);
     if (!record) return false;
     const available = record.game.installed
-      ? ctx.isInstalledGame(record.game.hash ?? record.game.alias ?? key)
+      ? ctx.isInstalledGame(record.game.folder ?? record.game.hash ?? record.game.alias ?? key)
       : Boolean(record.game.projectId && getCachedGameMeta(record.game.projectId));
     if (!available) {
       ctx.logAgent("log", `Autosave for "${key}" has no game to boot; starting fresh.`);
@@ -386,7 +394,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
 
   async function resumeFromRecord(record: AutosaveRecord, config: LlmConfig): Promise<boolean> {
     if (record.game.installed) {
-      const target = record.game.hash ?? record.game.alias ?? "";
+      const target = record.game.folder ?? record.game.hash ?? record.game.alias ?? "";
       if (!ctx.isInstalledGame(target)) return false;
       pendingResumeRecord = record;
       try {

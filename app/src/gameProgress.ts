@@ -22,6 +22,8 @@ export interface AutosaveGame {
   readonly projectId?: ProjectId | undefined;
   readonly hash?: string | undefined;
   readonly alias?: string | undefined;
+  /** Installed editions share one content hash; progress belongs to the folder. */
+  readonly folder?: string | undefined;
 }
 
 /** One stored autosave: the save-file image plus what it takes to boot into it. */
@@ -41,7 +43,9 @@ export interface AutosaveRecord {
 }
 
 export function autosaveTargetKey(game: AutosaveGame): string {
-  return game.installed ? (game.hash ?? game.alias ?? "") : (game.projectId ?? "");
+  return game.installed
+    ? (game.folder ?? game.hash ?? game.alias ?? "")
+    : (game.projectId ?? "");
 }
 
 export function autosaveKey(target: string): string {
@@ -65,6 +69,7 @@ export function parseAutosaveRecord(raw: unknown): AutosaveRecord | null {
           projectId?: unknown;
           hash?: unknown;
           alias?: unknown;
+          folder?: unknown;
           installed?: unknown;
           revision?: unknown;
         }
@@ -80,12 +85,17 @@ export function parseAutosaveRecord(raw: unknown): AutosaveRecord | null {
     const projectId = typeof rawGame.projectId === "string" ? rawGame.projectId : undefined;
     const hash = typeof rawGame.hash === "string" ? rawGame.hash : undefined;
     const alias = typeof rawGame.alias === "string" ? rawGame.alias : undefined;
-    if (installed ? !hash && !alias : !projectId) return null;
+    const folder = typeof rawGame.folder === "string" ? rawGame.folder : undefined;
+    if (installed ? !hash && !alias && !folder : !projectId) return null;
     parsed.game = {
       installed,
       revision,
       ...(installed
-        ? { ...(hash ? { hash } : {}), ...(alias ? { alias } : {}) }
+        ? {
+            ...(hash ? { hash } : {}),
+            ...(alias ? { alias } : {}),
+            ...(folder ? { folder } : {}),
+          }
         : { projectId: projectId! }),
     };
     if (!isProgressPreview(parsed.preview)) delete parsed.preview;

@@ -513,11 +513,11 @@ const localGames = computed(() => {
 const localGameAliases = computed(() => localGames.value.map((g) => g.alias));
 
 function localAutosave(game: InstalledGameDescriptor): AutosaveRecord | undefined {
-  return (
-    libraryAutosaves.value[game.hash] ??
-    libraryAutosaves.value[game.alias] ??
-    (game.folder ? libraryAutosaves.value[game.folder] : undefined)
-  );
+  // Folder-keyed progress keeps same-hash editions separate; descriptors
+  // without a folder (hosted installs) still match by hash or alias.
+  return game.folder
+    ? libraryAutosaves.value[game.folder]
+    : (libraryAutosaves.value[game.hash] ?? libraryAutosaves.value[game.alias]);
 }
 const TUTORIAL_SECTION_KEY = "monotio_agi.tutorial";
 const tutorialPreference = ref<"open" | "closed">();
@@ -2908,7 +2908,7 @@ watch(
                   class="ui-button ui-button--primary"
                   :data-hash="game.hash"
                   :data-alias="game.alias"
-                  :data-testid="`boot-${game.alias || game.folder || game.hash}`"
+                  :data-testid="`boot-${game.folder || game.alias || game.hash}`"
                   :disabled="libraryActionBusy || importBusy"
                   @click="onPlayLocalGame(game.folder ?? game.hash)"
                 >
@@ -2919,7 +2919,7 @@ watch(
                   label="Game actions"
                   icon="more"
                   icon-only
-                  :test-id="`game-actions-${game.alias || game.folder || game.hash}`"
+                  :test-id="`game-actions-${game.folder || game.alias || game.hash}`"
                 >
                   <button
                     v-if="hasWalkthrough(game.hash)"
