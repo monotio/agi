@@ -20,7 +20,7 @@ test("validateWalkthroughArtifact accepts valid walkthrough structure", () => {
     actions: [
       { kind: "key", code: 0x000d },
       { kind: "advance", ticks: 20 },
-      { kind: "command", text: "look" },
+      { kind: "direction", dir: 3 },
       { kind: "answer", text: "yes" },
       { kind: "checkpoint", label: "Start", room: 1, score: 0, x: 80, y: 120 },
     ],

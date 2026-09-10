@@ -1,8 +1,18 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { fixtureSkip } from "../../test/fixtures.ts";
 import { isolateStorage } from "./engineProbe.ts";
 
 const missing = fixtureSkip("kq1", ["AGIDATA.OVL"]);
+
+/** Live percent of a named walkthrough checkpoint, read from the running app. */
+async function checkpointPercent(page: Page, label: string): Promise<number> {
+  const checkpoints = await page.evaluate(
+    () => window.__AGI_STATE__?.walkthrough.checkpoints ?? [],
+  );
+  const cp = checkpoints.find((c) => c.label === label);
+  if (!cp) throw new Error(`Checkpoint "${label}" not found`);
+  return cp.percent;
+}
 
 test.describe("Walkthrough UI", () => {
   test("runs real-time walkthrough from game actions menu with speed controls, take control, and pause/resume", async ({
@@ -394,16 +404,17 @@ test.describe("Walkthrough UI", () => {
     await expect(timeline).toBeVisible({ timeout: 15_000 });
 
     const box = await timeline.boundingBox();
-    if (box) {
-      // Rapid scrubbing back and forth across multiple checkpoints
-      await page.mouse.move(box.x + box.width * 0.08, box.y + box.height * 0.5);
-      await page.mouse.down();
-      await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.5);
-      await page.mouse.move(box.x + box.width * 0.04, box.y + box.height * 0.5);
-      // Land right around ~11% (Bellevue Hospital is tick 10110 out of ~90000 total virtual ticks)
-      await page.mouse.move(box.x + box.width * 0.12, box.y + box.height * 0.5);
-      await page.mouse.up();
-    }
+    const bellevue = await checkpointPercent(page, "Bellevue Hospital");
+    const at = (pct: number) => box!.x + (box!.width * pct) / 100;
+    const midY = box!.y + box!.height * 0.5;
+    // Rapid scrubbing back and forth across multiple checkpoints, landing
+    // just before Bellevue Hospital so playback crosses it.
+    await page.mouse.move(at(bellevue - 12), midY);
+    await page.mouse.down();
+    await page.mouse.move(at(bellevue + 4), midY);
+    await page.mouse.move(at(bellevue - 16), midY);
+    await page.mouse.move(at(bellevue - 1), midY);
+    await page.mouse.up();
 
     // Verify seeking or fast-forward reaches room 130 (Bellevue Hospital) without error
     await expect
@@ -499,7 +510,7 @@ test.describe("Walkthrough UI", () => {
       .toBe(111);
   });
 
-  test("seeking to 87% then backward seeking to 29% in mh1 avoids direction leakage and reaches Maze cleanly", async ({
+  test("seeking forward to Sewers then back to Maze in mh1 avoids direction leakage", async ({
     page,
   }) => {
     const mh1Missing = fixtureSkip("mh1", ["AGIDATA.OVL"]);
@@ -518,85 +529,42 @@ test.describe("Walkthrough UI", () => {
     const timeline = page.getByTestId("walkthrough-timeline");
     await expect(timeline).toBeVisible({ timeout: 15_000 });
 
+    const sewersPct = await checkpointPercent(page, "Sewers");
+    const mazePct = await checkpointPercent(page, "Maze");
     const box = await timeline.boundingBox();
-    if (box) {
-      await page.mouse.click(box.x + box.width * 0.87, box.y + box.height * 0.5);
-    }
+    const clickAt = (pct: number) =>
+      page.mouse.click(box!.x + (box!.width * pct) / 100, box!.y + box!.height * 0.5);
+    await clickAt(sewersPct);
 
-    // Wait until 87% is reached (Sewers, room 128)
-    await expect
-      .poll(
-        async () => {
-          const res = await page.evaluate(() => ({
-            room: window.__AGI_STATE__?.walkthrough.room,
-            error: window.__AGI_STATE__?.walkthrough.error,
-          }));
-          if (res.error) throw new Error(`Walkthrough failed: ${res.error}`);
-          return res.room;
-        },
-        { timeout: 30_000 },
-      )
-      .toBe(128);
+    const roomIs = async (room: number) => {
+      await expect
+        .poll(
+          async () => {
+            const res = await page.evaluate(() => ({
+              room: window.__AGI_STATE__?.walkthrough.room,
+              error: window.__AGI_STATE__?.walkthrough.error,
+            }));
+            if (res.error) throw new Error(`Walkthrough failed: ${res.error}`);
+            return res.room;
+          },
+          { timeout: 30_000 },
+        )
+        .toBe(room);
+    };
 
-    // Wait for frame to render and settle
+    // Forward seek lands in the Sewers (room 128); let the frame settle.
+    await roomIs(128);
     await page.waitForTimeout(1000);
 
-    // Now seek backward to 29% (Maze, room 126)
-    if (box) {
-      await page.mouse.click(box.x + box.width * 0.29, box.y + box.height * 0.5);
-    }
+    // Backward seek cleanly resets and reaches the Maze (room 126).
+    await clickAt(mazePct);
+    await roomIs(126);
 
-    // Verify backward seek cleanly resets and reaches room 126 (Maze) without Bellevue Hospital failure
-    await expect
-      .poll(
-        async () => {
-          const res = await page.evaluate(() => ({
-            room: window.__AGI_STATE__?.walkthrough.room,
-            tick: window.__AGI_STATE__?.walkthrough.tick,
-            error: window.__AGI_STATE__?.walkthrough.error,
-          }));
-          if (res.error) throw new Error(`Walkthrough failed: ${res.error}`);
-          return res.room;
-        },
-        { timeout: 30_000 },
-      )
-      .toBe(126);
-
-    // Seek forward again to 87% (Sewers)
-    if (box) {
-      await page.mouse.click(box.x + box.width * 0.87, box.y + box.height * 0.5);
-    }
-    await expect
-      .poll(
-        async () => {
-          const res = await page.evaluate(() => ({
-            room: window.__AGI_STATE__?.walkthrough.room,
-            error: window.__AGI_STATE__?.walkthrough.error,
-          }));
-          if (res.error) throw new Error(`Walkthrough failed: ${res.error}`);
-          return res.room;
-        },
-        { timeout: 30_000 },
-      )
-      .toBe(128);
-
-    // Seek backward again to 29% (Maze)
-    if (box) {
-      await page.mouse.click(box.x + box.width * 0.29, box.y + box.height * 0.5);
-    }
-    await expect
-      .poll(
-        async () => {
-          const res = await page.evaluate(() => ({
-            room: window.__AGI_STATE__?.walkthrough.room,
-            error: window.__AGI_STATE__?.walkthrough.error,
-          }));
-          if (res.error) throw new Error(`Walkthrough failed: ${res.error}`);
-          return res.room;
-        },
-        { timeout: 30_000 },
-      )
-      .toBe(126);
+    // And again in both directions: no direction state leaks across sessions.
+    await clickAt(sewersPct);
+    await roomIs(128);
+    await clickAt(mazePct);
+    await roomIs(126);
   });
 
   test("dragging timeline thumb to the end of kq1 silences audio and stops playback cleanly", async ({

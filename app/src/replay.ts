@@ -24,7 +24,8 @@ export interface ReplayStatus {
 
 export type ReplayAction =
   | { kind: "key"; code: number }
-  | { kind: "command"; text: string }
+  /** Hold-to-move direction press; dir 0 releases the current heading. */
+  | { kind: "direction"; dir: number }
   | { kind: "advance"; ticks: number }
   | { kind: "answer"; text: string }
   | { kind: "checkpoint"; label: string; room: number; score: number; x: number; y: number };
@@ -54,7 +55,6 @@ export interface ReplayProgressEvent {
 export interface ReplayBatchOptions {
   sessionId?: number;
   isCurrentSession?: () => boolean;
-  phone?: boolean;
   /** Speed multiplier for real-time watching: 1 = 1x real time, 2 = 2x, etc. 0 = unthrottled fast-forward (default) */
   speed?: number | (() => number);
   /** Callback to check if playback is currently paused */
@@ -77,6 +77,8 @@ export interface ReplayBatchOptions {
   onDialogPause?: () => void;
   /** Async function resolving after the calculated dialogue dwell duration or on early user advance */
   dwellOnDialog?: (ms: number) => Promise<void>;
+  /** Fired when the replayed keystream submits a typed command line */
+  onAcceptedInput?: (text: string) => void;
 }
 
 export interface ReplayAdvanceOptions {
@@ -90,6 +92,16 @@ export interface ReplayDriver {
   latest: ReplayObservation | null;
   status?: ReplayStatus;
   advance(ticks: number, options?: ReplayAdvanceOptions): Promise<ReplayObservation>;
+  /** Queue a key word exactly as the App.vue keyboard handler would. */
+  key(code: number, sessionId: number): void;
+  /** Set or release (dir 0) the held movement heading. */
+  direction(dir: number, sessionId: number): void;
+  /** Resolve the blocking get.string/get.num prompt with the recorded answer. */
+  answer(text: string): void;
+  /** Mirror partially typed answer text onto the prompt row (presentation only). */
+  setPromptEcho(text: string): void;
+  /** Whether the main thread holds a pending blocking-prompt resolver. */
+  promptPending(): boolean;
   pollNow?(): void;
   waitForRevision?(
     minRevision: number,

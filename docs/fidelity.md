@@ -379,6 +379,29 @@ Disassembly evidence: load-module offset 0x7473..0x75B3:
 
 Tests: [sound-playback.test.ts](../test/sound-playback.test.ts).
 
+### Timer-interrupt sound during blocking input
+
+Sound is never pumped by the main interpreter loop. The v2 (KQ1, descrambled AGI) and v3 (MH1,
+AGI 3.002.107) executables both service the sound player from a hardware timer interrupt handler,
+so music keeps playing while the interpreter is blocked inside the get.string/get.num keyboard
+editor: the game world (cycles, timers, movers) freezes, the tune does not.
+
+Disassembly evidence (load-module offsets):
+
+- MH1: handler at 0x8978 (`iret`, EOI via port 0x20) tests the sound-active flag `[0x12db]` and
+  calls the player at 0x8473 every tick, chaining to the previous vector (`call far [0x18b9]`)
+  every third tick. The player loops channels at 0x8483, decrements duration counters
+  `[bx+0x1812]`, loads notes via `[bx+0x180a]` and writes the chip through 0x854a.
+- KQ1: identical code — handler at 0x845a calls the player at 0x7f55 (same structure; both even
+  share the `E8DCF4` call to the f9 flag check), chaining every third tick via
+  `call far [0xdf35]`.
+
+Implication for this engine: the SAB bridge parks the worker thread during get.string/get.num, so
+the sound clock freezes for the prompt's duration (normal play then catches up in a burst; replay
+advances no virtual ticks while parked). This is a deliberate record/replay determinism trade-off
+— the walkthrough tape treats a blocking prompt as zero elapsed ticks — not a claim about
+hardware.
+
 ### SN76489 attenuation latching and rest notes
 
 On the Texas Instruments SN76489 (and NCR 8496) Digital Complex Sound Generator (PSG) used in the

@@ -111,12 +111,12 @@ export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact 
         actions.push({ kind: "key", code });
         break;
       }
-      case "command": {
-        const text = act["text"];
-        if (typeof text !== "string" || text.length > 256) {
-          throw new Error(`Invalid command text at action ${i}`);
+      case "direction": {
+        const dir = act["dir"];
+        if (typeof dir !== "number" || !Number.isInteger(dir) || dir < 0 || dir > 8) {
+          throw new Error(`Invalid direction at action ${i}: ${String(dir)}`);
         }
-        actions.push({ kind: "command", text });
+        actions.push({ kind: "direction", dir });
         break;
       }
       case "answer": {

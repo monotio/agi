@@ -375,8 +375,9 @@ const {
     present(frame);
   },
   {
-    onResetControls: () => {
-      heldMovementKeys.clear();
+    onPromptType: (text) => {
+      promptLine.value = text;
+      echoPrompt();
     },
   },
 );
@@ -1436,22 +1437,21 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
       state.walkthrough.status === "paused" ||
       state.walkthrough.status === "completed")
   ) {
-    if (ev.isTrusted) {
-      if (ev.key === " " && !state.powerUp.open) {
-        ev.preventDefault();
-        toggleWalkthroughPause();
-        return;
-      }
-      if (ev.key === "Enter" && !state.powerUp.open) {
-        ev.preventDefault();
-        if (advanceDialog()) return;
-        if (state.walkthrough.status === "paused") {
-          resumeWalkthrough();
-          return;
-        }
-      }
+    // The walkthrough drives the game; human keys own playback shortcuts only.
+    if (ev.key === " " && !state.powerUp.open) {
+      ev.preventDefault();
+      toggleWalkthroughPause();
       return;
     }
+    if (ev.key === "Enter" && !state.powerUp.open) {
+      ev.preventDefault();
+      if (advanceDialog()) return;
+      if (state.walkthrough.status === "paused") {
+        resumeWalkthrough();
+        return;
+      }
+    }
+    return;
   }
   if (ev.isComposing || ev.keyCode === 229) return;
   if (ev.target instanceof Element && ev.target.closest("dialog[open]")) return;
@@ -1583,7 +1583,7 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
 function onGlobalKeyup(ev: KeyboardEvent): void {
   const physicalKey = ev.code && ev.code !== "Unidentified" ? ev.code : ev.key;
   if (!heldMovementKeys.delete(physicalKey)) return;
-  if (state.phase === "running" && (!state.walkthrough.active || !ev.isTrusted)) {
+  if (state.phase === "running" && !state.walkthrough.active) {
     sendDirection(0);
     ev.preventDefault();
   }

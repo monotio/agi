@@ -1,4 +1,11 @@
-import { AGI_KEY, NAV_KEYS } from "../../src/runtime/keys.ts";
+/**
+ * Evaluates walkthrough actions against the live engine. Inputs go straight to
+ * the worker through the driver — the same functions App.vue's keyboard
+ * handlers call — so replay never impersonates DOM events and cannot leak
+ * synthetic key state across sessions. Time advances as recorded virtual
+ * ticks; the runner only paces, pauses and observes.
+ */
+import { DIRECTION_KEYS } from "../../src/agent/gameTestSteps.ts";
 import type {
   ReplayAction,
   ReplayBatchOptions,
@@ -8,78 +15,27 @@ import type {
 } from "./replay.ts";
 import type { Frame } from "./useEngine.ts";
 
-export const REPLAY_KEYS: Record<number, string> = {
-  [AGI_KEY.BACKSPACE]: "Backspace",
-  [AGI_KEY.TAB]: "Tab",
-  [AGI_KEY.ENTER]: "Enter",
-  [AGI_KEY.ESCAPE]: "Escape",
-  [AGI_KEY.SPACE]: "Space",
-  [AGI_KEY.HOME]: "Home",
-  [AGI_KEY.UP]: "ArrowUp",
-  [AGI_KEY.PAGE_UP]: "PageUp",
-  [AGI_KEY.LEFT]: "ArrowLeft",
-  [AGI_KEY.RIGHT]: "ArrowRight",
-  [AGI_KEY.END]: "End",
-  [AGI_KEY.DOWN]: "ArrowDown",
-  [AGI_KEY.PAGE_DOWN]: "PageDown",
-  ...Object.fromEntries(Array.from({ length: 10 }, (_, n) => [AGI_KEY.F1 + (n << 8), `F${n + 1}`])),
-};
-
-export const REPLAY_DIRECTIONS: Record<number, string> = {
-  [AGI_KEY.HOME]: "northwest",
-  [AGI_KEY.UP]: "north",
-  [AGI_KEY.PAGE_UP]: "northeast",
-  [AGI_KEY.LEFT]: "west",
-  [AGI_KEY.RIGHT]: "east",
-  [AGI_KEY.END]: "southwest",
-  [AGI_KEY.DOWN]: "south",
-  [AGI_KEY.PAGE_DOWN]: "southeast",
-};
-
-export const REPLAY_DOM_KEYS: Record<number, { key: string; code: string }> = {
-  [AGI_KEY.BACKSPACE]: { key: "Backspace", code: "Backspace" },
-  [AGI_KEY.TAB]: { key: "Tab", code: "Tab" },
-  [AGI_KEY.ENTER]: { key: "Enter", code: "Enter" },
-  [AGI_KEY.ESCAPE]: { key: "Escape", code: "Escape" },
-  [AGI_KEY.SPACE]: { key: " ", code: "Space" },
-  [AGI_KEY.HOME]: { key: "Home", code: "Home" },
-  [AGI_KEY.UP]: { key: "ArrowUp", code: "ArrowUp" },
-  [AGI_KEY.PAGE_UP]: { key: "PageUp", code: "PageUp" },
-  [AGI_KEY.LEFT]: { key: "ArrowLeft", code: "ArrowLeft" },
-  [AGI_KEY.RIGHT]: { key: "ArrowRight", code: "ArrowRight" },
-  [AGI_KEY.END]: { key: "End", code: "End" },
-  [AGI_KEY.DOWN]: { key: "ArrowDown", code: "ArrowDown" },
-  [AGI_KEY.PAGE_DOWN]: { key: "PageDown", code: "PageDown" },
-  ...Object.fromEntries(
-    Array.from({ length: 10 }, (_, n) => [
-      AGI_KEY.F1 + (n << 8),
-      { key: `F${n + 1}`, code: `F${n + 1}` },
-    ]),
-  ),
-};
-
+/** Deterministic FNV-1a hash of the composited frame for regression checks. */
 export async function computeScreenHash(frame: Frame | null): Promise<string> {
   if (frame) {
     const data = new Uint8Array(frame.visual.length + frame.text.length);
     data.set(frame.visual);
     data.set(frame.text, frame.visual.length);
-    const digest = await crypto.subtle.digest("SHA-256", data);
-    return Array.from(new Uint8Array(digest))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-  }
-  const canvas = document.querySelector<HTMLCanvasElement>("[data-testid='game-canvas']");
-  if (canvas) {
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-      const digest = await crypto.subtle.digest("SHA-256", data);
-      return Array.from(new Uint8Array(digest))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
+
+    let hash = 0x811c9dc5;
+    for (const byte of data) {
+      hash ^= byte;
+      hash = Math.imul(hash, 0x01000193);
     }
+    return (hash >>> 0).toString(16).padStart(8, "0");
   }
-  return "";
+  return "no-frame";
+}
+
+function sleep(ms: number): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, ms);
+  return promise;
 }
 
 /**
@@ -95,47 +51,13 @@ export function isStoryDialogue(obs: ReplayObservation | null): boolean {
   );
 }
 
-/**
- * Extracts readable words from screen text rows, excluding the top status line.
- */
-export function extractDialogWords(rows: readonly string[]): string[] {
-  if (!rows || rows.length <= 1) return [];
-  // Row 0 is normally the status line (e.g. "Score: 0 Sound: on")
-  const content = rows.slice(1).join(" ");
-  const matches = content.match(/[A-Za-z0-9']{2,}/g);
-  return matches ?? [];
-}
-
-/**
- * Calculates a comfortable adaptive reading dwell time in milliseconds based on
- * dialogue word count and current playback speed.
- *
- * Scales inversely with speed, capped between 1.5s and 5.0s at 1x speed.
- * Returns 0 when speed <= 0 (unthrottled / fast-forward / seeking).
- */
-export function calculateModalDwellMs(rows: readonly string[], speed: number): number {
-  if (speed <= 0) return 0;
-  const words = extractDialogWords(rows);
-  // ~200 words/min baseline reading pace (1800ms base recognition + 120ms/word)
-  const baseMs = 1800;
-  const perWordMs = 120;
-  const rawMs = Math.min(5000, Math.max(1500, baseMs + words.length * perWordMs));
-  return Math.max(50, Math.round(rawMs / Math.max(0.1, speed)));
-}
-
-/**
- * Evaluates walkthrough actions directly in-page without CDP roundtripping.
- * Dispatches actual DOM events against app controls and advances virtual ticks.
- */
 export async function runReplayBatch(
   driver: ReplayDriver,
   actions: readonly ReplayAction[],
   options?: ReplayBatchOptions & { getLatestFrame?: () => Frame | null },
 ): Promise<ReplayBatchResult> {
-  const phone = options?.phone ?? Boolean(document.querySelector('[data-testid="touch-controls"]'));
   const rawSpeed = options?.speed;
   const getSpeed: () => number = typeof rawSpeed === "function" ? rawSpeed : () => rawSpeed ?? 0;
-  let heldDirection: string | null = null;
   const currentSessionId = options?.sessionId ?? driver.sessionId ?? 0;
   let currentRequestId = 0;
 
@@ -182,38 +104,9 @@ export async function runReplayBatch(
     return getSpeed();
   }
 
-  function releaseDirection(): void {
-    if (!heldDirection) return;
-    if (phone) {
-      const pad = document.querySelector('[data-testid="touch-controls"]');
-      if (pad) {
-        const regex = new RegExp(`^(Walk|Navigate) ${heldDirection}$`, "i");
-        for (const button of pad.querySelectorAll("button")) {
-          if (regex.test(button.getAttribute("aria-label") ?? "")) {
-            button.dispatchEvent(
-              new PointerEvent("pointerup", {
-                pointerId: 1,
-                pointerType: "touch",
-                button: 0,
-                bubbles: true,
-              }),
-            );
-            break;
-          }
-        }
-      }
-    } else {
-      window.dispatchEvent(
-        new KeyboardEvent("keyup", {
-          key: heldDirection,
-          code: heldDirection,
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    }
-    heldDirection = null;
-  }
+  // The tape is a keystream: printable keys accumulate into the command line
+  // and Enter submits it. Reconstruct typed commands for the activity log.
+  let typedLine = "";
 
   async function resumed(before: ReplayObservation): Promise<void> {
     if (!before.blocked) return;
@@ -229,7 +122,7 @@ export async function runReplayBatch(
         if (Date.now() - start > 10_000) {
           throw new Error(`Timeout waiting for revision > ${before.revision}`);
         }
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        await sleep(10);
       }
     }
     checkAborted();
@@ -240,7 +133,7 @@ export async function runReplayBatch(
       if (options?.waitForResume) {
         await options.waitForResume();
       } else {
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await sleep(50);
       }
       checkAborted();
     }
@@ -275,7 +168,7 @@ export async function runReplayBatch(
           if (options?.waitForResume) {
             await options.waitForResume();
           } else {
-            await new Promise((resolve) => setTimeout(resolve, 50));
+            await sleep(50);
           }
         }
         checkAborted();
@@ -308,8 +201,8 @@ export async function runReplayBatch(
         updateStatus("running", currentRequestId);
         checkAborted();
         const elapsed = performance.now() - t0;
-        const sleep = delayMs - elapsed;
-        if (sleep > 0) await new Promise((resolve) => setTimeout(resolve, sleep));
+        const remainder = delayMs - elapsed;
+        if (remainder > 0) await sleep(remainder);
       }
       checkAborted();
       if (
@@ -344,237 +237,74 @@ export async function runReplayBatch(
     }
   }
 
-  async function waitForPromptReady(before: ReplayObservation): Promise<void> {
-    if (!before.blocked || before.blocked === "waitkey") return;
-    const start = Date.now();
-    while (isRunActive()) {
-      checkAborted();
-      driver.pollNow?.();
-      const agiState = (window as unknown as { __AGI_STATE__?: { prompt: unknown } }).__AGI_STATE__;
-      const promptReady = agiState ? agiState.prompt !== null : true;
-      if (promptReady) {
-        if (isSeeking()) {
-          // While seeking, screen captions are suppressed in the DOM to prevent thrashing.
-          return;
-        }
-        if (document.querySelector('[data-testid="prompt-hint"]')) {
-          return;
-        }
-      }
-      if (Date.now() - start > 10_000) {
-        throw new Error("Timeout waiting for prompt-hint to appear in DOM");
-      }
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-  }
-
   async function key(code: number): Promise<void> {
     checkAborted();
     const before = driver.latest;
     if (!before) throw new Error("No replay observation available before key");
-    const domKey =
-      REPLAY_DOM_KEYS[code] ??
-      (code >= 33 && code <= 126
-        ? { key: String.fromCharCode(code), code: String.fromCharCode(code) }
-        : null);
-    if (!domKey) throw new Error(`Replay key 0x${code.toString(16)} has no UI mapping.`);
-
-    // A held walking pointer must end before the pad can accept dialog taps.
-    if (before.state.modalKind !== null) releaseDirection();
-
-    await waitForPromptReady(before);
+    if (code >= 0x20 && code <= 0x7e) typedLine += String.fromCharCode(code);
+    else if (code === 0x0d) {
+      if (typedLine && !isSeeking()) options?.onAcceptedInput?.(typedLine);
+      typedLine = "";
+    }
+    driver.key(code, currentSessionId);
     checkAborted();
-
-    if (before.releaseGate !== 0 && REPLAY_DIRECTIONS[code] && before.state.modalKind === null) {
-      releaseDirection();
-      if (before.state.egoDirection !== NAV_KEYS[code]) {
-        heldDirection = phone ? REPLAY_DIRECTIONS[code]! : domKey.key;
-        if (phone) {
-          const pad = document.querySelector('[data-testid="touch-controls"]');
-          if (pad) {
-            const regex = new RegExp(`^Walk ${heldDirection}$`, "i");
-            for (const button of pad.querySelectorAll("button")) {
-              if (regex.test(button.getAttribute("aria-label") ?? "")) {
-                button.dispatchEvent(
-                  new PointerEvent("pointerdown", {
-                    pointerId: 1,
-                    pointerType: "touch",
-                    button: 0,
-                    bubbles: true,
-                  }),
-                );
-                break;
-              }
-            }
-          }
-        } else {
-          window.dispatchEvent(
-            new KeyboardEvent("keydown", {
-              key: domKey.key,
-              code: domKey.code,
-              bubbles: true,
-              cancelable: true,
-            }),
-          );
-        }
-      }
-    } else if (!phone) {
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: domKey.key,
-          code: domKey.code,
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-      window.dispatchEvent(
-        new KeyboardEvent("keyup", {
-          key: domKey.key,
-          code: domKey.code,
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    } else if (code >= 33 && code <= 126) {
-      const input = document.querySelector<HTMLInputElement>('[data-testid="input-line"]');
-      if (input) {
-        input.value = input.value + domKey.key;
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      }
+    await resumed(before);
+    checkAborted();
+  }
+  async function direction(dir: number): Promise<void> {
+    checkAborted();
+    const before = driver.latest;
+    if (!before) throw new Error("No replay observation available before direction");
+    if (dir === 0 && before.releaseGate === 0) {
+      // Tap-to-move profiles have no release event: stop ego by re-pressing
+      // the current heading's key word, exactly as the recording did. The
+      // recording cycle-waits after every direction change, so the observed
+      // heading is exact here.
+      const stopKey = DIRECTION_KEYS[before.state.egoDirection];
+      if (stopKey !== undefined) driver.key(stopKey, currentSessionId);
     } else {
-      const pad = document.querySelector('[data-testid="touch-controls"]');
-      const direction = REPLAY_DIRECTIONS[code];
-      if (direction && pad) {
-        const regex = new RegExp(`^(Walk|Navigate) ${direction}$`, "i");
-        for (const button of pad.querySelectorAll("button")) {
-          if (regex.test(button.getAttribute("aria-label") ?? "")) {
-            button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-            break;
-          }
-        }
-      } else if (pad) {
-        const label = domKey.key === "Escape" ? "Esc" : domKey.key;
-        let button: HTMLButtonElement | null = null;
-        for (const btn of pad.querySelectorAll("button")) {
-          if (btn.textContent?.trim() === label) {
-            button = btn;
-            break;
-          }
-        }
-        if (!button) {
-          const summary = pad.querySelector("summary");
-          if (summary && summary.textContent?.trim() === "Keys") {
-            summary.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-            for (const btn of pad.querySelectorAll("button")) {
-              if (btn.textContent?.trim() === label) {
-                button = btn;
-                break;
-              }
-            }
-          }
-        }
-        if (button) {
-          button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-        } else {
-          throw new Error(`Button "${label}" not found in touch controls.`);
-        }
-      }
+      driver.direction(dir, currentSessionId);
     }
     checkAborted();
     await resumed(before);
     checkAborted();
   }
 
-  async function text(inputText: string): Promise<void> {
+  async function answer(text: string): Promise<void> {
     checkAborted();
     const before = driver.latest;
-    if (!before) throw new Error("No replay observation available before text");
-    await waitForPromptReady(before);
-    checkAborted();
-    const input = document.querySelector<HTMLInputElement>('[data-testid="input-line"]');
-    if (!input) throw new Error('Input element [data-testid="input-line"] not found');
-    const speed = getEffectiveSpeed();
-    if (speed > 0 && !isSeeking() && inputText.length > 0) {
-      const charDelay = Math.max(5, Math.min(35, Math.round(22 / speed)));
-      if (input.value !== "") {
-        input.value = "";
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-      let completedTyping = true;
-      let skipped = false;
-      for (let i = 1; i <= inputText.length; i++) {
-        checkAborted();
-        if (isSeeking()) {
-          completedTyping = false;
-          break;
-        }
-        await checkPaused();
-        checkAborted();
-        if (isSeeking()) {
-          completedTyping = false;
-          break;
-        }
-        input.value = inputText.slice(0, i);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        if (charDelay > 0 && !skipped && i < inputText.length) {
-          const t0 = Date.now();
-          if (options?.dwellOnDialog) {
-            await options.dwellOnDialog(charDelay);
-          } else {
-            await new Promise((resolve) => setTimeout(resolve, charDelay));
-          }
-          checkAborted();
-          if (Date.now() - t0 < Math.max(1, charDelay / 2)) {
-            skipped = true;
-          }
-        }
-      }
+    if (!before) throw new Error("No replay observation available before answer");
+    if (!before.blocked || before.blocked === "waitkey") {
+      throw new Error("Recorded answer requires a real prompt");
+    }
+    // The worker posts the blocking observation before the main thread installs
+    // the prompt resolver; wait out the race instead of dropping the answer.
+    const start = Date.now();
+    while (!driver.promptPending()) {
       checkAborted();
-      if (!completedTyping) {
-        input.value = inputText;
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      } else if (!skipped) {
-        const enterDelay = Math.max(15, Math.min(120, Math.round(80 / speed)));
-        if (options?.dwellOnDialog) {
-          await options.dwellOnDialog(enterDelay);
-        } else {
-          await new Promise((resolve) => setTimeout(resolve, enterDelay));
-        }
+      driver.pollNow?.();
+      if (Date.now() - start > 10_000) {
+        throw new Error("Timeout waiting for the blocking prompt to reach the host");
+      }
+      await sleep(10);
+    }
+    // Cosmetic typing: the engine is parked inside the blocking prompt, so the
+    // echo is presentation-only and paced in real time.
+    const speed = getEffectiveSpeed();
+    if (speed > 0 && !isSeeking() && text.length > 0) {
+      const charDelay = Math.max(5, Math.min(35, Math.round(22 / speed)));
+      for (let i = 1; i <= text.length; i++) {
         checkAborted();
+        driver.setPromptEcho(text.slice(0, i));
+        if (options?.dwellOnDialog) {
+          await options.dwellOnDialog(charDelay);
+        } else {
+          await sleep(charDelay);
+        }
       }
-    } else {
-      if (input.value !== "") {
-        input.value = "";
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-      input.value = inputText;
-      input.dispatchEvent(new Event("input", { bubbles: true }));
     }
-
     checkAborted();
-    if (phone) {
-      const pad = document.querySelector('[data-testid="touch-controls"]');
-      const enterBtn = Array.from(pad?.querySelectorAll("button") ?? []).find(
-        (b) => b.textContent?.trim() === "Enter",
-      );
-      if (!enterBtn) throw new Error("Enter button not found in touch controls");
-      enterBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    } else {
-      if (input.form) {
-        input.form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-      } else {
-        input.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "Enter",
-            code: "Enter",
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-      }
-    }
-    input.value = "";
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+    driver.answer(text);
     checkAborted();
     await resumed(before);
     checkAborted();
@@ -582,123 +312,105 @@ export async function runReplayBatch(
 
   let lastDwelledRevision: number | null = null;
 
-  try {
-    for (const [index, action] of actions.entries()) {
-      checkAborted();
-      await checkPaused();
-      checkAborted();
-      if (driver.latest && options?.onProgress && !isSeeking()) {
-        options.onProgress({
-          actionIndex: index,
-          totalActions: actions.length,
-          tick: driver.latest.tick,
-          room: driver.latest.state.room,
-          score: driver.latest.state.vars[3] ?? 0,
-        });
-      }
-      try {
-        switch (action.kind) {
-          case "key":
-            if (
-              driver.latest &&
-              isStoryDialogue(driver.latest) &&
-              !isSeeking() &&
-              getEffectiveSpeed() > 0 &&
-              driver.latest.revision !== lastDwelledRevision
-            ) {
-              lastDwelledRevision = driver.latest.revision;
-              if (options?.pauseOnDialog?.()) {
-                options.onDialogPause?.();
-                await checkPaused();
-                checkAborted();
-              }
-            }
-            await key(action.code);
-            checkAborted();
-            if (getEffectiveSpeed() > 0) {
-              await new Promise((resolve) =>
-                setTimeout(resolve, Math.min(80, Math.max(5, 40 / getEffectiveSpeed()))),
-              );
-              checkAborted();
-            }
-            break;
-          case "command":
-            await text(action.text);
-            checkAborted();
-            if (getEffectiveSpeed() > 0) {
-              await new Promise((resolve) =>
-                setTimeout(resolve, Math.min(100, Math.max(8, 60 / getEffectiveSpeed()))),
-              );
-              checkAborted();
-            }
-            break;
-          case "answer":
-            if (!driver.latest?.blocked) {
-              throw new Error("Recorded answer requires a real prompt");
-            }
-            await text(action.text);
-            checkAborted();
-            break;
-          case "advance":
-            await advance(action.ticks, index);
-            checkAborted();
-            break;
-          case "checkpoint": {
-            checkAborted();
-            const obs = driver.latest;
-            if (!obs) throw new Error("No observation at checkpoint");
-            const actual = {
-              room: obs.state.room,
-              score: obs.state.vars[3] ?? 0,
-              x: obs.state.egoX,
-              y: obs.state.egoY,
-            };
-            const expected = {
-              room: action.room,
-              score: action.score,
-              x: action.x,
-              y: action.y,
-            };
-            if (actual.room !== expected.room || actual.score !== expected.score) {
-              throw new Error(
-                `Checkpoint "${action.label}" failed: expected room ${expected.room} score ${expected.score}, got room ${actual.room} score ${actual.score}`,
-              );
-            }
-            if (actual.x !== expected.x || actual.y !== expected.y) {
-              throw new Error(
-                `Checkpoint "${action.label}" coordinate failed: expected (${expected.x},${expected.y}), got (${actual.x},${actual.y})`,
-              );
-            }
-            checkAborted();
-            if (!isSeeking()) {
-              options?.onCheckpoint?.({
-                label: action.label,
-                room: actual.room,
-                score: actual.score,
-                x: actual.x,
-                y: actual.y,
-              });
-            }
-            break;
-          }
-        }
-      } catch (error) {
-        if (!isRunActive() || (error instanceof DOMException && error.name === "AbortError")) {
-          updateStatus("stopped");
-          throw new DOMException("Replay aborted", "AbortError");
-        }
-        updateStatus("error");
-        const obs = driver.latest;
-        throw new Error(
-          `Replay action ${index} ${JSON.stringify(action)} at tick ${obs?.tick}: ${String(error)}\n${obs?.rows.join("\n")}`,
-          { cause: error },
-        );
-      }
+  for (const [index, action] of actions.entries()) {
+    checkAborted();
+    await checkPaused();
+    checkAborted();
+    if (driver.latest && options?.onProgress && !isSeeking()) {
+      options.onProgress({
+        actionIndex: index,
+        totalActions: actions.length,
+        tick: driver.latest.tick,
+        room: driver.latest.state.room,
+        score: driver.latest.state.vars[3] ?? 0,
+      });
     }
-  } finally {
-    if (heldDirection) {
-      releaseDirection();
-      heldDirection = null;
+    try {
+      switch (action.kind) {
+        case "key":
+          if (
+            driver.latest &&
+            isStoryDialogue(driver.latest) &&
+            !isSeeking() &&
+            getEffectiveSpeed() > 0 &&
+            driver.latest.revision !== lastDwelledRevision
+          ) {
+            lastDwelledRevision = driver.latest.revision;
+            if (options?.pauseOnDialog?.()) {
+              options.onDialogPause?.();
+              await checkPaused();
+              checkAborted();
+            }
+          }
+          await key(action.code);
+          checkAborted();
+          if (getEffectiveSpeed() > 0) {
+            await sleep(Math.min(80, Math.max(5, 40 / getEffectiveSpeed())));
+            checkAborted();
+          }
+          break;
+        case "direction":
+          await direction(action.dir);
+          checkAborted();
+          break;
+        case "answer":
+          await answer(action.text);
+          checkAborted();
+          break;
+        case "advance":
+          await advance(action.ticks, index);
+          checkAborted();
+          break;
+        case "checkpoint": {
+          checkAborted();
+          const obs = driver.latest;
+          if (!obs) throw new Error("No observation at checkpoint");
+          const actual = {
+            room: obs.state.room,
+            score: obs.state.vars[3] ?? 0,
+            x: obs.state.egoX,
+            y: obs.state.egoY,
+          };
+          const expected = {
+            room: action.room,
+            score: action.score,
+            x: action.x,
+            y: action.y,
+          };
+          if (actual.room !== expected.room || actual.score !== expected.score) {
+            throw new Error(
+              `Checkpoint "${action.label}" failed: expected room ${expected.room} score ${expected.score}, got room ${actual.room} score ${actual.score}`,
+            );
+          }
+          if (actual.x !== expected.x || actual.y !== expected.y) {
+            throw new Error(
+              `Checkpoint "${action.label}" coordinate failed: expected (${expected.x},${expected.y}), got (${actual.x},${actual.y})`,
+            );
+          }
+          checkAborted();
+          if (!isSeeking()) {
+            options?.onCheckpoint?.({
+              label: action.label,
+              room: actual.room,
+              score: actual.score,
+              x: actual.x,
+              y: actual.y,
+            });
+          }
+          break;
+        }
+      }
+    } catch (error) {
+      if (!isRunActive() || (error instanceof DOMException && error.name === "AbortError")) {
+        updateStatus("stopped");
+        throw new DOMException("Replay aborted", "AbortError");
+      }
+      updateStatus("error");
+      const obs = driver.latest;
+      throw new Error(
+        `Replay action ${index} ${JSON.stringify(action)} at tick ${obs?.tick}: ${String(error)}\n${obs?.rows.join("\n")}`,
+        { cause: error },
+      );
     }
   }
 

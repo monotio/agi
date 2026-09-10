@@ -39,7 +39,8 @@ export function parseDirection(dir: DirectionInput): number {
 
 export type Action =
   | { kind: "key"; code: number }
-  | { kind: "command"; text: string }
+  /** Hold-to-move direction press; dir 0 releases the current heading. */
+  | { kind: "direction"; dir: number }
   | { kind: "advance"; ticks: number }
   | { kind: "answer"; text: string }
   | { kind: "checkpoint"; label: string; room: number; score: number; x: number; y: number };
@@ -60,7 +61,6 @@ export class Speedrun {
   readonly maxTicks: number;
   private readonly clock = new CycleClock(0);
   private readonly keys: number[] = [];
-  private line: string | null = null;
   private readonly answers: string[] = [];
   private readonly numAnswers: number[] = [];
 
@@ -84,11 +84,9 @@ export class Speedrun {
       // A cold boot has no manual saves, matching a fresh browser profile.
       listSaveGames: () => [],
       takeKeys: () => this.keys.splice(0),
-      takeInputLine: () => {
-        const line = this.line;
-        this.line = null;
-        return line;
-      },
+      // Commands arrive as recorded per-character keys; the engine's own edit
+      // line accepts them, so the host never supplies a whole line.
+      takeInputLine: () => null,
       waitKey: () => {
         this.actions.push({ kind: "key", code: AGI_KEY.ENTER });
         return AGI_KEY.ENTER;
@@ -221,17 +219,72 @@ export class Speedrun {
     assert.ok(predicate(), `${label} within ${budget} ticks`);
   }
 
-  command(text: string): void {
+  /**
+   * Buffer a parser command exactly as a player would: one key action per
+   * letter, one tick between letters — the engine consumes the whole key queue
+   * each cycle — then verify what landed. A modal or cutscene opening
+   * mid-burst eats the queued letters; a player dismisses the popup and
+   * retypes them, so the recording does the same. The line stays buffered for
+   * `submit()` — the engine echoes it onto its own input row while the player
+   * is free to keep walking, the classic type-ahead technique.
+   */
+  type(text: string): void {
     this.dismiss();
     this.wait(() => this.engine.inputEnabled, `Parser available for ${text}`);
-    assert.equal(this.line, null, "Previous command must be consumed");
-    this.actions.push({ kind: "command", text });
-    this.line = text;
-    for (let n = 0; this.line !== null; n++) {
-      assert.ok(n < 1000, `Command not consumed: ${text}`);
-      this.advance();
+    assert.match(text, /^[\x20-\x7e]+$/, `Command must be printable ASCII: ${text}`);
+    while (this.engine.inputEdit !== text) {
+      if (this.engine.modalKind !== null || this.engine.continuationPending) {
+        this.dismiss();
+        continue;
+      }
+      if (!this.engine.inputEnabled) {
+        this.advance();
+        continue;
+      }
+      const current = this.engine.inputEdit;
+      assert.ok(text.startsWith(current), `Input row diverged from command: ${text}`);
+      const before = this.cycles;
+      // The input queue holds nineteen events; burst in chunks below that.
+      for (const ch of text.slice(current.length, current.length + 12)) {
+        this.key(ch.charCodeAt(0));
+        this.advance(1);
+      }
+      for (let n = 0; (this.cycles === before || this.keys.length > 0) && n < 1000; n++) {
+        if (this.engine.modalKind !== null || this.engine.continuationPending) break;
+        this.advance();
+      }
+    }
+  }
+
+  /**
+   * Press Enter until the engine accepts the buffered line: an Enter consumed
+   * by a popup still needs a second press once the popup is dismissed.
+   */
+  submit(label = "command"): void {
+    for (let n = 0; this.engine.inputEdit !== ""; n++) {
+      assert.ok(n < 100, `Command not consumed: ${label}`);
+      if (this.engine.modalKind !== null || this.engine.continuationPending) {
+        this.dismiss();
+        continue;
+      }
+      if (!this.engine.inputEnabled) {
+        this.advance();
+        continue;
+      }
+      this.key(AGI_KEY.ENTER);
+      for (let c = 0; this.engine.inputEdit !== "" && c < 40; c++) {
+        if (this.engine.modalKind !== null || this.engine.continuationPending) break;
+        this.advance();
+      }
     }
     this.dismiss();
+  }
+
+  /** Type and submit in one go; routes that must move first use type/submit. */
+  command(text: string): void {
+    assert.equal(this.engine.inputEdit, "", "Previous command must be consumed");
+    this.type(text);
+    this.submit(text);
   }
 
   press(key: number, waitTicks = 5): void {
@@ -243,7 +296,10 @@ export class Speedrun {
     const d = parseDirection(dir);
     const current = this.engine.screenObjects[0]?.direction ?? 0;
     if (current === d) return;
-    this.key(DIRECTION_KEYS[d || current]!);
+    // The tape records the semantic gesture; the engine still sees the raw
+    // navigation word, whose toggle semantics stop ego on a repeated heading.
+    this.actions.push({ kind: "direction", dir: d });
+    this.keys.push(DIRECTION_KEYS[d || current]!);
     const from = this.cycles;
     for (let n = 0; this.cycles === from; n++) {
       assert.ok(n < 1000, "Direction input did not reach a cycle");
@@ -258,7 +314,7 @@ export class Speedrun {
       .slice(-5)
       .map((a) => {
         if (a.kind === "key") return `key(${a.code})`;
-        if (a.kind === "command") return `command("${a.text}")`;
+        if (a.kind === "direction") return `direction(${a.dir})`;
         if (a.kind === "advance") return `advance(${a.ticks})`;
         if (a.kind === "answer") return `answer("${a.text}")`;
         if (a.kind === "checkpoint") return `checkpoint("${a.label}")`;

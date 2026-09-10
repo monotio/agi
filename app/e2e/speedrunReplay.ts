@@ -163,9 +163,11 @@ export class BrowserReplay {
   }
 
   async play(actions: readonly Action[]): Promise<ReplayBatchResult> {
+    // Playback drives the worker input path directly; `phone` only selects the
+    // UI shell (touch controls stay on the human-only paths exercised above).
     const result = await this.page.evaluate(
-      ({ actions, phone }) => window.__AGI_REPLAY__!.playBatch(actions, { phone }),
-      { actions, phone: this.phone },
+      (batch) => window.__AGI_REPLAY__!.playBatch(batch),
+      actions,
     );
     this.cachedObservation = result;
     return result;

@@ -21,7 +21,7 @@ export function firstHalf(run: Speedrun): void {
   run.advance(120);
   run.dismiss();
   run.checkpoint("Audience", { room: 53, score: 4 });
-  run.command("talk to king");
+  run.command("talk king"); // said("speak", "king") prints the quest (logic 053)
   run.press(AGI_KEY.ENTER, 12);
   run.walkTo(145, 120);
   run.exit("E", 54);
@@ -77,7 +77,7 @@ export function middle(run: Speedrun): void {
   run.exit("W", 31);
   run.walkTo(120, 140);
   run.command("get bowl");
-  run.command("look at bowl");
+  run.command("look bowl"); // said("check", "bowl") reveals the "fill" word (logic 031)
   run.checkpoint("Bowl", { room: 31, score: 26 });
   run.walkTo(35, 140);
   run.exit("S", 18);
@@ -87,7 +87,7 @@ export function middle(run: Speedrun): void {
         run.waitForFlag(20, "Elf appears");
         run.repeatUntil(
           () => {
-            run.command("talk to elf");
+            run.command("talk elf"); // said("speak", "elf") awards the ring (logic 018)
             if (!run.engine.flags[82]) run.advance(60);
           },
           () => Boolean(run.engine.flags[82]),
@@ -147,30 +147,68 @@ export function middle(run: Speedrun): void {
     [55, 132],
   ]);
   run.command("eat house");
-  run.repeatUntil(
-    () => {
-      if (run.engine.vars[81] === 2) return;
-      run.walkTo(55, 160);
-      run.walkTo(10, 160);
-      run.exit("W", 27);
-      run.exit("E", 28);
-      run.walkTo(55, 160);
-    },
-    () => run.engine.vars[81] === 2,
-    "Witch never left her house",
-    20,
-  );
+  // Three rolls decide whether the witch can be pushed into her oven
+  // (065.agi): the fairy godmother's protection spell (f73, cast in room 9)
+  // suppresses her entirely until it wears off; every room-28 entry re-rolls
+  // her whereabouts (v81: 1 home, 2 away); and each room-65 entry with her
+  // away rolls whether she comes home at all (f29).  Visit until she appears.
+
+  const ensureWitchAway = () => {
+    if (run.engine.flags[73]) {
+      run.wait(() => !run.engine.flags[73], "Protection spell expires");
+    }
+    run.repeatUntil(
+      () => {
+        if (run.engine.vars[81] === 2) return;
+        run.walkTo(55, 160);
+        run.walkTo(10, 160);
+        run.exit("W", 27);
+        run.exit("E", 28);
+        run.walkTo(55, 160);
+      },
+      () => run.engine.vars[81] === 2,
+      "Witch never left her house",
+      20,
+    );
+  };
+  ensureWitchAway();
   run.walkTo(55, 132);
   run.checkpoint("Gingerbread", { score: 38 });
-  run.command("open door");
-  run.waitForRoom(65, "Witch door opens");
-  run.walkTo(95, 150);
-  run.walkTo(95, 100);
-  run.walkTo(145, 100);
-  run.walkTo(145, 150);
-  run.walkTo(135, 150);
-  run.command("get note");
-  run.command("read note");
+  run.repeatUntil(
+    () => {
+      if (run.engine.vars[81] !== 2 || run.engine.flags[73]) {
+        // Stepping out re-rolled her whereabouts; fix that up outside first.
+        ensureWitchAway();
+        run.walkTo(55, 132);
+      }
+      run.command("open door");
+      run.waitForRoom(65, "Witch door opens");
+      run.walkTo(95, 150);
+      run.walkTo(95, 100);
+      run.walkTo(145, 100);
+      run.walkTo(145, 150);
+      run.walkTo(135, 150);
+      if (!run.engine.flags[170]) {
+        run.command("get note");
+        run.command("read note");
+      }
+      // Wait in the bedroom: her entrance walk to the oven only triggers
+      // while ego stays in posn(105,1,158,166).  A lucky entry roll has her
+      // appear roughly 3.5k ticks in; otherwise step out to re-roll.
+      for (let n = 0; n < 6000 && !run.engine.flags[29] && !run.engine.flags[21]; n++) {
+        run.dismiss();
+        run.advance();
+      }
+      if (!run.engine.flags[29] && !run.engine.flags[21]) {
+        run.walkTo(40, 150);
+        run.walkTo(49, 150);
+        run.walkDirection("S", () => run.state().room === 28, "Step out of the witch house");
+      }
+    },
+    () => Boolean(run.engine.flags[29] || run.engine.flags[21]),
+    "Witch never came home",
+    6,
+  );
   run.checkpoint("Witch note", { score: 41 });
   run.waitForFlag(21, "Witch faces oven", 10000);
   run.walkTo(145, 150);
@@ -178,10 +216,10 @@ export function middle(run: Speedrun): void {
   run.walkTo(95, 100);
   run.walkTo(35, 100);
   run.walkTo(40, 120);
-  run.command("push witch");
+  run.command("push witch"); // said("move", "witch") within 15px shoves her in (logic 065)
   run.checkpoint("Witch defeated", { score: 48 });
   run.walkTo(40, 98);
-  run.command("open cupboard");
+  run.command("open cabinet"); // said("open", "cabinet") (logic 065)
   run.command("get cheese");
   run.checkpoint("Cheese", { score: 52 });
   run.walkTo(40, 150);
@@ -233,7 +271,7 @@ export function middle(run: Speedrun): void {
   run.walkTo(30, 125);
   run.command("look in stump");
   run.command("get pouch");
-  run.command("look in pouch");
+  run.command("open pouch"); // said("open", "bag") empties the diamonds (logic 000)
   run.checkpoint("Diamond pouch", { room: 6, score: 67 });
 }
 
@@ -245,12 +283,66 @@ export function beans(run: Speedrun): void {
   run.walkTo(30, 160);
   run.command("open gate");
   run.waitForFlag(78, "goat gate opens");
-  run.walkTo(30, 140);
-  run.walkTo(40, 120);
-  run.command("show carrot");
+  // The goat wanders all of rooms 10 and 11 and slips off the west edge when
+  // it touches it outside the gate strip (011.agi/010.agi), so pursue it live
+  // and show the carrot within 38px — it keeps drifting while the line is
+  // typed, and 50px is the follow limit.
+  run.repeatUntil(
+    () => {
+      const room = run.state().room;
+      const present = room === 11 ? run.engine.flags[21] : run.engine.flags[20];
+      if (!present) {
+        // It wandered off; entering the other pen room respawns it there.
+        run.exit(room === 11 ? "W" : "E", room === 11 ? 10 : 11);
+        return;
+      }
+      if (!run.engine.flags[74]) run.walkTo(30, 154); // latch "ego inside the pen"
+      const goat = run.engine.screenObjects[13]!;
+      for (let n = 0; n < 100; n++) {
+        const ego = run.engine.screenObjects[0]!;
+        const dx = Math.sign(goat.x - ego.x);
+        const dy = Math.sign(goat.y - ego.y);
+        if (Math.abs(goat.x - ego.x) + Math.abs(goat.y - ego.y) < 38) break;
+        if (!(room === 11 ? run.engine.flags[21] : run.engine.flags[20])) break;
+        run.direction(
+          dy < 0
+            ? dx < 0
+              ? "NW"
+              : dx > 0
+                ? "NE"
+                : "N"
+            : dy > 0
+              ? dx < 0
+                ? "SW"
+                : dx > 0
+                  ? "SE"
+                  : "S"
+              : dx < 0
+                ? "W"
+                : "E",
+        );
+        run.advance();
+      }
+      run.direction(0);
+      const ego = run.engine.screenObjects[0]!;
+      if (Math.abs(goat.x - ego.x) + Math.abs(goat.y - ego.y) < 38) {
+        run.command("show carrot");
+      }
+    },
+    () => Boolean(run.engine.flags[75]),
+    "Goat ignores the carrot",
+    40,
+  );
+  if (run.state().room === 10) {
+    // Caught it across the fence; come back and rejoin the trail south.
+    run.exit("E", 11);
+    run.walkTo(run.state().x, 162);
+    run.walkTo(20, 162);
+  } else {
+    run.walkTo(20, 140);
+    run.walkTo(20, 162);
+  }
   run.checkpoint("Goat", { room: 11, score: 72 });
-  run.walkTo(20, 140);
-  run.walkTo(20, 162);
   run.exit("W", 10);
   run.walkTo(70, 162);
   run.exit("S", 7);
@@ -271,7 +363,7 @@ export function beans(run: Speedrun): void {
   run.exit("W", 40);
   run.walkTo(45, 110);
   run.walkTo(40, 130);
-  run.command("talk to gnome");
+  run.command("talk gnome"); // said("speak", "dwarf") starts the name game (logic 040)
   run.command("ifnkovhgroghprm");
   run.walkTo(40, 120);
   run.command("get beans");
@@ -380,7 +472,7 @@ export function secondHalf(run: Speedrun): void {
   run.walkTo(32, 125);
   run.walkDirection("W", () => run.state().room === 51, "enter dragon cave");
   run.walkTo(100, 140);
-  run.command("throw water at dragon");
+  run.command("throw water"); // said("cast", "water") douses the dragon (logic 051)
   run.wait(() => engine.vars[75] === 2, "extinguish dragon");
   run.walkTo(40, 120);
   run.command("get mirror");
@@ -463,7 +555,7 @@ export function finishFromCondor(run: Speedrun): void {
   run.walkTo(80, 125);
   run.direction(0);
   run.wait(() => engine.vars[70]! > 20 && engine.vars[70]! < 30, "rat within cheese reach");
-  run.command("give cheese to rat");
+  run.command("give cheese"); // said("give", "cheese") feeds the rat (logic 075)
   run.waitForFlag(138, "rat leaves");
   run.walkTo(40, 125);
   run.command("open door");

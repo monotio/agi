@@ -252,7 +252,7 @@ export async function removeLibraryGame(slug: string): Promise<void> {
 
 export function useEngine(
   onFrame: (frame: Frame) => void,
-  engineOptions?: { onResetControls?: () => void },
+  engineOptions?: { onPromptType?: (text: string) => void },
 ) {
   const audio = new AgiAudio();
 
@@ -386,6 +386,11 @@ export function useEngine(
         ...(options?.seeking !== undefined ? { seeking: options.seeking } : {}),
         ...(options?.renderFinal !== undefined ? { renderFinal: options.renderFinal } : {}),
       }),
+    key: (code, sessionId) => sendKey(code, sessionId),
+    direction: (dir, sessionId) => sendDirection(dir, sessionId),
+    answer: (text) => submitPrompt(text),
+    setPromptEcho: (text) => engineOptions?.onPromptType?.(text),
+    promptPending: () => promptResolver !== null,
     pollNow: () => {
       bridge?.pollNow();
     },
@@ -1929,25 +1934,27 @@ export function useEngine(
     worker?.postMessage({ type: "edit", text });
   }
 
-  function sendDirection(dir: number): void {
+  function sendDirection(dir: number, sessionId?: number): void {
+    const session = sessionId ?? (activeWalkthroughSession > 0 ? activeWalkthroughSession : 0);
     worker?.postMessage({
       type: "direction",
       dir,
       releaseEligible: state.holdToMove,
-      ...(activeWalkthroughSession > 0 ? { sessionId: activeWalkthroughSession } : {}),
+      ...(session > 0 ? { sessionId: session } : {}),
     });
   }
 
-  function sendKey(code: number): void {
+  function sendKey(code: number, sessionId?: number): void {
     if (!worker) return;
     bridge?.pollNow();
     const id = ++nextKeyId;
     pendingKeys.set(id, code);
+    const session = sessionId ?? (activeWalkthroughSession > 0 ? activeWalkthroughSession : 0);
     const keyMsg = {
       type: "key",
       id,
       code,
-      ...(activeWalkthroughSession > 0 ? { sessionId: activeWalkthroughSession } : {}),
+      ...(session > 0 ? { sessionId: session } : {}),
     };
     if (keyWaitResolver) {
       const resolve = keyWaitResolver;
@@ -2167,7 +2174,6 @@ export function useEngine(
     }
     cancelPendingBridgeWaits();
     drainPendingQueries(new DOMException("Walkthrough reset", "AbortError"));
-    engineOptions?.onResetControls?.();
 
     const sessionId = ++activeWalkthroughSession;
     replayDriver.sessionId = sessionId;
@@ -2407,6 +2413,9 @@ export function useEngine(
           state.walkthrough.room = cp.room;
           state.walkthrough.score = cp.score;
         },
+        onAcceptedInput: (text) => {
+          if (!state.walkthrough.seeking) logAgent("input", text);
+        },
         onProgress: (prog) => {
           if (activeWalkthroughSession !== sessionId || abortController.signal.aborted) return;
           if (state.walkthrough.seeking) return;
@@ -2453,7 +2462,6 @@ export function useEngine(
     }
     cancelPendingBridgeWaits();
     drainPendingQueries(new DOMException("Walkthrough stopped", "AbortError"));
-    engineOptions?.onResetControls?.();
     activeWalkthroughSession++;
     state.walkthrough.active = false;
     state.walkthrough.error = "";
@@ -2466,6 +2474,8 @@ export function useEngine(
     if (takeControl) {
       state.walkthrough.status = "stopped";
       worker?.postMessage({ type: "exitReplay" });
+      // A replay halted mid-hold must not carry ego's heading into live play.
+      sendDirection(0);
     } else {
       state.walkthrough.status = "stopped";
       await ejectGame();
