@@ -2,7 +2,7 @@ import type { AgentRunState } from "./agent/agentRun.ts";
 import { reactive } from "vue";
 import type { GameControlBinding } from "../../src/runtime/engine.ts";
 import { continuationTranscript } from "./projectArchive.ts";
-import { detectKnownGame, gameRevision } from "./gameMetadata.ts";
+import { detectKnownGame, gameRevision, updateBootedResources } from "./gameMetadata.ts";
 import { clearGameSaves } from "./gameSaves.ts";
 import { createAgentLogger, type AgentLogEntry, type AgentLogAudio } from "./agent/agentLog.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
@@ -734,7 +734,7 @@ export function useEngine(
       : null;
   }
 
-  async function exportCurrentGame() {
+  async function exportCurrentGame(): Promise<{ data: CachedGameData; progressKey: string }> {
     if (state.powerUp.busy || state.phase !== "running")
       throw new Error("Wait for the current authoring turn to finish before saving.");
     const game = booted;
@@ -754,16 +754,18 @@ export function useEngine(
     if (!data) throw new Error("The current game metadata is unavailable.");
     const files = await query<Record<string, Uint8Array> | null>("exportFiles");
     if (!files || booted !== game) throw new Error("The game changed during export. Try again.");
-    game.files = files;
+    await updateBootedResources(game, files);
     if (!game.installed && !(await updateAuthoredGameFiles(game.projectId!, files))) {
       logAgent("error", "Browser storage could not save this world. Keep the downloaded ZIP.");
     }
-    return authoringController.assembleExportData(data, game, session, files);
+    const assembled = authoringController.assembleExportData(data, game, session, files);
+    const progressKey = game.installed ? (game.hash ?? game.alias ?? "installed") : game.projectId!;
+    return { data: assembled, progressKey };
   }
 
   const { openPowerUp, closePowerUp, submitPowerUp, updateAiConfig } = authoringController;
 
-  async function ejectGame(): Promise<void> {
+  async function ejectGame(options?: { abandonUnsaved?: boolean }): Promise<void> {
     if (state.leaving || state.powerUp.busy) return;
     state.leaving = true;
     pauseEngine();
@@ -778,13 +780,26 @@ export function useEngine(
           );
         await authoringController.persistRemix(game, session, files);
       }
-      await autosaveController.flushAutosave(2000);
-      await autosaveController.getAutosaveWrite();
+      if (!options?.abandonUnsaved) {
+        const flushResult = await autosaveController.flushAutosaveDetailed(2000);
+        if (flushResult.status === "storage_failure") {
+          throw new Error(
+            "Browser storage could not save latest progress. Download a Project backup, or leave with previously saved progress.",
+          );
+        } else if (flushResult.status === "timeout") {
+          throw new Error(
+            "Autosave timed out. Try again, download a Project backup, or leave with previously saved progress.",
+          );
+        } else if (flushResult.status === "not_checkpointable") {
+          throw new Error(
+            `Current progress cannot be saved: ${flushResult.reason} Close any open game window and try again, download a Project backup, or leave with previously saved progress.`,
+          );
+        }
+      }
     } catch (error) {
       state.leaving = false;
-      state.powerUp.error = String(error);
-      state.powerUp.open = true;
-      return;
+      resumeEngine();
+      throw error;
     }
     state.leaving = false;
     activeWalkthroughSession++;
@@ -828,15 +843,22 @@ export function useEngine(
   async function bootAuthoredGame(
     templateMarkdown: string,
     config: LlmConfig,
-    options?: { projectId?: ProjectId; title?: string; useCached?: boolean },
+    options?: {
+      projectId?: ProjectId;
+      templateId?: string;
+      title?: string;
+      useCached?: boolean;
+      overwrite?: boolean;
+    },
   ): Promise<void> {
     state.phase = "loading";
     state.error = "";
     try {
       const w = spawnWorker();
 
-      const projectId = options?.projectId || "custom";
+      let projectId = options?.projectId || "custom";
       const title = options?.title || projectId;
+      const templateId = options?.templateId;
 
       if (options?.useCached) {
         const cached = await loadAuthoredGame(projectId);
@@ -846,10 +868,12 @@ export function useEngine(
             `⚡ Booting saved world for "${cached.title}" (authored ${new Date(cached.authoredAt).toLocaleTimeString()}${cached.transcript ? `, ${cached.transcript.length} saved messages` : ""})`,
           );
           const cachedConfig = configForGame(projectId, config);
+          const isConfigured =
+            cachedConfig.provider === "stub" || Boolean(cachedConfig.apiKey.trim());
+          const canAuthor = Boolean(cached.roomGeneration);
           const cachedSession =
-            cached.imported || (cachedConfig.provider !== "stub" && !cachedConfig.apiKey.trim())
-              ? null
-              : AgentSession.fromAuthoredData(
+            canAuthor && isConfigured
+              ? AgentSession.fromAuthoredData(
                   cachedConfig,
                   logAgent,
                   cached.files,
@@ -859,7 +883,8 @@ export function useEngine(
                     ? cached.sessionId
                     : undefined,
                   cached.authoringState,
-                );
+                )
+              : null;
           authoringController.setSession(cachedSession);
           bridge = createBridge(hostBridgeHandler(currentSessionAgent), logAgent);
           const known = await detectKnownGame(cached.files);
@@ -883,7 +908,7 @@ export function useEngine(
             words: cached.words,
             sab: bridge.sab,
             autosaveFiles: true,
-            authorRooms: cached.roomGeneration ?? !cached.imported,
+            authorRooms: Boolean(cached.roomGeneration),
             ...(await autosaveController.takeResumeState(cached.files)),
           });
           return;
@@ -891,6 +916,13 @@ export function useEngine(
         throw new Error(
           "This saved game is no longer available. Import it again or choose a catalog game.",
         );
+      }
+
+      if (!options?.overwrite && (await loadAuthoredGame(projectId))) {
+        let safeId = projectId;
+        do safeId = `${projectId}-${crypto.randomUUID().slice(0, 8)}`;
+        while (await loadAuthoredGame(safeId));
+        projectId = safeId;
       }
 
       const genesisSession = new AgentSession(config, logAgent);
@@ -901,6 +933,7 @@ export function useEngine(
         await genesisSession.startGenesis(templateMarkdown);
       const authoredGame: CachedGameData = {
         projectId,
+        templateId,
         title,
         authoredAt: new Date().toISOString(),
         provider: config.provider,
@@ -926,6 +959,7 @@ export function useEngine(
       };
 
       const saved = await saveAuthoredGame(projectId, {
+        templateId,
         title,
         provider: config.provider,
         model: config.model,
@@ -1072,6 +1106,7 @@ export function useEngine(
     resumeFromRecord: autosaveController.resumeFromRecord,
     startOver: autosaveController.startOver,
     flushAutosave: autosaveController.flushAutosave,
+    flushAutosaveDetailed: autosaveController.flushAutosaveDetailed,
     lastAutosaveRecord: autosaveController.lastAutosaveRecord,
     shutdownEngine,
   };

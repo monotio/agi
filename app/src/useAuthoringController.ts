@@ -5,7 +5,7 @@ import type { AgentLogEntry } from "./agent/agentLog.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import type { AgentFrame, FrameRequest } from "../../src/agent/frames.ts";
 import { continuationTranscript } from "./projectArchive.ts";
-import { gameRevision } from "./gameMetadata.ts";
+import { gameRevision, updateBootedResources } from "./gameMetadata.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import {
   getCachedGameMeta,
@@ -364,8 +364,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         "Browser storage could not save this remix. Use Game actions → Project to keep it.",
       );
     }
-    game.files = files;
-    game.words = words;
+    await updateBootedResources(game, files, words);
     remixNeedsSave = false;
   }
 

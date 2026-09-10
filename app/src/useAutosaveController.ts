@@ -5,7 +5,7 @@
  */
 import type { AgentLogEntry } from "./agent/agentLog.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
-import { gameRevision } from "./gameMetadata.ts";
+import { gameRevision, updateBootedResources } from "./gameMetadata.ts";
 import {
   autosaveKey,
   parseAutosaveRecord,
@@ -105,12 +105,20 @@ export interface AutosaveControllerContext {
   readonly configForGame: (projectId: ProjectId, config: LlmConfig) => LlmConfig;
 }
 
+export type AutosaveFlushResult =
+  | { status: "saved"; cycle: number }
+  | { status: "already_durable"; cycle: number }
+  | { status: "not_checkpointable"; reason: string }
+  | { status: "storage_failure"; error?: unknown }
+  | { status: "timeout" };
+
 export interface AutosaveController {
   readAutosave(targetKey: string): AutosaveRecord | null;
   clearAutosave(targetKey: string): void;
   lastAutosaveRecord(): AutosaveRecord | null;
   getAutosaveWrite(): Promise<boolean>;
   flushAutosave(timeoutMs?: number): Promise<boolean>;
+  flushAutosaveDetailed(timeoutMs?: number): Promise<AutosaveFlushResult>;
   handleAutosave(msg: {
     image: string;
     preview?: unknown;
@@ -119,7 +127,15 @@ export interface AutosaveController {
     room: number;
     files?: Record<string, Uint8Array>;
   }): void;
-  handleFlushed(msg: { id: number; taken: boolean }): void;
+  handleFlushed(msg: {
+    id: number;
+    taken: boolean;
+    cycle?: number | undefined;
+    hasEngine?: boolean | undefined;
+    modal?: boolean | undefined;
+    textMode?: boolean | undefined;
+    pictureShown?: boolean | undefined;
+  }): void;
   handleRestored(msg: {
     ok: boolean;
     room?: number;
@@ -144,6 +160,8 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
   let pendingResumeRecord: AutosaveRecord | null = null;
   let autosaveWrite: Promise<boolean> = Promise.resolve(true);
   const flushWaiters = new Map<number, (saved: boolean) => void>();
+  const flushDetailedWaiters = new Map<number, (res: AutosaveFlushResult) => void>();
+  let lastSeenCycle = 0;
   let nextFlushQueryId = 0;
   let resumeCaptionTimer: number | null = null;
 
@@ -174,7 +192,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         if (booted.installed) return false;
         if (!(await updateAuthoredGameFiles(game.projectId!, msg.files))) return false;
         if (ctx.getBootedGame() !== game) return false;
-        game.files = msg.files;
+        await updateBootedResources(game, msg.files);
       }
       const record: AutosaveRecord = {
         format: "monotio.agi.autosave",
@@ -187,7 +205,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         savedAt: Date.now(),
         game: {
           installed: game.installed,
-          revision: await gameRevision(game.files),
+          revision: game.revision,
           ...(game.installed
             ? {
                 ...(game.hash ? { hash: game.hash } : {}),
@@ -231,11 +249,49 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       .catch(() => false);
   }
 
-  function handleFlushed(msg: { id: number; taken: boolean }): void {
-    const resolve = flushWaiters.get(Number(msg.id));
-    void autosaveWrite.then((saved) => {
-      resolve?.(Boolean(msg.taken) && saved);
-    });
+  function handleFlushed(msg: {
+    id: number;
+    taken: boolean;
+    cycle?: number | undefined;
+    hasEngine?: boolean | undefined;
+    modal?: boolean | undefined;
+    textMode?: boolean | undefined;
+    pictureShown?: boolean | undefined;
+  }): void {
+    const cycle = Number(msg.cycle ?? lastSeenCycle);
+    lastSeenCycle = cycle;
+    const legacyResolve = flushWaiters.get(Number(msg.id));
+    const detailedResolve = flushDetailedWaiters.get(Number(msg.id));
+
+    if (msg.taken) {
+      void autosaveWrite.then((saved) => {
+        legacyResolve?.(saved);
+        if (saved) {
+          detailedResolve?.({ status: "saved", cycle });
+        } else {
+          detailedResolve?.({ status: "storage_failure" });
+        }
+      });
+      return;
+    }
+
+    const lastCycle = lastAutosave?.cycle;
+    const isCleanOpening = cycle === 0 || (!msg.pictureShown && lastAutosave === null);
+    const isUnchanged = lastCycle !== undefined && cycle <= lastCycle;
+
+    if (isCleanOpening || isUnchanged) {
+      legacyResolve?.(true);
+      detailedResolve?.({ status: "already_durable", cycle });
+      return;
+    }
+
+    const reason = msg.modal
+      ? "A dialog or menu is open."
+      : msg.textMode
+        ? "Game is in text mode."
+        : "Interpreter is between transitions.";
+    legacyResolve?.(false);
+    detailedResolve?.({ status: "not_checkpointable", reason });
   }
 
   function handleRestored(msg: {
@@ -274,23 +330,36 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     };
   }
 
-  function flushAutosave(timeoutMs = 500): Promise<boolean> {
+  function flushAutosaveDetailed(timeoutMs = 2000): Promise<AutosaveFlushResult> {
     const worker = ctx.getWorker();
-    if (!worker) return Promise.resolve(false);
-    return new Promise<boolean>((resolve) => {
+    if (!worker) return Promise.resolve({ status: "already_durable", cycle: 0 });
+    return new Promise<AutosaveFlushResult>((resolve) => {
       const id = ++nextFlushQueryId;
       let settled = false;
-      const done = (ok: boolean): void => {
+      const done = (res: AutosaveFlushResult): void => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         flushWaiters.delete(id);
-        resolve(ok);
+        flushDetailedWaiters.delete(id);
+        resolve(res);
       };
-      const timer = setTimeout(() => done(false), timeoutMs);
-      flushWaiters.set(id, done);
+      const timer = setTimeout(() => {
+        const lastCycle = lastAutosave?.cycle;
+        if (lastCycle !== undefined && lastSeenCycle <= lastCycle) {
+          done({ status: "already_durable", cycle: lastSeenCycle });
+        } else {
+          done({ status: "timeout" });
+        }
+      }, timeoutMs);
+      flushDetailedWaiters.set(id, done);
       worker.postMessage({ type: "flush", id });
     });
+  }
+
+  async function flushAutosave(timeoutMs = 500): Promise<boolean> {
+    const res = await flushAutosaveDetailed(timeoutMs);
+    return res.status === "saved" || res.status === "already_durable";
   }
 
   function lastAutosaveRecord(): AutosaveRecord | null {
@@ -367,7 +436,9 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
 
   function drainFlushWaiters(): void {
     for (const done of flushWaiters.values()) done(false);
+    for (const done of flushDetailedWaiters.values()) done({ status: "timeout" });
     flushWaiters.clear();
+    flushDetailedWaiters.clear();
   }
 
   function resetScreen(): void {
@@ -390,6 +461,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     lastAutosaveRecord,
     getAutosaveWrite,
     flushAutosave,
+    flushAutosaveDetailed,
     handleAutosave,
     handleFlushed,
     handleRestored,

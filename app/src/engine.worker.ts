@@ -1069,7 +1069,16 @@ self.onmessage = (ev: MessageEvent) => {
       // autosave is posted first, so a host that awaits the acknowledgement
       // can await browser storage before resolving this request.
       const taken = autosave(true);
-      sendControl({ type: "flushed", id: msg.id, taken });
+      sendControl({
+        type: "flushed",
+        id: msg.id,
+        taken,
+        cycle: cycleCount,
+        hasEngine: Boolean(engine),
+        modal: engine ? engine.modalOpen : false,
+        textMode: engine ? engine.textModeActive : false,
+        pictureShown: engine ? engine.isPictureShown : false,
+      });
       return;
     }
     if (msg.type === "patchMetadata" && engine) {

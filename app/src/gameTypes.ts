@@ -6,6 +6,8 @@ export type ProjectId = string;
 export interface CachedGameMeta {
   library?: LibraryMetadata | undefined;
   projectId: ProjectId;
+  templateId?: string | undefined;
+  generation?: number | undefined;
   title: string;
   authoredAt: string;
   provider: string;
@@ -26,7 +28,7 @@ export interface CachedGameData extends CachedGameMeta {
 export interface BootedGame {
   readonly installed: boolean;
   readonly title: string;
-  readonly revision: string;
+  revision: string;
   files: Record<string, Uint8Array>;
   words: [string, number][];
   readonly hash?: string | undefined;

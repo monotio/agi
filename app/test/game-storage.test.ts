@@ -41,6 +41,7 @@ test("renaming preserves game resources, conversation and save identity", async 
   assert.equal(await storage.renameAuthoredGame("custom", "  My adventure  "), true);
   assert.deepEqual(await storage.loadAuthoredGame("custom"), {
     ...original,
+    generation: (original.generation ?? 1) + 1,
     title: "My adventure",
   });
   assert.equal((await storage.loadAuthoredGame("custom"))?.library?.revision, revision);
@@ -587,4 +588,137 @@ test("a database open that finishes after being blocked closes its abandoned con
   );
   request.onsuccess?.();
   assert.equal(closed, 1);
+});
+
+test("concurrency conflict compare-and-swap preserves losing edits in stashedConflicts", async (t) => {
+  const values = new Map<string, string>();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+    storage.clearStashedConflict("concurrent-project");
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+
+  // 1. Initial save produces generation 1
+  assert.equal(
+    await storage.saveAuthoredGame("concurrent-project", {
+      title: "Initial",
+      provider: "stub",
+      model: "stub",
+      files: { "VOL.0": Uint8Array.of(1) },
+      words: [],
+    }),
+    true,
+  );
+  const loaded1 = (await storage.loadAuthoredGame("concurrent-project"))!;
+  assert.equal(loaded1.generation, 1);
+
+  // 2. Tab A reads gen 1, Tab B reads gen 1
+  // Tab B commits a rename, bumping generation to 2
+  assert.equal(await storage.renameAuthoredGame("concurrent-project", "Tab B Title", 1), true);
+  const loaded2 = (await storage.loadAuthoredGame("concurrent-project"))!;
+  assert.equal(loaded2.generation, 2);
+  assert.equal(loaded2.title, "Tab B Title");
+
+  // 3. Tab A attempts to save with expectedGeneration 1 (now stale)
+  t.mock.method(console, "error", () => {});
+  const savedStale = await storage.saveAuthoredGame(
+    "concurrent-project",
+    {
+      title: "Tab A Overwrite",
+      provider: "stub",
+      model: "stub",
+      files: { "VOL.0": Uint8Array.of(2) },
+      words: [],
+    },
+    { expectedGeneration: 1 },
+  );
+  assert.equal(savedStale, false);
+
+  // Stored record still has Tab B's data
+  const surviving = (await storage.loadAuthoredGame("concurrent-project"))!;
+  assert.equal(surviving.title, "Tab B Title");
+  assert.equal(surviving.generation, 2);
+
+  // Losing writer's work is stashed for recovery
+  const stashed = storage.getStashedConflict("concurrent-project");
+  assert.notEqual(stashed, undefined);
+  assert.equal(stashed?.reason, "concurrency_conflict");
+  assert.equal(stashed?.data.title, "Tab A Overwrite");
+  assert.deepEqual(stashed?.data.files["VOL.0"], Uint8Array.of(2));
+});
+
+test("delete-vs-write conflict preserves write in stashedConflicts", async (t) => {
+  const values = new Map<string, string>();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+    storage.clearStashedConflict("deleted-project");
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+
+  t.mock.method(console, "error", () => {});
+  // Attempting to update a deleted project expecting generation 1
+  const result = await storage.updateAuthoredGameFiles(
+    "deleted-project",
+    { "VOL.0": Uint8Array.of(99) },
+    1,
+  );
+  assert.equal(result, false);
+  // Stashed conflict recorded
+  const stashed = storage.getStashedConflict("deleted-project");
+  assert.notEqual(stashed, undefined);
+  assert.equal(stashed?.reason, "project_deleted");
+});
+
+test("templateId and generation are stored and read in metadata", async (t) => {
+  const values = new Map<string, string>();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+
+  await storage.saveAuthoredGame("template-proj-1", {
+    templateId: "adventure-starter",
+    title: "My Adventure",
+    provider: "stub",
+    model: "stub",
+    files: { "VOL.0": Uint8Array.of(1) },
+    words: [],
+  });
+
+  const meta = storage.getCachedGameMeta("template-proj-1");
+  assert.notEqual(meta, null);
+  assert.equal(meta?.templateId, "adventure-starter");
+  assert.equal(meta?.generation, 1);
+
+  const loaded = await storage.loadAuthoredGame("template-proj-1");
+  assert.notEqual(loaded, null);
+  assert.equal(loaded?.templateId, "adventure-starter");
+  assert.equal(loaded?.generation, 1);
 });

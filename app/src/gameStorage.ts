@@ -110,6 +110,8 @@ export function getCachedGameMeta(projectId: string): CachedGameMeta | null {
     return {
       ...(library ? { library } : {}),
       projectId: effectiveProjectId,
+      ...(parsed.templateId ? { templateId: parsed.templateId } : {}),
+      ...(typeof parsed.generation === "number" ? { generation: parsed.generation } : {}),
       title: parsed.title,
       authoredAt: parsed.authoredAt,
       provider: parsed.provider,
@@ -192,6 +194,47 @@ async function bodyTransaction<T>(
       reject(transaction.error ?? new Error("Project storage transaction aborted."));
   });
 }
+export class ConcurrencyConflictError extends Error {
+  readonly currentRecord?: StoredGameBody | undefined;
+  constructor(message: string, currentRecord?: StoredGameBody) {
+    super(message);
+    this.name = "ConcurrencyConflictError";
+    this.currentRecord = currentRecord;
+  }
+}
+
+export class ProjectDeletedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProjectDeletedError";
+  }
+}
+
+export class ProjectExistsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProjectExistsError";
+  }
+}
+
+export interface StashedConflict {
+  projectId: string;
+  data: CachedGameData;
+  stashedAt: string;
+  reason: "concurrency_conflict" | "project_deleted";
+  error: Error;
+}
+
+const stashedConflicts = new Map<string, StashedConflict>();
+
+export function getStashedConflict(projectId: string): StashedConflict | undefined {
+  return stashedConflicts.get(projectId);
+}
+
+export function clearStashedConflict(projectId: string): void {
+  stashedConflicts.delete(projectId);
+}
+
 async function putVersionedRecord<T extends { format: string; version: number }>(
   key: string,
   record: T,
@@ -223,16 +266,74 @@ async function putVersionedRecord<T extends { format: string; version: number }>
   });
 }
 
-async function writeCurrentBody(data: CachedGameData): Promise<void> {
-  await putVersionedRecord(
-    data.projectId,
-    storedBody(data),
-    "This saved project version is not supported by this app.",
-  );
+async function writeCurrentBody(
+  data: CachedGameData,
+  options?: { expectedGeneration?: number | undefined; requireNew?: boolean | undefined },
+): Promise<number> {
+  const db = await openDatabase();
+  return new Promise<number>((resolve, reject) => {
+    const transaction = db.transaction("projects", "readwrite");
+    const store = transaction.objectStore("projects");
+    const existing = store.get(data.projectId);
+    let contractError: Error | undefined;
+    let committedGeneration = 1;
+
+    existing.onsuccess = () => {
+      const value = existing.result as StoredGameBody | undefined;
+      // Only a record this release recognises as newer is protected; a
+      // format-less pre-release record is replaced rather than blocking saves.
+      if (value && value.format === "monotio.agi.project" && value.version !== 1) {
+        contractError = new Error("This saved project version is not supported by this app.");
+        transaction.abort();
+        return;
+      }
+
+      if (options?.requireNew && value) {
+        contractError = new ProjectExistsError(`Project "${data.projectId}" already exists.`);
+        transaction.abort();
+        return;
+      }
+
+      if (options?.expectedGeneration !== undefined) {
+        if (!value) {
+          contractError = new ProjectDeletedError(
+            `Project "${data.projectId}" was removed by another window.`,
+          );
+          transaction.abort();
+          return;
+        }
+        const existingGen = typeof value.generation === "number" ? value.generation : 0;
+        if (existingGen !== options.expectedGeneration) {
+          contractError = new ConcurrencyConflictError(
+            `Project "${data.projectId}" was modified by another window (expected generation ${options.expectedGeneration}, found ${existingGen}).`,
+            value,
+          );
+          transaction.abort();
+          return;
+        }
+      }
+
+      const prevGen = typeof value?.generation === "number" ? value.generation : 0;
+      committedGeneration =
+        (options?.expectedGeneration !== undefined ? options.expectedGeneration : prevGen) + 1;
+      data.generation = committedGeneration;
+      store.put(storedBody(data));
+    };
+
+    transaction.oncomplete = () => resolve(committedGeneration);
+    transaction.onerror = () => reject(contractError ?? transaction.error);
+    transaction.onabort = () =>
+      reject(
+        contractError ?? transaction.error ?? new Error("Project storage transaction aborted."),
+      );
+  });
 }
+
 function metadata(data: CachedGameData): CachedGameMeta {
   return {
     projectId: data.projectId,
+    templateId: data.templateId,
+    generation: data.generation,
     library: data.library,
     title: data.title,
     authoredAt: data.authoredAt,
@@ -285,11 +386,11 @@ async function readBody(projectId: string): Promise<CachedGameData | null> {
   return data;
 }
 /**
- * Version 1 is released: a reader checks the record's shape and takes the
- * normalized values (bounded text, known enums, local previews), never the
- * exact bytes, so tightening a bound later cannot orphan a saved project.
- * Resource hashes are verified where identity matters — preview updates and
- * resume — not on every load.
+ * Release contract: Version 1.0 is the first public archive baseline. Readers
+ * check the record's shape and take the normalized values (bounded text,
+ * known enums, local previews), never the exact bytes, so tightening a bound
+ * later cannot orphan a saved project. Resource hashes are verified where
+ * identity matters — preview updates and resume — not on every load.
  */
 function readLibrary(data: CachedGameData): LibraryMetadata {
   const raw = data.library as unknown as Record<string, unknown> | undefined;
@@ -337,7 +438,10 @@ async function stampLibraryMetadata(
   data.library = merged;
   return changed;
 }
-async function writeBody(data: CachedGameData): Promise<void> {
+async function writeBody(
+  data: CachedGameData,
+  options?: { expectedGeneration?: number | undefined; requireNew?: boolean | undefined },
+): Promise<void> {
   const existingIndex = localStorage.getItem(getStorageKey(data.projectId));
   if (existingIndex) {
     let index: Record<string, unknown>;
@@ -354,7 +458,21 @@ async function writeBody(data: CachedGameData): Promise<void> {
       throw new Error("This saved project version is not supported by this app.");
   }
   await stampLibraryMetadata(data, true);
-  await writeCurrentBody(data);
+  try {
+    await writeCurrentBody(data, options);
+  } catch (err) {
+    if (err instanceof ConcurrencyConflictError || err instanceof ProjectDeletedError) {
+      stashedConflicts.set(data.projectId, {
+        projectId: data.projectId,
+        data: { ...data },
+        stashedAt: new Date().toISOString(),
+        reason:
+          err instanceof ConcurrencyConflictError ? "concurrency_conflict" : "project_deleted",
+        error: err,
+      });
+    }
+    throw err;
+  }
   localStorage.setItem(getStorageKey(data.projectId), JSON.stringify(storedIndex(data)));
 }
 function serializeWrite<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
@@ -374,10 +492,15 @@ export async function loadAuthoredGame(projectId: string): Promise<CachedGameDat
 export function saveAuthoredGame(
   projectId: string,
   data: Omit<CachedGameData, "projectId" | "authoredAt">,
+  options?: { expectedGeneration?: number | undefined; requireNew?: boolean | undefined },
 ): Promise<boolean> {
   return serializeWrite(projectId, async () => {
     try {
-      await writeBody({ ...data, projectId, authoredAt: new Date().toISOString() });
+      const gen = options?.expectedGeneration;
+      await writeBody(
+        { ...data, projectId, authoredAt: new Date().toISOString() },
+        { expectedGeneration: gen, requireNew: options?.requireNew },
+      );
       return true;
     } catch (error) {
       console.error("Project storage failed:", error);
@@ -389,15 +512,39 @@ export function saveAuthoredGame(
 export function updateAuthoredGameFiles(
   projectId: string,
   files: Record<string, Uint8Array>,
+  expectedGeneration?: number,
 ): Promise<boolean> {
   return serializeWrite(projectId, async () => {
     try {
       const data = await readBody(projectId);
-      if (!data) return false;
+      if (!data) {
+        if (expectedGeneration !== undefined) {
+          const err = new ProjectDeletedError(`Project "${projectId}" was removed.`);
+          stashedConflicts.set(projectId, {
+            projectId,
+            data: {
+              projectId,
+              files,
+              words: files["WORDS.TOK"]
+                ? parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id])
+                : [],
+              title: projectId,
+              authoredAt: new Date().toISOString(),
+              provider: "",
+              model: "",
+            },
+            stashedAt: new Date().toISOString(),
+            reason: "project_deleted",
+            error: err,
+          });
+        }
+        return false;
+      }
+      const gen = expectedGeneration ?? data.generation;
       data.files = files;
       if (files["WORDS.TOK"])
         data.words = parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id]);
-      await writeBody(data);
+      await writeBody(data, { expectedGeneration: gen });
       return true;
     } catch (error) {
       console.error("Project autosave failed:", error);
@@ -414,11 +561,13 @@ export function updateGameConversation(
   provider?: string,
   model?: string,
   files?: Record<string, Uint8Array>,
+  expectedGeneration?: number,
 ): Promise<boolean> {
   return serializeWrite(projectId, async () => {
     try {
       const data = await readBody(projectId);
       if (!data) return false;
+      const gen = expectedGeneration ?? data.generation;
       if (
         provider &&
         (provider !== data.provider || (model && model !== data.model)) &&
@@ -438,7 +587,7 @@ export function updateGameConversation(
         if (files["WORDS.TOK"])
           data.words = parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id]);
       }
-      await writeBody(data);
+      await writeBody(data, { expectedGeneration: gen });
       return true;
     } catch (error) {
       console.error("Conversation save failed:", error);
@@ -447,15 +596,20 @@ export function updateGameConversation(
   });
 }
 
-export function renameAuthoredGame(projectId: string, title: string): Promise<boolean> {
+export function renameAuthoredGame(
+  projectId: string,
+  title: string,
+  expectedGeneration?: number,
+): Promise<boolean> {
   return serializeWrite(projectId, async () => {
     const name = title.trim();
     if (!name || name.length > 100) return false;
     try {
       const data = await readBody(projectId);
       if (!data) return false;
+      const gen = expectedGeneration ?? data.generation;
       data.title = name;
-      await writeBody(data);
+      await writeBody(data, { expectedGeneration: gen });
       return true;
     } catch {
       return false;
@@ -481,11 +635,13 @@ export function updateGamePreview(
   revision: string,
   preview: string,
   validation: NonNullable<CachedGameMeta["library"]>["validation"],
+  expectedGeneration?: number,
 ): Promise<boolean> {
   return serializeWrite(projectId, async () => {
     const data = await readBody(projectId);
     if (!data || !isLocalGamePreview(preview) || (await gameRevision(data.files)) !== revision)
       return false;
+    const gen = expectedGeneration ?? data.generation;
     data.library = {
       ...(data.library ?? {
         version: 1,
@@ -495,7 +651,7 @@ export function updateGamePreview(
       preview,
       validation,
     };
-    await writeBody(data);
+    await writeBody(data, { expectedGeneration: gen });
     return true;
   });
 }

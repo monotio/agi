@@ -700,6 +700,21 @@ export class Engine {
     return this.saveDialogMode ?? this.modal?.kind ?? null;
   }
 
+  /** Whether a modal window, prompt or pending message is active. */
+  get modalOpen(): boolean {
+    return (
+      this.modalKind !== null ||
+      this.modal !== null ||
+      this.persistentWindow !== null ||
+      this.printsPending > 0
+    );
+  }
+
+  /** Whether the first room picture has been drawn. */
+  get isPictureShown(): boolean {
+    return this.pictureShown;
+  }
+
   /** A message has suspended a cycle, including after its timeout expires. */
   get continuationPending(): boolean {
     return this.pendingLogic !== null;

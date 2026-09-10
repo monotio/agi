@@ -470,6 +470,7 @@ const copyFeedback = ref<string>("");
 const exportRefusal = ref<string>("");
 const exportBusy = ref(false);
 const exportSavedProgressKey = ref<string>();
+const ejectRefusal = ref<string>("");
 
 /**
  * Autosave the picker can offer. The app
@@ -674,6 +675,18 @@ async function copyDebugBundle(): Promise<void> {
   }
 }
 
+const currentCreationProjectId = ref<string>();
+
+function getOrCreateCreationProjectId(templateId: string): string {
+  if (
+    !currentCreationProjectId.value ||
+    !currentCreationProjectId.value.startsWith(`${templateId}-`)
+  ) {
+    currentCreationProjectId.value = `${templateId}-${crypto.randomUUID().slice(0, 8)}`;
+  }
+  return currentCreationProjectId.value;
+}
+
 async function onBootSelectedTemplate(): Promise<void> {
   if (!selectedTemplateId.value || !adventureDraft.value.brief.trim()) return;
   if (provider.value !== "stub" && !apiKey.value.trim()) {
@@ -681,11 +694,14 @@ async function onBootSelectedTemplate(): Promise<void> {
     return;
   }
   await resumeAudio();
+  const allocatedId = getOrCreateCreationProjectId(activeTemplate.value.id);
   await bootAuthoredGame(activeTemplate.value.rawMarkdown, llmConfig(), {
-    projectId: activeTemplate.value.id,
+    projectId: allocatedId,
+    templateId: activeTemplate.value.id,
     title: activeTemplate.value.title,
     useCached: false,
   });
+  currentCreationProjectId.value = undefined;
   const game = currentGame();
   if (game && !game.installed && game.projectId) selectedProjectId.value = game.projectId;
   cachedMeta.value = getCachedGameMeta(selectedProjectId.value);
@@ -1015,10 +1031,12 @@ async function onExportAgiZip(live = false, project = false, savedProgress = fal
       : undefined;
     if (live && currentKey !== gameKey)
       throw new Error("The game changed during download. Try again.");
-    const data = live ? await exportCurrentGame() : await loadAuthoredGame(selectedProjectId.value);
+    const exportResult = live ? await exportCurrentGame() : null;
+    const data = exportResult ? exportResult.data : await loadAuthoredGame(selectedProjectId.value);
     if (!data) throw new Error("No saved game is available.");
+    const progressKey = exportResult ? exportResult.progressKey : data.projectId;
     const zipBytes = project
-      ? await buildProjectZip(data, readGameProgress(localStorage, data.projectId))
+      ? await buildProjectZip(data, readGameProgress(localStorage, progressKey))
       : buildPublicGameZip(data);
     const url = URL.createObjectURL(new Blob([zipBytes], { type: "application/zip" }));
     const a = document.createElement("a");
@@ -1030,6 +1048,16 @@ async function onExportAgiZip(live = false, project = false, savedProgress = fal
     exportRefusal.value = `Download failed: ${String(error).replace(/^Error: /, "")}`;
   } finally {
     exportBusy.value = false;
+  }
+}
+
+async function onEjectGame(abandonUnsaved = false): Promise<void> {
+  ejectRefusal.value = "";
+  try {
+    await ejectGame(abandonUnsaved ? { abandonUnsaved: true } : undefined);
+    ejectRefusal.value = "";
+  } catch (error) {
+    ejectRefusal.value = String(error).replace(/^Error: /, "");
   }
 }
 
@@ -2095,8 +2123,9 @@ onMounted(async () => {
   else if (
     playKey &&
     (playKey === pendingAutosave.value?.game.projectId ||
-      playKey === pendingAutosave.value?.game.hash ||
-      playKey === pendingAutosave.value?.game.alias)
+      (pendingAutosave.value?.game.installed &&
+        (playKey === pendingAutosave.value?.game.hash ||
+          playKey === pendingAutosave.value?.game.alias)))
   )
     await resumeLastGame(llmConfig());
   if (state.phase === "idle") clearPlayHash();
@@ -2151,8 +2180,8 @@ watch(
   ([phase, paused]) => {
     if (phase === "running") {
       if (!paused) {
-        const playIdentifier =
-          currentGame()?.alias ?? currentGame()?.projectId ?? currentGame()?.hash;
+        const game = currentGame();
+        const playIdentifier = game?.installed ? (game.hash ?? game.alias) : game?.projectId;
         if (playIdentifier) markPlayHash(playIdentifier);
       }
       return;
@@ -2368,7 +2397,7 @@ watch(
           data-testid="btn-eject"
           :disabled="state.powerUp.busy || state.leaving"
           title="Return to adventure selection menu"
-          @click="ejectGame"
+          @click="onEjectGame(false)"
         >
           {{ state.leaving ? "Saving…" : "Menu" }}
         </button>
@@ -2400,6 +2429,46 @@ watch(
       >
         Download without current progress
       </button>
+    </div>
+    <div v-if="ejectRefusal" class="export-refusal" data-testid="eject-refusal" role="alert">
+      <p>{{ ejectRefusal }}</p>
+      <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap">
+        <button
+          type="button"
+          class="ui-button ui-button--primary"
+          data-testid="eject-retry"
+          :disabled="state.leaving"
+          @click="onEjectGame(false)"
+        >
+          Try again
+        </button>
+        <button
+          type="button"
+          class="ui-button ui-button--secondary"
+          data-testid="eject-download-project"
+          :disabled="exportBusy"
+          @click="onExportAgiZip(true, true)"
+        >
+          Download project
+        </button>
+        <button
+          type="button"
+          class="ui-button ui-button--secondary"
+          data-testid="eject-leave-anyway"
+          :disabled="state.leaving"
+          @click="onEjectGame(true)"
+        >
+          Leave anyway
+        </button>
+        <button
+          type="button"
+          class="ui-button ui-button--secondary"
+          data-testid="eject-dismiss"
+          @click="ejectRefusal = ''"
+        >
+          Back to game
+        </button>
+      </div>
     </div>
     <div
       v-if="state.recording.active"

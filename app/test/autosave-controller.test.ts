@@ -274,3 +274,161 @@ test("resetScreen preserves pending resume record while full reset clears it", a
   const emptyState = await controller.takeResumeState({});
   assert.equal(emptyState.restoreImage, "");
 });
+
+test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable, and saved accurately", async (t) => {
+  installLocalStorageMock(t);
+  const postedMessages: unknown[] = [];
+  const fakeWorker = {
+    postMessage: (msg: unknown) => {
+      postedMessages.push(msg);
+    },
+  } as unknown as Worker;
+
+  const bootedGame: BootedGame = {
+    installed: false,
+    title: "Test Game",
+    revision: "test-rev",
+    files: { LOGDIR: new Uint8Array([0, 1]) },
+    words: [],
+    projectId: "detailed-test",
+  };
+
+  const ctx: AutosaveControllerContext = {
+    state: { resumed: false },
+    getBootedGame: () => bootedGame,
+    getWorker: () => fakeWorker,
+    logAgent: () => {},
+    isInstalledGame: () => false,
+    bootGame: async () => {},
+    bootAuthoredGame: async () => {},
+    configForGame: (_p, config) => config,
+  };
+
+  const controller = useAutosaveController(ctx);
+
+  // 1. When a modal window is open, reports not_checkpointable
+  const flush1 = controller.flushAutosaveDetailed(2000);
+  const flushMsg1 = postedMessages[postedMessages.length - 1] as { type: string; id: number };
+  controller.handleFlushed({
+    id: flushMsg1.id,
+    taken: false,
+    cycle: 10,
+    hasEngine: true,
+    modal: true,
+    textMode: false,
+    pictureShown: true,
+  });
+  const res1 = await flush1;
+  assert.equal(res1.status, "not_checkpointable");
+  assert.equal(res1.reason, "A dialog or menu is open.");
+
+  // 2. When text mode is active, reports not_checkpointable
+  const flush2 = controller.flushAutosaveDetailed(2000);
+  const flushMsg2 = postedMessages[postedMessages.length - 1] as { type: string; id: number };
+  controller.handleFlushed({
+    id: flushMsg2.id,
+    taken: false,
+    cycle: 11,
+    hasEngine: true,
+    modal: false,
+    textMode: true,
+    pictureShown: true,
+  });
+  const res2 = await flush2;
+  assert.equal(res2.status, "not_checkpointable");
+  assert.equal(res2.reason, "Game is in text mode.");
+
+  // 3. Clean opening at cycle 0 is already durable (does not trap player at start)
+  const flush3 = controller.flushAutosaveDetailed(2000);
+  const flushMsg3 = postedMessages[postedMessages.length - 1] as { type: string; id: number };
+  controller.handleFlushed({
+    id: flushMsg3.id,
+    taken: false,
+    cycle: 0,
+    hasEngine: true,
+    modal: false,
+    textMode: false,
+    pictureShown: false,
+  });
+  const res3 = await flush3;
+  assert.equal(res3.status, "already_durable");
+
+  // 3b. Mid-game transition (cycle > lastCycle with unrendered picture) is not_checkpointable
+  controller.handleAutosave({
+    image: "image-1",
+    cycle: 10,
+    room: 1,
+  });
+  await controller.getAutosaveWrite();
+
+  const flush3b = controller.flushAutosaveDetailed(2000);
+  const flushMsg3b = postedMessages[postedMessages.length - 1] as { type: string; id: number };
+  controller.handleFlushed({
+    id: flushMsg3b.id,
+    taken: false,
+    cycle: 20,
+    hasEngine: true,
+    modal: false,
+    textMode: false,
+    pictureShown: false,
+  });
+  const res3b = await flush3b;
+  assert.equal(res3b.status, "not_checkpointable");
+  assert.equal(res3b.reason, "Interpreter is between transitions.");
+
+  // 4. When already durable (last seen cycle <= last autosave cycle), reports already_durable
+  controller.handleAutosave({
+    image: "image-durable",
+    cycle: 50,
+    room: 1,
+  });
+  await controller.getAutosaveWrite();
+
+  const flush4 = controller.flushAutosaveDetailed(2000);
+  const flushMsg4 = postedMessages[postedMessages.length - 1] as { type: string; id: number };
+  controller.handleFlushed({
+    id: flushMsg4.id,
+    taken: false,
+    cycle: 50,
+    hasEngine: true,
+    modal: false,
+    textMode: false,
+    pictureShown: true,
+  });
+  const res4 = await flush4;
+  assert.equal(res4.status, "already_durable");
+
+  // 5. When flush succeeds and writes new autosave, reports saved
+  const flush5 = controller.flushAutosaveDetailed(2000);
+  const flushMsg5 = postedMessages[postedMessages.length - 1] as { type: string; id: number };
+  controller.handleAutosave({
+    image: "image-new",
+    cycle: 55,
+    room: 2,
+  });
+  controller.handleFlushed({
+    id: flushMsg5.id,
+    taken: true,
+    cycle: 55,
+    hasEngine: true,
+    modal: false,
+    textMode: false,
+    pictureShown: true,
+  });
+  const res5 = await flush5;
+  assert.equal(res5.status, "saved");
+
+  // 6. When worker flush times out with unsaved progress
+  controller.handleFlushed({
+    id: -1,
+    taken: false,
+    cycle: 99,
+    hasEngine: true,
+    modal: false,
+    textMode: false,
+    pictureShown: true,
+  });
+  const flush6 = controller.flushAutosaveDetailed(10);
+  const res6 = await flush6;
+  assert.equal(res6.status, "timeout");
+});

@@ -1,5 +1,7 @@
 import { detectKnownGameByHashes, type KnownAgiGame } from "../../src/games/knownGames.ts";
+import { parseWordsTok } from "../../src/logic/words.ts";
 import { sha256Hex } from "./crypto.ts";
+import type { BootedGame } from "./gameTypes.ts";
 
 /** Versioned library metadata. Resource revisions and local project IDs have separate jobs. */
 export interface PublicGameMetadata {
@@ -175,4 +177,23 @@ export async function detectKnownGame(
   const obj = files["OBJECT"] ?? files["object"];
   const objSha = obj ? await sha256Hex(obj) : undefined;
   return detectKnownGameByHashes(wordsSha, objSha);
+}
+
+/**
+ * Update the live booted game resources atomically with their dictionary
+ * and revision so currentGame() and debug bundles never see obsolete snapshots.
+ */
+export async function updateBootedResources(
+  booted: BootedGame,
+  files: Record<string, Uint8Array>,
+  words?: [string, number][],
+): Promise<void> {
+  const revision = await gameRevision(files);
+  booted.files = files;
+  if (words) {
+    booted.words = words;
+  } else if (files["WORDS.TOK"]) {
+    booted.words = parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id]);
+  }
+  booted.revision = revision;
 }
