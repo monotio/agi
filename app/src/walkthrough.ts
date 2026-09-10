@@ -8,7 +8,7 @@ import {
   getKnownGameByHash,
   getKnownGameByRevision,
   detectKnownGameByHashes,
-} from "./knownGames.ts";
+} from "../../src/games/knownGames.ts";
 
 export interface WalkthroughArtifact {
   schema: "monotio.agi.walkthrough.v1";

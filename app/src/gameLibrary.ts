@@ -1,4 +1,9 @@
-import { gameRevision, isLocalGamePreview, type LibraryMetadata } from "./gameMetadata.ts";
+import {
+  detectKnownGame,
+  gameRevision,
+  isLocalGamePreview,
+  type LibraryMetadata,
+} from "./gameMetadata.ts";
 import { storeImportedProgress, type ImportStorageReport } from "./gameProgress.ts";
 import {
   loadAuthoredGame,
@@ -7,7 +12,6 @@ import {
   type ProjectId,
 } from "./gameStorage.ts";
 import type { OpenedGame } from "./gameZip.ts";
-import { detectKnownGame } from "./knownGames.ts";
 
 export interface CheckedOpening {
   preview: string;

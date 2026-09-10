@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fixtureDir, fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
+import { detectKnownGame } from "../src/gameMetadata.ts";
 import {
   KNOWN_GAMES,
-  detectKnownGame,
   detectKnownGameByHashes,
   getKnownGameByAlias,
   getKnownGameByRevision,
-} from "../src/knownGames.ts";
+} from "../../src/games/knownGames.ts";
 import { KNOWN_WALKTHROUGHS, hasWalkthrough, resolveWalkthrough } from "../src/walkthrough.ts";
 import { addLibraryGame } from "../src/gameLibrary.ts";
 import { loadAuthoredGame } from "../src/gameStorage.ts";

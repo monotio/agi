@@ -15,7 +15,7 @@ import {
 } from "./gameProgress.ts";
 import { getCachedGameMeta, updateAuthoredGameFiles } from "./gameStorage.ts";
 import type { BootedGame, ProjectId } from "./gameTypes.ts";
-import { resolveGameHash } from "./knownGames.ts";
+import { resolveGameHash } from "../../src/games/knownGames.ts";
 import type { EngineMenuState } from "../../src/runtime/engine.ts";
 import { isProgressPreview } from "./progressPreview.ts";
 
