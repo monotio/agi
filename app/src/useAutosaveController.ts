@@ -276,20 +276,22 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     }
 
     const lastCycle = lastAutosave?.cycle;
-    const isCleanOpening = cycle === 0 || (!msg.pictureShown && lastAutosave === null);
     const isUnchanged = lastCycle !== undefined && cycle <= lastCycle;
 
-    if (isCleanOpening || isUnchanged) {
+    if (isUnchanged) {
       legacyResolve?.(true);
       detailedResolve?.({ status: "already_durable", cycle });
       return;
     }
 
-    const reason = msg.modal
-      ? "A dialog or menu is open."
-      : msg.textMode
-        ? "Game is in text mode."
-        : "Interpreter is between transitions.";
+    const reason =
+      !msg.pictureShown && lastAutosave === null
+        ? "Game has not displayed an initial room."
+        : msg.modal
+          ? "A dialog or menu is open."
+          : msg.textMode
+            ? "Game is in text mode."
+            : "Interpreter is between transitions.";
     legacyResolve?.(false);
     detailedResolve?.({ status: "not_checkpointable", reason });
   }
@@ -345,12 +347,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         resolve(res);
       };
       const timer = setTimeout(() => {
-        const lastCycle = lastAutosave?.cycle;
-        if (lastCycle !== undefined && lastSeenCycle <= lastCycle) {
-          done({ status: "already_durable", cycle: lastSeenCycle });
-        } else {
-          done({ status: "timeout" });
-        }
+        done({ status: "timeout" });
       }, timeoutMs);
       flushDetailedWaiters.set(id, done);
       worker.postMessage({ type: "flush", id });

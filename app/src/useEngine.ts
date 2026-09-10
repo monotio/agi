@@ -799,9 +799,11 @@ export function useEngine(
             "Autosave timed out. Try again, download a Project backup, or leave with previously saved progress.",
           );
         } else if (flushResult.status === "not_checkpointable") {
-          throw new Error(
-            `Current progress cannot be saved: ${flushResult.reason} Close any open game window and try again, download a Project backup, or leave with previously saved progress.`,
-          );
+          if (autosaveController.lastAutosaveRecord() !== null) {
+            throw new Error(
+              `Current progress cannot be saved: ${flushResult.reason} Close any open game window and try again, download a Project backup, or leave with previously saved progress.`,
+            );
+          }
         }
       }
     } catch (error) {
