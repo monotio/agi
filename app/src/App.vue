@@ -2484,32 +2484,33 @@ watch(
           >
             Retry preview
           </button>
-          <button
-            v-else
-            type="button"
-            class="ui-button ui-button--primary"
-            :data-testid="`catalog-play-${entry.id}`"
-            :disabled="catalogBusy[entry.id] || libraryActionBusy"
-            @click="playCatalogGame(entry.id)"
-          >
-            {{
-              catalogBusy[entry.id]
-                ? "Checking opening…"
-                : catalogHasProgress(entry)
-                  ? "Resume"
-                  : "Play now"
-            }}
-          </button>
-          <button
-            v-if="hasWalkthrough(entry.id)"
-            type="button"
-            class="ui-button ui-button--secondary"
-            data-testid="catalog-run-walkthrough"
-            :disabled="catalogBusy[entry.id] || libraryActionBusy"
-            @click="playCatalogWalkthrough(entry.id)"
-          >
-            Watch a playthrough
-          </button>
+          <div v-else class="catalog-actions">
+            <button
+              type="button"
+              class="ui-button ui-button--primary"
+              :data-testid="`catalog-play-${entry.id}`"
+              :disabled="catalogBusy[entry.id] || libraryActionBusy"
+              @click="playCatalogGame(entry.id)"
+            >
+              {{
+                catalogBusy[entry.id]
+                  ? "Checking opening…"
+                  : catalogHasProgress(entry)
+                    ? "Resume"
+                    : "Play now"
+              }}
+            </button>
+            <button
+              v-if="hasWalkthrough(entry.id)"
+              type="button"
+              class="ui-button ui-button--secondary"
+              data-testid="catalog-run-walkthrough"
+              :disabled="catalogBusy[entry.id] || libraryActionBusy"
+              @click="playCatalogWalkthrough(entry.id)"
+            >
+              Watch a playthrough
+            </button>
+          </div>
         </div>
       </article>
     </details>
@@ -4114,6 +4115,14 @@ details[open] > .section-summary {
 .catalog-copy .ui-button {
   width: auto;
   min-width: 150px;
+}
+.catalog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.catalog-actions .ui-button {
+  flex: 1 1 auto;
 }
 .library-thumbnail {
   margin-bottom: 14px;
