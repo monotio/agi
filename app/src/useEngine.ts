@@ -295,7 +295,6 @@ export function useEngine(
     },
     logAgent,
     isInstalledGame,
-    getInstalledFolder,
     bootGame,
     bootAuthoredGame,
     configForGame,
@@ -509,10 +508,6 @@ export function useEngine(
     return cached?.provider === "stub" && !cached.imported
       ? { provider: "stub", model: "offline-stub", apiKey: "" }
       : config;
-  }
-
-  function getInstalledFolder(aliasOrHash: string): string {
-    return findInstalledFolder(state.installedGames, aliasOrHash);
   }
 
   function wireWorker(w: Worker): void {

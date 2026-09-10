@@ -138,7 +138,6 @@ test("useAutosaveController stores autosave and notifies lifecycle callbacks", a
       logs.push(msg);
     },
     isInstalledGame: () => true,
-    getInstalledFolder: () => "/games/kq1",
     bootGame: async () => {},
     bootAuthoredGame: async () => {},
     configForGame: (_p, config) => config,
@@ -203,7 +202,6 @@ test("useAutosaveController flushAutosave and drainFlushWaiters interact properl
     getWorker: () => fakeWorker,
     logAgent: () => {},
     isInstalledGame: () => false,
-    getInstalledFolder: () => "",
     bootGame: async () => {},
     bootAuthoredGame: async () => {},
     configForGame: (_p, config) => config,

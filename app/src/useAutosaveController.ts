@@ -14,7 +14,12 @@ import {
   type AutosaveRecord,
 } from "./gameProgress.ts";
 import { getCachedGameMeta, updateAuthoredGameFiles } from "./gameStorage.ts";
-import type { BootedGame, ProjectId } from "./gameTypes.ts";
+import {
+  findInstalledFolder,
+  type BootedGame,
+  type InstalledGameDescriptor,
+  type ProjectId,
+} from "./gameTypes.ts";
 import { resolveGameHash } from "../../src/games/knownGames.ts";
 import type { EngineMenuState } from "../../src/runtime/engine.ts";
 import { isProgressPreview } from "./progressPreview.ts";
@@ -82,6 +87,7 @@ export function lastGameKey(): string | null {
 
 export interface AutosaveControllerContext {
   readonly state: {
+    installedGames?: readonly InstalledGameDescriptor[] | null | undefined;
     resumed: boolean;
   };
   readonly getBootedGame: () => BootedGame | null;
@@ -90,7 +96,6 @@ export interface AutosaveControllerContext {
   readonly onAutosaveRestored?: (room: number, egoX: number, egoY: number) => void;
   readonly logAgent: (kind: AgentLogEntry["kind"], message: string, details?: unknown) => void;
   readonly isInstalledGame: (targetGame: string) => boolean;
-  readonly getInstalledFolder: (targetGame: string) => string;
   readonly bootGame: (targetFolder: string) => Promise<void>;
   readonly bootAuthoredGame: (
     prompt: string,
@@ -317,7 +322,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       if (!ctx.isInstalledGame(target)) return false;
       pendingResumeRecord = record;
       try {
-        await ctx.bootGame(ctx.getInstalledFolder(target));
+        await ctx.bootGame(findInstalledFolder(ctx.state.installedGames, target));
         return true;
       } finally {
         pendingResumeRecord = null;
@@ -350,7 +355,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       ctx.logAgent("log", `startOver: no autosave found for "${targetKey}"; continuing`);
     }
     if (record?.game.installed ?? ctx.isInstalledGame(targetKey)) {
-      await ctx.bootGame(ctx.getInstalledFolder(targetKey));
+      await ctx.bootGame(findInstalledFolder(ctx.state.installedGames, targetKey));
     } else if (getCachedGameMeta(targetKey)) {
       await ctx.bootAuthoredGame("", ctx.configForGame(targetKey, config), {
         projectId: targetKey,
