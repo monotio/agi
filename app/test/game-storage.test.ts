@@ -66,7 +66,7 @@ test("pre-release localStorage project bodies are left untouched", async (t) => 
   values.set(
     storage.getStorageKey("old-project"),
     JSON.stringify({
-      gameId: "old-project",
+      projectId: "old-project",
       title: "Old project",
       authoredAt: "2025-01-01T00:00:00.000Z",
       provider: "stub",
