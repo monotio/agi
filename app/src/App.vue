@@ -19,7 +19,6 @@ import {
   useEngine,
   readAutosave,
   lastGameKey,
-  lastGameId,
   removeLibraryGame,
   type Frame,
   type AutosaveRecord,
@@ -109,7 +108,7 @@ let touchMovementActive = false;
 
 // Game and LLM state
 const initialGames = listCachedGames();
-const initialGameId = lastGameId() ?? initialGames[0]?.projectId ?? "knights-trial";
+const initialGameId = lastGameKey() ?? initialGames[0]?.projectId ?? "knights-trial";
 const savedGames = ref<CachedGameMeta[]>(initialGames);
 const selectedGameId = ref<string>(initialGameId);
 const zipInput = useTemplateRef("zipInput");

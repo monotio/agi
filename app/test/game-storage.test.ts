@@ -3,7 +3,7 @@ import { test } from "node:test";
 import * as storage from "../src/gameStorage.ts";
 import { readGameSaves, writeGameSave } from "../src/gameSaves.ts";
 import {
-  lastGameId,
+  lastGameKey,
   readAutosave,
   removeLibraryGame,
   writeAutosave,
@@ -531,7 +531,7 @@ test("removing a library game clears its conversation, checkpoint, save slots an
   assert.equal(await storage.loadGameConversation("gone"), undefined, "conversation");
   assert.equal(readAutosave("gone"), null, "checkpoint");
   assert.deepEqual(readGameSaves(localStorage, "gone"), {}, "save slots");
-  assert.equal(lastGameId(), null, "resume pointer");
+  assert.equal(lastGameKey(), null, "resume pointer");
 });
 
 test("a database open that finishes after being blocked closes its abandoned connection", async (t) => {

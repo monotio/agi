@@ -22,3 +22,16 @@ export interface CachedGameData extends CachedGameMeta {
   authoringState?: Record<string, unknown> | undefined;
   conversationHistory?: { provider: string; model: string; transcript: unknown[] }[] | undefined;
 }
+
+export interface BootedGame {
+  readonly installed: boolean;
+  readonly title: string;
+  readonly revision: string;
+  files: Record<string, Uint8Array>;
+  words: [string, number][];
+  readonly hash?: string | undefined;
+  readonly alias?: string | undefined;
+  readonly folder?: string | undefined;
+  readonly projectId?: ProjectId | undefined;
+  authoredGame?: CachedGameData | undefined;
+}

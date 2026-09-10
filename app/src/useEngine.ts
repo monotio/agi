@@ -1,9 +1,9 @@
 import type { AgentRunState } from "./agent/agentRun.ts";
 import { reactive } from "vue";
-import type { GameControlBinding, EngineMenuState } from "../../src/runtime/engine.ts";
+import type { GameControlBinding } from "../../src/runtime/engine.ts";
 import { continuationTranscript } from "./projectArchive.ts";
 import { gameRevision } from "./gameMetadata.ts";
-import { detectKnownGame, resolveGameHash } from "./knownGames.ts";
+import { detectKnownGame } from "./knownGames.ts";
 import { clearGameSaves, readGameSaves, writeGameSave } from "./gameSaves.ts";
 import { createAgentLogger, type AgentLogEntry, type AgentLogAudio } from "./agent/agentLog.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
@@ -25,14 +25,15 @@ import type { AgentFrame, FrameRequest } from "../../src/agent/frames.ts";
 import type { RingFrame } from "./frameRing.ts";
 import { AgiAudio, type AudioMode } from "./audio/AgiAudio.ts";
 import { useAudioController, type AudioController } from "./audio/useAudioController.ts";
-import { isProgressPreview } from "./progressPreview.ts";
 import {
   autosaveKey,
-  parseAutosaveRecord,
+  clearAutosave,
+  LAST_GAME_KEY,
+  lastGameKey,
+  readAutosave,
+  useAutosaveController,
   writeAutosave,
-  type AutosaveGame,
-  type AutosaveRecord,
-} from "./gameProgress.ts";
+} from "./useAutosaveController.ts";
 import {
   clearCachedGame,
   saveAuthoredGame,
@@ -42,8 +43,8 @@ import {
   updateAuthoredGameFiles,
   updateGameConversation,
 } from "./gameStorage.ts";
-import type { ProjectId } from "./gameTypes.ts";
-export type { ProjectId };
+import type { BootedGame, ProjectId } from "./gameTypes.ts";
+export type { BootedGame, ProjectId };
 
 /** Engine modal kinds (the engine draws them on its text surface). */
 export type ModalKind = "print" | "inventory" | "menu" | "showObj" | "showPri" | "save" | "restore";
@@ -112,19 +113,6 @@ export interface CurrentGame {
   readonly alias?: string | undefined;
   readonly projectId?: ProjectId | undefined;
   readonly folder?: string | undefined;
-}
-
-export interface BootedGame {
-  readonly installed: boolean;
-  readonly title: string;
-  readonly revision: string;
-  files: Record<string, Uint8Array>;
-  words: [string, number][];
-  readonly hash?: string | undefined;
-  readonly alias?: string | undefined;
-  readonly folder?: string | undefined;
-  readonly projectId?: ProjectId | undefined;
-  authoredGame?: CachedGameData | undefined;
 }
 
 export function findInstalledFolder(
@@ -199,75 +187,8 @@ export interface Frame {
   picRow: number;
 }
 
-/**
- * Autosave. A separate, per-game slot:
- * the player's F5 slot is theirs and is never written behind their back, so
- * the two never share a key. `monotio_agi.lastGame` names the target key (projectId, alias or hash) to resume.
- * The record and its store live in gameProgress.ts, since a project archive
- * carries them too.
- */
-const LAST_GAME_KEY = "monotio_agi.lastGame";
-/** How long the "Resumed where you left off" caption stays up. */
-const RESUME_CAPTION_MS = 10_000;
-
-export { autosaveKey, writeAutosave };
-export type { AutosaveRecord };
-
-function autosaveMatches(game: AutosaveGame, targetKey: string): boolean {
-  if (game.installed) {
-    const norm = targetKey.toLowerCase();
-    return (
-      game.hash?.toLowerCase() === norm ||
-      game.alias?.toLowerCase() === norm ||
-      resolveGameHash(targetKey) === game.hash
-    );
-  }
-  return game.projectId === targetKey;
-}
-
-/** Every storage read is a maybe: a blocked, full or corrupt store is normal. */
-export function readAutosave(targetKey: string): AutosaveRecord | null {
-  try {
-    const direct = parseAutosaveRecord(localStorage.getItem(autosaveKey(targetKey)));
-    if (direct && autosaveMatches(direct.game, targetKey)) return direct;
-    const resolved = resolveGameHash(targetKey);
-    if (resolved && resolved !== targetKey) {
-      const byHash = parseAutosaveRecord(localStorage.getItem(autosaveKey(resolved)));
-      if (byHash) return byHash;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-export function clearAutosave(targetKey: string): void {
-  try {
-    localStorage.removeItem(autosaveKey(targetKey));
-    const resolved = resolveGameHash(targetKey);
-    if (resolved && resolved !== targetKey) {
-      localStorage.removeItem(autosaveKey(resolved));
-    }
-    if (
-      localStorage.getItem(LAST_GAME_KEY) === targetKey ||
-      (resolved && localStorage.getItem(LAST_GAME_KEY) === resolved)
-    ) {
-      localStorage.removeItem(LAST_GAME_KEY);
-    }
-  } catch {
-    /* nothing to clear in a store we cannot reach */
-  }
-}
-
-/** The storage key of the game an autosave exists for, or null. Used by the picker. */
-export function lastGameKey(): string | null {
-  try {
-    return localStorage.getItem(LAST_GAME_KEY);
-  } catch {
-    return null;
-  }
-}
-export const lastGameId = lastGameKey;
+export { autosaveKey, clearAutosave, lastGameKey, readAutosave, writeAutosave };
+export type { AutosaveGame, AutosaveRecord } from "./useAutosaveController.ts";
 
 /**
  * Forget a library game completely: its project body and conversation, its
@@ -461,9 +382,6 @@ export function useEngine(
     getActiveWalkthroughSession: () => activeWalkthroughSession,
   });
 
-  let autosaveWrite: Promise<boolean> = Promise.resolve(true);
-  let lastAutosave: AutosaveRecord | null = null;
-
   const hook: TextHook = {
     rows: [],
     modal: null,
@@ -478,6 +396,28 @@ export function useEngine(
     egoY: 0,
   };
 
+  const autosaveController = useAutosaveController({
+    state,
+    getBootedGame: () => booted,
+    getWorker: () => worker,
+    onAutosaveStored: (cycle) => {
+      hook.autosave = cycle;
+      publishHook();
+    },
+    onAutosaveRestored: (room, egoX, egoY) => {
+      hook.room = room;
+      hook.egoX = egoX;
+      hook.egoY = egoY;
+      publishHook();
+    },
+    logAgent,
+    isInstalledGame,
+    getInstalledFolder,
+    bootGame,
+    bootAuthoredGame,
+    configForGame,
+  });
+
   const authoringController = useAuthoringController({
     state,
     getWorker: () => worker,
@@ -490,12 +430,12 @@ export function useEngine(
     setBootedGame: (game) => {
       booted = game;
     },
-    flushAutosave,
-    getAutosaveWrite: () => autosaveWrite,
+    flushAutosave: () => autosaveController.flushAutosave(),
+    getAutosaveWrite: () => autosaveController.getAutosaveWrite(),
     clearAutosave,
     onRemixCreated: (remixProjectId) => {
-      localStorage.setItem(LAST_GAME_KEY, remixProjectId);
-      lastAutosave = null;
+      localStorage.setItem("monotio_agi.lastGame", remixProjectId);
+      autosaveController.reset();
       hook.autosave = -1;
     },
   });
@@ -509,18 +449,8 @@ export function useEngine(
     getOrCreateSession: authoringController.getOrCreateSession,
     markRemixNeedsSave: () => authoringController.setRemixNeedsSave(true),
     persistRemix: authoringController.persistRemix,
-    flushAutosave,
+    flushAutosave: () => autosaveController.flushAutosave(),
   });
-
-  /**
-   * A save image waiting for the boot it belongs to: the resume path parks it
-   * here and the next boot message carries it into the worker, which replays
-   * it before the engine's first cycle.
-   */
-  let pendingResumeRecord: AutosaveRecord | null = null;
-  let resumeCaptionTimer: number | null = null;
-  /** Resolvers waiting for the worker to acknowledge a flush request. */
-  const flushWaiters = new Map<number, (saved: boolean) => void>();
 
   /** Publish the engine's text surface for tests and the debug bundle. */
   function publishText(text: Uint8Array, modal: ModalKind | null, textMode: boolean): void {
@@ -799,7 +729,7 @@ export function useEngine(
         words,
         sab: bridge.sab,
         autosaveFiles: true,
-        ...(await takeResumeState(files)),
+        ...(await autosaveController.takeResumeState(files)),
       });
     } catch (e) {
       state.phase = "error";
@@ -814,14 +744,13 @@ export function useEngine(
   }
 
   function resetScreenState(): void {
-    lastAutosave = null;
+    autosaveController.reset();
     state.powerUp.open = false;
     state.powerUp.busy = false;
     testRecorder.reset();
     state.walkthrough.error = "";
     audio.setPaused(false);
     state.paused = false;
-    state.resumed = false;
     state.profile = null;
     hook.profile = null;
     state.textMode = false;
@@ -852,133 +781,6 @@ export function useEngine(
   }
 
   /**
-   * Persist one autosave the worker just took.
-   *
-   * Order matters: for an agent-authored world the patched container is
-   * written FIRST and the save record only if that succeeded. A record whose
-   * resources were never stored is worse than no record at all — it would
-   * resume into a room whose logic the container does not have.
-   */
-  async function storeAutosave(msg: {
-    image: string;
-    preview?: unknown;
-    menus?: EngineMenuState;
-    cycle: number;
-    room: number;
-    files?: Record<string, Uint8Array>;
-  }): Promise<boolean> {
-    try {
-      if (!booted) return false;
-      const game = booted;
-      if (msg.files) {
-        // Only cached worlds have a resource-storage slot for autosave updates.
-        if (booted.installed) return false;
-        // Memory follows storage: bytes the container refused (a catalog
-        // original) must not become the revision a later checkpoint records.
-        if (!(await updateAuthoredGameFiles(game.projectId!, msg.files))) return false;
-        if (booted !== game) return false;
-        game.files = msg.files;
-      }
-      const record: AutosaveRecord = {
-        format: "monotio.agi.autosave",
-        version: 1,
-        image: String(msg.image),
-        ...(isProgressPreview(msg.preview) ? { preview: msg.preview } : {}),
-        ...(msg.menus ? { menus: msg.menus } : {}),
-        cycle: Number(msg.cycle),
-        room: Number(msg.room),
-        savedAt: Date.now(),
-        game: {
-          installed: game.installed,
-          revision: await gameRevision(game.files),
-          ...(game.installed
-            ? {
-                ...(game.hash ? { hash: game.hash } : {}),
-                ...(game.alias ? { alias: game.alias } : {}),
-              }
-            : { projectId: game.projectId! }),
-        },
-      };
-      if (booted !== game) return false;
-      const stored = writeAutosave(localStorage, record);
-      if (!stored) {
-        logAgent("log", "autosave failed: browser storage rejected the save record");
-        return false;
-      }
-      try {
-        const resumePointer = game.installed ? (game.hash ?? game.alias!) : game.projectId!;
-        localStorage.setItem(LAST_GAME_KEY, resumePointer);
-      } catch (e) {
-        logAgent("log", `autosave resume pointer failed: ${String(e)}`);
-      }
-      hook.autosave = stored.cycle;
-      lastAutosave = stored;
-      publishHook();
-      return true;
-    } catch (error) {
-      // One failed checkpoint must not poison the write chain for the session.
-      logAgent("log", `autosave failed: ${String(error)}`);
-      return false;
-    }
-  }
-
-  /** Consume the matching image and session menus together; a boot restores once. */
-  async function takeResumeState(
-    files: Record<string, Uint8Array>,
-  ): Promise<{ restoreImage: string; restoreMenus?: EngineMenuState }> {
-    const record = pendingResumeRecord;
-    pendingResumeRecord = null;
-    if (record && record.game.revision !== (await gameRevision(files)))
-      throw new Error(
-        "This checkpoint belongs to a different revision of the game. Restore its matching project, or choose Start over to begin with the current game. Your checkpoint has been kept.",
-      );
-    return {
-      restoreImage: record?.image ?? "",
-      ...(record?.menus ? { restoreMenus: record.menus } : {}),
-    };
-  }
-
-  function showResumeCaption(): void {
-    state.resumed = true;
-    clearTimeout(resumeCaptionTimer ?? undefined);
-    resumeCaptionTimer = setTimeout(() => {
-      state.resumed = false;
-      resumeCaptionTimer = null;
-    }, RESUME_CAPTION_MS) as unknown as number;
-  }
-
-  /**
-   * Ask for a snapshot right now and wait, at most `timeoutMs`, for it to be
-   * stored. Used where the page is about to go away: `visibilitychange` and
-   * `pagehide` (where nothing can be awaited — the reply is a postMessage the
-   * document may already be gone for, so the five-second cadence, not this, is
-   * what makes the guarantee), and Vite's HMR reload, where the await is real:
-   * `vite:beforeFullReload` listeners are awaited before `location.reload()`.
-   */
-  function flushAutosave(timeoutMs = 500): Promise<boolean> {
-    if (!worker) return Promise.resolve(false);
-    return new Promise<boolean>((resolve) => {
-      const id = ++nextQueryId;
-      let settled = false;
-      const done = (ok: boolean): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        flushWaiters.delete(id);
-        resolve(ok);
-      };
-      const timer = setTimeout(() => done(false), timeoutMs);
-      flushWaiters.set(id, done);
-      worker?.postMessage({ type: "flush", id });
-    });
-  }
-
-  /** The newest stored autosave, for a handover that must not touch storage. */
-  function lastAutosaveRecord(): AutosaveRecord | null {
-    return lastAutosave;
-  }
-
-  /**
    * Tear the engine down WITHOUT touching the autosave: the game is not being
    * left, its host module is being replaced (HMR). `ejectGame` is the
    * deliberate-departure path and waits for storage before leaving.
@@ -992,8 +794,7 @@ export function useEngine(
     bridge = null;
     authoringController.resetSession();
     drainPendingQueries();
-    for (const done of flushWaiters.values()) done(false);
-    flushWaiters.clear();
+    autosaveController.drainFlushWaiters();
   }
 
   /** Keep the selected provider and its key together; archives carry no credentials. */
@@ -1006,78 +807,6 @@ export function useEngine(
 
   function getInstalledFolder(aliasOrHash: string): string {
     return findInstalledFolder(state.installedGames, aliasOrHash);
-  }
-
-  /**
-   * Resume the most recently played game from its autosave. Returns
-   * false when there is nothing to resume, or when the game it names is no
-   * longer available (an installed fixture that is gone, an authored world
-   * whose container was cleared) — the caller then shows the picker.
-   */
-  async function resumeLastGame(config: LlmConfig): Promise<boolean> {
-    const key = lastGameKey();
-    if (!key) return false;
-    const record = readAutosave(key);
-    if (!record) return false;
-    const available = record.game.installed
-      ? isInstalledGame(record.game.hash ?? record.game.alias ?? key)
-      : Boolean(record.game.projectId && getCachedGameMeta(record.game.projectId));
-    if (!available) {
-      logAgent("log", `Autosave for "${key}" has no game to boot; starting fresh.`);
-      clearAutosave(key);
-      return false;
-    }
-    return resumeFromRecord(record, config);
-  }
-
-  /**
-   * Resume from a record handed over in memory rather than read back from
-   * storage (the HMR module handover). Same boot path as `resumeLastGame`.
-   */
-  async function resumeFromRecord(record: AutosaveRecord, config: LlmConfig): Promise<boolean> {
-    if (record.game.installed) {
-      const target = record.game.hash ?? record.game.alias ?? "";
-      if (!isInstalledGame(target)) return false;
-      pendingResumeRecord = record;
-      try {
-        await bootGame(getInstalledFolder(target));
-        return true;
-      } finally {
-        pendingResumeRecord = null;
-      }
-    }
-    const projectId = record.game.projectId;
-    if (!projectId || !getCachedGameMeta(projectId)) return false;
-    pendingResumeRecord = record;
-    try {
-      await bootAuthoredGame("", configForGame(projectId, config), {
-        projectId,
-        useCached: true,
-      });
-      return true;
-    } finally {
-      pendingResumeRecord = null;
-    }
-  }
-
-  /** Discard a game's autosave and boot it from the beginning. */
-  async function startOver(targetKey: string, config: LlmConfig): Promise<void> {
-    const record = readAutosave(targetKey);
-    clearAutosave(targetKey);
-    pendingResumeRecord = null;
-    state.resumed = false;
-    clearTimeout(resumeCaptionTimer ?? undefined);
-    if (!record) {
-      logAgent("log", `startOver: no autosave found for "${targetKey}"; continuing`);
-    }
-    if (record?.game.installed ?? isInstalledGame(targetKey)) {
-      await bootGame(getInstalledFolder(targetKey));
-    } else if (getCachedGameMeta(targetKey)) {
-      await bootAuthoredGame("", configForGame(targetKey, config), {
-        projectId: targetKey,
-        useCached: true,
-      });
-    }
   }
 
   function wireWorker(w: Worker): void {
@@ -1139,33 +868,11 @@ export function useEngine(
         state.soundPlaying = false;
         audio.stop();
       } else if (msg.type === "autosave") {
-        const game = booted;
-        autosaveWrite = autosaveWrite
-          .then(() => (booted === game ? storeAutosave(msg) : false))
-          .catch(() => false);
+        autosaveController.handleAutosave(msg);
       } else if (msg.type === "flushed") {
-        // The worker reply follows its snapshot; wait for the browser's
-        // asynchronous project write before acknowledging the flush.
-        const resolve = flushWaiters.get(Number(msg.id));
-        void autosaveWrite.then((saved) => {
-          resolve?.(Boolean(msg.taken) && saved);
-        });
+        autosaveController.handleFlushed(msg);
       } else if (msg.type === "restored") {
-        if (msg.ok) {
-          hook.room = Number(msg.room);
-          hook.egoX = Number(msg.egoX);
-          hook.egoY = Number(msg.egoY);
-          publishHook();
-          showResumeCaption();
-          logAgent("log", `Resumed the autosave in room ${Number(msg.room)}.`);
-        } else {
-          // A corrupt or profile-mismatched image is discarded, never shown:
-          // the game is already running its normal boot behind this.
-          logAgent("log", `Autosave discarded (${String(msg.message)}); starting a fresh game.`);
-          if (booted) {
-            clearAutosave(booted.installed ? (booted.hash ?? booted.alias!) : booted.projectId!);
-          }
-        }
+        autosaveController.handleRestored(msg);
       } else if (msg.type === "recordingStarted" || msg.type === "recordingStopped") {
         const q = pendingQueries.get(Number(msg.id));
         if (q) {
@@ -1410,8 +1117,8 @@ export function useEngine(
           );
         await authoringController.persistRemix(game, session, files);
       }
-      await flushAutosave(2000);
-      await autosaveWrite;
+      await autosaveController.flushAutosave(2000);
+      await autosaveController.getAutosaveWrite();
     } catch (error) {
       state.leaving = false;
       state.powerUp.error = String(error);
@@ -1427,10 +1134,7 @@ export function useEngine(
     state.walkthrough.status = "stopped";
     activeReplaySeed = null;
     // Keep the player's saved position available from the menu.
-    state.resumed = false;
-    clearTimeout(resumeCaptionTimer ?? undefined);
-    resumeCaptionTimer = null;
-    pendingResumeRecord = null;
+    autosaveController.reset();
     worker?.terminate();
     bridge?.dispose();
     audio.stop();
@@ -1524,7 +1228,7 @@ export function useEngine(
             sab: bridge.sab,
             autosaveFiles: true,
             authorRooms: cached.roomGeneration ?? !cached.imported,
-            ...(await takeResumeState(cached.files)),
+            ...(await autosaveController.takeResumeState(cached.files)),
           });
           return;
         }
@@ -1656,10 +1360,7 @@ export function useEngine(
     logAgent,
     isInstalledGame,
     onWalkthroughReset: () => {
-      pendingResumeRecord = null;
-      state.resumed = false;
-      clearTimeout(resumeCaptionTimer ?? undefined);
-      resumeCaptionTimer = null;
+      autosaveController.reset();
     },
   });
   walkthroughAbort = walkthrough.abort;
@@ -1711,11 +1412,11 @@ export function useEngine(
     stopTestRecording,
     cancelTestRecording,
     saveRecordedTest,
-    resumeLastGame,
-    resumeFromRecord,
-    startOver,
-    flushAutosave,
-    lastAutosaveRecord,
+    resumeLastGame: autosaveController.resumeLastGame,
+    resumeFromRecord: autosaveController.resumeFromRecord,
+    startOver: autosaveController.startOver,
+    flushAutosave: autosaveController.flushAutosave,
+    lastAutosaveRecord: autosaveController.lastAutosaveRecord,
     shutdownEngine,
   };
 }
