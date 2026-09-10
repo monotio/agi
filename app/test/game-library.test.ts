@@ -182,27 +182,27 @@ test("ZIP and folder imports deduplicate the same resources and normalize room g
       Object.entries(zipGame.files).map(([name, bytes]) => [`Folder/${name.toLowerCase()}`, bytes]),
     ),
   );
-  const zipGameId = await addLibraryGame(zipGame, "ZIP title", "zip", opening);
-  const folderGameId = await addLibraryGame(folderGame, "Folder title", "folder", opening);
-  assert.equal(folderGameId, zipGameId);
+  const zipProjectId = await addLibraryGame(zipGame, "ZIP title", "zip", opening);
+  const folderProjectId = await addLibraryGame(folderGame, "Folder title", "folder", opening);
+  assert.equal(folderProjectId, zipProjectId);
   assert.equal(
     await addLibraryGame({ files: zipGame.files, words: zipGame.words }, "No flag", "zip", opening),
-    zipGameId,
+    zipProjectId,
   );
-  assert.equal((await loadAuthoredGame(zipGameId))?.title, "ZIP title");
+  assert.equal((await loadAuthoredGame(zipProjectId))?.title, "ZIP title");
 });
 
 test("room authoring is kept only for project imports, never from public metadata", async (t) => {
   installLocalStorage(t);
   const files = game();
-  const publicGameId = await addLibraryGame(
+  const publicProjectId = await addLibraryGame(
     { files, words: [], roomGeneration: true },
     "Public claim",
     "zip",
     opening,
   );
-  assert.equal((await loadAuthoredGame(publicGameId))?.roomGeneration, false);
-  const projectGameId = await addLibraryGame(
+  assert.equal((await loadAuthoredGame(publicProjectId))?.roomGeneration, false);
+  const projectProjectId = await addLibraryGame(
     {
       files,
       words: [],
@@ -213,15 +213,15 @@ test("room authoring is kept only for project imports, never from public metadat
     "zip",
     opening,
   );
-  assert.equal((await loadAuthoredGame(projectGameId))?.roomGeneration, true);
-  const catalogGameId = await addLibraryGame(
+  assert.equal((await loadAuthoredGame(projectProjectId))?.roomGeneration, true);
+  const catalogProjectId = await addLibraryGame(
     { files, words: [], roomGeneration: true },
     "Hosted",
     "catalog",
     opening,
     { id: "hosted", version: "1.0.0" },
   );
-  assert.equal((await loadAuthoredGame(catalogGameId))?.roomGeneration, false);
+  assert.equal((await loadAuthoredGame(catalogProjectId))?.roomGeneration, false);
 });
 
 test("project imports with identical resources retain separate private histories", async (t) => {
@@ -286,22 +286,22 @@ test("catalog resources cannot be overwritten in place", async (t) => {
     console.error = originalError;
   });
   console.error = (...values: unknown[]) => errors.push(values.map(String).join(" "));
-  const gameId = await addLibraryGame(
+  const projectId = await addLibraryGame(
     { files: game(), words: [] },
     "Catalog game",
     "catalog",
     opening,
     { id: "garden", version: "1" },
   );
-  const before = (await loadAuthoredGame(gameId))!;
+  const before = (await loadAuthoredGame(projectId))!;
   assert.equal(
-    await updateAuthoredGameFiles(gameId, {
+    await updateAuthoredGameFiles(projectId, {
       ...before.files,
       "VOL.0": Uint8Array.of(...before.files["VOL.0"]!, 1),
     }),
     false,
   );
-  assert.deepEqual(await loadAuthoredGame(gameId), before);
+  assert.deepEqual(await loadAuthoredGame(projectId), before);
   assert.match(errors.join("\n"), /Catalog resources are immutable/);
 });
 
@@ -466,7 +466,7 @@ test("import reports which progress entries browser storage refused", async (t) 
     },
   });
   let report: ImportStorageReport | null = null;
-  const gameId = await addLibraryGame(
+  const projectId = await addLibraryGame(
     { files: Object.fromEntries(container.files), words: [], progress },
     "Refused",
     "zip",
@@ -474,6 +474,6 @@ test("import reports which progress entries browser storage refused", async (t) 
     undefined,
     (stored) => (report = stored),
   );
-  assert.ok(gameId);
+  assert.ok(projectId);
   assert.deepEqual(report, { slots: [1], failedSlots: [7], autosave: null });
 });

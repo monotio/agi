@@ -24,15 +24,15 @@ Offsets in the compatibility notes are load-module offsets.
 v3 `AGI` executables disassemble directly:
 
 ```bash
-ndisasm -b 16 -e 0x200 games/<gameId>/AGI > /tmp/<gameId>.asm
+ndisasm -b 16 -e 0x200 games/<folder>/AGI > /tmp/<folder>.asm
 ```
 
 v2 `AGI` executables are scrambled by the loader; undo it first with `scripts/descramble-agi.ts`,
 then disassemble the same way:
 
 ```bash
-node --experimental-strip-types scripts/descramble-agi.ts games/<gameId> /tmp/<gameId>-agi.bin
-ndisasm -b 16 -e 0x200 /tmp/<gameId>-agi.bin > /tmp/<gameId>.asm
+node --experimental-strip-types scripts/descramble-agi.ts games/<folder> /tmp/<folder>-agi.bin
+ndisasm -b 16 -e 0x200 /tmp/<folder>-agi.bin > /tmp/<folder>.asm
 ```
 
 The v2 scrambling XORs the image per 128-byte block with the 128-byte key at the loader's offset

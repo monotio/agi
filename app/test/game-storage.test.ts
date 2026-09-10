@@ -170,7 +170,7 @@ test("reconciliation and conversation writes preserve future-version records", a
 
   const conversationKey = "conversation/future";
   const futureConversation = {
-    gameId: conversationKey,
+    projectId: conversationKey,
     format: "monotio.agi.conversation",
     version: 2,
     privateFutureField: true,

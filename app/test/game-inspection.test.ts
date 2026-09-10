@@ -38,13 +38,13 @@ test("preview never invents an answer to a game's text prompt", () => {
   assert.ok(opening.rows.join(" ").includes("What is your name?"));
 });
 
-for (const [targetHash, gameId, profile] of [
+for (const [targetHash, alias, profile] of [
   [KNOWN_GAME_HASH.KQ1, "kq1", "2.917"],
   [KNOWN_GAME_HASH.KQ2, "kq2", "2.411"],
   [KNOWN_GAME_HASH.KQ3, "kq3", "2.936"],
 ] as const) {
   test(
-    `${gameId} opening preview renders local game bytes without authoring or player input`,
+    `${alias} opening preview renders local game bytes without authoring or player input`,
     { skip: fixtureSkip(targetHash, ["AGIDATA.OVL"]) },
     () => {
       const dir = fixtureDir(targetHash);

@@ -15,34 +15,34 @@ import {
 } from "./fixtures.ts";
 
 test("missing fixtures report the installation folder instead of passing silently", () => {
-  const gameId = "missing-fixture-test";
-  assert.equal(hasFixture(gameId), false);
+  const target = "missing-fixture-test";
+  assert.equal(hasFixture(target), false);
   assert.match(
-    String(fixtureSkip(gameId)),
+    String(fixtureSkip(target)),
     /Place your own game files in games\/missing-fixture-test\//,
   );
 });
 
 test("fixture readiness checks required files and every referenced volume", (t) => {
   const dir = mkdtempSync(fixtureDir("fixture-check-").slice(0, -1));
-  const gameId = basename(dir);
+  const target = basename(dir);
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   writeFileSync(join(dir, "LOGDIR"), Uint8Array.of(0x20, 0, 0));
-  assert.equal(hasFixture(gameId), false, "a directory file alone is not a complete installation");
-  assert.match(String(fixtureSkip(gameId)), /WORDS\.TOK/);
+  assert.equal(hasFixture(target), false, "a directory file alone is not a complete installation");
+  assert.match(String(fixtureSkip(target)), /WORDS\.TOK/);
   for (const name of ["PICDIR", "VIEWDIR", "SNDDIR", "OBJECT", "WORDS.TOK", "VOL.0"]) {
     writeFileSync(join(dir, name), new Uint8Array());
   }
-  assert.match(String(fixtureSkip(gameId)), /VOL\.2/);
+  assert.match(String(fixtureSkip(target)), /VOL\.2/);
   writeFileSync(join(dir, "VOL.2"), new Uint8Array());
-  assert.equal(fixtureSkip(gameId), false);
-  assert.equal(hasFixture(gameId), true);
-  assert.match(String(fixtureSkip(gameId, ["AGIDATA.OVL"])), /AGIDATA\.OVL/);
+  assert.equal(fixtureSkip(target), false);
+  assert.equal(hasFixture(target), true);
+  assert.match(String(fixtureSkip(target, ["AGIDATA.OVL"])), /AGIDATA\.OVL/);
 });
 
 test("a v3 combined installation is checked through its prefixed directory and volumes", (t) => {
   const dir = mkdtempSync(fixtureDir("fixture-v3-check-").slice(0, -1));
-  const gameId = basename(dir);
+  const target = basename(dir);
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   // Sections at 8/11/14/17: logic 0 in volume 0, picture absent (exact ff ff ff),
   // view 0 in volume 1, sound 0 in volume 15 (a v2 reader would call it absent).
@@ -50,14 +50,14 @@ test("a v3 combined installation is checked through its prefixed directory and v
     join(dir, "DMDIR"),
     Uint8Array.of(8, 0, 11, 0, 14, 0, 17, 0, 0, 0, 0, 255, 255, 255, 0x10, 0, 0, 0xf0, 0, 0),
   );
-  assert.deepEqual(combinedDirectory(gameId), { name: "DMDIR", prefix: "DM" });
+  assert.deepEqual(combinedDirectory(target), { name: "DMDIR", prefix: "DM" });
   assert.equal(combinedDirectory("missing-fixture-test"), null);
-  assert.match(String(fixtureSkip(gameId)), /WORDS\.TOK.*DMVOL\.0.*DMVOL\.1.*DMVOL\.15/);
-  assert.doesNotMatch(String(fixtureSkip(gameId)), /LOGDIR/);
+  assert.match(String(fixtureSkip(target)), /WORDS\.TOK.*DMVOL\.0.*DMVOL\.1.*DMVOL\.15/);
+  assert.doesNotMatch(String(fixtureSkip(target)), /LOGDIR/);
   for (const name of ["OBJECT", "WORDS.TOK", "DMVOL.0", "DMVOL.1", "DMVOL.15"]) {
     writeFileSync(join(dir, name), new Uint8Array());
   }
-  assert.equal(fixtureSkip(gameId), false);
+  assert.equal(fixtureSkip(target), false);
 });
 
 test("partial fixture checks require metadata and explicit files while deferring volume checks", (t) => {

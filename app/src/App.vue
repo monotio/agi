@@ -108,9 +108,9 @@ let touchMovementActive = false;
 
 // Game and LLM state
 const initialGames = listCachedGames();
-const initialGameId = lastGameKey() ?? initialGames[0]?.projectId ?? "knights-trial";
+const initialProjectId = lastGameKey() ?? initialGames[0]?.projectId ?? "knights-trial";
 const savedGames = ref<CachedGameMeta[]>(initialGames);
-const selectedGameId = ref<string>(initialGameId);
+const selectedProjectId = ref<string>(initialProjectId);
 const zipInput = useTemplateRef("zipInput");
 const folderInput = useTemplateRef("folderInput");
 const importBusy = ref(false);
@@ -169,9 +169,9 @@ const adventureDrafts = ref<Record<string, { title: string; brief: string; front
 const adventureDraft = computed(
   () => adventureDrafts.value[selectedTemplateId.value] ?? adventureDrafts.value["custom"]!,
 );
-const cachedMeta = ref<CachedGameMeta | null>(getCachedGameMeta(initialGameId));
+const cachedMeta = ref<CachedGameMeta | null>(getCachedGameMeta(initialProjectId));
 const renaming = ref(false);
-const expandedGameId = ref<string>();
+const expandedProjectId = ref<string>();
 const gameTitle = ref("");
 const renameError = ref("");
 const titleInput = ref<HTMLInputElement>();
@@ -214,7 +214,7 @@ function catalogHasProgress(entry: GameCatalogEntry): boolean {
 }
 
 function selectLibraryGame(game: CachedGameMeta): void {
-  selectedGameId.value = game.projectId;
+  selectedProjectId.value = game.projectId;
   cachedMeta.value = game;
 }
 
@@ -233,11 +233,11 @@ function setTitleInput(element: unknown): void {
 }
 
 async function saveGameTitle(): Promise<void> {
-  if (!(await renameAuthoredGame(selectedGameId.value, gameTitle.value))) {
+  if (!(await renameAuthoredGame(selectedProjectId.value, gameTitle.value))) {
     renameError.value = "Could not save the name. Use 1–100 characters and try again.";
     return;
   }
-  cachedMeta.value = getCachedGameMeta(selectedGameId.value);
+  cachedMeta.value = getCachedGameMeta(selectedProjectId.value);
   savedGames.value = listCachedGames();
   renaming.value = false;
 }
@@ -275,11 +275,11 @@ function onMenuHashChange(): void {
 function onGameDetailsToggle(projectId: ProjectId, event: Event): void {
   const details = event.currentTarget as HTMLDetailsElement;
   if (details.open) {
-    expandedGameId.value = projectId;
+    expandedProjectId.value = projectId;
     const game = savedGames.value.find((entry) => entry.projectId === projectId);
     if (game) selectLibraryGame(game);
-  } else if (expandedGameId.value === projectId) {
-    expandedGameId.value = undefined;
+  } else if (expandedProjectId.value === projectId) {
+    expandedProjectId.value = undefined;
     renaming.value = false;
   }
 }
@@ -304,7 +304,7 @@ const model = ref(initialProfile.model);
 const effort = ref(initialProfile.effort);
 const aiConfigured = computed(() => provider.value === "stub" || apiKey.value.trim().length > 0);
 
-watch(selectedGameId, (projectId) => {
+watch(selectedProjectId, (projectId) => {
   cachedMeta.value = getCachedGameMeta(projectId);
   renaming.value = false;
 });
@@ -458,7 +458,7 @@ watch(
     if (busy) return;
     const game = currentGame();
     if (game && !game.installed && game.projectId) {
-      selectedGameId.value = game.projectId;
+      selectedProjectId.value = game.projectId;
       cachedMeta.value = getCachedGameMeta(game.projectId);
       savedGames.value = listCachedGames();
     }
@@ -470,7 +470,7 @@ const copyFeedback = ref<string>("");
 /** Download failures are visible in both the picker and the game. */
 const exportRefusal = ref<string>("");
 const exportBusy = ref(false);
-const exportSavedProgressGameId = ref<string>();
+const exportSavedProgressKey = ref<string>();
 
 /**
  * Autosave the picker can offer. The app
@@ -507,7 +507,7 @@ const localGames = computed(() => {
   );
 });
 
-const localGameIds = computed(() => localGames.value.map((g) => g.alias));
+const localGameAliases = computed(() => localGames.value.map((g) => g.alias));
 
 function localAutosave(game: InstalledGameDescriptor): AutosaveRecord | undefined {
   return (
@@ -688,8 +688,8 @@ async function onBootSelectedTemplate(): Promise<void> {
     useCached: false,
   });
   const game = currentGame();
-  if (game && !game.installed && game.projectId) selectedGameId.value = game.projectId;
-  cachedMeta.value = getCachedGameMeta(selectedGameId.value);
+  if (game && !game.installed && game.projectId) selectedProjectId.value = game.projectId;
+  cachedMeta.value = getCachedGameMeta(selectedProjectId.value);
 }
 
 async function onBootSavedGame(alreadyBusy = false): Promise<void> {
@@ -699,8 +699,8 @@ async function onBootSavedGame(alreadyBusy = false): Promise<void> {
   try {
     await resumeAudio();
     await bootAuthoredGame(activeTemplate.value.rawMarkdown, llmConfig(), {
-      projectId: selectedGameId.value,
-      title: cachedMeta.value?.title ?? selectedGameId.value,
+      projectId: selectedProjectId.value,
+      title: cachedMeta.value?.title ?? selectedProjectId.value,
       useCached: true,
     });
   } catch (error) {
@@ -711,7 +711,7 @@ async function onBootSavedGame(alreadyBusy = false): Promise<void> {
 }
 
 async function onClearSavedGame(): Promise<void> {
-  await removeLibraryGame(selectedGameId.value);
+  await removeLibraryGame(selectedProjectId.value);
   refreshLibrary();
   refreshPendingAutosave();
 }
@@ -719,10 +719,10 @@ async function onClearSavedGame(): Promise<void> {
 function refreshLibrary(projectId?: ProjectId): void {
   savedGames.value = listCachedGames();
   if (projectId) {
-    selectedGameId.value = projectId;
-  } else if (!savedGames.value.some((entry) => entry.projectId === selectedGameId.value))
-    selectedGameId.value = savedGames.value[0]?.projectId ?? "";
-  cachedMeta.value = selectedGameId.value ? getCachedGameMeta(selectedGameId.value) : null;
+    selectedProjectId.value = projectId;
+  } else if (!savedGames.value.some((entry) => entry.projectId === selectedProjectId.value))
+    selectedProjectId.value = savedGames.value[0]?.projectId ?? "";
+  cachedMeta.value = selectedProjectId.value ? getCachedGameMeta(selectedProjectId.value) : null;
 }
 
 async function onPlayLibraryGame(game: CachedGameMeta): Promise<void> {
@@ -778,7 +778,7 @@ async function stageLibraryGame(
 ): Promise<ImportStorageReport | null> {
   const opening = await previewGame(game);
   let stored: ImportStorageReport | null = null;
-  const importedGameId = await addLibraryGame(
+  const importedProjectId = await addLibraryGame(
     game,
     game.title ?? title,
     source,
@@ -786,7 +786,7 @@ async function stageLibraryGame(
     undefined,
     (report) => (stored = report),
   );
-  refreshLibrary(importedGameId);
+  refreshLibrary(importedProjectId);
   return stored;
 }
 
@@ -953,7 +953,7 @@ async function playCatalogGame(id: string): Promise<void> {
 
 async function checkSelectedOpening(): Promise<void> {
   if (libraryActionBusy.value) return;
-  const selected = selectedGameId.value;
+  const selected = selectedProjectId.value;
   libraryActionError.value = "";
   libraryActionBusy.value = true;
   try {
@@ -963,7 +963,7 @@ async function checkSelectedOpening(): Promise<void> {
     const revision = game.library?.revision ?? (await gameRevision(game.files));
     if (!(await updateGamePreview(game.projectId, revision, opening.preview, opening)))
       throw new Error("The game changed while its opening was being checked. Try again.");
-    refreshLibrary(selectedGameId.value === selected ? game.projectId : undefined);
+    refreshLibrary(selectedProjectId.value === selected ? game.projectId : undefined);
   } catch (error) {
     libraryActionError.value = String(error).replace(/^Error: /, "");
   } finally {
@@ -973,7 +973,7 @@ async function checkSelectedOpening(): Promise<void> {
 
 async function copySelectedGame(): Promise<void> {
   if (libraryActionBusy.value) return;
-  const selected = selectedGameId.value;
+  const selected = selectedProjectId.value;
   libraryActionError.value = "";
   libraryActionBusy.value = true;
   try {
@@ -989,8 +989,8 @@ async function onExportAgiZip(live = false, project = false, savedProgress = fal
   const game = live ? currentGame() : null;
   const gameKey = game ? (game.installed ? (game.hash ?? game.alias) : game.projectId) : undefined;
   const useSavedProgress =
-    savedProgress && project && live && gameKey === exportSavedProgressGameId.value;
-  exportSavedProgressGameId.value = undefined;
+    savedProgress && project && live && gameKey === exportSavedProgressKey.value;
+  exportSavedProgressKey.value = undefined;
   exportRefusal.value = "";
   exportBusy.value = true;
   try {
@@ -1003,7 +1003,7 @@ async function onExportAgiZip(live = false, project = false, savedProgress = fal
           ? (current.hash ?? current.alias)
           : current.projectId
         : undefined;
-      if (currentKey === gameKey) exportSavedProgressGameId.value = gameKey;
+      if (currentKey === gameKey) exportSavedProgressKey.value = gameKey;
       throw new Error(
         "Current progress could not be saved. Close any open game window and try again, or download with only the progress already saved in this browser.",
       );
@@ -1016,7 +1016,7 @@ async function onExportAgiZip(live = false, project = false, savedProgress = fal
       : undefined;
     if (live && currentKey !== gameKey)
       throw new Error("The game changed during download. Try again.");
-    const data = live ? await exportCurrentGame() : await loadAuthoredGame(selectedGameId.value);
+    const data = live ? await exportCurrentGame() : await loadAuthoredGame(selectedProjectId.value);
     if (!data) throw new Error("No saved game is available.");
     const zipBytes = project
       ? await buildProjectZip(data, readGameProgress(localStorage, data.projectId))
@@ -2045,7 +2045,7 @@ onMounted(async () => {
   onMenuHashChange();
   await discoverGames();
   // Nobody loses progress to a reload: while a game runs the URL names it
-  // (`#play/<gameId>`), and only a reload carrying that hash boots straight back
+  // (`#play/<aliasOrProjectId>`), and only a reload carrying that hash boots straight back
   // into the autosave. A reload from the picker lands on the picker, which
   // keeps offering the Resume card from the pending autosave.
   // A hot module update hands the running game over in memory: no reload
@@ -2120,7 +2120,7 @@ watch(
       clearPlayHash();
       refreshPendingAutosave();
       savedGames.value = listCachedGames();
-      cachedMeta.value = getCachedGameMeta(selectedGameId.value);
+      cachedMeta.value = getCachedGameMeta(selectedProjectId.value);
     }
   },
 );
@@ -2348,8 +2348,8 @@ watch(
       <p>{{ exportRefusal }}</p>
       <button
         v-if="
-          exportSavedProgressGameId !== undefined &&
-          exportSavedProgressGameId === (currentGame()?.projectId ?? currentGame()?.hash)
+          exportSavedProgressKey !== undefined &&
+          exportSavedProgressKey === (currentGame()?.projectId ?? currentGame()?.hash)
         "
         type="button"
         class="ui-button ui-button--secondary"
@@ -2715,7 +2715,7 @@ watch(
         </div>
 
         <div
-          v-if="savedGames.length || localGameIds.length || availableCatalogEntries.length"
+          v-if="savedGames.length || localGameAliases.length || availableCatalogEntries.length"
           class="saved-game-gallery"
           data-testid="saved-game-gallery"
         >
@@ -2723,7 +2723,7 @@ watch(
             v-for="game in savedGames"
             :key="game.projectId"
             class="saved-game-card"
-            :class="{ selected: selectedGameId === game.projectId }"
+            :class="{ selected: selectedProjectId === game.projectId }"
             :data-testid="`saved-game-card-${game.projectId}`"
             :data-project-id="game.projectId"
             :data-game-id="game.projectId"
@@ -2750,7 +2750,7 @@ watch(
             </div>
             <div class="saved-game-card-body">
               <form
-                v-if="renaming && selectedGameId === game.projectId"
+                v-if="renaming && selectedProjectId === game.projectId"
                 class="game-rename"
                 data-testid="rename-game-form"
                 @submit.prevent="saveGameTitle"
@@ -2781,7 +2781,7 @@ watch(
                 <p v-if="renameError" role="alert">{{ renameError }}</p>
               </form>
               <div
-                v-show="!(renaming && selectedGameId === game.projectId)"
+                v-show="!(renaming && selectedProjectId === game.projectId)"
                 class="saved-game-info"
               >
                 <div class="saved-game-heading">
@@ -2890,7 +2890,7 @@ watch(
               </div>
               <details
                 class="library-details-disclosure"
-                :open="expandedGameId === game.projectId"
+                :open="expandedProjectId === game.projectId"
                 :data-testid="`game-details-${game.projectId}`"
                 @toggle="onGameDetailsToggle(game.projectId, $event)"
               >

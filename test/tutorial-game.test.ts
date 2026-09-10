@@ -257,7 +257,7 @@ test("every tutorial picture fill seed lands on a white interior", () => {
   assert.deepEqual(blocked, [], `blocked fill seeds:\n${blocked.join("\n")}`);
 });
 
-// The library keys a stored release on (gameId, revision, version): changed
+// The library keys a stored release on (projectId, revision, version): changed
 // resources at the same catalog version would appear beside a player's saved
 // release instead of replacing it. This release is unpublished, so the version
 // stays 1.0.0 and only the pin moves when the compiled bytes change.
