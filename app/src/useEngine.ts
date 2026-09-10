@@ -202,7 +202,7 @@ export interface Frame {
 /**
  * Autosave. A separate, per-game slot:
  * the player's F5 slot is theirs and is never written behind their back, so
- * the two never share a key. `monotio_agi.lastGame` names the gameId to resume.
+ * the two never share a key. `monotio_agi.lastGame` names the target key (projectId, alias or hash) to resume.
  * The record and its store live in gameProgress.ts, since a project archive
  * carries them too.
  */

@@ -305,8 +305,8 @@ const model = ref(initialProfile.model);
 const effort = ref(initialProfile.effort);
 const aiConfigured = computed(() => provider.value === "stub" || apiKey.value.trim().length > 0);
 
-watch(selectedGameId, (gameId) => {
-  cachedMeta.value = getCachedGameMeta(gameId);
+watch(selectedGameId, (projectId) => {
+  cachedMeta.value = getCachedGameMeta(projectId);
   renaming.value = false;
 });
 
@@ -935,12 +935,12 @@ async function playCatalogGame(id: string): Promise<void> {
     const opening = catalogOpenings.value[id];
     if (!game || !opening)
       throw new Error(catalogErrors.value[id] || "This game could not be opened.");
-    const gameId = await addLibraryGame(game, entry.title, "catalog", opening, {
+    const projectId = await addLibraryGame(game, entry.title, "catalog", opening, {
       id: entry.id,
       version: entry.version,
     });
-    refreshLibrary(gameId);
-    const autosave = readAutosave(gameId);
+    refreshLibrary(projectId);
+    const autosave = readAutosave(projectId);
     if (autosave) {
       await resumeAudio();
       await resumeFromRecord(autosave, llmConfig());
