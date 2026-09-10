@@ -2872,7 +2872,7 @@ watch(
                   :data-alias="game.alias"
                   :data-testid="`boot-${game.alias || game.folder || game.hash}`"
                   :disabled="libraryActionBusy || importBusy"
-                  @click="onPlayLocalGame(game.hash)"
+                  @click="onPlayLocalGame(game.folder ?? game.hash)"
                 >
                   {{ localAutosave(game) ? "Resume" : "Play" }}
                 </button>
@@ -2888,7 +2888,7 @@ watch(
                     type="button"
                     role="menuitem"
                     data-testid="run-walkthrough"
-                    @click="onStartWalkthrough(game.hash)"
+                    @click="onStartWalkthrough(game.folder ?? game.hash)"
                   >
                     <span>Run walkthrough<small>Watch real-time playthrough</small></span>
                   </button>
@@ -2898,7 +2898,7 @@ watch(
                     role="menuitem"
                     @click="
                       resumeAudio();
-                      startOver(game.hash, llmConfig());
+                      startOver(game.folder ?? game.hash, llmConfig());
                     "
                   >
                     Start over
