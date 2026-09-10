@@ -969,9 +969,17 @@ export function useEngine(
       : config;
   }
 
+  function findInstalledFolder(gameId: string): string {
+    const match = (state.installedGames ?? []).find(
+      (g) =>
+        (typeof g === "string" ? g : g.gameId) === gameId ||
+        (typeof g === "string" ? g : g.folder) === gameId,
+    );
+    return typeof match === "string" ? match : (match?.folder ?? gameId);
+  }
+
   /**
-   * Resume whatever was being played when the page went away: boot that game
-   * and hand the worker the stored image to restore once it is up. Returns
+   * Resume the most recently played game from its autosave. Returns
    * false when there is nothing to resume, or when the game it names is no
    * longer available (an installed fixture that is gone, an authored world
    * whose container was cleared) — the caller then shows the picker.
@@ -987,26 +995,7 @@ export function useEngine(
       clearAutosave(gameId);
       return false;
     }
-    pendingResumeRecord = record;
-    try {
-      if (record.game.installed) {
-        const match = (state.installedGames ?? []).find(
-          (g) =>
-            (typeof g === "string" ? g : g.gameId) === gameId ||
-            (typeof g === "string" ? g : g.folder) === gameId,
-        );
-        const targetFolder = typeof match === "string" ? match : (match?.folder ?? gameId);
-        await bootGame(targetFolder);
-      } else {
-        await bootAuthoredGame("", configForGame(gameId, config), {
-          gameId,
-          useCached: true,
-        });
-      }
-    } finally {
-      if (state.phase === "error") pendingResumeRecord = null;
-    }
-    return state.phase !== "error";
+    return resumeFromRecord(record, config);
   }
 
   /**
@@ -1019,13 +1008,7 @@ export function useEngine(
     pendingResumeRecord = record;
     try {
       if (record.game.installed) {
-        const match = (state.installedGames ?? []).find(
-          (g) =>
-            (typeof g === "string" ? g : g.gameId) === gameId ||
-            (typeof g === "string" ? g : g.folder) === gameId,
-        );
-        const targetFolder = typeof match === "string" ? match : (match?.folder ?? gameId);
-        await bootGame(targetFolder);
+        await bootGame(findInstalledFolder(gameId));
       } else {
         await bootAuthoredGame("", configForGame(gameId, config), {
           gameId,
@@ -1046,7 +1029,7 @@ export function useEngine(
     state.resumed = false;
     clearTimeout(resumeCaptionTimer ?? undefined);
     if (record?.game.installed ?? isInstalledGame(gameId)) {
-      await bootGame(gameId);
+      await bootGame(findInstalledFolder(gameId));
     } else if (getCachedGameMeta(gameId)) {
       await bootAuthoredGame("", configForGame(gameId, config), {
         gameId,
@@ -1368,11 +1351,48 @@ export function useEngine(
     };
   }
 
+  const engineSource = {
+    objects: () => query<unknown>("objects"),
+    state: () => query<unknown>("state"),
+  };
+
+  async function createGameSession(
+    game: NonNullable<typeof booted>,
+    config: LlmConfig,
+  ): Promise<AgentSession> {
+    const cached = game.installed
+      ? await loadGameConversation(game.gameId)
+      : await loadAuthoredGame(game.gameId);
+    return AgentSession.fromAuthoredData(
+      config,
+      logAgent,
+      game.files,
+      game.words,
+      cached ? continuationTranscript(cached, config.provider, config.model) : undefined,
+      cached?.provider === config.provider && cached.model === config.model
+        ? cached.sessionId
+        : undefined,
+      cached?.authoringState,
+    );
+  }
+
+  function attachSessionRuntime(
+    s: AgentSession,
+    game: NonNullable<typeof booted>,
+    profile = state.profile ?? "unknown",
+  ): void {
+    s.setRuntime({ frames: { read: readFrames }, engine: engineSource });
+    if (game.installed || getCachedGameMeta(game.gameId)?.imported) {
+      s.setOrientation({
+        gameId: game.gameId,
+        profile,
+      });
+    }
+  }
+
   /**
-   * Open the remix: freeze the world and make sure an authoring session
-   * exists for whatever is loaded. An installed original has none (it was
-   * never authored), so one is built over its real container. Orientation is
-   * included with the first submitted instruction; opening stays local.
+   * Enter remix mode: pause the interpreter, freeze ego in place, and open
+   * the assistant bubble for the current room.
    */
   async function openPowerUp(config: LlmConfig): Promise<void> {
     if (state.powerUp.open && state.powerUp.mode === "room") return;
@@ -1394,20 +1414,7 @@ export function useEngine(
           state.powerUp.needsConfig = true;
           return;
         }
-        const cached = booted.installed
-          ? await loadGameConversation(booted.gameId)
-          : await loadAuthoredGame(booted.gameId);
-        session = AgentSession.fromAuthoredData(
-          config,
-          logAgent,
-          booted.files,
-          booted.words,
-          cached ? continuationTranscript(cached, config.provider, config.model) : undefined,
-          cached?.provider === config.provider && cached.model === config.model
-            ? cached.sessionId
-            : undefined,
-          cached?.authoringState,
-        );
+        session = await createGameSession(booted, config);
       }
       if (!session) throw new Error("no game is running");
       state.powerUp.messages = session.getMessages();
@@ -1415,24 +1422,17 @@ export function useEngine(
         state.powerUp.needsConfig = true;
         return;
       }
-      session.setRuntime({ frames: { read: readFrames }, engine: engineSource });
-      if (booted?.installed || (booted && getCachedGameMeta(booted.gameId)?.imported)) {
-        session.setOrientation({
-          gameId: booted.gameId,
-          profile: String(engineState?.profile ?? "unknown"),
-        });
-      }
+      attachSessionRuntime(
+        session,
+        booted!,
+        String(engineState?.profile ?? state.profile ?? "unknown"),
+      );
     } catch (e) {
       state.powerUp.error = String(e);
     } finally {
       state.powerUp.busy = false;
     }
   }
-
-  const engineSource = {
-    objects: () => query<unknown>("objects"),
-    state: () => query<unknown>("state"),
-  };
 
   /** Apply shared AI settings to the next turn without replacing authored game state. */
   async function updateAiConfig(config: LlmConfig): Promise<void> {
@@ -1443,34 +1443,16 @@ export function useEngine(
     let replacement: AgentSession;
     if (current) {
       replacement = current.reconfigure(config);
+      replacement.setRuntime({ frames: { read: readFrames }, engine: engineSource });
     } else {
       const game = booted;
       if (!game) return;
-      const cached = game.installed
-        ? await loadGameConversation(game.gameId)
-        : await loadAuthoredGame(game.gameId);
+      replacement = await createGameSession(game, config);
       if (booted !== game || session)
         throw new Error("The game changed while applying AI settings. Try again.");
-      replacement = AgentSession.fromAuthoredData(
-        config,
-        logAgent,
-        game.files,
-        game.words,
-        cached ? continuationTranscript(cached, config.provider, config.model) : undefined,
-        cached?.provider === config.provider && cached.model === config.model
-          ? cached.sessionId
-          : undefined,
-        cached?.authoringState,
-      );
-      if (game.installed || getCachedGameMeta(game.gameId)?.imported) {
-        replacement.setOrientation({
-          gameId: game.gameId,
-          profile: state.profile ?? "unknown",
-        });
-      }
+      attachSessionRuntime(replacement, game);
     }
 
-    replacement.setRuntime({ frames: { read: readFrames }, engine: engineSource });
     session = replacement;
     state.agentTask = replacement.task.snapshot();
     state.powerUp.messages = replacement.getMessages();
@@ -2053,20 +2035,7 @@ export function useEngine(
     if (!game || !worker) return { ok: false, message: "No game is running." };
     if (snapshot.tainted) return { ok: false, message: snapshot.tainted };
     if (!session) {
-      const cached = game.installed
-        ? await loadGameConversation(game.gameId)
-        : await loadAuthoredGame(game.gameId);
-      session = AgentSession.fromAuthoredData(
-        config,
-        logAgent,
-        game.files,
-        game.words,
-        cached ? continuationTranscript(cached, config.provider, config.model) : undefined,
-        cached?.provider === config.provider && cached.model === config.model
-          ? cached.sessionId
-          : undefined,
-        cached?.authoringState,
-      );
+      session = await createGameSession(game, config);
     }
     const author = session;
     const result = executeAgentTool(author.state, "write_game_tests", {
