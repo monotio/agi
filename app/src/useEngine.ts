@@ -7,7 +7,7 @@ import { continuationTranscript } from "./projectArchive.ts";
 import { gameRevision } from "./gameMetadata.ts";
 import { detectKnownGame, resolveGameHash } from "./knownGames.ts";
 import { clearGameSaves, readGameSaves, writeGameSave } from "./gameSaves.ts";
-import { serializeAgentLog } from "../../src/agent/toolTransport.ts";
+import { createAgentLogger, type AgentLogEntry, type AgentLogAudio } from "./agent/agentLog.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import type { SoundOutput } from "../../src/sound/sound.ts";
 import type { ReplayDriver, ReplayObservation } from "./replay.ts";
@@ -27,6 +27,7 @@ import {
 } from "./gameRecording.ts";
 import type { RingFrame } from "./frameRing.ts";
 import { AgiAudio, type AudioMode } from "./audio/AgiAudio.ts";
+import { useAudioController, type AudioController } from "./audio/useAudioController.ts";
 import { isProgressPreview } from "./progressPreview.ts";
 import {
   autosaveKey,
@@ -90,20 +91,8 @@ export interface TextHook {
   egoY: number;
 }
 
-export interface AgentLogEntry {
-  id: string;
-  timestamp: number;
-  kind: "request" | "response" | "error" | "log" | "input";
-  detail: string;
-  data?: unknown;
-  /** Ephemeral browser-only previews. Never copied into logs or project data. */
-  audio?: AgentLogAudio[];
-}
-
-export interface AgentLogAudio {
-  url: string;
-  caption: string;
-}
+export type { AgentLogEntry, AgentLogAudio };
+export { useAudioController, type AudioController };
 
 export interface InstalledGameDescriptor {
   readonly hash: string;
@@ -489,139 +478,8 @@ export function useEngine(
   // AGI wait can claim a key whose postMessage is still waiting to dispatch.
   const pendingKeys = new Map<number, number>();
   let nextKeyId = 0;
-  const audioPreviewUrls: { entryId: string; url: string }[] = [];
-  const MAX_AUDIO_PREVIEWS = 8;
-  const MAX_AUDIO_PREVIEW_BYTES = 8 * 1024 * 1024;
 
-  function isWave(bytes: Uint8Array): boolean {
-    if (!(
-      bytes.length >= 44 &&
-      bytes.length <= MAX_AUDIO_PREVIEW_BYTES &&
-      bytes[0] === 0x52 &&
-      bytes[1] === 0x49 &&
-      bytes[2] === 0x46 &&
-      bytes[3] === 0x46 &&
-      bytes[8] === 0x57 &&
-      bytes[9] === 0x41 &&
-      bytes[10] === 0x56 &&
-      bytes[11] === 0x45 &&
-      bytes[12] === 0x66 &&
-      bytes[13] === 0x6d &&
-      bytes[14] === 0x74 &&
-      bytes[15] === 0x20 &&
-      bytes[36] === 0x64 &&
-      bytes[37] === 0x61 &&
-      bytes[38] === 0x74 &&
-      bytes[39] === 0x61
-    ))
-      return false;
-    const header = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const byteRate = header.getUint32(28, true);
-    const dataBytes = header.getUint32(40, true);
-    return (
-      header.getUint32(4, true) + 8 === bytes.length &&
-      header.getUint16(20, true) === 1 &&
-      byteRate > 0 &&
-      dataBytes + 44 === bytes.length &&
-      dataBytes / byteRate <= 30
-    );
-  }
-
-  function takeAudio(data: unknown): { previews: AgentLogAudio[]; serializable: unknown } {
-    if (!data || typeof data !== "object" || Array.isArray(data))
-      return { previews: [], serializable: data };
-    const record = data as Record<string, unknown>;
-    const result = record["result"];
-    if (!result || typeof result !== "object" || Array.isArray(result))
-      return { previews: [], serializable: data };
-    const resultRecord = result as Record<string, unknown>;
-    const attachments = resultRecord["audio"];
-    if (!Array.isArray(attachments)) return { previews: [], serializable: data };
-
-    const cleanResult = { ...resultRecord };
-    delete cleanResult["audio"];
-    const previews: AgentLogAudio[] = [];
-    for (const attachment of attachments.slice(0, MAX_AUDIO_PREVIEWS)) {
-      if (!attachment || typeof attachment !== "object" || Array.isArray(attachment)) continue;
-      const candidate = attachment as Record<string, unknown>;
-      const wav = candidate["wav"];
-      const caption = candidate["caption"];
-      if (
-        candidate["mimeType"] !== "audio/wav" ||
-        !(wav instanceof Uint8Array) ||
-        !isWave(wav) ||
-        typeof caption !== "string" ||
-        !caption.trim()
-      )
-        continue;
-      previews.push({
-        url: URL.createObjectURL(new Blob([wav.slice()], { type: "audio/wav" })),
-        caption: caption.trim().slice(0, 300),
-      });
-    }
-    return { previews, serializable: { ...record, result: cleanResult } };
-  }
-
-  function traceAgentLog(): AgentLogEntry[] {
-    return state.agentLog.map((entry) => {
-      const copy = { ...entry };
-      delete copy.audio;
-      return copy;
-    });
-  }
-
-  function releaseAgentAudioPreviews(): void {
-    for (const { url } of audioPreviewUrls) URL.revokeObjectURL(url);
-    audioPreviewUrls.length = 0;
-    for (const entry of state.agentLog) delete entry.audio;
-  }
-
-  function logAgent(
-    kind: "request" | "response" | "error" | "log" | "input",
-    detail: string,
-    data?: unknown,
-  ): void {
-    if (data && typeof data === "object" && "task" in data) {
-      state.agentTask = (data as { task: AgentRunState }).task;
-      return;
-    }
-
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const extracted = takeAudio(data);
-    const entry: AgentLogEntry = {
-      id,
-      timestamp: Date.now(),
-      kind,
-      detail,
-      data:
-        extracted.serializable !== undefined
-          ? JSON.parse(serializeAgentLog(extracted.serializable))
-          : undefined,
-    };
-    if (extracted.previews.length) entry.audio = extracted.previews;
-    state.agentLog.push(entry);
-    for (const preview of extracted.previews)
-      audioPreviewUrls.push({ entryId: id, url: preview.url });
-    while (audioPreviewUrls.length > MAX_AUDIO_PREVIEWS) {
-      const evicted = audioPreviewUrls.shift()!;
-      URL.revokeObjectURL(evicted.url);
-      const oldEntry = state.agentLog.find(({ id: entryId }) => entryId === evicted.entryId);
-      if (!oldEntry?.audio) continue;
-      oldEntry.audio = oldEntry.audio.filter(({ url }) => url !== evicted.url);
-      if (!oldEntry.audio.length) delete oldEntry.audio;
-    }
-    if (typeof window !== "undefined") {
-      window.__AGI_TRACE__ = traceAgentLog();
-    }
-  }
-
-  function clearAgentLog(): void {
-    releaseAgentAudioPreviews();
-    state.agentLog = [];
-    if (typeof window !== "undefined") {
-      window.__AGI_TRACE__ = [];
-    }
-  }
+  const { logAgent, clearAgentLog, releaseAgentAudioPreviews } = createAgentLogger(state);
 
   const hook: TextHook = {
     rows: [],
@@ -2273,26 +2131,11 @@ export function useEngine(
     return { ok: true, message: result.message ?? "Recorded test stored." };
   }
 
-  function toggleMute(): boolean {
-    const muted = audio.toggleMute();
-    state.soundMuted = muted;
-    worker?.postMessage({ type: "soundEnabled", enabled: !muted });
-    return muted;
-  }
-
-  function setAudioMode(mode: AudioMode): void {
-    audio.setMode(mode);
-    state.soundMode = mode;
-    worker?.postMessage({ type: "soundDevice", device: mode === "pc-speaker" ? 0 : 1 });
-  }
-
-  function setAudioVolume(vol: number): void {
-    audio.setVolume(vol);
-  }
-
-  function resumeAudio(): Promise<void> {
-    return audio.resume();
-  }
+  const { toggleMute, setAudioMode, setAudioVolume, resumeAudio } = useAudioController(
+    audio,
+    state,
+    (msg) => worker?.postMessage(msg),
+  );
 
   let seekTargetTick: number | null = null;
   const resumeWaiters = new Set<() => void>();
