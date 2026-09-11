@@ -115,9 +115,7 @@ function metrics(
   };
 }
 
-const GENESIS_TOOLS = AGENT_TOOLS.filter(
-  (tool) => !["read_frames", "read_objects", "read_state"].includes(tool.name),
-);
+const GENESIS_TOOLS = AGENT_TOOLS.filter((tool) => tool.name !== "read_live");
 
 interface CliArgs {
   template: string;

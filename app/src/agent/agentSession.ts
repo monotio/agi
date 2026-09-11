@@ -62,9 +62,7 @@ export interface PowerUpResult {
 }
 
 /** Tools active during Genesis and Room Authoring. Stable across both phases for prompt cache reuse. */
-const AUTHORING_SESSION_TOOLS = AGENT_TOOLS.filter((tool) => tool.name !== "read_frames").map(
-  (tool) => tool.name,
-);
+const AUTHORING_SESSION_TOOLS = AGENT_TOOLS.map((tool) => tool.name);
 
 export interface BootResources {
   files: Record<string, Uint8Array>;
@@ -89,7 +87,7 @@ The world is frozen at a cycle boundary in room ${room}, and the player has aske
 
 "${instruction.trim()}"
 
-Look before you write: read_state and read_objects tell you where the player is and what is on screen, read_frames shows you the screen itself, and read_logic / read_picture / list_resources give you the resources as source. Then patch the smallest thing that achieves what was asked, in the room the player is standing in unless they said otherwise. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
+Look before you write: read_live tells you where the player is, what is on screen and the screen itself, read_room_context bundles the live sections with the room's resources, and read_logic / read_picture / inspect_world_bible give you the resources as source. Then patch the smallest thing that achieves what was asked, in the room the player is standing in unless they said otherwise. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
 }
 
 export class AgentSession implements AgentHandler {
@@ -103,7 +101,7 @@ export class AgentSession implements AgentHandler {
   /** Conversation data retained while a non-stub provider has no connected key. */
   private readonly retainedTranscript: unknown[];
   private readonly retainedSessionId: string | undefined;
-  /** Live-game sources for read_frames / read_objects / read_state. */
+  /** Live-game sources for read_live. */
   private runtime: AgentRuntimeDeps = {};
   /** Local tool-execution ms since the last provider request, for telemetry. */
   private pendingToolMs = 0;
@@ -174,8 +172,8 @@ export class AgentSession implements AgentHandler {
     if (!this.conversation) {
       const result = await executeAgentToolAsync(
         this.state,
-        "read_state",
-        { compact: true },
+        "read_live",
+        { state: { compact: true, variables: null, flags: null }, objects: null, frames: null },
         { ...this.runtime, readOnly: true },
       );
       const text = result.success
@@ -239,16 +237,29 @@ Answer the player's question using evidence from inspection when needed. For hin
     if (!this.orientation || this.oriented) return "";
     const input = { ...this.orientation, room };
     // The compact scene brief reads through the same tools the model uses —
-    // read_room_context, read_picture, read_objects — so the brief and the
+    // read_room_context, read_picture, read_live — so the brief and the
     // on-demand deep dive can never disagree about what the session holds.
-    const [roomContext, picture, objects] = [
+    const [roomContext, picture, live] = [
       await executeAgentToolAsync(this.state, "read_room_context", { room }, this.runtime),
       executeAgentTool(this.state, "read_picture", { num: room }),
-      await executeAgentToolAsync(this.state, "read_objects", {}, this.runtime),
+      await executeAgentToolAsync(
+        this.state,
+        "read_live",
+        { state: null, objects: { ids: null }, frames: null },
+        this.runtime,
+      ),
     ];
+    const objectSection = live.details?.["objects"] as Record<string, unknown> | undefined;
+    const objects =
+      live.success && objectSection?.["error"] === undefined
+        ? {
+            success: true,
+            details: { objects: (objectSection?.["objects"] as unknown[]) ?? [] },
+          }
+        : null;
     const prompt = createOrientationPrompt({
       ...input,
-      sceneBrief: createSceneBrief(roomContext, picture, objects.success ? objects : null),
+      sceneBrief: createSceneBrief(roomContext, picture, objects),
     });
     this.onEvent(
       "request",
@@ -283,13 +294,17 @@ Answer the player's question using evidence from inspection when needed. For hin
       // perception chain: worker frame ring -> transfer -> composited PNG.
       const frames = await executeAgentToolAsync(
         this.state,
-        "read_frames",
-        { count: 4, stride: 1, sheet: true, plane: null },
+        "read_live",
+        {
+          state: null,
+          objects: null,
+          frames: { count: 4, stride: 1, sheet: true, plane: null },
+        },
         this.runtime,
       );
       this.onEvent(
         frames.success ? "response" : "error",
-        `[Remix] read_frames -> ${frames.success ? (frames.message ?? "").split("\n")[0] : frames.error}`,
+        `[Remix] read_live -> ${frames.success ? (frames.message ?? "").split("\n")[0] : frames.error}`,
         { images: frames.images?.map((i) => i.caption) },
       );
       const result = await this.stubFallback.powerUp(instruction, room);
@@ -734,7 +749,13 @@ Answer the player's question using evidence from inspection when needed. For hin
       },
     };
     this.onEvent("request", `[Runtime room] authoring room ${room} from room ${from}`);
-    const resources = executeAgentTool(staged, "list_resources", { kind: null });
+    const resources = executeAgentTool(staged, "inspect_world_bible", {
+      filter: "slots",
+      section: null,
+      name: null,
+      offset: null,
+      kind: null,
+    });
     const previous = executeAgentTool(staged, "read_logic", { num: from });
     try {
       let turn = await this.observeTurn(

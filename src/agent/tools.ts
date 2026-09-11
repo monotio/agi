@@ -44,7 +44,7 @@ import {
   executeAuthoringTool,
   sourceContextRevision,
 } from "./authoringTools.ts";
-import { SPRITE_TOOLS, executeSpriteTool } from "./spriteTools.ts";
+import { SPRITE_TOOLS, actorSpecFromFacings, executeSpriteTool } from "./spriteTools.ts";
 import { SOUND_TOOLS, executeSoundTool } from "./soundTools.ts";
 import { PICTURE_TOOLS, executePictureTool } from "./pictureTools.ts";
 import {
@@ -456,6 +456,51 @@ function formatNumberRanges(nums: readonly number[]): string {
  * Execute an agent tool call against the session state.
  * Returns { success, error, details } for direct inclusion in the model transcript.
  */
+function listResources(session: AgentSessionState, kindArg: unknown): AgentToolResult {
+  const filter = typeof kindArg === "string" ? kindArg.trim().toLowerCase() : "";
+  const kinds: readonly ResourceKind[] =
+    filter === "" ? RESOURCE_KINDS : RESOURCE_KINDS.filter((k) => k === filter);
+  if (kinds.length === 0) {
+    return {
+      success: false,
+      error: `Unknown resource kind '${filter}'. Use one of: ${RESOURCE_KINDS.join(", ")}, or null for all.`,
+    };
+  }
+  const present: Record<string, number[]> = {};
+  const free: Record<string, number[]> = {};
+  const corrupt: Record<string, number[]> = {};
+  const lines: string[] = [];
+  for (const kind of kinds) {
+    const have: number[] = [];
+    const broken: number[] = [];
+    for (let n = 0; n <= 255; n++) {
+      let bytes: Uint8Array | null;
+      try {
+        bytes = session.container.getResource(kind, n);
+      } catch {
+        broken.push(n);
+        bytes = null;
+      }
+      if (bytes !== null) have.push(n);
+    }
+    const lowestFree: number[] = [];
+    for (let n = kind === "logic" ? 0 : 1; n <= 255 && lowestFree.length < 8; n++) {
+      if (!have.includes(n) && !broken.includes(n)) lowestFree.push(n);
+    }
+    present[kind] = have;
+    corrupt[kind] = broken;
+    free[kind] = lowestFree;
+    lines.push(
+      `${kind}: ${have.length} present${have.length > 0 ? ` [${formatNumberRanges(have)}]` : ""}; next free: ${lowestFree.join(", ")}`,
+    );
+  }
+  return {
+    success: true,
+    message: `Container resources:\n${lines.join("\n")}`,
+    details: { present, free, corrupt, genesisComplete: session.genesisComplete },
+  };
+}
+
 export function executeAgentTool(
   session: AgentSessionState,
   name: string,
@@ -694,8 +739,8 @@ function executeValidatedAgentTool(
           updatedFiles: [name === "write_words" ? "WORDS.TOK" : "OBJECT"],
         },
       };
-    // Writers that delegate to another write tool (edit_resource_source,
-    // upsert_inventory_item) already carry the inner call's rerun verdict;
+    // Writers that delegate to another write tool (edit_resource_source)
+    // already carry the inner call's rerun verdict;
     // never run the tests twice.
     if (!result.details?.["gameTestsRerun"]) {
       const touched = touchedResources(result);
@@ -1087,7 +1132,7 @@ function executeLegacyTool(
         const view = parseView(payload, session.profile);
         const preview = viewFeedback(payload, session.profile, num);
         // Optional exact rows for a selected subset (or all cels, bounded):
-        // one call covers a rewrite plan instead of a read_view_cel per cel.
+        // one call covers a rewrite plan instead of one read per cel.
         const selected = new Set<string>();
         const celsArg = args["cels"];
         if (Array.isArray(celsArg)) {
@@ -1209,51 +1254,6 @@ function executeLegacyTool(
       }
     }
 
-    case "list_resources": {
-      const filter = typeof args["kind"] === "string" ? args["kind"].trim().toLowerCase() : "";
-      const kinds: readonly ResourceKind[] =
-        filter === "" ? RESOURCE_KINDS : RESOURCE_KINDS.filter((k) => k === filter);
-      if (kinds.length === 0) {
-        return {
-          success: false,
-          error: `Unknown resource kind '${filter}'. Use one of: ${RESOURCE_KINDS.join(", ")}, or null for all.`,
-        };
-      }
-      const present: Record<string, number[]> = {};
-      const free: Record<string, number[]> = {};
-      const corrupt: Record<string, number[]> = {};
-      const lines: string[] = [];
-      for (const kind of kinds) {
-        const have: number[] = [];
-        const broken: number[] = [];
-        for (let n = 0; n <= 255; n++) {
-          let bytes: Uint8Array | null;
-          try {
-            bytes = session.container.getResource(kind, n);
-          } catch {
-            broken.push(n);
-            bytes = null;
-          }
-          if (bytes !== null) have.push(n);
-        }
-        const lowestFree: number[] = [];
-        for (let n = kind === "logic" ? 0 : 1; n <= 255 && lowestFree.length < 8; n++) {
-          if (!have.includes(n) && !broken.includes(n)) lowestFree.push(n);
-        }
-        present[kind] = have;
-        corrupt[kind] = broken;
-        free[kind] = lowestFree;
-        lines.push(
-          `${kind}: ${have.length} present${have.length > 0 ? ` [${formatNumberRanges(have)}]` : ""}; next free: ${lowestFree.join(", ")}`,
-        );
-      }
-      return {
-        success: true,
-        message: `Container resources:\n${lines.join("\n")}`,
-        details: { present, free, corrupt, genesisComplete: session.genesisComplete },
-      };
-    }
-
     case "read_words": {
       const prefix = typeof args["prefix"] === "string" ? args["prefix"].trim().toLowerCase() : "";
       const byId = new Map<number, string[]>();
@@ -1297,16 +1297,34 @@ function executeLegacyTool(
         return { success: false, error: `Invalid view resource number: ${num}. Must be 0..255.` };
       }
       const rawSpec = args["spec"] as Record<string, unknown> | undefined;
-      if (!rawSpec || !Array.isArray(rawSpec["loops"])) {
+      const hasLoops = Array.isArray(rawSpec?.["loops"]);
+      const hasFacings = rawSpec?.["facings"] !== null && rawSpec?.["facings"] !== undefined;
+      if (!rawSpec || hasLoops === hasFacings) {
         return {
           success: false,
-          error: "Missing or invalid view specification: 'spec.loops' array required.",
+          error:
+            "Missing or invalid view specification: exactly one of 'spec.loops' or 'spec.facings' is required.",
         };
       }
 
-      const rawLoops = rawSpec["loops"] as unknown[];
       const sanitizedLoops: BuildLoopInput[] = [];
       const adjustments: string[] = [];
+      let specDescription: string | undefined;
+
+      if (hasFacings) {
+        // Four-facing actor shorthand: {right,left,down,up} hex-row cels,
+        // mirror flags and a shared transparentColor expand to four loops.
+        try {
+          const built = actorSpecFromFacings(rawSpec["facings"] as Record<string, unknown>);
+          sanitizedLoops.push(...built.spec.loops);
+          adjustments.push(...built.adjustments);
+          specDescription = built.spec.description ?? undefined;
+        } catch (err) {
+          return { success: false, error: `Invalid facings spec: ${String(err)}` };
+        }
+      }
+
+      const rawLoops = hasFacings ? [] : (rawSpec["loops"] as unknown[]);
 
       for (let i = 0; i < rawLoops.length; i++) {
         const rawLoop = rawLoops[i];
@@ -1364,7 +1382,8 @@ function executeLegacyTool(
       const cleanSpec: BuildViewInput = {
         loops: sanitizedLoops,
         description:
-          typeof rawSpec["description"] === "string" ? rawSpec["description"] : undefined,
+          specDescription ??
+          (typeof rawSpec["description"] === "string" ? rawSpec["description"] : undefined),
       };
 
       try {
@@ -1425,6 +1444,62 @@ function executeLegacyTool(
     }
 
     case "write_inventory_objects": {
+      let mergedItem: { id: number; name: string } | undefined;
+      const mode = args["mode"] == null ? "replace" : String(args["mode"]);
+      if (mode !== "replace" && mode !== "merge")
+        return { success: false, error: "mode must be replace, merge, or null." };
+      if (mode === "merge") {
+        const item = args["item"] as Record<string, unknown> | null | undefined;
+        if (item === null || item === undefined)
+          return {
+            success: false,
+            error: "mode merge requires 'item' {id, name, location, room}.",
+          };
+        const items = readInventoryObjects(session.getFiles().get("OBJECT"), session.profile);
+        const id = item["id"] == null ? items.length : item["id"];
+        const itemName = item["name"];
+        if (
+          typeof id !== "number" ||
+          !Number.isInteger(id) ||
+          id < 0 ||
+          id > items.length ||
+          id > 255
+        )
+          return {
+            success: false,
+            error: "item.id must name an existing item, or be null to append.",
+          };
+        if (
+          typeof itemName !== "string" ||
+          !itemName.trim() ||
+          [...itemName].some((char) => char.charCodeAt(0) === 0 || char.charCodeAt(0) > 255)
+        )
+          return {
+            success: false,
+            error: "item.name must be nonempty AGI byte text without zero bytes.",
+          };
+        const location = item["location"];
+        if (!["carried", "room", "inactive"].includes(String(location)))
+          return {
+            success: false,
+            error: "item.location must be carried, room, or inactive.",
+          };
+        const room = location === "carried" ? 255 : location === "inactive" ? 0 : item["room"];
+        if (
+          typeof room !== "number" ||
+          !Number.isInteger(room) ||
+          room < 0 ||
+          room > 255 ||
+          (location === "room" && (room < 1 || room > 254))
+        )
+          return { success: false, error: "A room location needs item.room 1..254." };
+        args = { ...args, objects: items.map((o) => ({ ...o })) };
+        (args["objects"] as { name: string; startingRoom: number }[])[id as number] = {
+          name: itemName.trim(),
+          startingRoom: room,
+        };
+        mergedItem = { id: id as number, name: itemName.trim() };
+      }
       // Anthropic tools are not strict (see toolTransport.ts), so a malformed
       // call must fail here instead of silently replacing the OBJECT table.
       if (!Array.isArray(args["objects"]))
@@ -1465,6 +1540,9 @@ function executeLegacyTool(
             objectCount: objects.length,
             bytes: payload.length,
             objects: objects.map((o) => o.name),
+            ...(mergedItem
+              ? { id: mergedItem.id, name: mergedItem.name, updatedFiles: ["OBJECT"] }
+              : {}),
           },
         };
       } catch (err) {
@@ -1517,8 +1595,12 @@ function executeLegacyTool(
 
     case "inspect_world_bible": {
       const filter = args["filter"] ?? "all";
-      if (!["all", "rooms", "objects", "words", "intent"].includes(String(filter)))
-        return { success: false, error: "Use filter all, rooms, objects, words, intent, or null." };
+      if (!["all", "rooms", "objects", "words", "intent", "slots"].includes(String(filter)))
+        return {
+          success: false,
+          error: "Use filter all, rooms, objects, words, intent, slots, or null.",
+        };
+      if (filter === "slots") return listResources(session, args["kind"]);
       try {
         const details: Record<string, unknown> = {
           genesisComplete: session.genesisComplete,
@@ -1558,7 +1640,7 @@ function executeLegacyTool(
           };
         }
         if (filter === "all" || filter === "rooms") {
-          const listing = executeAgentTool(session, "list_resources", { kind: null });
+          const listing = listResources(session, null);
           const present = listing.details!["present"] as Record<ResourceKind, number[]>;
           details["rooms"] = [...new Set([...present.logic, ...present.picture])].sort(
             (a, b) => a - b,
@@ -1596,10 +1678,10 @@ function executeLegacyTool(
 /**
  * Live-game sources injected by the host.
  *
- * The three runtime tools — read_frames, read_objects, read_state — read the
- * INTERPRETER, which lives in a Web Worker and answers asynchronously. The
+ * The live-inspection tool — read_live's state/objects/frames sections — reads
+ * the INTERPRETER, which lives in a Web Worker and answers asynchronously. The
  * synchronous `executeAgentTool` above cannot reach it, so the host passes
- * these in to `executeAgentToolAsync`. With no deps attached the tools fail
+ * these in to `executeAgentToolAsync`. With no deps attached a section fails
  * with a clear message. The host selects the tools available during each phase.
  */
 export interface AgentRuntimeDeps {
@@ -1639,9 +1721,8 @@ function describeControls(
 
 /** Returned when a runtime tool is called with no interpreter attached. */
 const NO_LIVE_GAME =
-  "No live game is attached to this session, so runtime inspection is unavailable. Use read_logic, read_picture and list_resources instead.";
+  "No live game is attached to this session, so live inspection is unavailable. Use read_logic, read_picture and inspect_world_bible instead.";
 
-/** Explicit capabilities for a discussion turn; new tools require deliberate approval here. */
 /**
  * The picture text the agent wrote this session, only while it still compiles to
  * the stored resource bytes. An imported or stale source that disagrees with the
@@ -1692,14 +1773,13 @@ export function authoredLogicSource(session: AgentSessionState, num: number): st
   }
 }
 
+/** Explicit capabilities for a discussion turn; new tools require deliberate approval here. */
 export const ASK_TOOLS: readonly string[] = [
   "read_room_context",
   "read_picture",
   "read_logic",
-  "list_resources",
   "read_words",
   "read_view",
-  "read_view_cel",
   "read_sound",
   "preview_sound",
   "read_command_reference",
@@ -1708,9 +1788,7 @@ export const ASK_TOOLS: readonly string[] = [
   "run_game_tests",
   "inspect_world_bible",
   "playtest_room",
-  "read_frames",
-  "read_objects",
-  "read_state",
+  "read_live",
 ];
 
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
@@ -1733,7 +1811,7 @@ async function executeReadFrames(
   if (planeArg !== "visual" && planeArg !== "priority") {
     return {
       success: false,
-      error: `read_frames: plane must be 'visual', 'priority' or null; got '${planeArg}'.`,
+      error: `read_live frames: plane must be 'visual', 'priority' or null; got '${planeArg}'.`,
     };
   }
   const plane: FramePlane = planeArg;
@@ -1742,7 +1820,7 @@ async function executeReadFrames(
   try {
     frames = await source.read({ count, stride });
   } catch (err) {
-    return { success: false, error: `read_frames failed: ${String(err)}` };
+    return { success: false, error: `read_live frames failed: ${String(err)}` };
   }
   if (frames.length === 0) {
     return {
@@ -1824,7 +1902,7 @@ export async function executeAgentToolAsync(
     if (typeof room !== "number" || !Number.isInteger(room) || room < 0 || room > 255)
       return { success: false, error: "Supply room 0..255 when no live room is attached." };
     const logic = executeAgentTool(session, "read_logic", { num: room, offset: 0, limit: 80 });
-    const index = executeAgentTool(session, "list_resources", { kind: null });
+    const index = listResources(session, null);
     return {
       success: true,
       message: `Room ${room}: compiled resources and authored intent${live ? "; live state is the current paused interpreter" : ""}.`,
@@ -1856,66 +1934,120 @@ export async function executeAgentToolAsync(
       },
     };
   }
-  if (name === "read_frames") {
-    if (!deps?.frames) return { success: false, error: NO_LIVE_GAME };
-    return executeReadFrames(args, deps.frames, session);
-  }
-  if (name === "read_objects") {
-    if (!deps?.engine) return { success: false, error: NO_LIVE_GAME };
-    try {
-      const objects = await deps.engine.objects();
-      const list = (Array.isArray(objects) ? objects : []).filter(
-        (object) =>
-          !Array.isArray(args["ids"]) ||
-          args["ids"].includes((object as Record<string, unknown>)["num"]),
-      );
+  if (name === "read_live") {
+    const stateArg = args["state"] as Record<string, unknown> | null | undefined;
+    const objectsArg = args["objects"] as Record<string, unknown> | null | undefined;
+    const framesArg = args["frames"] as Record<string, unknown> | null | undefined;
+    if (stateArg == null && objectsArg == null && framesArg == null)
       return {
-        success: true,
-        message: `${list.length} active screen object(s). Object 0 is ego.`,
-        details: {
-          objects: list,
-          origin: { kind: "live", resourceSet: resourceSetRevision(session) },
-        },
+        success: false,
+        error: "Select at least one section: state, objects, or frames.",
       };
-    } catch (err) {
-      return { success: false, error: `read_objects failed: ${String(err)}` };
+    const details: Record<string, unknown> = {};
+    const images: { png: Uint8Array; caption: string }[] = [];
+    const messages: string[] = [];
+
+    if (stateArg != null) {
+      if (!deps?.engine) {
+        details["state"] = { error: NO_LIVE_GAME };
+      } else
+        try {
+          const state = (await deps.engine.state()) as Record<string, unknown> | null;
+          if (!state) {
+            details["state"] = { error: "the interpreter returned no state." };
+          } else {
+            const stateDetails: Record<string, unknown> = { ...state };
+            stateDetails["origin"] = {
+              kind: "live",
+              ...(typeof state["cycle"] === "number" ? { checkpoint: state["cycle"] } : {}),
+              resourceSet: resourceSetRevision(session),
+            };
+            for (const [field, parameter] of [
+              ["vars", "variables"],
+              ["flags", "flags"],
+            ] as const) {
+              const values = state[field];
+              const ids = stateArg[parameter];
+              if (Array.isArray(values) && (Array.isArray(ids) || stateArg["compact"] === true)) {
+                stateDetails[field] = Object.fromEntries(
+                  values.flatMap((value, id) =>
+                    (Array.isArray(ids) ? ids.includes(id) : Boolean(value)) ? [[id, value]] : [],
+                  ),
+                );
+              }
+            }
+            details["state"] = stateDetails;
+            messages.push(
+              `room ${String(state["room"])}, ego (${String(state["egoX"])}, ${String(state["egoY"])})`,
+            );
+          }
+        } catch (err) {
+          details["state"] = { error: String(err) };
+        }
     }
-  }
-  if (name === "read_state") {
-    if (!deps?.engine) return { success: false, error: NO_LIVE_GAME };
-    try {
-      const state = (await deps.engine.state()) as Record<string, unknown> | null;
-      if (!state)
-        return { success: false, error: "read_state: the interpreter returned no state." };
-      const details: Record<string, unknown> = { ...state };
-      details["origin"] = {
-        kind: "live",
-        ...(typeof state["cycle"] === "number" ? { checkpoint: state["cycle"] } : {}),
-        resourceSet: resourceSetRevision(session),
-      };
-      for (const [field, parameter] of [
-        ["vars", "variables"],
-        ["flags", "flags"],
-      ] as const) {
-        const values = state[field];
-        const ids = args[parameter];
-        if (Array.isArray(values) && (Array.isArray(ids) || args["compact"] === true)) {
-          details[field] = Object.fromEntries(
-            values.flatMap((value, id) =>
-              (Array.isArray(ids) ? ids.includes(id) : Boolean(value)) ? [[id, value]] : [],
-            ),
+
+    if (objectsArg != null) {
+      if (!deps?.engine) {
+        details["objects"] = { error: NO_LIVE_GAME };
+      } else
+        try {
+          const objects = await deps.engine.objects();
+          const list = (Array.isArray(objects) ? objects : []).filter(
+            (object) =>
+              !Array.isArray(objectsArg["ids"]) ||
+              objectsArg["ids"].includes((object as Record<string, unknown>)["num"]),
           );
+          details["objects"] = {
+            objects: list,
+            origin: { kind: "live", resourceSet: resourceSetRevision(session) },
+          };
+          messages.push(`${list.length} object(s)`);
+        } catch (err) {
+          details["objects"] = { error: String(err) };
+        }
+    }
+
+    if (framesArg != null) {
+      if (!deps?.frames) {
+        details["frames"] = { error: NO_LIVE_GAME };
+      } else {
+        const result = await executeReadFrames(framesArg, deps.frames, session);
+        if (!result.success) {
+          details["frames"] = { error: result.error };
+        } else {
+          details["frames"] = result.details;
+          if (result.images) images.push(...result.images);
+          if (result.message) messages.push(result.message.split("\n")[0]!);
         }
       }
-      return {
-        success: true,
-        message: `Room ${String(state["room"])} (previous ${String(state["previousRoom"])}), profile ${String(state["profile"])}, ego at (${String(state["egoX"])}, ${String(state["egoY"])}) facing ${String(state["egoDirection"])}, horizon ${String(state["horizon"])}, modal ${String(state["modalKind"] ?? "none")}, last input "${String(state["lastInputLine"] ?? "")}".`,
-        details,
-      };
-    } catch (err) {
-      return { success: false, error: `read_state failed: ${String(err)}` };
     }
+
+    const allFailed =
+      [stateArg, objectsArg, framesArg].filter((s) => s != null).length > 0 &&
+      ["state", "objects", "frames"].every(
+        (key) =>
+          details[key] === undefined ||
+          (details[key] as Record<string, unknown>)["error"] !== undefined,
+      ) &&
+      Object.values(details).some(
+        (entry) => (entry as Record<string, unknown>)["error"] !== undefined,
+      );
+    return {
+      success: !allFailed,
+      ...(allFailed
+        ? {
+            error: Object.values(details)
+              .map((entry) => (entry as Record<string, unknown>)["error"])
+              .filter(Boolean)
+              .join("; "),
+          }
+        : {}),
+      message: `read_live: ${messages.join("; ") || "no sections returned."}`,
+      details,
+      ...(images.length ? { images } : {}),
+    };
   }
+
   if (name === "playtest_room" && args["fromLiveCheckpoint"] === true) {
     // Candidate preview: restore the captured live checkpoint into an engine
     // built from the staged resources, instead of a fresh boot.

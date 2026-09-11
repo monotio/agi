@@ -2,7 +2,7 @@
 import { resourceRevision } from "./authoringState.ts";
 import type { AgentSessionState, AgentToolResult, ToolDefinition } from "./tools.ts";
 import { viewFeedback } from "./viewFeedback.ts";
-import { EGA_RGB, encodePngRgb } from "../picture/png.ts";
+
 import {
   buildView,
   parseView,
@@ -28,83 +28,8 @@ const CEL_ROWS_SCHEMA = {
   description: "One string per row; every character is one EGA color index (0-F).",
 } as const;
 
-const DIRECTION_SCHEMA = {
-  type: ["array", "null"],
-  minItems: 1,
-  maxItems: 15,
-  items: CEL_ROWS_SCHEMA,
-  description: "Animation cels; each cel is an array of equal-width hexadecimal rows.",
-} as const;
-
 /** Strict-compatible schemas for the bounded sprite helpers. */
 export const SPRITE_TOOLS: readonly ToolDefinition[] = [
-  {
-    name: "write_actor",
-    description:
-      'Compile four-facing actor view `num` from equal-width EGA hex rows; `transparentColor` is the see-through index and `description` an optional label. Each direction lists cels as row-string arrays, e.g. [["01","10"],["10","01"]]. Loops are right, left, down, up. At least one direction is required; omitted directions are filled from available facings and reported in warnings. mirrorLeftFromRight requires left null; mirrorUpFromDown requires up null. Rows are never padded. Returns a contact sheet and revision.',
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        num: { type: "integer", minimum: 0, maximum: 255 },
-        description: {
-          type: ["string", "null"],
-          maxLength: 512,
-        },
-        transparentColor: {
-          type: "integer",
-          minimum: 0,
-          maximum: 15,
-        },
-        mirrorLeftFromRight: {
-          type: ["boolean", "null"],
-        },
-        mirrorUpFromDown: {
-          type: ["boolean", "null"],
-        },
-        right: DIRECTION_SCHEMA,
-        left: DIRECTION_SCHEMA,
-        down: DIRECTION_SCHEMA,
-        up: DIRECTION_SCHEMA,
-      },
-      required: [
-        "num",
-        "description",
-        "transparentColor",
-        "mirrorLeftFromRight",
-        "mirrorUpFromDown",
-        "right",
-        "left",
-        "down",
-        "up",
-      ],
-    },
-  },
-  {
-    name: "read_view_cel",
-    description:
-      "Read exact EGA hex rows, metadata, PNG and revision for one compiled cel: view `num`, `loop`, `cel`. Results page by row from `rowOffset` (null: 0) for `rowLimit` rows (null: 64).",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        num: { type: "integer", minimum: 0, maximum: 255 },
-        loop: { type: "integer", minimum: 0, maximum: 254 },
-        cel: { type: "integer", minimum: 0, maximum: 254 },
-        rowOffset: {
-          type: ["integer", "null"],
-          minimum: 0,
-          maximum: 167,
-        },
-        rowLimit: {
-          type: ["integer", "null"],
-          minimum: 1,
-          maximum: 64,
-        },
-      },
-      required: ["num", "loop", "cel", "rowOffset", "rowLimit"],
-    },
-  },
   {
     name: "patch_view_cels",
     description:
@@ -161,17 +86,6 @@ function integer(value: unknown, label: string, min: number, max: number): numbe
   return value;
 }
 
-function nullableInteger(
-  value: unknown,
-  label: string,
-  fallback: number,
-  min: number,
-  max: number,
-): number {
-  if (value === null || value === undefined) return fallback;
-  return integer(value, label, min, max);
-}
-
 function celFromRows(
   value: unknown,
   label: string,
@@ -221,79 +135,6 @@ function direction(
   return value.map((rows, index) =>
     celFromRows(rows, `${label} cel ${index}`, transparentColor, adjustments),
   );
-}
-
-function rowsFromCel(cel: ViewCel): string[] {
-  const rows: string[] = [];
-  for (let y = 0; y < cel.height; y++) {
-    let row = "";
-    for (let x = 0; x < cel.width; x++)
-      row += cel.pixels[y * cel.width + x]!.toString(16).toUpperCase();
-    rows.push(row);
-  }
-  return rows;
-}
-
-function celPng(cel: ViewCel): Uint8Array {
-  const width = cel.width * 2;
-  const height = cel.height;
-  const rgb = new Uint8Array(width * height * 3);
-  const checker = [
-    [38, 43, 50],
-    [49, 55, 63],
-  ] as const;
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const logicalX = x >> 1;
-      const color = cel.pixels[y * cel.width + logicalX]!;
-      const entry = color === cel.transparentColor ? checker[(logicalX + y) & 1]! : EGA_RGB[color]!;
-      rgb.set(entry, (y * width + x) * 3);
-    }
-  }
-  return encodePngRgb(width, height, rgb);
-}
-
-function selectedCelResult(
-  num: number,
-  loop: number,
-  celIndex: number,
-  rowOffset: number,
-  rowLimit: number,
-  payload: Uint8Array,
-  view: AgiView,
-): AgentToolResult {
-  const cel = selectViewCel(view, loop, celIndex);
-  if (!cel) return { success: false, error: `View ${num} has no loop ${loop}, cel ${celIndex}.` };
-  const allRows = rowsFromCel(cel);
-  const rows = allRows.slice(rowOffset, rowOffset + rowLimit);
-  const nextRowOffset = rowOffset + rows.length < allRows.length ? rowOffset + rows.length : null;
-  const revision = resourceRevision(payload);
-  return {
-    success: true,
-    message: `View ${num}, loop ${loop}, cel ${celIndex} (${cel.width}x${cel.height}, transparent ${cel.transparentColor}): returned ${rows.length} row(s) from offset ${rowOffset} of ${allRows.length}; revision ${revision}.`,
-    details: {
-      resource: { kind: "view", num },
-      num,
-      loop,
-      cel: celIndex,
-      width: cel.width,
-      height: cel.height,
-      transparentColor: cel.transparentColor,
-      mirrored: cel.mirrored,
-      rows,
-      totalRows: allRows.length,
-      rowOffset,
-      rowLimit,
-      nextRowOffset,
-      revision,
-    },
-    images: [
-      {
-        png: celPng(cel),
-        caption: `View ${num}, loop ${loop}, cel ${celIndex}; compiled EGA pixels at native 2:1 aspect. Checkerboard is transparent color ${cel.transparentColor}.`,
-      },
-    ],
-  };
 }
 
 function u16le(payload: Uint8Array, offset: number): number {
@@ -462,143 +303,104 @@ function patchedView(
   return { payload, spec };
 }
 
+/** Four-facing actor shorthand -> BuildViewInput (right, left, down, up order). */
+export function actorSpecFromFacings(facings: Record<string, unknown>): {
+  spec: BuildViewInput;
+  adjustments: string[];
+} {
+  const transparentColor = integer(facings["transparentColor"], "Transparent color", 0, 15);
+  const mirrorLeftFromRight = facings["mirrorLeftFromRight"];
+  if (mirrorLeftFromRight != null && typeof mirrorLeftFromRight !== "boolean") {
+    throw new Error("mirrorLeftFromRight must be a boolean or null.");
+  }
+  const mirrorUpFromDown = facings["mirrorUpFromDown"];
+  if (mirrorUpFromDown != null && typeof mirrorUpFromDown !== "boolean") {
+    throw new Error("mirrorUpFromDown must be a boolean or null.");
+  }
+  const description = facings["description"];
+  if (description !== null && (typeof description !== "string" || description.length > 512)) {
+    throw new Error("facings.description must be null or at most 512 characters.");
+  }
+  const adjustments: string[] = [];
+
+  const rawRight = facings["right"];
+  const rawLeft = facings["left"];
+  const rawDown = facings["down"];
+  const rawUp = facings["up"];
+
+  if (rawRight == null && rawLeft == null && rawDown == null && rawUp == null) {
+    throw new Error("At least one direction (right, left, down, or up) must be provided.");
+  }
+
+  let rightCels: BuildCelInput[] | null =
+    rawRight != null ? direction(rawRight, "right", transparentColor, adjustments) : null;
+  const leftCels: BuildCelInput[] | null =
+    rawLeft != null ? direction(rawLeft, "left", transparentColor, adjustments) : null;
+  let downCels: BuildCelInput[] | null =
+    rawDown != null ? direction(rawDown, "down", transparentColor, adjustments) : null;
+  let upCels: BuildCelInput[] | null =
+    rawUp != null ? direction(rawUp, "up", transparentColor, adjustments) : null;
+
+  const primary = rightCels ?? downCels ?? leftCels ?? upCels!;
+  const primaryName = rightCels ? "right" : downCels ? "down" : leftCels ? "left" : "up";
+
+  if (!rightCels) {
+    rightCels = primary.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) }));
+    adjustments.push(`Warning: 'right' was omitted; reused '${primaryName}' cels.`);
+  }
+
+  let left: BuildLoopInput;
+  if (
+    mirrorLeftFromRight === true ||
+    (rawLeft == null && leftCels == null && mirrorLeftFromRight !== false)
+  ) {
+    if (rawLeft != null) throw new Error("left must be null when mirrorLeftFromRight is true.");
+    left = { mirrorLoop: 0 };
+    if (mirrorLeftFromRight !== true) {
+      adjustments.push("'left' was omitted; mirrored from 'right' (loop 0).");
+    }
+  } else if (leftCels) {
+    left = { cels: leftCels };
+  } else {
+    left = { cels: rightCels.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) })) };
+    adjustments.push("Warning: 'left' was omitted; reused 'right' cels unmirrored.");
+  }
+
+  if (!downCels) {
+    downCels = rightCels.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) }));
+    adjustments.push(
+      "Warning: 'down' was omitted; reused 'right' cels. The actor will use this facing when moving down.",
+    );
+  }
+
+  if (mirrorUpFromDown === true) {
+    if (rawUp != null) throw new Error("up must be null when mirrorUpFromDown is true.");
+    upCels = downCels.map(reverseColumns);
+    adjustments.push("Flipped 'up' vertically from 'down'.");
+  } else if (!upCels) {
+    const sourceName = rawDown != null ? "down" : "right";
+    const sourceCels = rawDown != null ? downCels : rightCels;
+    upCels = sourceCels.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) }));
+    adjustments.push(
+      `Warning: 'up' was omitted; reused '${sourceName}' cels. The actor will use this facing when moving up.`,
+    );
+  }
+
+  return {
+    spec: {
+      loops: [{ cels: rightCels }, left, { cels: downCels }, { cels: upCels }],
+      ...(description === null ? {} : { description }),
+    },
+    adjustments,
+  };
+}
+
 /** Execute one sprite helper, or return undefined when the name belongs to another registry. */
 export function executeSpriteTool(
   state: AgentSessionState,
   name: string,
   args: Record<string, unknown>,
 ): AgentToolResult | undefined {
-  if (name === "write_actor") {
-    try {
-      const num = integer(args["num"], "View number", 0, 255);
-      const transparentColor = integer(args["transparentColor"], "Transparent color", 0, 15);
-      const mirrorLeftFromRight = args["mirrorLeftFromRight"];
-      if (mirrorLeftFromRight != null && typeof mirrorLeftFromRight !== "boolean") {
-        throw new Error("mirrorLeftFromRight must be a boolean or null.");
-      }
-      const mirrorUpFromDown = args["mirrorUpFromDown"];
-      if (mirrorUpFromDown != null && typeof mirrorUpFromDown !== "boolean") {
-        throw new Error("mirrorUpFromDown must be a boolean or null.");
-      }
-      const description = args["description"];
-      if (description !== null && (typeof description !== "string" || description.length > 512)) {
-        throw new Error("Description must be null or at most 512 characters.");
-      }
-      const adjustments: string[] = [];
-
-      const rawRight = args["right"];
-      const rawLeft = args["left"];
-      const rawDown = args["down"];
-      const rawUp = args["up"];
-
-      if (rawRight == null && rawLeft == null && rawDown == null && rawUp == null) {
-        throw new Error("At least one direction (right, left, down, or up) must be provided.");
-      }
-
-      let rightCels: BuildCelInput[] | null =
-        rawRight != null ? direction(rawRight, "right", transparentColor, adjustments) : null;
-      const leftCels: BuildCelInput[] | null =
-        rawLeft != null ? direction(rawLeft, "left", transparentColor, adjustments) : null;
-      let downCels: BuildCelInput[] | null =
-        rawDown != null ? direction(rawDown, "down", transparentColor, adjustments) : null;
-      let upCels: BuildCelInput[] | null =
-        rawUp != null ? direction(rawUp, "up", transparentColor, adjustments) : null;
-
-      const primary = rightCels ?? downCels ?? leftCels ?? upCels!;
-      const primaryName = rightCels ? "right" : downCels ? "down" : leftCels ? "left" : "up";
-
-      if (!rightCels) {
-        rightCels = primary.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) }));
-        adjustments.push(`Warning: 'right' was omitted; reused '${primaryName}' cels.`);
-      }
-
-      let left: BuildLoopInput;
-      if (
-        mirrorLeftFromRight === true ||
-        (rawLeft == null && leftCels == null && mirrorLeftFromRight !== false)
-      ) {
-        if (rawLeft != null) throw new Error("left must be null when mirrorLeftFromRight is true.");
-        left = { mirrorLoop: 0 };
-        if (mirrorLeftFromRight !== true) {
-          adjustments.push("'left' was omitted; mirrored from 'right' (loop 0).");
-        }
-      } else if (leftCels) {
-        left = { cels: leftCels };
-      } else {
-        left = { cels: rightCels.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) })) };
-        adjustments.push("Warning: 'left' was omitted; reused 'right' cels unmirrored.");
-      }
-
-      if (!downCels) {
-        downCels = rightCels.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) }));
-        adjustments.push(
-          "Warning: 'down' was omitted; reused 'right' cels. The actor will use this facing when moving down.",
-        );
-      }
-
-      if (mirrorUpFromDown === true) {
-        if (rawUp != null) throw new Error("up must be null when mirrorUpFromDown is true.");
-        upCels = downCels.map(reverseColumns);
-        adjustments.push("Flipped 'up' vertically from 'down'.");
-      } else if (!upCels) {
-        const sourceName = rawDown != null ? "down" : "right";
-        const sourceCels = rawDown != null ? downCels : rightCels;
-        upCels = sourceCels.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) }));
-        adjustments.push(
-          `Warning: 'up' was omitted; reused '${sourceName}' cels. The actor will use this facing when moving up.`,
-        );
-      }
-
-      const spec: BuildViewInput = {
-        loops: [{ cels: rightCels }, left, { cels: downCels }, { cels: upCels }],
-        ...(description === null ? {} : { description }),
-      };
-      const payload = buildView(spec, state.profile);
-      const preview = viewFeedback(payload, state.profile, num);
-      state.container.putResource("view", num, payload);
-      state.sources.views.set(num, spec);
-      return {
-        success: true,
-        message: `View ${num} actor compiled in right/left/down/up loop order (${payload.length} bytes), revision ${resourceRevision(payload)}.`,
-        ...(adjustments.length === 0 ? {} : { adjustments }),
-        details: {
-          resource: { kind: "view", num },
-          writtenResources: [{ kind: "view", num }],
-          revision: resourceRevision(payload),
-          bytes: payload.length,
-          loops: 4,
-        },
-        images: [{ png: preview.png, caption: preview.caption }],
-      };
-    } catch (error) {
-      return { success: false, error: `Actor view was not written: ${String(error)}` };
-    }
-  }
-
-  if (name === "read_view_cel") {
-    try {
-      const num = integer(args["num"], "View number", 0, 255);
-      const loop = integer(args["loop"], "Loop", 0, 254);
-      const cel = integer(args["cel"], "Cel", 0, 254);
-      const rowOffset = nullableInteger(args["rowOffset"], "Row offset", 0, 0, 167);
-      const rowLimit = nullableInteger(args["rowLimit"], "Row limit", 64, 1, 64);
-      const payload = state.container.getResource("view", num);
-      if (!payload)
-        return { success: false, error: `View ${num} is not present in the container.` };
-      return selectedCelResult(
-        num,
-        loop,
-        cel,
-        rowOffset,
-        rowLimit,
-        payload,
-        parseView(payload, state.profile),
-      );
-    } catch (error) {
-      return { success: false, error: `Cannot read view cel: ${String(error)}` };
-    }
-  }
-
   if (name === "patch_view_cels") {
     try {
       const num = integer(args["num"], "View number", 0, 255);

@@ -187,20 +187,27 @@ test("a write to a transitively called logic reruns the starting room's tests", 
   );
 });
 
-test("write_actor, write_music and patch_view_cels rerun the tests they can affect", () => {
+test("write_view facings, write_music and patch_view_cels rerun the tests they can affect", () => {
   const state = world();
   executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [needsKey] });
   const verdict = /^Game tests: 0 game tests pass, 1 fail: "needs the key" Expected flag 30=true/;
   const coverage = { ran: 1, stored: 1, notRun: 0 };
-  const actor = executeAgentTool(state, "write_actor", {
+  const actor = executeAgentTool(state, "write_view", {
     num: 1,
-    description: null,
-    transparentColor: 0,
-    mirrorLeftFromRight: true,
-    right: [["120", "340"]],
-    left: null,
-    down: [["506", "780"]],
-    up: [["90A", "BC0"]],
+    spec: {
+      description: null,
+      loops: null,
+      facings: {
+        description: null,
+        transparentColor: 0,
+        mirrorLeftFromRight: true,
+        mirrorUpFromDown: null,
+        right: [["120", "340"]],
+        left: null,
+        down: [["506", "780"]],
+        up: [["90A", "BC0"]],
+      },
+    },
   });
   assert.equal(actor.success, true, actor.error ?? "");
   assert.match(actor.message ?? "", verdict);
@@ -226,11 +233,10 @@ test("write_actor, write_music and patch_view_cels rerun the tests they can affe
 test("writers that delegate to another write tool rerun exactly once", () => {
   const state = world();
   executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [needsKey] });
-  const upserted = executeAgentTool(state, "upsert_inventory_item", {
-    id: null,
-    name: "Letter",
-    location: "room",
-    room: 1,
+  const upserted = executeAgentTool(state, "write_inventory_objects", {
+    mode: "merge",
+    objects: null,
+    item: { id: null, name: "Letter", location: "room", room: 1 },
   });
   assert.equal(upserted.success, true, upserted.error ?? "");
   assert.match(upserted.message ?? "", /^Game tests: 0 game tests pass, 1 fail/);

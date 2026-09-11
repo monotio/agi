@@ -67,9 +67,15 @@ test("batch reserve_binding allocates multiple IDs and returns defines", () => {
   assert.match(String(result.details?.["defines"]), /#define title_view 1/);
 });
 
-test("inventory edits allocate stable IDs without sending the complete table", () => {
+test("inventory merges allocate stable IDs without sending the complete table", () => {
   const state = createAgentSessionState();
-  const first = executeAuthoringTool(state, "upsert_inventory_item", {
+  const upsert = (item: Record<string, unknown>) =>
+    executeAgentTool(state, "write_inventory_objects", {
+      mode: "merge",
+      objects: null,
+      item,
+    });
+  const first = upsert({
     id: null,
     name: "Brass key",
     location: "carried",
@@ -77,14 +83,14 @@ test("inventory edits allocate stable IDs without sending the complete table", (
   })!;
   assert.equal(first.success, true);
   assert.equal(first.details?.["id"], 0);
-  const second = executeAuthoringTool(state, "upsert_inventory_item", {
+  const second = upsert({
     id: null,
     name: "Letter",
     location: "room",
     room: 2,
   })!;
   assert.equal(second.details?.["id"], 1);
-  const edit = executeAuthoringTool(state, "upsert_inventory_item", {
+  const edit = upsert({
     id: 1,
     name: "Sealed letter",
     location: "room",

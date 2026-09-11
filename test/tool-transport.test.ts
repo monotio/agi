@@ -102,14 +102,12 @@ test("maximum sprite and sound read pages stay within the transport bound", () =
       ],
     }),
   );
-  const cel = executeAgentTool(session, "read_view_cel", {
+  const cel = executeAgentTool(session, "read_view", {
     num: 3,
-    loop: 0,
-    cel: 0,
-    rowOffset: 64,
-    rowLimit: 64,
+    cels: [{ loop: 0, cel: 0 }],
+    rows: true,
   });
-  assertTransport("read_view_cel", "maximum page", cel);
+  assertTransport("read_view", "maximum cel rows", cel);
 
   const events = Array.from({ length: 128 }, () => ({ note: "C4", beats: 16, repeat: 32 }));
   assert.equal(
@@ -163,7 +161,10 @@ function bootedSession() {
 }
 
 function assertTransport(name: string, path: string, result: AgentToolResult): void {
-  const content = splitToolResult(result);
+  // The wire contract is the projected result: oversized detail fields evict
+  // into the session's diagnostic store and page via read_diagnostic.
+  const projected = projectToolResult(result, new Map(), `${name}-${path}`);
+  const content = splitToolResult(projected);
   assert.ok(content.text.length < 12000, `${name} ${path}: oversized metadata`);
   assert.equal(
     JSON.parse(content.text).images,
@@ -208,12 +209,10 @@ test("every catalog tool produces bounded binary-free transport on real success 
     details: { note: "retrievable" },
   });
   const logicRead = executeAgentTool(session, "read_logic", { num: 2, offset: null, limit: null });
-  const celRead = executeAgentTool(session, "read_view_cel", {
+  const celRead = executeAgentTool(session, "read_view", {
     num: 0,
-    loop: 0,
-    cel: 0,
-    rowOffset: null,
-    rowLimit: null,
+    cels: null,
+    rows: null,
   });
   const roomRead = executeAgentTool(session, "read_logic", { num: 1, offset: null, limit: null });
   assert.equal(logicRead.success, true);
@@ -225,9 +224,17 @@ test("every catalog tool produces bounded binary-free transport on real success 
       good: { name: "gate_open", kind: "flag", id: null },
       bad: { name: "Not valid", kind: "flag", id: null },
     },
-    upsert_inventory_item: {
-      good: { id: null, name: "Brass key", location: "room", room: 1 },
-      bad: { id: -1, name: "Bad", location: "room", room: 1 },
+    write_inventory_objects: {
+      good: {
+        mode: "merge",
+        objects: null,
+        item: { id: null, name: "Brass key", location: "room", room: 1 },
+      },
+      bad: {
+        mode: "merge",
+        objects: null,
+        item: { id: -1, name: "Bad", location: "room", room: 1 },
+      },
     },
     edit_resource_source: {
       // The revision covers text plus compilation context; earlier cases may
@@ -256,34 +263,6 @@ test("every catalog tool produces bounded binary-free transport on real success 
         quests: [],
       },
       bad: { rooms: null, facts: [], quests: [] },
-    },
-    write_actor: {
-      good: {
-        num: 2,
-        description: null,
-        transparentColor: 0,
-        mirrorLeftFromRight: true,
-        mirrorUpFromDown: null,
-        right: [["20"]],
-        left: null,
-        down: [["30"]],
-        up: [["40"]],
-      },
-      bad: {
-        num: -1,
-        description: null,
-        transparentColor: 0,
-        mirrorLeftFromRight: true,
-        mirrorUpFromDown: null,
-        right: [["20"]],
-        left: null,
-        down: [["30"]],
-        up: [["40"]],
-      },
-    },
-    read_view_cel: {
-      good: { num: 0, loop: 0, cel: 0, rowOffset: null, rowLimit: null },
-      bad: { num: 0, loop: 99, cel: 0, rowOffset: null, rowLimit: null },
     },
     patch_view_cels: {
       good: {
@@ -335,38 +314,59 @@ test("every catalog tool produces bounded binary-free transport on real success 
     },
     write_words: { words: ["look", "east"] },
     write_view: {
-      num: 3,
-      spec: {
-        description: null,
-        loops: [
-          {
-            mirrorLoop: null,
-            cels: [
-              {
-                width: 1,
-                height: 1,
-                transparentColor: 0,
-                mirror: null,
-                pixels: [5],
-              },
-            ],
+      good: {
+        num: 3,
+        spec: {
+          description: null,
+          facings: null,
+          loops: [
+            {
+              mirrorLoop: null,
+              cels: [
+                {
+                  width: 1,
+                  height: 1,
+                  transparentColor: 0,
+                  mirror: null,
+                  pixels: [5],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      bad: {
+        num: -1,
+        spec: {
+          description: null,
+          loops: null,
+          facings: {
+            description: null,
+            transparentColor: 0,
+            mirrorLeftFromRight: true,
+            mirrorUpFromDown: null,
+            right: [["20"]],
+            left: null,
+            down: [["30"]],
+            up: [["40"]],
           },
-        ],
+        },
       },
     },
     write_logic_source: { room: 3, source: "return;" },
     write_picture: { room: 4, source: "vis 1\nfill 0,0\nend" },
-    write_inventory_objects: { objects: [{ name: "key", startingRoom: 1 }] },
     write_sound: {
       num: 7,
       tracks: [{ notes: [{ note: "C4", duration: 4, freqDivisor: null, attenuation: null }] }],
     },
     read_logic: { num: 1, offset: null, limit: null },
     read_picture: { num: 1, offset: null, limit: null, include: null },
-    read_view: { num: 0 },
+    read_view: { num: 0, cels: [{ loop: 0, cel: 0 }], rows: true },
     read_words: { prefix: null, exact: null, offset: null, limit: null },
-    list_resources: { kind: null },
-    inspect_world_bible: { filter: null },
+    inspect_world_bible: {
+      good: { filter: "slots", section: null, name: null, offset: null, kind: "logic" },
+      bad: { filter: "invalid", section: null, name: null, offset: null, kind: null },
+    },
     read_command_reference: {
       good: { query: "priority", kind: null, offset: null },
       bad: { query: null, kind: "invalid", offset: null },
@@ -412,9 +412,14 @@ test("every catalog tool produces bounded binary-free transport on real success 
       expect: { room: 1, carriedItems: [], flags: [] },
       fromLiveCheckpoint: null,
     },
-    read_frames: { count: 1, stride: 1, sheet: false, plane: null },
-    read_objects: {},
-    read_state: {},
+    read_live: {
+      good: {
+        state: { variables: null, flags: null, compact: null },
+        objects: { ids: null },
+        frames: { count: 1, stride: 1, sheet: false, plane: null },
+      },
+      bad: { state: null, objects: null, frames: null },
+    },
     read_diagnostic: {
       good: { id: "d0", fields: null, offset: null, limit: null },
       bad: { id: "d0", fields: null, offset: -1, limit: null },
@@ -452,10 +457,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     else if (name === "write_sound") bad = { ...good, num: -1 };
     else if (name === "read_logic" || name === "read_picture" || name === "read_view")
       bad = { ...good, num: 255 };
-    else if (name === "list_resources") bad = { kind: "invalid" };
-    else if (name === "inspect_world_bible") bad = { filter: "invalid" };
     else if (name === "playtest_room") bad = { ...good, room: 0 };
-    else if (name === "read_frames") bad = { ...good, plane: "invalid" };
     else bad = good;
     directCases[name] = { good, bad };
   }
@@ -490,29 +492,23 @@ test("every catalog tool produces bounded binary-free transport on real success 
     "edit_resource_source",
     "handover",
     "inspect_world_bible",
-    "list_resources",
     "patch_view_cels",
     "playtest_room",
     "preview_sound",
     "read_authoring_guide",
     "read_command_reference",
     "read_diagnostic",
-    "read_frames",
     "read_game_tests",
+    "read_live",
     "read_logic",
-    "read_objects",
     "read_picture",
     "read_room_context",
     "read_sound",
-    "read_state",
     "read_view",
-    "read_view_cel",
     "read_words",
     "reserve_binding",
     "run_game_tests",
     "update_world",
-    "upsert_inventory_item",
-    "write_actor",
     "write_game_tests",
     "write_inventory_objects",
     "write_logic_source",
@@ -534,7 +530,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     assert.equal(good.success, true, `${name}: ${good.error}`);
     assertTransport(name, "success", good);
     const failureState = name === "handover" ? createAgentSessionState() : session;
-    const failureDeps = name === "read_objects" || name === "read_state" ? undefined : deps;
+    const failureDeps = deps;
     const badArgs = typeof paths.bad === "function" ? paths.bad() : paths.bad;
     const failure = await executeAgentToolAsync(failureState, name, badArgs, failureDeps);
     assert.equal(failure.success, false, `${name}: invalid args unexpectedly succeeded`);
@@ -594,7 +590,13 @@ test("tool results carry explicit evidence origins and a resource-set identity",
   const session = bootedSession();
   const origin = (r: AgentToolResult) => r.details?.["origin"] as Record<string, unknown>;
 
-  const staged = executeAgentTool(session, "list_resources", { kind: null });
+  const staged = executeAgentTool(session, "inspect_world_bible", {
+    filter: "slots",
+    section: null,
+    name: null,
+    offset: null,
+    kind: null,
+  });
   assert.equal(origin(staged)["kind"], "staged");
   const setBefore = String(origin(staged)["resourceSet"]);
   assert.match(setBefore, /^\d+-[0-9a-f]{8}$/);
@@ -604,7 +606,13 @@ test("tool results carry explicit evidence origins and a resource-set identity",
     executeAgentTool(session, "write_words", { words: ["lamp"], groups: null }).success,
     true,
   );
-  const staged2 = executeAgentTool(session, "list_resources", { kind: null });
+  const staged2 = executeAgentTool(session, "inspect_world_bible", {
+    filter: "slots",
+    section: null,
+    name: null,
+    offset: null,
+    kind: null,
+  });
   assert.equal(origin(staged2)["kind"], "staged");
   assert.notEqual(origin(staged2)["resourceSet"], setBefore);
 
@@ -621,11 +629,13 @@ test("tool results carry explicit evidence origins and a resource-set identity",
 
   const live = await executeAgentToolAsync(
     session,
-    "read_objects",
-    {},
+    "read_live",
+    { state: null, objects: { ids: null }, frames: null },
     { engine: { objects: () => [{ num: 0 }], state: () => null } },
   );
-  assert.equal(origin(live)["kind"], "live");
+  const liveObjects = live.details?.["objects"] as Record<string, unknown>;
+  const liveOrigin = liveObjects["origin"] as Record<string, unknown>;
+  assert.equal(liveOrigin["kind"], "live");
 });
 
 test("fromLiveCheckpoint restores the captured live image into the staged candidate", async () => {
@@ -667,10 +677,13 @@ test("fromLiveCheckpoint restores the captured live image into the staged candid
   const origin = candidate.details?.["origin"] as Record<string, unknown>;
   assert.equal(origin["kind"], "candidate");
   const stagedSet = (
-    executeAgentTool(session, "list_resources", { kind: null }).details?.["origin"] as Record<
-      string,
-      unknown
-    >
+    executeAgentTool(session, "inspect_world_bible", {
+      filter: "slots",
+      section: null,
+      name: null,
+      offset: null,
+      kind: null,
+    }).details?.["origin"] as Record<string, unknown>
   )["resourceSet"];
   assert.equal(origin["resourceSet"], stagedSet);
 

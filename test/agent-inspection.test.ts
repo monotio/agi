@@ -49,14 +49,25 @@ test("live inspection filters state and object tables without losing requested z
   };
   const result = await executeAgentToolAsync(
     state,
-    "read_state",
-    { variables: [0, 2], flags: [0], compact: true },
+    "read_live",
+    {
+      state: { variables: [0, 2], flags: [0], compact: true },
+      objects: null,
+      frames: null,
+    },
     deps,
   );
-  assert.deepEqual(result.details?.["vars"], { 0: 0, 2: 0 });
-  assert.deepEqual(result.details?.["flags"], { 0: false });
-  const objects = await executeAgentToolAsync(state, "read_objects", { ids: [1] }, deps);
-  assert.deepEqual(objects.details?.["objects"], [{ num: 1 }]);
+  const stateSection = result.details?.["state"] as Record<string, unknown>;
+  assert.deepEqual(stateSection["vars"], { 0: 0, 2: 0 });
+  assert.deepEqual(stateSection["flags"], { 0: false });
+  const objects = await executeAgentToolAsync(
+    state,
+    "read_live",
+    { state: null, objects: { ids: [1] }, frames: null },
+    deps,
+  );
+  const objectsSection = objects.details?.["objects"] as Record<string, unknown>;
+  assert.deepEqual(objectsSection["objects"], [{ num: 1 }]);
 });
 
 test("explicit synonym groups preserve multiword parser phrases without silently changing words", () => {

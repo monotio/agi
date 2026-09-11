@@ -6,7 +6,7 @@ import {
   type AgentToolResult,
   type ToolDefinition,
 } from "./tools.ts";
-import { readInventoryObjects } from "./inventory.ts";
+
 import { sourceRevision, validateAuthoringState, type BindingKind } from "./authoringState.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import { readPictureSource } from "../picture/source.ts";
@@ -81,22 +81,6 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
         id: nullableId,
       },
       required: ["bindings", "name", "kind", "id"],
-    },
-  },
-  {
-    name: "upsert_inventory_item",
-    description:
-      "Add or update one inventory definition while preserving other IDs. Null `id` appends; `name` is the item text; `location` is carried, room or inactive, and `room` (1..254) applies only to location room. Live ownership is unchanged; game logic changes it.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        id: nullableId,
-        name: string,
-        location: { type: "string", enum: ["carried", "room", "inactive"] },
-        room: { type: ["integer", "null"], minimum: 1, maximum: 254 },
-      },
-      required: ["id", "name", "location", "room"],
     },
   },
   {
@@ -315,48 +299,6 @@ export function executeAuthoringTool(
           bindings: reservedList,
           defines: reservedList.map((r) => r.define).join("\n"),
           authoringChanged: true,
-        },
-      };
-    }
-    if (name === "upsert_inventory_item") {
-      const items = readInventoryObjects(state.getFiles().get("OBJECT"), state.profile);
-      const id = args["id"] == null ? items.length : args["id"];
-      const itemName = args["name"];
-      if (
-        typeof id !== "number" ||
-        !Number.isInteger(id) ||
-        id < 0 ||
-        id > items.length ||
-        id > 255
-      )
-        throw new Error("id must name an existing item, or be null to append.");
-      if (
-        typeof itemName !== "string" ||
-        !itemName.trim() ||
-        [...itemName].some((char) => char.charCodeAt(0) === 0 || char.charCodeAt(0) > 255)
-      )
-        throw new Error("name must be nonempty AGI byte text without zero bytes.");
-      const location = args["location"];
-      if (!["carried", "room", "inactive"].includes(String(location)))
-        throw new Error("location must be carried, room, or inactive.");
-      const room = location === "carried" ? 255 : location === "inactive" ? 0 : args["room"];
-      if (
-        typeof room !== "number" ||
-        !Number.isInteger(room) ||
-        room < 0 ||
-        room > 255 ||
-        (location === "room" && (room < 1 || room > 254))
-      )
-        throw new Error("A room location needs room 1..254.");
-      items[id] = { name: itemName.trim(), startingRoom: room };
-      const result = executeAgentTool(state, "write_inventory_objects", { objects: items });
-      return {
-        ...result,
-        details: {
-          ...result.details,
-          id,
-          name: itemName.trim(),
-          updatedFiles: result.success ? ["OBJECT"] : [],
         },
       };
     }

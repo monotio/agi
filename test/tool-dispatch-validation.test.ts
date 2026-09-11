@@ -21,9 +21,7 @@ test("every catalog tool rejects undeclared fields through both public dispatche
 
 const malformed: Record<string, Record<string, unknown>> = {
   read_room_context: { room: "1" },
-  read_frames: { count: "9" },
-  read_objects: { ids: "0" },
-  read_state: { compact: "true" },
+  read_live: { state: null, objects: null, frames: { count: "9" } },
 };
 
 for (const [name, args] of Object.entries(malformed)) {

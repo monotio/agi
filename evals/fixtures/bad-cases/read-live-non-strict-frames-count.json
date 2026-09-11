@@ -1,0 +1,15 @@
+{
+  "name": "read-live-non-strict-frames-count",
+  "description": "Non-strict tool calls can supply a string frames count. Async runtime dispatch must reject it through schema validation before looking for a live game.",
+  "async": true,
+  "tool": "read_live",
+  "args": {
+    "state": null,
+    "objects": null,
+    "frames": {
+      "count": "9"
+    }
+  },
+  "expectedSuccess": false,
+  "expectedErrorSnippet": "Invalid arguments for read_live; nothing was changed. frames.count must be integer or null, got string."
+}

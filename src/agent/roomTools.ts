@@ -303,7 +303,7 @@ export function executeRoomTool(
       const id = integer(value, label, 0, 255);
       if (!inventory[id])
         throw new Error(
-          `${label}: inventory item ${id} is missing. Define it with upsert_inventory_item first.`,
+          `${label}: inventory item ${id} is missing. Define it with write_inventory_objects mode "merge" first.`,
         );
       return id;
     };

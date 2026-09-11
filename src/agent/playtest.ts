@@ -1183,7 +1183,7 @@ export function playtestRoom(
         if (misses.length) {
           failures.push(`Expected object ${spec.num} ${misses.join(", ")}.`);
           nextSteps.push(
-            `Inspect object ${spec.num} with read_objects and the logic that draws, positions or moves it; check the view is loaded and the motion reaches the asserted box on this path.`,
+            `Inspect object ${spec.num} with read_live and the logic that draws, positions or moves it; check the view is loaded and the motion reaches the asserted box on this path.`,
           );
         }
       }
