@@ -9,6 +9,7 @@ playwright-report/
 *.pem
 *.key
 *.p12
+*.tsbuildinfo
 
 # Local game data of any name, files and directories alike; the original
 # project adventure templates and the README are the only included content.
