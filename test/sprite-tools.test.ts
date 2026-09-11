@@ -19,7 +19,7 @@ describe("sprite authoring tools", () => {
   it("advertises strict, bounded schemas", () => {
     assert.deepEqual(
       SPRITE_TOOLS.map((tool) => tool.name),
-      ["write_actor", "read_view_cel", "patch_view_cel"],
+      ["write_actor", "read_view_cel", "patch_view_cels"],
     );
     for (const tool of SPRITE_TOOLS) {
       assert.equal(tool.parameters.additionalProperties, false);
@@ -192,12 +192,10 @@ describe("sprite authoring tools", () => {
     const state = createAgentSessionState();
     executeSpriteTool(state, "write_actor", ACTOR);
     const before = state.container.getResource("view", 0)!.slice();
-    const result = executeSpriteTool(state, "patch_view_cel", {
+    const result = executeSpriteTool(state, "patch_view_cels", {
       num: 0,
-      loop: 2,
-      cel: 0,
       expectedRevision: "view:stale",
-      rows: ["111", "111"],
+      patches: [{ loop: 2, cel: 0, rows: ["111", "111"] }],
     });
     assert.equal(result?.success, false);
     assert.match(result?.error ?? "", /stale/i);
@@ -230,12 +228,10 @@ describe("sprite authoring tools", () => {
       rowOffset: null,
       rowLimit: null,
     })!;
-    const result = executeSpriteTool(state, "patch_view_cel", {
+    const result = executeSpriteTool(state, "patch_view_cels", {
       num: 7,
-      loop: 1,
-      cel: 0,
       expectedRevision: read.details?.["revision"],
-      rows: ["E0D"],
+      patches: [{ loop: 1, cel: 0, rows: ["E0D"] }],
     });
     assert.equal(result?.success, true);
     assert.match(result?.adjustments?.[0] ?? "", /isolated/i);
@@ -247,6 +243,71 @@ describe("sprite authoring tools", () => {
     assert.deepEqual([...selectViewCel(view, 1, 1)!.pixels], [0, 4, 3]);
     assert.deepEqual([...selectViewCel(view, 2, 0)!.pixels], [5, 0]);
     assert.equal(view.description, "Aliased actor");
+  });
+
+  it("patches a mirrored target and its source in one batch without cross-talk", () => {
+    const state = createAgentSessionState();
+    state.container.putResource(
+      "view",
+      7,
+      buildView({
+        loops: [
+          {
+            cels: [
+              { width: 3, height: 1, transparentColor: 0, pixels: [1, 2, 0] },
+              { width: 3, height: 1, transparentColor: 0, pixels: [3, 4, 0] },
+            ],
+          },
+          { mirrorLoop: 0 },
+        ],
+      }),
+    );
+    const revision = String(
+      executeSpriteTool(state, "read_view_cel", {
+        num: 7,
+        loop: 0,
+        cel: 0,
+        rowOffset: null,
+        rowLimit: null,
+      })!.details?.["revision"],
+    );
+    const result = executeSpriteTool(state, "patch_view_cels", {
+      num: 7,
+      expectedRevision: revision,
+      patches: [
+        { loop: 0, cel: 0, rows: ["ABC"] },
+        { loop: 1, cel: 1, rows: ["DEF"] },
+      ],
+    })!;
+    assert.equal(result.success, true, result.error ?? "");
+    assert.match(result.adjustments?.[0] ?? "", /isolated/i);
+
+    const view = parseView(state.container.getResource("view", 7)!, state.profile);
+    // The source loop keeps its own patch; the mirrored loop keeps the second
+    // cel patched and the first cel still mirrored from the original data.
+    assert.deepEqual([...selectViewCel(view, 0, 0)!.pixels], [10, 11, 12]);
+    assert.deepEqual([...selectViewCel(view, 0, 1)!.pixels], [3, 4, 0]);
+    assert.deepEqual([...selectViewCel(view, 1, 0)!.pixels], [0, 2, 1]);
+    assert.deepEqual([...selectViewCel(view, 1, 1)!.pixels], [13, 14, 15]);
+
+    const duplicate = executeSpriteTool(state, "patch_view_cels", {
+      num: 7,
+      expectedRevision: String(result.details?.["revision"]),
+      patches: [
+        { loop: 0, cel: 0, rows: ["999"] },
+        { loop: 0, cel: 0, rows: ["888"] },
+      ],
+    })!;
+    assert.equal(duplicate.success, false);
+    assert.match(duplicate.error ?? "", /duplicate target/);
+
+    const absent = executeSpriteTool(state, "patch_view_cels", {
+      num: 7,
+      expectedRevision: String(result.details?.["revision"]),
+      patches: [{ loop: 9, cel: 0, rows: ["999"] }],
+    })!;
+    assert.equal(absent.success, false);
+    assert.match(absent.error ?? "", /no loop 9/);
   });
 
   it("returns undefined for tools outside its registry", () => {

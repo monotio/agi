@@ -187,7 +187,7 @@ test("a write to a transitively called logic reruns the starting room's tests", 
   );
 });
 
-test("write_actor, write_music and patch_view_cel rerun the tests they can affect", () => {
+test("write_actor, write_music and patch_view_cels rerun the tests they can affect", () => {
   const state = world();
   executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [needsKey] });
   const verdict = /^Game tests: 0 game tests pass, 1 fail: "needs the key" Expected flag 30=true/;
@@ -213,12 +213,10 @@ test("write_actor, write_music and patch_view_cel rerun the tests they can affec
   assert.equal(music.success, true, music.error ?? "");
   assert.match(music.message ?? "", verdict);
   assert.deepEqual(music.details?.["gameTestsRerun"], coverage);
-  const patched = executeAgentTool(state, "patch_view_cel", {
+  const patched = executeAgentTool(state, "patch_view_cels", {
     num: 1,
-    loop: 0,
-    cel: 0,
     expectedRevision: String(actor.details?.["revision"]),
-    rows: ["999", "999"],
+    patches: [{ loop: 0, cel: 0, rows: ["999", "999"] }],
   });
   assert.equal(patched.success, true, patched.error ?? "");
   assert.match(patched.message ?? "", verdict);

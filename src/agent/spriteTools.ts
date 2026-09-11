@@ -106,24 +106,36 @@ export const SPRITE_TOOLS: readonly ToolDefinition[] = [
     },
   },
   {
-    name: "patch_view_cel",
+    name: "patch_view_cels",
     description:
-      "Replace cel `cel` of loop `loop` in view `num` with EGA hex `rows`. `expectedRevision` must match the view's current revision, preventing stale writes. A mirrored target is isolated, preserving its opposite. Returns the new revision and cel PNG.",
+      "Patch an arbitrary subset of cels in view `num` in one call: each patch replaces one cel's pixels with equal-width EGA hex `rows` (0-F; the cel keeps its transparent color). Every address, row, dimension and duplicate target is validated against the current view before anything writes; mirrored relationships are isolated with copy-on-write so other facings keep their pixels. `expectedRevision` must match the view's current revision. One compile, one commit; returns the new revision, per-cel geometry and a contact sheet.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         num: { type: "integer", minimum: 0, maximum: 255 },
-        loop: { type: "integer", minimum: 0, maximum: 254 },
-        cel: { type: "integer", minimum: 0, maximum: 254 },
         expectedRevision: {
           type: "string",
           minLength: 1,
           maxLength: 64,
         },
-        rows: CEL_ROWS_SCHEMA,
+        patches: {
+          type: "array",
+          minItems: 1,
+          maxItems: 64,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              loop: { type: "integer", minimum: 0, maximum: 254 },
+              cel: { type: "integer", minimum: 0, maximum: 254 },
+              rows: CEL_ROWS_SCHEMA,
+            },
+            required: ["loop", "cel", "rows"],
+          },
+        },
       },
-      required: ["num", "loop", "cel", "expectedRevision", "rows"],
+      required: ["num", "expectedRevision", "patches"],
     },
   },
 ];
@@ -364,12 +376,17 @@ function applyMetadata(payload: Uint8Array, packed: boolean, plans: readonly Met
   }
 }
 
+/**
+ * Rebuild a view with a set of cel replacements resolved against the original
+ * snapshot. Loop-alias groups are copy-on-write: a patched loop is isolated
+ * into its own data (its displayed pixels plus the edits), while untouched
+ * members keep sharing the original block. Patches to several members of one
+ * alias group isolate each of them.
+ */
 function patchedView(
   original: Uint8Array,
   state: AgentSessionState,
-  targetLoop: number,
-  targetCel: number,
-  replacement: BuildCelInput,
+  targets: ReadonlyMap<number, ReadonlyMap<number, BuildCelInput>>,
   adjustments: string[],
 ): { payload: Uint8Array; spec: BuildViewInput } {
   const view = parseView(original, state.profile);
@@ -377,16 +394,18 @@ function patchedView(
   const loops: BuildLoopInput[] = new Array(view.loops.length);
   const plans: MetadataPlan[] = [];
   for (const group of groups) {
-    const containsTarget = group.members.includes(targetLoop);
-    if (!containsTarget || group.members.length === 1) {
+    const targeted = group.members.filter((member) => targets.has(member));
+    if (group.members.length === 1 || targeted.length === 0) {
       const first = group.members[0]!;
       const cels: BuildCelInput[] = group.cels.map((cel) => ({
         ...cel,
         pixels: Uint8Array.from(cel.pixels),
       }));
-      if (containsTarget) {
-        const displayed = view.loops[targetLoop]!.cels[targetCel]!;
-        cels[targetCel] = displayed.mirrored ? reverseRows(replacement) : replacement;
+      if (targeted.length === 1) {
+        for (const [celIndex, replacement] of targets.get(first)!) {
+          const displayed = view.loops[first]!.cels[celIndex]!;
+          cels[celIndex] = displayed.mirrored ? reverseRows(replacement) : replacement;
+        }
       }
       loops[first] = { cels };
       for (const member of group.members.slice(1)) loops[member] = { mirrorLoop: first };
@@ -394,22 +413,29 @@ function patchedView(
       continue;
     }
 
-    const displayedCels = view.loops[targetLoop]!.cels.map(cloneCel);
-    displayedCels[targetCel] = replacement;
-    loops[targetLoop] = { cels: displayedCels };
-    const remaining = group.members.filter((loop) => loop !== targetLoop);
-    const firstRemaining = remaining[0]!;
-    loops[firstRemaining] = {
-      cels: group.cels.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) })),
-    };
-    for (const member of remaining.slice(1)) loops[member] = { mirrorLoop: firstRemaining };
-    plans.push({
-      loop: firstRemaining,
-      headerHigh: group.headerHigh,
-      controlHighs: group.controlHighs,
-    });
+    // Untargeted members keep one shared block; each targeted loop is isolated
+    // with its displayed pixels plus this loop's edits.
+    for (const loop of targeted) {
+      const displayedCels = view.loops[loop]!.cels.map(cloneCel);
+      for (const [celIndex, replacement] of targets.get(loop)!)
+        displayedCels[celIndex] = replacement;
+      loops[loop] = { cels: displayedCels };
+    }
+    const remaining = group.members.filter((loop) => !targets.has(loop));
+    if (remaining.length) {
+      const firstRemaining = remaining[0]!;
+      loops[firstRemaining] = {
+        cels: group.cels.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) })),
+      };
+      for (const member of remaining.slice(1)) loops[member] = { mirrorLoop: firstRemaining };
+      plans.push({
+        loop: firstRemaining,
+        headerHigh: group.headerHigh,
+        controlHighs: group.controlHighs,
+      });
+    }
     adjustments.push(
-      `Loop ${targetLoop} was isolated from its mirrored alias before patching so the other facing retained its pixels.`,
+      `Loop${targeted.length > 1 ? "s" : ""} ${targeted.join(", ")} ${targeted.length > 1 ? "were" : "was"} isolated from its mirrored alias before patching so the other facing${remaining.length === 1 ? "" : "s"} retained its pixels.`,
     );
   }
   const spec: BuildViewInput = {
@@ -559,11 +585,9 @@ export function executeSpriteTool(
     }
   }
 
-  if (name === "patch_view_cel") {
+  if (name === "patch_view_cels") {
     try {
       const num = integer(args["num"], "View number", 0, 255);
-      const loop = integer(args["loop"], "Loop", 0, 254);
-      const cel = integer(args["cel"], "Cel", 0, 254);
       if (typeof args["expectedRevision"] !== "string") {
         throw new Error("expectedRevision must be a string.");
       }
@@ -574,51 +598,72 @@ export function executeSpriteTool(
       if (args["expectedRevision"] !== actualRevision) {
         return {
           success: false,
-          error: `Stale view ${num} revision: expected ${args["expectedRevision"]}, current revision is ${actualRevision}. Read the cel again before patching.`,
+          error: `Stale view ${num} revision: expected ${args["expectedRevision"]}, current revision is ${actualRevision}. Read the cels again before patching.`,
           details: { resource: { kind: "view", num }, revision: actualRevision },
         };
       }
       const before = parseView(original, state.profile);
-      const currentCel = before.loops[loop]?.cels[cel];
-      if (!currentCel)
-        return { success: false, error: `View ${num} has no loop ${loop}, cel ${cel}.` };
+      const patches = args["patches"];
+      if (!Array.isArray(patches) || patches.length < 1 || patches.length > 64)
+        throw new Error("patches must name 1..64 cel targets.");
+      // Validate every patch against the original snapshot before writing.
       const adjustments: string[] = [];
-      const parsed = celFromRows(
-        args["rows"],
-        `loop ${loop} cel ${cel}`,
-        currentCel.transparentColor,
-        adjustments,
-      );
-      const { payload, spec } = patchedView(original, state, loop, cel, parsed, adjustments);
+      const targets = new Map<number, Map<number, BuildCelInput>>();
+      let pixels = 0;
+      for (const [index, raw] of patches.entries()) {
+        const patch = (raw ?? {}) as Record<string, unknown>;
+        const loop = integer(patch["loop"], `patches[${index}].loop`, 0, 254);
+        const cel = integer(patch["cel"], `patches[${index}].cel`, 0, 254);
+        const current = before.loops[loop]?.cels[cel];
+        if (!current)
+          throw new Error(`patches[${index}]: view ${num} has no loop ${loop}, cel ${cel}.`);
+        if (targets.get(loop)?.has(cel))
+          throw new Error(`patches[${index}]: duplicate target loop ${loop}, cel ${cel}.`);
+        const replacement = celFromRows(
+          patch["rows"],
+          `patches[${index}] (loop ${loop}, cel ${cel})`,
+          current.transparentColor,
+          adjustments,
+        );
+        pixels += replacement.width * replacement.height;
+        if (pixels > 32768)
+          throw new Error(`patches[${index}]: batch exceeds the 32768-pixel budget.`);
+        if (!targets.has(loop)) targets.set(loop, new Map());
+        targets.get(loop)!.set(cel, replacement);
+      }
+      const { payload, spec } = patchedView(original, state, targets, adjustments);
       const after = parseView(payload, state.profile);
-      const selected = selectViewCel(after, loop, cel)!;
       state.container.putResource("view", num, payload);
       state.sources.views.set(num, spec);
       const revision = resourceRevision(payload);
+      const geometry = [...targets.entries()].flatMap(([loop, cels]) =>
+        [...cels.keys()].map((cel) => {
+          const selected = selectViewCel(after, loop, cel)!;
+          return {
+            loop,
+            cel,
+            width: selected.width,
+            height: selected.height,
+            transparentColor: selected.transparentColor,
+          };
+        }),
+      );
+      const preview = viewFeedback(payload, state.profile, num);
       return {
         success: true,
-        message: `View ${num}, loop ${loop}, cel ${cel} patched as ${selected.width}x${selected.height}; revision ${revision}.`,
+        message: `View ${num}: patched ${geometry.length} cel${geometry.length === 1 ? "" : "s"} in one commit; revision ${revision}.`,
         ...(adjustments.length === 0 ? {} : { adjustments }),
         details: {
           resource: { kind: "view", num },
           writtenResources: [{ kind: "view", num }],
           num,
-          loop,
-          cel,
-          width: selected.width,
-          height: selected.height,
-          transparentColor: selected.transparentColor,
+          patches: geometry,
           revision,
         },
-        images: [
-          {
-            png: celPng(selected),
-            caption: `Patched view ${num}, loop ${loop}, cel ${cel}; compiled EGA pixels at native 2:1 aspect.`,
-          },
-        ],
+        images: [{ png: preview.png, caption: preview.caption }],
       };
     } catch (error) {
-      return { success: false, error: `View cel was not patched: ${String(error)}` };
+      return { success: false, error: `View cels were not patched: ${String(error)}` };
     }
   }
 

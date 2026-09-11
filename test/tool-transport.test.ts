@@ -277,15 +277,13 @@ test("every catalog tool produces bounded binary-free transport on real success 
       good: { num: 0, loop: 0, cel: 0, rowOffset: null, rowLimit: null },
       bad: { num: 0, loop: 99, cel: 0, rowOffset: null, rowLimit: null },
     },
-    patch_view_cel: {
+    patch_view_cels: {
       good: {
         num: 0,
-        loop: 0,
-        cel: 0,
         expectedRevision: celRead.details?.["revision"],
-        rows: ["3"],
+        patches: [{ loop: 0, cel: 0, rows: ["3"] }],
       },
-      bad: { num: 0, loop: 0, cel: 0, expectedRevision: "stale", rows: ["4"] },
+      bad: { num: 0, expectedRevision: "stale", patches: [{ loop: 0, cel: 0, rows: ["4"] }] },
     },
     write_music: {
       good: {
@@ -431,7 +429,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
   const directCases = cases;
   for (const [name, value] of Object.entries(directCases)) {
     if ("good" in value && "bad" in value) continue;
-    const good = typeof value === "function" ? value() : (value as Record<string, unknown>);
+    const good = value;
     let bad: Record<string, unknown>;
     if (name === "write_words" || name === "read_words" || name === "write_inventory_objects")
       bad = { ...good, offset: -1 };
@@ -480,7 +478,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     "finish_genesis",
     "inspect_world_bible",
     "list_resources",
-    "patch_view_cel",
+    "patch_view_cels",
     "playtest_room",
     "preview_sound",
     "read_authoring_guide",
