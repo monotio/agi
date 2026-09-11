@@ -223,7 +223,7 @@ export interface EngineMenuState {
   requested: boolean;
 }
 
-type Modal =
+type Modal = { serial: number } & (
   | { kind: "print"; saved: SavedRect; remainingMs: number | null }
   | {
       kind: "inventory";
@@ -235,7 +235,8 @@ type Modal =
     }
   | { kind: "menu"; saved: SavedRect }
   | { kind: "showObj"; saved: SavedRect; view: number }
-  | { kind: "showPri" };
+  | { kind: "showPri" }
+);
 
 /** have.key polls per cycle before a keyless host receives a synthesized Enter. */
 const HAVE_KEY_POLL_LIMIT = 1000;
@@ -432,6 +433,8 @@ export class Engine {
    * non-window modals (show.pri, inventory, menu) stay underneath a print.
    */
   private readonly modals: Modal[] = [];
+  /** Instance counter stamped on each pushed modal: identity for story-pause beats. */
+  private modalSerialCounter = 0;
   /** f15 output mode keeps a window visible without suspending execution. */
   private persistentWindow: SavedRect | null = null;
   /** Menu selection carried into the next cycle's input phase as a mapped event. */
@@ -698,6 +701,11 @@ export class Engine {
   /** Kind of the open modal, or null when the interpreter is running. */
   get modalKind(): Modal["kind"] | "save" | "restore" | null {
     return this.saveDialogMode ?? this.modal?.kind ?? null;
+  }
+
+  /** Instance serial of the open modal: rises on every push, so back-to-back windows differ. */
+  get modalSerial(): number {
+    return this.modal?.serial ?? 0;
   }
 
   /** Whether a modal window, prompt or pending message is active. */
@@ -1013,6 +1021,7 @@ export class Engine {
       this.persistentWindow = saved;
     } else {
       this.modals.push({
+        serial: ++this.modalSerialCounter,
         kind: "print",
         saved,
         remainingMs: !forceAcknowledgement && this.vars[21] !== 0 ? this.vars[21]! * 500 : null,
@@ -1045,14 +1054,14 @@ export class Engine {
       box.left + box.cols - 1,
     );
     drawWindow(this.text, box, lines, attr(0, 15), attr(4, 15));
-    this.modals.push({ kind: "showObj", saved, view: viewNum });
+    this.modals.push({ serial: ++this.modalSerialCounter, kind: "showObj", saved, view: viewNum });
     this.printsPending++;
     this.host.showObj?.(viewNum);
   }
 
   private showPriScreen(): void {
     this.closeWindowOnTop();
-    this.modals.push({ kind: "showPri" });
+    this.modals.push({ serial: ++this.modalSerialCounter, kind: "showPri" });
     this.printsPending++;
     this.host.showPriScreen?.();
   }
@@ -1158,6 +1167,7 @@ export class Engine {
     }
     const saved = this.text.save(0, 0, TEXT_ROWS - 1, TEXT_COLS - 1);
     const modal: Modal = {
+      serial: ++this.modalSerialCounter,
       kind: "inventory",
       saved,
       items,
@@ -1276,7 +1286,11 @@ export class Engine {
     this.closeWindowOnTop();
     if (!this.menu[this.menuHeading]!.enabled)
       this.menuHeading = this.menu.findIndex((h) => h.enabled);
-    this.modals.push({ kind: "menu", saved: this.text.save(0, 0, TEXT_ROWS - 1, TEXT_COLS - 1) });
+    this.modals.push({
+      serial: ++this.modalSerialCounter,
+      kind: "menu",
+      saved: this.text.save(0, 0, TEXT_ROWS - 1, TEXT_COLS - 1),
+    });
     this.printsPending++;
     this.drawMenu();
     return true;
@@ -4852,6 +4866,7 @@ export class Engine {
       lastInputLine: this.lastInputLine,
       horizon: this.horizon,
       modalKind: this.modalKind,
+      modalSerial: this.modalSerial,
       inputEnabled: this.inputAccepted,
       pictureShown: this.pictureShown,
       terminated: this.terminated,
@@ -4886,6 +4901,7 @@ export class Engine {
       lastInputLine: this.lastInputLine,
       horizon: this.horizon,
       modalKind: this.modalKind,
+      modalSerial: this.modalSerial,
       inputEnabled: this.inputAccepted,
       pictureShown: this.pictureShown,
       terminated: this.terminated,
@@ -4968,6 +4984,8 @@ export interface EngineStateReport {
   lastInputLine: string;
   horizon: number;
   modalKind: string | null;
+  /** Instance serial of the open modal: a new window means a new beat. */
+  modalSerial: number;
   /** Current item locations, with 255 meaning carried. */
   inventory: { num: number; name: string; room: number }[];
 }

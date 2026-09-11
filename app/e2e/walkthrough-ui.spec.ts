@@ -376,6 +376,46 @@ test.describe("Walkthrough UI", () => {
       .toBe(null);
   });
 
+  test("story pause stops on each consecutive dialogue modal", async ({ page }) => {
+    await isolateStorage(page);
+    await page.goto("/");
+
+    // The tutorial's opening beats are back-to-back print windows: the first
+    // regression let a resume skip straight past the second one.
+    await page.getByTestId("game-actions-adventure-department").click();
+    await page.getByTestId("run-walkthrough").click();
+    await expect(page.getByTestId("walkthrough-transport")).toBeVisible();
+    await page.getByTestId("btn-walkthrough-pause-on-dialog").click();
+
+    const pausedSerial = () =>
+      page.evaluate(() =>
+        window.__AGI_STATE__?.walkthrough.status === "paused"
+          ? (window.__AGI_REPLAY__?.latest?.state?.modalSerial ?? null)
+          : null,
+      );
+
+    const first = await page
+      .waitForFunction(() => window.__AGI_STATE__?.walkthrough.status === "paused", null, {
+        timeout: 60_000,
+      })
+      .then(() => pausedSerial());
+    expect(first).not.toBeNull();
+
+    await page.keyboard.press("Enter");
+
+    const second = await page
+      .waitForFunction(
+        (prev) =>
+          window.__AGI_STATE__?.walkthrough.status === "paused" &&
+          window.__AGI_REPLAY__?.latest?.state?.modalSerial !== prev,
+        first,
+        { timeout: 60_000 },
+      )
+      .then(() => pausedSerial());
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
+  });
+
   test("a reload during a walkthrough re-enters playback at the same spot", async ({ page }) => {
     test.skip(Boolean(missing), missing || "");
     await isolateStorage(page);

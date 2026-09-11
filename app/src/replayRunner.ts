@@ -51,6 +51,21 @@ export function isStoryDialogue(obs: ReplayObservation | null): boolean {
   );
 }
 
+/**
+ * Identity of the dialogue an observation shows. A modal window gets a fresh
+ * serial every time the interpreter pushes it, so two back-to-back print
+ * windows are two beats even when no observation ever reports modal=null
+ * between them; a waitkey block is one posted observation per episode, so its
+ * revision is already unique.
+ */
+export function storyDialogueKey(obs: ReplayObservation | null): string | null {
+  if (!obs) return null;
+  if (obs.state.modalKind === "print" || obs.state.modalKind === "showObj")
+    return `modal:${obs.state.modalSerial}`;
+  if (obs.blocked === "waitkey") return `waitkey:${obs.revision}`;
+  return null;
+}
+
 export async function runReplayBatch(
   driver: ReplayDriver,
   actions: readonly ReplayAction[],
@@ -60,10 +75,10 @@ export async function runReplayBatch(
   const getSpeed: () => number = typeof rawSpeed === "function" ? rawSpeed : () => rawSpeed ?? 0;
   const currentSessionId = options?.sessionId ?? driver.sessionId ?? 0;
   let currentRequestId = 0;
-  // Story pause fires once per dialogue episode: an open modal keeps reporting
-  // itself on every new observation, so a resume must not re-pause on the same
-  // dialogue it just left.
-  let inStoryDialogue = false;
+  // Story pause fires once per dialogue beat: the serial of the beat already
+  // paused on, and the beat whose tail is being fast-forwarded after resume.
+  let pausedDialogueKey: string | null = null;
+  let skipDialogueTail: string | null = null;
 
   function updateStatus(status: string, requestId = currentRequestId): void {
     driver.status = {
@@ -103,11 +118,19 @@ export async function runReplayBatch(
     return true;
   }
 
+  /** Fast-forward rate for the dwell between a dialogue pause and its ack. */
+  const DIALOGUE_SKIP_SPEED = 600;
+
   function getEffectiveSpeed(): number {
     if (isSeeking()) return 0;
     // Resuming from a dialogue pause fast-forwards the tape's remaining dwell
-    // until the modal closes, so "continue" actually dismisses the window.
-    if (skipDialogueTail) return DIALOGUE_SKIP_SPEED;
+    // until that modal closes, so "continue" actually dismisses the window.
+    if (
+      skipDialogueTail !== null &&
+      driver.latest &&
+      storyDialogueKey(driver.latest) === skipDialogueTail
+    )
+      return DIALOGUE_SKIP_SPEED;
     return getSpeed();
   }
 
@@ -116,9 +139,6 @@ export async function runReplayBatch(
   let typedLine = "";
   let lastProgressAt = 0;
   let lastProgressActionIndex = -1;
-  let skipDialogueTail = false;
-  /** Fast-forward rate for the dwell between a dialogue pause and its ack. */
-  const DIALOGUE_SKIP_SPEED = 600;
 
   async function resumed(before: ReplayObservation): Promise<void> {
     if (!before.blocked) return;
@@ -217,22 +237,22 @@ export async function runReplayBatch(
         if (remainder > 0) await sleep(remainder);
       }
       checkAborted();
-      if (isStoryDialogue(observation)) {
+      const dialogueKey = storyDialogueKey(observation);
+      if (dialogueKey !== null) {
         if (
-          !inStoryDialogue &&
+          dialogueKey !== pausedDialogueKey &&
           options?.pauseOnDialog?.() &&
           !isSeeking() &&
           getEffectiveSpeed() > 0
         ) {
-          inStoryDialogue = true;
+          pausedDialogueKey = dialogueKey;
           options.onDialogPause?.();
           await checkPaused();
-          skipDialogueTail = true;
+          skipDialogueTail = dialogueKey;
           checkAborted();
         }
       } else {
-        inStoryDialogue = false;
-        skipDialogueTail = false;
+        skipDialogueTail = null;
       }
       if (options?.onProgress && actionIndex !== undefined && !isSeeking()) {
         const now = performance.now();
@@ -348,23 +368,23 @@ export async function runReplayBatch(
     }
     try {
       switch (action.kind) {
-        case "key":
-          if (driver.latest && isStoryDialogue(driver.latest)) {
+        case "key": {
+          const dialogueKey = storyDialogueKey(driver.latest);
+          if (dialogueKey !== null) {
             if (
-              !inStoryDialogue &&
+              dialogueKey !== pausedDialogueKey &&
               options?.pauseOnDialog?.() &&
               !isSeeking() &&
               getEffectiveSpeed() > 0
             ) {
-              inStoryDialogue = true;
+              pausedDialogueKey = dialogueKey;
               options.onDialogPause?.();
               await checkPaused();
-              skipDialogueTail = true;
+              skipDialogueTail = dialogueKey;
               checkAborted();
             }
           } else {
-            inStoryDialogue = false;
-            skipDialogueTail = false;
+            skipDialogueTail = null;
           }
           await key(action.code);
           checkAborted();
@@ -373,6 +393,7 @@ export async function runReplayBatch(
             checkAborted();
           }
           break;
+        }
         case "direction":
           await direction(action.dir);
           checkAborted();

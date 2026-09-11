@@ -1,12 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isStoryDialogue } from "../src/replayRunner.ts";
+import { isStoryDialogue, storyDialogueKey } from "../src/replayRunner.ts";
 import type { ReplayObservation } from "../src/replay.ts";
 
 function fakeObservation(
   modalKind: string | null = null,
   blocked: string | null = null,
   rows: string[] = [],
+  modalSerial = 0,
 ): ReplayObservation {
   return {
     revision: 1,
@@ -15,6 +16,7 @@ function fakeObservation(
     blocked,
     state: {
       modalKind,
+      modalSerial,
       room: 1,
       previousRoom: 1,
       egoX: 0,
@@ -50,4 +52,23 @@ test("isStoryDialogue identifies narrative modals and waitkey screens", () => {
   assert.equal(isStoryDialogue(fakeObservation("showObj", null)), true);
   assert.equal(isStoryDialogue(fakeObservation(null, "waitkey")), true);
   assert.equal(isStoryDialogue(fakeObservation(null, "getnum")), false);
+});
+
+test("storyDialogueKey distinguishes back-to-back modals by serial", () => {
+  // Two print windows with no modal=null observation between them are still
+  // two beats: story mode must pause on each.
+  const first = storyDialogueKey(fakeObservation("print", null, [], 7));
+  const second = storyDialogueKey(fakeObservation("print", null, [], 8));
+  assert.notEqual(first, second);
+  assert.equal(first, storyDialogueKey(fakeObservation("print", null, [], 7)));
+
+  // waitkey episodes are one posted observation each: the revision is unique.
+  const wait1 = fakeObservation(null, "waitkey");
+  const wait2 = fakeObservation(null, "waitkey");
+  wait2.revision = 2;
+  assert.notEqual(storyDialogueKey(wait1), storyDialogueKey(wait2));
+
+  assert.equal(storyDialogueKey(null), null);
+  assert.equal(storyDialogueKey(fakeObservation("menu", null, [], 9)), null);
+  assert.equal(storyDialogueKey(fakeObservation(null, "getnum")), null);
 });
