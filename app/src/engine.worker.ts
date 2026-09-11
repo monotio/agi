@@ -9,11 +9,23 @@
  *   { type: "startRecording" / "stopRecording" / "cancelRecording", id }
  *                                          player-action capture for a stored game test
  *   { type: "flush" }                      take an autosave now (page is going away)
+ *   { type: "debug", channels }            arm inspector channels: ownership,
+ *                                          objects, trace
+ *   { type: "debugWrite", vars, flags }    apply [index, value] pairs at a
+ *                                          cycle boundary (Sierra SET VAR /
+ *                                          SET FLAG debug actions)
+ *   { type: "debugEvents", id, since }     per-cycle var/flag diff ring
+ *   { type: "debugTrace", id, since }      instruction trace ring
  *
  * Messages out:
- *   { type: "frame", visual, priority, text, picRow, modal, textMode, edit }
- *                                          transferable copies, sent when changed;
- *                                          text = 40x25 [char, attr] cells
+ *   { type: "frame", visual, priority, text, picRow, modal, textMode, edit,
+ *     cycle, ownership?, objects? }        transferable copies, sent when
+ *                                          changed; text = 40x25 [char, attr]
+ *                                          cells; ownership/objects only when
+ *                                          the matching debug channel is armed
+ *   { type: "trace", records }             batched structured instruction
+ *                                          records while the trace channel
+ *                                          is armed
  *   { type: "print", text }                modal message from the game
  *   { type: "status", text }               status line
  *   { type: "shake", count }               0x6e shake.screen
@@ -42,7 +54,12 @@ import { buildWordsTok, parseWordsTok } from "../../src/logic/words.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { OperationRecorder } from "../../src/agent/recordedReplay.ts";
 import type { RecordedEvent } from "./gameRecording.ts";
-import { Engine, type EngineHost, type EngineMenuState } from "../../src/runtime/engine.ts";
+import {
+  Engine,
+  type EngineHost,
+  type EngineMenuState,
+  type TraceRecord,
+} from "../../src/runtime/engine.ts";
 import { AGI_KEY, DIRECTION_KEYS, NAV_KEYS } from "../../src/runtime/keys.ts";
 import {
   BRIDGE_HEADER_BYTES,
@@ -302,6 +319,102 @@ function autosave(force: boolean): boolean {
  */
 const recentRing = new FrameRing(100);
 const historyRing = new FrameRing(60);
+
+/**
+ * Inspector channels armed by the host. ownership/objects ride on frame
+ * posts; trace streams structured instruction records. Each channel costs
+ * real per-cycle work, so they stay disarmed until a debug view asks.
+ */
+const debug = { ownership: false, objects: false, trace: false, picture: false };
+
+/** One observed interpreter-state write, attributed to a completed cycle. */
+interface DebugEvent {
+  seq: number;
+  cycle: number;
+  kind: "var" | "flag";
+  index: number;
+  from: number;
+  to: number;
+}
+const DEBUG_EVENT_CAP = 4000;
+const debugEvents: DebugEvent[] = [];
+let debugEventSeq = 0;
+let prevVars: Uint8Array | null = null;
+let prevFlags: Uint8Array | null = null;
+
+/**
+ * Diff vars/flags against the previous completed cycle. The ring records
+ * every write the interpreter made — the timeline lane's raw material —
+ * whether or not an inspector view is currently open.
+ */
+function captureStateDiffs(): void {
+  if (!engine) return;
+  if (prevVars === null || prevFlags === null) {
+    prevVars = engine.vars.slice();
+    prevFlags = engine.flags.slice();
+    return;
+  }
+  for (let i = 0; i < 256; i++) {
+    const v = engine.vars[i]!;
+    if (v !== prevVars[i])
+      debugEvents.push({
+        seq: ++debugEventSeq,
+        cycle: cycleCount,
+        kind: "var",
+        index: i,
+        from: prevVars[i]!,
+        to: v,
+      });
+    const f = engine.flags[i]!;
+    if (f !== prevFlags[i])
+      debugEvents.push({
+        seq: ++debugEventSeq,
+        cycle: cycleCount,
+        kind: "flag",
+        index: i,
+        from: prevFlags[i]!,
+        to: f,
+      });
+  }
+  prevVars.set(engine.vars);
+  prevFlags.set(engine.flags);
+  if (debugEvents.length > DEBUG_EVENT_CAP)
+    debugEvents.splice(0, debugEvents.length - DEBUG_EVENT_CAP);
+}
+
+/** Trace records carry their interpreter cycle plus a stream sequence. */
+type StampedTrace = TraceRecord & { seq: number; cycle: number };
+const TRACE_CAP = 4000;
+const TRACE_POST_MAX = 500;
+const traceRing: StampedTrace[] = [];
+let traceSeq = 0;
+let pendingTrace: StampedTrace[] = [];
+
+function applyTraceChannel(): void {
+  engine?.setTraceListener(
+    debug.trace
+      ? (record) => {
+          const stamped = { ...record, seq: ++traceSeq, cycle: cycleCount };
+          traceRing.push(stamped);
+          if (traceRing.length > TRACE_CAP) traceRing.splice(0, traceRing.length - TRACE_CAP);
+          pendingTrace.push(stamped);
+        }
+      : null,
+  );
+}
+
+/** Post accumulated trace records; sendPresentation drops them while seeking. */
+function flushTraceBatch(): void {
+  if (pendingTrace.length === 0) return;
+  sendPresentation({ type: "trace", records: pendingTrace.splice(0, TRACE_POST_MAX) });
+}
+
+/** Completed interpreter cycle: count it, attribute state writes, ship trace. */
+function finishCycle(): void {
+  cycleCount++;
+  captureStateDiffs();
+  flushTraceBatch();
+}
 
 /** LLM blocking bridge state (see app/src/agent/sabBridge.ts for layout). */
 let bridge: { i32: Int32Array; bytes: Uint8Array } | null = null;
@@ -584,6 +697,10 @@ const host: EngineHost = {
 
 let lastVisual: Uint8Array | null = null;
 let lastText: Uint8Array | null = null;
+let lastOwnership: Uint16Array | null = null;
+let lastPicture: Uint8Array | null = null;
+let lastPicturePriority: Uint8Array | null = null;
+let lastObjectsJson = "";
 let lastPicRow = -1;
 let lastTextMode = false;
 let lastInputEnabled = false;
@@ -614,6 +731,12 @@ function postFrame(capture = false): void {
   if (capture) captureFrame(frame);
   const modal = engine.modalKind;
   const textCells = frame.text;
+  // Armed inspector channels join the sameness check so a sprite's sub-pixel
+  // or slot change still ships its fresh ownership/objects payload.
+  const ownership = debug.ownership ? engine.getOwnership() : null;
+  const objects = debug.objects ? engine.readObjects() : null;
+  const picture = debug.picture ? engine.getPictureSurface() : null;
+  const objectsJson = objects ? JSON.stringify(objects) : "";
   // Repeated display/trace opcodes can mark text dirty without changing a cell.
   // Sending those frames floods software GPU renderers and delays user input.
   let same =
@@ -623,6 +746,7 @@ function postFrame(capture = false): void {
     lastTextMode === engine.textModeActive &&
     lastInputEnabled === engine.inputEnabled &&
     lastReleaseGate === engine.releaseGate &&
+    objectsJson === lastObjectsJson &&
     lastText !== null;
   if (same && lastText) {
     for (let i = 0; i < textCells.length; i++) {
@@ -642,9 +766,33 @@ function postFrame(capture = false): void {
   } else if (!lastVisual) {
     same = false;
   }
+  if (same && ownership && lastOwnership) {
+    for (let i = 0; i < ownership.length; i++) {
+      if (ownership[i] !== lastOwnership[i]) {
+        same = false;
+        break;
+      }
+    }
+  } else if (same && ownership !== null && lastOwnership === null) {
+    same = false;
+  }
+  if (same && picture && lastPicture) {
+    for (let i = 0; i < picture.visual.length; i++) {
+      if (picture.visual[i] !== lastPicture[i] || picture.priority[i] !== lastPicturePriority![i]) {
+        same = false;
+        break;
+      }
+    }
+  } else if (same && picture !== null && lastPicture === null) {
+    same = false;
+  }
   if (same) return;
   lastVisual = frame.visual.slice(); // retained copy, never transferred
   lastText = textCells.slice();
+  lastOwnership = ownership ? ownership.slice() : null;
+  lastPicture = picture ? picture.visual.slice() : null;
+  lastPicturePriority = picture ? picture.priority.slice() : null;
+  lastObjectsJson = objectsJson;
   lastPicRow = engine.displayBase;
   lastTextMode = engine.textModeActive;
   lastInputEnabled = engine.inputEnabled;
@@ -665,8 +813,18 @@ function postFrame(capture = false): void {
       inputReady: initialLogicStarted,
       holdToMove: engine.releaseGate !== 0,
       edit: engine.inputEdit,
+      cycle: cycleCount,
+      ...(ownership ? { ownership } : {}),
+      ...(objects ? { objects } : {}),
+      ...(picture ? { picVisual: picture.visual, picPriority: picture.priority } : {}),
     },
-    [frame.visual.buffer, frame.priority.buffer, text.buffer],
+    [
+      frame.visual.buffer,
+      frame.priority.buffer,
+      text.buffer,
+      ...(ownership ? [ownership.buffer] : []),
+      ...(picture ? [picture.visual.buffer, picture.priority.buffer] : []),
+    ],
   );
 }
 
@@ -729,11 +887,12 @@ function startTimers(): void {
         advanceSoundClock();
         if (engine!.modalKind !== null || engine!.continuationPending) {
           tickEngine();
+          flushTraceBatch();
           postFrame();
         } else if (cycleClock.poll(now, engine!.vars[10]!)) {
           flushDeferredMovement();
           tickEngine();
-          cycleCount++;
+          finishCycle();
           postFrame(true);
         }
         if (now - lastCycleReportAt >= CYCLE_REPORT_MS) {
@@ -796,7 +955,7 @@ self.onmessage = (ev: MessageEvent) => {
             else if (cycleClock.poll((replay.tick * 1000) / 60, engine.vars[10]!)) {
               flushDeferredMovement();
               tickEngine();
-              cycleCount++;
+              finishCycle();
             }
             if (replay.yielded) break;
             if ((chunkTicks & 63) === 0 && performance.now() - startTime >= maxChunkMs) {
@@ -852,6 +1011,53 @@ self.onmessage = (ev: MessageEvent) => {
         type: "objects",
         id: msg.id,
         objects: engine ? engine.readObjects() : [],
+      });
+      return;
+    }
+    if (msg.type === "debug") {
+      const want = (msg.channels ?? {}) as Record<string, unknown>;
+      const traceWas = debug.trace;
+      debug.ownership = want["ownership"] === true;
+      debug.objects = want["objects"] === true;
+      debug.trace = want["trace"] === true;
+      debug.picture = want["picture"] === true;
+      if (debug.trace !== traceWas) applyTraceChannel();
+      // Invalidate the sameness check so a newly armed channel ships with the
+      // next frame and a disarmed one clears promptly.
+      lastVisual = null;
+      lastObjectsJson = "";
+      postFrame();
+      return;
+    }
+    if (msg.type === "debugWrite" && engine) {
+      if (Array.isArray(msg.vars))
+        for (const pair of msg.vars as number[][]) engine.vars[pair[0]! & 0xff] = pair[1]! & 0xff;
+      if (Array.isArray(msg.flags))
+        for (const pair of msg.flags as number[][]) engine.flags[pair[0]! & 0xff] = pair[1] ? 1 : 0;
+      // Attribute the host write to the current boundary, not the next cycle.
+      captureStateDiffs();
+      sendControl({ type: "debugWritten", id: msg.id });
+      return;
+    }
+    if (msg.type === "debugEvents") {
+      const since = typeof msg.since === "number" ? msg.since : 0;
+      sendControl({
+        type: "debugEvents",
+        id: msg.id,
+        cycle: cycleCount,
+        latestSeq: debugEventSeq,
+        events: debugEvents.filter((e) => e.seq > since),
+      });
+      return;
+    }
+    if (msg.type === "debugTrace") {
+      const since = typeof msg.since === "number" ? msg.since : 0;
+      sendControl({
+        type: "debugTrace",
+        id: msg.id,
+        cycle: cycleCount,
+        latestSeq: traceSeq,
+        records: traceRing.filter((r) => r.seq > since),
       });
       return;
     }
@@ -978,6 +1184,9 @@ self.onmessage = (ev: MessageEvent) => {
       isSeeking = false;
       lastVisual = null;
       lastText = null;
+      lastOwnership = null;
+      lastPicture = null;
+      lastPicturePriority = null;
       lastPicRow = -1;
       lastTextMode = false;
       lastInputEnabled = false;
@@ -996,6 +1205,16 @@ self.onmessage = (ev: MessageEvent) => {
       cycleCount = 0;
       recentRing.reset();
       historyRing.reset();
+      debugEvents.length = 0;
+      debugEventSeq = 0;
+      prevVars = null;
+      prevFlags = null;
+      traceRing.length = 0;
+      traceSeq = 0;
+      pendingTrace = [];
+      applyTraceChannel();
+      // Baseline the diff ring before the first cycle so boot writes count.
+      captureStateDiffs();
       autosaveIntervalMs = Number(boot.autosaveMs ?? AUTOSAVE_INTERVAL_MS);
       autosaveFiles = boot.autosaveFiles === true;
       lastAutosaveAt = Date.now();
@@ -1058,6 +1277,9 @@ self.onmessage = (ev: MessageEvent) => {
       lastKeyId = 0;
       lastVisual = null;
       lastText = null;
+      lastOwnership = null;
+      lastPicture = null;
+      lastPicturePriority = null;
       lastPicRow = -1;
       lastTextMode = false;
       lastInputEnabled = false;
@@ -1074,6 +1296,15 @@ self.onmessage = (ev: MessageEvent) => {
       cycleCount = 0;
       recentRing.reset();
       historyRing.reset();
+      debugEvents.length = 0;
+      debugEventSeq = 0;
+      prevVars = null;
+      prevFlags = null;
+      traceRing.length = 0;
+      traceSeq = 0;
+      pendingTrace = [];
+      applyTraceChannel();
+      captureStateDiffs();
       if (!msg.seeking) {
         postFrame();
       }

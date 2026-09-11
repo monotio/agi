@@ -1,6 +1,6 @@
 {
   "name": "agi-is-here",
-  "version": "1.0.0-rc.8",
+  "version": "1.0.0-rc.9",
   "description": "Create, play and remix authentic AGI adventures with AI. Open-source TypeScript engine and browser authoring tools by Monotio.",
   "type": "module",
   "license": "MIT",

@@ -1,6 +1,10 @@
 import type { AgentRunState } from "./agent/agentRun.ts";
 import { reactive } from "vue";
-import type { GameControlBinding } from "../../src/runtime/engine.ts";
+import type {
+  GameControlBinding,
+  ScreenObjectState,
+  TraceRecord,
+} from "../../src/runtime/engine.ts";
 import { continuationTranscript } from "./projectArchive.ts";
 import { detectKnownGame, gameRevision, updateBootedResources } from "./gameMetadata.ts";
 import { clearGameSaves } from "./gameSaves.ts";
@@ -145,6 +149,12 @@ export interface EngineState {
   recording: { active: boolean; starting: boolean; error: string };
   /** Real-time walkthrough playback. */
   walkthrough: WalkthroughUiState;
+  /** Live screen-object table while the objects debug channel is armed. */
+  debugObjects: ScreenObjectState[];
+  /** Structured instruction records while the trace debug channel is armed. */
+  debugTrace: (TraceRecord & { seq: number; cycle: number })[];
+  /** Debug channels the app has armed on the worker. */
+  debugChannels: { ownership: boolean; objects: boolean; trace: boolean; picture: boolean };
 }
 
 export { autosaveKey, clearAutosave, lastGameKey, readAutosave, writeAutosave };
@@ -207,6 +217,9 @@ export function useEngine(
     resumed: false,
     recording: { active: false, starting: false, error: "" },
     walkthrough: createInitialWalkthroughState(),
+    debugObjects: [],
+    debugTrace: [],
+    debugChannels: { ownership: false, objects: false, trace: false, picture: false },
   });
 
   let activeWalkthroughSession = 0;
@@ -510,6 +523,9 @@ export function useEngine(
     authoringController.resetSession();
     drainPendingQueries();
     autosaveController.drainFlushWaiters();
+    state.debugObjects = [];
+    state.debugTrace = [];
+    state.debugChannels = { ownership: false, objects: false, trace: false, picture: false };
   }
 
   /** Keep the selected provider and its key together; archives carry no credentials. */
@@ -547,7 +563,21 @@ export function useEngine(
           priority: msg["priority"] as Uint8Array,
           text: msg["text"] as Uint8Array,
           picRow: Number(msg["picRow"]),
+          cycle: Number(msg["cycle"] ?? 0),
         };
+        // Armed debug channels ride the frame; absence clears the mirror so a
+        // disarmed channel never leaves stale data in the inspector.
+        const ownership = msg["ownership"] as Uint16Array | undefined;
+        if (ownership) latestFrame.ownership = ownership;
+        const objects = msg["objects"] as Frame["objects"];
+        if (objects) latestFrame.objects = objects;
+        const picVisual = msg["picVisual"] as Uint8Array | undefined;
+        const picPriority = msg["picPriority"] as Uint8Array | undefined;
+        if (picVisual && picPriority) {
+          latestFrame.picVisual = picVisual;
+          latestFrame.picPriority = picPriority;
+        }
+        state.debugObjects = objects ?? [];
         onFrame(latestFrame);
         // Counted after the frame is drawn, so tests can poll for painted pixels.
         hook.frame++;
@@ -636,6 +666,15 @@ export function useEngine(
       frames: (msg) => workerQueries.resolveQuery(Number(msg["id"]), resolveQueryPayload(msg)),
       engineState: (msg) => workerQueries.resolveQuery(Number(msg["id"]), resolveQueryPayload(msg)),
       objects: (msg) => workerQueries.resolveQuery(Number(msg["id"]), resolveQueryPayload(msg)),
+      trace: (msg) => {
+        const records = msg["records"] as typeof state.debugTrace;
+        state.debugTrace.push(...records);
+        if (state.debugTrace.length > 4000)
+          state.debugTrace.splice(0, state.debugTrace.length - 4000);
+      },
+      debugEvents: (msg) => workerQueries.resolveQuery(Number(msg["id"]), msg),
+      debugTrace: (msg) => workerQueries.resolveQuery(Number(msg["id"]), msg),
+      debugWritten: (msg) => workerQueries.resolveQuery(Number(msg["id"]), msg),
       exportFiles: (msg) => workerQueries.resolveQuery(Number(msg["id"]), resolveQueryPayload(msg)),
       cycle: (msg) => {
         hook.cycle = Number(msg["cycle"]);
@@ -698,6 +737,45 @@ export function useEngine(
         ? Math.max(20_000, Math.ceil(Number(extra["ticks"] ?? 0) / 2))
         : 5000);
     return workerQueries.query<T>(() => worker, type, extra, effectiveTimeout);
+  }
+
+  /**
+   * Arm or disarm worker debug channels. ownership and objects ride on frame
+   * posts; trace streams structured instruction records. Channels cost real
+   * per-cycle work in the worker — arm only while an inspector view is open.
+   */
+  function setDebugChannels(
+    channels: Partial<{ ownership: boolean; objects: boolean; trace: boolean; picture: boolean }>,
+  ): void {
+    Object.assign(state.debugChannels, channels);
+    worker?.postMessage({ type: "debug", channels: { ...state.debugChannels } });
+  }
+
+  /**
+   * Sierra's SET VAR / SET FLAG debug actions: [index, value] pairs applied at
+   * the next cycle boundary and attributed to the current cycle in the diff
+   * ring. Resolves when the worker acknowledges the write.
+   */
+  function debugWrite(
+    vars: [number, number][] = [],
+    flags: [number, number][] = [],
+  ): Promise<Record<string, unknown>> {
+    return query<Record<string, unknown>>("debugWrite", { vars, flags });
+  }
+
+  /** Var/flag diff events newer than `since` (a previous latestSeq). */
+  function debugEventsSince(since: number): Promise<Record<string, unknown>> {
+    return query<Record<string, unknown>>("debugEvents", { since });
+  }
+
+  /** Full scalar state snapshot (vars, flags, strings, objects' summary). */
+  function readEngineState(): Promise<Record<string, unknown>> {
+    return query<Record<string, unknown>>("state");
+  }
+
+  /** Trace ring records newer than `since` — the catch-up path for the live stream. */
+  function debugTraceSince(since: number): Promise<Record<string, unknown>> {
+    return query<Record<string, unknown>>("debugTrace", { since });
   }
 
   /**
@@ -1148,6 +1226,11 @@ export function useEngine(
     flushAutosave: autosaveController.flushAutosave,
     flushAutosaveDetailed: autosaveController.flushAutosaveDetailed,
     lastAutosaveRecord: autosaveController.lastAutosaveRecord,
+    setDebugChannels,
+    debugWrite,
+    debugEventsSince,
+    debugTraceSince,
+    readEngineState,
     shutdownEngine,
   };
 }

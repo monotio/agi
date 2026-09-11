@@ -1,4 +1,5 @@
 import type { LibraryMetadata } from "./gameMetadata.ts";
+import type { ScreenObjectState } from "../../src/runtime/engine.ts";
 
 /** Canonical identifier for an authored browser workspace / mutable user project. */
 export type ProjectId = string;
@@ -98,6 +99,21 @@ export interface Frame {
   text: Uint8Array;
   /** Text row where picture row 0 is presented. */
   picRow: number;
+  /** Interpreter cycle this frame completed, when the worker reports it. */
+  cycle?: number;
+  /**
+   * Per-pixel owning screen object (num + 1, 0 = background); present only
+   * while the worker's ownership debug channel is armed.
+   */
+  ownership?: Uint16Array;
+  /** Live screen-object table; present only while the objects channel is armed. */
+  objects?: ScreenObjectState[];
+  /**
+   * Picture-only visual + priority (no screen objects); present only while the
+   * picture debug channel is armed — the exploded view layers this as the wall.
+   */
+  picVisual?: Uint8Array;
+  picPriority?: Uint8Array;
 }
 
 /** Decodes 40x25 [char, attr] text buffer into 25 display rows. */

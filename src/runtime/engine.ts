@@ -424,6 +424,12 @@ export class Engine {
   /** Engine-owned text surface (spec "Text geometry and surfaces"). */
   private readonly text = new TextSurface();
   private readonly trace = new TraceWindow();
+  /**
+   * Host-armed structured trace sink. Unlike the authentic on-screen overlay,
+   * the listener receives a record per executed instruction without opening
+   * the trace window or requiring flag 10.
+   */
+  private traceListener: ((record: TraceRecord) => void) | null = null;
   private readonly tracedText = new TextSurface();
   /** Live input-line edit buffer and the most recently accepted line (echo.line). */
   private editLine = "";
@@ -2738,17 +2744,21 @@ export class Engine {
 
     // Stable sorting retains object-number order for equal drawing keys.
     // Positive fixed priorities sort after every baseline in the table mode.
+    // Entries carry the object number so the ownership channel records an
+    // identity the host can match against readObjects(), not a sort position.
     const active = this.objects
-      .filter((o) => o.active)
+      .map((o, num) => ({ o, num }))
+      .filter(({ o }) => o.active)
       .sort((a, b) => {
-        if (a.earlierPartition !== b.earlierPartition) return a.earlierPartition ? -1 : 1;
-        if (a.earlierPartition && this.profile.earlierPartitionOrder === "object-number") return 0;
-        const aKey = a.fixedPriority ? (a.priority === 0 ? -1 : SCREEN_HEIGHT) : a.y;
-        const bKey = b.fixedPriority ? (b.priority === 0 ? -1 : SCREEN_HEIGHT) : b.y;
+        if (a.o.earlierPartition !== b.o.earlierPartition) return a.o.earlierPartition ? -1 : 1;
+        if (a.o.earlierPartition && this.profile.earlierPartitionOrder === "object-number")
+          return 0;
+        const aKey = a.o.fixedPriority ? (a.o.priority === 0 ? -1 : SCREEN_HEIGHT) : a.o.y;
+        const bKey = b.o.fixedPriority ? (b.o.priority === 0 ? -1 : SCREEN_HEIGHT) : b.o.y;
         return aKey - bKey;
       });
 
-    for (const [slot, o] of active.entries()) {
+    for (const { o, num } of active) {
       const view = this.views.get(o.view);
       const cel = view && readViewCel(view, o.loop, o.cel);
       if (!cel) continue;
@@ -2756,13 +2766,12 @@ export class Engine {
       drawCel(frame, cel, o.x, o.y, {
         priority: pri,
         onPixel: (index: number) => {
-          this.scratchOwnership[index] = slot + 1;
+          this.scratchOwnership[index] = num + 1;
         },
       });
     }
 
-    const egoSlot = active.indexOf(this.objects[0]!);
-    this.cachedEgoVisible = egoSlot >= 0 && this.scratchOwnership.includes(egoSlot + 1);
+    this.cachedEgoVisible = this.scratchOwnership.includes(1);
 
     if (this.modal?.kind === "showObj") {
       // show.obj preview: the view's first cel, bottom centre of the picture.
@@ -2781,7 +2790,7 @@ export class Engine {
     }
 
     const ownership = !this.textMode ? this.scratchOwnership : null;
-    const text = this.mergeTraceText(this.hideTextUnderSprites(ownership, active));
+    const text = this.mergeTraceText(this.hideTextUnderSprites(ownership, this.objects));
     this.cachedText.set(text);
     this.lastComposedTextDirty = this.text.dirty;
     this.lastComposedModal = this.modal;
@@ -2824,6 +2833,35 @@ export class Engine {
       priority: this.cachedPriority.slice(),
       text: this.cachedText.slice(),
     };
+  }
+
+  /**
+   * Per-pixel owning screen object from the last composition: object number
+   * + 1, or 0 for picture background. Fresh copy — the host may transfer it.
+   */
+  getOwnership(): Uint16Array {
+    this.ensurePresentationCurrent();
+    return this.scratchOwnership.slice();
+  }
+
+  /**
+   * The picture surface alone — drawn picture plus baked add.to.pic views,
+   * no screen objects. Debug hosts that explode the frame into priority
+   * layers sample this for the wall bands so sprite pixels leave no holes.
+   */
+  getPictureSurface(): { visual: Uint8Array; priority: Uint8Array } {
+    this.ensurePresentationCurrent();
+    return { visual: this.surface.visual.slice(), priority: this.surface.priority.slice() };
+  }
+
+  /**
+   * Arm or disarm the host trace sink. While armed, every executed action and
+   * test instruction reports a TraceRecord — without opening the on-screen
+   * trace overlay or requiring flag 10. Instruction-granularity reporting has
+   * a real per-cycle cost; arm only while a debugger is listening.
+   */
+  setTraceListener(listener: ((record: TraceRecord) => void) | null): void {
+    this.traceListener = listener;
   }
 
   /** f1 is engine state, updated when sprites draw rather than when a host asks for pixels. */
@@ -3290,7 +3328,7 @@ export class Engine {
   }
 
   private traceInstruction(code: Uint8Array, pc: number, result?: boolean): void {
-    if (!this.trace.active) return;
+    if (!this.trace.active && this.traceListener === null) return;
     const op = code[pc]!;
     const condition = result !== undefined;
     const spec = condition ? CONDITION_BY_CODE.get(op) : actionSpec(op, this.profile);
@@ -3299,17 +3337,27 @@ export class Engine {
       this.trace.logic === null
         ? undefined
         : this.loadLogic(this.trace.logic).messages[(condition ? 160 : 0) + op - 1];
-    let args: string;
-    if (condition && op === 14) {
-      args = Array.from({ length: code[pc + 1]! }, (_, i) =>
-        String(code[pc + 2 + i * 2]! | (code[pc + 3 + i * 2]! << 8)),
-      ).join(",");
-    } else {
-      args = Array.from(code.subarray(pc + 1, pc + 1 + (spec?.operands.length ?? 0))).join(",");
+    const argValues =
+      condition && op === 14
+        ? Array.from(
+            { length: code[pc + 1]! },
+            (_, i) => code[pc + 2 + i * 2]! | (code[pc + 3 + i * 2]! << 8),
+          )
+        : Array.from(code.subarray(pc + 1, pc + 1 + (spec?.operands.length ?? 0)));
+    const logic = this.activation?.logic ?? 0;
+    if (this.trace.active) {
+      this.trace.append(
+        `${logic}:${pc} ${name || op}(${argValues.join(",")})${condition ? ` ${result}` : ""}`,
+      );
     }
-    this.trace.append(
-      `${this.activation?.logic ?? 0}:${pc} ${name || op}(${args})${condition ? ` ${result}` : ""}`,
-    );
+    this.traceListener?.({
+      logic,
+      pc,
+      op,
+      args: argValues,
+      ...(condition ? { result: result! } : {}),
+      ...(name ? { name } : {}),
+    });
   }
 
   private evaluateCondition(code: Uint8Array, pc: number): { result: boolean; next: number } {
@@ -4811,6 +4859,9 @@ export class Engine {
         cycleTime: o.cycleTime,
         motionMode: o.motionMode,
         update: o.update,
+        moveTarget: o.moveTarget ? { x: o.moveTarget.x, y: o.moveTarget.y } : null,
+        follow: o.follow ? { threshold: o.follow.threshold } : null,
+        stepCount: o.stepCount,
       });
     }
     return out;
@@ -4866,6 +4917,8 @@ export class Engine {
       parserCount: this.parserCount,
       lastInputLine: this.lastInputLine,
       horizon: this.horizon,
+      priorityBase: this.priorityBase,
+      patchGeneration: this.patchGen,
       modalKind: this.modalKind,
       modalSerial: this.modalSerial,
       inputEnabled: this.inputAccepted,
@@ -4902,6 +4955,8 @@ export class Engine {
       parserCount: this.parserCount,
       lastInputLine: this.lastInputLine,
       horizon: this.horizon,
+      priorityBase: this.priorityBase,
+      patchGeneration: this.patchGen,
       modalKind: this.modalKind,
       modalSerial: this.modalSerial,
       inputEnabled: this.inputAccepted,
@@ -4931,6 +4986,18 @@ export class Engine {
   }
 }
 
+/** One executed instruction, reported to a host trace listener. */
+export interface TraceRecord {
+  logic: number;
+  pc: number;
+  op: number;
+  args: number[];
+  /** Test opcodes report their outcome; actions omit the field. */
+  result?: boolean;
+  /** Resolved opcode name when the game configured a trace dictionary. */
+  name?: string;
+}
+
 /** One active screen object, detached from the interpreter's live record. */
 export interface ScreenObjectState {
   num: number;
@@ -4953,6 +5020,12 @@ export interface ScreenObjectState {
   /** 0 normal, 1 move.obj, 2 follow.ego, 3 wander. */
   motionMode: number;
   update: boolean;
+  /** move.obj destination while that motion is armed. */
+  moveTarget?: { x: number; y: number } | null;
+  /** follow.ego distance threshold while that motion is armed. */
+  follow?: { threshold: number } | null;
+  /** Steps taken in the current step-time window. */
+  stepCount?: number;
 }
 
 /** Configured shortcuts are observable state; bindings do not guarantee a script will handle a key. */
@@ -4985,6 +5058,10 @@ export interface EngineStateReport {
   parserCount: number;
   lastInputLine: string;
   horizon: number;
+  /** Y at which baseline priority bands start (set.pri.base / default 48). */
+  priorityBase: number;
+  /** Container patch count — the "revision" of the resource set in play. */
+  patchGeneration: number;
   modalKind: string | null;
   /** Instance serial of the open modal: a new window means a new beat. */
   modalSerial: number;
