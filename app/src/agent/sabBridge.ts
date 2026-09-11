@@ -1,5 +1,5 @@
 /**
- * Main-thread side of the LLM blocking bridge.
+ * Main-thread side of the LLM request bridge.
  *
  * SharedArrayBuffer layout (header of four i32 slots, then the payload):
  *   i32[0]  state: 0 idle, 1 request (worker), 2 response ready, 3 in-progress
@@ -8,8 +8,13 @@
  *   i32[3]  reserved
  *   bytes   JSON request / text response, from BRIDGE_HEADER_BYTES on
  *
- * The engine worker blocks in Atomics.wait on slot 0 while the agent here
- * answers. Slot 2 is the remix freeze: the
+ * The engine worker posts a request on slot 0 and suspends the interpreter
+ * pass that asked for it — it never Atomics.wait()s, so it keeps serving
+ * application messages while a request is in flight. The main thread claims
+ * the request, answers it, and the worker's next poll delivers the response
+ * to the parked interaction.
+ *
+ * Slot 2 is the remix freeze: the
  * main thread stores it synchronously, so the worker sees the pause at the
  * very next cycle boundary without waiting for a postMessage to be delivered.
  *
@@ -91,12 +96,14 @@ export function createBridge(handler: AgentHandler, onEvent: AgentEventSink): Br
     handler
       .handle(req)
       .then((result) => {
-        if (Atomics.load(i32, 0) === BRIDGE_STATE_CANCELLED) return;
+        // Write only while this request still owns the slot: a cancelled or
+        // superseded request's late response must never answer the next one.
+        if (Atomics.load(i32, 0) !== BRIDGE_STATE_CLAIMED) return;
         respond(result);
         onEvent("response", result.slice(0, 120));
       })
       .catch((e) => {
-        if (Atomics.load(i32, 0) === BRIDGE_STATE_CANCELLED) return;
+        if (Atomics.load(i32, 0) !== BRIDGE_STATE_CLAIMED) return;
         respond("");
         onEvent("response", `agent error: ${String(e)}`);
       });

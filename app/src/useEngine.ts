@@ -549,6 +549,13 @@ export function useEngine(
               : msg["state"];
     const handlers: Record<string, (msg: Record<string, unknown>) => void> = {
       keyAccepted: (msg) => input.acknowledgeKey(Number(msg["id"])),
+      // The worker abandoned a suspended interaction (reenter, bridge cancel):
+      // resolve the prompt widgets its in-flight request opened so the UI
+      // stops waiting on an answer that is no longer consumed.
+      interactionCancelled: () => {
+        input.resetKeys();
+        promptController.cancelPrompt();
+      },
       frame: (msg) => {
         state.inputEnabled = Boolean(msg["inputEnabled"]);
         state.inputReady = Boolean(msg["inputReady"]);

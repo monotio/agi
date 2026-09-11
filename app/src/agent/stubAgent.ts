@@ -184,8 +184,8 @@ export class StubAgent implements AgentHandler {
           "response",
           `authored room ${n}: logic ${logic.code.length}B bytecode + picture, patched into VOL`,
         );
-        // Resources travel IN the bridge response: the worker is blocked in
-        // Atomics.wait and cannot process patch messages until it wakes.
+        // Resources travel IN the bridge response: the worker is suspended on
+        // the room request and cannot process patch messages until it resumes.
         return JSON.stringify({
           room: n,
           resources: [

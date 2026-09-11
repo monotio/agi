@@ -24,15 +24,19 @@ function setup(
   const reads: (number | undefined)[] = [];
   const screens: string[] = [];
   const kinds: (string | null)[] = [];
+  const prints: string[] = [];
+  const queued: number[] = [];
   let failWrite = false;
   let failRead = false;
   let edits = 0;
   const host: EngineHost = {
-    print() {},
+    print(text) {
+      prints.push(text);
+    },
     displayAt() {},
     statusLine() {},
     takeInputLine: () => null,
-    takeKeys: () => [],
+    takeKeys: () => queued.splice(0),
     listSaveGames: () => slots,
     waitKey() {
       screens.push(
@@ -65,7 +69,9 @@ function setup(
     reads,
     screens,
     kinds,
+    prints,
     edits: () => edits,
+    pressKeys: (...codes: number[]) => queued.push(...codes),
     failWrite: () => {
       failWrite = true;
     },
@@ -171,8 +177,12 @@ test("restored save description remains available in subsequent save images", ()
 test("selected malformed save shows a restore error before aborting execution", () => {
   const s = setup("restore", [13, 13]);
   s.slots.push({ slot: 1, bytes: s.engine.serialize().slice(0, 40) });
+  // The failed image parks behind its error window; the pass does not abort
+  // until the player has seen and acknowledged the dialog.
+  s.engine.tick();
+  assert.ok(s.prints.some((text) => text.includes("Unable to restore")));
+  s.pressKeys(13);
   assert.throws(() => s.engine.tick());
-  assert.ok(s.screens.some((screen) => screen.includes("Unable to restore")));
   assert.equal(s.engine.vars[100], 0);
 });
 

@@ -56,6 +56,7 @@ import { OperationRecorder } from "../../src/agent/recordedReplay.ts";
 import type { RecordedEvent } from "./gameRecording.ts";
 import {
   Engine,
+  HostWait,
   type EngineHost,
   type EngineMenuState,
   type TraceRecord,
@@ -65,7 +66,7 @@ import {
   BRIDGE_HEADER_BYTES,
   BRIDGE_PAUSE_SLOT,
   BRIDGE_STATE_CANCELLED,
-  WorkerBridgeAbortError,
+  BRIDGE_STATE_RESPONSE,
 } from "./agent/sabBridge.ts";
 import { FrameRing } from "./frameRing.ts";
 import { CycleClock } from "../../src/runtime/cycleClock.ts";
@@ -144,7 +145,12 @@ let selectedSoundDevice = 1;
 let liveDictionary = new Map<string, number>();
 let authoredWords: Uint8Array | null = null;
 let inputBuffer: string[] = [];
-let keyBuffer: number[] = [];
+/**
+ * Queued key presses with the main thread's press id. A waitkey bridge
+ * answer identifies its press by id so the same key never reaches the game
+ * twice — the posted message is the shadow, the response is the delivery.
+ */
+let keyQueue: { id: number | null; code: number }[] = [];
 /** Admitted walking releases and later walking keys wait for ordinary input. */
 const deferredMovement: number[] = [];
 
@@ -174,8 +180,16 @@ let lastInputReady = false;
 function tickEngine(): void {
   if (!engine) return;
   initialLogicStarted = true;
-  if (recording) recording.tape.run("tick", () => engine!.tick());
-  else engine.tick();
+  // A suspended interaction freezes the cycle until its answer lands — the
+  // gate inside tick() is the same, but skipping here keeps the recorder's
+  // operation list honest: a parked tick never runs.
+  if (engine.hostInteractionPending && !engine.hostInteractionReady) return;
+  if (recording) {
+    recording.tape.run("tick", () => engine!.tick());
+    // A tick that ended suspended stays one recorded operation: the resumed
+    // answer and the calls it produces join the same list on the next tick.
+    if (engine!.awaitingHostAnswer) recording.tape.holdTick();
+  } else engine.tick();
 }
 function recordedClock(): void {
   recording?.tape.clock();
@@ -227,11 +241,12 @@ function postReplay(blocked: string | null, fullState = false): void {
 
 function flushDeferredMovement(): void {
   if (!engine || engine.modalKind !== null || engine.continuationPending) return;
+  if (engine.hostInteractionPending) return;
   for (const key of deferredMovement.splice(0)) {
     if (key === 0) {
       if (recording) recording.tape.run("release", () => engine!.releaseTrackedKey(true));
       else engine.releaseTrackedKey(true);
-    } else keyBuffer.push(key);
+    } else keyQueue.push({ id: null, code: key });
   }
 }
 /** Interpreter cycles completed since boot; the frame ring's timeline. */
@@ -416,8 +431,19 @@ function finishCycle(): void {
   flushTraceBatch();
 }
 
-/** LLM blocking bridge state (see app/src/agent/sabBridge.ts for layout). */
+/** LLM request bridge state (see app/src/agent/sabBridge.ts for layout). */
 let bridge: { i32: Int32Array; bytes: Uint8Array } | null = null;
+/**
+ * The bridge request currently in flight, or null while the slot is idle.
+ * The engine's pendingInteraction armed before the request fired; the
+ * response feeds `deliverBridgeResponse`, which hands it to
+ * `engine.deliverHostAnswer` — the interpreter stays parked until then.
+ */
+let bridgeOutstanding: { op: string; authoring: boolean } | null = null;
+/** Bridge-side key press ids already accepted, for stale-response rejection. */
+let lastBridgeKeyId = 0;
+/** A reenter suspended on room authoring owes the host a `reentered`. */
+let pendingReenter = false;
 
 function advanceSoundClock(authoring = false): void {
   if (replay) return;
@@ -429,13 +455,20 @@ function advanceSoundClock(authoring = false): void {
   }
 }
 
-function bridgeCall(op: string, context: string): string {
+/**
+ * Post a host-service request on the SAB bridge and suspend the interpreter
+ * pass that asked for it. The worker never Atomics.wait()s: the request
+ * returns to the event loop by throwing HostWait, runLogicStack parks the
+ * logic stack, and pollBridge delivers the response when it lands — so the
+ * host keeps inspecting, saving and editing while the game waits.
+ */
+function fireBridgeRequest(op: string, context: string): never {
   if (recording && !["getstring", "getnum", "waitkey"].includes(op))
     recording.tainted = `The recording used unsupported host service ${op}.`;
   if (!bridge) throw new Error("llm bridge not initialized");
   advanceSoundClock();
-  // The interpreter is about to block: ship the frame that shows the prompt
-  // (or the text screen) before the thread stops posting anything.
+  // The interpreter is about to suspend: ship the frame that shows the
+  // prompt (or the selector) the request belongs to.
   postFrame();
   const payload = new TextEncoder().encode(JSON.stringify({ op, context: JSON.parse(context) }));
   if (payload.length > bridge.bytes.length) throw new Error("llm request too large for bridge");
@@ -444,44 +477,194 @@ function bridgeCall(op: string, context: string): string {
   Atomics.store(bridge.i32, 1, payload.length);
   Atomics.store(bridge.i32, 0, 1); // request
   Atomics.notify(bridge.i32, 0);
+  const authoring = op === "room";
+  bridgeOutstanding = { op, authoring };
   if (replay && ["waitkey", "getnum", "getstring", "saveDescription"].includes(op)) {
     replay.yielded = true;
     postReplay(op);
   }
-  const authoring = op === "room";
   if (authoring) sendPresentation({ type: "soundPaused", paused: true });
+  throw new HostWait();
+}
+
+/** The request finished or was abandoned: release the authoring pause. */
+function settleBridgeRequest(outstanding: { op: string; authoring: boolean }): void {
+  if (!outstanding.authoring) return;
+  cycleClock.reset(replay ? (replay.tick * 1000) / 60 : performance.now());
+  sendPresentation({ type: "soundPaused", paused: false });
+}
+
+/**
+ * Collect a landed bridge response (or a cancellation) and feed it to the
+ * suspended interaction. Runs at the top of every inbound message and once
+ * per host poll, so application traffic keeps flowing while a request is in
+ * flight. A response with no outstanding request belonged to an abandoned
+ * interaction and is dropped.
+ */
+function pollBridge(): void {
+  if (!bridge || !engine) return;
+  const state = Atomics.load(bridge.i32, 0);
+  if (bridgeOutstanding === null) {
+    if (state === BRIDGE_STATE_RESPONSE) Atomics.store(bridge.i32, 0, 0);
+    return;
+  }
+  if (state === BRIDGE_STATE_CANCELLED) {
+    const outstanding = bridgeOutstanding;
+    bridgeOutstanding = null;
+    Atomics.store(bridge.i32, 0, 0);
+    settleBridgeRequest(outstanding);
+    engine.abortInteraction();
+    sendControl({ type: "interactionCancelled", op: outstanding.op });
+    return;
+  }
+  if (state !== BRIDGE_STATE_RESPONSE) return;
+  const len = Atomics.load(bridge.i32, 1);
+  const response = new TextDecoder().decode(bridge.bytes.slice(0, len));
+  Atomics.store(bridge.i32, 0, 0); // reset for the next call
+  const outstanding = bridgeOutstanding;
+  bridgeOutstanding = null;
+  settleBridgeRequest(outstanding);
   try {
-    // The main thread may claim state 1 as state 3 before we reach the wait.
-    // Wait through either state, never decode our own request.
-    for (;;) {
-      const state = Atomics.load(bridge.i32, 0);
-      if (state === 2) break;
-      if (state === BRIDGE_STATE_CANCELLED) {
-        Atomics.store(bridge.i32, 0, 0);
-        throw new WorkerBridgeAbortError();
+    deliverBridgeResponse(outstanding.op, response);
+  } catch (wait) {
+    // A stale waitkey answer re-issues the request, which suspends again.
+    if (!(wait instanceof HostWait)) throw wait;
+  }
+  // Apply the landed answer at this boundary rather than the next timer
+  // pass: a message posted after the response — a state query, the key's own
+  // echo — observes the resumed state. A re-suspension (the selector's next
+  // need) refires its request inside this tick.
+  if (engine.hostInteractionReady) tickEngine();
+}
+
+/** Hand a bridge response to the suspended engine interaction it answers. */
+function deliverBridgeResponse(op: string, response: string): void {
+  if (!engine) return;
+  switch (op) {
+    case "waitkey": {
+      if (response.startsWith("{")) {
+        const key = JSON.parse(response) as { id: number; code: number };
+        if (key.id <= lastBridgeKeyId) {
+          // A response for a press already delivered: keep waiting.
+          if (engine.awaitingHostAnswer) fireBridgeRequest("waitkey", "{}");
+          return;
+        }
+        lastBridgeKeyId = key.id;
+        // The press's key message is also in flight. Whichever the worker
+        // sees first wins: delivery removes a queued shadow here, and raising
+        // lastKeyId makes a later-arriving message a duplicate.
+        if (key.id > lastKeyId) lastKeyId = key.id;
+        sendControl({ type: "keyAccepted", id: key.id });
+        const shadow = keyQueue.findIndex((queued) => queued.id === key.id);
+        if (shadow >= 0) keyQueue.splice(shadow, 1);
+        const accepted = key.code & 0xffff;
+        recordEvent({ cycle: cycleCount, kind: "key", code: accepted });
+        recording?.tape.host(["waitKey", accepted]);
+        engine.deliverHostAnswer(accepted);
+        return;
       }
-      // Timer callbacks cannot run inside Atomics.wait. Wake once per sound
-      // interval so host prompts keep producing audio and completion flags.
-      Atomics.wait(bridge.i32, 0, state, 1000 / 60);
-      advanceSoundClock(authoring);
+      // Direct host/test bridges retain the original numeric reply contract.
+      const code = Number.parseInt(response, 10);
+      if (Number.isFinite(code)) {
+        recordEvent({ cycle: cycleCount, kind: "key", code });
+        recording?.tape.host(["waitKey", code]);
+        engine.deliverHostAnswer(code);
+        return;
+      }
+      engine.deliverHostAnswer(0);
+      return;
     }
-    advanceSoundClock(authoring);
-    const len = Atomics.load(bridge.i32, 1);
-    const response = new TextDecoder().decode(bridge.bytes.slice(0, len));
-    Atomics.store(bridge.i32, 0, 0); // reset for the next call
-    if (recording && (op === "getstring" || op === "getnum")) {
-      recording.usedGetnum ||= op === "getnum";
-      recordEvent({ cycle: cycleCount, kind: "answer", text: response });
-    } else if (recording && op === "restore" && response) {
-      // A restore replaces the interpreter state mid-recording; the captured
-      // steps no longer describe the live game.
-      recording.tainted = "the game was restored mid-recording";
+    case "getnum": {
+      const n = Number.parseInt(response, 10);
+      const value = Number.isFinite(n) ? n : 0;
+      if (recording) {
+        recording.usedGetnum = true;
+        recordEvent({ cycle: cycleCount, kind: "answer", text: response });
+      }
+      recording?.tape.host(["number", value]);
+      engine.deliverHostAnswer(value);
+      return;
     }
-    return response;
-  } finally {
-    if (authoring) {
-      cycleClock.reset(replay ? (replay.tick * 1000) / 60 : performance.now());
-      sendPresentation({ type: "soundPaused", paused: false });
+    case "getstring": {
+      if (recording) recordEvent({ cycle: cycleCount, kind: "answer", text: response });
+      recording?.tape.host(["string", response]);
+      engine.deliverHostAnswer(response);
+      return;
+    }
+    case "saveList": {
+      // Anything unparseable ("storage-error", an empty cancel) is a failed
+      // listing; the selector shows its own failure screen for null.
+      let slots: { slot: number; bytes: Uint8Array }[] | null;
+      try {
+        const parsed = JSON.parse(response) as { slot: number; image: string }[];
+        slots = parsed.map(({ slot, image }) => ({ slot, bytes: base64ToBytes(image) }));
+      } catch {
+        slots = null;
+      }
+      engine.deliverHostAnswer(slots);
+      return;
+    }
+    case "saveDescription": {
+      // A cancelled prompt resolves ""; the empty answer cancels the dialog.
+      let value: string | null;
+      try {
+        value = (JSON.parse(response) as { value: string | null }).value;
+      } catch {
+        value = null;
+      }
+      engine.deliverHostAnswer(value);
+      return;
+    }
+    case "saveWrite":
+      engine.deliverHostAnswer(response === "true");
+      return;
+    case "restore": {
+      let bytes: Uint8Array | null = null;
+      if (response) {
+        try {
+          bytes = base64ToBytes(response);
+        } catch {
+          bytes = null;
+        }
+      }
+      if (bytes && recording) {
+        // A restore replaces the interpreter state mid-recording; the captured
+        // steps no longer describe the live game.
+        recording.tainted = "the game was restored mid-recording";
+      }
+      engine.deliverHostAnswer(bytes);
+      return;
+    }
+    case "room": {
+      // Apply the authored patch the agent produced, then deliver the outcome.
+      const request = engine.hostInteraction;
+      const room = request?.kind === "room" ? request.room : -1;
+      let prepared = false;
+      if (room >= 0) {
+        try {
+          const container = openContainer(engine.containerFiles);
+          const patch = prepareRoomPatch(container, room, response, liveDictionary);
+          const words = buildWordsTok(patch.words.map(([word, id]) => ({ word, id })));
+          for (const resource of patch.resources)
+            engine.patchResource(resource.kind, resource.num, resource.payload);
+          liveDictionary.clear();
+          for (const [word, id] of patch.words) liveDictionary.set(word, id);
+          authoredWords = words;
+          engine.patchAuxiliaryFiles({
+            words,
+            ...(patch.objects ? { objects: patch.objects } : {}),
+            ...(patch.tests ? { tests: patch.tests } : {}),
+          });
+          prepared = true;
+        } catch (error) {
+          sendPresentation({
+            type: "log",
+            text: `Room ${room} authoring failed: ${String(error)}`,
+          });
+        }
+      }
+      engine.deliverHostAnswer(prepared);
+      return;
     }
   }
 }
@@ -514,39 +697,18 @@ const host: EngineHost = {
     sendPresentation({ type: "textMode", active });
   },
   /**
-   * Blocking key wait for have.key busy loops. The worker cannot receive key
-   * messages while the interpreter spins, so the SAB bridge blocks the thread
-   * until the main thread resolves the request; this applies in graphics mode
-   * as well as in full text mode.
+   * Key wait for have.key busy loops, selectors and confirmations. Queued
+   * keys answer synchronously; otherwise the request crosses the SAB bridge
+   * and the engine suspends on the thrown HostWait until pollBridge delivers
+   * the response — the worker keeps serving application messages meanwhile.
    */
   waitKey() {
-    for (;;) {
-      const buffered = keyBuffer.shift();
-      if (buffered !== undefined) {
-        recording?.tape.host(["waitKey", buffered]);
-        return buffered;
-      }
-      const res = bridgeCall("waitkey", "{}");
-      if (res.startsWith("{")) {
-        const key = JSON.parse(res) as { id: number; code: number };
-        if (key.id <= lastKeyId) continue;
-        lastKeyId = key.id;
-        sendControl({ type: "keyAccepted", id: key.id });
-        const accepted = key.code & 0xffff;
-        // A key claimed by the blocking wait never arrives as a key message.
-        recordEvent({ cycle: cycleCount, kind: "key", code: accepted });
-        recording?.tape.host(["waitKey", accepted]);
-        return accepted;
-      }
-      // Direct host/test bridges retain the original numeric reply contract.
-      const code = Number.parseInt(res, 10);
-      if (Number.isFinite(code)) {
-        recordEvent({ cycle: cycleCount, kind: "key", code });
-        recording?.tape.host(["waitKey", code]);
-        return code;
-      }
-      return 0;
+    const buffered = keyQueue.shift();
+    if (buffered !== undefined) {
+      recording?.tape.host(["waitKey", buffered.code]);
+      return buffered.code;
     }
+    return fireBridgeRequest("waitkey", "{}");
   },
   statusLine(text) {
     sendPresentation({ type: "status", text });
@@ -557,7 +719,7 @@ const host: EngineHost = {
     return line;
   },
   takeKeys() {
-    const keys = keyBuffer.splice(0);
+    const keys = keyQueue.splice(0).map((queued) => queued.code);
     recording?.tape.host(["keys", keys.slice()]);
     return keys;
   },
@@ -565,34 +727,18 @@ const host: EngineHost = {
     if (!authorRooms || !engine) return true;
     const container = openContainer(engine.containerFiles);
     if (container.getResource("logic", room)) return true;
-    try {
-      const response = bridgeCall(
-        "room",
-        JSON.stringify({
-          room,
-          from,
-          edge: engine.vars[2],
-          state: engine.readState(),
-          objects: engine.readObjects(),
-        }),
-      );
-      const patch = prepareRoomPatch(container, room, response, liveDictionary);
-      const words = buildWordsTok(patch.words.map(([word, id]) => ({ word, id })));
-      for (const resource of patch.resources)
-        engine.patchResource(resource.kind, resource.num, resource.payload);
-      liveDictionary.clear();
-      for (const [word, id] of patch.words) liveDictionary.set(word, id);
-      authoredWords = words;
-      engine.patchAuxiliaryFiles({
-        words,
-        ...(patch.objects ? { objects: patch.objects } : {}),
-        ...(patch.tests ? { tests: patch.tests } : {}),
-      });
-      return true;
-    } catch (error) {
-      sendPresentation({ type: "log", text: `Room ${room} authoring failed: ${String(error)}` });
-      return false;
-    }
+    // The agent's answer lands in deliverBridgeResponse, which applies the
+    // patch and delivers true/false to the suspended new.room.
+    return fireBridgeRequest(
+      "room",
+      JSON.stringify({
+        room,
+        from,
+        edge: engine.vars[2],
+        state: engine.readState(),
+        objects: engine.readObjects(),
+      }),
+    );
   },
   /** 0x6e shake.screen: cosmetic jitter on the main thread. */
   shakeScreen(count) {
@@ -610,59 +756,36 @@ const host: EngineHost = {
   statusScreen(items) {
     sendPresentation({ type: "statusScreen", items });
   },
-  /** 0x76 get.num: blocking prompt through the SAB bridge; edited at (row, col). */
+  /** 0x76 get.num: prompt through the SAB bridge; the engine suspends until answered. */
   promptNumber(prompt, row, col) {
-    const response = bridgeCall("getnum", JSON.stringify({ prompt, row, col }));
-    const n = Number.parseInt(response, 10);
-    const value = Number.isFinite(n) ? n : 0;
-    recording?.tape.host(["number", value]);
-    return value;
+    return fireBridgeRequest("getnum", JSON.stringify({ prompt, row, col }));
   },
-  /** 0x73 get.string: blocking prompt through the SAB bridge; edited at (row, col). */
+  /** 0x73 get.string: prompt through the SAB bridge; the engine suspends until answered. */
   promptString(prompt, maxLen, row, col) {
-    const value = bridgeCall("getstring", JSON.stringify({ prompt, maxLen, row, col })).slice(
-      0,
-      maxLen,
-    );
-    recording?.tape.host(["string", value]);
-    return value;
+    return fireBridgeRequest("getstring", JSON.stringify({ prompt, maxLen, row, col }));
   },
   /**
-   * 0x7d save.game: the engine hands over the real save-file image (31-byte
-   * description header plus the profile's length-prefixed blocks). The main
-   * thread owns localStorage, and the bridge carries text, so the bytes travel
-   * as base64 and are stored as base64 — never re-encoded as JSON.
+   * 0x7d save.game: the selector's directory listing crosses the bridge; the
+   * response's base64 images decode on delivery.
    */
   listSaveGames() {
-    const slots = JSON.parse(bridgeCall("saveList", "{}")) as { slot: number; image: string }[];
-    return slots.map(({ slot, image }) => ({ slot, bytes: base64ToBytes(image) }));
+    return fireBridgeRequest("saveList", "{}");
   },
   get promptSaveDescription() {
     // Replays drive the save dialog with recorded key presses, so the engine's
     // own in-dialog editor must run: a DOM prompt can never be answered by a
     // recorded key, only by an explicit answer action.
     if (replay) return undefined;
-    return (initial: string, maxLen: number, row: number, col: number) => {
-      const response = JSON.parse(
-        bridgeCall("saveDescription", JSON.stringify({ initial, maxLen, row, col })),
-      ) as { value: string | null };
-      return response.value;
-    };
+    return (initial: string, maxLen: number, row: number, col: number) =>
+      fireBridgeRequest("saveDescription", JSON.stringify({ initial, maxLen, row, col }));
   },
   saveGame(bytes, slot = 1) {
-    return (
-      bridgeCall("saveWrite", JSON.stringify({ slot, image: bytesToBase64(bytes) })) === "true"
-    );
+    // The main thread owns localStorage; the image travels as base64.
+    return fireBridgeRequest("saveWrite", JSON.stringify({ slot, image: bytesToBase64(bytes) }));
   },
-  /** 0x7e restore.game: blocking bridge lookup; null = cancelled or no save. */
+  /** 0x7e restore.game: the save lookup crosses the bridge; null = cancelled. */
   restoreGame(slot = 1) {
-    const response = bridgeCall("restore", JSON.stringify({ slot }));
-    if (!response) return null;
-    try {
-      return base64ToBytes(response);
-    } catch {
-      return null;
-    }
+    return fireBridgeRequest("restore", JSON.stringify({ slot }));
   },
   /** 0x90 log / 0x85 obj.status.v / 0x87 show.mem: debug log stream. */
   logText(text) {
@@ -880,15 +1003,26 @@ function startTimers(): void {
     timer = setInterval(() => {
       try {
         const now = performance.now();
+        pollBridge();
         if (bridge && Atomics.load(bridge.i32, BRIDGE_PAUSE_SLOT) === 1) {
           cycleClock.poll(now, engine!.vars[10]!, true);
           return;
         }
         advanceSoundClock();
-        if (engine!.modalKind !== null || engine!.continuationPending) {
+        if (
+          engine!.modalKind !== null ||
+          engine!.continuationPending ||
+          engine!.hostInteractionPending
+        ) {
           tickEngine();
           flushTraceBatch();
           postFrame();
+          if (pendingReenter && !engine!.hostInteractionPending) {
+            // The suspended re-entered room has landed (or been declined).
+            pendingReenter = false;
+            sendControl({ type: "reentered", room: engine!.vars[0] });
+            postFrame(true);
+          }
         } else if (cycleClock.poll(now, engine!.vars[10]!)) {
           flushDeferredMovement();
           tickEngine();
@@ -909,9 +1043,6 @@ function startTimers(): void {
         if (Date.now() - lastAutosaveAt >= autosaveIntervalMs) autosave(false);
       } catch (e) {
         stopTimers();
-        if (e instanceof WorkerBridgeAbortError) {
-          return;
-        }
         sendControl({ type: "error", message: String(e) });
       }
     }, HOST_POLL_MS) as unknown as number;
@@ -921,6 +1052,10 @@ function startTimers(): void {
 self.onmessage = (ev: MessageEvent) => {
   const msg = ev.data;
   try {
+    // Every inbound message first collects a bridge response that landed
+    // since the last poll — the suspended interaction resumes on the next
+    // tick, and queries below see the delivered answer.
+    pollBridge();
     if (msg.type === "replayAdvance" && replay && engine) {
       if (typeof msg.sessionId === "number") currentSessionId = msg.sessionId;
       const ticks = Number(msg.ticks);
@@ -940,6 +1075,8 @@ self.onmessage = (ev: MessageEvent) => {
       const advanceChunk = () => {
         if (!replay || !engine) return;
         if (replayRequest !== thisRequest || currentSessionId !== thisSession) return;
+        // A response that landed between chunks delivers before the next tick.
+        pollBridge();
 
         const startTime = performance.now();
         let chunkTicks = 0;
@@ -951,7 +1088,12 @@ self.onmessage = (ev: MessageEvent) => {
             remaining--;
             chunkTicks++;
             recordedClock();
-            if (engine.modalKind !== null || engine.continuationPending) tickEngine();
+            if (
+              engine.modalKind !== null ||
+              engine.continuationPending ||
+              engine.hostInteractionPending
+            )
+              tickEngine();
             else if (cycleClock.poll((replay.tick * 1000) / 60, engine.vars[10]!)) {
               flushDeferredMovement();
               tickEngine();
@@ -963,11 +1105,6 @@ self.onmessage = (ev: MessageEvent) => {
             }
           }
         } catch (e) {
-          if (e instanceof WorkerBridgeAbortError) {
-            isSeeking = false;
-            replayRequest = null;
-            return;
-          }
           sendControl({ type: "error", id: thisRequest, message: String(e) });
           return;
         }
@@ -1144,12 +1281,28 @@ self.onmessage = (ev: MessageEvent) => {
     }
     if (msg.type === "reenter" && engine) {
       if (recording) recording.tainted = "Game resources changed during recording.";
+      // A suspended interaction is abandoned: its parked continuation is
+      // meaningless once the room's resources change under it, and the
+      // request still in flight resolves into a dropped response.
+      if (engine.hostInteractionPending) {
+        engine.abortInteraction();
+        sendControl({ type: "interactionCancelled" });
+      }
       // Live patch landed: re-enter the room so the new resources take effect.
       // An open message window blocks the cycle, and bytecode can never issue
       // new.room while one is up, so the harness acknowledges them first —
       // otherwise the re-entered room would sit behind an invisible window.
       for (let guard = 0; engine.modalKind !== null && guard < 16; guard++) engine.ackPrint();
-      engine.reenterRoom(typeof msg.room === "number" ? msg.room : undefined);
+      try {
+        engine.reenterRoom(typeof msg.room === "number" ? msg.room : undefined);
+      } catch (wait) {
+        if (!(wait instanceof HostWait)) throw wait;
+        // Room authoring suspended the transition: the answer lands on a
+        // later pollBridge and the timer's tick completes it, then reports.
+        pendingReenter = true;
+        postFrame(true);
+        return;
+      }
       postFrame(true);
       sendControl({ type: "reentered", room: engine.vars[0] });
       return;
@@ -1177,10 +1330,13 @@ self.onmessage = (ev: MessageEvent) => {
       // Browser sessions start with game sound enabled; saved games restore their own flag.
       engine.flags[9] = 1;
       inputBuffer = [];
-      keyBuffer = [];
+      keyQueue = [];
       deferredMovement.length = 0;
       recording = null;
       lastKeyId = 0;
+      lastBridgeKeyId = 0;
+      bridgeOutstanding = null;
+      pendingReenter = false;
       isSeeking = false;
       lastVisual = null;
       lastText = null;
@@ -1271,10 +1427,13 @@ self.onmessage = (ev: MessageEvent) => {
       engine = new Engine(openContainer(currentBootFiles), host, currentDictionary);
       engine.flags[9] = 1;
       inputBuffer = [];
-      keyBuffer = [];
+      keyQueue = [];
       deferredMovement.length = 0;
       recording = null;
       lastKeyId = 0;
+      lastBridgeKeyId = 0;
+      bridgeOutstanding = null;
+      pendingReenter = false;
       lastVisual = null;
       lastText = null;
       lastOwnership = null;
@@ -1387,6 +1546,13 @@ self.onmessage = (ev: MessageEvent) => {
     if (msg.type === "dismissPrint" && engine) {
       recording?.tape.record(["ack"]);
       recordEvent({ cycle: cycleCount, kind: "key", code: AGI_KEY.ENTER });
+      const pending = engine.hostInteraction;
+      // A click on the suspended selector or confirmation answers with its
+      // cancel key; the request still in flight resolves into a drop.
+      if (pending !== null && engine.awaitingHostAnswer) {
+        if (pending.kind === "saveDialog" || pending.kind === "confirm")
+          engine.deliverHostAnswer(AGI_KEY.ESCAPE);
+      }
       engine.ackPrint();
       postFrame();
       return;
@@ -1400,10 +1566,11 @@ self.onmessage = (ev: MessageEvent) => {
       ) {
         return;
       }
-      if (typeof msg.id === "number") {
-        if (msg.id <= lastKeyId) return;
-        lastKeyId = msg.id;
-        sendControl({ type: "keyAccepted", id: msg.id });
+      const keyId = typeof msg.id === "number" ? msg.id : null;
+      if (keyId !== null) {
+        if (keyId <= lastKeyId) return;
+        lastKeyId = keyId;
+        sendControl({ type: "keyAccepted", id: keyId });
       }
       flushDeferredMovement();
       const key = Number(msg.code) & 0xffff;
@@ -1414,7 +1581,7 @@ self.onmessage = (ev: MessageEvent) => {
         NAV_KEYS[key] !== undefined
       ) {
         if (deferredMovement.length < 19) deferredMovement.push(key);
-      } else keyBuffer.push(key);
+      } else keyQueue.push({ id: keyId, code: key });
       return;
     }
     if (msg.type === "direction" && engine) {
@@ -1460,14 +1627,11 @@ self.onmessage = (ev: MessageEvent) => {
         else recordEvent({ cycle: cycleCount, kind: "key", code: dirKey });
         if (deferredMovement.length > 0) {
           if (deferredMovement.length < 19) deferredMovement.push(dirKey);
-        } else keyBuffer.push(dirKey);
+        } else keyQueue.push({ id: null, code: dirKey });
       }
       return;
     }
   } catch (e) {
-    if (e instanceof WorkerBridgeAbortError) {
-      return;
-    }
     sendControl({ type: "error", message: String(e) });
   }
 };

@@ -32,7 +32,13 @@ import { TraceWindow } from "./trace.ts";
 import { InputQueue } from "./inputQueue.ts";
 import { AGI_KEY, NAV_KEYS } from "./keys.ts";
 import { validateEngineReplayState, type EngineReplayState } from "./replayState.ts";
-import { runSaveDialog, type SaveSlot } from "./saveDialog.ts";
+import {
+  createSaveDialog,
+  stepSaveDialog,
+  type SaveDialog,
+  type SaveDialogNeed,
+  type SaveSlot,
+} from "./saveDialog.ts";
 import {
   newScreenObject,
   packObjectState,
@@ -297,6 +303,78 @@ class RoomChange {
  */
 class ContinuationAbort {}
 
+/**
+ * Internal control-flow signal: the host cannot answer an interaction
+ * synchronously (the worker's request crosses the SAB bridge and its response
+ * arrives on a later event-loop pass). runLogicStack catches it exactly like
+ * a modal instruction — the active logic stack parks in `pendingLogic` and
+ * the outstanding interaction parks in `pendingInteraction` — so the host's
+ * event loop keeps serving application commands while the game waits. The
+ * delivered answer resumes the suspended pass precisely where it stopped.
+ */
+export class HostWait {}
+
+/**
+ * A suspended host interaction awaiting an asynchronous answer. The kind
+ * records how the answer is applied; `next` is the PC the suspended action
+ * would have returned — the parked frame resumes there once the answer lands
+ * (condition-level suspensions have none: their IF re-runs with replayed
+ * operands).
+ */
+export type PendingInteraction =
+  | {
+      /** have.key suspended mid-condition: `condPc` bounds the replay region. */
+      kind: "key";
+      condPc: number;
+    }
+  | {
+      /** get.string: the answer stores into a string slot and echoes. */
+      kind: "getstring";
+      next: number;
+      slot: number;
+      promptLen: number;
+      maxLen: number;
+      row: number;
+      col: number;
+    }
+  | {
+      /** get.num: the answer's low byte stores into the destination variable. */
+      kind: "getnum";
+      next: number;
+      dest: number;
+      promptLen: number;
+    }
+  | {
+      /** save.game/restore.game with the engine selector mid-flight. */
+      kind: "saveDialog";
+      next: number;
+      mode: "save" | "restore";
+      dialog: SaveDialog;
+    }
+  | {
+      /** Bare saveGame/restoreGame host call (no engine selector). */
+      kind: "saveDirect" | "restore";
+      next: number;
+    }
+  | {
+      /** Restart/quit confirmation window awaiting its key. */
+      kind: "confirm";
+      next: number;
+      action: "restart" | "quit";
+      /** Serial of the window emitPrint pushed; closed on apply if still open. */
+      modalSerial: number;
+    }
+  | {
+      /** prepareRoom during newRoom — the room transition continues on apply. */
+      kind: "room";
+      room: number;
+    }
+  | {
+      /** A failed restore parked behind its error window; the drained modal ends the game. */
+      kind: "restoreError";
+      error: unknown;
+    };
+
 type ClockConditionTerm =
   | { kind: "fixed"; value: boolean | undefined }
   | {
@@ -398,6 +476,27 @@ export class Engine {
   private activation: { logic: number; messages: readonly (string | null)[] } | null = null;
   /** Exact call stack parked at a modal instruction, innermost frame last. */
   private pendingLogic: LogicFrame[] | null = null;
+  /**
+   * The suspended host interaction that parked `pendingLogic`, or null. A
+   * HostWait parks the bytecode pass here; `deliverHostAnswer` feeds the
+   * bridge response back into `applyInteraction` and a later tick resumes
+   * the stack exactly where it stopped.
+   */
+  private pendingInteraction: PendingInteraction | null = null;
+  /** A host answer already delivered; the next suspended tick applies it. */
+  private pendingAnswer: unknown;
+  /**
+   * Re-entrant calls inside an in-flight synchronous host call observe the
+   * armed record; the count distinguishes that from a genuinely suspended
+   * interaction (the call threw HostWait and unwound, leaving depth 0).
+   */
+  private hostCallDepth = 0;
+  /**
+   * Suspended-IF replay bound: on the resume of a have.key wait, condition
+   * PCs below this in the active condition list return their recorded outcome
+   * instead of re-evaluating, so the resumed pass sees identical operands.
+   */
+  private conditionReplayUntil = -1;
   private pictureShown = false;
   private terminated = false;
   private statusEnabled = false;
@@ -733,6 +832,359 @@ export class Engine {
   /** A message has suspended a cycle, including after its timeout expires. */
   get continuationPending(): boolean {
     return this.pendingLogic !== null;
+  }
+
+  /** A suspended interaction awaiting its host answer, or null. */
+  get hostInteraction(): PendingInteraction | null {
+    return this.pendingInteraction;
+  }
+
+  /** A suspended host interaction is parked (its request may be in flight). */
+  get hostInteractionPending(): boolean {
+    return this.pendingInteraction !== null;
+  }
+
+  /**
+   * The suspended interaction's host request is still in flight. The
+   * restore-error teardown parks without a request — its error window drains
+   * through the ordinary modal path instead.
+   */
+  get awaitingHostAnswer(): boolean {
+    return this.pendingInteraction !== null && this.pendingInteraction.kind !== "restoreError";
+  }
+
+  /**
+   * The suspended interaction can resume on the next tick: its answer has
+   * landed, or it waits on the error window's ordinary modal drain.
+   */
+  get hostInteractionReady(): boolean {
+    return (
+      this.pendingInteraction !== null &&
+      (this.pendingInteraction.kind === "restoreError" || this.pendingAnswer !== undefined)
+    );
+  }
+
+  /**
+   * Deliver the host's answer to the suspended interaction. Delivery does
+   * not run the game — the next tick applies the answer and resumes the
+   * parked logic stack.
+   */
+  deliverHostAnswer(answer: unknown): void {
+    if (this.pendingInteraction === null) return;
+    this.pendingAnswer = answer;
+  }
+
+  /**
+   * The host declined a wait whose request was never issued (replay aborts,
+   * restart/quit teardown). Session confirmations decline to their "no"
+   * branch so the game continues; other kinds park until restart/restore.
+   */
+  declineSessionConfirm(): void {
+    if (this.pendingInteraction?.kind !== "confirm") return;
+    this.deliverHostAnswer(0);
+  }
+
+  /**
+   * Abandon the suspended interaction without a host answer. The parked logic
+   * stack is dropped with it — the suspended instruction's continuation is
+   * meaningless without its answer — so the next tick starts a fresh pass.
+   * Surfaces the interaction owned are restored.
+   */
+  abortInteraction(): void {
+    const pending = this.pendingInteraction;
+    this.pendingInteraction = null;
+    this.pendingAnswer = undefined;
+    this.conditionReplayUntil = -1;
+    if (pending?.kind === "saveDialog") {
+      pending.dialog.text.restore(pending.dialog.saved);
+      this.saveDialogMode = null;
+    }
+    if (pending?.kind === "confirm" && this.modal?.serial === pending.modalSerial)
+      this.closeModal();
+    if (pending !== null) this.pendingLogic = null;
+  }
+
+  /**
+   * Call a host service that may not be able to answer synchronously. The
+   * pending record arms before the call so a host that throws HostWait — the
+   * bridge worker, whose response arrives on a later event-loop pass — leaves
+   * the suspended interaction recorded for `deliverHostAnswer`. A synchronous
+   * answer or a real failure disarms it again.
+   */
+  private hostCall<T>(pending: PendingInteraction, call: () => T): T {
+    this.pendingInteraction = pending;
+    this.hostCallDepth++;
+    try {
+      const result = call();
+      this.pendingInteraction = null;
+      return result;
+    } catch (error) {
+      if (!(error instanceof HostWait)) this.pendingInteraction = null;
+      throw error;
+    } finally {
+      this.hostCallDepth--;
+    }
+  }
+
+  /**
+   * Drive the selector machine until it finishes or needs the host. Each
+   * need's service call goes through `hostCall`, so a host that cannot answer
+   * suspends the bytecode pass at the current need; the delivered answer
+   * resumes the drive from exactly that point.
+   */
+  private driveSaveDialog(
+    pending: Extract<PendingInteraction, { kind: "saveDialog" }>,
+    answer: unknown,
+  ): void {
+    for (;;) {
+      const step = stepSaveDialog(pending.dialog, answer);
+      if (step.done) {
+        this.pendingInteraction = null;
+        this.saveDialogMode = null;
+        this.controllers.fill(0);
+        if (pending.mode === "restore" && step.image !== null) this.beginRestore(step.image);
+        return;
+      }
+      answer = this.serveDialogNeed(pending, step.need);
+    }
+  }
+
+  /** Serve one selector need; returns its answer or suspends via HostWait. */
+  private serveDialogNeed(
+    pending: Extract<PendingInteraction, { kind: "saveDialog" }>,
+    need: SaveDialogNeed,
+  ): unknown {
+    switch (need.kind) {
+      case "key": {
+        // Keys that arrived while the selector was suspended answer without
+        // another host round trip.
+        const queued = this.drainDialogKey();
+        if (queued !== undefined) return queued;
+        const wait = this.host.waitKey ?? this.host.waitTextKey;
+        if (wait) return this.hostCall(pending, () => wait.call(this.host) ?? AGI_KEY.ESCAPE);
+        return AGI_KEY.ESCAPE;
+      }
+      case "list": {
+        const list = this.host.listSaveGames;
+        // Storage errors surface as the selector's own failure screen, same
+        // as runSaveDialog's caught list; HostWait is the suspension signal,
+        // not a failure.
+        return this.hostCall(pending, () => {
+          if (!list) return null;
+          try {
+            return list.call(this.host) ?? null;
+          } catch (error) {
+            if (error instanceof HostWait) throw error;
+            return null;
+          }
+        });
+      }
+      case "describe": {
+        const describe = this.host.promptSaveDescription;
+        return this.hostCall(pending, () =>
+          describe
+            ? (describe.call(this.host, need.initial, need.maxLen, need.row, need.col) ?? null)
+            : null,
+        );
+      }
+      case "write": {
+        this.saveDescription = need.description;
+        const save = this.host.saveGame;
+        const bytes = this.serialize();
+        // void is the host's success reply; undefined can never serve as an
+        // answer anyway — it is the suspended machine's "no answer" value.
+        return this.hostCall(pending, () => {
+          if (!save) return false;
+          try {
+            return save.call(this.host, bytes, need.slot) !== false;
+          } catch (error) {
+            if (error instanceof HostWait) throw error;
+            return false;
+          }
+        });
+      }
+      case "read": {
+        const read = this.host.restoreGame;
+        return this.hostCall(pending, () => {
+          if (!read) return null;
+          try {
+            return read.call(this.host, need.slot) ?? null;
+          } catch (error) {
+            if (error instanceof HostWait) throw error;
+            return null;
+          }
+        });
+      }
+    }
+  }
+
+  /**
+   * The selector's key read against a host with no blocking wait: a batch of
+   * raw keys enqueues with its unread suffix preserved, then the first raw or
+   * navigation event answers. Returns undefined when nothing is queued.
+   */
+  private drainDialogKey(): number | undefined {
+    for (const key of this.host.takeKeys()) {
+      const normalized =
+        key === 0x0101 || key === 0x0301
+          ? AGI_KEY.ENTER
+          : key === 0x0201 || key === 0x0401
+            ? AGI_KEY.ESCAPE
+            : key;
+      const raw = normalized & 0xff ? normalized & 0xff : normalized & 0xffff;
+      const navigation = NAV_KEYS[raw];
+      this.inputQueue.enqueue({
+        type: navigation === undefined ? 1 : 2,
+        value: navigation ?? raw,
+        mapOnConsume: true,
+      });
+    }
+    for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
+      if (event.type === 1) return event.value;
+      if (event.type === 2 && event.value !== 0) {
+        const navigationKey = Object.entries(NAV_KEYS).find(
+          ([, direction]) => direction === event.value,
+        );
+        if (navigationKey) return Number(navigationKey[0]);
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * The selector finished: a restore applies its image through the ordinary
+   * restore path; a save already recorded its description at write time.
+   */
+  private beginRestore(image: Uint8Array): void {
+    try {
+      this.applyRestore(image);
+    } catch (error) {
+      if (error instanceof ContinuationAbort) throw error;
+      // Block-read/decode failure is fatal only after its error dialog. The
+      // parked interaction waits for the window to drain through the ordinary
+      // modal path, then applyInteraction ends the game.
+      this.emitPrint("Unable to restore saved game.\nThe save file is invalid.", undefined, true);
+      this.pendingInteraction = { kind: "restoreError", error };
+    }
+  }
+
+  /**
+   * Confirmation window's key wait, shared by the dispatch call and the
+   * resumed application of a delivered answer: Enter accepts, Escape or a
+   * null key declines, anything else keeps waiting.
+   */
+  private confirmWaitLoop(
+    pending: Extract<PendingInteraction, { kind: "confirm" }>,
+    first?: number,
+  ): void {
+    const wait = this.host.waitKey ?? this.host.waitTextKey;
+    let key = first;
+    for (;;) {
+      key ??= this.hostCall(pending, () =>
+        wait
+          ? (wait.call(this.host) ?? AGI_KEY.ESCAPE)
+          : (this.host.takeKeys()[0] ?? AGI_KEY.ESCAPE),
+      );
+      const byte = key & 0xff;
+      if (byte === AGI_KEY.ENTER || byte === AGI_KEY.ESCAPE || key === 0) {
+        this.pendingInteraction = null;
+        this.applyConfirm(pending, byte === AGI_KEY.ENTER);
+        return;
+      }
+      key = undefined;
+    }
+  }
+
+  /** Apply a resolved restart/quit confirmation. */
+  private applyConfirm(
+    pending: Extract<PendingInteraction, { kind: "confirm" }>,
+    accepted: boolean,
+  ): void {
+    // The window closes if it is still open; a key that drained through the
+    // modal path while the request was in flight may have closed it already.
+    if (this.modal?.serial === pending.modalSerial) this.closeModal();
+    if (!accepted) return;
+    if (pending.action === "restart") {
+      this.restart();
+    } else {
+      this.stopSound();
+      this.terminated = true;
+      this.host.quit?.();
+    }
+    throw new ContinuationAbort();
+  }
+
+  /**
+   * Apply the delivered answer to the suspended interaction, then let the
+   * parked stack resume. Runs inside `tick`; a case that needs the host again
+   * re-suspends through HostWait, and a restore failure re-parks for its
+   * error window. `frames` is the parked stack, innermost frame last.
+   */
+  private applyInteraction(frames: LogicFrame[]): void {
+    const pending = this.pendingInteraction;
+    if (pending === null) return;
+    const answer = this.pendingAnswer;
+    this.pendingAnswer = undefined;
+    switch (pending.kind) {
+      case "key": {
+        // Re-run the suspended condition list: PCs below the suspending
+        // have.key replay their recorded outcomes; the delivered key itself
+        // is enqueued so the resumed poll sees it exactly like a live one.
+        this.pendingInteraction = null;
+        this.conditionReplayUntil = pending.condPc;
+        this.inputQueue.enqueueKey(Number(answer), this.keymap);
+        break;
+      }
+      case "getstring": {
+        const value = (typeof answer === "string" ? answer : "").slice(0, pending.maxLen);
+        this.setString(pending.slot, value);
+        this.text.write(pending.row, pending.col + pending.promptLen, value, this.textAttr());
+        this.pendingInteraction = null;
+        break;
+      }
+      case "getnum": {
+        const value = Number(answer) & 0xff;
+        this.vars[pending.dest] = value;
+        this.text.write(this.inputRow, pending.promptLen, String(value), this.textAttr());
+        this.drawInputRow();
+        this.pendingInteraction = null;
+        break;
+      }
+      case "saveDialog":
+        this.driveSaveDialog(pending, answer);
+        break;
+      case "saveDirect":
+        this.pendingInteraction = null;
+        this.controllers.fill(0);
+        break;
+      case "restore": {
+        this.pendingInteraction = null;
+        this.controllers.fill(0);
+        if (answer instanceof Uint8Array) this.beginRestore(answer);
+        break;
+      }
+      case "confirm":
+        this.confirmWaitLoop(pending, Number(answer));
+        break;
+      case "room": {
+        this.pendingInteraction = null;
+        this.completeNewRoom(pending.room, answer !== false);
+        break;
+      }
+      case "restoreError": {
+        // The error window drained; the failed restore ends the game.
+        this.pendingInteraction = null;
+        this.terminated = true;
+        throw pending.error;
+      }
+    }
+    // A completed instruction-level interaction advances the parked frame
+    // past its action (the suspension left the PC on it). Condition-level
+    // suspensions re-run their IF instead; a host-initiated suspension has
+    // no parked frame to advance.
+    if (this.pendingInteraction === null && "next" in pending && frames.length > 0) {
+      frames[frames.length - 1]!.pc = pending.next;
+    }
   }
 
   private get modal(): Modal | null {
@@ -1073,82 +1525,57 @@ export class Engine {
     this.host.showPriScreen?.();
   }
 
-  /** Engine-owned confirmation window with the host's blocking key adapter. */
-  private confirmSessionAction(action: "restart" | "quit"): boolean {
+  /**
+   * Engine-owned confirmation window. A synchronous host resolves it inside
+   * the call; a host whose wait suspends parks the interaction as a "confirm"
+   * and the delivered key resolves it through applyInteraction.
+   */
+  private confirmSessionAction(action: "restart" | "quit", next: number): void {
     this.emitPrint(
       `${action === "restart" ? "Restart" : "Quit"} the game?\nENTER: yes   ESC: continue`,
       undefined,
       true,
     );
-    const confirmation = this.modal;
-    const wait = this.host.waitKey ?? this.host.waitTextKey;
+    const pending: PendingInteraction = {
+      kind: "confirm",
+      next,
+      action,
+      modalSerial: this.modal?.serial ?? 0,
+    };
     try {
-      for (;;) {
-        const key = wait ? wait.call(this.host) : (this.host.takeKeys()[0] ?? AGI_KEY.ESCAPE);
-        const byte = key & 0xff;
-        if (byte === AGI_KEY.ENTER) return true;
-        if (byte === AGI_KEY.ESCAPE || key === 0) return false;
-      }
+      this.confirmWaitLoop(pending);
     } finally {
-      if (confirmation && this.modal === confirmation) this.closeModal();
+      // The window survives a suspension (the game waits visibly) but not a
+      // synchronous resolution or a real failure.
+      if (this.pendingInteraction === null && this.modal?.serial === pending.modalSerial)
+        this.closeModal();
     }
   }
 
   /** The adapter supplies an available directory; the engine owns selection and text. */
-  private selectSavedGame(mode: "save" | "restore"): Uint8Array | null {
-    const list = this.host.listSaveGames!;
-    const wait = this.host.waitKey ?? this.host.waitTextKey;
-    const describe = this.host.promptSaveDescription;
+  private selectSavedGame(mode: "save" | "restore", next: number): void {
     this.stopSound();
     this.saveDialogMode = mode;
+    const pending: PendingInteraction = {
+      kind: "saveDialog",
+      next,
+      mode,
+      dialog: createSaveDialog(
+        mode,
+        this.text,
+        this.signature,
+        this.host.promptSaveDescription !== undefined,
+      ),
+    };
     try {
-      return runSaveDialog(mode, this.text, this.signature, {
-        list: () => list.call(this.host),
-        waitKey: () => {
-          if (wait) return wait.call(this.host);
-          // Polling hosts return a batch. Preserve the bounded FIFO and leave
-          // its unread suffix for the next modal or script input consumer.
-          for (const key of this.host.takeKeys()) {
-            const normalized =
-              key === 0x0101 || key === 0x0301
-                ? AGI_KEY.ENTER
-                : key === 0x0201 || key === 0x0401
-                  ? AGI_KEY.ESCAPE
-                  : key;
-            const raw = normalized & 0xff ? normalized & 0xff : normalized & 0xffff;
-            const navigation = NAV_KEYS[raw];
-            this.inputQueue.enqueue({
-              type: navigation === undefined ? 1 : 2,
-              value: navigation ?? raw,
-              mapOnConsume: true,
-            });
-          }
-          for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
-            if (event.type === 1) return event.value;
-            if (event.type === 2 && event.value !== 0) {
-              const navigationKey = Object.entries(NAV_KEYS).find(
-                ([, direction]) => direction === event.value,
-              );
-              if (navigationKey) return Number(navigationKey[0]);
-            }
-          }
-          return AGI_KEY.ESCAPE;
-        },
-        ...(describe
-          ? {
-              describe: (initial: string, maxLen: number, row: number, col: number) =>
-                describe.call(this.host, initial, maxLen, row, col),
-            }
-          : {}),
-        write: (slot, description) => {
-          this.saveDescription = description;
-          return this.host.saveGame ? this.host.saveGame(this.serialize(), slot) : false;
-        },
-        read: (slot) => this.host.restoreGame?.(slot) ?? null,
-      });
+      this.driveSaveDialog(pending, undefined);
     } finally {
-      this.saveDialogMode = null;
-      this.controllers.fill(0);
+      // A suspended selector keeps its mode so its screen stays inspectable;
+      // any other exit clears it.
+      if (this.pendingInteraction !== pending) {
+        this.saveDialogMode = null;
+        this.controllers.fill(0);
+      }
     }
   }
 
@@ -1559,6 +1986,10 @@ export class Engine {
     this.acceptedLine = state.acceptedLine;
     this.inputWidthCap = state.inputWidthCap;
     this.pendingController = state.pendingController;
+    this.pendingInteraction = null;
+    this.pendingAnswer = undefined;
+    this.conditionReplayUntil = -1;
+    this.saveDialogMode = null;
     this.inputQueue.clear();
     for (const event of state.inputQueue) this.inputQueue.enqueue(event);
     this.menu = state.menu;
@@ -1590,7 +2021,13 @@ export class Engine {
    * The caller skips this tick and tries the next one.
    */
   autosaveImage(): Uint8Array | null {
+    // A suspended host interaction is not serializable: the save format holds
+    // no suspended-continuation record (see docs/dont-prevent-application.md —
+    // stage 2 evaluates whether one should exist). An armed record inside a
+    // synchronous host call is not suspended — the call is still on the stack —
+    // so a snapshot taken re-entrantly from the host's callback stays allowed.
     if (this.pendingLogic !== null) return null;
+    if (this.pendingInteraction !== null && this.hostCallDepth === 0) return null;
     if (this.modal !== null || this.persistentWindow !== null || this.printsPending > 0)
       return null;
     if (this.textMode) return null;
@@ -1695,6 +2132,15 @@ export class Engine {
     this.inputQueue.clear();
     this.pendingController = null;
     this.pendingLogic = null;
+    // A suspended selector's covered cells come back before the image lands.
+    if (this.pendingInteraction?.kind === "saveDialog") {
+      const dialog = this.pendingInteraction.dialog;
+      dialog.text.restore(dialog.saved);
+    }
+    this.pendingInteraction = null;
+    this.pendingAnswer = undefined;
+    this.conditionReplayUntil = -1;
+    this.saveDialogMode = null;
     this.stopSound();
 
     // 1. Scalar, parser, object, inventory, replay, logic-resume, display and
@@ -1948,7 +2394,9 @@ export class Engine {
       }
       return;
     }
-    if (this.pendingLogic !== null) this.clockWaitMs += milliseconds;
+    // A suspended host interaction is a genuine wait, not a clock busy-loop.
+    if (this.pendingLogic !== null && this.pendingInteraction === null)
+      this.clockWaitMs += milliseconds;
     const elapsed = this.clockRemainderMs + milliseconds;
     let seconds = Math.floor((elapsed + 1e-7) / 1000);
     this.clockRemainderMs = Math.max(0, elapsed - seconds * 1000);
@@ -2134,6 +2582,16 @@ export class Engine {
     this.clockReadLogic = -1;
     this.clockReadPc = -1;
     if (this.terminated) return;
+    // A suspended host interaction freezes the cycle until its answer lands;
+    // the host's own event loop keeps serving application commands meanwhile.
+    // The restore-error teardown is exempt: it waits on its error window,
+    // which drains through the ordinary modal path below.
+    if (
+      this.pendingInteraction !== null &&
+      this.pendingAnswer === undefined &&
+      this.pendingInteraction.kind !== "restoreError"
+    )
+      return;
     // Modal windows pause the interpreter; keys drive the modal instead.
     if (this.modal) {
       for (const key of this.host.takeKeys()) {
@@ -2158,10 +2616,16 @@ export class Engine {
         if (event.type === 2) this.modalNavigate(event.value);
         else if (event.type === 1) this.modalKey(event.value);
       }
-      // Keep unread modal keys raw: the continuation may open another modal.
-      if (this.modal || this.pendingLogic === null) return;
+      if (this.pendingLogic === null) return;
+      // A delivered host answer applies even while its own window is still
+      // open — applyConfirm closes the confirm modal by serial. Any other
+      // still-open modal keeps the interpreter paused; restoreError arrives
+      // here with no answer and drains through the modal path instead.
+      if (this.modal && this.pendingAnswer === undefined) return;
     }
-    if (this.printsPending > 0) return;
+    // An unacknowledged window pauses the cycle unless a delivered host answer
+    // is waiting to apply — the confirm window is itself such a print.
+    if (this.printsPending > 0 && this.pendingAnswer === undefined) return;
     if (this.pendingLogic === null) {
       this.presentationDirty = true;
       // The timer tick accumulator serialized as the save's tick count.
@@ -2229,8 +2693,32 @@ export class Engine {
         if (this.pendingLogic !== null) {
           const frames = this.pendingLogic;
           this.pendingLogic = null;
+          try {
+            this.applyInteraction(frames);
+          } catch (wait) {
+            if (!(wait instanceof HostWait)) throw wait;
+            this.pendingLogic = frames;
+            return;
+          }
+          if (this.pendingInteraction !== null) {
+            // The applied answer parked the pass again — a restore's error
+            // window, which drains through the modal path next tick.
+            this.pendingLogic = frames;
+            return;
+          }
           this.runLogicStack(frames);
         } else {
+          if (this.pendingInteraction !== null) {
+            // A host-initiated suspension (reenter parked on prepareRoom) has
+            // no logic stack: apply its answer, then let the fresh pass run.
+            try {
+              this.applyInteraction([]);
+            } catch (wait) {
+              if (!(wait instanceof HostWait)) throw wait;
+              return;
+            }
+            if (this.pendingInteraction !== null) return;
+          }
           this.clockWaitMs = 0;
           this.execute(0);
         }
@@ -3000,8 +3488,12 @@ export class Engine {
         }
         if (op === IF) {
           this.clockReadPc = -1;
-          this.conditionOutcomes.clear();
+          // A have.key suspension resumes the same list: the conditions it
+          // already passed replay their recorded outcomes instead of
+          // re-running their side effects.
+          if (this.conditionReplayUntil < 0) this.conditionOutcomes.clear();
           const { result, next } = this.evalConditionList(code, pc + 1);
+          this.conditionReplayUntil = -1;
           const body = next + 2;
           const end = body + readS16(code, next);
           if (this.clockReadLogic === frame.logic && this.clockReadPc > pc) {
@@ -3043,6 +3535,14 @@ export class Engine {
           return;
         }
       }
+    } catch (wait) {
+      // A host interaction that cannot answer synchronously suspends the pass:
+      // the stack parks beside the pending interaction the throw armed.
+      if (wait instanceof HostWait) {
+        this.pendingLogic = frames;
+        return;
+      }
+      throw wait;
     } finally {
       this.activation = caller;
     }
@@ -3321,6 +3821,13 @@ export class Engine {
   }
 
   private evalOneCondition(code: Uint8Array, pc: number): { result: boolean; next: number } {
+    // Resumed from a have.key suspension: conditions already evaluated replay
+    // their recorded outcome (and stay out of the trace) rather than running
+    // their side effects a second time.
+    if (pc < this.conditionReplayUntil) {
+      const recorded = this.conditionOutcomes.get(pc);
+      if (recorded !== undefined) return { result: recorded, next: this.skipCondition(code, pc) };
+    }
     const outcome = this.evaluateCondition(code, pc);
     this.conditionOutcomes.set(pc, outcome.result);
     this.traceInstruction(code, pc, outcome.result);
@@ -3440,7 +3947,13 @@ export class Engine {
         if (pressed === undefined) {
           if (blockingWait) {
             if (++this.haveKeyPolls > HAVE_KEY_BUSY_POLLS) {
-              this.inputQueue.enqueueKey(blockingWait.call(this.host), this.keymap);
+              // A host that cannot answer synchronously suspends the whole
+              // condition list; applyInteraction arms the replay bound at this
+              // PC and enqueues the delivered key for the resumed poll.
+              const delivered = this.hostCall({ kind: "key", condPc: pc }, () =>
+                blockingWait.call(this.host),
+              );
+              this.inputQueue.enqueueKey(delivered ?? 0, this.keymap);
               pressed = this.pollRawKey();
             }
           } else if (++this.haveKeyPolls > HAVE_KEY_POLL_LIMIT) {
@@ -4082,43 +4595,34 @@ export class Engine {
       // persistence and session control
       case 0x7d:
         // Save writes the real file image: header plus the profile's
-        // length-prefixed blocks (spec "Save action outcomes").
-        if (this.host.listSaveGames) this.selectSavedGame("save");
-        else this.host.saveGame?.call(this.host, this.serialize());
-        this.controllers.fill(0);
+        // length-prefixed blocks (spec "Save action outcomes"). A host that
+        // cannot answer suspends the pass and applies through
+        // applyInteraction when its answer lands.
+        if (this.host.listSaveGames) this.selectSavedGame("save", next);
+        else {
+          const save = this.host.saveGame;
+          if (save)
+            this.hostCall({ kind: "saveDirect", next }, () =>
+              save.call(this.host, this.serialize()),
+            );
+          this.controllers.fill(0);
+        }
         return next;
       case 0x7e: {
+        if (this.host.listSaveGames) {
+          this.selectSavedGame("restore", next);
+          return next;
+        }
         const restore = this.host.restoreGame;
-        const image = this.host.listSaveGames
-          ? this.selectSavedGame("restore")
-          : restore
-            ? restore.call(this.host)
-            : null;
+        const image = restore
+          ? this.hostCall({ kind: "restore", next }, () => restore.call(this.host))
+          : null;
         this.controllers.fill(0);
         // Cancel and file-open failure are recoverable and continue after the
         // restore action; a successful restore aborts the continuation
         // instead (spec "Restore action outcomes").
         if (image === null || image === undefined) return next;
-        try {
-          this.applyRestore(image);
-        } catch (error) {
-          if (error instanceof ContinuationAbort) throw error;
-          // Block-read/decode failure is fatal only after its error dialog.
-          this.emitPrint(
-            "Unable to restore saved game.\nThe save file is invalid.",
-            undefined,
-            true,
-          );
-          const wait = this.host.waitKey ?? this.host.waitTextKey;
-          if (wait) {
-            while (this.modal) {
-              const key = wait.call(this.host);
-              this.modalKey(key === 0 ? AGI_KEY.ESCAPE : key);
-            }
-          }
-          this.terminated = true;
-          throw error;
-        }
+        this.beginRestore(image);
         return next;
       }
       case 0x85: {
@@ -4246,15 +4750,28 @@ export class Engine {
         return next;
       case 0x73: {
         // get.string: prompt drawn at (row, col) — or the input row when the
-        // row is off the surface — then the blocking host edit; accepted
-        // text stores at most min(maxLen, 39) characters and is echoed.
+        // row is off the surface — then the host edit; accepted text stores
+        // at most min(maxLen, 39) characters and is echoed. A host that cannot
+        // answer synchronously suspends; applyInteraction completes the store.
         const prompt = this.message(a(1));
         const row = a(2) < TEXT_ROWS ? a(2) : this.inputRow;
         const col = a(2) < TEXT_ROWS ? a(3) : 0;
+        const maxLen = Math.min(a(4), 39);
         this.text.write(row, col, prompt, this.textAttr());
         const ask = this.host.promptString;
         const value = ask
-          ? ask.call(this.host, prompt, a(4), row, col).slice(0, Math.min(a(4), 39))
+          ? this.hostCall(
+              {
+                kind: "getstring",
+                next,
+                slot: a(0),
+                promptLen: prompt.length,
+                maxLen,
+                row,
+                col,
+              },
+              () => ask.call(this.host, prompt, a(4), row, col) ?? "",
+            ).slice(0, maxLen)
           : "";
         this.setString(a(0), value);
         this.text.write(row, col + prompt.length, value, this.textAttr());
@@ -4271,7 +4788,12 @@ export class Engine {
         this.text.fill(this.inputRow, 0, this.inputRow, TEXT_COLS - 1, 0x20, this.textAttr());
         this.text.write(this.inputRow, 0, prompt, this.textAttr());
         const ask = this.host.promptNumber;
-        const value = ask ? ask.call(this.host, prompt, this.inputRow, 0) & 0xff : 0;
+        const value = ask
+          ? this.hostCall(
+              { kind: "getnum", next, dest: a(1), promptLen: prompt.length },
+              () => ask.call(this.host, prompt, this.inputRow, 0) ?? 0,
+            ) & 0xff
+          : 0;
         this.vars[a(1)] = value;
         this.text.write(this.inputRow, prompt.length, String(value), this.textAttr());
         this.drawInputRow();
@@ -4380,13 +4902,13 @@ export class Engine {
         // restart.game: f16 bypasses the confirmation prompt in every promoted
         // profile except 2.411, which always displays it (spec "Restart").
         this.stopSound();
-        if (
-          (this.profile.restartPromptBypassedByF16 && this.flags[F_NO_PROMPT_RESTART] !== 0) ||
-          this.confirmSessionAction("restart")
-        ) {
+        if (this.profile.restartPromptBypassedByF16 && this.flags[F_NO_PROMPT_RESTART] !== 0) {
           this.restart();
           throw new ContinuationAbort();
         }
+        // A suspended confirmation resolves through applyInteraction, which
+        // restarts on acceptance and continues at `next` on decline.
+        this.confirmSessionAction("restart", next);
         return next;
       }
       case 0x82: {
@@ -4405,12 +4927,13 @@ export class Engine {
         this.directionCoupling = 1;
         return next;
       case 0x86:
-        if (this.profile.exitAlwaysImmediate || a(0) === 1 || this.confirmSessionAction("quit")) {
+        if (this.profile.exitAlwaysImmediate || a(0) === 1) {
           this.stopSound();
           this.terminated = true;
           this.host.quit?.();
           throw new ContinuationAbort();
         }
+        this.confirmSessionAction("quit", next);
         return next;
       case 0x8e:
         this.scriptCapacity = a(0);
@@ -4546,9 +5069,23 @@ export class Engine {
     }
   }
 
-  /** Shared new.room sequence: update room vars, reset objects, load, unwind. */
+  /**
+   * Shared new.room sequence: the host's prepareRoom may suspend the pass
+   * (room authoring crosses the bridge); the delivered answer resumes into
+   * completeNewRoom, which performs the transition or the failure abort.
+   */
   private newRoom(room: number): never {
-    if (this.host.prepareRoom?.(room, this.vars[V_ROOM]!) === false) {
+    const prepare = this.host.prepareRoom;
+    const prepared = prepare
+      ? this.hostCall({ kind: "room", room }, () =>
+          prepare.call(this.host, room, this.vars[V_ROOM]!),
+        )
+      : true;
+    this.completeNewRoom(room, prepared !== false);
+  }
+
+  private completeNewRoom(room: number, prepared: boolean): never {
+    if (!prepared) {
       // A failed authoring attempt must not discard the room, objects or
       // replay sequence. Stop at the edge and let the player try again.
       this.vars[V_EGO_DIR] = 0;
@@ -4755,6 +5292,10 @@ export class Engine {
    */
   private restart(): void {
     this.pendingLogic = null;
+    this.pendingInteraction = null;
+    this.pendingAnswer = undefined;
+    this.conditionReplayUntil = -1;
+    this.saveDialogMode = null;
     const soundEnabled = this.flags[F_SOUND_ENABLED]!;
     this.playingSound = null;
     this.soundDoneFlag = null;
