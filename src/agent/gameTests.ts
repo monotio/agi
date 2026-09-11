@@ -17,6 +17,7 @@ import {
   type GameTestSetup,
 } from "./gameTestSteps.ts";
 import { playtestRoom } from "./playtest.ts";
+import { resourceSetRevision } from "./authoringState.ts";
 import type { AgentSessionState, AgentToolResult, ToolDefinition } from "./tools.ts";
 import { createContainer } from "../container/container.ts";
 import { assembleLogic } from "../logic/assembler.ts";
@@ -321,12 +322,41 @@ interface GameTestOutcome {
   cycles: number | null;
   failure: string | null;
   nextSteps: readonly string[];
+  /** True when the verdict came from the evidence cache, not a fresh simulation. */
+  reused?: boolean | undefined;
+}
+
+/**
+ * Content identity of one test verdict: the whole resource tree, the test's
+ * serialized definition and setup, the interpreter profile, and the fixed
+ * simulation seed. A verdict is reusable only when all of them match — a
+ * byte-identical room number says nothing.
+ */
+function testEvidenceKey(session: AgentSessionState, test: GameTest): string {
+  let hash = 0x811c9dc5;
+  const feed = (text: string) => {
+    for (let i = 0; i < text.length; i++)
+      hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0;
+    hash = Math.imul(hash ^ 0xff, 0x01000193) >>> 0;
+  };
+  feed(resourceSetRevision(session));
+  feed(JSON.stringify(test));
+  feed(session.profile.id);
+  feed("seed:123456789");
+  return hash.toString(16).padStart(8, "0");
 }
 
 function runOne(
   session: AgentSessionState,
   test: GameTest,
 ): { outcome: GameTestOutcome; result: AgentToolResult } {
+  const key = testEvidenceKey(session, test);
+  const cached = session.testEvidence.get(key);
+  if (cached)
+    return {
+      outcome: { ...(cached.outcome as GameTestOutcome), reused: true },
+      result: cached.result,
+    };
   const result = playtestRoom(
     session,
     {
@@ -348,18 +378,17 @@ function runOne(
       : {},
   );
   const details = result.details ?? {};
-  return {
-    result,
-    outcome: {
-      name: test.name,
-      room: test.room,
-      status: String(details["simulation"] ?? (result.success ? "passed" : "failed")),
-      passed: result.success,
-      cycles: typeof details["cycles"] === "number" ? details["cycles"] : null,
-      failure: result.success ? null : (result.error ?? "failed"),
-      nextSteps: Array.isArray(details["nextSteps"]) ? (details["nextSteps"] as string[]) : [],
-    },
+  const outcome: GameTestOutcome = {
+    name: test.name,
+    room: test.room,
+    status: String(details["simulation"] ?? (result.success ? "passed" : "failed")),
+    passed: result.success,
+    cycles: typeof details["cycles"] === "number" ? details["cycles"] : null,
+    failure: result.success ? null : (result.error ?? "failed"),
+    nextSteps: Array.isArray(details["nextSteps"]) ? (details["nextSteps"] as string[]) : [],
   };
+  session.testEvidence.set(key, { outcome, result });
+  return { result, outcome };
 }
 
 /** One line a reader can act on: the count first, then the first failure with its room and cycle. */
@@ -416,6 +445,7 @@ export function runGameTests(
       gameTests: outcomes,
       stored: stored.length,
       ran: outcomes.length,
+      reused: outcomes.filter((outcome) => outcome.reused).length,
       // Per-test evidence origins: "recorded" when a test restored its stored
       // interpreter state, "boot" when it booted fresh against staged bytes.
       origins: outcomes.map((outcome, index) => ({
@@ -471,9 +501,10 @@ export function rerunAffectedTests(
   if (!affected.length) return null;
   const selected = affected.slice(0, RERUN_LIMIT);
   const outcomes = selected.map((test) => runOne(session, test).outcome);
+  const reused = outcomes.filter((outcome) => outcome.reused).length;
   const notRun = stored.length - outcomes.length;
   const selection = touched.map(describeTouched).join(", ");
-  const line = `${verdictLine(outcomes)} ${outcomes.length} of ${stored.length} game tests rerun (selection: ${selection})${notRun ? `; ${notRun} not run` : ""}.`;
+  const line = `${verdictLine(outcomes)} ${outcomes.length} of ${stored.length} game tests rerun (selection: ${selection})${reused ? `; ${reused} reused unchanged-tree verdict${reused === 1 ? "" : "s"}` : ""}${notRun ? `; ${notRun} not run` : ""}.`;
   return {
     line,
     outcomes,

@@ -183,7 +183,7 @@ test("a write to a transitively called logic reruns the starting room's tests", 
   assert.equal(written.success, true, written.error ?? "");
   assert.match(
     written.message ?? "",
-    /^Game tests: 1 game test pass, 0 fail\. 1 of 1 game tests rerun \(selection: room 3\)\./,
+    /^Game tests: 1 game test pass, 0 fail\. 1 of 1 game tests rerun \(selection: room 3\)(?:; \d+ reused unchanged-tree verdicts?)?\./,
   );
 });
 
@@ -289,7 +289,7 @@ test("a composite write's dictionary update reruns tests in rooms it did not wri
   assert.deepEqual(written.details?.["updatedFiles"], ["WORDS.TOK"]);
   assert.match(
     written.message ?? "",
-    /^Game tests: 1 game test pass, 0 fail\. 1 of 1 game tests rerun \(selection: room 5, words\)\./,
+    /^Game tests: 1 game test pass, 0 fail\. 1 of 1 game tests rerun \(selection: room 5, words\)(?:; \d+ reused unchanged-tree verdicts?)?\./,
   );
   assert.deepEqual(written.details?.["gameTestsRerun"], { ran: 1, stored: 1, notRun: 0 });
 });

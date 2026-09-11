@@ -226,6 +226,11 @@ export interface AgentSessionState {
    */
   readonly diagnostics: Map<string, AgentToolResult>;
   /**
+   * Reusable game-test verdicts keyed by resource-set + test-definition +
+   * profile + seed content identity. Session-scoped, shared across forks.
+   */
+  readonly testEvidence: Map<string, { outcome: unknown; result: AgentToolResult }>;
+  /**
    * write_picture calls made per picture number this session. The harness
    * reports the revision number for continuity across edits.
    */
@@ -368,6 +373,7 @@ export function createAgentSessionState(existingContainer?: GameContainer): Agen
     testsPayload: undefined,
     genesisComplete: false,
     diagnostics: new Map<string, AgentToolResult>(),
+    testEvidence: new Map<string, { outcome: unknown; result: AgentToolResult }>(),
     pictureRounds: new Map<number, number>(),
     getFiles() {
       const files = new Map<string, Uint8Array>(container.files);
