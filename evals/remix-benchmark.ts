@@ -254,11 +254,20 @@ async function runCase(
     const wallMs = performance.now() - t0;
     const patched =
       typeof result === "string" ? [] : result.patched.map((p) => `${p.kind} ${p.num}`);
+    const fileWrites =
+      typeof result === "string" ? [] : Object.keys(result.files ?? {});
+    // A remix that changes nothing did not do the work — flag it rather than
+    // letting "no exception" read as acceptance.
+    const changed = patched.length + fileWrites.length;
+    const accepted = bench.mode === "ask" || changed > 0;
     return {
       case: bench.id,
       repeat,
       warm: args.warm,
-      ok: true,
+      ok: accepted,
+      ...(accepted
+        ? {}
+        : { error: "Remix finished without patching any resource or file." }),
       wallMs,
       requests: telemetry.length,
       telemetry,
