@@ -38,6 +38,9 @@ test("boots the v3 demo pack, shows its intro text and starts a demonstration", 
   await expect
     .poll(async () => (await textHook(page)).rows[24] ?? "", { timeout: 20_000 })
     .toContain("Press any key...");
+  // Enter is keymapped to the demo-select controller, so authentically it is
+  // not "any key": the hint names only unmapped keys.
+  await expect(page.getByTestId("title-prompt-hint")).toContainText("Press Space to start");
   await page.screenshot({ path: "test-results/demopac4-intro.png" });
 
   // A letter with the input line unfocused (input is prevented in this game).

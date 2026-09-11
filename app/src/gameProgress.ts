@@ -43,9 +43,7 @@ export interface AutosaveRecord {
 }
 
 export function autosaveTargetKey(game: AutosaveGame): string {
-  return game.installed
-    ? (game.folder ?? game.hash ?? game.alias ?? "")
-    : (game.projectId ?? "");
+  return game.installed ? (game.folder ?? game.hash ?? game.alias ?? "") : (game.projectId ?? "");
 }
 
 export function autosaveKey(target: string): string {
