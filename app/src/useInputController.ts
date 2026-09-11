@@ -1,7 +1,7 @@
 import type { Bridge } from "./agent/sabBridge.ts";
 
 export type LogAgentFn = (
-  kind: "request" | "response" | "error" | "log" | "input",
+  kind: "request" | "response" | "error" | "log" | "telemetry" | "input",
   detail: string,
   data?: unknown,
 ) => void;

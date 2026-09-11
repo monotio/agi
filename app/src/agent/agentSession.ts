@@ -103,6 +103,8 @@ export class AgentSession implements AgentHandler {
   private readonly retainedSessionId: string | undefined;
   /** Live-game sources for read_frames / read_objects / read_state. */
   private runtime: AgentRuntimeDeps = {};
+  /** Local tool-execution ms since the last provider request, for telemetry. */
+  private pendingToolMs = 0;
   /** Context is attached to the first submitted request, never sent on panel open. */
   private oriented = false;
   private orientation: Pick<OrientationInput, "game" | "profile"> | undefined;
@@ -189,16 +191,19 @@ The game is paused in room ${room}. This turn is a read-only conversation, not a
 ${question.trim()}
 
 Answer the player's question using evidence from inspection when needed. For hints, avoid spoilers beyond what was requested. Distinguish game logic from suspected engine faults and explain what you observed and what remains uncertain. playtest_room starts from boot, not the live checkpoint. Do not claim to have replayed earlier events or inspected a call stack unless a tool actually supplies it. If a content fix would help, describe it for the player to apply in Remix. Engine implementation changes belong in the development workflow. Keep the reply concise and useful; this conversation stays open.`),
+        "ask",
       );
       while (turn.toolCalls.length) {
         const results: { toolCallId: string; result: AgentToolResult }[] = [];
         for (const call of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Ask] ${call.name}`, { tool: call.name });
+          const toolStart = performance.now();
           const result = await executeAgentToolAsync(inspected, call.name, call.input, {
             ...this.runtime,
             readOnly: true,
           });
+          this.pendingToolMs += performance.now() - toolStart;
           this.onEvent(
             result.success ? "response" : "error",
             `[Ask] ${call.name} → ${result.success ? (result.message ?? "Done") : result.error}`,
@@ -207,7 +212,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           this.task.recordTool(call.name, call.input, result);
           results.push({ toolCallId: call.id, result });
         }
-        turn = await this.observeTurn(this.conversation.sendToolResults(results));
+        turn = await this.observeTurn(this.conversation.sendToolResults(results), "ask");
       }
       const text = turn.text || "What would you like to explore next?";
       this.onEvent("response", `[Ask] ${text}`, { text });
@@ -304,7 +309,7 @@ Answer the player's question using evidence from inspection when needed. For hin
 
     const staged = forkAgentState(this.state);
     try {
-      let turn = await this.observeTurn(this.conversation.sendUserMessage(prompt));
+      let turn = await this.observeTurn(this.conversation.sendUserMessage(prompt), "remix");
 
       while (turn.toolCalls.length > 0) {
         let remixDone = false;
@@ -312,6 +317,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Remix] ${tc.name}`, { tool: tc.name, args: tc.input });
+          const toolStart = performance.now();
           const candidate = forkAgentState(staged);
           let res: AgentToolResult;
           if (tc.name === "finish_genesis" || tc.name === "handover") {
@@ -342,10 +348,11 @@ Answer the player's question using evidence from inspection when needed. For hin
             `[Remix] ${tc.name} -> ${res.success ? (res.message ?? "ok").slice(0, 160) : res.error}`,
             { tool: tc.name, args: tc.input, result: { ...res, images: undefined } },
           );
+          this.pendingToolMs += performance.now() - toolStart;
           this.task.recordTool(tc.name, tc.input, res);
           results.push({ toolCallId: tc.id, result: res });
         }
-        turn = await this.observeTurn(this.conversation.sendToolResults(results));
+        turn = await this.observeTurn(this.conversation.sendToolResults(results), "remix");
         if (remixDone) break;
       }
 
@@ -378,7 +385,10 @@ Answer the player's question using evidence from inspection when needed. For hin
     }
   }
 
-  private async observeTurn(pending: Promise<LlmTurnResult>): Promise<LlmTurnResult> {
+  private async observeTurn(
+    pending: Promise<LlmTurnResult>,
+    phase: "ask" | "remix" | "genesis" | "room",
+  ): Promise<LlmTurnResult> {
     try {
       const turn = await pending;
       if (turn.usage)
@@ -387,9 +397,19 @@ Answer the player's question using evidence from inspection when needed. For hin
           `[Usage] ${turn.usage.input} input, ${turn.usage.cachedInput} cached, ${turn.usage.output} output tokens`,
           { usage: turn.usage, totalUsage: this.conversation?.getUsage?.() },
         );
+      if (turn.telemetry) {
+        const toolMs = this.pendingToolMs;
+        this.pendingToolMs = 0;
+        this.onEvent(
+          "telemetry",
+          `[Request] ${phase} #${turn.telemetry.requestIndex} ${turn.telemetry.usageIncomplete ? "(incomplete usage) " : ""}${turn.telemetry.responseMs.toFixed(0)}ms`,
+          { phase, telemetry: turn.telemetry, toolMs },
+        );
+      }
       return turn;
     } catch (error) {
       this.onEvent("log", "[Usage] Provider turn interrupted", {
+        telemetry: error instanceof LlmResponseError ? error.telemetry : undefined,
         totalUsage: this.conversation?.getUsage?.(),
       });
       if (
@@ -403,6 +423,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           this.conversation.sendUserMessage(
             "Continue the current task from the successful tool results. The previous response was truncated; its partial tool calls were not executed. Inspect staged resources if needed and finish the remaining work.",
           ),
+          phase,
         );
       }
       throw error;
@@ -603,7 +624,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     );
 
     const genesisPrompt = createGenesisPrompt(templateMarkdown);
-    let turn = await this.observeTurn(this.conversation.sendUserMessage(genesisPrompt));
+    let turn = await this.observeTurn(this.conversation.sendUserMessage(genesisPrompt), "genesis");
 
     while (!this.state.genesisComplete) {
       await this.task.checkpoint(false);
@@ -612,9 +633,11 @@ Answer the player's question using evidence from inspection when needed. For hin
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Genesis] ${tc.name}`, { tool: tc.name, args: tc.input });
+          const toolStart = performance.now();
           const res = await executeAgentToolAsync(this.state, tc.name, tc.input, {
             allowedTools: AUTHORING_SESSION_TOOLS,
           });
+          this.pendingToolMs += performance.now() - toolStart;
           this.onEvent(
             res.success ? "response" : "error",
             res.success
@@ -625,7 +648,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           this.task.recordTool(tc.name, tc.input, res);
           results.push({ toolCallId: tc.id, result: res });
         }
-        turn = await this.observeTurn(this.conversation.sendToolResults(results));
+        turn = await this.observeTurn(this.conversation.sendToolResults(results), "genesis");
         if (this.state.genesisComplete) break;
       } else {
         this.task.recordTool("unfinished_reply", {}, { success: false, message: turn.text ?? "" });
@@ -637,6 +660,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           this.conversation.sendUserMessage(
             "Genesis resources are not complete yet. Please invoke write_words, write_view, write_picture, write_logic_source, and finish_genesis.",
           ),
+          "genesis",
         );
       }
     }
@@ -702,6 +726,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           createRuntimeRoomPrompt(room, from) +
             `\nResources: ${resources.message ?? ""}\nInventory (preserve this order): ${JSON.stringify(staged.sources.objects)}\nPrevious room logic:\n${previous.message ?? ""}`,
         ),
+        "room",
       );
       let completed = false;
       for (;;) {
@@ -722,6 +747,7 @@ Answer the player's question using evidence from inspection when needed. For hin
             this.conversation.sendUserMessage(
               `Room ${room} still needs both logic and picture. Author the missing resources.`,
             ),
+            "room",
           );
           continue;
         }
@@ -729,6 +755,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Room tool] ${tc.name}`, { tool: tc.name, args: tc.input });
+          const toolStart = performance.now();
           const candidate = forkAgentState(staged);
           let result: AgentToolResult;
           try {
@@ -774,10 +801,11 @@ Answer the player's question using evidence from inspection when needed. For hin
             `[Room tool] ${tc.name} -> ${result.success ? "ok" : result.error}`,
             { tool: tc.name, result: { ...result, images: undefined } },
           );
+          this.pendingToolMs += performance.now() - toolStart;
           this.task.recordTool(tc.name, tc.input, result);
           results.push({ toolCallId: tc.id, result });
         }
-        turn = await this.observeTurn(this.conversation.sendToolResults(results));
+        turn = await this.observeTurn(this.conversation.sendToolResults(results), "room");
         if (completed) break;
       }
       if (

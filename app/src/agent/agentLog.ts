@@ -9,7 +9,7 @@ export interface AgentLogAudio {
 export interface AgentLogEntry {
   id: string;
   timestamp: number;
-  kind: "request" | "response" | "error" | "log" | "input";
+  kind: "request" | "response" | "error" | "log" | "telemetry" | "input";
   detail: string;
   data?: unknown;
   seq?: number;
@@ -29,7 +29,7 @@ export interface AgentLoggerState {
 
 export interface AgentLogger {
   logAgent(
-    kind: "request" | "response" | "error" | "log" | "input",
+    kind: "request" | "response" | "error" | "log" | "telemetry" | "input",
     detail: string,
     data?: unknown,
   ): void;
@@ -172,7 +172,7 @@ export function createAgentLogger(
   installTraceGetter();
 
   function logAgent(
-    kind: "request" | "response" | "error" | "log" | "input",
+    kind: "request" | "response" | "error" | "log" | "telemetry" | "input",
     detail: string,
     data?: unknown,
   ): void {

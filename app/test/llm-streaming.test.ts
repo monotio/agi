@@ -120,6 +120,7 @@ for (const provider of ["openai", "anthropic"] as const) {
         output: provider === "anthropic" ? 5 : 2,
         cachedInput: 0,
         cacheWriteInput: 0,
+        ordinaryInput: provider === "anthropic" ? 14 : 4,
       });
     } finally {
       run.cancel();

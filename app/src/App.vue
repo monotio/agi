@@ -5066,6 +5066,10 @@ details[open] > .section-summary {
   color: #fa0;
 }
 
+.agent-entry.telemetry .agent-kind {
+  color: #b8f;
+}
+
 .agent-entry.input .agent-kind {
   color: #5ce1e6;
 }

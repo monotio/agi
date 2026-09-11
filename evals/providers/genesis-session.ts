@@ -309,6 +309,7 @@ export async function runGenesisSession(options: GenesisOptions) {
     let toolLatencyMs = 0;
     let session: AgentSession | undefined;
     const events: Array<{ elapsedMs: number; type: string; message: string; data: unknown }> = [];
+    const requestTelemetry: unknown[] = [];
     let runError: string | undefined;
     let cancellationReason: string | undefined;
     let bootResources: BootResources | undefined;
@@ -359,6 +360,7 @@ export async function runGenesisSession(options: GenesisOptions) {
         },
         (type, message, data) => {
           events.push({ elapsedMs: performance.now() - startedAt, type, message, data });
+          if (type === "telemetry") requestTelemetry.push(data);
           const detail = data as { usage?: LlmUsage; result?: AgentToolResult } | undefined;
           if (message.startsWith("[Usage]") && detail?.usage) {
             usageTurns.push({ ...detail.usage });
@@ -503,6 +505,7 @@ export async function runGenesisSession(options: GenesisOptions) {
         },
       },
       providerRequests: requestStarts.length,
+      requestTelemetry,
       modelTurns: usageTurns.length,
       toolCalls,
       resources: session ? resourceCounts(session.state) : {},

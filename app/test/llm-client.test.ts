@@ -67,6 +67,7 @@ test("OpenAI reports usage, keeps stable tools and refuses truncated calls befor
     output: 15,
     cachedInput: 80,
     cacheWriteInput: 20,
+    ordinaryInput: 20,
   });
   conversation.setAvailableTools(["write_view"]);
   await conversation.sendUserMessage("try a smaller cel");
@@ -82,6 +83,7 @@ test("OpenAI reports usage, keeps stable tools and refuses truncated calls befor
     output: 17,
     cachedInput: 80,
     cacheWriteInput: 20,
+    ordinaryInput: 30,
   });
 });
 
@@ -122,6 +124,7 @@ test("Anthropic reports total input including cache and closes unfinished tool t
     output: 5,
     cachedInput: 30,
     cacheWriteInput: 20,
+    ordinaryInput: 10,
   });
   await conversation.sendUserMessage("smaller");
   assert.match(JSON.stringify(requests[1]?.["messages"]), /not executed/i);
