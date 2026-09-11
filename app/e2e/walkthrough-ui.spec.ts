@@ -416,6 +416,23 @@ test.describe("Walkthrough UI", () => {
         timeout: 30_000,
       })
       .toBeGreaterThan(Math.floor(tickBefore / 2));
+    // The stage must exist: a black canvas means presentation never started.
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(() => {
+            const canvas = document.querySelector<HTMLCanvasElement>("[data-testid=game-canvas]");
+            if (!canvas) return 0;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return -1;
+            const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            let nonBlack = 0;
+            for (let i = 0; i < d.length; i += 4) if (d[i] || d[i + 1] || d[i + 2]) nonBlack++;
+            return nonBlack;
+          }),
+        { timeout: 30_000 },
+      )
+      .toBeGreaterThan(1000);
   });
 
   test("seeks past King Edward to Dagger checkpoint", async ({ page }) => {
