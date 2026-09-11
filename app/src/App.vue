@@ -88,6 +88,8 @@ const viewportHeight = ref(window.visualViewport?.height ?? window.innerHeight);
 watch(touchControls, (enabled) =>
   localStorage.setItem("monotio_agi.touchControls", enabled ? "on" : "off"),
 );
+// Empty until a GPU stage exists, so the 2d fallback canvas stays visible when
+// WebGPU/WebGL init fails or has not finished yet.
 const gpuBackend = ref<string>();
 const crtEnabled = ref<boolean>(
   testMode
@@ -2031,7 +2033,12 @@ onMounted(async () => {
   const watchTarget = watchHashTarget();
   if (handover) await resumeFromRecord(handover, llmConfig());
   else if (watchTarget)
-    await startWalkthrough(watchTarget.alias, { initialTick: watchTarget.tick });
+    // startWalkthrough drives the tape to completion: await would suspend the
+    // rest of mount — including the GPU stage the walkthrough paints into.
+    void startWalkthrough(watchTarget.alias, { initialTick: watchTarget.tick }).catch((e) => {
+      state.phase = "error";
+      state.error = e instanceof Error ? e.message : String(e);
+    });
   else if (
     playKey &&
     (playKey === pendingAutosave.value?.game.projectId ||
@@ -2044,7 +2051,7 @@ onMounted(async () => {
   if (state.phase === "idle") clearPlayHash();
   if (gpuCanvas.value) {
     stage = await AgiStage.create(gpuCanvas.value);
-    gpuBackend.value = stage?.backend ?? undefined;
+    gpuBackend.value = stage?.backend;
     if (stage) {
       stage.crt = crtEnabled.value;
       if (lastFrame) present(lastFrame);
@@ -3229,7 +3236,7 @@ watch(
         @pointerdown="onScreenPointerDown"
       >
         <canvas
-          v-show="gpuBackend !== null"
+          v-show="!!gpuBackend"
           ref="gpuCanvas"
           class="game-surface"
           width="960"
@@ -3238,7 +3245,7 @@ watch(
         />
         <!-- The composed 320x200 frame: Playwright pixel probe and no-GPU fallback. -->
         <canvas
-          v-show="gpuBackend === null"
+          v-show="!gpuBackend"
           ref="canvas"
           class="game-surface"
           width="320"

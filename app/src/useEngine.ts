@@ -616,9 +616,12 @@ export function useEngine(
         state.inputReady = true;
         state.inputEnabled = Boolean(obs.state.inputEnabled);
         state.modal = (obs.state.modalKind as ModalKind | null) ?? null;
-        state.rows = obs.rows;
+        // Lean observations carry no rows; frame messages keep the surface fresh.
+        if (obs.rows.length > 0) {
+          state.rows = obs.rows;
+          hook.rows = obs.rows;
+        }
         hook.modal = state.modal;
-        hook.rows = obs.rows;
         hook.cycle = obs.cycle;
         hook.room = obs.state.room;
         hook.egoX = obs.state.egoX;
