@@ -419,7 +419,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
       good: { id: "d0", fields: null, offset: null, limit: null },
       bad: { id: "d0", fields: null, offset: -1, limit: null },
     },
-    finish_genesis: { notes: "Booted synthetic room." },
+    handover: { notes: "Booted synthetic room." },
     write_room: {
       good: () => ({
         room: 1,
@@ -488,7 +488,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
   };
   const expectedCatalog = [
     "edit_resource_source",
-    "finish_genesis",
+    "handover",
     "inspect_world_bible",
     "list_resources",
     "patch_view_cels",
@@ -533,7 +533,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     const good = await executeAgentToolAsync(session, name, goodArgs, deps);
     assert.equal(good.success, true, `${name}: ${good.error}`);
     assertTransport(name, "success", good);
-    const failureState = name === "finish_genesis" ? createAgentSessionState() : session;
+    const failureState = name === "handover" ? createAgentSessionState() : session;
     const failureDeps = name === "read_objects" || name === "read_state" ? undefined : deps;
     const badArgs = typeof paths.bad === "function" ? paths.bad() : paths.bad;
     const failure = await executeAgentToolAsync(failureState, name, badArgs, failureDeps);

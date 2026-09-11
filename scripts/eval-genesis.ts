@@ -269,7 +269,7 @@ async function runCliGenesis(): Promise<void> {
       return;
       `,
     });
-    const finish = executeAgentTool(session, "finish_genesis", {
+    const finish = executeAgentTool(session, "handover", {
       notes: "Stub world genesis complete.",
     });
     if (!finish.success) {
@@ -430,7 +430,7 @@ async function runOpenAiGenesis(
       input.push({
         role: "user",
         content:
-          "Genesis is not yet complete. Please call write_words, write_view, write_picture, write_logic_source, and finish_genesis.",
+          "Genesis is not yet complete. Please call write_words, write_view, write_picture, write_logic_source, and handover.",
       });
       continue;
     }
@@ -540,7 +540,7 @@ async function runAnthropicGenesis(
       messages.push({
         role: "user",
         content:
-          "Genesis is not yet complete. Please call write_words, write_view, write_picture, write_logic_source, and finish_genesis.",
+          "Genesis is not yet complete. Please call write_words, write_view, write_picture, write_logic_source, and handover.",
       });
       continue;
     }

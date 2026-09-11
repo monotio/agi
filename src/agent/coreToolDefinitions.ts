@@ -457,9 +457,9 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
     },
   },
   {
-    name: "finish_genesis",
+    name: "handover",
     description:
-      "Hand over control to resume the running game after genesis, room authoring, or remix. Validates authored resources: during initial genesis, boots the world in simulation to verify ego spawn, room display, and modal handling; during room authoring, verifies that the target room's logic and picture are compiled and valid; during remix, verifies all staged resources. Returns observed state and status. `notes` is optional free text explaining the changes or warnings.",
+      "Validate and hand over control to resume the running game — the terminal tool of genesis, room authoring and remix. The host validates on handover itself: every stored game test runs against the current resources, and the first handover of a session also boots the world in simulation to verify ego spawn, room display and modal handling. A failure returns the verdict for repair; only a passing handover resumes play. Call it when the work is done; `notes` is optional free text explaining the changes or warnings.",
     parameters: {
       type: "object",
       additionalProperties: false,

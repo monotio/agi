@@ -32,7 +32,7 @@ const finish = [
         "if (isset(f5)) {load.pic(v0);draw.pic(v0);show.pic();load.view(0);animate.obj(0);set.view(0,0);position(0,80,120);draw(0);accept.input();} return;",
     },
   },
-  { name: "finish_genesis", args: { notes: "ready" } },
+  { name: "handover", args: { notes: "ready" } },
 ];
 
 for (const provider of ["openai", "anthropic"]) {

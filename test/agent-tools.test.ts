@@ -10,7 +10,7 @@ describe("agent tools", () => {
     assert.ok(names.includes("write_logic_source"));
     assert.ok(names.includes("write_picture"));
     assert.ok(names.includes("write_view"));
-    assert.ok(names.includes("finish_genesis"));
+    assert.ok(names.includes("handover"));
     assert.ok(names.includes("write_inventory_objects"));
     assert.ok(names.includes("write_sound"));
     assert.ok(names.includes("inspect_world_bible"));
@@ -70,9 +70,9 @@ describe("agent tools", () => {
     }
   });
 
-  it("rejects finish_genesis when initial resources are missing", () => {
+  it("rejects handover when initial resources are missing", () => {
     const session = createAgentSessionState();
-    const res = executeAgentTool(session, "finish_genesis", {});
+    const res = executeAgentTool(session, "handover", {});
     assert.equal(res.success, false);
     assert.ok(res.error?.includes("missing required initial resources"));
     assert.equal(session.genesisComplete, false);
@@ -162,7 +162,7 @@ describe("agent tools", () => {
     assert.ok(session.container.getResource("logic", 1));
 
     // 6. finish genesis
-    const finishRes = executeAgentTool(session, "finish_genesis", {
+    const finishRes = executeAgentTool(session, "handover", {
       notes: "Starting room and ego initialized.",
     });
     assert.equal(finishRes.success, true);
@@ -188,7 +188,7 @@ describe("agent tools", () => {
       source:
         "if (isset(f5)) {load.pic(v0); draw.pic(v0); show.pic(); load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); accept.input();} return;",
     });
-    executeAgentTool(session, "finish_genesis", {});
+    executeAgentTool(session, "handover", {});
     assert.equal(session.genesisComplete, true);
 
     // Incrementally author room 2

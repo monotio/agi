@@ -58,6 +58,7 @@ import {
   GAME_TEST_TOOLS,
   executeGameTestTool,
   rerunAffectedTests,
+  runGameTests,
   type TouchedResource,
 } from "./gameTests.ts";
 import { playtestRoom, validateGenesis } from "./playtest.ts";
@@ -507,8 +508,7 @@ function prepareAgentToolCall(
   name: string,
   args: Record<string, unknown>,
 ): { success: true; args: Record<string, unknown> } | { success: false; error: string } {
-  const canonicalName = name === "handover" ? "finish_genesis" : name;
-  const definition = AGENT_TOOLS.find((tool) => tool.name === canonicalName);
+  const definition = AGENT_TOOLS.find((tool) => tool.name === name);
   if (!definition) return { success: false, error: `Unknown tool: '${name}'.` };
   // Omitted nullable fields become null so handlers see the strict-mode shape.
   args = normalizeToolArguments(definition.parameters, args);
@@ -1321,20 +1321,37 @@ function executeLegacyTool(
       }
     }
 
-    case "finish_genesis":
     case "handover": {
+      // Handover is the validation gate, not the agent's word that it tested:
+      // every stored game test runs against the current resources (unchanged
+      // verdicts come from the evidence cache), and the first handover of a
+      // session also boots the world to a shown, interactive scene.
+      const testRun = runGameTests(session, null);
+      const gameTests = testRun.details?.["gameTests"];
+      if (!testRun.success)
+        return {
+          success: false,
+          error: `Handover rejected: ${testRun.error ?? "stored game tests failed"}`,
+          details: { ...testRun.details, genesisComplete: session.genesisComplete },
+          ...(testRun.images ? { images: testRun.images.slice(0, 1) } : {}),
+        };
       if (!session.genesisComplete) {
         const result = validateGenesis(session);
-        if (result.success) session.genesisComplete = true;
+        if (!result.success)
+          return {
+            ...result,
+            details: { ...result.details, genesisComplete: false, gameTests },
+          };
+        session.genesisComplete = true;
         return {
           ...result,
-          details: { ...result.details, genesisComplete: session.genesisComplete },
+          details: { ...result.details, genesisComplete: true, gameTests },
         };
       }
       return {
         success: true,
-        message: "Handover complete. Resuming gameplay.",
-        details: { genesisComplete: true, notes: args["notes"] ?? null },
+        message: "Handover validated: stored game tests pass. Resuming gameplay.",
+        details: { genesisComplete: true, notes: args["notes"] ?? null, gameTests },
       };
     }
 

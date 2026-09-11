@@ -80,7 +80,7 @@ describe("agent system prompt", () => {
     );
     assert.ok(
       AGI_SYSTEM_PROMPT.includes(
-        "Call finish_genesis when authoring is complete to validate resources and hand over control",
+        "Call handover when the work is done",
       ),
       "handover invariant",
     );
@@ -268,7 +268,7 @@ describe("first-turn prompts", () => {
     const userPrompt = createGenesisPrompt("# The Lost Kingdom\nA test adventure.");
     assert.ok(userPrompt.includes("# The Lost Kingdom"), "includes template title");
     assert.ok(userPrompt.includes("GENESIS"), "includes genesis instruction");
-    assert.ok(userPrompt.includes("finish_genesis"), "names the closing tool");
+    assert.ok(userPrompt.includes("handover"), "names the closing tool");
     assert.ok(
       userPrompt.includes("Author ONLY the opening room"),
       "enforces single-room genesis boundary",
@@ -292,7 +292,7 @@ describe("first-turn prompts", () => {
     assert.ok(prompt.includes("F1=Help"), "scene brief controls");
     assert.ok(prompt.includes("read_room_context"), "points at the deep read");
     assert.ok(!prompt.includes("GENESIS"), "no genesis framing for an installed original");
-    assert.ok(!prompt.includes("finish_genesis"), "installed originals never finish genesis");
+    assert.ok(!prompt.includes("finish_genesis"), "installed originals do not finish genesis");
     assert.ok(
       prompt.includes("read_command_reference"),
       "points to the on-demand command reference",

@@ -189,9 +189,14 @@ export interface UnifiedConversation {
    */
   setAvailableTools(names?: readonly string[]): void;
   sendUserMessage(text: string): Promise<LlmTurnResult>;
-  sendToolResults(
-    results: { toolCallId: string; result: AgentToolResult }[],
-  ): Promise<LlmTurnResult>;
+  /**
+   * Record tool results into the transcript without a provider request —
+   * every call produced beside a terminal handover must land here too, even
+   * when no next response will be requested.
+   */
+  appendToolResults(results: { toolCallId: string; result: AgentToolResult }[]): void;
+  /** Request the next model response after appendToolResults. */
+  complete(): Promise<LlmTurnResult>;
   getTranscript(): unknown[];
   recordInterruption?(text: string): void;
   getSessionId?(): string;
@@ -402,7 +407,7 @@ export function createAnthropicConversation(
       messages.push({ role: "user", content: text });
       return step();
     },
-    async sendToolResults(results): Promise<LlmTurnResult> {
+    appendToolResults(results): void {
       const content: Anthropic.ToolResultBlockParam[] = [];
       let textBytes = 0;
       let imageCount = 0;
@@ -418,6 +423,8 @@ export function createAnthropicConversation(
       }
       pendingToolContent = { textBytes, imageCount, imagePixels };
       messages.push({ role: "user", content });
+    },
+    complete(): Promise<LlmTurnResult> {
       return step();
     },
     recordInterruption(text: string): void {
@@ -638,7 +645,7 @@ export function createOpenAiConversation(
       input.push({ role: "user", content: text });
       return step();
     },
-    async sendToolResults(results): Promise<LlmTurnResult> {
+    appendToolResults(results): void {
       let textBytes = 0;
       let imageCount = 0;
       let imagePixels = 0;
@@ -656,6 +663,8 @@ export function createOpenAiConversation(
         });
       }
       pendingToolContent = { textBytes, imageCount, imagePixels };
+    },
+    complete(): Promise<LlmTurnResult> {
       return step();
     },
     recordInterruption(text: string): void {

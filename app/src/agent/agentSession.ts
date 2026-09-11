@@ -215,7 +215,8 @@ Answer the player's question using evidence from inspection when needed. For hin
           this.task.recordTool(call.name, call.input, result);
           results.push({ toolCallId: call.id, result: this.projectForModel(result) });
         }
-        turn = await this.observeTurn(this.conversation.sendToolResults(results), "ask");
+        this.conversation.appendToolResults(results);
+        turn = await this.observeTurn(this.conversation.complete(), "ask");
       }
       const text = turn.text || "What would you like to explore next?";
       this.onEvent("response", `[Ask] ${text}`, { text });
@@ -306,7 +307,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       let turn = await this.observeTurn(this.conversation.sendUserMessage(prompt), "remix");
 
       while (turn.toolCalls.length > 0) {
-        let remixDone = false;
+        let handedOver = false;
         const results: { toolCallId: string; result: AgentToolResult }[] = [];
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
@@ -314,19 +315,21 @@ Answer the player's question using evidence from inspection when needed. For hin
           const toolStart = performance.now();
           const candidate = forkAgentState(staged);
           let res: AgentToolResult;
-          if (tc.name === "finish_genesis" || tc.name === "handover") {
-            remixDone = true;
+          if (handedOver) {
+            // Terminal barrier: the call is recorded with an explicit
+            // rejection — never silently dropped — but does not execute.
             res = {
-              success: true,
-              message: "Remix complete. Handing over to resume gameplay.",
-              details: { genesisComplete: true, remixComplete: true },
+              success: false,
+              error:
+                "Not executed: this turn ended at a successful handover. Ask for this change in the next Remix request.",
             };
           } else {
             res = await executeAgentToolAsync(candidate, tc.name, tc.input, this.runtime);
           }
-          if (res.success && tc.name !== "finish_genesis" && tc.name !== "handover") {
+          if (res.success) {
             Object.assign(staged, candidate);
-            if (
+            if (tc.name === "handover") handedOver = true;
+            else if (
               res.details?.["writtenResources"] ||
               res.details?.["updatedFiles"] ||
               res.details?.["authoringChanged"]
@@ -346,8 +349,11 @@ Answer the player's question using evidence from inspection when needed. For hin
           this.task.recordTool(tc.name, tc.input, res);
           results.push({ toolCallId: tc.id, result: this.projectForModel(res) });
         }
-        turn = await this.observeTurn(this.conversation.sendToolResults(results), "remix");
-        if (remixDone) break;
+        this.conversation.appendToolResults(results);
+        // A passing handover is the host's own verdict: append the results,
+        // commit below and resume without another provider request.
+        if (handedOver) break;
+        turn = await this.observeTurn(this.conversation.complete(), "remix");
       }
 
       const patched = changedResources(this.state, staged);
@@ -637,9 +643,17 @@ Answer the player's question using evidence from inspection when needed. For hin
           await this.task.checkpoint(false);
           this.onEvent("request", `[Genesis] ${tc.name}`, { tool: tc.name, args: tc.input });
           const toolStart = performance.now();
-          const res = await executeAgentToolAsync(this.state, tc.name, tc.input, {
-            allowedTools: AUTHORING_SESSION_TOOLS,
-          });
+          // Terminal barrier: a successful handover ends the batch; later
+          // calls get an explicit rejection result, never a silent drop.
+          const res = this.state.genesisComplete
+            ? {
+                success: false,
+                error:
+                  "Not executed: this turn ended at a successful handover. Use an Ask or Remix request for further changes.",
+              }
+            : await executeAgentToolAsync(this.state, tc.name, tc.input, {
+                allowedTools: AUTHORING_SESSION_TOOLS,
+              });
           this.pendingToolMs += performance.now() - toolStart;
           this.onEvent(
             res.success ? "response" : "error",
@@ -651,8 +665,9 @@ Answer the player's question using evidence from inspection when needed. For hin
           this.task.recordTool(tc.name, tc.input, res);
           results.push({ toolCallId: tc.id, result: this.projectForModel(res) });
         }
-        turn = await this.observeTurn(this.conversation.sendToolResults(results), "genesis");
+        this.conversation.appendToolResults(results);
         if (this.state.genesisComplete) break;
+        turn = await this.observeTurn(this.conversation.complete(), "genesis");
       } else {
         this.task.recordTool("unfinished_reply", {}, { success: false, message: turn.text ?? "" });
         // Model answered with text instead of tools, remind it to complete genesis
@@ -661,17 +676,13 @@ Answer the player's question using evidence from inspection when needed. For hin
         });
         turn = await this.observeTurn(
           this.conversation.sendUserMessage(
-            "Genesis resources are not complete yet. Please invoke write_words, write_view, write_picture, write_logic_source, and finish_genesis.",
+            "Genesis resources are not complete yet. Please invoke write_words, write_view, write_picture, write_logic_source, and handover.",
           ),
           "genesis",
         );
       }
     }
 
-    if (turn.toolCalls.length)
-      this.conversation.recordInterruption?.(
-        "Genesis finished successfully. Additional tool calls in the final response were not executed; use a remix turn for further changes.",
-      );
     this.onEvent("response", "Genesis authoring complete! Assembling boot files.");
 
     const files = Object.fromEntries(this.state.getFiles());
@@ -762,17 +773,24 @@ Answer the player's question using evidence from inspection when needed. For hin
           const candidate = forkAgentState(staged);
           let result: AgentToolResult;
           try {
-            if (tc.name === "finish_genesis" || tc.name === "handover") {
+            if (completed) {
+              result = {
+                success: false,
+                error:
+                  "Not executed: this turn ended at a successful handover. The room is already committed.",
+              };
+            } else if (tc.name === "handover") {
               if (
                 staged.container.getResource("logic", room) &&
                 staged.container.getResource("picture", room)
               ) {
-                completed = true;
-                result = {
-                  success: true,
-                  message: `Room ${room} authored successfully. Handing over to resume gameplay.`,
-                  details: { genesisComplete: true, roomHandover: room },
-                };
+                // The room's structural gate first, then the shared host
+                // validation (stored game tests) against the staged candidate.
+                result = await executeAgentToolAsync(candidate, "handover", tc.input, snapshot);
+                if (result.success) {
+                  staged = candidate;
+                  completed = true;
+                }
               } else {
                 result = {
                   success: false,
@@ -808,8 +826,9 @@ Answer the player's question using evidence from inspection when needed. For hin
           this.task.recordTool(tc.name, tc.input, result);
           results.push({ toolCallId: tc.id, result: this.projectForModel(result) });
         }
-        turn = await this.observeTurn(this.conversation.sendToolResults(results), "room");
+        this.conversation.appendToolResults(results);
         if (completed) break;
+        turn = await this.observeTurn(this.conversation.complete(), "room");
       }
       if (
         !completed &&

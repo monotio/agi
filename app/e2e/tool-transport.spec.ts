@@ -55,8 +55,10 @@ for (const provider of ["openai", "anthropic"] as const) {
         conversation.setTools(["read_view", "read_picture"]);
         await conversation.sendUserMessage("Inspect a room.");
         conversation.setTools();
-        await conversation.sendToolResults([{ toolCallId: "picture", result }]);
-        await conversation.sendToolResults([{ toolCallId: "sprite", result: sprite }]);
+        conversation.appendToolResults([{ toolCallId: "picture", result }]);
+        await conversation.complete();
+        conversation.appendToolResults([{ toolCallId: "sprite", result: sprite }]);
+        await conversation.complete();
         const recovery = tools.executeAgentTool(state, "write_logic_source", {
           room: 2,
           source: "relese.priorty(o1); return;",
@@ -66,10 +68,11 @@ for (const provider of ["openai", "anthropic"] as const) {
           kind: "action",
           offset: null,
         });
-        await conversation.sendToolResults([
+        conversation.appendToolResults([
           { toolCallId: "compile", result: recovery },
           { toolCallId: "reference", result: reference },
         ]);
+        await conversation.complete();
         return conversation.getTranscript().length;
       },
       {
