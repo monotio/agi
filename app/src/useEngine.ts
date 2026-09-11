@@ -527,7 +527,9 @@ export function useEngine(
           ? msg["objects"]
           : msg["type"] === "exportFiles"
             ? msg["files"]
-            : msg["state"];
+            : msg["type"] === "checkpoint"
+              ? msg["image"]
+              : msg["state"];
     const handlers: Record<string, (msg: Record<string, unknown>) => void> = {
       keyAccepted: (msg) => input.acknowledgeKey(Number(msg["id"])),
       frame: (msg) => {

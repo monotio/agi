@@ -849,6 +849,16 @@ self.onmessage = (ev: MessageEvent) => {
       });
       return;
     }
+    if (msg.type === "checkpoint") {
+      // The paused interpreter's resumable image — the candidate preview's
+      // restore point. null outside a resumable cycle boundary.
+      sendControl({
+        type: "checkpoint",
+        id: msg.id,
+        image: engine ? engine.autosaveImage() : null,
+      });
+      return;
+    }
     if (msg.type === "startRecording") {
       if (!engine) {
         sendControl({

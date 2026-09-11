@@ -32,7 +32,12 @@ import { viewFeedback } from "./viewFeedback.ts";
 import { normalizeAuthoredLogic } from "./logicText.ts";
 import { readInventoryObjects } from "./inventory.ts";
 import { decodeInventoryFile } from "../runtime/inventoryFile.ts";
-import { createAuthoringState, resourceRevision, type AuthoringState } from "./authoringState.ts";
+import {
+  createAuthoringState,
+  resourceRevision,
+  resourceSetRevision,
+  type AuthoringState,
+} from "./authoringState.ts";
 import {
   AUTHORING_TOOLS,
   editableSource,
@@ -450,7 +455,44 @@ export function executeAgentTool(
 ): AgentToolResult {
   const call = prepareAgentToolCall(name, args);
   if (!call.success) return call;
-  return executeValidatedAgentTool(session, name, call.args);
+  return withEvidenceOrigin(session, name, executeValidatedAgentTool(session, name, call.args));
+}
+
+/** Tools that boot a fresh interpreter against the staged file set. */
+const BOOT_ORIGIN_TOOLS: ReadonlySet<string> = new Set(["playtest_room", "run_game_tests"]);
+
+/** Tools whose result is static reference text, not evidence about the game. */
+const REFERENCE_TOOLS: ReadonlySet<string> = new Set([
+  "read_authoring_guide",
+  "read_command_reference",
+  "read_diagnostic",
+]);
+
+/**
+ * Every game-facing result records where its evidence came from and which
+ * resource set it describes: "staged" for reads and writes of the session
+ * container, "boot" for fresh boot simulations against that set. A "boot"
+ * verdict is not proof the paused live game resumes correctly — resume
+ * validation is a separate host concern.
+ */
+function withEvidenceOrigin(
+  session: AgentSessionState,
+  name: string,
+  result: AgentToolResult,
+): AgentToolResult {
+  if (REFERENCE_TOOLS.has(name)) return result;
+  return {
+    ...result,
+    details: {
+      ...result.details,
+      // A simulation that ran from a recorded replay or a restored live
+      // checkpoint already stamps a more specific origin; keep it.
+      origin: result.details?.["origin"] ?? {
+        kind: BOOT_ORIGIN_TOOLS.has(name) ? "boot" : "staged",
+        resourceSet: resourceSetRevision(session),
+      },
+    },
+  };
 }
 
 /** Both public dispatchers must validate before reading live data or changing resources. */
@@ -1473,6 +1515,8 @@ export interface AgentRuntimeDeps {
   readonly allowedTools?: readonly string[];
   readonly frames?: FrameSource | undefined;
   readonly engine?: EngineStateSource | undefined;
+  /** Captures the paused interpreter's resumable image, or null when it cannot. */
+  readonly checkpoint?: (() => Uint8Array | null | Promise<Uint8Array | null>) | undefined;
 }
 
 /** Returned when a runtime tool is called with no interpreter attached. */
@@ -1560,6 +1604,7 @@ function clampInt(value: unknown, fallback: number, min: number, max: number): n
 async function executeReadFrames(
   args: Record<string, unknown>,
   source: FrameSource,
+  session: AgentSessionState,
 ): Promise<AgentToolResult> {
   const count = clampInt(args["count"], 1, 1, MAX_FRAMES);
   const stride = clampInt(args["stride"], 1, 1, 255);
@@ -1618,6 +1663,11 @@ async function executeReadFrames(
       plane,
       sheet: sheet && frames.length > 1,
       imageCount: images.length,
+      origin: {
+        kind: "live",
+        checkpoint: frames[frames.length - 1]!.cycle,
+        resourceSet: resourceSetRevision(session),
+      },
     },
     images,
   };
@@ -1662,6 +1712,7 @@ export async function executeAgentToolAsync(
         room,
         logic: logic.success ? logic.details : { error: logic.error },
         resources: index.details,
+        origin: { kind: "staged", resourceSet: resourceSetRevision(session) },
         intent: session.authoring.world.rooms[String(room)] ?? null,
         bindings: Object.fromEntries(Object.entries(session.authoring.bindings).slice(0, 32)),
         bindingCount: Object.keys(session.authoring.bindings).length,
@@ -1685,7 +1736,7 @@ export async function executeAgentToolAsync(
   }
   if (name === "read_frames") {
     if (!deps?.frames) return { success: false, error: NO_LIVE_GAME };
-    return executeReadFrames(args, deps.frames);
+    return executeReadFrames(args, deps.frames, session);
   }
   if (name === "read_objects") {
     if (!deps?.engine) return { success: false, error: NO_LIVE_GAME };
@@ -1699,7 +1750,10 @@ export async function executeAgentToolAsync(
       return {
         success: true,
         message: `${list.length} active screen object(s). Object 0 is ego.`,
-        details: { objects: list },
+        details: {
+          objects: list,
+          origin: { kind: "live", resourceSet: resourceSetRevision(session) },
+        },
       };
     } catch (err) {
       return { success: false, error: `read_objects failed: ${String(err)}` };
@@ -1711,7 +1765,12 @@ export async function executeAgentToolAsync(
       const state = (await deps.engine.state()) as Record<string, unknown> | null;
       if (!state)
         return { success: false, error: "read_state: the interpreter returned no state." };
-      const details = { ...state };
+      const details: Record<string, unknown> = { ...state };
+      details["origin"] = {
+        kind: "live",
+        ...(typeof state["cycle"] === "number" ? { checkpoint: state["cycle"] } : {}),
+        resourceSet: resourceSetRevision(session),
+      };
       for (const [field, parameter] of [
         ["vars", "variables"],
         ["flags", "flags"],
@@ -1735,5 +1794,17 @@ export async function executeAgentToolAsync(
       return { success: false, error: `read_state failed: ${String(err)}` };
     }
   }
-  return executeValidatedAgentTool(session, name, args);
+  if (name === "playtest_room" && args["fromLiveCheckpoint"] === true) {
+    // Candidate preview: restore the captured live checkpoint into an engine
+    // built from the staged resources, instead of a fresh boot.
+    const image = deps?.checkpoint ? await deps.checkpoint() : null;
+    if (!image)
+      return {
+        success: false,
+        error:
+          "fromLiveCheckpoint requires an attached live game paused at a resumable cycle boundary.",
+      };
+    return withEvidenceOrigin(session, name, playtestRoom(session, args, { setupImage: image }));
+  }
+  return withEvidenceOrigin(session, name, executeValidatedAgentTool(session, name, args));
 }

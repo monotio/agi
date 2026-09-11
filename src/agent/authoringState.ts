@@ -25,6 +25,24 @@ export function resourceRevision(payload: Uint8Array | null): string {
 }
 
 /**
+ * Content hash over the whole file set — the evidence identity reported as
+ * `origin.resourceSet` so a result records exactly which staged resources it
+ * describes.
+ */
+export function resourceSetRevision(state: { getFiles(): Map<string, Uint8Array> }): string {
+  let hash = 0x811c9dc5;
+  let total = 0;
+  for (const [name, bytes] of [...state.getFiles()].sort(([a], [b]) => a.localeCompare(b))) {
+    for (let i = 0; i < name.length; i++)
+      hash = Math.imul(hash ^ name.charCodeAt(i), 0x01000193) >>> 0;
+    hash = Math.imul(hash ^ 0xff, 0x01000193) >>> 0;
+    for (const byte of bytes) hash = Math.imul(hash ^ byte, 0x01000193) >>> 0;
+    total += name.length + bytes.length;
+  }
+  return `${total}-${hash.toString(16).padStart(8, "0")}`;
+}
+
+/**
  * Revision for the editable source snapshot. Covers the exact text the agent
  * was shown plus everything that changes how it compiles — resource bytes,
  * interpreter profile, dictionary, and named bindings — not only bytes.

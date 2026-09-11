@@ -398,10 +398,12 @@ export function runGameTests(
     limit,
   );
   const outcomes: GameTestOutcome[] = [];
+  const runOneResults: AgentToolResult[] = [];
   let firstFailure: AgentToolResult | null = null;
   for (const test of selected) {
     const { outcome, result } = runOne(session, test);
     outcomes.push(outcome);
+    runOneResults.push(result);
     if (!outcome.passed && !firstFailure) firstFailure = result;
   }
   const line = verdictLine(outcomes);
@@ -414,6 +416,16 @@ export function runGameTests(
       gameTests: outcomes,
       stored: stored.length,
       ran: outcomes.length,
+      // Per-test evidence origins: "recorded" when a test restored its stored
+      // interpreter state, "boot" when it booted fresh against staged bytes.
+      origins: outcomes.map((outcome, index) => ({
+        name: outcome.name,
+        kind: String(
+          (runOneResults[index]?.details?.["origin"] as Record<string, unknown> | undefined)?.[
+            "kind"
+          ] ?? "boot",
+        ),
+      })),
       ...(firstFailure?.details ? { firstFailure: firstFailure.details } : {}),
     },
     ...(firstFailure?.images ? { images: firstFailure.images.slice(0, 1) } : {}),

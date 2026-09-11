@@ -127,6 +127,20 @@ describe("frame compositing", () => {
 describe("read_frames tool", () => {
   const session = createAgentSessionState();
 
+  it("reports a live origin with the cycle checkpoint and resource-set identity", async () => {
+    const res = await executeAgentToolAsync(
+      session,
+      "read_frames",
+      { count: 1, stride: 1, sheet: null, plane: null },
+      { frames: fakeSource([7]) },
+    );
+    assert.equal(res.success, true);
+    const origin = res.details?.["origin"] as Record<string, unknown>;
+    assert.equal(origin["kind"], "live");
+    assert.equal(origin["checkpoint"], 7);
+    assert.match(String(origin["resourceSet"]), /^\d+-[0-9a-f]{8}$/);
+  });
+
   it("returns one image per frame by default", async () => {
     const res = await executeAgentToolAsync(
       session,

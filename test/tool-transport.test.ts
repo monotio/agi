@@ -20,6 +20,8 @@ import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildWordsTok } from "../src/logic/words.ts";
 import { compilePictureSource } from "../src/picture/source.ts";
 import { buildView } from "../src/view/view.ts";
+import { openContainer } from "../src/container/container.ts";
+import { Engine } from "../src/runtime/engine.ts";
 
 const picture = { room: 1, source: "vis 1\nfill 0,0\nend" };
 
@@ -408,6 +410,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
       spawnY: null,
       steps: null,
       expect: { room: 1, carriedItems: [], flags: [] },
+      fromLiveCheckpoint: null,
     },
     read_frames: { count: 1, stride: 1, sheet: false, plane: null },
     read_objects: {},
@@ -585,6 +588,95 @@ test("model-facing projection evicts large fields into a retrievable diagnostic"
     limit: null,
   });
   assert.equal(absent.success, false);
+});
+
+test("tool results carry explicit evidence origins and a resource-set identity", async () => {
+  const session = bootedSession();
+  const origin = (r: AgentToolResult) => r.details?.["origin"] as Record<string, unknown>;
+
+  const staged = executeAgentTool(session, "list_resources", { kind: null });
+  assert.equal(origin(staged)["kind"], "staged");
+  const setBefore = String(origin(staged)["resourceSet"]);
+  assert.match(setBefore, /^\d+-[0-9a-f]{8}$/);
+
+  // A write moves the resource-set identity; reads after it see the new set.
+  assert.equal(
+    executeAgentTool(session, "write_words", { words: ["lamp"], groups: null }).success,
+    true,
+  );
+  const staged2 = executeAgentTool(session, "list_resources", { kind: null });
+  assert.equal(origin(staged2)["kind"], "staged");
+  assert.notEqual(origin(staged2)["resourceSet"], setBefore);
+
+  const boot = executeAgentTool(session, "playtest_room", {
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: null,
+    expect: { room: 1, carriedItems: [], flags: [] },
+    fromLiveCheckpoint: null,
+  });
+  assert.equal(boot.success, true, boot.error ?? "");
+  assert.equal(origin(boot)["kind"], "boot");
+
+  const live = await executeAgentToolAsync(
+    session,
+    "read_objects",
+    {},
+    { engine: { objects: () => [{ num: 0 }], state: () => null } },
+  );
+  assert.equal(origin(live)["kind"], "live");
+});
+
+test("fromLiveCheckpoint restores the captured live image into the staged candidate", async () => {
+  const session = bootedSession();
+  // Boot a live engine to a snapshottable cycle boundary, then capture it —
+  // the same image the worker hands the session while the game is paused.
+  const liveEngine = new Engine(
+    openContainer(session.getFiles(), { kind: session.profile.container }),
+    {
+      print: () => {},
+      displayAt: () => {},
+      statusLine: () => {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+    },
+    session.sources.words,
+  );
+  let image: Uint8Array | null = null;
+  for (let i = 0; i < 200 && !image; i++) {
+    liveEngine.tick();
+    image = liveEngine.autosaveImage();
+  }
+  assert.ok(image, "the live game reached a snapshottable boundary");
+
+  const args = {
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: null,
+    expect: { room: 1, carriedItems: [], flags: [] },
+    cycleBudget: null,
+    instructionBudget: null,
+    fromLiveCheckpoint: true,
+  };
+  const candidate = await executeAgentToolAsync(session, "playtest_room", args, {
+    checkpoint: () => image,
+  });
+  assert.equal(candidate.success, true, candidate.error ?? "");
+  const origin = candidate.details?.["origin"] as Record<string, unknown>;
+  assert.equal(origin["kind"], "candidate");
+  const stagedSet = (
+    executeAgentTool(session, "list_resources", { kind: null }).details?.["origin"] as Record<
+      string,
+      unknown
+    >
+  )["resourceSet"];
+  assert.equal(origin["resourceSet"], stagedSet);
+
+  const detached = await executeAgentToolAsync(session, "playtest_room", args, {});
+  assert.equal(detached.success, false);
+  assert.match(detached.error ?? "", /live game/);
 });
 
 test("Anthropic tool definitions send the catalog schemas verbatim and never strict", () => {

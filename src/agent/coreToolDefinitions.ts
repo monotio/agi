@@ -575,7 +575,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "playtest_room",
     description:
-      "Run a bounded isolated playtest of `room` against staged resources. `steps` command, move, enter, wait, key, direction, walkTo or answer; answer queues a get.string/get.num reply without advancing a cycle and requires null ticks/captureTicks; `expect` asserts room, inventory, flags, variables, a printed message (`printed`) and visible text (`text`). Null `spawnX`/`spawnY` use initialized ego; null steps checks its footprint. captureTicks samples completed ticks within that step into a composed animation sheet. Null `cycleBudget` (600) and `instructionBudget` (50000) bound the run. Missing destinations report `needs_authoring`.",
+      "Run a bounded isolated playtest of `room` against staged resources. `steps` command, move, enter, wait, key, direction, walkTo or answer; answer queues a get.string/get.num reply without advancing a cycle and requires null ticks/captureTicks; `expect` asserts room, inventory, flags, variables, a printed message (`printed`) and visible text (`text`). Null `spawnX`/`spawnY` use initialized ego; null steps checks its footprint. captureTicks samples completed ticks within that step into a composed animation sheet. `fromLiveCheckpoint` restores the paused live game's captured checkpoint instead of booting — the candidate preview proves the staged changes resume correctly. Null `cycleBudget` (600) and `instructionBudget` (50000) bound the run. Missing destinations report `needs_authoring`.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -601,8 +601,20 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
         spawnY: {
           type: ["integer", "null"],
         },
+        fromLiveCheckpoint: {
+          type: ["boolean", "null"],
+        },
       },
-      required: ["room", "spawnX", "spawnY", "steps", "expect", "cycleBudget", "instructionBudget"],
+      required: [
+        "room",
+        "spawnX",
+        "spawnY",
+        "steps",
+        "expect",
+        "cycleBudget",
+        "instructionBudget",
+        "fromLiveCheckpoint",
+      ],
     },
   },
   {
