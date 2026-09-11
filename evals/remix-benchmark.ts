@@ -331,7 +331,10 @@ async function main(): Promise<void> {
   if (!files.has("WORDS.TOK") || !files.has("OBJECT"))
     console.warn("warning: game directory has no WORDS.TOK/OBJECT; reads may be empty.");
   const reports: RunReport[] = [];
-  const dir = join(args.out, new Date().toISOString().replace(/[:.]/g, "-"));
+  const dir = join(
+    args.out,
+    `${new Date().toISOString().replace(/[:.]/g, "-")}-${args.provider}-${args.model ?? "default"}${args.warm ? "-warm" : ""}`,
+  );
   mkdirSync(dir, { recursive: true });
   for (const id of args.cases) {
     for (let r = 0; r < args.repeats; r++) {
