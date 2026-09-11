@@ -241,13 +241,17 @@ async function runCase(
 
   const t0 = performance.now();
   try {
-    const sim = new Simulation(session.state, 1200, 50000, { pressKeys: true });
+    const sim = new Simulation(session.state, 4000, 50000, { pressKeys: true });
     const engine = sim.engine;
     if (args.checkpoint) {
       engine.restoreImage(readFileSync(args.checkpoint));
     } else {
+      // Boot past modals and the intro/title sequence (pressKeys auto-
+      // answers its blocking waits): land on the first interactive room —
+      // 'this room' in a case must mean a playable one. The budget needs
+      // to outlast typical Sierra intro chains (GR lands in room 1 ~1278).
       let dismissed = 0;
-      for (let i = 0; i < 1200; i++) {
+      for (let i = 0; i < 4000; i++) {
         sim.tick();
         const s = engine.readState();
         if (s.pictureShown && s.inputEnabled) break;
@@ -376,6 +380,7 @@ async function main(): Promise<void> {
   const path = join(dir, "report.json");
   writeFileSync(path, JSON.stringify(summary, null, 2) + "\n");
   console.log(`Report: ${path}`);
+  if (reports.some((r) => !r.ok)) process.exitCode = 1;
 }
 
 main().catch((error) => {
