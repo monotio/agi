@@ -642,13 +642,23 @@ export function createOpenAiConversation(
     },
     async sendUserMessage(text: string): Promise<LlmTurnResult> {
       closePending("the previous turn ended before the harness executed it.");
-      input.push({ role: "user", content: text });
+      input.push({
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text,
+            prompt_cache_breakpoint: { mode: "explicit" },
+          },
+        ],
+      });
       return step();
     },
     appendToolResults(results): void {
       let textBytes = 0;
       let imageCount = 0;
       let imagePixels = 0;
+      let lastOutput: OpenAI.Responses.ResponseInputItem.FunctionCallOutput | undefined;
       for (const r of results) {
         const split = splitToolResult(r.result);
         textBytes += split.text.length;
@@ -656,11 +666,22 @@ export function createOpenAiConversation(
           imageCount++;
           imagePixels += pngPixels(image.png);
         }
-        input.push({
+        lastOutput = {
           type: "function_call_output",
           call_id: r.toolCallId,
           output: openAiToolContent(split),
-        });
+        };
+        input.push(lastOutput);
+      }
+      // Explicit breakpoint at each turn's tail: implicit caching looks back
+      // only ~20 eligible message endings, so a turn with many tool calls
+      // pushes the last stable prefix out of the window and the cache sticks
+      // at the first request. A marked boundary is always a lookup point
+      // (latest 50 explicit breakpoints are always checked) and always writes.
+      if (lastOutput && Array.isArray(lastOutput.output) && lastOutput.output.length) {
+        lastOutput.output[lastOutput.output.length - 1]!.prompt_cache_breakpoint = {
+          mode: "explicit",
+        };
       }
       pendingToolContent = { textBytes, imageCount, imagePixels };
     },

@@ -139,7 +139,7 @@ function configFor(args: Args): LlmConfig {
   };
 }
 
-/** Cost in USD for cumulative usage; the same formula as AgentRun.recordUsage. */
+/** Cost in USD for one request's usage; long-context pricing is per request. */
 function costUsd(
   model: string,
   usage: { input: number; cachedInput: number; cacheWriteInput: number; output: number },
@@ -158,6 +158,21 @@ function costUsd(
   );
 }
 
+/** Sum per-request cost so the long-context multiplier applies per request. */
+function runCostUsd(model: string, telemetry: unknown[]): number | null {
+  const usages = telemetry
+    .map((t) => (t as { usage?: LlmUsage }).usage)
+    .filter((u): u is LlmUsage => u !== undefined);
+  if (usages.length === 0) return null;
+  let total = 0;
+  for (const usage of usages) {
+    const c = costUsd(model, usage);
+    if (c == null) return null;
+    total += c;
+  }
+  return total;
+}
+
 interface RunReport {
   case: string;
   repeat: number;
@@ -166,11 +181,23 @@ interface RunReport {
   error?: string;
   wallMs: number;
   requests: number;
+  calls?: { tool: string; args: unknown }[];
   telemetry: unknown[];
   usage?: LlmUsage;
   costUsd?: number | null;
   patched?: string[];
   text?: string;
+}
+
+/** Transcript with binary payloads elided, for per-run diagnosis. */
+function lightTranscript(items: unknown[]): unknown {
+  return JSON.parse(
+    JSON.stringify(items, (_key, value: unknown) =>
+      typeof value === "string" && value.length > 2000
+        ? `[${value.length} chars]`
+        : value,
+    ),
+  );
 }
 
 /**
@@ -184,8 +211,9 @@ async function runCase(
   files: Map<string, Uint8Array>,
   args: Args,
   repeat: number,
-): Promise<RunReport> {
+): Promise<{ report: RunReport; transcript: unknown }> {
   const telemetry: unknown[] = [];
+  const calls: { tool: string; args: unknown }[] = [];
   let usage: LlmUsage | undefined;
   // Per-run byte copies: openContainer copies again, but the session also
   // keeps raw refs to WORDS.TOK/OBJECT/TESTS.JSON as payload fields — hand
@@ -196,6 +224,8 @@ async function runCase(
     (kind, _message, data) => {
       const details = data as Record<string, unknown> | undefined;
       if (kind === "telemetry") telemetry.push(details?.["telemetry"]);
+      if (kind === "request" && details?.["tool"])
+        calls.push({ tool: String(details["tool"]), args: details["args"] });
       const total = details?.["totalUsage"] as LlmUsage | undefined;
       if (total) usage = total;
     },
@@ -261,33 +291,41 @@ async function runCase(
     const changed = patched.length + fileWrites.length;
     const accepted = bench.mode === "ask" || changed > 0;
     return {
-      case: bench.id,
-      repeat,
-      warm: args.warm,
-      ok: accepted,
-      ...(accepted
-        ? {}
-        : { error: "Remix finished without patching any resource or file." }),
-      wallMs,
-      requests: telemetry.length,
-      telemetry,
-      ...(usage !== undefined ? { usage } : {}),
-      costUsd: usage ? costUsd(configFor(args).model, usage) : null,
-      patched,
-      text: (typeof result === "string" ? result : result.text).slice(0, 400),
+      report: {
+        case: bench.id,
+        repeat,
+        warm: args.warm,
+        ok: accepted,
+        ...(accepted
+          ? {}
+          : { error: "Remix finished without patching any resource or file." }),
+        wallMs,
+        requests: telemetry.length,
+        calls,
+        telemetry,
+        ...(usage !== undefined ? { usage } : {}),
+        costUsd: runCostUsd(configFor(args).model, telemetry),
+        patched,
+        text: (typeof result === "string" ? result : result.text).slice(0, 400),
+      },
+      transcript: lightTranscript(session.getTranscript()),
     };
   } catch (error) {
     return {
-      case: bench.id,
-      repeat,
-      warm: args.warm,
-      ok: false,
-      error: String(error),
-      wallMs: performance.now() - t0,
-      requests: telemetry.length,
-      telemetry,
-      ...(usage !== undefined ? { usage } : {}),
-      costUsd: usage ? costUsd(configFor(args).model, usage) : null,
+      report: {
+        case: bench.id,
+        repeat,
+        warm: args.warm,
+        ok: false,
+        error: String(error),
+        wallMs: performance.now() - t0,
+        requests: telemetry.length,
+        calls,
+        telemetry,
+        ...(usage !== undefined ? { usage } : {}),
+        costUsd: runCostUsd(configFor(args).model, telemetry),
+      },
+      transcript: lightTranscript(session.getTranscript()),
     };
   }
 }
@@ -298,10 +336,16 @@ async function main(): Promise<void> {
   if (!files.has("WORDS.TOK") || !files.has("OBJECT"))
     console.warn("warning: game directory has no WORDS.TOK/OBJECT; reads may be empty.");
   const reports: RunReport[] = [];
+  const dir = join(args.out, new Date().toISOString().replace(/[:.]/g, "-"));
+  mkdirSync(dir, { recursive: true });
   for (const id of args.cases) {
     for (let r = 0; r < args.repeats; r++) {
-      const report = await runCase(CASES[id]!, files, args, r + 1);
+      const { report, transcript } = await runCase(CASES[id]!, files, args, r + 1);
       reports.push(report);
+      writeFileSync(
+        join(dir, `${report.case}-r${report.repeat}${report.warm ? "-warm" : ""}.transcript.json`),
+        JSON.stringify(transcript),
+      );
       console.log(
         `${report.ok ? "ok" : "FAIL"} ${report.case} r${report.repeat}${report.warm ? " warm" : ""}: ` +
           `${report.requests} req, ${(report.wallMs / 1000).toFixed(1)}s, ` +
@@ -310,8 +354,6 @@ async function main(): Promise<void> {
       );
     }
   }
-  const dir = join(args.out, new Date().toISOString().replace(/[:.]/g, "-"));
-  mkdirSync(dir, { recursive: true });
   const summary = {
     game: basename(args.game),
     provider: args.provider,

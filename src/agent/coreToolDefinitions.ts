@@ -384,7 +384,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_view",
     description:
-      "Inspect compiled view `num` as a labeled contact sheet. Large views sample at most 32 cels. Fails for absent or invalid resources.",
+      "Inspect compiled view `num` as a labeled contact sheet with per-cel size and EGA color usage — enough to plan a recolor in one call. Large views sample at most 32 cels. Use `read_view_cel` only for exact pixel rows of one cel. Fails for absent or invalid resources.",
     parameters: {
       type: "object",
       additionalProperties: false,

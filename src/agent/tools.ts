@@ -1086,6 +1086,25 @@ function executeLegacyTool(
           return { success: false, error: `View ${num} is not present in the container.` };
         const view = parseView(payload, session.profile);
         const preview = viewFeedback(payload, session.profile, num);
+        // Per-cel EGA color usage: enough to plan a recolor without reading
+        // every cel's rows one at a time.
+        const cels = view.loops.flatMap((loop, loopNum) =>
+          loop.cels.map((cel, celNum) => {
+            const counts = new Map<number, number>();
+            for (const pixel of cel.pixels)
+              if (pixel !== cel.transparentColor)
+                counts.set(pixel, (counts.get(pixel) ?? 0) + 1);
+            return {
+              loop: loopNum,
+              cel: celNum,
+              width: cel.width,
+              height: cel.height,
+              colors: Object.fromEntries(
+                [...counts].sort((a, b) => b[1] - a[1]).map(([color, n]) => [color, n]),
+              ),
+            };
+          }),
+        );
         return {
           success: true,
           message: `View ${num}: ${view.loops.length} loops, ${preview.totalFrames} cels.`,
@@ -1095,6 +1114,7 @@ function executeLegacyTool(
             description: view.description?.slice(0, 512),
             loopCount: view.loops.length,
             celsPerLoop: view.loops.map((loop) => loop.cels.length),
+            cels,
             preview: {
               width: preview.width,
               height: preview.height,
