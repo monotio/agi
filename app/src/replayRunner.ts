@@ -105,6 +105,9 @@ export async function runReplayBatch(
 
   function getEffectiveSpeed(): number {
     if (isSeeking()) return 0;
+    // Resuming from a dialogue pause fast-forwards the tape's remaining dwell
+    // until the modal closes, so "continue" actually dismisses the window.
+    if (skipDialogueTail) return DIALOGUE_SKIP_SPEED;
     return getSpeed();
   }
 
@@ -113,6 +116,9 @@ export async function runReplayBatch(
   let typedLine = "";
   let lastProgressAt = 0;
   let lastProgressActionIndex = -1;
+  let skipDialogueTail = false;
+  /** Fast-forward rate for the dwell between a dialogue pause and its ack. */
+  const DIALOGUE_SKIP_SPEED = 600;
 
   async function resumed(before: ReplayObservation): Promise<void> {
     if (!before.blocked) return;
@@ -221,10 +227,12 @@ export async function runReplayBatch(
           inStoryDialogue = true;
           options.onDialogPause?.();
           await checkPaused();
+          skipDialogueTail = true;
           checkAborted();
         }
       } else {
         inStoryDialogue = false;
+        skipDialogueTail = false;
       }
       if (options?.onProgress && actionIndex !== undefined && !isSeeking()) {
         const now = performance.now();
@@ -351,10 +359,12 @@ export async function runReplayBatch(
               inStoryDialogue = true;
               options.onDialogPause?.();
               await checkPaused();
+              skipDialogueTail = true;
               checkAborted();
             }
           } else {
             inStoryDialogue = false;
+            skipDialogueTail = false;
           }
           await key(action.code);
           checkAborted();
