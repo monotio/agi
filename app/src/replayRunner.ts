@@ -142,13 +142,22 @@ export async function runReplayBatch(
 
   async function resumed(before: ReplayObservation): Promise<void> {
     if (!before.blocked) return;
+    // A key delivered to a waitkey-blocked engine can land it on the next
+    // blocking wait — e.g. the save dialog chains waitkey steps. A fresh
+    // blocked observation still proves the key was consumed; only a fresh
+    // prompt kind (getnum/getstring/saveDescription) needs an answer.
+    const stillBlockedOk = before.blocked === "waitkey";
     if (driver.waitForRevision) {
-      await driver.waitForRevision(before.revision, { unblocked: true, signal: options?.signal });
+      await driver.waitForRevision(before.revision, {
+        unblocked: !stillBlockedOk,
+        signal: options?.signal,
+      });
     } else {
       const start = Date.now();
       while (
         driver.latest &&
-        (driver.latest.revision <= before.revision || driver.latest.blocked !== null)
+        (driver.latest.revision <= before.revision ||
+          (!stillBlockedOk && driver.latest.blocked !== null))
       ) {
         checkAborted();
         if (Date.now() - start > 10_000) {

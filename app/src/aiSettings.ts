@@ -42,13 +42,17 @@ function defaults(models: DefaultModels): AiSettings {
     version: 1,
     provider: "openai",
     profiles: {
-      openai: { model: models.openai, apiKey: "", effort: defaultModelEffort(models.openai) },
+      openai: {
+        model: models.openai,
+        apiKey: "",
+        effort: defaultModelEffort(models.openai, "openai"),
+      },
       anthropic: {
         model: models.anthropic,
         apiKey: "",
-        effort: defaultModelEffort(models.anthropic),
+        effort: defaultModelEffort(models.anthropic, "anthropic"),
       },
-      stub: { model: models.stub, apiKey: "", effort: defaultModelEffort(models.stub) },
+      stub: { model: models.stub, apiKey: "", effort: defaultModelEffort(models.stub, "stub") },
     },
   };
 }
@@ -90,7 +94,7 @@ export function loadAiSettings(
       target.effort =
         effort !== undefined && modelEffortOptions(model).includes(effort)
           ? effort
-          : defaultModelEffort(model);
+          : defaultModelEffort(model, name);
     }
     if (typeof profile?.["apiKey"] === "string") target.apiKey = profile["apiKey"];
   }

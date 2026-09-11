@@ -10,7 +10,7 @@ describe("agent tools", () => {
     assert.ok(names.includes("write_logic_source"));
     assert.ok(names.includes("write_picture"));
     assert.ok(names.includes("write_view"));
-    assert.ok(names.includes("finish_genesis"));
+    assert.ok(names.includes("handover"));
     assert.ok(names.includes("write_inventory_objects"));
     assert.ok(names.includes("write_sound"));
     assert.ok(names.includes("inspect_world_bible"));
@@ -18,21 +18,11 @@ describe("agent tools", () => {
     // Read tools: orientation and live patching.
     assert.ok(names.includes("read_picture"));
     assert.ok(names.includes("read_logic"));
-    assert.ok(names.includes("list_resources"));
     assert.ok(names.includes("read_words"));
-    // Runtime perception: frames, objects, state.
-    assert.ok(names.includes("read_frames"));
-    assert.ok(names.includes("read_objects"));
-    assert.ok(names.includes("read_state"));
+    // Runtime perception: read_room_context carries live state, objects and frames.
+    assert.ok(names.includes("read_room_context"));
     assert.ok(names.includes("read_view"));
-    for (const name of [
-      "write_actor",
-      "upsert_inventory_item",
-      "write_music",
-      "edit_resource_source",
-      "reserve_binding",
-      "update_world",
-    ])
+    for (const name of ["write_music", "edit_resource_source", "reserve_binding", "update_world"])
       assert.ok(names.includes(name));
     assert.equal(new Set(names).size, names.length, "tool names are unique");
   });
@@ -70,9 +60,9 @@ describe("agent tools", () => {
     }
   });
 
-  it("rejects finish_genesis when initial resources are missing", () => {
+  it("rejects handover when initial resources are missing", () => {
     const session = createAgentSessionState();
-    const res = executeAgentTool(session, "finish_genesis", {});
+    const res = executeAgentTool(session, "handover", {});
     assert.equal(res.success, false);
     assert.ok(res.error?.includes("missing required initial resources"));
     assert.equal(session.genesisComplete, false);
@@ -162,7 +152,7 @@ describe("agent tools", () => {
     assert.ok(session.container.getResource("logic", 1));
 
     // 6. finish genesis
-    const finishRes = executeAgentTool(session, "finish_genesis", {
+    const finishRes = executeAgentTool(session, "handover", {
       notes: "Starting room and ego initialized.",
     });
     assert.equal(finishRes.success, true);
@@ -188,7 +178,7 @@ describe("agent tools", () => {
       source:
         "if (isset(f5)) {load.pic(v0); draw.pic(v0); show.pic(); load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); accept.input();} return;",
     });
-    executeAgentTool(session, "finish_genesis", {});
+    executeAgentTool(session, "handover", {});
     assert.equal(session.genesisComplete, true);
 
     // Incrementally author room 2
@@ -455,13 +445,14 @@ describe("agent tools", () => {
     assert.ok(missing.error?.includes("not present"));
   });
 
-  it("list_resources reports present numbers and free numbers per family", () => {
+  it("inspect_world_bible slots reports present numbers and free numbers per family", () => {
     const session = createAgentSessionState();
     executeAgentTool(session, "write_logic_source", { room: 0, source: "return;" });
     executeAgentTool(session, "write_logic_source", { room: 1, source: "return;" });
     executeAgentTool(session, "write_picture", { room: 1, source: "end\n" });
+    const slots = { filter: "slots", section: null, name: null, offset: null };
 
-    const res = executeAgentTool(session, "list_resources", { kind: null });
+    const res = executeAgentTool(session, "inspect_world_bible", { ...slots, kind: null });
     assert.equal(res.success, true);
     const present = res.details?.["present"] as Record<string, number[]>;
     assert.deepEqual(present["logic"], [0, 1]);
@@ -472,12 +463,12 @@ describe("agent tools", () => {
     assert.equal(free["picture"]![0], 2);
     assert.ok(res.message?.includes("logic: 2 present"), res.message ?? "");
 
-    const one = executeAgentTool(session, "list_resources", { kind: "picture" });
+    const one = executeAgentTool(session, "inspect_world_bible", { ...slots, kind: "picture" });
     assert.deepEqual(Object.keys(one.details?.["present"] as object), ["picture"]);
 
-    const bad = executeAgentTool(session, "list_resources", { kind: "spaceship" });
+    const bad = executeAgentTool(session, "inspect_world_bible", { ...slots, kind: "spaceship" });
     assert.equal(bad.success, false);
-    assert.ok(bad.error?.includes("Unknown resource kind"));
+    assert.ok(bad.error?.includes("must be one of"));
   });
 
   it("read_words summarises the dictionary by synonym group", () => {

@@ -28,6 +28,7 @@ import {
   createGenesisPrompt,
   createOrientationPrompt,
   createRuntimeRoomPrompt,
+  createSceneBrief,
   type OrientationInput,
 } from "../../../src/agent/prompt.ts";
 import {
@@ -39,6 +40,7 @@ import {
   type LlmTurnResult,
 } from "./llmClient.ts";
 import { StubAgent } from "./stubAgent.ts";
+import { projectToolResult } from "../../../src/agent/toolTransport.ts";
 import type { AgentEventSink, AgentHandler, LlmRequest } from "./sabBridge.ts";
 import { continuationTranscript } from "../projectArchive.ts";
 
@@ -60,9 +62,7 @@ export interface PowerUpResult {
 }
 
 /** Tools active during Genesis and Room Authoring. Stable across both phases for prompt cache reuse. */
-const AUTHORING_SESSION_TOOLS = AGENT_TOOLS.filter((tool) => tool.name !== "read_frames").map(
-  (tool) => tool.name,
-);
+const AUTHORING_SESSION_TOOLS = AGENT_TOOLS.map((tool) => tool.name);
 
 export interface BootResources {
   files: Record<string, Uint8Array>;
@@ -87,7 +87,7 @@ The world is frozen at a cycle boundary in room ${room}, and the player has aske
 
 "${instruction.trim()}"
 
-Look before you write: read_state and read_objects tell you where the player is and what is on screen, read_frames shows you the screen itself, and read_logic / read_picture / list_resources give you the resources as source. Then patch the smallest thing that achieves what was asked, in the room the player is standing in unless they said otherwise. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
+Look before you write: read_room_context carries the room's live state, object table and resources — pass its 'frames' arg for the paused screen and 'state' for the full tables; read_logic / read_picture only when the request touches that resource. Patch the smallest thing that achieves what was asked — a color remap is patch_view_cels with 'recolor', no pixel rows needed — in the room the player is standing in unless they said otherwise. handover runs the full stored suite; playtest only when behavior is uncertain. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
 }
 
 export class AgentSession implements AgentHandler {
@@ -101,8 +101,11 @@ export class AgentSession implements AgentHandler {
   /** Conversation data retained while a non-stub provider has no connected key. */
   private readonly retainedTranscript: unknown[];
   private readonly retainedSessionId: string | undefined;
-  /** Live-game sources for read_frames / read_objects / read_state. */
+  /** Live-game sources for read_room_context. */
   private runtime: AgentRuntimeDeps = {};
+  /** Local tool-execution ms since the last provider request, for telemetry. */
+  private pendingToolMs = 0;
+  private diagnosticSeq = 0;
   /** Context is attached to the first submitted request, never sent on panel open. */
   private oriented = false;
   private orientation: Pick<OrientationInput, "game" | "profile"> | undefined;
@@ -165,12 +168,16 @@ export class AgentSession implements AgentHandler {
       throw new Error("Connect an API key in AI settings before using Ask or Remix.");
     this.messages.push({ role: "user", text: question });
     this.onEvent("request", `[Ask] ${question}`, { instruction: question, room });
-    const context = this.orientationContext(room);
+    const context = await this.orientationContext(room);
     if (!this.conversation) {
       const result = await executeAgentToolAsync(
         this.state,
-        "read_state",
-        { compact: true },
+        "read_room_context",
+        {
+          room,
+          state: { compact: true, variables: null, flags: null },
+          frames: null,
+        },
         { ...this.runtime, readOnly: true },
       );
       const text = result.success
@@ -180,7 +187,7 @@ export class AgentSession implements AgentHandler {
       this.messages.push({ role: "assistant", text });
       return text;
     }
-    this.conversation.setTools([...ASK_TOOLS]);
+    this.conversation.setAvailableTools(ASK_TOOLS);
     const inspected = forkAgentState(this.state);
     try {
       let turn = await this.observeTurn(
@@ -189,25 +196,29 @@ The game is paused in room ${room}. This turn is a read-only conversation, not a
 ${question.trim()}
 
 Answer the player's question using evidence from inspection when needed. For hints, avoid spoilers beyond what was requested. Distinguish game logic from suspected engine faults and explain what you observed and what remains uncertain. playtest_room starts from boot, not the live checkpoint. Do not claim to have replayed earlier events or inspected a call stack unless a tool actually supplies it. If a content fix would help, describe it for the player to apply in Remix. Engine implementation changes belong in the development workflow. Keep the reply concise and useful; this conversation stays open.`),
+        "ask",
       );
       while (turn.toolCalls.length) {
         const results: { toolCallId: string; result: AgentToolResult }[] = [];
         for (const call of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Ask] ${call.name}`, { tool: call.name });
+          const toolStart = performance.now();
           const result = await executeAgentToolAsync(inspected, call.name, call.input, {
             ...this.runtime,
             readOnly: true,
           });
+          this.pendingToolMs += performance.now() - toolStart;
           this.onEvent(
             result.success ? "response" : "error",
             `[Ask] ${call.name} → ${result.success ? (result.message ?? "Done") : result.error}`,
             { tool: call.name, result: { ...result, images: undefined } },
           );
           this.task.recordTool(call.name, call.input, result);
-          results.push({ toolCallId: call.id, result });
+          results.push({ toolCallId: call.id, result: this.projectForModel(result) });
         }
-        turn = await this.observeTurn(this.conversation.sendToolResults(results));
+        this.conversation.appendToolResults(results);
+        turn = await this.observeTurn(this.conversation.complete(), "ask");
       }
       const text = turn.text || "What would you like to explore next?";
       this.onEvent("response", `[Ask] ${text}`, { text });
@@ -226,29 +237,29 @@ Answer the player's question using evidence from inspection when needed. For hin
     if (!this.oriented) this.orientation = input;
   }
 
-  private orientationContext(room: number): string {
+  private async orientationContext(room: number): Promise<string> {
     if (!this.orientation || this.oriented) return "";
     const input = { ...this.orientation, room };
-    const text = (result: AgentToolResult, fallback: string): string =>
-      result.success ? (result.message ?? fallback) : `(${result.error ?? fallback})`;
+    // The compact scene brief reads through the same tools the model uses —
+    // read_room_context, read_picture — so the brief and the
+    // on-demand deep dive can never disagree about what the session holds.
+    const [roomContext, picture] = [
+      await executeAgentToolAsync(
+        this.state,
+        "read_room_context",
+        { room, state: null, frames: null },
+        this.runtime,
+      ),
+      executeAgentTool(this.state, "read_picture", { num: room }),
+    ];
+    const liveSection = roomContext.details?.["live"] as Record<string, unknown> | undefined;
+    const objects =
+      roomContext.success && Array.isArray(liveSection?.["objects"])
+        ? { success: true, details: { objects: liveSection["objects"] as unknown[] } }
+        : null;
     const prompt = createOrientationPrompt({
       ...input,
-      resourceListing: text(
-        executeAgentTool(this.state, "list_resources", { kind: null }),
-        "no listing",
-      ),
-      logicSource: text(
-        executeAgentTool(this.state, "read_logic", { num: input.room }),
-        "no logic",
-      ),
-      pictureSource: text(
-        executeAgentTool(this.state, "read_picture", { num: input.room }),
-        "no picture",
-      ),
-      wordsSummary: text(
-        executeAgentTool(this.state, "read_words", { prefix: null }),
-        "no dictionary",
-      ),
+      sceneBrief: createSceneBrief(roomContext, picture, objects),
     });
     this.onEvent(
       "request",
@@ -276,20 +287,24 @@ Answer the player's question using evidence from inspection when needed. For hin
       throw new Error("Connect an API key in AI settings before using Ask or Remix.");
     this.messages.push({ role: "user", text: instruction });
     this.onEvent("request", `[Remix] "${instruction}" (room ${room})`, { instruction, room });
-    const prompt = this.orientationContext(room) + createPowerUpPrompt(instruction, room);
+    const prompt = (await this.orientationContext(room)) + createPowerUpPrompt(instruction, room);
     if (this.stubFallback) {
       // The stub looks at the running game before it patches, exactly as the
       // model path does. That keeps the offline e2e a proof of the whole
       // perception chain: worker frame ring -> transfer -> composited PNG.
       const frames = await executeAgentToolAsync(
         this.state,
-        "read_frames",
-        { count: 4, stride: 1, sheet: true, plane: null },
+        "read_room_context",
+        {
+          room,
+          state: null,
+          frames: { count: 4, stride: 1, sheet: true, plane: null },
+        },
         this.runtime,
       );
       this.onEvent(
         frames.success ? "response" : "error",
-        `[Remix] read_frames -> ${frames.success ? (frames.message ?? "").split("\n")[0] : frames.error}`,
+        `[Remix] read_room_context -> ${frames.success ? (frames.message ?? "").split("\n")[0] : frames.error}`,
         { images: frames.images?.map((i) => i.caption) },
       );
       const result = await this.stubFallback.powerUp(instruction, room);
@@ -300,33 +315,36 @@ Answer the player's question using evidence from inspection when needed. For hin
     }
     if (!this.conversation) throw new Error("No conversation provider configured");
 
-    this.conversation.setTools();
+    this.conversation.setAvailableTools();
 
     const staged = forkAgentState(this.state);
     try {
-      let turn = await this.observeTurn(this.conversation.sendUserMessage(prompt));
+      let turn = await this.observeTurn(this.conversation.sendUserMessage(prompt), "remix");
 
       while (turn.toolCalls.length > 0) {
-        let remixDone = false;
+        let handedOver = false;
         const results: { toolCallId: string; result: AgentToolResult }[] = [];
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Remix] ${tc.name}`, { tool: tc.name, args: tc.input });
+          const toolStart = performance.now();
           const candidate = forkAgentState(staged);
           let res: AgentToolResult;
-          if (tc.name === "finish_genesis" || tc.name === "handover") {
-            remixDone = true;
+          if (handedOver) {
+            // Terminal barrier: the call is recorded with an explicit
+            // rejection — never silently dropped — but does not execute.
             res = {
-              success: true,
-              message: "Remix complete. Handing over to resume gameplay.",
-              details: { genesisComplete: true, remixComplete: true },
+              success: false,
+              error:
+                "Not executed: this turn ended at a successful handover. Ask for this change in the next Remix request.",
             };
           } else {
             res = await executeAgentToolAsync(candidate, tc.name, tc.input, this.runtime);
           }
-          if (res.success && tc.name !== "finish_genesis" && tc.name !== "handover") {
+          if (res.success) {
             Object.assign(staged, candidate);
-            if (
+            if (tc.name === "handover") handedOver = true;
+            else if (
               res.details?.["writtenResources"] ||
               res.details?.["updatedFiles"] ||
               res.details?.["authoringChanged"]
@@ -342,11 +360,15 @@ Answer the player's question using evidence from inspection when needed. For hin
             `[Remix] ${tc.name} -> ${res.success ? (res.message ?? "ok").slice(0, 160) : res.error}`,
             { tool: tc.name, args: tc.input, result: { ...res, images: undefined } },
           );
+          this.pendingToolMs += performance.now() - toolStart;
           this.task.recordTool(tc.name, tc.input, res);
-          results.push({ toolCallId: tc.id, result: res });
+          results.push({ toolCallId: tc.id, result: this.projectForModel(res) });
         }
-        turn = await this.observeTurn(this.conversation.sendToolResults(results));
-        if (remixDone) break;
+        this.conversation.appendToolResults(results);
+        // A passing handover is the host's own verdict: append the results,
+        // commit below and resume without another provider request.
+        if (handedOver) break;
+        turn = await this.observeTurn(this.conversation.complete(), "remix");
       }
 
       const patched = changedResources(this.state, staged);
@@ -378,7 +400,19 @@ Answer the player's question using evidence from inspection when needed. For hin
     }
   }
 
-  private async observeTurn(pending: Promise<LlmTurnResult>): Promise<LlmTurnResult> {
+  /**
+   * The compact model-facing projection of a tool result. The full result is
+   * kept in the session diagnostic store under a diagnosticId the projected
+   * details point at; earlier transcript items are never rewritten.
+   */
+  private projectForModel(result: AgentToolResult): AgentToolResult {
+    return projectToolResult(result, this.state.diagnostics, `d${++this.diagnosticSeq}`);
+  }
+
+  private async observeTurn(
+    pending: Promise<LlmTurnResult>,
+    phase: "ask" | "remix" | "genesis" | "room",
+  ): Promise<LlmTurnResult> {
     try {
       const turn = await pending;
       if (turn.usage)
@@ -387,9 +421,19 @@ Answer the player's question using evidence from inspection when needed. For hin
           `[Usage] ${turn.usage.input} input, ${turn.usage.cachedInput} cached, ${turn.usage.output} output tokens`,
           { usage: turn.usage, totalUsage: this.conversation?.getUsage?.() },
         );
+      if (turn.telemetry) {
+        const toolMs = this.pendingToolMs;
+        this.pendingToolMs = 0;
+        this.onEvent(
+          "telemetry",
+          `[Request] ${phase} #${turn.telemetry.requestIndex} ${turn.telemetry.usageIncomplete ? "(incomplete usage) " : ""}${turn.telemetry.responseMs.toFixed(0)}ms`,
+          { phase, telemetry: turn.telemetry, toolMs },
+        );
+      }
       return turn;
     } catch (error) {
       this.onEvent("log", "[Usage] Provider turn interrupted", {
+        telemetry: error instanceof LlmResponseError ? error.telemetry : undefined,
         totalUsage: this.conversation?.getUsage?.(),
       });
       if (
@@ -403,6 +447,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           this.conversation.sendUserMessage(
             "Continue the current task from the successful tool results. The previous response was truncated; its partial tool calls were not executed. Inspect staged resources if needed and finish the remaining work.",
           ),
+          phase,
         );
       }
       throw error;
@@ -488,9 +533,11 @@ Answer the player's question using evidence from inspection when needed. For hin
     const fileMap = new Map(Object.entries(files));
     const container = openContainer(fileMap);
     const state = createAgentSessionState(container);
-    state.wordsPayload = files["WORDS.TOK"];
-    state.objectPayload = files["OBJECT"];
-    state.testsPayload = files["TESTS.JSON"];
+    // Real copies, not refs: a Node Buffer's .slice() is a view, so callers
+    // must never rely on the session detaching their byte arrays itself.
+    state.wordsPayload = files["WORDS.TOK"] ? new Uint8Array(files["WORDS.TOK"]) : undefined;
+    state.objectPayload = files["OBJECT"] ? new Uint8Array(files["OBJECT"]) : undefined;
+    state.testsPayload = files["TESTS.JSON"] ? new Uint8Array(files["TESTS.JSON"]) : undefined;
     for (const [w, id] of words) {
       state.sources.words.set(w, id);
     }
@@ -569,7 +616,7 @@ Answer the player's question using evidence from inspection when needed. For hin
   private async genesis(templateMarkdown: string): Promise<BootResources> {
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating a game.");
-    this.conversation?.setTools(AUTHORING_SESSION_TOOLS);
+    this.conversation?.setAvailableTools(AUTHORING_SESSION_TOOLS);
     if (this.stubFallback) {
       this.onEvent("request", "Starting Genesis using offline StubAgent");
       const resources = this.stubFallback.initialResources();
@@ -603,7 +650,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     );
 
     const genesisPrompt = createGenesisPrompt(templateMarkdown);
-    let turn = await this.observeTurn(this.conversation.sendUserMessage(genesisPrompt));
+    let turn = await this.observeTurn(this.conversation.sendUserMessage(genesisPrompt), "genesis");
 
     while (!this.state.genesisComplete) {
       await this.task.checkpoint(false);
@@ -612,7 +659,19 @@ Answer the player's question using evidence from inspection when needed. For hin
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Genesis] ${tc.name}`, { tool: tc.name, args: tc.input });
-          const res = await executeAgentToolAsync(this.state, tc.name, tc.input);
+          const toolStart = performance.now();
+          // Terminal barrier: a successful handover ends the batch; later
+          // calls get an explicit rejection result, never a silent drop.
+          const res = this.state.genesisComplete
+            ? {
+                success: false,
+                error:
+                  "Not executed: this turn ended at a successful handover. Use an Ask or Remix request for further changes.",
+              }
+            : await executeAgentToolAsync(this.state, tc.name, tc.input, {
+                allowedTools: AUTHORING_SESSION_TOOLS,
+              });
+          this.pendingToolMs += performance.now() - toolStart;
           this.onEvent(
             res.success ? "response" : "error",
             res.success
@@ -621,10 +680,11 @@ Answer the player's question using evidence from inspection when needed. For hin
             { tool: tc.name, args: tc.input, result: { ...res, images: undefined } },
           );
           this.task.recordTool(tc.name, tc.input, res);
-          results.push({ toolCallId: tc.id, result: res });
+          results.push({ toolCallId: tc.id, result: this.projectForModel(res) });
         }
-        turn = await this.observeTurn(this.conversation.sendToolResults(results));
+        this.conversation.appendToolResults(results);
         if (this.state.genesisComplete) break;
+        turn = await this.observeTurn(this.conversation.complete(), "genesis");
       } else {
         this.task.recordTool("unfinished_reply", {}, { success: false, message: turn.text ?? "" });
         // Model answered with text instead of tools, remind it to complete genesis
@@ -633,16 +693,13 @@ Answer the player's question using evidence from inspection when needed. For hin
         });
         turn = await this.observeTurn(
           this.conversation.sendUserMessage(
-            "Genesis resources are not complete yet. Please invoke write_words, write_view, write_picture, write_logic_source, and finish_genesis.",
+            "Genesis resources are not complete yet. Please invoke write_words, write_view, write_picture, write_logic_source, and handover.",
           ),
+          "genesis",
         );
       }
     }
 
-    if (turn.toolCalls.length)
-      this.conversation.recordInterruption?.(
-        "Genesis finished successfully. Additional tool calls in the final response were not executed; use a remix turn for further changes.",
-      );
     this.onEvent("response", "Genesis authoring complete! Assembling boot files.");
 
     const files = Object.fromEntries(this.state.getFiles());
@@ -683,16 +740,22 @@ Answer the player's question using evidence from inspection when needed. For hin
     let staged = forkAgentState(this.state);
     staged.genesisComplete = true;
     staged.sources.objects = readInventoryObjects(staged.getFiles().get("OBJECT"), staged.profile);
-    const allowed = new Set(AUTHORING_SESSION_TOOLS);
-    this.conversation.setTools(AUTHORING_SESSION_TOOLS);
+    this.conversation.setAvailableTools(AUTHORING_SESSION_TOOLS);
     const snapshot: AgentRuntimeDeps = {
+      allowedTools: AUTHORING_SESSION_TOOLS,
       engine: {
         state: () => req.context["state"] ?? null,
         objects: () => req.context["objects"] ?? [],
       },
     };
     this.onEvent("request", `[Runtime room] authoring room ${room} from room ${from}`);
-    const resources = executeAgentTool(staged, "list_resources", { kind: null });
+    const resources = executeAgentTool(staged, "inspect_world_bible", {
+      filter: "slots",
+      section: null,
+      name: null,
+      offset: null,
+      kind: null,
+    });
     const previous = executeAgentTool(staged, "read_logic", { num: from });
     try {
       let turn = await this.observeTurn(
@@ -700,6 +763,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           createRuntimeRoomPrompt(room, from) +
             `\nResources: ${resources.message ?? ""}\nInventory (preserve this order): ${JSON.stringify(staged.sources.objects)}\nPrevious room logic:\n${previous.message ?? ""}`,
         ),
+        "room",
       );
       let completed = false;
       for (;;) {
@@ -720,6 +784,7 @@ Answer the player's question using evidence from inspection when needed. For hin
             this.conversation.sendUserMessage(
               `Room ${room} still needs both logic and picture. Author the missing resources.`,
             ),
+            "room",
           );
           continue;
         }
@@ -727,20 +792,28 @@ Answer the player's question using evidence from inspection when needed. For hin
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Room tool] ${tc.name}`, { tool: tc.name, args: tc.input });
+          const toolStart = performance.now();
           const candidate = forkAgentState(staged);
           let result: AgentToolResult;
           try {
-            if (tc.name === "finish_genesis" || tc.name === "handover") {
+            if (completed) {
+              result = {
+                success: false,
+                error:
+                  "Not executed: this turn ended at a successful handover. The room is already committed.",
+              };
+            } else if (tc.name === "handover") {
               if (
                 staged.container.getResource("logic", room) &&
                 staged.container.getResource("picture", room)
               ) {
-                completed = true;
-                result = {
-                  success: true,
-                  message: `Room ${room} authored successfully. Handing over to resume gameplay.`,
-                  details: { genesisComplete: true, roomHandover: room },
-                };
+                // The room's structural gate first, then the shared host
+                // validation (stored game tests) against the staged candidate.
+                result = await executeAgentToolAsync(candidate, "handover", tc.input, snapshot);
+                if (result.success) {
+                  staged = candidate;
+                  completed = true;
+                }
               } else {
                 result = {
                   success: false,
@@ -748,9 +821,7 @@ Answer the player's question using evidence from inspection when needed. For hin
                 };
               }
             } else {
-              result = allowed.has(tc.name)
-                ? await executeAgentToolAsync(candidate, tc.name, tc.input, snapshot)
-                : { success: false, error: "This tool is unavailable during room preparation." };
+              result = await executeAgentToolAsync(candidate, tc.name, tc.input, snapshot);
               if (result.success) {
                 validateRoomCandidate(this.state, staged, candidate, room);
                 staged = candidate;
@@ -774,11 +845,13 @@ Answer the player's question using evidence from inspection when needed. For hin
             `[Room tool] ${tc.name} -> ${result.success ? "ok" : result.error}`,
             { tool: tc.name, result: { ...result, images: undefined } },
           );
+          this.pendingToolMs += performance.now() - toolStart;
           this.task.recordTool(tc.name, tc.input, result);
-          results.push({ toolCallId: tc.id, result });
+          results.push({ toolCallId: tc.id, result: this.projectForModel(result) });
         }
-        turn = await this.observeTurn(this.conversation.sendToolResults(results));
+        this.conversation.appendToolResults(results);
         if (completed) break;
+        turn = await this.observeTurn(this.conversation.complete(), "room");
       }
       if (
         !completed &&

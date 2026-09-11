@@ -1,5 +1,6 @@
 import type { LogAgentFn } from "./useInputController.ts";
 import { readGameSaves, writeGameSave } from "./gameSaves.ts";
+import { gameStorageKey } from "./gameTypes.ts";
 import type { BootedGame } from "./gameTypes.ts";
 
 export interface SaveSlotControllerOptions {
@@ -29,7 +30,7 @@ export function useSaveSlotController(options: SaveSlotControllerOptions): SaveS
   function activeSaveKey(): string | null {
     const booted = options.getBootedGame();
     if (!booted) return null;
-    return booted.installed ? (booted.hash ?? null) : (booted.projectId ?? null);
+    return gameStorageKey(booted) || null;
   }
 
   function readActiveSlots(): Record<string, string> {

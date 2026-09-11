@@ -59,6 +59,21 @@ export interface CurrentGame {
   readonly folder?: string | undefined;
 }
 
+/**
+ * One storage identity for a game's progress: installed editions scope by
+ * folder (two folders can share a WORDS.TOK hash), authored projects by id.
+ * Save slots, autosaves and the last-game pointer must all resolve to this.
+ */
+export function gameStorageKey(game: {
+  installed: boolean;
+  folder?: string | null | undefined;
+  hash?: string | null | undefined;
+  alias?: string | null | undefined;
+  projectId?: string | null | undefined;
+}): string {
+  return game.installed ? (game.folder ?? game.hash ?? game.alias ?? "") : (game.projectId ?? "");
+}
+
 export function findInstalledFolder(
   installedGames: readonly (string | InstalledGameDescriptor)[] | null | undefined,
   aliasOrHash: string,

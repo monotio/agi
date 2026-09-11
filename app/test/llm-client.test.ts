@@ -1,7 +1,17 @@
 import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createAnthropicConversation, createOpenAiConversation } from "../src/agent/llmClient.ts";
+import {
+  MODEL_OPTIONS,
+  createAnthropicConversation,
+  createOpenAiConversation,
+} from "../src/agent/llmClient.ts";
+import { MODEL_CAPABILITIES } from "../../src/agent/modelEffort.ts";
+
+test("every selectable model has a tested capability entry", () => {
+  for (const option of Object.values(MODEL_OPTIONS).flat())
+    assert.ok(MODEL_CAPABILITIES[option.id], `missing capability for ${option.id}`);
+});
 
 test("OpenAI reports usage, keeps stable tools and refuses truncated calls before execution", async (t) => {
   const requests: Record<string, unknown>[] = [];
@@ -50,15 +60,16 @@ test("OpenAI reports usage, keeps stable tools and refuses truncated calls befor
     model: "test",
     apiKey: "placeholder",
   });
-  conversation.setTools(["read_view"]);
+  conversation.setAvailableTools(["read_view"]);
   await assert.rejects(conversation.sendUserMessage("draw"), /output limit/i);
   assert.deepEqual(conversation.getUsage?.(), {
     input: 120,
     output: 15,
     cachedInput: 80,
     cacheWriteInput: 20,
+    ordinaryInput: 20,
   });
-  conversation.setTools(["write_view"]);
+  conversation.setAvailableTools(["write_view"]);
   await conversation.sendUserMessage("try a smaller cel");
   assert.deepEqual(requests[0]?.["tools"], requests[1]?.["tools"]);
   assert.deepEqual(requests[0]?.["tool_choice"], {
@@ -72,6 +83,7 @@ test("OpenAI reports usage, keeps stable tools and refuses truncated calls befor
     output: 17,
     cachedInput: 80,
     cacheWriteInput: 20,
+    ordinaryInput: 30,
   });
 });
 
@@ -112,6 +124,7 @@ test("Anthropic reports total input including cache and closes unfinished tool t
     output: 5,
     cachedInput: 30,
     cacheWriteInput: 20,
+    ordinaryInput: 10,
   });
   await conversation.sendUserMessage("smaller");
   assert.match(JSON.stringify(requests[1]?.["messages"]), /not executed/i);
@@ -121,6 +134,48 @@ test("Anthropic reports total input including cache and closes unfinished tool t
   // reject numeric constraints; this catalog is sent unconstrained instead.
   assert.ok(tools.every((tool) => !("strict" in tool)));
   assert.match(JSON.stringify(tools), /"maximum":255/);
+});
+
+test("Anthropic keeps the full catalog and an annotation-free transcript across phases", async (t) => {
+  const requests: Record<string, unknown>[] = [];
+  t.mock.method(globalThis, "fetch", async (_input: unknown, init?: RequestInit) => {
+    requests.push(JSON.parse(String(init?.body)));
+    return new Response(
+      providerSse("anthropic", {
+        id: String(requests.length),
+        type: "message",
+        role: "assistant",
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: "done" }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+      { headers: { "content-type": "text/event-stream" } },
+    );
+  });
+  const conversation = createAnthropicConversation({
+    provider: "anthropic",
+    model: "test",
+    apiKey: "placeholder",
+  });
+  conversation.setAvailableTools(["read_view"]);
+  await conversation.sendUserMessage("look around");
+  await conversation.sendUserMessage("keep looking");
+  assert.equal(requests.length, 2);
+  for (const request of requests) {
+    const tools = request["tools"] as { name: string }[];
+    assert.ok(tools.length > 20, "the advertised catalog never narrows");
+    assert.ok(
+      tools.every((tool) => !("cache_control" in tool)),
+      "tool definitions carry no markers",
+    );
+    const messages = JSON.stringify(request["messages"]);
+    assert.ok(!messages.includes("cache_control"), "history is never annotated");
+  }
+  // One explicit checkpoint at the end of the static prefix, plus the
+  // top-level automatic breakpoint that rolls over the conversation tail.
+  const system = requests[0]?.["system"] as { cache_control?: unknown }[];
+  assert.deepEqual(system[0]?.cache_control, { type: "ephemeral" });
+  assert.deepEqual(requests[0]?.["cache_control"], { type: "ephemeral" });
 });
 
 test("Anthropic refusal surfaces the category and closes the pending tool call", async (t) => {

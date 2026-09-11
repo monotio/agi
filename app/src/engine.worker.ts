@@ -296,7 +296,7 @@ function autosave(force: boolean): boolean {
 }
 
 /**
- * Frame history for the agent's `read_frames` tool: the last 100 cycles plus
+ * Frame history for the agent's `read_room_context` tool: the last 100 cycles plus
  * 60 history samples captured at most once per second. Both rings preallocate their typed arrays, so a cycle
  * costs three buffer copies and nothing else.
  */
@@ -524,11 +524,17 @@ const host: EngineHost = {
     const slots = JSON.parse(bridgeCall("saveList", "{}")) as { slot: number; image: string }[];
     return slots.map(({ slot, image }) => ({ slot, bytes: base64ToBytes(image) }));
   },
-  promptSaveDescription(initial, maxLen, row, col) {
-    const response = JSON.parse(
-      bridgeCall("saveDescription", JSON.stringify({ initial, maxLen, row, col })),
-    ) as { value: string | null };
-    return response.value;
+  get promptSaveDescription() {
+    // Replays drive the save dialog with recorded key presses, so the engine's
+    // own in-dialog editor must run: a DOM prompt can never be answered by a
+    // recorded key, only by an explicit answer action.
+    if (replay) return undefined;
+    return (initial: string, maxLen: number, row: number, col: number) => {
+      const response = JSON.parse(
+        bridgeCall("saveDescription", JSON.stringify({ initial, maxLen, row, col })),
+      ) as { value: string | null };
+      return response.value;
+    };
   },
   saveGame(bytes, slot = 1) {
     return (
@@ -846,6 +852,16 @@ self.onmessage = (ev: MessageEvent) => {
         type: "objects",
         id: msg.id,
         objects: engine ? engine.readObjects() : [],
+      });
+      return;
+    }
+    if (msg.type === "checkpoint") {
+      // The paused interpreter's resumable image — the candidate preview's
+      // restore point. null outside a resumable cycle boundary.
+      sendControl({
+        type: "checkpoint",
+        id: msg.id,
+        image: engine ? engine.autosaveImage() : null,
       });
       return;
     }

@@ -35,7 +35,7 @@ export const TEXT_ROWS = 25;
 export const SHEET_GAP = 4;
 /** Widest contact sheet we will build (keeps one image block under ~2 MB). */
 export const SHEET_MAX_COLS = 3;
-/** Most frames one read_frames call may return. */
+/** Most frames one read_room_context call may return. */
 export const MAX_FRAMES = 9;
 
 /** Which plane of the frame to draw. */

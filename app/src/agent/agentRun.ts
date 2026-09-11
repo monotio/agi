@@ -1,23 +1,6 @@
 import type { LlmUsage } from "./llmClient.ts";
 import type { AgentToolResult } from "../../../src/agent/tools.ts";
-
-// Standard API USD per million tokens, checked September 5, 2026.
-// https://developers.openai.com/api/docs/models/gpt-6-astra
-// https://developers.openai.com/api/docs/models/gpt-5.6-sol
-// https://developers.openai.com/api/docs/models/gpt-5.6-terra
-// https://platform.claude.com/docs/en/about-claude/pricing
-// cacheRead overrides the default cache-read price of 10% of input.
-const RATES: Record<
-  string,
-  { input: number; output: number; longContext: boolean; cacheRead?: number }
-> = {
-  "gpt-6-astra": { input: 10, output: 50, longContext: true },
-  "gpt-5.6-sol": { input: 4, output: 20, longContext: true },
-  "gpt-5.6-terra": { input: 2, output: 12, longContext: true },
-  "claude-opus-5": { input: 5, output: 25, longContext: false },
-  "claude-fable-5": { input: 10, output: 50, longContext: false },
-  "claude-fable-5-1": { input: 10, output: 50, longContext: false, cacheRead: 0.25 },
-};
+import { MODEL_CAPABILITIES } from "../../../src/agent/modelEffort.ts";
 export interface AgentRunState {
   progress: AgentProgress | null;
   status: "idle" | "running" | "paused";
@@ -52,6 +35,8 @@ export class AgentRun {
   private since = 0;
   private signatures: string[] = [];
   private lastInputCost = 0;
+  /** Projected input cost of the next request: last cost grown by the observed ratio. */
+  private expectedInputCost = 0;
   private outputRate = 0;
   private progressTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -69,9 +54,9 @@ export class AgentRun {
       allowance: budget,
       requests: 0,
       usageIncomplete: false,
-      priceKnown: !!RATES[model],
+      priceKnown: !!MODEL_CAPABILITIES[model]?.price,
     };
-    this.outputRate = RATES[model]?.output ?? 0;
+    this.outputRate = MODEL_CAPABILITIES[model]?.price?.output ?? 0;
   }
   snapshot(): AgentRunState {
     return { ...this.state, progress: this.state.progress ? { ...this.state.progress } : null };
@@ -113,6 +98,7 @@ export class AgentRun {
     this.stopped = false;
     this.cancelled = false;
     this.signatures = [];
+    this.expectedInputCost = this.lastInputCost;
     this.since = Date.now();
     this.publish();
     try {
@@ -149,7 +135,7 @@ export class AgentRun {
     this.wake?.();
   }
   recordUsage(usage: LlmUsage): void {
-    const rate = RATES[this.model];
+    const rate = MODEL_CAPABILITIES[this.model]?.price;
     if (!rate) {
       this.state.usageIncomplete = true;
       return;
@@ -160,9 +146,16 @@ export class AgentRun {
     this.outputRate = rate.output * (long ? 1.5 : 1);
     const reads = Math.min(usage.input, usage.cachedInput);
     const writes = Math.min(usage.input - reads, usage.cacheWriteInput);
-    this.lastInputCost =
+    const inputCost =
       ((usage.input - reads - writes) * input + reads * cacheRead + writes * input * 1.25) / 1e6;
-    this.state.spent += this.lastInputCost + (usage.output * this.outputRate) / 1e6;
+    // Conversation input grows each request; the next one costs at least this
+    // request's input scaled by the observed growth ratio, bounded at 2x.
+    this.expectedInputCost =
+      this.lastInputCost > 0
+        ? inputCost * Math.min(2, Math.max(1, inputCost / this.lastInputCost))
+        : inputCost;
+    this.lastInputCost = inputCost;
+    this.state.spent += inputCost + (usage.output * this.outputRate) / 1e6;
     this.publish();
   }
   recordTool(name: string, args: Record<string, unknown>, result: AgentToolResult): void {
@@ -181,7 +174,7 @@ export class AgentRun {
   }
   async checkpoint(billable = true): Promise<void> {
     if (this.cancelled) throw new Error("Agent task cancelled. Unapplied changes were discarded.");
-    if (billable && this.state.spent + this.lastInputCost >= this.state.budget) {
+    if (billable && this.state.spent + this.expectedInputCost >= this.state.budget) {
       this.stopped = true;
       this.state.reason = "Budget reached. Work is kept; continuing adds another task allowance.";
     }
@@ -211,7 +204,7 @@ export class AgentRun {
         this.state.reason = "The provider did not finish within 10 minutes. Continue to retry.";
         controller.abort();
       }, 10 * 60_000);
-      const remaining = Math.max(0, this.state.budget - this.state.spent - this.lastInputCost);
+      const remaining = Math.max(0, this.state.budget - this.state.spent - this.expectedInputCost);
       const maxTokens = this.outputRate
         ? Math.max(1, Math.min(128000, Math.floor((remaining * 1e6) / this.outputRate)))
         : 128000;

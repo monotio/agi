@@ -354,9 +354,9 @@ test("power-up: freezes the world, patches the room live, resumes", async ({ pag
 
   // Every tool call streams into the debug feed, exactly like the genesis turn.
   await expect(page.getByTestId("agent-panel")).toContainText("[Remix]", { timeout: 15_000 });
-  // read_frames really reached the worker's frame ring and composited a sheet.
+  // read_room_context really reached the worker's frame ring and composited a sheet.
   await expect(page.getByTestId("agent-panel")).toContainText(
-    /read_frames -> 4 frame\(s\), visual plane, stride 1, cycles \d+, \d+, \d+, \d+\./,
+    /read_room_context -> Room \d+: .*4 frame\(s\), visual plane, stride 1, cycles \d+, \d+, \d+, \d+\./,
   );
   await expect(page.getByTestId("agent-panel")).toContainText("patched logic 1");
   await expect(page.getByTestId("agent-panel")).toContainText("Re-entering room 1");

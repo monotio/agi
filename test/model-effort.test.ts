@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  MODEL_CAPABILITIES,
   defaultModelEffort,
+  modelCapability,
   modelEffortOptions,
   resolveModelEffort,
 } from "../src/agent/modelEffort.ts";
@@ -32,4 +34,30 @@ test("resolveModelEffort applies the pinned default and rejects unsupported pair
   assert.equal(resolveModelEffort("gpt-5.6-sol", "none"), "none");
   assert.equal(resolveModelEffort("claude-opus-5"), "high");
   assert.throws(() => resolveModelEffort("claude-opus-5", "none"), /none is not supported/);
+});
+
+test("the capability table covers every shipped model with provider-verified fields", () => {
+  for (const [model, capability] of Object.entries(MODEL_CAPABILITIES)) {
+    assert.ok(capability.effort.includes(capability.defaultEffort), `${model} default is offered`);
+    assert.equal(
+      capability.caching === "breakpoint",
+      capability.provider === "anthropic",
+      `${model} caching matches its provider`,
+    );
+    assert.equal(
+      capability.strictSchema,
+      capability.provider === "openai",
+      `${model} strict-schema matches its provider`,
+    );
+    if (capability.provider !== "stub")
+      assert.ok(capability.price && capability.price.input > 0, `${model} has a tested price`);
+  }
+});
+
+test("unlisted models get provider-derived policy, not name-prefix guesses", () => {
+  assert.equal(modelCapability("claude-kept", "anthropic").defaultEffort, "high");
+  assert.equal(modelCapability("gpt-retired", "openai").defaultEffort, "medium");
+  assert.equal(modelCapability("anything", "openai").strictSchema, true);
+  assert.equal(modelCapability("anything", "anthropic").caching, "breakpoint");
+  assert.equal(modelCapability("claude-kept").price, undefined);
 });

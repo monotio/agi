@@ -24,6 +24,49 @@ export function resourceRevision(payload: Uint8Array | null): string {
   return `${payload.length}-${hash.toString(16).padStart(8, "0")}`;
 }
 
+/**
+ * Content hash over the whole file set — the evidence identity reported as
+ * `origin.resourceSet` so a result records exactly which staged resources it
+ * describes.
+ */
+export function resourceSetRevision(state: { getFiles(): Map<string, Uint8Array> }): string {
+  let hash = 0x811c9dc5;
+  let total = 0;
+  for (const [name, bytes] of [...state.getFiles()].sort(([a], [b]) => a.localeCompare(b))) {
+    for (let i = 0; i < name.length; i++)
+      hash = Math.imul(hash ^ name.charCodeAt(i), 0x01000193) >>> 0;
+    hash = Math.imul(hash ^ 0xff, 0x01000193) >>> 0;
+    for (const byte of bytes) hash = Math.imul(hash ^ byte, 0x01000193) >>> 0;
+    total += name.length + bytes.length;
+  }
+  return `${total}-${hash.toString(16).padStart(8, "0")}`;
+}
+
+/**
+ * Revision for the editable source snapshot. Covers the exact text the agent
+ * was shown plus everything that changes how it compiles — resource bytes,
+ * interpreter profile, dictionary, and named bindings — not only bytes.
+ * Formatting-only drift and stale tokens alike invalidate pending edits.
+ */
+export function sourceRevision(
+  payload: Uint8Array | null,
+  source: string,
+  context: { profile: string; words: readonly string[]; bindings: unknown },
+): string {
+  let hash = 0x811c9dc5;
+  const feed = (text: string) => {
+    for (let i = 0; i < text.length; i++)
+      hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0;
+    hash = Math.imul(hash ^ 0xff, 0x01000193) >>> 0;
+  };
+  feed(resourceRevision(payload));
+  feed(source);
+  feed(context.profile);
+  for (const word of context.words) feed(word);
+  feed(JSON.stringify(context.bindings));
+  return `${source.length}-${hash.toString(16).padStart(8, "0")}`;
+}
+
 function record(value: unknown, label: string, limit: number): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error(`Invalid ${label}: expected an object.`);

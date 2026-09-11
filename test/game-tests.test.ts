@@ -465,7 +465,7 @@ test("a write tool leads with the verdict and reports selection, coverage and pa
   assert.equal(kept.success, true, kept.error ?? "");
   assert.match(
     kept.message ?? "",
-    /^Game tests: 1 game test pass, 0 fail\. 1 of 1 game tests rerun \(selection: room 1\)\. Logic 1 compiled successfully/,
+    /^Game tests: 1 game test pass, 0 fail\. 1 of 1 game tests rerun \(selection: room 1\)(?:; \d+ reused unchanged-tree verdicts?)?\. Logic 1 compiled successfully/,
   );
   assert.deepEqual(kept.details?.["gameTestsRerun"], { ran: 1, stored: 1, notRun: 0 });
   const broken = executeAgentTool(state, "write_logic_source", {
@@ -493,9 +493,35 @@ test("reruns report skipped coverage instead of looking like full coverage", () 
   assert.equal(written.success, true, written.error ?? "");
   assert.match(
     written.message ?? "",
-    /^Game tests: 8 game tests pass, 0 fail\. 8 of 9 game tests rerun \(selection: room 1\); 1 not run\./,
+    /^Game tests: 8 game tests pass, 0 fail\. 8 of 9 game tests rerun \(selection: room 1\)(?:; \d+ reused unchanged-tree verdicts?)?; 1 not run\./,
   );
   assert.deepEqual(written.details?.["gameTestsRerun"], { ran: 8, stored: 9, notRun: 1 });
+});
+
+test("verdicts are reused for the same tree and rerun when the tree moves", () => {
+  const state = world();
+  executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [takeKey] });
+  // write_game_tests already ran the test on this tree, so an immediate
+  // re-ask reuses that verdict instead of simulating again.
+  const first = executeAgentTool(state, "run_game_tests", { names: null });
+  assert.equal(first.success, true, first.error ?? "");
+  assert.equal(first.details?.["reused"], 1);
+  const reusedOutcome = (first.details?.["gameTests"] as { reused?: boolean }[])[0];
+  assert.equal(reusedOutcome?.reused, true);
+
+  // A real change moves the tree; the write's own rerun simulates fresh and
+  // caches the new verdict, so a later re-ask reuses it again.
+  const written = executeAgentTool(state, "write_logic_source", {
+    room: 1,
+    source: ROOM_LOGIC.replace("set(f30);", ""),
+  });
+  const freshOutcome = (
+    written.details?.["gameTests"] as { reused?: boolean; passed: boolean }[]
+  )[0];
+  assert.equal(freshOutcome?.reused, undefined, "the write simulated on the new tree");
+  assert.equal(freshOutcome?.passed, false);
+  const moved = executeAgentTool(state, "run_game_tests", { names: null });
+  assert.equal(moved.details?.["reused"], 1);
 });
 
 test("a malformed stored test document is reported loudly on the next write", () => {
@@ -788,10 +814,7 @@ test("genesis and orientation prompts require a stored test per puzzle", () => {
     game: "kq1",
     profile: "2.917",
     room: 1,
-    resourceListing: "logic 1",
-    logicSource: "return;",
-    pictureSource: "picture",
-    wordsSummary: "look",
+    sceneBrief: "logic 1",
   });
   assert.match(orientation, /write_game_tests/);
   assert.match(orientation, /run_game_tests/);

@@ -1,6 +1,6 @@
 {
   "name": "agi-is-here",
-  "version": "1.0.0-rc.7",
+  "version": "1.0.0-rc.8",
   "description": "Create, play and remix authentic AGI adventures with AI. Open-source TypeScript engine and browser authoring tools by Monotio.",
   "type": "module",
   "license": "MIT",
@@ -30,6 +30,7 @@
     "check": "run-s check:dependencies typecheck typecheck:app lint lint:ast format:check test test:app eval:replay",
     "eval:genesis": "node --experimental-strip-types scripts/eval-genesis.ts",
     "eval:picture": "node --experimental-strip-types scripts/eval-picture.ts",
+    "eval:remix": "node --experimental-strip-types evals/remix-benchmark.ts",
     "fixtures:audit": "node --experimental-strip-types scripts/audit-fixtures.ts",
     "conformance": "node --experimental-strip-types scripts/conformance.ts",
     "eval:replay": "node --test --experimental-strip-types 'evals/tests/**/*.test.ts'",

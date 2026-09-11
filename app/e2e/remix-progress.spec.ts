@@ -39,7 +39,7 @@ test("remix progress follows activity, preserves reading position and jumps to l
     if (request === 2) await first;
     if (request === 3) await second;
     if (request === 4) await last;
-    const tool = request === 1 ? "read_state" : request === 2 ? "read_objects" : "list_resources";
+    const tool = "read_room_context";
     const output =
       request >= 4
         ? [
@@ -55,11 +55,23 @@ test("remix progress follows activity, preserves reading position and jumps to l
             call_id: `${request}-${i}`,
             name: tool,
             arguments: JSON.stringify(
-              tool === "list_resources"
-                ? { kind: ["logic", "picture", "view", "sound"][i % 4] }
-                : tool === "read_state"
-                  ? { variables: [i], compact: true }
-                  : { ids: [i] },
+              request === 1
+                ? {
+                    room: null,
+                    state: { variables: [i], flags: null, compact: true },
+                    frames: null,
+                  }
+                : request === 2
+                  ? {
+                      room: null,
+                      state: { variables: null, flags: [i], compact: true },
+                      frames: null,
+                    }
+                  : {
+                      room: null,
+                      state: null,
+                      frames: { count: 1, stride: i + 1, sheet: true, plane: null },
+                    },
             ),
           }));
     await route.fulfill(providerReply("openai", { id: `reply-${request}`, output }));
@@ -90,7 +102,7 @@ test("remix progress follows activity, preserves reading position and jumps to l
     const firstEntry = await feed.locator(".agent-bubble-line").first().textContent();
     releaseFirst();
     await expect.poll(() => requests).toBe(3);
-    await expect(feed).toContainText("read_objects");
+    await expect(feed).toContainText("read_room_context");
     expect(await feed.evaluate((el) => el.scrollTop)).toBe(0);
     expect(await feed.locator(".agent-bubble-line").first().textContent()).toBe(firstEntry);
     await expect(page.getByTestId("agent-stream-status")).toHaveText("Waiting for the model…");

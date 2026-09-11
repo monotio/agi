@@ -45,7 +45,7 @@ export interface AgentHandler {
 }
 
 export type AgentEventSink = (
-  kind: "request" | "response" | "error" | "log",
+  kind: "request" | "response" | "error" | "log" | "telemetry",
   detail: string,
   data?: unknown,
 ) => void;

@@ -11,7 +11,7 @@ import {
   type AgentToolResult,
   type ToolDefinition,
 } from "./tools.ts";
-import { executeAuthoringTool } from "./authoringTools.ts";
+import { editableSource, executeAuthoringTool, sourceContextRevision } from "./authoringTools.ts";
 import { resourceRevision, validateAuthoringState, type BindingKind } from "./authoringState.ts";
 import { readInventoryObjects } from "./inventory.ts";
 import { normalizeAuthoredLogic } from "./logicText.ts";
@@ -232,7 +232,12 @@ export function executeRoomTool(
   try {
     const room = referenceId(state, args["room"], "logic", "room", 1);
     const previous = state.container.getResource("logic", room);
-    const revision = resourceRevision(previous);
+    // The token read_logic reports: editable text plus compilation context.
+    const previousSource = previous ? editableSource(state, "logic", room) : undefined;
+    const revision =
+      previous && previousSource
+        ? sourceContextRevision(state, "logic", room, previousSource)
+        : resourceRevision(null);
     if (args["expectedRevision"] !== revision)
       throw new Error(
         `Room ${room} revision is '${revision}'. Read its current logic and use that expectedRevision before replacing it.`,
@@ -298,7 +303,7 @@ export function executeRoomTool(
       const id = integer(value, label, 0, 255);
       if (!inventory[id])
         throw new Error(
-          `${label}: inventory item ${id} is missing. Define it with upsert_inventory_item first.`,
+          `${label}: inventory item ${id} is missing. Define it with write_inventory_objects mode "merge" first.`,
         );
       return id;
     };
@@ -458,7 +463,7 @@ export function executeRoomTool(
       adjustments: normalized.adjustments,
       details: {
         room,
-        revision: resourceRevision(compiled.payload),
+        revision: sourceContextRevision(state, "logic", room, normalized.source),
         writtenResources: [{ kind: "logic", num: room }],
         updatedFiles: ["WORDS.TOK"],
         authoringChanged: true,

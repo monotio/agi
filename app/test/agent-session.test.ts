@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AgentSession } from "../src/agent/agentSession.ts";
 import { createAgentSessionState } from "../../src/agent/tools.ts";
-import { parseWordsTok } from "../../src/logic/words.ts";
+import { parseWordsTok, buildWordsTok } from "../../src/logic/words.ts";
+import { buildView } from "../../src/view/view.ts";
+import { compilePictureSource } from "../../src/picture/source.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
 import { createOpenAiConversation } from "../src/agent/llmClient.ts";
 
 test("Ask refuses mutations even when the provider requests them, and keeps the conversation", async (t) => {
@@ -82,6 +85,77 @@ test("an unanswered historical tool call is reported as unexecuted, never succes
   assert.match(JSON.parse(result.output!).error, /not executed/);
 });
 
+test("a successful handover ends the turn with no provider request and rejects bundled calls", async (t) => {
+  let requests = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    requests++;
+    return new Response(
+      providerSse("openai", {
+        id: `r${requests}`,
+        output: [
+          {
+            type: "function_call",
+            call_id: "w",
+            name: "write_words",
+            arguments: JSON.stringify({ words: ["lamp"], groups: null }),
+          },
+          {
+            type: "function_call",
+            call_id: "h",
+            name: "handover",
+            arguments: JSON.stringify({ notes: null }),
+          },
+          {
+            type: "function_call",
+            call_id: "x",
+            name: "write_words",
+            arguments: JSON.stringify({ words: ["oops"], groups: null }),
+          },
+        ],
+      }),
+      { headers: { "Content-Type": "text/event-stream" } },
+    );
+  });
+  const state = createAgentSessionState();
+  state.wordsPayload = buildWordsTok([{ word: "look", id: 10 }]);
+  state.sources.words.set("look", 10);
+  state.container.putResource(
+    "view",
+    0,
+    buildView({ loops: [{ cels: [{ width: 1, height: 1, transparentColor: 0, pixels: [2] }] }] }),
+  );
+  state.container.putResource("picture", 1, compilePictureSource("vis 1\nfill 0,0\nend").bytes);
+  state.container.putResource(
+    "logic",
+    0,
+    assembleLogic("if (!isset(f200)) { set(f200); new.room(1); } call.v(v0); return;", {
+      dictionary: state.sources.words,
+    }).payload,
+  );
+  state.container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      "if (isset(f5)) { assignn(v10,1); load.pic(v10); draw.pic(v10); show.pic(); load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); accept.input(); } return;",
+      { dictionary: state.sources.words },
+    ).payload,
+  );
+  const session = new AgentSession(
+    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    () => {},
+    state,
+  );
+  const result = await session.runPowerUp("add the word lamp then finish", 1);
+  // The handover call was terminal: no second provider request was made.
+  assert.equal(requests, 1);
+  const words = parseWordsTok(state.wordsPayload!).map(({ word }) => word);
+  assert.ok(words.includes("lamp"), "the write before handover committed");
+  assert.ok(!words.includes("oops"), "the bundled write after handover never ran");
+  const transcript = JSON.stringify(session.getTranscript());
+  assert.match(transcript, /Not executed: this turn ended at a successful handover/);
+  assert.equal(result.patched.length >= 0, true);
+});
+
 test("a provider power-up returns compiled vocabulary and inventory files with its resource patches", async (t) => {
   let requests = 0;
   t.mock.method(globalThis, "fetch", async () => {
@@ -132,7 +206,7 @@ test("a provider power-up returns compiled vocabulary and inventory files with i
 
 test("room helper edits are transactional and cannot rewrite another room", async (t) => {
   const { assembleLogic } = await import("../../src/logic/assembler.ts");
-  const { resourceRevision } = await import("../../src/agent/authoringState.ts");
+  const { sourceContextRevision } = await import("../../src/agent/authoringTools.ts");
   const state = createAgentSessionState();
   const original = assembleLogic("assignn(v40, 1); return;", { dictionary: new Map() }).payload;
   state.container.putResource("logic", 1, original);
@@ -153,9 +227,13 @@ test("room helper edits are transactional and cannot rewrite another room", asyn
               arguments: JSON.stringify({
                 kind: "logic",
                 num: 1,
-                expectedRevision: resourceRevision(original),
-                find: "assignn(v40, 1);",
-                replace: "assignn(v40, 2);",
+                expectedRevision: sourceContextRevision(
+                  state,
+                  "logic",
+                  1,
+                  "assignn(v40, 1); return;",
+                ),
+                edits: [{ find: "assignn(v40, 1);", replace: "assignn(v40, 2);" }],
               }),
             },
             {
@@ -210,8 +288,8 @@ test("a stalled remix pauses and can be discarded without claiming completion", 
             {
               type: "function_call",
               call_id: String(calls),
-              name: "list_resources",
-              arguments: '{"kind":null}',
+              name: "inspect_world_bible",
+              arguments: '{"filter":"slots","section":null,"name":null,"offset":null,"kind":null}',
             },
           ],
         }),

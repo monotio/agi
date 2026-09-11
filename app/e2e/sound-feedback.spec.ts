@@ -87,28 +87,42 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
               ? [
                   {
                     type: "function_call",
-                    call_id: "listen-sound",
-                    name: "preview_sound",
+                    call_id: "sound-events",
+                    name: "read_diagnostic",
                     arguments: JSON.stringify({
-                      num: 5,
-                      startSeconds: 0,
-                      durationSeconds: 1,
-                      device: "tandy",
+                      id: "d1",
+                      fields: ["events"],
+                      offset: null,
+                      limit: null,
                     }),
                   },
                 ]
-              : [
-                  {
-                    type: "message",
-                    role: "assistant",
-                    content: [
-                      {
-                        type: "output_text",
-                        text: "The one-second Tandy preview is ready to play.",
-                      },
-                    ],
-                  },
-                ],
+              : turn === 3
+                ? [
+                    {
+                      type: "function_call",
+                      call_id: "listen-sound",
+                      name: "preview_sound",
+                      arguments: JSON.stringify({
+                        num: 5,
+                        startSeconds: 0,
+                        durationSeconds: 1,
+                        device: "tandy",
+                      }),
+                    },
+                  ]
+                : [
+                    {
+                      type: "message",
+                      role: "assistant",
+                      content: [
+                        {
+                          type: "output_text",
+                          text: "The one-second Tandy preview is ready to play.",
+                        },
+                      ],
+                    },
+                  ],
       }),
     );
   });
@@ -125,7 +139,7 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
     "The one-second Tandy preview is ready to play.",
   );
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  expect(requests).toHaveLength(3);
+  expect(requests).toHaveLength(4);
 
   const readBlocks = toolOutput(requests[1]!, "inspect-sound")!;
   expect(readBlocks.some((block) => block.type === "input_image")).toBe(true);
@@ -133,10 +147,15 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
     true,
   );
   const readText = readBlocks.find((block) => block.type === "input_text")!.text!;
-  expect(readText).toContain("noteName");
-  expect(readText).toContain("startSeconds");
+  expect(readText).toContain("diagnosticId");
+  expect(readText).toContain("read_diagnostic");
 
-  const previewBlocks = toolOutput(requests[2]!, "listen-sound")!;
+  const eventBlocks = toolOutput(requests[2]!, "sound-events")!;
+  const eventText = eventBlocks.find((block) => block.type === "input_text")!.text!;
+  expect(eventText).toContain("noteName");
+  expect(eventText).toContain("startSeconds");
+
+  const previewBlocks = toolOutput(requests[3]!, "listen-sound")!;
   expect(previewBlocks).toHaveLength(1);
   const previewText = previewBlocks[0]!.text!;
   expect(previewText).toContain("Audio is not sent to the model");

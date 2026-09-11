@@ -13,12 +13,15 @@ import {
   anthropicToolContent,
   anthropicToolDefinitions,
   anthropicToolResult,
+  projectToolResult,
   serializeAgentLog,
 } from "../src/agent/toolTransport.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildWordsTok } from "../src/logic/words.ts";
 import { compilePictureSource } from "../src/picture/source.ts";
 import { buildView } from "../src/view/view.ts";
+import { openContainer } from "../src/container/container.ts";
+import { Engine } from "../src/runtime/engine.ts";
 
 const picture = { room: 1, source: "vis 1\nfill 0,0\nend" };
 
@@ -99,14 +102,12 @@ test("maximum sprite and sound read pages stay within the transport bound", () =
       ],
     }),
   );
-  const cel = executeAgentTool(session, "read_view_cel", {
+  const cel = executeAgentTool(session, "read_view", {
     num: 3,
-    loop: 0,
-    cel: 0,
-    rowOffset: 64,
-    rowLimit: 64,
+    cels: [{ loop: 0, cel: 0 }],
+    rows: true,
   });
-  assertTransport("read_view_cel", "maximum page", cel);
+  assertTransport("read_view", "maximum cel rows", cel);
 
   const events = Array.from({ length: 128 }, () => ({ note: "C4", beats: 16, repeat: 32 }));
   assert.equal(
@@ -160,7 +161,10 @@ function bootedSession() {
 }
 
 function assertTransport(name: string, path: string, result: AgentToolResult): void {
-  const content = splitToolResult(result);
+  // The wire contract is the projected result: oversized detail fields evict
+  // into the session's diagnostic store and page via read_diagnostic.
+  const projected = projectToolResult(result, new Map(), `${name}-${path}`);
+  const content = splitToolResult(projected);
   assert.ok(content.text.length < 12000, `${name} ${path}: oversized metadata`);
   assert.equal(
     JSON.parse(content.text).images,
@@ -192,19 +196,23 @@ function assertTransport(name: string, path: string, result: AgentToolResult): v
 }
 
 interface TransportCase {
-  good: Record<string, unknown>;
-  bad: Record<string, unknown>;
+  /** Args, or a thunk when they embed a revision read at call time. */
+  good: Record<string, unknown> | (() => Record<string, unknown>);
+  bad: Record<string, unknown> | (() => Record<string, unknown>);
 }
 
 test("every catalog tool produces bounded binary-free transport on real success and failure paths", async () => {
   const session = bootedSession();
+  session.diagnostics.set("d0", {
+    success: true,
+    message: "stored artifact",
+    details: { note: "retrievable" },
+  });
   const logicRead = executeAgentTool(session, "read_logic", { num: 2, offset: null, limit: null });
-  const celRead = executeAgentTool(session, "read_view_cel", {
+  const celRead = executeAgentTool(session, "read_view", {
     num: 0,
-    loop: 0,
-    cel: 0,
-    rowOffset: null,
-    rowLimit: null,
+    cels: null,
+    rows: null,
   });
   const roomRead = executeAgentTool(session, "read_logic", { num: 1, offset: null, limit: null });
   assert.equal(logicRead.success, true);
@@ -216,24 +224,36 @@ test("every catalog tool produces bounded binary-free transport on real success 
       good: { name: "gate_open", kind: "flag", id: null },
       bad: { name: "Not valid", kind: "flag", id: null },
     },
-    upsert_inventory_item: {
-      good: { id: null, name: "Brass key", location: "room", room: 1 },
-      bad: { id: -1, name: "Bad", location: "room", room: 1 },
+    write_inventory_objects: {
+      good: {
+        mode: "merge",
+        objects: null,
+        item: { id: null, name: "Brass key", location: "room", room: 1 },
+      },
+      bad: {
+        mode: "merge",
+        objects: null,
+        item: { id: -1, name: "Bad", location: "room", room: 1 },
+      },
     },
     edit_resource_source: {
-      good: {
+      // The revision covers text plus compilation context; earlier cases may
+      // have moved the dictionary or bindings, so read it fresh at call time.
+      good: () => ({
         kind: "logic",
         num: 2,
-        expectedRevision: logicRead.details?.["revision"],
-        find: "return;",
-        replace: "set(f10); return;",
-      },
+        expectedRevision: executeAgentTool(session, "read_logic", {
+          num: 2,
+          offset: null,
+          limit: null,
+        }).details?.["revision"],
+        edits: [{ find: "return;", replace: "set(f10); return;" }],
+      }),
       bad: {
         kind: "logic",
         num: 2,
         expectedRevision: "stale",
-        find: "return;",
-        replace: "set(f11); return;",
+        edits: [{ find: "return;", replace: "set(f10); return;" }],
       },
     },
     update_world: {
@@ -244,43 +264,13 @@ test("every catalog tool produces bounded binary-free transport on real success 
       },
       bad: { rooms: null, facts: [], quests: [] },
     },
-    write_actor: {
-      good: {
-        num: 2,
-        description: null,
-        transparentColor: 0,
-        mirrorLeftFromRight: true,
-        mirrorUpFromDown: null,
-        right: [["20"]],
-        left: null,
-        down: [["30"]],
-        up: [["40"]],
-      },
-      bad: {
-        num: -1,
-        description: null,
-        transparentColor: 0,
-        mirrorLeftFromRight: true,
-        mirrorUpFromDown: null,
-        right: [["20"]],
-        left: null,
-        down: [["30"]],
-        up: [["40"]],
-      },
-    },
-    read_view_cel: {
-      good: { num: 0, loop: 0, cel: 0, rowOffset: null, rowLimit: null },
-      bad: { num: 0, loop: 99, cel: 0, rowOffset: null, rowLimit: null },
-    },
-    patch_view_cel: {
+    patch_view_cels: {
       good: {
         num: 0,
-        loop: 0,
-        cel: 0,
         expectedRevision: celRead.details?.["revision"],
-        rows: ["3"],
+        patches: [{ loop: 0, cel: 0, rows: ["3"] }],
       },
-      bad: { num: 0, loop: 0, cel: 0, expectedRevision: "stale", rows: ["4"] },
+      bad: { num: 0, expectedRevision: "stale", patches: [{ loop: 0, cel: 0, rows: ["4"] }] },
     },
     write_music: {
       good: {
@@ -319,43 +309,68 @@ test("every catalog tool produces bounded binary-free transport on real success 
       bad: { room: 5, backgroundColor: 16, shapes: [] },
     },
     read_room_context: {
-      good: { room: 1 },
-      bad: { room: 999 },
+      good: {
+        room: 1,
+        state: { variables: null, flags: null, compact: null },
+        frames: { count: 1, stride: 1, sheet: false, plane: null },
+      },
+      bad: { room: 999, state: null, frames: null },
     },
     write_words: { words: ["look", "east"] },
     write_view: {
-      num: 3,
-      spec: {
-        description: null,
-        loops: [
-          {
-            mirrorLoop: null,
-            cels: [
-              {
-                width: 1,
-                height: 1,
-                transparentColor: 0,
-                mirror: null,
-                pixels: [5],
-              },
-            ],
+      good: {
+        num: 3,
+        spec: {
+          description: null,
+          facings: null,
+          loops: [
+            {
+              mirrorLoop: null,
+              cels: [
+                {
+                  width: 1,
+                  height: 1,
+                  transparentColor: 0,
+                  mirror: null,
+                  pixels: [5],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      bad: {
+        num: -1,
+        spec: {
+          description: null,
+          loops: null,
+          facings: {
+            description: null,
+            transparentColor: 0,
+            mirrorLeftFromRight: true,
+            mirrorUpFromDown: null,
+            right: [["20"]],
+            left: null,
+            down: [["30"]],
+            up: [["40"]],
           },
-        ],
+        },
       },
     },
     write_logic_source: { room: 3, source: "return;" },
     write_picture: { room: 4, source: "vis 1\nfill 0,0\nend" },
-    write_inventory_objects: { objects: [{ name: "key", startingRoom: 1 }] },
     write_sound: {
       num: 7,
       tracks: [{ notes: [{ note: "C4", duration: 4, freqDivisor: null, attenuation: null }] }],
     },
     read_logic: { num: 1, offset: null, limit: null },
     read_picture: { num: 1, offset: null, limit: null, include: null },
-    read_view: { num: 0 },
+    read_view: { num: 0, cels: [{ loop: 0, cel: 0 }], rows: true },
     read_words: { prefix: null, exact: null, offset: null, limit: null },
-    list_resources: { kind: null },
-    inspect_world_bible: { filter: null },
+    inspect_world_bible: {
+      good: { filter: "slots", section: null, name: null, offset: null, kind: "logic" },
+      bad: { filter: "invalid", section: null, name: null, offset: null, kind: null },
+    },
     read_command_reference: {
       good: { query: "priority", kind: null, offset: null },
       bad: { query: null, kind: "invalid", offset: null },
@@ -399,21 +414,30 @@ test("every catalog tool produces bounded binary-free transport on real success 
       spawnY: null,
       steps: null,
       expect: { room: 1, carriedItems: [], flags: [] },
+      fromLiveCheckpoint: null,
     },
-    read_frames: { count: 1, stride: 1, sheet: false, plane: null },
-    read_objects: {},
-    read_state: {},
-    finish_genesis: { notes: "Booted synthetic room." },
+    read_diagnostic: {
+      good: { id: "d0", fields: null, offset: null, limit: null },
+      bad: { id: "d0", fields: null, offset: -1, limit: null },
+    },
+    handover: { notes: "Booted synthetic room." },
     write_room: {
-      room: 1,
-      picture: 1,
-      egoView: 0,
-      title: "Start",
-      description: "A start room.",
-      expectedRevision: roomRead.details?.["revision"],
-      spawn: { x: 80, y: 120, horizon: 36 },
-      exits: [],
-      interactions: [],
+      good: () => ({
+        room: 1,
+        picture: 1,
+        egoView: 0,
+        title: "Start",
+        description: "A start room.",
+        expectedRevision: executeAgentTool(session, "read_logic", {
+          num: 1,
+          offset: null,
+          limit: null,
+        }).details?.["revision"],
+        spawn: { x: 80, y: 120, horizon: 36 },
+        exits: [],
+        interactions: [],
+      }),
+      bad: { room: 99 },
     },
   };
   const directCases = cases;
@@ -429,10 +453,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     else if (name === "write_sound") bad = { ...good, num: -1 };
     else if (name === "read_logic" || name === "read_picture" || name === "read_view")
       bad = { ...good, num: 255 };
-    else if (name === "list_resources") bad = { kind: "invalid" };
-    else if (name === "inspect_world_bible") bad = { filter: "invalid" };
     else if (name === "playtest_room") bad = { ...good, room: 0 };
-    else if (name === "read_frames") bad = { ...good, plane: "invalid" };
     else bad = good;
     directCases[name] = { good, bad };
   }
@@ -465,30 +486,24 @@ test("every catalog tool produces bounded binary-free transport on real success 
   };
   const expectedCatalog = [
     "edit_resource_source",
-    "finish_genesis",
+    "handover",
     "inspect_world_bible",
-    "list_resources",
-    "patch_view_cel",
+    "patch_view_cels",
     "playtest_room",
     "preview_sound",
     "read_authoring_guide",
     "read_command_reference",
-    "read_frames",
+    "read_diagnostic",
     "read_game_tests",
     "read_logic",
-    "read_objects",
     "read_picture",
     "read_room_context",
     "read_sound",
-    "read_state",
     "read_view",
-    "read_view_cel",
     "read_words",
     "reserve_binding",
     "run_game_tests",
     "update_world",
-    "upsert_inventory_item",
-    "write_actor",
     "write_game_tests",
     "write_inventory_objects",
     "write_logic_source",
@@ -505,15 +520,171 @@ test("every catalog tool produces bounded binary-free transport on real success 
   for (const [name, value] of Object.entries(directCases)) {
     assert.ok("good" in value && "bad" in value);
     const paths = value as unknown as TransportCase;
-    const good = await executeAgentToolAsync(session, name, paths.good, deps);
+    const goodArgs = typeof paths.good === "function" ? paths.good() : paths.good;
+    const good = await executeAgentToolAsync(session, name, goodArgs, deps);
     assert.equal(good.success, true, `${name}: ${good.error}`);
     assertTransport(name, "success", good);
-    const failureState = name === "finish_genesis" ? createAgentSessionState() : session;
-    const failureDeps = name === "read_objects" || name === "read_state" ? undefined : deps;
-    const failure = await executeAgentToolAsync(failureState, name, paths.bad, failureDeps);
+    const failureState = name === "handover" ? createAgentSessionState() : session;
+    const failureDeps = deps;
+    const badArgs = typeof paths.bad === "function" ? paths.bad() : paths.bad;
+    const failure = await executeAgentToolAsync(failureState, name, badArgs, failureDeps);
     assert.equal(failure.success, false, `${name}: invalid args unexpectedly succeeded`);
     assertTransport(name, "failure", failure);
   }
+});
+
+test("model-facing projection evicts large fields into a retrievable diagnostic", () => {
+  const session = createAgentSessionState();
+  const full: AgentToolResult = {
+    success: true,
+    message: "Read logic 1.",
+    details: {
+      num: 1,
+      revision: "34-48575beb",
+      source: 'print("' + "x".repeat(600) + '");',
+      history: Array.from({ length: 40 }, (_, i) => `step ${i} with detail`),
+    },
+  };
+  const projected = projectToolResult(full, session.diagnostics, "d1");
+  assert.equal(projected.details?.["num"], 1);
+  assert.equal(projected.details?.["revision"], "34-48575beb");
+  assert.equal(projected.details?.["diagnosticId"], "d1");
+  assert.deepEqual(projected.details?.["truncatedFields"], ["source", "history"]);
+  assert.match(projected.message ?? "", /d1/);
+  assert.equal(session.diagnostics.get("d1"), full);
+
+  // Small details pass through unchanged — no artifact, no pointer.
+  const compact = projectToolResult(
+    { success: false, error: "nope", details: { num: 2 } },
+    session.diagnostics,
+    "d2",
+  );
+  assert.deepEqual(compact.details, { num: 2 });
+  assert.equal(session.diagnostics.has("d2"), false);
+
+  const read = executeAgentTool(session, "read_diagnostic", {
+    id: "d1",
+    fields: ["history", "missing"],
+    offset: null,
+    limit: null,
+  });
+  assert.equal(read.success, true, read.error ?? "");
+  assert.match(read.message ?? "", /step 3 with detail/);
+  assert.match(read.message ?? "", /missingFields/);
+
+  const absent = executeAgentTool(session, "read_diagnostic", {
+    id: "d9",
+    fields: null,
+    offset: null,
+    limit: null,
+  });
+  assert.equal(absent.success, false);
+});
+
+test("tool results carry explicit evidence origins and a resource-set identity", async () => {
+  const session = bootedSession();
+  const origin = (r: AgentToolResult) => r.details?.["origin"] as Record<string, unknown>;
+
+  const staged = executeAgentTool(session, "inspect_world_bible", {
+    filter: "slots",
+    section: null,
+    name: null,
+    offset: null,
+    kind: null,
+  });
+  assert.equal(origin(staged)["kind"], "staged");
+  const setBefore = String(origin(staged)["resourceSet"]);
+  assert.match(setBefore, /^\d+-[0-9a-f]{8}$/);
+
+  // A write moves the resource-set identity; reads after it see the new set.
+  assert.equal(
+    executeAgentTool(session, "write_words", { words: ["lamp"], groups: null }).success,
+    true,
+  );
+  const staged2 = executeAgentTool(session, "inspect_world_bible", {
+    filter: "slots",
+    section: null,
+    name: null,
+    offset: null,
+    kind: null,
+  });
+  assert.equal(origin(staged2)["kind"], "staged");
+  assert.notEqual(origin(staged2)["resourceSet"], setBefore);
+
+  const boot = executeAgentTool(session, "playtest_room", {
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: null,
+    expect: { room: 1, carriedItems: [], flags: [] },
+    fromLiveCheckpoint: null,
+  });
+  assert.equal(boot.success, true, boot.error ?? "");
+  assert.equal(origin(boot)["kind"], "boot");
+
+  const live = await executeAgentToolAsync(
+    session,
+    "read_room_context",
+    { room: 1, state: { variables: null, flags: null, compact: null }, frames: null },
+    { engine: { objects: () => [{ num: 0 }], state: () => ({ room: 1 }) } },
+  );
+  const liveState = live.details?.["state"] as Record<string, unknown>;
+  const liveOrigin = liveState["origin"] as Record<string, unknown>;
+  assert.equal(liveOrigin["kind"], "live");
+});
+
+test("fromLiveCheckpoint restores the captured live image into the staged candidate", async () => {
+  const session = bootedSession();
+  // Boot a live engine to a snapshottable cycle boundary, then capture it —
+  // the same image the worker hands the session while the game is paused.
+  const liveEngine = new Engine(
+    openContainer(session.getFiles(), { kind: session.profile.container }),
+    {
+      print: () => {},
+      displayAt: () => {},
+      statusLine: () => {},
+      takeInputLine: () => null,
+      takeKeys: () => [],
+    },
+    session.sources.words,
+  );
+  let image: Uint8Array | null = null;
+  for (let i = 0; i < 200 && !image; i++) {
+    liveEngine.tick();
+    image = liveEngine.autosaveImage();
+  }
+  assert.ok(image, "the live game reached a snapshottable boundary");
+
+  const args = {
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: null,
+    expect: { room: 1, carriedItems: [], flags: [] },
+    cycleBudget: null,
+    instructionBudget: null,
+    fromLiveCheckpoint: true,
+  };
+  const candidate = await executeAgentToolAsync(session, "playtest_room", args, {
+    checkpoint: () => image,
+  });
+  assert.equal(candidate.success, true, candidate.error ?? "");
+  const origin = candidate.details?.["origin"] as Record<string, unknown>;
+  assert.equal(origin["kind"], "candidate");
+  const stagedSet = (
+    executeAgentTool(session, "inspect_world_bible", {
+      filter: "slots",
+      section: null,
+      name: null,
+      offset: null,
+      kind: null,
+    }).details?.["origin"] as Record<string, unknown>
+  )["resourceSet"];
+  assert.equal(origin["resourceSet"], stagedSet);
+
+  const detached = await executeAgentToolAsync(session, "playtest_room", args, {});
+  assert.equal(detached.success, false);
+  assert.match(detached.error ?? "", /live game/);
 });
 
 test("Anthropic tool definitions send the catalog schemas verbatim and never strict", () => {

@@ -20,6 +20,7 @@ import {
   type UntilPredicate,
 } from "./gameTestSteps.ts";
 import { planWalk, renderNavigationSnapshot, validateTarget, type Target } from "./navigation.ts";
+import { resourceSetRevision } from "./authoringState.ts";
 import type { AgentSessionState, AgentToolResult } from "./tools.ts";
 
 const DEFAULT_CYCLES = 600;
@@ -95,7 +96,7 @@ interface CapturedCheckpoint {
   }[];
 }
 
-class Simulation {
+export class Simulation {
   readonly engine: Engine;
   readonly messages: string[] = [];
   readonly missingRooms: number[] = [];
@@ -114,6 +115,10 @@ class Simulation {
   keyPresses = 0;
   private recordedCalls: RecordedHostCall[] | null = null;
   navigationFailureTarget: Target | null = null;
+  /** Evidence origin of the run: boot, recorded replay, or a restored live checkpoint. */
+  originKind: "boot" | "recorded" | "candidate" = "boot";
+  /** Content identity of the staged resource set this simulation ran against. */
+  readonly resourceSet: string;
 
   recordAction(actionStr: string): void {
     if (this.actionHistory.length >= 32) this.actionHistory.shift();
@@ -126,6 +131,7 @@ class Simulation {
     options: { pressKeys?: boolean } = {},
   ) {
     this.cycleBudget = cycleBudget;
+    this.resourceSet = resourceSetRevision(state);
     const container = openContainer(state.getFiles(), { kind: state.profile.container });
     const words = container.files.get("WORDS.TOK");
     const dictionary = new Map(words ? parseWordsTok(words).map(({ word, id }) => [word, id]) : []);
@@ -386,6 +392,7 @@ class Simulation {
           }),
       details: {
         simulation: status,
+        origin: { kind: this.originKind, resourceSet: this.resourceSet },
         cycles: this.cycles,
         estimatedGameTimeMs: this.estimatedGameTimeMs,
         timing:
@@ -620,6 +627,8 @@ export function playtestRoom(
         ? 50000
         : integer(args["instructionBudget"], "instructionBudget", 1, 1000000),
     );
+    if (recording) simulation.originKind = "recorded";
+    else if (setupImage) simulation.originKind = "candidate";
     const engine = simulation.engine;
     let enteredDirectly = false;
     if (setupImage) {
@@ -1174,7 +1183,7 @@ export function playtestRoom(
         if (misses.length) {
           failures.push(`Expected object ${spec.num} ${misses.join(", ")}.`);
           nextSteps.push(
-            `Inspect object ${spec.num} with read_objects and the logic that draws, positions or moves it; check the view is loaded and the motion reaches the asserted box on this path.`,
+            `Inspect object ${spec.num} with read_room_context and the logic that draws, positions or moves it; check the view is loaded and the motion reaches the asserted box on this path.`,
           );
         }
       }

@@ -48,6 +48,7 @@ import {
   type InstalledGameDescriptor,
   type ProjectId,
   findInstalledFolder,
+  gameStorageKey,
   decodeTextRows,
 } from "./gameTypes.ts";
 export type { BootedGame, CurrentGame, Frame, InstalledGameDescriptor, ProjectId };
@@ -527,7 +528,9 @@ export function useEngine(
           ? msg["objects"]
           : msg["type"] === "exportFiles"
             ? msg["files"]
-            : msg["state"];
+            : msg["type"] === "checkpoint"
+              ? msg["image"]
+              : msg["state"];
     const handlers: Record<string, (msg: Record<string, unknown>) => void> = {
       keyAccepted: (msg) => input.acknowledgeKey(Number(msg["id"])),
       frame: (msg) => {
@@ -644,10 +647,7 @@ export function useEngine(
       booted: (msg) => {
         if (booted) {
           try {
-            localStorage.setItem(
-              LAST_GAME_KEY,
-              booted.installed ? (booted.hash ?? booted.alias!) : booted.projectId!,
-            );
+            localStorage.setItem(LAST_GAME_KEY, gameStorageKey(booted));
           } catch {
             /* Playback can continue without browser storage. */
           }

@@ -16,6 +16,7 @@ import {
 import { getCachedGameMeta, updateAuthoredGameFiles } from "./gameStorage.ts";
 import {
   findInstalledFolder,
+  gameStorageKey,
   type BootedGame,
   type InstalledGameDescriptor,
   type ProjectId,
@@ -225,9 +226,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         return false;
       }
       try {
-        const resumePointer = game.installed
-          ? (game.folder ?? game.hash ?? game.alias!)
-          : game.projectId!;
+        const resumePointer = gameStorageKey(game);
         localStorage.setItem(LAST_GAME_KEY, resumePointer);
       } catch (e) {
         ctx.logAgent("log", `autosave resume pointer failed: ${String(e)}`);
@@ -318,9 +317,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       ctx.logAgent("log", `Autosave discarded (${String(msg.message)}); starting a fresh game.`);
       const booted = ctx.getBootedGame();
       if (booted) {
-        clearAutosave(
-          booted.installed ? (booted.folder ?? booted.hash ?? booted.alias!) : booted.projectId!,
-        );
+        clearAutosave(gameStorageKey(booted));
       }
     }
   }
@@ -382,7 +379,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     const record = readAutosave(key);
     if (!record) return false;
     const available = record.game.installed
-      ? ctx.isInstalledGame(record.game.folder ?? record.game.hash ?? record.game.alias ?? key)
+      ? ctx.isInstalledGame(gameStorageKey(record.game) || key)
       : Boolean(record.game.projectId && getCachedGameMeta(record.game.projectId));
     if (!available) {
       ctx.logAgent("log", `Autosave for "${key}" has no game to boot; starting fresh.`);
@@ -394,7 +391,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
 
   async function resumeFromRecord(record: AutosaveRecord, config: LlmConfig): Promise<boolean> {
     if (record.game.installed) {
-      const target = record.game.folder ?? record.game.hash ?? record.game.alias ?? "";
+      const target = gameStorageKey(record.game);
       if (!ctx.isInstalledGame(target)) return false;
       pendingResumeRecord = record;
       try {

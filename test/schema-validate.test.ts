@@ -115,13 +115,17 @@ describe("validateToolArguments", () => {
 
   it("handlers that compare against null accept omitted optional fields at execution", () => {
     const session = createAgentSessionState();
-    const actor = executeAgentTool(session, "write_actor", {
+    const actor = executeAgentTool(session, "write_view", {
       num: 0,
-      transparentColor: 0,
-      mirrorLeftFromRight: true,
-      right: [["120", "340"]],
-      down: [["506", "780"]],
-      up: [["90A", "BC0"]],
+      spec: {
+        facings: {
+          transparentColor: 0,
+          mirrorLeftFromRight: true,
+          right: [["120", "340"]],
+          down: [["506", "780"]],
+          up: [["90A", "BC0"]],
+        },
+      },
     });
     assert.equal(actor.success, true, actor.error ?? "");
     const music = executeAgentTool(session, "write_music", {
@@ -137,20 +141,25 @@ describe("validateToolArguments", () => {
     assert.doesNotMatch(paged.error ?? "", /required|Invalid arguments/);
   });
 
-  it("bounds read_frames count and stride in the schema instead of clamping silently", () => {
-    const tool = AGENT_TOOLS.find((candidate) => candidate.name === "read_frames")!;
+  it("bounds read_room_context frames count and stride in the schema instead of clamping silently", () => {
+    const tool = AGENT_TOOLS.find((candidate) => candidate.name === "read_room_context")!;
+    const frames = (tool.parameters.properties as Record<string, unknown>)["frames"] as {
+      type: ["object", "null"];
+      properties: Record<string, unknown>;
+      required: string[];
+    };
     const good = { count: MAX_FRAMES, stride: 255, sheet: null, plane: null };
-    assert.deepEqual(validateToolArguments(tool.parameters, good), []);
-    assert.deepEqual(validateToolArguments(tool.parameters, { ...good, count: 0 }), [
+    assert.deepEqual(validateToolArguments(frames, good), []);
+    assert.deepEqual(validateToolArguments(frames, { ...good, count: 0 }), [
       "count must be >= 1, got 0.",
     ]);
-    assert.deepEqual(validateToolArguments(tool.parameters, { ...good, count: MAX_FRAMES + 1 }), [
+    assert.deepEqual(validateToolArguments(frames, { ...good, count: MAX_FRAMES + 1 }), [
       `count must be <= ${MAX_FRAMES}, got ${MAX_FRAMES + 1}.`,
     ]);
-    assert.deepEqual(validateToolArguments(tool.parameters, { ...good, stride: 0 }), [
+    assert.deepEqual(validateToolArguments(frames, { ...good, stride: 0 }), [
       "stride must be >= 1, got 0.",
     ]);
-    assert.deepEqual(validateToolArguments(tool.parameters, { ...good, stride: 256 }), [
+    assert.deepEqual(validateToolArguments(frames, { ...good, stride: 256 }), [
       "stride must be <= 255, got 256.",
     ]);
   });

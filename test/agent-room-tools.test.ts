@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createAgentSessionState, buildObjectFile } from "../src/agent/tools.ts";
+import { createAgentSessionState, buildObjectFile, executeAgentTool } from "../src/agent/tools.ts";
 import { buildView } from "../src/view/view.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildWordsTok, parseWordsTok } from "../src/logic/words.ts";
-import { resourceRevision } from "../src/agent/authoringState.ts";
 import { ROOM_TOOLS, executeRoomTool } from "../src/agent/roomTools.ts";
 import { playtestRoom, validateGenesis } from "../src/agent/playtest.ts";
 
@@ -87,7 +86,9 @@ test("write_room describes and compiles real room behavior with named references
   assert.ok(state.authoring.bindings["door_open"]?.kind === "flag");
   assert.equal(
     result.details?.["revision"],
-    resourceRevision(state.container.getResource("logic", 1)),
+    executeAgentTool(state, "read_logic", { num: 1, offset: null, limit: null }).details?.[
+      "revision"
+    ],
   );
   assert.equal(validateGenesis(state).success, true);
   const played = playtestRoom(state, {
@@ -174,7 +175,11 @@ test("write_room protects replacements with a content revision and reports stale
   assert.equal(stale.success, false);
   assert.match(stale.error ?? "", /revision/i);
   assert.deepEqual([...state.getFiles()], before);
-  const revision = resourceRevision(state.container.getResource("logic", 1));
+  const revision = executeAgentTool(state, "read_logic", {
+    num: 1,
+    offset: null,
+    limit: null,
+  }).details?.["revision"];
   assert.equal(
     executeRoomTool(state, "write_room", {
       ...args(),

@@ -16,7 +16,7 @@ import {
   updateGameConversation,
   type CachedGameData,
 } from "./gameStorage.ts";
-import type { BootedGame } from "./gameTypes.ts";
+import { gameStorageKey, type BootedGame } from "./gameTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
 
 /** Remix bubble state; the transcript slice is the live tool-call feed. */
@@ -119,6 +119,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     objects: () => query<unknown>("objects"),
     state: () => query<unknown>("state"),
   };
+  const checkpointSource = () => query<Uint8Array | null>("checkpoint");
 
   async function createGameSession(game: BootedGame, config: LlmConfig): Promise<AgentSession> {
     const cached = game.installed
@@ -142,7 +143,11 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     game: BootedGame,
     profile = state.profile ?? "unknown",
   ): void {
-    s.setRuntime({ frames: { read: readFrames }, engine: engineSource });
+    s.setRuntime({
+      frames: { read: readFrames },
+      engine: engineSource,
+      checkpoint: checkpointSource,
+    });
     if (game.installed || (game.projectId && getCachedGameMeta(game.projectId)?.imported)) {
       s.setOrientation({
         game: game.alias ?? game.projectId ?? game.hash ?? "game",
@@ -233,7 +238,11 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     let replacement: AgentSession;
     if (current) {
       replacement = current.reconfigure(config);
-      replacement.setRuntime({ frames: { read: readFrames }, engine: engineSource });
+      replacement.setRuntime({
+        frames: { read: readFrames },
+        engine: engineSource,
+        checkpoint: checkpointSource,
+      });
     } else {
       const game = getBootedGame();
       if (!game) return;
@@ -339,7 +348,8 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         );
       // The checkpoint moves with the progress: the original card must never
       // offer a snapshot taken under resources its own container does not have.
-      clearAutosave(game.installed ? (game.hash ?? game.alias!) : game.projectId!);
+      clearAutosave(gameStorageKey(game));
+      if (game.installed && game.hash) clearAutosave(game.hash);
       if (game.installed && game.alias) clearAutosave(game.alias);
       const newBooted: BootedGame = {
         installed: false,

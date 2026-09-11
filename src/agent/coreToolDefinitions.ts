@@ -193,9 +193,29 @@ export const PLAYTEST_EXPECT_SCHEMA = {
 };
 export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
+    name: "read_diagnostic",
+    description:
+      "Retrieve a stored diagnostic artifact by `id` (a tool result's diagnosticId when fields were truncated). `fields` limits output to named detail fields; `offset`/`limit` page the serialized text.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "string", minLength: 1, maxLength: 32 },
+        fields: {
+          type: ["array", "null"],
+          maxItems: 16,
+          items: { type: "string", minLength: 1, maxLength: 64 },
+        },
+        offset: { type: ["integer", "null"], minimum: 0 },
+        limit: { type: ["integer", "null"], minimum: 1, maximum: 32000 },
+      },
+      required: ["id", "fields", "offset", "limit"],
+    },
+  },
+  {
     name: "read_room_context",
     description:
-      "Inspect a room's compiled resources, intent, dependencies, bindings, inventory and live state. Null selects the live room. Live state is paused; resources include staged edits.",
+      "Inspect a room's compiled resources, intent, dependencies, bindings, inventory, live state and screen objects. Null `room` selects the live room. `state` requests the full interpreter tables — `compact` omits zeroes, `variables`/`flags` select indices; null returns the live summary only. `frames` returns the last `count` (1..9) frames oldest first, sampled every `stride` cycles — `sheet` (default true) tiles them into one contact sheet, `plane` is visual or priority. Live state is paused; resources include staged edits. Missing live deps report per-section errors.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -205,8 +225,37 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
           minimum: 0,
           maximum: 255,
         },
+        state: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            variables: {
+              type: ["array", "null"],
+              maxItems: 256,
+              items: { type: "integer", minimum: 0, maximum: 255 },
+            },
+            flags: {
+              type: ["array", "null"],
+              maxItems: 256,
+              items: { type: "integer", minimum: 0, maximum: 255 },
+            },
+            compact: { type: ["boolean", "null"] },
+          },
+          required: ["variables", "flags", "compact"],
+        },
+        frames: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            count: { type: ["integer", "null"], minimum: 1, maximum: MAX_FRAMES },
+            stride: { type: ["integer", "null"], minimum: 1, maximum: 255 },
+            sheet: { type: ["boolean", "null"] },
+            plane: { type: ["string", "null"] },
+          },
+          required: ["count", "stride", "sheet", "plane"],
+        },
       },
-      required: ["room"],
+      required: ["room", "state", "frames"],
     },
   },
   {
@@ -320,21 +369,6 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
     },
   },
   {
-    name: "list_resources",
-    description:
-      "List occupied ranges and next free IDs. `kind` is logic, picture, view, sound, or null for all. Writing an occupied ID replaces it.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        kind: {
-          type: ["string", "null"],
-        },
-      },
-      required: ["kind"],
-    },
-  },
-  {
     name: "read_words",
     description:
       "Inspect parser words and synonym groups by word ID. `prefix` or `exact` narrows the words; `offset` and `limit` page the groups (null: 0 and 60). The compiled dictionary determines what said() can match.",
@@ -364,18 +398,33 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_view",
     description:
-      "Inspect compiled view `num` as a labeled contact sheet. Large views sample at most 32 cels. Fails for absent or invalid resources.",
+      "Inspect compiled view `num`: labeled contact sheet, per-cel size and EGA color usage, and the resource `revision` accepted by patch tools. `cels` selects a cel subset ({loop,cel}); `rows` returns exact EGA hex rows for the selection, or every cel when `cels` is null, within a 32768-pixel budget — large `rows` results evict to a paged diagnostic. Fails for absent or invalid resources.",
     parameters: {
       type: "object",
       additionalProperties: false,
-      properties: { num: { type: "integer" } },
-      required: ["num"],
+      properties: {
+        num: { type: "integer" },
+        cels: {
+          type: ["array", "null"],
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              loop: { type: "integer", minimum: 0, maximum: 254 },
+              cel: { type: "integer", minimum: 0, maximum: 254 },
+            },
+            required: ["loop", "cel"],
+          },
+        },
+        rows: { type: ["boolean", "null"] },
+      },
+      required: ["num", "cels", "rows"],
     },
   },
   {
     name: "write_view",
     description:
-      "Compile and replace view `num` from `spec`. Each loop has cels or mirrors a preceding loop (cels null). Pixels are row-major EGA indices. Pixel-count corrections appear in `adjustments`. Returns a compiled contact sheet; large views sample 32 cels. Failure stores nothing.",
+      "Compile and replace view `num` from `spec`. Provide exactly one of `loops` (each has cels or mirrors a preceding loop) or `facings` (four-facing actor shorthand: right/left/down/up hex-row cels, a shared transparentColor, mirror flags; omitted directions are filled from available facings and reported in warnings). Pixels are row-major EGA indices; facings rows are hex strings. Pixel-count corrections appear in `adjustments`. Returns a compiled contact sheet; large views sample 32 cels. Failure stores nothing.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -390,8 +439,44 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
             description: {
               type: ["string", "null"],
             },
+            facings: {
+              type: ["object", "null"],
+              additionalProperties: false,
+              properties: {
+                description: { type: ["string", "null"], maxLength: 512 },
+                transparentColor: { type: "integer", minimum: 0, maximum: 15 },
+                mirrorLeftFromRight: { type: ["boolean", "null"] },
+                mirrorUpFromDown: { type: ["boolean", "null"] },
+                right: {
+                  type: ["array", "null"],
+                  items: { type: "array", items: { type: "string" } },
+                },
+                left: {
+                  type: ["array", "null"],
+                  items: { type: "array", items: { type: "string" } },
+                },
+                down: {
+                  type: ["array", "null"],
+                  items: { type: "array", items: { type: "string" } },
+                },
+                up: {
+                  type: ["array", "null"],
+                  items: { type: "array", items: { type: "string" } },
+                },
+              },
+              required: [
+                "description",
+                "transparentColor",
+                "mirrorLeftFromRight",
+                "mirrorUpFromDown",
+                "right",
+                "left",
+                "down",
+                "up",
+              ],
+            },
             loops: {
-              type: "array",
+              type: ["array", "null"],
               items: {
                 type: "object",
                 additionalProperties: false,
@@ -430,16 +515,16 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
               },
             },
           },
-          required: ["description", "loops"],
+          required: ["description", "loops", "facings"],
         },
       },
       required: ["num", "spec"],
     },
   },
   {
-    name: "finish_genesis",
+    name: "handover",
     description:
-      "Hand over control to resume the running game after genesis, room authoring, or remix. Validates authored resources: during initial genesis, boots the world in simulation to verify ego spawn, room display, and modal handling; during room authoring, verifies that the target room's logic and picture are compiled and valid; during remix, verifies all staged resources. Returns observed state and status. `notes` is optional free text explaining the changes or warnings.",
+      "Finish authoring and resume the running game. Validates first: every stored game test runs against the current resources, and a session's first handover also boots the world in simulation (ego spawn, room display, modal handling). Failure returns the verdict for repair; only a passing handover resumes play. `notes` is optional free text.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -454,13 +539,14 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_inventory_objects",
     description:
-      "Compile and replace the complete OBJECT inventory table from `objects`. `startingRoom`: 255 carried, 1..254 in that room, 0 inactive.",
+      "Compile the OBJECT inventory table. `mode` replace (default) writes the complete table from `objects` (`startingRoom`: 255 carried, 1..254 in that room, 0 inactive); `mode` merge updates one item from `item` while preserving other IDs — null `item.id` appends, `item.location` is carried, room or inactive, and `item.room` (1..254) applies only to a room location. Live ownership is unchanged; game logic changes it.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
+        mode: { type: ["string", "null"], enum: ["replace", "merge", null] },
         objects: {
-          type: "array",
+          type: ["array", "null"],
           items: {
             type: "object",
             additionalProperties: false,
@@ -475,8 +561,19 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
             required: ["name", "startingRoom"],
           },
         },
+        item: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            id: { type: ["integer", "null"], minimum: 0, maximum: 255 },
+            name: { type: "string" },
+            location: { type: "string", enum: ["carried", "room", "inactive"] },
+            room: { type: ["integer", "null"], minimum: 1, maximum: 254 },
+          },
+          required: ["id", "name", "location", "room"],
+        },
       },
-      required: ["objects"],
+      required: ["mode", "objects", "item"],
     },
   },
   {
@@ -529,7 +626,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "inspect_world_bible",
     description:
-      "Inspect game resources and authored intent, including staged edits. `filter` is all, rooms, objects, words or intent (null: all); with intent, `section` (rooms, facts, quests or bindings) plus `name` or `offset` selects one entry. Inventory locations are definitions; use read_state for live inventory. This indexes resources and does not prove puzzle behavior.",
+      "Inspect game resources and authored intent, including staged edits. `filter` is all, rooms, objects, words, intent or slots (null: all); slots lists occupied ranges and next free IDs, narrowed by `kind` (logic, picture, view, sound, null for all). With intent, `section` (rooms, facts, quests or bindings) plus `name` or `offset` selects one entry. Inventory locations are definitions; use read_room_context for live inventory. This indexes resources and does not prove puzzle behavior.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -548,14 +645,18 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
         filter: {
           type: ["string", "null"],
         },
+        kind: {
+          type: ["string", "null"],
+          enum: ["logic", "picture", "view", "sound", null],
+        },
       },
-      required: ["filter", "section", "name", "offset"],
+      required: ["filter", "section", "name", "offset", "kind"],
     },
   },
   {
     name: "playtest_room",
     description:
-      "Run a bounded isolated playtest of `room` against staged resources. `steps` command, move, enter, wait, key, direction, walkTo or answer; answer queues a get.string/get.num reply without advancing a cycle and requires null ticks/captureTicks; `expect` asserts room, inventory, flags, variables, a printed message (`printed`) and visible text (`text`). Null `spawnX`/`spawnY` use initialized ego; null steps checks its footprint. captureTicks samples completed ticks within that step into a composed animation sheet. Null `cycleBudget` (600) and `instructionBudget` (50000) bound the run. Missing destinations report `needs_authoring`.",
+      "Run a bounded isolated playtest of `room` against staged resources. `steps` command, move, enter, wait, key, direction, walkTo or answer; answer queues a get.string/get.num reply without advancing a cycle and requires null ticks/captureTicks; `expect` asserts room, inventory, flags, variables, a printed message (`printed`) and visible text (`text`). Null `spawnX`/`spawnY` use initialized ego; null steps checks its footprint. captureTicks samples completed ticks within that step into a composed animation sheet. `fromLiveCheckpoint` restores the paused live game's captured checkpoint instead of booting. Null `cycleBudget` (600) and `instructionBudget` (50000) bound the run. Missing destinations report `needs_authoring`.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -581,78 +682,20 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
         spawnY: {
           type: ["integer", "null"],
         },
-      },
-      required: ["room", "spawnX", "spawnY", "steps", "expect", "cycleBudget", "instructionBudget"],
-    },
-  },
-  {
-    name: "read_frames",
-    description:
-      "Read the last `count` (1..9) frames oldest first, sampling every `stride` cycles; null returns one visual frame. `sheet` tiles them into one contact sheet to show motion; `plane` is visual or priority (collision/depth). Text is transcribed separately. Fails without frames.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        count: {
-          type: ["integer", "null"],
-          minimum: 1,
-          maximum: MAX_FRAMES,
-        },
-        stride: {
-          type: ["integer", "null"],
-          minimum: 1,
-          maximum: 255,
-        },
-        sheet: {
-          type: ["boolean", "null"],
-        },
-        plane: {
-          type: ["string", "null"],
-        },
-      },
-      required: ["count", "stride", "sheet", "plane"],
-    },
-  },
-  {
-    name: "read_objects",
-    description:
-      "Read the current screen-object table: view/cel, geometry, priority, direction, cycling and motion. `ids` selects objects; null reads all. Object 0 is ego. Read again after movement. Fails without an attached game.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        ids: {
-          type: ["array", "null"],
-          maxItems: 256,
-          items: { type: "integer", minimum: 0, maximum: 255 },
-        },
-      },
-      required: ["ids"],
-    },
-  },
-  {
-    name: "read_state",
-    description:
-      "Read live rooms, ego, variables, flags, strings, parsed input, horizon and modal state. Null selects complete tables; compact omits zeroes. Fails without a game.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        variables: {
-          type: ["array", "null"],
-          maxItems: 256,
-          items: { type: "integer", minimum: 0, maximum: 255 },
-        },
-        flags: {
-          type: ["array", "null"],
-          maxItems: 256,
-          items: { type: "integer", minimum: 0, maximum: 255 },
-        },
-        compact: {
+        fromLiveCheckpoint: {
           type: ["boolean", "null"],
         },
       },
-      required: ["variables", "flags", "compact"],
+      required: [
+        "room",
+        "spawnX",
+        "spawnY",
+        "steps",
+        "expect",
+        "cycleBudget",
+        "instructionBudget",
+        "fromLiveCheckpoint",
+      ],
     },
   },
 ];

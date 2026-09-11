@@ -43,8 +43,15 @@ test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted 
                 {
                   type: "tool_use",
                   id: `inspect-${turn}`,
-                  name: turn === 1 ? "read_frames" : "read_state",
-                  input: turn === 1 ? { count: "9" } : {},
+                  name: "read_room_context",
+                  input:
+                    turn === 1
+                      ? { room: 1, state: null, frames: { count: "9" } }
+                      : {
+                          room: null,
+                          state: { variables: null, flags: null, compact: true },
+                          frames: null,
+                        },
                 },
               ]
             : [{ type: "text", text: "You are in room 1." }],
@@ -76,7 +83,7 @@ test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted 
   expect(JSON.parse(rejected.content[0]!.text)).toMatchObject({
     success: false,
     error:
-      "Invalid arguments for read_frames; nothing was changed. count must be integer or null, got string.",
+      "Invalid arguments for read_room_context; nothing was changed. frames.count must be integer or null, got string.",
   });
   const accepted = requests[2]!.messages.at(-1)!.content[0]!;
   expect(accepted.tool_use_id).toBe("inspect-2");

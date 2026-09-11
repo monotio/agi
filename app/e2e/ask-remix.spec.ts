@@ -33,11 +33,11 @@ test("Ask stays paused, remembers the conversation after reload, and hands conte
                 {
                   type: "function_call",
                   call_id: `inspect-${requests.length}`,
-                  name: "read_state",
+                  name: "read_room_context",
                   arguments: JSON.stringify({
-                    compact: true,
-                    variables: [requests.length],
-                    flags: null,
+                    room: null,
+                    state: { compact: true, variables: [requests.length], flags: null },
+                    frames: null,
                   }),
                 },
               ]
@@ -83,10 +83,11 @@ test("Ask stays paused, remembers the conversation after reload, and hands conte
   expect(requests.length).toBe(21); // Productive investigation passes the old 16-round stop.
   const firstInput = JSON.parse(requests[0]!).input;
   expect(firstInput).toHaveLength(1);
-  expect(firstInput[0].content).toContain("### ORIENTATION");
-  expect(firstInput[0].content).toContain("Current room: 1");
-  expect(firstInput[0].content).toContain("Could I have a small hint?");
-  expect(firstInput[0].content).toContain("### ASK REQUEST");
+  const firstText = firstInput[0].content.map((block: { text?: string }) => block.text).join("");
+  expect(firstText).toContain("### ORIENTATION");
+  expect(firstText).toContain("Current room: 1");
+  expect(firstText).toContain("Could I have a small hint?");
+  expect(firstText).toContain("### ASK REQUEST");
   await expect(page.getByTestId("agent-bubble-feed")).toBeHidden();
   const input = (await page.getByTestId("agent-bubble-input").boundingBox())!;
   const send = (await page.getByTestId("agent-bubble-send").boundingBox())!;

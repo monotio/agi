@@ -39,44 +39,121 @@ export interface LlmUsage {
   output: number;
   cachedInput: number;
   cacheWriteInput: number;
+  /** Input billed at the ordinary rate: total minus reads and writes. */
+  ordinaryInput?: number;
+  /** Cache writes by entry TTL, where the provider reports the split. */
+  cacheWrite5m?: number;
+  cacheWrite1h?: number;
+  /** Output spent on provider-internal reasoning, where reported. */
+  reasoningOutput?: number;
+  /** Provider accounting tier, where reported. */
+  serviceTier?: string;
+}
+
+/** One provider request, measured — never assumed complete on a failed stream. */
+export interface LlmRequestTelemetry {
+  provider: ProviderType;
+  model: string;
+  /** Provider-assigned response/request id, when delivered. */
+  requestId?: string;
+  /** 1-based provider request count within this conversation. */
+  requestIndex: number;
+  /** Non-cryptographic fingerprints of the static prefix for divergence diagnosis. */
+  promptHash: string;
+  catalogHash: string;
+  /** ms from request start to the first stream event; absent when nothing streamed. */
+  timeToFirstEventMs?: number;
+  /** ms for the complete provider response. */
+  responseMs: number;
+  usage?: LlmUsage;
+  /** True when the stream ended early or errored — usage may be partial, not exact. */
+  usageIncomplete: boolean;
+  /** Tool-result text bytes and image stats the model was sent before this request. */
+  toolResultTextBytes: number;
+  imageCount: number;
+  imagePixels: number;
 }
 export class LlmResponseError extends Error {
   readonly usage: LlmUsage;
-  constructor(message: string, usage: LlmUsage) {
+  readonly telemetry?: LlmRequestTelemetry | undefined;
+  constructor(message: string, usage: LlmUsage, telemetry?: LlmRequestTelemetry) {
     super(message);
     this.name = "LlmResponseError";
     this.usage = usage;
+    this.telemetry = telemetry;
   }
 }
 
 function anthropicUsage(usage: Anthropic.Usage | undefined): LlmUsage {
+  const input =
+    (usage?.input_tokens ?? 0) +
+    (usage?.cache_read_input_tokens ?? 0) +
+    (usage?.cache_creation_input_tokens ?? 0);
   return {
-    input:
-      (usage?.input_tokens ?? 0) +
-      (usage?.cache_read_input_tokens ?? 0) +
-      (usage?.cache_creation_input_tokens ?? 0),
+    input,
     output: usage?.output_tokens ?? 0,
     cachedInput: usage?.cache_read_input_tokens ?? 0,
     cacheWriteInput: usage?.cache_creation_input_tokens ?? 0,
+    ordinaryInput: usage?.input_tokens ?? 0,
+    ...(usage?.cache_creation
+      ? {
+          cacheWrite5m: usage.cache_creation.ephemeral_5m_input_tokens,
+          cacheWrite1h: usage.cache_creation.ephemeral_1h_input_tokens,
+        }
+      : {}),
+    ...(usage?.output_tokens_details
+      ? { reasoningOutput: usage.output_tokens_details.thinking_tokens }
+      : {}),
+    ...(usage?.service_tier ? { serviceTier: usage.service_tier } : {}),
   };
 }
 
 function recordUsage(usage: LlmUsage, total: LlmUsage, run?: AgentRun): void {
   run?.recordUsage(usage);
-  for (const key of Object.keys(total) as (keyof LlmUsage)[]) total[key] += usage[key];
+  for (const key of Object.keys(usage) as (keyof LlmUsage)[]) {
+    const value = usage[key];
+    if (typeof value !== "number") continue;
+    const bucket = total as unknown as Record<string, number | undefined>;
+    bucket[key] = (bucket[key] ?? 0) + value;
+  }
 }
 
 function openAiUsage(usage: OpenAI.Responses.ResponseUsage | null | undefined): LlmUsage {
+  const input = usage?.input_tokens ?? 0;
+  const cachedInput = usage?.input_tokens_details?.cached_tokens ?? 0;
+  const cacheWriteInput = usage?.input_tokens_details?.cache_write_tokens ?? 0;
   return {
-    input: usage?.input_tokens ?? 0,
+    input,
     output: usage?.output_tokens ?? 0,
-    cachedInput: usage?.input_tokens_details?.cached_tokens ?? 0,
-    cacheWriteInput: usage?.input_tokens_details?.cache_write_tokens ?? 0,
+    cachedInput,
+    cacheWriteInput,
+    ordinaryInput: input - cachedInput - cacheWriteInput,
+    ...(usage?.output_tokens_details
+      ? { reasoningOutput: usage.output_tokens_details.reasoning_tokens }
+      : {}),
   };
+}
+
+/** FNV-1a fingerprint: cheap, dependency-free identity for static request sections. */
+function fnv1a(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index++) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+/** PNG width x height from the IHDR header; 0x0 for anything else. */
+function pngPixels(png: Uint8Array): number {
+  if (png.length < 24 || png[0] !== 0x89 || png[1] !== 0x50) return 0;
+  const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
+  return view.getUint32(16) * view.getUint32(20);
 }
 
 export interface LlmTurnResult {
   usage?: LlmUsage;
+  telemetry?: LlmRequestTelemetry;
 
   text?: string;
   toolCalls: ToolCallItem[];
@@ -103,12 +180,23 @@ export const MODEL_OPTIONS: Record<ProviderType, { id: string; label: string }[]
 };
 
 export interface UnifiedConversation {
-  /** Advertise only tools usable in this phase; omitted names restore the full catalog. */
-  setTools(names?: readonly string[]): void;
+  /**
+   * Availability policy for this phase: which advertised tools may execute.
+   * The advertised catalog itself stays stable for the life of the conversation
+   * so the cached prefix survives phase changes. OpenAI restricts it
+   * server-side via `allowed_tools`; elsewhere the host dispatcher remains the
+   * deny-by-default authority. Omit names to make the full catalog available.
+   */
+  setAvailableTools(names?: readonly string[]): void;
   sendUserMessage(text: string): Promise<LlmTurnResult>;
-  sendToolResults(
-    results: { toolCallId: string; result: AgentToolResult }[],
-  ): Promise<LlmTurnResult>;
+  /**
+   * Record tool results into the transcript without a provider request —
+   * every call produced beside a terminal handover must land here too, even
+   * when no next response will be requested.
+   */
+  appendToolResults(results: { toolCallId: string; result: AgentToolResult }[]): void;
+  /** Request the next model response after appendToolResults. */
+  complete(): Promise<LlmTurnResult>;
   getTranscript(): unknown[];
   recordInterruption?(text: string): void;
   getSessionId?(): string;
@@ -117,8 +205,11 @@ export interface UnifiedConversation {
 
 /**
  * Creates an Anthropic multi-turn conversation with strict prompt caching.
- * The system prompt and tool definitions carry cache_control: { type: "ephemeral" }.
- * Transcript history is strictly append-only.
+ * One explicit checkpoint ends the static prefix (Anthropic's cache order is
+ * tools -> system -> messages, so the system-block marker covers the catalog);
+ * the top-level cache_control rolls an automatic breakpoint over the tail.
+ * Transcript history is strictly append-only and carries no cache annotations —
+ * markers are transport metadata applied to the outbound request only.
  */
 function getDevBaseUrl(path: string): string | undefined {
   if (
@@ -148,8 +239,11 @@ export function createAnthropicConversation(
   });
 
   const tools = anthropicToolDefinitions(AGENT_TOOLS) as unknown as Anthropic.Tool[];
-  let selectedTools = tools;
   const totalUsage: LlmUsage = { input: 0, output: 0, cachedInput: 0, cacheWriteInput: 0 };
+  const catalogHash = fnv1a(JSON.stringify(tools));
+  const promptHash = fnv1a(config.systemPrompt ?? AGI_SYSTEM_PROMPT);
+  let requestCount = 0;
+  let pendingToolContent = { textBytes: 0, imageCount: 0, imagePixels: 0 };
 
   const messages: Anthropic.MessageParam[] = Array.isArray(initialTranscript)
     ? JSON.parse(JSON.stringify(initialTranscript))
@@ -176,7 +270,14 @@ export function createAnthropicConversation(
   }
 
   async function step(): Promise<LlmTurnResult> {
+    const requestIndex = ++requestCount;
+    const toolContent = pendingToolContent;
+    pendingToolContent = { textBytes: 0, imageCount: 0, imagePixels: 0 };
+    let firstEventMs: number | undefined;
+    let responseMs = 0;
+    let usageIncomplete = false;
     const send = async (signal?: AbortSignal, maxTokens = 128000) => {
+      const startedAt = performance.now();
       // Official SDK accumulation preserves thinking signatures and complete tool inputs.
       // https://platform.claude.com/docs/en/build-with-claude/streaming
       const stream = client.messages.stream(
@@ -188,6 +289,7 @@ export function createAnthropicConversation(
             effort: resolveModelEffort(
               config.model || DEFAULT_MODELS.anthropic,
               config.effort,
+              "anthropic",
             ) as Exclude<ModelEffort, "none">,
           },
           max_tokens: maxTokens,
@@ -198,12 +300,7 @@ export function createAnthropicConversation(
               cache_control: { type: "ephemeral" },
             },
           ],
-          tools: selectedTools.map((tool, index) => ({
-            ...tool,
-            ...(index === selectedTools.length - 1
-              ? { cache_control: { type: "ephemeral" as const } }
-              : {}),
-          })),
+          tools,
           messages,
         },
         { ...(signal ? { signal } : {}) },
@@ -211,6 +308,7 @@ export function createAnthropicConversation(
       let usage: Anthropic.Usage | undefined;
       try {
         for await (const event of stream) {
+          if (firstEventMs === undefined) firstEventMs = performance.now() - startedAt;
           run?.updateProgress();
           if (event.type === "message_start") usage = { ...event.message.usage };
           if (event.type === "message_delta")
@@ -224,9 +322,12 @@ export function createAnthropicConversation(
             run?.updateProgress("text", event.delta.text);
         }
         const response = await stream.finalMessage();
+        responseMs = performance.now() - startedAt;
         recordUsage(anthropicUsage(response.usage), totalUsage, run);
         return response;
       } catch (error) {
+        usageIncomplete = true;
+        responseMs = performance.now() - startedAt;
         if (usage) {
           const partial = anthropicUsage(usage);
           recordUsage(partial, totalUsage, run);
@@ -238,6 +339,21 @@ export function createAnthropicConversation(
     const response = await (run ? run.request(send) : send());
 
     const usage = anthropicUsage(response.usage);
+    const telemetry: LlmRequestTelemetry = {
+      provider: "anthropic",
+      model: response.model ?? config.model,
+      requestId: response.id,
+      requestIndex,
+      promptHash,
+      catalogHash,
+      ...(firstEventMs !== undefined ? { timeToFirstEventMs: firstEventMs } : {}),
+      responseMs,
+      usage,
+      usageIncomplete,
+      toolResultTextBytes: toolContent.textBytes,
+      imageCount: toolContent.imageCount,
+      imagePixels: toolContent.imagePixels,
+    };
 
     // Save assistant response to conversation history
     messages.push({
@@ -253,7 +369,7 @@ export function createAnthropicConversation(
             ? `The model declined this request${response.stop_details?.category ? ` (${response.stop_details.category})` : ""}. Rephrase the request or choose another model; nothing was executed.`
             : `The model stopped before completing the turn (${response.stop_reason}).`;
       closePending(reason);
-      throw new LlmResponseError(reason, usage);
+      throw new LlmResponseError(reason, usage, telemetry);
     }
     let text = "";
     const toolCalls: ToolCallItem[] = [];
@@ -267,6 +383,7 @@ export function createAnthropicConversation(
           throw new LlmResponseError(
             `Invalid tool arguments for ${block.name}; expected an object.`,
             usage,
+            telemetry,
           );
         }
         toolCalls.push({
@@ -277,37 +394,37 @@ export function createAnthropicConversation(
       }
     }
 
-    return { text: text.trim(), toolCalls, usage };
+    return { text: text.trim(), toolCalls, usage, telemetry };
   }
 
   return {
-    setTools(names) {
-      selectedTools = names ? tools.filter((tool) => names.includes(tool.name)) : tools;
+    setAvailableTools(_names) {
+      // Anthropic has no allowed-tools request field; the advertised catalog
+      // stays stable and the host dispatcher denies unavailable tools.
     },
     async sendUserMessage(text: string): Promise<LlmTurnResult> {
       closePending("the previous turn ended before the harness executed it.");
-      // Checkpoint the previous conversation phase (e.g. Genesis) so its history remains cached.
-      if (messages.length > 0) {
-        const lastMsg = messages[messages.length - 1]!;
-        if (typeof lastMsg.content === "string") {
-          lastMsg.content = [
-            { type: "text", text: lastMsg.content, cache_control: { type: "ephemeral" } },
-          ];
-        } else if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
-          const lastBlock = lastMsg.content[lastMsg.content.length - 1]!;
-          (lastBlock as { cache_control?: { type: "ephemeral" } }).cache_control = {
-            type: "ephemeral",
-          };
-        }
-      }
       messages.push({ role: "user", content: text });
       return step();
     },
-    async sendToolResults(results): Promise<LlmTurnResult> {
-      const content: Anthropic.ToolResultBlockParam[] = results.map((r) =>
-        anthropicToolResult(r.toolCallId, r.result),
-      );
+    appendToolResults(results): void {
+      const content: Anthropic.ToolResultBlockParam[] = [];
+      let textBytes = 0;
+      let imageCount = 0;
+      let imagePixels = 0;
+      for (const r of results) {
+        const split = splitToolResult(r.result);
+        textBytes += split.text.length;
+        for (const image of split.images) {
+          imageCount++;
+          imagePixels += pngPixels(image.png);
+        }
+        content.push(anthropicToolResult(r.toolCallId, r.result));
+      }
+      pendingToolContent = { textBytes, imageCount, imagePixels };
       messages.push({ role: "user", content });
+    },
+    complete(): Promise<LlmTurnResult> {
       return step();
     },
     recordInterruption(text: string): void {
@@ -351,6 +468,10 @@ export function createOpenAiConversation(
   }));
   let allowedNames: readonly string[] | undefined;
   const totalUsage: LlmUsage = { input: 0, output: 0, cachedInput: 0, cacheWriteInput: 0 };
+  const catalogHash = fnv1a(JSON.stringify(tools));
+  const promptHash = fnv1a(config.systemPrompt ?? AGI_SYSTEM_PROMPT);
+  let requestCount = 0;
+  let pendingToolContent = { textBytes: 0, imageCount: 0, imagePixels: 0 };
 
   const input: OpenAI.Responses.ResponseInputItem[] = Array.isArray(initialTranscript)
     ? JSON.parse(JSON.stringify(initialTranscript))
@@ -372,7 +493,14 @@ export function createOpenAiConversation(
   }
 
   async function step(): Promise<LlmTurnResult> {
+    const requestIndex = ++requestCount;
+    const toolContent = pendingToolContent;
+    pendingToolContent = { textBytes: 0, imageCount: 0, imagePixels: 0 };
+    let firstEventMs: number | undefined;
+    let responseMs = 0;
+    let usageIncomplete = false;
     const send = async (signal?: AbortSignal, maxTokens = 128000) => {
+      const startedAt = performance.now();
       // Use typed SSE events for presentation; only a terminal response may enter history.
       // https://developers.openai.com/api/docs/guides/streaming-responses
       const stream = await client.responses.create(
@@ -381,7 +509,11 @@ export function createOpenAiConversation(
           max_output_tokens: maxTokens,
           model: config.model || DEFAULT_MODELS.openai,
           reasoning: {
-            effort: resolveModelEffort(config.model || DEFAULT_MODELS.openai, config.effort),
+            effort: resolveModelEffort(
+              config.model || DEFAULT_MODELS.openai,
+              config.effort,
+              "openai",
+            ),
           },
           instructions: config.systemPrompt ?? AGI_SYSTEM_PROMPT,
           prompt_cache_key: `monotio_agi.session.${sessionId}`,
@@ -409,6 +541,7 @@ export function createOpenAiConversation(
       );
       try {
         for await (const event of stream) {
+          if (firstEventMs === undefined) firstEventMs = performance.now() - startedAt;
           run?.updateProgress();
           if (event.type === "response.output_text.delta") run?.updateProgress("text", event.delta);
           if (event.type === "response.output_item.added") {
@@ -421,6 +554,7 @@ export function createOpenAiConversation(
             event.type === "response.incomplete" ||
             event.type === "response.failed"
           ) {
+            responseMs = performance.now() - startedAt;
             recordUsage(openAiUsage(event.response.usage), totalUsage, run);
             return event.response;
           }
@@ -430,6 +564,8 @@ export function createOpenAiConversation(
           "The provider stream ended before completing the response. No partial tools were executed.",
         );
       } catch (error) {
+        usageIncomplete = true;
+        responseMs = performance.now() - startedAt;
         run?.markUsageIncomplete();
         throw error;
       }
@@ -437,6 +573,21 @@ export function createOpenAiConversation(
     const response = await (run ? run.request(send) : send());
 
     const usage = openAiUsage(response.usage);
+    const telemetry: LlmRequestTelemetry = {
+      provider: "openai",
+      model: response.model ?? config.model,
+      requestId: response.id,
+      requestIndex,
+      promptHash,
+      catalogHash,
+      ...(firstEventMs !== undefined ? { timeToFirstEventMs: firstEventMs } : {}),
+      responseMs,
+      usage,
+      usageIncomplete,
+      toolResultTextBytes: toolContent.textBytes,
+      imageCount: toolContent.imageCount,
+      imagePixels: toolContent.imagePixels,
+    };
     for (const item of response.output) input.push(item as OpenAI.Responses.ResponseInputItem);
     if (response.status !== "completed") {
       const reason =
@@ -444,7 +595,7 @@ export function createOpenAiConversation(
           ? "The provider response reached its output limit before completion. Partial tool arguments were not executed."
           : `The model stopped before completing the turn (${response.incomplete_details?.reason ?? response.status}).`;
       closePending(reason);
-      throw new LlmResponseError(reason, usage);
+      throw new LlmResponseError(reason, usage, telemetry);
     }
     let text = "";
     const toolCalls: ToolCallItem[] = [];
@@ -469,6 +620,7 @@ export function createOpenAiConversation(
           throw new LlmResponseError(
             `The model returned invalid JSON arguments for ${item.name}. No tools from this response were executed.`,
             usage,
+            telemetry,
           );
         }
         toolCalls.push({
@@ -479,28 +631,61 @@ export function createOpenAiConversation(
       }
     }
 
-    return { text: text.trim(), toolCalls, usage };
+    return { text: text.trim(), toolCalls, usage, telemetry };
   }
 
   return {
-    setTools(names) {
+    setAvailableTools(names) {
       allowedNames = names
         ? [...names].filter((name) => AGENT_TOOLS.some((tool) => tool.name === name))
         : undefined;
     },
     async sendUserMessage(text: string): Promise<LlmTurnResult> {
       closePending("the previous turn ended before the harness executed it.");
-      input.push({ role: "user", content: text });
+      input.push({
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text,
+            prompt_cache_breakpoint: { mode: "explicit" },
+          },
+        ],
+      });
       return step();
     },
-    async sendToolResults(results): Promise<LlmTurnResult> {
+    appendToolResults(results): void {
+      let textBytes = 0;
+      let imageCount = 0;
+      let imagePixels = 0;
+      let lastOutput: OpenAI.Responses.ResponseInputItem.FunctionCallOutput | undefined;
       for (const r of results) {
-        input.push({
+        const split = splitToolResult(r.result);
+        textBytes += split.text.length;
+        for (const image of split.images) {
+          imageCount++;
+          imagePixels += pngPixels(image.png);
+        }
+        lastOutput = {
           type: "function_call_output",
           call_id: r.toolCallId,
-          output: openAiToolContent(splitToolResult(r.result)),
-        });
+          output: openAiToolContent(split),
+        };
+        input.push(lastOutput);
       }
+      // Explicit breakpoint at each turn's tail: implicit caching looks back
+      // only ~20 eligible message endings, so a turn with many tool calls
+      // pushes the last stable prefix out of the window and the cache sticks
+      // at the first request. A marked boundary is always a lookup point
+      // (latest 50 explicit breakpoints are always checked) and always writes.
+      if (lastOutput && Array.isArray(lastOutput.output) && lastOutput.output.length) {
+        lastOutput.output[lastOutput.output.length - 1]!.prompt_cache_breakpoint = {
+          mode: "explicit",
+        };
+      }
+      pendingToolContent = { textBytes, imageCount, imagePixels };
+    },
+    complete(): Promise<LlmTurnResult> {
       return step();
     },
     recordInterruption(text: string): void {

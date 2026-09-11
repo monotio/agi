@@ -148,7 +148,8 @@ export interface EngineHost {
   /** Available storage namespace; opts into the engine-owned 12-slot selector. */
   listSaveGames?(): SaveSlot[];
   /** Native text input adapter for the engine-drawn save description editor. */
-  promptSaveDescription?(initial: string, maxLen: number, row: number, col: number): string | null;
+  promptSaveDescription?:
+    ((initial: string, maxLen: number, row: number, col: number) => string | null) | undefined;
   /**
    * restore.game: blocking; returns a save-file image, or null when the
    * player cancelled or no save exists.
@@ -4870,6 +4871,7 @@ export class Engine {
       inputEnabled: this.inputAccepted,
       pictureShown: this.pictureShown,
       terminated: this.terminated,
+      controls: this.readControls(),
       inventory: this.itemNames().map((name, num) => ({
         num,
         name,
@@ -4986,6 +4988,8 @@ export interface EngineStateReport {
   modalKind: string | null;
   /** Instance serial of the open modal: a new window means a new beat. */
   modalSerial: number;
+  /** Host input bindings: keys the game or interpreter service currently claims. */
+  controls?: GameControlBinding[] | undefined;
   /** Current item locations, with 255 meaning carried. */
   inventory: { num: number; name: string; room: number }[];
 }

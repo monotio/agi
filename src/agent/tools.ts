@@ -32,9 +32,19 @@ import { viewFeedback } from "./viewFeedback.ts";
 import { normalizeAuthoredLogic } from "./logicText.ts";
 import { readInventoryObjects } from "./inventory.ts";
 import { decodeInventoryFile } from "../runtime/inventoryFile.ts";
-import { createAuthoringState, resourceRevision, type AuthoringState } from "./authoringState.ts";
-import { AUTHORING_TOOLS, executeAuthoringTool } from "./authoringTools.ts";
-import { SPRITE_TOOLS, executeSpriteTool } from "./spriteTools.ts";
+import {
+  createAuthoringState,
+  resourceRevision,
+  resourceSetRevision,
+  type AuthoringState,
+} from "./authoringState.ts";
+import {
+  AUTHORING_TOOLS,
+  editableSource,
+  executeAuthoringTool,
+  sourceContextRevision,
+} from "./authoringTools.ts";
+import { SPRITE_TOOLS, actorSpecFromFacings, executeSpriteTool } from "./spriteTools.ts";
 import { SOUND_TOOLS, executeSoundTool } from "./soundTools.ts";
 import { PICTURE_TOOLS, executePictureTool } from "./pictureTools.ts";
 import {
@@ -48,9 +58,11 @@ import {
   GAME_TEST_TOOLS,
   executeGameTestTool,
   rerunAffectedTests,
+  runGameTests,
   type TouchedResource,
 } from "./gameTests.ts";
 import { playtestRoom, validateGenesis } from "./playtest.ts";
+import { serializeAgentLog } from "./toolTransport.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import {
   buildView,
@@ -67,6 +79,7 @@ import {
 } from "../types.ts";
 import { createContainer } from "../container/container.ts";
 import { detectProfile, DEFAULT_V2_PROFILE, type AgiProfile } from "../runtime/profile.ts";
+import { describeKeyWord } from "../runtime/keys.ts";
 import {
   FRAME_HEIGHT,
   FRAME_WIDTH,
@@ -209,6 +222,17 @@ export interface AgentSessionState {
   testsPayload?: Uint8Array | undefined;
   genesisComplete: boolean;
   /**
+   * Full tool results evicted from the model-facing projection, retrievable by
+   * read_diagnostic for this session only. Shared across candidate forks;
+   * never serialized into files.
+   */
+  readonly diagnostics: Map<string, AgentToolResult>;
+  /**
+   * Reusable game-test verdicts keyed by resource-set + test-definition +
+   * profile + seed content identity. Session-scoped, shared across forks.
+   */
+  readonly testEvidence: Map<string, { outcome: unknown; result: AgentToolResult }>;
+  /**
    * write_picture calls made per picture number this session. The harness
    * reports the revision number for continuity across edits.
    */
@@ -350,6 +374,8 @@ export function createAgentSessionState(existingContainer?: GameContainer): Agen
     objectPayload,
     testsPayload: undefined,
     genesisComplete: false,
+    diagnostics: new Map<string, AgentToolResult>(),
+    testEvidence: new Map<string, { outcome: unknown; result: AgentToolResult }>(),
     pictureRounds: new Map<number, number>(),
     getFiles() {
       const files = new Map<string, Uint8Array>(container.files);
@@ -430,6 +456,51 @@ function formatNumberRanges(nums: readonly number[]): string {
  * Execute an agent tool call against the session state.
  * Returns { success, error, details } for direct inclusion in the model transcript.
  */
+function listResources(session: AgentSessionState, kindArg: unknown): AgentToolResult {
+  const filter = typeof kindArg === "string" ? kindArg.trim().toLowerCase() : "";
+  const kinds: readonly ResourceKind[] =
+    filter === "" ? RESOURCE_KINDS : RESOURCE_KINDS.filter((k) => k === filter);
+  if (kinds.length === 0) {
+    return {
+      success: false,
+      error: `Unknown resource kind '${filter}'. Use one of: ${RESOURCE_KINDS.join(", ")}, or null for all.`,
+    };
+  }
+  const present: Record<string, number[]> = {};
+  const free: Record<string, number[]> = {};
+  const corrupt: Record<string, number[]> = {};
+  const lines: string[] = [];
+  for (const kind of kinds) {
+    const have: number[] = [];
+    const broken: number[] = [];
+    for (let n = 0; n <= 255; n++) {
+      let bytes: Uint8Array | null;
+      try {
+        bytes = session.container.getResource(kind, n);
+      } catch {
+        broken.push(n);
+        bytes = null;
+      }
+      if (bytes !== null) have.push(n);
+    }
+    const lowestFree: number[] = [];
+    for (let n = kind === "logic" ? 0 : 1; n <= 255 && lowestFree.length < 8; n++) {
+      if (!have.includes(n) && !broken.includes(n)) lowestFree.push(n);
+    }
+    present[kind] = have;
+    corrupt[kind] = broken;
+    free[kind] = lowestFree;
+    lines.push(
+      `${kind}: ${have.length} present${have.length > 0 ? ` [${formatNumberRanges(have)}]` : ""}; next free: ${lowestFree.join(", ")}`,
+    );
+  }
+  return {
+    success: true,
+    message: `Container resources:\n${lines.join("\n")}`,
+    details: { present, free, corrupt, genesisComplete: session.genesisComplete },
+  };
+}
+
 export function executeAgentTool(
   session: AgentSessionState,
   name: string,
@@ -437,7 +508,44 @@ export function executeAgentTool(
 ): AgentToolResult {
   const call = prepareAgentToolCall(name, args);
   if (!call.success) return call;
-  return executeValidatedAgentTool(session, name, call.args);
+  return withEvidenceOrigin(session, name, executeValidatedAgentTool(session, name, call.args));
+}
+
+/** Tools that boot a fresh interpreter against the staged file set. */
+const BOOT_ORIGIN_TOOLS: ReadonlySet<string> = new Set(["playtest_room", "run_game_tests"]);
+
+/** Tools whose result is static reference text, not evidence about the game. */
+const REFERENCE_TOOLS: ReadonlySet<string> = new Set([
+  "read_authoring_guide",
+  "read_command_reference",
+  "read_diagnostic",
+]);
+
+/**
+ * Every game-facing result records where its evidence came from and which
+ * resource set it describes: "staged" for reads and writes of the session
+ * container, "boot" for fresh boot simulations against that set. A "boot"
+ * verdict is not proof the paused live game resumes correctly — resume
+ * validation is a separate host concern.
+ */
+function withEvidenceOrigin(
+  session: AgentSessionState,
+  name: string,
+  result: AgentToolResult,
+): AgentToolResult {
+  if (REFERENCE_TOOLS.has(name)) return result;
+  return {
+    ...result,
+    details: {
+      ...result.details,
+      // A simulation that ran from a recorded replay or a restored live
+      // checkpoint already stamps a more specific origin; keep it.
+      origin: result.details?.["origin"] ?? {
+        kind: BOOT_ORIGIN_TOOLS.has(name) ? "boot" : "staged",
+        resourceSet: resourceSetRevision(session),
+      },
+    },
+  };
 }
 
 /** Both public dispatchers must validate before reading live data or changing resources. */
@@ -445,8 +553,7 @@ function prepareAgentToolCall(
   name: string,
   args: Record<string, unknown>,
 ): { success: true; args: Record<string, unknown> } | { success: false; error: string } {
-  const canonicalName = name === "handover" ? "finish_genesis" : name;
-  const definition = AGENT_TOOLS.find((tool) => tool.name === canonicalName);
+  const definition = AGENT_TOOLS.find((tool) => tool.name === name);
   if (!definition) return { success: false, error: `Unknown tool: '${name}'.` };
   // Omitted nullable fields become null so handlers see the strict-mode shape.
   args = normalizeToolArguments(definition.parameters, args);
@@ -503,6 +610,54 @@ function touchedResources(result: AgentToolResult): TouchedResource[] {
   );
 }
 
+/** Retrieve a stored full tool result with bounded selection and pagination. */
+function readDiagnostic(
+  session: AgentSessionState,
+  args: Record<string, unknown>,
+): AgentToolResult {
+  const id = String(args["id"]);
+  const stored = session.diagnostics.get(id);
+  if (!stored)
+    return {
+      success: false,
+      error: `No diagnostic '${id}'. Artifacts are session-scoped; re-run the tool that produced it.`,
+    };
+  const fields = args["fields"];
+  const offset = typeof args["offset"] === "number" ? args["offset"] : 0;
+  const limit = Math.min(typeof args["limit"] === "number" ? args["limit"] : 16000, 32000);
+  let selected: unknown = {
+    success: stored.success,
+    message: stored.message,
+    adjustments: stored.adjustments,
+    details: stored.details,
+  };
+  if (Array.isArray(fields) && fields.length) {
+    const details = stored.details ?? {};
+    const picked: Record<string, unknown> = {};
+    const missing: string[] = [];
+    for (const field of fields) {
+      const name = String(field);
+      if (name in details) picked[name] = details[name];
+      else missing.push(name);
+    }
+    selected = { details: picked, ...(missing.length ? { missingFields: missing } : {}) };
+  }
+  const text = serializeAgentLog(selected);
+  const page = text.slice(offset, offset + limit);
+  return {
+    success: true,
+    message: `Diagnostic ${id}, ${text.length} bytes total, offset ${offset}:\n${page}`,
+    details: {
+      id,
+      offset,
+      limit,
+      totalBytes: text.length,
+      nextOffset: offset + page.length < text.length ? offset + page.length : null,
+      imageCount: stored.images?.length ?? 0,
+    },
+  };
+}
+
 /** Internal dispatch for arguments already normalized and checked against the catalog. */
 function executeValidatedAgentTool(
   session: AgentSessionState,
@@ -511,6 +666,7 @@ function executeValidatedAgentTool(
 ): AgentToolResult {
   if (name === "read_command_reference") return readCommandReference(session.profile, args);
   if (name === "read_authoring_guide") return readAuthoringGuide(args);
+  if (name === "read_diagnostic") return readDiagnostic(session, args);
   const gameTest = executeGameTestTool(session, name, args);
   if (gameTest) {
     if (name === "write_game_tests" && gameTest.success)
@@ -560,7 +716,18 @@ function executeValidatedAgentTool(
         details: {
           ...result.details,
           writtenResources: [{ kind: legacyKind, num }],
-          revision: resourceRevision(session.container.getResource(legacyKind, num)),
+          ...(legacyKind === "logic" || legacyKind === "picture"
+            ? {
+                revision: sourceContextRevision(
+                  session,
+                  legacyKind,
+                  num,
+                  editableSource(session, legacyKind, num) ?? "",
+                ),
+              }
+            : {
+                revision: resourceRevision(session.container.getResource(legacyKind, num)),
+              }),
         },
       };
     }
@@ -572,8 +739,8 @@ function executeValidatedAgentTool(
           updatedFiles: [name === "write_words" ? "WORDS.TOK" : "OBJECT"],
         },
       };
-    // Writers that delegate to another write tool (edit_resource_source,
-    // upsert_inventory_item) already carry the inner call's rerun verdict;
+    // Writers that delegate to another write tool (edit_resource_source)
+    // already carry the inner call's rerun verdict;
     // never run the tests twice.
     if (!result.details?.["gameTestsRerun"]) {
       const touched = touchedResources(result);
@@ -598,7 +765,7 @@ function executeValidatedAgentTool(
       );
     const details = {
       ...result.details,
-      revision: resourceRevision(session.container.getResource(kind, num)),
+      revision: sourceContextRevision(session, kind, num, full),
       source: include === "image" ? undefined : source,
       totalLines: lines.length,
       offset,
@@ -964,6 +1131,72 @@ function executeLegacyTool(
           return { success: false, error: `View ${num} is not present in the container.` };
         const view = parseView(payload, session.profile);
         const preview = viewFeedback(payload, session.profile, num);
+        // Optional exact rows for a selected subset (or all cels, bounded):
+        // one call covers a rewrite plan instead of one read per cel.
+        const selected = new Set<string>();
+        const celsArg = args["cels"];
+        if (Array.isArray(celsArg)) {
+          for (const [i, raw] of celsArg.entries()) {
+            const target = (raw ?? {}) as Record<string, unknown>;
+            const loop = target["loop"];
+            const cel = target["cel"];
+            if (
+              typeof loop !== "number" ||
+              typeof cel !== "number" ||
+              !Number.isInteger(loop) ||
+              !Number.isInteger(cel) ||
+              !view.loops[loop]?.cels[cel]
+            )
+              return {
+                success: false,
+                error: `cels[${i}] must be {loop, cel} naming an existing cel.`,
+              };
+            selected.add(`${loop}:${cel}`);
+          }
+        }
+        const wantRows = args["rows"] === true;
+        const rowCels: { loop: number; cel: number; rows: string[] }[] = [];
+        let rowPixels = 0;
+        if (wantRows || selected.size) {
+          for (const [loopNum, loop] of view.loops.entries()) {
+            for (const [celNum, cel] of loop.cels.entries()) {
+              if (selected.size && !selected.has(`${loopNum}:${celNum}`)) continue;
+              rowPixels += cel.width * cel.height;
+              if (rowPixels > 32768)
+                return {
+                  success: false,
+                  error: `Rows exceed the 32768-pixel budget; select fewer cels via 'cels'.`,
+                };
+              rowCels.push({
+                loop: loopNum,
+                cel: celNum,
+                rows: Array.from({ length: cel.height }, (_, y) =>
+                  [...cel.pixels.slice(y * cel.width, (y + 1) * cel.width)]
+                    .map((p) => p.toString(16).toUpperCase())
+                    .join(""),
+                ),
+              });
+            }
+          }
+        }
+        // Per-cel EGA color usage: enough to plan a recolor without reading
+        // every cel's rows one at a time.
+        const cels = view.loops.flatMap((loop, loopNum) =>
+          loop.cels.map((cel, celNum) => {
+            const counts = new Map<number, number>();
+            for (const pixel of cel.pixels)
+              if (pixel !== cel.transparentColor) counts.set(pixel, (counts.get(pixel) ?? 0) + 1);
+            return {
+              loop: loopNum,
+              cel: celNum,
+              width: cel.width,
+              height: cel.height,
+              colors: Object.fromEntries(
+                [...counts].sort((a, b) => b[1] - a[1]).map(([color, n]) => [color, n]),
+              ),
+            };
+          }),
+        );
         return {
           success: true,
           message: `View ${num}: ${view.loops.length} loops, ${preview.totalFrames} cels.`,
@@ -973,6 +1206,9 @@ function executeLegacyTool(
             description: view.description?.slice(0, 512),
             loopCount: view.loops.length,
             celsPerLoop: view.loops.map((loop) => loop.cels.length),
+            cels,
+            revision: resourceRevision(payload),
+            ...(rowCels.length ? { rows: rowCels } : {}),
             preview: {
               width: preview.width,
               height: preview.height,
@@ -1018,51 +1254,6 @@ function executeLegacyTool(
       }
     }
 
-    case "list_resources": {
-      const filter = typeof args["kind"] === "string" ? args["kind"].trim().toLowerCase() : "";
-      const kinds: readonly ResourceKind[] =
-        filter === "" ? RESOURCE_KINDS : RESOURCE_KINDS.filter((k) => k === filter);
-      if (kinds.length === 0) {
-        return {
-          success: false,
-          error: `Unknown resource kind '${filter}'. Use one of: ${RESOURCE_KINDS.join(", ")}, or null for all.`,
-        };
-      }
-      const present: Record<string, number[]> = {};
-      const free: Record<string, number[]> = {};
-      const corrupt: Record<string, number[]> = {};
-      const lines: string[] = [];
-      for (const kind of kinds) {
-        const have: number[] = [];
-        const broken: number[] = [];
-        for (let n = 0; n <= 255; n++) {
-          let bytes: Uint8Array | null;
-          try {
-            bytes = session.container.getResource(kind, n);
-          } catch {
-            broken.push(n);
-            bytes = null;
-          }
-          if (bytes !== null) have.push(n);
-        }
-        const lowestFree: number[] = [];
-        for (let n = kind === "logic" ? 0 : 1; n <= 255 && lowestFree.length < 8; n++) {
-          if (!have.includes(n) && !broken.includes(n)) lowestFree.push(n);
-        }
-        present[kind] = have;
-        corrupt[kind] = broken;
-        free[kind] = lowestFree;
-        lines.push(
-          `${kind}: ${have.length} present${have.length > 0 ? ` [${formatNumberRanges(have)}]` : ""}; next free: ${lowestFree.join(", ")}`,
-        );
-      }
-      return {
-        success: true,
-        message: `Container resources:\n${lines.join("\n")}`,
-        details: { present, free, corrupt, genesisComplete: session.genesisComplete },
-      };
-    }
-
     case "read_words": {
       const prefix = typeof args["prefix"] === "string" ? args["prefix"].trim().toLowerCase() : "";
       const byId = new Map<number, string[]>();
@@ -1106,16 +1297,34 @@ function executeLegacyTool(
         return { success: false, error: `Invalid view resource number: ${num}. Must be 0..255.` };
       }
       const rawSpec = args["spec"] as Record<string, unknown> | undefined;
-      if (!rawSpec || !Array.isArray(rawSpec["loops"])) {
+      const hasLoops = Array.isArray(rawSpec?.["loops"]);
+      const hasFacings = rawSpec?.["facings"] !== null && rawSpec?.["facings"] !== undefined;
+      if (!rawSpec || hasLoops === hasFacings) {
         return {
           success: false,
-          error: "Missing or invalid view specification: 'spec.loops' array required.",
+          error:
+            "Missing or invalid view specification: exactly one of 'spec.loops' or 'spec.facings' is required.",
         };
       }
 
-      const rawLoops = rawSpec["loops"] as unknown[];
       const sanitizedLoops: BuildLoopInput[] = [];
       const adjustments: string[] = [];
+      let specDescription: string | undefined;
+
+      if (hasFacings) {
+        // Four-facing actor shorthand: {right,left,down,up} hex-row cels,
+        // mirror flags and a shared transparentColor expand to four loops.
+        try {
+          const built = actorSpecFromFacings(rawSpec["facings"] as Record<string, unknown>);
+          sanitizedLoops.push(...built.spec.loops);
+          adjustments.push(...built.adjustments);
+          specDescription = built.spec.description ?? undefined;
+        } catch (err) {
+          return { success: false, error: `Invalid facings spec: ${String(err)}` };
+        }
+      }
+
+      const rawLoops = hasFacings ? [] : (rawSpec["loops"] as unknown[]);
 
       for (let i = 0; i < rawLoops.length; i++) {
         const rawLoop = rawLoops[i];
@@ -1173,7 +1382,8 @@ function executeLegacyTool(
       const cleanSpec: BuildViewInput = {
         loops: sanitizedLoops,
         description:
-          typeof rawSpec["description"] === "string" ? rawSpec["description"] : undefined,
+          specDescription ??
+          (typeof rawSpec["description"] === "string" ? rawSpec["description"] : undefined),
       };
 
       try {
@@ -1199,24 +1409,97 @@ function executeLegacyTool(
       }
     }
 
-    case "finish_genesis":
     case "handover": {
+      // Handover is the validation gate, not the agent's word that it tested:
+      // every stored game test runs against the current resources (unchanged
+      // verdicts come from the evidence cache), and the first handover of a
+      // session also boots the world to a shown, interactive scene.
+      const testRun = runGameTests(session, null);
+      const gameTests = testRun.details?.["gameTests"];
+      if (!testRun.success)
+        return {
+          success: false,
+          error: `Handover rejected: ${testRun.error ?? "stored game tests failed"}`,
+          details: { ...testRun.details, genesisComplete: session.genesisComplete },
+          ...(testRun.images ? { images: testRun.images.slice(0, 1) } : {}),
+        };
       if (!session.genesisComplete) {
         const result = validateGenesis(session);
-        if (result.success) session.genesisComplete = true;
+        if (!result.success)
+          return {
+            ...result,
+            details: { ...result.details, genesisComplete: false, gameTests },
+          };
+        session.genesisComplete = true;
         return {
           ...result,
-          details: { ...result.details, genesisComplete: session.genesisComplete },
+          details: { ...result.details, genesisComplete: true, gameTests },
         };
       }
       return {
         success: true,
-        message: "Handover complete. Resuming gameplay.",
-        details: { genesisComplete: true, notes: args["notes"] ?? null },
+        message: "Handover validated: stored game tests pass. Resuming gameplay.",
+        details: { genesisComplete: true, notes: args["notes"] ?? null, gameTests },
       };
     }
 
     case "write_inventory_objects": {
+      let mergedItem: { id: number; name: string } | undefined;
+      const mode = args["mode"] == null ? "replace" : String(args["mode"]);
+      if (mode !== "replace" && mode !== "merge")
+        return { success: false, error: "mode must be replace, merge, or null." };
+      if (mode === "merge") {
+        const item = args["item"] as Record<string, unknown> | null | undefined;
+        if (item === null || item === undefined)
+          return {
+            success: false,
+            error: "mode merge requires 'item' {id, name, location, room}.",
+          };
+        const items = readInventoryObjects(session.getFiles().get("OBJECT"), session.profile);
+        const id = item["id"] == null ? items.length : item["id"];
+        const itemName = item["name"];
+        if (
+          typeof id !== "number" ||
+          !Number.isInteger(id) ||
+          id < 0 ||
+          id > items.length ||
+          id > 255
+        )
+          return {
+            success: false,
+            error: "item.id must name an existing item, or be null to append.",
+          };
+        if (
+          typeof itemName !== "string" ||
+          !itemName.trim() ||
+          [...itemName].some((char) => char.charCodeAt(0) === 0 || char.charCodeAt(0) > 255)
+        )
+          return {
+            success: false,
+            error: "item.name must be nonempty AGI byte text without zero bytes.",
+          };
+        const location = item["location"];
+        if (!["carried", "room", "inactive"].includes(String(location)))
+          return {
+            success: false,
+            error: "item.location must be carried, room, or inactive.",
+          };
+        const room = location === "carried" ? 255 : location === "inactive" ? 0 : item["room"];
+        if (
+          typeof room !== "number" ||
+          !Number.isInteger(room) ||
+          room < 0 ||
+          room > 255 ||
+          (location === "room" && (room < 1 || room > 254))
+        )
+          return { success: false, error: "A room location needs item.room 1..254." };
+        args = { ...args, objects: items.map((o) => ({ ...o })) };
+        (args["objects"] as { name: string; startingRoom: number }[])[id as number] = {
+          name: itemName.trim(),
+          startingRoom: room,
+        };
+        mergedItem = { id: id as number, name: itemName.trim() };
+      }
       // Anthropic tools are not strict (see toolTransport.ts), so a malformed
       // call must fail here instead of silently replacing the OBJECT table.
       if (!Array.isArray(args["objects"]))
@@ -1257,6 +1540,9 @@ function executeLegacyTool(
             objectCount: objects.length,
             bytes: payload.length,
             objects: objects.map((o) => o.name),
+            ...(mergedItem
+              ? { id: mergedItem.id, name: mergedItem.name, updatedFiles: ["OBJECT"] }
+              : {}),
           },
         };
       } catch (err) {
@@ -1309,8 +1595,12 @@ function executeLegacyTool(
 
     case "inspect_world_bible": {
       const filter = args["filter"] ?? "all";
-      if (!["all", "rooms", "objects", "words", "intent"].includes(String(filter)))
-        return { success: false, error: "Use filter all, rooms, objects, words, intent, or null." };
+      if (!["all", "rooms", "objects", "words", "intent", "slots"].includes(String(filter)))
+        return {
+          success: false,
+          error: "Use filter all, rooms, objects, words, intent, slots, or null.",
+        };
+      if (filter === "slots") return listResources(session, args["kind"]);
       try {
         const details: Record<string, unknown> = {
           genesisComplete: session.genesisComplete,
@@ -1350,7 +1640,7 @@ function executeLegacyTool(
           };
         }
         if (filter === "all" || filter === "rooms") {
-          const listing = executeAgentTool(session, "list_resources", { kind: null });
+          const listing = listResources(session, null);
           const present = listing.details!["present"] as Record<ResourceKind, number[]>;
           details["rooms"] = [...new Set([...present.logic, ...present.picture])].sort(
             (a, b) => a - b,
@@ -1388,23 +1678,52 @@ function executeLegacyTool(
 /**
  * Live-game sources injected by the host.
  *
- * The three runtime tools — read_frames, read_objects, read_state — read the
- * INTERPRETER, which lives in a Web Worker and answers asynchronously. The
- * synchronous `executeAgentTool` above cannot reach it, so the host passes
- * these in to `executeAgentToolAsync`. With no deps attached the tools fail
- * with a clear message. The host selects the tools available during each phase.
+ * The live-inspection sections — read_room_context's live summary, state and
+ * frames plus playtest_room's live checkpoint — read the INTERPRETER, which
+ * lives in a Web Worker and answers asynchronously. The synchronous
+ * `executeAgentTool` above cannot reach it, so the host passes these in to
+ * `executeAgentToolAsync`. With no deps attached a section fails with a clear
+ * message. The host selects the tools available during each phase.
  */
 export interface AgentRuntimeDeps {
   readonly readOnly?: boolean;
+  /** Phase availability policy: names outside the list are denied before dispatch. */
+  readonly allowedTools?: readonly string[];
   readonly frames?: FrameSource | undefined;
   readonly engine?: EngineStateSource | undefined;
+  /** Captures the paused interpreter's resumable image, or null when it cannot. */
+  readonly checkpoint?: (() => Uint8Array | null | Promise<Uint8Array | null>) | undefined;
+}
+
+/**
+ * Host input bindings in readable form: the key name plus what it does —
+ * a menu item text, an engine service label, or its controller number.
+ */
+function describeControls(
+  controls: unknown,
+): { key: string; controller: number | null; label: string | null }[] {
+  if (!Array.isArray(controls)) return [];
+  return controls.slice(0, 32).map((binding) => {
+    const b = binding as Record<string, unknown>;
+    const menus = Array.isArray(b["menuItems"])
+      ? b["menuItems"]
+          .map((item) => String((item as Record<string, unknown>)["text"] ?? "").trim())
+          .filter(Boolean)
+      : [];
+    return {
+      key: typeof b["key"] === "number" ? describeKeyWord(b["key"]) : String(b["key"]),
+      controller: typeof b["controller"] === "number" ? b["controller"] : null,
+      label:
+        (typeof b["label"] === "string" ? b["label"] : null) ??
+        (menus.length ? [...new Set(menus)].join(" / ") : null),
+    };
+  });
 }
 
 /** Returned when a runtime tool is called with no interpreter attached. */
 const NO_LIVE_GAME =
-  "No live game is attached to this session, so runtime inspection is unavailable. Use read_logic, read_picture and list_resources instead.";
+  "No live game is attached to this session, so live inspection is unavailable. Use read_logic, read_picture and inspect_world_bible instead.";
 
-/** Explicit capabilities for a discussion turn; new tools require deliberate approval here. */
 /**
  * The picture text the agent wrote this session, only while it still compiles to
  * the stored resource bytes. An imported or stale source that disagrees with the
@@ -1455,14 +1774,14 @@ export function authoredLogicSource(session: AgentSessionState, num: number): st
   }
 }
 
+/** Explicit capabilities for a discussion turn; new tools require deliberate approval here. */
 export const ASK_TOOLS: readonly string[] = [
   "read_room_context",
+  "read_diagnostic",
   "read_picture",
   "read_logic",
-  "list_resources",
   "read_words",
   "read_view",
-  "read_view_cel",
   "read_sound",
   "preview_sound",
   "read_command_reference",
@@ -1471,9 +1790,6 @@ export const ASK_TOOLS: readonly string[] = [
   "run_game_tests",
   "inspect_world_bible",
   "playtest_room",
-  "read_frames",
-  "read_objects",
-  "read_state",
 ];
 
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
@@ -1485,15 +1801,18 @@ function clampInt(value: unknown, fallback: number, min: number, max: number): n
 async function executeReadFrames(
   args: Record<string, unknown>,
   source: FrameSource,
+  session: AgentSessionState,
 ): Promise<AgentToolResult> {
   const count = clampInt(args["count"], 1, 1, MAX_FRAMES);
   const stride = clampInt(args["stride"], 1, 1, 255);
-  const sheet = args["sheet"] === true;
+  // Default to one contact sheet for multiple frames: one image item keeps
+  // the transcript lean; per-frame images are available via sheet: false.
+  const sheet = args["sheet"] !== false;
   const planeArg = typeof args["plane"] === "string" ? args["plane"].toLowerCase() : "visual";
   if (planeArg !== "visual" && planeArg !== "priority") {
     return {
       success: false,
-      error: `read_frames: plane must be 'visual', 'priority' or null; got '${planeArg}'.`,
+      error: `read_room_context frames: plane must be 'visual', 'priority' or null; got '${planeArg}'.`,
     };
   }
   const plane: FramePlane = planeArg;
@@ -1502,7 +1821,7 @@ async function executeReadFrames(
   try {
     frames = await source.read({ count, stride });
   } catch (err) {
-    return { success: false, error: `read_frames failed: ${String(err)}` };
+    return { success: false, error: `read_room_context frames failed: ${String(err)}` };
   }
   if (frames.length === 0) {
     return {
@@ -1543,6 +1862,11 @@ async function executeReadFrames(
       plane,
       sheet: sheet && frames.length > 1,
       imageCount: images.length,
+      origin: {
+        kind: "live",
+        checkpoint: frames[frames.length - 1]!.cycle,
+        resourceSet: resourceSetRevision(session),
+      },
     },
     images,
   };
@@ -1558,6 +1882,11 @@ export async function executeAgentToolAsync(
   args: Record<string, unknown>,
   deps?: AgentRuntimeDeps,
 ): Promise<AgentToolResult> {
+  if (deps?.allowedTools && !deps.allowedTools.includes(name))
+    return {
+      success: false,
+      error: `'${name}' is not available in this phase of the session.`,
+    };
   if (deps?.readOnly && !ASK_TOOLS.includes(name))
     return {
       success: false,
@@ -1568,92 +1897,106 @@ export async function executeAgentToolAsync(
   if (!call.success) return call;
   args = call.args;
   if (name === "read_room_context") {
+    const stateArg = args["state"] as Record<string, unknown> | null | undefined;
+    const framesArg = args["frames"] as Record<string, unknown> | null | undefined;
     let live: Record<string, unknown> | null = null;
-    if (deps?.engine) live = (await deps.engine.state()) as Record<string, unknown> | null;
+    let liveObjects: unknown = null;
+    if (deps?.engine) {
+      live = (await deps.engine.state()) as Record<string, unknown> | null;
+      try {
+        liveObjects = await deps.engine.objects();
+      } catch {
+        liveObjects = null;
+      }
+    }
     const room = args["room"] ?? live?.["room"];
     if (typeof room !== "number" || !Number.isInteger(room) || room < 0 || room > 255)
       return { success: false, error: "Supply room 0..255 when no live room is attached." };
     const logic = executeAgentTool(session, "read_logic", { num: room, offset: 0, limit: 80 });
-    const index = executeAgentTool(session, "list_resources", { kind: null });
-    return {
-      success: true,
-      message: `Room ${room}: compiled resources and authored intent${live ? "; live state is the current paused interpreter" : ""}.`,
-      details: {
-        room,
-        logic: logic.success ? logic.details : { error: logic.error },
-        resources: index.details,
-        intent: session.authoring.world.rooms[String(room)] ?? null,
-        bindings: Object.fromEntries(Object.entries(session.authoring.bindings).slice(0, 32)),
-        bindingCount: Object.keys(session.authoring.bindings).length,
-        inventoryDefinitions: readInventoryObjects(
-          session.getFiles().get("OBJECT"),
-          session.profile,
-        ),
-        ...(live
-          ? {
-              live: {
-                room: live["room"],
-                egoX: live["egoX"],
-                egoY: live["egoY"],
-                inventory: live["inventory"],
-                modalKind: live["modalKind"],
-              },
-            }
-          : {}),
-      },
+    const index = listResources(session, null);
+    const images: { png: Uint8Array; caption: string }[] = [];
+    let framesMessage: string | null = null;
+    const details: Record<string, unknown> = {
+      room,
+      logic: logic.success ? logic.details : { error: logic.error },
+      resources: index.details,
+      origin: { kind: "staged", resourceSet: resourceSetRevision(session) },
+      wordCount: session.sources.words.size,
+      intent: session.authoring.world.rooms[String(room)] ?? null,
+      bindings: Object.fromEntries(Object.entries(session.authoring.bindings).slice(0, 32)),
+      bindingCount: Object.keys(session.authoring.bindings).length,
+      inventoryDefinitions: readInventoryObjects(session.getFiles().get("OBJECT"), session.profile),
     };
-  }
-  if (name === "read_frames") {
-    if (!deps?.frames) return { success: false, error: NO_LIVE_GAME };
-    return executeReadFrames(args, deps.frames);
-  }
-  if (name === "read_objects") {
-    if (!deps?.engine) return { success: false, error: NO_LIVE_GAME };
-    try {
-      const objects = await deps.engine.objects();
-      const list = (Array.isArray(objects) ? objects : []).filter(
-        (object) =>
-          !Array.isArray(args["ids"]) ||
-          args["ids"].includes((object as Record<string, unknown>)["num"]),
-      );
-      return {
-        success: true,
-        message: `${list.length} active screen object(s). Object 0 is ego.`,
-        details: { objects: list },
+    if (live)
+      details["live"] = {
+        room: live["room"],
+        egoX: live["egoX"],
+        egoY: live["egoY"],
+        inventory: live["inventory"],
+        modalKind: live["modalKind"],
+        controls: describeControls(live["controls"]),
+        objects: liveObjects,
       };
-    } catch (err) {
-      return { success: false, error: `read_objects failed: ${String(err)}` };
+    if (stateArg != null) {
+      if (!live) {
+        details["state"] = { error: NO_LIVE_GAME };
+      } else {
+        const stateDetails: Record<string, unknown> = { ...live };
+        stateDetails["origin"] = {
+          kind: "live",
+          ...(typeof live["cycle"] === "number" ? { checkpoint: live["cycle"] } : {}),
+          resourceSet: resourceSetRevision(session),
+        };
+        for (const [field, parameter] of [
+          ["vars", "variables"],
+          ["flags", "flags"],
+        ] as const) {
+          const values = live[field];
+          const ids = stateArg[parameter];
+          if (Array.isArray(values) && (Array.isArray(ids) || stateArg["compact"] === true)) {
+            stateDetails[field] = Object.fromEntries(
+              values.flatMap((value, id) =>
+                (Array.isArray(ids) ? ids.includes(id) : Boolean(value)) ? [[id, value]] : [],
+              ),
+            );
+          }
+        }
+        details["state"] = stateDetails;
+      }
     }
-  }
-  if (name === "read_state") {
-    if (!deps?.engine) return { success: false, error: NO_LIVE_GAME };
-    try {
-      const state = (await deps.engine.state()) as Record<string, unknown> | null;
-      if (!state)
-        return { success: false, error: "read_state: the interpreter returned no state." };
-      const details = { ...state };
-      for (const [field, parameter] of [
-        ["vars", "variables"],
-        ["flags", "flags"],
-      ] as const) {
-        const values = state[field];
-        const ids = args[parameter];
-        if (Array.isArray(values) && (Array.isArray(ids) || args["compact"] === true)) {
-          details[field] = Object.fromEntries(
-            values.flatMap((value, id) =>
-              (Array.isArray(ids) ? ids.includes(id) : Boolean(value)) ? [[id, value]] : [],
-            ),
-          );
+    if (framesArg != null) {
+      if (!deps?.frames) {
+        details["frames"] = { error: NO_LIVE_GAME };
+      } else {
+        const result = await executeReadFrames(framesArg, deps.frames, session);
+        if (!result.success) {
+          details["frames"] = { error: result.error };
+        } else {
+          details["frames"] = result.details;
+          if (result.images) images.push(...result.images);
+          if (result.message) framesMessage = result.message.split("\n")[0]!;
         }
       }
-      return {
-        success: true,
-        message: `Room ${String(state["room"])} (previous ${String(state["previousRoom"])}), profile ${String(state["profile"])}, ego at (${String(state["egoX"])}, ${String(state["egoY"])}) facing ${String(state["egoDirection"])}, horizon ${String(state["horizon"])}, modal ${String(state["modalKind"] ?? "none")}, last input "${String(state["lastInputLine"] ?? "")}".`,
-        details,
-      };
-    } catch (err) {
-      return { success: false, error: `read_state failed: ${String(err)}` };
     }
+    return {
+      success: true,
+      message: `Room ${room}: compiled resources and authored intent${live ? "; live state is the current paused interpreter" : ""}${framesMessage ? `. ${framesMessage}` : ""}.`,
+      details,
+      ...(images.length ? { images } : {}),
+    };
   }
-  return executeValidatedAgentTool(session, name, args);
+
+  if (name === "playtest_room" && args["fromLiveCheckpoint"] === true) {
+    // Candidate preview: restore the captured live checkpoint into an engine
+    // built from the staged resources, instead of a fresh boot.
+    const image = deps?.checkpoint ? await deps.checkpoint() : null;
+    if (!image)
+      return {
+        success: false,
+        error:
+          "fromLiveCheckpoint requires an attached live game paused at a resumable cycle boundary.",
+      };
+    return withEvidenceOrigin(session, name, playtestRoom(session, args, { setupImage: image }));
+  }
+  return withEvidenceOrigin(session, name, executeValidatedAgentTool(session, name, args));
 }

@@ -72,8 +72,15 @@ for (const fail of [false, true])
         return;
       }
       const calls = [
-        ["read_state", {}],
-        ["read_objects", {}],
+        [
+          "read_room_context",
+          {
+            room: null,
+            state: { variables: null, flags: null, compact: true },
+            frames: null,
+          },
+        ],
+        ["read_room_context", { room: null, state: null, frames: null }],
         ["read_view", { num: 0 }],
         [
           "write_inventory_objects",
@@ -140,12 +147,13 @@ for (const fail of [false, true])
         await expect.poll(async () => (await textHook(page)).room).toBe(1);
       } else {
         await expect.poll(() => requests).toBe(2);
-        await expect(panel.getByTestId("agent-bubble-feed")).toContainText("read_state -> ok");
-        await expect(panel.getByTestId("agent-bubble-feed")).toContainText("read_objects -> ok");
+        await expect(panel.getByTestId("agent-bubble-feed")).toContainText(
+          "read_room_context -> ok",
+        );
         await expect(panel.getByTestId("agent-bubble-feed")).toContainText("read_view -> ok");
         const tools = (providerRequests[0]!["tool_choice"] as { tools: { name: string }[] }).tools;
-        expect(tools.some((tool) => tool.name === "read_state")).toBe(true);
-        expect(tools.some((tool) => tool.name === "finish_genesis")).toBe(true);
+        expect(tools.some((tool) => tool.name === "read_room_context")).toBe(true);
+        expect(tools.some((tool) => tool.name === "handover")).toBe(true);
         const input = providerRequests[1]!["input"] as {
           type: string;
           call_id?: string;
@@ -154,10 +162,14 @@ for (const fail of [false, true])
         const stateOutput = input.find(
           (item) => item.type === "function_call_output" && item.call_id === "call0",
         )!;
-        const state = JSON.parse(stateOutput.output![0]!.text).details;
-        expect(state.room).toBe(1);
-        expect(state.inventory).toEqual([{ num: 0, name: "Old key", room: 255 }]);
-        expect(state.vars).toHaveLength(256);
+        const details = JSON.parse(stateOutput.output![0]!.text).details;
+        const live = details.live;
+        expect(live.room).toBe(1);
+        expect(live.inventory).toEqual([{ num: 0, name: "Old key", room: 255 }]);
+        // The full state section is oversized: it evicts into a diagnostic
+        // the model pages with read_diagnostic.
+        expect(details.truncatedFields).toContain("state");
+        expect(details.diagnosticId).toBeTruthy();
         const viewOutput = input.find(
           (item) => item.type === "function_call_output" && item.call_id === "call2",
         )!;

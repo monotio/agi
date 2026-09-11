@@ -53,3 +53,68 @@ export const NAV_KEYS: Record<number, number> = Object.fromEntries(
     direction === 0 ? [] : [[word, direction] as [number, number]],
   ),
 );
+
+const KEY_WORD_NAMES: Record<number, string> = {
+  [AGI_KEY.BACKSPACE]: "Backspace",
+  [AGI_KEY.TAB]: "Tab",
+  [AGI_KEY.ENTER]: "Enter",
+  [AGI_KEY.ESCAPE]: "Esc",
+  [AGI_KEY.SPACE]: "Space",
+  [AGI_KEY.HOME]: "Home",
+  [AGI_KEY.UP]: "ArrowUp",
+  [AGI_KEY.PAGE_UP]: "PageUp",
+  [AGI_KEY.LEFT]: "ArrowLeft",
+  [AGI_KEY.RIGHT]: "ArrowRight",
+  [AGI_KEY.END]: "End",
+  [AGI_KEY.DOWN]: "ArrowDown",
+  [AGI_KEY.PAGE_DOWN]: "PageDown",
+  [AGI_KEY.INSERT]: "Insert",
+  [AGI_KEY.DELETE]: "Delete",
+  0x4600: "ScrollLock",
+};
+
+/** IBM PC Alt+letter BIOS scan codes, QWERTY order. */
+const ALT_SCAN_LETTERS: Record<number, string> = {
+  0x10: "Q",
+  0x11: "W",
+  0x12: "E",
+  0x13: "R",
+  0x14: "T",
+  0x15: "Y",
+  0x16: "U",
+  0x17: "I",
+  0x18: "O",
+  0x19: "P",
+  0x1e: "A",
+  0x1f: "S",
+  0x20: "D",
+  0x21: "F",
+  0x22: "G",
+  0x23: "H",
+  0x24: "J",
+  0x25: "K",
+  0x26: "L",
+  0x2c: "Z",
+  0x2d: "X",
+  0x2e: "C",
+  0x2f: "V",
+  0x30: "B",
+  0x31: "N",
+  0x32: "M",
+};
+
+/** A readable name for an AGI key word, for reports and scene briefs. */
+export function describeKeyWord(key: number): string {
+  const named = KEY_WORD_NAMES[key];
+  if (named) return named;
+  const scan = key >> 8;
+  if ((key & 0xff) === 0 && scan > 0) {
+    if (scan >= 0x3b && scan <= 0x44) return `F${scan - 0x3a}`;
+    const alt = ALT_SCAN_LETTERS[scan];
+    if (alt) return `Alt+${alt}`;
+    return `scan 0x${scan.toString(16)}`;
+  }
+  if (key >= 1 && key <= 26) return `Ctrl+${String.fromCharCode(64 + key)}`;
+  if (key >= 33 && key <= 126) return `'${String.fromCharCode(key)}'`;
+  return `0x${key.toString(16)}`;
+}
