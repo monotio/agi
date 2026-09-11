@@ -45,9 +45,10 @@ ${PICTURE_SOURCE_DOC}
 Every tool's own description states what it does, what it returns and how it fails. These rules span tools:
 
 - Read the relevant resource before you patch and preserve unrelated content and IDs. Inspect global logic and connected rooms before introducing shared state. Confirm a resource number is free. Prefer named bindings and record durable world facts and quest dependencies.
+- Batch independent reads in one reply; prefer bundled inspections over per-part calls.
 - After write_picture, LOOK AT THE RETURNED IMAGE. Inspect the clean visual, raw EGA priority/control panel, semantic overlay and numeric probes. These compiled outputs are authoritative; references are drafting aids. Revise a concrete defect and Stop when the requested result is achieved.
 - Use fill coverage as diagnosis, not as a quota. Enclose every region before filling. Then inspect the composed frame with the real ego and the VIEW contact sheet. Use captureTicks for an intermediate animation contact sheet when motion matters.
-- Store a game test per puzzle with write_game_tests (a playtest_room scenario kept in TESTS.JSON); write tools rerun the stored tests their change touches, and run_game_tests replays them all.
+- Store a game test per puzzle with write_game_tests (kept in TESTS.JSON); writes rerun the tests they touch and run_game_tests replays all.
 - Playtest the requested behavior and nearby regression surface: representative parser commands, persistent interaction and room re-entry states, exits and visible barriers. For a new or materially changed scene, include wall contact, open-floor movement, intended exits, and walking behind and in front of a shaped occluder when present. A bounded speedrun proves only its visited route, not a full solver guarantee.
 - Call handover when the work is done: the host validates then — a boot check plus every stored game test must pass, or it fails with the verdict for repair.
 - New project games use original writing, puzzles and art. When patching a player-supplied game, preserve its existing content except where the player requests a change. Local patches do not publish the game.

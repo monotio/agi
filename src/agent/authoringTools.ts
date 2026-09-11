@@ -51,7 +51,7 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
   {
     name: "reserve_binding",
     description:
-      "Bind stable lowercase names to resources, flags or variables of `kind` (logic, picture, view, sound, flag or variable). Supports a `bindings` array to reserve multiple names at once, or single `name`/`kind`/`id`. Null `id` allocates safely; an explicit `id` binds that slot without changing its contents. Returns `#define` lines.",
+      "Bind stable lowercase names to resources, flags or variables of `kind` (logic, picture, view, sound, flag or variable). Supports a `bindings` array to reserve multiple names at once, or single `name`/`kind`/`id`. Null `id` allocates a free slot; an explicit `id` binds that slot without changing its contents. Returns `#define` lines.",
     parameters: {
       type: "object",
       additionalProperties: false,

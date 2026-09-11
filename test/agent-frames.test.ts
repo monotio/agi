@@ -141,11 +141,11 @@ describe("read_frames tool", () => {
     assert.match(String(origin["resourceSet"]), /^\d+-[0-9a-f]{8}$/);
   });
 
-  it("returns one image per frame by default", async () => {
+  it("returns one image per frame when sheet is disabled", async () => {
     const res = await executeAgentToolAsync(
       session,
       "read_frames",
-      { count: 3, stride: 1, sheet: null, plane: null },
+      { count: 3, stride: 1, sheet: false, plane: null },
       { frames: fakeSource([10, 11, 12]) },
     );
     assert.equal(res.success, true);
@@ -174,7 +174,7 @@ describe("read_frames tool", () => {
     const res = await executeAgentToolAsync(
       session,
       "read_frames",
-      { count: 9, stride: 1, sheet: null, plane: null },
+      { count: 9, stride: 1, sheet: false, plane: null },
       { frames: fakeSource([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) },
     );
     assert.equal(res.images?.length, 9);

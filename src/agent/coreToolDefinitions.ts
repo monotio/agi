@@ -384,12 +384,27 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_view",
     description:
-      "Inspect compiled view `num` as a labeled contact sheet with per-cel size and EGA color usage — enough to plan a recolor in one call. Large views sample at most 32 cels. Use `read_view_cel` only for exact pixel rows of one cel. Fails for absent or invalid resources.",
+      "Inspect compiled view `num`: labeled contact sheet, per-cel size and EGA color usage, and the resource `revision` accepted by patch tools. `cels` selects a cel subset ({loop,cel}); `rows` returns exact EGA hex rows for the selection, or every cel when `cels` is null, within a 32768-pixel budget. `read_view_cel` pages exact rows of one cel. Fails for absent or invalid resources.",
     parameters: {
       type: "object",
       additionalProperties: false,
-      properties: { num: { type: "integer" } },
-      required: ["num"],
+      properties: {
+        num: { type: "integer" },
+        cels: {
+          type: ["array", "null"],
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              loop: { type: "integer", minimum: 0, maximum: 254 },
+              cel: { type: "integer", minimum: 0, maximum: 254 },
+            },
+            required: ["loop", "cel"],
+          },
+        },
+        rows: { type: ["boolean", "null"] },
+      },
+      required: ["num", "cels", "rows"],
     },
   },
   {
@@ -459,7 +474,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "handover",
     description:
-      "Validate and hand over control to resume the running game — the terminal tool of genesis, room authoring and remix. The host validates on handover itself: every stored game test runs against the current resources, and the first handover of a session also boots the world in simulation to verify ego spawn, room display and modal handling. A failure returns the verdict for repair; only a passing handover resumes play. Call it when the work is done; `notes` is optional free text explaining the changes or warnings.",
+      "Finish authoring and resume the running game. Validates first: every stored game test runs against the current resources, and a session's first handover also boots the world in simulation (ego spawn, room display, modal handling). Failure returns the verdict for repair; only a passing handover resumes play. `notes` is optional free text.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -575,7 +590,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "playtest_room",
     description:
-      "Run a bounded isolated playtest of `room` against staged resources. `steps` command, move, enter, wait, key, direction, walkTo or answer; answer queues a get.string/get.num reply without advancing a cycle and requires null ticks/captureTicks; `expect` asserts room, inventory, flags, variables, a printed message (`printed`) and visible text (`text`). Null `spawnX`/`spawnY` use initialized ego; null steps checks its footprint. captureTicks samples completed ticks within that step into a composed animation sheet. `fromLiveCheckpoint` restores the paused live game's captured checkpoint instead of booting — the candidate preview proves the staged changes resume correctly. Null `cycleBudget` (600) and `instructionBudget` (50000) bound the run. Missing destinations report `needs_authoring`.",
+      "Run a bounded isolated playtest of `room` against staged resources. `steps` command, move, enter, wait, key, direction, walkTo or answer; answer queues a get.string/get.num reply without advancing a cycle and requires null ticks/captureTicks; `expect` asserts room, inventory, flags, variables, a printed message (`printed`) and visible text (`text`). Null `spawnX`/`spawnY` use initialized ego; null steps checks its footprint. captureTicks samples completed ticks within that step into a composed animation sheet. `fromLiveCheckpoint` restores the paused live game's captured checkpoint instead of booting. Null `cycleBudget` (600) and `instructionBudget` (50000) bound the run. Missing destinations report `needs_authoring`.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -620,7 +635,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_frames",
     description:
-      "Read the last `count` (1..9) frames oldest first, sampling every `stride` cycles; null returns one visual frame. `sheet` tiles them into one contact sheet to show motion; `plane` is visual or priority (collision/depth). Text is transcribed separately. Fails without frames.",
+      "Read the last `count` (1..9) frames oldest first, sampling every `stride` cycles; null returns one visual frame. `sheet` (default true for multiple frames) tiles them into one contact sheet; `plane` is visual or priority (collision/depth). Text is transcribed separately. Fails without frames.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -648,7 +663,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_objects",
     description:
-      "Read the current screen-object table: view/cel, geometry, priority, direction, cycling and motion. `ids` selects objects; null reads all. Object 0 is ego. Read again after movement. Fails without an attached game.",
+      "Read the current screen-object table: view/cel, geometry, priority, direction, cycling and motion. `ids` selects objects; null reads all. Object 0 is ego. For the current room, `read_room_context` returns this bundled with state, frame and logic. Fails without an attached game.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -665,7 +680,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_state",
     description:
-      "Read live rooms, ego, variables, flags, strings, parsed input, horizon and modal state. Null selects complete tables; compact omits zeroes. Fails without a game.",
+      "Read live rooms, ego, variables, flags, strings, parsed input, horizon and modal state. Null selects complete tables; compact omits zeroes. For the current room, `read_room_context` returns this bundled with objects, frame and logic. Fails without a game.",
     parameters: {
       type: "object",
       additionalProperties: false,

@@ -1086,14 +1086,61 @@ function executeLegacyTool(
           return { success: false, error: `View ${num} is not present in the container.` };
         const view = parseView(payload, session.profile);
         const preview = viewFeedback(payload, session.profile, num);
+        // Optional exact rows for a selected subset (or all cels, bounded):
+        // one call covers a rewrite plan instead of a read_view_cel per cel.
+        const selected = new Set<string>();
+        const celsArg = args["cels"];
+        if (Array.isArray(celsArg)) {
+          for (const [i, raw] of celsArg.entries()) {
+            const target = (raw ?? {}) as Record<string, unknown>;
+            const loop = target["loop"];
+            const cel = target["cel"];
+            if (
+              typeof loop !== "number" ||
+              typeof cel !== "number" ||
+              !Number.isInteger(loop) ||
+              !Number.isInteger(cel) ||
+              !view.loops[loop]?.cels[cel]
+            )
+              return {
+                success: false,
+                error: `cels[${i}] must be {loop, cel} naming an existing cel.`,
+              };
+            selected.add(`${loop}:${cel}`);
+          }
+        }
+        const wantRows = args["rows"] === true;
+        const rowCels: { loop: number; cel: number; rows: string[] }[] = [];
+        let rowPixels = 0;
+        if (wantRows || selected.size) {
+          for (const [loopNum, loop] of view.loops.entries()) {
+            for (const [celNum, cel] of loop.cels.entries()) {
+              if (selected.size && !selected.has(`${loopNum}:${celNum}`)) continue;
+              rowPixels += cel.width * cel.height;
+              if (rowPixels > 32768)
+                return {
+                  success: false,
+                  error: `Rows exceed the 32768-pixel budget; select fewer cels via 'cels'.`,
+                };
+              rowCels.push({
+                loop: loopNum,
+                cel: celNum,
+                rows: Array.from({ length: cel.height }, (_, y) =>
+                  [...cel.pixels.slice(y * cel.width, (y + 1) * cel.width)]
+                    .map((p) => p.toString(16).toUpperCase())
+                    .join(""),
+                ),
+              });
+            }
+          }
+        }
         // Per-cel EGA color usage: enough to plan a recolor without reading
         // every cel's rows one at a time.
         const cels = view.loops.flatMap((loop, loopNum) =>
           loop.cels.map((cel, celNum) => {
             const counts = new Map<number, number>();
             for (const pixel of cel.pixels)
-              if (pixel !== cel.transparentColor)
-                counts.set(pixel, (counts.get(pixel) ?? 0) + 1);
+              if (pixel !== cel.transparentColor) counts.set(pixel, (counts.get(pixel) ?? 0) + 1);
             return {
               loop: loopNum,
               cel: celNum,
@@ -1115,6 +1162,8 @@ function executeLegacyTool(
             loopCount: view.loops.length,
             celsPerLoop: view.loops.map((loop) => loop.cels.length),
             cels,
+            revision: resourceRevision(payload),
+            ...(rowCels.length ? { rows: rowCels } : {}),
             preview: {
               width: preview.width,
               height: preview.height,
@@ -1677,7 +1726,9 @@ async function executeReadFrames(
 ): Promise<AgentToolResult> {
   const count = clampInt(args["count"], 1, 1, MAX_FRAMES);
   const stride = clampInt(args["stride"], 1, 1, 255);
-  const sheet = args["sheet"] === true;
+  // Default to one contact sheet for multiple frames: one image item keeps
+  // the transcript lean; per-frame images are available via sheet: false.
+  const sheet = args["sheet"] !== false;
   const planeArg = typeof args["plane"] === "string" ? args["plane"].toLowerCase() : "visual";
   if (planeArg !== "visual" && planeArg !== "priority") {
     return {

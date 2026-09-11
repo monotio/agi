@@ -41,7 +41,7 @@ export const SPRITE_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_actor",
     description:
-      'Compile four-facing actor view `num` from equal-width EGA hex rows; `transparentColor` is the see-through index and `description` an optional label. Each direction lists cels as row-string arrays, e.g. [["01","10"],["10","01"]]. Loops are right, left, down, up. At least one direction must be provided; omitted directions are safely filled from available facings with warnings. mirrorLeftFromRight requires left null; mirrorUpFromDown requires up null. Rows are never padded. Returns a contact sheet and revision.',
+      'Compile four-facing actor view `num` from equal-width EGA hex rows; `transparentColor` is the see-through index and `description` an optional label. Each direction lists cels as row-string arrays, e.g. [["01","10"],["10","01"]]. Loops are right, left, down, up. At least one direction is required; omitted directions are filled from available facings and reported in warnings. mirrorLeftFromRight requires left null; mirrorUpFromDown requires up null. Rows are never padded. Returns a contact sheet and revision.',
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -108,7 +108,7 @@ export const SPRITE_TOOLS: readonly ToolDefinition[] = [
   {
     name: "patch_view_cels",
     description:
-      "Patch an arbitrary subset of cels in view `num` in one call: `patches` carries 1..64 targets. Each target either replaces one cel's pixels with equal-width EGA hex `rows` (0-F; the cel keeps its transparent color), or supplies `recolor` — a list of {from,to} EGA color remaps applied in place, so a recolor needs no per-cel row reads (transparent pixels are never remapped). Every address, row, dimension and duplicate target is validated against the current view before anything writes; mirrored relationships are isolated with copy-on-write so other facings keep their pixels. `expectedRevision` must match the view's current revision. One compile, one commit; returns the new revision, per-cel geometry and a contact sheet.",
+      "Patch a subset of cels in view `num`: `patches` carries 1..64 targets. A target replaces a cel's pixels with equal-width EGA hex `rows` (0-F; the cel keeps its transparent color), or supplies `recolor`, {from,to} EGA remaps applied in place; transparent pixels are never remapped. Everything is validated against the current view before anything writes; mirrored loops are isolated by copy-on-write. `expectedRevision` must match. Atomic: one compile, one commit, or nothing. Returns the new revision, per-cel geometry and a contact sheet.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -640,12 +640,7 @@ export function executeSpriteTool(
           throw new Error(`${label}: exactly one of "rows" or "recolor" is required.`);
         let replacement: BuildCelInput;
         if (hasRows) {
-          replacement = celFromRows(
-            patch["rows"],
-            label,
-            current.transparentColor,
-            adjustments,
-          );
+          replacement = celFromRows(patch["rows"], label, current.transparentColor, adjustments);
         } else {
           const recolor = patch["recolor"];
           if (!Array.isArray(recolor))
@@ -668,8 +663,7 @@ export function executeSpriteTool(
           const pixelsOut = new Uint8Array(current.pixels.length);
           for (let i = 0; i < current.pixels.length; i++) {
             const pixel = current.pixels[i]!;
-            pixelsOut[i] =
-              pixel === current.transparentColor ? pixel : (remap.get(pixel) ?? pixel);
+            pixelsOut[i] = pixel === current.transparentColor ? pixel : (remap.get(pixel) ?? pixel);
           }
           replacement = {
             width: current.width,

@@ -271,7 +271,7 @@ describe("sprite authoring tools", () => {
       expectedRevision: revision,
       patches: [{ loop: 0, cel: 0, rows: null, recolor: [{ from: 4, to: 12 }] }],
     });
-    assert.equal(result?.success, true, result?.error);
+    assert.equal(result?.success, true, result?.error ?? "");
     const view = parseView(state.container.getResource("view", 7)!, state.profile);
     // Only color 4 remapped; color 6 and the transparent pixel are untouched.
     assert.deepEqual([...selectViewCel(view, 0, 0)!.pixels], [12, 6, 0]);

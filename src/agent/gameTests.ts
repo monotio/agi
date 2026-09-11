@@ -536,7 +536,7 @@ export const GAME_TEST_TOOLS: readonly ToolDefinition[] = [
   {
     name: "run_game_tests",
     description:
-      "Replay stored game tests against the current resources in the bounded simulation and report the verdict first: how many pass, then the first failure with its room and cycle, per-test outcomes in details and the failing frame as an image. Null `names` runs every stored test. Write tools already rerun the tests their change touches.",
+      "Replay stored game tests against current resources in the bounded simulation: pass count, first failure with room and cycle, per-test outcomes in details and the failing frame as an image. Null `names` runs every stored test. Write tools rerun the tests their change touches.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -547,7 +547,7 @@ export const GAME_TEST_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_game_tests",
     description:
-      "Add or replace stored game tests by name (`mode` merge, default), replace the whole set (`mode` replace) or delete the tests listed in `names` (`mode` remove, `tests` null). Each test is a playtest_room scenario: `room`, optional `spawnX`/`spawnY`, `steps` and `expect`, optional `cycleBudget`, and an optional `setup` {image, replay} — the base64 host image and optional machine-generated recording JSON text, which a recorded test restores and replays before its steps. Merge preserves existing setup when null or omitted; replace uses only supplied setup (no setup boots fresh). Steps are command, move, enter, wait (cycles or an until predicate over room/flag/var), key (PC key word), direction (0..8), walkTo (x, y) and answer (prompt text); expectations add score, var ranges, object and reachable to room, carriedItems, flags, vars, printed and text. Commands must use registered words. Write at least one test per puzzle and rerun them with run_game_tests.",
+      "Add or replace stored game tests by name (`mode` merge, default), replace the whole set (`mode` replace) or delete the tests listed in `names` (`mode` remove, `tests` null). Each test is a playtest_room scenario: `room`, optional `spawnX`/`spawnY`, `steps` and `expect`, optional `cycleBudget`, and an optional `setup` {image, replay} — the base64 host image and optional machine-generated recording JSON text, which a recorded test restores and replays before its steps. Merge preserves existing setup when null or omitted; replace uses only supplied setup (no setup boots fresh). Steps are command, move, enter, wait (cycles or an until predicate over room/flag/var), key (PC key word), direction (0..8), walkTo (x, y) and answer (prompt text); expectations add score, var ranges, object and reachable to room, carriedItems, flags, vars, printed and text. Commands must use registered words.",
     parameters: {
       type: "object",
       additionalProperties: false,
