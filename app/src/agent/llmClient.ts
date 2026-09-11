@@ -196,6 +196,7 @@ export function createAnthropicConversation(
             effort: resolveModelEffort(
               config.model || DEFAULT_MODELS.anthropic,
               config.effort,
+              "anthropic",
             ) as Exclude<ModelEffort, "none">,
           },
           max_tokens: maxTokens,
@@ -371,7 +372,11 @@ export function createOpenAiConversation(
           max_output_tokens: maxTokens,
           model: config.model || DEFAULT_MODELS.openai,
           reasoning: {
-            effort: resolveModelEffort(config.model || DEFAULT_MODELS.openai, config.effort),
+            effort: resolveModelEffort(
+              config.model || DEFAULT_MODELS.openai,
+              config.effort,
+              "openai",
+            ),
           },
           instructions: config.systemPrompt ?? AGI_SYSTEM_PROMPT,
           prompt_cache_key: `monotio_agi.session.${sessionId}`,

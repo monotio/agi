@@ -1,7 +1,17 @@
 import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createAnthropicConversation, createOpenAiConversation } from "../src/agent/llmClient.ts";
+import {
+  MODEL_OPTIONS,
+  createAnthropicConversation,
+  createOpenAiConversation,
+} from "../src/agent/llmClient.ts";
+import { MODEL_CAPABILITIES } from "../../src/agent/modelEffort.ts";
+
+test("every selectable model has a tested capability entry", () => {
+  for (const option of Object.values(MODEL_OPTIONS).flat())
+    assert.ok(MODEL_CAPABILITIES[option.id], `missing capability for ${option.id}`);
+});
 
 test("OpenAI reports usage, keeps stable tools and refuses truncated calls before execution", async (t) => {
   const requests: Record<string, unknown>[] = [];

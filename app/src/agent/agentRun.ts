@@ -1,23 +1,6 @@
 import type { LlmUsage } from "./llmClient.ts";
 import type { AgentToolResult } from "../../../src/agent/tools.ts";
-
-// Standard API USD per million tokens, checked September 5, 2026.
-// https://developers.openai.com/api/docs/models/gpt-6-astra
-// https://developers.openai.com/api/docs/models/gpt-5.6-sol
-// https://developers.openai.com/api/docs/models/gpt-5.6-terra
-// https://platform.claude.com/docs/en/about-claude/pricing
-// cacheRead overrides the default cache-read price of 10% of input.
-const RATES: Record<
-  string,
-  { input: number; output: number; longContext: boolean; cacheRead?: number }
-> = {
-  "gpt-6-astra": { input: 10, output: 50, longContext: true },
-  "gpt-5.6-sol": { input: 4, output: 20, longContext: true },
-  "gpt-5.6-terra": { input: 2, output: 12, longContext: true },
-  "claude-opus-5": { input: 5, output: 25, longContext: false },
-  "claude-fable-5": { input: 10, output: 50, longContext: false },
-  "claude-fable-5-1": { input: 10, output: 50, longContext: false, cacheRead: 0.25 },
-};
+import { MODEL_CAPABILITIES } from "../../../src/agent/modelEffort.ts";
 export interface AgentRunState {
   progress: AgentProgress | null;
   status: "idle" | "running" | "paused";
@@ -69,9 +52,9 @@ export class AgentRun {
       allowance: budget,
       requests: 0,
       usageIncomplete: false,
-      priceKnown: !!RATES[model],
+      priceKnown: !!MODEL_CAPABILITIES[model]?.price,
     };
-    this.outputRate = RATES[model]?.output ?? 0;
+    this.outputRate = MODEL_CAPABILITIES[model]?.price?.output ?? 0;
   }
   snapshot(): AgentRunState {
     return { ...this.state, progress: this.state.progress ? { ...this.state.progress } : null };
@@ -149,7 +132,7 @@ export class AgentRun {
     this.wake?.();
   }
   recordUsage(usage: LlmUsage): void {
-    const rate = RATES[this.model];
+    const rate = MODEL_CAPABILITIES[this.model]?.price;
     if (!rate) {
       this.state.usageIncomplete = true;
       return;
