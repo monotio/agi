@@ -132,7 +132,7 @@ test("a provider power-up returns compiled vocabulary and inventory files with i
 
 test("room helper edits are transactional and cannot rewrite another room", async (t) => {
   const { assembleLogic } = await import("../../src/logic/assembler.ts");
-  const { resourceRevision } = await import("../../src/agent/authoringState.ts");
+  const { sourceContextRevision } = await import("../../src/agent/authoringTools.ts");
   const state = createAgentSessionState();
   const original = assembleLogic("assignn(v40, 1); return;", { dictionary: new Map() }).payload;
   state.container.putResource("logic", 1, original);
@@ -153,9 +153,13 @@ test("room helper edits are transactional and cannot rewrite another room", asyn
               arguments: JSON.stringify({
                 kind: "logic",
                 num: 1,
-                expectedRevision: resourceRevision(original),
-                find: "assignn(v40, 1);",
-                replace: "assignn(v40, 2);",
+                expectedRevision: sourceContextRevision(
+                  state,
+                  "logic",
+                  1,
+                  "assignn(v40, 1); return;",
+                ),
+                edits: [{ find: "assignn(v40, 1);", replace: "assignn(v40, 2);" }],
               }),
             },
             {

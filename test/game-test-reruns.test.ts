@@ -246,8 +246,7 @@ test("writers that delegate to another write tool rerun exactly once", () => {
   const edited = executeAgentTool(state, "edit_resource_source", {
     kind: "logic",
     num: 1,
-    find: line,
-    replace: line,
+    edits: [{ find: line, replace: line }],
     expectedRevision: String(read.details?.["revision"]),
   });
   assert.equal(edited.success, true, edited.error ?? "");

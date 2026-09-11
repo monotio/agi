@@ -7,12 +7,45 @@ import {
   type ToolDefinition,
 } from "./tools.ts";
 import { readInventoryObjects } from "./inventory.ts";
-import { resourceRevision, validateAuthoringState, type BindingKind } from "./authoringState.ts";
+import { sourceRevision, validateAuthoringState, type BindingKind } from "./authoringState.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import { readPictureSource } from "../picture/source.ts";
 
 const nullableId = { type: ["integer", "null"], minimum: 0, maximum: 255 };
 const string = { type: "string" };
+
+/** The exact text read_logic/read_picture show and edit_resource_source patches. */
+export function editableSource(
+  state: AgentSessionState,
+  kind: "logic" | "picture",
+  num: number,
+): string | undefined {
+  const payload = state.container.getResource(kind, num);
+  if (!payload) return undefined;
+  const decoded =
+    kind === "logic"
+      ? disassembleLogic(payload, { dictionary: state.sources.words, profile: state.profile })
+      : readPictureSource(state.container, num, { profile: state.profile });
+  return (
+    (kind === "logic" ? authoredLogicSource(state, num) : authoredPictureSource(state, num)) ??
+    decoded ??
+    undefined
+  );
+}
+
+/** Revision of the editable snapshot: shown text plus its compilation context. */
+export function sourceContextRevision(
+  state: AgentSessionState,
+  kind: "logic" | "picture",
+  num: number,
+  source: string,
+): string {
+  return sourceRevision(state.container.getResource(kind, num), source, {
+    profile: state.profile.id,
+    words: [...state.sources.words.keys()].sort(),
+    bindings: state.authoring.bindings,
+  });
+}
 
 export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
   {
@@ -69,7 +102,7 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
   {
     name: "edit_resource_source",
     description:
-      "Replace one exact source section of logic or picture `kind` number `num`: `find` must occur once in the source read_logic or read_picture returns and becomes `replace`. Pictures written this session keep their authored source; disassembly can normalize other syntax. `expectedRevision` must match the current revision. The full result compiles before storage; any conflict or compile error changes nothing.",
+      "Apply a batch of exact-text edits to logic or picture `kind` number `num` in one call. Every `find` must occur exactly once in the same source snapshot read_logic or read_picture returns — overlapping occurrences count, and all matches resolve against that snapshot before any edit applies. Edits must not overlap; they apply together through one compilation and one commit. `expectedRevision` must match the current revision. Any conflict or compile error changes nothing.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -77,10 +110,19 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
         kind: { type: "string", enum: ["logic", "picture"] },
         num: { type: "integer", minimum: 0, maximum: 255 },
         expectedRevision: string,
-        find: string,
-        replace: string,
+        edits: {
+          type: "array",
+          minItems: 1,
+          maxItems: 64,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: { find: string, replace: string },
+            required: ["find", "replace"],
+          },
+        },
       },
-      required: ["kind", "num", "expectedRevision", "find", "replace"],
+      required: ["kind", "num", "expectedRevision", "edits"],
     },
   },
   {
@@ -329,33 +371,76 @@ export function executeAuthoringTool(
         num > 255
       )
         throw new Error("Select a logic or picture resource number 0..255.");
-      const payload = state.container.getResource(kind, num);
-      if (!payload || resourceRevision(payload) !== args["expectedRevision"])
+      const source = editableSource(state, kind, num);
+      if (!source) throw new Error(`No readable source for ${kind} ${num}.`);
+      // The token covers the shown text and its compilation context (profile,
+      // dictionary, bindings), not just bytes — drift on any of them is a
+      // revision conflict, even when the resource payload is unchanged.
+      const revision = sourceContextRevision(state, kind, num, source);
+      if (revision !== args["expectedRevision"])
         throw new Error(
-          "Resource revision changed or is absent. Read the current source before editing.",
+          "Source revision changed. Read the current source before editing; its text, dictionary, profile, or named bindings may have drifted.",
         );
-      // One source of truth per kind: pictures edit the text the agent wrote
-      // (what read_picture returns) while it still matches the resource, and
-      // fall back to disassembly for pictures never written or since changed.
-      const source =
-        kind === "logic"
-          ? (authoredLogicSource(state, num) ??
-            disassembleLogic(payload, { dictionary: state.sources.words, profile: state.profile }))
-          : (authoredPictureSource(state, num) ??
-            readPictureSource(state.container, num, { profile: state.profile }));
-      const find = args["find"];
-      const replacement = args["replace"];
-      if (
-        !source ||
-        typeof find !== "string" ||
-        !find ||
-        typeof replacement !== "string" ||
-        source.split(find).length !== 2
-      )
-        throw new Error("find must match exactly one nonempty source section.");
+      const edits = args["edits"];
+      if (!Array.isArray(edits) || !edits.length || edits.length > 64)
+        throw new Error("edits must name 1..64 find/replace pairs.");
+      const fail = (message: string, editIndex: number, excerpt: string): AgentToolResult => ({
+        success: false,
+        error: message,
+        details: {
+          diagnostic: {
+            tool: name,
+            message,
+            changed: false,
+            editIndex,
+            excerpt,
+            revision,
+          },
+        },
+      });
+      // Resolve every find against the same snapshot before applying anything.
+      const resolved: { index: number; offset: number; length: number; replace: string }[] = [];
+      for (const [index, raw] of edits.entries()) {
+        const edit = raw as Record<string, unknown> | null;
+        const find = edit?.["find"];
+        const replace = edit?.["replace"];
+        if (typeof find !== "string" || !find || typeof replace !== "string")
+          return fail(
+            `Edit ${index} must name a nonempty 'find' string and a 'replace' string.`,
+            index,
+            "",
+          );
+        const hits: number[] = [];
+        for (let at = source.indexOf(find); at !== -1; at = source.indexOf(find, at + 1))
+          hits.push(at);
+        if (hits.length !== 1) {
+          const at = hits[0] ?? 0;
+          return fail(
+            `Edit ${index}: 'find' matched ${hits.length} times; it must match exactly one source section.`,
+            index,
+            source.slice(Math.max(0, at - 60), at + find.length + 60),
+          );
+        }
+        resolved.push({ index, offset: hits[0]!, length: find.length, replace });
+      }
+      const ordered = [...resolved].sort((a, b) => a.offset - b.offset);
+      for (let i = 1; i < ordered.length; i++) {
+        const previous = ordered[i - 1]!;
+        const next = ordered[i]!;
+        if (previous.offset + previous.length > next.offset)
+          return fail(
+            `Edits ${previous.index} and ${next.index} overlap; merge them into one find/replace.`,
+            next.index,
+            source.slice(previous.offset, next.offset + next.length),
+          );
+      }
+      // Apply descending so earlier offsets stay valid on the shared snapshot.
+      let next = source;
+      for (const edit of ordered.reverse())
+        next = next.slice(0, edit.offset) + edit.replace + next.slice(edit.offset + edit.length);
       return executeAgentTool(state, kind === "logic" ? "write_logic_source" : "write_picture", {
         room: num,
-        source: source.replace(find, () => replacement),
+        source: next,
       });
     }
     const next = validateAuthoringState(state.authoring);

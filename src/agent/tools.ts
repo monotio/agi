@@ -33,7 +33,12 @@ import { normalizeAuthoredLogic } from "./logicText.ts";
 import { readInventoryObjects } from "./inventory.ts";
 import { decodeInventoryFile } from "../runtime/inventoryFile.ts";
 import { createAuthoringState, resourceRevision, type AuthoringState } from "./authoringState.ts";
-import { AUTHORING_TOOLS, executeAuthoringTool } from "./authoringTools.ts";
+import {
+  AUTHORING_TOOLS,
+  editableSource,
+  executeAuthoringTool,
+  sourceContextRevision,
+} from "./authoringTools.ts";
 import { SPRITE_TOOLS, executeSpriteTool } from "./spriteTools.ts";
 import { SOUND_TOOLS, executeSoundTool } from "./soundTools.ts";
 import { PICTURE_TOOLS, executePictureTool } from "./pictureTools.ts";
@@ -560,7 +565,18 @@ function executeValidatedAgentTool(
         details: {
           ...result.details,
           writtenResources: [{ kind: legacyKind, num }],
-          revision: resourceRevision(session.container.getResource(legacyKind, num)),
+          ...(legacyKind === "logic" || legacyKind === "picture"
+            ? {
+                revision: sourceContextRevision(
+                  session,
+                  legacyKind,
+                  num,
+                  editableSource(session, legacyKind, num) ?? "",
+                ),
+              }
+            : {
+                revision: resourceRevision(session.container.getResource(legacyKind, num)),
+              }),
         },
       };
     }
@@ -598,7 +614,7 @@ function executeValidatedAgentTool(
       );
     const details = {
       ...result.details,
-      revision: resourceRevision(session.container.getResource(kind, num)),
+      revision: sourceContextRevision(session, kind, num, full),
       source: include === "image" ? undefined : source,
       totalLines: lines.length,
       offset,

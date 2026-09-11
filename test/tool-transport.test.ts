@@ -192,8 +192,9 @@ function assertTransport(name: string, path: string, result: AgentToolResult): v
 }
 
 interface TransportCase {
-  good: Record<string, unknown>;
-  bad: Record<string, unknown>;
+  /** Args, or a thunk when they embed a revision read at call time. */
+  good: Record<string, unknown> | (() => Record<string, unknown>);
+  bad: Record<string, unknown> | (() => Record<string, unknown>);
 }
 
 test("every catalog tool produces bounded binary-free transport on real success and failure paths", async () => {
@@ -221,19 +222,23 @@ test("every catalog tool produces bounded binary-free transport on real success 
       bad: { id: -1, name: "Bad", location: "room", room: 1 },
     },
     edit_resource_source: {
-      good: {
+      // The revision covers text plus compilation context; earlier cases may
+      // have moved the dictionary or bindings, so read it fresh at call time.
+      good: () => ({
         kind: "logic",
         num: 2,
-        expectedRevision: logicRead.details?.["revision"],
-        find: "return;",
-        replace: "set(f10); return;",
-      },
+        expectedRevision: executeAgentTool(session, "read_logic", {
+          num: 2,
+          offset: null,
+          limit: null,
+        }).details?.["revision"],
+        edits: [{ find: "return;", replace: "set(f10); return;" }],
+      }),
       bad: {
         kind: "logic",
         num: 2,
         expectedRevision: "stale",
-        find: "return;",
-        replace: "set(f11); return;",
+        edits: [{ find: "return;", replace: "set(f10); return;" }],
       },
     },
     update_world: {
@@ -405,21 +410,28 @@ test("every catalog tool produces bounded binary-free transport on real success 
     read_state: {},
     finish_genesis: { notes: "Booted synthetic room." },
     write_room: {
-      room: 1,
-      picture: 1,
-      egoView: 0,
-      title: "Start",
-      description: "A start room.",
-      expectedRevision: roomRead.details?.["revision"],
-      spawn: { x: 80, y: 120, horizon: 36 },
-      exits: [],
-      interactions: [],
+      good: () => ({
+        room: 1,
+        picture: 1,
+        egoView: 0,
+        title: "Start",
+        description: "A start room.",
+        expectedRevision: executeAgentTool(session, "read_logic", {
+          num: 1,
+          offset: null,
+          limit: null,
+        }).details?.["revision"],
+        spawn: { x: 80, y: 120, horizon: 36 },
+        exits: [],
+        interactions: [],
+      }),
+      bad: { room: 99 },
     },
   };
   const directCases = cases;
   for (const [name, value] of Object.entries(directCases)) {
     if ("good" in value && "bad" in value) continue;
-    const good = value;
+    const good = typeof value === "function" ? value() : (value as Record<string, unknown>);
     let bad: Record<string, unknown>;
     if (name === "write_words" || name === "read_words" || name === "write_inventory_objects")
       bad = { ...good, offset: -1 };
@@ -505,12 +517,14 @@ test("every catalog tool produces bounded binary-free transport on real success 
   for (const [name, value] of Object.entries(directCases)) {
     assert.ok("good" in value && "bad" in value);
     const paths = value as unknown as TransportCase;
-    const good = await executeAgentToolAsync(session, name, paths.good, deps);
+    const goodArgs = typeof paths.good === "function" ? paths.good() : paths.good;
+    const good = await executeAgentToolAsync(session, name, goodArgs, deps);
     assert.equal(good.success, true, `${name}: ${good.error}`);
     assertTransport(name, "success", good);
     const failureState = name === "finish_genesis" ? createAgentSessionState() : session;
     const failureDeps = name === "read_objects" || name === "read_state" ? undefined : deps;
-    const failure = await executeAgentToolAsync(failureState, name, paths.bad, failureDeps);
+    const badArgs = typeof paths.bad === "function" ? paths.bad() : paths.bad;
+    const failure = await executeAgentToolAsync(failureState, name, badArgs, failureDeps);
     assert.equal(failure.success, false, `${name}: invalid args unexpectedly succeeded`);
     assertTransport(name, "failure", failure);
   }

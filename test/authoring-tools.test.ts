@@ -2,9 +2,16 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts";
 import { executeAuthoringTool } from "../src/agent/authoringTools.ts";
-import { resourceRevision } from "../src/agent/authoringState.ts";
 import { parseLogicResource } from "../src/logic/resource.ts";
 import { compilePictureSource } from "../src/picture/source.ts";
+import type { AgentSessionState } from "../src/agent/tools.ts";
+
+/** The revision token read_logic reports — text plus compilation context. */
+function logicRevision(state: AgentSessionState, num: number): string {
+  return String(
+    executeAgentTool(state, "read_logic", { num, offset: null, limit: null }).details?.["revision"],
+  );
+}
 
 test("named binding allocation avoids compiled references and preserves stable identities", () => {
   const state = createAgentSessionState();
@@ -96,13 +103,12 @@ test("revision-checked source edits change only one matched section and reject s
     room: 1,
     source: 'print("Old greeting."); return;',
   });
-  const revision = resourceRevision(state.container.getResource("logic", 1));
+  const revision = logicRevision(state, 1);
   const edit = executeAuthoringTool(state, "edit_resource_source", {
     kind: "logic",
     num: 1,
     expectedRevision: revision,
-    find: "Old greeting.",
-    replace: "Hello again.",
+    edits: [{ find: "Old greeting.", replace: "Hello again." }],
   })!;
   assert.equal(edit.success, true);
   assert.deepEqual(parseLogicResource(state.container.getResource("logic", 1)!).messages, [
@@ -113,11 +119,78 @@ test("revision-checked source edits change only one matched section and reject s
       kind: "logic",
       num: 1,
       expectedRevision: revision,
-      find: "Hello again.",
-      replace: "Lost.",
+      edits: [{ find: "Hello again.", replace: "Lost." }],
     })!.success,
     false,
   );
+});
+
+test("a batch of source edits resolves on one snapshot and applies once", () => {
+  const state = createAgentSessionState();
+  executeAgentTool(state, "write_logic_source", {
+    room: 1,
+    source: 'print("aaa"); print("bbb"); return;',
+  });
+  const revision = logicRevision(state, 1);
+  const edited = executeAuthoringTool(state, "edit_resource_source", {
+    kind: "logic",
+    num: 1,
+    expectedRevision: revision,
+    edits: [
+      { find: '"aaa"', replace: '"ccc"' },
+      { find: '"bbb"', replace: '"ddd"' },
+    ],
+  })!;
+  assert.equal(edited.success, true, edited.error ?? "");
+  const source = String(
+    executeAgentTool(state, "read_logic", { num: 1, offset: null, limit: null }).details?.[
+      "source"
+    ],
+  );
+  assert.match(source, /"ccc".*"ddd"/, "both edits landed in one pass");
+
+  // Overlapping occurrences of one find count: 'aa' in 'aaa' occurs twice.
+  const ambiguous = executeAuthoringTool(state, "edit_resource_source", {
+    kind: "logic",
+    num: 1,
+    expectedRevision: logicRevision(state, 1),
+    edits: [{ find: "cc", replace: "zz" }],
+  })!;
+  assert.equal(ambiguous.success, false);
+  assert.match(ambiguous.error ?? "", /matched 2 times/);
+  const diagnostic = ambiguous.details?.["diagnostic"] as { editIndex?: number } | undefined;
+  assert.equal(diagnostic?.editIndex, 0);
+
+  // Two finds hitting the same snapshot range are rejected, not shifted.
+  const overlapping = executeAuthoringTool(state, "edit_resource_source", {
+    kind: "logic",
+    num: 1,
+    expectedRevision: logicRevision(state, 1),
+    edits: [
+      { find: '"ccc"', replace: '"xxx"' },
+      { find: 'cc"', replace: "yy" },
+    ],
+  })!;
+  assert.equal(overlapping.success, false);
+  assert.match(overlapping.error ?? "", /overlap/);
+  const after = String(
+    executeAgentTool(state, "read_logic", { num: 1, offset: null, limit: null }).details?.[
+      "source"
+    ],
+  );
+  assert.equal(after, source, "a failed batch changes nothing");
+
+  // Adjacent edits touching at a boundary are allowed.
+  const adjacent = executeAuthoringTool(state, "edit_resource_source", {
+    kind: "logic",
+    num: 1,
+    expectedRevision: logicRevision(state, 1),
+    edits: [
+      { find: '"ccc"', replace: '"1"' },
+      { find: '; print("ddd")', replace: "" },
+    ],
+  })!;
+  assert.equal(adjacent.success, true, adjacent.error ?? "");
 });
 
 test("picture edits match the authored source read_picture returns, comments and macros included", () => {
@@ -141,8 +214,7 @@ test("picture edits match the authored source read_picture returns, comments and
     kind: "picture",
     num: 3,
     expectedRevision: read.details?.["revision"],
-    find: lines[2]!,
-    replace: "rect 30,97 37,100",
+    edits: [{ find: lines[2]!, replace: "rect 30,97 37,100" }],
   })!;
   assert.equal(edit.success, true, edit.error ?? "");
   const expected = [authored[0]!, authored[1]!, "rect 30,97 37,100", authored[3]!].join("\n");
@@ -178,11 +250,10 @@ test("a stored picture source that no longer matches its resource is not trusted
     kind: "picture",
     num: 3,
     expectedRevision: read.details?.["revision"],
-    find: "rect 0,0 5,5",
-    replace: "rect 1,1 2,2",
+    edits: [{ find: "rect 0,0 5,5", replace: "rect 1,1 2,2" }],
   })!;
   assert.equal(edit.success, false, "the stale text cannot be edited");
-  assert.match(edit.error ?? "", /find must match/);
+  assert.match(edit.error ?? "", /matched 0 times/);
 });
 
 test("world intent is durable and partial updates preserve other facts", () => {
