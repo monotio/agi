@@ -73,10 +73,14 @@ for (const fail of [false, true])
       }
       const calls = [
         [
-          "read_live",
-          { state: { variables: null, flags: null, compact: true }, objects: null, frames: null },
+          "read_room_context",
+          {
+            room: null,
+            state: { variables: null, flags: null, compact: true },
+            frames: null,
+          },
         ],
-        ["read_live", { state: null, objects: { ids: null }, frames: null }],
+        ["read_room_context", { room: null, state: null, frames: null }],
         ["read_view", { num: 0 }],
         [
           "write_inventory_objects",
@@ -143,10 +147,12 @@ for (const fail of [false, true])
         await expect.poll(async () => (await textHook(page)).room).toBe(1);
       } else {
         await expect.poll(() => requests).toBe(2);
-        await expect(panel.getByTestId("agent-bubble-feed")).toContainText("read_live -> ok");
+        await expect(panel.getByTestId("agent-bubble-feed")).toContainText(
+          "read_room_context -> ok",
+        );
         await expect(panel.getByTestId("agent-bubble-feed")).toContainText("read_view -> ok");
         const tools = (providerRequests[0]!["tool_choice"] as { tools: { name: string }[] }).tools;
-        expect(tools.some((tool) => tool.name === "read_live")).toBe(true);
+        expect(tools.some((tool) => tool.name === "read_room_context")).toBe(true);
         expect(tools.some((tool) => tool.name === "handover")).toBe(true);
         const input = providerRequests[1]!["input"] as {
           type: string;

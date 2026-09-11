@@ -115,7 +115,9 @@ function metrics(
   };
 }
 
-const GENESIS_TOOLS = AGENT_TOOLS.filter((tool) => tool.name !== "read_live");
+// Genesis has no live game; the full catalog stays advertised anyway since
+// read_room_context's live sections degrade cleanly without an attached game.
+const GENESIS_TOOLS = AGENT_TOOLS;
 
 interface CliArgs {
   template: string;

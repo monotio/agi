@@ -215,7 +215,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_room_context",
     description:
-      "Inspect a room's compiled resources, intent, dependencies, bindings, inventory, live state and screen objects. Null selects the live room. Live state is paused; resources include staged edits.",
+      "Inspect a room's compiled resources, intent, dependencies, bindings, inventory, live state and screen objects. Null `room` selects the live room. `state` requests the full interpreter tables — `compact` omits zeroes, `variables`/`flags` select indices; null returns the live summary only. `frames` returns the last `count` (1..9) frames oldest first, sampled every `stride` cycles — `sheet` (default true) tiles them into one contact sheet, `plane` is visual or priority. Live state is paused; resources include staged edits. Missing live deps report per-section errors.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -225,8 +225,37 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
           minimum: 0,
           maximum: 255,
         },
+        state: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            variables: {
+              type: ["array", "null"],
+              maxItems: 256,
+              items: { type: "integer", minimum: 0, maximum: 255 },
+            },
+            flags: {
+              type: ["array", "null"],
+              maxItems: 256,
+              items: { type: "integer", minimum: 0, maximum: 255 },
+            },
+            compact: { type: ["boolean", "null"] },
+          },
+          required: ["variables", "flags", "compact"],
+        },
+        frames: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            count: { type: ["integer", "null"], minimum: 1, maximum: MAX_FRAMES },
+            stride: { type: ["integer", "null"], minimum: 1, maximum: 255 },
+            sheet: { type: ["boolean", "null"] },
+            plane: { type: ["string", "null"] },
+          },
+          required: ["count", "stride", "sheet", "plane"],
+        },
       },
-      required: ["room"],
+      required: ["room", "state", "frames"],
     },
   },
   {
@@ -597,7 +626,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "inspect_world_bible",
     description:
-      "Inspect game resources and authored intent, including staged edits. `filter` is all, rooms, objects, words, intent or slots (null: all); slots lists occupied ranges and next free IDs, narrowed by `kind` (logic, picture, view, sound, null for all). With intent, `section` (rooms, facts, quests or bindings) plus `name` or `offset` selects one entry. Inventory locations are definitions; use read_live for live inventory. This indexes resources and does not prove puzzle behavior.",
+      "Inspect game resources and authored intent, including staged edits. `filter` is all, rooms, objects, words, intent or slots (null: all); slots lists occupied ranges and next free IDs, narrowed by `kind` (logic, picture, view, sound, null for all). With intent, `section` (rooms, facts, quests or bindings) plus `name` or `offset` selects one entry. Inventory locations are definitions; use read_room_context for live inventory. This indexes resources and does not prove puzzle behavior.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -667,59 +696,6 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
         "instructionBudget",
         "fromLiveCheckpoint",
       ],
-    },
-  },
-  {
-    name: "read_live",
-    description:
-      "Read live interpreter state. `state` returns rooms, ego, variables, flags, strings, parsed input, horizon and modal — `compact` omits zeroes, `variables`/`flags` select indices. `objects` returns the screen-object table (view/cel, geometry, priority, direction, cycling, motion; `ids` selects entries, null reads all, object 0 is ego). `frames` returns the last `count` (1..9) frames oldest first, sampled every `stride` cycles — `sheet` (default true) tiles them into one contact sheet, `plane` is visual or priority. Each section null omits it; at least one is required. `read_room_context` bundles the same live sections with room resources and intent. Fails without an attached game.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        state: {
-          type: ["object", "null"],
-          additionalProperties: false,
-          properties: {
-            variables: {
-              type: ["array", "null"],
-              maxItems: 256,
-              items: { type: "integer", minimum: 0, maximum: 255 },
-            },
-            flags: {
-              type: ["array", "null"],
-              maxItems: 256,
-              items: { type: "integer", minimum: 0, maximum: 255 },
-            },
-            compact: { type: ["boolean", "null"] },
-          },
-          required: ["variables", "flags", "compact"],
-        },
-        objects: {
-          type: ["object", "null"],
-          additionalProperties: false,
-          properties: {
-            ids: {
-              type: ["array", "null"],
-              maxItems: 256,
-              items: { type: "integer", minimum: 0, maximum: 255 },
-            },
-          },
-          required: ["ids"],
-        },
-        frames: {
-          type: ["object", "null"],
-          additionalProperties: false,
-          properties: {
-            count: { type: ["integer", "null"], minimum: 1, maximum: MAX_FRAMES },
-            stride: { type: ["integer", "null"], minimum: 1, maximum: 255 },
-            sheet: { type: ["boolean", "null"] },
-            plane: { type: ["string", "null"] },
-          },
-          required: ["count", "stride", "sheet", "plane"],
-        },
-      },
-      required: ["state", "objects", "frames"],
     },
   },
 ];

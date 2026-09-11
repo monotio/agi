@@ -19,8 +19,8 @@ describe("agent tools", () => {
     assert.ok(names.includes("read_picture"));
     assert.ok(names.includes("read_logic"));
     assert.ok(names.includes("read_words"));
-    // Runtime perception: one live-read tool with state/objects/frames sections.
-    assert.ok(names.includes("read_live"));
+    // Runtime perception: read_room_context carries live state, objects and frames.
+    assert.ok(names.includes("read_room_context"));
     assert.ok(names.includes("read_view"));
     for (const name of ["write_music", "edit_resource_source", "reserve_binding", "update_world"])
       assert.ok(names.includes(name));

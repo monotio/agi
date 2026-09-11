@@ -1678,11 +1678,12 @@ function executeLegacyTool(
 /**
  * Live-game sources injected by the host.
  *
- * The live-inspection tool — read_live's state/objects/frames sections — reads
- * the INTERPRETER, which lives in a Web Worker and answers asynchronously. The
- * synchronous `executeAgentTool` above cannot reach it, so the host passes
- * these in to `executeAgentToolAsync`. With no deps attached a section fails
- * with a clear message. The host selects the tools available during each phase.
+ * The live-inspection sections — read_room_context's live summary, state and
+ * frames plus playtest_room's live checkpoint — read the INTERPRETER, which
+ * lives in a Web Worker and answers asynchronously. The synchronous
+ * `executeAgentTool` above cannot reach it, so the host passes these in to
+ * `executeAgentToolAsync`. With no deps attached a section fails with a clear
+ * message. The host selects the tools available during each phase.
  */
 export interface AgentRuntimeDeps {
   readonly readOnly?: boolean;
@@ -1788,7 +1789,6 @@ export const ASK_TOOLS: readonly string[] = [
   "run_game_tests",
   "inspect_world_bible",
   "playtest_room",
-  "read_live",
 ];
 
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
@@ -1811,7 +1811,7 @@ async function executeReadFrames(
   if (planeArg !== "visual" && planeArg !== "priority") {
     return {
       success: false,
-      error: `read_live frames: plane must be 'visual', 'priority' or null; got '${planeArg}'.`,
+      error: `read_room_context frames: plane must be 'visual', 'priority' or null; got '${planeArg}'.`,
     };
   }
   const plane: FramePlane = planeArg;
@@ -1820,7 +1820,7 @@ async function executeReadFrames(
   try {
     frames = await source.read({ count, stride });
   } catch (err) {
-    return { success: false, error: `read_live frames failed: ${String(err)}` };
+    return { success: false, error: `read_room_context frames failed: ${String(err)}` };
   }
   if (frames.length === 0) {
     return {
@@ -1896,6 +1896,8 @@ export async function executeAgentToolAsync(
   if (!call.success) return call;
   args = call.args;
   if (name === "read_room_context") {
+    const stateArg = args["state"] as Record<string, unknown> | null | undefined;
+    const framesArg = args["frames"] as Record<string, unknown> | null | undefined;
     let live: Record<string, unknown> | null = null;
     let liveObjects: unknown = null;
     if (deps?.engine) {
@@ -1911,111 +1913,56 @@ export async function executeAgentToolAsync(
       return { success: false, error: "Supply room 0..255 when no live room is attached." };
     const logic = executeAgentTool(session, "read_logic", { num: room, offset: 0, limit: 80 });
     const index = listResources(session, null);
-    return {
-      success: true,
-      message: `Room ${room}: compiled resources and authored intent${live ? "; live state is the current paused interpreter" : ""}.`,
-      details: {
-        room,
-        logic: logic.success ? logic.details : { error: logic.error },
-        resources: index.details,
-        origin: { kind: "staged", resourceSet: resourceSetRevision(session) },
-        wordCount: session.sources.words.size,
-        intent: session.authoring.world.rooms[String(room)] ?? null,
-        bindings: Object.fromEntries(Object.entries(session.authoring.bindings).slice(0, 32)),
-        bindingCount: Object.keys(session.authoring.bindings).length,
-        inventoryDefinitions: readInventoryObjects(
-          session.getFiles().get("OBJECT"),
-          session.profile,
-        ),
-        ...(live
-          ? {
-              live: {
-                room: live["room"],
-                egoX: live["egoX"],
-                egoY: live["egoY"],
-                inventory: live["inventory"],
-                modalKind: live["modalKind"],
-                controls: describeControls(live["controls"]),
-                objects: liveObjects,
-              },
-            }
-          : {}),
-      },
-    };
-  }
-  if (name === "read_live") {
-    const stateArg = args["state"] as Record<string, unknown> | null | undefined;
-    const objectsArg = args["objects"] as Record<string, unknown> | null | undefined;
-    const framesArg = args["frames"] as Record<string, unknown> | null | undefined;
-    if (stateArg == null && objectsArg == null && framesArg == null)
-      return {
-        success: false,
-        error: "Select at least one section: state, objects, or frames.",
-      };
-    const details: Record<string, unknown> = {};
     const images: { png: Uint8Array; caption: string }[] = [];
-    const messages: string[] = [];
-
+    let framesMessage: string | null = null;
+    const details: Record<string, unknown> = {
+      room,
+      logic: logic.success ? logic.details : { error: logic.error },
+      resources: index.details,
+      origin: { kind: "staged", resourceSet: resourceSetRevision(session) },
+      wordCount: session.sources.words.size,
+      intent: session.authoring.world.rooms[String(room)] ?? null,
+      bindings: Object.fromEntries(Object.entries(session.authoring.bindings).slice(0, 32)),
+      bindingCount: Object.keys(session.authoring.bindings).length,
+      inventoryDefinitions: readInventoryObjects(session.getFiles().get("OBJECT"), session.profile),
+    };
+    if (live)
+      details["live"] = {
+        room: live["room"],
+        egoX: live["egoX"],
+        egoY: live["egoY"],
+        inventory: live["inventory"],
+        modalKind: live["modalKind"],
+        controls: describeControls(live["controls"]),
+        objects: liveObjects,
+      };
     if (stateArg != null) {
-      if (!deps?.engine) {
+      if (!live) {
         details["state"] = { error: NO_LIVE_GAME };
-      } else
-        try {
-          const state = (await deps.engine.state()) as Record<string, unknown> | null;
-          if (!state) {
-            details["state"] = { error: "the interpreter returned no state." };
-          } else {
-            const stateDetails: Record<string, unknown> = { ...state };
-            stateDetails["origin"] = {
-              kind: "live",
-              ...(typeof state["cycle"] === "number" ? { checkpoint: state["cycle"] } : {}),
-              resourceSet: resourceSetRevision(session),
-            };
-            for (const [field, parameter] of [
-              ["vars", "variables"],
-              ["flags", "flags"],
-            ] as const) {
-              const values = state[field];
-              const ids = stateArg[parameter];
-              if (Array.isArray(values) && (Array.isArray(ids) || stateArg["compact"] === true)) {
-                stateDetails[field] = Object.fromEntries(
-                  values.flatMap((value, id) =>
-                    (Array.isArray(ids) ? ids.includes(id) : Boolean(value)) ? [[id, value]] : [],
-                  ),
-                );
-              }
-            }
-            details["state"] = stateDetails;
-            messages.push(
-              `room ${String(state["room"])}, ego (${String(state["egoX"])}, ${String(state["egoY"])})`,
+      } else {
+        const stateDetails: Record<string, unknown> = { ...live };
+        stateDetails["origin"] = {
+          kind: "live",
+          ...(typeof live["cycle"] === "number" ? { checkpoint: live["cycle"] } : {}),
+          resourceSet: resourceSetRevision(session),
+        };
+        for (const [field, parameter] of [
+          ["vars", "variables"],
+          ["flags", "flags"],
+        ] as const) {
+          const values = live[field];
+          const ids = stateArg[parameter];
+          if (Array.isArray(values) && (Array.isArray(ids) || stateArg["compact"] === true)) {
+            stateDetails[field] = Object.fromEntries(
+              values.flatMap((value, id) =>
+                (Array.isArray(ids) ? ids.includes(id) : Boolean(value)) ? [[id, value]] : [],
+              ),
             );
           }
-        } catch (err) {
-          details["state"] = { error: String(err) };
         }
+        details["state"] = stateDetails;
+      }
     }
-
-    if (objectsArg != null) {
-      if (!deps?.engine) {
-        details["objects"] = { error: NO_LIVE_GAME };
-      } else
-        try {
-          const objects = await deps.engine.objects();
-          const list = (Array.isArray(objects) ? objects : []).filter(
-            (object) =>
-              !Array.isArray(objectsArg["ids"]) ||
-              objectsArg["ids"].includes((object as Record<string, unknown>)["num"]),
-          );
-          details["objects"] = {
-            objects: list,
-            origin: { kind: "live", resourceSet: resourceSetRevision(session) },
-          };
-          messages.push(`${list.length} object(s)`);
-        } catch (err) {
-          details["objects"] = { error: String(err) };
-        }
-    }
-
     if (framesArg != null) {
       if (!deps?.frames) {
         details["frames"] = { error: NO_LIVE_GAME };
@@ -2026,32 +1973,13 @@ export async function executeAgentToolAsync(
         } else {
           details["frames"] = result.details;
           if (result.images) images.push(...result.images);
-          if (result.message) messages.push(result.message.split("\n")[0]!);
+          if (result.message) framesMessage = result.message.split("\n")[0]!;
         }
       }
     }
-
-    const allFailed =
-      [stateArg, objectsArg, framesArg].filter((s) => s != null).length > 0 &&
-      ["state", "objects", "frames"].every(
-        (key) =>
-          details[key] === undefined ||
-          (details[key] as Record<string, unknown>)["error"] !== undefined,
-      ) &&
-      Object.values(details).some(
-        (entry) => (entry as Record<string, unknown>)["error"] !== undefined,
-      );
     return {
-      success: !allFailed,
-      ...(allFailed
-        ? {
-            error: Object.values(details)
-              .map((entry) => (entry as Record<string, unknown>)["error"])
-              .filter(Boolean)
-              .join("; "),
-          }
-        : {}),
-      message: `read_live: ${messages.join("; ") || "no sections returned."}`,
+      success: true,
+      message: `Room ${room}: compiled resources and authored intent${live ? "; live state is the current paused interpreter" : ""}${framesMessage ? `. ${framesMessage}` : ""}.`,
       details,
       ...(images.length ? { images } : {}),
     };

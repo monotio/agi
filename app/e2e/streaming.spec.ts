@@ -122,14 +122,19 @@ for (const provider of ["openai", "anthropic"] as const) {
                   type: "function_call",
                   id: "tool",
                   call_id: "call",
-                  name: "read_live",
+                  name: "read_room_context",
                   arguments: "",
                 },
               }
             : {
                 type: "content_block_start",
                 index: 1,
-                content_block: { type: "tool_use", id: "call", name: "read_live", input: {} },
+                content_block: {
+                  type: "tool_use",
+                  id: "call",
+                  name: "read_room_context",
+                  input: {},
+                },
               },
         ),
       );
@@ -138,7 +143,7 @@ for (const provider of ["openai", "anthropic"] as const) {
       );
       expect(requests).toHaveLength(1);
       const toolsBeforeCompletion = await page.evaluate(() => JSON.stringify(window.__AGI_TRACE__));
-      expect(toolsBeforeCompletion).not.toContain('"tool":"read_live"');
+      expect(toolsBeforeCompletion).not.toContain('"tool":"read_room_context"');
       if (provider === "openai")
         responses[0]!.end(
           providerSse(provider, {
@@ -154,7 +159,7 @@ for (const provider of ["openai", "anthropic"] as const) {
                 type: "function_call",
                 id: "tool",
                 call_id: "call",
-                name: "read_live",
+                name: "read_room_context",
                 arguments: "{}",
               },
             ],

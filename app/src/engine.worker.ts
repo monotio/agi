@@ -296,7 +296,7 @@ function autosave(force: boolean): boolean {
 }
 
 /**
- * Frame history for the agent's `read_live` tool: the last 100 cycles plus
+ * Frame history for the agent's `read_room_context` tool: the last 100 cycles plus
  * 60 history samples captured at most once per second. Both rings preallocate their typed arrays, so a cycle
  * costs three buffer copies and nothing else.
  */

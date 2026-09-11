@@ -309,8 +309,12 @@ test("every catalog tool produces bounded binary-free transport on real success 
       bad: { room: 5, backgroundColor: 16, shapes: [] },
     },
     read_room_context: {
-      good: { room: 1 },
-      bad: { room: 999 },
+      good: {
+        room: 1,
+        state: { variables: null, flags: null, compact: null },
+        frames: { count: 1, stride: 1, sheet: false, plane: null },
+      },
+      bad: { room: 999, state: null, frames: null },
     },
     write_words: { words: ["look", "east"] },
     write_view: {
@@ -412,14 +416,6 @@ test("every catalog tool produces bounded binary-free transport on real success 
       expect: { room: 1, carriedItems: [], flags: [] },
       fromLiveCheckpoint: null,
     },
-    read_live: {
-      good: {
-        state: { variables: null, flags: null, compact: null },
-        objects: { ids: null },
-        frames: { count: 1, stride: 1, sheet: false, plane: null },
-      },
-      bad: { state: null, objects: null, frames: null },
-    },
     read_diagnostic: {
       good: { id: "d0", fields: null, offset: null, limit: null },
       bad: { id: "d0", fields: null, offset: -1, limit: null },
@@ -499,7 +495,6 @@ test("every catalog tool produces bounded binary-free transport on real success 
     "read_command_reference",
     "read_diagnostic",
     "read_game_tests",
-    "read_live",
     "read_logic",
     "read_picture",
     "read_room_context",
@@ -629,12 +624,12 @@ test("tool results carry explicit evidence origins and a resource-set identity",
 
   const live = await executeAgentToolAsync(
     session,
-    "read_live",
-    { state: null, objects: { ids: null }, frames: null },
-    { engine: { objects: () => [{ num: 0 }], state: () => null } },
+    "read_room_context",
+    { room: 1, state: { variables: null, flags: null, compact: null }, frames: null },
+    { engine: { objects: () => [{ num: 0 }], state: () => ({ room: 1 }) } },
   );
-  const liveObjects = live.details?.["objects"] as Record<string, unknown>;
-  const liveOrigin = liveObjects["origin"] as Record<string, unknown>;
+  const liveState = live.details?.["state"] as Record<string, unknown>;
+  const liveOrigin = liveState["origin"] as Record<string, unknown>;
   assert.equal(liveOrigin["kind"], "live");
 });
 

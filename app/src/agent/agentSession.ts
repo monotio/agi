@@ -87,7 +87,7 @@ The world is frozen at a cycle boundary in room ${room}, and the player has aske
 
 "${instruction.trim()}"
 
-Look before you write: read_room_context already carries the room's live state, object table and resources; call read_live only for the paused screen's frames, and read_logic / read_picture only when the request touches that resource. Patch the smallest thing that achieves what was asked — a color remap is patch_view_cels with 'recolor', no pixel rows needed — in the room the player is standing in unless they said otherwise. handover runs the full stored suite; playtest only when behavior is uncertain. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
+Look before you write: read_room_context carries the room's live state, object table and resources — pass its 'frames' arg for the paused screen and 'state' for the full tables; read_logic / read_picture only when the request touches that resource. Patch the smallest thing that achieves what was asked — a color remap is patch_view_cels with 'recolor', no pixel rows needed — in the room the player is standing in unless they said otherwise. handover runs the full stored suite; playtest only when behavior is uncertain. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
 }
 
 export class AgentSession implements AgentHandler {
@@ -101,7 +101,7 @@ export class AgentSession implements AgentHandler {
   /** Conversation data retained while a non-stub provider has no connected key. */
   private readonly retainedTranscript: unknown[];
   private readonly retainedSessionId: string | undefined;
-  /** Live-game sources for read_live. */
+  /** Live-game sources for read_room_context. */
   private runtime: AgentRuntimeDeps = {};
   /** Local tool-execution ms since the last provider request, for telemetry. */
   private pendingToolMs = 0;
@@ -172,8 +172,12 @@ export class AgentSession implements AgentHandler {
     if (!this.conversation) {
       const result = await executeAgentToolAsync(
         this.state,
-        "read_live",
-        { state: { compact: true, variables: null, flags: null }, objects: null, frames: null },
+        "read_room_context",
+        {
+          room,
+          state: { compact: true, variables: null, flags: null },
+          frames: null,
+        },
         { ...this.runtime, readOnly: true },
       );
       const text = result.success
@@ -237,25 +241,21 @@ Answer the player's question using evidence from inspection when needed. For hin
     if (!this.orientation || this.oriented) return "";
     const input = { ...this.orientation, room };
     // The compact scene brief reads through the same tools the model uses —
-    // read_room_context, read_picture, read_live — so the brief and the
+    // read_room_context, read_picture — so the brief and the
     // on-demand deep dive can never disagree about what the session holds.
-    const [roomContext, picture, live] = [
-      await executeAgentToolAsync(this.state, "read_room_context", { room }, this.runtime),
-      executeAgentTool(this.state, "read_picture", { num: room }),
+    const [roomContext, picture] = [
       await executeAgentToolAsync(
         this.state,
-        "read_live",
-        { state: null, objects: { ids: null }, frames: null },
+        "read_room_context",
+        { room, state: null, frames: null },
         this.runtime,
       ),
+      executeAgentTool(this.state, "read_picture", { num: room }),
     ];
-    const objectSection = live.details?.["objects"] as Record<string, unknown> | undefined;
+    const liveSection = roomContext.details?.["live"] as Record<string, unknown> | undefined;
     const objects =
-      live.success && objectSection?.["error"] === undefined
-        ? {
-            success: true,
-            details: { objects: (objectSection?.["objects"] as unknown[]) ?? [] },
-          }
+      roomContext.success && Array.isArray(liveSection?.["objects"])
+        ? { success: true, details: { objects: liveSection["objects"] as unknown[] } }
         : null;
     const prompt = createOrientationPrompt({
       ...input,
@@ -294,17 +294,17 @@ Answer the player's question using evidence from inspection when needed. For hin
       // perception chain: worker frame ring -> transfer -> composited PNG.
       const frames = await executeAgentToolAsync(
         this.state,
-        "read_live",
+        "read_room_context",
         {
+          room,
           state: null,
-          objects: null,
           frames: { count: 4, stride: 1, sheet: true, plane: null },
         },
         this.runtime,
       );
       this.onEvent(
         frames.success ? "response" : "error",
-        `[Remix] read_live -> ${frames.success ? (frames.message ?? "").split("\n")[0] : frames.error}`,
+        `[Remix] read_room_context -> ${frames.success ? (frames.message ?? "").split("\n")[0] : frames.error}`,
         { images: frames.images?.map((i) => i.caption) },
       );
       const result = await this.stubFallback.powerUp(instruction, room);

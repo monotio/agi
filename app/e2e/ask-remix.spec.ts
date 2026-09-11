@@ -33,10 +33,10 @@ test("Ask stays paused, remembers the conversation after reload, and hands conte
                 {
                   type: "function_call",
                   call_id: `inspect-${requests.length}`,
-                  name: "read_live",
+                  name: "read_room_context",
                   arguments: JSON.stringify({
+                    room: null,
                     state: { compact: true, variables: [requests.length], flags: null },
-                    objects: null,
                     frames: null,
                   }),
                 },

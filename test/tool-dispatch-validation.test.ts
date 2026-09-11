@@ -19,12 +19,15 @@ test("every catalog tool rejects undeclared fields through both public dispatche
   }
 });
 
-const malformed: Record<string, Record<string, unknown>> = {
-  read_room_context: { room: "1" },
-  read_live: { state: null, objects: null, frames: { count: "9" } },
-};
+const malformed: [string, Record<string, unknown>][] = [
+  ["read_room_context", { room: "1" }],
+  [
+    "read_room_context",
+    { room: 1, state: null, frames: { count: "9", stride: null, sheet: null, plane: null } },
+  ],
+];
 
-for (const [name, args] of Object.entries(malformed)) {
+for (const [name, args] of malformed) {
   const cases: Record<string, unknown> = {
     "wrong field type": args,
     "unknown field": { undeclared: true },

@@ -124,14 +124,14 @@ describe("frame compositing", () => {
   });
 });
 
-describe("read_live frames section", () => {
+describe("read_room_context frames section", () => {
   const session = createAgentSessionState();
 
   it("reports a live origin with the cycle checkpoint and resource-set identity", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_live",
-      { state: null, objects: null, frames: { count: 1, stride: 1, sheet: null, plane: null } },
+      "read_room_context",
+      { room: 1, state: null, frames: { count: 1, stride: 1, sheet: null, plane: null } },
       { frames: fakeSource([7]) },
     );
     assert.equal(res.success, true);
@@ -145,8 +145,8 @@ describe("read_live frames section", () => {
   it("returns one image per frame when sheet is disabled", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_live",
-      { state: null, objects: null, frames: { count: 3, stride: 1, sheet: false, plane: null } },
+      "read_room_context",
+      { room: 1, state: null, frames: { count: 3, stride: 1, sheet: false, plane: null } },
       { frames: fakeSource([10, 11, 12]) },
     );
     assert.equal(res.success, true);
@@ -159,8 +159,8 @@ describe("read_live frames section", () => {
   it("packs frames into one contact sheet on request, labelled by cycle", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_live",
-      { state: null, objects: null, frames: { count: 5, stride: 1, sheet: true, plane: "visual" } },
+      "read_room_context",
+      { room: 1, state: null, frames: { count: 5, stride: 1, sheet: true, plane: "visual" } },
       { frames: fakeSource([1, 2, 3, 4, 5]) },
     );
     assert.equal(res.images?.length, 1);
@@ -174,8 +174,8 @@ describe("read_live frames section", () => {
   it("returns every frame up to the documented maximum", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_live",
-      { state: null, objects: null, frames: { count: 9, stride: 1, sheet: false, plane: null } },
+      "read_room_context",
+      { room: 1, state: null, frames: { count: 9, stride: 1, sheet: false, plane: null } },
       { frames: fakeSource([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) },
     );
     assert.equal(res.images?.length, 9);
@@ -185,8 +185,8 @@ describe("read_live frames section", () => {
     // The schema bound is the contract, as for playtest_room.ticks; nothing is clamped silently.
     const res = await executeAgentToolAsync(
       session,
-      "read_live",
-      { state: null, objects: null, frames: { count: 99, stride: 1, sheet: null, plane: null } },
+      "read_room_context",
+      { room: 1, state: null, frames: { count: 99, stride: 1, sheet: null, plane: null } },
       { frames: fakeSource([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) },
     );
     assert.equal(res.success, false);
@@ -197,42 +197,51 @@ describe("read_live frames section", () => {
   it("reports an empty ring rather than an empty image", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_live",
-      { state: null, objects: null, frames: { count: 1, stride: 1, sheet: null, plane: null } },
+      "read_room_context",
+      { room: 1, state: null, frames: { count: 1, stride: 1, sheet: null, plane: null } },
       { frames: { read: () => [] } },
     );
-    assert.equal(res.success, false);
-    assert.match(res.error!, /frame ring is empty/);
+    assert.equal(res.success, true);
+    const frames = res.details?.["frames"] as Record<string, unknown>;
+    assert.match(String(frames["error"]), /frame ring is empty/);
   });
 
-  it("stays declared but fails clearly when no game is attached", async () => {
-    const res = await executeAgentToolAsync(session, "read_live", {
+  it("fails clearly when a null room has no live game to resolve", async () => {
+    const res = await executeAgentToolAsync(session, "read_room_context", {
+      room: null,
       state: null,
-      objects: null,
-      frames: {
-        count: 1,
-        stride: 1,
-        sheet: null,
-        plane: null,
-      },
+      frames: { count: 1, stride: 1, sheet: null, plane: null },
     });
     assert.equal(res.success, false);
-    assert.match(res.error!, /No live game is attached/);
+    assert.match(res.error!, /no live room is attached/);
+  });
+
+  it("reports a missing live game per section when a room is given", async () => {
+    const res = await executeAgentToolAsync(session, "read_room_context", {
+      room: 1,
+      state: null,
+      frames: { count: 1, stride: 1, sheet: null, plane: null },
+    });
+    assert.equal(res.success, true);
+    const frames = res.details?.["frames"] as Record<string, unknown>;
+    assert.match(String(frames["error"]), /No live game is attached/);
+    assert.equal(res.details?.["live"], undefined);
   });
 
   it("rejects an unknown plane", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_live",
-      { state: null, objects: null, frames: { count: 1, stride: 1, sheet: null, plane: "depth" } },
+      "read_room_context",
+      { room: 1, state: null, frames: { count: 1, stride: 1, sheet: null, plane: "depth" } },
       { frames: fakeSource([1]) },
     );
-    assert.equal(res.success, false);
-    assert.match(res.error!, /plane must be/);
+    assert.equal(res.success, true);
+    const frames = res.details?.["frames"] as Record<string, unknown>;
+    assert.match(String(frames["error"]), /plane must be/);
   });
 });
 
-describe("read_live state/objects sections", () => {
+describe("read_room_context state/objects sections", () => {
   const session = createAgentSessionState();
   const engine = {
     objects: () => [{ num: 0, view: 1, x: 40, y: 120 }],
@@ -249,25 +258,25 @@ describe("read_live state/objects sections", () => {
     }),
   };
 
-  it("reports the active object table", async () => {
+  it("reports the active object table in the live section", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_live",
-      { state: null, objects: { ids: null }, frames: null },
+      "read_room_context",
+      { room: null, state: null, frames: null },
       { engine },
     );
     assert.equal(res.success, true);
-    const section = res.details?.["objects"] as Record<string, unknown>;
-    assert.deepEqual(section["objects"], [{ num: 0, view: 1, x: 40, y: 120 }]);
+    const live = res.details?.["live"] as Record<string, unknown>;
+    assert.deepEqual(live["objects"], [{ num: 0, view: 1, x: 40, y: 120 }]);
   });
 
   it("returns the live interpreter state in the state section", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_live",
+      "read_room_context",
       {
+        room: null,
         state: { variables: null, flags: null, compact: null },
-        objects: null,
         frames: null,
       },
       { engine },
@@ -275,53 +284,55 @@ describe("read_live state/objects sections", () => {
     assert.equal(res.success, true);
     const section = res.details?.["state"] as Record<string, unknown>;
     assert.equal(section["room"], 3);
-    assert.match(res.message ?? "", /room 3, ego \(40, 120\)/);
+    assert.match(res.message ?? "", /Room 3/);
   });
 
   it("combines sections in one call and omits unrequested ones", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_live",
+      "read_room_context",
       {
+        room: null,
         state: { variables: null, flags: null, compact: null },
-        objects: { ids: null },
         frames: { count: 1, stride: 1, sheet: null, plane: null },
       },
       { engine, frames: fakeSource([9]) },
     );
     assert.equal(res.success, true);
     assert.ok(res.details?.["state"]);
-    assert.ok(res.details?.["objects"]);
+    assert.ok(res.details?.["live"]);
     assert.ok(res.details?.["frames"]);
     assert.equal(res.images?.length, 1);
   });
 
-  it("requires at least one section", async () => {
+  it("omits state and frames sections when they are not requested", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_live",
-      { state: null, objects: null, frames: null },
+      "read_room_context",
+      { room: null, state: null, frames: null },
       { engine },
     );
-    assert.equal(res.success, false);
-    assert.match(res.error!, /at least one section/);
+    assert.equal(res.success, true);
+    assert.equal(res.details?.["state"], undefined);
+    assert.equal(res.details?.["frames"], undefined);
+    assert.ok(res.details?.["live"]);
   });
 
-  it("reports a missing interpreter per section", async () => {
+  it("reports a missing interpreter in the requested sections only", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_live",
+      "read_room_context",
       {
+        room: 1,
         state: { variables: null, flags: null, compact: null },
-        objects: { ids: null },
         frames: null,
       },
       {},
     );
-    assert.equal(res.success, false);
-    assert.match(res.error!, /No live game is attached/);
+    assert.equal(res.success, true);
     const stateSection = res.details?.["state"] as Record<string, unknown>;
     assert.match(String(stateSection["error"]), /No live game/);
+    assert.equal(res.details?.["live"], undefined);
   });
 });
 

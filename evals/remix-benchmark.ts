@@ -61,6 +61,12 @@ const CASES: Record<string, BenchmarkCase> = {
     instruction:
       "Change the room picture so a decorative object now blocks walking, matching its priority.",
   },
+  message: {
+    id: "message",
+    mode: "remix",
+    instruction:
+      "Change what the game says when I look around this room: add one custom line about its most prominent feature.",
+  },
   persistence: {
     id: "persistence",
     mode: "remix",
