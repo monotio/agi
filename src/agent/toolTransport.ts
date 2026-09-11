@@ -11,6 +11,48 @@ export type AnthropicToolBlock =
   | { type: "text"; text: string }
   | { type: "image"; source: { type: "base64"; media_type: "image/png"; data: string } };
 
+/**
+ * Serialized-character budget per `details` field. Larger fields move to the
+ * session's diagnostic store, retrievable by read_diagnostic; the compact
+ * projection keeps scalars, revisions, counts and verdict fields.
+ */
+const DETAIL_FIELD_BUDGET = 400;
+
+/**
+ * The compact model-facing projection of one tool result. The full result is
+ * persisted in `store` under `id` so nothing is lost; the model sees small
+ * fields verbatim plus a diagnosticId pointer for the evicted ones. Apply it
+ * once, when a result enters the conversation — earlier transcript items are
+ * never rewritten.
+ */
+export function projectToolResult(
+  result: AgentToolResult,
+  store: Map<string, AgentToolResult>,
+  id: string,
+): AgentToolResult {
+  const details = result.details;
+  if (!details) return result;
+  const kept: Record<string, unknown> = {};
+  const evicted: string[] = [];
+  for (const [key, value] of Object.entries(details)) {
+    let serialized: string | undefined;
+    try {
+      serialized = JSON.stringify(value);
+    } catch {
+      serialized = undefined;
+    }
+    if (serialized !== undefined && serialized.length <= DETAIL_FIELD_BUDGET) kept[key] = value;
+    else evicted.push(key);
+  }
+  if (!evicted.length) return result;
+  store.set(id, result);
+  return {
+    ...result,
+    message: `${result.message ?? ""}\nDiagnostic ${id} holds the full result; read_diagnostic with its id retrieves fields or pages.`,
+    details: { ...kept, diagnosticId: id, truncatedFields: evicted },
+  };
+}
+
 export function splitToolResult(result: AgentToolResult): ToolContent {
   const { images, audio, ...metadata } = result;
   // Current authoring connections accept text and images. A local audio preview

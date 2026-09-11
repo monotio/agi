@@ -56,6 +56,7 @@ import {
   type TouchedResource,
 } from "./gameTests.ts";
 import { playtestRoom, validateGenesis } from "./playtest.ts";
+import { serializeAgentLog } from "./toolTransport.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import {
   buildView,
@@ -214,6 +215,12 @@ export interface AgentSessionState {
   testsPayload?: Uint8Array | undefined;
   genesisComplete: boolean;
   /**
+   * Full tool results evicted from the model-facing projection, retrievable by
+   * read_diagnostic for this session only. Shared across candidate forks;
+   * never serialized into files.
+   */
+  readonly diagnostics: Map<string, AgentToolResult>;
+  /**
    * write_picture calls made per picture number this session. The harness
    * reports the revision number for continuity across edits.
    */
@@ -355,6 +362,7 @@ export function createAgentSessionState(existingContainer?: GameContainer): Agen
     objectPayload,
     testsPayload: undefined,
     genesisComplete: false,
+    diagnostics: new Map<string, AgentToolResult>(),
     pictureRounds: new Map<number, number>(),
     getFiles() {
       const files = new Map<string, Uint8Array>(container.files);
@@ -508,6 +516,54 @@ function touchedResources(result: AgentToolResult): TouchedResource[] {
   );
 }
 
+/** Retrieve a stored full tool result with bounded selection and pagination. */
+function readDiagnostic(
+  session: AgentSessionState,
+  args: Record<string, unknown>,
+): AgentToolResult {
+  const id = String(args["id"]);
+  const stored = session.diagnostics.get(id);
+  if (!stored)
+    return {
+      success: false,
+      error: `No diagnostic '${id}'. Artifacts are session-scoped; re-run the tool that produced it.`,
+    };
+  const fields = args["fields"];
+  const offset = typeof args["offset"] === "number" ? args["offset"] : 0;
+  const limit = Math.min(typeof args["limit"] === "number" ? args["limit"] : 16000, 32000);
+  let selected: unknown = {
+    success: stored.success,
+    message: stored.message,
+    adjustments: stored.adjustments,
+    details: stored.details,
+  };
+  if (Array.isArray(fields) && fields.length) {
+    const details = stored.details ?? {};
+    const picked: Record<string, unknown> = {};
+    const missing: string[] = [];
+    for (const field of fields) {
+      const name = String(field);
+      if (name in details) picked[name] = details[name];
+      else missing.push(name);
+    }
+    selected = { details: picked, ...(missing.length ? { missingFields: missing } : {}) };
+  }
+  const text = serializeAgentLog(selected);
+  const page = text.slice(offset, offset + limit);
+  return {
+    success: true,
+    message: `Diagnostic ${id}, ${text.length} bytes total, offset ${offset}:\n${page}`,
+    details: {
+      id,
+      offset,
+      limit,
+      totalBytes: text.length,
+      nextOffset: offset + page.length < text.length ? offset + page.length : null,
+      imageCount: stored.images?.length ?? 0,
+    },
+  };
+}
+
 /** Internal dispatch for arguments already normalized and checked against the catalog. */
 function executeValidatedAgentTool(
   session: AgentSessionState,
@@ -516,6 +572,7 @@ function executeValidatedAgentTool(
 ): AgentToolResult {
   if (name === "read_command_reference") return readCommandReference(session.profile, args);
   if (name === "read_authoring_guide") return readAuthoringGuide(args);
+  if (name === "read_diagnostic") return readDiagnostic(session, args);
   const gameTest = executeGameTestTool(session, name, args);
   if (gameTest) {
     if (name === "write_game_tests" && gameTest.success)

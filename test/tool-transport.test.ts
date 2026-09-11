@@ -13,6 +13,7 @@ import {
   anthropicToolContent,
   anthropicToolDefinitions,
   anthropicToolResult,
+  projectToolResult,
   serializeAgentLog,
 } from "../src/agent/toolTransport.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
@@ -199,6 +200,11 @@ interface TransportCase {
 
 test("every catalog tool produces bounded binary-free transport on real success and failure paths", async () => {
   const session = bootedSession();
+  session.diagnostics.set("d0", {
+    success: true,
+    message: "stored artifact",
+    details: { note: "retrievable" },
+  });
   const logicRead = executeAgentTool(session, "read_logic", { num: 2, offset: null, limit: null });
   const celRead = executeAgentTool(session, "read_view_cel", {
     num: 0,
@@ -406,6 +412,10 @@ test("every catalog tool produces bounded binary-free transport on real success 
     read_frames: { count: 1, stride: 1, sheet: false, plane: null },
     read_objects: {},
     read_state: {},
+    read_diagnostic: {
+      good: { id: "d0", fields: null, offset: null, limit: null },
+      bad: { id: "d0", fields: null, offset: -1, limit: null },
+    },
     finish_genesis: { notes: "Booted synthetic room." },
     write_room: {
       good: () => ({
@@ -483,6 +493,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     "preview_sound",
     "read_authoring_guide",
     "read_command_reference",
+    "read_diagnostic",
     "read_frames",
     "read_game_tests",
     "read_logic",
@@ -526,6 +537,54 @@ test("every catalog tool produces bounded binary-free transport on real success 
     assert.equal(failure.success, false, `${name}: invalid args unexpectedly succeeded`);
     assertTransport(name, "failure", failure);
   }
+});
+
+test("model-facing projection evicts large fields into a retrievable diagnostic", () => {
+  const session = createAgentSessionState();
+  const full: AgentToolResult = {
+    success: true,
+    message: "Read logic 1.",
+    details: {
+      num: 1,
+      revision: "34-48575beb",
+      source: 'print("' + "x".repeat(600) + '");',
+      history: Array.from({ length: 40 }, (_, i) => `step ${i} with detail`),
+    },
+  };
+  const projected = projectToolResult(full, session.diagnostics, "d1");
+  assert.equal(projected.details?.["num"], 1);
+  assert.equal(projected.details?.["revision"], "34-48575beb");
+  assert.equal(projected.details?.["diagnosticId"], "d1");
+  assert.deepEqual(projected.details?.["truncatedFields"], ["source", "history"]);
+  assert.match(projected.message ?? "", /d1/);
+  assert.equal(session.diagnostics.get("d1"), full);
+
+  // Small details pass through unchanged — no artifact, no pointer.
+  const compact = projectToolResult(
+    { success: false, error: "nope", details: { num: 2 } },
+    session.diagnostics,
+    "d2",
+  );
+  assert.deepEqual(compact.details, { num: 2 });
+  assert.equal(session.diagnostics.has("d2"), false);
+
+  const read = executeAgentTool(session, "read_diagnostic", {
+    id: "d1",
+    fields: ["history", "missing"],
+    offset: null,
+    limit: null,
+  });
+  assert.equal(read.success, true, read.error ?? "");
+  assert.match(read.message ?? "", /step 3 with detail/);
+  assert.match(read.message ?? "", /missingFields/);
+
+  const absent = executeAgentTool(session, "read_diagnostic", {
+    id: "d9",
+    fields: null,
+    offset: null,
+    limit: null,
+  });
+  assert.equal(absent.success, false);
 });
 
 test("Anthropic tool definitions send the catalog schemas verbatim and never strict", () => {

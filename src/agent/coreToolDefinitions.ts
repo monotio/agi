@@ -193,6 +193,26 @@ export const PLAYTEST_EXPECT_SCHEMA = {
 };
 export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
+    name: "read_diagnostic",
+    description:
+      "Retrieve a stored diagnostic artifact by `id` (a tool result's diagnosticId when fields were truncated). `fields` limits output to named detail fields; `offset`/`limit` page the serialized text.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "string", minLength: 1, maxLength: 32 },
+        fields: {
+          type: ["array", "null"],
+          maxItems: 16,
+          items: { type: "string", minLength: 1, maxLength: 64 },
+        },
+        offset: { type: ["integer", "null"], minimum: 0 },
+        limit: { type: ["integer", "null"], minimum: 1, maximum: 32000 },
+      },
+      required: ["id", "fields", "offset", "limit"],
+    },
+  },
+  {
     name: "read_room_context",
     description:
       "Inspect a room's compiled resources, intent, dependencies, bindings, inventory and live state. Null selects the live room. Live state is paused; resources include staged edits.",

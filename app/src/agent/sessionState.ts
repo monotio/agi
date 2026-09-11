@@ -14,6 +14,9 @@ export function forkAgentState(source: AgentSessionState): AgentSessionState {
   next.objectPayload = source.objectPayload?.slice();
   next.testsPayload = source.testsPayload?.slice();
   next.genesisComplete = source.genesisComplete;
+  // Diagnostic artifacts are session-scoped and append-only: forks share them
+  // so a projected result stays retrievable no matter which candidate ran.
+  Object.assign(next, { diagnostics: source.diagnostics });
   for (const [num, count] of source.pictureRounds) next.pictureRounds.set(num, count);
   return next;
 }

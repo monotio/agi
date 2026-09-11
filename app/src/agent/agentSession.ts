@@ -39,6 +39,7 @@ import {
   type LlmTurnResult,
 } from "./llmClient.ts";
 import { StubAgent } from "./stubAgent.ts";
+import { projectToolResult } from "../../../src/agent/toolTransport.ts";
 import type { AgentEventSink, AgentHandler, LlmRequest } from "./sabBridge.ts";
 import { continuationTranscript } from "../projectArchive.ts";
 
@@ -105,6 +106,7 @@ export class AgentSession implements AgentHandler {
   private runtime: AgentRuntimeDeps = {};
   /** Local tool-execution ms since the last provider request, for telemetry. */
   private pendingToolMs = 0;
+  private diagnosticSeq = 0;
   /** Context is attached to the first submitted request, never sent on panel open. */
   private oriented = false;
   private orientation: Pick<OrientationInput, "game" | "profile"> | undefined;
@@ -210,7 +212,7 @@ Answer the player's question using evidence from inspection when needed. For hin
             { tool: call.name, result: { ...result, images: undefined } },
           );
           this.task.recordTool(call.name, call.input, result);
-          results.push({ toolCallId: call.id, result });
+          results.push({ toolCallId: call.id, result: this.projectForModel(result) });
         }
         turn = await this.observeTurn(this.conversation.sendToolResults(results), "ask");
       }
@@ -350,7 +352,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           );
           this.pendingToolMs += performance.now() - toolStart;
           this.task.recordTool(tc.name, tc.input, res);
-          results.push({ toolCallId: tc.id, result: res });
+          results.push({ toolCallId: tc.id, result: this.projectForModel(res) });
         }
         turn = await this.observeTurn(this.conversation.sendToolResults(results), "remix");
         if (remixDone) break;
@@ -383,6 +385,15 @@ Answer the player's question using evidence from inspection when needed. For hin
       );
       throw error;
     }
+  }
+
+  /**
+   * The compact model-facing projection of a tool result. The full result is
+   * kept in the session diagnostic store under a diagnosticId the projected
+   * details point at; earlier transcript items are never rewritten.
+   */
+  private projectForModel(result: AgentToolResult): AgentToolResult {
+    return projectToolResult(result, this.state.diagnostics, `d${++this.diagnosticSeq}`);
   }
 
   private async observeTurn(
@@ -646,7 +657,7 @@ Answer the player's question using evidence from inspection when needed. For hin
             { tool: tc.name, args: tc.input, result: { ...res, images: undefined } },
           );
           this.task.recordTool(tc.name, tc.input, res);
-          results.push({ toolCallId: tc.id, result: res });
+          results.push({ toolCallId: tc.id, result: this.projectForModel(res) });
         }
         turn = await this.observeTurn(this.conversation.sendToolResults(results), "genesis");
         if (this.state.genesisComplete) break;
@@ -803,7 +814,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           );
           this.pendingToolMs += performance.now() - toolStart;
           this.task.recordTool(tc.name, tc.input, result);
-          results.push({ toolCallId: tc.id, result });
+          results.push({ toolCallId: tc.id, result: this.projectForModel(result) });
         }
         turn = await this.observeTurn(this.conversation.sendToolResults(results), "room");
         if (completed) break;
