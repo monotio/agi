@@ -14,15 +14,11 @@ onUnmounted(() => clearInterval(clock));
 const TOOL_SUBJECTS: Record<string, string> = {
   write_picture: "scenery",
   write_view: "sprites",
-  write_actor: "a character",
   write_logic_source: "room behavior",
   write_words: "vocabulary",
   write_inventory_objects: "inventory",
   write_sound: "sound",
   write_music: "music",
-  read_frames: "a scene inspection",
-  read_state: "a game inspection",
-  read_objects: "a character inspection",
   read_room_context: "a room inspection",
   playtest_room: "a playtest",
 };

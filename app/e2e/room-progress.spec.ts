@@ -162,10 +162,14 @@ for (const fail of [false, true])
         const stateOutput = input.find(
           (item) => item.type === "function_call_output" && item.call_id === "call0",
         )!;
-        const state = JSON.parse(stateOutput.output![0]!.text).details;
-        expect(state.room).toBe(1);
-        expect(state.inventory).toEqual([{ num: 0, name: "Old key", room: 255 }]);
-        expect(state.vars).toHaveLength(256);
+        const details = JSON.parse(stateOutput.output![0]!.text).details;
+        const live = details.live;
+        expect(live.room).toBe(1);
+        expect(live.inventory).toEqual([{ num: 0, name: "Old key", room: 255 }]);
+        // The full state section is oversized: it evicts into a diagnostic
+        // the model pages with read_diagnostic.
+        expect(details.truncatedFields).toContain("state");
+        expect(details.diagnosticId).toBeTruthy();
         const viewOutput = input.find(
           (item) => item.type === "function_call_output" && item.call_id === "call2",
         )!;

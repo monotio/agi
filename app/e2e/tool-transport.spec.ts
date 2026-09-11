@@ -52,9 +52,9 @@ for (const provider of ["openai", "anthropic"] as const) {
             ],
           },
         });
-        conversation.setTools(["read_view", "read_picture"]);
+        conversation.setAvailableTools(["read_view", "read_picture"]);
         await conversation.sendUserMessage("Inspect a room.");
-        conversation.setTools();
+        conversation.setAvailableTools();
         conversation.appendToolResults([{ toolCallId: "picture", result }]);
         await conversation.complete();
         conversation.appendToolResults([{ toolCallId: "sprite", result: sprite }]);
@@ -84,11 +84,17 @@ for (const provider of ["openai", "anthropic"] as const) {
     expect(requests).toHaveLength(4);
     if (provider === "openai")
       expect(requests[0]!["prompt_cache_options"]).toEqual({ mode: "implicit", ttl: "30m" });
-    const allowed =
-      provider === "openai"
-        ? (requests[0]!["tool_choice"] as { tools: { name: string }[] }).tools
-        : (requests[0]!["tools"] as { name: string }[]);
-    expect(allowed.map((tool) => tool.name).sort()).toEqual(["read_picture", "read_view"]);
+    if (provider === "openai") {
+      const allowed = (requests[0]!["tool_choice"] as { tools: { name: string }[] }).tools;
+      expect(allowed.map((tool) => tool.name).sort()).toEqual(["read_picture", "read_view"]);
+    } else {
+      // Anthropic has no allowed-tools field: the request advertises the
+      // full stable catalog and the host dispatcher denies unavailable tools.
+      const advertised = (requests[0]!["tools"] as { name: string }[]).map((tool) => tool.name);
+      expect(advertised).toContain("read_picture");
+      expect(advertised).toContain("read_view");
+      expect(advertised).toContain("write_view");
+    }
     if (provider === "openai") expect(requests[0]!["tools"]).toEqual(requests[1]!["tools"]);
     expect(
       (requests[1]!["tools"] as { name: string }[]).some((tool) => tool.name === "write_view"),

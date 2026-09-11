@@ -12,7 +12,7 @@ import { openContainer } from "../../src/container/container.ts";
 import { readGameSaves, writeGameSave } from "./gameSaves.ts";
 import { isProgressPreview, storeRecordWithPreviewFallback } from "./progressPreview.ts";
 import type { ZipFileInput } from "./zip.ts";
-import type { ProjectId } from "./gameTypes.ts";
+import { gameStorageKey, type ProjectId } from "./gameTypes.ts";
 
 const AUTOSAVE_PREFIX = "monotio_agi.autosave.";
 
@@ -43,7 +43,7 @@ export interface AutosaveRecord {
 }
 
 export function autosaveTargetKey(game: AutosaveGame): string {
-  return game.installed ? (game.folder ?? game.hash ?? game.alias ?? "") : (game.projectId ?? "");
+  return gameStorageKey(game);
 }
 
 export function autosaveKey(target: string): string {

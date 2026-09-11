@@ -16,7 +16,7 @@ import {
   updateGameConversation,
   type CachedGameData,
 } from "./gameStorage.ts";
-import type { BootedGame } from "./gameTypes.ts";
+import { gameStorageKey, type BootedGame } from "./gameTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
 
 /** Remix bubble state; the transcript slice is the live tool-call feed. */
@@ -348,7 +348,8 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         );
       // The checkpoint moves with the progress: the original card must never
       // offer a snapshot taken under resources its own container does not have.
-      clearAutosave(game.installed ? (game.hash ?? game.alias!) : game.projectId!);
+      clearAutosave(gameStorageKey(game));
+      if (game.installed && game.hash) clearAutosave(game.hash);
       if (game.installed && game.alias) clearAutosave(game.alias);
       const newBooted: BootedGame = {
         installed: false,

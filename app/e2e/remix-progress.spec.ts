@@ -62,11 +62,15 @@ test("remix progress follows activity, preserves reading position and jumps to l
                     frames: null,
                   }
                 : request === 2
-                  ? { room: null, state: null, frames: null }
+                  ? {
+                      room: null,
+                      state: { variables: null, flags: [i], compact: true },
+                      frames: null,
+                    }
                   : {
                       room: null,
                       state: null,
-                      frames: { count: 1, stride: 1, sheet: true, plane: null },
+                      frames: { count: 1, stride: i + 1, sheet: true, plane: null },
                     },
             ),
           }));

@@ -28,6 +28,7 @@ import {
   type InstalledGameDescriptor,
   type ProjectId,
 } from "./useEngine.ts";
+import { gameStorageKey } from "./gameTypes.ts";
 import { AgiStage } from "./three/AgiStage.ts";
 import { FRAME_HEIGHT, FRAME_WIDTH, compositeFrame } from "./composite.ts";
 import { GLYPH_CURSOR, TEXT_COLS } from "../../src/runtime/textSurface.ts";
@@ -650,11 +651,11 @@ function llmConfig(): LlmConfig {
 
 /** Discard the resumed game's progress and boot it from the top. */
 async function onStartOver(): Promise<void> {
+  const current = currentGame();
+  const pending = pendingAutosave.value?.game;
   const target =
-    currentGame()?.projectId ??
-    currentGame()?.hash ??
-    pendingAutosave.value?.game.projectId ??
-    pendingAutosave.value?.game.hash ??
+    (current ? gameStorageKey(current) : "") ||
+    (pending ? gameStorageKey(pending) : "") ||
     lastGameKey();
   if (!target) return;
   await resumeAudio();

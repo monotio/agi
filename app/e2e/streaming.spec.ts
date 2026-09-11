@@ -139,7 +139,7 @@ for (const provider of ["openai", "anthropic"] as const) {
         ),
       );
       await expect(page.getByTestId("agent-stream-status")).toHaveText(
-        "Preparing a game inspection…",
+        "Preparing a room inspection…",
       );
       expect(requests).toHaveLength(1);
       const toolsBeforeCompletion = await page.evaluate(() => JSON.stringify(window.__AGI_TRACE__));

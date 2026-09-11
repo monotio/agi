@@ -668,9 +668,9 @@ test("KQ1 orientation accompanies the first question, Escape resumes", async ({ 
   });
   expect(prompt).toContain("ORIENTATION: You have joined a game already in progress");
   expect(prompt).toContain("Game: kq1");
-  expect(prompt).toContain("--- Resources ---");
-  expect(prompt).toMatch(/logic: \d+ present/);
-  expect(prompt).toContain("--- Dictionary ---");
+  expect(prompt).toContain("Staged set");
+  expect(prompt).toMatch(/logic \[0-/);
+  expect(prompt).toMatch(/dictionary \d+ words/);
 
   // The world really is frozen: the interpreter's cycle counter stops dead
   // and KQ1's animating courtyard stops changing with it.
@@ -724,7 +724,18 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
   const container = openContainer(new Map(Object.entries(imported.files)));
   expect(disassembleLogic(container.getResource("logic", 1)!)).toContain("weathered sign");
   expect(await page.evaluate(() => localStorage.getItem("monotio_agi.authored.kq1"))).toBeNull();
+  // The remix resumes into queued print windows ("press enter"). Ejecting
+  // while one is open cannot take a fresh checkpoint, so the app asks for an
+  // explicit choice: leave anyway keeps the already-saved remix project.
+  const savedCard = page
+    .getByTestId("saved-game-gallery")
+    .locator("[data-testid^='saved-game-card-']");
+  const leaveAnyway = page.getByTestId("eject-leave-anyway");
   await page.getByTestId("btn-eject").click();
+  await expect
+    .poll(async () => (await leaveAnyway.isVisible()) || (await savedCard.count()) > 0)
+    .toBe(true);
+  if (await leaveAnyway.isVisible()) await leaveAnyway.click();
 
   // The remix is a saved game of its own; it must not overwrite the
   // installed game's storage identity.
@@ -732,9 +743,6 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
     Object.keys(localStorage).filter((k) => k.includes("kq1")),
   );
   expect(stored).toEqual([]);
-  const savedCard = page
-    .getByTestId("saved-game-gallery")
-    .locator("[data-testid^='saved-game-card-']");
   await expect(savedCard).toHaveCount(1);
   await openSavedGameDetails(savedCard);
   await openLibraryActions(page, savedCard);

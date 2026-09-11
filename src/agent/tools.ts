@@ -1777,6 +1777,7 @@ export function authoredLogicSource(session: AgentSessionState, num: number): st
 /** Explicit capabilities for a discussion turn; new tools require deliberate approval here. */
 export const ASK_TOOLS: readonly string[] = [
   "read_room_context",
+  "read_diagnostic",
   "read_picture",
   "read_logic",
   "read_words",
