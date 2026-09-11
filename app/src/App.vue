@@ -607,9 +607,32 @@ function markPlayHash(targetKey: string): void {
   if (location.hash !== target) history.replaceState(null, "", target);
 }
 
+const WATCH_HASH_PREFIX = "#watch/";
+
+/** The walkthrough the URL names, plus the tick the tape had reached. */
+function watchHashTarget(): { alias: string; tick: number } | null {
+  if (!location.hash.startsWith(WATCH_HASH_PREFIX)) return null;
+  try {
+    const [alias, tick] = decodeURIComponent(location.hash.slice(WATCH_HASH_PREFIX.length)).split(
+      "/",
+    );
+    if (!alias) return null;
+    const t = Number(tick);
+    return { alias, tick: Number.isFinite(t) && t > 0 ? Math.floor(t) : 0 };
+  } catch {
+    return null;
+  }
+}
+
+/** While a walkthrough runs the URL names it, so a reload re-enters playback. */
+function markWatchHash(alias: string, tick = 0): void {
+  const target = `${WATCH_HASH_PREFIX}${encodeURIComponent(alias)}${tick > 0 ? `/${tick}` : ""}`;
+  if (location.hash !== target) history.replaceState(null, "", target);
+}
+
 /** Back at the picker the URL must not name a game any more. */
 function clearPlayHash(): void {
-  if (location.hash.startsWith(PLAY_HASH_PREFIX))
+  if (location.hash.startsWith(PLAY_HASH_PREFIX) || location.hash.startsWith(WATCH_HASH_PREFIX))
     history.replaceState(null, "", `${location.pathname}${location.search}`);
 }
 
@@ -1609,11 +1632,11 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
     }
     if (ev.key === "Enter" && !state.powerUp.open) {
       ev.preventDefault();
-      if (advanceDialog()) return;
       if (state.walkthrough.status === "paused") {
         resumeWalkthrough();
         return;
       }
+      if (advanceDialog()) return;
     }
     return;
   }
@@ -1919,11 +1942,15 @@ function submit(): void {
 function onPageHidden(): void {
   if (document.visibilityState === "hidden") {
     releaseMovement();
+    if (state.walkthrough.active && state.walkthrough.alias)
+      markWatchHash(state.walkthrough.alias, state.walkthrough.tick);
     void flushAutosave();
   }
 }
 
 function onPageHide(): void {
+  if (state.walkthrough.active && state.walkthrough.alias)
+    markWatchHash(state.walkthrough.alias, state.walkthrough.tick);
   void flushAutosave();
 }
 
@@ -2001,12 +2028,16 @@ onMounted(async () => {
   if (import.meta.hot?.data) delete import.meta.hot.data["monotio_agi_resume"];
   refreshPendingAutosave();
   const playKey = playHashGameKey();
+  const watchTarget = watchHashTarget();
   if (handover) await resumeFromRecord(handover, llmConfig());
+  else if (watchTarget)
+    await startWalkthrough(watchTarget.alias, { initialTick: watchTarget.tick });
   else if (
     playKey &&
     (playKey === pendingAutosave.value?.game.projectId ||
       (pendingAutosave.value?.game.installed &&
-        (playKey === pendingAutosave.value?.game.hash ||
+        (playKey === pendingAutosave.value?.game.folder ||
+          playKey === pendingAutosave.value?.game.hash ||
           playKey === pendingAutosave.value?.game.alias)))
   )
     await resumeLastGame(llmConfig());
@@ -2051,13 +2082,19 @@ onUnmounted(() => {
 // or a boot failed) the hash is cleared and the autosave slot is re-read so
 // the offer below matches storage.
 watch(
-  () => [state.phase, state.paused] as const,
-  ([phase, paused]) => {
+  () => [state.phase, state.paused, state.walkthrough.active, state.walkthrough.tick] as const,
+  ([phase, paused, watching]) => {
     if (phase === "running") {
       if (!paused) {
-        const game = currentGame();
-        const playIdentifier = game?.installed ? (game.hash ?? game.alias) : game?.projectId;
-        if (playIdentifier) markPlayHash(playIdentifier);
+        if (watching && state.walkthrough.alias) {
+          markWatchHash(state.walkthrough.alias, state.walkthrough.tick);
+        } else {
+          const game = currentGame();
+          const playIdentifier = game?.installed
+            ? (game.folder ?? game.hash ?? game.alias)
+            : game?.projectId;
+          if (playIdentifier) markPlayHash(playIdentifier);
+        }
       }
       return;
     }

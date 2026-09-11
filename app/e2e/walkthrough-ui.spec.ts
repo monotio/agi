@@ -365,6 +365,57 @@ test.describe("Walkthrough UI", () => {
         { timeout: 10_000 },
       )
       .toBe(true);
+
+    // Resume must not re-pause on the same still-open dialogue: the tape acks
+    // the modal and the game moves on.
+    await expect
+      .poll(
+        async () => page.evaluate(() => window.__AGI_REPLAY__?.latest?.state?.modalKind ?? null),
+        { timeout: 10_000 },
+      )
+      .toBe(null);
+  });
+
+  test("a reload during a walkthrough re-enters playback at the same spot", async ({ page }) => {
+    test.skip(Boolean(missing), missing || "");
+    await isolateStorage(page);
+    await page.goto("/");
+
+    const menuBtn = page.getByTestId("game-actions-kq1");
+    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
+    await menuBtn.click();
+
+    const runBtn = page.getByTestId("run-walkthrough");
+    await expect(runBtn).toBeVisible();
+    await runBtn.click();
+
+    const bar = page.getByTestId("walkthrough-bar");
+    await expect(bar).toBeVisible();
+    // The running tape is tracked in the URL so a reload can re-join it.
+    await expect.poll(async () => page.url(), { timeout: 10_000 }).toMatch(/#watch\/kq1\/\d+/);
+    const tickBefore = await page.evaluate(() => window.__AGI_STATE__?.walkthrough.tick ?? 0);
+    expect(tickBefore).toBeGreaterThan(0);
+
+    await page.reload();
+
+    await expect(bar).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(
+            () =>
+              window.__AGI_STATE__?.walkthrough.active === true &&
+              window.__AGI_STATE__?.walkthrough.status === "playing",
+          ),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+    // The tape resumed near the recorded tick rather than restarting at 0.
+    await expect
+      .poll(async () => page.evaluate(() => window.__AGI_STATE__?.walkthrough.tick ?? 0), {
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(Math.floor(tickBefore / 2));
   });
 
   test("seeks past King Edward to Dagger checkpoint", async ({ page }) => {

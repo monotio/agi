@@ -60,6 +60,10 @@ export async function runReplayBatch(
   const getSpeed: () => number = typeof rawSpeed === "function" ? rawSpeed : () => rawSpeed ?? 0;
   const currentSessionId = options?.sessionId ?? driver.sessionId ?? 0;
   let currentRequestId = 0;
+  // Story pause fires once per dialogue episode: an open modal keeps reporting
+  // itself on every new observation, so a resume must not re-pause on the same
+  // dialogue it just left.
+  let inStoryDialogue = false;
 
   function updateStatus(status: string, requestId = currentRequestId): void {
     driver.status = {
@@ -109,7 +113,6 @@ export async function runReplayBatch(
   let typedLine = "";
   let lastProgressAt = 0;
   let lastProgressActionIndex = -1;
-  let lastDwelledRevision: number | null = null;
 
   async function resumed(before: ReplayObservation): Promise<void> {
     if (!before.blocked) return;
@@ -208,17 +211,20 @@ export async function runReplayBatch(
         if (remainder > 0) await sleep(remainder);
       }
       checkAborted();
-      if (
-        options?.pauseOnDialog?.() &&
-        isStoryDialogue(observation) &&
-        !isSeeking() &&
-        getEffectiveSpeed() > 0 &&
-        observation.revision !== lastDwelledRevision
-      ) {
-        lastDwelledRevision = observation.revision;
-        options.onDialogPause?.();
-        await checkPaused();
-        checkAborted();
+      if (isStoryDialogue(observation)) {
+        if (
+          !inStoryDialogue &&
+          options?.pauseOnDialog?.() &&
+          !isSeeking() &&
+          getEffectiveSpeed() > 0
+        ) {
+          inStoryDialogue = true;
+          options.onDialogPause?.();
+          await checkPaused();
+          checkAborted();
+        }
+      } else {
+        inStoryDialogue = false;
       }
       if (options?.onProgress && actionIndex !== undefined && !isSeeking()) {
         const now = performance.now();
@@ -303,6 +309,7 @@ export async function runReplayBatch(
       const charDelay = Math.max(5, Math.min(35, Math.round(22 / speed)));
       for (let i = 1; i <= text.length; i++) {
         checkAborted();
+        await checkPaused();
         driver.setPromptEcho(text.slice(0, i));
         if (options?.dwellOnDialog) {
           await options.dwellOnDialog(charDelay);
@@ -334,19 +341,20 @@ export async function runReplayBatch(
     try {
       switch (action.kind) {
         case "key":
-          if (
-            driver.latest &&
-            isStoryDialogue(driver.latest) &&
-            !isSeeking() &&
-            getEffectiveSpeed() > 0 &&
-            driver.latest.revision !== lastDwelledRevision
-          ) {
-            lastDwelledRevision = driver.latest.revision;
-            if (options?.pauseOnDialog?.()) {
+          if (driver.latest && isStoryDialogue(driver.latest)) {
+            if (
+              !inStoryDialogue &&
+              options?.pauseOnDialog?.() &&
+              !isSeeking() &&
+              getEffectiveSpeed() > 0
+            ) {
+              inStoryDialogue = true;
               options.onDialogPause?.();
               await checkPaused();
               checkAborted();
             }
+          } else {
+            inStoryDialogue = false;
           }
           await key(action.code);
           checkAborted();
