@@ -4870,6 +4870,7 @@ export class Engine {
       inputEnabled: this.inputAccepted,
       pictureShown: this.pictureShown,
       terminated: this.terminated,
+      controls: this.readControls(),
       inventory: this.itemNames().map((name, num) => ({
         num,
         name,
@@ -4986,6 +4987,8 @@ export interface EngineStateReport {
   modalKind: string | null;
   /** Instance serial of the open modal: a new window means a new beat. */
   modalSerial: number;
+  /** Host input bindings: keys the game or interpreter service currently claims. */
+  controls?: GameControlBinding[] | undefined;
   /** Current item locations, with 255 meaning carried. */
   inventory: { num: number; name: string; room: number }[];
 }

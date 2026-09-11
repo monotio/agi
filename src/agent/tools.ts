@@ -78,6 +78,7 @@ import {
 } from "../types.ts";
 import { createContainer } from "../container/container.ts";
 import { detectProfile, DEFAULT_V2_PROFILE, type AgiProfile } from "../runtime/profile.ts";
+import { describeKeyWord } from "../runtime/keys.ts";
 import {
   FRAME_HEIGHT,
   FRAME_WIDTH,
@@ -1525,6 +1526,31 @@ export interface AgentRuntimeDeps {
   readonly checkpoint?: (() => Uint8Array | null | Promise<Uint8Array | null>) | undefined;
 }
 
+/**
+ * Host input bindings in readable form: the key name plus what it does —
+ * a menu item text, an engine service label, or its controller number.
+ */
+function describeControls(
+  controls: unknown,
+): { key: string; controller: number | null; label: string | null }[] {
+  if (!Array.isArray(controls)) return [];
+  return controls.slice(0, 32).map((binding) => {
+    const b = binding as Record<string, unknown>;
+    const menus = Array.isArray(b["menuItems"])
+      ? b["menuItems"]
+          .map((item) => String((item as Record<string, unknown>)["text"] ?? "").trim())
+          .filter(Boolean)
+      : [];
+    return {
+      key: typeof b["key"] === "number" ? describeKeyWord(b["key"]) : String(b["key"]),
+      controller: typeof b["controller"] === "number" ? b["controller"] : null,
+      label:
+        (typeof b["label"] === "string" ? b["label"] : null) ??
+        (menus.length ? [...new Set(menus)].join(" / ") : null),
+    };
+  });
+}
+
 /** Returned when a runtime tool is called with no interpreter attached. */
 const NO_LIVE_GAME =
   "No live game is attached to this session, so runtime inspection is unavailable. Use read_logic, read_picture and list_resources instead.";
@@ -1719,6 +1745,7 @@ export async function executeAgentToolAsync(
         logic: logic.success ? logic.details : { error: logic.error },
         resources: index.details,
         origin: { kind: "staged", resourceSet: resourceSetRevision(session) },
+        wordCount: session.sources.words.size,
         intent: session.authoring.world.rooms[String(room)] ?? null,
         bindings: Object.fromEntries(Object.entries(session.authoring.bindings).slice(0, 32)),
         bindingCount: Object.keys(session.authoring.bindings).length,
@@ -1734,6 +1761,7 @@ export async function executeAgentToolAsync(
                 egoY: live["egoY"],
                 inventory: live["inventory"],
                 modalKind: live["modalKind"],
+                controls: describeControls(live["controls"]),
               },
             }
           : {}),

@@ -13,6 +13,7 @@
  */
 
 import { PICTURE_SOURCE_DOC } from "../picture/source.ts";
+import type { AgentToolResult } from "./tools.ts";
 
 export const AGI_SYSTEM_PROMPT = `You are the Game Master and Author for an authentic Sierra AGI (Adventure Game Interpreter) engine running live in the player's browser.
 
@@ -98,6 +99,77 @@ ${templateText.trim()}
 ---`;
 }
 
+/** "1-4, 7" for [1,2,3,4,7]; keeps the resource index one line per kind. */
+function numberRanges(nums: readonly number[]): string {
+  const parts: string[] = [];
+  let start: number | null = null;
+  let prev = 0;
+  const flush = () => parts.push(start === prev ? `${start}` : `${start}-${prev}`);
+  for (const n of nums) {
+    if (start === null || n !== prev + 1) {
+      if (start !== null) flush();
+      start = n;
+    }
+    prev = n;
+  }
+  if (start !== null) flush();
+  return parts.join(",");
+}
+
+/**
+ * The compact first-turn scene brief: which resources exist, the current
+ * room's revision tokens, authored intent, and — when a game is paused —
+ * ego, visible objects, controls and carried items. One line per concern.
+ */
+export function createSceneBrief(
+  roomContext: AgentToolResult,
+  picture: AgentToolResult,
+  objects: AgentToolResult | null,
+): string {
+  const details = (roomContext.details ?? {}) as Record<string, unknown>;
+  const resources = (details["resources"] ?? {}) as Record<string, unknown>;
+  const present = (resources["present"] ?? {}) as Record<string, number[]>;
+  const free = (resources["free"] ?? {}) as Record<string, number[]>;
+  const index = Object.keys(present)
+    .sort()
+    .map(
+      (kind) =>
+        `${kind} ${present[kind]!.length ? `[${numberRanges(present[kind]!)}]` : "none"} (next free ${(free[kind] ?? [])[0] ?? "none"})`,
+    )
+    .join("; ");
+  const logic = (details["logic"] ?? {}) as Record<string, unknown>;
+  const bindingNames = Object.keys((details["bindings"] ?? {}) as Record<string, unknown>);
+  const origin = (details["origin"] ?? {}) as Record<string, unknown>;
+  const lines: string[] = [
+    `Staged set ${origin["resourceSet"] ?? "?"}: ${index || "no resources"}; dictionary ${details["wordCount"] ?? "?"} words; bindings ${bindingNames.length ? bindingNames.slice(0, 8).join(", ") + (bindingNames.length > 8 ? ` +${bindingNames.length - 8}` : "") : "none"}`,
+    `Room ${details["room"]}: logic revision ${logic["revision"] ?? "none"}, picture revision ${(picture.details?.["revision"] as string) ?? "none"}${typeof details["intent"] === "string" ? `; intent "${details["intent"]}"` : ""}`,
+  ];
+  const live = details["live"] as Record<string, unknown> | undefined;
+  if (live) {
+    const objList = (objects?.details?.["objects"] as Record<string, unknown>[] | undefined) ?? [];
+    const objSummary = objList.length
+      ? objList
+          .slice(0, 8)
+          .map((o) => `o${o["num"]}=view${o["view"]}@(${o["x"]},${o["y"]})`)
+          .join(" ")
+      : "none";
+    const controls = (
+      (live["controls"] as { key: string; label: string | null }[] | undefined) ?? []
+    )
+      .filter((c) => c.label)
+      .map((c) => `${c.key}=${c.label}`)
+      .join(", ");
+    const carried = ((live["inventory"] as { name: string; room: number }[] | undefined) ?? [])
+      .filter((item) => item.room === 255)
+      .map((item) => item.name)
+      .join(", ");
+    lines.push(
+      `Live: room ${live["room"]}, ego (${live["egoX"]},${live["egoY"]})${live["modalKind"] ? `, modal ${live["modalKind"]}` : ""}; objects ${objSummary}; controls ${controls || "none"}${carried ? `; carrying ${carried}` : ""}`,
+    );
+  }
+  return lines.join("\n");
+}
+
 export interface OrientationInput {
   /** Game identifier, alias or title, e.g. "kq1". */
   game: string;
@@ -105,19 +177,17 @@ export interface OrientationInput {
   profile: string;
   /** Room the player is standing in right now. */
   room: number;
-  /** Output of the list_resources tool, or an equivalent listing. */
-  resourceListing: string;
-  /** Disassembled source of the current room's logic. */
-  logicSource: string;
-  /** Picture source of the current room. */
-  pictureSource: string;
-  /** Dictionary summary (read_words). */
-  wordsSummary: string;
+  /**
+   * Compact scene brief composed from read_room_context: resource index,
+   * current-room revisions, authored intent and live objects/controls.
+   */
+  sceneBrief: string;
 }
 
 /**
- * Formats context for the first player request in an installed or imported game:
- * identity, resource directory and current room source accompany that request.
+ * Formats context for the first player request in an installed or imported
+ * game. The scene brief is deliberately compact: full source, dictionary and
+ * frame data are one targeted tool call away instead of unconditional payload.
  */
 export function createOrientationPrompt(input: OrientationInput): string {
   return `### ORIENTATION: You have joined a game already in progress
@@ -129,19 +199,9 @@ Interpreter profile: ${input.profile} (use read_command_reference for exact comm
 
 Current room: ${input.room}
 
---- Resources ---
-${input.resourceListing.trim()}
+${input.sceneBrief.trim()}
 
---- Dictionary ---
-${input.wordsSummary.trim()}
-
---- Logic ${input.room} (disassembled; re-assembles to the same bytecode) ---
-${input.logicSource.trim()}
-
---- Picture ${input.room} (picture source) ---
-${input.pictureSource.trim()}
-
-When the player asks for a change, use read_logic / read_picture / list_resources to check anything you are unsure of, keep resource numbers you author out of the ranges already in use, and patch the smallest thing that achieves what was asked. For every puzzle you author or change, store at least one game test for it with write_game_tests and run them with run_game_tests before finishing.`;
+Deep inspection is targeted: read_room_context ${input.room} for the room's logic, intent and live state; read_frames for the paused screen. Re-read a resource's revision before editing. Keep authored resource numbers out of ranges already in use, and patch the smallest thing that achieves what was asked. For every puzzle you author or change, store at least one game test for it with write_game_tests and run them with run_game_tests before finishing.`;
 }
 
 export function createRuntimeRoomPrompt(room: number, from: number): string {

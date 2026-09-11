@@ -108,7 +108,7 @@ export const SPRITE_TOOLS: readonly ToolDefinition[] = [
   {
     name: "patch_view_cels",
     description:
-      "Patch an arbitrary subset of cels in view `num` in one call: each patch replaces one cel's pixels with equal-width EGA hex `rows` (0-F; the cel keeps its transparent color). Every address, row, dimension and duplicate target is validated against the current view before anything writes; mirrored relationships are isolated with copy-on-write so other facings keep their pixels. `expectedRevision` must match the view's current revision. One compile, one commit; returns the new revision, per-cel geometry and a contact sheet.",
+      "Patch an arbitrary subset of cels in view `num` in one call: `patches` carries 1..64 targets, each replacing one cel's pixels with equal-width EGA hex `rows` (0-F; the cel keeps its transparent color). Every address, row, dimension and duplicate target is validated against the current view before anything writes; mirrored relationships are isolated with copy-on-write so other facings keep their pixels. `expectedRevision` must match the view's current revision. One compile, one commit; returns the new revision, per-cel geometry and a contact sheet.",
     parameters: {
       type: "object",
       additionalProperties: false,

@@ -28,6 +28,7 @@ import {
   createGenesisPrompt,
   createOrientationPrompt,
   createRuntimeRoomPrompt,
+  createSceneBrief,
   type OrientationInput,
 } from "../../../src/agent/prompt.ts";
 import {
@@ -169,7 +170,7 @@ export class AgentSession implements AgentHandler {
       throw new Error("Connect an API key in AI settings before using Ask or Remix.");
     this.messages.push({ role: "user", text: question });
     this.onEvent("request", `[Ask] ${question}`, { instruction: question, room });
-    const context = this.orientationContext(room);
+    const context = await this.orientationContext(room);
     if (!this.conversation) {
       const result = await executeAgentToolAsync(
         this.state,
@@ -233,29 +234,20 @@ Answer the player's question using evidence from inspection when needed. For hin
     if (!this.oriented) this.orientation = input;
   }
 
-  private orientationContext(room: number): string {
+  private async orientationContext(room: number): Promise<string> {
     if (!this.orientation || this.oriented) return "";
     const input = { ...this.orientation, room };
-    const text = (result: AgentToolResult, fallback: string): string =>
-      result.success ? (result.message ?? fallback) : `(${result.error ?? fallback})`;
+    // The compact scene brief reads through the same tools the model uses —
+    // read_room_context, read_picture, read_objects — so the brief and the
+    // on-demand deep dive can never disagree about what the session holds.
+    const [roomContext, picture, objects] = [
+      await executeAgentToolAsync(this.state, "read_room_context", { room }, this.runtime),
+      executeAgentTool(this.state, "read_picture", { num: room }),
+      await executeAgentToolAsync(this.state, "read_objects", {}, this.runtime),
+    ];
     const prompt = createOrientationPrompt({
       ...input,
-      resourceListing: text(
-        executeAgentTool(this.state, "list_resources", { kind: null }),
-        "no listing",
-      ),
-      logicSource: text(
-        executeAgentTool(this.state, "read_logic", { num: input.room }),
-        "no logic",
-      ),
-      pictureSource: text(
-        executeAgentTool(this.state, "read_picture", { num: input.room }),
-        "no picture",
-      ),
-      wordsSummary: text(
-        executeAgentTool(this.state, "read_words", { prefix: null }),
-        "no dictionary",
-      ),
+      sceneBrief: createSceneBrief(roomContext, picture, objects.success ? objects : null),
     });
     this.onEvent(
       "request",
@@ -283,7 +275,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       throw new Error("Connect an API key in AI settings before using Ask or Remix.");
     this.messages.push({ role: "user", text: instruction });
     this.onEvent("request", `[Remix] "${instruction}" (room ${room})`, { instruction, room });
-    const prompt = this.orientationContext(room) + createPowerUpPrompt(instruction, room);
+    const prompt = (await this.orientationContext(room)) + createPowerUpPrompt(instruction, room);
     if (this.stubFallback) {
       // The stub looks at the running game before it patches, exactly as the
       // model path does. That keeps the offline e2e a proof of the whole
