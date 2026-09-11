@@ -1,10 +1,9 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { decodeSave, SAVE_DESCRIPTION_BYTES } from "../src/runtime/persistence.ts";
-import { detectProfile, INTERPRETER_FILES, type AgiProfile } from "../src/runtime/profile.ts";
-import { fixtureDir, fixtureSkip } from "./fixtures.ts";
+import { detectProfile } from "../src/runtime/profile.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
@@ -24,7 +23,8 @@ import { loadGame } from "./game-fixture.ts";
  */
 
 interface PersistenceCase {
-  slug: string;
+  hash: string;
+  alias: string;
   profile: string;
   /** First playable room a restarted boot lands in. */
   firstRoom: number;
@@ -41,7 +41,8 @@ interface PersistenceCase {
 
 const GAMES: readonly PersistenceCase[] = [
   {
-    slug: "kq1",
+    hash: KNOWN_GAME_HASH.KQ1,
+    alias: "kq1",
     profile: "2.917",
     firstRoom: 1,
     blocks: [0x05e1, 0x0306, 0x0148, 0x00c8],
@@ -51,7 +52,8 @@ const GAMES: readonly PersistenceCase[] = [
     maximumScore: 158,
   },
   {
-    slug: "kq2",
+    hash: KNOWN_GAME_HASH.KQ2,
+    alias: "kq2",
     profile: "2.411",
     firstRoom: 1,
     blocks: [0x05df, 0x02db, 0x0256, 0x0078],
@@ -61,7 +63,8 @@ const GAMES: readonly PersistenceCase[] = [
     maximumScore: 185,
   },
   {
-    slug: "kq3",
+    hash: KNOWN_GAME_HASH.KQ3,
+    alias: "kq3",
     profile: "2.936",
     firstRoom: 7,
     blocks: [0x05e1, 0x02db, 0x0307, 0x00fe],
@@ -120,28 +123,15 @@ class SelectorHost extends QuietHost {
   }
 }
 
-/** The interpreter binary that carries the version string, if present. */
-function interpreterFiles(slug: string): Map<string, Uint8Array> {
-  const dir = fixtureDir(slug);
-  const files = new Map<string, Uint8Array>();
-  for (const name of INTERPRETER_FILES) {
-    if (existsSync(dir + name)) files.set(name, new Uint8Array(readFileSync(dir + name)));
-  }
-  return files;
-}
-
-function gameProfile(slug: string): AgiProfile {
-  return detectProfile(interpreterFiles(slug));
-}
-
 function boot(
-  slug: string,
+  gameRef: string,
   options: { restarted: boolean; cycles: number },
   host: QuietHost = new QuietHost(),
 ) {
-  const { container, dict } = loadGame(slug);
+  const { container, dict, files } = loadGame(gameRef, { interpreterFiles: true });
+  const profile = detectProfile(files);
   const engine = new Engine(container, host, dict, {
-    profile: gameProfile(slug),
+    profile,
     restarted: options.restarted,
   });
   for (let i = 0; i < options.cycles; i++) {
@@ -149,7 +139,7 @@ function boot(
     engine.tick();
     engine.ackPrint();
   }
-  return { engine, host, container, dict };
+  return { engine, host, container, dict, files, profile };
 }
 
 /** Block lengths of a save image, in order. */
@@ -166,13 +156,13 @@ function blockLengths(image: Uint8Array, count: number): number[] {
 }
 
 for (const game of GAMES) {
-  const skip = fixtureSkip(game.slug, ["AGIDATA.OVL"]);
+  const skip = fixtureSkip(game.hash, ["AGIDATA.OVL"]);
 
-  describe(`${game.slug} persistence`, { skip }, () => {
-    test(`save blocks match the spec's ${game.profile} ${game.slug} dimensions`, (t) => {
+  describe(`${game.alias} persistence`, { skip }, () => {
+    test(`save blocks match the spec's ${game.profile} ${game.alias} dimensions`, (t) => {
       // A cold boot runs the intro, which is where these games configure their
       // replay-pair capacity with script.size.
-      const { engine } = boot(game.slug, { restarted: false, cycles: 400 });
+      const { engine } = boot(game.hash, { restarted: false, cycles: 400 });
       assert.equal(engine.profile.id, game.profile);
       assert.equal(engine.vars[0], game.firstRoom, "reached the first playable room");
 
@@ -207,13 +197,13 @@ for (const game of GAMES) {
         assert.equal(lengths[4], (state.logicResume.length + 2) * 4);
       }
       t.diagnostic(
-        `${game.slug}: blocks ${lengths.map((l) => `0x${l.toString(16)}`).join(" ")}, ` +
+        `${game.alias}: blocks ${lengths.map((l) => `0x${l.toString(16)}`).join(" ")}, ` +
           `${state.replayActive} active replay pairs, ${state.logicResume.length} cached logics`,
       );
     });
 
     test("the status line uses the maximum score declared by the game", () => {
-      const { engine } = boot(game.slug, { restarted: false, cycles: 400 });
+      const { engine } = boot(game.hash, { restarted: false, cycles: 400 });
       assert.equal(engine.vars[7], game.maximumScore);
       assert.equal(
         engine.textRow(0).slice(1, 18).trimEnd(),
@@ -222,7 +212,7 @@ for (const game of GAMES) {
     });
 
     test("restoring into a fresh engine reproduces state and the rendered screen", (t) => {
-      const { engine } = boot(game.slug, { restarted: true, cycles: 30 });
+      const { engine } = boot(game.hash, { restarted: true, cycles: 30 });
       assert.equal(engine.vars[0], game.firstRoom);
 
       const beforeVars = Array.from(engine.vars);
@@ -240,9 +230,9 @@ for (const game of GAMES) {
 
       // A fresh engine that never ran this room: everything visible after the
       // restore has to come from the save image and its replay sequence.
-      const { container, dict } = loadGame(game.slug);
+      const { container, dict } = loadGame(game.hash);
       const freshHost = new QuietHost();
-      const fresh = new Engine(container, freshHost, dict, { profile: gameProfile(game.slug) });
+      const fresh = new Engine(container, freshHost, dict, { profile: engine.profile });
       assert.equal(new Set(fresh.surface.visual).size, 1, "the fresh surface is blank");
 
       // Restore aborts the current logic continuation, exactly as it does when
@@ -269,14 +259,14 @@ for (const game of GAMES) {
       assert.deepEqual(Array.from(fresh.surface.visual), beforeVisual, "visual buffer");
       assert.deepEqual(Array.from(fresh.surface.priority), beforePriority, "priority buffer");
       t.diagnostic(
-        `${game.slug}: ${colors.size} visual colours and ` +
+        `${game.alias}: ${colors.size} visual colours and ` +
           `${new Set(beforePriority).size} priority bands reproduced exactly`,
       );
     });
 
     test("the game's F7 restore action selects a slot and replays the saved room", () => {
       const host = new SelectorHost();
-      const { engine } = boot(game.slug, { restarted: false, cycles: 400 }, host);
+      const { engine } = boot(game.hash, { restarted: false, cycles: 400 }, host);
       host.saved = engine.serialize();
       const beforeVisual = Array.from(engine.surface.visual);
 
@@ -298,10 +288,10 @@ for (const game of GAMES) {
 test(
   "KQ3's game-written clock survives status refresh with two-digit minutes and seconds",
   {
-    skip: fixtureSkip("kq3", ["AGIDATA.OVL"]),
+    skip: fixtureSkip(KNOWN_GAME_HASH.KQ3, ["AGIDATA.OVL"]),
   },
   () => {
-    const { engine } = boot("kq3", { restarted: false, cycles: 400 });
+    const { engine } = boot(KNOWN_GAME_HASH.KQ3, { restarted: false, cycles: 400 });
     // Logic 0 displays its clock at column 20 using %v117:%v116|2:%v115|2.
     assert.equal(engine.textRow(0).slice(20, 28), "0:00:00 ");
     engine.tick();

@@ -58,8 +58,8 @@ test("production origin, isolation, worker and provider policy", async ({ page, 
   expect(workerResponse.ok()).toBe(true);
   expect(workerResponse.headers()["content-type"]).toMatch(/javascript/);
   expect(workerResponse.headers()["cache-control"]).toBe("public, max-age=31536000, immutable");
-  const cartridge = createContainer();
-  cartridge.putResource(
+  const container = createContainer();
+  container.putResource(
     "logic",
     0,
     assembleLogic('display(5, 2, "Production worker ready."); return;', { dictionary: new Map() })
@@ -98,7 +98,7 @@ test("production origin, isolation, worker and provider policy", async ({ page, 
         worker.terminate();
       }
     },
-    { url: workerPath!, files: Object.fromEntries(cartridge.files) },
+    { url: workerPath!, files: Object.fromEntries(container.files) },
   );
   expect(profile).toBe("2.936");
   expect((await request.get("/fixtures/kq1/LOGDIR")).status()).toBe(404);

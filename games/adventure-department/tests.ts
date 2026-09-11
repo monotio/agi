@@ -1,6 +1,6 @@
 /**
  * Stored game tests for the tutorial: one per exhibit and one for the walk
- * between them. They ship inside the cartridge as TESTS.JSON, so the app's
+ * between them. They ship inside the game archive as TESTS.JSON, so the app's
  * write tools rerun them after a remix and run_game_tests replays them on
  * demand. Each is a playtest_room scenario: the spawn stands where the
  * exhibit's posn() box expects the apprentice, an Enter clears the room's

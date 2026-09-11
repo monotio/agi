@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Engine } from "../src/runtime/engine.ts";
 import { AGI_KEY } from "../src/runtime/keys.ts";
-import { fixtureSkip } from "./fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { Speedrun } from "./speedrun/runner.ts";
 import { OPENING_ROUTES, opening, openingRoute } from "./speedrun/openings.ts";
 
@@ -16,11 +16,11 @@ import { OPENING_ROUTES, opening, openingRoute } from "./speedrun/openings.ts";
  */
 
 /** Cold boot through the shared driver, asserting the binary-selected profile. */
-function coldBoot(slug: string, load?: { checkVolumes?: boolean }): Speedrun {
-  const run = new Speedrun(slug, 1, load);
+function coldBoot(hashOrAlias: string, load?: { checkVolumes?: boolean }): Speedrun {
+  const run = new Speedrun(hashOrAlias, 1, load);
   assert.ok(
-    opening(slug).profiles.includes(run.engine.profile.id),
-    `${slug}: the installation selects the interpreter profile`,
+    opening(hashOrAlias).profiles.includes(run.engine.profile.id),
+    `${hashOrAlias}: the installation selects the interpreter profile`,
   );
   return run;
 }
@@ -35,9 +35,9 @@ function assertNonBlank(engine: Engine, label: string): void {
 
 test(
   "sq1: cold boot reaches the Arcada through the title screen and the name prompt",
-  { skip: fixtureSkip("sq1", ["AGIDATA.OVL"]) },
+  { skip: fixtureSkip(KNOWN_GAME_HASH.SQ1, ["AGIDATA.OVL"]) },
   () => {
-    const run = coldBoot("sq1");
+    const run = coldBoot(KNOWN_GAME_HASH.SQ1);
     run.answer(""); // the boot name prompt accepts an empty first name
     run.until(() => run.state().room === 67, 100, "title screen (room 67)");
     run.advance(60); // let the title settle before the any-key press
@@ -56,9 +56,9 @@ test(
 
 test(
   "kq2: cold boot reaches the castle exterior through the credits screen",
-  { skip: fixtureSkip("kq2", ["AGIDATA.OVL"]) },
+  { skip: fixtureSkip(KNOWN_GAME_HASH.KQ2, ["AGIDATA.OVL"]) },
   () => {
-    const run = coldBoot("kq2");
+    const run = coldBoot(KNOWN_GAME_HASH.KQ2);
     run.until(() => run.state().room === 97, 100, "credits screen (room 97)");
     // The credits text fades in on a timer after the room loads.
     run.until(() => run.engine.textRow(1).includes("KING'S QUEST ]["), 1200, "the credits title");
@@ -73,9 +73,9 @@ test(
 
 test(
   "kq3: cold boot reaches Manannan's house through the title screen",
-  { skip: fixtureSkip("kq3", ["AGIDATA.OVL"]) },
+  { skip: fixtureSkip(KNOWN_GAME_HASH.KQ3, ["AGIDATA.OVL"]) },
   () => {
-    const run = coldBoot("kq3");
+    const run = coldBoot(KNOWN_GAME_HASH.KQ3);
     run.until(() => run.state().room === 45, 100, "title screen (room 45)");
     // The copyright lines fade in on a timer after the room loads.
     run.until(
@@ -93,9 +93,9 @@ test(
 
 test(
   "pq1: cold boot reaches the station through the title screen",
-  { skip: fixtureSkip("pq1", ["AGIDATA.OVL"]) },
+  { skip: fixtureSkip(KNOWN_GAME_HASH.PQ1, ["AGIDATA.OVL"]) },
   () => {
-    const run = coldBoot("pq1");
+    const run = coldBoot(KNOWN_GAME_HASH.PQ1);
     run.until(() => run.state().room === 1, 100, "title screen (room 1)");
     run.advance(60);
     run.key(AGI_KEY.ENTER); // the title waits for any key
@@ -108,9 +108,9 @@ test(
 
 test(
   "lsl1: cold boot reaches the age-check prompt through the title and the content warning",
-  { skip: fixtureSkip("lsl1", ["AGIDATA.OVL"]) },
+  { skip: fixtureSkip(KNOWN_GAME_HASH.LSL1, ["AGIDATA.OVL"]) },
   () => {
-    const run = coldBoot("lsl1");
+    const run = coldBoot(KNOWN_GAME_HASH.LSL1);
     // 21 keeps the age check on the adult path. What follows (the quiz) is
     // beyond the opening.
     run.answerNumber(21);
@@ -152,9 +152,9 @@ test(
 
 test(
   "kq4: cold boot reaches the copy-protection question",
-  { skip: fixtureSkip("kq4", ["AGIDATA.OVL"], { checkVolumes: false }) },
+  { skip: fixtureSkip(KNOWN_GAME_HASH.KQ4, ["AGIDATA.OVL"], { checkVolumes: false }) },
   () => {
-    const run = coldBoot("kq4", { checkVolumes: false });
+    const run = coldBoot(KNOWN_GAME_HASH.KQ4, { checkVolumes: false });
     run.until(() => run.engine.textRow(6).includes("legal"), 200, "the manual question");
     // The question room and the question itself are random() picks; both pins
     // are the deterministic seed-1 outcome. The picture underneath is solid
@@ -168,15 +168,15 @@ test(
   },
 );
 
-for (const { slug } of OPENING_ROUTES) {
+for (const { alias, hash } of OPENING_ROUTES) {
   test(
-    `${slug}: opening walkthrough reaches player control and moves twice`,
+    `${alias}: opening walkthrough reaches player control and moves twice`,
     {
-      skip: fixtureSkip(slug, ["AGIDATA.OVL"]),
+      skip: fixtureSkip(hash, ["AGIDATA.OVL"]),
     },
     () => {
-      const first = openingRoute(slug);
-      const second = openingRoute(slug);
+      const first = openingRoute(hash);
+      const second = openingRoute(hash);
       assert.deepEqual(second.actions, first.actions, "cold boots reproduce the same input route");
       assert.deepEqual(second.state(), first.state());
     },

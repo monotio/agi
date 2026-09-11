@@ -1,4 +1,4 @@
-import { fixtureSkip } from "../../test/fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { expect, test } from "@playwright/test";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 
@@ -10,7 +10,7 @@ import { isolateStorage, textHook } from "./engineProbe.ts";
  * records decode. Skips when the fixture is absent. Every wait polls state the
  * app publishes through the text hook; there are no wall-clock sleeps.
  */
-const missingFixture = fixtureSkip("demopac4", ["AGIDATA.OVL"]);
+const missingFixture = fixtureSkip(KNOWN_GAME_HASH.DEMOPAC4, ["AGIDATA.OVL"]);
 test.skip(Boolean(missingFixture), missingFixture || "");
 if (missingFixture) console.warn(`[fixture skipped] ${missingFixture}`);
 
@@ -22,7 +22,12 @@ test("boots the v3 demo pack, shows its intro text and starts a demonstration", 
   page,
 }) => {
   await page.goto("/");
-  await page.getByTestId("boot-demopac4").click();
+  await page
+    .locator(
+      `[data-hash="${KNOWN_GAME_HASH.DEMOPAC4}"], [data-alias="demopac4"], [data-testid="boot-demopac4"]`,
+    )
+    .first()
+    .click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
   // The loader ships AGIDATA.OVL, whose ASCII version string selects 3.002.102.
   await expect
@@ -33,6 +38,9 @@ test("boots the v3 demo pack, shows its intro text and starts a demonstration", 
   await expect
     .poll(async () => (await textHook(page)).rows[24] ?? "", { timeout: 20_000 })
     .toContain("Press any key...");
+  // Enter is keymapped to the demo-select controller, so authentically it is
+  // not "any key": the hint names only unmapped keys.
+  await expect(page.getByTestId("title-prompt-hint")).toContainText("Press Space to start");
   await page.screenshot({ path: "test-results/demopac4-intro.png" });
 
   // A letter with the input line unfocused (input is prevented in this game).

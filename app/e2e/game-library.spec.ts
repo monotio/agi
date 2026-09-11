@@ -71,8 +71,8 @@ test("ZIP import is checked and staged before Play, with a stable duplicate", as
   await expect(card.getByTestId("btn-resume-cached")).toBeEnabled();
   await expect(card.getByTestId("library-thumbnail")).toHaveAttribute("src", /^data:image\/png/);
   await expect(page.getByTestId("input-line")).toBeHidden();
-  const firstSlug = await card.getAttribute("data-slug");
-  expect(firstSlug).toBeTruthy();
+  const firstProjectId = await card.getAttribute("data-project-id");
+  expect(firstProjectId).toBeTruthy();
   await page.getByTestId("game-zip-input").setInputFiles({
     name: "renamed.zip",
     mimeType: "application/zip",
@@ -80,7 +80,7 @@ test("ZIP import is checked and staged before Play, with a stable duplicate", as
   });
   await expect(page.getByTestId("game-import-ready")).toContainText("added to your library");
   await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(1);
-  await expect(card).toHaveAttribute("data-slug", firstSlug!);
+  await expect(card).toHaveAttribute("data-project-id", firstProjectId!);
   await card.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 });
@@ -135,7 +135,7 @@ test("index recovery preserves a game saved while another entry is being reconci
   await page.goto("/");
   const retained = await page.evaluate(
     async (entries) => {
-      const storage = await import("/src/cartridgeStorage.ts");
+      const storage = await import("/src/gameStorage.ts");
       const files = Object.fromEntries(
         entries.map(({ name, bytes }) => [name, new Uint8Array(bytes)]),
       );
@@ -146,7 +146,7 @@ test("index recovery preserves a game saved while another entry is being reconci
         files,
         words: [],
       };
-      if (!(await storage.saveAuthoredCartridge("before-recovery", data)))
+      if (!(await storage.saveAuthoredGame("before-recovery", data)))
         throw new Error("Initial save failed");
       const completion = Object.getOwnPropertyDescriptor(IDBTransaction.prototype, "oncomplete")!;
       let enter!: () => void;
@@ -173,10 +173,10 @@ test("index recovery preserves a game saved while another entry is being reconci
         },
       });
       try {
-        const recovery = storage.reconcileCartridgeIndex();
+        const recovery = storage.reconcileGameIndex();
         await entered;
         if (
-          !(await storage.saveAuthoredCartridge("during-recovery", {
+          !(await storage.saveAuthoredGame("during-recovery", {
             ...data,
             title: "New arrival",
           }))
@@ -185,8 +185,8 @@ test("index recovery preserves a game saved while another entry is being reconci
         release();
         await recovery;
         return storage
-          .listCachedCartridges()
-          .map(({ slug }) => slug)
+          .listCachedGames()
+          .map(({ projectId }) => projectId)
           .sort();
       } finally {
         release();
@@ -253,15 +253,12 @@ test("the first catalog edit forks a remix and preserves the original", async ({
   await card.getByRole("button", { name: "Play now" }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   const before = await page.evaluate(async () => {
-    const storage = await import("/src/cartridgeStorage.ts");
+    const storage = await import("/src/gameStorage.ts");
     const metadata = await import("/src/gameMetadata.ts");
-    const original = storage
-      .listCachedCartridges()
-      .find((game) => game.library?.source === "catalog")!;
-    const data = await storage.loadAuthoredCartridge(original.slug);
+    const original = storage.listCachedGames().find((game) => game.library?.source === "catalog")!;
+    const data = await storage.loadAuthoredGame(original.projectId);
     return {
-      slug: original.slug,
-      gameId: original.library!.gameId,
+      projectId: original.projectId,
       revision: original.library!.revision,
       actualRevision: await metadata.gameRevision(data!.files),
     };
@@ -303,29 +300,33 @@ test("the first catalog edit forks a remix and preserves the original", async ({
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
   await expect.poll(() => requests).toBe(2);
-  const after = await page.evaluate(async (originalSlug) => {
-    const storage = await import("/src/cartridgeStorage.ts");
+  const after = await page.evaluate(async (originalProjectId) => {
+    const storage = await import("/src/gameStorage.ts");
     const metadata = await import("/src/gameMetadata.ts");
-    const games = storage.listCachedCartridges();
-    const original = games.find((game) => game.slug === originalSlug)!;
+    const games = storage.listCachedGames();
+    const original = games.find((game) => game.projectId === originalProjectId)!;
     const remix = games.find((game) => game.library?.source === "remix")!;
-    const originalData = await storage.loadAuthoredCartridge(original.slug);
+    const originalData = await storage.loadAuthoredGame(original.projectId);
     return {
       count: games.length,
       originalRevision: original.library!.revision,
       originalActualRevision: await metadata.gameRevision(originalData!.files),
-      remixSlug: remix.slug,
+      remixProjectId: remix.projectId,
       remixSource: remix.library!.source,
       parent: remix.library!.parent,
-      currentSlug: localStorage.getItem("monotio_agi.lastGame"),
+      currentProjectId: localStorage.getItem("monotio_agi.lastGame"),
     };
-  }, before.slug);
+  }, before.projectId);
   expect(after.count).toBe(2);
   expect(after.originalRevision).toBe(before.revision);
   expect(after.originalActualRevision).toBe(before.actualRevision);
   expect(after.remixSource).toBe("remix");
-  expect(after.parent).toEqual({ gameId: before.gameId, revision: before.revision });
-  expect(after.currentSlug).toBe(after.remixSlug);
+  expect(after.parent).toEqual({
+    alias: "adventure-department",
+    projectId: before.projectId,
+    revision: before.revision,
+  });
+  expect(after.currentProjectId).toBe(after.remixProjectId);
 });
 
 test("removing a game forgets its progress, so the same bytes come back fresh", async ({
@@ -336,15 +337,15 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
   const upload = { name: "forgettable.zip", mimeType: "application/zip", buffer: roomGame() };
   await page.getByTestId("game-zip-input").setInputFiles(upload);
   const card = savedGameCard(page, "forgettable");
-  const slug = (await card.getAttribute("data-slug"))!;
-  expect(slug).toMatch(/^imported-[a-f0-9]{64}$/);
+  const projectId = (await card.getAttribute("data-project-id"))!;
+  expect(projectId).toMatch(/^imported-[a-f0-9]{64}$/);
   await card.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await waitForCycles(page, 4);
   // Leaving flushes a checkpoint; the card must offer it before the game is removed.
   await page.getByTestId("btn-eject").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
-  await expect.poll(() => storedAutosave(page, slug)).not.toBeNull();
+  await expect.poll(() => storedAutosave(page, projectId)).not.toBeNull();
   await expect(card.getByTestId("btn-resume-cached")).toHaveText("Resume");
 
   await openLibraryActions(page, card);
@@ -361,14 +362,14 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
             (key.startsWith("monotio_agi.autosave.") || key.startsWith("monotio_agi.saves.")) &&
             key.includes(s),
         ),
-      slug,
+      projectId,
     ),
   ).toEqual([]);
   expect(await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"))).toBeNull();
 
   await page.getByTestId("game-zip-input").setInputFiles(upload);
   const readded = savedGameCard(page, "forgettable");
-  await expect(readded).toHaveAttribute("data-slug", slug);
+  await expect(readded).toHaveAttribute("data-project-id", projectId);
   await expect(readded.getByTestId("btn-resume-cached")).toHaveText("Play");
   await expect(readded.getByText("IN PROGRESS", { exact: true })).toHaveCount(0);
 });

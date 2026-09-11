@@ -330,10 +330,13 @@ export class SoundPlayback {
           this.profile.sound === "early-2.089" ||
           this.profile.sound === "early-2.272" ||
           this.profile.sound === "early-2.411";
-        outputs.push({
-          kind: "psg",
-          bytes: !earlyBoth && (high & 0xe0) === 0xe0 ? [high] : [high, low],
-        });
+        // Rest notes (tone == 0) suppress frequency divisor commands (docs/fidelity.md: SN76489 attenuation latching and rest notes).
+        if (note.tone !== 0) {
+          outputs.push({
+            kind: "psg",
+            bytes: !earlyBoth && (high & 0xe0) === 0xe0 ? [high] : [high, low],
+          });
+        }
         if (this.profile.sound !== "common") {
           let control = note.control;
           if (this.profile.sound === "early-2.089" || this.profile.sound === "early-2.272") {

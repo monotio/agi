@@ -7,11 +7,11 @@ interface PromptMessage {
 
 /** Promptfoo prompt context; `vars` carries the test case's variables. */
 export interface PromptVars {
-  vars: { cartridgeText?: string };
+  vars: { templateText?: string };
 }
 
 export default function ({ vars }: PromptVars): PromptMessage[] {
-  const cartridgeText = vars.cartridgeText || "";
+  const templateText = vars.templateText || "";
   return [
     {
       role: "system",
@@ -19,7 +19,7 @@ export default function ({ vars }: PromptVars): PromptMessage[] {
     },
     {
       role: "user",
-      content: createGenesisPrompt(cartridgeText),
+      content: createGenesisPrompt(templateText),
     },
   ];
 }

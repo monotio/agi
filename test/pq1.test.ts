@@ -8,26 +8,27 @@ import { parseSound } from "../src/sound/sound.ts";
 import { parseView } from "../src/view/view.ts";
 import { detectProfile, detectVersionString } from "../src/runtime/profile.ts";
 import { createPictureSurface } from "../src/types.ts";
-import { fixtureDir, fixtureSkip } from "./fixtures.ts";
+import { fixtureDir, fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
  * Optional Police Quest 2.903 fixture tests. This build uses the v2
  * container fallback profile, 2.936. Fixture names resolve case-insensitively.
  */
-const SLUG = "pq1";
-const skip = fixtureSkip(SLUG, ["AGIDATA.OVL"]);
+const GAME_ALIAS = "pq1";
+const TARGET_HASH = KNOWN_GAME_HASH.PQ1;
+const skip = fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"]);
 
 test(
-  `${SLUG}: lowercase installation names enumerate into canonical container files`,
+  `${GAME_ALIAS}: lowercase installation names enumerate into canonical container files`,
   { skip },
   () => {
-    const onDisk = readdirSync(fixtureDir(SLUG));
+    const onDisk = readdirSync(fixtureDir(TARGET_HASH));
     assert.ok(
       onDisk.includes("logdir") && onDisk.includes("vol.0"),
       "the installation ships lowercase names",
     );
-    const { files } = loadGame(SLUG, { interpreterFiles: true });
+    const { files } = loadGame(TARGET_HASH, { interpreterFiles: true });
     assert.deepEqual([...files.keys()].sort(), [
       "AGIDATA.OVL",
       "LOGDIR",
@@ -44,10 +45,10 @@ test(
 );
 
 test(
-  `${SLUG}: v2 split container, 2.936 profile by container shape, resource census`,
+  `${GAME_ALIAS}: v2 split container, 2.936 profile by container shape, resource census`,
   { skip },
   () => {
-    const { container, files } = loadGame(SLUG, { interpreterFiles: true });
+    const { container, files } = loadGame(TARGET_HASH, { interpreterFiles: true });
     assert.deepEqual(detectContainerFormat(files), { kind: "v2-split", prefix: "" });
     assert.equal(detectVersionString(files), "2.903");
     const profile = detectProfile(files);

@@ -5,6 +5,8 @@ import UiIcon from "./UiIcon.vue";
 import AiSettingsDialog from "./AiSettings.vue";
 import SoundPreview from "./SoundPreview.vue";
 import TouchControls from "./TouchControls.vue";
+import WalkthroughBar from "./WalkthroughBar.vue";
+import WalkthroughTransport from "./WalkthroughTransport.vue";
 import {
   computed,
   nextTick,
@@ -18,15 +20,18 @@ import {
 import {
   useEngine,
   readAutosave,
-  lastGameSlug,
+  lastGameKey,
   removeLibraryGame,
   type Frame,
   type AutosaveRecord,
+  type ModalKind,
+  type InstalledGameDescriptor,
+  type ProjectId,
 } from "./useEngine.ts";
 import { AgiStage } from "./three/AgiStage.ts";
 import { FRAME_HEIGHT, FRAME_WIDTH, compositeFrame } from "./composite.ts";
 import { GLYPH_CURSOR, TEXT_COLS } from "../../src/runtime/textSurface.ts";
-import { BUILTIN_CARTRIDGES, parseCustomCartridge, type CartridgeMetadata } from "./cartridges.ts";
+import { BUILTIN_TEMPLATES, parseCustomTemplate, type GameTemplate } from "./gameTemplates.ts";
 import {
   DEFAULT_MODELS,
   MODEL_OPTIONS,
@@ -34,23 +39,25 @@ import {
   type ProviderType,
 } from "./agent/llmClient.ts";
 import {
-  getCachedCartridgeMeta,
-  loadAuthoredCartridge,
-  listCachedCartridges,
-  renameAuthoredCartridge,
-  reconcileCartridgeIndex,
-  updateCartridgePreview,
-  type CachedCartridgeMeta,
-} from "./cartridgeStorage.ts";
+  getCachedGameMeta,
+  loadAuthoredGame,
+  listCachedGames,
+  renameAuthoredGame,
+  reconcileGameIndex,
+  updateGamePreview,
+  type CachedGameMeta,
+} from "./gameStorage.ts";
 import { buildProjectZip, buildPublicGameZip } from "./projectArchive.ts";
 import { MAX_GAME_ZIP_BYTES, readGameFiles, readGameZip, type OpenedGame } from "./gameZip.ts";
 import { readGameProgress, type ImportStorageReport } from "./gameProgress.ts";
 import { captureGameDrop } from "./gameDrop.ts";
 import { GAME_CATALOG, type GameCatalogEntry } from "./gameCatalog.ts";
 import { loadHostedCatalog } from "./hostedCatalog.ts";
+import { hasWalkthrough, resolveWalkthrough, type WalkthroughCheckpoint } from "./walkthrough.ts";
 import { previewGame } from "./gamePreview.ts";
 import { addLibraryGame, copyLibraryGame, type CheckedOpening } from "./gameLibrary.ts";
 import { gameRevision } from "./gameMetadata.ts";
+import { getKnownGameByAlias } from "../../src/games/knownGames.ts";
 import {
   FUNCTION_KEYS,
   gameShortcuts,
@@ -81,8 +88,14 @@ const viewportHeight = ref(window.visualViewport?.height ?? window.innerHeight);
 watch(touchControls, (enabled) =>
   localStorage.setItem("monotio_agi.touchControls", enabled ? "on" : "off"),
 );
+// Empty until a GPU stage exists, so the 2d fallback canvas stays visible when
+// WebGPU/WebGL init fails or has not finished yet.
 const gpuBackend = ref<string>();
-const crtEnabled = ref<boolean>(localStorage.getItem("monotio_agi.crt") !== "off");
+const crtEnabled = ref<boolean>(
+  testMode
+    ? localStorage.getItem("monotio_agi.crt") === "on"
+    : localStorage.getItem("monotio_agi.crt") !== "off",
+);
 let stage: AgiStage | null = null;
 let lastFrame: Frame | null = null;
 /** Composed 320x200 RGBA frame shared by the probe canvas and the GPU stage. */
@@ -90,16 +103,18 @@ const composed = new Uint8ClampedArray(FRAME_WIDTH * FRAME_HEIGHT * 4);
 
 watch(crtEnabled, (on) => {
   localStorage.setItem("monotio_agi.crt", on ? "on" : "off");
-  if (stage) stage.crt = on;
+  if (stage) {
+    stage.crt = on;
+  }
 });
 const heldMovementKeys = new Set<string>();
 let touchMovementActive = false;
 
-// Cartridge and LLM state
-const initialWorlds = listCachedCartridges();
-const initialSlug = lastGameSlug() ?? initialWorlds[0]?.slug ?? "knights-trial";
-const savedWorlds = ref(initialWorlds);
-const selectedCartridgeSlug = ref<string>(initialSlug);
+// Game and LLM state
+const initialGames = listCachedGames();
+const initialProjectId = lastGameKey() ?? initialGames[0]?.projectId ?? "knights-trial";
+const savedGames = ref<CachedGameMeta[]>(initialGames);
+const selectedProjectId = ref<string>(initialProjectId);
 const zipInput = useTemplateRef("zipInput");
 const folderInput = useTemplateRef("folderInput");
 const importBusy = ref(false);
@@ -119,10 +134,9 @@ const availableCatalogEntries = computed(() =>
   catalogEntries.value.filter(
     (entry) =>
       entry.id !== featuredCatalog.id &&
-      !savedWorlds.value.some(
-        (world) =>
-          world.library?.catalog?.id === entry.id &&
-          world.library.catalog.version === entry.version,
+      !savedGames.value.some(
+        (game) =>
+          game.library?.catalog?.id === entry.id && game.library.catalog.version === entry.version,
       ),
   ),
 );
@@ -139,16 +153,16 @@ function observeCatalogCard(element: unknown, id: string): void {
   catalogCardIds.set(element, id);
   catalogObserver?.observe(element);
 }
-const creationSlug = ref("");
+const selectedTemplateId = ref("");
 const adventureDrafts = ref<Record<string, { title: string; brief: string; frontmatter: string }>>({
   ...Object.fromEntries(
-    BUILTIN_CARTRIDGES.map((cart) => {
-      const frontmatter = cart.rawMarkdown.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/)?.[0] ?? "";
+    BUILTIN_TEMPLATES.map((tmpl) => {
+      const frontmatter = tmpl.rawMarkdown.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/)?.[0] ?? "";
       return [
-        cart.slug,
+        tmpl.id,
         {
-          title: cart.title,
-          brief: cart.rawMarkdown.slice(frontmatter.length).trimStart(),
+          title: tmpl.title,
+          brief: tmpl.rawMarkdown.slice(frontmatter.length).trimStart(),
           frontmatter,
         },
       ];
@@ -157,12 +171,12 @@ const adventureDrafts = ref<Record<string, { title: string; brief: string; front
   custom: { title: "", brief: "", frontmatter: "---\nname: custom\n---\n" },
 });
 const adventureDraft = computed(
-  () => adventureDrafts.value[creationSlug.value] ?? adventureDrafts.value["custom"]!,
+  () => adventureDrafts.value[selectedTemplateId.value] ?? adventureDrafts.value["custom"]!,
 );
-const cachedMeta = ref<CachedCartridgeMeta | null>(getCachedCartridgeMeta(initialSlug));
+const cachedMeta = ref<CachedGameMeta | null>(getCachedGameMeta(initialProjectId));
 const renaming = ref(false);
-const expandedGameSlug = ref<string>();
-const cartridgeTitle = ref("");
+const expandedProjectId = ref<string>();
+const gameTitle = ref("");
 const renameError = ref("");
 const titleInput = ref<HTMLInputElement>();
 const createDetails = useTemplateRef("createDetails");
@@ -180,32 +194,37 @@ const createPreference = ref<"open" | "closed" | null>(storedCreatePreference);
 
 const libraryAutosaves = computed<Record<string, AutosaveRecord>>(() =>
   Object.fromEntries(
-    [...savedWorlds.value.map((world) => world.slug), ...(state.installedGames ?? [])].flatMap(
-      (slug) => {
-        const autosave = readAutosave(slug);
-        return autosave ? [[slug, autosave]] : [];
-      },
-    ),
+    [
+      ...savedGames.value.map((game) => game.projectId),
+      ...(state.installedGames ?? []).flatMap((item) => [
+        item.hash,
+        item.alias,
+        ...(item.folder ? [item.folder] : []),
+      ]),
+    ].flatMap((key) => {
+      const autosave = readAutosave(key);
+      return autosave ? [[key, autosave]] : [];
+    }),
   ),
 );
 
 /** Play now adds the release to the library; from then on the shelf offers its checkpoint. */
 function catalogHasProgress(entry: GameCatalogEntry): boolean {
-  const world = savedWorlds.value.find(
+  const game = savedGames.value.find(
     (item) =>
       item.library?.catalog?.id === entry.id && item.library.catalog.version === entry.version,
   );
-  return world !== undefined && libraryAutosaves.value[world.slug] !== undefined;
+  return game !== undefined && libraryAutosaves.value[game.projectId] !== undefined;
 }
 
-function selectLibraryWorld(world: CachedCartridgeMeta): void {
-  selectedCartridgeSlug.value = world.slug;
-  cachedMeta.value = world;
+function selectLibraryGame(game: CachedGameMeta): void {
+  selectedProjectId.value = game.projectId;
+  cachedMeta.value = game;
 }
 
-async function beginRename(world?: CachedCartridgeMeta): Promise<void> {
-  if (world) selectLibraryWorld(world);
-  cartridgeTitle.value = cachedMeta.value?.title ?? "";
+async function beginRename(game?: CachedGameMeta): Promise<void> {
+  if (game) selectLibraryGame(game);
+  gameTitle.value = cachedMeta.value?.title ?? "";
   renameError.value = "";
   renaming.value = true;
   await nextTick();
@@ -217,13 +236,13 @@ function setTitleInput(element: unknown): void {
   titleInput.value = element instanceof HTMLInputElement ? element : undefined;
 }
 
-async function saveCartridgeTitle(): Promise<void> {
-  if (!(await renameAuthoredCartridge(selectedCartridgeSlug.value, cartridgeTitle.value))) {
+async function saveGameTitle(): Promise<void> {
+  if (!(await renameAuthoredGame(selectedProjectId.value, gameTitle.value))) {
     renameError.value = "Could not save the name. Use 1–100 characters and try again.";
     return;
   }
-  cachedMeta.value = getCachedCartridgeMeta(selectedCartridgeSlug.value);
-  savedWorlds.value = listCachedCartridges();
+  cachedMeta.value = getCachedGameMeta(selectedProjectId.value);
+  savedGames.value = listCachedGames();
   renaming.value = false;
 }
 
@@ -257,14 +276,14 @@ function onMenuHashChange(): void {
   if (location.hash === "#create-adventure") void openCreateSection(false);
 }
 
-function onGameDetailsToggle(slug: string, event: Event): void {
+function onGameDetailsToggle(projectId: ProjectId, event: Event): void {
   const details = event.currentTarget as HTMLDetailsElement;
   if (details.open) {
-    expandedGameSlug.value = slug;
-    const world = savedWorlds.value.find((entry) => entry.slug === slug);
-    if (world) selectLibraryWorld(world);
-  } else if (expandedGameSlug.value === slug) {
-    expandedGameSlug.value = undefined;
+    expandedProjectId.value = projectId;
+    const game = savedGames.value.find((entry) => entry.projectId === projectId);
+    if (game) selectLibraryGame(game);
+  } else if (expandedProjectId.value === projectId) {
+    expandedProjectId.value = undefined;
     renaming.value = false;
   }
 }
@@ -289,22 +308,23 @@ const model = ref(initialProfile.model);
 const effort = ref(initialProfile.effort);
 const aiConfigured = computed(() => provider.value === "stub" || apiKey.value.trim().length > 0);
 
-watch(selectedCartridgeSlug, (slug) => {
-  cachedMeta.value = getCachedCartridgeMeta(slug);
+watch(selectedProjectId, (projectId) => {
+  cachedMeta.value = getCachedGameMeta(projectId);
   renaming.value = false;
 });
 
-const activeCartridge = computed<CartridgeMetadata>(() => {
+const activeTemplate = computed<GameTemplate>(() => {
   const brief = adventureDraft.value.brief.trim();
   const title = adventureDraft.value.title.trim() || "Untitled adventure";
   try {
-    const parsed = parseCustomCartridge(
+    const parsed = parseCustomTemplate(
       /^---\r?\n/.test(brief) ? brief : `${adventureDraft.value.frontmatter}\n${brief}`,
     );
     return adventureDraft.value.title.trim() ? { ...parsed, title } : parsed;
   } catch {
+    const id = selectedTemplateId.value || "custom";
     return {
-      slug: creationSlug.value || "custom",
+      id,
       title,
       description: brief.split("\n")[0] || "Your next adventure starts with an idea.",
       rawMarkdown: `${adventureDraft.value.frontmatter}\n# ${title}\n\n## Premise\n${brief}`,
@@ -320,7 +340,16 @@ const {
   discoverGames,
   bootGame,
   bootAgentGame,
-  bootCartridgeGame,
+  bootAuthoredGame,
+  startWalkthrough,
+  stopWalkthrough,
+  setWalkthroughSpeed,
+  toggleWalkthroughPause,
+  toggleWalkthroughPauseOnDialog,
+  advanceDialog,
+  resumeWalkthrough,
+  seekToTick,
+  seekToCheckpoint,
   sendInput,
   sendEdit,
   sendDirection,
@@ -351,10 +380,18 @@ const {
   pauseEngine,
   resumeEngine,
   updateAiConfig,
-} = useEngine((frame) => {
-  lastFrame = frame;
-  present(frame);
-});
+} = useEngine(
+  (frame) => {
+    lastFrame = frame;
+    present(frame);
+  },
+  {
+    onPromptType: (text) => {
+      promptLine.value = text;
+      echoPrompt();
+    },
+  },
+);
 
 const aiSettingsDialog = useTemplateRef("aiSettingsDialog");
 const aiSettingsSaving = ref(false);
@@ -424,10 +461,10 @@ watch(
   (busy) => {
     if (busy) return;
     const game = currentGame();
-    if (game && !game.installed) {
-      selectedCartridgeSlug.value = game.slug;
-      cachedMeta.value = getCachedCartridgeMeta(game.slug);
-      savedWorlds.value = listCachedCartridges();
+    if (game && !game.installed && game.projectId) {
+      selectedProjectId.value = game.projectId;
+      cachedMeta.value = getCachedGameMeta(game.projectId);
+      savedGames.value = listCachedGames();
     }
   },
 );
@@ -437,7 +474,8 @@ const copyFeedback = ref<string>("");
 /** Download failures are visible in both the picker and the game. */
 const exportRefusal = ref<string>("");
 const exportBusy = ref(false);
-const exportSavedProgressSlug = ref<string>();
+const exportSavedProgressKey = ref<string>();
+const ejectRefusal = ref<string>("");
 
 /**
  * Autosave the picker can offer. The app
@@ -448,7 +486,7 @@ const exportSavedProgressSlug = ref<string>();
 const pendingAutosave = ref<AutosaveRecord>();
 const hasLibraryContent = computed(
   () =>
-    savedWorlds.value.length > 0 ||
+    savedGames.value.length > 0 ||
     availableCatalogEntries.value.length > 0 ||
     Boolean(state.installedGames?.length) ||
     pendingAutosave.value !== undefined,
@@ -458,14 +496,31 @@ const createOpen = computed(() =>
     ? true
     : createPreference.value === "closed"
       ? false
-      : savedWorlds.value.length === 0 && pendingAutosave.value === undefined,
+      : savedGames.value.length === 0 && pendingAutosave.value === undefined,
 );
 
-const localGameSlugs = computed(() =>
-  (state.installedGames ?? []).filter(
-    (slug) => !savedWorlds.value.some((world) => world.slug === slug),
-  ),
-);
+const localGames = computed(() => {
+  const list = state.installedGames ?? [];
+  return list.filter(
+    (item) =>
+      !savedGames.value.some(
+        (game) =>
+          game.projectId === item.hash ||
+          game.projectId === item.alias ||
+          (item.folder && game.projectId === item.folder),
+      ),
+  );
+});
+
+const localGameAliases = computed(() => localGames.value.map((g) => g.alias));
+
+function localAutosave(game: InstalledGameDescriptor): AutosaveRecord | undefined {
+  // Folder-keyed progress keeps same-hash editions separate; descriptors
+  // without a folder (hosted installs) still match by hash or alias.
+  return game.folder
+    ? libraryAutosaves.value[game.folder]
+    : (libraryAutosaves.value[game.hash] ?? libraryAutosaves.value[game.alias]);
+}
 const TUTORIAL_SECTION_KEY = "monotio_agi.tutorial";
 const tutorialPreference = ref<"open" | "closed">();
 try {
@@ -476,7 +531,7 @@ try {
 }
 const hasOwnGames = computed(
   () =>
-    savedWorlds.value.some((world) => world.library?.catalog?.id !== featuredCatalog.id) ||
+    savedGames.value.some((game) => game.library?.catalog?.id !== featuredCatalog.id) ||
     pendingAutosave.value?.game.installed === true,
 );
 const tutorialOpen = computed(
@@ -500,22 +555,46 @@ watch(
   { immediate: true },
 );
 
-async function onPlayLocalGame(slug: string): Promise<void> {
+async function onPlayLocalGame(aliasOrHash: string): Promise<void> {
   await resumeAudio();
-  const checkpoint = readAutosave(slug);
+  const checkpoint = readAutosave(aliasOrHash);
   if (checkpoint) await resumeFromRecord(checkpoint, llmConfig());
-  else await bootGame(slug);
+  else await bootGame(aliasOrHash);
+}
+
+async function onStartWalkthrough(targetGame: string): Promise<void> {
+  await resumeAudio();
+  clearPlayHash();
+  await startWalkthrough(targetGame);
+}
+
+/** Short provenance line for a saved card: remixes name their parent, imports say so. */
+function libraryProvenance(game: CachedGameMeta): string | null {
+  const lib = game.library;
+  if (!lib) return null;
+  if (lib.source === "remix") {
+    const parent = lib.parent;
+    const parentTitle =
+      (parent?.projectId
+        ? savedGames.value.find((g) => g.projectId === parent.projectId)?.title
+        : undefined) ??
+      (parent?.alias ? getKnownGameByAlias(parent.alias)?.title : undefined) ??
+      parent?.alias;
+    return parentTitle ? `Remix of ${parentTitle}` : "Remix";
+  }
+  if (lib.source === "zip" || lib.source === "folder") return "Imported copy";
+  return null;
 }
 
 function refreshPendingAutosave(): void {
-  const slug = lastGameSlug();
-  pendingAutosave.value = (slug ? readAutosave(slug) : null) ?? undefined;
+  const key = lastGameKey();
+  pendingAutosave.value = (key ? readAutosave(key) : null) ?? undefined;
 }
 
 const PLAY_HASH_PREFIX = "#play/";
 
-/** The slug the URL says is being played, or null outside a game. */
-function playHashSlug(): string | null {
+/** The target key the URL says is being played, or null outside a game. */
+function playHashGameKey(): string | null {
   if (!location.hash.startsWith(PLAY_HASH_PREFIX)) return null;
   try {
     return decodeURIComponent(location.hash.slice(PLAY_HASH_PREFIX.length));
@@ -525,14 +604,37 @@ function playHashSlug(): string | null {
 }
 
 /** The URL is the source of truth for "a game is running": name it. */
-function markPlayHash(slug: string): void {
-  const target = `${PLAY_HASH_PREFIX}${encodeURIComponent(slug)}`;
+function markPlayHash(targetKey: string): void {
+  const target = `${PLAY_HASH_PREFIX}${encodeURIComponent(targetKey)}`;
+  if (location.hash !== target) history.replaceState(null, "", target);
+}
+
+const WATCH_HASH_PREFIX = "#watch/";
+
+/** The walkthrough the URL names, plus the tick the tape had reached. */
+function watchHashTarget(): { alias: string; tick: number } | null {
+  if (!location.hash.startsWith(WATCH_HASH_PREFIX)) return null;
+  try {
+    const [alias, tick] = decodeURIComponent(location.hash.slice(WATCH_HASH_PREFIX.length)).split(
+      "/",
+    );
+    if (!alias) return null;
+    const t = Number(tick);
+    return { alias, tick: Number.isFinite(t) && t > 0 ? Math.floor(t) : 0 };
+  } catch {
+    return null;
+  }
+}
+
+/** While a walkthrough runs the URL names it, so a reload re-enters playback. */
+function markWatchHash(alias: string, tick = 0): void {
+  const target = `${WATCH_HASH_PREFIX}${encodeURIComponent(alias)}${tick > 0 ? `/${tick}` : ""}`;
   if (location.hash !== target) history.replaceState(null, "", target);
 }
 
 /** Back at the picker the URL must not name a game any more. */
 function clearPlayHash(): void {
-  if (location.hash.startsWith(PLAY_HASH_PREFIX))
+  if (location.hash.startsWith(PLAY_HASH_PREFIX) || location.hash.startsWith(WATCH_HASH_PREFIX))
     history.replaceState(null, "", `${location.pathname}${location.search}`);
 }
 
@@ -548,10 +650,15 @@ function llmConfig(): LlmConfig {
 
 /** Discard the resumed game's progress and boot it from the top. */
 async function onStartOver(): Promise<void> {
-  const slug = currentGame()?.slug ?? pendingAutosave.value?.game.slug ?? lastGameSlug();
-  if (!slug) return;
+  const target =
+    currentGame()?.projectId ??
+    currentGame()?.hash ??
+    pendingAutosave.value?.game.projectId ??
+    pendingAutosave.value?.game.hash ??
+    lastGameKey();
+  if (!target) return;
   await resumeAudio();
-  await startOver(slug, llmConfig());
+  await startOver(target, llmConfig());
   refreshPendingAutosave();
 }
 
@@ -570,12 +677,24 @@ function toggleLogEntry(id: string): void {
 }
 
 async function copyDebugBundle(): Promise<void> {
+  const current = currentGame();
   const bundle = {
     exportedAt: new Date().toISOString(),
-    cartridge: {
-      slug: activeCartridge.value.slug,
-      title: activeCartridge.value.title,
-    },
+    game: current
+      ? {
+          projectId: current.projectId,
+          alias: current.alias,
+          hash: current.hash,
+          title: current.title,
+          revision: current.revision,
+          source: current.installed ? "installed" : "authored",
+        }
+      : {
+          projectId: activeTemplate.value.id,
+          title: activeTemplate.value.title,
+          source: "draft",
+        },
+    mode: state.walkthrough.active ? "walkthrough" : current ? "play" : "authoring",
     provider: provider.value,
     model: model.value,
     budgetUsd: taskBudget.value,
@@ -602,32 +721,47 @@ async function copyDebugBundle(): Promise<void> {
   }
 }
 
-async function onBootSelectedCartridge(): Promise<void> {
-  if (!creationSlug.value || !adventureDraft.value.brief.trim()) return;
+const currentCreationProjectId = ref<string>();
+
+function getOrCreateCreationProjectId(templateId: string): string {
+  if (
+    !currentCreationProjectId.value ||
+    !currentCreationProjectId.value.startsWith(`${templateId}-`)
+  ) {
+    currentCreationProjectId.value = `${templateId}-${crypto.randomUUID().slice(0, 8)}`;
+  }
+  return currentCreationProjectId.value;
+}
+
+async function onBootSelectedTemplate(): Promise<void> {
+  if (!selectedTemplateId.value || !adventureDraft.value.brief.trim()) return;
   if (provider.value !== "stub" && !apiKey.value.trim()) {
     openAiSettings(null, "create");
     return;
   }
   await resumeAudio();
-  await bootCartridgeGame(activeCartridge.value.rawMarkdown, llmConfig(), {
-    slug: activeCartridge.value.slug,
-    title: activeCartridge.value.title,
+  const allocatedId = getOrCreateCreationProjectId(activeTemplate.value.id);
+  await bootAuthoredGame(activeTemplate.value.rawMarkdown, llmConfig(), {
+    projectId: allocatedId,
+    templateId: activeTemplate.value.id,
+    title: activeTemplate.value.title,
     useCached: false,
   });
+  currentCreationProjectId.value = undefined;
   const game = currentGame();
-  if (game && !game.installed) selectedCartridgeSlug.value = game.slug;
-  cachedMeta.value = getCachedCartridgeMeta(selectedCartridgeSlug.value);
+  if (game && !game.installed && game.projectId) selectedProjectId.value = game.projectId;
+  cachedMeta.value = getCachedGameMeta(selectedProjectId.value);
 }
 
-async function onBootSavedCartridge(alreadyBusy = false): Promise<void> {
+async function onBootSavedGame(alreadyBusy = false): Promise<void> {
   if (libraryActionBusy.value && !alreadyBusy) return;
   if (!alreadyBusy) libraryActionBusy.value = true;
   libraryActionError.value = "";
   try {
     await resumeAudio();
-    await bootCartridgeGame(activeCartridge.value.rawMarkdown, llmConfig(), {
-      slug: selectedCartridgeSlug.value,
-      title: cachedMeta.value?.title ?? selectedCartridgeSlug.value,
+    await bootAuthoredGame(activeTemplate.value.rawMarkdown, llmConfig(), {
+      projectId: selectedProjectId.value,
+      title: cachedMeta.value?.title ?? selectedProjectId.value,
       useCached: true,
     });
   } catch (error) {
@@ -637,28 +771,26 @@ async function onBootSavedCartridge(alreadyBusy = false): Promise<void> {
   }
 }
 
-async function onClearSavedCartridge(): Promise<void> {
-  await removeLibraryGame(selectedCartridgeSlug.value);
+async function onClearSavedGame(): Promise<void> {
+  await removeLibraryGame(selectedProjectId.value);
   refreshLibrary();
   refreshPendingAutosave();
 }
 
-function refreshLibrary(slug?: string): void {
-  savedWorlds.value = listCachedCartridges();
-  if (slug) {
-    selectedCartridgeSlug.value = slug;
-  } else if (!savedWorlds.value.some((entry) => entry.slug === selectedCartridgeSlug.value))
-    selectedCartridgeSlug.value = savedWorlds.value[0]?.slug ?? "";
-  cachedMeta.value = selectedCartridgeSlug.value
-    ? getCachedCartridgeMeta(selectedCartridgeSlug.value)
-    : null;
+function refreshLibrary(projectId?: ProjectId): void {
+  savedGames.value = listCachedGames();
+  if (projectId) {
+    selectedProjectId.value = projectId;
+  } else if (!savedGames.value.some((entry) => entry.projectId === selectedProjectId.value))
+    selectedProjectId.value = savedGames.value[0]?.projectId ?? "";
+  cachedMeta.value = selectedProjectId.value ? getCachedGameMeta(selectedProjectId.value) : null;
 }
 
-async function onPlayLibraryWorld(world: CachedCartridgeMeta): Promise<void> {
-  selectLibraryWorld(world);
-  const autosave = readAutosave(world.slug);
+async function onPlayLibraryGame(game: CachedGameMeta): Promise<void> {
+  selectLibraryGame(game);
+  const autosave = readAutosave(game.projectId);
   if (!autosave) {
-    await onBootSavedCartridge();
+    await onBootSavedGame();
     return;
   }
   if (libraryActionBusy.value) return;
@@ -674,30 +806,30 @@ async function onPlayLibraryWorld(world: CachedCartridgeMeta): Promise<void> {
   }
 }
 
-async function onStartLibraryWorldOver(world: CachedCartridgeMeta): Promise<void> {
-  selectLibraryWorld(world);
+async function onStartLibraryGameOver(game: CachedGameMeta): Promise<void> {
+  selectLibraryGame(game);
   await resumeAudio();
-  await startOver(world.slug, llmConfig());
+  await startOver(game.projectId, llmConfig());
 }
 
-async function onCheckLibraryWorld(world: CachedCartridgeMeta): Promise<void> {
-  selectLibraryWorld(world);
+async function onCheckLibraryGame(game: CachedGameMeta): Promise<void> {
+  selectLibraryGame(game);
   await checkSelectedOpening();
 }
 
-async function onCopyLibraryWorld(world: CachedCartridgeMeta): Promise<void> {
-  selectLibraryWorld(world);
+async function onCopyLibraryGame(game: CachedGameMeta): Promise<void> {
+  selectLibraryGame(game);
   await copySelectedGame();
 }
 
-async function onExportLibraryWorld(world: CachedCartridgeMeta, project = false): Promise<void> {
-  selectLibraryWorld(world);
+async function onExportLibraryGame(game: CachedGameMeta, project = false): Promise<void> {
+  selectLibraryGame(game);
   await onExportAgiZip(false, project);
 }
 
-async function onRemoveLibraryWorld(world: CachedCartridgeMeta): Promise<void> {
-  selectLibraryWorld(world);
-  await onClearSavedCartridge();
+async function onRemoveLibraryGame(game: CachedGameMeta): Promise<void> {
+  selectLibraryGame(game);
+  await onClearSavedGame();
 }
 
 async function stageLibraryGame(
@@ -707,7 +839,7 @@ async function stageLibraryGame(
 ): Promise<ImportStorageReport | null> {
   const opening = await previewGame(game);
   let stored: ImportStorageReport | null = null;
-  const slug = await addLibraryGame(
+  const importedProjectId = await addLibraryGame(
     game,
     game.title ?? title,
     source,
@@ -715,7 +847,7 @@ async function stageLibraryGame(
     undefined,
     (report) => (stored = report),
   );
-  refreshLibrary(slug);
+  refreshLibrary(importedProjectId);
   return stored;
 }
 
@@ -863,16 +995,16 @@ async function playCatalogGame(id: string): Promise<void> {
     const opening = catalogOpenings.value[id];
     if (!game || !opening)
       throw new Error(catalogErrors.value[id] || "This game could not be opened.");
-    const slug = await addLibraryGame(game, entry.title, "catalog", opening, {
+    const projectId = await addLibraryGame(game, entry.title, "catalog", opening, {
       id: entry.id,
       version: entry.version,
     });
-    refreshLibrary(slug);
-    const autosave = readAutosave(slug);
+    refreshLibrary(projectId);
+    const autosave = readAutosave(projectId);
     if (autosave) {
       await resumeAudio();
       await resumeFromRecord(autosave, llmConfig());
-    } else await onBootSavedCartridge(true);
+    } else await onBootSavedGame(true);
   } catch (error) {
     libraryActionError.value = String(error).replace(/^Error: /, "");
   } finally {
@@ -880,19 +1012,31 @@ async function playCatalogGame(id: string): Promise<void> {
   }
 }
 
+/** Boot a catalog game, then hand it to its recorded walkthrough. */
+async function playCatalogWalkthrough(id: string): Promise<void> {
+  await playCatalogGame(id);
+  const alias = resolveWalkthrough(id);
+  if (!alias) return;
+  // The boot resolves with the post; the running phase lands one message later.
+  for (let n = 0; n < 200 && state.phase !== "running" && state.phase !== "error"; n++) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if (state.phase === "running") await onStartWalkthrough(alias);
+}
+
 async function checkSelectedOpening(): Promise<void> {
   if (libraryActionBusy.value) return;
-  const selectedSlug = selectedCartridgeSlug.value;
+  const selected = selectedProjectId.value;
   libraryActionError.value = "";
   libraryActionBusy.value = true;
   try {
-    const game = await loadAuthoredCartridge(selectedSlug);
+    const game = await loadAuthoredGame(selected);
     if (!game) throw new Error("This game is no longer in your library. Import it again.");
     const opening = await previewGame(game);
     const revision = game.library?.revision ?? (await gameRevision(game.files));
-    if (!(await updateCartridgePreview(game.slug, revision, opening.preview, opening)))
+    if (!(await updateGamePreview(game.projectId, revision, opening.preview, opening)))
       throw new Error("The game changed while its opening was being checked. Try again.");
-    refreshLibrary(selectedCartridgeSlug.value === selectedSlug ? game.slug : undefined);
+    refreshLibrary(selectedProjectId.value === selected ? game.projectId : undefined);
   } catch (error) {
     libraryActionError.value = String(error).replace(/^Error: /, "");
   } finally {
@@ -902,11 +1046,11 @@ async function checkSelectedOpening(): Promise<void> {
 
 async function copySelectedGame(): Promise<void> {
   if (libraryActionBusy.value) return;
-  const selectedSlug = selectedCartridgeSlug.value;
+  const selected = selectedProjectId.value;
   libraryActionError.value = "";
   libraryActionBusy.value = true;
   try {
-    refreshLibrary(await copyLibraryGame(selectedSlug));
+    refreshLibrary(await copyLibraryGame(selected));
   } catch (error) {
     libraryActionError.value = String(error).replace(/^Error: /, "");
   } finally {
@@ -916,39 +1060,62 @@ async function copySelectedGame(): Promise<void> {
 
 async function onExportAgiZip(live = false, project = false, savedProgress = false): Promise<void> {
   const game = live ? currentGame() : null;
+  const gameKey = game ? (game.installed ? (game.hash ?? game.alias) : game.projectId) : undefined;
   const useSavedProgress =
-    savedProgress && project && live && game?.slug === exportSavedProgressSlug.value;
-  exportSavedProgressSlug.value = undefined;
+    savedProgress && project && live && gameKey === exportSavedProgressKey.value;
+  exportSavedProgressKey.value = undefined;
   exportRefusal.value = "";
   exportBusy.value = true;
   try {
     // A project is for continuing elsewhere: the live game checkpoints first,
     // and the archive carries the player's save slots and latest autosave.
     if (live && project && !useSavedProgress && !(await flushAutosave(2000))) {
-      if (currentGame()?.slug === game?.slug) exportSavedProgressSlug.value = game?.slug;
+      const current = currentGame();
+      const currentKey = current
+        ? current.installed
+          ? (current.hash ?? current.alias)
+          : current.projectId
+        : undefined;
+      if (currentKey === gameKey) exportSavedProgressKey.value = gameKey;
       throw new Error(
         "Current progress could not be saved. Close any open game window and try again, or download with only the progress already saved in this browser.",
       );
     }
-    if (live && currentGame()?.slug !== game?.slug)
+    const current = currentGame();
+    const currentKey = current
+      ? current.installed
+        ? (current.hash ?? current.alias)
+        : current.projectId
+      : undefined;
+    if (live && currentKey !== gameKey)
       throw new Error("The game changed during download. Try again.");
-    const data = live
-      ? await exportCurrentGame()
-      : await loadAuthoredCartridge(selectedCartridgeSlug.value);
-    if (!data) throw new Error("No saved world is available.");
+    const exportResult = live ? await exportCurrentGame() : null;
+    const data = exportResult ? exportResult.data : await loadAuthoredGame(selectedProjectId.value);
+    if (!data) throw new Error("No saved game is available.");
+    const progressKey = exportResult ? exportResult.progressKey : data.projectId;
     const zipBytes = project
-      ? await buildProjectZip(data, readGameProgress(localStorage, data.slug))
+      ? await buildProjectZip(data, readGameProgress(localStorage, progressKey))
       : buildPublicGameZip(data);
     const url = URL.createObjectURL(new Blob([zipBytes], { type: "application/zip" }));
     const a = document.createElement("a");
     a.href = url;
-    a.download = `agi-${data.slug}-${project ? "project" : "game"}.zip`;
+    a.download = `agi-${data.projectId}-${project ? "project" : "game"}.zip`;
     a.click();
     URL.revokeObjectURL(url);
   } catch (error) {
     exportRefusal.value = `Download failed: ${String(error).replace(/^Error: /, "")}`;
   } finally {
     exportBusy.value = false;
+  }
+}
+
+async function onEjectGame(abandonUnsaved = false): Promise<void> {
+  ejectRefusal.value = "";
+  try {
+    await ejectGame(abandonUnsaved ? { abandonUnsaved: true } : undefined);
+    ejectRefusal.value = "";
+  } catch (error) {
+    ejectRefusal.value = String(error).replace(/^Error: /, "");
   }
 }
 
@@ -1020,24 +1187,73 @@ async function onRecordSave(): Promise<void> {
  * no-GPU fallback) and upload it to the GPU stage when one exists.
  */
 let cachedImageData: ImageData | null = null;
+let pendingPresentationFrame: Frame | null = null;
+let pendingTextOverride: Uint8Array | undefined = undefined;
+let presentationRaf: number | null = null;
 
-function present(frame: Frame, textOverride?: Uint8Array): void {
+function renderFrameNow(frame: Frame, textOverride?: Uint8Array): void {
   compositeFrame(
     { visual: frame.visual, text: textOverride ?? frame.text, picRow: frame.picRow },
     composed,
   );
-  const ctx = canvas.value?.getContext("2d");
-  if (ctx) {
-    cachedImageData ??= ctx.createImageData(FRAME_WIDTH, FRAME_HEIGHT);
-    cachedImageData.data.set(composed);
-    ctx.putImageData(cachedImageData, 0, 0);
+  if (!stage || testMode) {
+    const ctx = canvas.value?.getContext("2d");
+    if (ctx) {
+      cachedImageData ??= ctx.createImageData(FRAME_WIDTH, FRAME_HEIGHT);
+      cachedImageData.data.set(composed);
+      ctx.putImageData(cachedImageData, 0, 0);
+    }
   }
-  stage?.render(composed);
+  stage?.render(composed, true);
+}
+
+function present(frame: Frame, textOverride?: Uint8Array, immediate = false): void {
+  lastFrame = frame;
+  if (immediate || textOverride !== undefined || typeof requestAnimationFrame === "undefined") {
+    if (presentationRaf !== null) {
+      cancelAnimationFrame(presentationRaf);
+      presentationRaf = null;
+    }
+    pendingPresentationFrame = null;
+    pendingTextOverride = undefined;
+    renderFrameNow(frame, textOverride);
+    return;
+  }
+  pendingPresentationFrame = frame;
+  pendingTextOverride = undefined;
+  if (presentationRaf === null) {
+    presentationRaf = requestAnimationFrame(() => {
+      presentationRaf = null;
+      const targetFrame = pendingPresentationFrame;
+      const targetText = pendingTextOverride;
+      pendingPresentationFrame = null;
+      pendingTextOverride = undefined;
+      if (targetFrame) {
+        renderFrameNow(targetFrame, targetText);
+      }
+    });
+  }
 }
 
 const hasKeyPrompt = computed(() =>
   state.rows.some((r) => r.toLowerCase().includes("press any key")),
 );
+/**
+ * Name the keys that satisfy have.key for this screen. Keys the script maps
+ * to controllers (set.key) are not raw keys — Enter on the demo pack selects
+ * a demo instead of dismissing its "press any key" page.
+ */
+const keyPromptHint = computed(() => {
+  const mapped = new Set(state.controls.map((b) => b.key));
+  const usable = (
+    [
+      [AGI_KEY.ENTER, "Enter"],
+      [0x20, "Space"],
+    ] as [number, string][]
+  ).filter(([key]) => !mapped.has(key));
+  if (usable.length === 0) return "Press any key to start";
+  return `Press ${usable.map(([, name]) => name).join(" / ")} to start`;
+});
 
 /** Pointer type of the last screen press; the click event carries none. */
 let screenPointerType = "mouse";
@@ -1049,8 +1265,15 @@ function onScreenPointerDown(ev: PointerEvent): void {
 function onScreenClick(): void {
   resumeAudio();
   if (state.phase !== "running") return;
+  if (state.walkthrough.active) {
+    if (advanceDialog()) return;
+    if (state.walkthrough.status === "paused") {
+      resumeWalkthrough();
+      return;
+    }
+  }
   if (state.prompt) {
-    inputEl.value?.focus();
+    inputEl.value?.focus({ preventScroll: true });
     return;
   }
   // A tap (touch or pen) still advances title screens and acknowledges
@@ -1068,14 +1291,14 @@ function onScreenClick(): void {
     sendKey(0x000d);
     return;
   }
-  inputEl.value?.focus();
+  inputEl.value?.focus({ preventScroll: true });
 }
 watch(
   () => state.phase,
   (phase) => {
     if (phase === "running" && !touchControls.value) {
       nextTick(() => {
-        inputEl.value?.focus();
+        inputEl.value?.focus({ preventScroll: true });
       });
     }
   },
@@ -1121,7 +1344,7 @@ function triggerKey(code: number): void {
   resumeAudio();
   closeNavMenus();
   sendKey(code);
-  if (!touchControls.value) inputEl.value?.focus();
+  if (!touchControls.value) inputEl.value?.focus({ preventScroll: true });
 }
 
 /**
@@ -1134,11 +1357,12 @@ watch(
   () => state.prompt,
   (prompt) => {
     promptLine.value = "";
-    if (prompt) echoPrompt();
+    if (prompt && !state.walkthrough.seeking) echoPrompt();
   },
 );
 
 function echoPrompt(): void {
+  if (state.walkthrough.seeking) return;
   const prompt = state.prompt;
   if (!prompt || !lastFrame) return;
   const text = lastFrame.text.slice();
@@ -1180,7 +1404,11 @@ function onPromptKey(ev: KeyboardEvent): void {
 
 /** Keys while an engine modal (print window, inventory, menu…) is open. */
 function onModalKey(ev: KeyboardEvent): void {
-  if (state.waitingForKey || state.modal === "save" || state.modal === "restore") {
+  const activeModal =
+    state.walkthrough.active && window.__AGI_REPLAY__?.latest?.state.modalKind
+      ? (window.__AGI_REPLAY__?.latest?.state.modalKind as ModalKind)
+      : state.modal;
+  if (state.waitingForKey || activeModal === "save" || activeModal === "restore") {
     const code = pcKey(ev);
     if (code !== undefined) {
       ev.preventDefault();
@@ -1234,7 +1462,12 @@ const powerUpEl = useTemplateRef("powerUpEl");
 /** The live tool-call feed for this remix turn: the transcript tail. */
 const asking = computed(() => state.powerUp.mode === "ask");
 const creatingRoom = computed(() => state.powerUp.mode === "room");
-const powerUpFeed = computed(() => state.agentLog.slice(state.powerUp.feedStart));
+const powerUpFeed = computed(() => {
+  if (state.powerUp.feedStartSeq !== undefined) {
+    return state.agentLog.filter((entry) => (entry.seq ?? 0) >= state.powerUp.feedStartSeq!);
+  }
+  return state.agentLog.slice(state.powerUp.feedStart);
+});
 const powerUpAudio = computed(() => powerUpFeed.value.flatMap((entry) => entry.audio ?? []));
 const latestAgentAudio = computed(
   () => [...state.agentLog].reverse().find((entry) => entry.audio?.length)?.audio ?? [],
@@ -1332,7 +1565,7 @@ watch(
   async (open, wasOpen) => {
     await nextTick();
     if (open && creatingRoom.value) progressFeedEl.value?.focus({ preventScroll: true });
-    else if (!open && wasOpen && creatingRoom.value) inputEl.value?.focus();
+    else if (!open && wasOpen && creatingRoom.value) inputEl.value?.focus({ preventScroll: true });
   },
 );
 watch(progressFeedEl, (el) => {
@@ -1348,13 +1581,13 @@ async function onPowerUp(): Promise<void> {
   if (state.powerUp.busy) return;
   if (state.powerUp.open) {
     closePowerUp();
-    inputEl.value?.focus();
+    inputEl.value?.focus({ preventScroll: true });
     return;
   }
   powerUpLine.value = "";
   await openPowerUp(llmConfig());
   await nextTick();
-  powerUpEl.value?.focus();
+  powerUpEl.value?.focus({ preventScroll: true });
 }
 
 async function onPowerUpSubmit(): Promise<void> {
@@ -1363,10 +1596,10 @@ async function onPowerUpSubmit(): Promise<void> {
   followProgress.value = true;
   powerUpLine.value = "";
   await submitPowerUp(text);
-  if (!state.powerUp.open) inputEl.value?.focus();
+  if (!state.powerUp.open) inputEl.value?.focus({ preventScroll: true });
   else {
     await nextTick();
-    powerUpEl.value?.focus();
+    powerUpEl.value?.focus({ preventScroll: true });
   }
 }
 
@@ -1380,12 +1613,35 @@ function onPowerUpKey(ev: KeyboardEvent): void {
   ev.preventDefault();
   ev.stopPropagation();
   closePowerUp();
-  inputEl.value?.focus();
+  inputEl.value?.focus({ preventScroll: true });
 }
 
 function onGlobalKeydown(ev: KeyboardEvent): void {
   resumeAudio();
-  if (state.phase !== "running" || !state.inputReady) return;
+  const isInputReady = state.walkthrough.active ? true : state.inputReady;
+  if (state.phase !== "running" || !isInputReady) return;
+  if (
+    state.walkthrough.active &&
+    (state.walkthrough.status === "playing" ||
+      state.walkthrough.status === "paused" ||
+      state.walkthrough.status === "completed")
+  ) {
+    // The walkthrough drives the game; human keys own playback shortcuts only.
+    if (ev.key === " " && !state.powerUp.open) {
+      ev.preventDefault();
+      toggleWalkthroughPause();
+      return;
+    }
+    if (ev.key === "Enter" && !state.powerUp.open) {
+      ev.preventDefault();
+      if (state.walkthrough.status === "paused") {
+        resumeWalkthrough();
+        return;
+      }
+      if (advanceDialog()) return;
+    }
+    return;
+  }
   if (ev.isComposing || ev.keyCode === 229) return;
   if (ev.target instanceof Element && ev.target.closest("dialog[open]")) return;
   // The bubble owns the keyboard while it is open: the world is frozen and
@@ -1394,7 +1650,7 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
     if (ev.key === "Escape") {
       ev.preventDefault();
       closePowerUp();
-      if (!state.powerUp.open) inputEl.value?.focus();
+      if (!state.powerUp.open) inputEl.value?.focus({ preventScroll: true });
     }
     return;
   }
@@ -1418,13 +1674,21 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
     onPromptKey(ev);
     return;
   }
-  if (state.modal !== null) {
+  const activeModal =
+    state.walkthrough.active && window.__AGI_REPLAY__?.latest?.state.modalKind
+      ? (window.__AGI_REPLAY__?.latest?.state.modalKind as ModalKind)
+      : state.modal;
+  if (activeModal !== null) {
     onModalKey(ev);
     return;
   }
 
   // Text screens can ask a specific question: preserve the actual key.
-  if (state.textMode || state.waitingForKey) {
+  if (
+    state.textMode ||
+    state.waitingForKey ||
+    (state.walkthrough.active && window.__AGI_REPLAY__?.latest?.blocked === "waitkey")
+  ) {
     const key = pcKey(ev);
     if (key !== undefined) {
       ev.preventDefault();
@@ -1490,7 +1754,7 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
       // so the same character landed twice (the "llook" after Start over).
       // No waitKey can be pending here: a blocking key wait sets
       // state.waitingForKey, handled by the raw-key branch above.
-      input?.focus();
+      input?.focus({ preventScroll: true });
       inputLine.value += ev.key;
       sendEdit(inputLine.value);
       ev.preventDefault();
@@ -1508,7 +1772,7 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
 function onGlobalKeyup(ev: KeyboardEvent): void {
   const physicalKey = ev.code && ev.code !== "Unidentified" ? ev.code : ev.key;
   if (!heldMovementKeys.delete(physicalKey)) return;
-  if (state.phase === "running") {
+  if (state.phase === "running" && !state.walkthrough.active) {
     sendDirection(0);
     ev.preventDefault();
   }
@@ -1603,8 +1867,12 @@ function onVirtualKey(code: number): void {
     }
     return;
   }
+  const activeModal =
+    state.walkthrough.active && window.__AGI_REPLAY__?.latest?.state.modalKind
+      ? (window.__AGI_REPLAY__?.latest?.state.modalKind as ModalKind)
+      : state.modal;
   if (
-    state.modal !== null ||
+    activeModal !== null ||
     state.textMode ||
     state.waitingForKey ||
     !state.inputEnabled ||
@@ -1622,8 +1890,28 @@ function onVirtualKey(code: number): void {
 }
 
 function releaseMovement(): void {
-  if (heldMovementKeys.size) sendDirection(0);
+  if (!state.walkthrough.active && heldMovementKeys.size) sendDirection(0);
   heldMovementKeys.clear();
+}
+
+function onTakeControl(): void {
+  releaseMovement();
+  stopWalkthrough(true);
+  nextTick(() => {
+    inputEl.value?.focus({ preventScroll: true });
+  });
+}
+
+function onWalkthroughSeekTick(tick: number): void {
+  void seekToTick(tick);
+}
+
+function onWalkthroughSeekCheckpoint(cp: WalkthroughCheckpoint): void {
+  void seekToCheckpoint(cp);
+}
+
+function onWalkthroughScrubbing(active: boolean): void {
+  state.walkthrough.scrubbing = active;
 }
 
 function resizeViewport(): void {
@@ -1644,6 +1932,7 @@ function submit(): void {
   }
   sendInput(text);
   inputLine.value = "";
+  if (inputEl.value) inputEl.value.value = "";
   sendEdit("");
 }
 
@@ -1655,11 +1944,15 @@ function submit(): void {
 function onPageHidden(): void {
   if (document.visibilityState === "hidden") {
     releaseMovement();
+    if (state.walkthrough.active && state.walkthrough.alias)
+      markWatchHash(state.walkthrough.alias, state.walkthrough.tick);
     void flushAutosave();
   }
 }
 
 function onPageHide(): void {
+  if (state.walkthrough.active && state.walkthrough.alias)
+    markWatchHash(state.walkthrough.alias, state.walkthrough.tick);
   void flushAutosave();
 }
 
@@ -1707,7 +2000,7 @@ onMounted(async () => {
   document.addEventListener("visibilitychange", onPageHidden);
   window.addEventListener("pagehide", onPageHide);
   try {
-    await reconcileCartridgeIndex();
+    await reconcileGameIndex();
     refreshLibrary();
   } catch (error) {
     libraryActionError.value = `Your saved game library could not be refreshed: ${String(error).replace(/^Error: /, "")}`;
@@ -1728,7 +2021,7 @@ onMounted(async () => {
   onMenuHashChange();
   await discoverGames();
   // Nobody loses progress to a reload: while a game runs the URL names it
-  // (`#play/<slug>`), and only a reload carrying that hash boots straight back
+  // (`#play/<aliasOrProjectId>`), and only a reload carrying that hash boots straight back
   // into the autosave. A reload from the picker lands on the picker, which
   // keeps offering the Resume card from the pending autosave.
   // A hot module update hands the running game over in memory: no reload
@@ -1736,14 +2029,29 @@ onMounted(async () => {
   const handover = import.meta.hot?.data?.["monotio_agi_resume"] as AutosaveRecord | undefined;
   if (import.meta.hot?.data) delete import.meta.hot.data["monotio_agi_resume"];
   refreshPendingAutosave();
-  const playSlug = playHashSlug();
+  const playKey = playHashGameKey();
+  const watchTarget = watchHashTarget();
   if (handover) await resumeFromRecord(handover, llmConfig());
-  else if (playSlug && playSlug === pendingAutosave.value?.game.slug)
+  else if (watchTarget)
+    // startWalkthrough drives the tape to completion: await would suspend the
+    // rest of mount — including the GPU stage the walkthrough paints into.
+    void startWalkthrough(watchTarget.alias, { initialTick: watchTarget.tick }).catch((e) => {
+      state.phase = "error";
+      state.error = e instanceof Error ? e.message : String(e);
+    });
+  else if (
+    playKey &&
+    (playKey === pendingAutosave.value?.game.projectId ||
+      (pendingAutosave.value?.game.installed &&
+        (playKey === pendingAutosave.value?.game.folder ||
+          playKey === pendingAutosave.value?.game.hash ||
+          playKey === pendingAutosave.value?.game.alias)))
+  )
     await resumeLastGame(llmConfig());
   if (state.phase === "idle") clearPlayHash();
   if (gpuCanvas.value) {
     stage = await AgiStage.create(gpuCanvas.value);
-    gpuBackend.value = stage?.backend ?? undefined;
+    gpuBackend.value = stage?.backend;
     if (stage) {
       stage.crt = crtEnabled.value;
       if (lastFrame) present(lastFrame);
@@ -1757,6 +2065,10 @@ onUnmounted(() => {
   window.removeEventListener("blur", releaseMovement);
   window.visualViewport?.removeEventListener("resize", resizeViewport);
   window.removeEventListener("resize", resizeViewport);
+  if (presentationRaf !== null && typeof cancelAnimationFrame !== "undefined") {
+    cancelAnimationFrame(presentationRaf);
+    presentationRaf = null;
+  }
   stage?.dispose();
   stage = null;
   window.removeEventListener("keydown", onGlobalKeydown);
@@ -1771,26 +2083,33 @@ onUnmounted(() => {
   if (import.meta.hot) shutdownEngine();
 });
 // The URL is the source of truth for "a game is running": name it while the
-// game runs. A remix can turn the running game into a new cartridge without
+// game runs. A remix can turn the running game into a new game without
 // leaving the running phase, so the unpause after a remix turn re-asserts the
 // hash from whatever is booted then. Back at the picker (the player ejected,
 // or a boot failed) the hash is cleared and the autosave slot is re-read so
 // the offer below matches storage.
 watch(
-  () => [state.phase, state.paused] as const,
-  ([phase, paused]) => {
+  () => [state.phase, state.paused, state.walkthrough.active, state.walkthrough.tick] as const,
+  ([phase, paused, watching]) => {
     if (phase === "running") {
       if (!paused) {
-        const slug = currentGame()?.slug;
-        if (slug) markPlayHash(slug);
+        if (watching && state.walkthrough.alias) {
+          markWatchHash(state.walkthrough.alias, state.walkthrough.tick);
+        } else {
+          const game = currentGame();
+          const playIdentifier = game?.installed
+            ? (game.folder ?? game.hash ?? game.alias)
+            : game?.projectId;
+          if (playIdentifier) markPlayHash(playIdentifier);
+        }
       }
       return;
     }
     if (phase === "idle" || phase === "error") {
       clearPlayHash();
       refreshPendingAutosave();
-      savedWorlds.value = listCachedCartridges();
-      cachedMeta.value = getCachedCartridgeMeta(selectedCartridgeSlug.value);
+      savedGames.value = listCachedGames();
+      cachedMeta.value = getCachedGameMeta(selectedProjectId.value);
     }
   },
 );
@@ -1950,6 +2269,15 @@ watch(
           icon-only
           test-id="game-actions-menu"
         >
+          <button
+            v-if="hasWalkthrough(currentGame()?.alias ?? '') && !state.walkthrough.active"
+            type="button"
+            role="menuitem"
+            data-testid="btn-run-walkthrough"
+            @click="onStartWalkthrough(currentGame()!.alias!)"
+          >
+            <span>Run walkthrough<small>Watch real-time playthrough</small></span>
+          </button>
           <button type="button" role="menuitem" data-testid="btn-start-over" @click="onStartOver">
             Start over
           </button>
@@ -1988,7 +2316,7 @@ watch(
           data-testid="btn-eject"
           :disabled="state.powerUp.busy || state.leaving"
           title="Return to adventure selection menu"
-          @click="ejectGame"
+          @click="onEjectGame(false)"
         >
           {{ state.leaving ? "Saving…" : "Menu" }}
         </button>
@@ -2009,7 +2337,8 @@ watch(
       <p>{{ exportRefusal }}</p>
       <button
         v-if="
-          exportSavedProgressSlug !== undefined && exportSavedProgressSlug === currentGame()?.slug
+          exportSavedProgressKey !== undefined &&
+          exportSavedProgressKey === (currentGame()?.projectId ?? currentGame()?.hash)
         "
         type="button"
         class="ui-button ui-button--secondary"
@@ -2019,6 +2348,46 @@ watch(
       >
         Download without current progress
       </button>
+    </div>
+    <div v-if="ejectRefusal" class="export-refusal" data-testid="eject-refusal" role="alert">
+      <p>{{ ejectRefusal }}</p>
+      <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap">
+        <button
+          type="button"
+          class="ui-button ui-button--primary"
+          data-testid="eject-retry"
+          :disabled="state.leaving"
+          @click="onEjectGame(false)"
+        >
+          Try again
+        </button>
+        <button
+          type="button"
+          class="ui-button ui-button--secondary"
+          data-testid="eject-download-project"
+          :disabled="exportBusy"
+          @click="onExportAgiZip(true, true)"
+        >
+          Download project
+        </button>
+        <button
+          type="button"
+          class="ui-button ui-button--secondary"
+          data-testid="eject-leave-anyway"
+          :disabled="state.leaving"
+          @click="onEjectGame(true)"
+        >
+          Leave anyway
+        </button>
+        <button
+          type="button"
+          class="ui-button ui-button--secondary"
+          data-testid="eject-dismiss"
+          @click="ejectRefusal = ''"
+        >
+          Back to game
+        </button>
+      </div>
     </div>
     <div
       v-if="state.recording.active"
@@ -2045,6 +2414,19 @@ watch(
         Cancel
       </button>
     </div>
+    <WalkthroughBar
+      v-if="state.walkthrough.active"
+      :walkthrough="state.walkthrough"
+      @take-control="onTakeControl"
+    />
+    <p
+      v-if="!state.walkthrough.active && state.walkthrough.error"
+      class="export-refusal"
+      data-testid="walkthrough-error"
+      role="alert"
+    >
+      {{ state.walkthrough.error }}
+    </p>
     <p v-if="state.recording.error" class="export-refusal" data-testid="record-error" role="alert">
       {{ state.recording.error }}
     </p>
@@ -2181,22 +2563,33 @@ watch(
           >
             Retry preview
           </button>
-          <button
-            v-else
-            type="button"
-            class="ui-button ui-button--primary"
-            :data-testid="`catalog-play-${entry.id}`"
-            :disabled="catalogBusy[entry.id] || libraryActionBusy"
-            @click="playCatalogGame(entry.id)"
-          >
-            {{
-              catalogBusy[entry.id]
-                ? "Checking opening…"
-                : catalogHasProgress(entry)
-                  ? "Resume"
-                  : "Play now"
-            }}
-          </button>
+          <div v-else class="catalog-actions">
+            <button
+              type="button"
+              class="ui-button ui-button--primary"
+              :data-testid="`catalog-play-${entry.id}`"
+              :disabled="catalogBusy[entry.id] || libraryActionBusy"
+              @click="playCatalogGame(entry.id)"
+            >
+              {{
+                catalogBusy[entry.id]
+                  ? "Checking opening…"
+                  : catalogHasProgress(entry)
+                    ? "Resume"
+                    : "Play now"
+              }}
+            </button>
+            <button
+              v-if="hasWalkthrough(entry.id)"
+              type="button"
+              class="ui-button ui-button--secondary"
+              data-testid="catalog-run-walkthrough"
+              :disabled="catalogBusy[entry.id] || libraryActionBusy"
+              @click="playCatalogWalkthrough(entry.id)"
+            >
+              Watch a playthrough
+            </button>
+          </div>
         </div>
       </article>
     </details>
@@ -2218,35 +2611,35 @@ watch(
         >
           <h2>Create a new adventure</h2>
         </summary>
-        <!-- Cartridge Selector -->
+        <!-- Adventure Template Selector -->
         <section class="section">
-          <div class="cartridge-grid">
+          <div class="template-grid">
             <button
-              v-for="cart in BUILTIN_CARTRIDGES"
-              :key="cart.slug"
-              class="cartridge-card"
-              :class="{ selected: creationSlug === cart.slug }"
-              :aria-pressed="creationSlug === cart.slug"
-              :data-testid="`cartridge-${cart.slug}`"
-              @click="creationSlug = cart.slug"
+              v-for="tmpl in BUILTIN_TEMPLATES"
+              :key="tmpl.id"
+              class="template-card"
+              :class="{ selected: selectedTemplateId === tmpl.id }"
+              :aria-pressed="selectedTemplateId === tmpl.id"
+              :data-testid="`template-${tmpl.id}`"
+              @click="selectedTemplateId = tmpl.id"
             >
-              <span class="cartridge-title">{{ cart.title }}</span>
-              <span class="cartridge-desc">{{ cart.description }}</span>
+              <span class="template-title">{{ tmpl.title }}</span>
+              <span class="template-desc">{{ tmpl.description }}</span>
             </button>
             <button
-              class="cartridge-card custom-card"
-              :class="{ selected: creationSlug === 'custom' }"
-              :aria-pressed="creationSlug === 'custom'"
-              data-testid="cartridge-custom"
-              @click="creationSlug = 'custom'"
+              class="template-card custom-card"
+              :class="{ selected: selectedTemplateId === 'custom' }"
+              :aria-pressed="selectedTemplateId === 'custom'"
+              data-testid="template-custom"
+              @click="selectedTemplateId = 'custom'"
             >
-              <span class="cartridge-title">Your own adventure</span>
-              <span class="cartridge-desc">Write your own premise.</span>
+              <span class="template-title">Your own adventure</span>
+              <span class="template-desc">Write your own premise.</span>
             </button>
           </div>
 
           <!-- Adventure brief shared by templates and custom games -->
-          <div v-if="creationSlug" class="custom-editor">
+          <div v-if="selectedTemplateId" class="custom-editor">
             <label for="adventure-name">Adventure name</label>
             <input
               id="adventure-name"
@@ -2266,7 +2659,7 @@ watch(
               spellcheck="false"
               placeholder="You are the night guard at a museum where the exhibits come alive. A tiny dinosaur has stolen your keys. Get them back before sunrise.&#10;&#10;Tell us about your hero, the setting, and the trouble they find themselves in."
               rows="8"
-              data-testid="custom-cartridge-input"
+              data-testid="custom-adventure-input"
             />
           </div>
         </section>
@@ -2289,9 +2682,9 @@ watch(
           <button
             ref="createButton"
             class="ui-button ui-button--primary"
-            data-testid="boot-cartridge"
-            :disabled="!creationSlug || !adventureDraft.brief.trim()"
-            @click="onBootSelectedCartridge"
+            data-testid="boot-game"
+            :disabled="!selectedTemplateId || !adventureDraft.brief.trim()"
+            @click="onBootSelectedTemplate"
           >
             Create adventure
           </button>
@@ -2321,46 +2714,50 @@ watch(
         </div>
 
         <div
-          v-if="savedWorlds.length || localGameSlugs.length || availableCatalogEntries.length"
+          v-if="savedGames.length || localGameAliases.length || availableCatalogEntries.length"
           class="saved-game-gallery"
           data-testid="saved-game-gallery"
         >
           <article
-            v-for="world in savedWorlds"
-            :key="world.slug"
+            v-for="game in savedGames"
+            :key="game.projectId"
             class="saved-game-card"
-            :class="{ selected: selectedCartridgeSlug === world.slug }"
-            :data-testid="`saved-game-card-${world.slug}`"
-            :data-slug="world.slug"
+            :class="{ selected: selectedProjectId === game.projectId }"
+            :data-testid="`saved-game-card-${game.projectId}`"
+            :data-project-id="game.projectId"
           >
             <div class="saved-game-media">
               <img
-                v-if="libraryAutosaves[world.slug]?.preview || world.library?.preview"
+                v-if="libraryAutosaves[game.projectId]?.preview || game.library?.preview"
                 class="library-thumbnail"
                 data-testid="library-thumbnail"
-                :data-preview-kind="libraryAutosaves[world.slug]?.preview ? 'progress' : 'opening'"
-                :src="libraryAutosaves[world.slug]?.preview ?? world.library?.preview"
+                :data-preview-kind="
+                  libraryAutosaves[game.projectId]?.preview ? 'progress' : 'opening'
+                "
+                :src="libraryAutosaves[game.projectId]?.preview ?? game.library?.preview"
                 :alt="
-                  libraryAutosaves[world.slug]?.preview
-                    ? `${world.title}, current progress in room ${libraryAutosaves[world.slug]?.room}`
-                    : `${world.title} opening scene`
+                  libraryAutosaves[game.projectId]?.preview
+                    ? `${game.title}, current progress in room ${libraryAutosaves[game.projectId]?.room}`
+                    : `${game.title} opening scene`
                 "
               />
               <div v-else class="saved-game-cover" aria-hidden="true">AGI</div>
-              <span v-if="libraryAutosaves[world.slug]" class="saved-world-badge">IN PROGRESS</span>
+              <span v-if="libraryAutosaves[game.projectId]" class="saved-world-badge"
+                >IN PROGRESS</span
+              >
             </div>
             <div class="saved-game-card-body">
               <form
-                v-if="renaming && selectedCartridgeSlug === world.slug"
-                class="cartridge-rename"
+                v-if="renaming && selectedProjectId === game.projectId"
+                class="game-rename"
                 data-testid="rename-game-form"
-                @submit.prevent="saveCartridgeTitle"
+                @submit.prevent="saveGameTitle"
               >
-                <label :for="`cartridge-title-${world.slug}`">Game name</label>
+                <label :for="`game-title-${game.projectId}`">Game name</label>
                 <input
-                  :id="`cartridge-title-${world.slug}`"
+                  :id="`game-title-${game.projectId}`"
                   :ref="setTitleInput"
-                  v-model="cartridgeTitle"
+                  v-model="gameTitle"
                   maxlength="100"
                   required
                   @keydown.esc="renaming = false"
@@ -2368,7 +2765,7 @@ watch(
                 <button
                   type="submit"
                   class="ui-button ui-button--secondary"
-                  :disabled="!cartridgeTitle.trim()"
+                  :disabled="!gameTitle.trim()"
                 >
                   Save name
                 </button>
@@ -2382,12 +2779,12 @@ watch(
                 <p v-if="renameError" role="alert">{{ renameError }}</p>
               </form>
               <div
-                v-show="!(renaming && selectedCartridgeSlug === world.slug)"
+                v-show="!(renaming && selectedProjectId === game.projectId)"
                 class="saved-game-info"
               >
                 <div class="saved-game-heading">
                   <h3 class="saved-world-title" data-testid="saved-game-title">
-                    {{ world.title }}
+                    {{ game.title }}
                   </h3>
                   <button
                     type="button"
@@ -2395,14 +2792,17 @@ watch(
                     aria-label="Rename game"
                     title="Rename game"
                     data-testid="rename-game"
-                    @click="beginRename(world)"
+                    @click="beginRename(game)"
                   >
                     <UiIcon name="pencil" />
                   </button>
                 </div>
-                <p v-if="libraryAutosaves[world.slug]" class="saved-world-time">
-                  Room {{ libraryAutosaves[world.slug]?.room }} · Saved
-                  {{ new Date(libraryAutosaves[world.slug]!.savedAt).toLocaleString() }}
+                <p v-if="libraryProvenance(game)" class="saved-world-source">
+                  {{ libraryProvenance(game) }}
+                </p>
+                <p v-if="libraryAutosaves[game.projectId]" class="saved-world-time">
+                  Room {{ libraryAutosaves[game.projectId]?.room }} · Saved
+                  {{ new Date(libraryAutosaves[game.projectId]!.savedAt).toLocaleString() }}
                 </p>
               </div>
               <div class="saved-game-play-row">
@@ -2411,32 +2811,41 @@ watch(
                   class="ui-button ui-button--primary"
                   data-testid="btn-resume-cached"
                   :disabled="libraryActionBusy || importBusy"
-                  @click="onPlayLibraryWorld(world)"
+                  @click="onPlayLibraryGame(game)"
                 >
-                  {{ libraryAutosaves[world.slug] ? "Resume" : "Play" }}
+                  {{ libraryAutosaves[game.projectId] ? "Resume" : "Play" }}
                 </button>
                 <ActionMenu
                   label="Game actions"
                   icon="more"
                   icon-only
-                  :test-id="`game-actions-${world.slug}`"
+                  :test-id="`game-actions-${game.projectId}`"
                 >
                   <button
-                    v-if="libraryAutosaves[world.slug]"
+                    v-if="hasWalkthrough(game.library?.alias ?? game.projectId)"
+                    type="button"
+                    role="menuitem"
+                    data-testid="run-walkthrough"
+                    @click="onStartWalkthrough(game.library?.alias ?? game.projectId)"
+                  >
+                    <span>Run walkthrough<small>Watch real-time playthrough</small></span>
+                  </button>
+                  <button
+                    v-if="libraryAutosaves[game.projectId]"
                     type="button"
                     role="menuitem"
                     data-testid="start-library-game-over"
-                    @click="onStartLibraryWorldOver(world)"
+                    @click="onStartLibraryGameOver(game)"
                   >
                     Start over
                   </button>
                   <button
-                    v-if="world.library?.validation.status === 'unverified'"
+                    v-if="game.library?.validation.status === 'unverified'"
                     type="button"
                     role="menuitem"
                     data-testid="check-library-game"
                     :disabled="libraryActionBusy"
-                    @click="onCheckLibraryWorld(world)"
+                    @click="onCheckLibraryGame(game)"
                   >
                     Check opening
                   </button>
@@ -2445,7 +2854,7 @@ watch(
                     role="menuitem"
                     data-testid="copy-library-game"
                     :disabled="libraryActionBusy"
-                    @click="onCopyLibraryWorld(world)"
+                    @click="onCopyLibraryGame(game)"
                   >
                     Make a copy
                   </button>
@@ -2455,7 +2864,7 @@ watch(
                     role="menuitem"
                     data-testid="btn-export-agi-zip"
                     :disabled="exportBusy"
-                    @click="onExportLibraryWorld(world)"
+                    @click="onExportLibraryGame(game)"
                   >
                     <span>Game export<small>Playable game</small></span>
                   </button>
@@ -2464,7 +2873,7 @@ watch(
                     role="menuitem"
                     data-testid="btn-save-project"
                     :disabled="exportBusy"
-                    @click="onExportLibraryWorld(world, true)"
+                    @click="onExportLibraryGame(game, true)"
                   >
                     <span>Project<small>Game and editing history</small></span>
                   </button>
@@ -2474,7 +2883,7 @@ watch(
                     role="menuitem"
                     class="danger"
                     data-testid="remove-library-game"
-                    @click="onRemoveLibraryWorld(world)"
+                    @click="onRemoveLibraryGame(game)"
                   >
                     Remove game
                   </button>
@@ -2482,26 +2891,26 @@ watch(
               </div>
               <details
                 class="library-details-disclosure"
-                :open="expandedGameSlug === world.slug"
-                :data-testid="`game-details-${world.slug}`"
-                @toggle="onGameDetailsToggle(world.slug, $event)"
+                :open="expandedProjectId === game.projectId"
+                :data-testid="`game-details-${game.projectId}`"
+                @toggle="onGameDetailsToggle(game.projectId, $event)"
               >
                 <summary>Details</summary>
 
-                <div v-if="world.library" class="library-details">
-                  <p v-if="world.library.description">{{ world.library.description }}</p>
+                <div v-if="game.library" class="library-details">
+                  <p v-if="game.library.description">{{ game.library.description }}</p>
                   <dl>
-                    <template v-if="world.library.author">
+                    <template v-if="game.library.author">
                       <dt>By</dt>
-                      <dd>{{ world.library.author }}</dd>
+                      <dd>{{ game.library.author }}</dd>
                     </template>
-                    <template v-if="world.library.license">
+                    <template v-if="game.library.license">
                       <dt>License</dt>
-                      <dd>{{ world.library.license }}</dd>
+                      <dd>{{ game.library.license }}</dd>
                     </template>
-                    <template v-if="world.library.catalog">
+                    <template v-if="game.library.catalog">
                       <dt>Version</dt>
-                      <dd>{{ world.library.catalog.version }}</dd>
+                      <dd>{{ game.library.catalog.version }}</dd>
                     </template>
                   </dl>
                 </div>
@@ -2509,54 +2918,72 @@ watch(
             </div>
           </article>
           <article
-            v-for="slug in localGameSlugs"
-            :key="`local-${slug}`"
+            v-for="game in localGames"
+            :key="`local-${game.hash}`"
             class="saved-game-card"
-            :data-testid="`local-game-card-${slug}`"
+            :data-testid="`local-game-card-${game.alias || game.folder || game.hash}`"
           >
             <div class="saved-game-media">
               <img
-                v-if="libraryAutosaves[slug]?.preview"
+                v-if="localAutosave(game)?.preview"
                 class="library-thumbnail"
                 data-testid="library-thumbnail"
                 data-preview-kind="progress"
-                :src="libraryAutosaves[slug]?.preview"
-                :alt="`${slug.toUpperCase()}, current progress in room ${libraryAutosaves[slug]?.room}`"
+                :src="localAutosave(game)?.preview"
+                :alt="`${game.title}, current progress in room ${localAutosave(game)?.room}`"
               />
-              <div v-else class="saved-game-cover" aria-hidden="true">{{ slug.toUpperCase() }}</div>
-              <span v-if="libraryAutosaves[slug]" class="saved-world-badge">IN PROGRESS</span>
+              <div v-else class="saved-game-cover" aria-hidden="true">
+                {{ (game.alias || game.hash).slice(0, 8).toUpperCase() }}
+              </div>
+              <span v-if="localAutosave(game)" class="saved-world-badge">IN PROGRESS</span>
             </div>
             <div class="saved-game-card-body">
               <div class="saved-game-info">
                 <div class="saved-game-heading">
-                  <h3 class="saved-world-title">{{ slug.toUpperCase() }}</h3>
+                  <h3 class="saved-world-title">{{ game.title }}</h3>
                 </div>
-                <p v-if="libraryAutosaves[slug]" class="saved-world-time">
-                  Room {{ libraryAutosaves[slug]?.room }}
+                <p v-if="game.folder && game.folder !== game.alias" class="saved-world-source">
+                  {{ game.folder }}
+                </p>
+                <p v-if="localAutosave(game)" class="saved-world-time">
+                  Room {{ localAutosave(game)?.room }}
                 </p>
               </div>
               <div class="saved-game-play-row">
                 <button
                   type="button"
                   class="ui-button ui-button--primary"
-                  :data-testid="`boot-${slug}`"
+                  :data-hash="game.hash"
+                  :data-alias="game.alias"
+                  :data-testid="`boot-${game.folder || game.alias || game.hash}`"
                   :disabled="libraryActionBusy || importBusy"
-                  @click="onPlayLocalGame(slug)"
+                  @click="onPlayLocalGame(game.folder ?? game.hash)"
                 >
-                  {{ libraryAutosaves[slug] ? "Resume" : "Play" }}
+                  {{ localAutosave(game) ? "Resume" : "Play" }}
                 </button>
                 <ActionMenu
-                  v-if="libraryAutosaves[slug]"
+                  v-if="localAutosave(game) || hasWalkthrough(game.hash)"
                   label="Game actions"
                   icon="more"
                   icon-only
+                  :test-id="`game-actions-${game.folder || game.alias || game.hash}`"
                 >
                   <button
+                    v-if="hasWalkthrough(game.hash)"
+                    type="button"
+                    role="menuitem"
+                    data-testid="run-walkthrough"
+                    @click="onStartWalkthrough(game.folder ?? game.hash)"
+                  >
+                    <span>Run walkthrough<small>Watch real-time playthrough</small></span>
+                  </button>
+                  <button
+                    v-if="localAutosave(game)"
                     type="button"
                     role="menuitem"
                     @click="
                       resumeAudio();
-                      startOver(slug, llmConfig());
+                      startOver(game.folder ?? game.hash, llmConfig());
                     "
                   >
                     Start over
@@ -2610,6 +3037,16 @@ watch(
                 >
                   {{ catalogBusy[entry.id] ? "Checking opening…" : "Play" }}
                 </button>
+                <button
+                  v-if="hasWalkthrough(entry.id)"
+                  type="button"
+                  class="ui-button ui-button--secondary"
+                  data-testid="catalog-run-walkthrough"
+                  :disabled="catalogBusy[entry.id] || libraryActionBusy || importBusy"
+                  @click="playCatalogWalkthrough(entry.id)"
+                >
+                  Watch
+                </button>
               </div>
               <details class="library-details-disclosure">
                 <summary>Details</summary>
@@ -2633,8 +3070,11 @@ watch(
         <div
           v-if="
             pendingAutosave &&
-            !savedWorlds.some((world) => world.slug === pendingAutosave?.game.slug) &&
-            !localGameSlugs.includes(pendingAutosave.game.slug)
+            !savedGames.some((game) => game.projectId === pendingAutosave?.game.projectId) &&
+            !localGames.some(
+              (g) =>
+                g.hash === pendingAutosave?.game.hash || g.alias === pendingAutosave?.game.alias,
+            )
           "
           class="saved-world-card autosave-fallback"
           data-testid="autosave-panel"
@@ -2645,12 +3085,14 @@ watch(
             data-testid="library-thumbnail"
             data-preview-kind="progress"
             :src="pendingAutosave.preview"
-            :alt="`${pendingAutosave.game.slug}, current progress in room ${pendingAutosave.room}`"
+            :alt="`${pendingAutosave.game.alias ?? pendingAutosave.game.projectId ?? 'Saved game'}, current progress in room ${pendingAutosave.room}`"
           />
           <div class="saved-world-header">
             <div class="saved-world-tag">
               <span class="saved-world-badge">IN PROGRESS</span>
-              <span class="saved-world-title">{{ pendingAutosave.game.slug }}</span>
+              <span class="saved-world-title">{{
+                pendingAutosave.game.alias ?? pendingAutosave.game.projectId
+              }}</span>
             </div>
             <span class="saved-world-time">
               Room {{ pendingAutosave.room }} · Saved
@@ -2759,8 +3201,8 @@ watch(
     <!-- Interstitial Splash / Loading Screen during Genesis -->
     <div v-if="state.phase === 'loading'" class="loading-panel" data-testid="splash-screen">
       <div class="splash-card">
-        <h2 class="splash-title">{{ activeCartridge.title }}</h2>
-        <p class="splash-desc">{{ activeCartridge.description }}</p>
+        <h2 class="splash-title">{{ activeTemplate.title }}</h2>
+        <p class="splash-desc">{{ activeTemplate.description }}</p>
         <div class="splash-progress">
           <div
             class="spinner-box"
@@ -2794,7 +3236,7 @@ watch(
         @pointerdown="onScreenPointerDown"
       >
         <canvas
-          v-show="gpuBackend !== null"
+          v-show="!!gpuBackend"
           ref="gpuCanvas"
           class="game-surface"
           width="960"
@@ -2803,7 +3245,7 @@ watch(
         />
         <!-- The composed 320x200 frame: Playwright pixel probe and no-GPU fallback. -->
         <canvas
-          v-show="gpuBackend === null"
+          v-show="!gpuBackend"
           ref="canvas"
           class="game-surface"
           width="320"
@@ -2820,7 +3262,7 @@ watch(
         >
           <input
             id="game-command"
-            :disabled="state.powerUp.open || !state.inputReady"
+            :disabled="state.powerUp.open || (!state.inputReady && !state.walkthrough.active)"
             aria-label="Game command"
             aria-describedby="game-input-help"
             ref="inputEl"
@@ -3040,6 +3482,18 @@ watch(
         </div>
       </div>
 
+      <!-- Walkthrough Transport Bar (Directly below the CRT screen) -->
+      <WalkthroughTransport
+        v-if="state.walkthrough.active && state.phase === 'running'"
+        :walkthrough="state.walkthrough"
+        @toggle-pause="toggleWalkthroughPause"
+        @set-speed="setWalkthroughSpeed"
+        @toggle-pause-on-dialog="toggleWalkthroughPauseOnDialog"
+        @seek-tick="onWalkthroughSeekTick"
+        @seek-checkpoint="onWalkthroughSeekCheckpoint"
+        @scrubbing="onWalkthroughScrubbing"
+      />
+
       <!-- Captions under the screen (never overlays: all game text is on the CRT) -->
       <TouchControls
         v-if="touchControls && state.phase === 'running'"
@@ -3048,31 +3502,33 @@ watch(
         :hold="state.holdToMove"
         @direction="onTouchDirection"
         @key="onVirtualKey"
-        @keyboard="inputEl?.focus()"
+        @keyboard="inputEl?.focus({ preventScroll: true })"
       />
     </div>
     <div v-if="state.phase === 'running'" class="screen-captions">
-      <span v-if="state.resumed" class="caption resume-caption" data-testid="resume-caption">
-        Resumed where you left off
-      </span>
-      <span v-if="state.prompt" class="caption" data-testid="prompt-hint">
-        [ Type your answer on the screen, Enter to accept, Esc to cancel ]
-      </span>
-      <span v-else-if="state.textMode" class="caption" data-testid="text-mode-hint">
-        [ Use the keys requested by the game ]
-      </span>
-      <span v-else-if="hasKeyPrompt" class="caption" data-testid="title-prompt-hint">
-        [ {{ touchControls ? "Tap screen or press" : "Press" }} Enter / Space to start ]
-      </span>
-      <span v-else-if="state.modal === 'menu'" class="caption" data-testid="menu-hint">
-        [ Arrows to navigate, Enter to select, Esc to close ]
-      </span>
-      <span v-else-if="state.modal === 'inventory'" class="caption" data-testid="inventory-hint">
-        [ Arrows to select, Enter to choose, Esc to return ]
-      </span>
-      <span v-else-if="state.modal !== null" class="caption" data-testid="modal-hint">
-        [ Press Enter to continue ]
-      </span>
+      <template v-if="!state.walkthrough.seeking">
+        <span v-if="state.resumed" class="caption resume-caption" data-testid="resume-caption">
+          Resumed where you left off
+        </span>
+        <span v-if="state.prompt" class="caption" data-testid="prompt-hint">
+          [ Type your answer on the screen, Enter to accept, Esc to cancel ]
+        </span>
+        <span v-else-if="state.textMode" class="caption" data-testid="text-mode-hint">
+          [ Use the keys requested by the game ]
+        </span>
+        <span v-else-if="hasKeyPrompt" class="caption" data-testid="title-prompt-hint">
+          [ {{ touchControls ? `Tap screen or: ${keyPromptHint}` : keyPromptHint }} ]
+        </span>
+        <span v-else-if="state.modal === 'menu'" class="caption" data-testid="menu-hint">
+          [ Arrows to navigate, Enter to select, Esc to close ]
+        </span>
+        <span v-else-if="state.modal === 'inventory'" class="caption" data-testid="inventory-hint">
+          [ Arrows to select, Enter to choose, Esc to return ]
+        </span>
+        <span v-else-if="state.modal !== null" class="caption" data-testid="modal-hint">
+          [ Press Enter to continue ]
+        </span>
+      </template>
     </div>
 
     <p v-if="state.phase === 'running'" id="game-input-help" class="input-help">
@@ -3093,7 +3549,6 @@ watch(
     <details v-if="state.agentLog.length || testMode" class="agent-panel" data-testid="agent-panel">
       <summary data-testid="developer-activity-summary">Developer activity</summary>
       <div class="agent-panel-header">
-        <h2>Agent activity</h2>
         <span class="backend-tag" data-testid="gpu-backend">{{ gpuBackend || "canvas2d" }}</span>
         <div class="agent-panel-actions">
           <button
@@ -3468,14 +3923,6 @@ watch(
   margin: 6px 0 0;
 }
 
-.export-refusal {
-  color: #ffff55;
-  font-size: 12px;
-  width: var(--shell-width);
-  margin: 6px 0 16px;
-  line-height: 1.5;
-}
-
 .app-container {
   --shell-width: min(960px, calc(100vw - 32px));
   --game-width: min(960px, calc(100vw - 32px), max(640px, calc((100dvh - 280px) * 1.6)));
@@ -3754,6 +4201,14 @@ details[open] > .section-summary {
   width: auto;
   min-width: 150px;
 }
+.catalog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.catalog-actions .ui-button {
+  flex: 1 1 auto;
+}
 .library-thumbnail {
   margin-bottom: 14px;
   border: 1px solid #405457;
@@ -3972,13 +4427,13 @@ details[open] > .section-summary {
   margin: 0 0 0.5rem 0;
 }
 
-.cartridge-grid {
+.template-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
-.cartridge-card {
+.template-card {
   background: #1a1a1a;
   border: 1px solid #333;
   padding: 12px;
@@ -3990,12 +4445,12 @@ details[open] > .section-summary {
   transition: all 0.15s ease;
 }
 
-.cartridge-card:hover {
+.template-card:hover {
   border-color: #555;
   background: #222;
 }
 
-.cartridge-card.selected {
+.template-card.selected {
   border-color: #64dddd;
   background: #173337;
 }
@@ -4004,14 +4459,14 @@ details[open] > .section-summary {
   grid-column: 1 / -1;
 }
 
-.cartridge-title {
+.template-title {
   font-size: 14px;
   font-weight: bold;
   color: #fff;
   margin-bottom: 0.25rem;
 }
 
-.cartridge-desc {
+.template-desc {
   font-size: 12px;
   color: #bbb;
   line-height: 1.5;
@@ -4472,7 +4927,7 @@ details[open] > .section-summary {
   .catalog-copy {
     padding: 18px;
   }
-  .cartridge-grid {
+  .template-grid {
     grid-template-columns: minmax(0, 1fr);
   }
   .header {
@@ -4529,13 +4984,6 @@ details[open] > .section-summary {
   flex-wrap: wrap;
   gap: 0.5rem;
   margin: 0.5rem 0;
-}
-
-.agent-panel h2 {
-  font-size: 0.7rem;
-  letter-spacing: 0.2em;
-  color: #666;
-  margin: 0;
 }
 
 .agent-panel-actions {
@@ -4618,9 +5066,15 @@ details[open] > .section-summary {
   color: #fa0;
 }
 
+.agent-entry.input .agent-kind {
+  color: #5ce1e6;
+}
+
 .agent-detail {
   flex: 1;
-  word-break: break-all;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .agent-expand-toggle {
@@ -4739,6 +5193,11 @@ details[open] > .section-summary {
   color: #8bbfa3;
   font-size: 0.75rem;
 }
+.saved-world-source {
+  color: #7f999b;
+  font-size: 0.72rem;
+  margin: 0 0 2px;
+}
 
 .ai-connect {
   margin-top: 24px;
@@ -4784,7 +5243,7 @@ details[open] > .section-summary {
   flex: 1;
   min-width: 0;
 }
-.cartridge-rename {
+.game-rename {
   width: 100%;
   display: flex;
   flex-wrap: wrap;
@@ -4793,12 +5252,12 @@ details[open] > .section-summary {
   margin-bottom: 0.75rem;
 }
 
-.cartridge-rename label {
+.game-rename label {
   width: 100%;
   color: #bce3d0;
 }
 
-.cartridge-rename input {
+.game-rename input {
   flex: 1 1 14rem;
   min-width: 0;
   padding: 0.6rem;

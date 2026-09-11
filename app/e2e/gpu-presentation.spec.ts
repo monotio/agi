@@ -47,7 +47,7 @@ test("saved game keeps its message visible through resize, then changes rooms an
   );
   await page.goto("/");
   await cacheGame(page, {
-    slug: "presentation",
+    projectId: "presentation",
     title: "Saved adventure",
     provider: "stub",
     model: "local-playback",
@@ -110,4 +110,21 @@ test("saved game keeps its message visible through resize, then changes rooms an
     .toEqual([255, 255, 85, 255]);
   await expect.poll(coloredPixels).toBeGreaterThan(1000);
   await page.screenshot({ path: "test-results/gpu-message-room-arrival.png" });
+
+  // Test that CRT shader can be toggled on and off via settings
+  await page.getByTestId("settings-menu").click();
+  const crtToggle = page.getByTestId("toggle-crt");
+  await expect(crtToggle).toBeVisible();
+  // By default in testMode, CRT is off
+  await expect(crtToggle).toHaveAttribute("aria-checked", "false");
+
+  // Toggle CRT ON and verify shaded pixels render
+  await crtToggle.click();
+  await expect(crtToggle).toHaveAttribute("aria-checked", "true");
+  await expect.poll(coloredPixels).toBeGreaterThan(1000);
+
+  // Toggle CRT back OFF
+  await crtToggle.click();
+  await expect(crtToggle).toHaveAttribute("aria-checked", "false");
+  await expect.poll(coloredPixels).toBeGreaterThan(1000);
 });

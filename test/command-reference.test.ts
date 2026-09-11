@@ -28,7 +28,7 @@ test("prompts load command details on demand using the imported game's profile",
   assert.ok(!AGI_SYSTEM_PROMPT.includes(catalog));
   assert.ok(AGI_SYSTEM_PROMPT.includes("read_command_reference"));
   const text = createOrientationPrompt({
-    gameId: "custom",
+    game: "custom",
     profile: "2.230",
     room: 1,
     resourceListing: "",

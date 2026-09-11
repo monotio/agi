@@ -223,7 +223,7 @@ export interface EngineMenuState {
   requested: boolean;
 }
 
-type Modal =
+type Modal = { serial: number } & (
   | { kind: "print"; saved: SavedRect; remainingMs: number | null }
   | {
       kind: "inventory";
@@ -235,7 +235,8 @@ type Modal =
     }
   | { kind: "menu"; saved: SavedRect }
   | { kind: "showObj"; saved: SavedRect; view: number }
-  | { kind: "showPri" };
+  | { kind: "showPri" }
+);
 
 /** have.key polls per cycle before a keyless host receives a synthesized Enter. */
 const HAVE_KEY_POLL_LIMIT = 1000;
@@ -432,12 +433,27 @@ export class Engine {
    * non-window modals (show.pri, inventory, menu) stay underneath a print.
    */
   private readonly modals: Modal[] = [];
+  /** Instance counter stamped on each pushed modal: identity for story-pause beats. */
+  private modalSerialCounter = 0;
   /** f15 output mode keeps a window visible without suspending execution. */
   private persistentWindow: SavedRect | null = null;
   /** Menu selection carried into the next cycle's input phase as a mapped event. */
   private pendingController: number | null = null;
   /** Tracked key-release gate (action 0xad; spec "Tracked key release"). */
   private keyReleaseGate = 0;
+  /** Scratch arrays and cached composition for presentation and ego visibility. */
+  private readonly scratchVisual = new Uint8Array(SCREEN_WIDTH * 168);
+  private readonly scratchPriority = new Uint8Array(SCREEN_WIDTH * 168);
+  private readonly scratchOwnership = new Uint16Array(SCREEN_WIDTH * 168);
+  private readonly cachedVisual = new Uint8Array(SCREEN_WIDTH * 168);
+  private readonly cachedPriority = new Uint8Array(SCREEN_WIDTH * 168);
+  private readonly cachedText = new Uint8Array(TEXT_COLS * TEXT_ROWS * 2);
+  private cachedEgoVisible = false;
+  private presentationDirty = true;
+  private lastComposedTextDirty = -1;
+  private lastComposedModal: Modal | null = null;
+  private lastComposedTraceDirty = -1;
+  private lastComposedTraceVisible = false;
   /** A gated release enqueued a movement value 0 for the next input phase. */
   private readonly inputQueue = new InputQueue();
   /**
@@ -549,13 +565,17 @@ export class Engine {
   ): void {
     this.container.putResource(kind, num, payload);
     if (kind === "logic") this.logics.delete(num);
-    else if (kind === "picture") this.pictures.delete(num);
-    else if (kind === "view") this.views.delete(num);
-    else this.sounds.delete(num);
+    else if (kind === "picture") {
+      this.pictures.delete(num);
+      this.presentationDirty = true;
+    } else if (kind === "view") {
+      this.views.delete(num);
+      this.presentationDirty = true;
+    } else this.sounds.delete(num);
     this.patchGen++;
   }
 
-  /** Replace cartridge metadata while preserving the player's existing item locations. */
+  /** Replace game metadata while preserving the player's existing item locations. */
   patchAuxiliaryFiles(files: {
     words?: Uint8Array;
     objects?: Uint8Array;
@@ -681,6 +701,26 @@ export class Engine {
   /** Kind of the open modal, or null when the interpreter is running. */
   get modalKind(): Modal["kind"] | "save" | "restore" | null {
     return this.saveDialogMode ?? this.modal?.kind ?? null;
+  }
+
+  /** Instance serial of the open modal: rises on every push, so back-to-back windows differ. */
+  get modalSerial(): number {
+    return this.modal?.serial ?? 0;
+  }
+
+  /** Whether a modal window, prompt or pending message is active. */
+  get modalOpen(): boolean {
+    return (
+      this.modalKind !== null ||
+      this.modal !== null ||
+      this.persistentWindow !== null ||
+      this.printsPending > 0
+    );
+  }
+
+  /** Whether the first room picture has been drawn. */
+  get isPictureShown(): boolean {
+    return this.pictureShown;
   }
 
   /** A message has suspended a cycle, including after its timeout expires. */
@@ -981,6 +1021,7 @@ export class Engine {
       this.persistentWindow = saved;
     } else {
       this.modals.push({
+        serial: ++this.modalSerialCounter,
         kind: "print",
         saved,
         remainingMs: !forceAcknowledgement && this.vars[21] !== 0 ? this.vars[21]! * 500 : null,
@@ -1013,14 +1054,14 @@ export class Engine {
       box.left + box.cols - 1,
     );
     drawWindow(this.text, box, lines, attr(0, 15), attr(4, 15));
-    this.modals.push({ kind: "showObj", saved, view: viewNum });
+    this.modals.push({ serial: ++this.modalSerialCounter, kind: "showObj", saved, view: viewNum });
     this.printsPending++;
     this.host.showObj?.(viewNum);
   }
 
   private showPriScreen(): void {
     this.closeWindowOnTop();
-    this.modals.push({ kind: "showPri" });
+    this.modals.push({ serial: ++this.modalSerialCounter, kind: "showPri" });
     this.printsPending++;
     this.host.showPriScreen?.();
   }
@@ -1126,6 +1167,7 @@ export class Engine {
     }
     const saved = this.text.save(0, 0, TEXT_ROWS - 1, TEXT_COLS - 1);
     const modal: Modal = {
+      serial: ++this.modalSerialCounter,
       kind: "inventory",
       saved,
       items,
@@ -1244,7 +1286,11 @@ export class Engine {
     this.closeWindowOnTop();
     if (!this.menu[this.menuHeading]!.enabled)
       this.menuHeading = this.menu.findIndex((h) => h.enabled);
-    this.modals.push({ kind: "menu", saved: this.text.save(0, 0, TEXT_ROWS - 1, TEXT_COLS - 1) });
+    this.modals.push({
+      serial: ++this.modalSerialCounter,
+      kind: "menu",
+      saved: this.text.save(0, 0, TEXT_ROWS - 1, TEXT_COLS - 1),
+    });
     this.printsPending++;
     this.drawMenu();
     return true;
@@ -1517,6 +1563,7 @@ export class Engine {
     this.soundPlayback = sound;
     this.playingSound = state.sound?.num ?? null;
     this.soundDoneFlag = state.sound?.doneFlag ?? null;
+    this.presentationDirty = true;
   }
 
   /**
@@ -1709,6 +1756,7 @@ export class Engine {
 
     // 3. Rebind object views and refresh picture, objects, status and input.
     this.rebindObjectViews();
+    this.presentationDirty = true;
     this.updateEgoVisibility();
     this.modals.length = 0;
     this.persistentWindow = null;
@@ -1977,6 +2025,7 @@ export class Engine {
       const to = Math.min(SCREEN_WIDTH, x + c.width);
       for (let dx = from; dx < to; dx++) this.surface.priority[y * SCREEN_WIDTH + dx] = margin;
     }
+    this.presentationDirty = true;
   }
 
   /**
@@ -2107,6 +2156,7 @@ export class Engine {
     }
     if (this.printsPending > 0) return;
     if (this.pendingLogic === null) {
+      this.presentationDirty = true;
       // The timer tick accumulator serialized as the save's tick count.
       this.timerTicks = (this.timerTicks + 1) >>> 0;
       // 2. Clear transient mapped events, f2, f4.
@@ -2221,6 +2271,7 @@ export class Engine {
       // An open text window never suspends this update.
       // docs/fidelity.md: window-update-gate
       this.updateObjects();
+      this.presentationDirty = true;
       this.updateEgoVisibility();
     }
   }
@@ -2665,42 +2716,25 @@ export class Engine {
       this.drawInputRow();
     }
     this.host.clearText?.();
+    this.presentationDirty = true;
     void room;
   }
 
   /**
-   * Composite the presentable frame: picture surface plus active objects
-   * drawn in baseline order (classic painter's algorithm by priority).
-   * Returns fresh copies — the worker transfers these to the renderer.
+   * Composite the presentable frame into reusable scratch buffers and update
+   * the cached presentation product.
    */
-  getFrame(): { visual: Uint8Array; priority: Uint8Array } {
-    return this.composeFrame(false).frame;
-  }
+  private composePresentation(): void {
+    this.scratchVisual.set(this.surface.visual);
+    this.scratchPriority.set(this.surface.priority);
+    this.scratchOwnership.fill(0);
 
-  /** Pixels and text from one completed composition; buffers may be transferred by the host. */
-  getPresentation(): { visual: Uint8Array; priority: Uint8Array; text: Uint8Array } {
-    const { frame, ownership, sprites } = this.composeFrame(!this.textMode);
-    // Only the final owner of a pixel can obscure text. Intermediate paints
-    // may themselves be covered by another sprite in the same pass.
-    const text = this.mergeTraceText(this.hideTextUnderSprites(ownership, sprites)).slice();
-    return { ...frame, text };
-  }
+    const frame: PictureSurface = {
+      visual: this.scratchVisual,
+      priority: this.scratchPriority,
+      reset(): void {},
+    };
 
-  /** f1 is engine state, updated when sprites draw rather than when a host asks for pixels. */
-  private updateEgoVisibility(): void {
-    if (this.objects[0]!.active) this.flags[1] = this.composeFrame(true).egoVisible ? 0 : 1;
-  }
-
-  private composeFrame(trackOwnership: boolean): {
-    frame: { visual: Uint8Array; priority: Uint8Array };
-    egoVisible: boolean;
-    ownership: Uint16Array | null;
-    sprites: ScreenObject[];
-  } {
-    const visual = this.surface.visual.slice();
-    const priority = this.surface.priority.slice();
-    const ownership = trackOwnership ? new Uint16Array(visual.length) : null;
-    const frame: PictureSurface = { visual, priority, reset(): void {} };
     // Stable sorting retains object-number order for equal drawing keys.
     // Positive fixed priorities sort after every baseline in the table mode.
     const active = this.objects
@@ -2712,6 +2746,7 @@ export class Engine {
         const bKey = b.fixedPriority ? (b.priority === 0 ? -1 : SCREEN_HEIGHT) : b.y;
         return aKey - bKey;
       });
+
     for (const [slot, o] of active.entries()) {
       const view = this.views.get(o.view);
       const cel = view && readViewCel(view, o.loop, o.cel);
@@ -2719,17 +2754,15 @@ export class Engine {
       const pri = o.fixedPriority ? o.priority : this.priorityForY(o.y);
       drawCel(frame, cel, o.x, o.y, {
         priority: pri,
-        ...(ownership
-          ? {
-              onPixel: (index: number) => {
-                ownership[index] = slot + 1;
-              },
-            }
-          : {}),
+        onPixel: (index: number) => {
+          this.scratchOwnership[index] = slot + 1;
+        },
       });
     }
+
     const egoSlot = active.indexOf(this.objects[0]!);
-    const egoVisible = egoSlot >= 0 && (ownership?.includes(egoSlot + 1) ?? false);
+    this.cachedEgoVisible = egoSlot >= 0 && this.scratchOwnership.includes(egoSlot + 1);
+
     if (this.modal?.kind === "showObj") {
       // show.obj preview: the view's first cel, bottom centre of the picture.
       const view = this.views.get(this.modal.view);
@@ -2737,14 +2770,67 @@ export class Engine {
       if (cel)
         drawCel(frame, cel, (SCREEN_WIDTH - cel.width) >> 1, SCREEN_HEIGHT - 1, { priority: 15 });
     }
-    if (this.modal?.kind === "showPri")
-      return {
-        frame: { visual: priority.slice(), priority },
-        egoVisible,
-        ownership,
-        sprites: active,
-      };
-    return { frame: { visual, priority }, egoVisible, ownership, sprites: active };
+
+    if (this.modal?.kind === "showPri") {
+      this.cachedVisual.set(this.scratchPriority);
+      this.cachedPriority.set(this.scratchPriority);
+    } else {
+      this.cachedVisual.set(this.scratchVisual);
+      this.cachedPriority.set(this.scratchPriority);
+    }
+
+    const ownership = !this.textMode ? this.scratchOwnership : null;
+    const text = this.mergeTraceText(this.hideTextUnderSprites(ownership, active));
+    this.cachedText.set(text);
+    this.lastComposedTextDirty = this.text.dirty;
+    this.lastComposedModal = this.modal;
+    this.lastComposedTraceDirty = this.trace.surface.dirty;
+    this.lastComposedTraceVisible = this.traceOverlayVisible;
+    this.presentationDirty = false;
+  }
+
+  private ensurePresentationCurrent(): void {
+    const traceVisible = this.traceOverlayVisible;
+    if (
+      this.presentationDirty ||
+      this.text.dirty !== this.lastComposedTextDirty ||
+      this.modal !== this.lastComposedModal ||
+      traceVisible !== this.lastComposedTraceVisible ||
+      (traceVisible && this.trace.surface.dirty !== this.lastComposedTraceDirty)
+    ) {
+      this.composePresentation();
+    }
+  }
+
+  /**
+   * Composite the presentable frame: picture surface plus active objects
+   * drawn in baseline order (classic painter's algorithm by priority).
+   * Returns fresh copies — the worker transfers these to the renderer.
+   */
+  getFrame(): { visual: Uint8Array; priority: Uint8Array } {
+    this.ensurePresentationCurrent();
+    return {
+      visual: this.cachedVisual.slice(),
+      priority: this.cachedPriority.slice(),
+    };
+  }
+
+  /** Pixels and text from one completed composition; buffers may be transferred by the host. */
+  getPresentation(): { visual: Uint8Array; priority: Uint8Array; text: Uint8Array } {
+    this.ensurePresentationCurrent();
+    return {
+      visual: this.cachedVisual.slice(),
+      priority: this.cachedPriority.slice(),
+      text: this.cachedText.slice(),
+    };
+  }
+
+  /** f1 is engine state, updated when sprites draw rather than when a host asks for pixels. */
+  private updateEgoVisibility(): void {
+    if (this.objects[0]!.active) {
+      this.ensurePresentationCurrent();
+      this.flags[1] = this.cachedEgoVisible ? 0 : 1;
+    }
   }
 
   /** Baseline priority bands (spec "Priority and horizon" and set.pri.base). */
@@ -3616,6 +3702,7 @@ export class Engine {
         // The cel now covers whatever text lies under it (hideTextUnderSprites);
         // text written from here on lies on top of it.
         this.stampDraw(o);
+        this.presentationDirty = true;
         this.updateEgoVisibility();
         return next;
       }
@@ -3625,6 +3712,7 @@ export class Engine {
         // written since then is gone.
         if (o.active) this.restoreBehind(o);
         o.active = false;
+        this.presentationDirty = true;
         this.updateEgoVisibility();
         return next;
       }
@@ -3995,16 +4083,16 @@ export class Engine {
         return next;
       }
       case 0x87: {
-        // This allocator retains the cartridge and reserves replay capacity;
+        // This allocator retains the container and reserves replay capacity;
         // the spec defines the diagnostic categories, not a DOS heap layout.
-        const cartridgeBytes = Array.from(this.container.files.values()).reduce(
+        const containerBytes = Array.from(this.container.files.values()).reduce(
           (sum, bytes) => sum + bytes.length,
           0,
         );
         const capacity = Math.max(this.scriptCapacity, this.maximumReplayPairs);
         const lines = [
-          `heap size: ${cartridgeBytes + capacity * 2}`,
-          `current/max use: ${cartridgeBytes + this.replay.length * 2}/${cartridgeBytes + this.maximumReplayPairs * 2}`,
+          `heap size: ${containerBytes + capacity * 2}`,
+          `current/max use: ${containerBytes + this.replay.length * 2}/${containerBytes + this.maximumReplayPairs * 2}`,
           `maximum script use: ${this.maximumReplayPairs * 2}`,
         ];
         if (this.profile.heapDiagnosticExtraLine)
@@ -4497,12 +4585,14 @@ export class Engine {
     renderPicture(this.picturePayload(num), this.surface, { profile: this.profile });
     this.pictureShown = false;
     this.lastPicture = num;
+    this.presentationDirty = true;
   }
 
   /** overlay.pic: decode over the logical picture without clearing it first. */
   private overlayPicture(num: number): void {
     renderPicture(this.picturePayload(num), this.surface, { overlay: true, profile: this.profile });
     this.lastPicture = num;
+    this.presentationDirty = true;
   }
 
   private loadLogicRecorded(num: number): void {
@@ -4674,6 +4764,7 @@ export class Engine {
     this.surface.reset();
     this.pictureShown = false;
     this.text.clear();
+    this.presentationDirty = true;
     // The two timing accumulators.
     this.timerTicks = 0;
     this.clockRemainderMs = 0;
@@ -4775,6 +4866,7 @@ export class Engine {
       lastInputLine: this.lastInputLine,
       horizon: this.horizon,
       modalKind: this.modalKind,
+      modalSerial: this.modalSerial,
       inputEnabled: this.inputAccepted,
       pictureShown: this.pictureShown,
       terminated: this.terminated,
@@ -4783,6 +4875,37 @@ export class Engine {
         name,
         room: this.itemLocations[num]!,
       })),
+    };
+  }
+
+  /**
+   * Fast, allocation-minimal state snapshot for replay progress and observations.
+   * Copies essential scalar coordinates and vars while omitting full inventory/string/flag
+   * array allocations.
+   */
+  readLeanState(): EngineStateReport {
+    const ego = this.objects[0]!;
+    return {
+      profile: this.profile.id,
+      room: this.vars[V_ROOM]!,
+      previousRoom: this.vars[V_PREV_ROOM]!,
+      egoX: ego.x,
+      egoY: ego.y,
+      egoDirection: this.vars[V_EGO_DIR]!,
+      vars: Array.from(this.vars),
+      flags: [],
+      strings: [],
+      parsedWords: [],
+      parsedWordTexts: [],
+      parserCount: this.parserCount,
+      lastInputLine: this.lastInputLine,
+      horizon: this.horizon,
+      modalKind: this.modalKind,
+      modalSerial: this.modalSerial,
+      inputEnabled: this.inputAccepted,
+      pictureShown: this.pictureShown,
+      terminated: this.terminated,
+      inventory: [],
     };
   }
 
@@ -4861,6 +4984,8 @@ export interface EngineStateReport {
   lastInputLine: string;
   horizon: number;
   modalKind: string | null;
+  /** Instance serial of the open modal: a new window means a new beat. */
+  modalSerial: number;
   /** Current item locations, with 255 meaning carried. */
   inventory: { num: number; name: string; room: number }[];
 }

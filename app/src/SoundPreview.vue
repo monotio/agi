@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AgentLogAudio } from "./useEngine.ts";
+import type { AgentLogAudio } from "./agent/agentLog.ts";
 
 defineProps<{
   audio: readonly AgentLogAudio[];

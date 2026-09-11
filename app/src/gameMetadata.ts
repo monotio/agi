@@ -1,15 +1,20 @@
+import { detectKnownGameByHashes, type KnownAgiGame } from "../../src/games/knownGames.ts";
+import { parseWordsTok } from "../../src/logic/words.ts";
+import { sha256Hex } from "./crypto.ts";
+import type { BootedGame } from "./gameTypes.ts";
+
 /** Versioned library metadata. Resource revisions and local project IDs have separate jobs. */
 export interface PublicGameMetadata {
   description?: string | undefined;
   author?: string | undefined;
   license?: string | undefined;
-  parent?: { gameId: string; revision: string } | undefined;
+  parent?:
+    { projectId?: string | undefined; alias?: string | undefined; revision: string } | undefined;
 }
 
 export interface LibraryMetadata extends PublicGameMetadata {
   version: 1;
-  /** Stable game lineage, independent of its title, local storage slug or resource revision. */
-  gameId: string;
+  alias?: string | undefined;
   revision: string;
   source: "catalog" | "zip" | "folder" | "authored" | "remix";
   catalog?: { id: string; version: string } | undefined;
@@ -52,23 +57,32 @@ export function publicGameMetadata(value?: PublicGameMetadata): PublicGameMetada
     const text = boundedText(value?.[key], key === "description" ? 600 : 160);
     if (text) result[key] = text;
   }
-  const parentId = boundedText(value?.parent?.gameId, 160);
-  if (parentId && SHA256.test(value?.parent?.revision ?? ""))
-    result.parent = { gameId: parentId, revision: value!.parent!.revision };
+  const revision = value?.parent?.revision;
+  if (revision && SHA256.test(revision)) {
+    const projectId = boundedText(value?.parent?.projectId, 160);
+    const alias = boundedText(value?.parent?.alias, 80);
+    if (projectId || alias) {
+      result.parent = {
+        revision,
+        ...(projectId ? { projectId } : {}),
+        ...(alias ? { alias } : {}),
+      };
+    }
+  }
   return result;
 }
 
 /** Validate the released version-1 library record, or create one for a new project. */
 export function normalizeLibraryMetadata(
   raw: unknown,
-  defaults: Pick<LibraryMetadata, "gameId" | "revision" | "source">,
+  defaults: Pick<LibraryMetadata, "revision" | "source"> & { alias?: string },
 ): LibraryMetadata {
   if (raw !== undefined && (!raw || typeof raw !== "object"))
     throw new Error("Invalid library metadata.");
   const value = (raw as Record<string, unknown> | undefined) ?? {};
   if (raw !== undefined && value["version"] !== 1)
     throw new Error("This library metadata version is not supported by this app.");
-  const gameId = boundedText(value["gameId"], 160) ?? defaults.gameId;
+  const alias = boundedText(value["alias"], 80) ?? defaults.alias;
   const revision =
     typeof value["revision"] === "string" && SHA256.test(value["revision"])
       ? value["revision"]
@@ -86,7 +100,7 @@ export function normalizeLibraryMetadata(
   return {
     ...publicGameMetadata(value as PublicGameMetadata),
     version: 1,
-    gameId,
+    ...(alias ? { alias } : {}),
     revision,
     source,
     ...(source === "catalog" && catalogId && catalogVersion
@@ -150,7 +164,36 @@ export async function gameRevision(files: Record<string, Uint8Array>): Promise<s
     packed.set(bytes, offset + 8 + name.length);
     offset += 8 + name.length + bytes.length;
   }
-  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", packed))]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return sha256Hex(packed);
+}
+
+/** Identify a collection of game files by hashing WORDS.TOK. */
+export async function detectKnownGame(
+  files: Record<string, Uint8Array>,
+): Promise<KnownAgiGame | null> {
+  const words = files["WORDS.TOK"] ?? files["words.tok"];
+  if (!words) return null;
+  const wordsSha = await sha256Hex(words);
+  const obj = files["OBJECT"] ?? files["object"];
+  const objSha = obj ? await sha256Hex(obj) : undefined;
+  return detectKnownGameByHashes(wordsSha, objSha);
+}
+
+/**
+ * Update the live booted game resources atomically with their dictionary
+ * and revision so currentGame() and debug bundles never see obsolete snapshots.
+ */
+export async function updateBootedResources(
+  booted: BootedGame,
+  files: Record<string, Uint8Array>,
+  words?: [string, number][],
+): Promise<void> {
+  const revision = await gameRevision(files);
+  booted.files = files;
+  if (words) {
+    booted.words = words;
+  } else if (files["WORDS.TOK"]) {
+    booted.words = parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id]);
+  }
+  booted.revision = revision;
 }

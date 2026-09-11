@@ -24,15 +24,15 @@ Offsets in the compatibility notes are load-module offsets.
 v3 `AGI` executables disassemble directly:
 
 ```bash
-ndisasm -b 16 -e 0x200 games/<slug>/AGI > /tmp/<slug>.asm
+ndisasm -b 16 -e 0x200 games/<folder>/AGI > /tmp/<folder>.asm
 ```
 
 v2 `AGI` executables are scrambled by the loader; undo it first with `scripts/descramble-agi.ts`,
 then disassemble the same way:
 
 ```bash
-node --experimental-strip-types scripts/descramble-agi.ts games/<slug> /tmp/<slug>-agi.bin
-ndisasm -b 16 -e 0x200 /tmp/<slug>-agi.bin > /tmp/<slug>.asm
+node --experimental-strip-types scripts/descramble-agi.ts games/<folder> /tmp/<folder>-agi.bin
+ndisasm -b 16 -e 0x200 /tmp/<folder>-agi.bin > /tmp/<folder>.asm
 ```
 
 The v2 scrambling XORs the image per 128-byte block with the 128-byte key at the loader's offset
@@ -378,3 +378,55 @@ Disassembly evidence: load-module offset 0x7473..0x75B3:
   pointing to 0x76d7, which calls 0x73c5 on every timer tick).
 
 Tests: [sound-playback.test.ts](../test/sound-playback.test.ts).
+
+### Timer-interrupt sound during blocking input
+
+Sound is never pumped by the main interpreter loop. The v2 (KQ1, descrambled AGI) and v3 (MH1,
+AGI 3.002.107) executables both service the sound player from a hardware timer interrupt handler,
+so music keeps playing while the interpreter is blocked inside the get.string/get.num keyboard
+editor: the game world (cycles, timers, movers) freezes, the tune does not.
+
+Disassembly evidence (load-module offsets):
+
+- MH1: handler at 0x8978 (`iret`, EOI via port 0x20) tests the sound-active flag `[0x12db]` and
+  calls the player at 0x8473 every tick, chaining to the previous vector (`call far [0x18b9]`)
+  every third tick. The player loops channels at 0x8483, decrements duration counters
+  `[bx+0x1812]`, loads notes via `[bx+0x180a]` and writes the chip through 0x854a.
+- KQ1: identical code — handler at 0x845a calls the player at 0x7f55 (same structure; both even
+  share the `E8DCF4` call to the f9 flag check), chaining every third tick via
+  `call far [0xdf35]`.
+
+Implication for this engine: the SAB bridge parks the worker thread during get.string/get.num, so
+the sound clock freezes for the prompt's duration (normal play then catches up in a burst; replay
+advances no virtual ticks while parked). This is a deliberate record/replay determinism trade-off
+— the walkthrough tape treats a blocking prompt as zero elapsed ticks — not a claim about
+hardware.
+
+### SN76489 attenuation latching and rest notes
+
+On the Texas Instruments SN76489 (and NCR 8496) Digital Complex Sound Generator (PSG) used in the
+IBM PCjr and Tandy 1000, only the 10-bit tone frequency registers (registers 0, 2, and 4) accept a
+second data byte (`bit 7 = 0`) to complete the 10-bit divisor. The 4-bit attenuation registers
+(registers 1, 3, 5, and 7) and the noise control register (register 6) are latch-only (`bit 7 = 1`).
+Any data bytes (`bit 7 = 0`) sent while an attenuation or noise register is latched are ignored by
+the silicon.
+
+In multi-channel AGI sound resources (such as King's Quest II Sound 6, the two-voice church organ
+hymn in Room 71), unused channels or rest notes are encoded with `tone = 0` and attenuation 15
+(`0x0f`, silence).
+
+Two failure modes arise if hardware latching semantics and rest notes are not modeled accurately:
+
+1. If an audio presentation backend treats non-latch data bytes as attenuation updates, a stray
+   `0x00` byte (e.g. from an unsuppressed tone update or stream data) written while an attenuation
+   register is latched will be interpreted as attenuation `0` (0 dB / 100% volume), producing an
+   unintended maximum-volume stuck note or drone.
+2. In `SoundPlayback`, notes with `tone = 0` represent rests; emitting tone divisor command bytes
+   for these notes sends redundant frequency commands (`[high, 0x00]`) to unvoiced or silent
+   channels. Suppressing frequency writes when `tone = 0` keeps inactive voice divisors untouched.
+
+Specification: The AGI behavioral specification documents the 5-byte note structure and defines
+tone divisor 0 as silence/rest, but does not detail the TI SN76489 chip latching state machine.
+
+Tests: [audio.test.ts](../app/test/audio.test.ts) (rejection of data bytes on attenuation latches),
+[sound-playback.test.ts](../test/sound-playback.test.ts) (rest note tone suppression).

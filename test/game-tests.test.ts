@@ -785,7 +785,7 @@ test("genesis and orientation prompts require a stored test per puzzle", () => {
   assert.match(genesis, /run_game_tests/);
   assert.match(genesis, /each puzzle|every puzzle/);
   const orientation = createOrientationPrompt({
-    gameId: "kq1",
+    game: "kq1",
     profile: "2.917",
     room: 1,
     resourceListing: "logic 1",
@@ -813,7 +813,7 @@ test("TESTS.JSON travels in the project archive and never in the game export", a
   const state = world();
   executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [takeKey] });
   const data = {
-    slug: "world",
+    projectId: "world",
     title: "World",
     authoredAt: "2026-09-07T00:00:00.000Z",
     provider: "stub",

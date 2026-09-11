@@ -107,7 +107,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   await page.getByTestId("record-save").click();
   await expect(dialog).toBeHidden();
   // The four tutorial tests plus the recording; saving converted the catalog
-  // game into its writable remix cartridge, exactly like a remix does.
+  // game into its writable remix project, exactly like a remix does.
   await expect(page.getByTestId("record-result")).toContainText("5 game tests stored");
 
   // Patch the game so the recorded observation no longer holds: the write

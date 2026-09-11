@@ -13,10 +13,13 @@ explicit skips when their inputs are missing. Authoring model evaluations have a
 ## Testing compatibility
 
 Prefer small, original resources with hand-computed expectations. To test a game
-locally, put its files in `games/<slug>/`. Development discovery recognizes AGI v2
-split directories and v3 combined directories; play them from the same **Your games**
-gallery as saved projects. Installed game folders are gitignored and excluded
-from production builds.
+locally, place its files in any subfolder under `games/` (e.g. `games/kq1/` or
+`games/kings-quest-1/`). Fixture discovery indexes games dynamically by content hash
+(SHA-256 of `WORDS.TOK`), making folder names arbitrary. Fan-made and self-authored
+games with `WORDS.TOK` (or `METADATA.JSON`) are recognized and playable in tests and
+the app out of the box. Development discovery recognizes AGI v2 split directories and
+v3 combined directories; play them from the same **Your games** gallery as saved projects.
+Installed game folders are gitignored and excluded from production builds.
 
 ### Optional fixtures
 

@@ -150,6 +150,13 @@ describe("sound playback clock and profiles", () => {
       "noise control zero is audible, not a rest",
     );
   });
+  it("suppresses frequency divisor writes for rest notes where tone is zero", () => {
+    const data = payload(2, 0x9f);
+    data[10] = 0;
+    data[11] = 0;
+    const sound = new SoundPlayback(detectProfile(new Map(), "2.936"), data, 1);
+    assert.deepEqual(bytes(sound.tick(true, 0).outputs), [0x9f, 0xbf, 0xdf, 0xff]);
+  });
 });
 
 it("runtime playback bounds damaged channels while keeping valid notes and completion timing", () => {

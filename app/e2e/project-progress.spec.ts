@@ -14,7 +14,7 @@ import {
   waitForCycles,
 } from "./engineProbe.ts";
 
-const TUTORIAL_SLUG = "catalog-adventure-department-1.0.0";
+const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.0.0";
 
 test("project import names each stored and refused progress entry", async ({ page }, testInfo) => {
   const container = createContainer();
@@ -37,7 +37,7 @@ test("project import names each stored and refused progress entry", async ({ pag
   expect(image).not.toBeNull();
   const archive = await buildProjectZip(
     {
-      slug: "storage-report",
+      projectId: "storage-report",
       title: "Storage report",
       authoredAt: new Date(0).toISOString(),
       provider: "stub",
@@ -54,7 +54,7 @@ test("project import names each stored and refused progress entry", async ({ pag
         cycle: 1,
         room: 1,
         savedAt: 1,
-        game: { slug: "storage-report", installed: false, revision: "ab".repeat(32) },
+        game: { projectId: "storage-report", installed: false, revision: "ab".repeat(32) },
       },
     },
   );
@@ -81,12 +81,12 @@ test("project import names each stored and refused progress entry", async ({ pag
   await expect(notice).toContainText("save slot 7 could not be stored");
   await expect(notice).toContainText("autosave could not be stored");
   const stored = await page.evaluate(async () => {
-    const { listCachedCartridges } = await import("/src/cartridgeStorage.ts");
+    const { listCachedGames } = await import("/src/gameStorage.ts");
     const { readGameSaves } = await import("/src/gameSaves.ts");
-    const slug = listCachedCartridges()[0]!.slug;
+    const projectId = listCachedGames()[0]!.projectId;
     return {
-      slots: Object.keys(readGameSaves(localStorage, slug)),
-      autosave: localStorage.getItem(`monotio_agi.autosave.${slug}`),
+      slots: Object.keys(readGameSaves(localStorage, projectId)),
+      autosave: localStorage.getItem(`monotio_agi.autosave.${projectId}`),
     };
   });
   expect(stored).toEqual({ slots: ["1"], autosave: null });
@@ -120,7 +120,7 @@ test("the project archive moves the autosave to another browser; the game export
   await waitForCycles(page, 2);
   expect((await textHook(page)).egoX, "ego stands still before the checkpoint").toBe(stopped.egoX);
   await waitForAutosaveAfter(page, stopped.cycle);
-  expect((await storedAutosave(page, TUTORIAL_SLUG))?.room).toBe(1);
+  expect((await storedAutosave(page, TUTORIAL_PROJECT_ID))?.room).toBe(1);
 
   // The project download from the running game carries the checkpoint.
   const projectDownload = page.waitForEvent("download");
@@ -130,7 +130,7 @@ test("the project archive moves the autosave to another browser; the game export
   const savedPath = (await saved.path())!;
   const project = await readGameZip(new Uint8Array(await readFile(savedPath)));
   expect(project.progress?.autosave?.room).toBe(1);
-  expect(project.progress?.autosave?.game.slug).toBe(TUTORIAL_SLUG);
+  expect(project.progress?.autosave?.game.projectId).toBe(TUTORIAL_PROJECT_ID);
   expect(Object.keys(project.progress?.saves ?? {})).toEqual([]);
 
   // The game export is for publishing: no progress in it.
@@ -159,13 +159,13 @@ test("the project archive moves the autosave to another browser; the game export
     await expect(other.getByText(/added to your library.*autosave stored/)).toBeVisible();
     const resume = other.getByTestId("btn-resume-cached");
     await expect(resume).toHaveText("Resume");
-    const slug = await other.evaluate(async () => {
-      const path = "/src/cartridgeStorage.ts";
+    const projectId = await other.evaluate(async () => {
+      const path = "/src/gameStorage.ts";
       const store = await import(path);
-      return store.listCachedCartridges()[0].slug as string;
+      return store.listCachedGames()[0].projectId as string;
     });
-    expect(slug).not.toBe(TUTORIAL_SLUG);
-    expect((await storedAutosave(other, slug))?.room).toBe(1);
+    expect(projectId).not.toBe(TUTORIAL_PROJECT_ID);
+    expect((await storedAutosave(other, projectId))?.room).toBe(1);
     await resume.click();
     await expect.poll(async () => (await textHook(other)).room).toBe(1);
     await expect

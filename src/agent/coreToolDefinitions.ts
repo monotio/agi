@@ -529,7 +529,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "inspect_world_bible",
     description:
-      "Inspect cartridge resources and authored intent, including staged edits. `filter` is all, rooms, objects, words or intent (null: all); with intent, `section` (rooms, facts, quests or bindings) plus `name` or `offset` selects one entry. Inventory locations are definitions; use read_state for live inventory. This indexes resources and does not prove puzzle behavior.",
+      "Inspect game resources and authored intent, including staged edits. `filter` is all, rooms, objects, words or intent (null: all); with intent, `section` (rooms, facts, quests or bindings) plus `name` or `offset` selects one entry. Inventory locations are definitions; use read_state for live inventory. This indexes resources and does not prove puzzle behavior.",
     parameters: {
       type: "object",
       additionalProperties: false,

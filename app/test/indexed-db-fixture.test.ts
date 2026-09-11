@@ -18,7 +18,7 @@ test("a failing operation rejects the transaction instead of leaving it pending"
     setTimeout(() => reject(new Error("transaction never settled")), 100);
   });
   // Functions are not structured-cloneable, so the fixture's put throws like a real store would.
-  const request = transaction.objectStore("projects").put({ slug: "broken", run: () => {} });
+  const request = transaction.objectStore("projects").put({ projectId: "broken", run: () => {} });
   request.onerror = () => events.push("request-error");
   assert.deepEqual(await settled, ["request-error", "error", "abort"]);
   assert.ok(request.error instanceof Error);

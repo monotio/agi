@@ -6,7 +6,7 @@ the tools give it enough feedback to correct mistakes.
 | Evaluation        | Run                                  | Measures                                                                       |
 | ----------------- | ------------------------------------ | ------------------------------------------------------------------------------ |
 | Stored bad cases  | `npm run eval:replay`                | Exact outcomes for known tool and transport failures                           |
-| Genesis           | `npm run eval:genesis`               | A cartridge brief becoming playable resources, with tool failures and usage    |
+| Genesis           | `npm run eval:genesis`               | An adventure brief becoming playable resources, with tool failures and usage   |
 | Picture fidelity  | `npm run eval:picture`               | Render structure, pixel metrics and visual quality across authoring rounds     |
 | Production effort | `npm --prefix evals run eval:effort` | Complete app Genesis runs, startup payloads, cost, repairs and playable output |
 
@@ -19,7 +19,7 @@ All evaluation configs, providers, prompts, assertions and tests are TypeScript;
 A standalone genesis smoke run is also available:
 
 ```bash
-npm run eval:genesis -- --cartridge knights-trial --provider stub
+npm run eval:genesis -- --template knights-trial --provider stub
 ```
 
 Bad cases in `fixtures/bad-cases/` declare a tool call and its acceptable result.

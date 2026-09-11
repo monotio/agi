@@ -3,15 +3,19 @@ import { openContainer } from "../src/container/container.ts";
 import { parseWordsTok } from "../src/logic/words.ts";
 import { INTERPRETER_FILES } from "../src/runtime/profile.ts";
 import {
-  combinedDirectory,
-  fixtureDir,
-  fixtureFiles,
+  findFixture,
   fixtureSkip,
   type FixtureRequirements,
+  type GameHash,
+  KNOWN_GAME_HASH,
 } from "./fixtures.ts";
+import { buildSyntheticGame } from "../src/games/syntheticGame.ts";
+import { buildTutorial } from "../games/adventure-department/game.ts";
+import { resolveGameHash } from "../src/games/knownGames.ts";
 
 /**
- * Shared loader for optional AGI game fixtures under games/<slug>/.
+ * Shared loader for optional AGI game fixtures under games/.
+ * Resolves fixtures by content hash (WORDS.TOK SHA-256) so folder names are arbitrary.
  * Used by compatibility tests and development tools.
  */
 export interface GameFixture {
@@ -30,15 +34,35 @@ export interface LoadGameOptions extends Pick<FixtureRequirements, "checkVolumes
   readonly interpreterFiles?: boolean;
 }
 
-export function loadGame(slug: string, options: LoadGameOptions = {}): GameFixture {
-  const dir = fixtureDir(slug);
-  const missing = fixtureSkip(slug, [], options);
+/**
+ * Games whose resources are assembled by project code (KnownAgiGame.builtin)
+ * rather than stored under games/. Keyed by wordsSha256 and by alias.
+ */
+export const BUILTIN_GAME_BUILDERS: Record<
+  string,
+  () => { files: Record<string, Uint8Array>; words: [string, number][] }
+> = {
+  [KNOWN_GAME_HASH.SYNTHETIC]: buildSyntheticGame,
+  synthetic: buildSyntheticGame,
+  [KNOWN_GAME_HASH.ADVENTURE_DEPARTMENT]: buildTutorial,
+  "adventure-department": buildTutorial,
+};
+
+export function loadGame(hashOrAlias: GameHash, options: LoadGameOptions = {}): GameFixture {
+  const missing = fixtureSkip(hashOrAlias, [], options);
   if (missing) throw new Error(missing);
-  // One case-insensitive enumeration, keyed by the canonical names the
-  // container and profile detection expect (LOGDIR, <PREFIX>VOL.0,
-  // AGIDATA.OVL), including on case-sensitive filesystems.
-  const onDisk = fixtureFiles(slug)!;
-  const combined = combinedDirectory(slug);
+  const builtin =
+    BUILTIN_GAME_BUILDERS[hashOrAlias.toLowerCase()] ??
+    BUILTIN_GAME_BUILDERS[resolveGameHash(hashOrAlias.toLowerCase()) ?? ""];
+  if (builtin) {
+    const game = builtin();
+    const files = new Map(Object.entries(game.files));
+    return { container: openContainer(files), dict: new Map(game.words), files };
+  }
+  const fixture = findFixture(hashOrAlias)!;
+  const dir = fixture.dir;
+  const onDisk = fixture.files;
+  const combined = fixture.combined;
   const prefix = combined?.prefix ?? "";
   const files = new Map<string, Uint8Array>();
   const load = (canonical: string): void => {

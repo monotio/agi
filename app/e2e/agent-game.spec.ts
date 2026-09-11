@@ -27,7 +27,7 @@ import {
  */
 
 test.beforeEach(async ({ page }) => {
-  // Every test authors its world from scratch: no cached cartridge, no
+  // Every test authors its world from scratch: no cached game, no
   // transcript and no save may carry in from a previous test or run.
   await isolateStorage(page);
 });
@@ -101,7 +101,7 @@ test("returning to the menu preserves the saved room and offers continue", async
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
 });
 
-test("in-game ZIP exports the live cartridge after a patch and reload", async ({ page }) => {
+test("in-game ZIP exports the live game after a patch and reload", async ({ page }) => {
   await bootAgentGame(page);
   await typeCommand(page, "east");
   expect(await printWindowText(page)).toContain("generated room 2");
@@ -138,9 +138,9 @@ test("in-game ZIP exports the live cartridge after a patch and reload", async ({
     offset = start + size;
   }
   const cachedFiles = await page.evaluate(async () => {
-    const modulePath = "/src/cartridgeStorage.ts";
-    const { loadAuthoredCartridge } = await import(modulePath);
-    const cached = await loadAuthoredCartridge("custom");
+    const modulePath = "/src/gameStorage.ts";
+    const { loadAuthoredGame } = await import(modulePath);
+    const cached = await loadAuthoredGame("custom");
     return Object.fromEntries(
       Object.entries(cached.files as Record<string, Uint8Array>).map(([name, bytes]) => [
         name,
@@ -258,20 +258,20 @@ test("an autosave resumes a room the agent authored mid-play, across a reload", 
   await page.screenshot({ path: "test-results/agent-game-grown-after-reload.png" });
 });
 
-test("cartridge picker displays built-in cartridges and allows selection", async ({ page }) => {
+test("template picker displays built-in templates and allows selection", async ({ page }) => {
   await page.goto("/");
   await openCreateAdventure(page);
-  await expect(page.getByTestId("cartridge-knights-trial")).toBeVisible();
-  await expect(page.getByTestId("cartridge-badge-of-millhaven")).toBeVisible();
-  await expect(page.getByTestId("cartridge-mop-jockey")).toBeVisible();
-  await expect(page.getByTestId("cartridge-polyester-nights")).toBeVisible();
-  await expect(page.getByTestId("cartridge-custom")).toBeVisible();
+  await expect(page.getByTestId("template-knights-trial")).toBeVisible();
+  await expect(page.getByTestId("template-badge-of-millhaven")).toBeVisible();
+  await expect(page.getByTestId("template-mop-jockey")).toBeVisible();
+  await expect(page.getByTestId("template-polyester-nights")).toBeVisible();
+  await expect(page.getByTestId("template-custom")).toBeVisible();
 
-  await page.getByTestId("cartridge-mop-jockey").click();
-  await expect(page.getByTestId("cartridge-mop-jockey")).toHaveClass(/selected/);
+  await page.getByTestId("template-mop-jockey").click();
+  await expect(page.getByTestId("template-mop-jockey")).toHaveClass(/selected/);
 
-  await page.getByTestId("cartridge-custom").click();
-  await expect(page.getByTestId("custom-cartridge-input")).toBeVisible();
+  await page.getByTestId("template-custom").click();
+  await expect(page.getByTestId("custom-adventure-input")).toBeVisible();
 });
 
 test("provider and model configuration adapts options and persists choices", async ({ page }) => {

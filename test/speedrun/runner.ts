@@ -4,6 +4,13 @@ import { Engine, type EngineHost } from "../../src/runtime/engine.ts";
 import { CycleClock } from "../../src/runtime/cycleClock.ts";
 import { detectProfile } from "../../src/runtime/profile.ts";
 import { DIRECTION_KEYS, directionForDelta, randomSource } from "../../src/agent/gameTestSteps.ts";
+import {
+  KNOWN_GAME_HASH,
+  resolveGameHash,
+  getKnownGameByHash,
+  getKnownGameByAlias,
+  type GameHash,
+} from "../../src/games/knownGames.ts";
 import { loadGame } from "../game-fixture.ts";
 import {
   walkPlanned,
@@ -39,7 +46,8 @@ export function parseDirection(dir: DirectionInput): number {
 
 export type Action =
   | { kind: "key"; code: number }
-  | { kind: "command"; text: string }
+  /** Hold-to-move direction press; dir 0 releases the current heading. */
+  | { kind: "direction"; dir: number }
   | { kind: "advance"; ticks: number }
   | { kind: "answer"; text: string }
   | { kind: "checkpoint"; label: string; room: number; score: number; x: number; y: number };
@@ -53,21 +61,30 @@ export class Speedrun {
   /** get.num prompts with the input row's text at prompt time. */
   readonly numPrompts: { prompt: string; row: number; room: number; rowText: string }[] = [];
   readonly seed: number;
-  readonly slug: string;
+  readonly hash: GameHash;
+  readonly alias?: string | undefined;
+  readonly dwellModals: boolean;
   ticks = 0;
   cycles = 0;
   readonly maxTicks: number;
   private readonly clock = new CycleClock(0);
   private readonly keys: number[] = [];
-  private line: string | null = null;
   private readonly answers: string[] = [];
   private readonly numAnswers: number[] = [];
 
-  constructor(slug = "kq1", seed = 1, load: { checkVolumes?: boolean; maxTicks?: number } = {}) {
+  constructor(
+    game: string = KNOWN_GAME_HASH.KQ1,
+    seed = 1,
+    load: { checkVolumes?: boolean; maxTicks?: number; dwellModals?: boolean } = {},
+  ) {
     this.seed = seed;
-    this.slug = slug;
+    const resolved = resolveGameHash(game);
+    const known = resolved ? getKnownGameByHash(resolved) : getKnownGameByAlias(game);
+    this.hash = resolved ?? (known ? known.wordsSha256 : game);
+    this.alias = known?.alias;
+    this.dwellModals = load.dwellModals ?? false;
     this.maxTicks = load.maxTicks ?? 500_000;
-    const { container, dict, files } = loadGame(slug, {
+    const { container, dict, files } = loadGame(game, {
       interpreterFiles: true,
       ...(load.checkVolumes === undefined ? {} : { checkVolumes: load.checkVolumes }),
     });
@@ -78,11 +95,9 @@ export class Speedrun {
       // A cold boot has no manual saves, matching a fresh browser profile.
       listSaveGames: () => [],
       takeKeys: () => this.keys.splice(0),
-      takeInputLine: () => {
-        const line = this.line;
-        this.line = null;
-        return line;
-      },
+      // Commands arrive as recorded per-character keys; the engine's own edit
+      // line accepts them, so the host never supplies a whole line.
+      takeInputLine: () => null,
       waitKey: () => {
         this.actions.push({ kind: "key", code: AGI_KEY.ENTER });
         return AGI_KEY.ENTER;
@@ -163,15 +178,41 @@ export class Speedrun {
         this.engine.tick();
         this.cycles++;
       }
-      if (this.slug === "kq1" && this.engine.flags[63] !== 0)
+      if (this.hash === KNOWN_GAME_HASH.KQ1 && this.engine.flags[63] !== 0)
         assert.fail(`Graham died: ${JSON.stringify(this.state())}`);
     }
+  }
+
+  private calculateModalDwellTicks(): number {
+    const rows = Array.from({ length: 25 }, (_, row) => this.engine.textRow(row));
+    if (!rows || rows.length <= 1) return 0;
+    const content = rows.slice(1).join(" ");
+    const matches = content.match(/[A-Za-z0-9']{2,}/g);
+    const words = matches ? matches.length : 0;
+    // ~200 words/min baseline reading pace at 60Hz: 1.8s (108 ticks) + 120ms (7.2 ticks) per word
+    const baseTicks = 108;
+    const perWordTicks = 7;
+    const rawTicks = Math.min(300, Math.max(90, baseTicks + words * perWordTicks));
+    if (this.engine.vars[21] !== 0) {
+      return Math.min(rawTicks, this.engine.vars[21]! * 30);
+    }
+    return rawTicks;
   }
 
   dismiss(): void {
     for (let n = 0; this.engine.modalKind !== null || this.engine.continuationPending; n++) {
       assert.ok(n < 100, `Unsettled modal: ${this.state().text}`);
-      if (this.engine.modalKind !== null) this.key(AGI_KEY.ENTER);
+      if (this.engine.modalKind !== null) {
+        if (this.dwellModals) {
+          const dwellTicks = this.calculateModalDwellTicks();
+          if (dwellTicks > 0) {
+            this.advance(dwellTicks);
+          }
+        }
+        if (this.engine.modalKind !== null) {
+          this.key(AGI_KEY.ENTER);
+        }
+      }
       this.advance();
     }
   }
@@ -189,17 +230,72 @@ export class Speedrun {
     assert.ok(predicate(), `${label} within ${budget} ticks`);
   }
 
-  command(text: string): void {
+  /**
+   * Buffer a parser command exactly as a player would: one key action per
+   * letter, one tick between letters — the engine consumes the whole key queue
+   * each cycle — then verify what landed. A modal or cutscene opening
+   * mid-burst eats the queued letters; a player dismisses the popup and
+   * retypes them, so the recording does the same. The line stays buffered for
+   * `submit()` — the engine echoes it onto its own input row while the player
+   * is free to keep walking, the classic type-ahead technique.
+   */
+  type(text: string): void {
     this.dismiss();
     this.wait(() => this.engine.inputEnabled, `Parser available for ${text}`);
-    assert.equal(this.line, null, "Previous command must be consumed");
-    this.actions.push({ kind: "command", text });
-    this.line = text;
-    for (let n = 0; this.line !== null; n++) {
-      assert.ok(n < 1000, `Command not consumed: ${text}`);
-      this.advance();
+    assert.match(text, /^[\x20-\x7e]+$/, `Command must be printable ASCII: ${text}`);
+    while (this.engine.inputEdit !== text) {
+      if (this.engine.modalKind !== null || this.engine.continuationPending) {
+        this.dismiss();
+        continue;
+      }
+      if (!this.engine.inputEnabled) {
+        this.advance();
+        continue;
+      }
+      const current = this.engine.inputEdit;
+      assert.ok(text.startsWith(current), `Input row diverged from command: ${text}`);
+      const before = this.cycles;
+      // The input queue holds nineteen events; burst in chunks below that.
+      for (const ch of text.slice(current.length, current.length + 12)) {
+        this.key(ch.charCodeAt(0));
+        this.advance(1);
+      }
+      for (let n = 0; (this.cycles === before || this.keys.length > 0) && n < 1000; n++) {
+        if (this.engine.modalKind !== null || this.engine.continuationPending) break;
+        this.advance();
+      }
+    }
+  }
+
+  /**
+   * Press Enter until the engine accepts the buffered line: an Enter consumed
+   * by a popup still needs a second press once the popup is dismissed.
+   */
+  submit(label = "command"): void {
+    for (let n = 0; this.engine.inputEdit !== ""; n++) {
+      assert.ok(n < 100, `Command not consumed: ${label}`);
+      if (this.engine.modalKind !== null || this.engine.continuationPending) {
+        this.dismiss();
+        continue;
+      }
+      if (!this.engine.inputEnabled) {
+        this.advance();
+        continue;
+      }
+      this.key(AGI_KEY.ENTER);
+      for (let c = 0; this.engine.inputEdit !== "" && c < 40; c++) {
+        if (this.engine.modalKind !== null || this.engine.continuationPending) break;
+        this.advance();
+      }
     }
     this.dismiss();
+  }
+
+  /** Type and submit in one go; routes that must move first use type/submit. */
+  command(text: string): void {
+    assert.equal(this.engine.inputEdit, "", "Previous command must be consumed");
+    this.type(text);
+    this.submit(text);
   }
 
   press(key: number, waitTicks = 5): void {
@@ -211,7 +307,10 @@ export class Speedrun {
     const d = parseDirection(dir);
     const current = this.engine.screenObjects[0]?.direction ?? 0;
     if (current === d) return;
-    this.key(DIRECTION_KEYS[d || current]!);
+    // The tape records the semantic gesture; the engine still sees the raw
+    // navigation word, whose toggle semantics stop ego on a repeated heading.
+    this.actions.push({ kind: "direction", dir: d });
+    this.keys.push(DIRECTION_KEYS[d || current]!);
     const from = this.cycles;
     for (let n = 0; this.cycles === from; n++) {
       assert.ok(n < 1000, "Direction input did not reach a cycle");
@@ -226,7 +325,7 @@ export class Speedrun {
       .slice(-5)
       .map((a) => {
         if (a.kind === "key") return `key(${a.code})`;
-        if (a.kind === "command") return `command("${a.text}")`;
+        if (a.kind === "direction") return `direction(${a.dir})`;
         if (a.kind === "advance") return `advance(${a.ticks})`;
         if (a.kind === "answer") return `answer("${a.text}")`;
         if (a.kind === "checkpoint") return `checkpoint("${a.label}")`;

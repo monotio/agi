@@ -44,7 +44,12 @@ import { OperationRecorder } from "../../src/agent/recordedReplay.ts";
 import type { RecordedEvent } from "./gameRecording.ts";
 import { Engine, type EngineHost, type EngineMenuState } from "../../src/runtime/engine.ts";
 import { AGI_KEY, DIRECTION_KEYS, NAV_KEYS } from "../../src/runtime/keys.ts";
-import { BRIDGE_HEADER_BYTES, BRIDGE_PAUSE_SLOT } from "./agent/sabBridge.ts";
+import {
+  BRIDGE_HEADER_BYTES,
+  BRIDGE_PAUSE_SLOT,
+  BRIDGE_STATE_CANCELLED,
+  WorkerBridgeAbortError,
+} from "./agent/sabBridge.ts";
 import { FrameRing } from "./frameRing.ts";
 import { CycleClock } from "../../src/runtime/cycleClock.ts";
 import { SoundClock } from "./soundClock.ts";
@@ -73,6 +78,7 @@ interface BootMsg {
   files: Record<string, Uint8Array>;
   words: [string, number][];
   sab: SharedArrayBuffer;
+  sessionId?: number;
   /** Browser-selected sound device: 0 speaker, 1 four-channel output. */
   soundDevice?: number;
   /** Autosave cadence override; the host owns the policy, the worker the timing. */
@@ -98,6 +104,24 @@ interface BootMsg {
 }
 
 let engine: Engine | null = null;
+let isSeeking = false;
+let currentSessionId = 0;
+
+function sendControl(message: unknown, options?: unknown): void {
+  if (message && typeof message === "object" && currentSessionId > 0 && !("sessionId" in message)) {
+    (message as Record<string, unknown>)["sessionId"] = currentSessionId;
+  }
+  self.postMessage(message, options as StructuredSerializeOptions);
+}
+
+function sendPresentation(message: unknown, options?: unknown): void {
+  if (isSeeking) return;
+  if (message && typeof message === "object" && currentSessionId > 0 && !("sessionId" in message)) {
+    (message as Record<string, unknown>)["sessionId"] = currentSessionId;
+  }
+  self.postMessage(message, options as StructuredSerializeOptions);
+}
+
 let authorRooms = false;
 let selectedSoundDevice = 1;
 let liveDictionary = new Map<string, number>();
@@ -144,26 +168,43 @@ function recordedClock(): void {
 let lastKeyId = 0;
 let timer: number | null = null;
 let soundTimer: number | null = null;
+function stopTimers(): void {
+  if (timer !== null) {
+    clearInterval(timer);
+    timer = null;
+  }
+  if (soundTimer !== null) {
+    clearInterval(soundTimer);
+    soundTimer = null;
+  }
+}
 const soundClock = new SoundClock(performance.now());
 const cycleClock = new CycleClock(performance.now());
 /** Poll input/modal services at display cadence; v10 separately gates logic cycles. */
 const HOST_POLL_MS = 1000 / 60;
 let replay: { tick: number; revision: number; random: number; yielded: boolean } | null = null;
 let replayRequest: number | null = null;
+let currentBootFiles: Map<string, Uint8Array> | null = null;
+let currentDictionary: Map<string, number> | null = null;
+let lastReplaySeed: number | null = null;
 
-function postReplay(blocked: string | null): void {
+function postReplay(blocked: string | null, fullState = false): void {
   if (!replay || !engine) return;
+  const isFull = fullState || blocked !== null;
+  const state = isFull ? engine.readState() : engine.readLeanState();
+  const rows = isFull ? Array.from({ length: 25 }, (_, row) => engine!.textRow(row)) : [];
   const observation: ReplayObservation = {
+    sessionId: currentSessionId,
     revision: ++replay.revision,
     tick: replay.tick,
     cycle: cycleCount,
     blocked,
-    state: engine.readState(),
-    rows: Array.from({ length: 25 }, (_, row) => engine!.textRow(row)),
+    state,
+    rows,
     egoView: engine.screenObjects[0]!.view,
     releaseGate: engine.releaseGate,
   };
-  self.postMessage({ type: "replay", id: replayRequest, observation });
+  sendControl({ type: "replay", sessionId: currentSessionId, id: replayRequest, observation });
   replayRequest = null;
 }
 
@@ -217,7 +258,7 @@ function autosave(force: boolean): boolean {
   try {
     image = engine.autosaveImage();
   } catch (error) {
-    self.postMessage({ type: "log", text: `Autosave snapshot failed: ${String(error)}` });
+    sendPresentation({ type: "log", text: `Autosave snapshot failed: ${String(error)}` });
     return false;
   }
   if (!image) return false;
@@ -229,14 +270,14 @@ function autosave(force: boolean): boolean {
     room: engine.vars[0],
   };
   try {
-    const frame = engine.getFrame();
+    const presentation = engine.getPresentation();
     msg["preview"] = createProgressPreview({
-      visual: frame.visual,
-      text: engine.textCells,
+      visual: presentation.visual,
+      text: presentation.text,
       picRow: engine.displayBase,
     });
   } catch (error) {
-    self.postMessage({ type: "log", text: `Autosave preview skipped: ${String(error)}` });
+    sendPresentation({ type: "log", text: `Autosave preview skipped: ${String(error)}` });
   }
   // The patched container travels only when a patch really landed since the
   // host last saw one: a resource snapshot on every tick would cost far more
@@ -248,7 +289,7 @@ function autosave(force: boolean): boolean {
     msg["files"] = files;
     lastPatchGeneration = engine.patchGeneration;
   }
-  self.postMessage(msg);
+  sendPresentation(msg);
   lastAutosaveCycle = cycleCount;
   lastAutosaveAt = Date.now();
   return true;
@@ -295,13 +336,17 @@ function bridgeCall(op: string, context: string): string {
     postReplay(op);
   }
   const authoring = op === "room";
-  if (authoring) self.postMessage({ type: "soundPaused", paused: true });
+  if (authoring) sendPresentation({ type: "soundPaused", paused: true });
   try {
     // The main thread may claim state 1 as state 3 before we reach the wait.
     // Wait through either state, never decode our own request.
     for (;;) {
       const state = Atomics.load(bridge.i32, 0);
       if (state === 2) break;
+      if (state === BRIDGE_STATE_CANCELLED) {
+        Atomics.store(bridge.i32, 0, 0);
+        throw new WorkerBridgeAbortError();
+      }
       // Timer callbacks cannot run inside Atomics.wait. Wake once per sound
       // interval so host prompts keep producing audio and completion flags.
       Atomics.wait(bridge.i32, 0, state, 1000 / 60);
@@ -323,7 +368,7 @@ function bridgeCall(op: string, context: string): string {
   } finally {
     if (authoring) {
       cycleClock.reset(replay ? (replay.tick * 1000) / 60 : performance.now());
-      self.postMessage({ type: "soundPaused", paused: false });
+      sendPresentation({ type: "soundPaused", paused: false });
     }
   }
 }
@@ -341,19 +386,19 @@ const host: EngineHost = {
   },
   print(text) {
     if (recording && recording.printed.length < 16) recording.printed.push(text.slice(0, 400));
-    self.postMessage({ type: "print", text });
+    sendPresentation({ type: "print", text });
   },
   displayAt(row, col, text) {
-    self.postMessage({ type: "display", row, col, text });
+    sendPresentation({ type: "display", row, col, text });
   },
   clearText() {
-    self.postMessage({ type: "clearText" });
+    sendPresentation({ type: "clearText" });
   },
   clearLines(fromRow, toRow, color) {
-    self.postMessage({ type: "clearLines", fromRow, toRow, color });
+    sendPresentation({ type: "clearLines", fromRow, toRow, color });
   },
   setTextMode(active) {
-    self.postMessage({ type: "textMode", active });
+    sendPresentation({ type: "textMode", active });
   },
   /**
    * Blocking key wait for have.key busy loops. The worker cannot receive key
@@ -373,7 +418,7 @@ const host: EngineHost = {
         const key = JSON.parse(res) as { id: number; code: number };
         if (key.id <= lastKeyId) continue;
         lastKeyId = key.id;
-        self.postMessage({ type: "keyAccepted", id: key.id });
+        sendControl({ type: "keyAccepted", id: key.id });
         const accepted = key.code & 0xffff;
         // A key claimed by the blocking wait never arrives as a key message.
         recordEvent({ cycle: cycleCount, kind: "key", code: accepted });
@@ -382,14 +427,16 @@ const host: EngineHost = {
       }
       // Direct host/test bridges retain the original numeric reply contract.
       const code = Number.parseInt(res, 10);
-      const fallback = Number.isFinite(code) ? code : 0x000d;
-      recordEvent({ cycle: cycleCount, kind: "key", code: fallback });
-      recording?.tape.host(["waitKey", fallback]);
-      return fallback;
+      if (Number.isFinite(code)) {
+        recordEvent({ cycle: cycleCount, kind: "key", code });
+        recording?.tape.host(["waitKey", code]);
+        return code;
+      }
+      return 0;
     }
   },
   statusLine(text) {
-    self.postMessage({ type: "status", text });
+    sendPresentation({ type: "status", text });
   },
   takeInputLine() {
     const line = inputBuffer.shift() ?? null;
@@ -430,25 +477,25 @@ const host: EngineHost = {
       });
       return true;
     } catch (error) {
-      self.postMessage({ type: "log", text: `Room ${room} authoring failed: ${String(error)}` });
+      sendPresentation({ type: "log", text: `Room ${room} authoring failed: ${String(error)}` });
       return false;
     }
   },
   /** 0x6e shake.screen: cosmetic jitter on the main thread. */
   shakeScreen(count) {
-    self.postMessage({ type: "shake", count });
+    sendPresentation({ type: "shake", count });
   },
   /** 0x81/0xa2 show.obj: modal view popup (engine pauses via printsPending). */
   showObj(viewNum) {
-    self.postMessage({ type: "showObj", viewNum });
+    sendPresentation({ type: "showObj", viewNum });
   },
   /** 0x1d show.pri.screen: modal priority-surface view. */
   showPriScreen() {
-    self.postMessage({ type: "showPri" });
+    sendPresentation({ type: "showPri" });
   },
   /** 0x7c status: modal inventory list. */
   statusScreen(items) {
-    self.postMessage({ type: "statusScreen", items });
+    sendPresentation({ type: "statusScreen", items });
   },
   /** 0x76 get.num: blocking prompt through the SAB bridge; edited at (row, col). */
   promptNumber(prompt, row, col) {
@@ -500,7 +547,7 @@ const host: EngineHost = {
   },
   /** 0x90 log / 0x85 obj.status.v / 0x87 show.mem: debug log stream. */
   logText(text) {
-    self.postMessage({ type: "log", text });
+    sendPresentation({ type: "log", text });
   },
   /** 0x8d version: stored into a string slot by the engine. */
   versionString() {
@@ -509,24 +556,23 @@ const host: EngineHost = {
     return value;
   },
   quit() {
-    clearInterval(timer ?? undefined);
-    clearInterval(soundTimer ?? undefined);
-    self.postMessage({ type: "quit" });
+    stopTimers();
+    sendPresentation({ type: "quit" });
   },
   /** Playback state only; the engine emits scheduled audio commands separately. */
   playSound(soundNum) {
-    self.postMessage({ type: "sound", soundNum });
+    sendPresentation({ type: "sound", soundNum });
   },
   soundDevice() {
     recording?.tape.host(["soundDevice", selectedSoundDevice]);
     return selectedSoundDevice;
   },
   soundOutput(output) {
-    self.postMessage({ type: "soundOutput", output });
+    sendPresentation({ type: "soundOutput", output });
   },
   /** 0x64 stop.sound: silence playback on the main thread. */
   stopSound() {
-    self.postMessage({ type: "stopSound" });
+    sendPresentation({ type: "stopSound" });
   },
 };
 
@@ -542,21 +588,21 @@ let lastInputEdit = "";
 let lastSoundEnabled: boolean | null = null;
 
 function postFrame(capture = false): void {
-  if (!engine) return;
+  if (!engine || isSeeking) return;
   const enabled = engine.flags[9] !== 0;
   if (enabled !== lastSoundEnabled) {
     lastSoundEnabled = enabled;
-    self.postMessage({ type: "soundEnabled", enabled });
+    sendPresentation({ type: "soundEnabled", enabled });
   }
   const controls = engine.readControls();
   const serialized = JSON.stringify(controls);
   if (serialized !== lastControls) {
     lastControls = serialized;
-    self.postMessage({ type: "controls", controls });
+    sendPresentation({ type: "controls", controls });
   }
   if (engine.inputEdit !== lastInputEdit) {
     lastInputEdit = engine.inputEdit;
-    self.postMessage({ type: "inputEdit", text: lastInputEdit });
+    sendPresentation({ type: "inputEdit", text: lastInputEdit });
   }
   const frame = engine.getPresentation();
   if (capture) captureFrame(frame);
@@ -600,7 +646,7 @@ function postFrame(capture = false): void {
   lastReleaseGate = engine.releaseGate;
   lastModal = modal;
   const text = textCells.slice();
-  self.postMessage(
+  sendPresentation(
     {
       type: "frame",
       visual: frame.visual,
@@ -620,7 +666,7 @@ function postFrame(capture = false): void {
 
 /** Copy the same presentation into the rings before postFrame transfers its buffers. */
 function captureFrame(frame: ReturnType<Engine["getPresentation"]>): void {
-  if (!engine) return;
+  if (!engine || replay !== null) return;
   recentRing.push(cycleCount, frame.visual, frame.priority, frame.text, engine.displayBase);
   const now = performance.now();
   if (now - lastHistoryAt >= 1000) {
@@ -652,34 +698,135 @@ function serveFrames(id: unknown, count: number, stride: number, since: number |
     frames.reverse();
   }
   const transfer = frames.flatMap((f) => [f.visual.buffer, f.priority.buffer, f.text.buffer]);
-  self.postMessage(
-    { type: "frames", id, source: useHistory ? "history" : "recent", frames },
-    transfer,
-  );
+  sendControl({ type: "frames", id, source: useHistory ? "history" : "recent", frames }, transfer);
+}
+
+function startTimers(): void {
+  if (soundTimer === null) {
+    soundTimer = setInterval(() => {
+      try {
+        advanceSoundClock();
+      } catch (error) {
+        sendControl({ type: "error", message: String(error) });
+        stopTimers();
+      }
+    }, 1000 / 60) as unknown as number;
+  }
+  if (timer === null) {
+    timer = setInterval(() => {
+      try {
+        const now = performance.now();
+        if (bridge && Atomics.load(bridge.i32, BRIDGE_PAUSE_SLOT) === 1) {
+          cycleClock.poll(now, engine!.vars[10]!, true);
+          return;
+        }
+        advanceSoundClock();
+        if (engine!.modalKind !== null || engine!.continuationPending) {
+          tickEngine();
+          postFrame();
+        } else if (cycleClock.poll(now, engine!.vars[10]!)) {
+          flushDeferredMovement();
+          tickEngine();
+          cycleCount++;
+          postFrame(true);
+        }
+        if (now - lastCycleReportAt >= CYCLE_REPORT_MS) {
+          lastCycleReportAt = now;
+          const scalars = engine!.readState();
+          sendPresentation({
+            type: "cycle",
+            cycle: cycleCount,
+            room: scalars.room,
+            egoX: scalars.egoX,
+            egoY: scalars.egoY,
+          });
+        }
+        if (Date.now() - lastAutosaveAt >= autosaveIntervalMs) autosave(false);
+      } catch (e) {
+        stopTimers();
+        if (e instanceof WorkerBridgeAbortError) {
+          return;
+        }
+        sendControl({ type: "error", message: String(e) });
+      }
+    }, HOST_POLL_MS) as unknown as number;
+  }
 }
 
 self.onmessage = (ev: MessageEvent) => {
   const msg = ev.data;
   try {
     if (msg.type === "replayAdvance" && replay && engine) {
+      if (typeof msg.sessionId === "number") currentSessionId = msg.sessionId;
       const ticks = Number(msg.ticks);
-      if (!Number.isInteger(ticks) || ticks < 1 || ticks > 100_000)
-        throw new Error("Replay advance requires 1..100000 virtual ticks.");
+      if (!Number.isInteger(ticks) || ticks < 0 || ticks > 100_000)
+        throw new Error("Replay advance requires 0..100000 virtual ticks.");
+      const seeking = Boolean(msg.seeking);
+      const renderFinal = Boolean(msg.renderFinal);
+      const fullState = Boolean(msg.fullState);
+      isSeeking = seeking;
       replayRequest = Number(msg.id);
       replay.yielded = false;
-      for (let i = 0; i < ticks; i++) {
-        replay.tick++;
-        recordedClock();
-        if (engine.modalKind !== null || engine.continuationPending) tickEngine();
-        else if (cycleClock.poll((replay.tick * 1000) / 60, engine.vars[10]!)) {
-          flushDeferredMovement();
-          tickEngine();
-          cycleCount++;
+
+      let remaining = ticks;
+      const thisRequest = replayRequest;
+      const thisSession = currentSessionId;
+
+      const advanceChunk = () => {
+        if (!replay || !engine) return;
+        if (replayRequest !== thisRequest || currentSessionId !== thisSession) return;
+
+        const startTime = performance.now();
+        let chunkTicks = 0;
+        const maxChunkTicks = seeking ? 2500 : 250;
+        const maxChunkMs = seeking ? 16 : 12;
+        try {
+          while (remaining > 0 && chunkTicks < maxChunkTicks) {
+            replay.tick++;
+            remaining--;
+            chunkTicks++;
+            recordedClock();
+            if (engine.modalKind !== null || engine.continuationPending) tickEngine();
+            else if (cycleClock.poll((replay.tick * 1000) / 60, engine.vars[10]!)) {
+              flushDeferredMovement();
+              tickEngine();
+              cycleCount++;
+            }
+            if (replay.yielded) break;
+            if ((chunkTicks & 63) === 0 && performance.now() - startTime >= maxChunkMs) {
+              break;
+            }
+          }
+        } catch (e) {
+          if (e instanceof WorkerBridgeAbortError) {
+            isSeeking = false;
+            replayRequest = null;
+            return;
+          }
+          sendControl({ type: "error", id: thisRequest, message: String(e) });
+          return;
         }
-        if (replay.yielded) break;
-      }
+
+        if (remaining > 0 && !replay.yielded) {
+          setTimeout(advanceChunk, 0);
+          return;
+        }
+
+        if (!seeking || renderFinal) {
+          isSeeking = false;
+          postFrame();
+        }
+        postReplay(null, fullState);
+      };
+
+      advanceChunk();
+      return;
+    }
+    if (msg.type === "renderFrame" && engine) {
+      isSeeking = false;
+      lastVisual = null;
+      lastText = null;
       postFrame();
-      postReplay(null);
       return;
     }
     if (msg.type === "frames") {
@@ -687,7 +834,7 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "state") {
-      self.postMessage({
+      sendControl({
         type: "engineState",
         id: msg.id,
         state: engine ? engine.readState() : null,
@@ -695,7 +842,7 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "objects") {
-      self.postMessage({
+      sendControl({
         type: "objects",
         id: msg.id,
         objects: engine ? engine.readObjects() : [],
@@ -704,7 +851,7 @@ self.onmessage = (ev: MessageEvent) => {
     }
     if (msg.type === "startRecording") {
       if (!engine) {
-        self.postMessage({
+        sendControl({
           type: "recordingStarted",
           id: msg.id,
           ok: false,
@@ -716,7 +863,7 @@ self.onmessage = (ev: MessageEvent) => {
       // screen or the pre-first-room gap cannot resume from a save image.
       const hostImage = engine.recordingImage();
       if (!hostImage) {
-        self.postMessage({
+        sendControl({
           type: "recordingStarted",
           id: msg.id,
           ok: false,
@@ -732,7 +879,7 @@ self.onmessage = (ev: MessageEvent) => {
         tainted: null,
         usedGetnum: false,
       };
-      self.postMessage({
+      sendControl({
         type: "recordingStarted",
         id: msg.id,
         ok: true,
@@ -746,7 +893,7 @@ self.onmessage = (ev: MessageEvent) => {
     if (msg.type === "stopRecording") {
       const taken = recording;
       recording = null;
-      self.postMessage({
+      sendControl({
         type: "recordingStopped",
         id: msg.id,
         operations: taken?.tape.operations ?? [],
@@ -770,7 +917,7 @@ self.onmessage = (ev: MessageEvent) => {
         for (const [name, bytes] of engine.containerFiles) files[name] = bytes.slice();
         if (authoredWords) files["WORDS.TOK"] = authoredWords;
       }
-      self.postMessage({ type: "exportFiles", id: msg.id, files });
+      sendControl({ type: "exportFiles", id: msg.id, files });
       return;
     }
     if (msg.type === "reenter" && engine) {
@@ -782,22 +929,25 @@ self.onmessage = (ev: MessageEvent) => {
       for (let guard = 0; engine.modalKind !== null && guard < 16; guard++) engine.ackPrint();
       engine.reenterRoom(typeof msg.room === "number" ? msg.room : undefined);
       postFrame(true);
-      self.postMessage({ type: "reentered", room: engine.vars[0] });
+      sendControl({ type: "reentered", room: engine.vars[0] });
       return;
     }
     if (msg.type === "boot") {
       initialLogicStarted = false;
       const boot = msg as BootMsg;
-      replay =
-        import.meta.env.MODE === "test" && Number.isInteger(boot.replaySeed)
-          ? { tick: 0, revision: 0, random: boot.replaySeed! >>> 0, yielded: false }
-          : null;
+      currentSessionId = typeof boot.sessionId === "number" ? boot.sessionId : 0;
+      replay = Number.isInteger(boot.replaySeed)
+        ? { tick: 0, revision: 0, random: boot.replaySeed! >>> 0, yielded: false }
+        : null;
       bridge = {
         i32: new Int32Array(boot.sab, 0, 4),
         bytes: new Uint8Array(boot.sab, BRIDGE_HEADER_BYTES),
       };
       const files = new Map<string, Uint8Array>(Object.entries(boot.files));
       liveDictionary = new Map<string, number>(boot.words);
+      currentBootFiles = files;
+      currentDictionary = liveDictionary;
+      lastReplaySeed = Number.isInteger(boot.replaySeed) ? boot.replaySeed! : null;
       authoredWords = null;
       authorRooms = boot.authorRooms === true;
       selectedSoundDevice = boot.soundDevice === 0 ? 0 : 1;
@@ -809,6 +959,7 @@ self.onmessage = (ev: MessageEvent) => {
       deferredMovement.length = 0;
       recording = null;
       lastKeyId = 0;
+      isSeeking = false;
       lastVisual = null;
       lastText = null;
       lastPicRow = -1;
@@ -819,8 +970,7 @@ self.onmessage = (ev: MessageEvent) => {
       lastControls = "";
       lastInputEdit = "";
       lastSoundEnabled = null;
-      clearInterval(timer ?? undefined);
-      clearInterval(soundTimer ?? undefined);
+      stopTimers();
       soundClock.reset(performance.now());
       cycleClock.reset(replay ? 0 : performance.now());
       lastCycleReportAt = performance.now();
@@ -844,7 +994,7 @@ self.onmessage = (ev: MessageEvent) => {
           engine.restoreImage(base64ToBytes(boot.restoreImage));
           engine.restoreMenuState(boot.restoreMenus);
           const restored = engine.readState();
-          self.postMessage({
+          sendControl({
             type: "restored",
             ok: true,
             room: restored.room,
@@ -852,73 +1002,65 @@ self.onmessage = (ev: MessageEvent) => {
             egoY: restored.egoY,
           });
         } catch (e) {
-          self.postMessage({ type: "restored", ok: false, message: String(e) });
+          sendControl({ type: "restored", ok: false, message: String(e) });
         }
       }
-      if (!replay)
-        soundTimer = setInterval(() => {
-          try {
-            advanceSoundClock();
-          } catch (error) {
-            self.postMessage({ type: "error", message: String(error) });
-            clearInterval(soundTimer ?? undefined);
-            clearInterval(timer ?? undefined);
-          }
-        }, 1000 / 60) as unknown as number;
-      if (!replay)
-        timer = setInterval(() => {
-          try {
-            // Remix freeze: the interpreter parks BETWEEN cycles, so the
-            // world stops mid-step and resumes on exactly the state it left.
-            // The worker deliberately stays responsive while parked: read_frames,
-            // read_state and patch all have to work on a frozen game.
-            const now = performance.now();
-            if (bridge && Atomics.load(bridge.i32, BRIDGE_PAUSE_SLOT) === 1) {
-              cycleClock.poll(now, engine!.vars[10]!, true);
-              return;
-            }
-            advanceSoundClock();
-            if (engine!.modalKind !== null || engine!.continuationPending) {
-              // Acknowledgement resumes the suspended instruction's call stack.
-              // Let timer increments accumulate while a normal game modal is open.
-              tickEngine();
-              postFrame();
-            } else if (cycleClock.poll(now, engine!.vars[10]!)) {
-              flushDeferredMovement();
-              tickEngine();
-              cycleCount++;
-              postFrame(true);
-            }
-            // Liveness heartbeat. Frames are posted only when the screen
-            // changes, so a static room posts nothing and the host cannot tell
-            // "parked" from "nothing moved". This counter always advances while
-            // the interpreter is cycling and stops dead the moment it parks.
-            if (now - lastCycleReportAt >= CYCLE_REPORT_MS) {
-              lastCycleReportAt = now;
-              // The heartbeat carries the scalars a host (and a proof run) needs
-              // to say WHERE the game is, not just that it is alive: a resumed
-              // game has to land in the room and on the spot it left.
-              const scalars = engine!.readState();
-              self.postMessage({
-                type: "cycle",
-                cycle: cycleCount,
-                room: scalars.room,
-                egoX: scalars.egoX,
-                egoY: scalars.egoY,
-              });
-            }
-            // Autosave: on the cadence, and always between cycles rather than
-            // inside one. A boundary the engine refuses (an open window, a text
-            // screen) is simply skipped and retried on the next tick, which is
-            // why this is a poll and not a timer of its own.
-            if (Date.now() - lastAutosaveAt >= autosaveIntervalMs) autosave(false);
-          } catch (e) {
-            self.postMessage({ type: "error", message: String(e) });
-            clearInterval(timer ?? undefined);
-            clearInterval(soundTimer ?? undefined);
-          }
-        }, HOST_POLL_MS) as unknown as number;
-      self.postMessage({ type: "booted", profile: engine.profile.id });
+      if (!replay) startTimers();
+      sendControl({ type: "booted", profile: engine.profile.id });
+      postReplay(null);
+      return;
+    }
+    if (msg.type === "exitReplay") {
+      replay = null;
+      currentSessionId = 0;
+      isSeeking = false;
+      recentRing.reset();
+      historyRing.reset();
+      soundClock.reset(performance.now());
+      cycleClock.reset(performance.now());
+      lastCycleReportAt = performance.now();
+      stopTimers();
+      startTimers();
+      postFrame();
+      sendControl({ type: "exitedReplay" });
+      return;
+    }
+    if (msg.type === "resetReplay" && currentBootFiles && currentDictionary) {
+      if (typeof msg.sessionId === "number") currentSessionId = msg.sessionId;
+      initialLogicStarted = false;
+      isSeeking = Boolean(msg.seeking);
+      if (engine) engine.stopSoundPlayback();
+      const seed =
+        typeof msg.seed === "number" ? msg.seed : lastReplaySeed !== null ? lastReplaySeed : 0;
+      replay = { tick: 0, revision: 0, random: seed >>> 0, yielded: false };
+      engine = new Engine(openContainer(currentBootFiles), host, currentDictionary);
+      engine.flags[9] = 1;
+      inputBuffer = [];
+      keyBuffer = [];
+      deferredMovement.length = 0;
+      recording = null;
+      lastKeyId = 0;
+      lastVisual = null;
+      lastText = null;
+      lastPicRow = -1;
+      lastTextMode = false;
+      lastInputEnabled = false;
+      lastReleaseGate = 0;
+      lastModal = null;
+      lastControls = "";
+      lastInputEdit = "";
+      lastSoundEnabled = null;
+      stopTimers();
+      soundClock.reset(performance.now());
+      cycleClock.reset(0);
+      lastCycleReportAt = performance.now();
+      lastHistoryAt = performance.now();
+      cycleCount = 0;
+      recentRing.reset();
+      historyRing.reset();
+      if (!msg.seeking) {
+        postFrame();
+      }
       postReplay(null);
       return;
     }
@@ -927,7 +1069,16 @@ self.onmessage = (ev: MessageEvent) => {
       // autosave is posted first, so a host that awaits the acknowledgement
       // can await browser storage before resolving this request.
       const taken = autosave(true);
-      self.postMessage({ type: "flushed", id: msg.id, taken });
+      sendControl({
+        type: "flushed",
+        id: msg.id,
+        taken,
+        cycle: cycleCount,
+        hasEngine: Boolean(engine),
+        modal: engine ? engine.modalOpen : false,
+        textMode: engine ? engine.textModeActive : false,
+        pictureShown: engine ? engine.isPictureShown : false,
+      });
       return;
     }
     if (msg.type === "patchMetadata" && engine) {
@@ -949,7 +1100,7 @@ self.onmessage = (ev: MessageEvent) => {
         for (const { word, id } of entries) liveDictionary.set(word, id);
         authoredWords = words;
       }
-      self.postMessage({ type: "metadataPatched" });
+      sendControl({ type: "metadataPatched" });
       return;
     }
     if (msg.type === "patch" && engine) {
@@ -994,10 +1145,18 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "key") {
+      if (
+        replay &&
+        typeof msg.sessionId === "number" &&
+        msg.sessionId !== 0 &&
+        msg.sessionId !== currentSessionId
+      ) {
+        return;
+      }
       if (typeof msg.id === "number") {
         if (msg.id <= lastKeyId) return;
         lastKeyId = msg.id;
-        self.postMessage({ type: "keyAccepted", id: msg.id });
+        sendControl({ type: "keyAccepted", id: msg.id });
       }
       flushDeferredMovement();
       const key = Number(msg.code) & 0xffff;
@@ -1012,11 +1171,25 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "direction" && engine) {
+      if (
+        replay &&
+        typeof msg.sessionId === "number" &&
+        msg.sessionId !== 0 &&
+        msg.sessionId !== currentSessionId
+      ) {
+        return;
+      }
       const dir = Number(msg.dir) & 0xff;
       if (dir === 0) {
         // The main thread captures the gate even while save/restore blocks us.
-        const eligible =
-          typeof msg.releaseEligible === "boolean" ? msg.releaseEligible : engine.releaseGate !== 0;
+        // In replay the tape's ordering is exact, so the engine's own gate is
+        // truth; the mirrored holdToMove goes stale while frames are
+        // suppressed during seeking.
+        const eligible = replay
+          ? engine.releaseGate !== 0
+          : typeof msg.releaseEligible === "boolean"
+            ? msg.releaseEligible
+            : engine.releaseGate !== 0;
         if (eligible && deferredMovement.length < 19) deferredMovement.push(0);
         if (eligible) recordEvent({ cycle: cycleCount, kind: "release" });
         flushDeferredMovement();
@@ -1045,6 +1218,9 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
   } catch (e) {
-    self.postMessage({ type: "error", message: String(e) });
+    if (e instanceof WorkerBridgeAbortError) {
+      return;
+    }
+    sendControl({ type: "error", message: String(e) });
   }
 };

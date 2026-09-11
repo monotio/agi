@@ -113,7 +113,7 @@ export function kq2Opening(run: Speedrun): void {
     12,
   );
   run.walkTo(40, 110);
-  run.command("give soup to grandma");
+  run.command("give soup grandma");
   run.wait(() => run.engine.flags[98] !== 0, "grandma fed", 600);
   run.command("look under bed");
   run.assertCarried(55, "ruby ring");
@@ -134,8 +134,21 @@ function monasteryApproach(run: Speedrun): void {
   run.exit("E", 46);
   run.exit("S", 4);
   run.wait(() => run.engine.flags[53] !== 0, "LRRH appears", 30000);
+  // said("give", "basket", "bitch") in logic 153 accepts "give basket girl";
+  // the give lands only when distance(ego, girl) <= 25 (Manhattan, v94).
+  const girlGap = () => {
+    const ego = run.engine.screenObjects[0]!;
+    const girl = run.engine.screenObjects[2]!;
+    return (
+      Math.abs(girl.x + Math.floor(girl.width / 2) - (ego.x + Math.floor(ego.width / 2))) +
+      Math.abs(girl.y - ego.y)
+    );
+  };
+  // Buffer the give while chasing her; press Enter only once she is in
+  // reach. A failed give consumes the line, so retype before re-approaching.
   run.repeatUntil(
     () => {
+      if (run.engine.inputEdit === "") run.type("give basket girl");
       const girl = run.engine.screenObjects[2]!;
       try {
         run.walkTo(
@@ -147,16 +160,12 @@ function monasteryApproach(run: Speedrun): void {
         if (!(error instanceof Error) || !error.message.startsWith("Walk blocked")) throw error;
         run.advance(60);
       }
+      if (girlGap() <= 20) run.submit("give basket girl");
     },
-    () => {
-      const girl = run.engine.screenObjects[2]!;
-      const s = run.state();
-      return Math.hypot(girl.x - s.x, girl.y - s.y) <= 20;
-    },
-    "approach LRRH",
+    () => run.engine.flags[59] !== 0,
+    "basket given to LRRH",
     60,
   );
-  run.command("give basket to girl");
   run.assertCarried(52, "bouquet");
   run.checkpoint("Bouquet", { room: 4, score: 22 });
   run.command("wear cloak");
@@ -427,7 +436,7 @@ export function kq2Door1(run: Speedrun): void {
 
   // 8. In Room 15: swim north along shore to (12, 80) near mermaid rock
   run.walkTo(12, 80);
-  run.command("give flowers to mermaid");
+  run.command("give flowers mermaid");
   run.wait(() => run.engine.flags[33] !== 0, "seahorse summoned");
   run.checkpoint("Mermaid", { room: 15, score: 64 });
 
@@ -441,7 +450,7 @@ export function kq2Door1(run: Speedrun): void {
 
   // 9. In Room 51: King Neptune at (25, 101)
   run.walkPath({ x0: 55, x1: 65, y0: 100, y1: 105 });
-  run.command("give trident to neptune");
+  run.command("give trident neptune");
   run.wait(() => run.engine.flags[95] !== 0, "clam opened");
   run.checkpoint("Neptune", { room: 51, score: 70 });
 
@@ -483,7 +492,7 @@ export function kq2Door1(run: Speedrun): void {
 
   // In 69: walk near cage at (100, 100) (distance <= 20)
   run.walkPath({ x0: 84, x1: 90, y0: 100, y1: 102 });
-  run.command("cover cage with cloth");
+  run.command("cover cage");
   run.wait(() => run.engine.vars[65] === 2, "cage covered");
   run.checkpoint("Cover cage", { room: 69, score: 79 });
 
@@ -617,7 +626,7 @@ export function kq2Door2(run: Speedrun): void {
   run.command("open door");
   run.wait(() => run.state().room === 68, "entered antique shop", 3000);
 
-  run.command("give bird to lady");
+  run.command("give bird lady");
   run.wait(() => run.engine.vars[3] === 96, "got lamp, score 96", 3000);
   run.checkpoint("Oil lamp", { room: 68, score: 96 });
 
@@ -650,11 +659,11 @@ export function kq2Door2(run: Speedrun): void {
   // 7. Room 55 -> East -> 56: bridle snake into Pegasus (+5, score 111, f109) and talk to horse (+2, score 113, sugar cube 79)
   run.exit("E", 56);
   run.walkTo(80, 80);
-  run.command("put bridle on snake");
+  run.command("put bridle snake");
   run.wait(() => run.engine.flags[109] !== 0, "bridled winged horse", 3000);
   run.checkpoint("Bridled Pegasus", { room: 56, score: 111 });
 
-  run.command("talk to horse");
+  run.command("talk horse");
   run.wait(() => run.engine.flags[110] !== 0, "talked to horse", 3000);
   run.checkpoint("Sugar cube", { room: 56, score: 113 });
 
@@ -1191,7 +1200,7 @@ export function kq2Complete(run: Speedrun): void {
 
   // Lion room 91
   run.walkTo(64, 155);
-  run.command("feed ham to lion");
+  run.command("feed ham");
   run.wait(() => run.engine.vars[75] === 2, "lion asleep", 10000);
   run.checkpoint("Lion fed", { room: 91, score: 177 });
 

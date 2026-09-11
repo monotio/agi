@@ -3,8 +3,8 @@ import { decodeRecordedReplay } from "./recordedReplay.ts";
  * Game tests: playthrough regression tests stored with the game.
  *
  * A game test is a named playtest_room scenario (room, spawn, steps, expect)
- * kept in the cartridge file TESTS.JSON beside GAME.JSON, so it travels with
- * the ZIP, survives in cartridge storage and reruns after every patch. The
+ * kept in the game file TESTS.JSON beside GAME.JSON, so it travels with
+ * the ZIP, survives in game storage and reruns after every patch. The
  * runner is the playtest simulation itself, so a stored test and an ad hoc
  * playtest can never disagree about what the game does.
  */

@@ -5,7 +5,7 @@ import { buildWordsTok } from "../../src/logic/words.ts";
 import { buildZip } from "../src/zip.ts";
 import { isolateStorage, savedGameCard, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
 
-function cartridge(shortcuts: boolean, scrollLock = false) {
+function makeGameZip(shortcuts: boolean, scrollLock = false) {
   const game = createContainer();
   game.putResource("picture", 0, new Uint8Array([0xf0, 0, 0xf8, 0, 0, 0xff]));
   const dictionary = new Map([["look", 1]]);
@@ -44,9 +44,11 @@ test("game controls discover bindings and menu labels, track disabled items, and
 }) => {
   await isolateStorage(page);
   await page.goto("/");
-  await page
-    .getByTestId("game-zip-input")
-    .setInputFiles({ name: "courtyard.zip", mimeType: "application/zip", buffer: cartridge(true) });
+  await page.getByTestId("game-zip-input").setInputFiles({
+    name: "courtyard.zip",
+    mimeType: "application/zip",
+    buffer: makeGameZip(true),
+  });
   await savedGameCard(page, "courtyard").getByTestId("btn-resume-cached").click();
   const controls = page.getByTestId("game-controls");
   await expect(controls).toBeVisible();
@@ -84,7 +86,7 @@ test("game controls discover bindings and menu labels, track disabled items, and
   await page.getByTestId("btn-eject").click();
   await page
     .getByTestId("game-zip-input")
-    .setInputFiles({ name: "quiet.zip", mimeType: "application/zip", buffer: cartridge(false) });
+    .setInputFiles({ name: "quiet.zip", mimeType: "application/zip", buffer: makeGameZip(false) });
   await savedGameCard(page, "quiet").getByTestId("btn-resume-cached").click();
   await controls.locator("summary").click();
   await expect(controls.getByRole("button")).toHaveCount(0);
@@ -101,7 +103,7 @@ test("mapped Scroll Lock controls advertise and invoke the script controller", a
   await page.getByTestId("game-zip-input").setInputFiles({
     name: "scroll-controller.zip",
     mimeType: "application/zip",
-    buffer: cartridge(false, true),
+    buffer: makeGameZip(false, true),
   });
   await savedGameCard(page, "scroll-controller").getByTestId("btn-resume-cached").click();
   const controls = page.getByTestId("game-controls");
@@ -127,7 +129,7 @@ test("browser reload restores shortcut labels and live menu enable state", async
   await page.getByTestId("game-zip-input").setInputFiles({
     name: "courtyard.zip",
     mimeType: "application/zip",
-    buffer: cartridge(true),
+    buffer: makeGameZip(true),
   });
   await savedGameCard(page, "courtyard").getByTestId("btn-resume-cached").click();
   const controls = page.getByTestId("game-controls");

@@ -7,8 +7,8 @@ import { BrowserReplay } from "./speedrunReplay.ts";
 // Opening-room checks exercise development discovery, loading and the worker.
 // Complete resource validation is a separate fixtures:audit command.
 for (const game of TITLE_SCREENS) {
-  const missing = fixtureSkip(game.slug, ["AGIDATA.OVL"], { checkVolumes: false });
-  test(`${game.slug}: gallery opens the fixture in its expected profile and title room`, async ({
+  const missing = fixtureSkip(game.hash, ["AGIDATA.OVL"], { checkVolumes: false });
+  test(`${game.alias}: gallery opens the fixture in its expected profile and title room`, async ({
     page,
   }) => {
     test.skip(Boolean(missing), missing || "");
@@ -16,7 +16,12 @@ for (const game of TITLE_SCREENS) {
     page.on("pageerror", (error) => errors.push(error.message));
     await isolateStorage(page);
     await page.goto("/?replaySeed=1");
-    await page.getByTestId(`boot-${game.slug}`).press("Enter");
+    await page
+      .locator(
+        `[data-hash="${game.hash}"], [data-alias="${game.alias}"], [data-testid="boot-${game.alias}"]`,
+      )
+      .first()
+      .press("Enter");
     await expect
       .poll(async () => game.profiles.includes((await textHook(page)).profile ?? ""), {
         timeout: 30_000,
@@ -31,17 +36,17 @@ for (const game of TITLE_SCREENS) {
 }
 
 for (const game of OPENING_ROUTES) {
-  const { slug } = game;
-  const missing = fixtureSkip(slug, ["AGIDATA.OVL"]);
-  test(`${slug}: browser replays the opening through player-controlled movement`, async ({
+  const { alias, hash } = game;
+  const missing = fixtureSkip(hash, ["AGIDATA.OVL"]);
+  test(`${alias}: browser replays the opening through player-controlled movement`, async ({
     page,
   }) => {
     test.skip(Boolean(missing), missing || "");
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    const run = openingRoute(slug);
+    const run = openingRoute(hash);
     const replay = new BrowserReplay(page, false);
-    await replay.boot(slug, run.seed);
+    await replay.boot(hash, run.seed);
     await replay.play(run.actions);
     expect((await replay.read()).state.profile).toBe(run.engine.profile.id);
     expect((await replay.read()).state.room).toBe(game.openingRoom);

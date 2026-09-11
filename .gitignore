@@ -11,7 +11,7 @@ playwright-report/
 *.p12
 
 # Local game data of any name, files and directories alike; the original
-# project cartridges and the README are the only included content.
+# project adventure templates and the README are the only included content.
 games/*
 !games/README.md
 !games/adventure-department/

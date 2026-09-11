@@ -14,9 +14,9 @@ test("one shared AI setup preserves the brief and keeps provider keys separate",
   await page.goto("/");
   const create = page.getByTestId("create-adventure-disclosure");
   await expect(create.getByTestId("api-key-input")).toHaveCount(0);
-  await page.getByTestId("cartridge-custom").click();
+  await page.getByTestId("template-custom").click();
   await page.getByLabel("Adventure name").fill("The Quiet Observatory");
-  await page.getByTestId("custom-cartridge-input").fill("Find the missing moon chart.");
+  await page.getByTestId("custom-adventure-input").fill("Find the missing moon chart.");
   await page.getByTestId("connect-create-ai").click();
   const dialog = page.getByTestId("ai-settings-dialog");
   await expect(dialog).toBeVisible();
@@ -30,7 +30,7 @@ test("one shared AI setup preserves the brief and keeps provider keys separate",
   await dialog.getByTestId("ai-settings-save").click();
   await expect(dialog).toBeHidden();
   await expect(page.getByLabel("Adventure name")).toHaveValue("The Quiet Observatory");
-  await expect(page.getByTestId("custom-cartridge-input")).toHaveValue(
+  await expect(page.getByTestId("custom-adventure-input")).toHaveValue(
     "Find the missing moon chart.",
   );
   expect(providerCalls).toBe(0);

@@ -9,3 +9,4 @@ app/package-lock.json
 evals/package-lock.json
 evals/results/
 evals/fixtures/pictures/
+app/public/walkthroughs/

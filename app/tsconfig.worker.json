@@ -4,7 +4,7 @@
   // The two libs redeclare the same globals and cannot share one program.
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "lib": ["ES2023", "WebWorker"],
+    "lib": ["ES2024", "WebWorker"],
     "types": []
   },
   "include": ["src/engine.worker.ts", "src/preview.worker.ts"],

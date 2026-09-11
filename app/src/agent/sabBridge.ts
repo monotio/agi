@@ -54,7 +54,9 @@ export interface Bridge {
   sab: SharedArrayBuffer;
   setPaused(paused: boolean): void;
   isPaused(): boolean;
+  cancel(): void;
   dispose(): void;
+  pollNow(): void;
 }
 
 /** Header size in bytes: four i32 slots before the payload region. */
@@ -62,28 +64,45 @@ export const BRIDGE_HEADER_BYTES = 16;
 /** i32 index of the remix pause slot. */
 export const BRIDGE_PAUSE_SLOT = 2;
 
+export const BRIDGE_STATE_IDLE = 0;
+export const BRIDGE_STATE_REQUEST = 1;
+export const BRIDGE_STATE_RESPONSE = 2;
+export const BRIDGE_STATE_CLAIMED = 3;
+export const BRIDGE_STATE_CANCELLED = 4;
+
+export class WorkerBridgeAbortError extends Error {
+  constructor(message = "Worker bridge call cancelled") {
+    super(message);
+    this.name = "WorkerBridgeAbortError";
+  }
+}
+
 export function createBridge(handler: AgentHandler, onEvent: AgentEventSink): Bridge {
   const sab = new SharedArrayBuffer(BRIDGE_HEADER_BYTES + 4 * 1024 * 1024);
   const i32 = new Int32Array(sab, 0, 4);
   const bytes = new Uint8Array(sab, BRIDGE_HEADER_BYTES);
 
-  const timer = setInterval(() => {
-    if (Atomics.load(i32, 0) !== 1) return;
+  function checkPending(): void {
+    if (Atomics.load(i32, 0) !== BRIDGE_STATE_REQUEST) return;
     const len = Atomics.load(i32, 1);
     const req = JSON.parse(new TextDecoder().decode(bytes.slice(0, len))) as LlmRequest;
-    Atomics.store(i32, 0, 3); // claimed
+    Atomics.store(i32, 0, BRIDGE_STATE_CLAIMED); // claimed
     onEvent("request", `${req.op} ${JSON.stringify(req.context)}`);
     handler
       .handle(req)
       .then((result) => {
+        if (Atomics.load(i32, 0) === BRIDGE_STATE_CANCELLED) return;
         respond(result);
         onEvent("response", result.slice(0, 120));
       })
       .catch((e) => {
+        if (Atomics.load(i32, 0) === BRIDGE_STATE_CANCELLED) return;
         respond("");
         onEvent("response", `agent error: ${String(e)}`);
       });
-  }, 50);
+  }
+
+  const timer = setInterval(checkPending, 50);
 
   function respond(result: string): void {
     const encoded = new TextEncoder().encode(result);
@@ -93,7 +112,7 @@ export function createBridge(handler: AgentHandler, onEvent: AgentEventSink): Br
     bytes.fill(0);
     bytes.set(enc);
     Atomics.store(i32, 1, enc.length);
-    Atomics.store(i32, 0, 2);
+    Atomics.store(i32, 0, BRIDGE_STATE_RESPONSE);
     Atomics.notify(i32, 0);
   }
 
@@ -107,9 +126,19 @@ export function createBridge(handler: AgentHandler, onEvent: AgentEventSink): Br
     isPaused(): boolean {
       return Atomics.load(i32, BRIDGE_PAUSE_SLOT) === 1;
     },
+    cancel(): void {
+      const state = Atomics.load(i32, 0);
+      if (state === BRIDGE_STATE_REQUEST || state === BRIDGE_STATE_CLAIMED) {
+        Atomics.store(i32, 0, BRIDGE_STATE_CANCELLED);
+        Atomics.notify(i32, 0);
+      }
+    },
     dispose(): void {
       clearInterval(timer);
       Atomics.store(i32, BRIDGE_PAUSE_SLOT, 0);
+    },
+    pollNow(): void {
+      checkPending();
     },
   };
 }

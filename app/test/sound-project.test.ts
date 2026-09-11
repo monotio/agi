@@ -23,7 +23,7 @@ test("musical intent survives a saved project and resets after raw effect author
   const session = new AgentSession(config, () => {}, state);
   const archive = await buildProjectZip({
     title: "Musical project",
-    slug: "music-test",
+    projectId: "music-test",
     provider: "openai",
     model: "test",
     authoredAt: "2026-09-06",

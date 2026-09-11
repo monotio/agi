@@ -24,7 +24,7 @@ import { gameRevision } from "../app/src/gameMetadata.ts";
 import { readGameZip } from "../app/src/gameZip.ts";
 import { buildProjectZip, buildPublicGameZip } from "../app/src/projectArchive.ts";
 import { buildZip, type ZipFileInput } from "../app/src/zip.ts";
-import type { CachedCartridgeData } from "../app/src/cartridgeTypes.ts";
+import type { CachedGameData } from "../app/src/gameTypes.ts";
 
 /**
  * A player's progress travels with the project archive only: the numbered
@@ -114,7 +114,7 @@ function played(): { files: Record<string, Uint8Array>; progress: GameProgress }
     cycle: 1,
     room: 1,
     savedAt: 1_757_000_000_000,
-    game: { slug: "on-the-laptop", installed: false, revision: REVISION_A },
+    game: { projectId: "on-the-laptop", installed: false, revision: REVISION_A },
   };
   return {
     files: Object.fromEntries(container.files),
@@ -122,9 +122,9 @@ function played(): { files: Record<string, Uint8Array>; progress: GameProgress }
   };
 }
 
-function cartridge(files: Record<string, Uint8Array>): CachedCartridgeData {
+function cachedGame(files: Record<string, Uint8Array>): CachedGameData {
   return {
-    slug: "on-the-laptop",
+    projectId: "on-the-laptop",
     title: "Laptop",
     authoredAt: "2026-09-07T00:00:00.000Z",
     provider: "stub",
@@ -157,16 +157,16 @@ function archiveEntries(files: Record<string, Uint8Array>, project: boolean): Zi
 
 test("the project archive carries the slots and the autosave; the game export carries neither", async () => {
   const { files, progress } = played();
-  const project = await readGameZip(await buildProjectZip(cartridge(files), progress));
+  const project = await readGameZip(await buildProjectZip(cachedGame(files), progress));
   assert.deepEqual(Object.keys(project.progress?.saves ?? {}), ["1", "7"]);
   assert.deepEqual(Array.from(project.progress!.saves["7"]!), Array.from(progress.saves["7"]!));
   assert.deepEqual(project.progress?.autosave, progress.autosave);
-  const publishedBytes = buildPublicGameZip(cartridge(files));
+  const publishedBytes = buildPublicGameZip(cachedGame(files));
   assert.ok(!new TextDecoder().decode(publishedBytes).includes("SAVES/"), "no SAVES/ entry");
   assert.equal((await readGameZip(publishedBytes)).progress, undefined);
   // A project without progress writes no SAVES/ folder either.
   const empty = await readGameZip(
-    await buildProjectZip(cartridge(files), { saves: {}, autosave: null }),
+    await buildProjectZip(cachedGame(files), { saves: {}, autosave: null }),
   );
   assert.equal(empty.progress, undefined);
 });
@@ -217,7 +217,7 @@ test("a malformed-base64 autosave image fails with the SAVES/AUTOSAVE.JSON impor
   );
 });
 
-test("imported progress is stored under the library slug and re-addressed to it", () => {
+test("imported progress is stored under the library game ID and re-addressed to it", () => {
   const { progress } = played();
   const backing = new Map<string, string>();
   const storage = {
@@ -231,17 +231,24 @@ test("imported progress is stored under the library slug and re-addressed to it"
   assert.deepEqual(report.failedSlots, []);
   assert.deepEqual(Object.keys(readGameSaves(storage, "imported-1234")), ["1", "7"]);
   const stored = parseAutosaveRecord(storage.getItem("monotio_agi.autosave.imported-1234"));
-  assert.deepEqual(stored?.game, { slug: "imported-1234", installed: false, revision: REVISION_B });
+  assert.deepEqual(stored?.game, {
+    projectId: "imported-1234",
+    installed: false,
+    revision: REVISION_B,
+  });
   assert.equal(stored?.image, progress.autosave!.image);
   assert.deepEqual(report.autosave, stored, "the report carries the record as stored");
   // What the export reads back is what was stored.
   const back = readGameProgress(storage, "imported-1234");
   assert.deepEqual(Array.from(back.saves["1"]!), Array.from(progress.saves["1"]!));
   assert.deepEqual(back.autosave, stored);
-  // Another game's autosave under this slug's key is not this game's progress.
+  // Another game's autosave under this game ID's key is not this game's progress.
   backing.set(
     "monotio_agi.autosave.imported-1234",
-    JSON.stringify({ ...progress.autosave, game: { ...progress.autosave!.game, slug: "other" } }),
+    JSON.stringify({
+      ...progress.autosave,
+      game: { ...progress.autosave!.game, projectId: "other" },
+    }),
   );
   assert.equal(readGameProgress(storage, "imported-1234").autosave, null);
   assert.equal(parseAutosaveRecord("{"), null);
@@ -312,7 +319,7 @@ test("a store that fails mid-import is reported entry by entry; nothing claims t
 
 test("an imported autosave restores in a real engine boot of the imported game's profile", async () => {
   const { files, progress } = played();
-  const imported = await readGameZip(await buildProjectZip(cartridge(files), progress));
+  const imported = await readGameZip(await buildProjectZip(cachedGame(files), progress));
   const dictionary = new Map(imported.words);
   // The host resume path: boot the imported game fresh, then restore the image.
   const resumed = new Engine(
@@ -357,10 +364,10 @@ test("re-addressing is the revision contract: export compaction makes equality i
     cycle: 1,
     room: 1,
     savedAt: 1_757_000_000_000,
-    game: { slug: "on-the-laptop", installed: false, revision: preExportRevision },
+    game: { projectId: "on-the-laptop", installed: false, revision: preExportRevision },
   };
   const progress: GameProgress = { saves: { "1": engine.serialize() }, autosave };
-  const imported = await readGameZip(await buildProjectZip(cartridge(files), progress));
+  const imported = await readGameZip(await buildProjectZip(cachedGame(files), progress));
   // The record crosses the archive still naming the pre-compaction revision…
   assert.equal(imported.progress?.autosave?.game.revision, preExportRevision);
   // …but the export compacted the container, so the imported files hash to a
@@ -394,7 +401,7 @@ test("the public export excludes tests, saves and authoring context — one chec
       JSON.stringify({ format: "monotio.agi.tests.v1", tests: [] }),
     ),
   };
-  const names = zipNames(buildPublicGameZip(cartridge(withTests)));
+  const names = zipNames(buildPublicGameZip(cachedGame(withTests)));
   assert.ok(!names.includes("TESTS.JSON"), "tests travel with the project archive only");
   assert.ok(
     !names.some((name) => name.startsWith("SAVES/")),
@@ -405,7 +412,7 @@ test("the public export excludes tests, saves and authoring context — one chec
     "authoring context travels with the project archive only",
   );
   // The checks are not vacuous: the project archive carries all three.
-  const projectNames = zipNames(await buildProjectZip(cartridge(withTests), progress));
+  const projectNames = zipNames(await buildProjectZip(cachedGame(withTests), progress));
   assert.ok(projectNames.includes("TESTS.JSON"));
   assert.ok(projectNames.includes("SAVES/SG.1") && projectNames.includes("SAVES/AUTOSAVE.JSON"));
   assert.ok(projectNames.includes("PROJECT.JSON"));

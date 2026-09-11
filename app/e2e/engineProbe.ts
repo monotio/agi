@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
-import type { CachedCartridgeData } from "../src/cartridgeTypes.ts";
+import type { CachedGameData } from "../src/gameTypes.ts";
 
 export interface AiConfiguration {
   provider: "anthropic" | "openai" | "stub";
@@ -176,13 +176,13 @@ export async function waitForAutosaveAfter(
   return (await textHook(page)).autosave;
 }
 
-/** The autosave record the host stored for `slug`, straight out of localStorage. */
+/** The autosave record the host stored for `gameKey`, straight out of localStorage. */
 export async function storedAutosave(
   page: Page,
-  slug: string,
+  gameKey: string,
 ): Promise<{ room: number; cycle: number; imageLength: number } | null> {
-  return page.evaluate((s) => {
-    const raw = localStorage.getItem(`monotio_agi.autosave.${s}`);
+  return page.evaluate((key) => {
+    const raw = localStorage.getItem(`monotio_agi.autosave.${key}`);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return {
@@ -190,7 +190,7 @@ export async function storedAutosave(
       cycle: Number(parsed.cycle),
       imageLength: atob(String(parsed.image)).length,
     };
-  }, slug);
+  }, gameKey);
 }
 
 /**
@@ -218,7 +218,7 @@ export async function observe(page: Page, ticks = 45): Promise<void> {
 /**
  * Per-test isolation. Playwright gives every test a fresh context, but the
  * dev server is shared and every one of these keys is read back on boot: a
- * save image would let F7 restore someone else's game, a cached cartridge
+ * save image would let F7 restore someone else's game, a cached game
  * would skip authoring, and a stored transcript would change the agent's
  * first turn. Cleared before any app script runs on the page.
  */
@@ -319,14 +319,14 @@ export async function openGameOptions(
 /** Seed through the production persistence boundary, so fixtures use the release contract. */
 export async function cacheGame(
   page: Page,
-  game: Omit<CachedCartridgeData, "authoredAt">,
+  game: Omit<CachedGameData, "authoredAt">,
 ): Promise<void> {
   const { files, ...metadata } = game;
   const saved = await page.evaluate(
     async ({ metadata, files }) => {
-      const path = "/src/cartridgeStorage.ts";
-      const { saveAuthoredCartridge } = await import(path);
-      return saveAuthoredCartridge(metadata.slug, {
+      const path = "/src/gameStorage.ts";
+      const { saveAuthoredGame } = await import(path);
+      return saveAuthoredGame(metadata.projectId, {
         ...metadata,
         files: Object.fromEntries(
           Object.entries(files).map(([name, bytes]) => [name, new Uint8Array(bytes)]),

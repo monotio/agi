@@ -9,8 +9,14 @@ import {
   PictureSourceSyntaxError,
   readPictureSource,
 } from "../src/picture/source.ts";
-import { fixtureSkip } from "./fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
+
+const PICTURE_FIXTURES = [
+  { alias: "kq1", hash: KNOWN_GAME_HASH.KQ1 },
+  { alias: "kq2", hash: KNOWN_GAME_HASH.KQ2 },
+  { alias: "kq3", hash: KNOWN_GAME_HASH.KQ3 },
+] as const;
 
 function bytes(source: string): number[] {
   return Array.from(compilePictureSource(source).bytes);
@@ -128,12 +134,12 @@ test("disassembler emits primitives and raw escapes for malformed data", () => {
   );
 });
 
-for (const slug of ["kq1", "kq2", "kq3"]) {
+for (const { alias, hash } of PICTURE_FIXTURES) {
   test(
-    `${slug}: every PICDIR entry round-trips through source byte for byte`,
-    { skip: fixtureSkip(slug) },
+    `${alias}: every PICDIR entry round-trips through source byte for byte`,
+    { skip: fixtureSkip(hash) },
     () => {
-      const { container } = loadGame(slug);
+      const { container } = loadGame(hash);
       let count = 0;
       let commands = 0;
       for (let num = 0; num < 256; num++) {
@@ -146,11 +152,11 @@ for (const slug of ["kq1", "kq2", "kq3"]) {
         assert.deepEqual(
           Array.from(result.bytes),
           Array.from(original),
-          `${slug} picture ${num} did not round-trip`,
+          `${alias} picture ${num} did not round-trip`,
         );
       }
       assert.ok(count > 0, "fixture has pictures");
-      console.log(`  ${slug}: ${count} pictures, ${commands} commands round-tripped`);
+      console.log(`  ${alias}: ${count} pictures, ${commands} commands round-tripped`);
     },
   );
 }
@@ -210,13 +216,13 @@ test("readPictureSource returns null for absent entries and source for present o
   assert.equal(readPictureSource(stub, 3), "vis 2\nend\n");
 });
 
-for (const slug of ["kq1", "kq2", "kq3"]) {
+for (const { alias, hash } of PICTURE_FIXTURES) {
   test(
-    `${slug}: readPictureSource on the first room picture recompiles to the stored bytes`,
-    { skip: fixtureSkip(slug) },
+    `${alias}: readPictureSource on the first room picture recompiles to the stored bytes`,
+    { skip: fixtureSkip(hash) },
     () => {
-      const { container } = loadGame(slug);
-      const num = slug === "kq3" ? 7 : 1;
+      const { container } = loadGame(hash);
+      const num = alias === "kq3" ? 7 : 1;
       const src = readPictureSource(container, num);
       assert.ok(src && src.length > 1000);
       assert.deepEqual(
@@ -324,13 +330,13 @@ test("annotatePictureSource groups outline + inner fill and separates a far line
   assert.deepEqual(Array.from(compilePictureSource(annotated).bytes), Array.from(bytes));
 });
 
-for (const slug of ["kq1", "kq2", "kq3"]) {
+for (const { alias, hash } of PICTURE_FIXTURES) {
   test(
-    `${slug}: annotated first-room picture recompiles byte-identically`,
-    { skip: fixtureSkip(slug) },
+    `${alias}: annotated first-room picture recompiles byte-identically`,
+    { skip: fixtureSkip(hash) },
     () => {
-      const { container } = loadGame(slug);
-      const num = slug === "kq3" ? 7 : 1;
+      const { container } = loadGame(hash);
+      const num = alias === "kq3" ? 7 : 1;
       const bytes = container.getResource("picture", num)!;
       const annotated = annotatePictureSource(bytes);
       assert.ok((annotated.match(/^# element \d+:/gm) ?? []).length >= 5);

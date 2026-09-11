@@ -8,15 +8,16 @@ import { parseView } from "../src/view/view.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { detectProfile, detectVersionString } from "../src/runtime/profile.ts";
 import { createPictureSurface } from "../src/types.ts";
-import { fixtureSkip } from "./fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
  * Optional King's Quest IV 3.002.086 fixture tests. Available-resource
  * parsing, complete-volume coverage and opening behavior are checked separately.
  */
-const SLUG = "kq4";
-const skip = fixtureSkip(SLUG, ["AGIDATA.OVL"]);
+const GAME_ALIAS = "kq4";
+const TARGET_HASH = KNOWN_GAME_HASH.KQ4;
+const skip = fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"]);
 
 class Host implements EngineHost {
   keys: number[] = [];
@@ -41,12 +42,15 @@ class Host implements EngineHost {
 }
 
 test(
-  `${SLUG}: combined container, 3.002.086 profile, available resources`,
+  `${GAME_ALIAS}: combined container, 3.002.086 profile, available resources`,
   {
-    skip: fixtureSkip(SLUG, ["AGIDATA.OVL"], { checkVolumes: false }),
+    skip: fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"], { checkVolumes: false }),
   },
   (t) => {
-    const { container, files } = loadGame(SLUG, { interpreterFiles: true, checkVolumes: false });
+    const { container, files } = loadGame(TARGET_HASH, {
+      interpreterFiles: true,
+      checkVolumes: false,
+    });
     assert.deepEqual(detectContainerFormat(files), { kind: "v3-combined", prefix: "KQ4" });
     assert.equal(detectVersionString(files), "3.002.086");
     const profile = detectProfile(files);
@@ -81,18 +85,18 @@ test(
   },
 );
 
-test(`${SLUG}: every declared resource is readable`, { skip }, () => {
-  const { container } = loadGame(SLUG);
+test(`${GAME_ALIAS}: every declared resource is readable`, { skip }, () => {
+  const { container } = loadGame(TARGET_HASH);
   for (let n = 0; n < 256; n++)
     for (const kind of ["logic", "picture", "view", "sound"] as const)
       assert.doesNotThrow(() => container.getResource(kind, n), `${kind} ${n}`);
 });
 
 test(
-  `${SLUG}: the opening deals the copy-protection question in room 142`,
-  { skip: fixtureSkip(SLUG, ["AGIDATA.OVL"], { checkVolumes: false }) },
+  `${GAME_ALIAS}: the opening deals the copy-protection question in room 142`,
+  { skip: fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"], { checkVolumes: false }) },
   () => {
-    const { container, dict, files } = loadGame(SLUG, {
+    const { container, dict, files } = loadGame(TARGET_HASH, {
       interpreterFiles: true,
       checkVolumes: false,
     });

@@ -7,8 +7,8 @@
  * arguments, byte lengths, and compiler diagnostics.
  *
  * Framework-free TypeScript, runs directly with Node >= 22.6:
- *   node --experimental-strip-types scripts/eval-genesis.ts --cartridge knights-trial --provider stub
- *   node --experimental-strip-types scripts/eval-genesis.ts --cartridge knights-trial --provider openai --model gpt-5.6-sol
+ *   node --experimental-strip-types scripts/eval-genesis.ts --template knights-trial --provider stub
+ *   node --experimental-strip-types scripts/eval-genesis.ts --template knights-trial --provider openai --model gpt-5.6-sol
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
@@ -120,7 +120,7 @@ const GENESIS_TOOLS = AGENT_TOOLS.filter(
 );
 
 interface CliArgs {
-  cartridge: string;
+  template: string;
   provider: "openai" | "anthropic" | "stub";
   model: string;
   apiKey: string;
@@ -146,7 +146,7 @@ function parseCliArgs(): CliArgs {
     }
   }
 
-  const cartridge = options["cartridge"] || "knights-trial";
+  const template = options["template"] || "knights-trial";
   let provider = (options["provider"] as CliArgs["provider"]) || "stub";
   if (!options["provider"]) {
     if (process.env["OPENAI_API_KEY"]) provider = "openai";
@@ -166,7 +166,7 @@ function parseCliArgs(): CliArgs {
   const tracePath = options["trace"] || "evals/last-genesis-trace.json";
 
   return {
-    cartridge,
+    template,
     provider,
     model,
     apiKey,
@@ -175,7 +175,7 @@ function parseCliArgs(): CliArgs {
   };
 }
 
-function loadCartridgeText(nameOrPath: string): string {
+function loadTemplateText(nameOrPath: string): string {
   if (existsSync(nameOrPath)) {
     return readFileSync(nameOrPath, "utf-8");
   }
@@ -183,16 +183,16 @@ function loadCartridgeText(nameOrPath: string): string {
   if (existsSync(builtinPath)) {
     return readFileSync(builtinPath, "utf-8");
   }
-  throw new Error(`Cartridge not found: ${nameOrPath} (tried ${builtinPath})`);
+  throw new Error(`Template not found: ${nameOrPath} (tried ${builtinPath})`);
 }
 
 async function runCliGenesis(): Promise<void> {
   const args = parseCliArgs();
   console.log(`${ANSI.bold}${ANSI.cyan}=== AGI Genesis CLI Runner ===${ANSI.reset}`);
-  console.log(`${ANSI.gray}Cartridge: ${ANSI.reset}${args.cartridge}`);
+  console.log(`${ANSI.gray}Template:  ${ANSI.reset}${args.template}`);
   console.log(`${ANSI.gray}Provider:  ${ANSI.reset}${args.provider} (${args.model})`);
 
-  const cartridgeText = loadCartridgeText(args.cartridge);
+  const templateText = loadTemplateText(args.template);
   const session = createAgentSessionState();
   const trace: TraceEntry[] = [];
   const started = performance.now();
@@ -281,7 +281,7 @@ async function runCliGenesis(): Promise<void> {
   if (args.provider !== "stub") {
     try {
       if (!args.apiKey) throw new Error(`Missing API key for ${args.provider}.`);
-      const genesisPrompt = createGenesisPrompt(cartridgeText);
+      const genesisPrompt = createGenesisPrompt(templateText);
       if (args.provider === "openai") await runOpenAiGenesis(args, genesisPrompt, session, trace);
       else await runAnthropicGenesis(args, genesisPrompt, session, trace);
     } catch (error) {
@@ -302,7 +302,7 @@ async function runCliGenesis(): Promise<void> {
       JSON.stringify(
         {
           timestamp: new Date().toISOString(),
-          cartridge: args.cartridge,
+          template: args.template,
           provider: args.provider,
           model: args.model,
           genesisComplete: session.genesisComplete,
@@ -326,7 +326,7 @@ async function runCliGenesis(): Promise<void> {
     for (const [filename, content] of files.entries()) {
       writeFileSync(join(args.outDir, filename), content);
     }
-    console.log(`${ANSI.green}Saved ${files.size} cartridge files to: ${args.outDir}${ANSI.reset}`);
+    console.log(`${ANSI.green}Saved ${files.size} game files to: ${args.outDir}${ANSI.reset}`);
   }
 
   console.log(`${ANSI.gray}Metrics: ${JSON.stringify(summary)}${ANSI.reset}`);

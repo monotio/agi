@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { directionForDelta } from "../../src/agent/gameTestSteps.ts";
 import { AGI_KEY } from "../../src/runtime/keys.ts";
 import type { ScreenObject } from "../../src/runtime/screenObject.ts";
-import { DIRECTION_KEYS, type Speedrun } from "./runner.ts";
+import { type DirectionInput, type Speedrun } from "./runner.ts";
 
 /**
  * Manhunter: New York (3.002.107) is played through a cursor, screen object 0,
@@ -118,6 +118,55 @@ export class Manhunter {
     }
     this.run.direction(0);
     this.step(3);
+  }
+
+  /**
+   * Press `dir` once and ride it until `until` holds, re-pressing whenever a
+   * hotspot registration stops the cursor (the room zeroes v6) before the
+   * stop condition is met. One recorded press per straight run instead of a
+   * steering decision per tick.
+   */
+  glide(dir: DirectionInput, until: () => boolean, label: string, max = 200): void {
+    for (let n = 0; n < max && !until(); n++) {
+      if (this.cursor.direction === 0) this.run.direction(dir);
+      this.cycle();
+    }
+    this.run.direction(0);
+    assert.ok(until(), `glide ${label}; ${this.describe()}`);
+  }
+
+  /**
+   * Steer the cursor until the sewer room registers exit `selector` in v51:
+   * 2 left (x under 66, any y under 148, or x under 5), 3 right (x over 90 or
+   * over 145), 1 top (x 66-90, y under 148), 0 the bottom strip (y over 147),
+   * 4 the keycard (x 63-82, y 133-154). Zones stop the cursor as they
+   * register, so crossing an intermediate zone costs one re-press per zone.
+   */
+  selectExit(selector: number, label: string): void {
+    const registered = () => this.engine.vars[51] === selector;
+    for (let guard = 0; guard < 8 && !registered(); guard++) {
+      const o = this.cursor;
+      let dir: number;
+      let done = registered;
+      if (selector === 2) dir = 7;
+      else if (selector === 3) dir = 3;
+      else if (selector === 1)
+        dir = o.y > 147 && o.x > 65 && o.x < 91 ? 1 : o.x < 66 ? 3 : o.x > 90 ? 7 : 0;
+      else if (selector === 0) dir = o.x > 145 ? 7 : o.x < 5 ? 3 : 5;
+      else if (o.x < 63) {
+        // The keycard zone only registers once the cursor is both in its
+        // column (x 63-82) and its rows, and not every picture stops the
+        // cursor in between, so the column approach is position-based.
+        dir = 3;
+        done = () => this.cursor.x >= 63 || registered();
+      } else if (o.x > 82) {
+        dir = 7;
+        done = () => this.cursor.x <= 82 || registered();
+      } else dir = o.y > 154 ? 1 : 5;
+      if (!dir) break;
+      this.glide(dir, done, label);
+    }
+    assert.equal(this.engine.vars[51], selector, `${label}; ${this.describe()}`);
   }
 
   /**
@@ -289,13 +338,219 @@ export function trinity(mh: Manhunter): void {
 }
 
 /**
- * Recorded maze route: "x,y,d" turns for the avatar (object 0) in room 126,
- * each pressed once the avatar stands on the cell, d being the direction
- * (1 up, 3 right, 5 down, 7 left). The route visits the twelve squares that
- * flags 151 to 162 count, in the order 4 5 8 10 6 7 11 12 9 1 2 3.
+ * The arcade maze (room 126): the avatar walks one pixel per cycle in the
+ * pressed direction and cannot stop — the game restores v6 from v39 — until a
+ * magic square's pick-up animation (v92) holds it, and touching a wall
+ * (control 2, which sets f3) sends it back to the start. Each leg below is a
+ * corner list for one square, derived from the maze's control surface with a
+ * turn-minimizing search, so every recorded press is a deliberate corner with
+ * no wall bumps or steering wiggle. The legs visit the squares that flags 151
+ * to 162 count in the order 4 5 8 10 6 7 11 12 9 3; squares 1 and 2 register
+ * en passant as the path crosses them, exactly as the original recording did.
+ * Square 3 comes last: it ends the game.
  */
-const MAZE_TURNS =
-  "136,161,7 125,161,1 125,152,7 27,152,5 27,156,5 27,161,3 30,161,1 30,152,3 85,152,1 85,132,7 75,132,5 75,134,7 74,134,5 74,139,7 25,139,1 25,122,7 17,122,5 17,126,5 17,131,3 20,131,1 20,122,3 30,122,5 30,134,3 31,134,5 31,139,3 50,139,1 50,122,3 60,122,1 60,102,3 74,102,3 75,102,5 75,119,7 65,119,5 65,124,7 64,124,5 64,129,7 60,129,7 57,129,5 57,130,3 70,130,1 70,122,3 100,122,5 100,134,3 101,134,5 101,138,3 117,138,1 117,135,1 117,133,7 115,133,5 115,134,7 114,134,5 114,138,7 95,138,1 95,122,7 80,122,1 80,112,3 110,112,5 110,114,3 111,114,5 111,119,3 130,119,5 130,139,3 135,139,1 135,112,7 125,112,1 125,82,7 105,82,1 105,62,7 100,62,7 95,62,1 95,52,7 65,52,1 65,42,7 50,42,5 50,44,3 51,44,5 51,49,3 55,49,5 55,70,7 45,70,5 45,98,7 34,98,5 34,99,7 20,99,1 20,92,3 27,92,1 27,85,1 27,83,7 25,83,5 25,84,7 24,84,5 24,89,7 20,89,5 20,94,3 21,94,5 21,99,3 35,99,1 35,72,7 17,72,1 17,65,1 17,63,3 20,63,5 20,64,3 21,64,5 21,69,3 40,69,5 40,98,3 50,98,1 50,72,3 55,72,1 55,52,7 50,52,1 50,42,3 70,42,5 70,44,3 71,44,5 71,49,3 100,49,5 100,54,3 101,54,5 101,59,3 110,59,5 110,74,3 111,74,5 111,79,3 130,79,1 130,72,3 137,72,5 137,96,5 137,101,7 135,101,1 135,42,7 120,42,5 120,44,3 121,44,5 121,49,3 127,49,5 127,56,5 127,61,7 125,61,1 125,52,7 120,52,1 120,42,3 135,42,5 135,64,7 134,64,5 134,69,7 130,69,5 130,104,3 131,104,5 131,109,3 135,109,5 135,139,7 125,139,1 125,122,7 105,122,1 105,112,7 95,112,1 95,92,7 85,92,1 85,82,7 75,82,1 75,62,7 65,62,5 65,84,7 60,84,7 57,84,5 57,89,3 70,89,1 70,62,3 80,62,5 80,74,3 81,74,5 81,79,3 90,79,5 90,84,3 91,84,5 91,89,3 95,89,5 95,104,7 94,104,5 94,109,7 78,109,1 78,99,3 80,99,5 80,104,3 81,104,5 81,109,3 110,109,5 110,114,3 111,114,5 111,119,3 130,119,5 130,139,3 135,139,1 135,112,7 125,112,1 125,82,7 105,82,1 105,62,7 97,62,1 97,59,7 95,59,1 95,52,7 65,52,1 65,42,7 50,42,5 50,44,3 51,44,5 51,49,3 55,49,5 55,70,7 45,70,5 45,98,7 35,98,1 35,52,7 27,52,1 27,45,1";
+interface MazeLeg {
+  /** Flag the game sets when the avatar stands on the square. */
+  flag: number;
+  name: string;
+  /** Corner cells from the leg's start (the previous square) to the square. */
+  path: readonly (readonly [number, number])[];
+}
+const MAZE_ROUTE: MazeLeg[] = [
+  {
+    flag: 154,
+    name: "4",
+    path: [
+      [136, 161],
+      [133, 161],
+      [124, 152],
+      [31, 152],
+      [27, 156],
+    ],
+  },
+  {
+    flag: 155,
+    name: "5",
+    path: [
+      [27, 156],
+      [34, 149],
+      [85, 149],
+      [85, 133],
+      [82, 130],
+      [73, 139],
+      [30, 139],
+      [30, 127],
+      [23, 120],
+      [17, 126],
+    ],
+  },
+  {
+    flag: 158,
+    name: "8",
+    path: [
+      [17, 126],
+      [23, 120],
+      [30, 127],
+      [30, 139],
+      [45, 139],
+      [45, 127],
+      [60, 112],
+      [60, 102],
+      [75, 102],
+      [75, 118],
+      [61, 132],
+      [60, 132],
+    ],
+  },
+  {
+    flag: 160,
+    name: "10",
+    path: [
+      [60, 132],
+      [70, 122],
+      [100, 122],
+      [100, 138],
+      [113, 138],
+      [116, 135],
+    ],
+  },
+  {
+    flag: 156,
+    name: "6",
+    path: [
+      [116, 135],
+      [113, 138],
+      [95, 138],
+      [95, 119],
+      [80, 119],
+      [80, 112],
+      [105, 112],
+      [115, 122],
+      [125, 122],
+      [125, 133],
+      [135, 143],
+      [135, 112],
+      [125, 102],
+      [125, 79],
+      [110, 79],
+      [110, 68],
+      [91, 49],
+      [71, 49],
+      [64, 42],
+      [45, 42],
+      [55, 52],
+      [55, 72],
+      [45, 72],
+      [45, 99],
+      [22, 99],
+      [18, 95],
+      [28, 85],
+    ],
+  },
+  {
+    flag: 157,
+    name: "7",
+    path: [
+      [28, 85],
+      [18, 95],
+      [28, 105],
+      [35, 98],
+      [35, 72],
+      [25, 72],
+      [18, 65],
+    ],
+  },
+  {
+    flag: 161,
+    name: "11",
+    path: [
+      [18, 65],
+      [25, 72],
+      [40, 72],
+      [40, 102],
+      [50, 92],
+      [50, 70],
+      [55, 70],
+      [55, 52],
+      [45, 42],
+      [65, 42],
+      [75, 52],
+      [94, 52],
+      [110, 68],
+      [110, 79],
+      [124, 79],
+      [135, 68],
+      [135, 96],
+    ],
+  },
+  {
+    flag: 162,
+    name: "12",
+    path: [
+      [135, 96],
+      [135, 42],
+      [115, 42],
+      [129, 56],
+    ],
+  },
+  {
+    flag: 159,
+    name: "9",
+    path: [
+      [129, 56],
+      [115, 42],
+      [135, 42],
+      [135, 68],
+      [130, 73],
+      [130, 108],
+      [135, 113],
+      [135, 143],
+      [125, 133],
+      [125, 122],
+      [115, 122],
+      [95, 102],
+      [95, 92],
+      [75, 72],
+      [75, 62],
+      [70, 62],
+      [70, 78],
+      [60, 88],
+    ],
+  },
+  {
+    flag: 153,
+    name: "3",
+    path: [
+      [60, 88],
+      [70, 78],
+      [70, 62],
+      [75, 62],
+      [75, 73],
+      [100, 98],
+      [100, 107],
+      [115, 122],
+      [125, 122],
+      [125, 133],
+      [135, 143],
+      [135, 112],
+      [125, 102],
+      [125, 79],
+      [110, 79],
+      [110, 68],
+      [91, 49],
+      [71, 49],
+      [64, 42],
+      [45, 42],
+      [55, 52],
+      [55, 72],
+      [50, 72],
+      [50, 92],
+      [40, 102],
+      [40, 57],
+      [28, 45],
+    ],
+  },
+];
 
 /** Flatbush: the bar, the knife game in its arcade, then the maze machine. */
 export function flatbush(mh: Manhunter): void {
@@ -365,33 +620,57 @@ export function flatbush(mh: Manhunter): void {
   mh.map();
 }
 
-/** Drive the maze avatar along the recorded turns, one decision per cycle. */
+/**
+ * Ride the maze avatar along MAZE_ROUTE: one press per corner, steering at
+ * one interpreter cycle per step so the avatar never overshoots a corner into
+ * a wall. A square's pick-up animation (v92) holds the avatar; after it the
+ * current leg's heading is pressed again. The flag check in the game runs in
+ * the cycle after the avatar steps onto the square, so the final corner gets
+ * one extra cycle before the route moves on.
+ */
 function maze(mh: Manhunter): void {
   const { run, engine } = mh;
-  const turns = MAZE_TURNS.split(" ").map((turn) => turn.split(",").map(Number));
-  const squares = () =>
-    [151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162].filter((f) => engine.flags[f])
-      .length;
-  let next = 0;
-  for (let guard = 0; guard < 20000 && next < turns.length; guard++) {
-    if (engine.vars[50] === 4 || engine.vars[0] !== 126) break;
-    const [x, y, direction] = turns[next]!;
-    // A direction key repeats the current direction as a stop, and v92 counts
-    // a square's pick-up animation, which zeroes v6: the recording pressed only
-    // once the avatar stood still on the cell or headed elsewhere.
-    if (
-      mh.cursor.x === x &&
-      mh.cursor.y === y &&
-      engine.vars[92] === 0 &&
-      engine.vars[6] !== direction
-    ) {
-      run.key(DIRECTION_KEYS[direction!]!);
-      next++;
+  for (const leg of MAZE_ROUTE) {
+    if (engine.flags[leg.flag]) continue; // crossed en passant on an earlier leg
+    const start = mh.cursor;
+    assert.deepEqual(
+      [start.x, start.y],
+      leg.path[0],
+      `maze square ${leg.name} starts where the previous leg ended; ${mh.describe()}`,
+    );
+    for (let w = 1; w < leg.path.length && !engine.flags[leg.flag]; w++) {
+      const [x, y] = leg.path[w]!;
+      const final = w === leg.path.length - 1;
+      for (let n = 0; n < 4000; n++) {
+        const o = mh.cursor;
+        assert.notEqual(
+          engine.vars[50],
+          4,
+          `the maze avatar touched a wall at (${o.x},${o.y}) heading for (${x},${y})`,
+        );
+        if (engine.flags[leg.flag]) break;
+        if (engine.vars[92] !== 0) {
+          while (engine.vars[92] !== 0) mh.cycle();
+          continue;
+        }
+        const direction = directionForDelta(Math.sign(x - o.x), Math.sign(y - o.y));
+        if (direction === 0) {
+          if (final) mh.cycle();
+          break;
+        }
+        const before = run.cycles;
+        run.direction(direction);
+        // direction() waits out a cycle when it presses; one cycle per step.
+        if (run.cycles === before) mh.cycle();
+      }
     }
-    mh.cycle();
+    while (engine.vars[92] !== 0) mh.cycle();
+    assert.ok(engine.flags[leg.flag], `maze square ${leg.name}; ${mh.describe()}`);
   }
-  assert.equal(next, turns.length, `the maze route ran to its end; ${mh.describe()}`);
-  assert.equal(squares(), 12, "all twelve maze squares were collected");
+  const squares = [151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162].filter(
+    (f) => engine.flags[f],
+  ).length;
+  assert.equal(squares, 12, "all twelve maze squares were collected");
 }
 
 /** Prospect Park: the women's toilets, stall three, sit, and three flushes drop Mick into the sewers. */
@@ -426,49 +705,52 @@ export function prospectPark(mh: Manhunter): void {
 
 /**
  * Recorded sewer route. Room 128 is a graph of pictures (v250) with up to four
- * exits, selected by cursor position: L left (2,90), R right (157,90), B
- * bottom (78,160), M middle (78,90). C takes the keycard on the current
- * picture at (72,145), where the room registers v51 = 4. The route collects
- * all twelve keycards and ends at the dock picture 78.
+ * exits, selected by moving the cursor over an arrow: the room registers the
+ * selection in v51 (2 left, 3 right, 1 top, 0 bottom, 4 the keycard) and stops
+ * the cursor. Enter follows the registered exit — only v51 matters, not the
+ * cursor's exact pixel. SEWER_MOVES is the recorded route (C takes the keycard
+ * on the current picture); SEWER_SELECTORS is the v51 each move registered
+ * before its Enter in the same recording. The route collects all twelve
+ * keycards and ends at the dock picture 78.
  */
 const SEWER_MOVES =
   "LBBLLLLLLLLCBLLLLLLLLLLLLLLLRLLLCLLLLLLLLRLLLLCLRRLLBLLLLLRRLLCLLRRLLLLLLCLLLLLLLRRLLLLRLLLLLLLRCBLLLLLLLLLRLLLLLLLLLLLLRLLLLLLLCBLLLLLRRLLCLLLRLLLLLLLCLLRRLLLLRLRLLLLLLRLLLLLLLLLLLLRLRLLLCLLLLLLLLLLRCBLLLLLLCL";
+const SEWER_SELECTORS =
+  "300211111124031111121223111131224033121213213140121302131313234023113121240313121331212323122113402113312323123213122112311213124031212331140111112122340233131132313123211321223132113113324032212112134021212341";
 
 export function sewers(mh: Manhunter): void {
   const { run, engine } = mh;
   run.checkpoint("Sewers", { room: 128 });
   assert.equal(engine.vars[250], 254, "the sewer entry picture");
-  const exits: Record<string, [number, number]> = {
-    L: [2, 90],
-    R: [157, 90],
-    B: [78, 160],
-    M: [78, 90],
-  };
+  assert.equal(SEWER_MOVES.length, SEWER_SELECTORS.length, "every move has a selector");
   let cards = 0;
-  for (const move of SEWER_MOVES) {
+  for (let i = 0; i < SEWER_MOVES.length; i++) {
+    const move = SEWER_MOVES[i]!;
+    const selector = Number(SEWER_SELECTORS[i]);
     if (move === "C") {
-      mh.cursorTo(72, 145);
-      assert.equal(engine.vars[51], 4, `keycard ${cards + 1}; ${mh.describe()}`);
+      mh.selectExit(selector, `keycard ${cards + 1}`);
       mh.enter(90);
       cards++;
       continue;
     }
-    const [x, y] = exits[move]!;
-    mh.cursorTo(x, y);
+    mh.selectExit(selector, `sewer move ${i} (${move})`);
     run.key(AGI_KEY.ENTER);
     mh.settle();
   }
   assert.equal(cards, 12, "twelve keycards");
   assert.equal(engine.vars[250], 78, "the dock picture");
-  mh.cursorTo(112, 100);
+  // The dock: gliding onto the ship hotspot registers v51 = 6, Enter looks
+  // closer; in the close-up the medallion hotspot registers v51 = 7.
+  mh.glide(2, () => engine.vars[51] === 6, "the ship");
   assert.equal(engine.vars[51], 6, `the dock; ${mh.describe()}`);
   run.key(AGI_KEY.ENTER);
   mh.settle();
-  mh.cursorTo(72, 83);
+  mh.glide(3, () => engine.vars[51] === 7, "the medallion");
   assert.match(mh.hint(), /take the medallion/);
   mh.enter(120);
   run.assertCarried(13, "the medallion");
-  mh.cursorTo(78, 160);
+  // Back on the dock, straight down off the bottom edge returns to the sewers.
+  mh.glide(5, () => engine.vars[51] === 0, "the dock's lower edge");
   run.key(AGI_KEY.ENTER);
   mh.settle();
   mh.map();

@@ -17,11 +17,14 @@ function takeCartridge(run: Speedrun): void {
   run.walkTo(10, 66);
   run.exit("W", 1);
   run.checkpoint("Data archive", { room: 1, score: 0 });
+  run.direction("W"); // ego enters room 1 at (133,108); keep walking while typing
+  run.type("look screen"); // 001.agi:447 said("check out", "display"); typed during the walk west
   run.walkTo(81, 106);
   run.answer("astral body"); // The console accepts one title answer.
-  run.command("look at screen");
+  run.submit("look screen");
+  run.type("get cart"); // 001.agi:346 said("acquire", "cart"); buffered while the retrieval unit delivers
   run.waitForFlag(35, "retrieval unit delivers cartridge", 5000);
-  run.command("take cartridge");
+  run.submit("get cart");
   run.checkpoint("Cartridge", { room: 1, score: 5 });
   run.assertCarried(1, "Cartridge");
 }
@@ -35,9 +38,10 @@ export function sq1Opening(run: Speedrun): void {
   run.walkTo(140, 63); // straight west first: the door frame object at x=152 blocks diagonals
   run.walkTo(20, 70); // shallow diagonal: the y=80 divider spans the room; stay in the y64-79 band
   run.exit("W", 3);
+  run.direction("W"); // ego enters room 3 at the east edge; keep walking while typing
+  run.type("get card"); // 003.agi:172 said("acquire", "card") needs no prior search; typed during the walk west
   run.walkTo(140, 68);
-  run.command("search body");
-  run.command("take keycard");
+  run.submit("get card");
   run.checkpoint("Keycard", { room: 3, score: 6 });
   run.assertCarried(5, "Keycard");
 }
@@ -94,14 +98,18 @@ export function sq1FlightPrep(run: Speedrun): void {
   run.walkTo(60, 141);
   run.exit("E", 6);
   // Central control: open the vehicle bay door from the console.
+  run.direction("E"); // ego keeps walking while the line is typed
+  run.type("press open"); // 006.agi:169 said("press", "open"); typed during the walk east
   run.walkTo(110, 130);
-  run.command("press open bay door button");
+  run.submit("press open");
   run.wait(() => run.engine.vars[52] === 1, "bay doors open", 3000);
   run.checkpoint("Bay door open", { room: 6, score: 8 });
   run.exit("E", 7);
   // Mid-level deck: keycard unit then the elevator down to Flight Prep.
+  run.direction("E");
+  run.type("use card"); // 007.agi:153 said("use", "card"); typed during the walk east
   run.walkTo(85, 128);
-  run.command("use keycard");
+  run.submit("use card");
   run.wait(() => run.engine.flags[35] !== 0, "keycard accepted", 3000);
   run.checkpoint("Keycard slot", { room: 7, score: 10 });
   run.walkTo(105, 133); // opener box (95,129)-(118,136); y132 is the B wall
@@ -110,20 +118,28 @@ export function sq1FlightPrep(run: Speedrun): void {
   run.wait(() => run.state().room === 9, "elevator down to room 9", 3000);
   // Flight Prep: ego arrives inside the elevator shaft (x100-116, y92-101);
   // its B side walls force a south exit to y106 before going west.
+  run.direction("S");
+  run.type("press right"); // 009.agi:348 said("press", "right"); typed during the walk south
   run.walkTo(106, 106);
   run.walkTo(70, 106); // west along y106: the shaft's B corner blocks diagonals
   run.walkTo(70, 100);
-  run.command("press right button");
+  run.submit("press right");
   run.wait(() => run.engine.vars[69] === 3, "right closet open", 3000);
+  run.direction("E");
+  run.type("get suit"); // 009.agi:386 said("acquire", "clothes"); typed during the walk east
   run.walkTo(85, 100);
-  run.command("take flight suit");
+  run.submit("get suit");
   run.wait(() => run.engine.vars[81] === 1, "flight suit worn", 3000);
   run.checkpoint("Flight suit", { room: 9, score: 12 });
+  run.direction("W");
+  run.type("press left"); // 009.agi:367 said("press", "left"); typed during the walk west
   run.walkTo(70, 100);
-  run.command("press left button");
+  run.submit("press left");
   run.wait(() => run.engine.vars[70] === 3, "left closet open", 3000);
+  run.direction("W");
+  run.type("get gadget"); // 009.agi:411 said("acquire", "dialect translator"); typed during the walk west
   run.walkTo(55, 100);
-  run.command("take gadget");
+  run.submit("get gadget");
   run.checkpoint("Equipment", { room: 9, score: 14 });
   run.assertCarried(3, "Dialect translator");
 }
@@ -138,8 +154,10 @@ export function sq1Escape(run: Speedrun): void {
   sq1FlightPrep(run);
   // The barrier walls force a long way around (east side, bottom edge);
   // the planner reads the live control surface for this leg.
+  run.direction("S");
+  run.type("press airlock"); // 009.agi:429 said("press", "airlock"); typed during the walk
   run.walkPath({ x0: 70, y0: 150, x1: 70, y1: 150 });
-  run.command("press airlock button");
+  run.submit("press airlock");
   run.wait(() => run.engine.vars[36] === 3, "airlock door opening", 3000);
   run.advance(40); // let the door loop settle before entering
   // The doorway strip grants ignore.blocks; walk in and west over the trigger.
@@ -147,24 +165,28 @@ export function sq1Escape(run: Speedrun): void {
   run.exit("W", 8);
   run.checkpoint("Vehicle bay", { room: 8, score: 14 });
   // Platform console, staying south of the cargo shaft trigger.
+  run.direction("SW"); // ego enters room 8 at the east edge; bearing toward (115,146)
+  run.type("press base"); // 008.agi:227 said("press", "base") raises platform; typed during the walk
   run.walkTo(115, 146);
   run.walkTo(115, 143);
-  run.command("press platform button");
+  run.submit("press base");
   run.wait(() => run.engine.flags[54] !== 0, "pod platform raised", 3000);
   run.checkpoint("Platform up", { room: 8, score: 15 });
   // West side, then north at x50 to the pod door.
+  run.direction("W");
+  run.type("board pod"); // 008.agi:255 said("board", "craft"); typed during the walk west
   run.walkTo(50, 143);
   run.walkTo(52, 92);
-  run.command("get in pod");
+  run.submit("board pod");
   run.wait(() => run.state().room === 10, "boarded escape pod", 3000);
   run.checkpoint("Escape pod", { room: 10, score: 15 });
   run.command("close door");
-  run.command("buckle seat belt");
-  run.command("press power button");
+  run.command("buckle belt"); // 010.agi:379 said("buckle", "belt")
+  run.command("press power"); // 010.agi:302 said("press", "power")
   run.wait(() => run.engine.inputEnabled, "pod power on", 3000);
-  run.command("pull throttle");
+  run.command("move lever"); // 010.agi:322 said("move", "lever")
   run.wait(() => run.engine.flags[79] !== 0, "pod launched", 3000);
-  run.command("press autonav button");
+  run.command("press autonav"); // 010.agi:279 said("press", "autonav")
   run.wait(() => run.engine.inputEnabled, "autonav engaged", 3000);
   run.checkpoint("Autonav", { room: 10, score: 17 });
   run.wait(() => run.state().room === 12, "pod clear of the Arcada", 30000);

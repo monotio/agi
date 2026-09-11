@@ -93,3 +93,12 @@
   cursor: not-allowed;
   opacity: 0.55;
 }
+
+/* Shared refusal/warning line used by App.vue and WalkthroughBar.vue. */
+.export-refusal {
+  color: #ffff55;
+  font-size: 12px;
+  width: var(--shell-width);
+  margin: 6px 0 16px;
+  line-height: 1.5;
+}

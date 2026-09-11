@@ -25,11 +25,11 @@ export interface RingFrame {
 
 export class FrameRing {
   readonly capacity: number;
-  private readonly visual: Uint8Array;
-  private readonly priority: Uint8Array;
-  private readonly text: Uint8Array;
-  private readonly picRow: Uint8Array;
-  private readonly cycle: Int32Array;
+  private visual: Uint8Array | null = null;
+  private priority: Uint8Array | null = null;
+  private text: Uint8Array | null = null;
+  private picRow: Uint8Array | null = null;
+  private cycle: Int32Array | null = null;
   /** Slot the next push writes to. */
   private head: number;
   /** Frames stored so far, capped at capacity. */
@@ -37,13 +37,21 @@ export class FrameRing {
 
   constructor(capacity: number) {
     this.capacity = capacity;
-    this.visual = new Uint8Array(capacity * SURFACE_BYTES);
-    this.priority = new Uint8Array(capacity * SURFACE_BYTES);
-    this.text = new Uint8Array(capacity * TEXT_BYTES);
-    this.picRow = new Uint8Array(capacity);
-    this.cycle = new Int32Array(capacity);
     this.head = 0;
     this.filled = 0;
+  }
+
+  get isAllocated(): boolean {
+    return this.visual !== null;
+  }
+
+  private ensureAllocated(): void {
+    if (this.visual !== null) return;
+    this.visual = new Uint8Array(this.capacity * SURFACE_BYTES);
+    this.priority = new Uint8Array(this.capacity * SURFACE_BYTES);
+    this.text = new Uint8Array(this.capacity * TEXT_BYTES);
+    this.picRow = new Uint8Array(this.capacity);
+    this.cycle = new Int32Array(this.capacity);
   }
 
   get size(): number {
@@ -53,6 +61,7 @@ export class FrameRing {
   reset(): void {
     this.head = 0;
     this.filled = 0;
+    if (this.cycle) this.cycle.fill(0);
   }
 
   push(
@@ -62,12 +71,13 @@ export class FrameRing {
     text: Uint8Array,
     picRow: number,
   ): void {
+    this.ensureAllocated();
     const slot = this.head;
-    this.visual.set(visual.subarray(0, SURFACE_BYTES), slot * SURFACE_BYTES);
-    this.priority.set(priority.subarray(0, SURFACE_BYTES), slot * SURFACE_BYTES);
-    this.text.set(text.subarray(0, TEXT_BYTES), slot * TEXT_BYTES);
-    this.picRow[slot] = picRow & 0xff;
-    this.cycle[slot] = cycle;
+    this.visual!.set(visual.subarray(0, SURFACE_BYTES), slot * SURFACE_BYTES);
+    this.priority!.set(priority.subarray(0, SURFACE_BYTES), slot * SURFACE_BYTES);
+    this.text!.set(text.subarray(0, TEXT_BYTES), slot * TEXT_BYTES);
+    this.picRow![slot] = picRow & 0xff;
+    this.cycle![slot] = cycle;
     this.head = (slot + 1) % this.capacity;
     if (this.filled < this.capacity) this.filled++;
   }
@@ -78,6 +88,9 @@ export class FrameRing {
    * or before that cycle number, so a caller can poll for new frames only.
    */
   take(count: number, stride: number, since: number | null): RingFrame[] {
+    if (!this.visual || !this.priority || !this.text || !this.picRow || !this.cycle) {
+      return [];
+    }
     const step = Math.max(1, Math.floor(stride));
     const want = Math.max(1, Math.floor(count));
     const out: RingFrame[] = [];

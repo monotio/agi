@@ -7,7 +7,7 @@ import { renderPicture } from "../src/picture/renderer.ts";
 import { createPictureSurface } from "../src/types.ts";
 import { ACTION_BY_CODE, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../src/logic/opcodes.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
-import { fixtureSkip } from "./fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
@@ -17,7 +17,8 @@ import { loadGame } from "./game-fixture.ts";
  */
 
 interface GameCase {
-  slug: string;
+  hash: string;
+  alias: string;
   /** Room entered on a cold boot (title / intro screen). */
   introRoom: number;
   /** First playable room (restarted boot lands here directly). */
@@ -39,7 +40,8 @@ interface GameCase {
 
 const GAMES: readonly GameCase[] = [
   {
-    slug: "kq1",
+    hash: KNOWN_GAME_HASH.KQ1,
+    alias: "kq1",
     introRoom: 83,
     firstRoom: 1,
     firstPicture: 1,
@@ -54,7 +56,8 @@ const GAMES: readonly GameCase[] = [
     unknownReply: `I don't understand "xyzzyplugh"`,
   },
   {
-    slug: "kq2",
+    hash: KNOWN_GAME_HASH.KQ2,
+    alias: "kq2",
     introRoom: 97,
     firstRoom: 1,
     firstPicture: 1,
@@ -67,7 +70,8 @@ const GAMES: readonly GameCase[] = [
     unknownReply: `I don't understand "xyzzyplugh"`,
   },
   {
-    slug: "kq3",
+    hash: KNOWN_GAME_HASH.KQ3,
+    alias: "kq3",
     introRoom: 45,
     firstRoom: 7,
     firstPicture: 7,
@@ -115,7 +119,7 @@ const PROBE_Y = 201;
 const GET_POSN = 0x27;
 
 function bootRestarted(game: GameCase): { engine: Engine; host: QuietHost } {
-  const { container, dict } = loadGame(game.slug);
+  const { container, dict } = loadGame(game.hash);
   container.putResource(
     "logic",
     PROBE_LOGIC,
@@ -215,8 +219,8 @@ function walkOneCondition(code: Uint8Array, pc: number, conditions: Set<number>)
   return pc + 1 + spec.operands.length;
 }
 
-function usedOpcodes(slug: string): { actions: Set<number>; conditions: Set<number> } {
-  const { container } = loadGame(slug);
+function usedOpcodes(hash: string): { actions: Set<number>; conditions: Set<number> } {
+  const { container } = loadGame(hash);
   const actions = new Set<number>();
   const conditions = new Set<number>();
   for (let n = 0; n < 256; n++) {
@@ -232,13 +236,13 @@ const STUB_WORDS = /pending|no-op|not yet/i;
 // ---------- tests ----------
 
 for (const game of GAMES) {
-  const skip = fixtureSkip(game.slug);
+  const skip = fixtureSkip(game.hash);
 
   test(
-    `${game.slug}: every LOGDIR/VIEWDIR/PICDIR entry parses and the census matches`,
+    `${game.alias}: every LOGDIR/VIEWDIR/PICDIR entry parses and the census matches`,
     { skip },
     () => {
-      const { container } = loadGame(game.slug);
+      const { container } = loadGame(game.hash);
       const counts = { logic: 0, view: 0, picture: 0 };
       for (let n = 0; n < 256; n++) {
         const logic = container.getResource("logic", n);
@@ -262,25 +266,29 @@ for (const game of GAMES) {
     },
   );
 
-  test(`${game.slug}: bytecode walk decodes every logic with only known opcodes`, { skip }, (t) => {
-    const { actions, conditions } = usedOpcodes(game.slug);
-    for (const code of actions) assert.ok(ACTION_BY_CODE.has(code));
-    for (const code of conditions) assert.ok(CONDITION_BY_CODE.has(code));
-    const names = [...actions].map((c) => ACTION_BY_CODE.get(c)!.name).sort();
-    // Every AGI game exercises the core vocabulary; these anchor the walk.
-    for (const name of ["new.room", "print", "draw.pic", "animate.obj", "set.view", "position"]) {
-      assert.ok(names.includes(name), `${game.slug} uses ${name}`);
-    }
-    assert.ok(conditions.has(0x0e), `${game.slug} uses said()`);
-    assert.ok(actions.has(0xa1), `${game.slug} uses menu.input`);
-    t.diagnostic(`${game.slug} distinct actions (${names.length}): ${names.join(" ")}`);
-  });
+  test(
+    `${game.alias}: bytecode walk decodes every logic with only known opcodes`,
+    { skip },
+    (t) => {
+      const { actions, conditions } = usedOpcodes(game.hash);
+      for (const code of actions) assert.ok(ACTION_BY_CODE.has(code));
+      for (const code of conditions) assert.ok(CONDITION_BY_CODE.has(code));
+      const names = [...actions].map((c) => ACTION_BY_CODE.get(c)!.name).sort();
+      // Every AGI game exercises the core vocabulary; these anchor the walk.
+      for (const name of ["new.room", "print", "draw.pic", "animate.obj", "set.view", "position"]) {
+        assert.ok(names.includes(name), `${game.alias} uses ${name}`);
+      }
+      assert.ok(conditions.has(0x0e), `${game.alias} uses said()`);
+      assert.ok(actions.has(0xa1), `${game.alias} uses menu.input`);
+      t.diagnostic(`${game.alias} distinct actions (${names.length}): ${names.join(" ")}`);
+    },
+  );
 
   test(
-    `${game.slug}: every used action opcode has a real (non-stub) engine handler`,
+    `${game.alias}: every used action opcode has a real (non-stub) engine handler`,
     { skip },
     () => {
-      const { actions } = usedOpcodes(game.slug);
+      const { actions } = usedOpcodes(game.hash);
       const stubs: string[] = [];
       for (const code of [...actions].sort((a, b) => a - b)) {
         const hex = code.toString(16).padStart(2, "0");
@@ -294,15 +302,15 @@ for (const game of GAMES) {
             stubs.push(`0x${hex} ${ACTION_BY_CODE.get(code)!.name}: ${line.trim()}`);
         }
       }
-      assert.deepEqual(stubs, [], `stubbed handlers for opcodes ${game.slug} uses`);
+      assert.deepEqual(stubs, [], `stubbed handlers for opcodes ${game.alias} uses`);
     },
   );
 
   test(
-    `${game.slug}: cold boot visits intro room ${game.introRoom} then room ${game.firstRoom}`,
+    `${game.alias}: cold boot visits intro room ${game.introRoom} then room ${game.firstRoom}`,
     { skip },
     () => {
-      const { container, dict } = loadGame(game.slug);
+      const { container, dict } = loadGame(game.hash);
       const host = new QuietHost();
       const engine = new Engine(container, host, dict);
       const visited: number[] = [];
@@ -316,7 +324,7 @@ for (const game of GAMES) {
   );
 
   test(
-    `${game.slug}: restarted boot lands in room ${game.firstRoom} with ego on a drawn picture`,
+    `${game.alias}: restarted boot lands in room ${game.firstRoom} with ego on a drawn picture`,
     { skip },
     () => {
       const { engine } = bootRestarted(game);
@@ -326,7 +334,7 @@ for (const game of GAMES) {
       // Hand-verify against the room's picture rendered on its own.
       const standalone = createPictureSurface();
       renderPicture(
-        loadGame(game.slug).container.getResource("picture", game.firstPicture)!,
+        loadGame(game.hash).container.getResource("picture", game.firstPicture)!,
         standalone,
       );
       assert.equal(new Set(standalone.visual).size, game.firstPictureColors);
@@ -346,7 +354,7 @@ for (const game of GAMES) {
   );
 
   test(
-    `${game.slug}: parser answers "${game.look.phrase}" and an unknown word in the first room`,
+    `${game.alias}: parser answers "${game.look.phrase}" and an unknown word in the first room`,
     { skip },
     () => {
       const { engine, host } = bootRestarted(game);
@@ -371,7 +379,7 @@ for (const game of GAMES) {
     },
   );
 
-  test(`${game.slug}: ego walks when v6 (ego direction) is set`, { skip }, () => {
+  test(`${game.alias}: ego walks when v6 (ego direction) is set`, { skip }, () => {
     const { engine, host } = bootRestarted(game);
     const before = egoPosition(engine);
     // Direction 3 = right (1 = up, clockwise). The pre-logic mirror copies v6

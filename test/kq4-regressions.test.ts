@@ -2,17 +2,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { detectProfile } from "../src/runtime/profile.ts";
-import { fixtureSkip } from "./fixtures.ts";
+import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
 /**
  * Optional KQ4 (AGI 3.002.086) opening and animation regressions.
  * These scenarios load only the resources needed for their tested rooms.
  */
-const skip = fixtureSkip("kq4", ["AGIDATA.OVL"], { checkVolumes: false });
+const TARGET_HASH = KNOWN_GAME_HASH.KQ4;
+const skip = fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"], { checkVolumes: false });
 
 function bootKq4() {
-  const { container, dict, files } = loadGame("kq4", {
+  const { container, dict, files } = loadGame(TARGET_HASH, {
     interpreterFiles: true,
     checkVolumes: false,
   });

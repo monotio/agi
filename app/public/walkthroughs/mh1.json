@@ -1,0 +1,6360 @@
+{
+  "schema": "monotio.agi.walkthrough.v1",
+  "game": "mh1",
+  "targetHash": "a1321c4bcac945ec224481989e22e42972ef02aee48221e3ec95b2d83cc479f6",
+  "supportedHashes": [
+    "a1321c4bcac945ec224481989e22e42972ef02aee48221e3ec95b2d83cc479f6"
+  ],
+  "coverage": "chapter",
+  "profile": "3.002.102",
+  "seed": 1,
+  "fixtureHashes": {
+    "AGI": "ed8b58d354e10b069a1ce137c61bfa3536b2bb9c69cc7510bc864af29daf161e",
+    "AGIDATA.OVL": "bb22a87cd215ed52154d49754493e0eb2f6be5688411d8f3b7ac17c417ddae1f",
+    "MHDIR": "a54810f29afeca512de4a96419184421c9f2f0e5e210e915e96790452e386abe",
+    "MHVOL.0": "526f861f8e701a01cff6d5add980840ee5937c6b4ac52f9c42b130291058fc5e",
+    "MHVOL.1": "23b1a81fc5997ea25bc29d822bc4df72fe89858a72f385ce53d00f2ed33785c6",
+    "MHVOL.10": "f9d7c68bb3715a2cecf1ccdf81570322171c78b37d3f33f2c523deb5ec36d2ad",
+    "MHVOL.11": "b13ca5c59acdc6a14b426e6a84c673b1f81533b41d1618dde0b02b1b55dab01c",
+    "MHVOL.12": "bf85391f2c52217c31a21092d565ba336587040088063a283e88cef5f56d8960",
+    "MHVOL.2": "9f19e8f7a4218f309bc46cdf4b6c8035688286cf305e9516cadc3a2d5da1d809",
+    "MHVOL.3": "ec04473f2de0d9c7b5950e087d788aa67682a013eb2c046c45c2014c2128678b",
+    "MHVOL.4": "510a2f177fb602c7276fbf1dc9bcf42953790890b72837e3fe113c59b59ffa54",
+    "MHVOL.5": "770196d2c6d5c5276ce0d68fbb4026091e97f6a367814717c0c682f65327449e",
+    "MHVOL.9": "7ad7542c2d5a86b31d7d5ef3c5f0a8cedb7edfcdd651c50d8a0f1ab5e6164afb",
+    "OBJECT": "1eb55220ec7e22ebb7cb181486d54eaddbf4ec0159193645cbf2876321b495a5",
+    "WORDS.TOK": "a1321c4bcac945ec224481989e22e42972ef02aee48221e3ec95b2d83cc479f6"
+  },
+  "status": "completed",
+  "failure": null,
+  "elapsedMs": 968,
+  "virtualTicks": 50472,
+  "cycles": 12561,
+  "actions": [
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Title",
+      "room": 153,
+      "score": 0,
+      "x": 77,
+      "y": 168
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 2006
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 2044
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 195
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 5778
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Tracker",
+      "room": 125,
+      "score": 0,
+      "x": 145,
+      "y": 40
+    },
+    {
+      "kind": "key",
+      "code": 67
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "checkpoint",
+      "label": "City map",
+      "room": 114,
+      "score": 0,
+      "x": 100,
+      "y": 150
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 8
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 76
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 4
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Bellevue Hospital",
+      "room": 130,
+      "score": 0,
+      "x": 79,
+      "y": 167
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 48
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 17
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 9
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 165
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 8
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 34
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 63
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 13
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 4
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 8
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 2
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 13
+    },
+    {
+      "kind": "key",
+      "code": 67
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "checkpoint",
+      "label": "MAD",
+      "room": 101,
+      "score": 0,
+      "x": 128,
+      "y": 153
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 17
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 17
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 4
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "answer",
+      "text": "Reno Davis"
+    },
+    {
+      "kind": "advance",
+      "ticks": 117
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "answer",
+      "text": "bye"
+    },
+    {
+      "kind": "advance",
+      "ticks": 117
+    },
+    {
+      "kind": "key",
+      "code": 67
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "key",
+      "code": 15616
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 8
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 19
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 186
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 180
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Trinity Church",
+      "room": 111,
+      "score": 0,
+      "x": 48,
+      "y": 70
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 36
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 66
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 4
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 63
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 4
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 63
+    },
+    {
+      "kind": "key",
+      "code": 15616
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 84
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 8
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 31
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 4
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 242
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Flatbush bar",
+      "room": 122,
+      "score": 0,
+      "x": 77,
+      "y": 162
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 2
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 4
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 1722
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Knife game",
+      "room": 118,
+      "score": 0,
+      "x": 31,
+      "y": 167
+    },
+    {
+      "kind": "advance",
+      "ticks": 27
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 138
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 132
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 132
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 1251
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 4
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Maze",
+      "room": 126,
+      "score": 0,
+      "x": 136,
+      "y": 161
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 54
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 558
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 96
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 42
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 306
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 96
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 54
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 258
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 72
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 42
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 108
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 36
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 42
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 72
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 72
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 156
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 96
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 84
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 78
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 180
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 96
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 78
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 108
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 114
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 42
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 150
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 66
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 186
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 138
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 66
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 132
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 54
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 42
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 114
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 162
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 138
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 24
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 132
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 42
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 156
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 114
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 42
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 180
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 132
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 108
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 114
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 96
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 66
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 84
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 66
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 240
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 324
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 156
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 84
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 156
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 210
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 180
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 66
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 96
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 132
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 96
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 66
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 150
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 54
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 66
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 186
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 138
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 66
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 114
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 42
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 114
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 270
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 1260
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 16
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 122
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 15
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 4
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 200
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 2
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 15616
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 54
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 4
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 240
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Prospect Park",
+      "room": 119,
+      "score": 0,
+      "x": 26,
+      "y": 167
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 17
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 4
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 240
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 4
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 240
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 33
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 39
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 240
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 240
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 15
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 9
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 9
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 240
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 4
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 93
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 93
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 1443
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Sewers",
+      "room": 128,
+      "score": 0,
+      "x": 149,
+      "y": 99
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 26
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 26
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 36
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 24
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 8
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 9
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 46
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 34
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 21
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 25
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 47
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 10
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 4
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 11
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 11
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 48
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 46
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 35
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 24
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 8
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 11
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 8
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 9
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 34
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 24
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 48
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 47
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 10
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 47
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 10
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 8
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 11
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 9
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 10
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 9
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 46
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 20
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 9
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 8
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 21
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 20
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 35
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 52
+    },
+    {
+      "kind": "key",
+      "code": 15616
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 11
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 4
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 6
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 260
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Coney Island",
+      "room": 129,
+      "score": 0,
+      "x": 76,
+      "y": 167
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 27
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 8
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 16
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Kewpie Doll Baseball",
+      "room": 129,
+      "score": 0,
+      "x": 41,
+      "y": 165
+    },
+    {
+      "kind": "advance",
+      "ticks": 156
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 126
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 72
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 138
+    },
+    {
+      "kind": "key",
+      "code": 9
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 173
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 8
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "direction",
+      "dir": 2
+    },
+    {
+      "kind": "advance",
+      "ticks": 8
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 9
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Orbs",
+      "room": 131,
+      "score": 0,
+      "x": 128,
+      "y": 152
+    },
+    {
+      "kind": "advance",
+      "ticks": 1338
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "answer",
+      "text": "Reno Davis"
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 1395
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Home, Day 2",
+      "room": 104,
+      "score": 0,
+      "x": 128,
+      "y": 152
+    }
+  ],
+  "finalState": {
+    "profile": "3.002.102",
+    "room": 104,
+    "previousRoom": 131,
+    "egoX": 128,
+    "egoY": 152,
+    "egoDirection": 0,
+    "vars": [
+      104,
+      131,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0,
+      6,
+      0,
+      0,
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0,
+      0,
+      255,
+      3,
+      0,
+      0,
+      0,
+      120,
+      55,
+      145,
+      100,
+      166,
+      77,
+      119,
+      3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      4,
+      0,
+      2,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      3,
+      3,
+      2,
+      12,
+      2,
+      0,
+      114,
+      29,
+      1,
+      0,
+      0,
+      0,
+      0,
+      30,
+      30,
+      30,
+      30,
+      30,
+      30,
+      30,
+      30,
+      30,
+      30,
+      30,
+      30,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      3,
+      0,
+      0,
+      1,
+      2,
+      3,
+      3,
+      3,
+      7,
+      3,
+      5,
+      12,
+      10,
+      5,
+      10,
+      5,
+      10,
+      3,
+      7,
+      5,
+      2,
+      11,
+      5,
+      12,
+      14,
+      1,
+      12,
+      4,
+      12,
+      6,
+      5,
+      12,
+      10,
+      5,
+      4,
+      8,
+      12,
+      14,
+      3,
+      13,
+      14,
+      9,
+      12,
+      12,
+      10,
+      5,
+      12,
+      10,
+      7,
+      13,
+      8,
+      4,
+      12,
+      12,
+      4,
+      12,
+      10,
+      5,
+      8,
+      10,
+      3,
+      13,
+      12,
+      6,
+      9,
+      12,
+      12,
+      10,
+      11,
+      1,
+      14,
+      7,
+      3,
+      5,
+      12,
+      12,
+      10,
+      7,
+      11,
+      13,
+      6,
+      3,
+      5,
+      8,
+      12,
+      2,
+      9,
+      12,
+      8,
+      2,
+      9,
+      4,
+      8,
+      12,
+      4,
+      14,
+      3,
+      11,
+      5,
+      2,
+      11,
+      5,
+      6,
+      5,
+      14,
+      7,
+      9,
+      14,
+      11,
+      3,
+      5,
+      14,
+      3,
+      5,
+      12,
+      8,
+      12,
+      8,
+      12,
+      2,
+      9,
+      6,
+      5,
+      12,
+      8,
+      4,
+      12,
+      12,
+      6,
+      11,
+      3,
+      11,
+      3,
+      3,
+      9,
+      12,
+      10,
+      3,
+      9,
+      10,
+      13,
+      8,
+      6,
+      3,
+      3,
+      3,
+      3,
+      3,
+      11,
+      3,
+      3,
+      3,
+      5,
+      8,
+      2,
+      9,
+      0,
+      1,
+      91,
+      0,
+      0,
+      0,
+      10,
+      1
+    ],
+    "flags": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      1,
+      0,
+      1,
+      1,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "strings": [
+      "",
+      "Reno Davis",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "parsedWords": [],
+    "parsedWordTexts": [],
+    "parserCount": 0,
+    "lastInputLine": "",
+    "horizon": 1,
+    "modalKind": null,
+    "inputEnabled": false,
+    "pictureShown": true,
+    "terminated": false,
+    "inventory": [
+      {
+        "num": 0,
+        "name": "One Keycard",
+        "room": 0
+      },
+      {
+        "num": 1,
+        "name": "Two Keycards",
+        "room": 0
+      },
+      {
+        "num": 2,
+        "name": "Three Keycards",
+        "room": 0
+      },
+      {
+        "num": 3,
+        "name": "Four Keycards",
+        "room": 0
+      },
+      {
+        "num": 4,
+        "name": "Five Keycards",
+        "room": 0
+      },
+      {
+        "num": 5,
+        "name": "Six Keycards",
+        "room": 0
+      },
+      {
+        "num": 6,
+        "name": "Seven Keycards",
+        "room": 0
+      },
+      {
+        "num": 7,
+        "name": "Eight Keycards",
+        "room": 0
+      },
+      {
+        "num": 8,
+        "name": "Nine Keycards",
+        "room": 0
+      },
+      {
+        "num": 9,
+        "name": "Ten Keycards",
+        "room": 0
+      },
+      {
+        "num": 10,
+        "name": "Eleven Keycards",
+        "room": 0
+      },
+      {
+        "num": 11,
+        "name": "Twelve Keycards",
+        "room": 255
+      },
+      {
+        "num": 12,
+        "name": "Thirteen Keycards",
+        "room": 0
+      },
+      {
+        "num": 13,
+        "name": "Medallion",
+        "room": 255
+      },
+      {
+        "num": 14,
+        "name": "MAD",
+        "room": 255
+      },
+      {
+        "num": 15,
+        "name": "Data Card",
+        "room": 255
+      },
+      {
+        "num": 16,
+        "name": "Module B",
+        "room": 135
+      },
+      {
+        "num": 17,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 18,
+        "name": "Crowbar",
+        "room": 136
+      },
+      {
+        "num": 19,
+        "name": "Stuffed Orb",
+        "room": 129
+      },
+      {
+        "num": 20,
+        "name": "Key",
+        "room": 106
+      },
+      {
+        "num": 21,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 22,
+        "name": "Module A",
+        "room": 111
+      },
+      {
+        "num": 23,
+        "name": "Module C",
+        "room": 113
+      },
+      {
+        "num": 24,
+        "name": "Module D",
+        "room": 150
+      },
+      {
+        "num": 25,
+        "name": "Badges",
+        "room": 145
+      },
+      {
+        "num": 26,
+        "name": "Stuffed Orbs",
+        "room": 129
+      },
+      {
+        "num": 27,
+        "name": "Badge",
+        "room": 145
+      }
+    ]
+  }
+}

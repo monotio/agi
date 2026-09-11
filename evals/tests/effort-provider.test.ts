@@ -36,7 +36,7 @@ function writeBaseline(directory: string) {
 }
 
 test("baseline replay restores complete OpenAI and Anthropic tool schemas and Genesis user text", () => {
-  const userPrompt = "OLD GENESIS\n---\nnew cartridge";
+  const userPrompt = "OLD GENESIS\n---\nnew template";
   const variant = { tools: captured.tools, userPrompt };
   const changed = structuredClone(captured.tools);
   changed[0]!.description = "short";
@@ -130,7 +130,7 @@ test("timeout cancels a production session and marks its usage incomplete", asyn
       model: "gpt-5.6-sol",
       effort: "medium",
       promptVariant: "lean",
-      cartridgeText: "# Tiny cartridge",
+      templateText: "# Tiny template",
       caseName: "timeout",
       outputRoot,
       timeoutMs: 30,
@@ -151,7 +151,7 @@ test("timeout cancels a production session and marks its usage incomplete", asyn
     assert.equal(report.latency.providerFetchMs.length, 0);
     assert.match(report.latency.providerFetchDefinition, /fetch resolves/);
     const captured = readFileSync(report.artifacts.firstRequest, "utf8");
-    assert.ok(captured.includes("Tiny cartridge"));
+    assert.ok(captured.includes("Tiny template"));
     assert.ok(!captured.includes("test-placeholder"));
   } finally {
     rmSync(outputRoot, { recursive: true, force: true });
@@ -166,7 +166,7 @@ test("captures the actual Anthropic Genesis startup subset with baseline schemas
       model: "claude-opus-5",
       promptVariant: "baseline",
       baselineRequestPath: writeBaseline(outputRoot),
-      cartridgeText: "  # Tiny cartridge\n",
+      templateText: "  # Tiny template\n",
       caseName: "anthropic-snapshot",
       outputRoot,
       timeoutMs: 30,
@@ -184,7 +184,7 @@ test("captures the actual Anthropic Genesis startup subset with baseline schemas
     for (const tool of body.tools)
       assert.deepEqual(tool.input_schema, catalogByName.get(tool.name)!.parameters);
     assert.equal(body.messages[0].content.startsWith("### GENESIS PHASE:"), true);
-    assert.equal(body.messages[0].content.endsWith("# Tiny cartridge\n---"), true);
+    assert.equal(body.messages[0].content.endsWith("# Tiny template\n---"), true);
   } finally {
     rmSync(outputRoot, { recursive: true, force: true });
   }
@@ -199,7 +199,7 @@ test("reports a missing baseline artifact without attempting a provider request"
       model: "gpt-5.6-sol",
       promptVariant: "baseline",
       baselineRequestPath: join(outputRoot, "absent.json"),
-      cartridgeText: "# Tiny cartridge",
+      templateText: "# Tiny template",
       caseName: "missing-baseline",
       outputRoot,
       fetchImpl: async () => {

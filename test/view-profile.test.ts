@@ -84,7 +84,7 @@ describe("profile-aware loaded view orientation", () => {
     assert.deepEqual([...views.selectViewCel(view, 2, 0)!.pixels], [1, 2, 0]);
   });
 
-  it("keeps preview and loaded state independent, and does not mutate cartridge bytes", () => {
+  it("keeps preview and loaded state independent, and does not mutate resource bytes", () => {
     const payload = sharedLoops(2, 0x80);
     const original = payload.slice();
     const view = views.parseView(payload);

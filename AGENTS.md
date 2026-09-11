@@ -35,8 +35,10 @@ npm run eval:replay                           # stored bad cases, offline
 ## Optional game fixtures
 
 - Contributors can enable compatibility tests by placing their own game files
-  in `games/<slug>/`; see docs/testing.md for supported fixture inputs.
-  Fixture folders are excluded from version control and production builds.
+  in any subfolder under `games/` (e.g. `games/kq1/`, `games/kings-quest-1/`, or
+  fan-made games); see docs/testing.md. Fixtures are resolved strictly by content
+  hash (`WORDS.TOK` SHA-256), not folder names. Fixture folders are excluded from
+  version control and production builds.
 - Fixture-dependent tests use `test/fixtures.ts` to report missing inputs and
   setup instructions as explicit skips.
 - The public repo and build hold only original project code and assets plus

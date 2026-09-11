@@ -20,4 +20,7 @@ export const GAME_CATALOG: readonly GameCatalogEntry[] = [
     license: "MIT",
     load: async () => (await import("../../games/adventure-department/game.ts")).buildTutorial(),
   },
+  // The synthetic verification fixture is deliberately not a catalog entry: it
+  // reaches dev and test through the fixture server (vite.config.ts), never the
+  // public gallery.
 ];

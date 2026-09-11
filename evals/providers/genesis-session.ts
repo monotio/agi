@@ -54,7 +54,7 @@ interface PromptVariant {
 export interface GenesisOptions {
   provider: EffortProvider;
   model: string;
-  cartridgeText: string;
+  templateText: string;
   promptVariant?: EffortStage["promptVariant"];
   effort?: LlmConfig["effort"];
   lane?: string;
@@ -140,7 +140,7 @@ function summarizedPlaytest(result: AgentToolResult) {
 async function loadVariant(
   variant: EffortStage["promptVariant"],
   baselineRequestPath: string | undefined,
-  cartridgeText: string,
+  templateText: string,
 ): Promise<PromptVariant> {
   if (variant === "current" || variant === "lean") return {};
   if (variant === "baseline") {
@@ -168,13 +168,13 @@ async function loadVariant(
       throw new Error(
         "Baseline request must be an OpenAI startup body with instructions and tools.",
       );
-    const cartridgeMarker = capturedUser.indexOf("\n---\n");
-    if (cartridgeMarker < 0)
-      throw new Error("Baseline request does not contain the captured Genesis cartridge boundary.");
+    const templateMarker = capturedUser.indexOf("\n---\n");
+    if (templateMarker < 0)
+      throw new Error("Baseline request does not contain the captured Genesis template boundary.");
     return {
       systemPrompt: body.instructions,
       tools: structuredClone(body.tools),
-      userPrompt: `${capturedUser.slice(0, cartridgeMarker + "\n---\n".length)}${cartridgeText.trim()}\n---`,
+      userPrompt: `${capturedUser.slice(0, templateMarker + "\n---\n".length)}${templateText.trim()}\n---`,
       baselineRequestPath: path,
     };
   }
@@ -346,7 +346,7 @@ export async function runGenesisSession(options: GenesisOptions) {
       variant = await loadVariant(
         options.promptVariant ?? "baseline",
         options.baselineRequestPath,
-        options.cartridgeText,
+        options.templateText,
       );
       session = new AgentSession(
         {
@@ -403,7 +403,7 @@ export async function runGenesisSession(options: GenesisOptions) {
         session?.task.cancel();
       }, timeoutMs);
       try {
-        bootResources = await session.startGenesis(options.cartridgeText);
+        bootResources = await session.startGenesis(options.templateText);
       } catch (error) {
         runError = cancellationReason ?? (error instanceof Error ? error.message : String(error));
       }
@@ -537,7 +537,7 @@ export default class GenesisSessionProvider {
 
   async callApi(
     _prompt: string,
-    context: { vars: { caseName: string; repeat?: number | string; cartridgeText: string } },
+    context: { vars: { caseName: string; repeat?: number | string; templateText: string } },
   ) {
     const { provider, model } = this.config;
     if ((provider !== "openai" && provider !== "anthropic") || !model)
@@ -548,7 +548,7 @@ export default class GenesisSessionProvider {
       model,
       caseName: context.vars.caseName,
       repeat: Number(context.vars.repeat ?? 1),
-      cartridgeText: context.vars.cartridgeText,
+      templateText: context.vars.templateText,
     });
     return {
       output: JSON.stringify(report),

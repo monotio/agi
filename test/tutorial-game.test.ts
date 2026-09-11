@@ -257,7 +257,7 @@ test("every tutorial picture fill seed lands on a white interior", () => {
   assert.deepEqual(blocked, [], `blocked fill seeds:\n${blocked.join("\n")}`);
 });
 
-// The library keys a stored release on (gameId, revision, version): changed
+// The library keys a stored release on (projectId, revision, version): changed
 // resources at the same catalog version would appear beside a player's saved
 // release instead of replacing it. This release is unpublished, so the version
 // stays 1.0.0 and only the pin moves when the compiled bytes change.
@@ -890,10 +890,10 @@ test("graduation triggers regardless of which exhibit is repaired last", () => {
   assert.match(host.prints.at(-1) ?? "", /graduated.*PICTURE.*VIEW.*PRIORITY.*LOGIC.*main menu/i);
 });
 
-test("the tutorial ships stored game tests that its cartridge passes", () => {
+test("the tutorial ships stored game tests that its game passes", () => {
   const tutorial = buildTutorial();
   const files = new Map(Object.entries(tutorial.files));
-  assert.ok(files.has(GAME_TESTS_FILE), "TESTS.JSON travels in the cartridge");
+  assert.ok(files.has(GAME_TESTS_FILE), "TESTS.JSON travels in the game");
   const session = createAgentSessionState(openContainer(files));
   for (const [word, id] of tutorial.words) session.sources.words.set(word, id);
   assert.equal(readStoredTests(session).length, TUTORIAL_GAME_TESTS.length);

@@ -59,9 +59,10 @@ export function inspectGame(game: {
     needsInput = true;
   }
   if (!visible) needsInput = true;
+  const presentation = engine.getPresentation();
   const rgba = new Uint8ClampedArray(320 * 200 * 4);
   compositeFrame(
-    { visual: engine.getFrame().visual, text: engine.textCells, picRow: engine.displayBase },
+    { visual: presentation.visual, text: presentation.text, picRow: engine.displayBase },
     rgba,
   );
   return {

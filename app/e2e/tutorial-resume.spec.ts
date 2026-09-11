@@ -11,7 +11,7 @@ import {
   waitForCycles,
 } from "./engineProbe.ts";
 
-const TUTORIAL_SLUG = "catalog-adventure-department-1.0.0";
+const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.0.0";
 
 test("the tutorial shelf offers Resume and restores the checkpoint exactly", async ({ page }) => {
   await isolateStorage(page);
@@ -36,7 +36,7 @@ test("the tutorial shelf offers Resume and restores the checkpoint exactly", asy
 
   // The host must have STORED a checkpoint taken after the walk before it is relied on.
   await waitForAutosaveAfter(page, stopped.cycle);
-  const checkpoint = await storedAutosave(page, TUTORIAL_SLUG);
+  const checkpoint = await storedAutosave(page, TUTORIAL_PROJECT_ID);
   expect(checkpoint?.room).toBe(1);
 
   await page.getByTestId("btn-eject").click();
@@ -52,7 +52,7 @@ test("the tutorial shelf offers Resume and restores the checkpoint exactly", asy
 
   await play.click();
   await expect.poll(async () => (await textHook(page)).room).toBe(stopped.room);
-  await expect(page).toHaveURL(new RegExp(`#play/${TUTORIAL_SLUG}$`));
+  await expect(page).toHaveURL(new RegExp(`#play/${TUTORIAL_PROJECT_ID}$`));
   await expect
     .poll(async () => (await textHook(page)).egoX, {
       message: "the checkpoint must be restored, not overwritten by a boot from room 1",
@@ -86,7 +86,7 @@ test("a caption drawn only on room entry survives a browser reload", async ({ pa
   await isolateStorage(page);
   await page.goto("/");
   await cacheGame(page, {
-    slug: "caption-resume",
+    projectId: "caption-resume",
     title: "Caption resume",
     provider: "stub",
     model: "local-playback",
@@ -130,7 +130,7 @@ test("reloading from the menu stays on the menu and keeps offering Resume", asyn
   await isolateStorage(page);
   await page.goto("/");
   await cacheGame(page, {
-    slug: "menu-reload",
+    projectId: "menu-reload",
     title: "Menu reload",
     provider: "stub",
     model: "local-playback",

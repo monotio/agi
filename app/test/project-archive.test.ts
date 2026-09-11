@@ -15,7 +15,7 @@ test("exports supply an empty OBJECT file and preserve an existing inventory", a
   const opened = await readGameZip(buildPublicGameZip(data));
   // Empty table, maximum drawable object index 255, encrypted with the AGI key.
   assert.deepEqual(opened.files["OBJECT"], Uint8Array.of(65, 118, 150));
-  assert.equal(data.files["OBJECT"], undefined, "export leaves the live cartridge unchanged");
+  assert.equal(data.files["OBJECT"], undefined, "export leaves the live game unchanged");
   const existing = Uint8Array.of(65, 118, 121);
   data.files["OBJECT"] = existing;
   assert.deepEqual((await readGameZip(buildPublicGameZip(data))).files["OBJECT"], existing);
@@ -26,7 +26,7 @@ test("project round trip retains private history and deduplicates images; public
   container.putResource("logic", 0, assembleLogic("return;", { dictionary: new Map() }).payload);
   const image = "data:image/png;base64,iVBORw0KGgo=";
   const data = {
-    slug: "demo",
+    projectId: "demo",
     title: "Garden",
     provider: "openai",
     model: "gpt-5.6-sol",
@@ -54,13 +54,12 @@ test("project round trip retains private history and deduplicates images; public
     roomGeneration: true,
     library: {
       version: 1 as const,
-      gameId: "garden-local",
       revision: "1".repeat(64),
       source: "authored" as const,
       description: "A public garden adventure.",
       author: "Example Author",
       license: "unknown",
-      parent: { gameId: "seed", revision: "2".repeat(64) },
+      parent: { projectId: "seed", revision: "2".repeat(64) },
       preview: image,
       validation: { status: "ready" as const, message: "Private local status." },
     },
@@ -79,7 +78,7 @@ test("project round trip retains private history and deduplicates images; public
     description: "A public garden adventure.",
     author: "Example Author",
     license: "unknown",
-    parent: { gameId: "seed", revision: "2".repeat(64) },
+    parent: { projectId: "seed", revision: "2".repeat(64) },
   });
   assert.equal(JSON.stringify(publicGame).includes("Private local status."), false);
 });
@@ -159,4 +158,121 @@ test("first-release project and public metadata versions reject future data", ()
       ),
     /version/,
   );
+});
+
+test("readProjectContext bounds depth, missing attachments, attachment fan-out and content budgets", () => {
+  const imageHash = "a".repeat(64);
+  const imagePath = `IMAGES/${imageHash}.png`;
+  const imageBytes = new Uint8Array(256).fill(42);
+  const entries = new Map<string, Uint8Array>([[imagePath.toUpperCase(), imageBytes]]);
+
+  // 1. Missing attachment reference fails promptly before restoration
+  const missingAttachmentProject = new TextEncoder().encode(
+    JSON.stringify({
+      format: "monotio.agi.project",
+      version: 1,
+      conversation: {
+        formatVersion: 1,
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "input_image", projectImage: `IMAGES/${"b".repeat(64)}.png` }],
+          },
+        ],
+      },
+      provider: "stub",
+      model: "stub",
+      authoringState: {},
+    }),
+  );
+  assert.throws(
+    () => readProjectContext(missingAttachmentProject, entries, ""),
+    /A project image attachment is missing/,
+  );
+
+  // 2. Excessive nesting depth (> 40) fails promptly
+  let nested: unknown = { leaf: "deep" };
+  for (let i = 0; i < 45; i++) {
+    nested = { child: nested };
+  }
+  const deepProject = new TextEncoder().encode(
+    JSON.stringify({
+      format: "monotio.agi.project",
+      version: 1,
+      conversation: {
+        formatVersion: 1,
+        messages: [
+          {
+            role: "user",
+            content: nested,
+          },
+        ],
+      },
+      provider: "stub",
+      model: "stub",
+      authoringState: {},
+    }),
+  );
+  assert.throws(
+    () => readProjectContext(deepProject, entries, ""),
+    /Project conversation nesting is too deep/,
+  );
+
+  // 3. Shared attachment fan-out exceeding content budget fails promptly
+  const largeImageBytes = new Uint8Array(100_000).fill(1);
+  const largeImagePath = `IMAGES/${"c".repeat(64)}.png`;
+  const largeEntries = new Map<string, Uint8Array>([
+    [largeImagePath.toUpperCase(), largeImageBytes],
+  ]);
+  const fanOutMessages = [];
+  for (let i = 0; i < 100; i++) {
+    fanOutMessages.push({
+      role: "user",
+      content: [{ type: "input_image", projectImage: largeImagePath }],
+    });
+  }
+  const budgetProject = new TextEncoder().encode(
+    JSON.stringify({
+      format: "monotio.agi.project",
+      version: 1,
+      conversation: {
+        formatVersion: 1,
+        messages: fanOutMessages,
+      },
+      provider: "stub",
+      model: "stub",
+      authoringState: {},
+    }),
+  );
+  assert.throws(
+    () => readProjectContext(budgetProject, largeEntries, ""),
+    /Project reconstructed size exceeds content budget/,
+  );
+
+  // 4. Moderate shared attachment fan-out restores and caches attachment representation
+  const validFanOutMessages = [];
+  for (let i = 0; i < 10; i++) {
+    validFanOutMessages.push({
+      role: "user",
+      content: [{ type: "input_image", projectImage: imagePath }],
+    });
+  }
+  const validProject = new TextEncoder().encode(
+    JSON.stringify({
+      format: "monotio.agi.project",
+      version: 1,
+      conversation: {
+        formatVersion: 1,
+        messages: validFanOutMessages,
+      },
+      provider: "stub",
+      model: "stub",
+      authoringState: {},
+    }),
+  );
+  const context = readProjectContext(validProject, entries, "");
+  assert.equal(context.transcript.length, 10);
+  const firstImage = (context.transcript[0] as { content: unknown[] }).content[0];
+  const secondImage = (context.transcript[1] as { content: unknown[] }).content[0];
+  assert.equal(firstImage, secondImage, "repeated references share the same cached representation");
 });
