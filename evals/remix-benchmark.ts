@@ -187,8 +187,9 @@ async function runCase(
 ): Promise<RunReport> {
   const telemetry: unknown[] = [];
   let usage: LlmUsage | undefined;
-  // Detached byte copies per run: a remix repacks the container's VOL files
-  // in place, and sharing the buffers would corrupt the next case's boot.
+  // Per-run byte copies: openContainer copies again, but the session also
+  // keeps raw refs to WORDS.TOK/OBJECT/TESTS.JSON as payload fields — hand
+  // each run its own buffers so a payload mutation can never reach the master.
   const runFiles = new Map([...files].map(([name, bytes]) => [name, new Uint8Array(bytes)]));
   const session = AgentSession.fromAuthoredData(
     configFor(args),
@@ -284,10 +285,7 @@ async function runCase(
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const loaded = loadGame(args.game);
-  // Pristine master: a remix repacks container VOL buffers in place, so every
-  // case slices fresh copies from this snapshot taken before any run starts.
-  const files = new Map([...loaded].map(([name, bytes]) => [name, new Uint8Array(bytes)]));
+  const files = loadGame(args.game);
   if (!files.has("WORDS.TOK") || !files.has("OBJECT"))
     console.warn("warning: game directory has no WORDS.TOK/OBJECT; reads may be empty.");
   const reports: RunReport[] = [];

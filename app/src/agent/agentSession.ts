@@ -518,9 +518,11 @@ Answer the player's question using evidence from inspection when needed. For hin
     const fileMap = new Map(Object.entries(files));
     const container = openContainer(fileMap);
     const state = createAgentSessionState(container);
-    state.wordsPayload = files["WORDS.TOK"];
-    state.objectPayload = files["OBJECT"];
-    state.testsPayload = files["TESTS.JSON"];
+    // Real copies, not refs: a Node Buffer's .slice() is a view, so callers
+    // must never rely on the session detaching their byte arrays itself.
+    state.wordsPayload = files["WORDS.TOK"] ? new Uint8Array(files["WORDS.TOK"]) : undefined;
+    state.objectPayload = files["OBJECT"] ? new Uint8Array(files["OBJECT"]) : undefined;
+    state.testsPayload = files["TESTS.JSON"] ? new Uint8Array(files["TESTS.JSON"]) : undefined;
     for (const [w, id] of words) {
       state.sources.words.set(w, id);
     }
