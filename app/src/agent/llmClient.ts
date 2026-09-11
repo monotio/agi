@@ -75,7 +75,7 @@ export interface LlmRequestTelemetry {
 }
 export class LlmResponseError extends Error {
   readonly usage: LlmUsage;
-  readonly telemetry?: LlmRequestTelemetry;
+  readonly telemetry?: LlmRequestTelemetry | undefined;
   constructor(message: string, usage: LlmUsage, telemetry?: LlmRequestTelemetry) {
     super(message);
     this.name = "LlmResponseError";
@@ -113,7 +113,7 @@ function recordUsage(usage: LlmUsage, total: LlmUsage, run?: AgentRun): void {
   for (const key of Object.keys(usage) as (keyof LlmUsage)[]) {
     const value = usage[key];
     if (typeof value !== "number") continue;
-    const bucket = total as Record<string, number | undefined>;
+    const bucket = total as unknown as Record<string, number | undefined>;
     bucket[key] = (bucket[key] ?? 0) + value;
   }
 }

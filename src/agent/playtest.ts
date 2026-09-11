@@ -96,7 +96,7 @@ interface CapturedCheckpoint {
   }[];
 }
 
-class Simulation {
+export class Simulation {
   readonly engine: Engine;
   readonly messages: string[] = [];
   readonly missingRooms: number[] = [];

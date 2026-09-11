@@ -17,10 +17,7 @@ export interface OrientationVars {
     game?: string;
     profile?: string;
     room?: number | string;
-    resourceListing?: string;
-    logicSource?: string;
-    pictureSource?: string;
-    wordsSummary?: string;
+    sceneBrief?: string;
   };
 }
 
@@ -36,10 +33,7 @@ export default function ({ vars }: OrientationVars): PromptMessage[] {
         game: vars.game || "unknown",
         profile: vars.profile || "2.936",
         room: Number(vars.room ?? 1),
-        resourceListing: vars.resourceListing || "",
-        logicSource: vars.logicSource || "",
-        pictureSource: vars.pictureSource || "",
-        wordsSummary: vars.wordsSummary || "",
+        sceneBrief: vars.sceneBrief || "",
       }),
     },
   ];

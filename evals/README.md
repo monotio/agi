@@ -8,6 +8,7 @@ the tools give it enough feedback to correct mistakes.
 | Stored bad cases  | `npm run eval:replay`                | Exact outcomes for known tool and transport failures                           |
 | Genesis           | `npm run eval:genesis`               | An adventure brief becoming playable resources, with tool failures and usage   |
 | Picture fidelity  | `npm run eval:picture`               | Render structure, pixel metrics and visual quality across authoring rounds     |
+| Remix benchmark   | `npm run eval:remix`                 | Ask/Remix cases on a real engine: requests, cost, latency and cache per run    |
 | Production effort | `npm --prefix evals run eval:effort` | Complete app Genesis runs, startup payloads, cost, repairs and playable output |
 
 ## Offline verification

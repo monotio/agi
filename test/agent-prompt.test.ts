@@ -79,9 +79,7 @@ describe("agent system prompt", () => {
       "vocabulary before said()",
     );
     assert.ok(
-      AGI_SYSTEM_PROMPT.includes(
-        "Call handover when the work is done",
-      ),
+      AGI_SYSTEM_PROMPT.includes("Call handover when the work is done"),
       "handover invariant",
     );
     assert.ok(
