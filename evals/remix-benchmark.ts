@@ -193,9 +193,7 @@ interface RunReport {
 function lightTranscript(items: unknown[]): unknown {
   return JSON.parse(
     JSON.stringify(items, (_key, value: unknown) =>
-      typeof value === "string" && value.length > 2000
-        ? `[${value.length} chars]`
-        : value,
+      typeof value === "string" && value.length > 2000 ? `[${value.length} chars]` : value,
     ),
   );
 }
@@ -284,8 +282,7 @@ async function runCase(
     const wallMs = performance.now() - t0;
     const patched =
       typeof result === "string" ? [] : result.patched.map((p) => `${p.kind} ${p.num}`);
-    const fileWrites =
-      typeof result === "string" ? [] : Object.keys(result.files ?? {});
+    const fileWrites = typeof result === "string" ? [] : Object.keys(result.files ?? {});
     // A remix that changes nothing did not do the work — flag it rather than
     // letting "no exception" read as acceptance.
     const changed = patched.length + fileWrites.length;
@@ -296,9 +293,7 @@ async function runCase(
         repeat,
         warm: args.warm,
         ok: accepted,
-        ...(accepted
-          ? {}
-          : { error: "Remix finished without patching any resource or file." }),
+        ...(accepted ? {} : { error: "Remix finished without patching any resource or file." }),
         wallMs,
         requests: telemetry.length,
         calls,
