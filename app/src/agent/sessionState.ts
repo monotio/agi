@@ -10,9 +10,9 @@ export function forkAgentState(source: AgentSessionState): AgentSessionState {
   Object.assign(next, { profile: source.profile });
   Object.assign(next.sources, structuredClone(source.sources));
   next.authoring = validateAuthoringState(source.authoring);
-  next.wordsPayload = source.wordsPayload?.slice();
-  next.objectPayload = source.objectPayload?.slice();
-  next.testsPayload = source.testsPayload?.slice();
+  next.wordsPayload = source.wordsPayload ? new Uint8Array(source.wordsPayload) : undefined;
+  next.objectPayload = source.objectPayload ? new Uint8Array(source.objectPayload) : undefined;
+  next.testsPayload = source.testsPayload ? new Uint8Array(source.testsPayload) : undefined;
   next.genesisComplete = source.genesisComplete;
   // Diagnostic artifacts are session-scoped and append-only: forks share them
   // so a projected result stays retrievable no matter which candidate ran.

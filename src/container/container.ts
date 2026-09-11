@@ -415,7 +415,9 @@ export function openContainer(
   options: ContainerOptions = {},
 ): GameContainer {
   const copy = new Map<string, Uint8Array>();
-  for (const [name, bytes] of files) copy.set(name, bytes.slice());
+  // new Uint8Array, not .slice(): Buffer.prototype.slice returns a view, so a
+  // Node Buffer input would alias the caller's storage despite this contract.
+  for (const [name, bytes] of files) copy.set(name, new Uint8Array(bytes));
   return new ResourceContainer(copy, options);
 }
 
@@ -442,7 +444,7 @@ export function compactContainer(
   files: ReadonlyMap<string, Uint8Array>,
   options: ContainerOptions = {},
 ): Map<string, Uint8Array> {
-  const copy = new Map([...files].map(([name, bytes]) => [name, bytes.slice()]));
+  const copy = new Map([...files].map(([name, bytes]) => [name, new Uint8Array(bytes)]));
   const container = new ResourceContainer(copy, options);
   container.pack();
   return new Map(container.files);

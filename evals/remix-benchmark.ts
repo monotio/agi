@@ -187,6 +187,9 @@ async function runCase(
 ): Promise<RunReport> {
   const telemetry: unknown[] = [];
   let usage: LlmUsage | undefined;
+  // Detached byte copies per run: a remix repacks the container's VOL files
+  // in place, and sharing the buffers would corrupt the next case's boot.
+  const runFiles = new Map([...files].map(([name, bytes]) => [name, new Uint8Array(bytes)]));
   const session = AgentSession.fromAuthoredData(
     configFor(args),
     (kind, _message, data) => {
@@ -195,51 +198,51 @@ async function runCase(
       const total = details?.["totalUsage"] as LlmUsage | undefined;
       if (total) usage = total;
     },
-    Object.fromEntries(files),
+    Object.fromEntries(runFiles),
     [...parseWordsTok(files.get("WORDS.TOK") ?? new Uint8Array())].map(
       ({ word, id }) => [word, id] as [string, number],
     ),
   );
 
-  const sim = new Simulation(session.state, 1200, 50000, { pressKeys: true });
-  const engine = sim.engine;
-  if (args.checkpoint) {
-    engine.restoreImage(readFileSync(args.checkpoint));
-  } else {
-    let dismissed = 0;
-    for (let i = 0; i < 1200; i++) {
-      sim.tick();
-      const s = engine.readState();
-      if (s.pictureShown && s.inputEnabled) break;
-      if (engine.modalKind) {
-        engine.ackPrint();
-        if (++dismissed > 16) break;
-      }
-    }
-  }
-
-  session.setRuntime({
-    frames: {
-      read: () => {
-        const raw = engine.getFrame();
-        const frame: AgentFrame = {
-          visual: raw.visual.slice(),
-          priority: raw.priority.slice(),
-          cycle: sim.cycles,
-          picRow: engine.displayBase,
-          text: engine.textCells.slice(),
-        };
-        return [frame];
-      },
-    },
-    engine: { state: () => engine.readState(), objects: () => engine.readObjects() },
-    checkpoint: () => engine.autosaveImage(),
-  });
-  session.setOrientation({ game: basename(args.game), profile: engine.profile.id });
-
-  const room = engine.vars[0] ?? 1;
   const t0 = performance.now();
   try {
+    const sim = new Simulation(session.state, 1200, 50000, { pressKeys: true });
+    const engine = sim.engine;
+    if (args.checkpoint) {
+      engine.restoreImage(readFileSync(args.checkpoint));
+    } else {
+      let dismissed = 0;
+      for (let i = 0; i < 1200; i++) {
+        sim.tick();
+        const s = engine.readState();
+        if (s.pictureShown && s.inputEnabled) break;
+        if (engine.modalKind) {
+          engine.ackPrint();
+          if (++dismissed > 16) break;
+        }
+      }
+    }
+
+    session.setRuntime({
+      frames: {
+        read: () => {
+          const raw = engine.getFrame();
+          const frame: AgentFrame = {
+            visual: raw.visual.slice(),
+            priority: raw.priority.slice(),
+            cycle: sim.cycles,
+            picRow: engine.displayBase,
+            text: engine.textCells.slice(),
+          };
+          return [frame];
+        },
+      },
+      engine: { state: () => engine.readState(), objects: () => engine.readObjects() },
+      checkpoint: () => engine.autosaveImage(),
+    });
+    session.setOrientation({ game: basename(args.game), profile: engine.profile.id });
+
+    const room = engine.vars[0] ?? 1;
     // --warm: an Ask turn first so the Remix request measures warm prefixes.
     if (args.warm && bench.mode === "remix")
       await session.runAsk(CASES["keys-help"]!.instruction, room);
@@ -281,7 +284,10 @@ async function runCase(
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const files = loadGame(args.game);
+  const loaded = loadGame(args.game);
+  // Pristine master: a remix repacks container VOL buffers in place, so every
+  // case slices fresh copies from this snapshot taken before any run starts.
+  const files = new Map([...loaded].map(([name, bytes]) => [name, new Uint8Array(bytes)]));
   if (!files.has("WORDS.TOK") || !files.has("OBJECT"))
     console.warn("warning: game directory has no WORDS.TOK/OBJECT; reads may be empty.");
   const reports: RunReport[] = [];

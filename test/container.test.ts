@@ -294,4 +294,23 @@ describe("transactional packing", () => {
       assert.deepEqual(c.getResource("logic", 0), Uint8Array.of(7));
     }
   });
+
+  it("detaches Node Buffer inputs: container writes never alias caller storage", () => {
+    // fs.readFile returns Buffer, whose .slice() is a view: a copy made with
+    // .slice() would alias the caller's buffers, and repack writes the new
+    // volume nibble back through that view into the caller's VOL bytes.
+    const dir = Buffer.from(Uint8Array.of(0x10, 0, 0)); // logic 0 in VOL.1 offset 0
+    const vol1 = Buffer.from(Uint8Array.of(0x12, 0x34, 1, 1, 0, 42));
+    const files = new Map<string, Uint8Array>([
+      ["LOGDIR", dir],
+      ["VOL.1", vol1],
+    ]);
+    const c = openContainer(files);
+    c.putResource("view", 0, Uint8Array.of(1, 2, 3)); // repack moves logic 0 to VOL.0
+    c.putResource("logic", 1, Uint8Array.of(9));
+    assert.deepEqual([...dir], [0x10, 0, 0]);
+    assert.deepEqual([...vol1], [0x12, 0x34, 1, 1, 0, 42]);
+    assert.deepEqual(c.getResource("view", 0), Uint8Array.of(1, 2, 3));
+    assert.deepEqual(c.getResource("logic", 0), Uint8Array.of(42));
+  });
 });
