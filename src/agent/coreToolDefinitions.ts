@@ -215,7 +215,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_room_context",
     description:
-      "Inspect a room's compiled resources, intent, dependencies, bindings, inventory and live state. Null selects the live room. Live state is paused; resources include staged edits.",
+      "Inspect a room's compiled resources, intent, dependencies, bindings, inventory, live state and screen objects. Null selects the live room. Live state is paused; resources include staged edits.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -369,7 +369,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_view",
     description:
-      "Inspect compiled view `num`: labeled contact sheet, per-cel size and EGA color usage, and the resource `revision` accepted by patch tools. `cels` selects a cel subset ({loop,cel}); `rows` returns exact EGA hex rows for the selection, or every cel when `cels` is null, within a 32768-pixel budget. Fails for absent or invalid resources.",
+      "Inspect compiled view `num`: labeled contact sheet, per-cel size and EGA color usage, and the resource `revision` accepted by patch tools. `cels` selects a cel subset ({loop,cel}); `rows` returns exact EGA hex rows for the selection, or every cel when `cels` is null, within a 32768-pixel budget — large `rows` results evict to a paged diagnostic. Fails for absent or invalid resources.",
     parameters: {
       type: "object",
       additionalProperties: false,

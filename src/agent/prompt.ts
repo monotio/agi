@@ -202,7 +202,7 @@ Current room: ${input.room}
 
 ${input.sceneBrief.trim()}
 
-Deep inspection is targeted: read_room_context ${input.room} for the room's logic, intent and live state; read_live for the paused screen, objects and interpreter state. Re-read a resource's revision before editing. Keep authored resource numbers out of ranges already in use, and patch the smallest thing that achieves what was asked. For every puzzle you author or change, store at least one game test for it with write_game_tests and check them with run_game_tests; handover runs them all again.`;
+Deep inspection is targeted: read_room_context ${input.room} carries the room's logic, intent, live state and object table — read only what the request needs beyond it. Re-read a resource's revision before editing. Keep authored resource numbers out of ranges already in use, and patch the smallest thing that achieves what was asked. For every puzzle you author or change, store at least one game test for it with write_game_tests and check them with run_game_tests; handover runs them all again.`;
 }
 
 export function createRuntimeRoomPrompt(room: number, from: number): string {

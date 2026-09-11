@@ -1897,7 +1897,15 @@ export async function executeAgentToolAsync(
   args = call.args;
   if (name === "read_room_context") {
     let live: Record<string, unknown> | null = null;
-    if (deps?.engine) live = (await deps.engine.state()) as Record<string, unknown> | null;
+    let liveObjects: unknown = null;
+    if (deps?.engine) {
+      live = (await deps.engine.state()) as Record<string, unknown> | null;
+      try {
+        liveObjects = await deps.engine.objects();
+      } catch {
+        liveObjects = null;
+      }
+    }
     const room = args["room"] ?? live?.["room"];
     if (typeof room !== "number" || !Number.isInteger(room) || room < 0 || room > 255)
       return { success: false, error: "Supply room 0..255 when no live room is attached." };
@@ -1928,6 +1936,7 @@ export async function executeAgentToolAsync(
                 inventory: live["inventory"],
                 modalKind: live["modalKind"],
                 controls: describeControls(live["controls"]),
+                objects: liveObjects,
               },
             }
           : {}),

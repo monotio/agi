@@ -87,7 +87,7 @@ The world is frozen at a cycle boundary in room ${room}, and the player has aske
 
 "${instruction.trim()}"
 
-Look before you write: read_live tells you where the player is, what is on screen and the screen itself, read_room_context bundles the live sections with the room's resources, and read_logic / read_picture / inspect_world_bible give you the resources as source. Then patch the smallest thing that achieves what was asked, in the room the player is standing in unless they said otherwise. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
+Look before you write: read_room_context already carries the room's live state, object table and resources; call read_live only for the paused screen's frames, and read_logic / read_picture only when the request touches that resource. Patch the smallest thing that achieves what was asked — a color remap is patch_view_cels with 'recolor', no pixel rows needed — in the room the player is standing in unless they said otherwise. handover runs the full stored suite; playtest only when behavior is uncertain. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
 }
 
 export class AgentSession implements AgentHandler {

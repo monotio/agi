@@ -33,7 +33,7 @@ export const SPRITE_TOOLS: readonly ToolDefinition[] = [
   {
     name: "patch_view_cels",
     description:
-      "Patch a subset of cels in view `num`: `patches` carries 1..64 targets. A target replaces a cel's pixels with equal-width EGA hex `rows` (0-F; the cel keeps its transparent color), or supplies `recolor`, {from,to} EGA remaps applied in place; transparent pixels are never remapped. Everything is validated against the current view before anything writes; mirrored loops are isolated by copy-on-write. `expectedRevision` must match. Atomic: one compile, one commit, or nothing. Returns the new revision, per-cel geometry and a contact sheet.",
+      "Patch a subset of cels in view `num`: `patches` carries 1..64 targets. A target supplies `recolor` — {from,to} EGA remaps applied in place (prefer this for color changes; read_view's per-cel color usage gives the mapping, no pixel rows needed) — or replaces a cel's pixels with equal-width EGA hex `rows` (0-F; the cel keeps its transparent color). Transparent pixels are never remapped. Everything is validated against the current view before anything writes; mirrored loops are isolated by copy-on-write. `expectedRevision` must match. Atomic: one compile, one commit, or nothing. Returns the new revision, per-cel geometry and a contact sheet.",
     parameters: {
       type: "object",
       additionalProperties: false,
