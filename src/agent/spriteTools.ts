@@ -108,7 +108,7 @@ export const SPRITE_TOOLS: readonly ToolDefinition[] = [
   {
     name: "patch_view_cels",
     description:
-      "Patch an arbitrary subset of cels in view `num` in one call: `patches` carries 1..64 targets, each replacing one cel's pixels with equal-width EGA hex `rows` (0-F; the cel keeps its transparent color). Every address, row, dimension and duplicate target is validated against the current view before anything writes; mirrored relationships are isolated with copy-on-write so other facings keep their pixels. `expectedRevision` must match the view's current revision. One compile, one commit; returns the new revision, per-cel geometry and a contact sheet.",
+      "Patch an arbitrary subset of cels in view `num` in one call: `patches` carries 1..64 targets. Each target either replaces one cel's pixels with equal-width EGA hex `rows` (0-F; the cel keeps its transparent color), or supplies `recolor` — a list of {from,to} EGA color remaps applied in place, so a recolor needs no per-cel row reads (transparent pixels are never remapped). Every address, row, dimension and duplicate target is validated against the current view before anything writes; mirrored relationships are isolated with copy-on-write so other facings keep their pixels. `expectedRevision` must match the view's current revision. One compile, one commit; returns the new revision, per-cel geometry and a contact sheet.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -129,9 +129,23 @@ export const SPRITE_TOOLS: readonly ToolDefinition[] = [
             properties: {
               loop: { type: "integer", minimum: 0, maximum: 254 },
               cel: { type: "integer", minimum: 0, maximum: 254 },
-              rows: CEL_ROWS_SCHEMA,
+              rows: { ...CEL_ROWS_SCHEMA, type: ["array", "null"] },
+              recolor: {
+                type: ["array", "null"],
+                minItems: 1,
+                maxItems: 15,
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    from: { type: "integer", minimum: 0, maximum: 15 },
+                    to: { type: "integer", minimum: 0, maximum: 15 },
+                  },
+                  required: ["from", "to"],
+                },
+              },
             },
-            required: ["loop", "cel", "rows"],
+            required: ["loop", "cel", "rows", "recolor"],
           },
         },
       },
@@ -619,12 +633,51 @@ export function executeSpriteTool(
           throw new Error(`patches[${index}]: view ${num} has no loop ${loop}, cel ${cel}.`);
         if (targets.get(loop)?.has(cel))
           throw new Error(`patches[${index}]: duplicate target loop ${loop}, cel ${cel}.`);
-        const replacement = celFromRows(
-          patch["rows"],
-          `patches[${index}] (loop ${loop}, cel ${cel})`,
-          current.transparentColor,
-          adjustments,
-        );
+        const label = `patches[${index}] (loop ${loop}, cel ${cel})`;
+        const hasRows = patch["rows"] !== null && patch["rows"] !== undefined;
+        const hasRecolor = patch["recolor"] !== null && patch["recolor"] !== undefined;
+        if (hasRows === hasRecolor)
+          throw new Error(`${label}: exactly one of "rows" or "recolor" is required.`);
+        let replacement: BuildCelInput;
+        if (hasRows) {
+          replacement = celFromRows(
+            patch["rows"],
+            label,
+            current.transparentColor,
+            adjustments,
+          );
+        } else {
+          const recolor = patch["recolor"];
+          if (!Array.isArray(recolor))
+            throw new Error(`${label}: recolor must be a list of {from,to} remaps.`);
+          const remap = new Map<number, number>();
+          for (const [entryIndex, rawEntry] of recolor.entries()) {
+            const entry = (rawEntry ?? {}) as Record<string, unknown>;
+            const from = integer(entry["from"], `${label}.recolor[${entryIndex}].from`, 0, 15);
+            const to = integer(entry["to"], `${label}.recolor[${entryIndex}].to`, 0, 15);
+            if (from === to)
+              throw new Error(`${label}.recolor[${entryIndex}]: from and to are both ${from}.`);
+            if (from === current.transparentColor)
+              throw new Error(
+                `${label}.recolor[${entryIndex}]: from ${from} is the cel's transparent color; use rows to change transparency.`,
+              );
+            if (remap.has(from))
+              throw new Error(`${label}.recolor[${entryIndex}]: duplicate from ${from}.`);
+            remap.set(from, to);
+          }
+          const pixelsOut = new Uint8Array(current.pixels.length);
+          for (let i = 0; i < current.pixels.length; i++) {
+            const pixel = current.pixels[i]!;
+            pixelsOut[i] =
+              pixel === current.transparentColor ? pixel : (remap.get(pixel) ?? pixel);
+          }
+          replacement = {
+            width: current.width,
+            height: current.height,
+            transparentColor: current.transparentColor,
+            pixels: pixelsOut,
+          };
+        }
         pixels += replacement.width * replacement.height;
         if (pixels > 32768)
           throw new Error(`patches[${index}]: batch exceeds the 32768-pixel budget.`);

@@ -245,6 +245,57 @@ describe("sprite authoring tools", () => {
     assert.equal(view.description, "Aliased actor");
   });
 
+  it("recolors cels in place without touching transparent pixels", () => {
+    const state = createAgentSessionState();
+    state.container.putResource(
+      "view",
+      7,
+      buildView({
+        loops: [
+          { cels: [{ width: 3, height: 1, transparentColor: 0, pixels: [4, 6, 0] }] },
+          { mirrorLoop: 0 },
+        ],
+      }),
+    );
+    const revision = String(
+      executeSpriteTool(state, "read_view_cel", {
+        num: 7,
+        loop: 0,
+        cel: 0,
+        rowOffset: null,
+        rowLimit: null,
+      })!.details?.["revision"],
+    );
+    const result = executeSpriteTool(state, "patch_view_cels", {
+      num: 7,
+      expectedRevision: revision,
+      patches: [{ loop: 0, cel: 0, rows: null, recolor: [{ from: 4, to: 12 }] }],
+    });
+    assert.equal(result?.success, true, result?.error);
+    const view = parseView(state.container.getResource("view", 7)!, state.profile);
+    // Only color 4 remapped; color 6 and the transparent pixel are untouched.
+    assert.deepEqual([...selectViewCel(view, 0, 0)!.pixels], [12, 6, 0]);
+    // The mirrored loop is copy-on-write: it keeps its original pixels.
+    assert.deepEqual([...selectViewCel(view, 1, 0)!.pixels], [0, 6, 4]);
+
+    const remapped = state.container.getResource("view", 7)!.slice();
+    const xor = executeSpriteTool(state, "patch_view_cels", {
+      num: 7,
+      expectedRevision: String(result?.details?.["revision"]),
+      patches: [{ loop: 0, cel: 0, rows: ["111"], recolor: [{ from: 1, to: 2 }] }],
+    });
+    assert.equal(xor?.success, false);
+    assert.match(xor?.error ?? "", /exactly one of/);
+    const transparent = executeSpriteTool(state, "patch_view_cels", {
+      num: 7,
+      expectedRevision: String(result?.details?.["revision"]),
+      patches: [{ loop: 0, cel: 0, rows: null, recolor: [{ from: 0, to: 5 }] }],
+    });
+    assert.equal(transparent?.success, false);
+    assert.match(transparent?.error ?? "", /transparent/);
+    assert.deepEqual(state.container.getResource("view", 7), remapped);
+  });
+
   it("patches a mirrored target and its source in one batch without cross-talk", () => {
     const state = createAgentSessionState();
     state.container.putResource(
