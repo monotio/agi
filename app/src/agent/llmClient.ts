@@ -103,8 +103,14 @@ export const MODEL_OPTIONS: Record<ProviderType, { id: string; label: string }[]
 };
 
 export interface UnifiedConversation {
-  /** Advertise only tools usable in this phase; omitted names restore the full catalog. */
-  setTools(names?: readonly string[]): void;
+  /**
+   * Availability policy for this phase: which advertised tools may execute.
+   * The advertised catalog itself stays stable for the life of the conversation
+   * so the cached prefix survives phase changes. OpenAI restricts it
+   * server-side via `allowed_tools`; elsewhere the host dispatcher remains the
+   * deny-by-default authority. Omit names to make the full catalog available.
+   */
+  setAvailableTools(names?: readonly string[]): void;
   sendUserMessage(text: string): Promise<LlmTurnResult>;
   sendToolResults(
     results: { toolCallId: string; result: AgentToolResult }[],
@@ -117,8 +123,11 @@ export interface UnifiedConversation {
 
 /**
  * Creates an Anthropic multi-turn conversation with strict prompt caching.
- * The system prompt and tool definitions carry cache_control: { type: "ephemeral" }.
- * Transcript history is strictly append-only.
+ * One explicit checkpoint ends the static prefix (Anthropic's cache order is
+ * tools -> system -> messages, so the system-block marker covers the catalog);
+ * the top-level cache_control rolls an automatic breakpoint over the tail.
+ * Transcript history is strictly append-only and carries no cache annotations —
+ * markers are transport metadata applied to the outbound request only.
  */
 function getDevBaseUrl(path: string): string | undefined {
   if (
@@ -148,7 +157,6 @@ export function createAnthropicConversation(
   });
 
   const tools = anthropicToolDefinitions(AGENT_TOOLS) as unknown as Anthropic.Tool[];
-  let selectedTools = tools;
   const totalUsage: LlmUsage = { input: 0, output: 0, cachedInput: 0, cacheWriteInput: 0 };
 
   const messages: Anthropic.MessageParam[] = Array.isArray(initialTranscript)
@@ -198,12 +206,7 @@ export function createAnthropicConversation(
               cache_control: { type: "ephemeral" },
             },
           ],
-          tools: selectedTools.map((tool, index) => ({
-            ...tool,
-            ...(index === selectedTools.length - 1
-              ? { cache_control: { type: "ephemeral" as const } }
-              : {}),
-          })),
+          tools,
           messages,
         },
         { ...(signal ? { signal } : {}) },
@@ -281,25 +284,12 @@ export function createAnthropicConversation(
   }
 
   return {
-    setTools(names) {
-      selectedTools = names ? tools.filter((tool) => names.includes(tool.name)) : tools;
+    setAvailableTools(_names) {
+      // Anthropic has no allowed-tools request field; the advertised catalog
+      // stays stable and the host dispatcher denies unavailable tools.
     },
     async sendUserMessage(text: string): Promise<LlmTurnResult> {
       closePending("the previous turn ended before the harness executed it.");
-      // Checkpoint the previous conversation phase (e.g. Genesis) so its history remains cached.
-      if (messages.length > 0) {
-        const lastMsg = messages[messages.length - 1]!;
-        if (typeof lastMsg.content === "string") {
-          lastMsg.content = [
-            { type: "text", text: lastMsg.content, cache_control: { type: "ephemeral" } },
-          ];
-        } else if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
-          const lastBlock = lastMsg.content[lastMsg.content.length - 1]!;
-          (lastBlock as { cache_control?: { type: "ephemeral" } }).cache_control = {
-            type: "ephemeral",
-          };
-        }
-      }
       messages.push({ role: "user", content: text });
       return step();
     },
@@ -483,7 +473,7 @@ export function createOpenAiConversation(
   }
 
   return {
-    setTools(names) {
+    setAvailableTools(names) {
       allowedNames = names
         ? [...names].filter((name) => AGENT_TOOLS.some((tool) => tool.name === name))
         : undefined;

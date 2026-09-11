@@ -180,7 +180,11 @@ test("captures the actual Anthropic Genesis startup subset with baseline schemas
     const body = JSON.parse(readFileSync(report.artifacts.firstRequest, "utf8"));
     const catalog = captured.tools;
     const catalogByName = new Map(catalog.map((tool) => [tool.name, tool]));
-    assert.ok(body.tools.length < catalog.length, "Anthropic should send the selected tool subset");
+    assert.equal(
+      body.tools.length,
+      catalog.length,
+      "Anthropic advertises the full stable catalog; availability is host-enforced",
+    );
     for (const tool of body.tools)
       assert.deepEqual(tool.input_schema, catalogByName.get(tool.name)!.parameters);
     assert.equal(body.messages[0].content.startsWith("### GENESIS PHASE:"), true);

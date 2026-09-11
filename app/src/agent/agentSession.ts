@@ -180,7 +180,7 @@ export class AgentSession implements AgentHandler {
       this.messages.push({ role: "assistant", text });
       return text;
     }
-    this.conversation.setTools([...ASK_TOOLS]);
+    this.conversation.setAvailableTools(ASK_TOOLS);
     const inspected = forkAgentState(this.state);
     try {
       let turn = await this.observeTurn(
@@ -300,7 +300,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     }
     if (!this.conversation) throw new Error("No conversation provider configured");
 
-    this.conversation.setTools();
+    this.conversation.setAvailableTools();
 
     const staged = forkAgentState(this.state);
     try {
@@ -569,7 +569,7 @@ Answer the player's question using evidence from inspection when needed. For hin
   private async genesis(templateMarkdown: string): Promise<BootResources> {
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating a game.");
-    this.conversation?.setTools(AUTHORING_SESSION_TOOLS);
+    this.conversation?.setAvailableTools(AUTHORING_SESSION_TOOLS);
     if (this.stubFallback) {
       this.onEvent("request", "Starting Genesis using offline StubAgent");
       const resources = this.stubFallback.initialResources();
@@ -612,7 +612,9 @@ Answer the player's question using evidence from inspection when needed. For hin
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Genesis] ${tc.name}`, { tool: tc.name, args: tc.input });
-          const res = await executeAgentToolAsync(this.state, tc.name, tc.input);
+          const res = await executeAgentToolAsync(this.state, tc.name, tc.input, {
+            allowedTools: AUTHORING_SESSION_TOOLS,
+          });
           this.onEvent(
             res.success ? "response" : "error",
             res.success
@@ -683,9 +685,9 @@ Answer the player's question using evidence from inspection when needed. For hin
     let staged = forkAgentState(this.state);
     staged.genesisComplete = true;
     staged.sources.objects = readInventoryObjects(staged.getFiles().get("OBJECT"), staged.profile);
-    const allowed = new Set(AUTHORING_SESSION_TOOLS);
-    this.conversation.setTools(AUTHORING_SESSION_TOOLS);
+    this.conversation.setAvailableTools(AUTHORING_SESSION_TOOLS);
     const snapshot: AgentRuntimeDeps = {
+      allowedTools: AUTHORING_SESSION_TOOLS,
       engine: {
         state: () => req.context["state"] ?? null,
         objects: () => req.context["objects"] ?? [],
@@ -748,9 +750,7 @@ Answer the player's question using evidence from inspection when needed. For hin
                 };
               }
             } else {
-              result = allowed.has(tc.name)
-                ? await executeAgentToolAsync(candidate, tc.name, tc.input, snapshot)
-                : { success: false, error: "This tool is unavailable during room preparation." };
+              result = await executeAgentToolAsync(candidate, tc.name, tc.input, snapshot);
               if (result.success) {
                 validateRoomCandidate(this.state, staged, candidate, room);
                 staged = candidate;

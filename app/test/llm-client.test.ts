@@ -50,7 +50,7 @@ test("OpenAI reports usage, keeps stable tools and refuses truncated calls befor
     model: "test",
     apiKey: "placeholder",
   });
-  conversation.setTools(["read_view"]);
+  conversation.setAvailableTools(["read_view"]);
   await assert.rejects(conversation.sendUserMessage("draw"), /output limit/i);
   assert.deepEqual(conversation.getUsage?.(), {
     input: 120,
@@ -58,7 +58,7 @@ test("OpenAI reports usage, keeps stable tools and refuses truncated calls befor
     cachedInput: 80,
     cacheWriteInput: 20,
   });
-  conversation.setTools(["write_view"]);
+  conversation.setAvailableTools(["write_view"]);
   await conversation.sendUserMessage("try a smaller cel");
   assert.deepEqual(requests[0]?.["tools"], requests[1]?.["tools"]);
   assert.deepEqual(requests[0]?.["tool_choice"], {
@@ -121,6 +121,48 @@ test("Anthropic reports total input including cache and closes unfinished tool t
   // reject numeric constraints; this catalog is sent unconstrained instead.
   assert.ok(tools.every((tool) => !("strict" in tool)));
   assert.match(JSON.stringify(tools), /"maximum":255/);
+});
+
+test("Anthropic keeps the full catalog and an annotation-free transcript across phases", async (t) => {
+  const requests: Record<string, unknown>[] = [];
+  t.mock.method(globalThis, "fetch", async (_input: unknown, init?: RequestInit) => {
+    requests.push(JSON.parse(String(init?.body)));
+    return new Response(
+      providerSse("anthropic", {
+        id: String(requests.length),
+        type: "message",
+        role: "assistant",
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: "done" }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+      { headers: { "content-type": "text/event-stream" } },
+    );
+  });
+  const conversation = createAnthropicConversation({
+    provider: "anthropic",
+    model: "test",
+    apiKey: "placeholder",
+  });
+  conversation.setAvailableTools(["read_view"]);
+  await conversation.sendUserMessage("look around");
+  await conversation.sendUserMessage("keep looking");
+  assert.equal(requests.length, 2);
+  for (const request of requests) {
+    const tools = request["tools"] as { name: string }[];
+    assert.ok(tools.length > 20, "the advertised catalog never narrows");
+    assert.ok(
+      tools.every((tool) => !("cache_control" in tool)),
+      "tool definitions carry no markers",
+    );
+    const messages = JSON.stringify(request["messages"]);
+    assert.ok(!messages.includes("cache_control"), "history is never annotated");
+  }
+  // One explicit checkpoint at the end of the static prefix, plus the
+  // top-level automatic breakpoint that rolls over the conversation tail.
+  const system = requests[0]?.["system"] as { cache_control?: unknown }[];
+  assert.deepEqual(system[0]?.cache_control, { type: "ephemeral" });
+  assert.deepEqual(requests[0]?.["cache_control"], { type: "ephemeral" });
 });
 
 test("Anthropic refusal surfaces the category and closes the pending tool call", async (t) => {

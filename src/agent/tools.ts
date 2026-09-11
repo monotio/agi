@@ -1396,6 +1396,8 @@ function executeLegacyTool(
  */
 export interface AgentRuntimeDeps {
   readonly readOnly?: boolean;
+  /** Phase availability policy: names outside the list are denied before dispatch. */
+  readonly allowedTools?: readonly string[];
   readonly frames?: FrameSource | undefined;
   readonly engine?: EngineStateSource | undefined;
 }
@@ -1558,6 +1560,11 @@ export async function executeAgentToolAsync(
   args: Record<string, unknown>,
   deps?: AgentRuntimeDeps,
 ): Promise<AgentToolResult> {
+  if (deps?.allowedTools && !deps.allowedTools.includes(name))
+    return {
+      success: false,
+      error: `'${name}' is not available in this phase of the session.`,
+    };
   if (deps?.readOnly && !ASK_TOOLS.includes(name))
     return {
       success: false,
