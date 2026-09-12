@@ -18,6 +18,7 @@ import type {
   WorkerInbound,
   WorkerPresentation,
 } from "../workerProtocol.ts";
+import { createInput } from "./input.ts";
 
 /** The only platform access worker modules get: the post boundary and a clock. */
 export interface WorkerPorts {
@@ -228,7 +229,7 @@ export interface WorkerContext {
 
 export function createWorkerContext(ports: WorkerPorts): WorkerContext {
   const now = ports.now();
-  return {
+  const ctx: WorkerContext = {
     ports,
     engine: null,
     host: undefined as unknown as EngineHost,
@@ -298,6 +299,8 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
     recording: { recording: null },
     fns: {} as WorkerFns,
   };
+  Object.assign(ctx.fns, createInput(ctx));
+  return ctx;
 }
 
 /**

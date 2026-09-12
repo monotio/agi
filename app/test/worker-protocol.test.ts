@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -10,10 +10,13 @@ import { fileURLToPath } from "node:url";
  * dispatchers make this a compile-time property; this test fails first when
  * a literal sneaks in around them.
  */
-const workerSource = readFileSync(
-  fileURLToPath(new URL("../src/engine.worker.ts", import.meta.url)),
-  "utf8",
-);
+const workerDir = fileURLToPath(new URL("../src/worker/", import.meta.url));
+const workerSource = [
+  readFileSync(fileURLToPath(new URL("../src/engine.worker.ts", import.meta.url)), "utf8"),
+  ...readdirSync(workerDir)
+    .filter((name) => name.endsWith(".ts"))
+    .map((name) => readFileSync(`${workerDir}${name}`, "utf8")),
+].join("\n");
 const protocolSource = readFileSync(
   fileURLToPath(new URL("../src/workerProtocol.ts", import.meta.url)),
   "utf8",

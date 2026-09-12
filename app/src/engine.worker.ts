@@ -11,7 +11,6 @@ import { openContainer } from "../../src/container/container.ts";
 import { OperationRecorder } from "../../src/agent/recordedReplay.ts";
 import type { RecordedEvent } from "./gameRecording.ts";
 import { Engine, HostWait, type EngineHost } from "../../src/runtime/engine.ts";
-import { AGI_KEY, DIRECTION_KEYS, NAV_KEYS } from "../../src/runtime/keys.ts";
 import type { ReplayObservation } from "./replay.ts";
 import { createProgressPreview } from "./progressPreview.ts";
 import { base64ToBytes, bytesToBase64 } from "./bytes.ts";
@@ -114,18 +113,6 @@ function postReplay(blocked: string | null, fullState = false): void {
   ctx.replay.replayRequest = null;
 }
 
-function flushDeferredMovement(): void {
-  if (!ctx.engine || ctx.engine.modalKind !== null || ctx.engine.continuationPending) return;
-  for (const key of ctx.input.deferredMovement.splice(0)) {
-    if (key === 0) {
-      if (ctx.recording.recording)
-        ctx.recording.recording.tape.run("release", () => ctx.engine!.releaseTrackedKey(true));
-      else ctx.engine.releaseTrackedKey(true);
-    } else ctx.input.keyQueue.push(key);
-  }
-  // Keys flushed while an interaction is parked still feed its key wait.
-  deliverQueuedKey();
-}
 /** Liveness observations stay responsive at slow game-selected cycle speeds. */
 const CYCLE_REPORT_MS = 250;
 
@@ -268,12 +255,6 @@ function finishCycle(): void {
   flushTraceBatch();
 }
 
-function setKeyWaiting(waiting: boolean): void {
-  if (waiting === ctx.input.keyWaiting) return;
-  ctx.input.keyWaiting = waiting;
-  sendPresentation({ type: "waitingForKey", waiting });
-}
-
 function advanceSoundClock(authoring = false): void {
   if (ctx.replay.replay) return;
   const frozen = authoring || ctx.cycle.paused;
@@ -315,35 +296,6 @@ function settleHostRequest(outstanding: { op: string; authoring: boolean }): voi
     ctx.replay.replay ? (ctx.replay.replay.tick * 1000) / 60 : ctx.ports.now(),
   );
   sendPresentation({ type: "soundPaused", paused: false });
-}
-
-/**
- * A queued key answers a parked key wait: no host request was ever posted
- * for it, so the arriving key is its answer — applied at this message
- * boundary exactly like a host answer. Replay mode has no timer to pick it
- * up later.
- */
-function deliverQueuedKey(): void {
-  if (!ctx.engine?.awaitingKey) return;
-  const queued = ctx.input.keyQueue.shift();
-  if (queued === undefined) return;
-  setKeyWaiting(false);
-  if (ctx.recording.recording) {
-    // The answer and the resumed pass belong to one recorded operation —
-    // the same shape a live suspension produces. Recording the delivery
-    // inside the tick run keeps it in the list: outside a run, tape.host
-    // drops calls, and a recording that started on this wait would lose it.
-    ctx.recording.recording.tape.run("tick", () => {
-      ctx.recording.recording!.tape.host(["waitKey", queued]);
-      ctx.engine!.deliverHostAnswer(queued);
-      ctx.engine!.tick();
-    });
-    if (ctx.engine.awaitingHostAnswer) ctx.recording.recording.tape.holdTick();
-  } else {
-    ctx.engine.deliverHostAnswer(queued);
-    if (ctx.engine.hostInteractionReady) tickEngine();
-  }
-  if (ctx.replay.replay && !ctx.engine.awaitingHostAnswer) postReplay(null, true);
 }
 
 /**
@@ -499,7 +451,7 @@ const host: EngineHost = {
       ctx.recording.recording?.tape.host(["waitKey", buffered]);
       return buffered;
     }
-    setKeyWaiting(true);
+    ctx.fns.setKeyWaiting(true);
     if (ctx.replay.replay) postReplay("waitkey");
     throw new HostWait();
   },
@@ -613,9 +565,6 @@ ctx.host = host;
 // Until their owning modules land (docs/rc10-cleanup-plan.md Part 2), the
 // still-local functions fill the context's function table.
 Object.assign(ctx.fns, {
-  setKeyWaiting,
-  flushDeferredMovement,
-  deliverQueuedKey,
   postHostRequest,
   settleHostRequest,
   abandonHostRequest,
@@ -829,7 +778,7 @@ function startTimers(): void {
           return;
         }
         advanceSoundClock();
-        deliverQueuedKey();
+        ctx.fns.deliverQueuedKey();
         if (
           ctx.engine!.modalKind !== null ||
           ctx.engine!.continuationPending ||
@@ -845,7 +794,7 @@ function startTimers(): void {
             postFrame(true);
           }
         } else if (ctx.clocks.cycle.poll(now, ctx.engine!.vars[10]!)) {
-          flushDeferredMovement();
+          ctx.fns.flushDeferredMovement();
           tickEngine();
           finishCycle();
           postFrame(true);
@@ -946,7 +895,7 @@ self.onmessage = (ev: MessageEvent) => {
             else if (
               ctx.clocks.cycle.poll((ctx.replay.replay.tick * 1000) / 60, ctx.engine.vars[10]!)
             ) {
-              flushDeferredMovement();
+              ctx.fns.flushDeferredMovement();
               tickEngine();
               finishCycle();
             }
@@ -1144,7 +1093,7 @@ self.onmessage = (ev: MessageEvent) => {
       // request still in flight resolves into a dropped answer.
       if (ctx.engine.hostInteractionPending) {
         ctx.engine.abortInteraction();
-        setKeyWaiting(false);
+        ctx.fns.setKeyWaiting(false);
         abandonHostRequest();
       }
       // Live patch landed: re-enter the room so the new resources take effect.
@@ -1215,7 +1164,7 @@ self.onmessage = (ev: MessageEvent) => {
           });
           // A checkpoint parked at a have.key wait restores still waiting:
           // the host needs the flag to route the answering key back.
-          if (ctx.engine.awaitingKey) setKeyWaiting(true);
+          if (ctx.engine.awaitingKey) ctx.fns.setKeyWaiting(true);
         } catch (e) {
           sendControl({ type: "restored", ok: false, message: String(e) });
         }
@@ -1256,7 +1205,7 @@ self.onmessage = (ev: MessageEvent) => {
       // A request in flight belonged to the replaced engine; its late answer
       // is dropped by the serial check and the host resolves its UI now.
       abandonHostRequest();
-      setKeyWaiting(false);
+      ctx.fns.setKeyWaiting(false);
       ctx.engine = new Engine(
         openContainer(ctx.boot.currentBootFiles),
         host,
@@ -1334,114 +1283,23 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "input") {
-      const text = String(msg.text);
-      recordEvent({ cycle: ctx.cycle.cycleCount, kind: "command", text });
-      ctx.input.inputBuffer.push(text);
+      ctx.fns.onInput(msg);
       return;
     }
     if (msg.type === "edit") {
-      if (!ctx.engine) return;
-      // Live mirror of the host's input widget onto the engine's input row.
-      ctx.recording.recording?.tape.record(["edit", String(msg.text)]);
-      ctx.engine.setEditLine(String(msg.text));
-      // Host typing is already in the input widget. Publish only edits made by game logic.
-      ctx.presentation.lastInputEdit = ctx.engine.inputEdit;
-      postFrame();
+      ctx.fns.onEdit(msg);
       return;
     }
     if (msg.type === "dismissPrint") {
-      if (!ctx.engine) return;
-      ctx.recording.recording?.tape.record(["ack"]);
-      recordEvent({ cycle: ctx.cycle.cycleCount, kind: "key", code: AGI_KEY.ENTER });
-      const pending = ctx.engine.hostInteraction;
-      // A click on the suspended selector or confirmation answers with its
-      // cancel key; a request still in flight resolves into a dropped answer.
-      if (pending !== null && ctx.engine.awaitingHostAnswer) {
-        if (pending.kind === "saveDialog" || pending.kind === "confirm") {
-          setKeyWaiting(false);
-          abandonHostRequest();
-          ctx.engine.deliverHostAnswer(AGI_KEY.ESCAPE);
-        }
-      }
-      ctx.engine.ackPrint();
-      postFrame();
+      ctx.fns.onDismissPrint();
       return;
     }
     if (msg.type === "key") {
-      if (
-        ctx.replay.replay &&
-        typeof msg.sessionId === "number" &&
-        msg.sessionId !== 0 &&
-        msg.sessionId !== ctx.replay.currentSessionId
-      ) {
-        return;
-      }
-      flushDeferredMovement();
-      const key = Number(msg.code) & 0xffff;
-      recordEvent({ cycle: ctx.cycle.cycleCount, kind: "key", code: key });
-      // A parked key wait answers from the queue directly — any key,
-      // including a navigation key that would otherwise defer.
-      const keyWaitParked = ctx.engine?.awaitingKey === true;
-      if (
-        !keyWaitParked &&
-        ctx.input.deferredMovement.length > 0 &&
-        ctx.engine?.modalKind === null &&
-        NAV_KEYS[key] !== undefined
-      ) {
-        if (ctx.input.deferredMovement.length < 19) ctx.input.deferredMovement.push(key);
-      } else ctx.input.keyQueue.push(key);
-      deliverQueuedKey();
+      ctx.fns.onKey(msg);
       return;
     }
     if (msg.type === "direction") {
-      if (!ctx.engine) return;
-      if (
-        ctx.replay.replay &&
-        typeof msg.sessionId === "number" &&
-        msg.sessionId !== 0 &&
-        msg.sessionId !== ctx.replay.currentSessionId
-      ) {
-        return;
-      }
-      const dir = Number(msg.dir) & 0xff;
-      if (dir === 0) {
-        // The main thread captures the gate even while save/restore blocks us.
-        // In replay the tape's ordering is exact, so the engine's own gate is
-        // truth; the mirrored holdToMove goes stale while frames are
-        // suppressed during seeking.
-        const eligible = ctx.replay.replay
-          ? ctx.engine.releaseGate !== 0
-          : typeof msg.releaseEligible === "boolean"
-            ? msg.releaseEligible
-            : ctx.engine.releaseGate !== 0;
-        if (eligible && ctx.input.deferredMovement.length < 19) ctx.input.deferredMovement.push(0);
-        if (eligible) recordEvent({ cycle: ctx.cycle.cycleCount, kind: "release" });
-        flushDeferredMovement();
-        return;
-      }
-      const dirKey = DIRECTION_KEYS[dir];
-      if (ctx.engine.modalKind !== null) {
-        // Arrows steer the open modal (inventory selection, menu) instead of
-        // ego; the direction key word replays the same navigation.
-        if (dirKey !== undefined)
-          recordEvent({ cycle: ctx.cycle.cycleCount, kind: "key", code: dirKey });
-        ctx.recording.recording?.tape.record(["navigate", dir]);
-        ctx.engine.modalNavigate(dir);
-        postFrame();
-        return;
-      }
-      flushDeferredMovement();
-      if (dirKey !== undefined) {
-        // Hold-to-move games keep the heading until the release; tap games
-        // toggle it with the key word itself, exactly as the runner replays.
-        if (ctx.engine.releaseGate !== 0)
-          recordEvent({ cycle: ctx.cycle.cycleCount, kind: "direction", dir });
-        else recordEvent({ cycle: ctx.cycle.cycleCount, kind: "key", code: dirKey });
-        if (ctx.input.deferredMovement.length > 0 && !ctx.engine.awaitingKey) {
-          if (ctx.input.deferredMovement.length < 19) ctx.input.deferredMovement.push(dirKey);
-        } else ctx.input.keyQueue.push(dirKey);
-        deliverQueuedKey();
-      }
+      ctx.fns.onDirection(msg);
       return;
     }
     // A message type with no handler fails typecheck here.
