@@ -7,8 +7,6 @@
  */
 import { parseWordsTok } from "../../src/logic/words.ts";
 import { openContainer } from "../../src/container/container.ts";
-import { OperationRecorder } from "../../src/agent/recordedReplay.ts";
-import type { RecordedEvent } from "./gameRecording.ts";
 import { Engine, HostWait, type EngineHost } from "../../src/runtime/engine.ts";
 import { base64ToBytes, bytesToBase64 } from "./bytes.ts";
 import { createWorkerContext, resetSession, type WorkerPorts } from "./worker/context.ts";
@@ -42,16 +40,6 @@ function sendPresentation(message: WorkerPresentation, options?: Transferable[])
     (message as Record<string, unknown>)["sessionId"] = ctx.replay.currentSessionId;
   }
   self.postMessage(message, options ?? []);
-}
-
-function recordEvent(event: RecordedEvent): void {
-  if (!ctx.recording.recording) return;
-  if (ctx.recording.recording.events.length >= 5000) {
-    ctx.recording.recording.tainted =
-      "Recording reached its action limit; record a shorter scenario.";
-    return;
-  }
-  ctx.recording.recording.events.push(event);
 }
 
 const host: EngineHost = {
@@ -205,12 +193,6 @@ const host: EngineHost = {
 
 ctx.host = host;
 
-// Until their owning modules land (docs/rc10-cleanup-plan.md Part 2), the
-// still-local functions fill the context's function table.
-Object.assign(ctx.fns, {
-  recordEvent,
-});
-
 self.onmessage = (ev: MessageEvent) => {
   const msg = ev.data as WorkerInbound;
   try {
@@ -272,64 +254,15 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "startRecording") {
-      if (!ctx.engine) {
-        sendControl({
-          type: "recordingStarted",
-          id: msg.id,
-          ok: false,
-          error: "No game is running.",
-        });
-        return;
-      }
-      // The same safe-boundary gates an autosave uses: a suspended host
-      // request, a text screen or the pre-first-room gap cannot resume; a
-      // parked window or key wait records with its continuation.
-      const hostImage = ctx.engine.recordingImage();
-      if (!hostImage) {
-        sendControl({
-          type: "recordingStarted",
-          id: msg.id,
-          ok: false,
-          error: "Recording needs a quiet moment: answer the open prompt and let the room draw.",
-        });
-        return;
-      }
-      ctx.recording.recording = {
-        tape: new OperationRecorder(),
-        events: [],
-        printed: [],
-        tainted: null,
-        usedGetnum: false,
-      };
-      sendControl({
-        type: "recordingStarted",
-        id: msg.id,
-        ok: true,
-        image: bytesToBase64(hostImage),
-        replayState: ctx.engine.captureReplayState(),
-        cycle: ctx.cycle.cycleCount,
-        state: ctx.engine.readState(),
-      });
+      ctx.fns.onStartRecording(msg);
       return;
     }
     if (msg.type === "stopRecording") {
-      const taken = ctx.recording.recording;
-      ctx.recording.recording = null;
-      sendControl({
-        type: "recordingStopped",
-        id: msg.id,
-        operations: taken?.tape.operations ?? [],
-        events: taken?.events ?? [],
-        printed: taken?.printed ?? [],
-        tainted: taken?.tainted ?? taken?.tape.error ?? null,
-        usedGetnum: false,
-        cycle: ctx.cycle.cycleCount,
-        state: ctx.engine ? ctx.engine.readState() : null,
-      });
+      ctx.fns.onStopRecording(msg);
       return;
     }
     if (msg.type === "cancelRecording") {
-      ctx.recording.recording = null;
+      ctx.fns.onCancelRecording();
       return;
     }
     if (msg.type === "exportFiles") {
