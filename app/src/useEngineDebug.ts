@@ -13,17 +13,27 @@ export function useEngineDebug(options: { state: EngineState; link: WorkerLink }
   const { state, link } = options;
 
   /**
-   * Arm or disarm worker debug channels. ownership and objects ride on frame
-   * posts; trace streams structured instruction records. Channels cost real
-   * per-cycle work in the worker — arm only while an inspector view is open.
+   * Arm or disarm a debug surface (a consumer of debug payloads). The armed
+   * worker channels are derived here — the union of every consumer's needs —
+   * so toggling one control never disarms a channel another view still uses:
+   * exploded Layers need picture/ownership even while Objects and Inspect
+   * are off. Channels cost real per-cycle work; nothing stays armed without
+   * a consumer.
    */
-  function setDebugChannels(
-    channels: Partial<{ ownership: boolean; objects: boolean; trace: boolean; picture: boolean }>,
-  ): void {
-    Object.assign(state.debugChannels, channels);
+  function setDebugConsumer(consumer: keyof EngineState["debugConsumers"], on: boolean): void {
+    const c = state.debugConsumers;
+    c[consumer] = on;
+    const wantsObjects = c.dock || c.overlay || c.inspect || c.exploded;
+    const channels = {
+      objects: wantsObjects,
+      ownership: wantsObjects,
+      picture: c.exploded,
+      trace: c.trace,
+    };
+    state.debugChannels = channels;
     link.getWorker()?.postMessage({
       type: "debug",
-      channels: { ...state.debugChannels },
+      channels: { ...channels },
     } satisfies WorkerInbound);
   }
 
@@ -70,7 +80,7 @@ export function useEngineDebug(options: { state: EngineState; link: WorkerLink }
   }
 
   return {
-    setDebugChannels,
+    setDebugConsumer,
     debugWrite,
     debugEventsSince,
     debugTraceSince,

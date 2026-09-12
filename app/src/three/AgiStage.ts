@@ -252,11 +252,18 @@ export class AgiStage {
 
   /**
    * Upload the per-pixel object ownership (num + 1, 0 = background). Sprite
-   * layers mask on it so only real object pixels render on a band.
+   * layers mask on it so only real object pixels render on a band. Pass null
+   * when the ownership channel is disarmed: an absent buffer must not leave
+   * a previous frame's ownership describing current pixels.
    */
-  setOwnershipData(ownership: Uint16Array): void {
+  setOwnershipData(ownership: Uint16Array | null): void {
     if (this.disposed || !this.ownerTexture) return;
     const data = this.ownerTexture.image.data as Uint8Array;
+    if (ownership === null) {
+      data.fill(0);
+      this.ownerTexture.needsUpdate = true;
+      return;
+    }
     if (data.length !== ownership.length) return;
     for (let i = 0; i < ownership.length; i++) data[i] = Math.min(ownership[i]!, 255);
     this.ownerTexture.needsUpdate = true;

@@ -193,10 +193,15 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         // Armed debug channels ride the frame; absence clears the mirror so a
         // disarmed channel never leaves stale data in the inspector.
         if (msg.ownership) latestFrame.ownership = msg.ownership;
+        else delete latestFrame.ownership;
         if (msg.objects) latestFrame.objects = msg.objects;
+        else delete latestFrame.objects;
         if (msg.picVisual && msg.picPriority) {
           latestFrame.picVisual = msg.picVisual;
           latestFrame.picPriority = msg.picPriority;
+        } else {
+          delete latestFrame.picVisual;
+          delete latestFrame.picPriority;
         }
         state.debugObjects = msg.objects ?? [];
         onFrame(latestFrame);

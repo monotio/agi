@@ -121,6 +121,13 @@ export function useEngine(
     debugTrace: [],
     debugTraceDropped: 0,
     debugChannels: { ownership: false, objects: false, trace: false, picture: false },
+    debugConsumers: {
+      dock: false,
+      overlay: false,
+      inspect: false,
+      exploded: false,
+      trace: false,
+    },
   });
 
   let activeWalkthroughSession = 0;
@@ -434,7 +441,7 @@ export function useEngine(
     flushAutosave: autosaveController.flushAutosave,
     flushAutosaveDetailed: autosaveController.flushAutosaveDetailed,
     lastAutosaveRecord: autosaveController.lastAutosaveRecord,
-    setDebugChannels: debug.setDebugChannels,
+    setDebugConsumer: debug.setDebugConsumer,
     debugWrite: debug.debugWrite,
     debugEventsSince: debug.debugEventsSince,
     debugTraceSince: debug.debugTraceSince,

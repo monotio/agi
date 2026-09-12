@@ -31,7 +31,7 @@ const {
   toggleWalkthroughPauseOnDialog,
   seekToTick,
   seekToCheckpoint,
-  setDebugChannels,
+  setDebugConsumer,
   debugWrite,
   debugEventsSince,
   readEngineState,
@@ -95,20 +95,18 @@ watch(splitAt, () => presentation.repaint());
 
 watch(debugViewMode, (mode) => {
   presentation.setExplodedMode(mode === "explode");
-  // Exploded layers need the picture surface and ownership — arm them so the
-  // next frame carries picVisual/picPriority/ownership.
-  setDebugChannels(
-    mode === "explode" ? { picture: true, objects: true, ownership: true } : { picture: false },
-  );
+  // Exploded layers need the picture surface and ownership; registering the
+  // consumer arms them while any other consumer's needs stay unioned in.
+  setDebugConsumer("exploded", mode === "explode");
   presentation.repaint();
 });
 
 watch(debugOpen, (open) => {
   // The dock needs the live object table and ownership buffer; the trace
-  // channel stays opt-in from the Timeline tab.
-  setDebugChannels({ objects: open, ownership: open });
+  // consumer stays opt-in from the Timeline tab.
+  setDebugConsumer("dock", open);
   if (!open) {
-    setDebugChannels({ trace: false, picture: false });
+    setDebugConsumer("trace", false);
     debugViewMode.value = "visual";
     presentation.setExplodedMode(false);
     presentation.repaint();
@@ -609,7 +607,7 @@ defineExpose({
         :write="debugWrite"
         :project="presentation.debugProject"
         :pick3d="presentation.debugPick3d"
-        @set-channels="setDebugChannels"
+        @set-consumer="setDebugConsumer"
         @set-view-mode="debugViewMode = $event"
         @close="debugOpen = false"
       />

@@ -93,7 +93,9 @@ export function createPresentation() {
         "skip",
       );
       stage!.setPictureData(composedPic, picPriority);
-      if (frame.ownership) stage!.setOwnershipData(frame.ownership);
+      // An absent channel means unknown, not "as last frame": clear the mask
+      // so sprite layers and picking never use stale ownership.
+      stage!.setOwnershipData(frame.ownership ?? null);
     }
     if (!stage || testMode) {
       const ctx = canvasEl.value?.getContext("2d");

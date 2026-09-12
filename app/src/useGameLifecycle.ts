@@ -109,6 +109,13 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     state.debugTrace = [];
     state.debugTraceDropped = 0;
     state.debugChannels = { ownership: false, objects: false, trace: false, picture: false };
+    state.debugConsumers = {
+      dock: false,
+      overlay: false,
+      inspect: false,
+      exploded: false,
+      trace: false,
+    };
   }
 
   /** Keep the selected provider and its key together; archives carry no credentials. */

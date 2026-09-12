@@ -68,7 +68,12 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  setChannels: [channels: Partial<{ ownership: boolean; objects: boolean; trace: boolean }>];
+  /**
+   * A surface that consumes debug payloads turned on or off. The engine
+   * derives the armed channel set from all consumers, so a checkbox can
+   * never disarm a channel another view still needs.
+   */
+  setConsumer: [consumer: "overlay" | "inspect" | "trace", on: boolean];
   setViewMode: [mode: DebugViewMode];
   close: [];
 }>();
@@ -507,8 +512,16 @@ watch(
 );
 
 function toggleTrace(): void {
-  emit("setChannels", { trace: !props.channels.trace });
+  emit("setConsumer", "trace", !props.channels.trace);
 }
+
+// The dock unmounts with the inspector closed or the game ejected; release
+// its channel consumers so nothing stays armed for a closed surface.
+onBeforeUnmount(() => {
+  emit("setConsumer", "overlay", false);
+  emit("setConsumer", "inspect", false);
+  emit("setConsumer", "trace", false);
+});
 
 const COLOR_NAMES = [
   "black",
@@ -635,12 +648,7 @@ const MODES: { id: DebugViewMode; label: string; title: string }[] = [
             v-model="overlayOn"
             type="checkbox"
             data-testid="dbg-overlay-toggle"
-            @change="
-              emit('setChannels', {
-                objects: overlayOn || inspectArmed,
-                ownership: overlayOn || inspectArmed,
-              })
-            "
+            @change="emit('setConsumer', 'overlay', overlayOn)"
           />
           Objects
         </label>
@@ -649,12 +657,7 @@ const MODES: { id: DebugViewMode; label: string; title: string }[] = [
             v-model="inspectArmed"
             type="checkbox"
             data-testid="dbg-inspect-toggle"
-            @change="
-              emit('setChannels', {
-                objects: overlayOn || inspectArmed,
-                ownership: overlayOn || inspectArmed,
-              })
-            "
+            @change="emit('setConsumer', 'inspect', inspectArmed)"
           />
           Inspect
         </label>

@@ -102,4 +102,17 @@ export interface EngineState {
   debugTraceDropped: number;
   /** Debug channels the app has armed on the worker. */
   debugChannels: { ownership: boolean; objects: boolean; trace: boolean; picture: boolean };
+  /**
+   * Inspector surfaces that need debug payloads; the armed channels are the
+   * union of their needs, derived in one place so no control disarms a
+   * channel another consumer still uses (e.g. exploded Layers need
+   * picture/ownership even when Objects and Inspect are off).
+   */
+  debugConsumers: {
+    dock: boolean;
+    overlay: boolean;
+    inspect: boolean;
+    exploded: boolean;
+    trace: boolean;
+  };
 }
