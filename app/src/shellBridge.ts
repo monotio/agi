@@ -13,6 +13,14 @@ export interface ShellBridge {
   openCreateSection(updateHash?: boolean): void;
   /** Close the header's open nav menus (registered by GameHeader). */
   closeNavMenus(restoreFocus?: boolean): void;
+  /** Start the recorded walkthrough for a game alias (registered by App.vue). */
+  startWalkthrough(alias: string): void;
+  /** The create pane's launch button (registered by CreatePanel). */
+  createButtonEl(): HTMLElement | null | undefined;
+  /** The assistant bubble's input (registered by AgentBubble). */
+  assistantInputEl(): HTMLElement | null | undefined;
+  /** Focus the game input (registered by PlayArea). */
+  focusGameInput(): void;
 }
 
 export const shellBridgeKey: InjectionKey<ShellBridge> = Symbol("agi-shell-bridge");
@@ -22,6 +30,10 @@ export function createShellBridge(): ShellBridge {
     togglePowerUp: () => {},
     openCreateSection: () => {},
     closeNavMenus: () => {},
+    startWalkthrough: () => {},
+    createButtonEl: () => null,
+    assistantInputEl: () => null,
+    focusGameInput: () => {},
   };
 }
 
