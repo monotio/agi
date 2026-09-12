@@ -31,6 +31,7 @@ import {
   type DebugViewMode,
   type PickPoint,
 } from "./debugView.ts";
+import type { StagePick } from "./explodedPick.ts";
 
 type StampedTrace = TraceRecord & { seq: number; cycle: number };
 
@@ -64,7 +65,7 @@ const props = defineProps<{
    * (NDC -1..1, y up) back into logical picture space. Null while flat.
    */
   project: (band: number, x: number, y: number) => { x: number; y: number } | null;
-  pick3d: (nx: number, ny: number) => { x: number; y: number } | null;
+  pick3d: (nx: number, ny: number) => StagePick | null;
 }>();
 
 const emit = defineEmits<{
@@ -141,11 +142,35 @@ const hover = ref<{
 const picked = ref<LatchedPick>();
 
 const pickedObject = computed<ScreenObjectState | null>(() => {
-  const owner = picked.value?.inspection.owner;
+  const p = picked.value;
+  // Only a sprite pick carries an object identity — a picture, control or
+  // text layer never invents one even if stale ownership data disagrees.
+  if (p?.point.layerKind && p.point.layerKind !== "sprite") return null;
+  const owner = p?.inspection.owner;
   return owner === null || owner === undefined
     ? null
     : (props.objects.find((o) => o.num === owner) ?? null);
 });
+
+function layerLabel(point: PickPoint): string {
+  const b = point.layerBand;
+  switch (point.layerKind) {
+    case "control":
+      return "control lines";
+    case "picture":
+      return `picture band ${b}`;
+    case "sprite":
+      return `sprite band ${b}`;
+    case "preview":
+      return "modal preview";
+    case "text":
+      return "text surface";
+    case "background":
+      return "background";
+    default:
+      return "outside picture band";
+  }
+}
 
 function eventPoint(ev: PointerEvent): PickPoint | null {
   const el = ev.currentTarget as HTMLElement;
@@ -157,10 +182,22 @@ function eventPoint(ev: PointerEvent): PickPoint | null {
     const ny = -(((ev.clientY - rect.top) / rect.height) * 2 - 1);
     const hit = props.pick3d(nx, ny);
     if (!hit) return null;
-    return {
-      logical: hit,
-      displayed: { x: hit.x * 2, y: (props.frame?.picRow ?? 1) * 8 + hit.y },
+    const bandLayer =
+      hit.kind === "control" ||
+      hit.kind === "picture" ||
+      hit.kind === "sprite" ||
+      hit.kind === "preview";
+    const point: PickPoint = {
+      // Band layers pick in logical picture space; the text surface and
+      // background report frame space (no logical pixel exists there).
+      logical: bandLayer ? { x: hit.x, y: hit.y } : null,
+      displayed: bandLayer
+        ? { x: hit.x * 2, y: (props.frame?.picRow ?? 1) * 8 + hit.y }
+        : { x: hit.x, y: hit.y },
+      layerKind: hit.kind,
     };
+    if (hit.band !== undefined) point.layerBand = hit.band;
+    return point;
   }
   return pickFromClient(ev.clientX, ev.clientY, rect, props.frame?.picRow ?? 1);
 }
@@ -213,6 +250,7 @@ async function copyPick(): Promise<void> {
   const payload = {
     logical: p.point.logical,
     displayed: p.point.displayed,
+    layer: p.point.layerKind ? { kind: p.point.layerKind, band: p.point.layerBand } : null,
     color: p.inspection.color,
     priority: p.inspection.priority,
     owner: p.inspection.owner,
@@ -676,7 +714,7 @@ const MODES: { id: DebugViewMode; label: string; title: string }[] = [
             </template>
           </template>
         </template>
-        <template v-else>outside picture band</template>
+        <template v-else>{{ layerLabel(hover.point) }}</template>
       </div>
 
       <div v-if="picked" class="pick-card" data-testid="dbg-pick">
@@ -687,6 +725,8 @@ const MODES: { id: DebugViewMode; label: string; title: string }[] = [
           alt="crop around picked pixel"
         />
         <dl class="pick-fields">
+          <dt v-if="picked.point.layerKind">layer</dt>
+          <dd v-if="picked.point.layerKind">{{ layerLabel(picked.point) }}</dd>
           <dt>logical</dt>
           <dd>({{ picked.point.logical?.x }}, {{ picked.point.logical?.y }})</dd>
           <dt>displayed</dt>

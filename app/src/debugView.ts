@@ -7,6 +7,7 @@
  */
 import type { Frame } from "./gameTypes.ts";
 import type { ScreenObjectState } from "../../src/runtime/engine.ts";
+import type { StagePick } from "./explodedPick.ts";
 import { EGA_PALETTE } from "./palette.ts";
 import { FRAME_HEIGHT, FRAME_WIDTH } from "./composite.ts";
 
@@ -26,6 +27,13 @@ export interface PickPoint {
   logical: { x: number; y: number } | null;
   /** Composed-frame pixel (0..319, 0..199). */
   displayed: { x: number; y: number };
+  /**
+   * Which exploded layer rendered the picked pixel, when the pick came from
+   * the GPU stage. Undefined for flat 2D picks.
+   */
+  layerKind?: StagePick["kind"];
+  /** Priority band of a picture/sprite layer pick. */
+  layerBand?: number;
 }
 
 /**

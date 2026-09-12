@@ -31,6 +31,7 @@ import {
   vec3,
 } from "three/tsl";
 import { FRAME_HEIGHT, FRAME_WIDTH } from "../composite.ts";
+import { pickThroughLayers, type StagePick } from "../explodedPick.ts";
 
 /** Logical picture geometry the exploded view separates into depth layers. */
 const PIC_W = 160;
@@ -51,6 +52,8 @@ const CAM_Y = 0.42;
  * exploded look — while content stays registered over its logical spot.
  */
 const LAYER_SPREAD = 0.4;
+export type { StagePick };
+
 /** Control-line colours (priority 0-3) on the rearmost exploded layer. */
 const CONTROL_TINTS: [number, number, number][] = [
   [1.0, 0.25, 0.25],
@@ -300,21 +303,26 @@ export class AgiStage {
 
   /**
    * Reverse of projectBandPoint: cast a ray through normalized device coords
-   * (-1..1, y up) into the exploded layers. Every band shares the same uv
-   * mapping, so the first non-text hit yields the logical picture point.
+   * (-1..1, y up) into the exploded layers. Intersections are filtered by the
+   * same mask rules that render each layer — a geometric hit on a masked-out
+   * pixel falls through to the next layer, so the returned pick names the
+   * layer and logical point of the pixel the user actually sees.
    */
-  pickAt(nx: number, ny: number): { x: number; y: number } | null {
+  pickAt(nx: number, ny: number): StagePick | null {
     if (!this.exploded || !this.perspCamera || !this.explodedGroup) return null;
     this.raycaster.setFromCamera(this.vec2Tmp.set(nx, ny), this.perspCamera);
     const hits = this.raycaster.intersectObjects(this.explodedGroup.children, false);
-    for (const hit of hits) {
-      if (hit.object.name === "explodedText" || !hit.uv) continue;
-      return {
-        x: Math.min(PIC_W - 1, Math.max(0, Math.floor(hit.uv.x * PIC_W))),
-        y: Math.min(PIC_H - 1, Math.max(0, Math.floor((1 - hit.uv.y) * PIC_H))),
-      };
-    }
-    return null;
+    return pickThroughLayers(
+      hits
+        .filter((hit) => hit.uv)
+        .map((hit) => ({ name: hit.object.name, u: hit.uv!.x, v: hit.uv!.y })),
+      {
+        priority: this.prioTexture?.image.data as Uint8Array | undefined,
+        picturePriority: this.picPriTexture?.image.data as Uint8Array | undefined,
+        owner: this.ownerTexture?.image.data as Uint8Array | undefined,
+        text: this.textTexture?.image.data as Uint8Array | undefined,
+      },
+    );
   }
 
   /**
@@ -407,7 +415,9 @@ export class AgiStage {
       );
     })();
     this.explodedMaterials.push(controlMat);
-    addLayer(new THREE.Mesh(this.explodedGeometry, controlMat), -LAYER_GAP * 0.6, false);
+    const controlMesh = new THREE.Mesh(this.explodedGeometry, controlMat);
+    controlMesh.name = "control";
+    addLayer(controlMesh, -LAYER_GAP * 0.6, false);
 
     for (let band = 4; band <= 15; band++) {
       const bandU = uniform(band);
@@ -420,7 +430,9 @@ export class AgiStage {
         return frameSample(picTex);
       })();
       this.explodedMaterials.push(mat);
-      addLayer(new THREE.Mesh(this.explodedGeometry, mat), z, false);
+      const wallMesh = new THREE.Mesh(this.explodedGeometry, mat);
+      wallMesh.name = `pic:${band}`;
+      addLayer(wallMesh, z, false);
       // Sprite layer: object-owned pixels whose effective priority is this
       // band. A hair in front of the wall so coplanar pixels pick the sprite.
       const spriteMat = new MeshBasicNodeMaterial();
@@ -431,7 +443,9 @@ export class AgiStage {
         return frameSample(frameTex);
       })();
       this.explodedMaterials.push(spriteMat);
-      addLayer(new THREE.Mesh(this.explodedGeometry, spriteMat), z + 0.004, false);
+      const spriteMesh = new THREE.Mesh(this.explodedGeometry, spriteMat);
+      spriteMesh.name = `sprite:${band}`;
+      addLayer(spriteMesh, z + 0.004, false);
     }
 
     // Text plane: samples a text-only composite (transparent where no cell

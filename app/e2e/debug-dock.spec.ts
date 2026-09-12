@@ -169,6 +169,19 @@ test("inspector shows live priority view, picks the drawn object, and lists stat
     // exploded frame; the second poll proves it holds, not just flashed.
     await expect.poll(cyanPixels, { timeout: 20_000 }).toBeGreaterThan(500);
     await expect.poll(cyanPixels, { timeout: 20_000 }).toBeGreaterThan(500);
+
+    // Mask-aware picking: a tap raycasts the layer stack, so the latched
+    // pick names the band that rendered the pixel — not the nearest quad.
+    // The canvas centre is sky (picture band 4): the nearer text quad is
+    // transparent there and every sprite quad masks out without an owner,
+    // so the pick must fall through to the band-4 wall.
+    const overlay3d = (await page.getByTestId("dbg-overlay").boundingBox())!;
+    await page.mouse.click(overlay3d.x + overlay3d.width / 2, overlay3d.y + overlay3d.height / 2);
+    const pick3d = page.getByTestId("dbg-pick");
+    await expect(pick3d).toBeVisible();
+    await expect(pick3d).toContainText("layer");
+    await expect(pick3d).toContainText("picture band 4");
+    await expect(pick3d).toContainText("background");
   }
 
   // Back to game mode.
