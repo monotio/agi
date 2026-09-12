@@ -30,7 +30,7 @@ import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "..
 import { detectProfile, type AgiProfile, type ProfileId } from "./profile.ts";
 import { TraceWindow } from "./trace.ts";
 import { InputQueue } from "./inputQueue.ts";
-import { AGI_KEY, NAV_KEYS } from "./keys.ts";
+import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, normalizeModalKey } from "./keys.ts";
 import {
   validateEngineReplayState,
   type EngineReplayState,
@@ -113,12 +113,9 @@ export interface EngineHost {
   /**
    * Block until a key is pressed. Used by have.key busy loops (see condition
    * 0x0d): a host whose keys arrive by message cannot deliver one while the
-   * interpreter spins. `waitKey` is preferred; `waitTextKey` is the older name
-   * and is still accepted.
+   * interpreter spins, so it throws HostWait and the key arrives by answer.
    */
   waitKey?(): number;
-  /** Deprecated alias of waitKey, kept for hosts written against the old port. */
-  waitTextKey?(): number;
   /** Status line content (score etc.); empty string hides it. */
   statusLine(text: string): void;
   /**
@@ -518,12 +515,6 @@ export class Engine {
   /** A host answer already delivered; the next suspended tick applies it. */
   private pendingAnswer: unknown;
   /**
-   * Re-entrant calls inside an in-flight synchronous host call observe the
-   * armed record; the count distinguishes that from a genuinely suspended
-   * interaction (the call threw HostWait and unwound, leaving depth 0).
-   */
-  private hostCallDepth = 0;
-  /**
    * Suspended-IF replay bound: on the resume of a have.key wait, condition
    * PCs below this in the active condition list return their recorded outcome
    * instead of re-evaluating, so the resumed pass sees identical operands.
@@ -772,7 +763,9 @@ export class Engine {
    * Undismissed modal windows. Classic AGI message windows pause the
    * interpreter until acknowledged — the crocodiles wait while you read.
    */
-  private printsPending = 0;
+  private get printsPending(): number {
+    return this.modals.length;
+  }
 
   /** Container patches applied so far; the host's change detector. */
   private patchGen = 0;
@@ -921,16 +914,6 @@ export class Engine {
   }
 
   /**
-   * The host declined a wait whose request was never issued (replay aborts,
-   * restart/quit teardown). Session confirmations decline to their "no"
-   * branch so the game continues; other kinds park until restart/restore.
-   */
-  declineSessionConfirm(): void {
-    if (this.pendingInteraction?.kind !== "confirm") return;
-    this.deliverHostAnswer(0);
-  }
-
-  /**
    * Abandon the suspended interaction without a host answer. The parked logic
    * stack is dropped with it — the suspended instruction's continuation is
    * meaningless without its answer — so the next tick starts a fresh pass.
@@ -951,24 +934,21 @@ export class Engine {
   }
 
   /**
-   * Call a host service that may not be able to answer synchronously. The
-   * pending record arms before the call so a host that throws HostWait — the
-   * bridge worker, whose response arrives on a later event-loop pass — leaves
-   * the suspended interaction recorded for `deliverHostAnswer`. A synchronous
-   * answer or a real failure disarms it again.
+   * Call a host service that may not be able to answer synchronously. Only a
+   * thrown HostWait arms the record — a synchronous answer or a real failure
+   * leaves nothing suspended, so a re-entrant `autosaveImage` inside the host's
+   * own callback still snapshots. `deliverHostAnswer` feeds the answer back
+   * into `applyInteraction`.
    */
   private hostCall<T>(pending: PendingInteraction, call: () => T): T {
-    this.pendingInteraction = pending;
-    this.hostCallDepth++;
     try {
       const result = call();
-      this.pendingInteraction = null;
+      if (this.pendingInteraction === pending) this.pendingInteraction = null;
       return result;
     } catch (error) {
-      if (!(error instanceof HostWait)) this.pendingInteraction = null;
+      if (error instanceof HostWait) this.pendingInteraction = pending;
+      else if (this.pendingInteraction === pending) this.pendingInteraction = null;
       throw error;
-    } finally {
-      this.hostCallDepth--;
     }
   }
 
@@ -1006,15 +986,14 @@ export class Engine {
         // another host round trip.
         const queued = this.drainDialogKey();
         if (queued !== undefined) return queued;
-        const wait = this.host.waitKey ?? this.host.waitTextKey;
+        const wait = this.host.waitKey;
         if (wait) return this.hostCall(pending, () => wait.call(this.host) ?? AGI_KEY.ESCAPE);
         return AGI_KEY.ESCAPE;
       }
       case "list": {
         const list = this.host.listSaveGames;
-        // Storage errors surface as the selector's own failure screen, same
-        // as runSaveDialog's caught list; HostWait is the suspension signal,
-        // not a failure.
+        // Storage errors surface as the selector's own failure screen;
+        // HostWait is the suspension signal, not a failure.
         return this.hostCall(pending, () => {
           if (!list) return null;
           try {
@@ -1070,28 +1049,12 @@ export class Engine {
    * navigation event answers. Returns undefined when nothing is queued.
    */
   private drainDialogKey(): number | undefined {
-    for (const key of this.host.takeKeys()) {
-      const normalized =
-        key === 0x0101 || key === 0x0301
-          ? AGI_KEY.ENTER
-          : key === 0x0201 || key === 0x0401
-            ? AGI_KEY.ESCAPE
-            : key;
-      const raw = normalized & 0xff ? normalized & 0xff : normalized & 0xffff;
-      const navigation = NAV_KEYS[raw];
-      this.inputQueue.enqueue({
-        type: navigation === undefined ? 1 : 2,
-        value: navigation ?? raw,
-        mapOnConsume: true,
-      });
-    }
+    for (const key of this.host.takeKeys()) this.inputQueue.enqueueModalKey(key);
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
       if (event.type === 1) return event.value;
       if (event.type === 2 && event.value !== 0) {
-        const navigationKey = Object.entries(NAV_KEYS).find(
-          ([, direction]) => direction === event.value,
-        );
-        if (navigationKey) return Number(navigationKey[0]);
+        const navigationKey = NAV_KEY_CODES[event.value];
+        if (navigationKey !== undefined) return navigationKey;
       }
     }
     return undefined;
@@ -1123,7 +1086,7 @@ export class Engine {
     pending: Extract<PendingInteraction, { kind: "confirm" }>,
     first?: number,
   ): void {
-    const wait = this.host.waitKey ?? this.host.waitTextKey;
+    const wait = this.host.waitKey;
     let key = first;
     for (;;) {
       key ??= this.hostCall(pending, () =>
@@ -1424,8 +1387,7 @@ export class Engine {
     }
     const m = this.modal;
     if (!m) return;
-    if (key === 0x0101 || key === 0x0301) key = AGI_KEY.ENTER;
-    if (key === 0x0201 || key === 0x0401) key = AGI_KEY.ESCAPE;
+    key = normalizeModalKey(key);
     const nav = NAV_KEYS[key];
     if (nav !== undefined) {
       this.modalNavigate(nav);
@@ -1486,7 +1448,6 @@ export class Engine {
   private closeModal(): void {
     const m = this.modals.pop();
     if (!m) return;
-    if (this.printsPending > 0) this.printsPending--;
     // A timed print zeroes v21 when its window closes, by timeout or key.
     // docs/fidelity.md: print-handler-output-modes
     if (m.kind === "print" && m.remainingMs !== null && this.profile.timedPrintClearsV21)
@@ -1531,7 +1492,6 @@ export class Engine {
         saved,
         remainingMs: !forceAcknowledgement && this.vars[21] !== 0 ? this.vars[21]! * 500 : null,
       });
-      this.printsPending++;
     }
     this.host.print(text);
   }
@@ -1560,14 +1520,12 @@ export class Engine {
     );
     drawWindow(this.text, box, lines, attr(0, 15), attr(4, 15));
     this.modals.push({ serial: ++this.modalSerialCounter, kind: "showObj", saved, view: viewNum });
-    this.printsPending++;
     this.host.showObj?.(viewNum);
   }
 
   private showPriScreen(): void {
     this.closeWindowOnTop();
     this.modals.push({ serial: ++this.modalSerialCounter, kind: "showPri" });
-    this.printsPending++;
     this.host.showPriScreen?.();
   }
 
@@ -1656,7 +1614,6 @@ export class Engine {
       interactive: this.profile.inventorySelector && this.flags[F_INV_SELECT] !== 0,
     };
     this.modals.push(modal);
-    this.printsPending++;
     this.drawInventory(modal);
     this.host.statusScreen?.(items);
   }
@@ -1771,7 +1728,6 @@ export class Engine {
       kind: "menu",
       saved: this.text.save(0, 0, TEXT_ROWS - 1, TEXT_COLS - 1),
     });
-    this.printsPending++;
     this.drawMenu();
     return true;
   }
@@ -2057,7 +2013,6 @@ export class Engine {
       this.parkedClockWait = false;
       this.modals.length = 0;
       this.persistentWindow = null;
-      this.printsPending = 0;
       this.pendingInteraction = null;
       this.pendingAnswer = undefined;
       this.conditionReplayUntil = -1;
@@ -2104,7 +2059,6 @@ export class Engine {
             return { kind: "showPri" };
         }
       }),
-      printsPending: this.printsPending,
       persistentWindow:
         this.persistentWindow === null ? null : serializeSavedRect(this.persistentWindow),
       keyWait:
@@ -2132,7 +2086,6 @@ export class Engine {
     this.parkedClockWait = false;
     this.modals.length = 0;
     this.persistentWindow = null;
-    this.printsPending = 0;
     this.pendingInteraction = null;
     this.pendingAnswer = undefined;
     this.conditionReplayUntil = -1;
@@ -2191,7 +2144,6 @@ export class Engine {
           break;
       }
     }
-    this.printsPending = continuation.printsPending;
     this.persistentWindow =
       continuation.persistentWindow === null
         ? null
@@ -2230,13 +2182,12 @@ export class Engine {
     // Window and parked-pass state travels in the continuation record. A
     // boundary it cannot describe — a live host request, or surface-owning
     // state without a parked pass to resume — still refuses the snapshot.
-    // An armed record inside a synchronous host call is not suspended — the
-    // call is still on the stack — so a snapshot taken re-entrantly from the
-    // host's callback stays allowed.
+    // A record arms only once its call threw HostWait, so a snapshot taken
+    // re-entrantly from a synchronous host callback stays allowed.
     const continuation = this.captureContinuation();
     if (continuation === null) {
       if (this.pendingLogic !== null) return null;
-      if (this.pendingInteraction !== null && this.hostCallDepth === 0) return null;
+      if (this.pendingInteraction !== null) return null;
       if (this.modal !== null || this.persistentWindow !== null || this.printsPending > 0)
         return null;
     }
@@ -2438,7 +2389,6 @@ export class Engine {
     this.updateEgoVisibility();
     this.modals.length = 0;
     this.persistentWindow = null;
-    this.printsPending = 0;
     if (!this.textMode) {
       this.text.clear();
       this.drawStatus();
@@ -2833,22 +2783,8 @@ export class Engine {
     }
     // Modal windows pause the interpreter; keys drive the modal instead.
     if (this.modal) {
-      for (const key of this.host.takeKeys()) {
-        const normalized =
-          key === 0x0101 || key === 0x0301
-            ? AGI_KEY.ENTER
-            : key === 0x0201 || key === 0x0401
-              ? AGI_KEY.ESCAPE
-              : key;
-        // Modal Enter/Escape are raw controls, even when a script binds them.
-        const raw = normalized & 0xff ? normalized & 0xff : normalized & 0xffff;
-        const navigation = NAV_KEYS[raw];
-        this.inputQueue.enqueue({
-          type: navigation === undefined ? 1 : 2,
-          value: navigation ?? raw,
-          mapOnConsume: true,
-        });
-      }
+      // Modal Enter/Escape are raw controls, even when a script binds them.
+      for (const key of this.host.takeKeys()) this.inputQueue.enqueueModalKey(key);
       while (this.modal) {
         const event = this.inputQueue.dequeue();
         if (!event) break;
@@ -4176,7 +4112,7 @@ export class Engine {
         if (this.vars[V_KEY] !== 0) return { result: true, next: pc + 1 };
         for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
         let pressed = this.pollRawKey();
-        const blockingWait = this.host.waitKey ?? this.host.waitTextKey;
+        const blockingWait = this.host.waitKey;
         if (pressed === undefined) {
           if (blockingWait) {
             if (++this.haveKeyPolls > HAVE_KEY_BUSY_POLLS) {
@@ -5570,7 +5506,6 @@ export class Engine {
     this.initInventory();
     this.modals.length = 0;
     this.persistentWindow = null;
-    this.printsPending = 0;
     this.textMode = false;
     this.statusEnabled = false;
     this.statusRefreshRequested = false;

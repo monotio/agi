@@ -42,7 +42,6 @@ export interface ParkedContinuation {
   /** The parked call stack, innermost frame last. */
   frames: { logic: number; pc: number }[];
   modals: SerializedModal[];
-  printsPending: number;
   persistentWindow: SerializedSavedRect | null;
   /** A have.key parked mid-condition, with its replayable prior outcomes. */
   keyWait: { condPc: number; outcomes: [number, boolean][]; haveKeyPolls: number } | null;
@@ -199,14 +198,7 @@ function serializedModal(value: unknown): SerializedModal {
 /** Validate a serialized parked pass, or null for a non-parked snapshot. */
 export function validateContinuation(value: unknown): ParkedContinuation | null {
   if (value === null) return null;
-  const s = record(value, [
-    "patchGeneration",
-    "frames",
-    "modals",
-    "printsPending",
-    "persistentWindow",
-    "keyWait",
-  ]);
+  const s = record(value, ["patchGeneration", "frames", "modals", "persistentWindow", "keyWait"]);
   let keyWait: ParkedContinuation["keyWait"] = null;
   if (s["keyWait"] !== null) {
     const k = record(s["keyWait"], ["condPc", "outcomes", "haveKeyPolls"]);
@@ -227,7 +219,6 @@ export function validateContinuation(value: unknown): ParkedContinuation | null 
       return { logic: number(f["logic"], 0, 255), pc: number(f["pc"], 0, 65535) };
     }),
     modals: array(s["modals"], 8, serializedModal),
-    printsPending: number(s["printsPending"], 0, 255),
     persistentWindow: s["persistentWindow"] === null ? null : savedRect(s["persistentWindow"]),
     keyWait,
   };

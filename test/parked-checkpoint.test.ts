@@ -271,7 +271,6 @@ test("a malformed continuation is rejected without mutating the engine", () => {
     patchGeneration: 0,
     frames: [{ logic: 0, pc: 70000 }],
     modals: [],
-    printsPending: 0,
     persistentWindow: null,
     keyWait: null,
   };
@@ -281,7 +280,6 @@ test("a malformed continuation is rejected without mutating the engine", () => {
     patchGeneration: 0,
     frames: [],
     modals: [{ kind: "bogus" }],
-    printsPending: 0,
     persistentWindow: null,
     keyWait: null,
   };

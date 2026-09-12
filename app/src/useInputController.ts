@@ -17,15 +17,10 @@ export interface InputController {
   sendEdit(text: string): void;
   sendDirection(dir: number, sessionId?: number): void;
   sendKey(code: number, sessionId?: number): void;
-  acknowledgeKey(id: number): void;
-  resetKeys(): void;
 }
 
 /** Composable managing engine input text, direction, and key queuing. */
 export function useInputController(options: InputControllerOptions): InputController {
-  const pendingKeys = new Map<number, number>();
-  let nextKeyId = 0;
-
   function sendInput(text: string): void {
     if (!options.isSeeking()) {
       options.logAgent("input", text);
@@ -52,24 +47,13 @@ export function useInputController(options: InputControllerOptions): InputContro
   function sendKey(code: number, sessionId?: number): void {
     const worker = options.getWorker();
     if (!worker) return;
-    const id = ++nextKeyId;
-    pendingKeys.set(id, code);
     const activeSession = options.getActiveWalkthroughSession();
     const session = sessionId ?? (activeSession > 0 ? activeSession : 0);
     worker.postMessage({
       type: "key",
-      id,
       code,
       ...(session > 0 ? { sessionId: session } : {}),
     });
-  }
-
-  function acknowledgeKey(id: number): void {
-    pendingKeys.delete(id);
-  }
-
-  function resetKeys(): void {
-    pendingKeys.clear();
   }
 
   return {
@@ -77,7 +61,5 @@ export function useInputController(options: InputControllerOptions): InputContro
     sendEdit,
     sendDirection,
     sendKey,
-    acknowledgeKey,
-    resetKeys,
   };
 }

@@ -4,8 +4,68 @@ import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { decodeSave } from "../src/runtime/persistence.ts";
-import { runSaveDialog } from "../src/runtime/saveDialog.ts";
+import { createSaveDialog, stepSaveDialog, type SaveSlot } from "../src/runtime/saveDialog.ts";
 import { TextSurface } from "../src/runtime/textSurface.ts";
+
+interface SyncDialogHost {
+  list(): SaveSlot[];
+  waitKey(): number;
+  describe?(initial: string, maxLen: number, row: number, col: number): string | null;
+  write(slot: number, description: string): boolean | void;
+  read(slot: number): Uint8Array | null;
+}
+
+/** Drive the selector to completion against a synchronous host. */
+function runSaveDialog(
+  mode: "save" | "restore",
+  text: TextSurface,
+  signature: string,
+  host: SyncDialogHost,
+): Uint8Array | null {
+  const dialog = createSaveDialog(mode, text, signature, host.describe !== undefined);
+  try {
+    let answer: unknown;
+    for (;;) {
+      const step = stepSaveDialog(dialog, answer);
+      if (step.done) return step.image;
+      const need = step.need;
+      switch (need.kind) {
+        case "list":
+          try {
+            answer = host.list();
+          } catch {
+            answer = null;
+          }
+          break;
+        case "key":
+          answer = host.waitKey();
+          break;
+        case "describe":
+          answer = host.describe
+            ? host.describe(need.initial, need.maxLen, need.row, need.col)
+            : null;
+          break;
+        case "write":
+          try {
+            answer = host.write(need.slot, need.description) !== false;
+          } catch {
+            answer = false;
+          }
+          break;
+        case "read":
+          try {
+            answer = host.read(need.slot);
+          } catch {
+            answer = null;
+          }
+          break;
+      }
+    }
+  } finally {
+    // An unwinding host call still restores the cells the dialog covered.
+    if (!dialog.done) text.restore(dialog.saved);
+  }
+}
 
 function setup(
   action: "save" | "restore",

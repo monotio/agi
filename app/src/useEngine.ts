@@ -21,12 +21,7 @@ import {
 import { useInputController } from "./useInputController.ts";
 import { useTestRecorder } from "./useTestRecorder.ts";
 import { useAuthoringController, type PowerUpUiState } from "./useAuthoringController.ts";
-import {
-  createBridge,
-  type AgentHandler,
-  type Bridge,
-  type LlmRequest,
-} from "./agent/sabBridge.ts";
+import { type AgentHandler, type LlmRequest } from "./agent/hostRequests.ts";
 import { AgentSession } from "./agent/agentSession.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import type { AgentFrame, FrameRequest } from "../../src/agent/frames.ts";
@@ -230,8 +225,7 @@ export function useEngine(
   let activeWalkthroughSession = 0;
   let walkthroughAbort: () => void = () => {};
   let worker: Worker | null = null;
-  let bridge: Bridge | null = null;
-  /** Every worker bridge follows the current idle-boundary session replacement. */
+  /** Every worker's host requests follow the current idle-boundary session replacement. */
   const currentSessionAgent: AgentHandler = {
     handle: async (request) => authoringController.getSession()?.handle(request) ?? "",
   };
@@ -245,7 +239,6 @@ export function useEngine(
   const saveSlotController = useSaveSlotController({ getBootedGame: () => booted, logAgent });
 
   function cancelPendingPrompts(): void {
-    input.resetKeys();
     promptController.cancelPrompt();
   }
 
@@ -398,7 +391,6 @@ export function useEngine(
 
   function spawnWorker(): Worker {
     worker?.terminate();
-    bridge?.dispose();
     audio.stop();
     resetScreenState();
     const w = new Worker(new URL("./engine.worker.ts", import.meta.url), { type: "module" });
@@ -441,7 +433,6 @@ export function useEngine(
         files,
         words,
       };
-      bridge = createBridge();
       // A successful remix is saved as its own local game before playback resumes.
       w.postMessage({
         type: "boot",
@@ -450,7 +441,6 @@ export function useEngine(
         soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
         files,
         words,
-        sab: bridge.sab,
         autosaveFiles: true,
         ...(await autosaveController.takeResumeState(files)),
       });
@@ -483,7 +473,6 @@ export function useEngine(
     state.inputReady = false;
     state.holdToMove = false;
     state.waitingForKey = false;
-    input.resetKeys();
     state.gameEdit = null;
     state.rows = [];
     promptController.cancelPrompt();
@@ -510,11 +499,9 @@ export function useEngine(
    */
   function shutdownEngine(): void {
     worker?.terminate();
-    bridge?.dispose();
     audio.stop();
     releaseAgentAudioPreviews();
     worker = null;
-    bridge = null;
     authoringController.resetSession();
     drainPendingQueries();
     autosaveController.drainFlushWaiters();
@@ -543,7 +530,11 @@ export function useEngine(
               ? msg["image"]
               : msg["state"];
     const handlers: Record<string, (msg: Record<string, unknown>) => void> = {
-      keyAccepted: (msg) => input.acknowledgeKey(Number(msg["id"])),
+      // The worker's acknowledgement that the freeze landed — the hook reads
+      // the real pause state, not the request.
+      paused: (msg) => {
+        hook.paused = Boolean(msg["paused"]);
+      },
       // The worker parks on a player key (have.key, a selector, a
       // confirmation) without posting a host request; this flag mirrors that
       // wait so input routing and hints know a raw key resumes the game.
@@ -575,7 +566,6 @@ export function useEngine(
       // request): resolve the prompt widgets its in-flight request opened so
       // the UI stops waiting on an answer that is no longer consumed.
       interactionCancelled: () => {
-        input.resetKeys();
         promptController.cancelPrompt();
       },
       frame: (msg) => {
@@ -805,24 +795,22 @@ export function useEngine(
   }
 
   /**
-   * Freeze / unfreeze the interpreter. The pause flag is a dedicated slot in
-   * the SAB the worker polls, so the store lands immediately and the world
-   * stops at the very next cycle boundary rather than whenever a postMessage
-   * happens to be delivered. See agent/sabBridge.ts for why the worker polls
-   * the slot instead of parking in Atomics.wait on it.
+   * Freeze / unfreeze the interpreter. Pause is an ordinary worker message:
+   * messages from one sender are delivered in order, so a pause posted before
+   * a query is always applied before the query is served — at most one more
+   * cycle runs first, and nobody reads state before the freeze lands. The
+   * worker's `paused` reply mirrors the real state into the test hook.
    */
   function pauseEngine(): void {
-    bridge?.setPaused(true);
+    worker?.postMessage({ type: "pause", paused: true });
     audio.setPaused(true);
     state.paused = true;
-    hook.paused = true;
   }
 
   function resumeEngine(): void {
-    bridge?.setPaused(false);
+    worker?.postMessage({ type: "pause", paused: false });
     audio.setPaused(false);
     state.paused = false;
-    hook.paused = false;
   }
 
   /** Live frames out of the worker ring, adapted to the agent's frame shape. */
@@ -949,12 +937,10 @@ export function useEngine(
     // Keep the player's saved position available from the menu.
     autosaveController.reset();
     worker?.terminate();
-    bridge?.dispose();
     audio.stop();
     authoringController.resetSession();
     booted = null;
     worker = null;
-    bridge = null;
     state.paused = false;
     state.powerUp = {
       mode: "remix",
@@ -1024,7 +1010,6 @@ export function useEngine(
                 )
               : null;
           authoringController.setSession(cachedSession);
-          bridge = createBridge();
           const known = await detectKnownGame(cached.files);
           const revision = cached.library?.revision || (await gameRevision(cached.files));
           booted = {
@@ -1047,7 +1032,6 @@ export function useEngine(
             soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
             files: cached.files,
             words: cached.words,
-            sab: bridge.sab,
             autosaveFiles: true,
             authorRooms: Boolean(cached.roomGeneration),
             ...(await autosaveController.takeResumeState(cached.files)),
@@ -1069,7 +1053,6 @@ export function useEngine(
       activeLlmConfig = config;
       const genesisSession = new AgentSession(config, logAgent);
       authoringController.setSession(genesisSession);
-      bridge = createBridge();
 
       const { files, words, transcript, sessionId } =
         await genesisSession.startGenesis(templateMarkdown);
@@ -1130,7 +1113,6 @@ export function useEngine(
         soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
         files,
         words,
-        sab: bridge.sab,
         autosaveFiles: true,
         authorRooms: true,
         ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),

@@ -7,7 +7,7 @@
 import { assembleLogic } from "../../../src/logic/assembler.ts";
 import { buildView } from "../../../src/view/view.ts";
 import { compilePictureSource } from "../../../src/picture/source.ts";
-import type { LlmRequest, AgentHandler, AgentEventSink } from "./sabBridge.ts";
+import type { LlmRequest, AgentHandler, AgentEventSink } from "./hostRequests.ts";
 import type { RoomPatch } from "../../../src/agent/roomPatch.ts";
 
 export const GAME_DICTIONARY = new Map<string, number>([

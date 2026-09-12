@@ -3,10 +3,8 @@
  * outcomes". The dialog is a resumable state machine rather than a blocking
  * loop: `stepSaveDialog` runs synchronous work until the dialog needs the
  * host (slot list, a key, a description, a write, a read), reports that need,
- * and resumes when the answer arrives. A synchronous host drives it to
- * completion inside `runSaveDialog`; the worker path suspends the interpreter
- * on each need instead, so application commands keep running while the
- * selector is open.
+ * and resumes when the answer arrives. The interpreter suspends on each need
+ * so application commands keep running while the selector is open.
  */
 import { AGI_KEY } from "./keys.ts";
 import { SAVE_DESCRIPTION_BYTES, saveSignatureMatches } from "./persistence.ts";
@@ -18,14 +16,6 @@ const DESCRIPTION_LIMIT = SAVE_DESCRIPTION_BYTES - 1;
 export interface SaveSlot {
   slot: number;
   bytes: Uint8Array;
-}
-
-export interface SaveDialogHost {
-  list(): SaveSlot[];
-  waitKey(): number;
-  describe?(initial: string, maxLen: number, row: number, col: number): string | null;
-  write(slot: number, description: string): boolean | void;
-  read(slot: number): Uint8Array | null;
 }
 
 /** One host service the selector is waiting for. */
@@ -289,61 +279,5 @@ function answerNeed(d: SaveDialog, need: SaveDialogNeed, answer: unknown): void 
       if (image === null) return fail(d, "Unable to open saved game.");
       return finish(d, image);
     }
-  }
-}
-
-/**
- * Drive the selector to completion against a synchronous host — the form
- * headless tests and simulation use. The suspended path instead emits each
- * need through the bridge and resumes the machine as answers arrive.
- */
-export function runSaveDialog(
-  mode: "save" | "restore",
-  text: TextSurface,
-  signature: string,
-  host: SaveDialogHost,
-): Uint8Array | null {
-  const dialog = createSaveDialog(mode, text, signature, host.describe !== undefined);
-  try {
-    let answer: unknown;
-    for (;;) {
-      const step = stepSaveDialog(dialog, answer);
-      if (step.done) return step.image;
-      const need = step.need;
-      switch (need.kind) {
-        case "list":
-          try {
-            answer = host.list();
-          } catch {
-            answer = null;
-          }
-          break;
-        case "key":
-          answer = host.waitKey();
-          break;
-        case "describe":
-          answer = host.describe
-            ? host.describe(need.initial, need.maxLen, need.row, need.col)
-            : null;
-          break;
-        case "write":
-          try {
-            answer = host.write(need.slot, need.description) !== false;
-          } catch {
-            answer = false;
-          }
-          break;
-        case "read":
-          try {
-            answer = host.read(need.slot);
-          } catch {
-            answer = null;
-          }
-          break;
-      }
-    }
-  } finally {
-    // An unwinding host call still restores the cells the dialog covered.
-    if (!dialog.done) text.restore(dialog.saved);
   }
 }

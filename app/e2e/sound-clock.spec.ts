@@ -44,7 +44,6 @@ test("sound ticks and completion continue during a blocking host prompt", async 
         new Uint8Array([8, 0, 15, 0, 15, 0, 15, 0, 3, 0, 0x10, 0x82, 0x90, 255, 255, 255, 255]),
       );
       const worker = new EngineWorker() as Worker;
-      const sab = new SharedArrayBuffer(16);
       const messages: WorkerReply[] = [];
       const waiters = new Set<() => void>();
       worker.onmessage = (event) => {
@@ -79,7 +78,6 @@ test("sound ticks and completion continue during a blocking host prompt", async 
           files: Object.fromEntries(container.files),
           words: [],
           soundDevice: 0,
-          sab,
         });
         const audible = await wait(
           (message): message is Reply<"soundOutput"> =>

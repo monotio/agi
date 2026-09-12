@@ -175,7 +175,7 @@ wait:
 class WaitHost extends Host {
   waits = 0;
   key = 0x41;
-  waitTextKey(): number {
+  waitKey(): number {
     this.waits++;
     return this.key;
   }
@@ -211,7 +211,7 @@ describe("have.key blocking wait", () => {
 
   test("a once-per-cycle poll never blocks, on a text screen either", () => {
     class StrictHost extends Host {
-      waitTextKey(): number {
+      waitKey(): number {
         throw new Error("have.key must not block a once-per-cycle poll");
       }
     }

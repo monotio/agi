@@ -150,15 +150,7 @@ function fixtureServer(): Plugin {
 
 export default defineConfig({
   plugins: [vue(), fixtureServer()],
-  // SharedArrayBuffer (the LLM blocking bridge) requires cross-origin isolation.
-  // require-corp works in Safari too; provider fetches opt in through CORS.
   server: {
-    headers: {
-      "Cross-Origin-Opener-Policy": "same-origin",
-      "Cross-Origin-Embedder-Policy": "require-corp",
-      // WebKit can reject cached modules shared by consecutive workers under COEP.
-      "Cache-Control": "no-store",
-    },
     proxy: {
       "/api/openai": {
         target: "https://api.openai.com",

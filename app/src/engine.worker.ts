@@ -3,9 +3,10 @@
  * Engine worker: hosts the authentic interpreter off the main thread.
  *
  * Messages in:
- *   { type: "boot", files, words, sab, autosaveMs?, autosaveFiles?, restoreImage? }
+ *   { type: "boot", files, words, autosaveMs?, autosaveFiles?, restoreImage? }
+ *   { type: "pause", paused }              remix freeze; acknowledged by "paused"
  *   { type: "input", text: string }        player pressed Enter on the input line
- *   { type: "key", id, code }              key press; answers a parked key wait
+ *   { type: "key", code }                  key press; answers a parked key wait
  *   { type: "direction", dir: number }     movement key press (0 = tracked key release)
  *   { type: "hostAnswer", id, response }   reply to a posted hostRequest
  *   { type: "startRecording" / "stopRecording" / "cancelRecording", id }
@@ -50,6 +51,7 @@
  *                                          a suspended host service — prompt,
  *                                          save slot, restore, room authoring
  *   { type: "waitingForKey", waiting }     a parked key wait opened or closed
+ *   { type: "paused", paused }             acknowledgement of a pause message
  *   { type: "booted", profile }            first cycles completed
  *   { type: "error", message }
  */
@@ -66,14 +68,14 @@ import {
   type TraceRecord,
 } from "../../src/runtime/engine.ts";
 import { AGI_KEY, DIRECTION_KEYS, NAV_KEYS } from "../../src/runtime/keys.ts";
-import { BRIDGE_PAUSE_SLOT, type LlmRequest } from "./agent/sabBridge.ts";
+import type { LlmRequest } from "./agent/hostRequests.ts";
 import { FrameRing } from "./frameRing.ts";
 import { CycleClock } from "../../src/runtime/cycleClock.ts";
 import { SoundClock } from "./soundClock.ts";
 import type { ReplayObservation } from "./replay.ts";
 import { createProgressPreview } from "./progressPreview.ts";
 
-/** Save-file image as base64: the SAB bridge and localStorage both carry text. */
+/** Save-file image as base64: worker messages and localStorage both carry text. */
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   // Chunked so a large image never overflows the argument list.
@@ -94,7 +96,6 @@ interface BootMsg {
   type: "boot";
   files: Record<string, Uint8Array>;
   words: [string, number][];
-  sab: SharedArrayBuffer;
   sessionId?: number;
   /** Browser-selected sound device: 0 speaker, 1 four-channel output. */
   soundDevice?: number;
@@ -195,7 +196,6 @@ function recordedClock(): void {
   engine?.advanceClock(1000 / 60);
   engine?.soundTick();
 }
-let lastKeyId = 0;
 let timer: number | null = null;
 let soundTimer: number | null = null;
 function stopTimers(): void {
@@ -433,8 +433,13 @@ function finishCycle(): void {
   flushTraceBatch();
 }
 
-/** The SAB survives only as the remix pause slot (see agent/sabBridge.ts). */
-let pauseSlot: Int32Array | null = null;
+/**
+ * The remix freeze. A `pause` message sets it; messages from one sender are
+ * delivered in order, so a pause posted before a query is always applied
+ * before the query is served — at most one more cycle runs first, and that
+ * cycle is invisible since nobody reads state before the freeze lands.
+ */
+let paused = false;
 /**
  * The host request currently in flight, or null when none is. The engine's
  * pendingInteraction armed before the request posted; the matching
@@ -456,9 +461,8 @@ function setKeyWaiting(waiting: boolean): void {
 
 function advanceSoundClock(authoring = false): void {
   if (replay) return;
-  const paused =
-    authoring || (pauseSlot !== null && Atomics.load(pauseSlot, BRIDGE_PAUSE_SLOT) === 1);
-  const ticks = soundClock.advance(performance.now(), paused);
+  const frozen = authoring || paused;
+  const ticks = soundClock.advance(performance.now(), frozen);
   for (let tick = 0; tick < ticks; tick++) {
     recordedClock();
   }
@@ -972,7 +976,7 @@ function startTimers(): void {
     timer = setInterval(() => {
       try {
         const now = performance.now();
-        if (pauseSlot !== null && Atomics.load(pauseSlot, BRIDGE_PAUSE_SLOT) === 1) {
+        if (paused) {
           cycleClock.poll(now, engine!.vars[10]!, true);
           return;
         }
@@ -1021,6 +1025,11 @@ function startTimers(): void {
 self.onmessage = (ev: MessageEvent) => {
   const msg = ev.data;
   try {
+    if (msg.type === "pause") {
+      paused = msg.paused === true;
+      sendControl({ type: "paused", paused });
+      return;
+    }
     if (msg.type === "hostAnswer") {
       // The main thread resolved the in-flight host request. A stale id —
       // an answer for a request already abandoned — is dropped, never
@@ -1306,7 +1315,7 @@ self.onmessage = (ev: MessageEvent) => {
       replay = Number.isInteger(boot.replaySeed)
         ? { tick: 0, revision: 0, random: boot.replaySeed! >>> 0 }
         : null;
-      pauseSlot = new Int32Array(boot.sab, 0, 4);
+      paused = false;
       const files = new Map<string, Uint8Array>(Object.entries(boot.files));
       liveDictionary = new Map<string, number>(boot.words);
       currentBootFiles = files;
@@ -1322,7 +1331,6 @@ self.onmessage = (ev: MessageEvent) => {
       keyQueue = [];
       deferredMovement.length = 0;
       recording = null;
-      lastKeyId = 0;
       hostRequestOutstanding = null;
       keyWaiting = false;
       pendingReenter = false;
@@ -1397,6 +1405,7 @@ self.onmessage = (ev: MessageEvent) => {
       replay = null;
       currentSessionId = 0;
       isSeeking = false;
+      paused = false;
       recentRing.reset();
       historyRing.reset();
       soundClock.reset(performance.now());
@@ -1426,8 +1435,8 @@ self.onmessage = (ev: MessageEvent) => {
       keyQueue = [];
       deferredMovement.length = 0;
       recording = null;
-      lastKeyId = 0;
       pendingReenter = false;
+      paused = false;
       lastVisual = null;
       lastText = null;
       lastOwnership = null;
@@ -1562,12 +1571,6 @@ self.onmessage = (ev: MessageEvent) => {
         msg.sessionId !== currentSessionId
       ) {
         return;
-      }
-      const keyId = typeof msg.id === "number" ? msg.id : null;
-      if (keyId !== null) {
-        if (keyId <= lastKeyId) return;
-        lastKeyId = keyId;
-        sendControl({ type: "keyAccepted", id: keyId });
       }
       flushDeferredMovement();
       const key = Number(msg.code) & 0xffff;

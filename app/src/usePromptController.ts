@@ -32,7 +32,7 @@ export interface PromptController {
 
 /**
  * Manages blocking get.num / get.string / saveDescription prompt requests
- * across the SAB bridge and user submission from the DOM or replay runner.
+ * and user submission from the DOM or replay runner.
  */
 export function usePromptController(options: PromptControllerOptions): PromptController {
   let promptResolver: ((value: string) => void) | null = null;

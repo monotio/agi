@@ -1,11 +1,8 @@
 # Hosting
 
-Run `npm run build` and serve `app/dist` over HTTPS. Set these response headers:
-
-```text
-Cross-Origin-Opener-Policy: same-origin
-Cross-Origin-Embedder-Policy: require-corp
-```
+Run `npm run build` and serve `app/dist` over HTTPS. No special response
+headers are required: the app uses no shared memory or isolation-gated
+features, so any static host works.
 
 For a subpath such as `/agi/`, build with:
 
@@ -13,10 +10,9 @@ For a subpath such as `/agi/`, build with:
 npm --prefix app run build -- --base=/agi/
 ```
 
-The worker bridge requires cross-origin isolation for `SharedArrayBuffer`.
-Check the headers, worker loading, ZIP import and provider connections on the
-actual host. Production calls providers directly; the development server proxies
-those requests locally.
+Check worker loading, ZIP import and provider connections on the actual host.
+Production calls providers directly; the development server proxies those
+requests locally.
 
 ## Including games on your site
 

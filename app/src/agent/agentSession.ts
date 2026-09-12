@@ -41,7 +41,7 @@ import {
 } from "./llmClient.ts";
 import { StubAgent } from "./stubAgent.ts";
 import { projectToolResult } from "../../../src/agent/toolTransport.ts";
-import type { AgentEventSink, AgentHandler, LlmRequest } from "./sabBridge.ts";
+import type { AgentEventSink, AgentHandler, LlmRequest } from "./hostRequests.ts";
 import { continuationTranscript } from "../projectArchive.ts";
 
 /** Resource the remix turn wrote and the host must patch into the live game. */

@@ -82,9 +82,8 @@ only for released formats and keep their original fixtures.
   waits, save/restore) suspend the interpreter as a resumable continuation: the
   worker posts a `hostRequest` message and resumes the parked interaction when
   the matching `hostAnswer` arrives, so application commands keep being served
-  while the game waits. The SharedArrayBuffer survives only as the remix pause
-  slot; COOP/COEP isolation is what makes the buffer available and without it
-  nothing boots.
+  while the game waits. Pause is a message too — there is no shared memory and
+  no cross-origin-isolation requirement.
 - Game text is engine-owned: a 40×25 cell surface composited on the GPU. Never
   render it as DOM or CSS.
 

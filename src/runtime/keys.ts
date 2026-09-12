@@ -54,6 +54,24 @@ export const NAV_KEYS: Record<number, number> = Object.fromEntries(
   ),
 );
 
+/** The navigation key word each compass direction (1..8) maps back to. */
+export const NAV_KEY_CODES: Record<number, number> = Object.fromEntries(
+  DIRECTION_KEYS.flatMap((word, direction) =>
+    direction === 0 ? [] : [[direction, word] as [number, number]],
+  ),
+);
+
+/**
+ * The keypad duplicates the modal accept/cancel keys: 0x0101/0x0301 are
+ * keypad Enter, 0x0201/0x0401 keypad Escape. Modal drains normalize them so a
+ * keypad press behaves exactly like its main-keyboard twin.
+ */
+export function normalizeModalKey(word: number): number {
+  if (word === 0x0101 || word === 0x0301) return AGI_KEY.ENTER;
+  if (word === 0x0201 || word === 0x0401) return AGI_KEY.ESCAPE;
+  return word;
+}
+
 const KEY_WORD_NAMES: Record<number, string> = {
   [AGI_KEY.BACKSPACE]: "Backspace",
   [AGI_KEY.TAB]: "Tab",

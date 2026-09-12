@@ -1,5 +1,5 @@
 /** AGI event queue, clean-room from agi-re "Event queue" and "Raw-key condition". */
-import { NAV_KEYS } from "./keys.ts";
+import { NAV_KEYS, normalizeModalKey } from "./keys.ts";
 
 export type InputEvent = {
   type: 1 | 2 | 3;
@@ -30,6 +30,23 @@ export class InputQueue {
     return this.enqueue(
       status === undefined ? { type: 1, value: key } : { type: 3, value: status },
     );
+  }
+
+  /**
+   * A raw host key delivered while a modal owns the interpreter: keypad
+   * Enter/Escape normalize to their twins, navigation words become type-2
+   * events, and raw keys mark `mapOnConsume` so a script mapping applies only
+   * when a script consumer actually reads the event.
+   */
+  enqueueModalKey(word: number): boolean {
+    const key = normalizeModalKey(word);
+    const raw = key & 0xff ? key & 0xff : key & 0xffff;
+    const navigation = NAV_KEYS[raw];
+    return this.enqueue({
+      type: navigation === undefined ? 1 : 2,
+      value: navigation ?? raw,
+      mapOnConsume: true,
+    });
   }
 
   dequeue(): InputEvent | undefined {
