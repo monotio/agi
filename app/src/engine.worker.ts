@@ -10,7 +10,6 @@ import { openContainer } from "../../src/container/container.ts";
 import { OperationRecorder } from "../../src/agent/recordedReplay.ts";
 import type { RecordedEvent } from "./gameRecording.ts";
 import { Engine, HostWait, type EngineHost } from "../../src/runtime/engine.ts";
-import type { ReplayObservation } from "./replay.ts";
 import { createProgressPreview } from "./progressPreview.ts";
 import { base64ToBytes, bytesToBase64 } from "./bytes.ts";
 import { createWorkerContext, resetSession, type WorkerPorts } from "./worker/context.ts";
@@ -85,31 +84,6 @@ function stopTimers(): void {
 }
 /** Poll input/modal services at display cadence; v10 separately gates logic cycles. */
 const HOST_POLL_MS = 1000 / 60;
-
-function postReplay(blocked: string | null, fullState = false): void {
-  if (!ctx.replay.replay || !ctx.engine) return;
-  const isFull = fullState || blocked !== null;
-  const state = isFull ? ctx.engine.readState() : ctx.engine.readLeanState();
-  const rows = isFull ? Array.from({ length: 25 }, (_, row) => ctx.engine!.textRow(row)) : [];
-  const observation: ReplayObservation = {
-    sessionId: ctx.replay.currentSessionId,
-    revision: ++ctx.replay.replay.revision,
-    tick: ctx.replay.replay.tick,
-    cycle: ctx.cycle.cycleCount,
-    blocked,
-    state,
-    rows,
-    egoView: ctx.engine.screenObjects[0]!.view,
-    releaseGate: ctx.engine.releaseGate,
-  };
-  sendControl({
-    type: "replay",
-    sessionId: ctx.replay.currentSessionId,
-    id: ctx.replay.replayRequest,
-    observation,
-  });
-  ctx.replay.replayRequest = null;
-}
 
 /** Liveness observations stay responsive at slow game-selected cycle speeds. */
 const CYCLE_REPORT_MS = 250;
@@ -303,7 +277,7 @@ const host: EngineHost = {
       return buffered;
     }
     ctx.fns.setKeyWaiting(true);
-    if (ctx.replay.replay) postReplay("waitkey");
+    if (ctx.replay.replay) ctx.fns.postReplay("waitkey");
     throw new HostWait();
   },
   statusLine(text) {
@@ -416,7 +390,6 @@ ctx.host = host;
 // Until their owning modules land (docs/rc10-cleanup-plan.md Part 2), the
 // still-local functions fill the context's function table.
 Object.assign(ctx.fns, {
-  postReplay,
   tickEngine,
   recordedClock,
   advanceSoundClock,
@@ -680,77 +653,7 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "replayAdvance") {
-      if (!ctx.replay.replay || !ctx.engine) return;
-      if (typeof msg.sessionId === "number") ctx.replay.currentSessionId = msg.sessionId;
-      const ticks = Number(msg.ticks);
-      if (!Number.isInteger(ticks) || ticks < 0 || ticks > 100_000)
-        throw new Error("Replay advance requires 0..100000 virtual ticks.");
-      const seeking = Boolean(msg.seeking);
-      const renderFinal = Boolean(msg.renderFinal);
-      const fullState = Boolean(msg.fullState);
-      ctx.replay.isSeeking = seeking;
-      ctx.replay.replayRequest = Number(msg.id);
-
-      let remaining = ticks;
-      const thisRequest = ctx.replay.replayRequest;
-      const thisSession = ctx.replay.currentSessionId;
-
-      const advanceChunk = () => {
-        if (!ctx.replay.replay || !ctx.engine) return;
-        if (ctx.replay.replayRequest !== thisRequest || ctx.replay.currentSessionId !== thisSession)
-          return;
-
-        const startTime = ctx.ports.now();
-        let chunkTicks = 0;
-        const maxChunkTicks = seeking ? 2500 : 250;
-        const maxChunkMs = seeking ? 16 : 12;
-        try {
-          while (remaining > 0 && chunkTicks < maxChunkTicks) {
-            // A parked host wait consumes no replay ticks, exactly as the
-            // blocking bridge did: its answer's delivery resumes the chunk.
-            if (ctx.engine.awaitingHostAnswer) break;
-            ctx.replay.replay.tick++;
-            remaining--;
-            chunkTicks++;
-            recordedClock();
-            if (
-              ctx.engine.modalKind !== null ||
-              ctx.engine.continuationPending ||
-              ctx.engine.hostInteractionPending
-            )
-              tickEngine();
-            else if (
-              ctx.clocks.cycle.poll((ctx.replay.replay.tick * 1000) / 60, ctx.engine.vars[10]!)
-            ) {
-              ctx.fns.flushDeferredMovement();
-              tickEngine();
-              finishCycle();
-            }
-            if ((chunkTicks & 63) === 0 && ctx.ports.now() - startTime >= maxChunkMs) {
-              break;
-            }
-          }
-        } catch (e) {
-          sendControl({ type: "error", id: thisRequest, message: String(e) });
-          return;
-        }
-
-        // The runner already has its blocked observation from postReplay(op);
-        // the answer's delivery posts the next one.
-        if (ctx.engine.awaitingHostAnswer) return;
-        if (remaining > 0) {
-          setTimeout(advanceChunk, 0);
-          return;
-        }
-
-        if (!seeking || renderFinal) {
-          ctx.replay.isSeeking = false;
-          postFrame();
-        }
-        postReplay(null, fullState);
-      };
-
-      advanceChunk();
+      ctx.fns.onReplayAdvance(msg);
       return;
     }
     if (msg.type === "renderFrame") {
@@ -968,54 +871,17 @@ self.onmessage = (ev: MessageEvent) => {
           sendControl({ type: "restored", ok: false, message: String(e) });
         }
       }
-      if (!ctx.replay.replay) startTimers();
+      if (!ctx.replay.replay) ctx.fns.startTimers();
       sendControl({ type: "booted", profile: ctx.engine.profile.id });
-      postReplay(null);
+      ctx.fns.postReplay(null);
       return;
     }
     if (msg.type === "exitReplay") {
-      ctx.replay.replay = null;
-      ctx.replay.currentSessionId = 0;
-      ctx.replay.isSeeking = false;
-      ctx.cycle.paused = false;
-      ctx.presentation.recentRing.reset();
-      ctx.presentation.historyRing.reset();
-      ctx.clocks.sound.reset(ctx.ports.now());
-      ctx.clocks.cycle.reset(ctx.ports.now());
-      ctx.cycle.lastCycleReportAt = ctx.ports.now();
-      stopTimers();
-      startTimers();
-      postFrame();
-      sendControl({ type: "exitedReplay" });
+      ctx.fns.onExitReplay();
       return;
     }
     if (msg.type === "resetReplay") {
-      if (!ctx.boot.currentBootFiles || !ctx.boot.currentDictionary) return;
-      if (typeof msg.sessionId === "number") ctx.replay.currentSessionId = msg.sessionId;
-      ctx.replay.isSeeking = Boolean(msg.seeking);
-      if (ctx.engine) ctx.engine.stopSoundPlayback();
-      const seed =
-        typeof msg.seed === "number"
-          ? msg.seed
-          : ctx.replay.lastReplaySeed !== null
-            ? ctx.replay.lastReplaySeed
-            : 0;
-      ctx.replay.replay = { tick: 0, revision: 0, random: seed >>> 0 };
-      // A request in flight belonged to the replaced engine; its late answer
-      // is dropped by the serial check and the host resolves its UI now.
-      ctx.fns.abandonHostRequest();
-      ctx.fns.setKeyWaiting(false);
-      ctx.engine = new Engine(
-        openContainer(ctx.boot.currentBootFiles),
-        host,
-        ctx.boot.currentDictionary,
-      );
-      ctx.engine.flags[9] = 1;
-      resetSession(ctx);
-      if (!msg.seeking) {
-        postFrame();
-      }
-      postReplay(null);
+      ctx.fns.onResetReplay(msg);
       return;
     }
     if (msg.type === "flush") {
