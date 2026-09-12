@@ -239,14 +239,10 @@ function answerNeed(d: SaveDialog, need: SaveDialogNeed, answer: unknown): void 
           if (d.mode === "restore") {
             d.phase = "read";
           } else if (d.choice.description === null) {
-            if (d.nativeDescribe) {
-              d.phase = "describe";
-            } else {
-              screen(d, "Describe this saved game:");
-              d.text.write(6, 2, "ENTER: accept   ESC: cancel", attr(0, 15));
-              d.description = "";
-              d.phase = "edit";
-            }
+            screen(d, "Describe this saved game:");
+            d.text.write(6, 2, "ENTER: accept   ESC: cancel", attr(0, 15));
+            d.description = "";
+            d.phase = d.nativeDescribe ? "describe" : "edit";
           } else {
             d.description = d.choice.description;
             d.phase = "confirm";

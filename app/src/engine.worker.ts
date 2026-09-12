@@ -199,6 +199,7 @@ function recordedClock(): void {
 let lastKeyId = 0;
 let timer: number | null = null;
 let soundTimer: number | null = null;
+let bridgePollTimer: number | null = null;
 function stopTimers(): void {
   if (timer !== null) {
     clearInterval(timer);
@@ -208,12 +209,16 @@ function stopTimers(): void {
     clearInterval(soundTimer);
     soundTimer = null;
   }
+  if (bridgePollTimer !== null) {
+    clearInterval(bridgePollTimer);
+    bridgePollTimer = null;
+  }
 }
 const soundClock = new SoundClock(performance.now());
 const cycleClock = new CycleClock(performance.now());
 /** Poll input/modal services at display cadence; v10 separately gates logic cycles. */
 const HOST_POLL_MS = 1000 / 60;
-let replay: { tick: number; revision: number; random: number; yielded: boolean } | null = null;
+let replay: { tick: number; revision: number; random: number } | null = null;
 let replayRequest: number | null = null;
 let currentBootFiles: Map<string, Uint8Array> | null = null;
 let currentDictionary: Map<string, number> | null = null;
@@ -480,7 +485,6 @@ function fireBridgeRequest(op: string, context: string): never {
   const authoring = op === "room";
   bridgeOutstanding = { op, authoring };
   if (replay && ["waitkey", "getnum", "getstring", "saveDescription"].includes(op)) {
-    replay.yielded = true;
     postReplay(op);
   }
   if (authoring) sendPresentation({ type: "soundPaused", paused: true });
@@ -515,6 +519,7 @@ function pollBridge(): void {
     settleBridgeRequest(outstanding);
     engine.abortInteraction();
     sendControl({ type: "interactionCancelled", op: outstanding.op });
+    if (replay) postReplay(null, true);
     return;
   }
   if (state !== BRIDGE_STATE_RESPONSE) return;
@@ -535,6 +540,9 @@ function pollBridge(): void {
   // echo — observes the resumed state. A re-suspension (the selector's next
   // need) refires its request inside this tick.
   if (engine.hostInteractionReady) tickEngine();
+  // The runner holds the blocked observation postReplay(op) sent when the
+  // request fired; the resumed state is its unblocked follow-up.
+  if (replay && !engine.awaitingHostAnswer) postReplay(null, true);
 }
 
 /** Hand a bridge response to the suspended engine interaction it answers. */
@@ -988,6 +996,24 @@ function serveFrames(id: unknown, count: number, stride: number, since: number |
   sendControl({ type: "frames", id, source: useHistory ? "history" : "recent", frames }, transfer);
 }
 
+/**
+ * Replay mode parks the cycle timer — ticks are driven by replayAdvance —
+ * but a landed bridge response still needs a poll to reach the suspended
+ * interaction; otherwise a prompt answer written by the runner never
+ * delivers and the parked pass waits forever.
+ */
+function startBridgePoll(): void {
+  if (bridgePollTimer !== null) return;
+  bridgePollTimer = setInterval(() => {
+    try {
+      pollBridge();
+    } catch (error) {
+      sendControl({ type: "error", message: String(error) });
+      stopTimers();
+    }
+  }, HOST_POLL_MS) as unknown as number;
+}
+
 function startTimers(): void {
   if (soundTimer === null) {
     soundTimer = setInterval(() => {
@@ -1066,7 +1092,6 @@ self.onmessage = (ev: MessageEvent) => {
       const fullState = Boolean(msg.fullState);
       isSeeking = seeking;
       replayRequest = Number(msg.id);
-      replay.yielded = false;
 
       let remaining = ticks;
       const thisRequest = replayRequest;
@@ -1084,6 +1109,9 @@ self.onmessage = (ev: MessageEvent) => {
         const maxChunkMs = seeking ? 16 : 12;
         try {
           while (remaining > 0 && chunkTicks < maxChunkTicks) {
+            // A parked host wait consumes no replay ticks, exactly as the
+            // blocking bridge did: its answer's delivery resumes the chunk.
+            if (engine.awaitingHostAnswer) break;
             replay.tick++;
             remaining--;
             chunkTicks++;
@@ -1099,7 +1127,6 @@ self.onmessage = (ev: MessageEvent) => {
               tickEngine();
               finishCycle();
             }
-            if (replay.yielded) break;
             if ((chunkTicks & 63) === 0 && performance.now() - startTime >= maxChunkMs) {
               break;
             }
@@ -1109,7 +1136,10 @@ self.onmessage = (ev: MessageEvent) => {
           return;
         }
 
-        if (remaining > 0 && !replay.yielded) {
+        // The runner already has its blocked observation from postReplay(op);
+        // the answer's delivery posts the next one.
+        if (engine.awaitingHostAnswer) return;
+        if (remaining > 0) {
           setTimeout(advanceChunk, 0);
           return;
         }
@@ -1312,7 +1342,7 @@ self.onmessage = (ev: MessageEvent) => {
       const boot = msg as BootMsg;
       currentSessionId = typeof boot.sessionId === "number" ? boot.sessionId : 0;
       replay = Number.isInteger(boot.replaySeed)
-        ? { tick: 0, revision: 0, random: boot.replaySeed! >>> 0, yielded: false }
+        ? { tick: 0, revision: 0, random: boot.replaySeed! >>> 0 }
         : null;
       bridge = {
         i32: new Int32Array(boot.sab, 0, 4),
@@ -1397,6 +1427,7 @@ self.onmessage = (ev: MessageEvent) => {
         }
       }
       if (!replay) startTimers();
+      else startBridgePoll();
       sendControl({ type: "booted", profile: engine.profile.id });
       postReplay(null);
       return;
@@ -1423,7 +1454,7 @@ self.onmessage = (ev: MessageEvent) => {
       if (engine) engine.stopSoundPlayback();
       const seed =
         typeof msg.seed === "number" ? msg.seed : lastReplaySeed !== null ? lastReplaySeed : 0;
-      replay = { tick: 0, revision: 0, random: seed >>> 0, yielded: false };
+      replay = { tick: 0, revision: 0, random: seed >>> 0 };
       engine = new Engine(openContainer(currentBootFiles), host, currentDictionary);
       engine.flags[9] = 1;
       inputBuffer = [];
@@ -1464,6 +1495,7 @@ self.onmessage = (ev: MessageEvent) => {
       pendingTrace = [];
       applyTraceChannel();
       captureStateDiffs();
+      startBridgePoll();
       if (!msg.seeking) {
         postFrame();
       }

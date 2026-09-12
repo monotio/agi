@@ -11,6 +11,7 @@ function setup(
   action: "save" | "restore",
   keys: number[],
   description: string | null = "At the well",
+  describe?: () => string | null,
 ) {
   const container = createContainer();
   container.putResource(
@@ -50,7 +51,7 @@ function setup(
     },
     promptSaveDescription() {
       edits++;
-      return description;
+      return describe ? describe() : description;
     },
     saveGame(bytes, slot) {
       writes.push({ bytes, slot });
@@ -91,6 +92,17 @@ test("save selector wraps up to slot 12 and serializes its new description", () 
   assert.ok(s.kinds.every((k) => k === "save"));
   assert.equal(s.engine.modalKind, null);
   assert.equal(s.engine.vars[100], 99);
+});
+
+test("native description prompt opens over the describe screen", () => {
+  const rows: string[] = [];
+  const s = setup("save", [13], "unused", () => {
+    rows.push(s.engine.textRow(1), s.engine.textRow(6));
+    return "Name";
+  });
+  s.engine.tick();
+  assert.match(rows[0]!, /Describe this saved game:/);
+  assert.match(rows[1]!, /ENTER: accept {3}ESC: cancel/);
 });
 
 test("Escape from slot selection or description performs no file write", () => {

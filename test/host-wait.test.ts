@@ -20,6 +20,7 @@ class SuspendingHost implements EngineHost {
   writes: { slot: number | undefined; bytes: Uint8Array }[] = [];
   saved: Uint8Array | null = null;
   quitCalls = 0;
+  prepareCalls: number[] = [];
 
   print(text: string): void {
     this.prints.push(text);
@@ -52,6 +53,10 @@ class SuspendingHost implements EngineHost {
     throw new HostWait();
   }
   restoreGame(): Uint8Array | null {
+    throw new HostWait();
+  }
+  prepareRoom(room: number): boolean {
+    this.prepareCalls.push(room);
     throw new HostWait();
   }
   quit(): void {
@@ -202,4 +207,130 @@ test("a quit confirmed through the suspended wait terminates the game", () => {
   engine.deliverHostAnswer(13); // Enter
   engine.tick();
   assert.equal(host.quitCalls, 1);
+});
+
+test("new.room suspends on prepareRoom and enters the room on delivery", () => {
+  const host = new SuspendingHost();
+  const engine = new Engine(
+    gameWith(
+      `increment(v60);\nif (equaln(v0, 0)) { new.room(5); }\nif (equaln(v0, 5)) { assignn(v101, 7); }\nreturn;`,
+    ),
+    host,
+    new Map(),
+  );
+  engine.tick();
+  assert.equal(engine.hostInteraction?.kind, "room");
+  assert.deepEqual(host.prepareCalls, [5]);
+  assert.equal(engine.vars[0], 0, "still in the old room while the host authors");
+
+  engine.patchResource("logic", 5, assembleLogic("return;", { dictionary: new Map() }).payload);
+  engine.deliverHostAnswer(true);
+  engine.tick();
+  assert.equal(engine.vars[0], 5);
+  engine.tick();
+  assert.equal(engine.vars[101], 7, "the fresh pass in the new room ran");
+  assert.deepEqual(host.prepareCalls, [5], "the destination was authored once");
+});
+
+test("declined prepareRoom keeps the old room and prints the edge message", () => {
+  const host = new SuspendingHost();
+  const engine = new Engine(
+    gameWith(`increment(v60);\nif (equaln(v60, 1)) { new.room(5); }\nreturn;`),
+    host,
+    new Map(),
+  );
+  engine.tick();
+  assert.equal(engine.hostInteraction?.kind, "room");
+
+  engine.deliverHostAnswer(false);
+  engine.tick();
+  assert.equal(engine.vars[0], 0, "a refused room keeps the player put");
+  assert.ok(
+    host.prints.some((text) => text.includes("not available")),
+    "the edge message prints",
+  );
+});
+
+test("reenterRoom suspends on prepareRoom and completes on a later poll", () => {
+  const host = new SuspendingHost();
+  const engine = new Engine(gameWith(`increment(v60);\nreturn;`), host, new Map());
+  engine.tick();
+  assert.equal(engine.vars[60], 1);
+
+  assert.throws(() => engine.reenterRoom(9), HostWait);
+  engine.tick();
+  assert.equal(engine.vars[0], 0, "parked on the room answer");
+  assert.equal(engine.vars[60], 1, "no pass ran while parked");
+
+  engine.patchResource("logic", 9, assembleLogic("return;", { dictionary: new Map() }).payload);
+  engine.deliverHostAnswer(true);
+  engine.tick();
+  assert.equal(engine.vars[0], 9);
+});
+
+test("restart confirmation suspends; Enter restarts", () => {
+  const engine = new Engine(
+    gameWith(
+      `increment(v60);\nif (equaln(v60, 1)) { restart.game(); }\nassignn(v100, 99);\nreturn;`,
+    ),
+    new SuspendingHost(),
+    new Map(),
+  );
+  engine.tick();
+  assert.equal(engine.hostInteraction?.kind, "confirm");
+
+  engine.deliverHostAnswer(13); // Enter: accepted
+  engine.tick();
+  assert.equal(engine.modalKind, null);
+  assert.equal(engine.vars[100], 0, "restart cleared the run before the assign");
+});
+
+test("suspended restore selector applies the image", () => {
+  const engine = new Engine(
+    gameWith(`increment(v60);\nif (equaln(v60, 3)) { restore.game(); }\nreturn;`),
+    new SuspendingHost(),
+    new Map(),
+  );
+  engine.tick();
+  const image = engine.serialize();
+  engine.tick();
+  engine.tick();
+  assert.equal(engine.vars[60], 3);
+  assert.equal(engine.hostInteraction?.kind, "saveDialog");
+
+  engine.deliverHostAnswer([{ slot: 1, bytes: image }]);
+  engine.tick();
+  engine.deliverHostAnswer(13); // Enter selects slot 1
+  engine.tick();
+  assert.equal(engine.hostInteraction?.kind, "saveDialog", "parked on the read");
+
+  engine.deliverHostAnswer(image);
+  engine.tick();
+  assert.equal(engine.hostInteractionPending, false);
+  assert.equal(engine.modalKind, null);
+  assert.equal(engine.vars[60], 1, "the restored image's cycle state");
+  engine.tick();
+  assert.equal(engine.vars[60], 2);
+});
+
+test("a declined key wait (answer 0) does not hang", () => {
+  const engine = new Engine(
+    gameWith(
+      `increment(v60);\nwait: if (!have.key()) { goto wait; }\nassignv(v100,v19);\nassignn(v101, 7);\nreturn;`,
+    ),
+    new SuspendingHost(),
+    new Map(),
+  );
+  engine.tick();
+  assert.equal(engine.hostInteraction?.kind, "key");
+
+  engine.deliverHostAnswer(0);
+  engine.tick();
+  // Answer 0 presses nothing: the wait either re-parks or completes.
+  if (engine.hostInteractionPending) {
+    engine.deliverHostAnswer(0x62);
+    engine.tick();
+  }
+  assert.equal(engine.vars[100], 0x62);
+  assert.equal(engine.vars[101], 7);
 });
