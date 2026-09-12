@@ -165,8 +165,10 @@ test("inspector shows live priority view, picks the drawn object, and lists stat
       );
     };
     await page.getByTestId("dbg-mode-explode").click();
-    await expect.poll(cyanPixels).toBeGreaterThan(500);
-    await expect.poll(cyanPixels).toBeGreaterThan(500);
+    // Software WebGL (CI's SwiftShader) can take seconds for the first
+    // exploded frame; the second poll proves it holds, not just flashed.
+    await expect.poll(cyanPixels, { timeout: 20_000 }).toBeGreaterThan(500);
+    await expect.poll(cyanPixels, { timeout: 20_000 }).toBeGreaterThan(500);
   }
 
   // Back to game mode.
