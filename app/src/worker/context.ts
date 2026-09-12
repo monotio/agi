@@ -114,6 +114,8 @@ export interface PresentationState {
   lastPriority: Uint8Array | null;
   lastText: Uint8Array | null;
   lastOwnership: Uint16Array | null;
+  /** show.obj preview mask of the last published frame (null while closed). */
+  lastPreview: Uint8Array | null;
   lastPicture: Uint8Array | null;
   lastPicturePriority: Uint8Array | null;
   lastObjectsJson: string;
@@ -299,6 +301,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       lastPriority: null,
       lastText: null,
       lastOwnership: null,
+      lastPreview: null,
       lastPicture: null,
       lastPicturePriority: null,
       lastObjectsJson: "",
@@ -361,6 +364,7 @@ export function resetSession(ctx: WorkerContext): void {
   p.lastPriority = null;
   p.lastText = null;
   p.lastOwnership = null;
+  p.lastPreview = null;
   p.lastPicture = null;
   p.lastPicturePriority = null;
   p.lastPicRow = -1;

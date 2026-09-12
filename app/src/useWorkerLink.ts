@@ -211,6 +211,8 @@ export function useWorkerLink(options: WorkerLinkOptions) {
           delete latestFrame.picVisual;
           delete latestFrame.picPriority;
         }
+        if (msg.preview) latestFrame.preview = msg.preview;
+        else delete latestFrame.preview;
         state.debugObjects = msg.objects ?? [];
         // The show.obj notice arms the preview identity; the frame's modal
         // field is authoritative for dismissal.

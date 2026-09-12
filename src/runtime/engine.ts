@@ -577,6 +577,8 @@ export class Engine {
   private readonly scratchVisual = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly scratchPriority = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly scratchOwnership = new Uint16Array(SCREEN_WIDTH * 168);
+  /** Logical pixels the show.obj preview cel wrote this composition. */
+  private readonly scratchPreview = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly cachedVisual = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly cachedPriority = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly cachedText = new Uint8Array(TEXT_COLS * TEXT_ROWS * 2);
@@ -3384,6 +3386,7 @@ export class Engine {
     this.scratchVisual.set(this.surface.visual);
     this.scratchPriority.set(this.surface.priority);
     this.scratchOwnership.fill(0);
+    this.scratchPreview.fill(0);
 
     const frame: PictureSurface = {
       visual: this.scratchVisual,
@@ -3427,7 +3430,12 @@ export class Engine {
       const view = this.views.get(this.modal.view);
       const cel = view && readViewCel(view, 0, 0);
       if (cel)
-        drawCel(frame, cel, (SCREEN_WIDTH - cel.width) >> 1, SCREEN_HEIGHT - 1, { priority: 15 });
+        drawCel(frame, cel, (SCREEN_WIDTH - cel.width) >> 1, SCREEN_HEIGHT - 1, {
+          priority: 15,
+          onPixel: (index: number) => {
+            this.scratchPreview[index] = 1;
+          },
+        });
     }
 
     if (this.modal?.kind === "showPri") {
@@ -3491,6 +3499,16 @@ export class Engine {
   getOwnership(): Uint16Array {
     this.ensurePresentationCurrent();
     return this.scratchOwnership.slice();
+  }
+
+  /**
+   * Per-pixel mask of the show.obj preview cel while that modal is open —
+   * composition metadata so a host can render the preview as its own layer
+   * instead of an unowned smear on band 15. Null in every other state.
+   */
+  getPreviewMask(): Uint8Array | null {
+    this.ensurePresentationCurrent();
+    return this.modal?.kind === "showObj" ? this.scratchPreview.slice() : null;
   }
 
   /**

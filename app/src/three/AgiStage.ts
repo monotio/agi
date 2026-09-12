@@ -92,6 +92,7 @@ export class AgiStage {
   private picTexture: THREE.DataTexture | null = null;
   private picPriTexture: THREE.DataTexture | null = null;
   private ownerTexture: THREE.DataTexture | null = null;
+  private previewTexture: THREE.DataTexture | null = null;
   private textTexture: THREE.DataTexture | null = null;
   private explodedLayers: { mesh: THREE.Mesh; z: number; s: number; fullFrame: boolean }[] = [];
   /** World-space y of the picture band's centre at z=0; set from picRow. */
@@ -272,6 +273,24 @@ export class AgiStage {
     this.ownerTexture.needsUpdate = true;
   }
 
+  /**
+   * Upload the show.obj preview mask (1 where the modal cel wrote). Pass null
+   * when the modal is closed — a stale mask would keep drawing a preview that
+   * the frame no longer contains.
+   */
+  setPreviewMask(mask: Uint8Array | null): void {
+    if (this.disposed || !this.previewTexture) return;
+    const data = this.previewTexture.image.data as Uint8Array;
+    if (mask === null) {
+      data.fill(0);
+    } else if (data.length === mask.length) {
+      data.set(mask);
+    } else {
+      return;
+    }
+    this.previewTexture.needsUpdate = true;
+  }
+
   /** Camera for the current view mode. */
   private activeCamera(): THREE.Camera {
     return this.exploded && this.perspCamera ? this.perspCamera : this.camera;
@@ -320,6 +339,7 @@ export class AgiStage {
         priority: this.prioTexture?.image.data as Uint8Array | undefined,
         picturePriority: this.picPriTexture?.image.data as Uint8Array | undefined,
         owner: this.ownerTexture?.image.data as Uint8Array | undefined,
+        preview: this.previewTexture?.image.data as Uint8Array | undefined,
         text: this.textTexture?.image.data as Uint8Array | undefined,
       },
     );
@@ -350,6 +370,7 @@ export class AgiStage {
     this.prioTexture = makeMaskTex();
     this.picPriTexture = makeMaskTex();
     this.ownerTexture = makeMaskTex();
+    this.previewTexture = makeMaskTex();
     this.picTexture = new THREE.DataTexture(
       new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4),
       FRAME_WIDTH,
@@ -447,6 +468,21 @@ export class AgiStage {
       spriteMesh.name = `sprite:${band}`;
       addLayer(spriteMesh, z + 0.004, false);
     }
+
+    // Modal preview layer: the show.obj cel rides band 15 in the composed
+    // frame but owns no pixels — without this layer it would be masked out of
+    // every sprite band. It floats just behind the text surface so the modal
+    // occludes the scene exactly like the flat view.
+    const previewTex = this.previewTexture;
+    const previewMat = new MeshBasicNodeMaterial();
+    previewMat.colorNode = Fn(() => {
+      Discard(texture(previewTex, maskUv()).x.lessThan(0.5 / 255));
+      return frameSample(frameTex);
+    })();
+    this.explodedMaterials.push(previewMat);
+    const previewMesh = new THREE.Mesh(this.explodedGeometry, previewMat);
+    previewMesh.name = "preview";
+    addLayer(previewMesh, 12 * LAYER_GAP + 0.2, false);
 
     // Text plane: samples a text-only composite (transparent where no cell
     // was written) so dialogs and the status line float in front at full

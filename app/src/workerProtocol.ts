@@ -259,6 +259,11 @@ export type WorkerPresentation =
       objects?: ScreenObjectState[];
       picVisual?: Uint8Array;
       picPriority?: Uint8Array;
+      /**
+       * Logical pixels the show.obj preview cel wrote — present on every
+       * frame while that modal is open so layered renderers can isolate it.
+       */
+      preview?: Uint8Array;
     }
   /**
    * One acknowledged batch of trace records. `dropped` counts records the

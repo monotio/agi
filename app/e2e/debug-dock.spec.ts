@@ -1,4 +1,4 @@
-import { cacheGame, waitForCycles } from "./engineProbe.ts";
+import { cacheGame, textHook, waitForCycles } from "./engineProbe.ts";
 import { expect, test } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -187,5 +187,144 @@ test("inspector shows live priority view, picks the drawn object, and lists stat
   // Back to game mode.
   await page.getByTestId("dbg-mode-visual").click();
   await expect.poll(async () => probePixel(20, 8 + 50)).toEqual([0, 0xaa, 0xaa, 255]);
+  expect(pageErrors).toEqual([]);
+});
+
+test("show.obj renders as its own layer in flat and exploded views, then restores", async ({
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (e) => pageErrors.push(String(e)));
+  const game = createContainer();
+  // Cyan fill; a solid red 8x16 cel becomes the show.obj preview.
+  game.putResource(
+    "picture",
+    1,
+    Uint8Array.of(0xf0, 3, 0xf8, 0, 0, 0xf2, 4, 0xf6, 0, 100, 159, 100, 0xff),
+  );
+  game.putResource(
+    "logic",
+    0,
+    assembleLogic(`if (!isset(f200)) { set(f200); new.room(1); } call.v(v0); return;`, {
+      dictionary: new Map(),
+    }).payload,
+  );
+  game.putResource(
+    "view",
+    0,
+    buildView({
+      loops: [{ cels: [{ width: 8, height: 16, pixels: Array<number>(128).fill(12) }] }],
+    }),
+  );
+  game.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      `
+    if (isset(f5)) {
+      assignn(v60,1); load.pic(v60); draw.pic(v60); show.pic();
+      load.view(0);
+    }
+    if (isset(f43)) { reset(f43); show.obj(0); }
+    return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  await page.goto("/");
+  await cacheGame(page, {
+    projectId: "debug-showobj",
+    title: "ShowObj fixture",
+    provider: "stub",
+    model: "local-playback",
+    imported: true,
+    roomGeneration: false,
+    files: Object.fromEntries(game.files),
+    words: [],
+  });
+  await page.reload();
+  await page.getByTestId("btn-resume-cached").click();
+  await waitForCycles(page, 4);
+
+  await page.getByTestId("power-up").click();
+  await page.getByTestId("inspect-toggle").click();
+  await page.keyboard.press("Escape");
+  const dock = page.getByTestId("debug-dock");
+  await expect(dock).toBeVisible();
+
+  const probePixel = async (x: number, y: number) =>
+    page.evaluate(
+      (pair: [number, number]) => {
+        const canvas = document.querySelector<HTMLCanvasElement>("[data-testid='game-canvas']")!;
+        return Array.from(canvas.getContext("2d")!.getImageData(pair[0], pair[1], 1, 1).data);
+      },
+      [x, y] as [number, number],
+    );
+
+  // The modal opens when logic sees f43; the inspector's flag write triggers it.
+  await page.getByTestId("dbg-tab-state").click();
+  await page.getByTestId("dbg-flags").locator("button").nth(43).click();
+  await expect.poll(async () => (await textHook(page)).modal).toBe("showObj");
+
+  // Flat view: the cel is bottom-centre of the picture band (logical 76..83,
+  // 152..167 → displayed 152..167 x 160..175), light red over the cyan sky.
+  await expect.poll(async () => probePixel(160, 168)).toEqual([0xff, 0x55, 0x55, 255]);
+
+  // A flat pick on the cel reports the pixel honestly: no sprite owns it.
+  await page.getByTestId("dbg-tab-screen").click();
+  await page.getByTestId("dbg-inspect-toggle").check();
+  const overlay = page.getByTestId("dbg-overlay");
+  const obox = (await overlay.boundingBox())!;
+  await page.mouse.click(obox.x + (160 * obox.width) / 320, obox.y + (168 * obox.height) / 200);
+  const pick = page.getByTestId("dbg-pick");
+  await expect(pick).toBeVisible();
+  await expect(pick).toContainText("background");
+
+  // Escape dismisses (Enter would re-click the focused flag button): the cel
+  // pixels restore to the sky fill underneath.
+  await page.keyboard.press("Escape");
+  await expect.poll(async () => (await textHook(page)).modal).toBeNull();
+  await expect.poll(async () => probePixel(160, 168)).toEqual([0, 0xaa, 0xaa, 255]);
+
+  // Reopen over the live scene: wait for the state poll to observe the reset
+  // flag so the click writes a SET, then explode. The preview is its own
+  // layer floating in front of the sprite bands, and the pick names it.
+  await page.getByTestId("dbg-tab-state").click();
+  await expect(page.getByTestId("dbg-flags").locator("button").nth(43)).toHaveText("·");
+  await page.getByTestId("dbg-flags").locator("button").nth(43).click();
+  await expect.poll(async () => (await textHook(page)).modal).toBe("showObj");
+  const gpu = page.getByTestId("gpu-canvas");
+  if (await gpu.isVisible()) {
+    await page.getByTestId("dbg-tab-screen").click();
+    await page.getByTestId("dbg-mode-explode").click();
+    // The exploded preview layer is front-most of the band stack and scales
+    // around the band centre, so probe a small grid around the flat position
+    // until the raycast latches it.
+    const box = (await overlay.boundingBox())!;
+    let latched = "";
+    for (const dy of [0, 10, 20, 34, 48, -8]) {
+      for (const dx of [0, -14, 14]) {
+        await page.mouse.click(
+          box.x + (160 + dx) * (box.width / 320),
+          box.y + (168 + dy) * (box.height / 200),
+        );
+        const text = await page.getByTestId("dbg-pick").textContent();
+        if (text?.includes("modal preview")) {
+          latched = text;
+          break;
+        }
+      }
+      if (latched) break;
+    }
+    expect(latched).toContain("modal preview");
+    await expect(pick).toContainText("cycle");
+    // The preview carries no object identity — honest even while visible.
+    await expect(pick).toContainText("background");
+  }
+
+  // Close again from exploded: the layer disappears with the modal.
+  await page.keyboard.press("Escape");
+  await expect.poll(async () => (await textHook(page)).modal).toBeNull();
+  await page.getByTestId("dbg-mode-visual").click();
+  await expect.poll(async () => probePixel(160, 168)).toEqual([0, 0xaa, 0xaa, 255]);
   expect(pageErrors).toEqual([]);
 });

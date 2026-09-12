@@ -26,6 +26,8 @@ export interface PickMasks {
   picturePriority?: Uint8Array | undefined;
   /** Object ownership, 160x168 (num + 1, 0 = background). */
   owner?: Uint8Array | undefined;
+  /** show.obj preview cel mask, 160x168 (1 where the cel wrote). */
+  preview?: Uint8Array | undefined;
   /** Text-only composite RGBA, 320x200 (alpha 0 where no cell was written). */
   text?: Uint8Array | undefined;
 }
@@ -67,7 +69,9 @@ export function pickThroughLayers(hits: readonly PickHit[], masks: PickMasks): S
     const lx = Math.min(PIC_W - 1, Math.max(0, Math.floor(hit.u * PIC_W)));
     const ly = Math.min(PIC_H - 1, Math.max(0, Math.floor((1 - hit.v) * PIC_H)));
     const i = ly * PIC_W + lx;
-    if (hit.name === "control") {
+    if (hit.name === "preview") {
+      if (masks.preview && masks.preview[i]! > 0) return { x: lx, y: ly, kind: "preview" };
+    } else if (hit.name === "control") {
       if (masks.picturePriority && masks.picturePriority[i]! <= 3)
         return { x: lx, y: ly, kind: "control" };
     } else if (hit.name.startsWith("pic:")) {

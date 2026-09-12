@@ -65,6 +65,39 @@ test("a resource patch republishes the frame carrying its own revision", () => {
   assert.equal(patched.patchGeneration, 1);
 });
 
+test("show.obj publishes the preview mask and dismissal clears it", () => {
+  const { ctx, presentation } = workerHarness(
+    gameContainer([`if (!isset(f200)) { set(f200); load.view(1); show.obj(1); } return;`], (c) =>
+      c.putResource("view", 1, VIEW_0),
+    ),
+  );
+  ctx.fns.tickEngine();
+  ctx.fns.postFrame();
+  const open = presentation.filter((m) => m.type === "frame").at(-1)!;
+  assert.ok(open.type === "frame");
+  assert.equal(open.modal, "showObj");
+  assert.ok(open.preview instanceof Uint8Array, "the mask rides the frame while open");
+  assert.ok(
+    open.preview.some((v) => v === 1),
+    "the cel wrote marked pixels",
+  );
+
+  ctx.engine!.ackPrint();
+  ctx.fns.postFrame();
+  const closed = presentation.filter((m) => m.type === "frame").at(-1)!;
+  assert.ok(closed.type === "frame");
+  assert.equal(closed.preview, undefined, "dismissal ships a mask-free frame");
+
+  // The opcode parked mid-logic; the next tick resumes it to `return`, and
+  // the tick after that runs logic 0 fresh — reopening republishes the mask.
+  ctx.engine!.flags[200] = 0;
+  ctx.fns.tickEngine();
+  ctx.fns.tickEngine();
+  ctx.fns.postFrame();
+  const reopened = presentation.filter((m) => m.type === "frame").at(-1)!;
+  assert.ok(reopened.type === "frame" && reopened.preview instanceof Uint8Array);
+});
+
 test("arming then disarming a channel ships a frame for each transition", () => {
   const { ctx, presentation } = workerHarness(priorityGame());
   ctx.fns.tickEngine();

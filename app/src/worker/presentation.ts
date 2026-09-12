@@ -33,6 +33,10 @@ export function createPresentation(ctx: WorkerContext) {
     const ownership = ctx.debug.channels.ownership ? ctx.engine.getOwnership() : null;
     const objects = ctx.debug.channels.objects ? ctx.engine.readObjects() : null;
     const picture = ctx.debug.channels.picture ? ctx.engine.getPictureSurface() : null;
+    // The show.obj preview mask is composition metadata, not an armed channel:
+    // it travels with every frame while the modal is open so layered
+    // renderers can give the cel its own identifiable layer.
+    const preview = ctx.engine.getPreviewMask();
     const objectsJson = objects ? JSON.stringify(objects) : "";
     // Repeated display/trace opcodes can mark text dirty without changing a cell.
     // Sending those frames floods software GPU renderers and delays user input.
@@ -89,6 +93,16 @@ export function createPresentation(ctx: WorkerContext) {
         }
       }
     }
+    if (same && (preview === null) !== (ctx.presentation.lastPreview === null)) {
+      same = false;
+    } else if (same && preview && ctx.presentation.lastPreview) {
+      for (let i = 0; i < preview.length; i++) {
+        if (preview[i] !== ctx.presentation.lastPreview[i]) {
+          same = false;
+          break;
+        }
+      }
+    }
     if (same && (picture === null) !== (ctx.presentation.lastPicture === null)) {
       same = false;
     } else if (same && picture && ctx.presentation.lastPicture) {
@@ -107,6 +121,7 @@ export function createPresentation(ctx: WorkerContext) {
     ctx.presentation.lastPriority = frame.priority.slice();
     ctx.presentation.lastText = textCells.slice();
     ctx.presentation.lastOwnership = ownership ? ownership.slice() : null;
+    ctx.presentation.lastPreview = preview ? preview.slice() : null;
     ctx.presentation.lastPicture = picture ? picture.visual.slice() : null;
     ctx.presentation.lastPicturePriority = picture ? picture.priority.slice() : null;
     ctx.presentation.lastObjectsJson = objectsJson;
@@ -136,12 +151,14 @@ export function createPresentation(ctx: WorkerContext) {
         ...(ownership ? { ownership } : {}),
         ...(objects ? { objects } : {}),
         ...(picture ? { picVisual: picture.visual, picPriority: picture.priority } : {}),
+        ...(preview ? { preview } : {}),
       },
       [
         frame.visual.buffer,
         frame.priority.buffer,
         text.buffer,
         ...(ownership ? [ownership.buffer] : []),
+        ...(preview ? [preview.buffer] : []),
         ...(picture ? [picture.visual.buffer, picture.priority.buffer] : []),
       ],
     );

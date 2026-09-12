@@ -96,6 +96,8 @@ export function createPresentation() {
       // An absent channel means unknown, not "as last frame": clear the mask
       // so sprite layers and picking never use stale ownership.
       stage!.setOwnershipData(frame.ownership ?? null);
+      // Same contract for the show.obj preview: an absent mask means closed.
+      stage!.setPreviewMask(frame.preview ?? null);
     }
     if (!stage || testMode) {
       const ctx = canvasEl.value?.getContext("2d");

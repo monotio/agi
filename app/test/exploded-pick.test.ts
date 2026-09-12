@@ -138,6 +138,41 @@ test("no intersection at all returns null", () => {
   assert.equal(pickThroughLayers([], {}), null);
 });
 
+test("a show.obj preview pixel picks the modal layer, not the sprite band", () => {
+  const picturePriority = new Uint8Array(PIC_W * PIC_H).fill(4);
+  const priority = new Uint8Array(PIC_W * PIC_H).fill(15); // preview writes pri 15
+  const owner = new Uint8Array(PIC_W * PIC_H); // and owns nothing
+  const preview = new Uint8Array(PIC_W * PIC_H);
+  const i = 120 * PIC_W + 70;
+  preview[i] = 1;
+  const { u, v } = picUv(70, 120);
+  // The preview layer sits nearer than sprite:15 and in front of the wall.
+  const hits: PickHit[] = [
+    { name: "preview", u, v },
+    { name: "sprite:15", u, v },
+    { name: "pic:15", u, v },
+    { name: "pic:4", u, v },
+    { name: "control", u, v },
+  ];
+  const pick = pickThroughLayers(hits, { priority, picturePriority, owner, preview });
+  assert.deepEqual(pick, { x: 70, y: 120, kind: "preview" });
+});
+
+test("a masked preview pixel falls through to the layer that owns it", () => {
+  const picturePriority = new Uint8Array(PIC_W * PIC_H).fill(6);
+  const preview = new Uint8Array(PIC_W * PIC_H); // modal closed elsewhere
+  const { u, v } = picUv(30, 90);
+  const hits: PickHit[] = [
+    { name: "preview", u, v },
+    { name: "pic:6", u, v },
+  ];
+  const pick = pickThroughLayers(hits, { picturePriority, preview });
+  assert.deepEqual(pick, { x: 30, y: 90, kind: "picture", band: 6 });
+  // Without the mask at all the preview layer can never claim the pixel.
+  const noMask = pickThroughLayers(hits, { picturePriority });
+  assert.deepEqual(noMask, { x: 30, y: 90, kind: "picture", band: 6 });
+});
+
 test("missing channel data masks rather than misreports", () => {
   // Ownership absent (channel disarmed): a sprite quad must not claim the
   // pixel; the wall that actually rendered it still can.
