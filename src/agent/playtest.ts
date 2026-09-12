@@ -254,6 +254,15 @@ export class Simulation {
           if (operation[0] === "tick" && ++this.cycles > this.cycleBudget)
             throw new Error(`Simulation cycle limit (${this.cycleBudget}) exceeded.`);
           this.recordedCalls = operation[1].slice();
+          // A key wait restored with the setup's continuation is armed, not
+          // called: its recorded answer was taken at delivery time, so feed
+          // the parked interaction before the tick that consumed it.
+          if (operation[0] === "tick" && this.engine.awaitingKey) {
+            while (this.recordedCalls[0]?.[0] === "clock")
+              this.advanceRecordedClock(this.recordedCalls.shift()![1] as number);
+            if (this.recordedCalls[0]?.[0] === "waitKey")
+              this.engine.deliverHostAnswer(this.recordedCalls.shift()![1]);
+          }
           if (operation[0] === "tick") this.engine.tick();
           else this.engine.releaseTrackedKey(true);
           if (this.recordedCalls.length)

@@ -31,7 +31,12 @@ import { detectProfile, type AgiProfile, type ProfileId } from "./profile.ts";
 import { TraceWindow } from "./trace.ts";
 import { InputQueue } from "./inputQueue.ts";
 import { AGI_KEY, NAV_KEYS } from "./keys.ts";
-import { validateEngineReplayState, type EngineReplayState } from "./replayState.ts";
+import {
+  validateEngineReplayState,
+  type EngineReplayState,
+  type ParkedContinuation,
+  type SerializedSavedRect,
+} from "./replayState.ts";
 import {
   createSaveDialog,
   stepSaveDialog,
@@ -244,6 +249,28 @@ type Modal = { serial: number } & (
   | { kind: "showObj"; saved: SavedRect; view: number }
   | { kind: "showPri" }
 );
+
+function serializeSavedRect(saved: SavedRect): SerializedSavedRect {
+  return {
+    written: Array.from(saved.written),
+    top: saved.top,
+    left: saved.left,
+    bottom: saved.bottom,
+    right: saved.right,
+    cells: Array.from(saved.cells),
+  };
+}
+
+function deserializeSavedRect(saved: SerializedSavedRect): SavedRect {
+  return {
+    written: Uint32Array.from(saved.written),
+    top: saved.top,
+    left: saved.left,
+    bottom: saved.bottom,
+    right: saved.right,
+    cells: Uint8Array.from(saved.cells),
+  };
+}
 
 /** have.key polls per cycle before a keyless host receives a synthesized Enter. */
 const HAVE_KEY_POLL_LIMIT = 1000;
@@ -476,6 +503,11 @@ export class Engine {
   private activation: { logic: number; messages: readonly (string | null)[] } | null = null;
   /** Exact call stack parked at a modal instruction, innermost frame last. */
   private pendingLogic: LogicFrame[] | null = null;
+  /**
+   * The parked pass is a clock busy-wait: its frames carry live clock-wait
+   * bookkeeping that does not serialize, so it stays a non-snapshot point.
+   */
+  private parkedClockWait = false;
   /**
    * The suspended host interaction that parked `pendingLogic`, or null. A
    * HostWait parks the bytecode pass here; `deliverHostAnswer` feeds the
@@ -1919,13 +1951,14 @@ export class Engine {
   recordingImage(): Uint8Array | null {
     const snapshot = this.autosaveImage();
     if (!snapshot) return null;
-    const { image, screen, presentation } = decodeHostImage(snapshot);
+    const { image, screen, presentation, continuation } = decodeHostImage(snapshot);
     const state = decodeSave(image, this.profile);
     state.objects = this.objects.map((_, num) => this.objectRecord(num));
     return encodeHostImage(
       encodeSave(state, this.profile),
       screen ?? [],
       presentation ?? undefined,
+      continuation,
     );
   }
 
@@ -1969,6 +2002,7 @@ export class Engine {
               playback: this.soundPlayback.snapshot(),
             }
           : null,
+      continuation: this.captureContinuation(),
     };
   }
 
@@ -2015,7 +2049,162 @@ export class Engine {
     this.soundPlayback = sound;
     this.playingSound = state.sound?.num ?? null;
     this.soundDoneFlag = state.sound?.doneFlag ?? null;
+    // The recorded state had no parked pass: neither should the engine,
+    // whatever a setup image's continuation applied before this ran.
+    const continuation = state.continuation ?? null;
+    if (continuation === null) {
+      this.pendingLogic = null;
+      this.parkedClockWait = false;
+      this.modals.length = 0;
+      this.persistentWindow = null;
+      this.printsPending = 0;
+      this.pendingInteraction = null;
+      this.pendingAnswer = undefined;
+      this.conditionReplayUntil = -1;
+    } else this.restoreContinuation(continuation);
     this.presentationDirty = true;
+  }
+
+  /**
+   * The suspended pass, serialized for a host checkpoint, or null when the
+   * engine is not parked at a serializable boundary. A pass parked behind a
+   * live host request (a prompt, the selector, a confirmation, room
+   * authoring) has no resumable record: its continuation is meaningless
+   * without the answer only the host can produce.
+   */
+  private captureContinuation(): ParkedContinuation | null {
+    if (this.pendingLogic === null) return null;
+    if (this.parkedClockWait) return null;
+    if (this.pendingInteraction !== null && this.pendingInteraction.kind !== "key") return null;
+    return {
+      patchGeneration: this.patchGen,
+      frames: this.pendingLogic.map((frame) => ({ logic: frame.logic, pc: frame.pc })),
+      modals: this.modals.map((m) => {
+        switch (m.kind) {
+          case "print":
+            return {
+              kind: "print",
+              saved: serializeSavedRect(m.saved),
+              remainingMs: m.remainingMs,
+            };
+          case "inventory":
+            return {
+              kind: "inventory",
+              saved: serializeSavedRect(m.saved),
+              items: m.items.map((item) => ({ ...item })),
+              slots: m.slots.map((slot) => ({ ...slot })),
+              selected: m.selected,
+              interactive: m.interactive,
+            };
+          case "menu":
+            return { kind: "menu", saved: serializeSavedRect(m.saved) };
+          case "showObj":
+            return { kind: "showObj", saved: serializeSavedRect(m.saved), view: m.view };
+          case "showPri":
+            return { kind: "showPri" };
+        }
+      }),
+      printsPending: this.printsPending,
+      persistentWindow:
+        this.persistentWindow === null ? null : serializeSavedRect(this.persistentWindow),
+      keyWait:
+        this.pendingInteraction?.kind === "key"
+          ? {
+              condPc: this.pendingInteraction.condPc,
+              outcomes: Array.from(this.conditionOutcomes),
+              haveKeyPolls: this.haveKeyPolls,
+            }
+          : null,
+    };
+  }
+
+  /**
+   * Rebuild a parked pass captured by `captureContinuation`. When the
+   * container was patched after the snapshot, the parked pass points at
+   * superseded bytecode: the windows it held open are peeled back — innermost
+   * first — and the next tick starts a fresh pass on the new resources
+   * instead of resuming stale code.
+   */
+  private restoreContinuation(continuation: ParkedContinuation, peel = true): void {
+    // Self-clearing so a second application — restoreImage then
+    // restoreReplayState on a recorded setup — rebuilds, not duplicates.
+    this.pendingLogic = null;
+    this.parkedClockWait = false;
+    this.modals.length = 0;
+    this.persistentWindow = null;
+    this.printsPending = 0;
+    this.pendingInteraction = null;
+    this.pendingAnswer = undefined;
+    this.conditionReplayUntil = -1;
+    if (continuation.patchGeneration !== this.patchGen) {
+      // The peel only makes sense when the snapshot's surface — window drawn
+      // and all — was restored; preservePresentation replays repaint anyway.
+      if (!peel) return;
+      for (let i = continuation.modals.length - 1; i >= 0; i--) {
+        const m = continuation.modals[i]!;
+        if ("saved" in m) this.text.restore(deserializeSavedRect(m.saved));
+      }
+      if (continuation.persistentWindow !== null)
+        this.text.restore(deserializeSavedRect(continuation.persistentWindow));
+      return;
+    }
+    this.pendingLogic = continuation.frames.map((frame) => ({
+      logic: frame.logic,
+      resource: this.loadLogic(frame.logic),
+      pc: frame.pc,
+    }));
+    for (const m of continuation.modals) {
+      const serial = ++this.modalSerialCounter;
+      switch (m.kind) {
+        case "print":
+          this.modals.push({
+            serial,
+            kind: "print",
+            saved: deserializeSavedRect(m.saved),
+            remainingMs: m.remainingMs,
+          });
+          break;
+        case "inventory":
+          this.modals.push({
+            serial,
+            kind: "inventory",
+            saved: deserializeSavedRect(m.saved),
+            items: m.items.map((item) => ({ ...item })),
+            slots: m.slots.map((slot) => ({ ...slot })),
+            selected: m.selected,
+            interactive: m.interactive,
+          });
+          break;
+        case "menu":
+          this.modals.push({ serial, kind: "menu", saved: deserializeSavedRect(m.saved) });
+          break;
+        case "showObj":
+          this.modals.push({
+            serial,
+            kind: "showObj",
+            saved: deserializeSavedRect(m.saved),
+            view: m.view,
+          });
+          break;
+        case "showPri":
+          this.modals.push({ serial, kind: "showPri" });
+          break;
+      }
+    }
+    this.printsPending = continuation.printsPending;
+    this.persistentWindow =
+      continuation.persistentWindow === null
+        ? null
+        : deserializeSavedRect(continuation.persistentWindow);
+    if (continuation.keyWait !== null) {
+      this.conditionOutcomes.clear();
+      for (const [pc, outcome] of continuation.keyWait.outcomes)
+        this.conditionOutcomes.set(pc, outcome);
+      this.conditionReplayUntil = continuation.keyWait.condPc;
+      this.haveKeyPolls = continuation.keyWait.haveKeyPolls;
+      this.pendingInteraction = { kind: "key", condPc: continuation.keyWait.condPc };
+      this.pendingAnswer = undefined;
+    }
   }
 
   /**
@@ -2023,27 +2212,34 @@ export class Engine {
    * boundary is not a safe one to snapshot.
    *
    * Wraps the authentic `save.game` image with the host's screen sequence,
-   * text and draw ages. Snapshots need a safe cycle boundary because they
-   * do not preserve suspended logic or modal interaction:
+   * text and draw ages, plus the suspended pass when the interpreter is
+   * parked at a resumable boundary — an open window or a have.key wait — so
+   * the checkpoint restores the identical instruction. Snapshots still need
+   * a safe boundary:
    *
-   * - An open modal window or a pending message owns the text surface; its
-   *   interaction cannot resume from the saved scalar and presentation state.
-   * - Full-screen text mode is the same problem one layer up.
+   * - A suspended host request (a prompt, the selector, a confirmation, room
+   *   authoring) owns an answer only the host can produce; the snapshot is
+   *   refused and retried on a later tick.
+   * - Full-screen text mode owns the surface the same way.
    * - Before any room has drawn (boot, or the gap inside a room transition),
    *   the image would restore to a blank screen.
    *
    * The caller skips this tick and tries the next one.
    */
   autosaveImage(): Uint8Array | null {
-    // A suspended host interaction is not serializable: the save format holds
-    // no suspended-continuation record (see docs/dont-prevent-application.md —
-    // stage 2 evaluates whether one should exist). An armed record inside a
-    // synchronous host call is not suspended — the call is still on the stack —
-    // so a snapshot taken re-entrantly from the host's callback stays allowed.
-    if (this.pendingLogic !== null) return null;
-    if (this.pendingInteraction !== null && this.hostCallDepth === 0) return null;
-    if (this.modal !== null || this.persistentWindow !== null || this.printsPending > 0)
-      return null;
+    // Window and parked-pass state travels in the continuation record. A
+    // boundary it cannot describe — a live host request, or surface-owning
+    // state without a parked pass to resume — still refuses the snapshot.
+    // An armed record inside a synchronous host call is not suspended — the
+    // call is still on the stack — so a snapshot taken re-entrantly from the
+    // host's callback stays allowed.
+    const continuation = this.captureContinuation();
+    if (continuation === null) {
+      if (this.pendingLogic !== null) return null;
+      if (this.pendingInteraction !== null && this.hostCallDepth === 0) return null;
+      if (this.modal !== null || this.persistentWindow !== null || this.printsPending > 0)
+        return null;
+    }
     if (this.textMode) return null;
     // Nothing to resume before the first room has drawn. The shadow record
     // is the witness rather than the game's replay: a game that blocks the
@@ -2057,18 +2253,23 @@ export class Engine {
     // while the game's replay and capacity come back untouched. A shadow that
     // overflowed cannot rebuild it.
     if (this.hostReplayOverflow) return null;
-    return encodeHostImage(this.serialize(), this.hostReplay, {
-      cells: this.text.cells,
-      written: this.text.written,
-      seq: this.text.seq,
-      draws: this.objects.map(({ drawSeq, drawnX, drawnY, drawnWidth, drawnHeight }) => ({
-        drawSeq,
-        drawnX,
-        drawnY,
-        drawnWidth,
-        drawnHeight,
-      })),
-    });
+    return encodeHostImage(
+      this.serialize(),
+      this.hostReplay,
+      {
+        cells: this.text.cells,
+        written: this.text.written,
+        seq: this.text.seq,
+        draws: this.objects.map(({ drawSeq, drawnX, drawnY, drawnWidth, drawnHeight }) => ({
+          drawSeq,
+          drawnX,
+          drawnY,
+          drawnWidth,
+          drawnHeight,
+        })),
+      },
+      continuation,
+    );
   }
 
   /**
@@ -2083,7 +2284,7 @@ export class Engine {
    * game untouched.
    */
   restoreImage(bytes: Uint8Array, options: { preservePresentation?: boolean } = {}): void {
-    const { image, screen, presentation } = decodeHostImage(bytes);
+    const { image, screen, presentation, continuation } = decodeHostImage(bytes);
     // Run the same restore against disposable state and a silent host first.
     // This validates both packet grammar and referenced resources before the
     // live engine or host sees any mutation, without a second replay parser.
@@ -2108,6 +2309,13 @@ export class Engine {
     } catch (e) {
       if (!(e instanceof ContinuationAbort)) throw e;
     }
+    if (continuation) {
+      // The candidate shares the container, so matching the live engine's
+      // patch generation exercises the same restore-or-peel decision and
+      // validates every referenced logic resource before any live mutation.
+      candidate.patchGen = this.patchGen;
+      candidate.restoreContinuation(continuation, !options.preservePresentation);
+    }
     try {
       this.applyRestore(image, screen);
     } catch (e) {
@@ -2129,6 +2337,9 @@ export class Engine {
       }
       this.host.setTextMode?.(false);
     }
+    // The parked pass restores after presentation: a patch-mismatched
+    // continuation peels its windows back onto the snapshot's surface.
+    if (continuation) this.restoreContinuation(continuation, !options.preservePresentation);
   }
 
   /**
@@ -2725,12 +2936,14 @@ export class Engine {
             this.applyInteraction(frames);
           } catch (wait) {
             if (!(wait instanceof HostWait)) throw wait;
+            this.parkedClockWait = false;
             this.pendingLogic = frames;
             return;
           }
           if (this.pendingInteraction !== null) {
             // The applied answer parked the pass again — a restore's error
             // window, which drains through the modal path next tick.
+            this.parkedClockWait = false;
             this.pendingLogic = frames;
             return;
           }
@@ -3498,6 +3711,7 @@ export class Engine {
               throw new Error(
                 `clock busy-wait in logic ${frame.logic} exceeded ${CLOCK_WAIT_LIMIT_MS / 1000} seconds of host time`,
               );
+            this.parkedClockWait = true;
             this.pendingLogic = frames;
             return;
           }
@@ -3548,6 +3762,7 @@ export class Engine {
         }
         frame.pc = this.dispatchAction(code, pc);
         if (this.modal !== null) {
+          this.parkedClockWait = false;
           this.pendingLogic = frames;
           return;
         }
@@ -3556,6 +3771,7 @@ export class Engine {
       // A host interaction that cannot answer synchronously suspends the pass:
       // the stack parks beside the pending interaction the throw armed.
       if (wait instanceof HostWait) {
+        this.parkedClockWait = false;
         this.pendingLogic = frames;
         return;
       }

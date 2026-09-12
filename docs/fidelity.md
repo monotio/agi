@@ -396,11 +396,11 @@ Disassembly evidence (load-module offsets):
   share the `E8DCF4` call to the f9 flag check), chaining every third tick via
   `call far [0xdf35]`.
 
-Implication for this engine: the SAB bridge parks the worker thread during get.string/get.num, so
-the sound clock freezes for the prompt's duration (normal play then catches up in a burst; replay
-advances no virtual ticks while parked). This is a deliberate record/replay determinism trade-off
-— the walkthrough tape treats a blocking prompt as zero elapsed ticks — not a claim about
-hardware.
+Implication for this engine: the worker suspends the interpreter pass during
+get.string/get.num instead of blocking its event loop, so the sound clock keeps
+advancing — matching the hardware. Replay still treats a parked prompt as zero elapsed
+virtual ticks (no cycles run while suspended), a record/replay determinism trade-off,
+not a claim about hardware.
 
 ### SN76489 attenuation latching and rest notes
 
@@ -430,3 +430,46 @@ tone divisor 0 as silence/rest, but does not detail the TI SN76489 chip latching
 
 Tests: [audio.test.ts](../app/test/audio.test.ts) (rejection of data bytes on attenuation latches),
 [sound-playback.test.ts](../test/sound-playback.test.ts) (rest note tone suppression).
+
+### Parked host waits
+
+A host service that cannot answer synchronously — the worker, whose reply lands on a
+later event-loop pass — throws `HostWait` out of the host method; the engine parks the
+live logic stack and returns to the event loop. While a pass is parked the application
+stays live: inspection, autosave, export, recording, editing and patching are all
+served normally, and the interpreter clock advances by wall time exactly as the
+original interpreters' timer interrupt did. A poll that lands while a pass is parked
+may deliver the parked answer, feed the suspended save/restore dialog, dismiss an
+error window or record the observation — the suspended pass itself runs no cycle work
+until its answer arrives.
+
+The delivered answer resumes the parked stack at the identical instruction — nothing
+runs in between — so a checkpoint taken while parked restores to that instruction. The
+host autosave image carries the serialized continuation (the parked logic frames, the
+open print/inventory/menu/show-object/show-priority windows and their saved text
+rectangles, and a parked have.key wait with its condition replay and poll count) beside
+the authentic save-game state; on restore the engine resumes there exactly once. Only a
+live host request — a prompt, the save/restore selector, a confirmation or room
+authoring — makes a pass a non-snapshot point, because the outstanding answer belongs
+to the host, not the image.
+
+If resources were patched after the checkpoint, the continuation's patch generation no
+longer matches the live container: the restore peels the windows back to the saved
+surface, drops the stale bytecode and lets a fresh pass begin rather than executing
+instruction pointers into edited logic.
+
+Tests: [host-wait.test.ts](../test/host-wait.test.ts) (suspension and delivery),
+[parked-checkpoint.test.ts](../test/parked-checkpoint.test.ts) (checkpoint round-trips
+and revision mismatch),
+[autosave.test.ts](../test/autosave.test.ts) (host image versioning).
+
+### Restore error window
+
+A failed `restore.game` image does not abort the calling pass inline: the engine parks
+the interaction behind an "Unable to restore saved game." window and the game ends only
+after the window is acknowledged. The window drains on later host polls through the
+ordinary modal path, never inside the failing pass — so the error surfaces to the
+player exactly like a game message, and a host that never acknowledges leaves the game
+parked rather than dead.
+
+Tests: [save-dialog.test.ts](../test/save-dialog.test.ts) (parked restore errors).

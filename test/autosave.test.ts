@@ -156,7 +156,7 @@ test("an autosave carries the save image byte-identical to what save.game writes
   assert.equal(lengths[2], 0, "block 3: this container ships no OBJECT metadata");
 });
 
-test("an autosave is refused while a message window is open", () => {
+test("an autosave serializes a parked message window and the pass behind it", () => {
   const host = new RecordingHost();
   const engine = new Engine(buildGame(), host, DICT);
   engine.tick(); // boot into room 1
@@ -165,14 +165,19 @@ test("an autosave is refused while a message window is open", () => {
   host.inputQueue.push("look");
   engine.tick();
   assert.equal(engine.modalKind, "print", "the window is up and the world is paused");
-  assert.equal(engine.autosaveImage(), null, "no snapshot behind an open window");
+  const image = engine.autosaveImage();
+  assert.ok(image, "the parked window is a snapshot point");
 
-  // Dismissed: the next cycle boundary is snapshottable again.
-  engine.ackPrint();
-  assert.equal(engine.modalKind, null);
-  assert.equal(engine.autosaveImage(), null, "the interrupted logic still has to finish");
-  engine.tick();
-  assert.ok(engine.autosaveImage());
+  const fresh = new Engine(buildGame(), new RecordingHost(), DICT);
+  fresh.restoreImage(image);
+  assert.equal(fresh.modalKind, "print", "the window comes back with the image");
+  fresh.ackPrint();
+  assert.equal(fresh.modalKind, null);
+  // The pass is still parked at the instruction after print: that boundary
+  // serializes too, and the next tick finishes it.
+  assert.ok(fresh.autosaveImage());
+  fresh.tick();
+  assert.ok(fresh.autosaveImage());
 });
 
 test("an autosave is refused before any room has drawn", () => {
@@ -502,10 +507,10 @@ test("unknown host autosave versions are rejected without rewriting bytes or eng
   const engine = new Engine(buildGame(), new RecordingHost(), DICT);
   engine.tick();
   const image = engine.autosaveImage()!;
-  image[33] = 2;
+  image[33] = 3;
   const before = image.slice();
   const state = engine.serialize();
-  assert.throws(() => engine.restoreImage(image), /unsupported host autosave version 2/);
+  assert.throws(() => engine.restoreImage(image), /unsupported host autosave version 3/);
   assert.deepEqual(image, before);
   assert.deepEqual(engine.serialize(), state);
 });

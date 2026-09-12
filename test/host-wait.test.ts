@@ -6,12 +6,12 @@ import { assembleLogic } from "../src/logic/assembler.ts";
 import { decodeSave } from "../src/runtime/persistence.ts";
 
 /**
- * Resumable host interactions (docs/dont-prevent-application.md stage 1). A
- * host that cannot answer synchronously — the bridge worker, whose reply
- * lands on a later event-loop pass — throws HostWait out of the host method.
- * The engine parks the live logic stack, stays inspectable meanwhile, and
- * resumes exactly where it stopped once `deliverHostAnswer` feeds the reply
- * into a later tick.
+ * Resumable host interactions (docs/fidelity.md parked-host-waits). A host
+ * that cannot answer synchronously — the worker, whose reply lands on a
+ * later event-loop pass — throws HostWait out of the host method. The engine
+ * parks the live logic stack, stays inspectable meanwhile, and resumes
+ * exactly where it stopped once `deliverHostAnswer` feeds the reply into a
+ * later tick.
  */
 
 /** Every interaction service suspends; the test delivers each answer. */

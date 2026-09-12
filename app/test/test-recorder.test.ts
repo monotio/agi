@@ -32,13 +32,18 @@ const mockConfig: LlmConfig = {
   model: "test-model",
 };
 
-test("test recorder refuses to start when blocking modal is open", async () => {
-  const state = createMockState({ modal: "print" });
-  const posted: unknown[] = [];
-  const recorder = useTestRecorder({
-    state,
-    getWorker: () => ({ postMessage: (msg: unknown) => posted.push(msg) }) as unknown as Worker,
-    query: async () => assert.fail("query should not be called when modal is open"),
+test("test recorder refuses to start on a live host request but not a parked window", async () => {
+  // A parked print window serializes into the recording's setup image; the
+  // guard only refuses states whose answer belongs to the player.
+  const parked = createMockState({ modal: "print" });
+  let queried = false;
+  const allowRecorder = useTestRecorder({
+    state: parked,
+    getWorker: () => ({ postMessage: () => {} }) as unknown as Worker,
+    query: async <T>() => {
+      queried = true;
+      return { ok: false, error: "stop here" } as T;
+    },
     logAgent: () => {},
     getBootedGame: () => null,
     getOrCreateSession: async () => assert.fail("session should not be created"),
@@ -46,10 +51,26 @@ test("test recorder refuses to start when blocking modal is open", async () => {
     persistRemix: async () => {},
     flushAutosave: async () => {},
   });
+  await allowRecorder.startTestRecording();
+  assert.equal(queried, true, "a parked window reaches the worker");
 
-  await recorder.startTestRecording();
-  assert.equal(state.recording.active, false);
-  assert.match(state.recording.error, /Close the open window/);
+  for (const modal of ["save", "restore"]) {
+    const state = createMockState({ modal });
+    const recorder = useTestRecorder({
+      state,
+      getWorker: () => ({ postMessage: () => {} }) as unknown as Worker,
+      query: async () => assert.fail("query should not be called during a live request"),
+      logAgent: () => {},
+      getBootedGame: () => null,
+      getOrCreateSession: async () => assert.fail("session should not be created"),
+      markRemixNeedsSave: () => {},
+      persistRemix: async () => {},
+      flushAutosave: async () => {},
+    });
+    await recorder.startTestRecording();
+    assert.equal(state.recording.active, false);
+    assert.match(state.recording.error, /Close the open prompt or assistant/);
+  }
 });
 
 test("test recorder starts and stops successfully through worker queries", async () => {

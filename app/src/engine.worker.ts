@@ -278,10 +278,12 @@ let lastPatchGeneration = 0;
 /**
  * Take an autosave if this cycle boundary allows one and post it to the host.
  *
- * The engine refuses the snapshot while a window, a menu or a text screen owns
- * the surface, or before a room has drawn; the worker adds the cheap gate on
- * top: an image is encoded only when the interpreter actually advanced since
- * the last one, so a parked or idle game costs nothing.
+ * The engine refuses the snapshot while a live host request owns the answer
+ * (a prompt, the save/restore selector, a confirmation), while a text screen
+ * owns the surface, or before a room has drawn; a parked window or key wait
+ * serializes into the image's continuation instead. The worker adds the cheap
+ * gate on top: an image is encoded only when the interpreter actually
+ * advanced since the last one, so a parked or idle game costs nothing.
  */
 function autosave(force: boolean): boolean {
   if (!engine) return false;
@@ -507,9 +509,21 @@ function deliverQueuedKey(): void {
   const queued = keyQueue.shift();
   if (queued === undefined) return;
   setKeyWaiting(false);
-  recording?.tape.host(["waitKey", queued]);
-  engine.deliverHostAnswer(queued);
-  if (engine.hostInteractionReady) tickEngine();
+  if (recording) {
+    // The answer and the resumed pass belong to one recorded operation —
+    // the same shape a live suspension produces. Recording the delivery
+    // inside the tick run keeps it in the list: outside a run, tape.host
+    // drops calls, and a recording that started on this wait would lose it.
+    recording.tape.run("tick", () => {
+      recording!.tape.host(["waitKey", queued]);
+      engine!.deliverHostAnswer(queued);
+      engine!.tick();
+    });
+    if (engine.awaitingHostAnswer) recording.tape.holdTick();
+  } else {
+    engine.deliverHostAnswer(queued);
+    if (engine.hostInteractionReady) tickEngine();
+  }
   if (replay && !engine.awaitingHostAnswer) postReplay(null, true);
 }
 
@@ -1195,16 +1209,16 @@ self.onmessage = (ev: MessageEvent) => {
         });
         return;
       }
-      // The same safe-boundary gates an autosave uses: a modal window, a text
-      // screen or the pre-first-room gap cannot resume from a save image.
+      // The same safe-boundary gates an autosave uses: a suspended host
+      // request, a text screen or the pre-first-room gap cannot resume; a
+      // parked window or key wait records with its continuation.
       const hostImage = engine.recordingImage();
       if (!hostImage) {
         sendControl({
           type: "recordingStarted",
           id: msg.id,
           ok: false,
-          error:
-            "Recording needs a quiet moment: close the open window or text screen and let the room draw.",
+          error: "Recording needs a quiet moment: answer the open prompt and let the room draw.",
         });
         return;
       }
@@ -1367,6 +1381,9 @@ self.onmessage = (ev: MessageEvent) => {
             egoX: restored.egoX,
             egoY: restored.egoY,
           });
+          // A checkpoint parked at a have.key wait restores still waiting:
+          // the host needs the flag to route the answering key back.
+          if (engine.awaitingKey) setKeyWaiting(true);
         } catch (e) {
           sendControl({ type: "restored", ok: false, message: String(e) });
         }
