@@ -3,7 +3,7 @@
  * interval, plus the functions a logic cycle is made of. Pure functions of
  * the worker context — importable under Node.
  */
-import type { WorkerContext } from "./context.ts";
+import type { Inbound, WorkerContext } from "./context.ts";
 
 /** Poll input/modal services at display cadence; v10 separately gates logic cycles. */
 const HOST_POLL_MS = 1000 / 60;
@@ -122,7 +122,13 @@ export function createCycle(ctx: WorkerContext) {
     }
   }
 
+  function onPause(msg: Inbound<"pause">): void {
+    ctx.cycle.paused = msg.paused === true;
+    ctx.ports.control({ type: "paused", paused: ctx.cycle.paused });
+  }
+
   return {
+    onPause,
     tickEngine,
     recordedClock,
     stopTimers,

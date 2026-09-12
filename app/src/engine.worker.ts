@@ -49,8 +49,7 @@ self.onmessage = (ev: MessageEvent) => {
   const msg = ev.data as WorkerInbound;
   try {
     if (msg.type === "pause") {
-      ctx.cycle.paused = msg.paused === true;
-      sendControl({ type: "paused", paused: ctx.cycle.paused });
+      ctx.fns.onPause(msg);
       return;
     }
     if (msg.type === "hostAnswer") {
