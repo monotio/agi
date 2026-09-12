@@ -4,7 +4,7 @@
  * Thin wrappers over the worker link's query.
  */
 import type { AgentFrame, FrameRequest } from "../../src/agent/frames.ts";
-import type { RingFrame } from "./frameRing.ts";
+import type { EngineStateReport } from "../../src/runtime/engine.ts";
 import type { EngineState } from "./useEngineTypes.ts";
 import type { WorkerLink } from "./useWorkerLink.ts";
 import type { WorkerInbound } from "./workerProtocol.ts";
@@ -46,27 +46,27 @@ export function useEngineDebug(options: { state: EngineState; link: WorkerLink }
     vars: [number, number][] = [],
     flags: [number, number][] = [],
   ): Promise<Record<string, unknown>> {
-    return link.query<Record<string, unknown>>("debugWrite", { vars, flags });
+    return link.query("debugWrite", { vars, flags });
   }
 
   /** Var/flag diff events newer than `since` (a previous latestSeq). */
   function debugEventsSince(since: number): Promise<Record<string, unknown>> {
-    return link.query<Record<string, unknown>>("debugEvents", { since });
+    return link.query("debugEvents", { since });
   }
 
   /** Full scalar state snapshot (vars, flags, strings, objects' summary). */
-  function readEngineState(): Promise<Record<string, unknown>> {
-    return link.query<Record<string, unknown>>("state");
+  function readEngineState(): Promise<EngineStateReport | null> {
+    return link.query("state");
   }
 
   /** Trace ring records newer than `since` — the catch-up path for the live stream. */
   function debugTraceSince(since: number): Promise<Record<string, unknown>> {
-    return link.query<Record<string, unknown>>("debugTrace", { since });
+    return link.query("debugTrace", { since });
   }
 
   /** Live frames out of the worker ring, adapted to the agent's frame shape. */
   async function readFrames(req: FrameRequest): Promise<AgentFrame[]> {
-    const frames = await link.query<RingFrame[]>("frames", {
+    const frames = await link.query("frames", {
       count: req.count,
       stride: req.stride,
     });

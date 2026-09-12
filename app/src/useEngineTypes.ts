@@ -67,6 +67,8 @@ export interface EngineState {
   textMode: boolean;
   /** The engine's open modal, or null while the interpreter runs. */
   modal: ModalKind | null;
+  /** View the show.obj modal previews, or null when none is open. */
+  showObjView: number | null;
   /** Text rows of the engine's surface (transparent cells read as spaces). */
   rows: string[];
   /** Installed games autodiscovered under games/. */

@@ -18,7 +18,11 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from "vue";
 import type { Frame } from "./gameTypes.ts";
-import type { ScreenObjectState, TraceRecord } from "../../src/runtime/engine.ts";
+import type {
+  EngineStateReport,
+  ScreenObjectState,
+  TraceRecord,
+} from "../../src/runtime/engine.ts";
 import {
   cropFrameRgba,
   describeDebugEvent,
@@ -56,7 +60,7 @@ const props = defineProps<{
   channels: { ownership: boolean; objects: boolean; trace: boolean };
   viewMode: DebugViewMode;
   hasGpu: boolean;
-  readState: () => Promise<Record<string, unknown>>;
+  readState: () => Promise<EngineStateReport | null>;
   eventsSince: (since: number) => Promise<Record<string, unknown>>;
   write: (vars: [number, number][], flags: [number, number][]) => Promise<unknown>;
   /**
@@ -267,6 +271,18 @@ async function copyPick(): Promise<void> {
 
 // ---------- state polling ----------
 
+const EMPTY_REPORT: StateReport = {
+  vars: [],
+  flags: [],
+  horizon: 0,
+  priorityBase: 0,
+  patchGeneration: 0,
+  room: 0,
+  egoX: 0,
+  egoY: 0,
+  egoDirection: 0,
+};
+
 const report = ref<StateReport>();
 const prevVars = ref<number[]>([]);
 const prevFlags = ref<number[]>([]);
@@ -275,7 +291,7 @@ const changedFlags = ref<Set<number>>(new Set());
 
 async function pollState(): Promise<void> {
   try {
-    const r = (await props.readState()) as unknown as StateReport;
+    const r: StateReport = (await props.readState()) ?? EMPTY_REPORT;
     const next = new Set<number>();
     for (let i = 0; i < 256; i++) {
       if (prevVars.value.length === 256 && r.vars[i] !== prevVars.value[i]) next.add(i);

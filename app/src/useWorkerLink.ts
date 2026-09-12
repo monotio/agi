@@ -13,7 +13,12 @@ import { LAST_GAME_KEY } from "./useAutosaveController.ts";
 import type { EngineState, ModalKind, TextHook } from "./useEngineTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
 import { createWorkerQueries } from "./workerQueries.ts";
-import type { WorkerInbound, WorkerOutbound } from "./workerProtocol.ts";
+import type {
+  WorkerInbound,
+  WorkerOutbound,
+  WorkerQueryPayload,
+  WorkerQueryType,
+} from "./workerProtocol.ts";
 
 /** Controllers the wire dispatches to; useEngine fills it once each exists. */
 export interface WorkerLinkDeps {
@@ -115,31 +120,33 @@ export function useWorkerLink(options: WorkerLinkOptions) {
     worker?.terminate();
     audio.stop();
     deps.resetScreenState();
+    workerQueries.drainPendingQueries(new Error("engine worker replaced"));
     const w = new Worker(new URL("./engine.worker.ts", import.meta.url), { type: "module" });
     wireWorker(w);
-    worker = w;
     return w;
   }
 
   function wireWorker(w: Worker): void {
-    const resolveQueryPayload = (msg: WorkerOutbound) =>
-      msg.type === "frames"
-        ? msg.frames
-        : msg.type === "objects"
-          ? msg.objects
-          : msg.type === "exportFiles"
-            ? msg.files
-            : msg.type === "checkpoint"
-              ? msg.image
-              : "state" in msg
-                ? msg.state
-                : undefined;
     // Trace stream instance last seen from this worker; an epoch change
     // means the worker reset or re-armed the channel, so stale records drop.
     let traceEpochSeen = -1;
+    // The map is required, not partial: a union member without a handler is a
+    // type error here, so deleting one fails `npm run check` at compile time.
     const handlers: {
-      [K in WorkerOutbound["type"]]?: (msg: Extract<WorkerOutbound, { type: K }>) => void;
+      [K in WorkerOutbound["type"]]: (msg: Extract<WorkerOutbound, { type: K }>) => void;
     } = {
+      // Query replies — each settles its pending promise with the payload the
+      // request asked for (see WorkerQueryReplies / WorkerQueryPayload).
+      engineState: (msg) => workerQueries.resolveQuery(msg.id, msg.state),
+      objects: (msg) => workerQueries.resolveQuery(msg.id, msg.objects),
+      frames: (msg) => workerQueries.resolveQuery(msg.id, msg.frames),
+      checkpoint: (msg) => workerQueries.resolveQuery(msg.id, msg.image),
+      exportFiles: (msg) => workerQueries.resolveQuery(msg.id, msg.files),
+      debugWritten: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      debugEvents: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      debugTrace: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      recordingStarted: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      recordingStopped: (msg) => workerQueries.resolveQuery(msg.id, msg),
       // The worker's acknowledgement that the freeze landed — the hook reads
       // the real pause state, not the request.
       paused: (msg) => {
@@ -204,6 +211,9 @@ export function useWorkerLink(options: WorkerLinkOptions) {
           delete latestFrame.picPriority;
         }
         state.debugObjects = msg.objects ?? [];
+        // The show.obj notice arms the preview identity; the frame's modal
+        // field is authoritative for dismissal.
+        if (msg.modal !== "showObj") state.showObjView = null;
         onFrame(latestFrame);
         // Counted after the frame is drawn, so tests can poll for painted pixels.
         hook.frame++;
@@ -243,9 +253,13 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       autosave: (msg) => deps.handleAutosave(msg),
       flushed: (msg) => deps.handleFlushed(msg),
       restored: (msg) => deps.handleRestored(msg),
-      recordingStarted: (msg) => workerQueries.resolveQuery(msg.id, msg),
-      recordingStopped: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      // Deliberate no-op: the patch flow resynchronizes through the following
+      // reenter + frame; raw-worker e2e observes this notice directly.
+      metadataPatched: () => {},
       log: (msg) => logAgent("log", msg.text),
+      quit: () => {
+        deps.ejectGame();
+      },
       replay: (msg) => {
         const replayDriver = deps.getReplayDriver();
         if (!replayDriver) return;
@@ -273,11 +287,10 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         hook.egoY = obs.state.egoY;
         publishHook();
         for (const listener of observationListeners) listener(replayDriver.latest);
-        workerQueries.resolveQuery(Number(msg.id), replayDriver.latest);
+        // Replay observations also arrive unprompted (id null) on every
+        // blocked tick; only a real request id may settle a pending query.
+        if (msg.id !== null) workerQueries.resolveQuery(msg.id, replayDriver.latest);
       },
-      frames: (msg) => workerQueries.resolveQuery(msg.id, resolveQueryPayload(msg)),
-      engineState: (msg) => workerQueries.resolveQuery(msg.id, resolveQueryPayload(msg)),
-      objects: (msg) => workerQueries.resolveQuery(msg.id, resolveQueryPayload(msg)),
       trace: (msg) => {
         // A new stream epoch means the worker dropped or reset its queue —
         // discard what a replaced session left rather than stitching streams.
@@ -292,10 +305,12 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         state.debugTraceDropped += msg.dropped;
         w.postMessage({ type: "traceAck", epoch: msg.epoch, batch: msg.batch });
       },
-      debugEvents: (msg) => workerQueries.resolveQuery(msg.id, msg),
-      debugTrace: (msg) => workerQueries.resolveQuery(msg.id, msg),
-      debugWritten: (msg) => workerQueries.resolveQuery(msg.id, msg),
-      exportFiles: (msg) => workerQueries.resolveQuery(msg.id, resolveQueryPayload(msg)),
+      // show.obj carries the one datum frame.modal lacks: which view the
+      // modal previews. The exploded layers need it to keep the preview
+      // visible as its own layer.
+      showObj: (msg) => {
+        state.showObjView = msg.viewNum;
+      },
       cycle: (msg) => {
         hook.cycle = msg.cycle;
         hook.room = msg.room;
@@ -324,13 +339,23 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         state.phase = "error";
         state.error = msg.message;
       },
-      quit: () => {
-        deps.ejectGame();
-      },
     };
+    worker = w;
     w.onmessage = (ev: MessageEvent) => {
+      // A replaced worker's messages never land here.
       if (worker !== w) return;
-      const msg = ev.data as WorkerOutbound;
+      // Ingress validation for whatever structured clone delivered: unknown
+      // or malformed messages drop instead of reaching a handler.
+      const data = ev.data;
+      if (
+        !data ||
+        typeof data !== "object" ||
+        typeof data.type !== "string" ||
+        !(data.type in handlers)
+      ) {
+        return;
+      }
+      const msg = data as WorkerOutbound;
       const sessionId = "sessionId" in msg ? msg.sessionId : undefined;
       if (
         typeof sessionId === "number" &&
@@ -339,26 +364,29 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       ) {
         return;
       }
-      (handlers[msg.type] as ((m: WorkerOutbound) => void) | undefined)?.(msg);
+      const handler = handlers[msg.type] as (m: WorkerOutbound) => void;
+      handler(msg);
     };
   }
 
   /**
-   * Ask the worker a question and await its reply. Queries are answered
-   * between cycles and work while the interpreter is paused, which is the
-   * whole point: the agent inspects a frozen game.
+   * Ask the worker a question and await its reply. The request type fixes the
+   * reply member and the payload shape the promise settles with
+   * (WorkerQueryPayload), so a caller cannot await the wrong message.
+   * Queries are answered between cycles and work while the interpreter is
+   * paused, which is the whole point: the agent inspects a frozen game.
    */
-  function query<T>(
-    type: WorkerInbound["type"],
+  function query<K extends WorkerQueryType>(
+    type: K,
     extra: Record<string, unknown> = {},
     timeoutMs?: number,
-  ): Promise<T> {
+  ): Promise<WorkerQueryPayload[K]> {
     const effectiveTimeout =
       timeoutMs ??
       (type === "replayAdvance"
         ? Math.max(20_000, Math.ceil(Number(extra["ticks"] ?? 0) / 2))
         : 5000);
-    return workerQueries.query<T>(() => worker, type, extra, effectiveTimeout);
+    return workerQueries.query<WorkerQueryPayload[K]>(() => worker, type, extra, effectiveTimeout);
   }
 
   return {

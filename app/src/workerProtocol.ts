@@ -33,10 +33,8 @@
  *   WorkerControl — hostRequest, interactionCancelled, replay, frames,
  *   engineState, objects, checkpoint, exportFiles, debugWritten,
  *   debugEvents, debugTrace, recordingStarted, recordingStopped, flushed,
- *   restored, reentered, booted, exitedReplay, metadataPatched, paused,
- *   error.
- *   WorkerPresentation — frame, trace, print, display, clearText,
- *   clearLines, textMode, status, shake, showObj, showPri, statusScreen,
+ *   restored, booted, metadataPatched, paused, error.
+ *   WorkerPresentation — frame, trace, print, status, shake, showObj,
  *   autosave, controls, inputEdit, cycle, soundEnabled, sound,
  *   soundOutput, soundPaused, stopSound, waitingForKey, log, quit.
  */
@@ -187,7 +185,6 @@ export type WorkerControl =
       observation: ReplayObservation;
     }
   | { type: "error"; message: string; id?: number }
-  | { type: "reentered"; room: number }
   | { type: "frames"; id: number; source: "history" | "recent"; frames: RingFrame[] }
   | { type: "engineState"; id: number; state: EngineStateReport | null }
   | { type: "objects"; id: number; objects: ScreenObjectState[] }
@@ -226,7 +223,6 @@ export type WorkerControl =
       message?: string;
     }
   | { type: "booted"; profile: string }
-  | { type: "exitedReplay" }
   | {
       type: "flushed";
       id: number;
@@ -276,15 +272,9 @@ export type WorkerPresentation =
       records: StampedTrace[];
     }
   | { type: "print"; text: string }
-  | { type: "display"; row: number; col: number; text: string }
-  | { type: "clearText" }
-  | { type: "clearLines"; fromRow: number; toRow: number; color?: number | undefined }
-  | { type: "textMode"; active: boolean }
   | { type: "status"; text: string }
   | { type: "shake"; count: number }
   | { type: "showObj"; viewNum: number }
-  | { type: "showPri" }
-  | { type: "statusScreen"; items: { num: number; name: string }[] }
   | {
       type: "autosave";
       image: string;
@@ -308,3 +298,47 @@ export type WorkerPresentation =
 
 /** Every message the worker may post. */
 export type WorkerOutbound = WorkerControl | WorkerPresentation;
+
+/**
+ * Query requests answered through the link's pending-query table: the request
+ * type, the outbound member that replies, and the payload the pending promise
+ * settles with. `flushed` is not here — the autosave controller owns its own
+ * waiter table because a flush can outlive the caller's await (pagehide).
+ */
+export interface WorkerQueryReplies {
+  state: Extract<WorkerControl, { type: "engineState" }>;
+  objects: Extract<WorkerControl, { type: "objects" }>;
+  frames: Extract<WorkerControl, { type: "frames" }>;
+  checkpoint: Extract<WorkerControl, { type: "checkpoint" }>;
+  exportFiles: Extract<WorkerControl, { type: "exportFiles" }>;
+  startRecording: Extract<WorkerControl, { type: "recordingStarted" }>;
+  stopRecording: Extract<WorkerControl, { type: "recordingStopped" }>;
+  replayAdvance: Extract<WorkerControl, { type: "replay" }>;
+  debugWrite: Extract<WorkerControl, { type: "debugWritten" }>;
+  debugTrace: Extract<WorkerControl, { type: "debugTrace" }>;
+  debugEvents: Extract<WorkerControl, { type: "debugEvents" }>;
+}
+
+export type WorkerQueryType = keyof WorkerQueryReplies;
+
+/** The value a reply resolves its pending query with. */
+export interface WorkerQueryPayload {
+  state: WorkerQueryReplies["state"]["state"];
+  objects: WorkerQueryReplies["objects"]["objects"];
+  frames: WorkerQueryReplies["frames"]["frames"];
+  checkpoint: WorkerQueryReplies["checkpoint"]["image"];
+  exportFiles: WorkerQueryReplies["exportFiles"]["files"];
+  startRecording: WorkerQueryReplies["startRecording"];
+  stopRecording: WorkerQueryReplies["stopRecording"];
+  replayAdvance: WorkerQueryReplies["replayAdvance"]["observation"];
+  debugWrite: WorkerQueryReplies["debugWrite"];
+  debugTrace: WorkerQueryReplies["debugTrace"];
+  debugEvents: WorkerQueryReplies["debugEvents"];
+}
+
+/** The typed query function the worker link hands to consumers. */
+export type WorkerQueryFn = <K extends WorkerQueryType>(
+  type: K,
+  extra?: Record<string, unknown>,
+  timeoutMs?: number,
+) => Promise<WorkerQueryPayload[K]>;

@@ -70,6 +70,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     hook.profile = null;
     state.textMode = false;
     state.modal = null;
+    state.showObjView = null;
     state.controls = [];
     state.inputEnabled = false;
     state.inputReady = false;
@@ -182,7 +183,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       const game = booted;
       const session = authoring.getSession();
       if (game && session && (!game.installed || authoring.isRemixNeedsSave())) {
-        const files = await link.query<Record<string, Uint8Array> | null>("exportFiles");
+        const files = await link.query("exportFiles");
         if (!files)
           throw new Error(
             "The current game could not be saved. Try Game actions → Project before leaving.",
@@ -467,7 +468,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         }
       : ((await loadAuthoredGame(game.projectId!).catch(() => null)) ?? game.authoredGame ?? null);
     if (!data) throw new Error("The current game metadata is unavailable.");
-    const files = await link.query<Record<string, Uint8Array> | null>("exportFiles");
+    const files = await link.query("exportFiles");
     if (!files || booted !== game) throw new Error("The game changed during export. Try again.");
     await updateBootedResources(game, files);
     if (!game.installed && !(await updateAuthoredGameFiles(game.projectId!, files))) {

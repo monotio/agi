@@ -18,7 +18,7 @@ import {
 } from "./gameStorage.ts";
 import { gameStorageKey, type BootedGame } from "./gameTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
-import type { WorkerInbound } from "./workerProtocol.ts";
+import type { WorkerInbound, WorkerQueryFn } from "./workerProtocol.ts";
 
 /** Remix bubble state; the transcript slice is the live tool-call feed. */
 export interface PowerUpUiState {
@@ -48,7 +48,7 @@ export interface AuthoringControllerOptions {
     readonly profile: string | null;
   };
   readonly getWorker: () => Worker | null;
-  readonly query: <T>(type: WorkerInbound["type"], extra?: Record<string, unknown>) => Promise<T>;
+  readonly query: WorkerQueryFn;
   readonly logAgent: LogAgentFn;
   readonly readFrames: (req: FrameRequest) => Promise<AgentFrame[]>;
   readonly pauseEngine: () => void;
@@ -117,10 +117,10 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   let remixNeedsSave = false;
 
   const engineSource = {
-    objects: () => query<unknown>("objects"),
-    state: () => query<unknown>("state"),
+    objects: () => query("objects"),
+    state: () => query("state"),
   };
-  const checkpointSource = () => query<Uint8Array | null>("checkpoint");
+  const checkpointSource = () => query("checkpoint");
 
   async function createGameSession(game: BootedGame, config: LlmConfig): Promise<AgentSession> {
     const cached = game.installed
@@ -202,7 +202,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     state.powerUp.feedStart = state.agentLog.length;
     state.powerUp.feedStartSeq = (state.agentLog.at(-1)?.seq ?? 0) + 1;
     try {
-      const engineState = await query<{ room: number; profile: string } | null>("state");
+      const engineState = await query("state");
       state.powerUp.room = Number(engineState?.room ?? 0);
       const booted = getBootedGame();
       if (!session && booted) {
@@ -448,7 +448,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       // Worker messages are ordered: snapshot after every patch has landed, before persisting the matching conversation.
       if (booted) {
         const game = booted;
-        const currentFiles = await query<Record<string, Uint8Array> | null>("exportFiles");
+        const currentFiles = await query("exportFiles");
         if (!currentFiles) throw new Error("The remixed game snapshot is unavailable.");
         await persistRemix(game, session, currentFiles);
       }

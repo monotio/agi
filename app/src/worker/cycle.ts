@@ -92,7 +92,6 @@ export function createCycle(ctx: WorkerContext) {
             if (ctx.hostRequests.pendingReenter && !ctx.engine!.hostInteractionPending) {
               // The suspended re-entered room has landed (or been declined).
               ctx.hostRequests.pendingReenter = false;
-              ctx.ports.control({ type: "reentered", room: ctx.engine!.vars[0]! });
               ctx.fns.postFrame(true);
             }
           } else if (ctx.clocks.cycle.poll(now, ctx.engine!.vars[10]!)) {

@@ -212,7 +212,6 @@ export function createHostRequests(ctx: WorkerContext) {
       return;
     }
     ctx.fns.postFrame(true);
-    ctx.ports.control({ type: "reentered", room: ctx.engine.vars[0]! });
   }
 
   return {

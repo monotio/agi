@@ -164,7 +164,6 @@ export function createReplay(ctx: WorkerContext) {
     ctx.fns.stopTimers();
     ctx.fns.startTimers();
     ctx.fns.postFrame();
-    ctx.ports.control({ type: "exitedReplay" });
   }
 
   return { postReplay, onReplayAdvance, onResetReplay, onExitReplay };

@@ -25,18 +25,12 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
         ctx.recording.recording.printed.push(text.slice(0, 400));
       ctx.ports.presentation({ type: "print", text });
     },
-    displayAt(row, col, text) {
-      ctx.ports.presentation({ type: "display", row, col, text });
-    },
-    clearText() {
-      ctx.ports.presentation({ type: "clearText" });
-    },
-    clearLines(fromRow, toRow, color) {
-      ctx.ports.presentation({ type: "clearLines", fromRow, toRow, color });
-    },
-    setTextMode(active) {
-      ctx.ports.presentation({ type: "textMode", active });
-    },
+    /**
+     * The text surface is composited into every posted frame, so per-call
+     * display/clear/text-mode mirrors are not shipped — they would only
+     * duplicate bytes the next frame already carries.
+     */
+    displayAt() {},
     /**
      * Key wait for have.key busy loops, selectors and confirmations. Queued
      * keys answer synchronously; otherwise the engine suspends on the thrown
@@ -88,14 +82,8 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
     showObj(viewNum) {
       ctx.ports.presentation({ type: "showObj", viewNum });
     },
-    /** 0x1d show.pri.screen: modal priority-surface view. */
-    showPriScreen() {
-      ctx.ports.presentation({ type: "showPri" });
-    },
-    /** 0x7c status: modal inventory list. */
-    statusScreen(items) {
-      ctx.ports.presentation({ type: "statusScreen", items });
-    },
+    // show.pri.screen and status (inventory) report through frame.modal; the
+    // exploded view needs show.obj's view number, so that notice stays.
     /** 0x76 get.num: a host-request prompt; the engine suspends until answered. */
     promptNumber(prompt, row, col) {
       return ctx.fns.postHostRequest("getnum", { prompt, row, col });
