@@ -12,172 +12,122 @@ import { OperationRecorder } from "../../src/agent/recordedReplay.ts";
 import type { RecordedEvent } from "./gameRecording.ts";
 import { Engine, HostWait, type EngineHost } from "../../src/runtime/engine.ts";
 import { AGI_KEY, DIRECTION_KEYS, NAV_KEYS } from "../../src/runtime/keys.ts";
-import { FrameRing } from "./frameRing.ts";
-import { CycleClock } from "../../src/runtime/cycleClock.ts";
-import { SoundClock } from "./soundClock.ts";
 import type { ReplayObservation } from "./replay.ts";
 import { createProgressPreview } from "./progressPreview.ts";
+import { base64ToBytes, bytesToBase64 } from "./bytes.ts";
+import { createWorkerContext, resetSession, type WorkerPorts } from "./worker/context.ts";
 import type {
   BootMessage,
-  DebugEvent,
   HostRequestOp,
-  StampedTrace,
   WorkerControl,
   WorkerInbound,
   WorkerPresentation,
 } from "./workerProtocol.ts";
 
-/** Save-file image as base64: worker messages and localStorage both carry text. */
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  // Chunked so a large image never overflows the argument list.
-  for (let at = 0; at < bytes.length; at += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
-  }
-  return btoa(binary);
-}
+const ports: WorkerPorts = {
+  control: (message, options) => sendControl(message, options),
+  presentation: (message, options) => sendPresentation(message, options),
+  now: () => performance.now(),
+};
 
-function base64ToBytes(text: string): Uint8Array {
-  const binary = atob(text);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-let engine: Engine | null = null;
-let isSeeking = false;
-let currentSessionId = 0;
+/** All mutable worker state lives on the context; see worker/context.ts. */
+const ctx = createWorkerContext(ports);
 
 function sendControl(message: WorkerControl, options?: Transferable[]): void {
-  if (currentSessionId > 0 && !("sessionId" in message)) {
-    (message as Record<string, unknown>)["sessionId"] = currentSessionId;
+  if (ctx.replay.currentSessionId > 0 && !("sessionId" in message)) {
+    (message as Record<string, unknown>)["sessionId"] = ctx.replay.currentSessionId;
   }
   self.postMessage(message, options ?? []);
 }
 
 function sendPresentation(message: WorkerPresentation, options?: Transferable[]): void {
-  if (isSeeking) return;
-  if (currentSessionId > 0 && !("sessionId" in message)) {
-    (message as Record<string, unknown>)["sessionId"] = currentSessionId;
+  if (ctx.replay.isSeeking) return;
+  if (ctx.replay.currentSessionId > 0 && !("sessionId" in message)) {
+    (message as Record<string, unknown>)["sessionId"] = ctx.replay.currentSessionId;
   }
   self.postMessage(message, options ?? []);
 }
 
-let authorRooms = false;
-let selectedSoundDevice = 1;
-let liveDictionary = new Map<string, number>();
-let authoredWords: Uint8Array | null = null;
-let inputBuffer: string[] = [];
-/**
- * Queued key presses. A parked key wait — have.key, a selector, a
- * confirmation — is answered straight from this queue by the arriving key
- * message; keys never cross a host request.
- */
-let keyQueue: number[] = [];
-/** Admitted walking releases and later walking keys wait for ordinary input. */
-const deferredMovement: number[] = [];
-
-/**
- * The active player-action recording for a stored game test (see
- * gameRecording.ts): every player action the interpreter receives, stamped
- * with the interpreter cycle at the moment it arrives, plus the messages the
- * game printed while recording. null while not recording.
- */
-let recording: {
-  tape: OperationRecorder;
-  events: RecordedEvent[];
-  printed: string[];
-  tainted: string | null;
-  usedGetnum: boolean;
-} | null = null;
 function recordEvent(event: RecordedEvent): void {
-  if (!recording) return;
-  if (recording.events.length >= 5000) {
-    recording.tainted = "Recording reached its action limit; record a shorter scenario.";
+  if (!ctx.recording.recording) return;
+  if (ctx.recording.recording.events.length >= 5000) {
+    ctx.recording.recording.tainted =
+      "Recording reached its action limit; record a shorter scenario.";
     return;
   }
-  recording.events.push(event);
+  ctx.recording.recording.events.push(event);
 }
-let initialLogicStarted = false;
-let lastInputReady = false;
 function tickEngine(): void {
-  if (!engine) return;
-  initialLogicStarted = true;
+  if (!ctx.engine) return;
+  ctx.cycle.initialLogicStarted = true;
   // A suspended interaction freezes the cycle until its answer lands — the
   // gate inside tick() is the same, but skipping here keeps the recorder's
   // operation list honest: a parked tick never runs.
-  if (engine.hostInteractionPending && !engine.hostInteractionReady) return;
-  if (recording) {
-    recording.tape.run("tick", () => engine!.tick());
+  if (ctx.engine.hostInteractionPending && !ctx.engine.hostInteractionReady) return;
+  if (ctx.recording.recording) {
+    ctx.recording.recording.tape.run("tick", () => ctx.engine!.tick());
     // A tick that ended suspended stays one recorded operation: the resumed
     // answer and the calls it produces join the same list on the next tick.
-    if (engine!.awaitingHostAnswer) recording.tape.holdTick();
-  } else engine.tick();
+    if (ctx.engine!.awaitingHostAnswer) ctx.recording.recording.tape.holdTick();
+  } else ctx.engine.tick();
 }
 function recordedClock(): void {
-  recording?.tape.clock();
-  engine?.advanceClock(1000 / 60);
-  engine?.soundTick();
+  ctx.recording.recording?.tape.clock();
+  ctx.engine?.advanceClock(1000 / 60);
+  ctx.engine?.soundTick();
 }
-let timer: number | null = null;
-let soundTimer: number | null = null;
 function stopTimers(): void {
-  if (timer !== null) {
-    clearInterval(timer);
-    timer = null;
+  if (ctx.cycle.timer !== null) {
+    clearInterval(ctx.cycle.timer);
+    ctx.cycle.timer = null;
   }
-  if (soundTimer !== null) {
-    clearInterval(soundTimer);
-    soundTimer = null;
+  if (ctx.cycle.soundTimer !== null) {
+    clearInterval(ctx.cycle.soundTimer);
+    ctx.cycle.soundTimer = null;
   }
 }
-const soundClock = new SoundClock(performance.now());
-const cycleClock = new CycleClock(performance.now());
 /** Poll input/modal services at display cadence; v10 separately gates logic cycles. */
 const HOST_POLL_MS = 1000 / 60;
-let replay: { tick: number; revision: number; random: number } | null = null;
-let replayRequest: number | null = null;
-let currentBootFiles: Map<string, Uint8Array> | null = null;
-let currentDictionary: Map<string, number> | null = null;
-let lastReplaySeed: number | null = null;
 
 function postReplay(blocked: string | null, fullState = false): void {
-  if (!replay || !engine) return;
+  if (!ctx.replay.replay || !ctx.engine) return;
   const isFull = fullState || blocked !== null;
-  const state = isFull ? engine.readState() : engine.readLeanState();
-  const rows = isFull ? Array.from({ length: 25 }, (_, row) => engine!.textRow(row)) : [];
+  const state = isFull ? ctx.engine.readState() : ctx.engine.readLeanState();
+  const rows = isFull ? Array.from({ length: 25 }, (_, row) => ctx.engine!.textRow(row)) : [];
   const observation: ReplayObservation = {
-    sessionId: currentSessionId,
-    revision: ++replay.revision,
-    tick: replay.tick,
-    cycle: cycleCount,
+    sessionId: ctx.replay.currentSessionId,
+    revision: ++ctx.replay.replay.revision,
+    tick: ctx.replay.replay.tick,
+    cycle: ctx.cycle.cycleCount,
     blocked,
     state,
     rows,
-    egoView: engine.screenObjects[0]!.view,
-    releaseGate: engine.releaseGate,
+    egoView: ctx.engine.screenObjects[0]!.view,
+    releaseGate: ctx.engine.releaseGate,
   };
-  sendControl({ type: "replay", sessionId: currentSessionId, id: replayRequest, observation });
-  replayRequest = null;
+  sendControl({
+    type: "replay",
+    sessionId: ctx.replay.currentSessionId,
+    id: ctx.replay.replayRequest,
+    observation,
+  });
+  ctx.replay.replayRequest = null;
 }
 
 function flushDeferredMovement(): void {
-  if (!engine || engine.modalKind !== null || engine.continuationPending) return;
-  for (const key of deferredMovement.splice(0)) {
+  if (!ctx.engine || ctx.engine.modalKind !== null || ctx.engine.continuationPending) return;
+  for (const key of ctx.input.deferredMovement.splice(0)) {
     if (key === 0) {
-      if (recording) recording.tape.run("release", () => engine!.releaseTrackedKey(true));
-      else engine.releaseTrackedKey(true);
-    } else keyQueue.push(key);
+      if (ctx.recording.recording)
+        ctx.recording.recording.tape.run("release", () => ctx.engine!.releaseTrackedKey(true));
+      else ctx.engine.releaseTrackedKey(true);
+    } else ctx.input.keyQueue.push(key);
   }
   // Keys flushed while an interaction is parked still feed its key wait.
   deliverQueuedKey();
 }
-/** Interpreter cycles completed since boot; the frame ring's timeline. */
-let cycleCount = 0;
 /** Liveness observations stay responsive at slow game-selected cycle speeds. */
 const CYCLE_REPORT_MS = 250;
-let lastCycleReportAt = 0;
-let lastHistoryAt = 0;
 
 /**
  * Autosave cadence. Five seconds is the
@@ -188,15 +138,6 @@ let lastHistoryAt = 0;
  * notice; the flush on page-hide covers the tail.
  */
 const AUTOSAVE_INTERVAL_MS = 5_000;
-/** Effective cadence for this boot (host-configurable). */
-let autosaveIntervalMs = AUTOSAVE_INTERVAL_MS;
-/** Whether the host wants the patched container shipped with an autosave. */
-let autosaveFiles = false;
-/** Wall-clock of the last attempt, the cycle of the last image, and the last
- *  container patch generation the host has seen. */
-let lastAutosaveAt = 0;
-let lastAutosaveCycle = -1;
-let lastPatchGeneration = 0;
 
 /**
  * Take an autosave if this cycle boundary allows one and post it to the host.
@@ -209,11 +150,11 @@ let lastPatchGeneration = 0;
  * advanced since the last one, so a parked or idle game costs nothing.
  */
 function autosave(force: boolean): boolean {
-  if (!engine) return false;
-  if (!force && cycleCount === lastAutosaveCycle) return false;
+  if (!ctx.engine) return false;
+  if (!force && ctx.cycle.cycleCount === ctx.autosave.lastAutosaveCycle) return false;
   let image: Uint8Array | null;
   try {
-    image = engine.autosaveImage();
+    image = ctx.engine.autosaveImage();
   } catch (error) {
     sendPresentation({ type: "log", text: `Autosave snapshot failed: ${String(error)}` });
     return false;
@@ -222,16 +163,16 @@ function autosave(force: boolean): boolean {
   const msg: Extract<WorkerPresentation, { type: "autosave" }> = {
     type: "autosave",
     image: bytesToBase64(image),
-    menus: engine.readMenuState(),
-    cycle: cycleCount,
-    room: engine.vars[0]!,
+    menus: ctx.engine.readMenuState(),
+    cycle: ctx.cycle.cycleCount,
+    room: ctx.engine.vars[0]!,
   };
   try {
-    const presentation = engine.getPresentation();
+    const presentation = ctx.engine.getPresentation();
     msg.preview = createProgressPreview({
       visual: presentation.visual,
       text: presentation.text,
-      picRow: engine.displayBase,
+      picRow: ctx.engine.displayBase,
     });
   } catch (error) {
     sendPresentation({ type: "log", text: `Autosave preview skipped: ${String(error)}` });
@@ -239,39 +180,23 @@ function autosave(force: boolean): boolean {
   // The patched container travels only when a patch really landed since the
   // host last saw one: a resource snapshot on every tick would cost far more
   // than the save image it accompanies.
-  if (autosaveFiles && engine.patchGeneration !== lastPatchGeneration) {
+  if (
+    ctx.autosave.autosaveFiles &&
+    ctx.engine.patchGeneration !== ctx.autosave.lastPatchGeneration
+  ) {
     const files: Record<string, Uint8Array> = {};
-    for (const [name, bytes] of engine.containerFiles) files[name] = bytes.slice();
-    if (authoredWords) files["WORDS.TOK"] = authoredWords;
+    for (const [name, bytes] of ctx.engine.containerFiles) files[name] = bytes.slice();
+    if (ctx.boot.authoredWords) files["WORDS.TOK"] = ctx.boot.authoredWords;
     msg.files = files;
-    lastPatchGeneration = engine.patchGeneration;
+    ctx.autosave.lastPatchGeneration = ctx.engine.patchGeneration;
   }
   sendPresentation(msg);
-  lastAutosaveCycle = cycleCount;
-  lastAutosaveAt = Date.now();
+  ctx.autosave.lastAutosaveCycle = ctx.cycle.cycleCount;
+  ctx.autosave.lastAutosaveAt = Date.now();
   return true;
 }
 
-/**
- * Frame history for the agent's `read_room_context` tool: the last 100 cycles plus
- * 60 history samples captured at most once per second. Both rings preallocate their typed arrays, so a cycle
- * costs three buffer copies and nothing else.
- */
-const recentRing = new FrameRing(100);
-const historyRing = new FrameRing(60);
-
-/**
- * Inspector channels armed by the host. ownership/objects ride on frame
- * posts; trace streams structured instruction records. Each channel costs
- * real per-cycle work, so they stay disarmed until a debug view asks.
- */
-const debug = { ownership: false, objects: false, trace: false, picture: false };
-
 const DEBUG_EVENT_CAP = 4000;
-const debugEvents: DebugEvent[] = [];
-let debugEventSeq = 0;
-let prevVars: Uint8Array | null = null;
-let prevFlags: Uint8Array | null = null;
 
 /**
  * Diff vars/flags against the previous completed cycle. The ring records
@@ -279,54 +204,52 @@ let prevFlags: Uint8Array | null = null;
  * whether or not an inspector view is currently open.
  */
 function captureStateDiffs(): void {
-  if (!engine) return;
-  if (prevVars === null || prevFlags === null) {
-    prevVars = engine.vars.slice();
-    prevFlags = engine.flags.slice();
+  if (!ctx.engine) return;
+  if (ctx.debug.prevVars === null || ctx.debug.prevFlags === null) {
+    ctx.debug.prevVars = ctx.engine.vars.slice();
+    ctx.debug.prevFlags = ctx.engine.flags.slice();
     return;
   }
   for (let i = 0; i < 256; i++) {
-    const v = engine.vars[i]!;
-    if (v !== prevVars[i])
-      debugEvents.push({
-        seq: ++debugEventSeq,
-        cycle: cycleCount,
+    const v = ctx.engine.vars[i]!;
+    if (v !== ctx.debug.prevVars[i])
+      ctx.debug.debugEvents.push({
+        seq: ++ctx.debug.debugEventSeq,
+        cycle: ctx.cycle.cycleCount,
         kind: "var",
         index: i,
-        from: prevVars[i]!,
+        from: ctx.debug.prevVars[i]!,
         to: v,
       });
-    const f = engine.flags[i]!;
-    if (f !== prevFlags[i])
-      debugEvents.push({
-        seq: ++debugEventSeq,
-        cycle: cycleCount,
+    const f = ctx.engine.flags[i]!;
+    if (f !== ctx.debug.prevFlags[i])
+      ctx.debug.debugEvents.push({
+        seq: ++ctx.debug.debugEventSeq,
+        cycle: ctx.cycle.cycleCount,
         kind: "flag",
         index: i,
-        from: prevFlags[i]!,
+        from: ctx.debug.prevFlags[i]!,
         to: f,
       });
   }
-  prevVars.set(engine.vars);
-  prevFlags.set(engine.flags);
-  if (debugEvents.length > DEBUG_EVENT_CAP)
-    debugEvents.splice(0, debugEvents.length - DEBUG_EVENT_CAP);
+  ctx.debug.prevVars.set(ctx.engine.vars);
+  ctx.debug.prevFlags.set(ctx.engine.flags);
+  if (ctx.debug.debugEvents.length > DEBUG_EVENT_CAP)
+    ctx.debug.debugEvents.splice(0, ctx.debug.debugEvents.length - DEBUG_EVENT_CAP);
 }
 
 const TRACE_CAP = 4000;
 const TRACE_POST_MAX = 500;
-const traceRing: StampedTrace[] = [];
-let traceSeq = 0;
-let pendingTrace: StampedTrace[] = [];
 
 function applyTraceChannel(): void {
-  engine?.setTraceListener(
-    debug.trace
+  ctx.engine?.setTraceListener(
+    ctx.debug.channels.trace
       ? (record) => {
-          const stamped = { ...record, seq: ++traceSeq, cycle: cycleCount };
-          traceRing.push(stamped);
-          if (traceRing.length > TRACE_CAP) traceRing.splice(0, traceRing.length - TRACE_CAP);
-          pendingTrace.push(stamped);
+          const stamped = { ...record, seq: ++ctx.debug.traceSeq, cycle: ctx.cycle.cycleCount };
+          ctx.debug.traceRing.push(stamped);
+          if (ctx.debug.traceRing.length > TRACE_CAP)
+            ctx.debug.traceRing.splice(0, ctx.debug.traceRing.length - TRACE_CAP);
+          ctx.debug.pendingTrace.push(stamped);
         }
       : null,
   );
@@ -334,47 +257,27 @@ function applyTraceChannel(): void {
 
 /** Post accumulated trace records; sendPresentation drops them while seeking. */
 function flushTraceBatch(): void {
-  if (pendingTrace.length === 0) return;
-  sendPresentation({ type: "trace", records: pendingTrace.splice(0, TRACE_POST_MAX) });
+  if (ctx.debug.pendingTrace.length === 0) return;
+  sendPresentation({ type: "trace", records: ctx.debug.pendingTrace.splice(0, TRACE_POST_MAX) });
 }
 
 /** Completed interpreter cycle: count it, attribute state writes, ship trace. */
 function finishCycle(): void {
-  cycleCount++;
+  ctx.cycle.cycleCount++;
   captureStateDiffs();
   flushTraceBatch();
 }
 
-/**
- * The remix freeze. A `pause` message sets it; messages from one sender are
- * delivered in order, so a pause posted before a query is always applied
- * before the query is served — at most one more cycle runs first, and that
- * cycle is invisible since nobody reads state before the freeze lands.
- */
-let paused = false;
-/**
- * The host request currently in flight, or null when none is. The engine's
- * pendingInteraction armed before the request posted; the matching
- * { type: "hostAnswer" } message feeds `deliverHostResponse`, which hands it
- * to `engine.deliverHostAnswer` — the interpreter stays parked until then.
- */
-let hostRequestSerial = 0;
-let hostRequestOutstanding: { id: number; op: string; authoring: boolean } | null = null;
-/** A reenter suspended on room authoring owes the host a `reentered`. */
-let pendingReenter = false;
-/** The suspended interaction waits on a player key, not a host request. */
-let keyWaiting = false;
-
 function setKeyWaiting(waiting: boolean): void {
-  if (waiting === keyWaiting) return;
-  keyWaiting = waiting;
+  if (waiting === ctx.input.keyWaiting) return;
+  ctx.input.keyWaiting = waiting;
   sendPresentation({ type: "waitingForKey", waiting });
 }
 
 function advanceSoundClock(authoring = false): void {
-  if (replay) return;
-  const frozen = authoring || paused;
-  const ticks = soundClock.advance(performance.now(), frozen);
+  if (ctx.replay.replay) return;
+  const frozen = authoring || ctx.cycle.paused;
+  const ticks = ctx.clocks.sound.advance(ctx.ports.now(), frozen);
   for (let tick = 0; tick < ticks; tick++) {
     recordedClock();
   }
@@ -388,17 +291,17 @@ function advanceSoundClock(authoring = false): void {
  * editing while the game waits.
  */
 function postHostRequest(op: HostRequestOp, context: Record<string, unknown>): never {
-  if (recording && !["getstring", "getnum"].includes(op))
-    recording.tainted = `The recording used unsupported host service ${op}.`;
+  if (ctx.recording.recording && !["getstring", "getnum"].includes(op))
+    ctx.recording.recording.tainted = `The recording used unsupported host service ${op}.`;
   advanceSoundClock();
   // The interpreter is about to suspend: ship the frame that shows the
   // prompt (or the selector) the request belongs to.
   postFrame();
-  const id = ++hostRequestSerial;
+  const id = ++ctx.hostRequests.hostRequestSerial;
   const authoring = op === "room";
-  hostRequestOutstanding = { id, op, authoring };
+  ctx.hostRequests.hostRequestOutstanding = { id, op, authoring };
   sendControl({ type: "hostRequest", id, op, context });
-  if (replay && ["getnum", "getstring", "saveDescription"].includes(op)) {
+  if (ctx.replay.replay && ["getnum", "getstring", "saveDescription"].includes(op)) {
     postReplay(op);
   }
   if (authoring) sendPresentation({ type: "soundPaused", paused: true });
@@ -408,7 +311,9 @@ function postHostRequest(op: HostRequestOp, context: Record<string, unknown>): n
 /** The request finished or was abandoned: release the authoring pause. */
 function settleHostRequest(outstanding: { op: string; authoring: boolean }): void {
   if (!outstanding.authoring) return;
-  cycleClock.reset(replay ? (replay.tick * 1000) / 60 : performance.now());
+  ctx.clocks.cycle.reset(
+    ctx.replay.replay ? (ctx.replay.replay.tick * 1000) / 60 : ctx.ports.now(),
+  );
   sendPresentation({ type: "soundPaused", paused: false });
 }
 
@@ -419,26 +324,26 @@ function settleHostRequest(outstanding: { op: string; authoring: boolean }): voi
  * up later.
  */
 function deliverQueuedKey(): void {
-  if (!engine?.awaitingKey) return;
-  const queued = keyQueue.shift();
+  if (!ctx.engine?.awaitingKey) return;
+  const queued = ctx.input.keyQueue.shift();
   if (queued === undefined) return;
   setKeyWaiting(false);
-  if (recording) {
+  if (ctx.recording.recording) {
     // The answer and the resumed pass belong to one recorded operation —
     // the same shape a live suspension produces. Recording the delivery
     // inside the tick run keeps it in the list: outside a run, tape.host
     // drops calls, and a recording that started on this wait would lose it.
-    recording.tape.run("tick", () => {
-      recording!.tape.host(["waitKey", queued]);
-      engine!.deliverHostAnswer(queued);
-      engine!.tick();
+    ctx.recording.recording.tape.run("tick", () => {
+      ctx.recording.recording!.tape.host(["waitKey", queued]);
+      ctx.engine!.deliverHostAnswer(queued);
+      ctx.engine!.tick();
     });
-    if (engine.awaitingHostAnswer) recording.tape.holdTick();
+    if (ctx.engine.awaitingHostAnswer) ctx.recording.recording.tape.holdTick();
   } else {
-    engine.deliverHostAnswer(queued);
-    if (engine.hostInteractionReady) tickEngine();
+    ctx.engine.deliverHostAnswer(queued);
+    if (ctx.engine.hostInteractionReady) tickEngine();
   }
-  if (replay && !engine.awaitingHostAnswer) postReplay(null, true);
+  if (ctx.replay.replay && !ctx.engine.awaitingHostAnswer) postReplay(null, true);
 }
 
 /**
@@ -447,32 +352,33 @@ function deliverQueuedKey(): void {
  * check in the hostAnswer handler.
  */
 function abandonHostRequest(): void {
-  const outstanding = hostRequestOutstanding;
+  const outstanding = ctx.hostRequests.hostRequestOutstanding;
   if (outstanding === null) return;
-  hostRequestOutstanding = null;
+  ctx.hostRequests.hostRequestOutstanding = null;
   settleHostRequest(outstanding);
   sendControl({ type: "interactionCancelled", id: outstanding.id, op: outstanding.op });
 }
 
 /** Hand a host answer to the suspended interaction it resolves. */
 function deliverHostResponse(op: string, response: string): void {
-  if (!engine) return;
+  if (!ctx.engine) return;
   switch (op) {
     case "getnum": {
       const n = Number.parseInt(response, 10);
       const value = Number.isFinite(n) ? n : 0;
-      if (recording) {
-        recording.usedGetnum = true;
-        recordEvent({ cycle: cycleCount, kind: "answer", text: response });
+      if (ctx.recording.recording) {
+        ctx.recording.recording.usedGetnum = true;
+        recordEvent({ cycle: ctx.cycle.cycleCount, kind: "answer", text: response });
       }
-      recording?.tape.host(["number", value]);
-      engine.deliverHostAnswer(value);
+      ctx.recording.recording?.tape.host(["number", value]);
+      ctx.engine.deliverHostAnswer(value);
       return;
     }
     case "getstring": {
-      if (recording) recordEvent({ cycle: cycleCount, kind: "answer", text: response });
-      recording?.tape.host(["string", response]);
-      engine.deliverHostAnswer(response);
+      if (ctx.recording.recording)
+        recordEvent({ cycle: ctx.cycle.cycleCount, kind: "answer", text: response });
+      ctx.recording.recording?.tape.host(["string", response]);
+      ctx.engine.deliverHostAnswer(response);
       return;
     }
     case "saveList": {
@@ -485,7 +391,7 @@ function deliverHostResponse(op: string, response: string): void {
       } catch {
         slots = null;
       }
-      engine.deliverHostAnswer(slots);
+      ctx.engine.deliverHostAnswer(slots);
       return;
     }
     case "saveDescription": {
@@ -496,11 +402,11 @@ function deliverHostResponse(op: string, response: string): void {
       } catch {
         value = null;
       }
-      engine.deliverHostAnswer(value);
+      ctx.engine.deliverHostAnswer(value);
       return;
     }
     case "saveWrite":
-      engine.deliverHostAnswer(response === "true");
+      ctx.engine.deliverHostAnswer(response === "true");
       return;
     case "restore": {
       let bytes: Uint8Array | null = null;
@@ -511,30 +417,30 @@ function deliverHostResponse(op: string, response: string): void {
           bytes = null;
         }
       }
-      if (bytes && recording) {
+      if (bytes && ctx.recording.recording) {
         // A restore replaces the interpreter state mid-recording; the captured
         // steps no longer describe the live game.
-        recording.tainted = "the game was restored mid-recording";
+        ctx.recording.recording.tainted = "the game was restored mid-recording";
       }
-      engine.deliverHostAnswer(bytes);
+      ctx.engine.deliverHostAnswer(bytes);
       return;
     }
     case "room": {
       // Apply the authored patch the agent produced, then deliver the outcome.
-      const request = engine.hostInteraction;
+      const request = ctx.engine.hostInteraction;
       const room = request?.kind === "room" ? request.room : -1;
       let prepared = false;
       if (room >= 0) {
         try {
-          const container = openContainer(engine.containerFiles);
-          const patch = prepareRoomPatch(container, room, response, liveDictionary);
+          const container = openContainer(ctx.engine.containerFiles);
+          const patch = prepareRoomPatch(container, room, response, ctx.boot.liveDictionary);
           const words = buildWordsTok(patch.words.map(([word, id]) => ({ word, id })));
           for (const resource of patch.resources)
-            engine.patchResource(resource.kind, resource.num, resource.payload);
-          liveDictionary.clear();
-          for (const [word, id] of patch.words) liveDictionary.set(word, id);
-          authoredWords = words;
-          engine.patchAuxiliaryFiles({
+            ctx.engine.patchResource(resource.kind, resource.num, resource.payload);
+          ctx.boot.liveDictionary.clear();
+          for (const [word, id] of patch.words) ctx.boot.liveDictionary.set(word, id);
+          ctx.boot.authoredWords = words;
+          ctx.engine.patchAuxiliaryFiles({
             words,
             ...(patch.objects ? { objects: patch.objects } : {}),
             ...(patch.tests ? { tests: patch.tests } : {}),
@@ -547,7 +453,7 @@ function deliverHostResponse(op: string, response: string): void {
           });
         }
       }
-      engine.deliverHostAnswer(prepared);
+      ctx.engine.deliverHostAnswer(prepared);
       return;
     }
   }
@@ -556,16 +462,17 @@ function deliverHostResponse(op: string, response: string): void {
 const host: EngineHost = {
   randomWord() {
     let value: number;
-    if (!replay) value = Math.floor(Math.random() * 65536);
+    if (!ctx.replay.replay) value = Math.floor(Math.random() * 65536);
     else {
-      replay.random = (Math.imul(replay.random, 1664525) + 1013904223) >>> 0;
-      value = replay.random >>> 16;
+      ctx.replay.replay.random = (Math.imul(ctx.replay.replay.random, 1664525) + 1013904223) >>> 0;
+      value = ctx.replay.replay.random >>> 16;
     }
-    recording?.tape.host(["random", value]);
+    ctx.recording.recording?.tape.host(["random", value]);
     return value;
   },
   print(text) {
-    if (recording && recording.printed.length < 16) recording.printed.push(text.slice(0, 400));
+    if (ctx.recording.recording && ctx.recording.recording.printed.length < 16)
+      ctx.recording.recording.printed.push(text.slice(0, 400));
     sendPresentation({ type: "print", text });
   },
   displayAt(row, col, text) {
@@ -587,40 +494,40 @@ const host: EngineHost = {
    * serving application messages meanwhile.
    */
   waitKey() {
-    const buffered = keyQueue.shift();
+    const buffered = ctx.input.keyQueue.shift();
     if (buffered !== undefined) {
-      recording?.tape.host(["waitKey", buffered]);
+      ctx.recording.recording?.tape.host(["waitKey", buffered]);
       return buffered;
     }
     setKeyWaiting(true);
-    if (replay) postReplay("waitkey");
+    if (ctx.replay.replay) postReplay("waitkey");
     throw new HostWait();
   },
   statusLine(text) {
     sendPresentation({ type: "status", text });
   },
   takeInputLine() {
-    const line = inputBuffer.shift() ?? null;
-    recording?.tape.host(["line", line]);
+    const line = ctx.input.inputBuffer.shift() ?? null;
+    ctx.recording.recording?.tape.host(["line", line]);
     return line;
   },
   takeKeys() {
-    const keys = keyQueue.splice(0);
-    recording?.tape.host(["keys", keys.slice()]);
+    const keys = ctx.input.keyQueue.splice(0);
+    ctx.recording.recording?.tape.host(["keys", keys.slice()]);
     return keys;
   },
   prepareRoom(room, from) {
-    if (!authorRooms || !engine) return true;
-    const container = openContainer(engine.containerFiles);
+    if (!ctx.boot.authorRooms || !ctx.engine) return true;
+    const container = openContainer(ctx.engine.containerFiles);
     if (container.getResource("logic", room)) return true;
     // The agent's answer lands in deliverHostResponse, which applies the
     // patch and delivers true/false to the suspended new.room.
     return postHostRequest("room", {
       room,
       from,
-      edge: engine.vars[2],
-      state: engine.readState(),
-      objects: engine.readObjects(),
+      edge: ctx.engine.vars[2],
+      state: ctx.engine.readState(),
+      objects: ctx.engine.readObjects(),
     });
   },
   /** 0x6e shake.screen: cosmetic jitter on the main thread. */
@@ -658,7 +565,7 @@ const host: EngineHost = {
     // Replays drive the save dialog with recorded key presses, so the engine's
     // own in-dialog editor must run: a DOM prompt can never be answered by a
     // recorded key, only by an explicit answer action.
-    if (replay) return undefined;
+    if (ctx.replay.replay) return undefined;
     return (initial: string, maxLen: number, row: number, col: number) =>
       postHostRequest("saveDescription", { initial, maxLen, row, col });
   },
@@ -676,8 +583,8 @@ const host: EngineHost = {
   },
   /** 0x8d version: stored into a string slot by the engine. */
   versionString() {
-    const value = engine ? `AGI ${engine.profile.id}` : "AGI IS HERE";
-    recording?.tape.host(["version", value]);
+    const value = ctx.engine ? `AGI ${ctx.engine.profile.id}` : "AGI IS HERE";
+    ctx.recording.recording?.tape.host(["version", value]);
     return value;
   },
   quit() {
@@ -689,8 +596,8 @@ const host: EngineHost = {
     sendPresentation({ type: "sound", soundNum });
   },
   soundDevice() {
-    recording?.tape.host(["soundDevice", selectedSoundDevice]);
-    return selectedSoundDevice;
+    ctx.recording.recording?.tape.host(["soundDevice", ctx.boot.selectedSoundDevice]);
+    return ctx.boot.selectedSoundDevice;
   },
   soundOutput(output) {
     sendPresentation({ type: "soundOutput", output });
@@ -701,110 +608,125 @@ const host: EngineHost = {
   },
 };
 
-let lastVisual: Uint8Array | null = null;
-let lastText: Uint8Array | null = null;
-let lastOwnership: Uint16Array | null = null;
-let lastPicture: Uint8Array | null = null;
-let lastPicturePriority: Uint8Array | null = null;
-let lastObjectsJson = "";
-let lastPicRow = -1;
-let lastTextMode = false;
-let lastInputEnabled = false;
-let lastReleaseGate = 0;
-let lastModal: string | null = null;
-let lastControls = "";
-let lastInputEdit = "";
-let lastSoundEnabled: boolean | null = null;
+ctx.host = host;
+
+// Until their owning modules land (docs/rc10-cleanup-plan.md Part 2), the
+// still-local functions fill the context's function table.
+Object.assign(ctx.fns, {
+  setKeyWaiting,
+  flushDeferredMovement,
+  deliverQueuedKey,
+  postHostRequest,
+  settleHostRequest,
+  abandonHostRequest,
+  deliverHostResponse,
+  postReplay,
+  tickEngine,
+  recordedClock,
+  advanceSoundClock,
+  finishCycle,
+  startTimers,
+  stopTimers,
+  autosave,
+  postFrame,
+  captureStateDiffs,
+  applyTraceChannel,
+  flushTraceBatch,
+  recordEvent,
+});
 
 function postFrame(capture = false): void {
-  if (!engine || isSeeking) return;
-  const enabled = engine.flags[9] !== 0;
-  if (enabled !== lastSoundEnabled) {
-    lastSoundEnabled = enabled;
+  if (!ctx.engine || ctx.replay.isSeeking) return;
+  const enabled = ctx.engine.flags[9] !== 0;
+  if (enabled !== ctx.presentation.lastSoundEnabled) {
+    ctx.presentation.lastSoundEnabled = enabled;
     sendPresentation({ type: "soundEnabled", enabled });
   }
-  const controls = engine.readControls();
+  const controls = ctx.engine.readControls();
   const serialized = JSON.stringify(controls);
-  if (serialized !== lastControls) {
-    lastControls = serialized;
+  if (serialized !== ctx.presentation.lastControls) {
+    ctx.presentation.lastControls = serialized;
     sendPresentation({ type: "controls", controls });
   }
-  if (engine.inputEdit !== lastInputEdit) {
-    lastInputEdit = engine.inputEdit;
-    sendPresentation({ type: "inputEdit", text: lastInputEdit });
+  if (ctx.engine.inputEdit !== ctx.presentation.lastInputEdit) {
+    ctx.presentation.lastInputEdit = ctx.engine.inputEdit;
+    sendPresentation({ type: "inputEdit", text: ctx.presentation.lastInputEdit });
   }
-  const frame = engine.getPresentation();
+  const frame = ctx.engine.getPresentation();
   if (capture) captureFrame(frame);
-  const modal = engine.modalKind;
+  const modal = ctx.engine.modalKind;
   const textCells = frame.text;
   // Armed inspector channels join the sameness check so a sprite's sub-pixel
   // or slot change still ships its fresh ownership/objects payload.
-  const ownership = debug.ownership ? engine.getOwnership() : null;
-  const objects = debug.objects ? engine.readObjects() : null;
-  const picture = debug.picture ? engine.getPictureSurface() : null;
+  const ownership = ctx.debug.channels.ownership ? ctx.engine.getOwnership() : null;
+  const objects = ctx.debug.channels.objects ? ctx.engine.readObjects() : null;
+  const picture = ctx.debug.channels.picture ? ctx.engine.getPictureSurface() : null;
   const objectsJson = objects ? JSON.stringify(objects) : "";
   // Repeated display/trace opcodes can mark text dirty without changing a cell.
   // Sending those frames floods software GPU renderers and delays user input.
   let same =
-    lastInputReady === initialLogicStarted &&
-    lastModal === modal &&
-    lastPicRow === engine.displayBase &&
-    lastTextMode === engine.textModeActive &&
-    lastInputEnabled === engine.inputEnabled &&
-    lastReleaseGate === engine.releaseGate &&
-    objectsJson === lastObjectsJson &&
-    lastText !== null;
-  if (same && lastText) {
+    ctx.cycle.lastInputReady === ctx.cycle.initialLogicStarted &&
+    ctx.presentation.lastModal === modal &&
+    ctx.presentation.lastPicRow === ctx.engine.displayBase &&
+    ctx.presentation.lastTextMode === ctx.engine.textModeActive &&
+    ctx.presentation.lastInputEnabled === ctx.engine.inputEnabled &&
+    ctx.presentation.lastReleaseGate === ctx.engine.releaseGate &&
+    objectsJson === ctx.presentation.lastObjectsJson &&
+    ctx.presentation.lastText !== null;
+  if (same && ctx.presentation.lastText) {
     for (let i = 0; i < textCells.length; i++) {
-      if (textCells[i] !== lastText[i]) {
+      if (textCells[i] !== ctx.presentation.lastText[i]) {
         same = false;
         break;
       }
     }
   }
-  if (same && lastVisual) {
+  if (same && ctx.presentation.lastVisual) {
     for (let i = 0; i < frame.visual.length; i++) {
-      if (frame.visual[i] !== lastVisual[i]) {
+      if (frame.visual[i] !== ctx.presentation.lastVisual[i]) {
         same = false;
         break;
       }
     }
-  } else if (!lastVisual) {
+  } else if (!ctx.presentation.lastVisual) {
     same = false;
   }
-  if (same && ownership && lastOwnership) {
+  if (same && ownership && ctx.presentation.lastOwnership) {
     for (let i = 0; i < ownership.length; i++) {
-      if (ownership[i] !== lastOwnership[i]) {
+      if (ownership[i] !== ctx.presentation.lastOwnership[i]) {
         same = false;
         break;
       }
     }
-  } else if (same && ownership !== null && lastOwnership === null) {
+  } else if (same && ownership !== null && ctx.presentation.lastOwnership === null) {
     same = false;
   }
-  if (same && picture && lastPicture) {
+  if (same && picture && ctx.presentation.lastPicture) {
     for (let i = 0; i < picture.visual.length; i++) {
-      if (picture.visual[i] !== lastPicture[i] || picture.priority[i] !== lastPicturePriority![i]) {
+      if (
+        picture.visual[i] !== ctx.presentation.lastPicture[i] ||
+        picture.priority[i] !== ctx.presentation.lastPicturePriority![i]
+      ) {
         same = false;
         break;
       }
     }
-  } else if (same && picture !== null && lastPicture === null) {
+  } else if (same && picture !== null && ctx.presentation.lastPicture === null) {
     same = false;
   }
   if (same) return;
-  lastVisual = frame.visual.slice(); // retained copy, never transferred
-  lastText = textCells.slice();
-  lastOwnership = ownership ? ownership.slice() : null;
-  lastPicture = picture ? picture.visual.slice() : null;
-  lastPicturePriority = picture ? picture.priority.slice() : null;
-  lastObjectsJson = objectsJson;
-  lastPicRow = engine.displayBase;
-  lastTextMode = engine.textModeActive;
-  lastInputEnabled = engine.inputEnabled;
-  lastInputReady = initialLogicStarted;
-  lastReleaseGate = engine.releaseGate;
-  lastModal = modal;
+  ctx.presentation.lastVisual = frame.visual.slice(); // retained copy, never transferred
+  ctx.presentation.lastText = textCells.slice();
+  ctx.presentation.lastOwnership = ownership ? ownership.slice() : null;
+  ctx.presentation.lastPicture = picture ? picture.visual.slice() : null;
+  ctx.presentation.lastPicturePriority = picture ? picture.priority.slice() : null;
+  ctx.presentation.lastObjectsJson = objectsJson;
+  ctx.presentation.lastPicRow = ctx.engine.displayBase;
+  ctx.presentation.lastTextMode = ctx.engine.textModeActive;
+  ctx.presentation.lastInputEnabled = ctx.engine.inputEnabled;
+  ctx.cycle.lastInputReady = ctx.cycle.initialLogicStarted;
+  ctx.presentation.lastReleaseGate = ctx.engine.releaseGate;
+  ctx.presentation.lastModal = modal;
   const text = textCells.slice();
   sendPresentation(
     {
@@ -812,14 +734,14 @@ function postFrame(capture = false): void {
       visual: frame.visual,
       priority: frame.priority,
       text,
-      picRow: engine.displayBase,
+      picRow: ctx.engine.displayBase,
       modal,
-      textMode: engine.textModeActive,
-      inputEnabled: engine.inputEnabled,
-      inputReady: initialLogicStarted,
-      holdToMove: engine.releaseGate !== 0,
-      edit: engine.inputEdit,
-      cycle: cycleCount,
+      textMode: ctx.engine.textModeActive,
+      inputEnabled: ctx.engine.inputEnabled,
+      inputReady: ctx.cycle.initialLogicStarted,
+      holdToMove: ctx.engine.releaseGate !== 0,
+      edit: ctx.engine.inputEdit,
+      cycle: ctx.cycle.cycleCount,
       ...(ownership ? { ownership } : {}),
       ...(objects ? { objects } : {}),
       ...(picture ? { picVisual: picture.visual, picPriority: picture.priority } : {}),
@@ -836,12 +758,24 @@ function postFrame(capture = false): void {
 
 /** Copy the same presentation into the rings before postFrame transfers its buffers. */
 function captureFrame(frame: ReturnType<Engine["getPresentation"]>): void {
-  if (!engine || replay !== null) return;
-  recentRing.push(cycleCount, frame.visual, frame.priority, frame.text, engine.displayBase);
-  const now = performance.now();
-  if (now - lastHistoryAt >= 1000) {
-    lastHistoryAt = now;
-    historyRing.push(cycleCount, frame.visual, frame.priority, frame.text, engine.displayBase);
+  if (!ctx.engine || ctx.replay.replay !== null) return;
+  ctx.presentation.recentRing.push(
+    ctx.cycle.cycleCount,
+    frame.visual,
+    frame.priority,
+    frame.text,
+    ctx.engine.displayBase,
+  );
+  const now = ctx.ports.now();
+  if (now - ctx.cycle.lastHistoryAt >= 1000) {
+    ctx.cycle.lastHistoryAt = now;
+    ctx.presentation.historyRing.push(
+      ctx.cycle.cycleCount,
+      frame.visual,
+      frame.priority,
+      frame.text,
+      ctx.engine.displayBase,
+    );
   }
 }
 
@@ -852,12 +786,16 @@ function captureFrame(frame: ReturnType<Engine["getPresentation"]>): void {
 function serveFrames(id: number, count: number, stride: number, since: number | null): void {
   const n = Math.max(1, Math.min(64, Math.floor(count)));
   const step = Math.max(1, Math.floor(stride));
-  const useHistory = step * n > recentRing.capacity;
-  const frames = useHistory ? [] : recentRing.take(n, step, since);
+  const useHistory = step * n > ctx.presentation.recentRing.capacity;
+  const frames = useHistory ? [] : ctx.presentation.recentRing.take(n, step, since);
   if (useHistory) {
     // History samples are timed rather than every fixed number of logic cycles.
     // Select by their actual cycle IDs so a v10 change cannot distort stride.
-    const history = historyRing.take(historyRing.capacity, 1, since);
+    const history = ctx.presentation.historyRing.take(
+      ctx.presentation.historyRing.capacity,
+      1,
+      since,
+    );
     let nextCycle = Infinity;
     for (let i = history.length - 1; i >= 0 && frames.length < n; i--) {
       const frame = history[i]!;
@@ -872,8 +810,8 @@ function serveFrames(id: number, count: number, stride: number, since: number | 
 }
 
 function startTimers(): void {
-  if (soundTimer === null) {
-    soundTimer = setInterval(() => {
+  if (ctx.cycle.soundTimer === null) {
+    ctx.cycle.soundTimer = setInterval(() => {
       try {
         advanceSoundClock();
       } catch (error) {
@@ -882,48 +820,49 @@ function startTimers(): void {
       }
     }, 1000 / 60) as unknown as number;
   }
-  if (timer === null) {
-    timer = setInterval(() => {
+  if (ctx.cycle.timer === null) {
+    ctx.cycle.timer = setInterval(() => {
       try {
-        const now = performance.now();
-        if (paused) {
-          cycleClock.poll(now, engine!.vars[10]!, true);
+        const now = ctx.ports.now();
+        if (ctx.cycle.paused) {
+          ctx.clocks.cycle.poll(now, ctx.engine!.vars[10]!, true);
           return;
         }
         advanceSoundClock();
         deliverQueuedKey();
         if (
-          engine!.modalKind !== null ||
-          engine!.continuationPending ||
-          engine!.hostInteractionPending
+          ctx.engine!.modalKind !== null ||
+          ctx.engine!.continuationPending ||
+          ctx.engine!.hostInteractionPending
         ) {
           tickEngine();
           flushTraceBatch();
           postFrame();
-          if (pendingReenter && !engine!.hostInteractionPending) {
+          if (ctx.hostRequests.pendingReenter && !ctx.engine!.hostInteractionPending) {
             // The suspended re-entered room has landed (or been declined).
-            pendingReenter = false;
-            sendControl({ type: "reentered", room: engine!.vars[0]! });
+            ctx.hostRequests.pendingReenter = false;
+            sendControl({ type: "reentered", room: ctx.engine!.vars[0]! });
             postFrame(true);
           }
-        } else if (cycleClock.poll(now, engine!.vars[10]!)) {
+        } else if (ctx.clocks.cycle.poll(now, ctx.engine!.vars[10]!)) {
           flushDeferredMovement();
           tickEngine();
           finishCycle();
           postFrame(true);
         }
-        if (now - lastCycleReportAt >= CYCLE_REPORT_MS) {
-          lastCycleReportAt = now;
-          const scalars = engine!.readState();
+        if (now - ctx.cycle.lastCycleReportAt >= CYCLE_REPORT_MS) {
+          ctx.cycle.lastCycleReportAt = now;
+          const scalars = ctx.engine!.readState();
           sendPresentation({
             type: "cycle",
-            cycle: cycleCount,
+            cycle: ctx.cycle.cycleCount,
             room: scalars.room,
             egoX: scalars.egoX,
             egoY: scalars.egoY,
           });
         }
-        if (Date.now() - lastAutosaveAt >= autosaveIntervalMs) autosave(false);
+        if (Date.now() - ctx.autosave.lastAutosaveAt >= ctx.autosave.autosaveIntervalMs)
+          autosave(false);
       } catch (e) {
         stopTimers();
         sendControl({ type: "error", message: String(e) });
@@ -936,8 +875,8 @@ self.onmessage = (ev: MessageEvent) => {
   const msg = ev.data as WorkerInbound;
   try {
     if (msg.type === "pause") {
-      paused = msg.paused === true;
-      sendControl({ type: "paused", paused });
+      ctx.cycle.paused = msg.paused === true;
+      sendControl({ type: "paused", paused: ctx.cycle.paused });
       return;
     }
     if (msg.type === "hostAnswer") {
@@ -945,9 +884,9 @@ self.onmessage = (ev: MessageEvent) => {
       // an answer for a request already abandoned — is dropped, never
       // delivered.
       const id = Number(msg.id);
-      const outstanding = hostRequestOutstanding;
-      if (!engine || outstanding === null || outstanding.id !== id) return;
-      hostRequestOutstanding = null;
+      const outstanding = ctx.hostRequests.hostRequestOutstanding;
+      if (!ctx.engine || outstanding === null || outstanding.id !== id) return;
+      ctx.hostRequests.hostRequestOutstanding = null;
       settleHostRequest(outstanding);
       try {
         deliverHostResponse(outstanding.op, String(msg.response ?? ""));
@@ -958,33 +897,34 @@ self.onmessage = (ev: MessageEvent) => {
       // pass: a message posted after the answer — a state query, the key's
       // own echo — observes the resumed state. A re-suspension (the
       // selector's next need) posts its request inside this tick.
-      if (engine.hostInteractionReady) tickEngine();
+      if (ctx.engine.hostInteractionReady) tickEngine();
       // The runner holds the blocked observation postReplay(op) sent when
       // the request fired; the resumed state is its unblocked follow-up.
-      if (replay && !engine.awaitingHostAnswer) postReplay(null, true);
+      if (ctx.replay.replay && !ctx.engine.awaitingHostAnswer) postReplay(null, true);
       return;
     }
     if (msg.type === "replayAdvance") {
-      if (!replay || !engine) return;
-      if (typeof msg.sessionId === "number") currentSessionId = msg.sessionId;
+      if (!ctx.replay.replay || !ctx.engine) return;
+      if (typeof msg.sessionId === "number") ctx.replay.currentSessionId = msg.sessionId;
       const ticks = Number(msg.ticks);
       if (!Number.isInteger(ticks) || ticks < 0 || ticks > 100_000)
         throw new Error("Replay advance requires 0..100000 virtual ticks.");
       const seeking = Boolean(msg.seeking);
       const renderFinal = Boolean(msg.renderFinal);
       const fullState = Boolean(msg.fullState);
-      isSeeking = seeking;
-      replayRequest = Number(msg.id);
+      ctx.replay.isSeeking = seeking;
+      ctx.replay.replayRequest = Number(msg.id);
 
       let remaining = ticks;
-      const thisRequest = replayRequest;
-      const thisSession = currentSessionId;
+      const thisRequest = ctx.replay.replayRequest;
+      const thisSession = ctx.replay.currentSessionId;
 
       const advanceChunk = () => {
-        if (!replay || !engine) return;
-        if (replayRequest !== thisRequest || currentSessionId !== thisSession) return;
+        if (!ctx.replay.replay || !ctx.engine) return;
+        if (ctx.replay.replayRequest !== thisRequest || ctx.replay.currentSessionId !== thisSession)
+          return;
 
-        const startTime = performance.now();
+        const startTime = ctx.ports.now();
         let chunkTicks = 0;
         const maxChunkTicks = seeking ? 2500 : 250;
         const maxChunkMs = seeking ? 16 : 12;
@@ -992,23 +932,25 @@ self.onmessage = (ev: MessageEvent) => {
           while (remaining > 0 && chunkTicks < maxChunkTicks) {
             // A parked host wait consumes no replay ticks, exactly as the
             // blocking bridge did: its answer's delivery resumes the chunk.
-            if (engine.awaitingHostAnswer) break;
-            replay.tick++;
+            if (ctx.engine.awaitingHostAnswer) break;
+            ctx.replay.replay.tick++;
             remaining--;
             chunkTicks++;
             recordedClock();
             if (
-              engine.modalKind !== null ||
-              engine.continuationPending ||
-              engine.hostInteractionPending
+              ctx.engine.modalKind !== null ||
+              ctx.engine.continuationPending ||
+              ctx.engine.hostInteractionPending
             )
               tickEngine();
-            else if (cycleClock.poll((replay.tick * 1000) / 60, engine.vars[10]!)) {
+            else if (
+              ctx.clocks.cycle.poll((ctx.replay.replay.tick * 1000) / 60, ctx.engine.vars[10]!)
+            ) {
               flushDeferredMovement();
               tickEngine();
               finishCycle();
             }
-            if ((chunkTicks & 63) === 0 && performance.now() - startTime >= maxChunkMs) {
+            if ((chunkTicks & 63) === 0 && ctx.ports.now() - startTime >= maxChunkMs) {
               break;
             }
           }
@@ -1019,14 +961,14 @@ self.onmessage = (ev: MessageEvent) => {
 
         // The runner already has its blocked observation from postReplay(op);
         // the answer's delivery posts the next one.
-        if (engine.awaitingHostAnswer) return;
+        if (ctx.engine.awaitingHostAnswer) return;
         if (remaining > 0) {
           setTimeout(advanceChunk, 0);
           return;
         }
 
         if (!seeking || renderFinal) {
-          isSeeking = false;
+          ctx.replay.isSeeking = false;
           postFrame();
         }
         postReplay(null, fullState);
@@ -1036,10 +978,10 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "renderFrame") {
-      if (engine) {
-        isSeeking = false;
-        lastVisual = null;
-        lastText = null;
+      if (ctx.engine) {
+        ctx.replay.isSeeking = false;
+        ctx.presentation.lastVisual = null;
+        ctx.presentation.lastText = null;
         postFrame();
       }
       return;
@@ -1052,7 +994,7 @@ self.onmessage = (ev: MessageEvent) => {
       sendControl({
         type: "engineState",
         id: msg.id,
-        state: engine ? engine.readState() : null,
+        state: ctx.engine ? ctx.engine.readState() : null,
       });
       return;
     }
@@ -1060,31 +1002,31 @@ self.onmessage = (ev: MessageEvent) => {
       sendControl({
         type: "objects",
         id: msg.id,
-        objects: engine ? engine.readObjects() : [],
+        objects: ctx.engine ? ctx.engine.readObjects() : [],
       });
       return;
     }
     if (msg.type === "debug") {
       const want = msg.channels ?? {};
-      const traceWas = debug.trace;
-      debug.ownership = want.ownership === true;
-      debug.objects = want.objects === true;
-      debug.trace = want.trace === true;
-      debug.picture = want.picture === true;
-      if (debug.trace !== traceWas) applyTraceChannel();
+      const traceWas = ctx.debug.channels.trace;
+      ctx.debug.channels.ownership = want.ownership === true;
+      ctx.debug.channels.objects = want.objects === true;
+      ctx.debug.channels.trace = want.trace === true;
+      ctx.debug.channels.picture = want.picture === true;
+      if (ctx.debug.channels.trace !== traceWas) applyTraceChannel();
       // Invalidate the sameness check so a newly armed channel ships with the
       // next frame and a disarmed one clears promptly.
-      lastVisual = null;
-      lastObjectsJson = "";
+      ctx.presentation.lastVisual = null;
+      ctx.presentation.lastObjectsJson = "";
       postFrame();
       return;
     }
     if (msg.type === "debugWrite") {
-      if (!engine) return;
+      if (!ctx.engine) return;
       if (Array.isArray(msg.vars))
-        for (const pair of msg.vars) engine.vars[pair[0]! & 0xff] = pair[1]! & 0xff;
+        for (const pair of msg.vars) ctx.engine.vars[pair[0]! & 0xff] = pair[1]! & 0xff;
       if (Array.isArray(msg.flags))
-        for (const pair of msg.flags) engine.flags[pair[0]! & 0xff] = pair[1] ? 1 : 0;
+        for (const pair of msg.flags) ctx.engine.flags[pair[0]! & 0xff] = pair[1] ? 1 : 0;
       // Attribute the host write to the current boundary, not the next cycle.
       captureStateDiffs();
       sendControl({ type: "debugWritten", id: msg.id });
@@ -1095,9 +1037,9 @@ self.onmessage = (ev: MessageEvent) => {
       sendControl({
         type: "debugEvents",
         id: msg.id,
-        cycle: cycleCount,
-        latestSeq: debugEventSeq,
-        events: debugEvents.filter((e) => e.seq > since),
+        cycle: ctx.cycle.cycleCount,
+        latestSeq: ctx.debug.debugEventSeq,
+        events: ctx.debug.debugEvents.filter((e) => e.seq > since),
       });
       return;
     }
@@ -1106,9 +1048,9 @@ self.onmessage = (ev: MessageEvent) => {
       sendControl({
         type: "debugTrace",
         id: msg.id,
-        cycle: cycleCount,
-        latestSeq: traceSeq,
-        records: traceRing.filter((r) => r.seq > since),
+        cycle: ctx.cycle.cycleCount,
+        latestSeq: ctx.debug.traceSeq,
+        records: ctx.debug.traceRing.filter((r) => r.seq > since),
       });
       return;
     }
@@ -1118,12 +1060,12 @@ self.onmessage = (ev: MessageEvent) => {
       sendControl({
         type: "checkpoint",
         id: msg.id,
-        image: engine ? engine.autosaveImage() : null,
+        image: ctx.engine ? ctx.engine.autosaveImage() : null,
       });
       return;
     }
     if (msg.type === "startRecording") {
-      if (!engine) {
+      if (!ctx.engine) {
         sendControl({
           type: "recordingStarted",
           id: msg.id,
@@ -1135,7 +1077,7 @@ self.onmessage = (ev: MessageEvent) => {
       // The same safe-boundary gates an autosave uses: a suspended host
       // request, a text screen or the pre-first-room gap cannot resume; a
       // parked window or key wait records with its continuation.
-      const hostImage = engine.recordingImage();
+      const hostImage = ctx.engine.recordingImage();
       if (!hostImage) {
         sendControl({
           type: "recordingStarted",
@@ -1145,7 +1087,7 @@ self.onmessage = (ev: MessageEvent) => {
         });
         return;
       }
-      recording = {
+      ctx.recording.recording = {
         tape: new OperationRecorder(),
         events: [],
         printed: [],
@@ -1157,15 +1099,15 @@ self.onmessage = (ev: MessageEvent) => {
         id: msg.id,
         ok: true,
         image: bytesToBase64(hostImage),
-        replayState: engine.captureReplayState(),
-        cycle: cycleCount,
-        state: engine.readState(),
+        replayState: ctx.engine.captureReplayState(),
+        cycle: ctx.cycle.cycleCount,
+        state: ctx.engine.readState(),
       });
       return;
     }
     if (msg.type === "stopRecording") {
-      const taken = recording;
-      recording = null;
+      const taken = ctx.recording.recording;
+      ctx.recording.recording = null;
       sendControl({
         type: "recordingStopped",
         id: msg.id,
@@ -1174,33 +1116,34 @@ self.onmessage = (ev: MessageEvent) => {
         printed: taken?.printed ?? [],
         tainted: taken?.tainted ?? taken?.tape.error ?? null,
         usedGetnum: false,
-        cycle: cycleCount,
-        state: engine ? engine.readState() : null,
+        cycle: ctx.cycle.cycleCount,
+        state: ctx.engine ? ctx.engine.readState() : null,
       });
       return;
     }
     if (msg.type === "cancelRecording") {
-      recording = null;
+      ctx.recording.recording = null;
       return;
     }
     if (msg.type === "exportFiles") {
       // Explicit local downloads work even while a print window is open.
-      const files: Record<string, Uint8Array> | null = engine ? {} : null;
-      if (files && engine) {
-        for (const [name, bytes] of engine.containerFiles) files[name] = bytes.slice();
-        if (authoredWords) files["WORDS.TOK"] = authoredWords;
+      const files: Record<string, Uint8Array> | null = ctx.engine ? {} : null;
+      if (files && ctx.engine) {
+        for (const [name, bytes] of ctx.engine.containerFiles) files[name] = bytes.slice();
+        if (ctx.boot.authoredWords) files["WORDS.TOK"] = ctx.boot.authoredWords;
       }
       sendControl({ type: "exportFiles", id: msg.id, files });
       return;
     }
     if (msg.type === "reenter") {
-      if (!engine) return;
-      if (recording) recording.tainted = "Game resources changed during recording.";
+      if (!ctx.engine) return;
+      if (ctx.recording.recording)
+        ctx.recording.recording.tainted = "Game resources changed during recording.";
       // A suspended interaction is abandoned: its parked continuation is
       // meaningless once the room's resources change under it, and the
       // request still in flight resolves into a dropped answer.
-      if (engine.hostInteractionPending) {
-        engine.abortInteraction();
+      if (ctx.engine.hostInteractionPending) {
+        ctx.engine.abortInteraction();
         setKeyWaiting(false);
         abandonHostRequest();
       }
@@ -1208,95 +1151,61 @@ self.onmessage = (ev: MessageEvent) => {
       // An open message window blocks the cycle, and bytecode can never issue
       // new.room while one is up, so the harness acknowledges them first —
       // otherwise the re-entered room would sit behind an invisible window.
-      for (let guard = 0; engine.modalKind !== null && guard < 16; guard++) engine.ackPrint();
+      for (let guard = 0; ctx.engine.modalKind !== null && guard < 16; guard++)
+        ctx.engine.ackPrint();
       try {
-        engine.reenterRoom(typeof msg.room === "number" ? msg.room : undefined);
+        ctx.engine.reenterRoom(typeof msg.room === "number" ? msg.room : undefined);
       } catch (wait) {
         if (!(wait instanceof HostWait)) throw wait;
         // Room authoring suspended the transition: the hostAnswer message
         // delivers it and the timer's tick completes it, then reports.
-        pendingReenter = true;
+        ctx.hostRequests.pendingReenter = true;
         postFrame(true);
         return;
       }
       postFrame(true);
-      sendControl({ type: "reentered", room: engine.vars[0]! });
+      sendControl({ type: "reentered", room: ctx.engine.vars[0]! });
       return;
     }
     if (msg.type === "boot") {
-      initialLogicStarted = false;
       const boot: BootMessage = msg;
-      currentSessionId = typeof boot.sessionId === "number" ? boot.sessionId : 0;
-      replay = Number.isInteger(boot.replaySeed)
+      ctx.replay.currentSessionId = typeof boot.sessionId === "number" ? boot.sessionId : 0;
+      ctx.replay.replay = Number.isInteger(boot.replaySeed)
         ? { tick: 0, revision: 0, random: boot.replaySeed! >>> 0 }
         : null;
-      paused = false;
       const files = new Map<string, Uint8Array>(Object.entries(boot.files));
-      liveDictionary = new Map<string, number>(boot.words);
-      currentBootFiles = files;
-      currentDictionary = liveDictionary;
-      lastReplaySeed = Number.isInteger(boot.replaySeed) ? boot.replaySeed! : null;
-      authoredWords = null;
-      authorRooms = boot.authorRooms === true;
-      selectedSoundDevice = boot.soundDevice === 0 ? 0 : 1;
-      engine = new Engine(openContainer(files), host, liveDictionary);
+      ctx.boot.liveDictionary = new Map<string, number>(boot.words);
+      ctx.boot.currentBootFiles = files;
+      ctx.boot.currentDictionary = ctx.boot.liveDictionary;
+      ctx.replay.lastReplaySeed = Number.isInteger(boot.replaySeed) ? boot.replaySeed! : null;
+      ctx.boot.authoredWords = null;
+      ctx.boot.authorRooms = boot.authorRooms === true;
+      ctx.boot.selectedSoundDevice = boot.soundDevice === 0 ? 0 : 1;
+      ctx.engine = new Engine(openContainer(files), host, ctx.boot.liveDictionary);
       // Browser sessions start with game sound enabled; saved games restore their own flag.
-      engine.flags[9] = 1;
-      inputBuffer = [];
-      keyQueue = [];
-      deferredMovement.length = 0;
-      recording = null;
-      hostRequestOutstanding = null;
-      keyWaiting = false;
-      pendingReenter = false;
-      isSeeking = false;
-      lastVisual = null;
-      lastText = null;
-      lastOwnership = null;
-      lastPicture = null;
-      lastPicturePriority = null;
-      lastPicRow = -1;
-      lastTextMode = false;
-      lastInputEnabled = false;
-      lastReleaseGate = 0;
-      lastModal = null;
-      lastControls = "";
-      lastInputEdit = "";
-      lastSoundEnabled = null;
-      stopTimers();
-      soundClock.reset(performance.now());
-      cycleClock.reset(replay ? 0 : performance.now());
-      lastCycleReportAt = performance.now();
-      lastHistoryAt = performance.now();
+      ctx.engine.flags[9] = 1;
+      // A boot clears the in-flight request and key wait silently: the worker
+      // is fresh, there is no host UI or parked wait to resolve.
+      ctx.hostRequests.hostRequestOutstanding = null;
+      ctx.input.keyWaiting = false;
+      ctx.replay.isSeeking = false;
       // v10 selects the number of 50ms timer increments between logic cycles.
       // Modal/input presentation remains responsive at the host polling cadence.
-      cycleCount = 0;
-      recentRing.reset();
-      historyRing.reset();
-      debugEvents.length = 0;
-      debugEventSeq = 0;
-      prevVars = null;
-      prevFlags = null;
-      traceRing.length = 0;
-      traceSeq = 0;
-      pendingTrace = [];
-      applyTraceChannel();
-      // Baseline the diff ring before the first cycle so boot writes count.
-      captureStateDiffs();
-      autosaveIntervalMs = Number(boot.autosaveMs ?? AUTOSAVE_INTERVAL_MS);
-      autosaveFiles = boot.autosaveFiles === true;
-      lastAutosaveAt = Date.now();
-      lastAutosaveCycle = -1;
-      lastPatchGeneration = engine.patchGeneration;
+      resetSession(ctx);
+      ctx.autosave.autosaveIntervalMs = Number(boot.autosaveMs ?? AUTOSAVE_INTERVAL_MS);
+      ctx.autosave.autosaveFiles = boot.autosaveFiles === true;
+      ctx.autosave.lastAutosaveAt = Date.now();
+      ctx.autosave.lastAutosaveCycle = -1;
+      ctx.autosave.lastPatchGeneration = ctx.engine.patchGeneration;
       // Autosave resume: replay the stored image into the engine before it has
       // run a single cycle, through the same restore path restore.game uses.
       // A corrupt or profile-mismatched image throws out of the decode with no
       // state touched, so the game just carries on with its normal boot.
       if (typeof boot.restoreImage === "string" && boot.restoreImage) {
         try {
-          engine.restoreImage(base64ToBytes(boot.restoreImage));
-          engine.restoreMenuState(boot.restoreMenus);
-          const restored = engine.readState();
+          ctx.engine.restoreImage(base64ToBytes(boot.restoreImage));
+          ctx.engine.restoreMenuState(boot.restoreMenus);
+          const restored = ctx.engine.readState();
           sendControl({
             type: "restored",
             ok: true,
@@ -1306,26 +1215,26 @@ self.onmessage = (ev: MessageEvent) => {
           });
           // A checkpoint parked at a have.key wait restores still waiting:
           // the host needs the flag to route the answering key back.
-          if (engine.awaitingKey) setKeyWaiting(true);
+          if (ctx.engine.awaitingKey) setKeyWaiting(true);
         } catch (e) {
           sendControl({ type: "restored", ok: false, message: String(e) });
         }
       }
-      if (!replay) startTimers();
-      sendControl({ type: "booted", profile: engine.profile.id });
+      if (!ctx.replay.replay) startTimers();
+      sendControl({ type: "booted", profile: ctx.engine.profile.id });
       postReplay(null);
       return;
     }
     if (msg.type === "exitReplay") {
-      replay = null;
-      currentSessionId = 0;
-      isSeeking = false;
-      paused = false;
-      recentRing.reset();
-      historyRing.reset();
-      soundClock.reset(performance.now());
-      cycleClock.reset(performance.now());
-      lastCycleReportAt = performance.now();
+      ctx.replay.replay = null;
+      ctx.replay.currentSessionId = 0;
+      ctx.replay.isSeeking = false;
+      ctx.cycle.paused = false;
+      ctx.presentation.recentRing.reset();
+      ctx.presentation.historyRing.reset();
+      ctx.clocks.sound.reset(ctx.ports.now());
+      ctx.clocks.cycle.reset(ctx.ports.now());
+      ctx.cycle.lastCycleReportAt = ctx.ports.now();
       stopTimers();
       startTimers();
       postFrame();
@@ -1333,56 +1242,28 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "resetReplay") {
-      if (!currentBootFiles || !currentDictionary) return;
-      if (typeof msg.sessionId === "number") currentSessionId = msg.sessionId;
-      initialLogicStarted = false;
-      isSeeking = Boolean(msg.seeking);
-      if (engine) engine.stopSoundPlayback();
+      if (!ctx.boot.currentBootFiles || !ctx.boot.currentDictionary) return;
+      if (typeof msg.sessionId === "number") ctx.replay.currentSessionId = msg.sessionId;
+      ctx.replay.isSeeking = Boolean(msg.seeking);
+      if (ctx.engine) ctx.engine.stopSoundPlayback();
       const seed =
-        typeof msg.seed === "number" ? msg.seed : lastReplaySeed !== null ? lastReplaySeed : 0;
-      replay = { tick: 0, revision: 0, random: seed >>> 0 };
+        typeof msg.seed === "number"
+          ? msg.seed
+          : ctx.replay.lastReplaySeed !== null
+            ? ctx.replay.lastReplaySeed
+            : 0;
+      ctx.replay.replay = { tick: 0, revision: 0, random: seed >>> 0 };
       // A request in flight belonged to the replaced engine; its late answer
       // is dropped by the serial check and the host resolves its UI now.
       abandonHostRequest();
       setKeyWaiting(false);
-      engine = new Engine(openContainer(currentBootFiles), host, currentDictionary);
-      engine.flags[9] = 1;
-      inputBuffer = [];
-      keyQueue = [];
-      deferredMovement.length = 0;
-      recording = null;
-      pendingReenter = false;
-      paused = false;
-      lastVisual = null;
-      lastText = null;
-      lastOwnership = null;
-      lastPicture = null;
-      lastPicturePriority = null;
-      lastPicRow = -1;
-      lastTextMode = false;
-      lastInputEnabled = false;
-      lastReleaseGate = 0;
-      lastModal = null;
-      lastControls = "";
-      lastInputEdit = "";
-      lastSoundEnabled = null;
-      stopTimers();
-      soundClock.reset(performance.now());
-      cycleClock.reset(0);
-      lastCycleReportAt = performance.now();
-      lastHistoryAt = performance.now();
-      cycleCount = 0;
-      recentRing.reset();
-      historyRing.reset();
-      debugEvents.length = 0;
-      debugEventSeq = 0;
-      prevVars = null;
-      prevFlags = null;
-      traceRing.length = 0;
-      traceSeq = 0;
-      pendingTrace = [];
-      applyTraceChannel();
-      captureStateDiffs();
+      ctx.engine = new Engine(
+        openContainer(ctx.boot.currentBootFiles),
+        host,
+        ctx.boot.currentDictionary,
+      );
+      ctx.engine.flags[9] = 1;
+      resetSession(ctx);
       if (!msg.seeking) {
         postFrame();
       }
@@ -1398,125 +1279,127 @@ self.onmessage = (ev: MessageEvent) => {
         type: "flushed",
         id: msg.id,
         taken,
-        cycle: cycleCount,
-        hasEngine: Boolean(engine),
-        modal: engine ? engine.modalOpen : false,
-        textMode: engine ? engine.textModeActive : false,
-        pictureShown: engine ? engine.isPictureShown : false,
+        cycle: ctx.cycle.cycleCount,
+        hasEngine: Boolean(ctx.engine),
+        modal: ctx.engine ? ctx.engine.modalOpen : false,
+        textMode: ctx.engine ? ctx.engine.textModeActive : false,
+        pictureShown: ctx.engine ? ctx.engine.isPictureShown : false,
       });
       return;
     }
     if (msg.type === "patchMetadata") {
-      if (!engine) return;
+      if (!ctx.engine) return;
       const files = msg.files;
-      if (recording && (files["WORDS.TOK"] || files["OBJECT"]))
-        recording.tainted = "Game resources changed during recording.";
+      if (ctx.recording.recording && (files["WORDS.TOK"] || files["OBJECT"]))
+        ctx.recording.recording.tainted = "Game resources changed during recording.";
       const words = files["WORDS.TOK"] ? new Uint8Array(files["WORDS.TOK"]) : undefined;
       const objects = files["OBJECT"] ? new Uint8Array(files["OBJECT"]) : undefined;
       const tests = files["TESTS.JSON"] ? new Uint8Array(files["TESTS.JSON"]) : undefined;
       // Validate the dictionary before changing either the container or parser.
       const entries = words ? parseWordsTok(words) : undefined;
-      engine.patchAuxiliaryFiles({
+      ctx.engine.patchAuxiliaryFiles({
         ...(words ? { words } : {}),
         ...(objects ? { objects } : {}),
         ...(tests ? { tests } : {}),
       });
       if (entries && words) {
-        liveDictionary.clear();
-        for (const { word, id } of entries) liveDictionary.set(word, id);
-        authoredWords = words;
+        ctx.boot.liveDictionary.clear();
+        for (const { word, id } of entries) ctx.boot.liveDictionary.set(word, id);
+        ctx.boot.authoredWords = words;
       }
       sendControl({ type: "metadataPatched" });
       return;
     }
     if (msg.type === "patch") {
-      if (!engine) return;
-      if (recording) recording.tainted = "Game resources changed during recording.";
-      engine.patchResource(msg.kind, msg.num, new Uint8Array(msg.payload));
+      if (!ctx.engine) return;
+      if (ctx.recording.recording)
+        ctx.recording.recording.tainted = "Game resources changed during recording.";
+      ctx.engine.patchResource(msg.kind, msg.num, new Uint8Array(msg.payload));
       return;
     }
     if (msg.type === "soundEnabled") {
-      if (!engine) return;
-      recording?.tape.record(["soundEnabled", msg.enabled ? 1 : 0]);
-      engine.setSoundEnabled(msg.enabled);
+      if (!ctx.engine) return;
+      ctx.recording.recording?.tape.record(["soundEnabled", msg.enabled ? 1 : 0]);
+      ctx.engine.setSoundEnabled(msg.enabled);
       postFrame();
       return;
     }
     if (msg.type === "soundDevice") {
-      if (recording) recording.tainted = "The sound device changed during recording.";
+      if (ctx.recording.recording)
+        ctx.recording.recording.tainted = "The sound device changed during recording.";
       const device = msg.device === 0 ? 0 : 1;
-      if (device !== selectedSoundDevice) engine?.stopSoundPlayback();
-      selectedSoundDevice = device;
-      if (engine) engine.vars[22] = device === 0 ? 1 : 3;
+      if (device !== ctx.boot.selectedSoundDevice) ctx.engine?.stopSoundPlayback();
+      ctx.boot.selectedSoundDevice = device;
+      if (ctx.engine) ctx.engine.vars[22] = device === 0 ? 1 : 3;
       return;
     }
     if (msg.type === "input") {
       const text = String(msg.text);
-      recordEvent({ cycle: cycleCount, kind: "command", text });
-      inputBuffer.push(text);
+      recordEvent({ cycle: ctx.cycle.cycleCount, kind: "command", text });
+      ctx.input.inputBuffer.push(text);
       return;
     }
     if (msg.type === "edit") {
-      if (!engine) return;
+      if (!ctx.engine) return;
       // Live mirror of the host's input widget onto the engine's input row.
-      recording?.tape.record(["edit", String(msg.text)]);
-      engine.setEditLine(String(msg.text));
+      ctx.recording.recording?.tape.record(["edit", String(msg.text)]);
+      ctx.engine.setEditLine(String(msg.text));
       // Host typing is already in the input widget. Publish only edits made by game logic.
-      lastInputEdit = engine.inputEdit;
+      ctx.presentation.lastInputEdit = ctx.engine.inputEdit;
       postFrame();
       return;
     }
     if (msg.type === "dismissPrint") {
-      if (!engine) return;
-      recording?.tape.record(["ack"]);
-      recordEvent({ cycle: cycleCount, kind: "key", code: AGI_KEY.ENTER });
-      const pending = engine.hostInteraction;
+      if (!ctx.engine) return;
+      ctx.recording.recording?.tape.record(["ack"]);
+      recordEvent({ cycle: ctx.cycle.cycleCount, kind: "key", code: AGI_KEY.ENTER });
+      const pending = ctx.engine.hostInteraction;
       // A click on the suspended selector or confirmation answers with its
       // cancel key; a request still in flight resolves into a dropped answer.
-      if (pending !== null && engine.awaitingHostAnswer) {
+      if (pending !== null && ctx.engine.awaitingHostAnswer) {
         if (pending.kind === "saveDialog" || pending.kind === "confirm") {
           setKeyWaiting(false);
           abandonHostRequest();
-          engine.deliverHostAnswer(AGI_KEY.ESCAPE);
+          ctx.engine.deliverHostAnswer(AGI_KEY.ESCAPE);
         }
       }
-      engine.ackPrint();
+      ctx.engine.ackPrint();
       postFrame();
       return;
     }
     if (msg.type === "key") {
       if (
-        replay &&
+        ctx.replay.replay &&
         typeof msg.sessionId === "number" &&
         msg.sessionId !== 0 &&
-        msg.sessionId !== currentSessionId
+        msg.sessionId !== ctx.replay.currentSessionId
       ) {
         return;
       }
       flushDeferredMovement();
       const key = Number(msg.code) & 0xffff;
-      recordEvent({ cycle: cycleCount, kind: "key", code: key });
+      recordEvent({ cycle: ctx.cycle.cycleCount, kind: "key", code: key });
       // A parked key wait answers from the queue directly — any key,
       // including a navigation key that would otherwise defer.
-      const keyWaitParked = engine?.awaitingKey === true;
+      const keyWaitParked = ctx.engine?.awaitingKey === true;
       if (
         !keyWaitParked &&
-        deferredMovement.length > 0 &&
-        engine?.modalKind === null &&
+        ctx.input.deferredMovement.length > 0 &&
+        ctx.engine?.modalKind === null &&
         NAV_KEYS[key] !== undefined
       ) {
-        if (deferredMovement.length < 19) deferredMovement.push(key);
-      } else keyQueue.push(key);
+        if (ctx.input.deferredMovement.length < 19) ctx.input.deferredMovement.push(key);
+      } else ctx.input.keyQueue.push(key);
       deliverQueuedKey();
       return;
     }
     if (msg.type === "direction") {
-      if (!engine) return;
+      if (!ctx.engine) return;
       if (
-        replay &&
+        ctx.replay.replay &&
         typeof msg.sessionId === "number" &&
         msg.sessionId !== 0 &&
-        msg.sessionId !== currentSessionId
+        msg.sessionId !== ctx.replay.currentSessionId
       ) {
         return;
       }
@@ -1526,23 +1409,24 @@ self.onmessage = (ev: MessageEvent) => {
         // In replay the tape's ordering is exact, so the engine's own gate is
         // truth; the mirrored holdToMove goes stale while frames are
         // suppressed during seeking.
-        const eligible = replay
-          ? engine.releaseGate !== 0
+        const eligible = ctx.replay.replay
+          ? ctx.engine.releaseGate !== 0
           : typeof msg.releaseEligible === "boolean"
             ? msg.releaseEligible
-            : engine.releaseGate !== 0;
-        if (eligible && deferredMovement.length < 19) deferredMovement.push(0);
-        if (eligible) recordEvent({ cycle: cycleCount, kind: "release" });
+            : ctx.engine.releaseGate !== 0;
+        if (eligible && ctx.input.deferredMovement.length < 19) ctx.input.deferredMovement.push(0);
+        if (eligible) recordEvent({ cycle: ctx.cycle.cycleCount, kind: "release" });
         flushDeferredMovement();
         return;
       }
       const dirKey = DIRECTION_KEYS[dir];
-      if (engine.modalKind !== null) {
+      if (ctx.engine.modalKind !== null) {
         // Arrows steer the open modal (inventory selection, menu) instead of
         // ego; the direction key word replays the same navigation.
-        if (dirKey !== undefined) recordEvent({ cycle: cycleCount, kind: "key", code: dirKey });
-        recording?.tape.record(["navigate", dir]);
-        engine.modalNavigate(dir);
+        if (dirKey !== undefined)
+          recordEvent({ cycle: ctx.cycle.cycleCount, kind: "key", code: dirKey });
+        ctx.recording.recording?.tape.record(["navigate", dir]);
+        ctx.engine.modalNavigate(dir);
         postFrame();
         return;
       }
@@ -1550,11 +1434,12 @@ self.onmessage = (ev: MessageEvent) => {
       if (dirKey !== undefined) {
         // Hold-to-move games keep the heading until the release; tap games
         // toggle it with the key word itself, exactly as the runner replays.
-        if (engine.releaseGate !== 0) recordEvent({ cycle: cycleCount, kind: "direction", dir });
-        else recordEvent({ cycle: cycleCount, kind: "key", code: dirKey });
-        if (deferredMovement.length > 0 && !engine.awaitingKey) {
-          if (deferredMovement.length < 19) deferredMovement.push(dirKey);
-        } else keyQueue.push(dirKey);
+        if (ctx.engine.releaseGate !== 0)
+          recordEvent({ cycle: ctx.cycle.cycleCount, kind: "direction", dir });
+        else recordEvent({ cycle: ctx.cycle.cycleCount, kind: "key", code: dirKey });
+        if (ctx.input.deferredMovement.length > 0 && !ctx.engine.awaitingKey) {
+          if (ctx.input.deferredMovement.length < 19) ctx.input.deferredMovement.push(dirKey);
+        } else ctx.input.keyQueue.push(dirKey);
         deliverQueuedKey();
       }
       return;
