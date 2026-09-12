@@ -137,38 +137,43 @@ test("inspector shows live priority view, picks the drawn object, and lists stat
   await expect.poll(async () => events.textContent()).toContain("v42");
 
   // Exploded mode: the GPU stage masks the composed frame into priority-band
-  // layers under a tilted perspective camera. The cyan sky lives on the band-4
-  // layer, so cyan pixels must still reach the canvas.
+  // layers under a tilted perspective camera. Three distinct contracts:
+  // the layer stack is a different rendering than the flat frame, the band-4
+  // sky is reconstructed from the masks (cyan still reaches the canvas), and
+  // a pick names the layer that rendered the pixel.
   await page.getByTestId("dbg-tab-screen").click();
   const gpu = page.getByTestId("gpu-canvas");
   if (await gpu.isVisible()) {
-    const cyanPixels = async () => {
-      const png = await gpu.screenshot();
-      return page.evaluate(
-        async (bytes) => {
-          const bitmap = await createImageBitmap(
-            new Blob([new Uint8Array(bytes)], { type: "image/png" }),
-          );
-          const canvas = document.createElement("canvas");
-          canvas.width = bitmap.width;
-          canvas.height = bitmap.height;
-          const context = canvas.getContext("2d")!;
-          context.drawImage(bitmap, 0, 0);
-          bitmap.close();
-          const px = context.getImageData(0, 0, canvas.width, canvas.height).data;
-          let cyan = 0;
-          for (let i = 0; i < px.length; i += 4)
-            if (px[i + 1]! > 80 && px[i + 2]! > 80 && px[i]! < px[i + 1]! / 2) cyan++;
-          return cyan;
-        },
-        [...png],
-      );
-    };
+    const canvasPixels = async (bytes: number[]) =>
+      page.evaluate(async (b) => {
+        const bitmap = await createImageBitmap(
+          new Blob([new Uint8Array(b)], { type: "image/png" }),
+        );
+        const canvas = document.createElement("canvas");
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const context = canvas.getContext("2d")!;
+        context.drawImage(bitmap, 0, 0);
+        bitmap.close();
+        const px = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        let cyan = 0;
+        for (let i = 0; i < px.length; i += 4)
+          if (px[i + 1]! > 80 && px[i + 2]! > 80 && px[i]! < px[i + 1]! / 2) cyan++;
+        const samples: number[] = [];
+        for (let i = 0; i < px.length; i += 4096) samples.push(px[i]!, px[i + 1]!, px[i + 2]!);
+        return { cyan, samples };
+      }, bytes);
+    const shot = async () => canvasPixels([...(await gpu.screenshot())]);
+    const flat = await shot();
     await page.getByTestId("dbg-mode-explode").click();
     // Software WebGL (CI's SwiftShader) can take seconds for the first
-    // exploded frame; the second poll proves it holds, not just flashed.
-    await expect.poll(cyanPixels, { timeout: 20_000 }).toBeGreaterThan(500);
-    await expect.poll(cyanPixels, { timeout: 20_000 }).toBeGreaterThan(500);
+    // exploded frame; poll until cyan arrives, then compare the footprint.
+    let exploded = await shot();
+    await expect
+      .poll(async () => (exploded = await shot()).cyan, { timeout: 20_000 })
+      .toBeGreaterThan(500);
+    // Separation is applied: the exploded stack is not the flat bitmap again.
+    expect(exploded.samples).not.toEqual(flat.samples);
 
     // Mask-aware picking: a tap raycasts the layer stack, so the latched
     // pick names the band that rendered the pixel — not the nearest quad.
