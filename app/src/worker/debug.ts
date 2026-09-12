@@ -7,6 +7,16 @@ import type { Inbound, WorkerContext } from "./context.ts";
 const DEBUG_EVENT_CAP = 4000;
 const TRACE_CAP = 4000;
 const TRACE_POST_MAX = 500;
+/**
+ * The trace backlog stays bounded even while the consumer stalls: at most
+ * TRACE_PENDING_CAP records wait locally, and at most TRACE_INFLIGHT_MAX
+ * posted batches await traceAck. Loss is reported through `dropped` on the
+ * next batch and through the monotonic seq gap in the surviving records.
+ * A capped array alone cannot bound the browser's posted-message queue,
+ * so posting is credit-based: each batch posts only once a slot is free.
+ */
+const TRACE_PENDING_CAP = 2000;
+const TRACE_INFLIGHT_MAX = 4;
 
 export function createDebug(ctx: WorkerContext) {
   /**
@@ -58,18 +68,48 @@ export function createDebug(ctx: WorkerContext) {
             if (ctx.debug.traceRing.length > TRACE_CAP)
               ctx.debug.traceRing.splice(0, ctx.debug.traceRing.length - TRACE_CAP);
             ctx.debug.pendingTrace.push(stamped);
+            if (ctx.debug.pendingTrace.length > TRACE_PENDING_CAP) {
+              // Evict the oldest records and count the loss; the consumer
+              // sees the seq gap plus the dropped total on the next batch.
+              const excess = ctx.debug.pendingTrace.length - TRACE_PENDING_CAP;
+              ctx.debug.pendingTrace.splice(0, excess);
+              ctx.debug.traceDropped += excess;
+            }
           }
         : null,
     );
   }
 
-  /** Post accumulated trace records; the presentation port drops them while seeking. */
+  /**
+   * Post accumulated trace records under a bounded credit policy: a batch
+   * goes out only while fewer than TRACE_INFLIGHT_MAX batches await the
+   * host's traceAck. The presentation port drops them while seeking.
+   */
   function flushTraceBatch(): void {
     if (ctx.debug.pendingTrace.length === 0) return;
+    if (ctx.debug.traceInFlight >= TRACE_INFLIGHT_MAX) return;
+    const records = ctx.debug.pendingTrace.splice(0, TRACE_POST_MAX);
+    ctx.debug.traceInFlight++;
     ctx.ports.presentation({
       type: "trace",
-      records: ctx.debug.pendingTrace.splice(0, TRACE_POST_MAX),
+      epoch: ctx.debug.traceEpoch,
+      batch: ++ctx.debug.traceBatch,
+      dropped: ctx.debug.traceDropped,
+      records,
     });
+    ctx.debug.traceDropped = 0;
+  }
+
+  /**
+   * The host consumed one batch — free a credit and drain what queued while
+   * it was stalled. Acks from a replaced session carry an old epoch and are
+   * ignored: their batches already posted, but the credit belongs to the
+   * stream they came from.
+   */
+  function onTraceAck(msg: Inbound<"traceAck">): void {
+    if (msg.epoch !== ctx.debug.traceEpoch) return;
+    if (ctx.debug.traceInFlight > 0) ctx.debug.traceInFlight--;
+    flushTraceBatch();
   }
 
   function onDebug(msg: Inbound<"debug">): void {
@@ -79,7 +119,17 @@ export function createDebug(ctx: WorkerContext) {
     ctx.debug.channels.objects = want.objects === true;
     ctx.debug.channels.trace = want.trace === true;
     ctx.debug.channels.picture = want.picture === true;
-    if (ctx.debug.channels.trace !== traceWas) applyTraceChannel();
+    if (ctx.debug.channels.trace !== traceWas) {
+      applyTraceChannel();
+      if (!ctx.debug.channels.trace) {
+        // Disarming ends the stream: drop the unposted backlog and bump the
+        // epoch so acks of already-posted batches cannot free fake credits.
+        ctx.debug.pendingTrace = [];
+        ctx.debug.traceDropped = 0;
+        ctx.debug.traceInFlight = 0;
+        ctx.debug.traceEpoch++;
+      }
+    }
     // Invalidate the sameness check so a newly armed channel ships with the
     // next frame and a disarmed one clears promptly.
     ctx.presentation.lastVisual = null;
@@ -128,6 +178,7 @@ export function createDebug(ctx: WorkerContext) {
     onDebugWrite,
     onDebugEvents,
     onDebugTrace,
+    onTraceAck,
   };
 }
 

@@ -50,6 +50,8 @@ const props = defineProps<{
   frame: Frame | null;
   objects: ScreenObjectState[];
   trace: StampedTrace[];
+  /** Records the worker dropped from its bounded backlog while we stalled. */
+  traceDropped: number;
   channels: { ownership: boolean; objects: boolean; trace: boolean };
   viewMode: DebugViewMode;
   hasGpu: boolean;
@@ -806,6 +808,9 @@ const MODES: { id: DebugViewMode; label: string; title: string }[] = [
       </ol>
       <h3 class="dd-h3">Instruction trace</h3>
       <ol ref="traceEl" class="dd-list dd-trace" data-testid="dbg-trace">
+        <li v-if="traceDropped > 0" class="dd-hint" data-testid="dbg-trace-dropped">
+          …{{ traceDropped }} records dropped while the inspector was stalled
+        </li>
         <li v-for="r in traceFiltered.slice(-400)" :key="r.seq">
           <span class="cyc">c{{ r.cycle }}</span> {{ formatTraceRecord(r) }}
         </li>

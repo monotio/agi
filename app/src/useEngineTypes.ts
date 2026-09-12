@@ -98,6 +98,8 @@ export interface EngineState {
   debugObjects: ScreenObjectState[];
   /** Structured instruction records while the trace debug channel is armed. */
   debugTrace: (TraceRecord & { seq: number; cycle: number })[];
+  /** Trace records the worker evicted while the host was stalled. */
+  debugTraceDropped: number;
   /** Debug channels the app has armed on the worker. */
   debugChannels: { ownership: boolean; objects: boolean; trace: boolean; picture: boolean };
 }

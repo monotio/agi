@@ -111,6 +111,7 @@ export interface PresentationState {
   recentRing: FrameRing;
   historyRing: FrameRing;
   lastVisual: Uint8Array | null;
+  lastPriority: Uint8Array | null;
   lastText: Uint8Array | null;
   lastOwnership: Uint16Array | null;
   lastPicture: Uint8Array | null;
@@ -136,7 +137,20 @@ export interface DebugState {
   prevFlags: Uint8Array | null;
   traceRing: StampedTrace[];
   traceSeq: number;
+  /**
+   * Records produced but not yet posted. Bounded by TRACE_PENDING_CAP —
+   * a stalled consumer evicts the oldest records and counts the loss in
+   * traceDropped rather than letting the backlog grow without limit.
+   */
   pendingTrace: StampedTrace[];
+  /** Stream instance: bumped on disarm and session reset so stale acks drop. */
+  traceEpoch: number;
+  /** Monotonic batch sequence the host acknowledges with traceAck. */
+  traceBatch: number;
+  /** Posted-but-unacked trace batches; bounds the posted-message queue. */
+  traceInFlight: number;
+  /** Records evicted from pendingTrace since the last posted batch. */
+  traceDropped: number;
 }
 
 /** worker/recording.ts */
@@ -209,6 +223,7 @@ export interface WorkerFns {
   onDebugWrite(msg: Inbound<"debugWrite">): void;
   onDebugTrace(msg: Inbound<"debugTrace">): void;
   onDebugEvents(msg: Inbound<"debugEvents">): void;
+  onTraceAck(msg: Inbound<"traceAck">): void;
   // recording.ts
   recordEvent(event: RecordedEvent): void;
   onStartRecording(msg: Inbound<"startRecording">): void;
@@ -279,6 +294,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       recentRing: new FrameRing(100),
       historyRing: new FrameRing(60),
       lastVisual: null,
+      lastPriority: null,
       lastText: null,
       lastOwnership: null,
       lastPicture: null,
@@ -302,6 +318,10 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       traceRing: [],
       traceSeq: 0,
       pendingTrace: [],
+      traceEpoch: 0,
+      traceBatch: 0,
+      traceInFlight: 0,
+      traceDropped: 0,
     },
     recording: { recording: null },
     fns: {} as WorkerFns,
@@ -335,6 +355,7 @@ export function resetSession(ctx: WorkerContext): void {
   ctx.hostRequests.pendingReenter = false;
   const p = ctx.presentation;
   p.lastVisual = null;
+  p.lastPriority = null;
   p.lastText = null;
   p.lastOwnership = null;
   p.lastPicture = null;
@@ -363,6 +384,10 @@ export function resetSession(ctx: WorkerContext): void {
   d.traceRing.length = 0;
   d.traceSeq = 0;
   d.pendingTrace = [];
+  d.traceEpoch++;
+  d.traceBatch = 0;
+  d.traceInFlight = 0;
+  d.traceDropped = 0;
   ctx.fns.applyTraceChannel();
   ctx.fns.captureStateDiffs();
 }

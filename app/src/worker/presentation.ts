@@ -63,17 +63,34 @@ export function createPresentation(ctx: WorkerContext) {
     } else if (!ctx.presentation.lastVisual) {
       same = false;
     }
-    if (same && ownership && ctx.presentation.lastOwnership) {
+    // The composed priority surface is part of the frame's identity: an
+    // object can change depth (set.priority, horizon-relative bands) without
+    // touching a visual byte, and debug views render the surface itself.
+    if (same && ctx.presentation.lastPriority) {
+      for (let i = 0; i < frame.priority.length; i++) {
+        if (frame.priority[i] !== ctx.presentation.lastPriority[i]) {
+          same = false;
+          break;
+        }
+      }
+    } else if (!ctx.presentation.lastPriority) {
+      same = false;
+    }
+    // Optional payloads publish on presence transitions both ways, so a
+    // disarmed channel never leaves a stale mirror on the host.
+    if (same && (ownership === null) !== (ctx.presentation.lastOwnership === null)) {
+      same = false;
+    } else if (same && ownership && ctx.presentation.lastOwnership) {
       for (let i = 0; i < ownership.length; i++) {
         if (ownership[i] !== ctx.presentation.lastOwnership[i]) {
           same = false;
           break;
         }
       }
-    } else if (same && ownership !== null && ctx.presentation.lastOwnership === null) {
-      same = false;
     }
-    if (same && picture && ctx.presentation.lastPicture) {
+    if (same && (picture === null) !== (ctx.presentation.lastPicture === null)) {
+      same = false;
+    } else if (same && picture && ctx.presentation.lastPicture) {
       for (let i = 0; i < picture.visual.length; i++) {
         if (
           picture.visual[i] !== ctx.presentation.lastPicture[i] ||
@@ -83,11 +100,10 @@ export function createPresentation(ctx: WorkerContext) {
           break;
         }
       }
-    } else if (same && picture !== null && ctx.presentation.lastPicture === null) {
-      same = false;
     }
     if (same) return;
     ctx.presentation.lastVisual = frame.visual.slice(); // retained copy, never transferred
+    ctx.presentation.lastPriority = frame.priority.slice();
     ctx.presentation.lastText = textCells.slice();
     ctx.presentation.lastOwnership = ownership ? ownership.slice() : null;
     ctx.presentation.lastPicture = picture ? picture.visual.slice() : null;

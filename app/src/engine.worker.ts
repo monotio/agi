@@ -100,6 +100,10 @@ self.onmessage = (ev: MessageEvent) => {
       ctx.fns.onDebugTrace(msg);
       return;
     }
+    if (msg.type === "traceAck") {
+      ctx.fns.onTraceAck(msg);
+      return;
+    }
     if (msg.type === "checkpoint") {
       ctx.fns.onCheckpoint(msg);
       return;

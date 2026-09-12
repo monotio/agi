@@ -107,6 +107,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     autosave.drainFlushWaiters();
     state.debugObjects = [];
     state.debugTrace = [];
+    state.debugTraceDropped = 0;
     state.debugChannels = { ownership: false, objects: false, trace: false, picture: false };
   }
 

@@ -119,6 +119,7 @@ export function useEngine(
     walkthrough: createInitialWalkthroughState(),
     debugObjects: [],
     debugTrace: [],
+    debugTraceDropped: 0,
     debugChannels: { ownership: false, objects: false, trace: false, picture: false },
   });
 

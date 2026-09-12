@@ -134,6 +134,9 @@ export function useWorkerLink(options: WorkerLinkOptions) {
               : "state" in msg
                 ? msg.state
                 : undefined;
+    // Trace stream instance last seen from this worker; an epoch change
+    // means the worker reset or re-armed the channel, so stale records drop.
+    let traceEpochSeen = -1;
     const handlers: {
       [K in WorkerOutbound["type"]]?: (msg: Extract<WorkerOutbound, { type: K }>) => void;
     } = {
@@ -271,9 +274,18 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       engineState: (msg) => workerQueries.resolveQuery(msg.id, resolveQueryPayload(msg)),
       objects: (msg) => workerQueries.resolveQuery(msg.id, resolveQueryPayload(msg)),
       trace: (msg) => {
+        // A new stream epoch means the worker dropped or reset its queue —
+        // discard what a replaced session left rather than stitching streams.
+        if (msg.epoch !== traceEpochSeen) {
+          traceEpochSeen = msg.epoch;
+          state.debugTrace = [];
+          state.debugTraceDropped = 0;
+        }
         state.debugTrace.push(...msg.records);
         if (state.debugTrace.length > 4000)
           state.debugTrace.splice(0, state.debugTrace.length - 4000);
+        state.debugTraceDropped += msg.dropped;
+        w.postMessage({ type: "traceAck", epoch: msg.epoch, batch: msg.batch });
       },
       debugEvents: (msg) => workerQueries.resolveQuery(msg.id, msg),
       debugTrace: (msg) => workerQueries.resolveQuery(msg.id, msg),

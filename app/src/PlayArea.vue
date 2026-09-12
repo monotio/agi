@@ -41,7 +41,7 @@ const { gpuBackend, debugOpen, debugViewMode, splitAt, debugFrame } = presentati
 const bridge = useShellBridge();
 
 /** The DOM input is the keyboard capture; its text lives on the engine's input row. */
-const inputEl = useTemplateRef<HTMLInputElement>("inputEl");
+const inputEl = useTemplateRef("inputEl");
 const inputLine = ref("");
 const promptLine = ref("");
 const composing = ref(false);
@@ -600,6 +600,7 @@ defineExpose({
         :frame="debugFrame"
         :objects="state.debugObjects"
         :trace="state.debugTrace"
+        :trace-dropped="state.debugTraceDropped"
         :channels="state.debugChannels"
         :view-mode="debugViewMode"
         :has-gpu="!!gpuBackend"

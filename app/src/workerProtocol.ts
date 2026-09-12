@@ -27,7 +27,7 @@
  *   replayAdvance / resetReplay / exitReplay / renderFrame
  *                       deterministic replay and seeking
  *   soundEnabled / soundDevice
- *   debug / debugWrite / debugTrace / debugEvents
+ *   debug / debugWrite / debugTrace / debugEvents / traceAck
  *
  * Messages out:
  *   WorkerControl — hostRequest, interactionCancelled, replay, frames,
@@ -159,7 +159,13 @@ export type WorkerInbound =
   | { type: "debug"; channels?: DebugChannels }
   | { type: "debugWrite"; id: number; vars?: [number, number][]; flags?: [number, number][] }
   | { type: "debugTrace"; id: number; since?: number }
-  | { type: "debugEvents"; id: number; since?: number };
+  | { type: "debugEvents"; id: number; since?: number }
+  /**
+   * Flow control for the trace stream: the host acknowledges each posted
+   * batch so the worker's posted-but-undelivered queue stays bounded while
+   * the consumer is stalled. epoch invalidates acks from a replaced session.
+   */
+  | { type: "traceAck"; epoch: number; batch: number };
 
 /**
  * Worker → host control channel: request/response traffic and lifecycle
@@ -256,7 +262,19 @@ export type WorkerPresentation =
       picVisual?: Uint8Array;
       picPriority?: Uint8Array;
     }
-  | { type: "trace"; records: StampedTrace[] }
+  /**
+   * One acknowledged batch of trace records. `dropped` counts records the
+   * worker evicted from its bounded backlog since the previous batch; seq
+   * gaps in `records` expose the same loss. `epoch` identifies the stream
+   * instance so a replaced session's batches cannot leak into the new one.
+   */
+  | {
+      type: "trace";
+      epoch: number;
+      batch: number;
+      dropped: number;
+      records: StampedTrace[];
+    }
   | { type: "print"; text: string }
   | { type: "display"; row: number; col: number; text: string }
   | { type: "clearText" }
