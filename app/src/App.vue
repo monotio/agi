@@ -76,6 +76,7 @@ import {
   type AssertionSuggestion,
   type RecordingSnapshot,
 } from "./gameRecording.ts";
+import { provideEngine } from "./engineContext.ts";
 
 const canvas = useTemplateRef("canvas");
 const testMode = import.meta.env.MODE === "test";
@@ -345,6 +346,20 @@ const debugViewMode = ref<DebugViewMode>("visual");
 const splitAt = ref(0.5);
 const debugFrame = shallowRef<Frame | null>(null);
 
+const engine = useEngine(
+  (frame) => {
+    lastFrame = frame;
+    debugFrame.value = frame;
+    present(frame);
+  },
+  {
+    onPromptType: (text) => {
+      promptLine.value = text;
+      echoPrompt();
+    },
+  },
+);
+provideEngine(engine);
 const {
   state,
   toggleMute,
@@ -397,19 +412,7 @@ const {
   debugWrite,
   debugEventsSince,
   readEngineState,
-} = useEngine(
-  (frame) => {
-    lastFrame = frame;
-    debugFrame.value = frame;
-    present(frame);
-  },
-  {
-    onPromptType: (text) => {
-      promptLine.value = text;
-      echoPrompt();
-    },
-  },
-);
+} = engine;
 
 const aiSettingsDialog = useTemplateRef("aiSettingsDialog");
 const aiSettingsSaving = ref(false);
@@ -4362,17 +4365,6 @@ watch(
   margin: 6px 0 0;
 }
 
-.app-container {
-  --shell-width: min(960px, calc(100vw - 32px));
-  --game-width: min(960px, calc(100vw - 32px), max(640px, calc((100dvh - 280px) * 1.6)));
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 24px 0;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
 .header {
   width: var(--shell-width);
   display: flex;
@@ -4477,9 +4469,6 @@ h1 {
   padding: 0;
 }
 
-.at-menu {
-  --shell-width: min(1120px, calc(100vw - 40px));
-}
 .publisher {
   color: #deeeee;
   text-decoration: none;
@@ -5024,35 +5013,6 @@ details[open] > .section-summary {
     border-color 180ms ease-out;
 }
 
-.play-area {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-}
-@media (orientation: landscape) and (max-height: 600px) {
-  .play-area.with-touch {
-    --game-width: min(calc(100vw - 268px), calc((var(--visible-height, 100dvh) - 100px) * 1.6));
-    flex-direction: row;
-    align-items: flex-start;
-    gap: 16px;
-  }
-  .app-container:has(.with-touch) {
-    padding: 8px 0;
-  }
-  .app-container:has(.with-touch) .header {
-    margin-bottom: 8px;
-  }
-}
-@media (orientation: portrait) {
-  .play-area.with-touch {
-    --game-width: min(
-      calc(100vw - 32px),
-      max(160px, calc((var(--visible-height, 100dvh) - 340px) * 1.6))
-    );
-  }
-}
-
 .screen.active {
   border-color: #567087;
 }
@@ -5333,79 +5293,6 @@ details[open] > .section-summary {
 @media (max-width: 850px) {
   .catalog-card {
     grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-@media (max-width: 600px) {
-  .app-container {
-    padding: 16px 0;
-  }
-  .setup-panel {
-    padding: 0;
-  }
-  .create-pane {
-    padding: 18px;
-  }
-  .library-pane {
-    padding: 18px;
-  }
-  .welcome {
-    padding: 12px 0 28px;
-  }
-  .welcome-kicker {
-    font-size: 10px;
-    letter-spacing: 0.1em;
-  }
-  .catalog-shelf {
-    padding: 18px;
-  }
-  .catalog-art,
-  .thumbnail-placeholder {
-    min-height: 0;
-  }
-  .catalog-copy {
-    padding: 18px;
-  }
-  .template-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .header {
-    gap: 16px;
-  }
-  .agent-bubble {
-    position: fixed;
-    top: auto;
-    left: auto;
-    transform: none;
-    bottom: 16px;
-    right: 16px;
-    width: calc(100% - 32px);
-    box-sizing: border-box;
-    max-height: min(70dvh, 480px);
-    overflow-y: auto;
-  }
-  .agent-bubble-head {
-    flex-wrap: wrap;
-  }
-  .agent-bubble-room {
-    font-size: 10px;
-  }
-  .agent-bubble-form textarea {
-    min-width: 0;
-    width: 100%;
-  }
-  .config-col,
-  .config-col.key-col {
-    min-width: 0;
-    flex-basis: 100%;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .app-container *,
-  .screen.shake {
-    animation: none;
-    transition: none;
   }
 }
 
