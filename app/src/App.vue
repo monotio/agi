@@ -36,12 +36,7 @@ import { AgiStage } from "./three/AgiStage.ts";
 import { FRAME_HEIGHT, FRAME_WIDTH, compositeFrame, type ScreenViewMode } from "./composite.ts";
 import { GLYPH_CURSOR, TEXT_COLS } from "../../src/runtime/textSurface.ts";
 import { BUILTIN_TEMPLATES, parseCustomTemplate, type GameTemplate } from "./gameTemplates.ts";
-import {
-  DEFAULT_MODELS,
-  MODEL_OPTIONS,
-  type LlmConfig,
-  type ProviderType,
-} from "./agent/llmClient.ts";
+import { MODEL_OPTIONS } from "./agent/llmClient.ts";
 import {
   getCachedGameMeta,
   loadAuthoredGame,
@@ -70,13 +65,14 @@ import {
   movementDirection,
 } from "./gameControls.ts";
 import { AGI_KEY, DIRECTION_KEYS } from "../../src/runtime/keys.ts";
-import { copyAiSettings, loadAiSettings, saveAiSettings, type AiSettings } from "./aiSettings.ts";
+
 import {
   suggestAssertions,
   type AssertionSuggestion,
   type RecordingSnapshot,
 } from "./gameRecording.ts";
 import { provideEngine } from "./engineContext.ts";
+import { createAiSettings, provideAiSettings } from "./useAiSettings.ts";
 
 const canvas = useTemplateRef("canvas");
 const testMode = import.meta.env.MODE === "test";
@@ -295,26 +291,6 @@ function onGameDetailsToggle(projectId: ProjectId, event: Event): void {
   }
 }
 
-const savedBudget = Number(localStorage.getItem("monotio_agi.taskBudget") ?? 5);
-const taskBudget = ref(Number.isFinite(savedBudget) && savedBudget > 0 ? savedBudget : 5);
-watch(taskBudget, (value) => {
-  if (Number.isFinite(value) && value > 0)
-    localStorage.setItem("monotio_agi.taskBudget", String(value));
-});
-const initialAiSettings = loadAiSettings(localStorage, DEFAULT_MODELS, testMode);
-const initialProfile = initialAiSettings.profiles[initialAiSettings.provider];
-const aiSettings = ref(initialAiSettings);
-const aiModelLabel = computed(() => {
-  const { provider: current, profiles } = aiSettings.value;
-  const model = profiles[current].model;
-  return MODEL_OPTIONS[current].find((option) => option.id === model)?.label ?? model;
-});
-const provider = ref<ProviderType>(initialAiSettings.provider);
-const apiKey = ref(initialProfile.apiKey);
-const model = ref(initialProfile.model);
-const effort = ref(initialProfile.effort);
-const aiConfigured = computed(() => provider.value === "stub" || apiKey.value.trim().length > 0);
-
 watch(selectedProjectId, (projectId) => {
   cachedMeta.value = getCachedGameMeta(projectId);
   renaming.value = false;
@@ -405,77 +381,36 @@ const {
   flushAutosave,
   lastAutosaveRecord,
   shutdownEngine,
-  pauseEngine,
-  resumeEngine,
-  updateAiConfig,
   setDebugChannels,
   debugWrite,
   debugEventsSince,
   readEngineState,
 } = engine;
 
-const aiSettingsDialog = useTemplateRef("aiSettingsDialog");
-const aiSettingsSaving = ref(false);
-const aiSettingsError = ref("");
-const aiSettingsContext = ref<"header" | "create" | "assistant">("header");
-const aiSettingsUnavailable = computed(
-  () =>
-    state.powerUp.busy ||
-    state.agentTask?.status === "running" ||
-    state.agentTask?.status === "paused",
-);
-let aiSettingsReturnFocus: HTMLElement | null = null;
-let aiSettingsOwnedPause = false;
-
-function openAiSettings(event: Event | null, context: "header" | "create" | "assistant"): void {
-  if (aiSettingsUnavailable.value) return;
-  aiSettingsContext.value = context;
-  aiSettingsError.value = "";
-  aiSettingsReturnFocus =
-    event?.currentTarget instanceof HTMLElement ? event.currentTarget : createButton.value;
-  releaseMovement();
-  if (state.phase === "running" && !state.paused) {
-    pauseEngine();
-    aiSettingsOwnedPause = true;
-  }
-  aiSettingsDialog.value?.show();
-}
-
-async function applyAiSettings(settings: AiSettings, budgetUsd: number): Promise<void> {
-  aiSettingsSaving.value = true;
-  aiSettingsError.value = "";
-  try {
-    saveAiSettings(localStorage, settings);
-    aiSettings.value = copyAiSettings(settings);
-    taskBudget.value = budgetUsd;
-    provider.value = settings.provider;
-    model.value = settings.profiles[settings.provider].model;
-    apiKey.value = settings.profiles[settings.provider].apiKey;
-    effort.value = settings.profiles[settings.provider].effort;
-    await updateAiConfig(llmConfig());
-    if (state.powerUp.open) await openPowerUp(llmConfig());
-    aiSettingsDialog.value?.close();
-  } catch (error) {
-    aiSettingsError.value = `Could not apply AI settings: ${String(error).replace(/^Error: /, "")}`;
-  } finally {
-    aiSettingsSaving.value = false;
-  }
-}
-
-function onAiSettingsClosed(): void {
-  if (aiSettingsOwnedPause) {
-    aiSettingsOwnedPause = false;
-    resumeEngine();
-  }
-  const returnFocus = aiSettingsReturnFocus;
-  aiSettingsReturnFocus = null;
-  nextTick(() => {
-    if (returnFocus?.isConnected) returnFocus.focus();
-    else if (aiSettingsContext.value === "create") createButton.value?.focus();
-    else if (aiSettingsContext.value === "assistant") powerUpEl.value?.focus();
-    else document.querySelector<HTMLElement>('[data-testid="settings-menu"]')?.focus();
-  });
-}
+const aiSettingsDialog = useTemplateRef<{ show(): void; close(): void }>("aiSettingsDialog");
+const ai = createAiSettings(engine, {
+  dialog: aiSettingsDialog,
+  releaseMovement,
+  createButtonEl: () => createButton.value ?? null,
+  assistantInputEl: () => powerUpEl.value ?? null,
+});
+provideAiSettings(ai);
+const {
+  taskBudget,
+  aiSettings,
+  aiModelLabel,
+  provider,
+  apiKey,
+  model,
+  aiConfigured,
+  aiSettingsSaving,
+  aiSettingsError,
+  aiSettingsUnavailable,
+  openAiSettings,
+  applyAiSettings,
+  onAiSettingsClosed,
+  llmConfig,
+} = ai;
 
 watch(
   () => state.powerUp.busy,
@@ -657,16 +592,6 @@ function markWatchHash(alias: string, tick = 0): void {
 function clearPlayHash(): void {
   if (location.hash.startsWith(PLAY_HASH_PREFIX) || location.hash.startsWith(WATCH_HASH_PREFIX))
     history.replaceState(null, "", `${location.pathname}${location.search}`);
-}
-
-function llmConfig(): LlmConfig {
-  return {
-    provider: provider.value,
-    apiKey: apiKey.value.trim(),
-    model: model.value.trim(),
-    effort: effort.value,
-    budgetUsd: taskBudget.value,
-  };
 }
 
 /** Discard the resumed game's progress and boot it from the top. */
