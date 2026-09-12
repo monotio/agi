@@ -31,6 +31,7 @@ import { detectProfile, type AgiProfile, type ProfileId } from "./profile.ts";
 import { TraceWindow } from "./trace.ts";
 import { InputQueue } from "./inputQueue.ts";
 import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, normalizeModalKey } from "./keys.ts";
+import { fnv1a32 } from "./hash.ts";
 import {
   validateEngineReplayState,
   type EngineReplayState,
@@ -299,6 +300,8 @@ const CLOCK_WAIT_LIMIT_MS = 10 * 60 * 1000;
 const DEFAULT_REPLAY_CAPACITY = 200;
 /** Pairs the host-only shadow record keeps for autosaves of a blocked script buffer. */
 const HOST_REPLAY_LIMIT = 4096;
+/** Hash basis for a frame whose logic resource is absent from the container. */
+const EMPTY_BYTES = new Uint8Array(0);
 /**
  * Polls within one cycle after which have.key is treated as a busy loop and a
  * blocking host wait is used. A script that merely polls once per cycle stays
@@ -759,14 +762,6 @@ export class Engine {
 
   // ---------- main cycle ----------
 
-  /**
-   * Undismissed modal windows. Classic AGI message windows pause the
-   * interpreter until acknowledged — the crocodiles wait while you read.
-   */
-  private get printsPending(): number {
-    return this.modals.length;
-  }
-
   /** Container patches applied so far; the host's change detector. */
   private patchGen = 0;
 
@@ -839,14 +834,9 @@ export class Engine {
     return this.modal?.serial ?? 0;
   }
 
-  /** Whether a modal window, prompt or pending message is active. */
+  /** Whether a modal window or persistent window is active. */
   get modalOpen(): boolean {
-    return (
-      this.modalKind !== null ||
-      this.modal !== null ||
-      this.persistentWindow !== null ||
-      this.printsPending > 0
-    );
+    return this.modalKind !== null || this.persistentWindow !== null;
   }
 
   /** Whether the first room picture has been drawn. */
@@ -2032,8 +2022,13 @@ export class Engine {
     if (this.parkedClockWait) return null;
     if (this.pendingInteraction !== null && this.pendingInteraction.kind !== "key") return null;
     return {
-      patchGeneration: this.patchGen,
-      frames: this.pendingLogic.map((frame) => ({ logic: frame.logic, pc: frame.pc })),
+      frames: this.pendingLogic.map((frame) => ({
+        logic: frame.logic,
+        pc: frame.pc,
+        // The byte hash, not an instance counter: a reloaded engine holding
+        // the same files resumes the pass; a patched one cannot.
+        hash: fnv1a32(this.container.getResource("logic", frame.logic) ?? EMPTY_BYTES),
+      })),
       modals: this.modals.map((m) => {
         switch (m.kind) {
           case "print":
@@ -2089,7 +2084,11 @@ export class Engine {
     this.pendingInteraction = null;
     this.pendingAnswer = undefined;
     this.conditionReplayUntil = -1;
-    if (continuation.patchGeneration !== this.patchGen) {
+    const stale = continuation.frames.some(
+      (frame) =>
+        fnv1a32(this.container.getResource("logic", frame.logic) ?? EMPTY_BYTES) !== frame.hash,
+    );
+    if (stale) {
       // The peel only makes sense when the snapshot's surface — window drawn
       // and all — was restored; preservePresentation replays repaint anyway.
       if (!peel) return;
@@ -2188,8 +2187,7 @@ export class Engine {
     if (continuation === null) {
       if (this.pendingLogic !== null) return null;
       if (this.pendingInteraction !== null) return null;
-      if (this.modal !== null || this.persistentWindow !== null || this.printsPending > 0)
-        return null;
+      if (this.modal !== null || this.persistentWindow !== null) return null;
     }
     if (this.textMode) return null;
     // Nothing to resume before the first room has drawn. The shadow record
@@ -2261,10 +2259,10 @@ export class Engine {
       if (!(e instanceof ContinuationAbort)) throw e;
     }
     if (continuation) {
-      // The candidate shares the container, so matching the live engine's
-      // patch generation exercises the same restore-or-peel decision and
-      // validates every referenced logic resource before any live mutation.
-      candidate.patchGen = this.patchGen;
+      // The candidate shares the container, so the byte hashes match the live
+      // engine's view exactly; this exercises the same restore-or-peel
+      // decision and validates every referenced logic resource before any
+      // live mutation.
       candidate.restoreContinuation(continuation, !options.preservePresentation);
     }
     try {
@@ -2798,9 +2796,6 @@ export class Engine {
       // here with no answer and drains through the modal path instead.
       if (this.modal && this.pendingAnswer === undefined) return;
     }
-    // An unacknowledged window pauses the cycle unless a delivered host answer
-    // is waiting to apply — the confirm window is itself such a print.
-    if (this.printsPending > 0 && this.pendingAnswer === undefined) return;
     if (this.pendingLogic === null) {
       this.presentationDirty = true;
       // The timer tick accumulator serialized as the save's tick count.

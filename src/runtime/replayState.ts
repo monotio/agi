@@ -37,10 +37,13 @@ export type SerializedModal =
  * room authoring) never reach this record: their snapshots stay refused.
  */
 export interface ParkedContinuation {
-  /** Resource revision the frames were taken against (Engine.patchGeneration). */
-  patchGeneration: number;
-  /** The parked call stack, innermost frame last. */
-  frames: { logic: number; pc: number }[];
+  /**
+   * The parked call stack, innermost frame last. `hash` is fnv1a32 of the
+   * logic resource's bytes, so a continuation only resumes into identical
+   * code — a patch to any frame's logic makes it stale regardless of which
+   * session captured it.
+   */
+  frames: { logic: number; pc: number; hash: number }[];
   modals: SerializedModal[];
   persistentWindow: SerializedSavedRect | null;
   /** A have.key parked mid-condition, with its replayable prior outcomes. */
@@ -198,7 +201,7 @@ function serializedModal(value: unknown): SerializedModal {
 /** Validate a serialized parked pass, or null for a non-parked snapshot. */
 export function validateContinuation(value: unknown): ParkedContinuation | null {
   if (value === null) return null;
-  const s = record(value, ["patchGeneration", "frames", "modals", "persistentWindow", "keyWait"]);
+  const s = record(value, ["frames", "modals", "persistentWindow", "keyWait"]);
   let keyWait: ParkedContinuation["keyWait"] = null;
   if (s["keyWait"] !== null) {
     const k = record(s["keyWait"], ["condPc", "outcomes", "haveKeyPolls"]);
@@ -213,10 +216,13 @@ export function validateContinuation(value: unknown): ParkedContinuation | null 
     };
   }
   return {
-    patchGeneration: number(s["patchGeneration"], 0, 0xffffffff),
     frames: array(s["frames"], 256, (v) => {
-      const f = record(v, ["logic", "pc"]);
-      return { logic: number(f["logic"], 0, 255), pc: number(f["pc"], 0, 65535) };
+      const f = record(v, ["logic", "pc", "hash"]);
+      return {
+        logic: number(f["logic"], 0, 255),
+        pc: number(f["pc"], 0, 65535),
+        hash: number(f["hash"], 0, 0xffffffff),
+      };
     }),
     modals: array(s["modals"], 8, serializedModal),
     persistentWindow: s["persistentWindow"] === null ? null : savedRect(s["persistentWindow"]),

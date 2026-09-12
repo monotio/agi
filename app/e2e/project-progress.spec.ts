@@ -9,6 +9,7 @@ import { buildWordsTok } from "../../src/logic/words.ts";
 import { Engine } from "../../src/runtime/engine.ts";
 import {
   isolateStorage,
+  openDeveloperActivity,
   openGameOptions,
   savedGameCard,
   storedAutosave,
@@ -244,5 +245,53 @@ test("a reload resumes into the checkpoint's parked window", async ({ page }) =>
   await expect
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("Beyond the window");
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(parked.cycle);
+});
+
+/**
+ * The same parked-window checkpoint, but on a world the stub agent grew:
+ * walking east authored room 2 into the live container before its entry
+ * window parked the pass. The snapshot therefore carries frames keyed on
+ * logic written after boot, and a reload has to hold the same window for
+ * Enter to finish the interrupted pass.
+ */
+test("a reload resumes the parked window in an agent-authored room", async ({ page }) => {
+  await isolateStorage(page);
+  await page.goto("/");
+  await openDeveloperActivity(page);
+  await page.getByTestId("boot-agent").click();
+  await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("agent-panel")).toContainText("assembled room 1", {
+    timeout: 30_000,
+  });
+
+  // Room 1's entry window is parked too; acknowledge it, then walk east so
+  // the stub authors room 2 and its entry print parks the pass there.
+  const input = page.getByTestId("input-line");
+  await input.focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal, { timeout: 5_000 }).toBe(null);
+  await input.fill("east");
+  await input.press("Enter");
+  await expect(page.getByTestId("agent-panel")).toContainText("authored room 2", {
+    timeout: 10_000,
+  });
+  await expect.poll(async () => (await textHook(page)).modal, { timeout: 10_000 }).toBe("print");
+  const parked = await textHook(page);
+  expect(parked.rows.join(" ")).toContain("generated room 2");
+  await expect
+    .poll(async () => (await textHook(page)).autosave, { timeout: 30_000 })
+    .toBeGreaterThanOrEqual(parked.cycle);
+
+  await page.reload();
+
+  // The authored bytes persisted beside the image, so the continuation is
+  // still keyed on identical logic: the same window is back up.
+  await expect.poll(async () => (await textHook(page)).modal, { timeout: 30_000 }).toBe("print");
+  expect((await textHook(page)).rows.join(" ")).toContain("generated room 2");
+
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal).toBe(null);
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(parked.cycle);
 });

@@ -143,7 +143,7 @@ test("a parked have.key round-trips and resumes with the delivered key once", ()
   assert.equal(restored.vars[101], 7, "execution continued past the resumed IF");
 });
 
-test("a continuation from a different resource revision is dropped and the windows peel", () => {
+test("a continuation keyed on changed logic bytes is dropped and the windows peel", () => {
   const container = gameWith(`
     increment(v60);
     if (equaln(v60, 2)) { print(1); }
@@ -159,8 +159,9 @@ test("a continuation from a different resource revision is dropped and the windo
   const restored = new Engine(container, new SuspendingHost(), new Map());
   // An authored patch between snapshot and resume supersedes the parked
   // pass's bytecode: the continuation drops, the windows peel back onto the
-  // snapshot's surface, and the next tick starts a fresh pass.
-  restored.patchResource("logic", 0, assembleLogic("return;", { dictionary: new Map() }).payload);
+  // snapshot's surface, and the next tick starts a fresh pass. Logic 1 holds
+  // the parked print frame, so its new bytes key the continuation stale.
+  restored.patchResource("logic", 1, assembleLogic("return;", { dictionary: new Map() }).payload);
   restored.restoreImage(image);
   assert.equal(restored.modalKind, null, "no phantom window survives the peel");
   assert.equal(restored.continuationPending, false, "no stale pass resumes");
@@ -169,6 +170,32 @@ test("a continuation from a different resource revision is dropped and the windo
     preWindow,
     "the cells under the former window match the pre-window surface",
   );
+});
+
+test("an unrelated logic patch keeps the continuation resumable across a reload", () => {
+  const engine = new Engine(
+    gameWith(`increment(v60);\nprint(1);\nassignn(v101, 7);`),
+    new SuspendingHost(),
+    new Map(),
+  );
+  // The patch generation moves, but no parked frame references logic 5.
+  engine.patchResource("logic", 5, assembleLogic("return;", { dictionary: new Map() }).payload);
+  engine.tick();
+  assert.equal(engine.modalKind, "print", "the window is up");
+  const image = engine.autosaveImage()!;
+
+  // A fresh engine boots from the same on-disk files: identical logic bytes,
+  // so the parked pass is still the identical instruction to resume.
+  const restoredHost = new SuspendingHost();
+  const restored = new Engine(openContainer(engine.containerFiles), restoredHost, new Map());
+  restored.restoreImage(image);
+  assert.equal(restored.modalKind, "print", "the parked window survived the reload");
+  assert.equal(restored.continuationPending, true, "the pass is still parked");
+
+  restoredHost.keys.push(13);
+  restored.tick();
+  assert.equal(restored.vars[101], 7, "the parked pass resumed at its instruction");
+  assert.equal(restored.vars[60], 1, "nothing before the window re-ran");
 });
 
 test("prompts, selectors and confirmations remain non-snapshot points", () => {
@@ -268,8 +295,7 @@ test("a malformed continuation is rejected without mutating the engine", () => {
   const before = engine.serialize();
 
   state["continuation"] = {
-    patchGeneration: 0,
-    frames: [{ logic: 0, pc: 70000 }],
+    frames: [{ logic: 0, pc: 70000, hash: 0 }],
     modals: [],
     persistentWindow: null,
     keyWait: null,
@@ -277,7 +303,6 @@ test("a malformed continuation is rejected without mutating the engine", () => {
   assert.throws(() => engine.restoreReplayState(state), /Replay state/);
 
   state["continuation"] = {
-    patchGeneration: 0,
     frames: [],
     modals: [{ kind: "bogus" }],
     persistentWindow: null,

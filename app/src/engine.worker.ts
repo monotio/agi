@@ -717,7 +717,7 @@ const host: EngineHost = {
   shakeScreen(count) {
     sendPresentation({ type: "shake", count });
   },
-  /** 0x81/0xa2 show.obj: modal view popup (engine pauses via printsPending). */
+  /** 0x81/0xa2 show.obj: modal view popup (engine pauses on the open modal). */
   showObj(viewNum) {
     sendPresentation({ type: "showObj", viewNum });
   },
