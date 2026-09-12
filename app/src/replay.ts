@@ -103,7 +103,6 @@ export interface ReplayDriver {
   setPromptEcho(text: string): void;
   /** Whether the main thread holds a pending blocking-prompt resolver. */
   promptPending(): boolean;
-  pollNow?(): void;
   waitForRevision?(
     minRevision: number,
     options?: { unblocked?: boolean; signal?: AbortSignal | undefined },

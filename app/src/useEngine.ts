@@ -21,7 +21,12 @@ import {
 import { useInputController } from "./useInputController.ts";
 import { useTestRecorder } from "./useTestRecorder.ts";
 import { useAuthoringController, type PowerUpUiState } from "./useAuthoringController.ts";
-import { createBridge, type AgentHandler, type Bridge } from "./agent/sabBridge.ts";
+import {
+  createBridge,
+  type AgentHandler,
+  type Bridge,
+  type LlmRequest,
+} from "./agent/sabBridge.ts";
 import { AgentSession } from "./agent/agentSession.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import type { AgentFrame, FrameRequest } from "../../src/agent/frames.ts";
@@ -239,8 +244,7 @@ export function useEngine(
   const promptController = usePromptController({ state, logAgent });
   const saveSlotController = useSaveSlotController({ getBootedGame: () => booted, logAgent });
 
-  function cancelPendingBridgeWaits(): void {
-    bridge?.cancel();
+  function cancelPendingPrompts(): void {
     input.resetKeys();
     promptController.cancelPrompt();
   }
@@ -259,9 +263,6 @@ export function useEngine(
     submitPrompt: (text) => promptController.submitPrompt(text),
     setPromptEcho: (text) => engineOptions?.onPromptType?.(text),
     isPromptPending: () => promptController.isPromptPending(),
-    pollNow: () => {
-      bridge?.pollNow();
-    },
     getActiveWalkthroughSession: () => activeWalkthroughSession,
     getLatestFrame: () => latestFrame,
     observationListeners,
@@ -276,12 +277,8 @@ export function useEngine(
 
   const input = useInputController({
     getWorker: () => worker,
-    getBridge: () => bridge,
     isSeeking: () => state.walkthrough.seeking,
     isHoldToMove: () => state.holdToMove,
-    setWaitingForKey: (waiting) => {
-      state.waitingForKey = waiting;
-    },
     logAgent,
     getActiveWalkthroughSession: () => activeWalkthroughSession,
   });
@@ -375,18 +372,16 @@ export function useEngine(
   }
 
   /**
-   * Host bridge services: getnum/getstring open a modal input and block the
-   * worker until the player submits; restore reads the localStorage save.
-   * Everything else passes through to the game agent.
+   * Host-request services: getnum/getstring/saveDescription open a modal
+   * input and suspend the worker until the player submits; restore and the
+   * save slots touch localStorage. Room authoring passes through to the
+   * game agent.
    */
-  function hostBridgeHandler(agent: AgentHandler): AgentHandler {
+  function hostRequestHandler(agent: AgentHandler): AgentHandler {
     return {
       async handle(req) {
         if (req.op === "restore" || req.op === "saveList" || req.op === "saveWrite") {
           return saveSlotController.handleSaveSlotRequest(req.op, req.context);
-        }
-        if (req.op === "waitkey") {
-          return input.handleWaitKey();
         }
         if (req.op === "getnum" || req.op === "getstring" || req.op === "saveDescription") {
           return promptController.handlePromptRequest(req.op, req.context);
@@ -446,7 +441,7 @@ export function useEngine(
         files,
         words,
       };
-      bridge = createBridge(hostBridgeHandler(currentSessionAgent), logAgent);
+      bridge = createBridge();
       // A successful remix is saved as its own local game before playback resumes.
       w.postMessage({
         type: "boot",
@@ -549,9 +544,36 @@ export function useEngine(
               : msg["state"];
     const handlers: Record<string, (msg: Record<string, unknown>) => void> = {
       keyAccepted: (msg) => input.acknowledgeKey(Number(msg["id"])),
-      // The worker abandoned a suspended interaction (reenter, bridge cancel):
-      // resolve the prompt widgets its in-flight request opened so the UI
-      // stops waiting on an answer that is no longer consumed.
+      // The worker parks on a player key (have.key, a selector, a
+      // confirmation) without posting a host request; this flag mirrors that
+      // wait so input routing and hints know a raw key resumes the game.
+      waitingForKey: (msg) => {
+        state.waitingForKey = Boolean(msg["waiting"]);
+      },
+      // The worker suspended on a host service. The request id settles the
+      // handshake: the matching hostAnswer resumes the parked interaction,
+      // and a stale id — the interaction was abandoned — is dropped there.
+      hostRequest: (msg) => {
+        const id = Number(msg["id"]);
+        const req = {
+          op: msg["op"],
+          context: (msg["context"] ?? {}) as Record<string, unknown>,
+        } as LlmRequest;
+        logAgent("request", `${req.op} ${JSON.stringify(req.context)}`);
+        hostRequestHandler(currentSessionAgent)
+          .handle(req)
+          .then((response) => {
+            logAgent("response", response.slice(0, 120));
+            w.postMessage({ type: "hostAnswer", id, response });
+          })
+          .catch((e) => {
+            logAgent("response", `agent error: ${String(e)}`);
+            w.postMessage({ type: "hostAnswer", id, response: "" });
+          });
+      },
+      // The worker abandoned a suspended interaction (reenter, superseded
+      // request): resolve the prompt widgets its in-flight request opened so
+      // the UI stops waiting on an answer that is no longer consumed.
       interactionCancelled: () => {
         input.resetKeys();
         promptController.cancelPrompt();
@@ -648,9 +670,6 @@ export function useEngine(
           obs.sessionId !== activeWalkthroughSession
         ) {
           return;
-        }
-        if (obs.blocked !== null) {
-          bridge?.pollNow();
         }
         replayDriver.latest = obs;
         state.inputReady = true;
@@ -787,10 +806,10 @@ export function useEngine(
 
   /**
    * Freeze / unfreeze the interpreter. The pause flag is a dedicated slot in
-   * the SAB the worker already blocks on, so the store lands immediately and
-   * the world stops at the very next cycle boundary rather than whenever a
-   * postMessage happens to be delivered. See agent/sabBridge.ts for why the
-   * worker polls the slot instead of parking in Atomics.wait on it.
+   * the SAB the worker polls, so the store lands immediately and the world
+   * stops at the very next cycle boundary rather than whenever a postMessage
+   * happens to be delivered. See agent/sabBridge.ts for why the worker polls
+   * the slot instead of parking in Atomics.wait on it.
    */
   function pauseEngine(): void {
     bridge?.setPaused(true);
@@ -922,7 +941,7 @@ export function useEngine(
     state.leaving = false;
     activeWalkthroughSession++;
     walkthroughAbort();
-    cancelPendingBridgeWaits();
+    cancelPendingPrompts();
     drainPendingQueries();
     state.walkthrough.active = false;
     state.walkthrough.status = "stopped";
@@ -1005,7 +1024,7 @@ export function useEngine(
                 )
               : null;
           authoringController.setSession(cachedSession);
-          bridge = createBridge(hostBridgeHandler(currentSessionAgent), logAgent);
+          bridge = createBridge();
           const known = await detectKnownGame(cached.files);
           const revision = cached.library?.revision || (await gameRevision(cached.files));
           booted = {
@@ -1050,7 +1069,7 @@ export function useEngine(
       activeLlmConfig = config;
       const genesisSession = new AgentSession(config, logAgent);
       authoringController.setSession(genesisSession);
-      bridge = createBridge(hostBridgeHandler(currentSessionAgent), logAgent);
+      bridge = createBridge();
 
       const { files, words, transcript, sessionId } =
         await genesisSession.startGenesis(templateMarkdown);
@@ -1165,7 +1184,7 @@ export function useEngine(
       activeReplaySeed = seed;
     },
     observationListeners,
-    cancelPendingBridgeWaits,
+    cancelPendingPrompts,
     drainPendingQueries,
     bootGame,
     bootAuthoredGame,

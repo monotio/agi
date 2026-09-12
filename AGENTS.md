@@ -80,10 +80,11 @@ only for released formats and keep their original fixtures.
   deterministic stub provider; browser tests never call paid providers.
 - Host interactions that cannot answer synchronously (authoring, prompts, key
   waits, save/restore) suspend the interpreter as a resumable continuation: the
-  worker posts the request over the SharedArrayBuffer bridge and polls for the
-  response, so application commands keep being served while the game waits.
-  COOP/COEP isolation is what makes the buffer available; without it nothing
-  boots.
+  worker posts a `hostRequest` message and resumes the parked interaction when
+  the matching `hostAnswer` arrives, so application commands keep being served
+  while the game waits. The SharedArrayBuffer survives only as the remix pause
+  slot; COOP/COEP isolation is what makes the buffer available and without it
+  nothing boots.
 - Game text is engine-owned: a 40×25 cell surface composited on the GPU. Never
   render it as DOM or CSS.
 

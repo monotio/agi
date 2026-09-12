@@ -266,6 +266,13 @@ test("reenterRoom suspends on prepareRoom and completes on a later poll", () => 
   engine.deliverHostAnswer(true);
   engine.tick();
   assert.equal(engine.vars[0], 9);
+  assert.equal(
+    engine.vars[60],
+    1,
+    "the answer-resuming tick completed the transition without a pass",
+  );
+  engine.tick();
+  assert.equal(engine.vars[60], 2, "the next tick runs the new room's pass");
 });
 
 test("restart confirmation suspends; Enter restarts", () => {
@@ -311,6 +318,34 @@ test("suspended restore selector applies the image", () => {
   assert.equal(engine.vars[60], 1, "the restored image's cycle state");
   engine.tick();
   assert.equal(engine.vars[60], 2);
+});
+
+test("awaitingKey reports key needs only", () => {
+  const keyWait = new Engine(
+    gameWith(`wait: if (!have.key()) { goto wait; }\nreturn;`),
+    new SuspendingHost(),
+    new Map(),
+  );
+  keyWait.tick();
+  assert.equal(keyWait.hostInteraction?.kind, "key");
+  assert.equal(keyWait.awaitingKey, true);
+
+  const stringPrompt = new Engine(
+    gameWith(`#message 1 "Name?"\nget.string(s1, 1, 0, 0, 10);\nreturn;`),
+    new SuspendingHost(),
+    new Map(),
+  );
+  stringPrompt.tick();
+  assert.equal(stringPrompt.hostInteraction?.kind, "getstring");
+  assert.equal(stringPrompt.awaitingKey, false, "a host request is not a key wait");
+
+  const selector = new Engine(gameWith(`save.game();\nreturn;`), new SuspendingHost(), new Map());
+  selector.tick();
+  assert.equal(selector.hostInteraction?.kind, "saveDialog");
+  assert.equal(selector.awaitingKey, false, "the directory listing is a host request");
+  selector.deliverHostAnswer([]);
+  selector.tick();
+  assert.equal(selector.awaitingKey, true, "the selector's key read is a key wait");
 });
 
 test("a declined key wait (answer 0) does not hang", () => {

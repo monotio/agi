@@ -1,82 +1,39 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  createBridge,
-  BRIDGE_STATE_IDLE,
-  BRIDGE_STATE_REQUEST,
-  BRIDGE_STATE_CLAIMED,
-  BRIDGE_STATE_CANCELLED,
-  WorkerBridgeAbortError,
-} from "../src/agent/sabBridge.ts";
+import { createBridge, BRIDGE_HEADER_BYTES, BRIDGE_PAUSE_SLOT } from "../src/agent/sabBridge.ts";
 
-test("WorkerBridgeAbortError has correct name and inheritance", () => {
-  const err = new WorkerBridgeAbortError();
-  assert.equal(err.name, "WorkerBridgeAbortError");
-  assert.equal(err.message, "Worker bridge call cancelled");
-  assert.ok(err instanceof Error);
-  assert.ok(err instanceof WorkerBridgeAbortError);
-
-  const custom = new WorkerBridgeAbortError("Custom cancellation");
-  assert.equal(custom.message, "Custom cancellation");
-  assert.equal(custom.name, "WorkerBridgeAbortError");
-});
-
-test("bridge.cancel() transitions active request to cancelled state and notifies", () => {
-  const bridge = createBridge(
-    {
-      handle: async () => "ok",
-    },
-    () => {},
-  );
-
+test("the shared buffer is the pause slot only", () => {
+  const bridge = createBridge();
   try {
+    // No payload region: host requests travel as worker messages now.
+    assert.equal(bridge.sab.byteLength, BRIDGE_HEADER_BYTES);
     const i32 = new Int32Array(bridge.sab, 0, 4);
-
-    // Idle state: cancel is a no-op
-    assert.equal(Atomics.load(i32, 0), BRIDGE_STATE_IDLE);
-    bridge.cancel();
-    assert.equal(Atomics.load(i32, 0), BRIDGE_STATE_IDLE);
-
-    // Request state: cancel sets BRIDGE_STATE_CANCELLED
-    Atomics.store(i32, 0, BRIDGE_STATE_REQUEST);
-    bridge.cancel();
-    assert.equal(Atomics.load(i32, 0), BRIDGE_STATE_CANCELLED);
-
-    // Claimed state: cancel sets BRIDGE_STATE_CANCELLED
-    Atomics.store(i32, 0, BRIDGE_STATE_CLAIMED);
-    bridge.cancel();
-    assert.equal(Atomics.load(i32, 0), BRIDGE_STATE_CANCELLED);
+    assert.equal(Atomics.load(i32, BRIDGE_PAUSE_SLOT), 0);
+    assert.equal(bridge.isPaused(), false);
   } finally {
     bridge.dispose();
   }
 });
 
-test("bridge.pollNow() handles pending requests immediately without timer delay", () => {
-  let handled = false;
-  const bridge = createBridge(
-    {
-      handle: async (req) => {
-        handled = true;
-        return "result-" + req.op;
-      },
-    },
-    () => {},
-  );
-
+test("setPaused writes the pause slot the worker polls", () => {
+  const bridge = createBridge();
   try {
     const i32 = new Int32Array(bridge.sab, 0, 4);
-    const bytes = new Uint8Array(bridge.sab, 16);
-
-    const payload = new TextEncoder().encode(JSON.stringify({ op: "waitkey", context: {} }));
-    bytes.set(payload);
-    Atomics.store(i32, 1, payload.length);
-    Atomics.store(i32, 0, BRIDGE_STATE_REQUEST);
-
-    assert.equal(handled, false);
-    bridge.pollNow();
-    assert.equal(handled, true);
-    assert.equal(Atomics.load(i32, 0), BRIDGE_STATE_CLAIMED);
+    bridge.setPaused(true);
+    assert.equal(Atomics.load(i32, BRIDGE_PAUSE_SLOT), 1);
+    assert.equal(bridge.isPaused(), true);
+    bridge.setPaused(false);
+    assert.equal(Atomics.load(i32, BRIDGE_PAUSE_SLOT), 0);
+    assert.equal(bridge.isPaused(), false);
   } finally {
     bridge.dispose();
   }
+});
+
+test("dispose leaves the pause slot clear", () => {
+  const bridge = createBridge();
+  const i32 = new Int32Array(bridge.sab, 0, 4);
+  bridge.setPaused(true);
+  bridge.dispose();
+  assert.equal(Atomics.load(i32, BRIDGE_PAUSE_SLOT), 0);
 });

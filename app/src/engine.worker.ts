@@ -5,7 +5,9 @@
  * Messages in:
  *   { type: "boot", files, words, sab, autosaveMs?, autosaveFiles?, restoreImage? }
  *   { type: "input", text: string }        player pressed Enter on the input line
+ *   { type: "key", id, code }              key press; answers a parked key wait
  *   { type: "direction", dir: number }     movement key press (0 = tracked key release)
+ *   { type: "hostAnswer", id, response }   reply to a posted hostRequest
  *   { type: "startRecording" / "stopRecording" / "cancelRecording", id }
  *                                          player-action capture for a stored game test
  *   { type: "flush" }                      take an autosave now (page is going away)
@@ -44,10 +46,12 @@
  *   { type: "log", text }                  0x90/0x85/0x87 debug log stream
  *   { type: "cycle", cycle, room, egoX, egoY }
  *                                          liveness heartbeat, approximately 4 Hz
+ *   { type: "hostRequest", id, op, context }
+ *                                          a suspended host service — prompt,
+ *                                          save slot, restore, room authoring
+ *   { type: "waitingForKey", waiting }     a parked key wait opened or closed
  *   { type: "booted", profile }            first cycles completed
  *   { type: "error", message }
- *
- *   op "restore"                           0x7e fetch a base64 save image, or "" for none
  */
 import { prepareRoomPatch } from "../../src/agent/roomPatch.ts";
 import { buildWordsTok, parseWordsTok } from "../../src/logic/words.ts";
@@ -62,12 +66,7 @@ import {
   type TraceRecord,
 } from "../../src/runtime/engine.ts";
 import { AGI_KEY, DIRECTION_KEYS, NAV_KEYS } from "../../src/runtime/keys.ts";
-import {
-  BRIDGE_HEADER_BYTES,
-  BRIDGE_PAUSE_SLOT,
-  BRIDGE_STATE_CANCELLED,
-  BRIDGE_STATE_RESPONSE,
-} from "./agent/sabBridge.ts";
+import { BRIDGE_PAUSE_SLOT, type LlmRequest } from "./agent/sabBridge.ts";
 import { FrameRing } from "./frameRing.ts";
 import { CycleClock } from "../../src/runtime/cycleClock.ts";
 import { SoundClock } from "./soundClock.ts";
@@ -146,11 +145,11 @@ let liveDictionary = new Map<string, number>();
 let authoredWords: Uint8Array | null = null;
 let inputBuffer: string[] = [];
 /**
- * Queued key presses with the main thread's press id. A waitkey bridge
- * answer identifies its press by id so the same key never reaches the game
- * twice — the posted message is the shadow, the response is the delivery.
+ * Queued key presses. A parked key wait — have.key, a selector, a
+ * confirmation — is answered straight from this queue by the arriving key
+ * message; keys never cross a host request.
  */
-let keyQueue: { id: number | null; code: number }[] = [];
+let keyQueue: number[] = [];
 /** Admitted walking releases and later walking keys wait for ordinary input. */
 const deferredMovement: number[] = [];
 
@@ -199,7 +198,6 @@ function recordedClock(): void {
 let lastKeyId = 0;
 let timer: number | null = null;
 let soundTimer: number | null = null;
-let bridgePollTimer: number | null = null;
 function stopTimers(): void {
   if (timer !== null) {
     clearInterval(timer);
@@ -208,10 +206,6 @@ function stopTimers(): void {
   if (soundTimer !== null) {
     clearInterval(soundTimer);
     soundTimer = null;
-  }
-  if (bridgePollTimer !== null) {
-    clearInterval(bridgePollTimer);
-    bridgePollTimer = null;
   }
 }
 const soundClock = new SoundClock(performance.now());
@@ -246,13 +240,14 @@ function postReplay(blocked: string | null, fullState = false): void {
 
 function flushDeferredMovement(): void {
   if (!engine || engine.modalKind !== null || engine.continuationPending) return;
-  if (engine.hostInteractionPending) return;
   for (const key of deferredMovement.splice(0)) {
     if (key === 0) {
       if (recording) recording.tape.run("release", () => engine!.releaseTrackedKey(true));
       else engine.releaseTrackedKey(true);
-    } else keyQueue.push({ id: null, code: key });
+    } else keyQueue.push(key);
   }
+  // Keys flushed while an interaction is parked still feed its key wait.
+  deliverQueuedKey();
 }
 /** Interpreter cycles completed since boot; the frame ring's timeline. */
 let cycleCount = 0;
@@ -436,55 +431,58 @@ function finishCycle(): void {
   flushTraceBatch();
 }
 
-/** LLM request bridge state (see app/src/agent/sabBridge.ts for layout). */
-let bridge: { i32: Int32Array; bytes: Uint8Array } | null = null;
+/** The SAB survives only as the remix pause slot (see agent/sabBridge.ts). */
+let pauseSlot: Int32Array | null = null;
 /**
- * The bridge request currently in flight, or null while the slot is idle.
- * The engine's pendingInteraction armed before the request fired; the
- * response feeds `deliverBridgeResponse`, which hands it to
- * `engine.deliverHostAnswer` — the interpreter stays parked until then.
+ * The host request currently in flight, or null when none is. The engine's
+ * pendingInteraction armed before the request posted; the matching
+ * { type: "hostAnswer" } message feeds `deliverHostResponse`, which hands it
+ * to `engine.deliverHostAnswer` — the interpreter stays parked until then.
  */
-let bridgeOutstanding: { op: string; authoring: boolean } | null = null;
-/** Bridge-side key press ids already accepted, for stale-response rejection. */
-let lastBridgeKeyId = 0;
+let hostRequestSerial = 0;
+let hostRequestOutstanding: { id: number; op: string; authoring: boolean } | null = null;
 /** A reenter suspended on room authoring owes the host a `reentered`. */
 let pendingReenter = false;
+/** The suspended interaction waits on a player key, not a host request. */
+let keyWaiting = false;
+
+function setKeyWaiting(waiting: boolean): void {
+  if (waiting === keyWaiting) return;
+  keyWaiting = waiting;
+  sendPresentation({ type: "waitingForKey", waiting });
+}
 
 function advanceSoundClock(authoring = false): void {
   if (replay) return;
   const paused =
-    authoring || (bridge !== null && Atomics.load(bridge.i32, BRIDGE_PAUSE_SLOT) === 1);
+    authoring || (pauseSlot !== null && Atomics.load(pauseSlot, BRIDGE_PAUSE_SLOT) === 1);
   const ticks = soundClock.advance(performance.now(), paused);
   for (let tick = 0; tick < ticks; tick++) {
     recordedClock();
   }
 }
 
+type HostRequestOp = LlmRequest["op"];
+
 /**
- * Post a host-service request on the SAB bridge and suspend the interpreter
- * pass that asked for it. The worker never Atomics.wait()s: the request
- * returns to the event loop by throwing HostWait, runLogicStack parks the
- * logic stack, and pollBridge delivers the response when it lands — so the
- * host keeps inspecting, saving and editing while the game waits.
+ * Post a host-service request as an ordinary worker message and suspend the
+ * interpreter pass that asked for it. runLogicStack parks the logic stack on
+ * the thrown HostWait; the { type: "hostAnswer" } reply delivers the response
+ * and resumes the parked pass — so the host keeps inspecting, saving and
+ * editing while the game waits.
  */
-function fireBridgeRequest(op: string, context: string): never {
-  if (recording && !["getstring", "getnum", "waitkey"].includes(op))
+function postHostRequest(op: HostRequestOp, context: Record<string, unknown>): never {
+  if (recording && !["getstring", "getnum"].includes(op))
     recording.tainted = `The recording used unsupported host service ${op}.`;
-  if (!bridge) throw new Error("llm bridge not initialized");
   advanceSoundClock();
   // The interpreter is about to suspend: ship the frame that shows the
   // prompt (or the selector) the request belongs to.
   postFrame();
-  const payload = new TextEncoder().encode(JSON.stringify({ op, context: JSON.parse(context) }));
-  if (payload.length > bridge.bytes.length) throw new Error("llm request too large for bridge");
-  bridge.bytes.fill(0);
-  bridge.bytes.set(payload);
-  Atomics.store(bridge.i32, 1, payload.length);
-  Atomics.store(bridge.i32, 0, 1); // request
-  Atomics.notify(bridge.i32, 0);
+  const id = ++hostRequestSerial;
   const authoring = op === "room";
-  bridgeOutstanding = { op, authoring };
-  if (replay && ["waitkey", "getnum", "getstring", "saveDescription"].includes(op)) {
+  hostRequestOutstanding = { id, op, authoring };
+  sendControl({ type: "hostRequest", id, op, context });
+  if (replay && ["getnum", "getstring", "saveDescription"].includes(op)) {
     postReplay(op);
   }
   if (authoring) sendPresentation({ type: "soundPaused", paused: true });
@@ -492,96 +490,46 @@ function fireBridgeRequest(op: string, context: string): never {
 }
 
 /** The request finished or was abandoned: release the authoring pause. */
-function settleBridgeRequest(outstanding: { op: string; authoring: boolean }): void {
+function settleHostRequest(outstanding: { op: string; authoring: boolean }): void {
   if (!outstanding.authoring) return;
   cycleClock.reset(replay ? (replay.tick * 1000) / 60 : performance.now());
   sendPresentation({ type: "soundPaused", paused: false });
 }
 
 /**
- * Collect a landed bridge response (or a cancellation) and feed it to the
- * suspended interaction. Runs at the top of every inbound message and once
- * per host poll, so application traffic keeps flowing while a request is in
- * flight. A response with no outstanding request belonged to an abandoned
- * interaction and is dropped.
+ * A queued key answers a parked key wait: no host request was ever posted
+ * for it, so the arriving key is its answer — applied at this message
+ * boundary exactly like a host answer. Replay mode has no timer to pick it
+ * up later.
  */
-function pollBridge(): void {
-  if (!bridge || !engine) return;
-  const state = Atomics.load(bridge.i32, 0);
-  if (bridgeOutstanding === null) {
-    if (state === BRIDGE_STATE_RESPONSE) Atomics.store(bridge.i32, 0, 0);
-    return;
-  }
-  if (state === BRIDGE_STATE_CANCELLED) {
-    const outstanding = bridgeOutstanding;
-    bridgeOutstanding = null;
-    Atomics.store(bridge.i32, 0, 0);
-    settleBridgeRequest(outstanding);
-    engine.abortInteraction();
-    sendControl({ type: "interactionCancelled", op: outstanding.op });
-    if (replay) postReplay(null, true);
-    return;
-  }
-  if (state !== BRIDGE_STATE_RESPONSE) return;
-  const len = Atomics.load(bridge.i32, 1);
-  const response = new TextDecoder().decode(bridge.bytes.slice(0, len));
-  Atomics.store(bridge.i32, 0, 0); // reset for the next call
-  const outstanding = bridgeOutstanding;
-  bridgeOutstanding = null;
-  settleBridgeRequest(outstanding);
-  try {
-    deliverBridgeResponse(outstanding.op, response);
-  } catch (wait) {
-    // A stale waitkey answer re-issues the request, which suspends again.
-    if (!(wait instanceof HostWait)) throw wait;
-  }
-  // Apply the landed answer at this boundary rather than the next timer
-  // pass: a message posted after the response — a state query, the key's own
-  // echo — observes the resumed state. A re-suspension (the selector's next
-  // need) refires its request inside this tick.
+function deliverQueuedKey(): void {
+  if (!engine?.awaitingKey) return;
+  const queued = keyQueue.shift();
+  if (queued === undefined) return;
+  setKeyWaiting(false);
+  recording?.tape.host(["waitKey", queued]);
+  engine.deliverHostAnswer(queued);
   if (engine.hostInteractionReady) tickEngine();
-  // The runner holds the blocked observation postReplay(op) sent when the
-  // request fired; the resumed state is its unblocked follow-up.
   if (replay && !engine.awaitingHostAnswer) postReplay(null, true);
 }
 
-/** Hand a bridge response to the suspended engine interaction it answers. */
-function deliverBridgeResponse(op: string, response: string): void {
+/**
+ * Drop the in-flight host request and tell the main thread to resolve the
+ * UI it opened — a superseded request's late answer is dropped by the id
+ * check in the hostAnswer handler.
+ */
+function abandonHostRequest(): void {
+  const outstanding = hostRequestOutstanding;
+  if (outstanding === null) return;
+  hostRequestOutstanding = null;
+  settleHostRequest(outstanding);
+  sendControl({ type: "interactionCancelled", id: outstanding.id, op: outstanding.op });
+}
+
+/** Hand a host answer to the suspended interaction it resolves. */
+function deliverHostResponse(op: string, response: string): void {
   if (!engine) return;
   switch (op) {
-    case "waitkey": {
-      if (response.startsWith("{")) {
-        const key = JSON.parse(response) as { id: number; code: number };
-        if (key.id <= lastBridgeKeyId) {
-          // A response for a press already delivered: keep waiting.
-          if (engine.awaitingHostAnswer) fireBridgeRequest("waitkey", "{}");
-          return;
-        }
-        lastBridgeKeyId = key.id;
-        // The press's key message is also in flight. Whichever the worker
-        // sees first wins: delivery removes a queued shadow here, and raising
-        // lastKeyId makes a later-arriving message a duplicate.
-        if (key.id > lastKeyId) lastKeyId = key.id;
-        sendControl({ type: "keyAccepted", id: key.id });
-        const shadow = keyQueue.findIndex((queued) => queued.id === key.id);
-        if (shadow >= 0) keyQueue.splice(shadow, 1);
-        const accepted = key.code & 0xffff;
-        recordEvent({ cycle: cycleCount, kind: "key", code: accepted });
-        recording?.tape.host(["waitKey", accepted]);
-        engine.deliverHostAnswer(accepted);
-        return;
-      }
-      // Direct host/test bridges retain the original numeric reply contract.
-      const code = Number.parseInt(response, 10);
-      if (Number.isFinite(code)) {
-        recordEvent({ cycle: cycleCount, kind: "key", code });
-        recording?.tape.host(["waitKey", code]);
-        engine.deliverHostAnswer(code);
-        return;
-      }
-      engine.deliverHostAnswer(0);
-      return;
-    }
     case "getnum": {
       const n = Number.parseInt(response, 10);
       const value = Number.isFinite(n) ? n : 0;
@@ -706,17 +654,19 @@ const host: EngineHost = {
   },
   /**
    * Key wait for have.key busy loops, selectors and confirmations. Queued
-   * keys answer synchronously; otherwise the request crosses the SAB bridge
-   * and the engine suspends on the thrown HostWait until pollBridge delivers
-   * the response — the worker keeps serving application messages meanwhile.
+   * keys answer synchronously; otherwise the engine suspends on the thrown
+   * HostWait and the next key message delivers the answer — the worker keeps
+   * serving application messages meanwhile.
    */
   waitKey() {
     const buffered = keyQueue.shift();
     if (buffered !== undefined) {
-      recording?.tape.host(["waitKey", buffered.code]);
-      return buffered.code;
+      recording?.tape.host(["waitKey", buffered]);
+      return buffered;
     }
-    return fireBridgeRequest("waitkey", "{}");
+    setKeyWaiting(true);
+    if (replay) postReplay("waitkey");
+    throw new HostWait();
   },
   statusLine(text) {
     sendPresentation({ type: "status", text });
@@ -727,7 +677,7 @@ const host: EngineHost = {
     return line;
   },
   takeKeys() {
-    const keys = keyQueue.splice(0).map((queued) => queued.code);
+    const keys = keyQueue.splice(0);
     recording?.tape.host(["keys", keys.slice()]);
     return keys;
   },
@@ -735,18 +685,15 @@ const host: EngineHost = {
     if (!authorRooms || !engine) return true;
     const container = openContainer(engine.containerFiles);
     if (container.getResource("logic", room)) return true;
-    // The agent's answer lands in deliverBridgeResponse, which applies the
+    // The agent's answer lands in deliverHostResponse, which applies the
     // patch and delivers true/false to the suspended new.room.
-    return fireBridgeRequest(
-      "room",
-      JSON.stringify({
-        room,
-        from,
-        edge: engine.vars[2],
-        state: engine.readState(),
-        objects: engine.readObjects(),
-      }),
-    );
+    return postHostRequest("room", {
+      room,
+      from,
+      edge: engine.vars[2],
+      state: engine.readState(),
+      objects: engine.readObjects(),
+    });
   },
   /** 0x6e shake.screen: cosmetic jitter on the main thread. */
   shakeScreen(count) {
@@ -764,20 +711,20 @@ const host: EngineHost = {
   statusScreen(items) {
     sendPresentation({ type: "statusScreen", items });
   },
-  /** 0x76 get.num: prompt through the SAB bridge; the engine suspends until answered. */
+  /** 0x76 get.num: a host-request prompt; the engine suspends until answered. */
   promptNumber(prompt, row, col) {
-    return fireBridgeRequest("getnum", JSON.stringify({ prompt, row, col }));
+    return postHostRequest("getnum", { prompt, row, col });
   },
-  /** 0x73 get.string: prompt through the SAB bridge; the engine suspends until answered. */
+  /** 0x73 get.string: a host-request prompt; the engine suspends until answered. */
   promptString(prompt, maxLen, row, col) {
-    return fireBridgeRequest("getstring", JSON.stringify({ prompt, maxLen, row, col }));
+    return postHostRequest("getstring", { prompt, maxLen, row, col });
   },
   /**
-   * 0x7d save.game: the selector's directory listing crosses the bridge; the
+   * 0x7d save.game: the selector's directory listing is a host request; the
    * response's base64 images decode on delivery.
    */
   listSaveGames() {
-    return fireBridgeRequest("saveList", "{}");
+    return postHostRequest("saveList", {});
   },
   get promptSaveDescription() {
     // Replays drive the save dialog with recorded key presses, so the engine's
@@ -785,15 +732,15 @@ const host: EngineHost = {
     // recorded key, only by an explicit answer action.
     if (replay) return undefined;
     return (initial: string, maxLen: number, row: number, col: number) =>
-      fireBridgeRequest("saveDescription", JSON.stringify({ initial, maxLen, row, col }));
+      postHostRequest("saveDescription", { initial, maxLen, row, col });
   },
   saveGame(bytes, slot = 1) {
     // The main thread owns localStorage; the image travels as base64.
-    return fireBridgeRequest("saveWrite", JSON.stringify({ slot, image: bytesToBase64(bytes) }));
+    return postHostRequest("saveWrite", { slot, image: bytesToBase64(bytes) });
   },
-  /** 0x7e restore.game: the save lookup crosses the bridge; null = cancelled. */
+  /** 0x7e restore.game: the save lookup is a host request; null = cancelled. */
   restoreGame(slot = 1) {
-    return fireBridgeRequest("restore", JSON.stringify({ slot }));
+    return postHostRequest("restore", { slot });
   },
   /** 0x90 log / 0x85 obj.status.v / 0x87 show.mem: debug log stream. */
   logText(text) {
@@ -996,24 +943,6 @@ function serveFrames(id: unknown, count: number, stride: number, since: number |
   sendControl({ type: "frames", id, source: useHistory ? "history" : "recent", frames }, transfer);
 }
 
-/**
- * Replay mode parks the cycle timer — ticks are driven by replayAdvance —
- * but a landed bridge response still needs a poll to reach the suspended
- * interaction; otherwise a prompt answer written by the runner never
- * delivers and the parked pass waits forever.
- */
-function startBridgePoll(): void {
-  if (bridgePollTimer !== null) return;
-  bridgePollTimer = setInterval(() => {
-    try {
-      pollBridge();
-    } catch (error) {
-      sendControl({ type: "error", message: String(error) });
-      stopTimers();
-    }
-  }, HOST_POLL_MS) as unknown as number;
-}
-
 function startTimers(): void {
   if (soundTimer === null) {
     soundTimer = setInterval(() => {
@@ -1029,12 +958,12 @@ function startTimers(): void {
     timer = setInterval(() => {
       try {
         const now = performance.now();
-        pollBridge();
-        if (bridge && Atomics.load(bridge.i32, BRIDGE_PAUSE_SLOT) === 1) {
+        if (pauseSlot !== null && Atomics.load(pauseSlot, BRIDGE_PAUSE_SLOT) === 1) {
           cycleClock.poll(now, engine!.vars[10]!, true);
           return;
         }
         advanceSoundClock();
+        deliverQueuedKey();
         if (
           engine!.modalKind !== null ||
           engine!.continuationPending ||
@@ -1078,10 +1007,30 @@ function startTimers(): void {
 self.onmessage = (ev: MessageEvent) => {
   const msg = ev.data;
   try {
-    // Every inbound message first collects a bridge response that landed
-    // since the last poll — the suspended interaction resumes on the next
-    // tick, and queries below see the delivered answer.
-    pollBridge();
+    if (msg.type === "hostAnswer") {
+      // The main thread resolved the in-flight host request. A stale id —
+      // an answer for a request already abandoned — is dropped, never
+      // delivered.
+      const id = Number(msg.id);
+      const outstanding = hostRequestOutstanding;
+      if (!engine || outstanding === null || outstanding.id !== id) return;
+      hostRequestOutstanding = null;
+      settleHostRequest(outstanding);
+      try {
+        deliverHostResponse(outstanding.op, String(msg.response ?? ""));
+      } catch (wait) {
+        if (!(wait instanceof HostWait)) throw wait;
+      }
+      // Apply the landed answer at this boundary rather than the next timer
+      // pass: a message posted after the answer — a state query, the key's
+      // own echo — observes the resumed state. A re-suspension (the
+      // selector's next need) posts its request inside this tick.
+      if (engine.hostInteractionReady) tickEngine();
+      // The runner holds the blocked observation postReplay(op) sent when
+      // the request fired; the resumed state is its unblocked follow-up.
+      if (replay && !engine.awaitingHostAnswer) postReplay(null, true);
+      return;
+    }
     if (msg.type === "replayAdvance" && replay && engine) {
       if (typeof msg.sessionId === "number") currentSessionId = msg.sessionId;
       const ticks = Number(msg.ticks);
@@ -1100,8 +1049,6 @@ self.onmessage = (ev: MessageEvent) => {
       const advanceChunk = () => {
         if (!replay || !engine) return;
         if (replayRequest !== thisRequest || currentSessionId !== thisSession) return;
-        // A response that landed between chunks delivers before the next tick.
-        pollBridge();
 
         const startTime = performance.now();
         let chunkTicks = 0;
@@ -1313,10 +1260,11 @@ self.onmessage = (ev: MessageEvent) => {
       if (recording) recording.tainted = "Game resources changed during recording.";
       // A suspended interaction is abandoned: its parked continuation is
       // meaningless once the room's resources change under it, and the
-      // request still in flight resolves into a dropped response.
+      // request still in flight resolves into a dropped answer.
       if (engine.hostInteractionPending) {
         engine.abortInteraction();
-        sendControl({ type: "interactionCancelled" });
+        setKeyWaiting(false);
+        abandonHostRequest();
       }
       // Live patch landed: re-enter the room so the new resources take effect.
       // An open message window blocks the cycle, and bytecode can never issue
@@ -1327,8 +1275,8 @@ self.onmessage = (ev: MessageEvent) => {
         engine.reenterRoom(typeof msg.room === "number" ? msg.room : undefined);
       } catch (wait) {
         if (!(wait instanceof HostWait)) throw wait;
-        // Room authoring suspended the transition: the answer lands on a
-        // later pollBridge and the timer's tick completes it, then reports.
+        // Room authoring suspended the transition: the hostAnswer message
+        // delivers it and the timer's tick completes it, then reports.
         pendingReenter = true;
         postFrame(true);
         return;
@@ -1344,10 +1292,7 @@ self.onmessage = (ev: MessageEvent) => {
       replay = Number.isInteger(boot.replaySeed)
         ? { tick: 0, revision: 0, random: boot.replaySeed! >>> 0 }
         : null;
-      bridge = {
-        i32: new Int32Array(boot.sab, 0, 4),
-        bytes: new Uint8Array(boot.sab, BRIDGE_HEADER_BYTES),
-      };
+      pauseSlot = new Int32Array(boot.sab, 0, 4);
       const files = new Map<string, Uint8Array>(Object.entries(boot.files));
       liveDictionary = new Map<string, number>(boot.words);
       currentBootFiles = files;
@@ -1364,8 +1309,8 @@ self.onmessage = (ev: MessageEvent) => {
       deferredMovement.length = 0;
       recording = null;
       lastKeyId = 0;
-      lastBridgeKeyId = 0;
-      bridgeOutstanding = null;
+      hostRequestOutstanding = null;
+      keyWaiting = false;
       pendingReenter = false;
       isSeeking = false;
       lastVisual = null;
@@ -1427,7 +1372,6 @@ self.onmessage = (ev: MessageEvent) => {
         }
       }
       if (!replay) startTimers();
-      else startBridgePoll();
       sendControl({ type: "booted", profile: engine.profile.id });
       postReplay(null);
       return;
@@ -1455,6 +1399,10 @@ self.onmessage = (ev: MessageEvent) => {
       const seed =
         typeof msg.seed === "number" ? msg.seed : lastReplaySeed !== null ? lastReplaySeed : 0;
       replay = { tick: 0, revision: 0, random: seed >>> 0 };
+      // A request in flight belonged to the replaced engine; its late answer
+      // is dropped by the serial check and the host resolves its UI now.
+      abandonHostRequest();
+      setKeyWaiting(false);
       engine = new Engine(openContainer(currentBootFiles), host, currentDictionary);
       engine.flags[9] = 1;
       inputBuffer = [];
@@ -1462,8 +1410,6 @@ self.onmessage = (ev: MessageEvent) => {
       deferredMovement.length = 0;
       recording = null;
       lastKeyId = 0;
-      lastBridgeKeyId = 0;
-      bridgeOutstanding = null;
       pendingReenter = false;
       lastVisual = null;
       lastText = null;
@@ -1495,7 +1441,6 @@ self.onmessage = (ev: MessageEvent) => {
       pendingTrace = [];
       applyTraceChannel();
       captureStateDiffs();
-      startBridgePoll();
       if (!msg.seeking) {
         postFrame();
       }
@@ -1580,10 +1525,13 @@ self.onmessage = (ev: MessageEvent) => {
       recordEvent({ cycle: cycleCount, kind: "key", code: AGI_KEY.ENTER });
       const pending = engine.hostInteraction;
       // A click on the suspended selector or confirmation answers with its
-      // cancel key; the request still in flight resolves into a drop.
+      // cancel key; a request still in flight resolves into a dropped answer.
       if (pending !== null && engine.awaitingHostAnswer) {
-        if (pending.kind === "saveDialog" || pending.kind === "confirm")
+        if (pending.kind === "saveDialog" || pending.kind === "confirm") {
+          setKeyWaiting(false);
+          abandonHostRequest();
           engine.deliverHostAnswer(AGI_KEY.ESCAPE);
+        }
       }
       engine.ackPrint();
       postFrame();
@@ -1607,13 +1555,18 @@ self.onmessage = (ev: MessageEvent) => {
       flushDeferredMovement();
       const key = Number(msg.code) & 0xffff;
       recordEvent({ cycle: cycleCount, kind: "key", code: key });
+      // A parked key wait answers from the queue directly — any key,
+      // including a navigation key that would otherwise defer.
+      const keyWaitParked = engine?.awaitingKey === true;
       if (
+        !keyWaitParked &&
         deferredMovement.length > 0 &&
         engine?.modalKind === null &&
         NAV_KEYS[key] !== undefined
       ) {
         if (deferredMovement.length < 19) deferredMovement.push(key);
-      } else keyQueue.push({ id: keyId, code: key });
+      } else keyQueue.push(key);
+      deliverQueuedKey();
       return;
     }
     if (msg.type === "direction" && engine) {
@@ -1657,9 +1610,10 @@ self.onmessage = (ev: MessageEvent) => {
         // toggle it with the key word itself, exactly as the runner replays.
         if (engine.releaseGate !== 0) recordEvent({ cycle: cycleCount, kind: "direction", dir });
         else recordEvent({ cycle: cycleCount, kind: "key", code: dirKey });
-        if (deferredMovement.length > 0) {
+        if (deferredMovement.length > 0 && !engine.awaitingKey) {
           if (deferredMovement.length < 19) deferredMovement.push(dirKey);
-        } else keyQueue.push({ id: null, code: dirKey });
+        } else keyQueue.push(dirKey);
+        deliverQueuedKey();
       }
       return;
     }

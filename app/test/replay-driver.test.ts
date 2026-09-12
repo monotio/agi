@@ -26,7 +26,6 @@ test("createReplayDriver delegates input and queries cleanly", async () => {
   const sentKeys: [number, number | undefined][] = [];
   const sentDirs: [number, number | undefined][] = [];
   const submittedPrompts: string[] = [];
-  let pollCount = 0;
   let currentSession = 3;
   let promptPending = false;
   const observationListeners = new Set<(obs: ReplayObservation) => void>();
@@ -46,9 +45,6 @@ test("createReplayDriver delegates input and queries cleanly", async () => {
     },
     setPromptEcho: () => {},
     isPromptPending: () => promptPending,
-    pollNow: () => {
-      pollCount++;
-    },
     getActiveWalkthroughSession: () => currentSession,
     getLatestFrame: () => null,
     observationListeners,
@@ -70,9 +66,6 @@ test("createReplayDriver delegates input and queries cleanly", async () => {
   assert.equal(driver.promptPending(), false);
   promptPending = true;
   assert.equal(driver.promptPending(), true);
-
-  driver.pollNow?.();
-  assert.equal(pollCount, 1);
 });
 
 test("createReplayDriver waitForRevision resolves when matching observation fires", async () => {
@@ -83,7 +76,6 @@ test("createReplayDriver waitForRevision resolves when matching observation fire
     sendDirection: () => {},
     submitPrompt: () => {},
     isPromptPending: () => false,
-    pollNow: () => {},
     getActiveWalkthroughSession: () => 1,
     getLatestFrame: () => null,
     observationListeners,
@@ -118,7 +110,6 @@ test("createReplayDriver waitForRevision respects abort signal", async () => {
     sendDirection: () => {},
     submitPrompt: () => {},
     isPromptPending: () => false,
-    pollNow: () => {},
     getActiveWalkthroughSession: () => 1,
     getLatestFrame: () => null,
     observationListeners,

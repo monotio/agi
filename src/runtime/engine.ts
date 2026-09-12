@@ -854,6 +854,20 @@ export class Engine {
   }
 
   /**
+   * The parked interaction is waiting for a single key press — a have.key
+   * poll, a confirmation window, or the selector's key need. Host requests
+   * (prompts, slots, restore, room authoring) report through
+   * `awaitingHostAnswer` instead; the restore-error teardown waits on its
+   * modal drain and reports neither.
+   */
+  get awaitingKey(): boolean {
+    const p = this.pendingInteraction;
+    if (p === null || this.pendingAnswer !== undefined) return false;
+    if (p.kind === "key" || p.kind === "confirm") return true;
+    return p.kind === "saveDialog" && p.dialog.need?.kind === "key";
+  }
+
+  /**
    * The suspended interaction can resume on the next tick: its answer has
    * landed, or it waits on the error window's ordinary modal drain.
    */
@@ -2592,6 +2606,20 @@ export class Engine {
       this.pendingInteraction.kind !== "restoreError"
     )
       return;
+    // A host-initiated room suspension (reenterRoom parked on prepareRoom)
+    // has no logic stack and belongs to no cycle: complete the transition
+    // exactly as the synchronous re-entry did, and let the next poll cycle.
+    if (this.pendingLogic === null && this.pendingInteraction?.kind === "room") {
+      try {
+        this.applyInteraction([]);
+      } catch (rc) {
+        if (rc instanceof HostWait) return;
+        if (rc instanceof ContinuationAbort) return;
+        if (!(rc instanceof RoomChange)) throw rc;
+        this.finishRoomChange(rc.room);
+      }
+      return;
+    }
     // Modal windows pause the interpreter; keys drive the modal instead.
     if (this.modal) {
       for (const key of this.host.takeKeys()) {
@@ -2708,17 +2736,6 @@ export class Engine {
           }
           this.runLogicStack(frames);
         } else {
-          if (this.pendingInteraction !== null) {
-            // A host-initiated suspension (reenter parked on prepareRoom) has
-            // no logic stack: apply its answer, then let the fresh pass run.
-            try {
-              this.applyInteraction([]);
-            } catch (wait) {
-              if (!(wait instanceof HostWait)) throw wait;
-              return;
-            }
-            if (this.pendingInteraction !== null) return;
-          }
           this.clockWaitMs = 0;
           this.execute(0);
         }

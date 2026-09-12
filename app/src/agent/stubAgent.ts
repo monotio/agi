@@ -195,8 +195,8 @@ export class StubAgent implements AgentHandler {
         });
       }
       default:
-        // Host-served ops (getnum/getstring/restore/waitkey) never reach a game
-        // agent; an empty reply is the bridge's "no answer" value.
+        // Host-served ops (getnum/getstring/restore/save slots) never reach a
+        // game agent; an empty reply is the host's "no answer" value.
         return "";
     }
   }
