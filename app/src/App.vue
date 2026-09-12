@@ -4062,6 +4062,17 @@ watch(
   color: var(--ui-danger-hover);
 }
 
+/* The close button keeps a 44px hit area at every pointer size; negative
+   margins keep the compact header row from growing. */
+.bubble-icon.bubble-close {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: -11px -7px;
+}
+
 .bubble-icon:disabled {
   opacity: 0.4;
   cursor: default;
@@ -4140,11 +4151,10 @@ watch(
   cursor: pointer;
 }
 
-/* Desktop: the switch shares the header row with small icon buttons — drop
-   the touch target so the head stays one compact line. */
+/* Desktop: the switch shares the header row with small icon buttons — keep
+   the 44px target but tighten padding and type so the head stays compact. */
 @media (any-pointer: fine) {
   .agent-mode-switch button {
-    min-height: 0;
     padding: 5px 10px;
     font-size: 12px;
   }
