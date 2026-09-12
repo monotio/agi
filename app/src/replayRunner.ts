@@ -328,12 +328,12 @@ export async function runReplayBatch(
     if (!before.blocked || before.blocked === "waitkey") {
       throw new Error("Recorded answer requires a real prompt");
     }
-    // The worker posts the blocking observation before the main thread installs
-    // the prompt resolver; wait out the race instead of dropping the answer.
+    // The worker posts the host request before the blocking observation, so
+    // the resolver is normally installed already; wait out the race instead
+    // of dropping the answer.
     const start = Date.now();
     while (!driver.promptPending()) {
       checkAborted();
-      driver.pollNow?.();
       if (Date.now() - start > 10_000) {
         throw new Error("Timeout waiting for the blocking prompt to reach the host");
       }

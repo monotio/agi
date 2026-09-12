@@ -13,6 +13,7 @@ import {
   type FrameSource,
 } from "../src/agent/frames.ts";
 import { createAgentSessionState, executeAgentToolAsync } from "../src/agent/tools.ts";
+import { projectToolResult } from "../src/agent/toolTransport.ts";
 import { FrameRing, SURFACE_BYTES, TEXT_BYTES } from "../app/src/frameRing.ts";
 
 /**
@@ -266,8 +267,52 @@ describe("read_room_context state/objects sections", () => {
       { engine },
     );
     assert.equal(res.success, true);
-    const live = res.details?.["live"] as Record<string, unknown>;
-    assert.deepEqual(live["objects"], [{ num: 0, view: 1, x: 40, y: 120 }]);
+    assert.deepEqual(res.details?.["liveObjects"], [{ num: 0, view: 1, x: 40, y: 120 }]);
+  });
+
+  it("keeps the live summary under the detail budget when objects carry motion state", async () => {
+    const session = createAgentSessionState();
+    // The full Engine.readObjects field set: three records serialize well
+    // past the 400-character detail budget, so they travel in a sibling
+    // field and `live` keeps its scalars.
+    const objectRecord = (num: number) => ({
+      num,
+      view: 1,
+      loop: 0,
+      cel: 0,
+      x: 40 + num,
+      y: 120,
+      width: 16,
+      height: 20,
+      priority: 8,
+      fixedPriority: false,
+      direction: 3,
+      stepSize: 1,
+      stepTime: 1,
+      cycling: true,
+      cycleMode: 0,
+      cycleTime: 1,
+      motionMode: 2,
+      update: true,
+      moveTarget: { x: 100, y: 80 },
+      follow: { threshold: 4 },
+      stepCount: 2,
+    });
+    const res = await executeAgentToolAsync(
+      session,
+      "read_room_context",
+      { room: null, state: null, frames: null },
+      {
+        engine: {
+          objects: () => [objectRecord(0), objectRecord(1), objectRecord(2)],
+          state: () => ({ room: 3, egoX: 40, egoY: 120, modalKind: null, inventory: [] }),
+        },
+      },
+    );
+    assert.equal(res.success, true);
+    const projected = projectToolResult(res, new Map(), "d1");
+    assert.ok(projected.details?.["live"]);
+    assert.ok(!(projected.details["truncatedFields"] as string[]).includes("live"));
   });
 
   it("returns the live interpreter state in the state section", async () => {

@@ -7,6 +7,8 @@ import SoundPreview from "./SoundPreview.vue";
 import TouchControls from "./TouchControls.vue";
 import WalkthroughBar from "./WalkthroughBar.vue";
 import WalkthroughTransport from "./WalkthroughTransport.vue";
+import DebugDock from "./DebugDock.vue";
+import type { DebugViewMode } from "./debugView.ts";
 import {
   computed,
   nextTick,
@@ -14,6 +16,7 @@ import {
   onUnmounted,
   onWatcherCleanup,
   ref,
+  shallowRef,
   useTemplateRef,
   watch,
 } from "vue";
@@ -30,7 +33,7 @@ import {
 } from "./useEngine.ts";
 import { gameStorageKey } from "./gameTypes.ts";
 import { AgiStage } from "./three/AgiStage.ts";
-import { FRAME_HEIGHT, FRAME_WIDTH, compositeFrame } from "./composite.ts";
+import { FRAME_HEIGHT, FRAME_WIDTH, compositeFrame, type ScreenViewMode } from "./composite.ts";
 import { GLYPH_CURSOR, TEXT_COLS } from "../../src/runtime/textSurface.ts";
 import { BUILTIN_TEMPLATES, parseCustomTemplate, type GameTemplate } from "./gameTemplates.ts";
 import {
@@ -101,6 +104,8 @@ let stage: AgiStage | null = null;
 let lastFrame: Frame | null = null;
 /** Composed 320x200 RGBA frame shared by the probe canvas and the GPU stage. */
 const composed = new Uint8ClampedArray(FRAME_WIDTH * FRAME_HEIGHT * 4);
+/** Text-only composite feeding the exploded view's front plane. */
+const composedText = new Uint8ClampedArray(FRAME_WIDTH * FRAME_HEIGHT * 4);
 
 watch(crtEnabled, (on) => {
   localStorage.setItem("monotio_agi.crt", on ? "on" : "off");
@@ -333,6 +338,13 @@ const activeTemplate = computed<GameTemplate>(() => {
   }
 });
 
+/** AGI Inspector: open state, view mode, and the latest frame for the dock. */
+const debugOpen = ref(false);
+const debugViewMode = ref<DebugViewMode>("visual");
+/** Visual/priority wipe position for the dock's Split mode (0..1 of frame width). */
+const splitAt = ref(0.5);
+const debugFrame = shallowRef<Frame | null>(null);
+
 const {
   state,
   toggleMute,
@@ -381,9 +393,14 @@ const {
   pauseEngine,
   resumeEngine,
   updateAiConfig,
+  setDebugChannels,
+  debugWrite,
+  debugEventsSince,
+  readEngineState,
 } = useEngine(
   (frame) => {
     lastFrame = frame;
+    debugFrame.value = frame;
     present(frame);
   },
   {
@@ -1188,15 +1205,61 @@ async function onRecordSave(): Promise<void> {
  * no-GPU fallback) and upload it to the GPU stage when one exists.
  */
 let cachedImageData: ImageData | null = null;
+const composedPic = new Uint8ClampedArray(FRAME_WIDTH * FRAME_HEIGHT * 4);
 let pendingPresentationFrame: Frame | null = null;
 let pendingTextOverride: Uint8Array | undefined = undefined;
 let presentationRaf: number | null = null;
 
 function renderFrameNow(frame: Frame, textOverride?: Uint8Array): void {
+  const mode = debugViewMode.value;
+  // Explode composites normally — its GPU layers sample this texture and mask
+  // against the priority buffer. With no stage it falls back to the flat
+  // priority view (canvas2d has no layers).
+  const compositeMode: ScreenViewMode = mode === "explode" ? (stage ? "visual" : "priority") : mode;
+  // Explode needs the text surface as its own texture: baked into the frame
+  // it would smear across every depth band a dialog happens to cover.
+  const exploded = mode === "explode" && stage !== null;
   compositeFrame(
-    { visual: frame.visual, text: textOverride ?? frame.text, picRow: frame.picRow },
+    {
+      visual: frame.visual,
+      priority: frame.priority,
+      text: textOverride ?? frame.text,
+      picRow: frame.picRow,
+    },
     composed,
+    compositeMode,
+    splitAt.value,
+    exploded ? "skip" : "compose",
   );
+  if (exploded) {
+    compositeFrame(
+      {
+        visual: frame.visual,
+        priority: frame.priority,
+        text: textOverride ?? frame.text,
+        picRow: frame.picRow,
+      },
+      composedText,
+      "visual",
+      0.5,
+      "only",
+    );
+    stage!.setTextLayer(composedText);
+    stage!.setPriority(frame.priority, frame.picRow);
+    // Exploded band layers sample the picture surface, not the composed
+    // frame — otherwise a sprite would punch a hole in its own wall.
+    const picVisual = frame.picVisual ?? frame.visual;
+    const picPriority = frame.picPriority ?? frame.priority;
+    compositeFrame(
+      { visual: picVisual, priority: picPriority, text: frame.text, picRow: frame.picRow },
+      composedPic,
+      "visual",
+      0.5,
+      "skip",
+    );
+    stage!.setPictureData(composedPic, picPriority);
+    if (frame.ownership) stage!.setOwnershipData(frame.ownership);
+  }
   if (!stage || testMode) {
     const ctx = canvas.value?.getContext("2d");
     if (ctx) {
@@ -1205,7 +1268,55 @@ function renderFrameNow(frame: Frame, textOverride?: Uint8Array): void {
       ctx.putImageData(cachedImageData, 0, 0);
     }
   }
-  stage?.render(composed, true);
+  if (stage) {
+    stage.render(composed, true);
+  }
+}
+
+watch(splitAt, () => {
+  if (lastFrame) renderFrameNow(lastFrame);
+});
+
+watch(debugViewMode, (mode) => {
+  stage?.setExplodedMode(mode === "explode");
+  // Exploded layers need the picture surface and ownership — arm them so the
+  // next frame carries picVisual/picPriority/ownership.
+  setDebugChannels(
+    mode === "explode" ? { picture: true, objects: true, ownership: true } : { picture: false },
+  );
+  if (lastFrame) renderFrameNow(lastFrame);
+});
+
+watch(debugOpen, (open) => {
+  // The dock needs the live object table and ownership buffer; the trace
+  // channel stays opt-in from the Timeline tab.
+  setDebugChannels({ objects: open, ownership: open });
+  if (!open) {
+    setDebugChannels({ trace: false, picture: false });
+    debugViewMode.value = "visual";
+    stage?.setExplodedMode(false);
+    if (lastFrame) renderFrameNow(lastFrame);
+  }
+});
+
+/** Exploded-view projection for the inspector overlay (null while flat). */
+function debugProject(band: number, x: number, y: number) {
+  return stage?.projectBandPoint(band, x, y) ?? null;
+}
+function debugPick3d(nx: number, ny: number) {
+  return stage?.pickAt(nx, ny) ?? null;
+}
+
+/** Pointer parallax over the exploded priority layers. */
+function onScreenPointerMove(ev: PointerEvent): void {
+  if (!stage?.explodedMode) return;
+  const el = ev.currentTarget as HTMLElement;
+  const r = el.getBoundingClientRect();
+  if (r.width <= 0 || r.height <= 0) return;
+  stage.setPointer(
+    ((ev.clientX - r.left) / r.width) * 2 - 1,
+    ((ev.clientY - r.top) / r.height) * 2 - 1,
+  );
 }
 
 function present(frame: Frame, textOverride?: Uint8Array, immediate = false): void {
@@ -1577,6 +1688,55 @@ watch(progressFeedEl, (el) => {
   observer.observe(el);
   onWatcherCleanup(() => observer.disconnect());
 });
+
+/** The power-up bubble is draggable by its head and collapsible to a strip. */
+const bubblePos = ref<{ x: number; y: number }>();
+const bubbleCollapsed = ref(false);
+let bubbleDrag: { px: number; py: number; ox: number; oy: number } | null = null;
+
+function onBubbleHeadDown(ev: PointerEvent): void {
+  const t = ev.target as HTMLElement;
+  if (t.closest("button,input,textarea,select,a,summary")) return;
+  const bubble = (ev.currentTarget as HTMLElement).closest(".agent-bubble");
+  if (!(bubble instanceof HTMLElement)) return;
+  const r = bubble.getBoundingClientRect();
+  bubblePos.value = { x: r.left, y: r.top };
+  bubbleDrag = { px: ev.clientX, py: ev.clientY, ox: r.left, oy: r.top };
+  (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
+  ev.preventDefault();
+}
+
+function onBubbleHeadMove(ev: PointerEvent): void {
+  if (!bubbleDrag) return;
+  bubblePos.value = {
+    x: Math.min(Math.max(bubbleDrag.ox + ev.clientX - bubbleDrag.px, -160), window.innerWidth - 80),
+    y: Math.min(Math.max(bubbleDrag.oy + ev.clientY - bubbleDrag.py, 0), window.innerHeight - 40),
+  };
+}
+
+function onBubbleHeadUp(): void {
+  bubbleDrag = null;
+}
+
+/** Split-mode wipe handle: a thin drag strip tracking the composited divider. */
+let splitDragEl: HTMLElement | null = null;
+
+function onSplitDown(ev: PointerEvent): void {
+  splitDragEl = ev.currentTarget as HTMLElement;
+  splitDragEl.setPointerCapture(ev.pointerId);
+  ev.preventDefault();
+}
+
+function onSplitMove(ev: PointerEvent): void {
+  if (!splitDragEl) return;
+  const rect = splitDragEl.parentElement?.getBoundingClientRect();
+  if (!rect || rect.width <= 0) return;
+  splitAt.value = Math.min(0.98, Math.max(0.02, (ev.clientX - rect.left) / rect.width));
+}
+
+function onSplitUp(): void {
+  splitDragEl = null;
+}
 
 async function onPowerUp(): Promise<void> {
   if (state.powerUp.busy) return;
@@ -2262,6 +2422,17 @@ watch(
             <span>CRT display<small>Scanlines, glow and curved glass</small></span>
             <span class="setting-value">{{ crtEnabled ? "On" : "Off" }}</span>
           </button>
+          <button
+            v-if="state.phase === 'running'"
+            type="button"
+            role="menuitemcheckbox"
+            :aria-checked="debugOpen"
+            data-testid="settings-inspect"
+            @click="debugOpen = !debugOpen"
+          >
+            <span>Inspector<small>Priority layers, state and trace</small></span>
+            <span class="setting-value">{{ debugOpen ? "On" : "Off" }}</span>
+          </button>
         </ActionMenu>
         <ActionMenu
           v-if="state.phase === 'running'"
@@ -2270,6 +2441,16 @@ watch(
           icon-only
           test-id="game-actions-menu"
         >
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="menu-assistant"
+            :disabled="state.powerUp.busy"
+            @click="onPowerUp"
+          >
+            <span>Assistant<small>Ask about or remix this game</small></span>
+            <span class="setting-value">✦</span>
+          </button>
           <button
             v-if="hasWalkthrough(currentGame()?.alias ?? '') && !state.walkthrough.active"
             type="button"
@@ -3235,6 +3416,7 @@ watch(
         }"
         @click="onScreenClick"
         @pointerdown="onScreenPointerDown"
+        @pointermove="onScreenPointerMove"
       >
         <canvas
           v-show="!!gpuBackend"
@@ -3295,14 +3477,70 @@ watch(
                 : 'Ask or remix this game'
           "
           :aria-expanded="state.powerUp.open"
-          :title="state.powerUp.open ? 'Back to game (Esc)' : 'Ask or remix with AI'"
+          :title="state.powerUp.open ? 'Back to game (Esc)' : 'Ask, remix, or inspect this game'"
           @click.stop="onPowerUp"
         >
           <span class="power-up-glyph">✦</span>
         </button>
 
-        <div v-if="state.powerUp.open" class="agent-bubble" data-testid="agent-bubble" @click.stop>
-          <div class="agent-bubble-head">
+        <!-- Draggable visual/priority wipe for the dock's Split mode. -->
+        <div
+          v-if="debugViewMode === 'split' && debugOpen"
+          class="split-handle"
+          :style="{ left: `${splitAt * 100}%` }"
+          data-testid="split-handle"
+          role="slider"
+          aria-label="Split position"
+          :aria-valuenow="Math.round(splitAt * 100)"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          title="Drag to move the split"
+          @pointerdown.stop="onSplitDown"
+          @pointermove="onSplitMove"
+          @pointerup="onSplitUp"
+          @pointercancel="onSplitUp"
+          @click.stop
+        >
+          <span class="split-grip">◂▸</span>
+        </div>
+
+        <DebugDock
+          v-if="debugOpen && state.phase === 'running'"
+          :frame="debugFrame"
+          :objects="state.debugObjects"
+          :trace="state.debugTrace"
+          :channels="state.debugChannels"
+          :view-mode="debugViewMode"
+          :has-gpu="!!gpuBackend"
+          :read-state="readEngineState"
+          :events-since="debugEventsSince"
+          :write="debugWrite"
+          :project="debugProject"
+          :pick3d="debugPick3d"
+          @set-channels="setDebugChannels"
+          @set-view-mode="debugViewMode = $event"
+          @close="debugOpen = false"
+        />
+
+        <div
+          v-if="state.powerUp.open"
+          class="agent-bubble"
+          :class="{ floating: bubblePos !== undefined, collapsed: bubbleCollapsed }"
+          :style="bubblePos ? { left: `${bubblePos.x}px`, top: `${bubblePos.y}px` } : {}"
+          data-testid="agent-bubble"
+          @click.stop
+          @pointerdown.stop
+        >
+          <div
+            class="agent-bubble-head"
+            data-testid="agent-bubble-head"
+            title="Drag to move"
+            @pointerdown="onBubbleHeadDown"
+            @pointermove="onBubbleHeadMove"
+            @pointerup="onBubbleHeadUp"
+            @pointercancel="onBubbleHeadUp"
+          >
+            <span class="agent-bubble-grip">⠿</span>
             <span v-if="creatingRoom" class="agent-bubble-title">{{
               state.powerUp.error ? "Could not create this room" : "Creating the next room"
             }}</span>
@@ -3328,19 +3566,44 @@ watch(
                 Remix
               </button>
             </div>
-            <span class="agent-bubble-room" data-testid="agent-bubble-room"
-              >{{ asking ? "Read-only" : "Paused" }} ·
-              {{ state.powerUp.room > 0 ? `room ${state.powerUp.room}` : "…" }}</span
-            >
             <button
-              v-if="!creatingRoom || !state.powerUp.busy"
               type="button"
-              class="ui-button ui-button--secondary remix-close"
-              :disabled="state.powerUp.busy"
-              @click="onPowerUp"
+              class="agent-inspect"
+              :class="{ on: debugOpen }"
+              data-testid="inspect-toggle"
+              :aria-pressed="debugOpen"
+              title="AGI inspector: priority views, objects, vars, flags, trace"
+              @click="debugOpen = !debugOpen"
             >
-              Back to game
+              ◈ Inspect
             </button>
+            <span class="agent-bubble-right">
+              <span class="agent-bubble-room" data-testid="agent-bubble-room"
+                >{{ asking ? "Read-only" : "Paused" }} ·
+                {{ state.powerUp.room > 0 ? `room ${state.powerUp.room}` : "…" }}</span
+              >
+              <button
+                type="button"
+                class="bubble-icon"
+                data-testid="agent-bubble-collapse"
+                :title="bubbleCollapsed ? 'Expand' : 'Collapse to the title bar'"
+                @click="bubbleCollapsed = !bubbleCollapsed"
+              >
+                {{ bubbleCollapsed ? "+" : "−" }}
+              </button>
+              <button
+                v-if="!creatingRoom || !state.powerUp.busy"
+                type="button"
+                class="bubble-icon bubble-close remix-close"
+                data-testid="agent-bubble-close"
+                aria-label="Back to game"
+                title="Back to game (Esc)"
+                :disabled="state.powerUp.busy"
+                @click="onPowerUp"
+              >
+                ×
+              </button>
+            </span>
           </div>
           <div v-if="!creatingRoom && !aiConfigured" class="ai-connect assistant-connect">
             <p>Connect your AI provider to ask about or remix this game.</p>
@@ -3646,10 +3909,83 @@ watch(
   transform: scale(1.08);
 }
 
+/* Split-mode wipe: a wide invisible drag strip with a visible edge and grip. */
+.split-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  margin-left: -12px;
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 2;
+}
+
+.split-handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.7);
+}
+
+.split-grip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(6, 12, 20, 0.92);
+  border: 1px solid #55ffff;
+  color: #55ffff;
+  border-radius: 6px;
+  padding: 3px 5px;
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+@media (any-pointer: coarse) {
+  .split-handle {
+    width: 44px;
+    margin-left: -22px;
+  }
+}
+
 .power-up.armed {
   border-color: #ffff55;
   color: #ffff55;
   box-shadow: 0 0 18px rgba(255, 255, 85, 0.55);
+}
+
+/* Inspector entry inside the power-up header: same segmented control
+   language, but a toggle (the dock outlives the bubble). */
+.agent-inspect {
+  background: #081217;
+  border: 1px solid #38515b;
+  border-radius: 8px;
+  color: var(--ui-action);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.agent-inspect:hover {
+  border-color: var(--ui-action-hover);
+  color: var(--ui-action-hover);
+  background: var(--ui-action-surface-hover);
+}
+
+.agent-inspect.on {
+  color: var(--ui-action-ink);
+  background: var(--ui-action);
+  border-color: var(--ui-action);
 }
 
 .agent-bubble {
@@ -3680,15 +4016,108 @@ watch(
   }
 }
 
+/* Dragged free of its centred position, or collapsed to the title strip. */
+.agent-bubble.floating {
+  transform: none;
+}
+
+.agent-bubble.collapsed {
+  width: auto;
+  max-width: calc(100vw - 32px);
+  padding-bottom: 10px;
+}
+
+.agent-bubble.collapsed > *:not(.agent-bubble-head) {
+  display: none;
+}
+
+.agent-bubble.collapsed .agent-bubble-head {
+  margin-bottom: 0;
+}
+
+.agent-bubble-grip {
+  color: #3d5a6e;
+  font-size: 10px;
+  flex: none;
+}
+
+.bubble-icon {
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: #7e9aac;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+.bubble-icon:hover {
+  color: var(--ui-action-hover);
+}
+
+.bubble-icon.bubble-close:hover {
+  color: var(--ui-danger-hover);
+}
+
+/* The close button keeps a 44px hit area at every pointer size; negative
+   margins keep the compact header row from growing. */
+.bubble-icon.bubble-close {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: -11px -7px;
+}
+
+.bubble-icon:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Finger-sized targets on touch devices. */
+@media (any-pointer: coarse) {
+  .bubble-icon {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 10px;
+    font-size: 18px;
+  }
+}
+
 .agent-bubble-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
   font-size: 12px;
   letter-spacing: 0.02em;
   color: #55ffff;
   margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #1d3a46;
+}
+
+.agent-bubble-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  align-self: flex-start;
+}
+
+.agent-bubble-head:active {
+  cursor: grabbing;
+}
+
+.agent-bubble-head button {
+  cursor: pointer;
 }
 
 .agent-bubble-room {
@@ -3721,13 +4150,22 @@ watch(
     sans-serif;
   cursor: pointer;
 }
+
+/* Desktop: the switch shares the header row with small icon buttons — keep
+   the 44px target but tighten padding and type so the head stays compact. */
+@media (any-pointer: fine) {
+  .agent-mode-switch button {
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+}
 .agent-mode-switch button[aria-pressed="true"] {
   background: #20454e;
   color: #a5ffff;
 }
-.agent-bubble-head .remix-close {
-  margin-left: auto;
-  white-space: nowrap;
+.agent-bubble.collapsed .agent-bubble-head {
+  border-bottom: none;
+  padding-bottom: 0;
 }
 .agent-conversation {
   max-height: min(32dvh, 260px);
@@ -4947,16 +5385,9 @@ details[open] > .section-summary {
     overflow-y: auto;
   }
   .agent-bubble-head {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 8px;
-  }
-  .agent-mode-switch {
-    justify-self: start;
+    flex-wrap: wrap;
   }
   .agent-bubble-room {
-    grid-column: 1 / -1;
-    grid-row: 2;
     font-size: 10px;
   }
   .agent-bubble-form textarea {

@@ -2,12 +2,16 @@ import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { readGameZip } from "../src/gameZip.ts";
 import { buildProjectZip } from "../src/projectArchive.ts";
+import { buildZip } from "../src/zip.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
+import { buildWordsTok } from "../../src/logic/words.ts";
 import { Engine } from "../../src/runtime/engine.ts";
 import {
   isolateStorage,
+  openDeveloperActivity,
   openGameOptions,
+  savedGameCard,
   storedAutosave,
   textHook,
   waitForAutosaveAfter,
@@ -177,4 +181,117 @@ test("the project archive moves the autosave to another browser; the game export
   } finally {
     await fresh.close();
   }
+});
+
+/**
+ * A checkpoint taken while a message window is up carries the parked pass:
+ * a reload resumes into the same open window on the identical instruction,
+ * and Enter finishes what was interrupted rather than restarting the room.
+ */
+test("a reload resumes into the checkpoint's parked window", async ({ page }) => {
+  const game = createContainer();
+  game.putResource("picture", 1, Uint8Array.of(0xf0, 1, 0xf8, 0, 0, 0xff));
+  game.putResource(
+    "logic",
+    0,
+    assembleLogic("if(!isset(f200)){set(f200);new.room(1);}call(1);return;", {
+      dictionary: new Map(),
+    }).payload,
+  );
+  game.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      "if(isset(f5)){assignn(v50,1);load.pic(v50);draw.pic(v50);show.pic();}" +
+        'if(!isset(f201)){set(f201);print("Checkpoint window");display(20,2,"Beyond the window");}' +
+        "return;",
+      { dictionary: new Map() },
+    ).payload,
+  );
+  const archive = buildZip(
+    [...game.files]
+      .map(([name, data]) => ({ name, data }))
+      .concat([{ name: "WORDS.TOK", data: buildWordsTok([]) }]),
+  );
+  await isolateStorage(page);
+  await page.goto("/");
+  await page.getByTestId("game-zip-input").setInputFiles({
+    name: "parked-checkpoint.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from(archive),
+  });
+  await savedGameCard(page, "parked-checkpoint").getByTestId("btn-resume-cached").click();
+
+  // The window parks the pass mid-print: the cycle counter freezes there.
+  await expect.poll(async () => (await textHook(page)).modal).toBe("print");
+  const parked = await textHook(page);
+  expect(parked.rows.join(" ")).toContain("Checkpoint window");
+
+  // The autosave interval keeps firing while the interpreter waits, and the
+  // image it stores at the parked cycle now carries the open window.
+  await expect
+    .poll(async () => (await textHook(page)).autosave, { timeout: 30_000 })
+    .toBeGreaterThanOrEqual(parked.cycle);
+
+  await page.reload();
+
+  // The #play hash boots straight into the checkpoint: the same window is
+  // still up, on the identical instruction.
+  await expect.poll(async () => (await textHook(page)).modal).toBe("print");
+  expect((await textHook(page)).rows.join(" ")).toContain("Checkpoint window");
+
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal).toBe(null);
+  await expect
+    .poll(async () => (await textHook(page)).rows.join(" "))
+    .toContain("Beyond the window");
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(parked.cycle);
+});
+
+/**
+ * The same parked-window checkpoint, but on a world the stub agent grew:
+ * walking east authored room 2 into the live container before its entry
+ * window parked the pass. The snapshot therefore carries frames keyed on
+ * logic written after boot, and a reload has to hold the same window for
+ * Enter to finish the interrupted pass.
+ */
+test("a reload resumes the parked window in an agent-authored room", async ({ page }) => {
+  await isolateStorage(page);
+  await page.goto("/");
+  await openDeveloperActivity(page);
+  await page.getByTestId("boot-agent").click();
+  await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("agent-panel")).toContainText("assembled room 1", {
+    timeout: 30_000,
+  });
+
+  // Room 1's entry window is parked too; acknowledge it, then walk east so
+  // the stub authors room 2 and its entry print parks the pass there.
+  const input = page.getByTestId("input-line");
+  await input.focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal, { timeout: 5_000 }).toBe(null);
+  await input.fill("east");
+  await input.press("Enter");
+  await expect(page.getByTestId("agent-panel")).toContainText("authored room 2", {
+    timeout: 10_000,
+  });
+  await expect.poll(async () => (await textHook(page)).modal, { timeout: 10_000 }).toBe("print");
+  const parked = await textHook(page);
+  expect(parked.rows.join(" ")).toContain("generated room 2");
+  await expect
+    .poll(async () => (await textHook(page)).autosave, { timeout: 30_000 })
+    .toBeGreaterThanOrEqual(parked.cycle);
+
+  await page.reload();
+
+  // The authored bytes persisted beside the image, so the continuation is
+  // still keyed on identical logic: the same window is back up.
+  await expect.poll(async () => (await textHook(page)).modal, { timeout: 30_000 }).toBe("print");
+  expect((await textHook(page)).rows.join(" ")).toContain("generated room 2");
+
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal).toBe(null);
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(parked.cycle);
 });

@@ -7,7 +7,9 @@ import { BrowserReplay } from "./speedrunReplay.ts";
 // Opening-room checks exercise development discovery, loading and the worker.
 // Complete resource validation is a separate fixtures:audit command.
 for (const game of TITLE_SCREENS) {
-  const missing = fixtureSkip(game.hash, ["AGIDATA.OVL"], { checkVolumes: false });
+  // The alias resolves by fixture folder first; a hash query throws when an
+  // imported project under games/ duplicates a fixture's WORDS.TOK.
+  const missing = fixtureSkip(game.alias, ["AGIDATA.OVL"], { checkVolumes: false });
   test(`${game.alias}: gallery opens the fixture in its expected profile and title room`, async ({
     page,
   }) => {
@@ -37,7 +39,7 @@ for (const game of TITLE_SCREENS) {
 
 for (const game of OPENING_ROUTES) {
   const { alias, hash } = game;
-  const missing = fixtureSkip(hash, ["AGIDATA.OVL"]);
+  const missing = fixtureSkip(alias, ["AGIDATA.OVL"]);
   test(`${alias}: browser replays the opening through player-controlled movement`, async ({
     page,
   }) => {

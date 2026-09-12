@@ -60,8 +60,7 @@ test("live inspection filters state and object tables without losing requested z
   const stateSection = result.details?.["state"] as Record<string, unknown>;
   assert.deepEqual(stateSection["vars"], { 0: 0, 2: 0 });
   assert.deepEqual(stateSection["flags"], { 0: false });
-  const live = result.details?.["live"] as Record<string, unknown>;
-  assert.deepEqual(live["objects"], [{ num: 0 }, { num: 1 }]);
+  assert.deepEqual(result.details?.["liveObjects"], [{ num: 0 }, { num: 1 }]);
 });
 
 test("explicit synonym groups preserve multiword parser phrases without silently changing words", () => {

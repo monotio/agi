@@ -4,7 +4,6 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { buildZip } from "../src/zip.ts";
 import { isolateStorage, savedGameCard, textHook } from "./engineProbe.ts";
-import { BRIDGE_PAUSE_SLOT } from "../src/agent/sabBridge.ts";
 
 test("the first parser command waits for the worker's initial input mode", async ({ page }) => {
   const game = createContainer();
@@ -24,17 +23,20 @@ test("the first parser command waits for the worker's initial input mode", async
       .concat([{ name: "WORDS.TOK", data: buildWordsTok([{ word: "look", id: 1 }]) }]),
   );
   await isolateStorage(page);
-  await page.addInitScript((slot) => {
+  await page.addInitScript(() => {
     const original = Worker.prototype.postMessage;
     Worker.prototype.postMessage = function (message, transfer) {
+      original.call(this, message, Array.isArray(transfer) ? { transfer } : transfer);
       if (message.type === "boot") {
-        const buffer = new Int32Array(message.sab, 0, 4);
-        Atomics.store(buffer, slot, 1);
-        Object.assign(window, { __firstCommandGate: () => Atomics.store(buffer, slot, 0) });
+        // Queue the freeze behind the boot: the worker applies it before its
+        // first timer pass, so no cycle runs until the gate releases.
+        this.postMessage({ type: "pause", paused: true });
+        Object.assign(window, {
+          __firstCommandGate: () => this.postMessage({ type: "pause", paused: false }),
+        });
       }
-      return original.call(this, message, Array.isArray(transfer) ? { transfer } : transfer);
     };
-  }, BRIDGE_PAUSE_SLOT);
+  });
   await page.goto("/");
   await page.getByTestId("game-zip-input").setInputFiles({
     name: "first-command.zip",

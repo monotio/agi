@@ -9,7 +9,6 @@ export interface ReplayDriverContext {
   readonly submitPrompt: (text: string) => void;
   readonly setPromptEcho?: ((text: string) => void) | undefined;
   readonly isPromptPending: () => boolean;
-  readonly pollNow: () => void;
   readonly getActiveWalkthroughSession: () => number;
   readonly getLatestFrame: () => Frame | null;
   readonly observationListeners: Set<(obs: ReplayObservation) => void>;
@@ -45,9 +44,6 @@ export function createReplayDriver(ctx: ReplayDriverContext): ReplayDriver {
     answer: (text) => ctx.submitPrompt(text),
     setPromptEcho: (text) => ctx.setPromptEcho?.(text),
     promptPending: () => ctx.isPromptPending(),
-    pollNow: () => {
-      ctx.pollNow();
-    },
     waitForRevision: (
       minRevision: number,
       opts?: { unblocked?: boolean; signal?: AbortSignal | undefined },

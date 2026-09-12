@@ -30,6 +30,8 @@ function fakeObservation(
       parserCount: 0,
       lastInputLine: "",
       horizon: 36,
+      priorityBase: 48,
+      patchGeneration: 0,
       inputEnabled: true,
       pictureShown: true,
       terminated: false,

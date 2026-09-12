@@ -49,7 +49,6 @@ test("worker honors v10 pace while modal keys and pause remain responsive", asyn
       }
       async function start(files: Record<string, number[]>) {
         const worker = new Worker("/src/engine.worker.ts", { type: "module" });
-        const sab = new SharedArrayBuffer(16 + 1024 * 1024);
         let id = 0;
         const pending = new Map<number, (state: WorkerState) => void>();
         let resolveBoot!: () => void;
@@ -71,7 +70,6 @@ test("worker honors v10 pace while modal keys and pause remain responsive", asyn
             Object.entries(files).map(([name, bytes]) => [name, new Uint8Array(bytes)]),
           ),
           words: [],
-          sab,
         });
         await booted;
         const read = () =>
@@ -89,7 +87,8 @@ test("worker honors v10 pace while modal keys and pause remain responsive", asyn
           throw new Error(`Worker state deadline exceeded: ${errors.join("; ")}`);
         };
         await until((state) => state.vars[40]! >= 1);
-        return { worker, sab, read, until, errors };
+        const pause = (value: boolean) => worker.postMessage({ type: "pause", paused: value });
+        return { worker, pause, read, until, errors };
       }
       const [fast, slow, prompt] = await Promise.all(games.map((files) => start(files)));
       try {
@@ -109,8 +108,9 @@ test("worker honors v10 pace while modal keys and pause remain responsive", asyn
         prompt!.worker.postMessage({ type: "key", code: 13 });
         await prompt!.until((state) => state.modalKind === null, 1000);
         const keyMs = performance.now() - keyAt;
-        const paused = new Int32Array(slow!.sab, 0, 4);
-        Atomics.store(paused, 2, 1);
+        // The pause message precedes the state query in the queue, so the
+        // reply below is served with the freeze already applied.
+        slow!.pause(true);
         // Observe a fixed number of fast-worker cycles to prove elapsed host time while slow is parked.
         const pausedState = await slow!.read();
         const pausedAt = pausedState.vars[40]!;
@@ -120,7 +120,7 @@ test("worker honors v10 pace while modal keys and pause remain responsive", asyn
         const pausedStateEnd = await slow!.read();
         const pausedEnd = pausedStateEnd.vars[40]!;
         const clockPausedEnd = pausedStateEnd.vars[11]!;
-        Atomics.store(paused, 2, 0);
+        slow!.pause(false);
         const resumedAt = performance.now();
         await slow!.until((state) => state.vars[40]! >= pausedEnd + 2);
         const resumeMs = performance.now() - resumedAt;

@@ -61,11 +61,9 @@ test("messages suspend nested bytecode before a room change and resume each call
   assert.deepEqual(prints, ["Before the journey."], "waiting cannot repeat the script");
 
   engine.ackPrint();
-  assert.equal(
-    engine.autosaveImage(),
-    null,
-    "an acknowledged but unfinished cycle cannot be saved",
-  );
+  // The pass is still parked at the instruction after print — a resumable
+  // boundary, so the nested call stack serializes into the image too.
+  assert.ok(engine.autosaveImage());
   engine.tick();
   assert.deepEqual(prints, ["Before the journey.", "Ready to arrive."]);
   assert.deepEqual(Array.from(engine.vars.slice(60, 66)), [1, 0, 0, 1, 1, 0]);

@@ -3,17 +3,32 @@
  * Engine worker: hosts the authentic interpreter off the main thread.
  *
  * Messages in:
- *   { type: "boot", files, words, sab, autosaveMs?, autosaveFiles?, restoreImage? }
+ *   { type: "boot", files, words, autosaveMs?, autosaveFiles?, restoreImage? }
+ *   { type: "pause", paused }              remix freeze; acknowledged by "paused"
  *   { type: "input", text: string }        player pressed Enter on the input line
+ *   { type: "key", code }                  key press; answers a parked key wait
  *   { type: "direction", dir: number }     movement key press (0 = tracked key release)
+ *   { type: "hostAnswer", id, response }   reply to a posted hostRequest
  *   { type: "startRecording" / "stopRecording" / "cancelRecording", id }
  *                                          player-action capture for a stored game test
  *   { type: "flush" }                      take an autosave now (page is going away)
+ *   { type: "debug", channels }            arm inspector channels: ownership,
+ *                                          objects, trace
+ *   { type: "debugWrite", vars, flags }    apply [index, value] pairs at a
+ *                                          cycle boundary (Sierra SET VAR /
+ *                                          SET FLAG debug actions)
+ *   { type: "debugEvents", id, since }     per-cycle var/flag diff ring
+ *   { type: "debugTrace", id, since }      instruction trace ring
  *
  * Messages out:
- *   { type: "frame", visual, priority, text, picRow, modal, textMode, edit }
- *                                          transferable copies, sent when changed;
- *                                          text = 40x25 [char, attr] cells
+ *   { type: "frame", visual, priority, text, picRow, modal, textMode, edit,
+ *     cycle, ownership?, objects? }        transferable copies, sent when
+ *                                          changed; text = 40x25 [char, attr]
+ *                                          cells; ownership/objects only when
+ *                                          the matching debug channel is armed
+ *   { type: "trace", records }             batched structured instruction
+ *                                          records while the trace channel
+ *                                          is armed
  *   { type: "print", text }                modal message from the game
  *   { type: "status", text }               status line
  *   { type: "shake", count }               0x6e shake.screen
@@ -32,31 +47,35 @@
  *   { type: "log", text }                  0x90/0x85/0x87 debug log stream
  *   { type: "cycle", cycle, room, egoX, egoY }
  *                                          liveness heartbeat, approximately 4 Hz
+ *   { type: "hostRequest", id, op, context }
+ *                                          a suspended host service — prompt,
+ *                                          save slot, restore, room authoring
+ *   { type: "waitingForKey", waiting }     a parked key wait opened or closed
+ *   { type: "paused", paused }             acknowledgement of a pause message
  *   { type: "booted", profile }            first cycles completed
  *   { type: "error", message }
- *
- *   op "restore"                           0x7e fetch a base64 save image, or "" for none
  */
 import { prepareRoomPatch } from "../../src/agent/roomPatch.ts";
 import { buildWordsTok, parseWordsTok } from "../../src/logic/words.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { OperationRecorder } from "../../src/agent/recordedReplay.ts";
 import type { RecordedEvent } from "./gameRecording.ts";
-import { Engine, type EngineHost, type EngineMenuState } from "../../src/runtime/engine.ts";
-import { AGI_KEY, DIRECTION_KEYS, NAV_KEYS } from "../../src/runtime/keys.ts";
 import {
-  BRIDGE_HEADER_BYTES,
-  BRIDGE_PAUSE_SLOT,
-  BRIDGE_STATE_CANCELLED,
-  WorkerBridgeAbortError,
-} from "./agent/sabBridge.ts";
+  Engine,
+  HostWait,
+  type EngineHost,
+  type EngineMenuState,
+  type TraceRecord,
+} from "../../src/runtime/engine.ts";
+import { AGI_KEY, DIRECTION_KEYS, NAV_KEYS } from "../../src/runtime/keys.ts";
+import type { LlmRequest } from "./agent/hostRequests.ts";
 import { FrameRing } from "./frameRing.ts";
 import { CycleClock } from "../../src/runtime/cycleClock.ts";
 import { SoundClock } from "./soundClock.ts";
 import type { ReplayObservation } from "./replay.ts";
 import { createProgressPreview } from "./progressPreview.ts";
 
-/** Save-file image as base64: the SAB bridge and localStorage both carry text. */
+/** Save-file image as base64: worker messages and localStorage both carry text. */
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   // Chunked so a large image never overflows the argument list.
@@ -77,7 +96,6 @@ interface BootMsg {
   type: "boot";
   files: Record<string, Uint8Array>;
   words: [string, number][];
-  sab: SharedArrayBuffer;
   sessionId?: number;
   /** Browser-selected sound device: 0 speaker, 1 four-channel output. */
   soundDevice?: number;
@@ -127,7 +145,12 @@ let selectedSoundDevice = 1;
 let liveDictionary = new Map<string, number>();
 let authoredWords: Uint8Array | null = null;
 let inputBuffer: string[] = [];
-let keyBuffer: number[] = [];
+/**
+ * Queued key presses. A parked key wait — have.key, a selector, a
+ * confirmation — is answered straight from this queue by the arriving key
+ * message; keys never cross a host request.
+ */
+let keyQueue: number[] = [];
 /** Admitted walking releases and later walking keys wait for ordinary input. */
 const deferredMovement: number[] = [];
 
@@ -157,15 +180,22 @@ let lastInputReady = false;
 function tickEngine(): void {
   if (!engine) return;
   initialLogicStarted = true;
-  if (recording) recording.tape.run("tick", () => engine!.tick());
-  else engine.tick();
+  // A suspended interaction freezes the cycle until its answer lands — the
+  // gate inside tick() is the same, but skipping here keeps the recorder's
+  // operation list honest: a parked tick never runs.
+  if (engine.hostInteractionPending && !engine.hostInteractionReady) return;
+  if (recording) {
+    recording.tape.run("tick", () => engine!.tick());
+    // A tick that ended suspended stays one recorded operation: the resumed
+    // answer and the calls it produces join the same list on the next tick.
+    if (engine!.awaitingHostAnswer) recording.tape.holdTick();
+  } else engine.tick();
 }
 function recordedClock(): void {
   recording?.tape.clock();
   engine?.advanceClock(1000 / 60);
   engine?.soundTick();
 }
-let lastKeyId = 0;
 let timer: number | null = null;
 let soundTimer: number | null = null;
 function stopTimers(): void {
@@ -182,7 +212,7 @@ const soundClock = new SoundClock(performance.now());
 const cycleClock = new CycleClock(performance.now());
 /** Poll input/modal services at display cadence; v10 separately gates logic cycles. */
 const HOST_POLL_MS = 1000 / 60;
-let replay: { tick: number; revision: number; random: number; yielded: boolean } | null = null;
+let replay: { tick: number; revision: number; random: number } | null = null;
 let replayRequest: number | null = null;
 let currentBootFiles: Map<string, Uint8Array> | null = null;
 let currentDictionary: Map<string, number> | null = null;
@@ -214,8 +244,10 @@ function flushDeferredMovement(): void {
     if (key === 0) {
       if (recording) recording.tape.run("release", () => engine!.releaseTrackedKey(true));
       else engine.releaseTrackedKey(true);
-    } else keyBuffer.push(key);
+    } else keyQueue.push(key);
   }
+  // Keys flushed while an interaction is parked still feed its key wait.
+  deliverQueuedKey();
 }
 /** Interpreter cycles completed since boot; the frame ring's timeline. */
 let cycleCount = 0;
@@ -246,10 +278,12 @@ let lastPatchGeneration = 0;
 /**
  * Take an autosave if this cycle boundary allows one and post it to the host.
  *
- * The engine refuses the snapshot while a window, a menu or a text screen owns
- * the surface, or before a room has drawn; the worker adds the cheap gate on
- * top: an image is encoded only when the interpreter actually advanced since
- * the last one, so a parked or idle game costs nothing.
+ * The engine refuses the snapshot while a live host request owns the answer
+ * (a prompt, the save/restore selector, a confirmation), while a text screen
+ * owns the surface, or before a room has drawn; a parked window or key wait
+ * serializes into the image's continuation instead. The worker adds the cheap
+ * gate on top: an image is encoded only when the interpreter actually
+ * advanced since the last one, so a parked or idle game costs nothing.
  */
 function autosave(force: boolean): boolean {
   if (!engine) return false;
@@ -303,72 +337,308 @@ function autosave(force: boolean): boolean {
 const recentRing = new FrameRing(100);
 const historyRing = new FrameRing(60);
 
-/** LLM blocking bridge state (see app/src/agent/sabBridge.ts for layout). */
-let bridge: { i32: Int32Array; bytes: Uint8Array } | null = null;
+/**
+ * Inspector channels armed by the host. ownership/objects ride on frame
+ * posts; trace streams structured instruction records. Each channel costs
+ * real per-cycle work, so they stay disarmed until a debug view asks.
+ */
+const debug = { ownership: false, objects: false, trace: false, picture: false };
+
+/** One observed interpreter-state write, attributed to a completed cycle. */
+interface DebugEvent {
+  seq: number;
+  cycle: number;
+  kind: "var" | "flag";
+  index: number;
+  from: number;
+  to: number;
+}
+const DEBUG_EVENT_CAP = 4000;
+const debugEvents: DebugEvent[] = [];
+let debugEventSeq = 0;
+let prevVars: Uint8Array | null = null;
+let prevFlags: Uint8Array | null = null;
+
+/**
+ * Diff vars/flags against the previous completed cycle. The ring records
+ * every write the interpreter made — the timeline lane's raw material —
+ * whether or not an inspector view is currently open.
+ */
+function captureStateDiffs(): void {
+  if (!engine) return;
+  if (prevVars === null || prevFlags === null) {
+    prevVars = engine.vars.slice();
+    prevFlags = engine.flags.slice();
+    return;
+  }
+  for (let i = 0; i < 256; i++) {
+    const v = engine.vars[i]!;
+    if (v !== prevVars[i])
+      debugEvents.push({
+        seq: ++debugEventSeq,
+        cycle: cycleCount,
+        kind: "var",
+        index: i,
+        from: prevVars[i]!,
+        to: v,
+      });
+    const f = engine.flags[i]!;
+    if (f !== prevFlags[i])
+      debugEvents.push({
+        seq: ++debugEventSeq,
+        cycle: cycleCount,
+        kind: "flag",
+        index: i,
+        from: prevFlags[i]!,
+        to: f,
+      });
+  }
+  prevVars.set(engine.vars);
+  prevFlags.set(engine.flags);
+  if (debugEvents.length > DEBUG_EVENT_CAP)
+    debugEvents.splice(0, debugEvents.length - DEBUG_EVENT_CAP);
+}
+
+/** Trace records carry their interpreter cycle plus a stream sequence. */
+type StampedTrace = TraceRecord & { seq: number; cycle: number };
+const TRACE_CAP = 4000;
+const TRACE_POST_MAX = 500;
+const traceRing: StampedTrace[] = [];
+let traceSeq = 0;
+let pendingTrace: StampedTrace[] = [];
+
+function applyTraceChannel(): void {
+  engine?.setTraceListener(
+    debug.trace
+      ? (record) => {
+          const stamped = { ...record, seq: ++traceSeq, cycle: cycleCount };
+          traceRing.push(stamped);
+          if (traceRing.length > TRACE_CAP) traceRing.splice(0, traceRing.length - TRACE_CAP);
+          pendingTrace.push(stamped);
+        }
+      : null,
+  );
+}
+
+/** Post accumulated trace records; sendPresentation drops them while seeking. */
+function flushTraceBatch(): void {
+  if (pendingTrace.length === 0) return;
+  sendPresentation({ type: "trace", records: pendingTrace.splice(0, TRACE_POST_MAX) });
+}
+
+/** Completed interpreter cycle: count it, attribute state writes, ship trace. */
+function finishCycle(): void {
+  cycleCount++;
+  captureStateDiffs();
+  flushTraceBatch();
+}
+
+/**
+ * The remix freeze. A `pause` message sets it; messages from one sender are
+ * delivered in order, so a pause posted before a query is always applied
+ * before the query is served — at most one more cycle runs first, and that
+ * cycle is invisible since nobody reads state before the freeze lands.
+ */
+let paused = false;
+/**
+ * The host request currently in flight, or null when none is. The engine's
+ * pendingInteraction armed before the request posted; the matching
+ * { type: "hostAnswer" } message feeds `deliverHostResponse`, which hands it
+ * to `engine.deliverHostAnswer` — the interpreter stays parked until then.
+ */
+let hostRequestSerial = 0;
+let hostRequestOutstanding: { id: number; op: string; authoring: boolean } | null = null;
+/** A reenter suspended on room authoring owes the host a `reentered`. */
+let pendingReenter = false;
+/** The suspended interaction waits on a player key, not a host request. */
+let keyWaiting = false;
+
+function setKeyWaiting(waiting: boolean): void {
+  if (waiting === keyWaiting) return;
+  keyWaiting = waiting;
+  sendPresentation({ type: "waitingForKey", waiting });
+}
 
 function advanceSoundClock(authoring = false): void {
   if (replay) return;
-  const paused =
-    authoring || (bridge !== null && Atomics.load(bridge.i32, BRIDGE_PAUSE_SLOT) === 1);
-  const ticks = soundClock.advance(performance.now(), paused);
+  const frozen = authoring || paused;
+  const ticks = soundClock.advance(performance.now(), frozen);
   for (let tick = 0; tick < ticks; tick++) {
     recordedClock();
   }
 }
 
-function bridgeCall(op: string, context: string): string {
-  if (recording && !["getstring", "getnum", "waitkey"].includes(op))
+type HostRequestOp = LlmRequest["op"];
+
+/**
+ * Post a host-service request as an ordinary worker message and suspend the
+ * interpreter pass that asked for it. runLogicStack parks the logic stack on
+ * the thrown HostWait; the { type: "hostAnswer" } reply delivers the response
+ * and resumes the parked pass — so the host keeps inspecting, saving and
+ * editing while the game waits.
+ */
+function postHostRequest(op: HostRequestOp, context: Record<string, unknown>): never {
+  if (recording && !["getstring", "getnum"].includes(op))
     recording.tainted = `The recording used unsupported host service ${op}.`;
-  if (!bridge) throw new Error("llm bridge not initialized");
   advanceSoundClock();
-  // The interpreter is about to block: ship the frame that shows the prompt
-  // (or the text screen) before the thread stops posting anything.
+  // The interpreter is about to suspend: ship the frame that shows the
+  // prompt (or the selector) the request belongs to.
   postFrame();
-  const payload = new TextEncoder().encode(JSON.stringify({ op, context: JSON.parse(context) }));
-  if (payload.length > bridge.bytes.length) throw new Error("llm request too large for bridge");
-  bridge.bytes.fill(0);
-  bridge.bytes.set(payload);
-  Atomics.store(bridge.i32, 1, payload.length);
-  Atomics.store(bridge.i32, 0, 1); // request
-  Atomics.notify(bridge.i32, 0);
-  if (replay && ["waitkey", "getnum", "getstring", "saveDescription"].includes(op)) {
-    replay.yielded = true;
+  const id = ++hostRequestSerial;
+  const authoring = op === "room";
+  hostRequestOutstanding = { id, op, authoring };
+  sendControl({ type: "hostRequest", id, op, context });
+  if (replay && ["getnum", "getstring", "saveDescription"].includes(op)) {
     postReplay(op);
   }
-  const authoring = op === "room";
   if (authoring) sendPresentation({ type: "soundPaused", paused: true });
-  try {
-    // The main thread may claim state 1 as state 3 before we reach the wait.
-    // Wait through either state, never decode our own request.
-    for (;;) {
-      const state = Atomics.load(bridge.i32, 0);
-      if (state === 2) break;
-      if (state === BRIDGE_STATE_CANCELLED) {
-        Atomics.store(bridge.i32, 0, 0);
-        throw new WorkerBridgeAbortError();
+  throw new HostWait();
+}
+
+/** The request finished or was abandoned: release the authoring pause. */
+function settleHostRequest(outstanding: { op: string; authoring: boolean }): void {
+  if (!outstanding.authoring) return;
+  cycleClock.reset(replay ? (replay.tick * 1000) / 60 : performance.now());
+  sendPresentation({ type: "soundPaused", paused: false });
+}
+
+/**
+ * A queued key answers a parked key wait: no host request was ever posted
+ * for it, so the arriving key is its answer — applied at this message
+ * boundary exactly like a host answer. Replay mode has no timer to pick it
+ * up later.
+ */
+function deliverQueuedKey(): void {
+  if (!engine?.awaitingKey) return;
+  const queued = keyQueue.shift();
+  if (queued === undefined) return;
+  setKeyWaiting(false);
+  if (recording) {
+    // The answer and the resumed pass belong to one recorded operation —
+    // the same shape a live suspension produces. Recording the delivery
+    // inside the tick run keeps it in the list: outside a run, tape.host
+    // drops calls, and a recording that started on this wait would lose it.
+    recording.tape.run("tick", () => {
+      recording!.tape.host(["waitKey", queued]);
+      engine!.deliverHostAnswer(queued);
+      engine!.tick();
+    });
+    if (engine.awaitingHostAnswer) recording.tape.holdTick();
+  } else {
+    engine.deliverHostAnswer(queued);
+    if (engine.hostInteractionReady) tickEngine();
+  }
+  if (replay && !engine.awaitingHostAnswer) postReplay(null, true);
+}
+
+/**
+ * Drop the in-flight host request and tell the main thread to resolve the
+ * UI it opened — a superseded request's late answer is dropped by the id
+ * check in the hostAnswer handler.
+ */
+function abandonHostRequest(): void {
+  const outstanding = hostRequestOutstanding;
+  if (outstanding === null) return;
+  hostRequestOutstanding = null;
+  settleHostRequest(outstanding);
+  sendControl({ type: "interactionCancelled", id: outstanding.id, op: outstanding.op });
+}
+
+/** Hand a host answer to the suspended interaction it resolves. */
+function deliverHostResponse(op: string, response: string): void {
+  if (!engine) return;
+  switch (op) {
+    case "getnum": {
+      const n = Number.parseInt(response, 10);
+      const value = Number.isFinite(n) ? n : 0;
+      if (recording) {
+        recording.usedGetnum = true;
+        recordEvent({ cycle: cycleCount, kind: "answer", text: response });
       }
-      // Timer callbacks cannot run inside Atomics.wait. Wake once per sound
-      // interval so host prompts keep producing audio and completion flags.
-      Atomics.wait(bridge.i32, 0, state, 1000 / 60);
-      advanceSoundClock(authoring);
+      recording?.tape.host(["number", value]);
+      engine.deliverHostAnswer(value);
+      return;
     }
-    advanceSoundClock(authoring);
-    const len = Atomics.load(bridge.i32, 1);
-    const response = new TextDecoder().decode(bridge.bytes.slice(0, len));
-    Atomics.store(bridge.i32, 0, 0); // reset for the next call
-    if (recording && (op === "getstring" || op === "getnum")) {
-      recording.usedGetnum ||= op === "getnum";
-      recordEvent({ cycle: cycleCount, kind: "answer", text: response });
-    } else if (recording && op === "restore" && response) {
-      // A restore replaces the interpreter state mid-recording; the captured
-      // steps no longer describe the live game.
-      recording.tainted = "the game was restored mid-recording";
+    case "getstring": {
+      if (recording) recordEvent({ cycle: cycleCount, kind: "answer", text: response });
+      recording?.tape.host(["string", response]);
+      engine.deliverHostAnswer(response);
+      return;
     }
-    return response;
-  } finally {
-    if (authoring) {
-      cycleClock.reset(replay ? (replay.tick * 1000) / 60 : performance.now());
-      sendPresentation({ type: "soundPaused", paused: false });
+    case "saveList": {
+      // Anything unparseable ("storage-error", an empty cancel) is a failed
+      // listing; the selector shows its own failure screen for null.
+      let slots: { slot: number; bytes: Uint8Array }[] | null;
+      try {
+        const parsed = JSON.parse(response) as { slot: number; image: string }[];
+        slots = parsed.map(({ slot, image }) => ({ slot, bytes: base64ToBytes(image) }));
+      } catch {
+        slots = null;
+      }
+      engine.deliverHostAnswer(slots);
+      return;
+    }
+    case "saveDescription": {
+      // A cancelled prompt resolves ""; the empty answer cancels the dialog.
+      let value: string | null;
+      try {
+        value = (JSON.parse(response) as { value: string | null }).value;
+      } catch {
+        value = null;
+      }
+      engine.deliverHostAnswer(value);
+      return;
+    }
+    case "saveWrite":
+      engine.deliverHostAnswer(response === "true");
+      return;
+    case "restore": {
+      let bytes: Uint8Array | null = null;
+      if (response) {
+        try {
+          bytes = base64ToBytes(response);
+        } catch {
+          bytes = null;
+        }
+      }
+      if (bytes && recording) {
+        // A restore replaces the interpreter state mid-recording; the captured
+        // steps no longer describe the live game.
+        recording.tainted = "the game was restored mid-recording";
+      }
+      engine.deliverHostAnswer(bytes);
+      return;
+    }
+    case "room": {
+      // Apply the authored patch the agent produced, then deliver the outcome.
+      const request = engine.hostInteraction;
+      const room = request?.kind === "room" ? request.room : -1;
+      let prepared = false;
+      if (room >= 0) {
+        try {
+          const container = openContainer(engine.containerFiles);
+          const patch = prepareRoomPatch(container, room, response, liveDictionary);
+          const words = buildWordsTok(patch.words.map(([word, id]) => ({ word, id })));
+          for (const resource of patch.resources)
+            engine.patchResource(resource.kind, resource.num, resource.payload);
+          liveDictionary.clear();
+          for (const [word, id] of patch.words) liveDictionary.set(word, id);
+          authoredWords = words;
+          engine.patchAuxiliaryFiles({
+            words,
+            ...(patch.objects ? { objects: patch.objects } : {}),
+            ...(patch.tests ? { tests: patch.tests } : {}),
+          });
+          prepared = true;
+        } catch (error) {
+          sendPresentation({
+            type: "log",
+            text: `Room ${room} authoring failed: ${String(error)}`,
+          });
+        }
+      }
+      engine.deliverHostAnswer(prepared);
+      return;
     }
   }
 }
@@ -401,39 +671,20 @@ const host: EngineHost = {
     sendPresentation({ type: "textMode", active });
   },
   /**
-   * Blocking key wait for have.key busy loops. The worker cannot receive key
-   * messages while the interpreter spins, so the SAB bridge blocks the thread
-   * until the main thread resolves the request; this applies in graphics mode
-   * as well as in full text mode.
+   * Key wait for have.key busy loops, selectors and confirmations. Queued
+   * keys answer synchronously; otherwise the engine suspends on the thrown
+   * HostWait and the next key message delivers the answer — the worker keeps
+   * serving application messages meanwhile.
    */
   waitKey() {
-    for (;;) {
-      const buffered = keyBuffer.shift();
-      if (buffered !== undefined) {
-        recording?.tape.host(["waitKey", buffered]);
-        return buffered;
-      }
-      const res = bridgeCall("waitkey", "{}");
-      if (res.startsWith("{")) {
-        const key = JSON.parse(res) as { id: number; code: number };
-        if (key.id <= lastKeyId) continue;
-        lastKeyId = key.id;
-        sendControl({ type: "keyAccepted", id: key.id });
-        const accepted = key.code & 0xffff;
-        // A key claimed by the blocking wait never arrives as a key message.
-        recordEvent({ cycle: cycleCount, kind: "key", code: accepted });
-        recording?.tape.host(["waitKey", accepted]);
-        return accepted;
-      }
-      // Direct host/test bridges retain the original numeric reply contract.
-      const code = Number.parseInt(res, 10);
-      if (Number.isFinite(code)) {
-        recordEvent({ cycle: cycleCount, kind: "key", code });
-        recording?.tape.host(["waitKey", code]);
-        return code;
-      }
-      return 0;
+    const buffered = keyQueue.shift();
+    if (buffered !== undefined) {
+      recording?.tape.host(["waitKey", buffered]);
+      return buffered;
     }
+    setKeyWaiting(true);
+    if (replay) postReplay("waitkey");
+    throw new HostWait();
   },
   statusLine(text) {
     sendPresentation({ type: "status", text });
@@ -444,7 +695,7 @@ const host: EngineHost = {
     return line;
   },
   takeKeys() {
-    const keys = keyBuffer.splice(0);
+    const keys = keyQueue.splice(0);
     recording?.tape.host(["keys", keys.slice()]);
     return keys;
   },
@@ -452,40 +703,21 @@ const host: EngineHost = {
     if (!authorRooms || !engine) return true;
     const container = openContainer(engine.containerFiles);
     if (container.getResource("logic", room)) return true;
-    try {
-      const response = bridgeCall(
-        "room",
-        JSON.stringify({
-          room,
-          from,
-          edge: engine.vars[2],
-          state: engine.readState(),
-          objects: engine.readObjects(),
-        }),
-      );
-      const patch = prepareRoomPatch(container, room, response, liveDictionary);
-      const words = buildWordsTok(patch.words.map(([word, id]) => ({ word, id })));
-      for (const resource of patch.resources)
-        engine.patchResource(resource.kind, resource.num, resource.payload);
-      liveDictionary.clear();
-      for (const [word, id] of patch.words) liveDictionary.set(word, id);
-      authoredWords = words;
-      engine.patchAuxiliaryFiles({
-        words,
-        ...(patch.objects ? { objects: patch.objects } : {}),
-        ...(patch.tests ? { tests: patch.tests } : {}),
-      });
-      return true;
-    } catch (error) {
-      sendPresentation({ type: "log", text: `Room ${room} authoring failed: ${String(error)}` });
-      return false;
-    }
+    // The agent's answer lands in deliverHostResponse, which applies the
+    // patch and delivers true/false to the suspended new.room.
+    return postHostRequest("room", {
+      room,
+      from,
+      edge: engine.vars[2],
+      state: engine.readState(),
+      objects: engine.readObjects(),
+    });
   },
   /** 0x6e shake.screen: cosmetic jitter on the main thread. */
   shakeScreen(count) {
     sendPresentation({ type: "shake", count });
   },
-  /** 0x81/0xa2 show.obj: modal view popup (engine pauses via printsPending). */
+  /** 0x81/0xa2 show.obj: modal view popup (engine pauses on the open modal). */
   showObj(viewNum) {
     sendPresentation({ type: "showObj", viewNum });
   },
@@ -497,59 +729,36 @@ const host: EngineHost = {
   statusScreen(items) {
     sendPresentation({ type: "statusScreen", items });
   },
-  /** 0x76 get.num: blocking prompt through the SAB bridge; edited at (row, col). */
+  /** 0x76 get.num: a host-request prompt; the engine suspends until answered. */
   promptNumber(prompt, row, col) {
-    const response = bridgeCall("getnum", JSON.stringify({ prompt, row, col }));
-    const n = Number.parseInt(response, 10);
-    const value = Number.isFinite(n) ? n : 0;
-    recording?.tape.host(["number", value]);
-    return value;
+    return postHostRequest("getnum", { prompt, row, col });
   },
-  /** 0x73 get.string: blocking prompt through the SAB bridge; edited at (row, col). */
+  /** 0x73 get.string: a host-request prompt; the engine suspends until answered. */
   promptString(prompt, maxLen, row, col) {
-    const value = bridgeCall("getstring", JSON.stringify({ prompt, maxLen, row, col })).slice(
-      0,
-      maxLen,
-    );
-    recording?.tape.host(["string", value]);
-    return value;
+    return postHostRequest("getstring", { prompt, maxLen, row, col });
   },
   /**
-   * 0x7d save.game: the engine hands over the real save-file image (31-byte
-   * description header plus the profile's length-prefixed blocks). The main
-   * thread owns localStorage, and the bridge carries text, so the bytes travel
-   * as base64 and are stored as base64 — never re-encoded as JSON.
+   * 0x7d save.game: the selector's directory listing is a host request; the
+   * response's base64 images decode on delivery.
    */
   listSaveGames() {
-    const slots = JSON.parse(bridgeCall("saveList", "{}")) as { slot: number; image: string }[];
-    return slots.map(({ slot, image }) => ({ slot, bytes: base64ToBytes(image) }));
+    return postHostRequest("saveList", {});
   },
   get promptSaveDescription() {
     // Replays drive the save dialog with recorded key presses, so the engine's
     // own in-dialog editor must run: a DOM prompt can never be answered by a
     // recorded key, only by an explicit answer action.
     if (replay) return undefined;
-    return (initial: string, maxLen: number, row: number, col: number) => {
-      const response = JSON.parse(
-        bridgeCall("saveDescription", JSON.stringify({ initial, maxLen, row, col })),
-      ) as { value: string | null };
-      return response.value;
-    };
+    return (initial: string, maxLen: number, row: number, col: number) =>
+      postHostRequest("saveDescription", { initial, maxLen, row, col });
   },
   saveGame(bytes, slot = 1) {
-    return (
-      bridgeCall("saveWrite", JSON.stringify({ slot, image: bytesToBase64(bytes) })) === "true"
-    );
+    // The main thread owns localStorage; the image travels as base64.
+    return postHostRequest("saveWrite", { slot, image: bytesToBase64(bytes) });
   },
-  /** 0x7e restore.game: blocking bridge lookup; null = cancelled or no save. */
+  /** 0x7e restore.game: the save lookup is a host request; null = cancelled. */
   restoreGame(slot = 1) {
-    const response = bridgeCall("restore", JSON.stringify({ slot }));
-    if (!response) return null;
-    try {
-      return base64ToBytes(response);
-    } catch {
-      return null;
-    }
+    return postHostRequest("restore", { slot });
   },
   /** 0x90 log / 0x85 obj.status.v / 0x87 show.mem: debug log stream. */
   logText(text) {
@@ -584,6 +793,10 @@ const host: EngineHost = {
 
 let lastVisual: Uint8Array | null = null;
 let lastText: Uint8Array | null = null;
+let lastOwnership: Uint16Array | null = null;
+let lastPicture: Uint8Array | null = null;
+let lastPicturePriority: Uint8Array | null = null;
+let lastObjectsJson = "";
 let lastPicRow = -1;
 let lastTextMode = false;
 let lastInputEnabled = false;
@@ -614,6 +827,12 @@ function postFrame(capture = false): void {
   if (capture) captureFrame(frame);
   const modal = engine.modalKind;
   const textCells = frame.text;
+  // Armed inspector channels join the sameness check so a sprite's sub-pixel
+  // or slot change still ships its fresh ownership/objects payload.
+  const ownership = debug.ownership ? engine.getOwnership() : null;
+  const objects = debug.objects ? engine.readObjects() : null;
+  const picture = debug.picture ? engine.getPictureSurface() : null;
+  const objectsJson = objects ? JSON.stringify(objects) : "";
   // Repeated display/trace opcodes can mark text dirty without changing a cell.
   // Sending those frames floods software GPU renderers and delays user input.
   let same =
@@ -623,6 +842,7 @@ function postFrame(capture = false): void {
     lastTextMode === engine.textModeActive &&
     lastInputEnabled === engine.inputEnabled &&
     lastReleaseGate === engine.releaseGate &&
+    objectsJson === lastObjectsJson &&
     lastText !== null;
   if (same && lastText) {
     for (let i = 0; i < textCells.length; i++) {
@@ -642,9 +862,33 @@ function postFrame(capture = false): void {
   } else if (!lastVisual) {
     same = false;
   }
+  if (same && ownership && lastOwnership) {
+    for (let i = 0; i < ownership.length; i++) {
+      if (ownership[i] !== lastOwnership[i]) {
+        same = false;
+        break;
+      }
+    }
+  } else if (same && ownership !== null && lastOwnership === null) {
+    same = false;
+  }
+  if (same && picture && lastPicture) {
+    for (let i = 0; i < picture.visual.length; i++) {
+      if (picture.visual[i] !== lastPicture[i] || picture.priority[i] !== lastPicturePriority![i]) {
+        same = false;
+        break;
+      }
+    }
+  } else if (same && picture !== null && lastPicture === null) {
+    same = false;
+  }
   if (same) return;
   lastVisual = frame.visual.slice(); // retained copy, never transferred
   lastText = textCells.slice();
+  lastOwnership = ownership ? ownership.slice() : null;
+  lastPicture = picture ? picture.visual.slice() : null;
+  lastPicturePriority = picture ? picture.priority.slice() : null;
+  lastObjectsJson = objectsJson;
   lastPicRow = engine.displayBase;
   lastTextMode = engine.textModeActive;
   lastInputEnabled = engine.inputEnabled;
@@ -665,8 +909,18 @@ function postFrame(capture = false): void {
       inputReady: initialLogicStarted,
       holdToMove: engine.releaseGate !== 0,
       edit: engine.inputEdit,
+      cycle: cycleCount,
+      ...(ownership ? { ownership } : {}),
+      ...(objects ? { objects } : {}),
+      ...(picture ? { picVisual: picture.visual, picPriority: picture.priority } : {}),
     },
-    [frame.visual.buffer, frame.priority.buffer, text.buffer],
+    [
+      frame.visual.buffer,
+      frame.priority.buffer,
+      text.buffer,
+      ...(ownership ? [ownership.buffer] : []),
+      ...(picture ? [picture.visual.buffer, picture.priority.buffer] : []),
+    ],
   );
 }
 
@@ -722,18 +976,30 @@ function startTimers(): void {
     timer = setInterval(() => {
       try {
         const now = performance.now();
-        if (bridge && Atomics.load(bridge.i32, BRIDGE_PAUSE_SLOT) === 1) {
+        if (paused) {
           cycleClock.poll(now, engine!.vars[10]!, true);
           return;
         }
         advanceSoundClock();
-        if (engine!.modalKind !== null || engine!.continuationPending) {
+        deliverQueuedKey();
+        if (
+          engine!.modalKind !== null ||
+          engine!.continuationPending ||
+          engine!.hostInteractionPending
+        ) {
           tickEngine();
+          flushTraceBatch();
           postFrame();
+          if (pendingReenter && !engine!.hostInteractionPending) {
+            // The suspended re-entered room has landed (or been declined).
+            pendingReenter = false;
+            sendControl({ type: "reentered", room: engine!.vars[0] });
+            postFrame(true);
+          }
         } else if (cycleClock.poll(now, engine!.vars[10]!)) {
           flushDeferredMovement();
           tickEngine();
-          cycleCount++;
+          finishCycle();
           postFrame(true);
         }
         if (now - lastCycleReportAt >= CYCLE_REPORT_MS) {
@@ -750,9 +1016,6 @@ function startTimers(): void {
         if (Date.now() - lastAutosaveAt >= autosaveIntervalMs) autosave(false);
       } catch (e) {
         stopTimers();
-        if (e instanceof WorkerBridgeAbortError) {
-          return;
-        }
         sendControl({ type: "error", message: String(e) });
       }
     }, HOST_POLL_MS) as unknown as number;
@@ -762,6 +1025,35 @@ function startTimers(): void {
 self.onmessage = (ev: MessageEvent) => {
   const msg = ev.data;
   try {
+    if (msg.type === "pause") {
+      paused = msg.paused === true;
+      sendControl({ type: "paused", paused });
+      return;
+    }
+    if (msg.type === "hostAnswer") {
+      // The main thread resolved the in-flight host request. A stale id —
+      // an answer for a request already abandoned — is dropped, never
+      // delivered.
+      const id = Number(msg.id);
+      const outstanding = hostRequestOutstanding;
+      if (!engine || outstanding === null || outstanding.id !== id) return;
+      hostRequestOutstanding = null;
+      settleHostRequest(outstanding);
+      try {
+        deliverHostResponse(outstanding.op, String(msg.response ?? ""));
+      } catch (wait) {
+        if (!(wait instanceof HostWait)) throw wait;
+      }
+      // Apply the landed answer at this boundary rather than the next timer
+      // pass: a message posted after the answer — a state query, the key's
+      // own echo — observes the resumed state. A re-suspension (the
+      // selector's next need) posts its request inside this tick.
+      if (engine.hostInteractionReady) tickEngine();
+      // The runner holds the blocked observation postReplay(op) sent when
+      // the request fired; the resumed state is its unblocked follow-up.
+      if (replay && !engine.awaitingHostAnswer) postReplay(null, true);
+      return;
+    }
     if (msg.type === "replayAdvance" && replay && engine) {
       if (typeof msg.sessionId === "number") currentSessionId = msg.sessionId;
       const ticks = Number(msg.ticks);
@@ -772,7 +1064,6 @@ self.onmessage = (ev: MessageEvent) => {
       const fullState = Boolean(msg.fullState);
       isSeeking = seeking;
       replayRequest = Number(msg.id);
-      replay.yielded = false;
 
       let remaining = ticks;
       const thisRequest = replayRequest;
@@ -788,32 +1079,37 @@ self.onmessage = (ev: MessageEvent) => {
         const maxChunkMs = seeking ? 16 : 12;
         try {
           while (remaining > 0 && chunkTicks < maxChunkTicks) {
+            // A parked host wait consumes no replay ticks, exactly as the
+            // blocking bridge did: its answer's delivery resumes the chunk.
+            if (engine.awaitingHostAnswer) break;
             replay.tick++;
             remaining--;
             chunkTicks++;
             recordedClock();
-            if (engine.modalKind !== null || engine.continuationPending) tickEngine();
+            if (
+              engine.modalKind !== null ||
+              engine.continuationPending ||
+              engine.hostInteractionPending
+            )
+              tickEngine();
             else if (cycleClock.poll((replay.tick * 1000) / 60, engine.vars[10]!)) {
               flushDeferredMovement();
               tickEngine();
-              cycleCount++;
+              finishCycle();
             }
-            if (replay.yielded) break;
             if ((chunkTicks & 63) === 0 && performance.now() - startTime >= maxChunkMs) {
               break;
             }
           }
         } catch (e) {
-          if (e instanceof WorkerBridgeAbortError) {
-            isSeeking = false;
-            replayRequest = null;
-            return;
-          }
           sendControl({ type: "error", id: thisRequest, message: String(e) });
           return;
         }
 
-        if (remaining > 0 && !replay.yielded) {
+        // The runner already has its blocked observation from postReplay(op);
+        // the answer's delivery posts the next one.
+        if (engine.awaitingHostAnswer) return;
+        if (remaining > 0) {
           setTimeout(advanceChunk, 0);
           return;
         }
@@ -855,6 +1151,53 @@ self.onmessage = (ev: MessageEvent) => {
       });
       return;
     }
+    if (msg.type === "debug") {
+      const want = (msg.channels ?? {}) as Record<string, unknown>;
+      const traceWas = debug.trace;
+      debug.ownership = want["ownership"] === true;
+      debug.objects = want["objects"] === true;
+      debug.trace = want["trace"] === true;
+      debug.picture = want["picture"] === true;
+      if (debug.trace !== traceWas) applyTraceChannel();
+      // Invalidate the sameness check so a newly armed channel ships with the
+      // next frame and a disarmed one clears promptly.
+      lastVisual = null;
+      lastObjectsJson = "";
+      postFrame();
+      return;
+    }
+    if (msg.type === "debugWrite" && engine) {
+      if (Array.isArray(msg.vars))
+        for (const pair of msg.vars as number[][]) engine.vars[pair[0]! & 0xff] = pair[1]! & 0xff;
+      if (Array.isArray(msg.flags))
+        for (const pair of msg.flags as number[][]) engine.flags[pair[0]! & 0xff] = pair[1] ? 1 : 0;
+      // Attribute the host write to the current boundary, not the next cycle.
+      captureStateDiffs();
+      sendControl({ type: "debugWritten", id: msg.id });
+      return;
+    }
+    if (msg.type === "debugEvents") {
+      const since = typeof msg.since === "number" ? msg.since : 0;
+      sendControl({
+        type: "debugEvents",
+        id: msg.id,
+        cycle: cycleCount,
+        latestSeq: debugEventSeq,
+        events: debugEvents.filter((e) => e.seq > since),
+      });
+      return;
+    }
+    if (msg.type === "debugTrace") {
+      const since = typeof msg.since === "number" ? msg.since : 0;
+      sendControl({
+        type: "debugTrace",
+        id: msg.id,
+        cycle: cycleCount,
+        latestSeq: traceSeq,
+        records: traceRing.filter((r) => r.seq > since),
+      });
+      return;
+    }
     if (msg.type === "checkpoint") {
       // The paused interpreter's resumable image — the candidate preview's
       // restore point. null outside a resumable cycle boundary.
@@ -875,16 +1218,16 @@ self.onmessage = (ev: MessageEvent) => {
         });
         return;
       }
-      // The same safe-boundary gates an autosave uses: a modal window, a text
-      // screen or the pre-first-room gap cannot resume from a save image.
+      // The same safe-boundary gates an autosave uses: a suspended host
+      // request, a text screen or the pre-first-room gap cannot resume; a
+      // parked window or key wait records with its continuation.
       const hostImage = engine.recordingImage();
       if (!hostImage) {
         sendControl({
           type: "recordingStarted",
           id: msg.id,
           ok: false,
-          error:
-            "Recording needs a quiet moment: close the open window or text screen and let the room draw.",
+          error: "Recording needs a quiet moment: answer the open prompt and let the room draw.",
         });
         return;
       }
@@ -938,12 +1281,29 @@ self.onmessage = (ev: MessageEvent) => {
     }
     if (msg.type === "reenter" && engine) {
       if (recording) recording.tainted = "Game resources changed during recording.";
+      // A suspended interaction is abandoned: its parked continuation is
+      // meaningless once the room's resources change under it, and the
+      // request still in flight resolves into a dropped answer.
+      if (engine.hostInteractionPending) {
+        engine.abortInteraction();
+        setKeyWaiting(false);
+        abandonHostRequest();
+      }
       // Live patch landed: re-enter the room so the new resources take effect.
       // An open message window blocks the cycle, and bytecode can never issue
       // new.room while one is up, so the harness acknowledges them first —
       // otherwise the re-entered room would sit behind an invisible window.
       for (let guard = 0; engine.modalKind !== null && guard < 16; guard++) engine.ackPrint();
-      engine.reenterRoom(typeof msg.room === "number" ? msg.room : undefined);
+      try {
+        engine.reenterRoom(typeof msg.room === "number" ? msg.room : undefined);
+      } catch (wait) {
+        if (!(wait instanceof HostWait)) throw wait;
+        // Room authoring suspended the transition: the hostAnswer message
+        // delivers it and the timer's tick completes it, then reports.
+        pendingReenter = true;
+        postFrame(true);
+        return;
+      }
       postFrame(true);
       sendControl({ type: "reentered", room: engine.vars[0] });
       return;
@@ -953,12 +1313,9 @@ self.onmessage = (ev: MessageEvent) => {
       const boot = msg as BootMsg;
       currentSessionId = typeof boot.sessionId === "number" ? boot.sessionId : 0;
       replay = Number.isInteger(boot.replaySeed)
-        ? { tick: 0, revision: 0, random: boot.replaySeed! >>> 0, yielded: false }
+        ? { tick: 0, revision: 0, random: boot.replaySeed! >>> 0 }
         : null;
-      bridge = {
-        i32: new Int32Array(boot.sab, 0, 4),
-        bytes: new Uint8Array(boot.sab, BRIDGE_HEADER_BYTES),
-      };
+      paused = false;
       const files = new Map<string, Uint8Array>(Object.entries(boot.files));
       liveDictionary = new Map<string, number>(boot.words);
       currentBootFiles = files;
@@ -971,13 +1328,18 @@ self.onmessage = (ev: MessageEvent) => {
       // Browser sessions start with game sound enabled; saved games restore their own flag.
       engine.flags[9] = 1;
       inputBuffer = [];
-      keyBuffer = [];
+      keyQueue = [];
       deferredMovement.length = 0;
       recording = null;
-      lastKeyId = 0;
+      hostRequestOutstanding = null;
+      keyWaiting = false;
+      pendingReenter = false;
       isSeeking = false;
       lastVisual = null;
       lastText = null;
+      lastOwnership = null;
+      lastPicture = null;
+      lastPicturePriority = null;
       lastPicRow = -1;
       lastTextMode = false;
       lastInputEnabled = false;
@@ -996,6 +1358,16 @@ self.onmessage = (ev: MessageEvent) => {
       cycleCount = 0;
       recentRing.reset();
       historyRing.reset();
+      debugEvents.length = 0;
+      debugEventSeq = 0;
+      prevVars = null;
+      prevFlags = null;
+      traceRing.length = 0;
+      traceSeq = 0;
+      pendingTrace = [];
+      applyTraceChannel();
+      // Baseline the diff ring before the first cycle so boot writes count.
+      captureStateDiffs();
       autosaveIntervalMs = Number(boot.autosaveMs ?? AUTOSAVE_INTERVAL_MS);
       autosaveFiles = boot.autosaveFiles === true;
       lastAutosaveAt = Date.now();
@@ -1017,6 +1389,9 @@ self.onmessage = (ev: MessageEvent) => {
             egoX: restored.egoX,
             egoY: restored.egoY,
           });
+          // A checkpoint parked at a have.key wait restores still waiting:
+          // the host needs the flag to route the answering key back.
+          if (engine.awaitingKey) setKeyWaiting(true);
         } catch (e) {
           sendControl({ type: "restored", ok: false, message: String(e) });
         }
@@ -1030,6 +1405,7 @@ self.onmessage = (ev: MessageEvent) => {
       replay = null;
       currentSessionId = 0;
       isSeeking = false;
+      paused = false;
       recentRing.reset();
       historyRing.reset();
       soundClock.reset(performance.now());
@@ -1048,16 +1424,24 @@ self.onmessage = (ev: MessageEvent) => {
       if (engine) engine.stopSoundPlayback();
       const seed =
         typeof msg.seed === "number" ? msg.seed : lastReplaySeed !== null ? lastReplaySeed : 0;
-      replay = { tick: 0, revision: 0, random: seed >>> 0, yielded: false };
+      replay = { tick: 0, revision: 0, random: seed >>> 0 };
+      // A request in flight belonged to the replaced engine; its late answer
+      // is dropped by the serial check and the host resolves its UI now.
+      abandonHostRequest();
+      setKeyWaiting(false);
       engine = new Engine(openContainer(currentBootFiles), host, currentDictionary);
       engine.flags[9] = 1;
       inputBuffer = [];
-      keyBuffer = [];
+      keyQueue = [];
       deferredMovement.length = 0;
       recording = null;
-      lastKeyId = 0;
+      pendingReenter = false;
+      paused = false;
       lastVisual = null;
       lastText = null;
+      lastOwnership = null;
+      lastPicture = null;
+      lastPicturePriority = null;
       lastPicRow = -1;
       lastTextMode = false;
       lastInputEnabled = false;
@@ -1074,6 +1458,15 @@ self.onmessage = (ev: MessageEvent) => {
       cycleCount = 0;
       recentRing.reset();
       historyRing.reset();
+      debugEvents.length = 0;
+      debugEventSeq = 0;
+      prevVars = null;
+      prevFlags = null;
+      traceRing.length = 0;
+      traceSeq = 0;
+      pendingTrace = [];
+      applyTraceChannel();
+      captureStateDiffs();
       if (!msg.seeking) {
         postFrame();
       }
@@ -1156,6 +1549,16 @@ self.onmessage = (ev: MessageEvent) => {
     if (msg.type === "dismissPrint" && engine) {
       recording?.tape.record(["ack"]);
       recordEvent({ cycle: cycleCount, kind: "key", code: AGI_KEY.ENTER });
+      const pending = engine.hostInteraction;
+      // A click on the suspended selector or confirmation answers with its
+      // cancel key; a request still in flight resolves into a dropped answer.
+      if (pending !== null && engine.awaitingHostAnswer) {
+        if (pending.kind === "saveDialog" || pending.kind === "confirm") {
+          setKeyWaiting(false);
+          abandonHostRequest();
+          engine.deliverHostAnswer(AGI_KEY.ESCAPE);
+        }
+      }
       engine.ackPrint();
       postFrame();
       return;
@@ -1169,21 +1572,21 @@ self.onmessage = (ev: MessageEvent) => {
       ) {
         return;
       }
-      if (typeof msg.id === "number") {
-        if (msg.id <= lastKeyId) return;
-        lastKeyId = msg.id;
-        sendControl({ type: "keyAccepted", id: msg.id });
-      }
       flushDeferredMovement();
       const key = Number(msg.code) & 0xffff;
       recordEvent({ cycle: cycleCount, kind: "key", code: key });
+      // A parked key wait answers from the queue directly — any key,
+      // including a navigation key that would otherwise defer.
+      const keyWaitParked = engine?.awaitingKey === true;
       if (
+        !keyWaitParked &&
         deferredMovement.length > 0 &&
         engine?.modalKind === null &&
         NAV_KEYS[key] !== undefined
       ) {
         if (deferredMovement.length < 19) deferredMovement.push(key);
-      } else keyBuffer.push(key);
+      } else keyQueue.push(key);
+      deliverQueuedKey();
       return;
     }
     if (msg.type === "direction" && engine) {
@@ -1227,16 +1630,14 @@ self.onmessage = (ev: MessageEvent) => {
         // toggle it with the key word itself, exactly as the runner replays.
         if (engine.releaseGate !== 0) recordEvent({ cycle: cycleCount, kind: "direction", dir });
         else recordEvent({ cycle: cycleCount, kind: "key", code: dirKey });
-        if (deferredMovement.length > 0) {
+        if (deferredMovement.length > 0 && !engine.awaitingKey) {
           if (deferredMovement.length < 19) deferredMovement.push(dirKey);
-        } else keyBuffer.push(dirKey);
+        } else keyQueue.push(dirKey);
+        deliverQueuedKey();
       }
       return;
     }
   } catch (e) {
-    if (e instanceof WorkerBridgeAbortError) {
-      return;
-    }
     sendControl({ type: "error", message: String(e) });
   }
 };

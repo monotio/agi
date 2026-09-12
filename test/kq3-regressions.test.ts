@@ -77,11 +77,18 @@ test(
       engine.tick();
     }
     assert.equal(engine.modalKind, "print", "arrival reaches its blocking message");
-    assert.equal(
-      engine.autosaveImage(),
-      null,
-      "an unfinished arrival cannot become a resume point",
-    );
+    // The parked arrival is a resume point now: the window and the pass
+    // behind it serialize, and a restored engine finishes the arrival after
+    // the same acknowledgement.
+    const midImage = engine.autosaveImage();
+    assert.ok(midImage, "the parked arrival is a resume point");
+    const resumed = new Engine(container, host, dict, { profile: "2.936" });
+    resumed.restoreImage(midImage);
+    assert.equal(resumed.modalKind, "print", "the window comes back with the image");
+    resumed.ackPrint();
+    settle(resumed, 500);
+    assert.equal(resumed.vars[0], 6);
+    assert.equal(resumed.screenObjects[0]!.view, 18, "the resumed arrival selects its pose");
     engine.ackPrint();
     settle(engine, 500);
     assert.equal(engine.vars[0], 6);

@@ -8,6 +8,7 @@ type WorkerReply =
   | { type: "booted" }
   | { type: "metadataPatched" }
   | { type: "cycle"; cycle: number }
+  | { type: "paused"; paused: boolean }
   | { type: "error"; message: string }
   | { type: "engineState"; id: number; state: EngineStateReport }
   | { type: "exportFiles"; id: number; files: Record<string, Uint8Array> };
@@ -96,8 +97,6 @@ test("power-up vocabulary and inventory reach the live worker and exported game"
       );
       const turn = await session.runPowerUp("Add a crystal and sparkle command", 0);
       const worker = new EngineWorker() as Worker;
-      const sab = new SharedArrayBuffer(16 + 1024 * 1024);
-      const control = new Int32Array(sab, 0, 4);
       const messages: WorkerReply[] = [];
       const waiters = new Set<() => void>();
       worker.onmessage = (event) => {
@@ -132,22 +131,29 @@ test("power-up vocabulary and inventory reach the live worker and exported game"
         worker.postMessage({ type, id });
         return wait((message): message is T => "id" in message && message.id === id);
       };
+      const pause = (value: boolean) => worker.postMessage({ type: "pause", paused: value });
       const cycle = async (minimum: number) => {
         await wait(
           (message): message is Reply<"cycle"> =>
             message.type === "cycle" && message.cycle >= minimum,
         );
-        Atomics.store(control, 2, 1);
+        // Freeze after the observed cycle: the pause message precedes the
+        // input below in the queue, so the game cannot run it early.
+        pause(true);
+        await wait(
+          (message): message is Reply<"paused"> =>
+            message.type === "paused" && message.paused === true,
+        );
       };
       try {
-        worker.postMessage({ type: "boot", files, words, sab });
+        worker.postMessage({ type: "boot", files, words });
         await wait((message): message is Reply<"booted"> => message.type === "booted");
         await cycle(5); // The old key has been picked up in this live session.
         for (const patch of turn.patched) worker.postMessage({ type: "patch", ...patch });
         // Negative control: exactly the old broken transport. Logic arrives but
         // parser vocabulary and inventory files do not, so sparkle cannot fire.
         worker.postMessage({ type: "input", text: "sparkle" });
-        Atomics.store(control, 2, 0);
+        pause(false);
         await cycle(10);
         const before = (await query<Reply<"engineState">>("state")).state;
         worker.postMessage({ type: "patchMetadata", files: turn.files });
@@ -155,7 +161,7 @@ test("power-up vocabulary and inventory reach the live worker and exported game"
           (message): message is Reply<"metadataPatched"> => message.type === "metadataPatched",
         );
         worker.postMessage({ type: "input", text: "sparkle" });
-        Atomics.store(control, 2, 0);
+        pause(false);
         await cycle(15);
         const after = (await query<Reply<"engineState">>("state")).state;
         const exported = (await query<Reply<"exportFiles">>("exportFiles")).files;

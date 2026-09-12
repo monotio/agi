@@ -23,6 +23,14 @@ export const MAX_RECORDED_BYTES = 180000;
 export class OperationRecorder {
   readonly operations: RecordedOperation[] = [];
   private calls: RecordedHostCall[] | null = null;
+  /**
+   * Host-call list of a tick op left open by a suspended host interaction.
+   * The replay engine never suspends — it consumes the whole tick in one
+   * pass — so the delivered answer and the resumed run's calls must join the
+   * operation the suspension began in.
+   */
+  private openCalls: RecordedHostCall[] | null = null;
+  private lastCalls: RecordedHostCall[] | null = null;
   // Matches JSON.stringify(operations).length incrementally: 2 for the outer
   // array brackets, plus one comma per operation and per host call after the
   // first. Charged below where each element is appended.
@@ -46,24 +54,48 @@ export class OperationRecorder {
     else this.record(["clock", 1]);
   }
   host(call: RecordedHostCall): void {
-    if (!this.calls || this.error) return;
+    const target = this.calls ?? this.openCalls;
+    if (!target || this.error) return;
     let bytes = JSON.stringify(call).length;
-    if (this.calls.length > 0) bytes += 1;
+    if (target.length > 0) bytes += 1;
     if ((this.bytes += bytes) > MAX_RECORDED_BYTES) {
       this.error = "Recording reached its size limit; record a shorter scenario.";
       return;
     }
-    this.calls.push(call);
+    target.push(call);
   }
   run(kind: "tick" | "release", run: () => void): void {
+    if (kind === "tick" && this.openCalls !== null) {
+      // Resumption of a tick parked on a host answer: keep collecting into
+      // the operation it started rather than opening a second tick.
+      const calls = this.openCalls;
+      this.openCalls = null;
+      this.calls = calls;
+      this.lastCalls = calls;
+      try {
+        run();
+      } finally {
+        this.calls = null;
+      }
+      return;
+    }
     const calls: RecordedHostCall[] = [];
     this.record([kind, calls]);
     this.calls = calls;
+    if (kind === "tick") this.lastCalls = calls;
     try {
       run();
     } finally {
       this.calls = null;
     }
+  }
+  /**
+   * Mark the tick just run as suspended on a host interaction: its call list
+   * stays open so the delivered answer — and the resumed run's calls — record
+   * into the same operation.
+   */
+  holdTick(): void {
+    if (this.lastCalls !== null) this.openCalls = this.lastCalls;
   }
 }
 

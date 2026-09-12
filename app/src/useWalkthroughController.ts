@@ -80,7 +80,7 @@ export interface WalkthroughControllerContext {
   readonly getActiveSessionId: () => number;
   readonly setActiveReplaySeed: (seed: number | null) => void;
   readonly observationListeners: Set<(obs: ReplayObservation) => void>;
-  readonly cancelPendingBridgeWaits: () => void;
+  readonly cancelPendingPrompts: () => void;
   readonly drainPendingQueries: (err: Error) => void;
   readonly bootGame: (targetFolder: string) => Promise<void>;
   readonly bootAuthoredGame: (
@@ -153,7 +153,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     options?: { speed?: number; initialTick?: number; keepPaused?: boolean } | number,
   ): Promise<void> {
     abort();
-    ctx.cancelPendingBridgeWaits();
+    ctx.cancelPendingPrompts();
     ctx.drainPendingQueries(new DOMException("Walkthrough reset", "AbortError"));
 
     const sessionId = ctx.nextSessionId();
@@ -477,7 +477,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
 
   async function stopWalkthrough(takeControl = false): Promise<void> {
     abort();
-    ctx.cancelPendingBridgeWaits();
+    ctx.cancelPendingPrompts();
     ctx.drainPendingQueries(new DOMException("Walkthrough stopped", "AbortError"));
     ctx.nextSessionId();
     state.walkthrough.active = false;

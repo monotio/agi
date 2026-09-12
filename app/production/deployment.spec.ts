@@ -33,18 +33,17 @@ test("bundled tutorial previews and plays on the production origin without a pro
   expect(externalRequests).toEqual([]);
 });
 
-test("production origin, isolation, worker and provider policy", async ({ page, request }) => {
+test("production origin, worker and provider policy", async ({ page, request }) => {
   const response = await page.goto("/");
   expect(response?.status()).toBe(200);
-  expect(response?.headers()["cross-origin-opener-policy"]).toBe("same-origin");
-  expect(response?.headers()["cross-origin-embedder-policy"]).toBe("require-corp");
+  // No cross-origin isolation: the app needs no special headers — any static
+  // host works (docs/hosting.md).
+  expect(response?.headers()["cross-origin-opener-policy"]).toBeUndefined();
+  expect(response?.headers()["cross-origin-embedder-policy"]).toBeUndefined();
   const policy = response?.headers()["content-security-policy"] ?? "";
   expect(policy).toContain("https://api.openai.com");
   expect(policy).toContain("https://api.anthropic.com");
   expect(policy).not.toContain("unsafe-eval");
-  expect(
-    await page.evaluate(() => crossOriginIsolated && typeof SharedArrayBuffer === "function"),
-  ).toBe(true);
   await expect(page.getByRole("heading", { name: "AGI IS HERE." })).toBeVisible();
   await expect(page.getByTestId("installed-game-select")).toBeHidden();
   const script = await page.locator('script[type="module"]').getAttribute("src");
@@ -92,7 +91,7 @@ test("production origin, isolation, worker and provider policy", async ({ page, 
               resolve(profile);
             }
           };
-          worker.postMessage({ type: "boot", files, words: [], sab: new SharedArrayBuffer(65536) });
+          worker.postMessage({ type: "boot", files, words: [] });
         });
       } finally {
         worker.terminate();

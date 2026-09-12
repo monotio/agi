@@ -4,13 +4,74 @@ import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { decodeSave } from "../src/runtime/persistence.ts";
-import { runSaveDialog } from "../src/runtime/saveDialog.ts";
+import { createSaveDialog, stepSaveDialog, type SaveSlot } from "../src/runtime/saveDialog.ts";
 import { TextSurface } from "../src/runtime/textSurface.ts";
+
+interface SyncDialogHost {
+  list(): SaveSlot[];
+  waitKey(): number;
+  describe?(initial: string, maxLen: number, row: number, col: number): string | null;
+  write(slot: number, description: string): boolean | void;
+  read(slot: number): Uint8Array | null;
+}
+
+/** Drive the selector to completion against a synchronous host. */
+function runSaveDialog(
+  mode: "save" | "restore",
+  text: TextSurface,
+  signature: string,
+  host: SyncDialogHost,
+): Uint8Array | null {
+  const dialog = createSaveDialog(mode, text, signature, host.describe !== undefined);
+  try {
+    let answer: unknown;
+    for (;;) {
+      const step = stepSaveDialog(dialog, answer);
+      if (step.done) return step.image;
+      const need = step.need;
+      switch (need.kind) {
+        case "list":
+          try {
+            answer = host.list();
+          } catch {
+            answer = null;
+          }
+          break;
+        case "key":
+          answer = host.waitKey();
+          break;
+        case "describe":
+          answer = host.describe
+            ? host.describe(need.initial, need.maxLen, need.row, need.col)
+            : null;
+          break;
+        case "write":
+          try {
+            answer = host.write(need.slot, need.description) !== false;
+          } catch {
+            answer = false;
+          }
+          break;
+        case "read":
+          try {
+            answer = host.read(need.slot);
+          } catch {
+            answer = null;
+          }
+          break;
+      }
+    }
+  } finally {
+    // An unwinding host call still restores the cells the dialog covered.
+    if (!dialog.done) text.restore(dialog.saved);
+  }
+}
 
 function setup(
   action: "save" | "restore",
   keys: number[],
   description: string | null = "At the well",
+  describe?: () => string | null,
 ) {
   const container = createContainer();
   container.putResource(
@@ -24,15 +85,19 @@ function setup(
   const reads: (number | undefined)[] = [];
   const screens: string[] = [];
   const kinds: (string | null)[] = [];
+  const prints: string[] = [];
+  const queued: number[] = [];
   let failWrite = false;
   let failRead = false;
   let edits = 0;
   const host: EngineHost = {
-    print() {},
+    print(text) {
+      prints.push(text);
+    },
     displayAt() {},
     statusLine() {},
     takeInputLine: () => null,
-    takeKeys: () => [],
+    takeKeys: () => queued.splice(0),
     listSaveGames: () => slots,
     waitKey() {
       screens.push(
@@ -46,7 +111,7 @@ function setup(
     },
     promptSaveDescription() {
       edits++;
-      return description;
+      return describe ? describe() : description;
     },
     saveGame(bytes, slot) {
       writes.push({ bytes, slot });
@@ -65,7 +130,9 @@ function setup(
     reads,
     screens,
     kinds,
+    prints,
     edits: () => edits,
+    pressKeys: (...codes: number[]) => queued.push(...codes),
     failWrite: () => {
       failWrite = true;
     },
@@ -85,6 +152,17 @@ test("save selector wraps up to slot 12 and serializes its new description", () 
   assert.ok(s.kinds.every((k) => k === "save"));
   assert.equal(s.engine.modalKind, null);
   assert.equal(s.engine.vars[100], 99);
+});
+
+test("native description prompt opens over the describe screen", () => {
+  const rows: string[] = [];
+  const s = setup("save", [13], "unused", () => {
+    rows.push(s.engine.textRow(1), s.engine.textRow(6));
+    return "Name";
+  });
+  s.engine.tick();
+  assert.match(rows[0]!, /Describe this saved game:/);
+  assert.match(rows[1]!, /ENTER: accept {3}ESC: cancel/);
 });
 
 test("Escape from slot selection or description performs no file write", () => {
@@ -171,8 +249,12 @@ test("restored save description remains available in subsequent save images", ()
 test("selected malformed save shows a restore error before aborting execution", () => {
   const s = setup("restore", [13, 13]);
   s.slots.push({ slot: 1, bytes: s.engine.serialize().slice(0, 40) });
+  // The failed image parks behind its error window; the pass does not abort
+  // until the player has seen and acknowledged the dialog.
+  s.engine.tick();
+  assert.ok(s.prints.some((text) => text.includes("Unable to restore")));
+  s.pressKeys(13);
   assert.throws(() => s.engine.tick());
-  assert.ok(s.screens.some((screen) => screen.includes("Unable to restore")));
   assert.equal(s.engine.vars[100], 0);
 });
 

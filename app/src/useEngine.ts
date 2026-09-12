@@ -1,6 +1,10 @@
 import type { AgentRunState } from "./agent/agentRun.ts";
 import { reactive } from "vue";
-import type { GameControlBinding } from "../../src/runtime/engine.ts";
+import type {
+  GameControlBinding,
+  ScreenObjectState,
+  TraceRecord,
+} from "../../src/runtime/engine.ts";
 import { continuationTranscript } from "./projectArchive.ts";
 import { detectKnownGame, gameRevision, updateBootedResources } from "./gameMetadata.ts";
 import { clearGameSaves } from "./gameSaves.ts";
@@ -17,7 +21,7 @@ import {
 import { useInputController } from "./useInputController.ts";
 import { useTestRecorder } from "./useTestRecorder.ts";
 import { useAuthoringController, type PowerUpUiState } from "./useAuthoringController.ts";
-import { createBridge, type AgentHandler, type Bridge } from "./agent/sabBridge.ts";
+import { type AgentHandler, type LlmRequest } from "./agent/hostRequests.ts";
 import { AgentSession } from "./agent/agentSession.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import type { AgentFrame, FrameRequest } from "../../src/agent/frames.ts";
@@ -145,6 +149,12 @@ export interface EngineState {
   recording: { active: boolean; starting: boolean; error: string };
   /** Real-time walkthrough playback. */
   walkthrough: WalkthroughUiState;
+  /** Live screen-object table while the objects debug channel is armed. */
+  debugObjects: ScreenObjectState[];
+  /** Structured instruction records while the trace debug channel is armed. */
+  debugTrace: (TraceRecord & { seq: number; cycle: number })[];
+  /** Debug channels the app has armed on the worker. */
+  debugChannels: { ownership: boolean; objects: boolean; trace: boolean; picture: boolean };
 }
 
 export { autosaveKey, clearAutosave, lastGameKey, readAutosave, writeAutosave };
@@ -207,13 +217,15 @@ export function useEngine(
     resumed: false,
     recording: { active: false, starting: false, error: "" },
     walkthrough: createInitialWalkthroughState(),
+    debugObjects: [],
+    debugTrace: [],
+    debugChannels: { ownership: false, objects: false, trace: false, picture: false },
   });
 
   let activeWalkthroughSession = 0;
   let walkthroughAbort: () => void = () => {};
   let worker: Worker | null = null;
-  let bridge: Bridge | null = null;
-  /** Every worker bridge follows the current idle-boundary session replacement. */
+  /** Every worker's host requests follow the current idle-boundary session replacement. */
   const currentSessionAgent: AgentHandler = {
     handle: async (request) => authoringController.getSession()?.handle(request) ?? "",
   };
@@ -226,9 +238,7 @@ export function useEngine(
   const promptController = usePromptController({ state, logAgent });
   const saveSlotController = useSaveSlotController({ getBootedGame: () => booted, logAgent });
 
-  function cancelPendingBridgeWaits(): void {
-    bridge?.cancel();
-    input.resetKeys();
+  function cancelPendingPrompts(): void {
     promptController.cancelPrompt();
   }
 
@@ -246,9 +256,6 @@ export function useEngine(
     submitPrompt: (text) => promptController.submitPrompt(text),
     setPromptEcho: (text) => engineOptions?.onPromptType?.(text),
     isPromptPending: () => promptController.isPromptPending(),
-    pollNow: () => {
-      bridge?.pollNow();
-    },
     getActiveWalkthroughSession: () => activeWalkthroughSession,
     getLatestFrame: () => latestFrame,
     observationListeners,
@@ -263,12 +270,8 @@ export function useEngine(
 
   const input = useInputController({
     getWorker: () => worker,
-    getBridge: () => bridge,
     isSeeking: () => state.walkthrough.seeking,
     isHoldToMove: () => state.holdToMove,
-    setWaitingForKey: (waiting) => {
-      state.waitingForKey = waiting;
-    },
     logAgent,
     getActiveWalkthroughSession: () => activeWalkthroughSession,
   });
@@ -362,18 +365,16 @@ export function useEngine(
   }
 
   /**
-   * Host bridge services: getnum/getstring open a modal input and block the
-   * worker until the player submits; restore reads the localStorage save.
-   * Everything else passes through to the game agent.
+   * Host-request services: getnum/getstring/saveDescription open a modal
+   * input and suspend the worker until the player submits; restore and the
+   * save slots touch localStorage. Room authoring passes through to the
+   * game agent.
    */
-  function hostBridgeHandler(agent: AgentHandler): AgentHandler {
+  function hostRequestHandler(agent: AgentHandler): AgentHandler {
     return {
       async handle(req) {
         if (req.op === "restore" || req.op === "saveList" || req.op === "saveWrite") {
           return saveSlotController.handleSaveSlotRequest(req.op, req.context);
-        }
-        if (req.op === "waitkey") {
-          return input.handleWaitKey();
         }
         if (req.op === "getnum" || req.op === "getstring" || req.op === "saveDescription") {
           return promptController.handlePromptRequest(req.op, req.context);
@@ -390,7 +391,6 @@ export function useEngine(
 
   function spawnWorker(): Worker {
     worker?.terminate();
-    bridge?.dispose();
     audio.stop();
     resetScreenState();
     const w = new Worker(new URL("./engine.worker.ts", import.meta.url), { type: "module" });
@@ -433,7 +433,6 @@ export function useEngine(
         files,
         words,
       };
-      bridge = createBridge(hostBridgeHandler(currentSessionAgent), logAgent);
       // A successful remix is saved as its own local game before playback resumes.
       w.postMessage({
         type: "boot",
@@ -442,7 +441,6 @@ export function useEngine(
         soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
         files,
         words,
-        sab: bridge.sab,
         autosaveFiles: true,
         ...(await autosaveController.takeResumeState(files)),
       });
@@ -475,7 +473,6 @@ export function useEngine(
     state.inputReady = false;
     state.holdToMove = false;
     state.waitingForKey = false;
-    input.resetKeys();
     state.gameEdit = null;
     state.rows = [];
     promptController.cancelPrompt();
@@ -502,14 +499,15 @@ export function useEngine(
    */
   function shutdownEngine(): void {
     worker?.terminate();
-    bridge?.dispose();
     audio.stop();
     releaseAgentAudioPreviews();
     worker = null;
-    bridge = null;
     authoringController.resetSession();
     drainPendingQueries();
     autosaveController.drainFlushWaiters();
+    state.debugObjects = [];
+    state.debugTrace = [];
+    state.debugChannels = { ownership: false, objects: false, trace: false, picture: false };
   }
 
   /** Keep the selected provider and its key together; archives carry no credentials. */
@@ -532,7 +530,44 @@ export function useEngine(
               ? msg["image"]
               : msg["state"];
     const handlers: Record<string, (msg: Record<string, unknown>) => void> = {
-      keyAccepted: (msg) => input.acknowledgeKey(Number(msg["id"])),
+      // The worker's acknowledgement that the freeze landed — the hook reads
+      // the real pause state, not the request.
+      paused: (msg) => {
+        hook.paused = Boolean(msg["paused"]);
+      },
+      // The worker parks on a player key (have.key, a selector, a
+      // confirmation) without posting a host request; this flag mirrors that
+      // wait so input routing and hints know a raw key resumes the game.
+      waitingForKey: (msg) => {
+        state.waitingForKey = Boolean(msg["waiting"]);
+      },
+      // The worker suspended on a host service. The request id settles the
+      // handshake: the matching hostAnswer resumes the parked interaction,
+      // and a stale id — the interaction was abandoned — is dropped there.
+      hostRequest: (msg) => {
+        const id = Number(msg["id"]);
+        const req = {
+          op: msg["op"],
+          context: (msg["context"] ?? {}) as Record<string, unknown>,
+        } as LlmRequest;
+        logAgent("request", `${req.op} ${JSON.stringify(req.context)}`);
+        hostRequestHandler(currentSessionAgent)
+          .handle(req)
+          .then((response) => {
+            logAgent("response", response.slice(0, 120));
+            w.postMessage({ type: "hostAnswer", id, response });
+          })
+          .catch((e) => {
+            logAgent("response", `agent error: ${String(e)}`);
+            w.postMessage({ type: "hostAnswer", id, response: "" });
+          });
+      },
+      // The worker abandoned a suspended interaction (reenter, superseded
+      // request): resolve the prompt widgets its in-flight request opened so
+      // the UI stops waiting on an answer that is no longer consumed.
+      interactionCancelled: () => {
+        promptController.cancelPrompt();
+      },
       frame: (msg) => {
         state.inputEnabled = Boolean(msg["inputEnabled"]);
         state.inputReady = Boolean(msg["inputReady"]);
@@ -547,7 +582,21 @@ export function useEngine(
           priority: msg["priority"] as Uint8Array,
           text: msg["text"] as Uint8Array,
           picRow: Number(msg["picRow"]),
+          cycle: Number(msg["cycle"] ?? 0),
         };
+        // Armed debug channels ride the frame; absence clears the mirror so a
+        // disarmed channel never leaves stale data in the inspector.
+        const ownership = msg["ownership"] as Uint16Array | undefined;
+        if (ownership) latestFrame.ownership = ownership;
+        const objects = msg["objects"] as Frame["objects"];
+        if (objects) latestFrame.objects = objects;
+        const picVisual = msg["picVisual"] as Uint8Array | undefined;
+        const picPriority = msg["picPriority"] as Uint8Array | undefined;
+        if (picVisual && picPriority) {
+          latestFrame.picVisual = picVisual;
+          latestFrame.picPriority = picPriority;
+        }
+        state.debugObjects = objects ?? [];
         onFrame(latestFrame);
         // Counted after the frame is drawn, so tests can poll for painted pixels.
         hook.frame++;
@@ -612,9 +661,6 @@ export function useEngine(
         ) {
           return;
         }
-        if (obs.blocked !== null) {
-          bridge?.pollNow();
-        }
         replayDriver.latest = obs;
         state.inputReady = true;
         state.inputEnabled = Boolean(obs.state.inputEnabled);
@@ -636,6 +682,15 @@ export function useEngine(
       frames: (msg) => workerQueries.resolveQuery(Number(msg["id"]), resolveQueryPayload(msg)),
       engineState: (msg) => workerQueries.resolveQuery(Number(msg["id"]), resolveQueryPayload(msg)),
       objects: (msg) => workerQueries.resolveQuery(Number(msg["id"]), resolveQueryPayload(msg)),
+      trace: (msg) => {
+        const records = msg["records"] as typeof state.debugTrace;
+        state.debugTrace.push(...records);
+        if (state.debugTrace.length > 4000)
+          state.debugTrace.splice(0, state.debugTrace.length - 4000);
+      },
+      debugEvents: (msg) => workerQueries.resolveQuery(Number(msg["id"]), msg),
+      debugTrace: (msg) => workerQueries.resolveQuery(Number(msg["id"]), msg),
+      debugWritten: (msg) => workerQueries.resolveQuery(Number(msg["id"]), msg),
       exportFiles: (msg) => workerQueries.resolveQuery(Number(msg["id"]), resolveQueryPayload(msg)),
       cycle: (msg) => {
         hook.cycle = Number(msg["cycle"]);
@@ -701,24 +756,61 @@ export function useEngine(
   }
 
   /**
-   * Freeze / unfreeze the interpreter. The pause flag is a dedicated slot in
-   * the SAB the worker already blocks on, so the store lands immediately and
-   * the world stops at the very next cycle boundary rather than whenever a
-   * postMessage happens to be delivered. See agent/sabBridge.ts for why the
-   * worker polls the slot instead of parking in Atomics.wait on it.
+   * Arm or disarm worker debug channels. ownership and objects ride on frame
+   * posts; trace streams structured instruction records. Channels cost real
+   * per-cycle work in the worker — arm only while an inspector view is open.
+   */
+  function setDebugChannels(
+    channels: Partial<{ ownership: boolean; objects: boolean; trace: boolean; picture: boolean }>,
+  ): void {
+    Object.assign(state.debugChannels, channels);
+    worker?.postMessage({ type: "debug", channels: { ...state.debugChannels } });
+  }
+
+  /**
+   * Sierra's SET VAR / SET FLAG debug actions: [index, value] pairs applied at
+   * the next cycle boundary and attributed to the current cycle in the diff
+   * ring. Resolves when the worker acknowledges the write.
+   */
+  function debugWrite(
+    vars: [number, number][] = [],
+    flags: [number, number][] = [],
+  ): Promise<Record<string, unknown>> {
+    return query<Record<string, unknown>>("debugWrite", { vars, flags });
+  }
+
+  /** Var/flag diff events newer than `since` (a previous latestSeq). */
+  function debugEventsSince(since: number): Promise<Record<string, unknown>> {
+    return query<Record<string, unknown>>("debugEvents", { since });
+  }
+
+  /** Full scalar state snapshot (vars, flags, strings, objects' summary). */
+  function readEngineState(): Promise<Record<string, unknown>> {
+    return query<Record<string, unknown>>("state");
+  }
+
+  /** Trace ring records newer than `since` — the catch-up path for the live stream. */
+  function debugTraceSince(since: number): Promise<Record<string, unknown>> {
+    return query<Record<string, unknown>>("debugTrace", { since });
+  }
+
+  /**
+   * Freeze / unfreeze the interpreter. Pause is an ordinary worker message:
+   * messages from one sender are delivered in order, so a pause posted before
+   * a query is always applied before the query is served — at most one more
+   * cycle runs first, and nobody reads state before the freeze lands. The
+   * worker's `paused` reply mirrors the real state into the test hook.
    */
   function pauseEngine(): void {
-    bridge?.setPaused(true);
+    worker?.postMessage({ type: "pause", paused: true });
     audio.setPaused(true);
     state.paused = true;
-    hook.paused = true;
   }
 
   function resumeEngine(): void {
-    bridge?.setPaused(false);
+    worker?.postMessage({ type: "pause", paused: false });
     audio.setPaused(false);
     state.paused = false;
-    hook.paused = false;
   }
 
   /** Live frames out of the worker ring, adapted to the agent's frame shape. */
@@ -837,7 +929,7 @@ export function useEngine(
     state.leaving = false;
     activeWalkthroughSession++;
     walkthroughAbort();
-    cancelPendingBridgeWaits();
+    cancelPendingPrompts();
     drainPendingQueries();
     state.walkthrough.active = false;
     state.walkthrough.status = "stopped";
@@ -845,12 +937,10 @@ export function useEngine(
     // Keep the player's saved position available from the menu.
     autosaveController.reset();
     worker?.terminate();
-    bridge?.dispose();
     audio.stop();
     authoringController.resetSession();
     booted = null;
     worker = null;
-    bridge = null;
     state.paused = false;
     state.powerUp = {
       mode: "remix",
@@ -920,7 +1010,6 @@ export function useEngine(
                 )
               : null;
           authoringController.setSession(cachedSession);
-          bridge = createBridge(hostBridgeHandler(currentSessionAgent), logAgent);
           const known = await detectKnownGame(cached.files);
           const revision = cached.library?.revision || (await gameRevision(cached.files));
           booted = {
@@ -943,7 +1032,6 @@ export function useEngine(
             soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
             files: cached.files,
             words: cached.words,
-            sab: bridge.sab,
             autosaveFiles: true,
             authorRooms: Boolean(cached.roomGeneration),
             ...(await autosaveController.takeResumeState(cached.files)),
@@ -965,7 +1053,6 @@ export function useEngine(
       activeLlmConfig = config;
       const genesisSession = new AgentSession(config, logAgent);
       authoringController.setSession(genesisSession);
-      bridge = createBridge(hostBridgeHandler(currentSessionAgent), logAgent);
 
       const { files, words, transcript, sessionId } =
         await genesisSession.startGenesis(templateMarkdown);
@@ -1026,7 +1113,6 @@ export function useEngine(
         soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
         files,
         words,
-        sab: bridge.sab,
         autosaveFiles: true,
         authorRooms: true,
         ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
@@ -1080,7 +1166,7 @@ export function useEngine(
       activeReplaySeed = seed;
     },
     observationListeners,
-    cancelPendingBridgeWaits,
+    cancelPendingPrompts,
     drainPendingQueries,
     bootGame,
     bootAuthoredGame,
@@ -1148,6 +1234,11 @@ export function useEngine(
     flushAutosave: autosaveController.flushAutosave,
     flushAutosaveDetailed: autosaveController.flushAutosaveDetailed,
     lastAutosaveRecord: autosaveController.lastAutosaveRecord,
+    setDebugChannels,
+    debugWrite,
+    debugEventsSince,
+    debugTraceSince,
+    readEngineState,
     shutdownEngine,
   };
 }

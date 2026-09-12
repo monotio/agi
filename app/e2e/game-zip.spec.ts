@@ -105,9 +105,21 @@ test("a friend opens an exported world in a fresh browser without a key", async 
     expect(providerCalls).toBe(0);
     await friend.getByTestId("btn-resume-cached").click();
     // Keep interception enabled across the worker boot; the later endpoint
-    // mock takes precedence over the API-blocking fallback.
-    await expect.poll(async () => (await textHook(friend)).room).toBe(1);
+    // mock takes precedence over the API-blocking fallback. The re-import
+    // dedupes to the same record, so the friend's latest checkpoint — taken
+    // while room 2's print window was parked — is the resume point.
+    await expect.poll(async () => (await textHook(friend)).room).toBe(2);
+    await expect.poll(async () => (await textHook(friend)).modal).toBe("print");
+    await friend.keyboard.press("Enter");
+    await expect.poll(async () => (await textHook(friend)).modal).toBeNull();
     await expect.poll(async () => (await textHook(friend)).cycle).toBeGreaterThan(0);
+    await friend.getByTestId("input-line").fill("west");
+    await friend.getByTestId("input-line").press("Enter");
+    await expect.poll(async () => (await textHook(friend)).room).toBe(1);
+    if ((await textHook(friend)).modal) {
+      await friend.keyboard.press("Enter");
+      await expect.poll(async () => (await textHook(friend)).modal).toBeNull();
+    }
     const exported = await readGameZip(bytes);
     const originalSource = disassembleLogic(
       openContainer(new Map(Object.entries(exported.files))).getResource("logic", 1)!,

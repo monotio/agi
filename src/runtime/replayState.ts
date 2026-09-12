@@ -1,6 +1,55 @@
 /** Host recording state deliberately excluded from authentic save.game images. */
 import type { InputEvent } from "./inputQueue.ts";
 
+/**
+ * A modal's covered cells, serialized. `cells` are the row-major [char, attr]
+ * pairs of the inclusive rect; `written` its per-cell write stamps — together
+ * they restore both the text and its age under sprites.
+ */
+export interface SerializedSavedRect {
+  written: number[];
+  top: number;
+  left: number;
+  bottom: number;
+  right: number;
+  cells: number[];
+}
+
+/** A parked modal window; fresh serials are assigned on restore. */
+export type SerializedModal =
+  | { kind: "print"; saved: SerializedSavedRect; remainingMs: number | null }
+  | {
+      kind: "inventory";
+      saved: SerializedSavedRect;
+      items: { num: number; name: string }[];
+      slots: { row: number; col: number }[];
+      selected: number;
+      interactive: boolean;
+    }
+  | { kind: "menu"; saved: SerializedSavedRect }
+  | { kind: "showObj"; saved: SerializedSavedRect; view: number }
+  | { kind: "showPri" };
+
+/**
+ * A logic pass parked at a resumable boundary — an open window or a have.key
+ * wait — serialized so a checkpoint resumes the identical instruction. Host
+ * interactions that hold a live request (prompts, selectors, confirmations,
+ * room authoring) never reach this record: their snapshots stay refused.
+ */
+export interface ParkedContinuation {
+  /**
+   * The parked call stack, innermost frame last. `hash` is fnv1a32 of the
+   * logic resource's bytes, so a continuation only resumes into identical
+   * code — a patch to any frame's logic makes it stale regardless of which
+   * session captured it.
+   */
+  frames: { logic: number; pc: number; hash: number }[];
+  modals: SerializedModal[];
+  persistentWindow: SerializedSavedRect | null;
+  /** A have.key parked mid-condition, with its replayable prior outcomes. */
+  keyWait: { condPc: number; outcomes: [number, boolean][]; haveKeyPolls: number } | null;
+}
+
 export interface PlaybackState {
   device: number;
   active: boolean;
@@ -44,6 +93,8 @@ export interface EngineReplayState {
   menuRequested: boolean;
   objectExtras: { priority: number; cycleFlag: number | null; wanderCount: number }[];
   sound: { num: number; doneFlag: number; playback: PlaybackState } | null;
+  /** The parked pass, when the snapshot was taken at a resumable boundary. */
+  continuation?: ParkedContinuation | null;
 }
 
 function record(value: unknown, fields: readonly string[]): Record<string, unknown> {
@@ -85,6 +136,100 @@ function array<T>(value: unknown, max: number, parse: (v: unknown) => T): T[] {
     throw new Error("Replay state array is too long.");
   return value.map(parse);
 }
+function savedRect(value: unknown): SerializedSavedRect {
+  const s = record(value, ["written", "top", "left", "bottom", "right", "cells"]);
+  const top = number(s["top"], 0, 24);
+  const left = number(s["left"], 0, 39);
+  const bottom = number(s["bottom"], 0, 24);
+  const right = number(s["right"], 0, 39);
+  const w = right - left + 1;
+  const h = bottom - top + 1;
+  const cells = array(s["cells"], 25 * 40 * 2, (v) => number(v, 0, 255));
+  const written = array(s["written"], 25 * 40, (v) => number(v, 0, 4294967295));
+  if (cells.length !== w * h * 2 || written.length !== w * h)
+    throw new Error("Replay state saved rect dimensions are invalid.");
+  return { written, top, left, bottom, right, cells };
+}
+
+function serializedModal(value: unknown): SerializedModal {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("Replay state requires an object.");
+  const kind = (value as Record<string, unknown>)["kind"];
+  switch (kind) {
+    case "print": {
+      const m = record(value, ["kind", "saved", "remainingMs"]);
+      return {
+        kind,
+        saved: savedRect(m["saved"]),
+        remainingMs:
+          m["remainingMs"] === null ? null : number(m["remainingMs"], 0, 0xffffffff, false),
+      };
+    }
+    case "inventory": {
+      const m = record(value, ["kind", "saved", "items", "slots", "selected", "interactive"]);
+      return {
+        kind,
+        saved: savedRect(m["saved"]),
+        items: array(m["items"], 255, (v) => {
+          const item = record(v, ["num", "name"]);
+          return { num: number(item["num"], 0, 255), name: text(item["name"]) };
+        }),
+        slots: array(m["slots"], 255, (v) => {
+          const slot = record(v, ["row", "col"]);
+          return { row: number(slot["row"], 0, 24), col: number(slot["col"], 0, 39) };
+        }),
+        selected: number(m["selected"], 0, 255),
+        interactive: bool(m["interactive"]),
+      };
+    }
+    case "menu": {
+      const m = record(value, ["kind", "saved"]);
+      return { kind, saved: savedRect(m["saved"]) };
+    }
+    case "showObj": {
+      const m = record(value, ["kind", "saved", "view"]);
+      return { kind, saved: savedRect(m["saved"]), view: number(m["view"], 0, 255) };
+    }
+    case "showPri":
+      record(value, ["kind"]);
+      return { kind };
+    default:
+      throw new Error("Replay state has an unknown modal kind.");
+  }
+}
+
+/** Validate a serialized parked pass, or null for a non-parked snapshot. */
+export function validateContinuation(value: unknown): ParkedContinuation | null {
+  if (value === null) return null;
+  const s = record(value, ["frames", "modals", "persistentWindow", "keyWait"]);
+  let keyWait: ParkedContinuation["keyWait"] = null;
+  if (s["keyWait"] !== null) {
+    const k = record(s["keyWait"], ["condPc", "outcomes", "haveKeyPolls"]);
+    keyWait = {
+      condPc: number(k["condPc"], 0, 65535),
+      outcomes: array(k["outcomes"], 256, (v) => {
+        if (!Array.isArray(v) || v.length !== 2)
+          throw new Error("Replay state outcome pair is invalid.");
+        return [number(v[0], 0, 65535), bool(v[1])];
+      }),
+      haveKeyPolls: number(k["haveKeyPolls"], 0, 0xffffffff),
+    };
+  }
+  return {
+    frames: array(s["frames"], 256, (v) => {
+      const f = record(v, ["logic", "pc", "hash"]);
+      return {
+        logic: number(f["logic"], 0, 255),
+        pc: number(f["pc"], 0, 65535),
+        hash: number(f["hash"], 0, 0xffffffff),
+      };
+    }),
+    modals: array(s["modals"], 8, serializedModal),
+    persistentWindow: s["persistentWindow"] === null ? null : savedRect(s["persistentWindow"]),
+    keyWait,
+  };
+}
+
 export function validatePlaybackState(value: unknown): PlaybackState {
   const s = record(value, ["device", "active", "channels"]);
   return {
@@ -111,7 +256,7 @@ export function validatePlaybackState(value: unknown): PlaybackState {
   };
 }
 export function validateEngineReplayState(value: unknown): EngineReplayState {
-  const s = record(value, [
+  const fields = [
     "clockRemainderMs",
     "pictureShown",
     "terminated",
@@ -137,7 +282,11 @@ export function validateEngineReplayState(value: unknown): EngineReplayState {
     "menuRequested",
     "objectExtras",
     "sound",
-  ]);
+  ];
+  // States captured before continuations existed carry no field for one.
+  const withContinuation =
+    typeof value === "object" && value !== null && Object.hasOwn(value, "continuation");
+  const s = record(value, withContinuation ? [...fields, "continuation"] : fields);
   const controllers = array(s["controllers"], 256, (v) => number(v, 0, 1));
   const objectExtras = array(s["objectExtras"], 256, (v) => {
     const o = record(v, ["priority", "cycleFlag", "wanderCount"]);
@@ -213,5 +362,6 @@ export function validateEngineReplayState(value: unknown): EngineReplayState {
     menuRequested: bool(s["menuRequested"]),
     objectExtras,
     sound,
+    continuation: s["continuation"] === undefined ? null : validateContinuation(s["continuation"]),
   };
 }

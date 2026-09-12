@@ -41,7 +41,7 @@ import {
 } from "./llmClient.ts";
 import { StubAgent } from "./stubAgent.ts";
 import { projectToolResult } from "../../../src/agent/toolTransport.ts";
-import type { AgentEventSink, AgentHandler, LlmRequest } from "./sabBridge.ts";
+import type { AgentEventSink, AgentHandler, LlmRequest } from "./hostRequests.ts";
 import { continuationTranscript } from "../projectArchive.ts";
 
 /** Resource the remix turn wrote and the host must patch into the live game. */
@@ -252,10 +252,12 @@ Answer the player's question using evidence from inspection when needed. For hin
       ),
       executeAgentTool(this.state, "read_picture", { num: room }),
     ];
-    const liveSection = roomContext.details?.["live"] as Record<string, unknown> | undefined;
     const objects =
-      roomContext.success && Array.isArray(liveSection?.["objects"])
-        ? { success: true, details: { objects: liveSection["objects"] as unknown[] } }
+      roomContext.success && Array.isArray(roomContext.details?.["liveObjects"])
+        ? {
+            success: true,
+            details: { objects: roomContext.details["liveObjects"] as unknown[] },
+          }
         : null;
     const prompt = createOrientationPrompt({
       ...input,

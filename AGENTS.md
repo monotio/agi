@@ -78,9 +78,12 @@ only for released formats and keep their original fixtures.
   never the reverse.
 - Browser-only, BYOK, no server. Playwright runs Vite in `test` mode with the
   deterministic stub provider; browser tests never call paid providers.
-- The interpreter blocks on the SharedArrayBuffer + Atomics.wait bridge for
-  everything the harness resolves (authoring, modal prompts). COOP/COEP isolation
-  is what makes the buffer available; without it nothing boots.
+- Host interactions that cannot answer synchronously (authoring, prompts, key
+  waits, save/restore) suspend the interpreter as a resumable continuation: the
+  worker posts a `hostRequest` message and resumes the parked interaction when
+  the matching `hostAnswer` arrives, so application commands keep being served
+  while the game waits. Pause is a message too — there is no shared memory and
+  no cross-origin-isolation requirement.
 - Game text is engine-owned: a 40×25 cell surface composited on the GPU. Never
   render it as DOM or CSS.
 

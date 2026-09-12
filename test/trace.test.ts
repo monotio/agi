@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildLogicResource } from "../src/logic/resource.ts";
-import { Engine } from "../src/runtime/engine.ts";
+import { Engine, type TraceRecord } from "../src/runtime/engine.ts";
 
 function game(source: string | Uint8Array) {
   const container = createContainer();
@@ -123,6 +123,31 @@ test("trace height clamps to two rows and its overlay never erases the underlyin
   key(0x4600);
   e.tick();
   assert.match(e.textRow(23), /^Underneath/);
+});
+
+test("trace listener receives structured records without opening the overlay", () => {
+  const { engine: e } = game(
+    "trace.info(10,1,24);assignn(v200,42);if(equaln(v200,42)){assignn(v201,7);}return;",
+  );
+  const records: TraceRecord[] = [];
+  e.setTraceListener((record) => records.push(record));
+  e.tick();
+  assert.ok(
+    rows(e).every((row) => row.trim() === ""),
+    "overlay stays closed",
+  );
+  const assign = records.find((r) => r.name === "assignn" && r.args[1] === 42);
+  assert.ok(assign, "action record with resolved name and operands");
+  assert.equal(assign!.logic, 0);
+  assert.equal(assign!.result, undefined);
+  const equaln = records.find((r) => r.name === "equaln");
+  assert.equal(equaln?.result, true, "test record carries its outcome");
+  assert.ok(records.some((r) => r.name === "return" || r.op === 0));
+  e.setTraceListener(null);
+  e.tick();
+  const count = records.length;
+  e.tick();
+  assert.equal(records.length, count, "disarming stops the stream");
 });
 
 test("a message remains readable above tracing and tracing resumes after acknowledgement", () => {

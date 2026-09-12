@@ -1,7 +1,17 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { readGameZip } from "../src/gameZip.ts";
-import { isolateStorage, openGameOptions, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
+import { buildZip } from "../src/zip.ts";
+import { createContainer } from "../../src/container/container.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
+import { buildWordsTok } from "../../src/logic/words.ts";
+import {
+  isolateStorage,
+  openGameOptions,
+  savedGameCard,
+  textHook,
+  waitForAutosaveAfter,
+} from "./engineProbe.ts";
 
 test("malformed play hashes recover to the picker without a startup exception", async ({
   page,
@@ -21,14 +31,50 @@ for (const failure of ["unsafe", "timeout", "storage"] as const) {
   }, testInfo) => {
     await isolateStorage(page);
     await page.goto("/");
-    await page.getByTestId("catalog-play-adventure-department").click();
+    if (failure === "unsafe") {
+      // Only a live host request stays non-checkpointable: the pending answer
+      // belongs to the player, not the image. A get.num prompt is one; a print
+      // window no longer is (it serializes into the continuation).
+      const game = createContainer();
+      game.putResource("picture", 1, Uint8Array.of(0xf0, 1, 0xf8, 0, 0, 0xff));
+      const dictionary = new Map([["look", 1]]);
+      game.putResource(
+        "logic",
+        0,
+        assembleLogic("if(!isset(f200)){set(f200);new.room(1);}call(1);return;", {
+          dictionary,
+        }).payload,
+      );
+      game.putResource(
+        "logic",
+        1,
+        assembleLogic(
+          "if(isset(f5)){assignn(v50,1);load.pic(v50);draw.pic(v50);show.pic();accept.input();}" +
+            'if(said("look")){get.num("Pick a number",v60);}return;',
+          { dictionary },
+        ).payload,
+      );
+      const archive = buildZip(
+        [...game.files]
+          .map(([name, data]) => ({ name, data }))
+          .concat([{ name: "WORDS.TOK", data: buildWordsTok([{ word: "look", id: 1 }]) }]),
+      );
+      await page.getByTestId("game-zip-input").setInputFiles({
+        name: "prompt-checkpoint.zip",
+        mimeType: "application/zip",
+        buffer: Buffer.from(archive),
+      });
+      await savedGameCard(page, "prompt-checkpoint").getByTestId("btn-resume-cached").click();
+    } else {
+      await page.getByTestId("catalog-play-adventure-department").click();
+    }
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await waitForAutosaveAfter(page, (await textHook(page)).cycle);
     const savedCycle = (await textHook(page)).autosave;
     if (failure === "unsafe") {
       await page.getByTestId("input-line").fill("look");
       await page.getByTestId("input-line").press("Enter");
-      await expect.poll(async () => (await textHook(page)).modal).toBe("print");
+      await expect(page.getByTestId("prompt-hint")).toBeVisible();
     } else if (failure === "timeout") {
       await page.evaluate(() => {
         const post = Worker.prototype.postMessage;

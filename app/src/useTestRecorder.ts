@@ -68,23 +68,26 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
 
   /**
    * Start capturing player actions for a stored game test. The worker takes
-   * the record-start save image at a safe cycle boundary and stamps every
-   * later action with the interpreter cycle; refusal (an open window, a text
-   * screen, a blocking prompt) lands in state.recording.error.
+   * the record-start save image at a safe cycle boundary — a parked window or
+   * key wait rides the image's continuation — and stamps every later action
+   * with the interpreter cycle; refusal (a live prompt, a text screen) lands
+   * in state.recording.error.
    */
   async function startTestRecording(): Promise<void> {
     state.recording.error = "";
     const worker = getWorker();
     if (!worker || state.phase !== "running") return;
+    // Parked windows and key waits record fine — the setup's continuation
+    // resumes them. What still blocks a recording is a live host request: a
+    // prompt, the save/restore selector, or the assistant.
     if (
       state.powerUp.open ||
       state.powerUp.busy ||
-      state.modal !== null ||
-      state.prompt !== null ||
-      state.waitingForKey
+      state.modal === "save" ||
+      state.modal === "restore" ||
+      state.prompt !== null
     ) {
-      state.recording.error =
-        "Close the open window, prompt or assistant before recording a game test.";
+      state.recording.error = "Close the open prompt or assistant before recording a game test.";
       return;
     }
     state.recording.starting = true;

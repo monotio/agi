@@ -63,7 +63,9 @@ test("runtime scenarios reject ambiguous, unbounded and impossible steps", () =>
     [{ advance: 100, checkpoint: "x" }],
     [{ checkpoint: "x" }, { checkpoint: "x" }],
     [{ restore: "absent" }],
-    [{ advance: 100 }, { save: "modal" }],
+    // Before a room has drawn there is no resumable boundary; a save behind
+    // an open window is now legal (the parked pass rides the continuation).
+    [{ save: "before-room" }],
     [{ key: 65536 }],
     [{ unknown: 1 }],
   ]) {

@@ -1927,7 +1927,7 @@ export async function executeAgentToolAsync(
       bindingCount: Object.keys(session.authoring.bindings).length,
       inventoryDefinitions: readInventoryObjects(session.getFiles().get("OBJECT"), session.profile),
     };
-    if (live)
+    if (live) {
       details["live"] = {
         room: live["room"],
         egoX: live["egoX"],
@@ -1935,8 +1935,9 @@ export async function executeAgentToolAsync(
         inventory: live["inventory"],
         modalKind: live["modalKind"],
         controls: describeControls(live["controls"]),
-        objects: liveObjects,
       };
+      details["liveObjects"] = liveObjects;
+    }
     if (stateArg != null) {
       if (!live) {
         details["state"] = { error: NO_LIVE_GAME };

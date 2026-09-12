@@ -23,6 +23,7 @@
  */
 
 import type { AgiProfile, ProfileId } from "./profile.ts";
+import { validateContinuation, type ParkedContinuation } from "./replayState.ts";
 import { TEXT_COLS, TEXT_ROWS } from "./textSurface.ts";
 
 /** Bytes of the leading description header (spec "Save-file envelope"). */
@@ -898,7 +899,8 @@ export function decodeSave(bytes: Uint8Array, profile: AgiProfile): SaveState {
  * so even a description containing the marker cannot identify a bare save.
  */
 const HOST_IMAGE_MAGIC = "MONOTIO AUTOSAVE".padEnd(SAVE_DESCRIPTION_BYTES + 2, "\xff");
-const HOST_IMAGE_VERSION = 1;
+/** Version 2 appends the parked-pass continuation as a length-prefixed JSON tail. */
+const HOST_IMAGE_VERSION = 2;
 const HOST_IMAGE_HEADER = HOST_IMAGE_MAGIC.length + 1 + 4;
 
 const HOST_TEXT_CELLS = TEXT_COLS * TEXT_ROWS;
@@ -932,6 +934,12 @@ export interface HostImage {
    */
   screen: ReplayPair[] | null;
   presentation?: HostPresentation;
+  /**
+   * The parked pass the snapshot was taken at — an open window or a have.key
+   * wait — so the resume restores the identical instruction, not a fresh pass.
+   * Absent from version-1 images and non-parked snapshots.
+   */
+  continuation?: ParkedContinuation | null;
 }
 
 /**
@@ -942,12 +950,15 @@ export interface HostImage {
  * Layout: the 33-byte marker, u8 version, u32le image length, the image, u16le pair
  * count, the pairs as block 4 encodes them, then a presence byte and optional
  * fixed-size presentation: f64 sequence, cells, u32 write stamps, and 256
- * draw records (f64 sequence and four i32 bounds). All numbers are little-endian.
+ * draw records (f64 sequence and four i32 bounds). Version 2 ends with a u32le
+ * length and the parked-pass continuation as UTF-8 JSON (length 0: none).
+ * All numbers are little-endian.
  */
 export function encodeHostImage(
   image: Uint8Array,
   screen: readonly ReplayPair[],
   presentation?: HostPresentation,
+  continuation?: ParkedContinuation | null,
 ): Uint8Array {
   if (screen.length > 0xffff)
     throw new RangeError(`screen sequence has ${screen.length} pairs, more than the 65535 fit`);
@@ -958,13 +969,18 @@ export function encodeHostImage(
       presentation.draws.length !== HOST_DRAW_COUNT)
   )
     throw new RangeError("host autosave presentation dimensions are invalid");
+  const continuationBytes = continuation
+    ? new TextEncoder().encode(JSON.stringify(continuation))
+    : new Uint8Array(0);
   const out = new Uint8Array(
     HOST_IMAGE_HEADER +
       image.length +
       2 +
       screen.length * 2 +
       1 +
-      (presentation ? HOST_PRESENTATION_BYTES : 0),
+      (presentation ? HOST_PRESENTATION_BYTES : 0) +
+      4 +
+      continuationBytes.length,
   );
   for (let i = 0; i < HOST_IMAGE_MAGIC.length; i++) out[i] = HOST_IMAGE_MAGIC.charCodeAt(i);
   out[HOST_IMAGE_MAGIC.length] = HOST_IMAGE_VERSION;
@@ -997,6 +1013,8 @@ export function encodeHostImage(
       at += 24;
     }
   }
+  putU32(out, at, continuationBytes.length);
+  out.set(continuationBytes, at + 4);
   return out;
 }
 
@@ -1009,8 +1027,9 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
   if (!marked) return { image: bytes, screen: null };
   if (bytes.length < HOST_IMAGE_HEADER)
     throw new RangeError("host autosave ends before its image length");
-  if (bytes[HOST_IMAGE_MAGIC.length] !== HOST_IMAGE_VERSION)
-    throw new RangeError(`unsupported host autosave version ${bytes[HOST_IMAGE_MAGIC.length]}`);
+  const version = bytes[HOST_IMAGE_MAGIC.length]!;
+  if (version < 1 || version > HOST_IMAGE_VERSION)
+    throw new RangeError(`unsupported host autosave version ${version}`);
   const imageLength = u32(bytes, HOST_IMAGE_MAGIC.length + 1);
   const countAt = HOST_IMAGE_HEADER + imageLength;
   if (countAt + 2 > bytes.length) throw new RangeError("host autosave ends inside its save image");
@@ -1018,11 +1037,11 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
   const pairEnd = countAt + 2 + count * 2;
   if (pairEnd >= bytes.length) throw new RangeError("host autosave ends inside its pair data");
   const present = bytes[pairEnd];
-  if (
-    (present !== 0 && present !== 1) ||
-    bytes.length !== pairEnd + 1 + (present ? HOST_PRESENTATION_BYTES : 0)
-  )
-    throw new RangeError("host autosave presentation length or marker is invalid");
+  if (present !== 0 && present !== 1)
+    throw new RangeError("host autosave presentation marker is invalid");
+  const presentationEnd = pairEnd + 1 + (present ? HOST_PRESENTATION_BYTES : 0);
+  if (version === 1 ? bytes.length !== presentationEnd : bytes.length < presentationEnd + 4)
+    throw new RangeError("host autosave presentation length is invalid");
   const result: HostImage = {
     image: bytes.slice(HOST_IMAGE_HEADER, countAt),
     screen: decodeBlock4(bytes.subarray(countAt + 2, pairEnd)),
@@ -1063,6 +1082,28 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
       at += 24;
     }
     result.presentation = { cells, written, seq, draws };
+  }
+  if (version === 2) {
+    const length = u32(bytes, presentationEnd);
+    if (presentationEnd + 4 + length !== bytes.length)
+      throw new RangeError("host autosave continuation length is invalid");
+    if (length > 0) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(
+          new TextDecoder().decode(bytes.subarray(presentationEnd + 4, bytes.length)),
+        );
+      } catch {
+        throw new RangeError("host autosave continuation is not valid JSON");
+      }
+      try {
+        result.continuation = validateContinuation(parsed);
+      } catch (error) {
+        throw new RangeError(`host autosave continuation is invalid: ${(error as Error).message}`, {
+          cause: error,
+        });
+      }
+    }
   }
   return result;
 }

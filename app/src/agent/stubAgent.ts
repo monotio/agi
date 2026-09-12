@@ -7,7 +7,7 @@
 import { assembleLogic } from "../../../src/logic/assembler.ts";
 import { buildView } from "../../../src/view/view.ts";
 import { compilePictureSource } from "../../../src/picture/source.ts";
-import type { LlmRequest, AgentHandler, AgentEventSink } from "./sabBridge.ts";
+import type { LlmRequest, AgentHandler, AgentEventSink } from "./hostRequests.ts";
 import type { RoomPatch } from "../../../src/agent/roomPatch.ts";
 
 export const GAME_DICTIONARY = new Map<string, number>([
@@ -184,8 +184,8 @@ export class StubAgent implements AgentHandler {
           "response",
           `authored room ${n}: logic ${logic.code.length}B bytecode + picture, patched into VOL`,
         );
-        // Resources travel IN the bridge response: the worker is blocked in
-        // Atomics.wait and cannot process patch messages until it wakes.
+        // Resources travel IN the bridge response: the worker is suspended on
+        // the room request and cannot process patch messages until it resumes.
         return JSON.stringify({
           room: n,
           resources: [
@@ -195,8 +195,8 @@ export class StubAgent implements AgentHandler {
         });
       }
       default:
-        // Host-served ops (getnum/getstring/restore/waitkey) never reach a game
-        // agent; an empty reply is the bridge's "no answer" value.
+        // Host-served ops (getnum/getstring/restore/save slots) never reach a
+        // game agent; an empty reply is the host's "no answer" value.
         return "";
     }
   }

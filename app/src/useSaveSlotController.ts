@@ -17,7 +17,7 @@ export interface SaveSlotController {
 }
 
 /**
- * Handles host bridge save slot operations (`restore`, `saveList`, `saveWrite`),
+ * Handles host save slot operations (`restore`, `saveList`, `saveWrite`),
  * reading and writing 12-slot saves from local storage scoped by game key.
  */
 export function useSaveSlotController(options: SaveSlotControllerOptions): SaveSlotController {

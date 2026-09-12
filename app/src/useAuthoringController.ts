@@ -1,5 +1,5 @@
 import { AgentSession } from "./agent/agentSession.ts";
-import type { AgentHandler, LlmRequest } from "./agent/sabBridge.ts";
+import type { AgentHandler, LlmRequest } from "./agent/hostRequests.ts";
 import type { AgentRunState } from "./agent/agentRun.ts";
 import type { AgentLogEntry } from "./agent/agentLog.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";

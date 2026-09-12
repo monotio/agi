@@ -1,6 +1,6 @@
 /**
  * Compute SHA-256 hex digest of a byte array safely in browser environments.
- * Copies the bytes first to prevent detached or SharedArrayBuffer errors.
+ * Copies the bytes first so a view over a larger or transferred buffer hashes correctly.
  */
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const copy = new Uint8Array(bytes.byteLength);
