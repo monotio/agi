@@ -79,6 +79,55 @@ export function inspectPixel(frame: Frame, x: number, y: number): PixelInspectio
 }
 
 /**
+ * A pick latched against the frame that was on screen when clicked. The
+ * object snapshot and frame identity are frozen at click time so a live
+ * object moving, changing, or disappearing — or a stale frame arriving out
+ * of order — can never rewrite what the card describes.
+ */
+export interface LatchedPick {
+  point: PickPoint;
+  inspection: PixelInspection;
+  /** Immutable screen-object snapshot for the owner, or null when the pick
+   * names a non-sprite layer or a pixel with no owner. */
+  object: Readonly<ScreenObjectState> | null;
+  /** Frame identity at capture: interpreter cycle + container revision. */
+  cycle: number | null;
+  patchGeneration: number | null;
+}
+
+/**
+ * Resolve a click into a self-contained observation. `point.layerKind`
+ * suppresses the object identity for non-sprite layer picks (the ownership
+ * mask still describes the composed frame honestly via `inspection.owner`).
+ */
+export function latchPickAt(frame: Frame, point: PickPoint): LatchedPick | null {
+  if (!point.logical) return null;
+  const inspection = inspectPixel(frame, point.logical.x, point.logical.y);
+  if (!inspection) return null;
+  const spritePick = point.layerKind === undefined || point.layerKind === "sprite";
+  const source =
+    spritePick && inspection.owner !== null
+      ? (frame.objects?.find((o) => o.num === inspection.owner) ?? null)
+      : null;
+  // Scalars plus two optional nested targets; deep-freeze covers them.
+  const object = source ? Object.freeze(structuredClone(source)) : null;
+  return {
+    point: Object.freeze({ ...point, logical: Object.freeze({ ...point.logical }) }),
+    inspection,
+    object,
+    cycle: frame.cycle ?? null,
+    patchGeneration: frame.patchGeneration ?? null,
+  };
+}
+
+/** Cycle regression means a new game, restore, or seek — any latch is stale. */
+export function latchIsStale(latch: LatchedPick, frame: Frame | null): boolean {
+  return (
+    frame !== null && frame.cycle !== undefined && latch.cycle !== null && frame.cycle < latch.cycle
+  );
+}
+
+/**
  * Crop the frame around a logical point into RGBA at logical resolution.
  * `radius` is in logical pixels; the result is square, clamped at the edges.
  */

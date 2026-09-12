@@ -335,6 +335,7 @@ test("every WorkerOutbound member reaches its handler once", async () => {
           inputEnabled: true,
           inputReady: true,
           holdToMove: false,
+          patchGeneration: 0,
           edit: "",
           cycle: 11,
         });

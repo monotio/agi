@@ -29,10 +29,13 @@ import {
   describeObject,
   formatTraceRecord,
   inspectPixel,
+  latchIsStale,
+  latchPickAt,
   overlayBoxes,
   pickFromClient,
   type DebugEvent,
   type DebugViewMode,
+  type LatchedPick,
   type PickPoint,
 } from "./debugView.ts";
 import type { StagePick } from "./explodedPick.ts";
@@ -131,30 +134,24 @@ function onHeadPointerUp(): void {
 
 // ---------- pick / point-select ----------
 
-interface LatchedPick {
-  point: PickPoint;
-  inspection: { color: number; priority: number; owner: number | null };
-  cycle: number;
-  patchGeneration: number;
-  cropUrl: string;
-}
-
 const hover = ref<{
   point: PickPoint;
   inspection: { color: number; priority: number; owner: number | null } | null;
 }>();
-const picked = ref<LatchedPick>();
+const picked = ref<(LatchedPick & { cropUrl: string }) | undefined>();
 
-const pickedObject = computed<ScreenObjectState | null>(() => {
-  const p = picked.value;
-  // Only a sprite pick carries an object identity — a picture, control or
-  // text layer never invents one even if stale ownership data disagrees.
-  if (p?.point.layerKind && p.point.layerKind !== "sprite") return null;
-  const owner = p?.inspection.owner;
-  return owner === null || owner === undefined
-    ? null
-    : (props.objects.find((o) => o.num === owner) ?? null);
-});
+// The object the pick resolved at latch time — a frozen snapshot, never a
+// live lookup, so a later frame or state report cannot rewrite the card.
+const pickedObject = computed(() => picked.value?.object ?? null);
+
+// A new game, restore, or seek regresses the cycle — the latched observation
+// described a frame that no longer exists, so drop it.
+watch(
+  () => props.frame,
+  (f) => {
+    if (picked.value && latchIsStale(picked.value, f)) picked.value = undefined;
+  },
+);
 
 function layerLabel(point: PickPoint): string {
   const b = point.layerBand;
@@ -234,23 +231,15 @@ function onOverlayClick(ev: PointerEvent): void {
     picked.value = undefined;
     return;
   }
-  const { x, y } = point.logical;
-  const inspection = inspectPixel(props.frame, x, y);
-  if (!inspection) return;
-  const crop = cropFrameRgba(props.frame, x, y, 12);
-  picked.value = {
-    point,
-    inspection,
-    cycle: props.frame.cycle ?? 0,
-    patchGeneration: report.value?.patchGeneration ?? 0,
-    cropUrl: cropToDataUrl(crop.width, crop.height, crop.data),
-  };
+  const latch = latchPickAt(props.frame, point);
+  if (!latch) return;
+  const crop = cropFrameRgba(props.frame, point.logical.x, point.logical.y, 12);
+  picked.value = { ...latch, cropUrl: cropToDataUrl(crop.width, crop.height, crop.data) };
 }
 
 async function copyPick(): Promise<void> {
   const p = picked.value;
   if (!p) return;
-  const owner = pickedObject.value;
   const payload = {
     logical: p.point.logical,
     displayed: p.point.displayed,
@@ -258,7 +247,7 @@ async function copyPick(): Promise<void> {
     color: p.inspection.color,
     priority: p.inspection.priority,
     owner: p.inspection.owner,
-    object: owner ?? null,
+    object: p.object,
     cycle: p.cycle,
     patchGeneration: p.patchGeneration,
   };

@@ -253,6 +253,8 @@ export type WorkerPresentation =
       holdToMove: boolean;
       edit: string;
       cycle: number;
+      /** Container patch revision at capture; part of the frame's identity. */
+      patchGeneration: number;
       ownership?: Uint16Array;
       objects?: ScreenObjectState[];
       picVisual?: Uint8Array;

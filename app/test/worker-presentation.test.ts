@@ -45,6 +45,26 @@ test("a priority-only change publishes a frame while diagnostics are off", () =>
   assert.equal(frameCount(presentation), first + 1);
 });
 
+test("a resource patch republishes the frame carrying its own revision", () => {
+  const { ctx, presentation } = workerHarness(priorityGame());
+  ctx.fns.tickEngine();
+  ctx.fns.postFrame();
+  const first = presentation.filter((m) => m.type === "frame").at(-1)!;
+  assert.ok(first.type === "frame");
+  assert.equal(first.patchGeneration, 0, "the frame reports its capture revision");
+
+  // A sound patch changes no visual, text, priority, or object byte — only
+  // the container revision. The frame still ships so the inspector's latched
+  // observations can pin the revision they describe.
+  ctx.engine!.patchResource("sound", 4, new Uint8Array([1, 2, 3]));
+  ctx.fns.postFrame();
+  const frames = presentation.filter((m) => m.type === "frame");
+  assert.ok(frames.length >= 2, "a patch alone publishes a frame");
+  const patched = frames.at(-1)!;
+  assert.ok(patched.type === "frame");
+  assert.equal(patched.patchGeneration, 1);
+});
+
 test("arming then disarming a channel ships a frame for each transition", () => {
   const { ctx, presentation } = workerHarness(priorityGame());
   ctx.fns.tickEngine();

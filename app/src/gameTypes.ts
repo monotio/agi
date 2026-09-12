@@ -101,6 +101,8 @@ export interface Frame {
   picRow: number;
   /** Interpreter cycle this frame completed, when the worker reports it. */
   cycle?: number;
+  /** Container patch revision at capture; part of the frame's identity. */
+  patchGeneration?: number;
   /**
    * Per-pixel owning screen object (num + 1, 0 = background); present only
    * while the worker's ownership debug channel is armed.

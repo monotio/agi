@@ -122,6 +122,8 @@ export interface PresentationState {
   lastInputEnabled: boolean;
   lastReleaseGate: number;
   lastModal: string | null;
+  /** patchGeneration of the last published frame — patches republish identity. */
+  lastPatchGen: number;
   lastControls: string;
   lastInputEdit: string;
   lastSoundEnabled: boolean | null;
@@ -305,6 +307,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       lastInputEnabled: false,
       lastReleaseGate: 0,
       lastModal: null,
+      lastPatchGen: -1,
       lastControls: "",
       lastInputEdit: "",
       lastSoundEnabled: null,
@@ -365,6 +368,7 @@ export function resetSession(ctx: WorkerContext): void {
   p.lastInputEnabled = false;
   p.lastReleaseGate = 0;
   p.lastModal = null;
+  p.lastPatchGen = -1;
   p.lastControls = "";
   p.lastInputEdit = "";
   p.lastSoundEnabled = null;

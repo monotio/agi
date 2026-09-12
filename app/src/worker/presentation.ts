@@ -44,6 +44,7 @@ export function createPresentation(ctx: WorkerContext) {
       ctx.presentation.lastInputEnabled === ctx.engine.inputEnabled &&
       ctx.presentation.lastReleaseGate === ctx.engine.releaseGate &&
       objectsJson === ctx.presentation.lastObjectsJson &&
+      ctx.engine.patchGeneration === ctx.presentation.lastPatchGen &&
       ctx.presentation.lastText !== null;
     if (same && ctx.presentation.lastText) {
       for (let i = 0; i < textCells.length; i++) {
@@ -115,6 +116,7 @@ export function createPresentation(ctx: WorkerContext) {
     ctx.cycle.lastInputReady = ctx.cycle.initialLogicStarted;
     ctx.presentation.lastReleaseGate = ctx.engine.releaseGate;
     ctx.presentation.lastModal = modal;
+    ctx.presentation.lastPatchGen = ctx.engine.patchGeneration;
     const text = textCells.slice();
     ctx.ports.presentation(
       {
@@ -130,6 +132,7 @@ export function createPresentation(ctx: WorkerContext) {
         holdToMove: ctx.engine.releaseGate !== 0,
         edit: ctx.engine.inputEdit,
         cycle: ctx.cycle.cycleCount,
+        patchGeneration: ctx.engine.patchGeneration,
         ...(ownership ? { ownership } : {}),
         ...(objects ? { objects } : {}),
         ...(picture ? { picVisual: picture.visual, picPriority: picture.priority } : {}),

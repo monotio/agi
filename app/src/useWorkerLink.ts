@@ -196,6 +196,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
           text: msg.text,
           picRow: msg.picRow,
           cycle: msg.cycle,
+          patchGeneration: msg.patchGeneration,
         };
         // Armed debug channels ride the frame; absence clears the mirror so a
         // disarmed channel never leaves stale data in the inspector.
