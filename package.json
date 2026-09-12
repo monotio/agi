@@ -37,7 +37,7 @@
     "eval": "npm --prefix evals run eval --",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
-    "lint:ast": "node scripts/check-ast-grep-suppressions.mjs && ast-grep scan -c .ast-grep/sgconfig.yml --error",
+    "lint:ast": "node scripts/check-ast-grep-suppressions.mjs && ast-grep scan -c .ast-grep/sgconfig.yml --error && ast-grep test -c .ast-grep/sgconfig.yml",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

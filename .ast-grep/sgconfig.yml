@@ -24,3 +24,8 @@ languageInjections:
           $CONTENT
         </script>
     injected: ts
+
+# Rule self-tests: positive and negative fixtures run under `ast-grep test`,
+# wired into `npm run lint:ast` so a rule's failure examples are in the gate.
+testConfigs:
+  - testDir: rule-tests

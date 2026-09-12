@@ -1,4 +1,8 @@
-import type { GameInspection } from "./gameInspection.ts";
+import type {
+  GameInspection,
+  PreviewWorkerInbound,
+  PreviewWorkerOutbound,
+} from "./gameInspection.ts";
 
 /** The wall-clock deadline also bounds pathological binary decoders, outside bytecode budgets. */
 export async function previewGame(game: {
@@ -19,9 +23,9 @@ export async function previewGame(game: {
       clearTimeout(timeout);
       worker.terminate();
     };
-    worker.onmessage = (event: MessageEvent<{ result?: GameInspection; error?: string }>) => {
+    worker.onmessage = (event: MessageEvent<PreviewWorkerOutbound>) => {
       finish();
-      if (event.data.result) resolve(event.data.result);
+      if ("result" in event.data) resolve(event.data.result);
       else
         reject(
           new Error(
@@ -35,7 +39,7 @@ export async function previewGame(game: {
     };
     // The worker inspects resources only; an imported project's transcript and
     // authoring state must not be cloned into it.
-    worker.postMessage({ files: game.files, words: game.words });
+    worker.postMessage({ files: game.files, words: game.words } satisfies PreviewWorkerInbound);
   });
   const canvas = document.createElement("canvas");
   canvas.width = 320;

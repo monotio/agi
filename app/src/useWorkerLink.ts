@@ -308,7 +308,11 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         if (state.debugTrace.length > 4000)
           state.debugTrace.splice(0, state.debugTrace.length - 4000);
         state.debugTraceDropped += msg.dropped;
-        w.postMessage({ type: "traceAck", epoch: msg.epoch, batch: msg.batch });
+        w.postMessage({
+          type: "traceAck",
+          epoch: msg.epoch,
+          batch: msg.batch,
+        } satisfies WorkerInbound);
       },
       // show.obj carries the one datum frame.modal lacks: which view the
       // modal previews. The exploded layers need it to keep the preview

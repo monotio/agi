@@ -1,0 +1,18 @@
+id: worker-postmessage-satisfies
+language: ts
+severity: error
+message: worker postMessage literal must carry `satisfies` naming its protocol type
+note: |
+  A bare object literal drifts from the protocol silently; `satisfies` makes
+  the compiler check it against WorkerInbound (engine worker) or
+  PreviewWorkerInbound/Outbound (preview worker). Only the boundary internals
+  suppress this — workerQueries.ts assembles the query envelope and the
+  workers post through typed sendControl-style wrappers.
+  BAD:  worker.postMessage({ type: "pause", paused: true });
+  GOOD: worker.postMessage({ type: "pause", paused: true } satisfies WorkerInbound);
+files:
+  - app/src/**
+rule:
+  any:
+    - pattern: $RECV.postMessage({ $$$ARGS })
+    - pattern: $RECV.postMessage({ $$$ARGS }, $$$REST)
