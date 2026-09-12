@@ -5,8 +5,7 @@
  * WorkerControl and WorkerPresentation out — and both dispatchers typecheck
  * against them.
  */
-import { prepareRoomPatch } from "../../src/agent/roomPatch.ts";
-import { buildWordsTok, parseWordsTok } from "../../src/logic/words.ts";
+import { parseWordsTok } from "../../src/logic/words.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { OperationRecorder } from "../../src/agent/recordedReplay.ts";
 import type { RecordedEvent } from "./gameRecording.ts";
@@ -17,7 +16,6 @@ import { base64ToBytes, bytesToBase64 } from "./bytes.ts";
 import { createWorkerContext, resetSession, type WorkerPorts } from "./worker/context.ts";
 import type {
   BootMessage,
-  HostRequestOp,
   WorkerControl,
   WorkerInbound,
   WorkerPresentation,
@@ -264,153 +262,6 @@ function advanceSoundClock(authoring = false): void {
   }
 }
 
-/**
- * Post a host-service request as an ordinary worker message and suspend the
- * interpreter pass that asked for it. runLogicStack parks the logic stack on
- * the thrown HostWait; the { type: "hostAnswer" } reply delivers the response
- * and resumes the parked pass — so the host keeps inspecting, saving and
- * editing while the game waits.
- */
-function postHostRequest(op: HostRequestOp, context: Record<string, unknown>): never {
-  if (ctx.recording.recording && !["getstring", "getnum"].includes(op))
-    ctx.recording.recording.tainted = `The recording used unsupported host service ${op}.`;
-  advanceSoundClock();
-  // The interpreter is about to suspend: ship the frame that shows the
-  // prompt (or the selector) the request belongs to.
-  postFrame();
-  const id = ++ctx.hostRequests.hostRequestSerial;
-  const authoring = op === "room";
-  ctx.hostRequests.hostRequestOutstanding = { id, op, authoring };
-  sendControl({ type: "hostRequest", id, op, context });
-  if (ctx.replay.replay && ["getnum", "getstring", "saveDescription"].includes(op)) {
-    postReplay(op);
-  }
-  if (authoring) sendPresentation({ type: "soundPaused", paused: true });
-  throw new HostWait();
-}
-
-/** The request finished or was abandoned: release the authoring pause. */
-function settleHostRequest(outstanding: { op: string; authoring: boolean }): void {
-  if (!outstanding.authoring) return;
-  ctx.clocks.cycle.reset(
-    ctx.replay.replay ? (ctx.replay.replay.tick * 1000) / 60 : ctx.ports.now(),
-  );
-  sendPresentation({ type: "soundPaused", paused: false });
-}
-
-/**
- * Drop the in-flight host request and tell the main thread to resolve the
- * UI it opened — a superseded request's late answer is dropped by the id
- * check in the hostAnswer handler.
- */
-function abandonHostRequest(): void {
-  const outstanding = ctx.hostRequests.hostRequestOutstanding;
-  if (outstanding === null) return;
-  ctx.hostRequests.hostRequestOutstanding = null;
-  settleHostRequest(outstanding);
-  sendControl({ type: "interactionCancelled", id: outstanding.id, op: outstanding.op });
-}
-
-/** Hand a host answer to the suspended interaction it resolves. */
-function deliverHostResponse(op: string, response: string): void {
-  if (!ctx.engine) return;
-  switch (op) {
-    case "getnum": {
-      const n = Number.parseInt(response, 10);
-      const value = Number.isFinite(n) ? n : 0;
-      if (ctx.recording.recording) {
-        ctx.recording.recording.usedGetnum = true;
-        recordEvent({ cycle: ctx.cycle.cycleCount, kind: "answer", text: response });
-      }
-      ctx.recording.recording?.tape.host(["number", value]);
-      ctx.engine.deliverHostAnswer(value);
-      return;
-    }
-    case "getstring": {
-      if (ctx.recording.recording)
-        recordEvent({ cycle: ctx.cycle.cycleCount, kind: "answer", text: response });
-      ctx.recording.recording?.tape.host(["string", response]);
-      ctx.engine.deliverHostAnswer(response);
-      return;
-    }
-    case "saveList": {
-      // Anything unparseable ("storage-error", an empty cancel) is a failed
-      // listing; the selector shows its own failure screen for null.
-      let slots: { slot: number; bytes: Uint8Array }[] | null;
-      try {
-        const parsed = JSON.parse(response) as { slot: number; image: string }[];
-        slots = parsed.map(({ slot, image }) => ({ slot, bytes: base64ToBytes(image) }));
-      } catch {
-        slots = null;
-      }
-      ctx.engine.deliverHostAnswer(slots);
-      return;
-    }
-    case "saveDescription": {
-      // A cancelled prompt resolves ""; the empty answer cancels the dialog.
-      let value: string | null;
-      try {
-        value = (JSON.parse(response) as { value: string | null }).value;
-      } catch {
-        value = null;
-      }
-      ctx.engine.deliverHostAnswer(value);
-      return;
-    }
-    case "saveWrite":
-      ctx.engine.deliverHostAnswer(response === "true");
-      return;
-    case "restore": {
-      let bytes: Uint8Array | null = null;
-      if (response) {
-        try {
-          bytes = base64ToBytes(response);
-        } catch {
-          bytes = null;
-        }
-      }
-      if (bytes && ctx.recording.recording) {
-        // A restore replaces the interpreter state mid-recording; the captured
-        // steps no longer describe the live game.
-        ctx.recording.recording.tainted = "the game was restored mid-recording";
-      }
-      ctx.engine.deliverHostAnswer(bytes);
-      return;
-    }
-    case "room": {
-      // Apply the authored patch the agent produced, then deliver the outcome.
-      const request = ctx.engine.hostInteraction;
-      const room = request?.kind === "room" ? request.room : -1;
-      let prepared = false;
-      if (room >= 0) {
-        try {
-          const container = openContainer(ctx.engine.containerFiles);
-          const patch = prepareRoomPatch(container, room, response, ctx.boot.liveDictionary);
-          const words = buildWordsTok(patch.words.map(([word, id]) => ({ word, id })));
-          for (const resource of patch.resources)
-            ctx.engine.patchResource(resource.kind, resource.num, resource.payload);
-          ctx.boot.liveDictionary.clear();
-          for (const [word, id] of patch.words) ctx.boot.liveDictionary.set(word, id);
-          ctx.boot.authoredWords = words;
-          ctx.engine.patchAuxiliaryFiles({
-            words,
-            ...(patch.objects ? { objects: patch.objects } : {}),
-            ...(patch.tests ? { tests: patch.tests } : {}),
-          });
-          prepared = true;
-        } catch (error) {
-          sendPresentation({
-            type: "log",
-            text: `Room ${room} authoring failed: ${String(error)}`,
-          });
-        }
-      }
-      ctx.engine.deliverHostAnswer(prepared);
-      return;
-    }
-  }
-}
-
 const host: EngineHost = {
   randomWord() {
     let value: number;
@@ -474,7 +325,7 @@ const host: EngineHost = {
     if (container.getResource("logic", room)) return true;
     // The agent's answer lands in deliverHostResponse, which applies the
     // patch and delivers true/false to the suspended new.room.
-    return postHostRequest("room", {
+    return ctx.fns.postHostRequest("room", {
       room,
       from,
       edge: ctx.engine.vars[2],
@@ -500,18 +351,18 @@ const host: EngineHost = {
   },
   /** 0x76 get.num: a host-request prompt; the engine suspends until answered. */
   promptNumber(prompt, row, col) {
-    return postHostRequest("getnum", { prompt, row, col });
+    return ctx.fns.postHostRequest("getnum", { prompt, row, col });
   },
   /** 0x73 get.string: a host-request prompt; the engine suspends until answered. */
   promptString(prompt, maxLen, row, col) {
-    return postHostRequest("getstring", { prompt, maxLen, row, col });
+    return ctx.fns.postHostRequest("getstring", { prompt, maxLen, row, col });
   },
   /**
    * 0x7d save.game: the selector's directory listing is a host request; the
    * response's base64 images decode on delivery.
    */
   listSaveGames() {
-    return postHostRequest("saveList", {});
+    return ctx.fns.postHostRequest("saveList", {});
   },
   get promptSaveDescription() {
     // Replays drive the save dialog with recorded key presses, so the engine's
@@ -519,15 +370,15 @@ const host: EngineHost = {
     // recorded key, only by an explicit answer action.
     if (ctx.replay.replay) return undefined;
     return (initial: string, maxLen: number, row: number, col: number) =>
-      postHostRequest("saveDescription", { initial, maxLen, row, col });
+      ctx.fns.postHostRequest("saveDescription", { initial, maxLen, row, col });
   },
   saveGame(bytes, slot = 1) {
     // The main thread owns localStorage; the image travels as base64.
-    return postHostRequest("saveWrite", { slot, image: bytesToBase64(bytes) });
+    return ctx.fns.postHostRequest("saveWrite", { slot, image: bytesToBase64(bytes) });
   },
   /** 0x7e restore.game: the save lookup is a host request; null = cancelled. */
   restoreGame(slot = 1) {
-    return postHostRequest("restore", { slot });
+    return ctx.fns.postHostRequest("restore", { slot });
   },
   /** 0x90 log / 0x85 obj.status.v / 0x87 show.mem: debug log stream. */
   logText(text) {
@@ -565,10 +416,6 @@ ctx.host = host;
 // Until their owning modules land (docs/rc10-cleanup-plan.md Part 2), the
 // still-local functions fill the context's function table.
 Object.assign(ctx.fns, {
-  postHostRequest,
-  settleHostRequest,
-  abandonHostRequest,
-  deliverHostResponse,
   postReplay,
   tickEngine,
   recordedClock,
@@ -829,27 +676,7 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "hostAnswer") {
-      // The main thread resolved the in-flight host request. A stale id —
-      // an answer for a request already abandoned — is dropped, never
-      // delivered.
-      const id = Number(msg.id);
-      const outstanding = ctx.hostRequests.hostRequestOutstanding;
-      if (!ctx.engine || outstanding === null || outstanding.id !== id) return;
-      ctx.hostRequests.hostRequestOutstanding = null;
-      settleHostRequest(outstanding);
-      try {
-        deliverHostResponse(outstanding.op, String(msg.response ?? ""));
-      } catch (wait) {
-        if (!(wait instanceof HostWait)) throw wait;
-      }
-      // Apply the landed answer at this boundary rather than the next timer
-      // pass: a message posted after the answer — a state query, the key's
-      // own echo — observes the resumed state. A re-suspension (the
-      // selector's next need) posts its request inside this tick.
-      if (ctx.engine.hostInteractionReady) tickEngine();
-      // The runner holds the blocked observation postReplay(op) sent when
-      // the request fired; the resumed state is its unblocked follow-up.
-      if (ctx.replay.replay && !ctx.engine.awaitingHostAnswer) postReplay(null, true);
+      ctx.fns.onHostAnswer(msg);
       return;
     }
     if (msg.type === "replayAdvance") {
@@ -1085,35 +912,7 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "reenter") {
-      if (!ctx.engine) return;
-      if (ctx.recording.recording)
-        ctx.recording.recording.tainted = "Game resources changed during recording.";
-      // A suspended interaction is abandoned: its parked continuation is
-      // meaningless once the room's resources change under it, and the
-      // request still in flight resolves into a dropped answer.
-      if (ctx.engine.hostInteractionPending) {
-        ctx.engine.abortInteraction();
-        ctx.fns.setKeyWaiting(false);
-        abandonHostRequest();
-      }
-      // Live patch landed: re-enter the room so the new resources take effect.
-      // An open message window blocks the cycle, and bytecode can never issue
-      // new.room while one is up, so the harness acknowledges them first —
-      // otherwise the re-entered room would sit behind an invisible window.
-      for (let guard = 0; ctx.engine.modalKind !== null && guard < 16; guard++)
-        ctx.engine.ackPrint();
-      try {
-        ctx.engine.reenterRoom(typeof msg.room === "number" ? msg.room : undefined);
-      } catch (wait) {
-        if (!(wait instanceof HostWait)) throw wait;
-        // Room authoring suspended the transition: the hostAnswer message
-        // delivers it and the timer's tick completes it, then reports.
-        ctx.hostRequests.pendingReenter = true;
-        postFrame(true);
-        return;
-      }
-      postFrame(true);
-      sendControl({ type: "reentered", room: ctx.engine.vars[0]! });
+      ctx.fns.onReenter(msg);
       return;
     }
     if (msg.type === "boot") {
@@ -1204,7 +1003,7 @@ self.onmessage = (ev: MessageEvent) => {
       ctx.replay.replay = { tick: 0, revision: 0, random: seed >>> 0 };
       // A request in flight belonged to the replaced engine; its late answer
       // is dropped by the serial check and the host resolves its UI now.
-      abandonHostRequest();
+      ctx.fns.abandonHostRequest();
       ctx.fns.setKeyWaiting(false);
       ctx.engine = new Engine(
         openContainer(ctx.boot.currentBootFiles),
