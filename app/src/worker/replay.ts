@@ -143,6 +143,7 @@ export function createReplay(ctx: WorkerContext) {
       ctx.host,
       ctx.boot.currentDictionary,
     );
+    ctx.fns.armJournal();
     ctx.engine.flags[9] = 1;
     resetSession(ctx);
     if (!msg.seeking) {
@@ -155,6 +156,7 @@ export function createReplay(ctx: WorkerContext) {
     ctx.replay.replay = null;
     ctx.replay.currentSessionId = 0;
     ctx.replay.isSeeking = false;
+    ctx.fns.rebaselineJournal();
     ctx.cycle.paused = false;
     ctx.presentation.recentRing.reset();
     ctx.presentation.historyRing.reset();

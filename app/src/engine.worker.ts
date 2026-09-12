@@ -149,6 +149,7 @@ self.onmessage = (ev: MessageEvent) => {
       ctx.boot.authorRooms = boot.authorRooms === true;
       ctx.boot.selectedSoundDevice = boot.soundDevice === 0 ? 0 : 1;
       ctx.engine = new Engine(openContainer(files), ctx.host, ctx.boot.liveDictionary);
+      ctx.fns.armJournal();
       // Browser sessions start with game sound enabled; saved games restore their own flag.
       ctx.engine.flags[9] = 1;
       // A boot clears the in-flight request and key wait silently: the worker

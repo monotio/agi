@@ -321,6 +321,14 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         hook.egoY = msg.egoY;
         if (typeof window !== "undefined") window.__AGI_TEXT__ = hook;
       },
+      roomTransition: (msg) => {
+        // The world map's raw observations. Superseded sessions are already
+        // dropped by the sessionId ingress filter; a replaced worker's late
+        // traffic never reaches this handler.
+        state.roomJournal.push(msg);
+        if (state.roomJournal.length > 4000)
+          state.roomJournal.splice(0, state.roomJournal.length - 4000);
+      },
       booted: (msg) => {
         const booted = options.getBootedGame();
         if (booted) {

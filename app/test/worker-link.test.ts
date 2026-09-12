@@ -31,6 +31,7 @@ const OUTBOUND_TYPES = [
   "exportFiles",
   "restored",
   "booted",
+  "roomTransition",
   "flushed",
   "metadataPatched",
   "frame",
@@ -82,6 +83,7 @@ function fakeState(): EngineState {
     debugTrace: [],
     debugTraceDropped: 0,
     debugObjects: [],
+    roomJournal: [],
     prompt: null,
   } as unknown as EngineState;
 }
@@ -303,6 +305,22 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         deliver(w, { type, profile: "2.917" });
         assert.equal(state.phase, "running");
         assert.equal(state.profile, "2.917");
+        break;
+      case "roomTransition":
+        deliver(w, {
+          type,
+          seq: 1,
+          from: null,
+          to: 3,
+          cause: "boot",
+          cycle: 0,
+          patchGeneration: 0,
+          scoreDelta: 0,
+          gained: [],
+          lost: [],
+        });
+        assert.equal(state.roomJournal.length, 1, "the journal collected the observation");
+        assert.equal(state.roomJournal[0]!.to, 3);
         break;
       case "flushed":
         deliver(w, {

@@ -223,6 +223,7 @@ export type WorkerControl =
       message?: string;
     }
   | { type: "booted"; profile: string }
+  | RoomTransitionNotice
   | {
       type: "flushed";
       id: number;
@@ -302,6 +303,29 @@ export type WorkerPresentation =
   | { type: "stopSound" }
   | { type: "quit" }
   | { type: "log"; text: string };
+
+/**
+ * One observed room transition — the world-map journal's raw fact. Posted at
+ * the boundary where it landed: a completed cycle, a resumed host answer, a
+ * restore or a re-entry. sessionId is stamped by the worker's outbound
+ * wrapper like every control message.
+ */
+export interface RoomTransitionNotice {
+  type: "roomTransition";
+  /** Per-session entry order, assigned by the worker journal. */
+  seq: number;
+  from: number | null;
+  to: number;
+  cause: "boot" | "edge" | "logic" | "restore" | "restart" | "reenter" | "jump";
+  /** Cause "edge": the side ego left through (v2: 1 top, 2 right, 3 bottom, 4 left). */
+  edge?: "top" | "right" | "bottom" | "left";
+  cycle: number;
+  patchGeneration: number;
+  scoreDelta: number;
+  gained: number[];
+  lost: number[];
+  sessionId?: number;
+}
 
 /** Every message the worker may post. */
 export type WorkerOutbound = WorkerControl | WorkerPresentation;

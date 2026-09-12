@@ -57,6 +57,8 @@ export function createHostRequests(ctx: WorkerContext) {
     if (outstanding === null) return;
     ctx.hostRequests.hostRequestOutstanding = null;
     settleHostRequest(outstanding);
+    // An abandoned suspended re-enter can never land its transition.
+    ctx.journal.pendingCause = null;
     ctx.ports.control({ type: "interactionCancelled", id: outstanding.id, op: outstanding.op });
   }
 
@@ -123,7 +125,9 @@ export function createHostRequests(ctx: WorkerContext) {
           // steps no longer describe the live game.
           ctx.recording.recording.tainted = "the game was restored mid-recording";
         }
+        if (bytes) ctx.fns.markRestore();
         ctx.engine.deliverHostAnswer(bytes);
+        if (bytes) ctx.fns.noteTransition();
         return;
       }
       case "room": {
@@ -179,6 +183,8 @@ export function createHostRequests(ctx: WorkerContext) {
     // own echo — observes the resumed state. A re-suspension (the
     // selector's next need) posts its request inside this tick.
     if (ctx.engine.hostInteractionReady) ctx.fns.tickEngine();
+    // A transition resumed by this answer lands here, not in finishCycle.
+    ctx.fns.noteTransition();
     // The runner holds the blocked observation postReplay(op) sent when
     // the request fired; the resumed state is its unblocked follow-up.
     if (ctx.replay.replay && !ctx.engine.awaitingHostAnswer) ctx.fns.postReplay(null, true);
@@ -201,16 +207,23 @@ export function createHostRequests(ctx: WorkerContext) {
     // new.room while one is up, so the harness acknowledges them first —
     // otherwise the re-entered room would sit behind an invisible window.
     for (let guard = 0; ctx.engine.modalKind !== null && guard < 16; guard++) ctx.engine.ackPrint();
+    ctx.fns.markReenter();
     try {
       ctx.engine.reenterRoom(typeof msg.room === "number" ? msg.room : undefined);
     } catch (wait) {
-      if (!(wait instanceof HostWait)) throw wait;
+      if (!(wait instanceof HostWait)) {
+        // A declined re-enter never transitions; disarm so the next real
+        // transition is not mislabeled.
+        ctx.journal.pendingCause = null;
+        throw wait;
+      }
       // Room authoring suspended the transition: the hostAnswer message
       // delivers it and the timer's tick completes it, then reports.
       ctx.hostRequests.pendingReenter = true;
       ctx.fns.postFrame(true);
       return;
     }
+    ctx.fns.noteTransition();
     ctx.fns.postFrame(true);
   }
 

@@ -139,12 +139,15 @@ export function createDebug(ctx: WorkerContext) {
 
   function onDebugWrite(msg: Inbound<"debugWrite">): void {
     if (!ctx.engine) return;
+    const jumps = Array.isArray(msg.vars) && msg.vars.some((pair) => pair[0] === 0);
     if (Array.isArray(msg.vars))
       for (const pair of msg.vars) ctx.engine.vars[pair[0]! & 0xff] = pair[1]! & 0xff;
     if (Array.isArray(msg.flags))
       for (const pair of msg.flags) ctx.engine.flags[pair[0]! & 0xff] = pair[1] ? 1 : 0;
+    if (jumps) ctx.fns.markJump();
     // Attribute the host write to the current boundary, not the next cycle.
     captureStateDiffs();
+    if (jumps) ctx.fns.noteTransition();
     ctx.ports.control({ type: "debugWritten", id: msg.id });
   }
 

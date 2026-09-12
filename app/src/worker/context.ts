@@ -25,6 +25,8 @@ import { createCycle } from "./cycle.ts";
 import { createAutosave } from "./autosave.ts";
 import { createPresentation } from "./presentation.ts";
 import { createDebug } from "./debug.ts";
+import type { EdgeSide, RoomTransitionCause } from "../../../src/agent/roomMap.ts";
+import { createJournal } from "./journal.ts";
 import { createRecording } from "./recording.ts";
 
 /** The only platform access worker modules get: the post boundary and a clock. */
@@ -157,6 +159,32 @@ export interface DebugState {
   traceDropped: number;
 }
 
+/** worker/journal.ts — the world-map observation stream. */
+export interface JournalState {
+  /** Entries posted this session. */
+  seq: number;
+  /** Last observed room; null until the first boundary after boot. */
+  lastRoom: number | null;
+  lastScore: number;
+  /** Carried item numbers at the last entry, for the next delta. */
+  lastCarried: number[];
+  /** The cause the next observed transition must be attributed to. */
+  pendingCause: "restore" | "reenter" | "jump" | null;
+  /**
+   * Transitions recorded at this boundary, awaiting the flush stamp. Score
+   * and carried items are captured at record time, before the new room's
+   * logic can change them.
+   */
+  pending: {
+    from: number | null;
+    to: number;
+    cause: RoomTransitionCause;
+    edge?: EdgeSide;
+    score: number;
+    carried: number[];
+  }[];
+}
+
 /** worker/recording.ts */
 export interface RecordingState {
   /**
@@ -228,6 +256,13 @@ export interface WorkerFns {
   onDebugTrace(msg: Inbound<"debugTrace">): void;
   onDebugEvents(msg: Inbound<"debugEvents">): void;
   onTraceAck(msg: Inbound<"traceAck">): void;
+  // journal.ts
+  armJournal(): void;
+  noteTransition(): void;
+  rebaselineJournal(): void;
+  markReenter(): void;
+  markRestore(): void;
+  markJump(): void;
   // recording.ts
   recordEvent(event: RecordedEvent): void;
   onStartRecording(msg: Inbound<"startRecording">): void;
@@ -249,6 +284,7 @@ export interface WorkerContext {
   autosave: AutosaveState;
   presentation: PresentationState;
   debug: DebugState;
+  journal: JournalState;
   recording: RecordingState;
   fns: WorkerFns;
 }
@@ -329,6 +365,14 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       traceInFlight: 0,
       traceDropped: 0,
     },
+    journal: {
+      seq: 0,
+      lastRoom: null,
+      lastScore: 0,
+      lastCarried: [],
+      pendingCause: null,
+      pending: [],
+    },
     recording: { recording: null },
     fns: {} as WorkerFns,
   };
@@ -339,6 +383,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
   Object.assign(ctx.fns, createAutosave(ctx));
   Object.assign(ctx.fns, createPresentation(ctx));
   Object.assign(ctx.fns, createDebug(ctx));
+  Object.assign(ctx.fns, createJournal(ctx));
   Object.assign(ctx.fns, createRecording(ctx));
   return ctx;
 }
@@ -396,6 +441,12 @@ export function resetSession(ctx: WorkerContext): void {
   d.traceBatch = 0;
   d.traceInFlight = 0;
   d.traceDropped = 0;
+  ctx.journal.seq = 0;
+  ctx.journal.lastRoom = null;
+  ctx.journal.lastScore = 0;
+  ctx.journal.lastCarried = [];
+  ctx.journal.pendingCause = null;
+  ctx.journal.pending = [];
   ctx.fns.applyTraceChannel();
   ctx.fns.captureStateDiffs();
 }

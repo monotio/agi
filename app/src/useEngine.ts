@@ -120,6 +120,7 @@ export function useEngine(
     debugObjects: [],
     debugTrace: [],
     debugTraceDropped: 0,
+    roomJournal: [],
     showObjView: null,
     debugChannels: { ownership: false, objects: false, trace: false, picture: false },
     debugConsumers: {

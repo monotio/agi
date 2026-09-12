@@ -48,6 +48,7 @@ export function createCycle(ctx: WorkerContext) {
   function finishCycle(): void {
     ctx.cycle.cycleCount++;
     ctx.fns.captureStateDiffs();
+    ctx.fns.noteTransition();
     ctx.fns.flushTraceBatch();
   }
 
@@ -87,11 +88,16 @@ export function createCycle(ctx: WorkerContext) {
             ctx.engine!.hostInteractionPending
           ) {
             tickEngine();
+            ctx.fns.noteTransition();
             ctx.fns.flushTraceBatch();
             ctx.fns.postFrame();
             if (ctx.hostRequests.pendingReenter && !ctx.engine!.hostInteractionPending) {
               // The suspended re-entered room has landed (or been declined).
               ctx.hostRequests.pendingReenter = false;
+              // A landed re-enter already consumed its cause; a declined one
+              // must not leave it armed for the next real transition.
+              ctx.journal.pendingCause = null;
+              ctx.fns.noteTransition();
               ctx.fns.postFrame(true);
             }
           } else if (ctx.clocks.cycle.poll(now, ctx.engine!.vars[10]!)) {

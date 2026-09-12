@@ -12,6 +12,7 @@ import type {
   TraceRecord,
 } from "../../src/runtime/engine.ts";
 import type { AudioMode } from "./audio/AgiAudio.ts";
+import type { RoomTransitionNotice } from "./workerProtocol.ts";
 import type { InstalledGameDescriptor } from "./gameTypes.ts";
 import type { PowerUpUiState } from "./useAuthoringController.ts";
 import type { PromptState } from "./usePromptController.ts";
@@ -102,6 +103,13 @@ export interface EngineState {
   debugTrace: (TraceRecord & { seq: number; cycle: number })[];
   /** Trace records the worker evicted while the host was stalled. */
   debugTraceDropped: number;
+  /**
+   * The world-map journal: every room transition the worker observed, in
+   * order. Entries carry the session and resource revision they were made
+   * under; useRoomMap keys them to the game identity and owns the durable
+   * per-game journal.
+   */
+  roomJournal: RoomTransitionNotice[];
   /** Debug channels the app has armed on the worker. */
   debugChannels: { ownership: boolean; objects: boolean; trace: boolean; picture: boolean };
   /**
