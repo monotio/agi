@@ -17,6 +17,7 @@ import type { LlmConfig } from "./agent/llmClient.ts";
 import { getCachedGameMeta, listCachedGames, type ProjectId } from "./gameStorage.ts";
 import { sha256Hex } from "./crypto.ts";
 import type { BootedGame } from "./gameTypes.ts";
+import type { WorkerInbound } from "./workerProtocol.ts";
 
 export interface WalkthroughUiState {
   active: boolean;
@@ -260,7 +261,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
         seed: artifact.seed,
         seeking: Boolean(target > 0),
         sessionId,
-      });
+      } satisfies WorkerInbound);
     } else if (ctx.isInstalledGame(targetGame)) {
       await ctx.bootGame(findInstalledFolder(ctx.state.installedGames, targetGame));
     } else {
@@ -391,7 +392,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
             audio.stop();
             audio.setPaused(true);
           }
-          ctx.getWorker()?.postMessage({ type: "renderFrame" });
+          ctx.getWorker()?.postMessage({ type: "renderFrame" } satisfies WorkerInbound);
         },
         signal: abortController.signal,
         pauseOnDialog: () => state.walkthrough.pauseOnDialog,
@@ -490,7 +491,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     notifyResume();
     state.walkthrough.status = "stopped";
     if (takeControl) {
-      ctx.getWorker()?.postMessage({ type: "exitReplay" });
+      ctx.getWorker()?.postMessage({ type: "exitReplay" } satisfies WorkerInbound);
       // A replay halted mid-hold must not carry ego's heading into live play.
       ctx.sendDirection(0);
     } else {

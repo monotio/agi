@@ -1,9 +1,10 @@
 import type { Frame } from "./gameTypes.ts";
 import type { ReplayDriver, ReplayObservation } from "./replay.ts";
 import { runReplayBatch } from "./replayRunner.ts";
+import type { WorkerInbound } from "./workerProtocol.ts";
 
 export interface ReplayDriverContext {
-  readonly query: <T>(type: string, extra?: Record<string, unknown>) => Promise<T>;
+  readonly query: <T>(type: WorkerInbound["type"], extra?: Record<string, unknown>) => Promise<T>;
   readonly sendKey: (code: number, sessionId?: number) => void;
   readonly sendDirection: (dir: number, sessionId?: number) => void;
   readonly submitPrompt: (text: string) => void;

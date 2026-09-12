@@ -12,6 +12,7 @@ import {
 } from "./gameRecording.ts";
 import type { BootedGame } from "./gameTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
+import type { WorkerInbound } from "./workerProtocol.ts";
 
 export interface TestRecorderState {
   readonly phase: string;
@@ -25,7 +26,7 @@ export interface TestRecorderState {
 export interface TestRecorderOptions {
   readonly state: TestRecorderState;
   readonly getWorker: () => Worker | null;
-  readonly query: <T>(type: string, extra?: Record<string, unknown>) => Promise<T>;
+  readonly query: <T>(type: WorkerInbound["type"], extra?: Record<string, unknown>) => Promise<T>;
   readonly logAgent: LogAgentFn;
   readonly getBootedGame: () => BootedGame | null;
   readonly getOrCreateSession: (game: BootedGame, config: LlmConfig) => Promise<AgentSession>;
@@ -154,7 +155,7 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
   /** Discard the active recording without saving anything. */
   function cancelTestRecording(): void {
     if (!state.recording.active) return;
-    getWorker()?.postMessage({ type: "cancelRecording" });
+    getWorker()?.postMessage({ type: "cancelRecording" } satisfies WorkerInbound);
     state.recording.active = false;
     recordingStart = null;
     logAgent("log", "Game test recording discarded.");
@@ -190,7 +191,7 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
     worker.postMessage({
       type: "patchMetadata",
       files: { "TESTS.JSON": new Uint8Array(author.state.testsPayload!) },
-    });
+    } satisfies WorkerInbound);
     const files = await query<Record<string, Uint8Array> | null>("exportFiles");
     if (!files || options.getBootedGame() !== game)
       return { ok: false, message: "The game changed while saving the recording. Try again." };

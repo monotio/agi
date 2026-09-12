@@ -1,79 +1,31 @@
 /// <reference types="vite/client" />
 /**
  * Engine worker: hosts the authentic interpreter off the main thread.
- *
- * Messages in:
- *   { type: "boot", files, words, autosaveMs?, autosaveFiles?, restoreImage? }
- *   { type: "pause", paused }              remix freeze; acknowledged by "paused"
- *   { type: "input", text: string }        player pressed Enter on the input line
- *   { type: "key", code }                  key press; answers a parked key wait
- *   { type: "direction", dir: number }     movement key press (0 = tracked key release)
- *   { type: "hostAnswer", id, response }   reply to a posted hostRequest
- *   { type: "startRecording" / "stopRecording" / "cancelRecording", id }
- *                                          player-action capture for a stored game test
- *   { type: "flush" }                      take an autosave now (page is going away)
- *   { type: "debug", channels }            arm inspector channels: ownership,
- *                                          objects, trace
- *   { type: "debugWrite", vars, flags }    apply [index, value] pairs at a
- *                                          cycle boundary (Sierra SET VAR /
- *                                          SET FLAG debug actions)
- *   { type: "debugEvents", id, since }     per-cycle var/flag diff ring
- *   { type: "debugTrace", id, since }      instruction trace ring
- *
- * Messages out:
- *   { type: "frame", visual, priority, text, picRow, modal, textMode, edit,
- *     cycle, ownership?, objects? }        transferable copies, sent when
- *                                          changed; text = 40x25 [char, attr]
- *                                          cells; ownership/objects only when
- *                                          the matching debug channel is armed
- *   { type: "trace", records }             batched structured instruction
- *                                          records while the trace channel
- *                                          is armed
- *   { type: "print", text }                modal message from the game
- *   { type: "status", text }               status line
- *   { type: "shake", count }               0x6e shake.screen
- *   { type: "showObj", viewNum }           0x81/0xa2 modal view popup
- *   { type: "showPri" }                    0x1d modal priority-surface view
- *   { type: "statusScreen", items }        0x7c modal inventory list
- *   { type: "autosave", image, preview?, cycle, room, files? }
- *                                          host-initiated snapshot (no save.game
- *                                          involved); `files` carries the live
- *                                          container only when a patch landed
- *                                          since the last one and the host asked
- *                                          for it (never for installed originals)
- *   { type: "restored", ok, message? }     outcome of a restoreImage request
- *   { type: "flushed", id, taken }         a flush request finished; `taken` is
- *                                          false when the boundary refused it
- *   { type: "log", text }                  0x90/0x85/0x87 debug log stream
- *   { type: "cycle", cycle, room, egoX, egoY }
- *                                          liveness heartbeat, approximately 4 Hz
- *   { type: "hostRequest", id, op, context }
- *                                          a suspended host service — prompt,
- *                                          save slot, restore, room authoring
- *   { type: "waitingForKey", waiting }     a parked key wait opened or closed
- *   { type: "paused", paused }             acknowledgement of a pause message
- *   { type: "booted", profile }            first cycles completed
- *   { type: "error", message }
+ * Message shapes are defined once in workerProtocol.ts — WorkerInbound in,
+ * WorkerControl and WorkerPresentation out — and both dispatchers typecheck
+ * against them.
  */
 import { prepareRoomPatch } from "../../src/agent/roomPatch.ts";
 import { buildWordsTok, parseWordsTok } from "../../src/logic/words.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { OperationRecorder } from "../../src/agent/recordedReplay.ts";
 import type { RecordedEvent } from "./gameRecording.ts";
-import {
-  Engine,
-  HostWait,
-  type EngineHost,
-  type EngineMenuState,
-  type TraceRecord,
-} from "../../src/runtime/engine.ts";
+import { Engine, HostWait, type EngineHost } from "../../src/runtime/engine.ts";
 import { AGI_KEY, DIRECTION_KEYS, NAV_KEYS } from "../../src/runtime/keys.ts";
-import type { LlmRequest } from "./agent/hostRequests.ts";
 import { FrameRing } from "./frameRing.ts";
 import { CycleClock } from "../../src/runtime/cycleClock.ts";
 import { SoundClock } from "./soundClock.ts";
 import type { ReplayObservation } from "./replay.ts";
 import { createProgressPreview } from "./progressPreview.ts";
+import type {
+  BootMessage,
+  DebugEvent,
+  HostRequestOp,
+  StampedTrace,
+  WorkerControl,
+  WorkerInbound,
+  WorkerPresentation,
+} from "./workerProtocol.ts";
 
 /** Save-file image as base64: worker messages and localStorage both carry text. */
 function bytesToBase64(bytes: Uint8Array): string {
@@ -92,52 +44,23 @@ function base64ToBytes(text: string): Uint8Array {
   return bytes;
 }
 
-interface BootMsg {
-  type: "boot";
-  files: Record<string, Uint8Array>;
-  words: [string, number][];
-  sessionId?: number;
-  /** Browser-selected sound device: 0 speaker, 1 four-channel output. */
-  soundDevice?: number;
-  /** Autosave cadence override; the host owns the policy, the worker the timing. */
-  autosaveMs?: number;
-  /**
-   * Ship the patched container along with an autosave when a patch landed.
-   * Enabled for cached worlds, including locally imported ZIPs.
-   * Explicit export uses a separate request and works for any loaded game.
-   */
-  autosaveFiles?: boolean;
-  authorRooms?: boolean;
-  /**
-   * base64 save image to restore into the freshly booted engine (autosave
-   * resume). Applied BEFORE the first cycle: the alternative, a message sent
-   * once `booted` arrives, races the game's own first cycles — and a title
-   * screen that parks on have.key() would block the worker before it could be
-   * delivered at all.
-   */
-  restoreImage?: string;
-  restoreMenus?: EngineMenuState;
-  /** Test-mode host clock and reproducible random input. */
-  replaySeed?: number;
-}
-
 let engine: Engine | null = null;
 let isSeeking = false;
 let currentSessionId = 0;
 
-function sendControl(message: unknown, options?: unknown): void {
-  if (message && typeof message === "object" && currentSessionId > 0 && !("sessionId" in message)) {
+function sendControl(message: WorkerControl, options?: Transferable[]): void {
+  if (currentSessionId > 0 && !("sessionId" in message)) {
     (message as Record<string, unknown>)["sessionId"] = currentSessionId;
   }
-  self.postMessage(message, options as StructuredSerializeOptions);
+  self.postMessage(message, options ?? []);
 }
 
-function sendPresentation(message: unknown, options?: unknown): void {
+function sendPresentation(message: WorkerPresentation, options?: Transferable[]): void {
   if (isSeeking) return;
-  if (message && typeof message === "object" && currentSessionId > 0 && !("sessionId" in message)) {
+  if (currentSessionId > 0 && !("sessionId" in message)) {
     (message as Record<string, unknown>)["sessionId"] = currentSessionId;
   }
-  self.postMessage(message, options as StructuredSerializeOptions);
+  self.postMessage(message, options ?? []);
 }
 
 let authorRooms = false;
@@ -296,16 +219,16 @@ function autosave(force: boolean): boolean {
     return false;
   }
   if (!image) return false;
-  const msg: Record<string, unknown> = {
+  const msg: Extract<WorkerPresentation, { type: "autosave" }> = {
     type: "autosave",
     image: bytesToBase64(image),
     menus: engine.readMenuState(),
     cycle: cycleCount,
-    room: engine.vars[0],
+    room: engine.vars[0]!,
   };
   try {
     const presentation = engine.getPresentation();
-    msg["preview"] = createProgressPreview({
+    msg.preview = createProgressPreview({
       visual: presentation.visual,
       text: presentation.text,
       picRow: engine.displayBase,
@@ -320,7 +243,7 @@ function autosave(force: boolean): boolean {
     const files: Record<string, Uint8Array> = {};
     for (const [name, bytes] of engine.containerFiles) files[name] = bytes.slice();
     if (authoredWords) files["WORDS.TOK"] = authoredWords;
-    msg["files"] = files;
+    msg.files = files;
     lastPatchGeneration = engine.patchGeneration;
   }
   sendPresentation(msg);
@@ -344,15 +267,6 @@ const historyRing = new FrameRing(60);
  */
 const debug = { ownership: false, objects: false, trace: false, picture: false };
 
-/** One observed interpreter-state write, attributed to a completed cycle. */
-interface DebugEvent {
-  seq: number;
-  cycle: number;
-  kind: "var" | "flag";
-  index: number;
-  from: number;
-  to: number;
-}
 const DEBUG_EVENT_CAP = 4000;
 const debugEvents: DebugEvent[] = [];
 let debugEventSeq = 0;
@@ -399,8 +313,6 @@ function captureStateDiffs(): void {
     debugEvents.splice(0, debugEvents.length - DEBUG_EVENT_CAP);
 }
 
-/** Trace records carry their interpreter cycle plus a stream sequence. */
-type StampedTrace = TraceRecord & { seq: number; cycle: number };
 const TRACE_CAP = 4000;
 const TRACE_POST_MAX = 500;
 const traceRing: StampedTrace[] = [];
@@ -467,8 +379,6 @@ function advanceSoundClock(authoring = false): void {
     recordedClock();
   }
 }
-
-type HostRequestOp = LlmRequest["op"];
 
 /**
  * Post a host-service request as an ordinary worker message and suspend the
@@ -939,7 +849,7 @@ function captureFrame(frame: ReturnType<Engine["getPresentation"]>): void {
  * Serve a frames request. `stride` 1 reads the full-rate ring; anything
  * coarser than the full-rate ring's span falls back to the 1 Hz history.
  */
-function serveFrames(id: unknown, count: number, stride: number, since: number | null): void {
+function serveFrames(id: number, count: number, stride: number, since: number | null): void {
   const n = Math.max(1, Math.min(64, Math.floor(count)));
   const step = Math.max(1, Math.floor(stride));
   const useHistory = step * n > recentRing.capacity;
@@ -993,7 +903,7 @@ function startTimers(): void {
           if (pendingReenter && !engine!.hostInteractionPending) {
             // The suspended re-entered room has landed (or been declined).
             pendingReenter = false;
-            sendControl({ type: "reentered", room: engine!.vars[0] });
+            sendControl({ type: "reentered", room: engine!.vars[0]! });
             postFrame(true);
           }
         } else if (cycleClock.poll(now, engine!.vars[10]!)) {
@@ -1023,7 +933,7 @@ function startTimers(): void {
 }
 
 self.onmessage = (ev: MessageEvent) => {
-  const msg = ev.data;
+  const msg = ev.data as WorkerInbound;
   try {
     if (msg.type === "pause") {
       paused = msg.paused === true;
@@ -1054,7 +964,8 @@ self.onmessage = (ev: MessageEvent) => {
       if (replay && !engine.awaitingHostAnswer) postReplay(null, true);
       return;
     }
-    if (msg.type === "replayAdvance" && replay && engine) {
+    if (msg.type === "replayAdvance") {
+      if (!replay || !engine) return;
       if (typeof msg.sessionId === "number") currentSessionId = msg.sessionId;
       const ticks = Number(msg.ticks);
       if (!Number.isInteger(ticks) || ticks < 0 || ticks > 100_000)
@@ -1124,11 +1035,13 @@ self.onmessage = (ev: MessageEvent) => {
       advanceChunk();
       return;
     }
-    if (msg.type === "renderFrame" && engine) {
-      isSeeking = false;
-      lastVisual = null;
-      lastText = null;
-      postFrame();
+    if (msg.type === "renderFrame") {
+      if (engine) {
+        isSeeking = false;
+        lastVisual = null;
+        lastText = null;
+        postFrame();
+      }
       return;
     }
     if (msg.type === "frames") {
@@ -1152,12 +1065,12 @@ self.onmessage = (ev: MessageEvent) => {
       return;
     }
     if (msg.type === "debug") {
-      const want = (msg.channels ?? {}) as Record<string, unknown>;
+      const want = msg.channels ?? {};
       const traceWas = debug.trace;
-      debug.ownership = want["ownership"] === true;
-      debug.objects = want["objects"] === true;
-      debug.trace = want["trace"] === true;
-      debug.picture = want["picture"] === true;
+      debug.ownership = want.ownership === true;
+      debug.objects = want.objects === true;
+      debug.trace = want.trace === true;
+      debug.picture = want.picture === true;
       if (debug.trace !== traceWas) applyTraceChannel();
       // Invalidate the sameness check so a newly armed channel ships with the
       // next frame and a disarmed one clears promptly.
@@ -1166,11 +1079,12 @@ self.onmessage = (ev: MessageEvent) => {
       postFrame();
       return;
     }
-    if (msg.type === "debugWrite" && engine) {
+    if (msg.type === "debugWrite") {
+      if (!engine) return;
       if (Array.isArray(msg.vars))
-        for (const pair of msg.vars as number[][]) engine.vars[pair[0]! & 0xff] = pair[1]! & 0xff;
+        for (const pair of msg.vars) engine.vars[pair[0]! & 0xff] = pair[1]! & 0xff;
       if (Array.isArray(msg.flags))
-        for (const pair of msg.flags as number[][]) engine.flags[pair[0]! & 0xff] = pair[1] ? 1 : 0;
+        for (const pair of msg.flags) engine.flags[pair[0]! & 0xff] = pair[1] ? 1 : 0;
       // Attribute the host write to the current boundary, not the next cycle.
       captureStateDiffs();
       sendControl({ type: "debugWritten", id: msg.id });
@@ -1279,7 +1193,8 @@ self.onmessage = (ev: MessageEvent) => {
       sendControl({ type: "exportFiles", id: msg.id, files });
       return;
     }
-    if (msg.type === "reenter" && engine) {
+    if (msg.type === "reenter") {
+      if (!engine) return;
       if (recording) recording.tainted = "Game resources changed during recording.";
       // A suspended interaction is abandoned: its parked continuation is
       // meaningless once the room's resources change under it, and the
@@ -1305,12 +1220,12 @@ self.onmessage = (ev: MessageEvent) => {
         return;
       }
       postFrame(true);
-      sendControl({ type: "reentered", room: engine.vars[0] });
+      sendControl({ type: "reentered", room: engine.vars[0]! });
       return;
     }
     if (msg.type === "boot") {
       initialLogicStarted = false;
-      const boot = msg as BootMsg;
+      const boot: BootMessage = msg;
       currentSessionId = typeof boot.sessionId === "number" ? boot.sessionId : 0;
       replay = Number.isInteger(boot.replaySeed)
         ? { tick: 0, revision: 0, random: boot.replaySeed! >>> 0 }
@@ -1417,7 +1332,8 @@ self.onmessage = (ev: MessageEvent) => {
       sendControl({ type: "exitedReplay" });
       return;
     }
-    if (msg.type === "resetReplay" && currentBootFiles && currentDictionary) {
+    if (msg.type === "resetReplay") {
+      if (!currentBootFiles || !currentDictionary) return;
       if (typeof msg.sessionId === "number") currentSessionId = msg.sessionId;
       initialLogicStarted = false;
       isSeeking = Boolean(msg.seeking);
@@ -1490,8 +1406,9 @@ self.onmessage = (ev: MessageEvent) => {
       });
       return;
     }
-    if (msg.type === "patchMetadata" && engine) {
-      const files = msg.files as Partial<Record<"WORDS.TOK" | "OBJECT" | "TESTS.JSON", Uint8Array>>;
+    if (msg.type === "patchMetadata") {
+      if (!engine) return;
+      const files = msg.files;
       if (recording && (files["WORDS.TOK"] || files["OBJECT"]))
         recording.tainted = "Game resources changed during recording.";
       const words = files["WORDS.TOK"] ? new Uint8Array(files["WORDS.TOK"]) : undefined;
@@ -1512,12 +1429,14 @@ self.onmessage = (ev: MessageEvent) => {
       sendControl({ type: "metadataPatched" });
       return;
     }
-    if (msg.type === "patch" && engine) {
+    if (msg.type === "patch") {
+      if (!engine) return;
       if (recording) recording.tainted = "Game resources changed during recording.";
       engine.patchResource(msg.kind, msg.num, new Uint8Array(msg.payload));
       return;
     }
-    if (msg.type === "soundEnabled" && engine) {
+    if (msg.type === "soundEnabled") {
+      if (!engine) return;
       recording?.tape.record(["soundEnabled", msg.enabled ? 1 : 0]);
       engine.setSoundEnabled(msg.enabled);
       postFrame();
@@ -1537,7 +1456,8 @@ self.onmessage = (ev: MessageEvent) => {
       inputBuffer.push(text);
       return;
     }
-    if (msg.type === "edit" && engine) {
+    if (msg.type === "edit") {
+      if (!engine) return;
       // Live mirror of the host's input widget onto the engine's input row.
       recording?.tape.record(["edit", String(msg.text)]);
       engine.setEditLine(String(msg.text));
@@ -1546,7 +1466,8 @@ self.onmessage = (ev: MessageEvent) => {
       postFrame();
       return;
     }
-    if (msg.type === "dismissPrint" && engine) {
+    if (msg.type === "dismissPrint") {
+      if (!engine) return;
       recording?.tape.record(["ack"]);
       recordEvent({ cycle: cycleCount, kind: "key", code: AGI_KEY.ENTER });
       const pending = engine.hostInteraction;
@@ -1589,7 +1510,8 @@ self.onmessage = (ev: MessageEvent) => {
       deliverQueuedKey();
       return;
     }
-    if (msg.type === "direction" && engine) {
+    if (msg.type === "direction") {
+      if (!engine) return;
       if (
         replay &&
         typeof msg.sessionId === "number" &&
@@ -1637,6 +1559,9 @@ self.onmessage = (ev: MessageEvent) => {
       }
       return;
     }
+    // A message type with no handler fails typecheck here.
+    const unhandled: never = msg;
+    void unhandled;
   } catch (e) {
     sendControl({ type: "error", message: String(e) });
   }

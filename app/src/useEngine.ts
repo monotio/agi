@@ -10,7 +10,6 @@ import { detectKnownGame, gameRevision, updateBootedResources } from "./gameMeta
 import { clearGameSaves } from "./gameSaves.ts";
 import { createAgentLogger, type AgentLogEntry, type AgentLogAudio } from "./agent/agentLog.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
-import type { SoundOutput } from "../../src/sound/sound.ts";
 import type { ReplayObservation } from "./replay.ts";
 import { createReplayDriver } from "./useReplayDriver.ts";
 import {
@@ -66,6 +65,7 @@ import {
   resolveFixtureTarget,
 } from "./gameDiscovery.ts";
 import { createWorkerQueries } from "./workerQueries.ts";
+import type { WorkerInbound, WorkerOutbound } from "./workerProtocol.ts";
 export type { PromptState };
 
 /** Engine modal kinds (the engine draws them on its text surface). */
@@ -443,7 +443,7 @@ export function useEngine(
         words,
         autosaveFiles: true,
         ...(await autosaveController.takeResumeState(files)),
-      });
+      } satisfies WorkerInbound);
     } catch (e) {
       state.phase = "error";
       state.error = String(e);
@@ -453,7 +453,7 @@ export function useEngine(
   /** Acknowledge the engine's open modal (click path); the worker resumes ticking. */
   function dismissModal(): void {
     if (state.modal === null) return;
-    worker?.postMessage({ type: "dismissPrint" });
+    worker?.postMessage({ type: "dismissPrint" } satisfies WorkerInbound);
   }
 
   function resetScreenState(): void {
@@ -519,47 +519,51 @@ export function useEngine(
   }
 
   function wireWorker(w: Worker): void {
-    const resolveQueryPayload = (msg: Record<string, unknown>) =>
-      msg["type"] === "frames"
-        ? msg["frames"]
-        : msg["type"] === "objects"
-          ? msg["objects"]
-          : msg["type"] === "exportFiles"
-            ? msg["files"]
-            : msg["type"] === "checkpoint"
-              ? msg["image"]
-              : msg["state"];
-    const handlers: Record<string, (msg: Record<string, unknown>) => void> = {
+    const resolveQueryPayload = (msg: WorkerOutbound) =>
+      msg.type === "frames"
+        ? msg.frames
+        : msg.type === "objects"
+          ? msg.objects
+          : msg.type === "exportFiles"
+            ? msg.files
+            : msg.type === "checkpoint"
+              ? msg.image
+              : "state" in msg
+                ? msg.state
+                : undefined;
+    const handlers: {
+      [K in WorkerOutbound["type"]]?: (msg: Extract<WorkerOutbound, { type: K }>) => void;
+    } = {
       // The worker's acknowledgement that the freeze landed — the hook reads
       // the real pause state, not the request.
       paused: (msg) => {
-        hook.paused = Boolean(msg["paused"]);
+        hook.paused = msg.paused;
       },
       // The worker parks on a player key (have.key, a selector, a
       // confirmation) without posting a host request; this flag mirrors that
       // wait so input routing and hints know a raw key resumes the game.
       waitingForKey: (msg) => {
-        state.waitingForKey = Boolean(msg["waiting"]);
+        state.waitingForKey = msg.waiting;
       },
       // The worker suspended on a host service. The request id settles the
       // handshake: the matching hostAnswer resumes the parked interaction,
       // and a stale id — the interaction was abandoned — is dropped there.
       hostRequest: (msg) => {
-        const id = Number(msg["id"]);
-        const req = {
-          op: msg["op"],
-          context: (msg["context"] ?? {}) as Record<string, unknown>,
-        } as LlmRequest;
+        const id = msg.id;
+        const req: LlmRequest = {
+          op: msg.op,
+          context: msg.context,
+        };
         logAgent("request", `${req.op} ${JSON.stringify(req.context)}`);
         hostRequestHandler(currentSessionAgent)
           .handle(req)
           .then((response) => {
             logAgent("response", response.slice(0, 120));
-            w.postMessage({ type: "hostAnswer", id, response });
+            w.postMessage({ type: "hostAnswer", id, response } satisfies WorkerInbound);
           })
           .catch((e) => {
             logAgent("response", `agent error: ${String(e)}`);
-            w.postMessage({ type: "hostAnswer", id, response: "" });
+            w.postMessage({ type: "hostAnswer", id, response: "" } satisfies WorkerInbound);
           });
       },
       // The worker abandoned a suspended interaction (reenter, superseded
@@ -569,91 +573,71 @@ export function useEngine(
         promptController.cancelPrompt();
       },
       frame: (msg) => {
-        state.inputEnabled = Boolean(msg["inputEnabled"]);
-        state.inputReady = Boolean(msg["inputReady"]);
-        state.holdToMove = Boolean(msg["holdToMove"]);
-        publishText(
-          msg["text"] as Uint8Array,
-          (msg["modal"] as ModalKind | null) ?? null,
-          Boolean(msg["textMode"]),
-        );
+        state.inputEnabled = msg.inputEnabled;
+        state.inputReady = msg.inputReady;
+        state.holdToMove = msg.holdToMove;
+        publishText(msg.text, (msg.modal as ModalKind | null) ?? null, msg.textMode);
         latestFrame = {
-          visual: msg["visual"] as Uint8Array,
-          priority: msg["priority"] as Uint8Array,
-          text: msg["text"] as Uint8Array,
-          picRow: Number(msg["picRow"]),
-          cycle: Number(msg["cycle"] ?? 0),
+          visual: msg.visual,
+          priority: msg.priority,
+          text: msg.text,
+          picRow: msg.picRow,
+          cycle: msg.cycle,
         };
         // Armed debug channels ride the frame; absence clears the mirror so a
         // disarmed channel never leaves stale data in the inspector.
-        const ownership = msg["ownership"] as Uint16Array | undefined;
-        if (ownership) latestFrame.ownership = ownership;
-        const objects = msg["objects"] as Frame["objects"];
-        if (objects) latestFrame.objects = objects;
-        const picVisual = msg["picVisual"] as Uint8Array | undefined;
-        const picPriority = msg["picPriority"] as Uint8Array | undefined;
-        if (picVisual && picPriority) {
-          latestFrame.picVisual = picVisual;
-          latestFrame.picPriority = picPriority;
+        if (msg.ownership) latestFrame.ownership = msg.ownership;
+        if (msg.objects) latestFrame.objects = msg.objects;
+        if (msg.picVisual && msg.picPriority) {
+          latestFrame.picVisual = msg.picVisual;
+          latestFrame.picPriority = msg.picPriority;
         }
-        state.debugObjects = objects ?? [];
+        state.debugObjects = msg.objects ?? [];
         onFrame(latestFrame);
         // Counted after the frame is drawn, so tests can poll for painted pixels.
         hook.frame++;
         publishHook();
       },
       controls: (msg) => {
-        state.controls = msg["controls"] as typeof state.controls;
+        state.controls = msg.controls;
       },
       inputEdit: (msg) => {
-        state.gameEdit = { text: String(msg["text"]) };
+        state.gameEdit = { text: msg.text };
       },
-      print: (msg) => logAgent("log", `print: ${String(msg["text"])}`),
+      print: (msg) => logAgent("log", `print: ${msg.text}`),
       status: (msg) => {
-        state.status = msg["text"] as string;
+        state.status = msg.text;
       },
       shake: (msg) => {
         state.shake = true;
         clearTimeout(shakeTimer ?? undefined);
-        shakeTimer = setTimeout(
-          () => {
-            state.shake = false;
-            shakeTimer = null;
-          },
-          Number(msg["count"]) * 100,
-        ) as unknown as number;
+        shakeTimer = setTimeout(() => {
+          state.shake = false;
+          shakeTimer = null;
+        }, msg.count * 100) as unknown as number;
       },
       soundEnabled: (msg) => {
-        state.soundMuted = !msg["enabled"];
+        state.soundMuted = !msg.enabled;
         audio.setMuted(state.soundMuted);
       },
       sound: () => {
         state.soundPlaying = true;
       },
-      soundOutput: (msg) => audio.output(msg["output"] as SoundOutput),
-      soundPaused: (msg) => audio.setPaused(Boolean(msg["paused"]) || state.paused),
+      soundOutput: (msg) => audio.output(msg.output),
+      soundPaused: (msg) => audio.setPaused(msg.paused || state.paused),
       stopSound: () => {
         state.soundPlaying = false;
         audio.stop();
       },
-      autosave: (msg) =>
-        autosaveController.handleAutosave(
-          msg as Parameters<typeof autosaveController.handleAutosave>[0],
-        ),
-      flushed: (msg) =>
-        autosaveController.handleFlushed(
-          msg as Parameters<typeof autosaveController.handleFlushed>[0],
-        ),
-      restored: (msg) =>
-        autosaveController.handleRestored(
-          msg as Parameters<typeof autosaveController.handleRestored>[0],
-        ),
-      recordingStarted: (msg) => workerQueries.resolveQuery(Number(msg["id"]), msg),
-      recordingStopped: (msg) => workerQueries.resolveQuery(Number(msg["id"]), msg),
-      log: (msg) => logAgent("log", String(msg["text"])),
+      autosave: (msg) => autosaveController.handleAutosave(msg),
+      flushed: (msg) => autosaveController.handleFlushed(msg),
+      restored: (msg) => autosaveController.handleRestored(msg),
+      recordingStarted: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      recordingStopped: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      log: (msg) => logAgent("log", msg.text),
       replay: (msg) => {
         if (!replayDriver) return;
-        const obs = msg["observation"] as ReplayObservation;
+        const obs = msg.observation;
         if (
           typeof obs.sessionId === "number" &&
           obs.sessionId !== 0 &&
@@ -663,7 +647,7 @@ export function useEngine(
         }
         replayDriver.latest = obs;
         state.inputReady = true;
-        state.inputEnabled = Boolean(obs.state.inputEnabled);
+        state.inputEnabled = obs.state.inputEnabled;
         state.modal = (obs.state.modalKind as ModalKind | null) ?? null;
         // Lean observations carry no rows; frame messages keep the surface fresh.
         if (obs.rows.length > 0) {
@@ -677,26 +661,25 @@ export function useEngine(
         hook.egoY = obs.state.egoY;
         publishHook();
         for (const listener of observationListeners) listener(replayDriver.latest);
-        workerQueries.resolveQuery(Number(msg["id"]), replayDriver.latest);
+        workerQueries.resolveQuery(Number(msg.id), replayDriver.latest);
       },
-      frames: (msg) => workerQueries.resolveQuery(Number(msg["id"]), resolveQueryPayload(msg)),
-      engineState: (msg) => workerQueries.resolveQuery(Number(msg["id"]), resolveQueryPayload(msg)),
-      objects: (msg) => workerQueries.resolveQuery(Number(msg["id"]), resolveQueryPayload(msg)),
+      frames: (msg) => workerQueries.resolveQuery(msg.id, resolveQueryPayload(msg)),
+      engineState: (msg) => workerQueries.resolveQuery(msg.id, resolveQueryPayload(msg)),
+      objects: (msg) => workerQueries.resolveQuery(msg.id, resolveQueryPayload(msg)),
       trace: (msg) => {
-        const records = msg["records"] as typeof state.debugTrace;
-        state.debugTrace.push(...records);
+        state.debugTrace.push(...msg.records);
         if (state.debugTrace.length > 4000)
           state.debugTrace.splice(0, state.debugTrace.length - 4000);
       },
-      debugEvents: (msg) => workerQueries.resolveQuery(Number(msg["id"]), msg),
-      debugTrace: (msg) => workerQueries.resolveQuery(Number(msg["id"]), msg),
-      debugWritten: (msg) => workerQueries.resolveQuery(Number(msg["id"]), msg),
-      exportFiles: (msg) => workerQueries.resolveQuery(Number(msg["id"]), resolveQueryPayload(msg)),
+      debugEvents: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      debugTrace: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      debugWritten: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      exportFiles: (msg) => workerQueries.resolveQuery(msg.id, resolveQueryPayload(msg)),
       cycle: (msg) => {
-        hook.cycle = Number(msg["cycle"]);
-        hook.room = Number(msg["room"] ?? 0);
-        hook.egoX = Number(msg["egoX"] ?? 0);
-        hook.egoY = Number(msg["egoY"] ?? 0);
+        hook.cycle = msg.cycle;
+        hook.room = msg.room;
+        hook.egoX = msg.egoX;
+        hook.egoY = msg.egoY;
         if (typeof window !== "undefined") window.__AGI_TEXT__ = hook;
       },
       booted: (msg) => {
@@ -710,14 +693,14 @@ export function useEngine(
         state.phase = "running";
         state.error = "";
         // The worker reports the profile it detected from the shipped files.
-        const profile = typeof msg["profile"] === "string" ? msg["profile"] : null;
+        const profile = typeof msg.profile === "string" ? msg.profile : null;
         state.profile = profile;
         hook.profile = profile;
         publishHook();
       },
       error: (msg) => {
         state.phase = "error";
-        state.error = msg["message"] as string;
+        state.error = msg.message;
       },
       quit: () => {
         ejectGame();
@@ -725,15 +708,16 @@ export function useEngine(
     };
     w.onmessage = (ev: MessageEvent) => {
       if (worker !== w) return;
-      const msg = ev.data as Record<string, unknown>;
+      const msg = ev.data as WorkerOutbound;
+      const sessionId = "sessionId" in msg ? msg.sessionId : undefined;
       if (
-        typeof msg["sessionId"] === "number" &&
-        msg["sessionId"] > 0 &&
-        msg["sessionId"] !== activeWalkthroughSession
+        typeof sessionId === "number" &&
+        sessionId > 0 &&
+        sessionId !== activeWalkthroughSession
       ) {
         return;
       }
-      handlers[String(msg["type"])]?.(msg);
+      (handlers[msg.type] as ((m: WorkerOutbound) => void) | undefined)?.(msg);
     };
   }
 
@@ -743,7 +727,7 @@ export function useEngine(
    * whole point: the agent inspects a frozen game.
    */
   function query<T>(
-    type: string,
+    type: WorkerInbound["type"],
     extra: Record<string, unknown> = {},
     timeoutMs?: number,
   ): Promise<T> {
@@ -764,7 +748,10 @@ export function useEngine(
     channels: Partial<{ ownership: boolean; objects: boolean; trace: boolean; picture: boolean }>,
   ): void {
     Object.assign(state.debugChannels, channels);
-    worker?.postMessage({ type: "debug", channels: { ...state.debugChannels } });
+    worker?.postMessage({
+      type: "debug",
+      channels: { ...state.debugChannels },
+    } satisfies WorkerInbound);
   }
 
   /**
@@ -802,13 +789,13 @@ export function useEngine(
    * worker's `paused` reply mirrors the real state into the test hook.
    */
   function pauseEngine(): void {
-    worker?.postMessage({ type: "pause", paused: true });
+    worker?.postMessage({ type: "pause", paused: true } satisfies WorkerInbound);
     audio.setPaused(true);
     state.paused = true;
   }
 
   function resumeEngine(): void {
-    worker?.postMessage({ type: "pause", paused: false });
+    worker?.postMessage({ type: "pause", paused: false } satisfies WorkerInbound);
     audio.setPaused(false);
     state.paused = false;
   }
@@ -1035,7 +1022,7 @@ export function useEngine(
             autosaveFiles: true,
             authorRooms: Boolean(cached.roomGeneration),
             ...(await autosaveController.takeResumeState(cached.files)),
-          });
+          } satisfies WorkerInbound);
           return;
         }
         throw new Error(
@@ -1116,7 +1103,7 @@ export function useEngine(
         autosaveFiles: true,
         authorRooms: true,
         ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
-      });
+      } satisfies WorkerInbound);
     } catch (e) {
       state.phase = "error";
       state.error = String(e);

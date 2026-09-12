@@ -18,6 +18,7 @@ import {
 } from "./gameStorage.ts";
 import { gameStorageKey, type BootedGame } from "./gameTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
+import type { WorkerInbound } from "./workerProtocol.ts";
 
 /** Remix bubble state; the transcript slice is the live tool-call feed. */
 export interface PowerUpUiState {
@@ -47,7 +48,7 @@ export interface AuthoringControllerOptions {
     readonly profile: string | null;
   };
   readonly getWorker: () => Worker | null;
-  readonly query: <T>(type: string, extra?: Record<string, unknown>) => Promise<T>;
+  readonly query: <T>(type: WorkerInbound["type"], extra?: Record<string, unknown>) => Promise<T>;
   readonly logAgent: LogAgentFn;
   readonly readFrames: (req: FrameRequest) => Promise<AgentFrame[]>;
   readonly pauseEngine: () => void;
@@ -436,11 +437,11 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       state.powerUp.messages.push({ role: "assistant", text });
       remixNeedsSave = true;
       const worker = getWorker();
-      if (files) worker?.postMessage({ type: "patchMetadata", files });
+      if (files) worker?.postMessage({ type: "patchMetadata", files } satisfies WorkerInbound);
       for (const res of patched) {
         const payload = new Uint8Array(res.payload);
         worker?.postMessage(
-          { type: "patch", kind: res.kind, num: res.num, payload: payload.buffer },
+          { type: "patch", kind: res.kind, num: res.num, payload } satisfies WorkerInbound,
           [payload.buffer],
         );
       }
@@ -457,7 +458,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       );
       if (touchedRoom) {
         logAgent("log", `Re-entering room ${room} so the patch takes effect.`);
-        worker?.postMessage({ type: "reenter", room });
+        worker?.postMessage({ type: "reenter", room } satisfies WorkerInbound);
       }
       await flushAutosave(2000);
       state.powerUp.open = false;
