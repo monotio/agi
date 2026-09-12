@@ -21,6 +21,7 @@ import type {
 import { createInput } from "./input.ts";
 import { createHostRequests } from "./hostRequests.ts";
 import { createReplay } from "./replay.ts";
+import { createCycle } from "./cycle.ts";
 
 /** The only platform access worker modules get: the post boundary and a clock. */
 export interface WorkerPorts {
@@ -304,6 +305,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
   Object.assign(ctx.fns, createInput(ctx));
   Object.assign(ctx.fns, createHostRequests(ctx));
   Object.assign(ctx.fns, createReplay(ctx));
+  Object.assign(ctx.fns, createCycle(ctx));
   return ctx;
 }
 

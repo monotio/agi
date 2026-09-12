@@ -53,41 +53,6 @@ function recordEvent(event: RecordedEvent): void {
   }
   ctx.recording.recording.events.push(event);
 }
-function tickEngine(): void {
-  if (!ctx.engine) return;
-  ctx.cycle.initialLogicStarted = true;
-  // A suspended interaction freezes the cycle until its answer lands — the
-  // gate inside tick() is the same, but skipping here keeps the recorder's
-  // operation list honest: a parked tick never runs.
-  if (ctx.engine.hostInteractionPending && !ctx.engine.hostInteractionReady) return;
-  if (ctx.recording.recording) {
-    ctx.recording.recording.tape.run("tick", () => ctx.engine!.tick());
-    // A tick that ended suspended stays one recorded operation: the resumed
-    // answer and the calls it produces join the same list on the next tick.
-    if (ctx.engine!.awaitingHostAnswer) ctx.recording.recording.tape.holdTick();
-  } else ctx.engine.tick();
-}
-function recordedClock(): void {
-  ctx.recording.recording?.tape.clock();
-  ctx.engine?.advanceClock(1000 / 60);
-  ctx.engine?.soundTick();
-}
-function stopTimers(): void {
-  if (ctx.cycle.timer !== null) {
-    clearInterval(ctx.cycle.timer);
-    ctx.cycle.timer = null;
-  }
-  if (ctx.cycle.soundTimer !== null) {
-    clearInterval(ctx.cycle.soundTimer);
-    ctx.cycle.soundTimer = null;
-  }
-}
-/** Poll input/modal services at display cadence; v10 separately gates logic cycles. */
-const HOST_POLL_MS = 1000 / 60;
-
-/** Liveness observations stay responsive at slow game-selected cycle speeds. */
-const CYCLE_REPORT_MS = 250;
-
 /**
  * Autosave cadence. Five seconds is the
  * cheapest interval that is still invisible: one snapshot is a serialize() of
@@ -220,22 +185,6 @@ function flushTraceBatch(): void {
   sendPresentation({ type: "trace", records: ctx.debug.pendingTrace.splice(0, TRACE_POST_MAX) });
 }
 
-/** Completed interpreter cycle: count it, attribute state writes, ship trace. */
-function finishCycle(): void {
-  ctx.cycle.cycleCount++;
-  captureStateDiffs();
-  flushTraceBatch();
-}
-
-function advanceSoundClock(authoring = false): void {
-  if (ctx.replay.replay) return;
-  const frozen = authoring || ctx.cycle.paused;
-  const ticks = ctx.clocks.sound.advance(ctx.ports.now(), frozen);
-  for (let tick = 0; tick < ticks; tick++) {
-    recordedClock();
-  }
-}
-
 const host: EngineHost = {
   randomWord() {
     let value: number;
@@ -365,7 +314,7 @@ const host: EngineHost = {
     return value;
   },
   quit() {
-    stopTimers();
+    ctx.fns.stopTimers();
     sendPresentation({ type: "quit" });
   },
   /** Playback state only; the engine emits scheduled audio commands separately. */
@@ -390,12 +339,6 @@ ctx.host = host;
 // Until their owning modules land (docs/rc10-cleanup-plan.md Part 2), the
 // still-local functions fill the context's function table.
 Object.assign(ctx.fns, {
-  tickEngine,
-  recordedClock,
-  advanceSoundClock,
-  finishCycle,
-  startTimers,
-  stopTimers,
   autosave,
   postFrame,
   captureStateDiffs,
@@ -576,68 +519,6 @@ function serveFrames(id: number, count: number, stride: number, since: number | 
   }
   const transfer = frames.flatMap((f) => [f.visual.buffer, f.priority.buffer, f.text.buffer]);
   sendControl({ type: "frames", id, source: useHistory ? "history" : "recent", frames }, transfer);
-}
-
-function startTimers(): void {
-  if (ctx.cycle.soundTimer === null) {
-    ctx.cycle.soundTimer = setInterval(() => {
-      try {
-        advanceSoundClock();
-      } catch (error) {
-        sendControl({ type: "error", message: String(error) });
-        stopTimers();
-      }
-    }, 1000 / 60) as unknown as number;
-  }
-  if (ctx.cycle.timer === null) {
-    ctx.cycle.timer = setInterval(() => {
-      try {
-        const now = ctx.ports.now();
-        if (ctx.cycle.paused) {
-          ctx.clocks.cycle.poll(now, ctx.engine!.vars[10]!, true);
-          return;
-        }
-        advanceSoundClock();
-        ctx.fns.deliverQueuedKey();
-        if (
-          ctx.engine!.modalKind !== null ||
-          ctx.engine!.continuationPending ||
-          ctx.engine!.hostInteractionPending
-        ) {
-          tickEngine();
-          flushTraceBatch();
-          postFrame();
-          if (ctx.hostRequests.pendingReenter && !ctx.engine!.hostInteractionPending) {
-            // The suspended re-entered room has landed (or been declined).
-            ctx.hostRequests.pendingReenter = false;
-            sendControl({ type: "reentered", room: ctx.engine!.vars[0]! });
-            postFrame(true);
-          }
-        } else if (ctx.clocks.cycle.poll(now, ctx.engine!.vars[10]!)) {
-          ctx.fns.flushDeferredMovement();
-          tickEngine();
-          finishCycle();
-          postFrame(true);
-        }
-        if (now - ctx.cycle.lastCycleReportAt >= CYCLE_REPORT_MS) {
-          ctx.cycle.lastCycleReportAt = now;
-          const scalars = ctx.engine!.readState();
-          sendPresentation({
-            type: "cycle",
-            cycle: ctx.cycle.cycleCount,
-            room: scalars.room,
-            egoX: scalars.egoX,
-            egoY: scalars.egoY,
-          });
-        }
-        if (Date.now() - ctx.autosave.lastAutosaveAt >= ctx.autosave.autosaveIntervalMs)
-          autosave(false);
-      } catch (e) {
-        stopTimers();
-        sendControl({ type: "error", message: String(e) });
-      }
-    }, HOST_POLL_MS) as unknown as number;
-  }
 }
 
 self.onmessage = (ev: MessageEvent) => {
