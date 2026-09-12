@@ -3,11 +3,8 @@ import AgentTaskControls from "./AgentTaskControls.vue";
 import GameHeader from "./GameHeader.vue";
 import AiSettingsDialog from "./AiSettings.vue";
 import SoundPreview from "./SoundPreview.vue";
-import TouchControls from "./TouchControls.vue";
 import WalkthroughBar from "./WalkthroughBar.vue";
-import WalkthroughTransport from "./WalkthroughTransport.vue";
-import DebugDock from "./DebugDock.vue";
-import type { DebugViewMode } from "./debugView.ts";
+import PlayArea from "./PlayArea.vue";
 import {
   computed,
   nextTick,
@@ -15,32 +12,22 @@ import {
   onUnmounted,
   onWatcherCleanup,
   ref,
-  shallowRef,
   useTemplateRef,
   watch,
 } from "vue";
-import { useEngine, type Frame, type AutosaveRecord, type ModalKind } from "./useEngine.ts";
-import { AgiStage } from "./three/AgiStage.ts";
-import { FRAME_HEIGHT, FRAME_WIDTH, compositeFrame, type ScreenViewMode } from "./composite.ts";
-import { GLYPH_CURSOR, TEXT_COLS } from "../../src/runtime/textSurface.ts";
+import { useEngine, type AutosaveRecord, type ModalKind } from "./useEngine.ts";
 import { MODEL_OPTIONS } from "./agent/llmClient.ts";
 import { reconcileGameIndex } from "./gameStorage.ts";
-import { type WalkthroughCheckpoint } from "./walkthrough.ts";
-import { FUNCTION_KEYS, registeredKey, pcKey, movementDirection } from "./gameControls.ts";
-import { AGI_KEY, DIRECTION_KEYS } from "../../src/runtime/keys.ts";
+import { FUNCTION_KEYS, registeredKey, pcKey } from "./gameControls.ts";
 
 import { provideEngine } from "./engineContext.ts";
 import { createShellBridge, provideShellBridge } from "./shellBridge.ts";
 import { createAiSettings, provideAiSettings } from "./useAiSettings.ts";
 import { createGameLibrary, provideGameLibrary } from "./useGameLibrary.ts";
+import { createPresentation, providePresentation } from "./usePresentation.ts";
 import SetupPanel from "./SetupPanel.vue";
 
-const canvas = useTemplateRef("canvas");
 const testMode = import.meta.env.MODE === "test";
-const gpuCanvas = useTemplateRef("gpuCanvas");
-const inputLine = ref("");
-const promptLine = ref("");
-const composing = ref(false);
 const touchControls = ref(
   localStorage.getItem("monotio_agi.touchControls") === "on" ||
     (localStorage.getItem("monotio_agi.touchControls") !== "off" &&
@@ -50,51 +37,33 @@ const viewportHeight = ref(window.visualViewport?.height ?? window.innerHeight);
 watch(touchControls, (enabled) =>
   localStorage.setItem("monotio_agi.touchControls", enabled ? "on" : "off"),
 );
-// Empty until a GPU stage exists, so the 2d fallback canvas stays visible when
-// WebGPU/WebGL init fails or has not finished yet.
-const gpuBackend = ref<string>();
 const crtEnabled = ref<boolean>(
   testMode
     ? localStorage.getItem("monotio_agi.crt") === "on"
     : localStorage.getItem("monotio_agi.crt") !== "off",
 );
-let stage: AgiStage | null = null;
-let lastFrame: Frame | null = null;
-/** Composed 320x200 RGBA frame shared by the probe canvas and the GPU stage. */
-const composed = new Uint8ClampedArray(FRAME_WIDTH * FRAME_HEIGHT * 4);
-/** Text-only composite feeding the exploded view's front plane. */
-const composedText = new Uint8ClampedArray(FRAME_WIDTH * FRAME_HEIGHT * 4);
+
+const presentation = createPresentation();
+providePresentation(presentation);
+const { gpuBackend, debugOpen } = presentation;
+const playArea = useTemplateRef<InstanceType<typeof PlayArea>>("playArea");
 
 watch(crtEnabled, (on) => {
   localStorage.setItem("monotio_agi.crt", on ? "on" : "off");
-  if (stage) {
-    stage.crt = on;
-  }
+  presentation.setCrt(on);
 });
-const heldMovementKeys = new Set<string>();
-let touchMovementActive = false;
 
 function onMenuHashChange(): void {
   if (location.hash === "#create-adventure") shellBridge.openCreateSection(false);
 }
 
-/** AGI Inspector: open state, view mode, and the latest frame for the dock. */
-const debugOpen = ref(false);
-const debugViewMode = ref<DebugViewMode>("visual");
-/** Visual/priority wipe position for the dock's Split mode (0..1 of frame width). */
-const splitAt = ref(0.5);
-const debugFrame = shallowRef<Frame | null>(null);
-
 const engine = useEngine(
   (frame) => {
-    lastFrame = frame;
-    debugFrame.value = frame;
-    present(frame);
+    presentation.present(frame);
   },
   {
     onPromptType: (text) => {
-      promptLine.value = text;
-      echoPrompt();
+      playArea.value?.handlePromptType(text);
     },
   },
 );
@@ -106,19 +75,10 @@ const {
   bootAgentGame,
   startWalkthrough,
   stopWalkthrough,
-  setWalkthroughSpeed,
   toggleWalkthroughPause,
-  toggleWalkthroughPauseOnDialog,
   advanceDialog,
   resumeWalkthrough,
-  seekToTick,
-  seekToCheckpoint,
-  sendInput,
-  sendEdit,
-  sendDirection,
   sendKey,
-  dismissModal,
-  submitPrompt,
   currentGame,
   clearAgentLog,
   releaseAgentAudioPreviews,
@@ -133,10 +93,6 @@ const {
   flushAutosave,
   lastAutosaveRecord,
   shutdownEngine,
-  setDebugChannels,
-  debugWrite,
-  debugEventsSince,
-  readEngineState,
 } = engine;
 
 const shellBridge = createShellBridge();
@@ -278,340 +234,6 @@ async function copyDebugBundle(): Promise<void> {
 }
 
 /**
- * Present one engine frame: compose picture band + text cells into the
- * 320x200 frame, draw it on the 2D probe canvas (Playwright pixel probe and
- * no-GPU fallback) and upload it to the GPU stage when one exists.
- */
-let cachedImageData: ImageData | null = null;
-const composedPic = new Uint8ClampedArray(FRAME_WIDTH * FRAME_HEIGHT * 4);
-let pendingPresentationFrame: Frame | null = null;
-let pendingTextOverride: Uint8Array | undefined = undefined;
-let presentationRaf: number | null = null;
-
-function renderFrameNow(frame: Frame, textOverride?: Uint8Array): void {
-  const mode = debugViewMode.value;
-  // Explode composites normally — its GPU layers sample this texture and mask
-  // against the priority buffer. With no stage it falls back to the flat
-  // priority view (canvas2d has no layers).
-  const compositeMode: ScreenViewMode = mode === "explode" ? (stage ? "visual" : "priority") : mode;
-  // Explode needs the text surface as its own texture: baked into the frame
-  // it would smear across every depth band a dialog happens to cover.
-  const exploded = mode === "explode" && stage !== null;
-  compositeFrame(
-    {
-      visual: frame.visual,
-      priority: frame.priority,
-      text: textOverride ?? frame.text,
-      picRow: frame.picRow,
-    },
-    composed,
-    compositeMode,
-    splitAt.value,
-    exploded ? "skip" : "compose",
-  );
-  if (exploded) {
-    compositeFrame(
-      {
-        visual: frame.visual,
-        priority: frame.priority,
-        text: textOverride ?? frame.text,
-        picRow: frame.picRow,
-      },
-      composedText,
-      "visual",
-      0.5,
-      "only",
-    );
-    stage!.setTextLayer(composedText);
-    stage!.setPriority(frame.priority, frame.picRow);
-    // Exploded band layers sample the picture surface, not the composed
-    // frame — otherwise a sprite would punch a hole in its own wall.
-    const picVisual = frame.picVisual ?? frame.visual;
-    const picPriority = frame.picPriority ?? frame.priority;
-    compositeFrame(
-      { visual: picVisual, priority: picPriority, text: frame.text, picRow: frame.picRow },
-      composedPic,
-      "visual",
-      0.5,
-      "skip",
-    );
-    stage!.setPictureData(composedPic, picPriority);
-    if (frame.ownership) stage!.setOwnershipData(frame.ownership);
-  }
-  if (!stage || testMode) {
-    const ctx = canvas.value?.getContext("2d");
-    if (ctx) {
-      cachedImageData ??= ctx.createImageData(FRAME_WIDTH, FRAME_HEIGHT);
-      cachedImageData.data.set(composed);
-      ctx.putImageData(cachedImageData, 0, 0);
-    }
-  }
-  if (stage) {
-    stage.render(composed, true);
-  }
-}
-
-watch(splitAt, () => {
-  if (lastFrame) renderFrameNow(lastFrame);
-});
-
-watch(debugViewMode, (mode) => {
-  stage?.setExplodedMode(mode === "explode");
-  // Exploded layers need the picture surface and ownership — arm them so the
-  // next frame carries picVisual/picPriority/ownership.
-  setDebugChannels(
-    mode === "explode" ? { picture: true, objects: true, ownership: true } : { picture: false },
-  );
-  if (lastFrame) renderFrameNow(lastFrame);
-});
-
-watch(debugOpen, (open) => {
-  // The dock needs the live object table and ownership buffer; the trace
-  // channel stays opt-in from the Timeline tab.
-  setDebugChannels({ objects: open, ownership: open });
-  if (!open) {
-    setDebugChannels({ trace: false, picture: false });
-    debugViewMode.value = "visual";
-    stage?.setExplodedMode(false);
-    if (lastFrame) renderFrameNow(lastFrame);
-  }
-});
-
-/** Exploded-view projection for the inspector overlay (null while flat). */
-function debugProject(band: number, x: number, y: number) {
-  return stage?.projectBandPoint(band, x, y) ?? null;
-}
-function debugPick3d(nx: number, ny: number) {
-  return stage?.pickAt(nx, ny) ?? null;
-}
-
-/** Pointer parallax over the exploded priority layers. */
-function onScreenPointerMove(ev: PointerEvent): void {
-  if (!stage?.explodedMode) return;
-  const el = ev.currentTarget as HTMLElement;
-  const r = el.getBoundingClientRect();
-  if (r.width <= 0 || r.height <= 0) return;
-  stage.setPointer(
-    ((ev.clientX - r.left) / r.width) * 2 - 1,
-    ((ev.clientY - r.top) / r.height) * 2 - 1,
-  );
-}
-
-function present(frame: Frame, textOverride?: Uint8Array, immediate = false): void {
-  lastFrame = frame;
-  if (immediate || textOverride !== undefined || typeof requestAnimationFrame === "undefined") {
-    if (presentationRaf !== null) {
-      cancelAnimationFrame(presentationRaf);
-      presentationRaf = null;
-    }
-    pendingPresentationFrame = null;
-    pendingTextOverride = undefined;
-    renderFrameNow(frame, textOverride);
-    return;
-  }
-  pendingPresentationFrame = frame;
-  pendingTextOverride = undefined;
-  if (presentationRaf === null) {
-    presentationRaf = requestAnimationFrame(() => {
-      presentationRaf = null;
-      const targetFrame = pendingPresentationFrame;
-      const targetText = pendingTextOverride;
-      pendingPresentationFrame = null;
-      pendingTextOverride = undefined;
-      if (targetFrame) {
-        renderFrameNow(targetFrame, targetText);
-      }
-    });
-  }
-}
-
-const hasKeyPrompt = computed(() =>
-  state.rows.some((r) => r.toLowerCase().includes("press any key")),
-);
-/**
- * Name the keys that satisfy have.key for this screen. Keys the script maps
- * to controllers (set.key) are not raw keys — Enter on the demo pack selects
- * a demo instead of dismissing its "press any key" page.
- */
-const keyPromptHint = computed(() => {
-  const mapped = new Set(state.controls.map((b) => b.key));
-  const usable = (
-    [
-      [AGI_KEY.ENTER, "Enter"],
-      [0x20, "Space"],
-    ] as [number, string][]
-  ).filter(([key]) => !mapped.has(key));
-  if (usable.length === 0) return "Press any key to start";
-  return `Press ${usable.map(([, name]) => name).join(" / ")} to start`;
-});
-
-/** Pointer type of the last screen press; the click event carries none. */
-let screenPointerType = "mouse";
-
-function onScreenPointerDown(ev: PointerEvent): void {
-  screenPointerType = ev.pointerType;
-}
-
-function onScreenClick(): void {
-  resumeAudio();
-  if (state.phase !== "running") return;
-  if (state.walkthrough.active) {
-    if (advanceDialog()) return;
-    if (state.walkthrough.status === "paused") {
-      resumeWalkthrough();
-      return;
-    }
-  }
-  if (state.prompt) {
-    inputEl.value?.focus({ preventScroll: true });
-    return;
-  }
-  // A tap (touch or pen) still advances title screens and acknowledges
-  // message windows — touch devices have no hardware keyboard. A mouse click
-  // only focuses the game for typing: it must never act as Enter, or
-  // focusing the window could skip a screen, acknowledge a modal, or submit a
-  // half-typed command. The pointer type decides, not the touch-controls
-  // mode: `any-pointer: coarse` also matches hybrid laptops with a mouse.
-  if (touchControls.value && screenPointerType !== "mouse") {
-    if (state.modal !== null) {
-      if (state.modal !== "save" && state.modal !== "restore") dismissModal();
-      return;
-    }
-    // Empty Enter (0x000d) wakes have.key() e.g. title screens or prompts
-    sendKey(0x000d);
-    return;
-  }
-  inputEl.value?.focus({ preventScroll: true });
-}
-watch(
-  () => state.phase,
-  (phase) => {
-    if (phase === "running" && !touchControls.value) {
-      nextTick(() => {
-        inputEl.value?.focus({ preventScroll: true });
-      });
-    }
-  },
-);
-
-const inputEl = useTemplateRef("inputEl");
-watch(
-  () => state.gameEdit,
-  (edit) => {
-    if (edit) inputLine.value = edit.text;
-  },
-);
-
-function triggerKey(code: number): void {
-  resumeAudio();
-  shellBridge.closeNavMenus();
-  sendKey(code);
-  if (!touchControls.value) inputEl.value?.focus({ preventScroll: true });
-}
-
-/**
- * Blocking get.string / get.num prompt: the engine drew the prompt and is
- * blocked in the worker, so the live edit is echoed here, straight into a
- * copy of the last frame's text cells after the prompt, with the cursor
- * glyph — still on the CRT, never in the DOM.
- */
-watch(
-  () => state.prompt,
-  (prompt) => {
-    promptLine.value = "";
-    if (prompt && !state.walkthrough.seeking) echoPrompt();
-  },
-);
-
-function echoPrompt(): void {
-  if (state.walkthrough.seeking) return;
-  const prompt = state.prompt;
-  if (!prompt || !lastFrame) return;
-  const text = lastFrame.text.slice();
-  const start = prompt.col + prompt.prompt.length;
-  const a = text[(prompt.row * TEXT_COLS + prompt.col) * 2 + 1] || 0x0f;
-  for (let i = 0; i <= prompt.maxLen && start + i < TEXT_COLS; i++) {
-    const at = (prompt.row * TEXT_COLS + start + i) * 2;
-    const ch =
-      i < promptLine.value.length
-        ? promptLine.value.charCodeAt(i)
-        : i === promptLine.value.length
-          ? GLYPH_CURSOR
-          : 0x20;
-    text[at] = ch;
-    text[at + 1] = a;
-  }
-  present(lastFrame, text);
-}
-
-function onPromptKey(ev: KeyboardEvent): void {
-  const prompt = state.prompt!;
-  // Native input/composition events own editable text, including Android IMEs.
-  if (ev.target === inputEl.value && ev.key !== "Enter" && ev.key !== "Escape") return;
-  ev.preventDefault();
-  if (ev.key === "Escape") {
-    submitPrompt("", true);
-  } else if (ev.key === "Enter") {
-    submitPrompt(promptLine.value);
-  } else if (ev.key === "Backspace") {
-    promptLine.value = promptLine.value.slice(0, -1);
-    echoPrompt();
-  } else if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
-    if (prompt.kind === "getnum" && !/[0-9]/.test(ev.key)) return;
-    if (promptLine.value.length >= prompt.maxLen) return;
-    promptLine.value += ev.key;
-    echoPrompt();
-  }
-}
-
-/** Keys while an engine modal (print window, inventory, menu…) is open. */
-function onModalKey(ev: KeyboardEvent): void {
-  const activeModal =
-    state.walkthrough.active && window.__AGI_REPLAY__?.latest?.state.modalKind
-      ? (window.__AGI_REPLAY__?.latest?.state.modalKind as ModalKind)
-      : state.modal;
-  if (state.waitingForKey || activeModal === "save" || activeModal === "restore") {
-    const code = pcKey(ev);
-    if (code !== undefined) {
-      ev.preventDefault();
-      sendKey(code);
-    }
-    return;
-  }
-  const dir = movementDirection(ev);
-  if (dir !== undefined) {
-    sendDirection(dir);
-    ev.preventDefault();
-    return;
-  }
-  const code =
-    ev.key === "Enter"
-      ? AGI_KEY.ENTER
-      : ev.key === "Escape"
-        ? AGI_KEY.ESCAPE
-        : ev.key === "Home"
-          ? AGI_KEY.HOME
-          : ev.key === "End"
-            ? AGI_KEY.END
-            : ev.key === "PageUp"
-              ? AGI_KEY.PAGE_UP
-              : ev.key === "PageDown"
-                ? AGI_KEY.PAGE_DOWN
-                : ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey
-                  ? ev.key.charCodeAt(0) & 0xff
-                  : null;
-  if (code === null) return;
-  ev.preventDefault();
-  sendKey(code);
-}
-
-/**
- * Whole-page keyboard trapping: the browser chrome should disappear. Arrows
- * always steer ego (even while the input line is focused — the classic AGI
- * feel); any printable keystroke jumps into the input line; Enter dismisses
- * the print modal first, then submits.
- */
-/**
  * The remix: one round button on the
  * game frame. Click it and the world freezes at the next cycle boundary while
  * the agent takes your instruction; the bubble streams its tool calls; its
@@ -727,7 +349,7 @@ watch(
   async (open, wasOpen) => {
     await nextTick();
     if (open && creatingRoom.value) progressFeedEl.value?.focus({ preventScroll: true });
-    else if (!open && wasOpen && creatingRoom.value) inputEl.value?.focus({ preventScroll: true });
+    else if (!open && wasOpen && creatingRoom.value) playArea.value?.focusInput();
   },
 );
 watch(progressFeedEl, (el) => {
@@ -768,31 +390,11 @@ function onBubbleHeadUp(): void {
   bubbleDrag = null;
 }
 
-/** Split-mode wipe handle: a thin drag strip tracking the composited divider. */
-let splitDragEl: HTMLElement | null = null;
-
-function onSplitDown(ev: PointerEvent): void {
-  splitDragEl = ev.currentTarget as HTMLElement;
-  splitDragEl.setPointerCapture(ev.pointerId);
-  ev.preventDefault();
-}
-
-function onSplitMove(ev: PointerEvent): void {
-  if (!splitDragEl) return;
-  const rect = splitDragEl.parentElement?.getBoundingClientRect();
-  if (!rect || rect.width <= 0) return;
-  splitAt.value = Math.min(0.98, Math.max(0.02, (ev.clientX - rect.left) / rect.width));
-}
-
-function onSplitUp(): void {
-  splitDragEl = null;
-}
-
 async function onPowerUp(): Promise<void> {
   if (state.powerUp.busy) return;
   if (state.powerUp.open) {
     closePowerUp();
-    inputEl.value?.focus({ preventScroll: true });
+    playArea.value?.focusInput();
     return;
   }
   powerUpLine.value = "";
@@ -800,6 +402,7 @@ async function onPowerUp(): Promise<void> {
   await nextTick();
   powerUpEl.value?.focus({ preventScroll: true });
 }
+shellBridge.togglePowerUp = () => void onPowerUp();
 
 async function onPowerUpSubmit(): Promise<void> {
   const text = powerUpLine.value.trim();
@@ -807,7 +410,7 @@ async function onPowerUpSubmit(): Promise<void> {
   followProgress.value = true;
   powerUpLine.value = "";
   await submitPowerUp(text);
-  if (!state.powerUp.open) inputEl.value?.focus({ preventScroll: true });
+  if (!state.powerUp.open) playArea.value?.focusInput();
   else {
     await nextTick();
     powerUpEl.value?.focus({ preventScroll: true });
@@ -824,9 +427,15 @@ function onPowerUpKey(ev: KeyboardEvent): void {
   ev.preventDefault();
   ev.stopPropagation();
   closePowerUp();
-  inputEl.value?.focus({ preventScroll: true });
+  playArea.value?.focusInput();
 }
 
+/**
+ * Whole-page keyboard trapping: the browser chrome should disappear. Arrows
+ * always steer ego (even while the input line is focused — the classic AGI
+ * feel); any printable keystroke jumps into the input line; Enter dismisses
+ * the print modal first, then submits.
+ */
 function onGlobalKeydown(ev: KeyboardEvent): void {
   resumeAudio();
   const isInputReady = state.walkthrough.active ? true : state.inputReady;
@@ -861,7 +470,7 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
     if (ev.key === "Escape") {
       ev.preventDefault();
       closePowerUp();
-      if (!state.powerUp.open) inputEl.value?.focus({ preventScroll: true });
+      if (!state.powerUp.open) playArea.value?.focusInput();
     }
     return;
   }
@@ -870,7 +479,7 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
   const target = ev.target;
   if (
     (target instanceof Element &&
-      target !== inputEl.value &&
+      target !== playArea.value?.inputEl &&
       target.closest("button, input, textarea, select, a, audio, summary, dialog")) ||
     (ev.key === "Tab" && ev.shiftKey)
   ) {
@@ -882,7 +491,7 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
     return;
   }
   if (state.prompt) {
-    onPromptKey(ev);
+    playArea.value?.onPromptKey(ev);
     return;
   }
   const activeModal =
@@ -890,7 +499,7 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
       ? (window.__AGI_REPLAY__?.latest?.state.modalKind as ModalKind)
       : state.modal;
   if (activeModal !== null) {
-    onModalKey(ev);
+    playArea.value?.onModalKey(ev);
     return;
   }
 
@@ -911,25 +520,16 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
   // Intercept Function Keys F1..F10 (prevent browser reload, help, devtools)
   if (ev.key in FUNCTION_KEYS && !ev.altKey && !ev.ctrlKey && !ev.metaKey && !ev.shiftKey) {
     ev.preventDefault();
-    triggerKey(FUNCTION_KEYS[ev.key]!);
+    playArea.value?.triggerKey(FUNCTION_KEYS[ev.key]!);
     return;
   }
 
-  const dir = movementDirection(ev);
-  if (dir !== undefined) {
-    const physicalKey = ev.code && ev.code !== "Unidentified" ? ev.code : ev.key;
-    if (!ev.repeat && !heldMovementKeys.has(physicalKey)) {
-      heldMovementKeys.add(physicalKey);
-      sendDirection(dir);
-    }
-    ev.preventDefault();
-    return;
-  }
+  if (playArea.value?.movementKeyDown(ev)) return;
 
   const shortcut = registeredKey(ev, state.controls);
   if (shortcut !== undefined) {
     ev.preventDefault();
-    triggerKey(shortcut);
+    playArea.value?.triggerKey(shortcut);
     return;
   }
 
@@ -948,7 +548,7 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
     return;
   }
 
-  const input = inputEl.value;
+  const input = playArea.value?.inputEl;
   // When input field is NOT focused:
   if (!input || ev.target !== input) {
     // If Enter or Space pressed while not typing, forward raw key event to wake have.key() (e.g. title screens)
@@ -958,16 +558,7 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
       return;
     }
     if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
-      // Mirror the character into the input line exactly like the focused
-      // path does: through the edit message only. The engine also appends
-      // printable key events to its edit line, and a sendKey here would be
-      // buffered until the next engine tick while the edit applies at once —
-      // so the same character landed twice (the "llook" after Start over).
-      // No waitKey can be pending here: a blocking key wait sets
-      // state.waitingForKey, handled by the raw-key branch above.
-      input?.focus({ preventScroll: true });
-      inputLine.value += ev.key;
-      sendEdit(inputLine.value);
+      playArea.value?.mirrorPrintableChar(ev.key);
       ev.preventDefault();
     }
     return;
@@ -976,175 +567,28 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
   // When input field IS focused:
   if (ev.key === "Enter") {
     ev.preventDefault();
-    submit();
+    playArea.value?.submit();
   }
 }
 
 function onGlobalKeyup(ev: KeyboardEvent): void {
-  const physicalKey = ev.code && ev.code !== "Unidentified" ? ev.code : ev.key;
-  if (!heldMovementKeys.delete(physicalKey)) return;
-  if (state.phase === "running" && !state.walkthrough.active) {
-    sendDirection(0);
-    ev.preventDefault();
-  }
-}
-
-/** The DOM input is the keyboard capture; its text lives on the engine's input row. */
-function onInputEdit(event: Event): void {
-  const input = event.target as HTMLInputElement;
-  if (composing.value || (event instanceof InputEvent && event.isComposing)) return;
-  if (state.prompt) {
-    const prompt = state.prompt;
-    promptLine.value = (
-      prompt.kind === "getnum" ? input.value.replace(/[^0-9]/g, "") : input.value
-    ).slice(0, Math.min(39, prompt.maxLen));
-    input.value = promptLine.value;
-    echoPrompt();
-  } else {
-    // An IME may insert or replace several characters without keydown. Only
-    // that inserted range is new input; the rest may be an unfinished command.
-    const previous = inputLine.value;
-    const next = input.value;
-    let start = 0;
-    while (start < previous.length && start < next.length && previous[start] === next[start])
-      start++;
-    let oldEnd = previous.length;
-    let newEnd = next.length;
-    while (oldEnd > start && newEnd > start && previous[oldEnd - 1] === next[newEnd - 1]) {
-      oldEnd--;
-      newEnd--;
-    }
-    if (state.textMode || state.waitingForKey || state.modal !== null || !state.inputEnabled) {
-      const entered =
-        event instanceof InputEvent || event instanceof CompositionEvent
-          ? (event.data ?? next.slice(start, newEnd))
-          : next.slice(start, newEnd);
-      for (const char of entered) sendKey(char.charCodeAt(0));
-      // Raw-key answers do not edit the parser command that preceded them.
-      input.value = previous;
-      return;
-    }
-    let inserted = "";
-    for (const char of next.slice(start, newEnd)) {
-      const code = char.charCodeAt(0);
-      if (state.controls.some((binding) => binding.key === code)) sendKey(code);
-      else inserted += char;
-    }
-    inputLine.value = next.slice(0, start) + inserted + next.slice(newEnd);
-    if (input.value !== inputLine.value) input.value = inputLine.value;
-    sendEdit(inputLine.value);
-  }
-}
-
-function onCompositionEnd(event: CompositionEvent): void {
-  composing.value = false;
-  onInputEdit(event);
-}
-
-function onTouchDirection(dir: number): void {
-  resumeAudio();
-  if (dir === 0) {
-    // Match the release to its press: walking may have opened a dialog, and
-    // a navigation gesture may end after that dialog has already closed.
-    const wasWalking = touchMovementActive;
-    touchMovementActive = false;
-    if (wasWalking && state.phase === "running") sendDirection(0);
-    return;
-  }
-  if (state.phase !== "running" || state.powerUp.open || state.prompt) return;
-  touchMovementActive = state.modal === null && !state.waitingForKey;
-  if (state.waitingForKey || state.modal === "save" || state.modal === "restore")
-    sendKey(DIRECTION_KEYS[dir]!);
-  else sendDirection(dir);
-}
-
-function onVirtualKey(code: number): void {
-  resumeAudio();
-  if (state.phase !== "running" || state.powerUp.open || composing.value) return;
-  if (state.prompt) {
-    if (code === AGI_KEY.ENTER || code === AGI_KEY.ESCAPE) {
-      submitPrompt(code === AGI_KEY.ESCAPE ? "" : promptLine.value, code === AGI_KEY.ESCAPE);
-    } else if (code === AGI_KEY.BACKSPACE) {
-      promptLine.value = promptLine.value.slice(0, -1);
-      echoPrompt();
-    } else if (
-      code >= AGI_KEY.SPACE &&
-      code <= 126 &&
-      promptLine.value.length < Math.min(39, state.prompt.maxLen)
-    ) {
-      const char = String.fromCharCode(code);
-      if (state.prompt.kind !== "getnum" || /[0-9]/.test(char)) promptLine.value += char;
-      echoPrompt();
-    }
-    return;
-  }
-  const activeModal =
-    state.walkthrough.active && window.__AGI_REPLAY__?.latest?.state.modalKind
-      ? (window.__AGI_REPLAY__?.latest?.state.modalKind as ModalKind)
-      : state.modal;
-  if (
-    activeModal !== null ||
-    state.textMode ||
-    state.waitingForKey ||
-    !state.inputEnabled ||
-    state.controls.some((binding) => binding.key === code)
-  ) {
-    sendKey(code);
-  } else if (code === AGI_KEY.ENTER) submit();
-  else if (code === AGI_KEY.BACKSPACE || (code >= AGI_KEY.SPACE && code <= 126)) {
-    inputLine.value =
-      code === AGI_KEY.BACKSPACE
-        ? inputLine.value.slice(0, -1)
-        : inputLine.value + String.fromCharCode(code);
-    sendEdit(inputLine.value);
-  } else sendKey(code);
+  playArea.value?.movementKeyUp(ev);
 }
 
 function releaseMovement(): void {
-  if (!state.walkthrough.active && heldMovementKeys.size) sendDirection(0);
-  heldMovementKeys.clear();
+  playArea.value?.releaseMovement();
 }
 
 function onTakeControl(): void {
   releaseMovement();
   stopWalkthrough(true);
   nextTick(() => {
-    inputEl.value?.focus({ preventScroll: true });
+    playArea.value?.focusInput();
   });
-}
-
-function onWalkthroughSeekTick(tick: number): void {
-  void seekToTick(tick);
-}
-
-function onWalkthroughSeekCheckpoint(cp: WalkthroughCheckpoint): void {
-  void seekToCheckpoint(cp);
-}
-
-function onWalkthroughScrubbing(active: boolean): void {
-  state.walkthrough.scrubbing = active;
 }
 
 function resizeViewport(): void {
   viewportHeight.value = window.visualViewport?.height ?? window.innerHeight;
-}
-
-function submit(): void {
-  if (composing.value) return;
-  if (state.prompt) {
-    submitPrompt(promptLine.value);
-    return;
-  }
-  const text = inputLine.value.trim();
-  if (text.length === 0) {
-    // Empty Enter sends raw Enter key (0x000d) to wake have.key() loops (e.g. title screens)
-    sendKey(0x000d);
-    return;
-  }
-  sendInput(text);
-  inputLine.value = "";
-  if (inputEl.value) inputEl.value.value = "";
-  sendEdit("");
 }
 
 /**
@@ -1247,14 +691,6 @@ onMounted(async () => {
   )
     await resumeLastGame(llmConfig());
   if (state.phase === "idle") clearPlayHash();
-  if (gpuCanvas.value) {
-    stage = await AgiStage.create(gpuCanvas.value);
-    gpuBackend.value = stage?.backend;
-    if (stage) {
-      stage.crt = crtEnabled.value;
-      if (lastFrame) present(lastFrame);
-    }
-  }
 });
 
 onUnmounted(() => {
@@ -1263,12 +699,7 @@ onUnmounted(() => {
   window.removeEventListener("blur", releaseMovement);
   window.visualViewport?.removeEventListener("resize", resizeViewport);
   window.removeEventListener("resize", resizeViewport);
-  if (presentationRaf !== null && typeof cancelAnimationFrame !== "undefined") {
-    cancelAnimationFrame(presentationRaf);
-    presentationRaf = null;
-  }
-  stage?.dispose();
-  stage = null;
+  presentation.dispose();
   window.removeEventListener("keydown", onGlobalKeydown);
   window.removeEventListener("keyup", onGlobalKeyup);
   window.removeEventListener("hashchange", onMenuHashChange);
@@ -1327,7 +758,7 @@ watch(
       @update:touch-controls="touchControls = $event"
       @update:crt-enabled="crtEnabled = $event"
       @update:debug-open="debugOpen = $event"
-      @trigger-key="triggerKey"
+      @trigger-key="(code) => playArea?.triggerKey(code)"
       @export-zip="(project, savedProgress) => lib.onExportAgiZip(true, project, savedProgress)"
       @start-over="lib.onStartOver"
       @start-walkthrough="onStartWalkthrough"
@@ -1361,403 +792,228 @@ watch(
     <SetupPanel />
 
     <!-- Screen Area (Hidden until game is running) -->
-    <div class="play-area" :class="{ 'with-touch': touchControls && state.phase === 'running' }">
+    <PlayArea ref="playArea" :touch-controls="touchControls" :crt-enabled="crtEnabled">
       <div
-        v-show="state.phase === 'running'"
-        class="screen"
-        :class="{
-          active: state.phase === 'running',
-          shake: state.shake,
-          remixing: state.powerUp.open,
-        }"
-        @click="onScreenClick"
-        @pointerdown="onScreenPointerDown"
-        @pointermove="onScreenPointerMove"
+        v-if="state.powerUp.open"
+        class="agent-bubble"
+        :class="{ floating: bubblePos !== undefined, collapsed: bubbleCollapsed }"
+        :style="bubblePos ? { left: `${bubblePos.x}px`, top: `${bubblePos.y}px` } : {}"
+        data-testid="agent-bubble"
+        @click.stop
+        @pointerdown.stop
       >
-        <canvas
-          v-show="!!gpuBackend"
-          ref="gpuCanvas"
-          class="game-surface"
-          width="960"
-          height="600"
-          data-testid="gpu-canvas"
-        />
-        <!-- The composed 320x200 frame: Playwright pixel probe and no-GPU fallback. -->
-        <canvas
-          v-show="!gpuBackend"
-          ref="canvas"
-          class="game-surface"
-          width="320"
-          height="200"
-          data-testid="game-canvas"
-        />
-
-        <!-- Native keyboard/IME capture; the engine renders the only visible command line. -->
-        <form
-          v-if="state.phase === 'running'"
-          class="input-row"
-          @click.stop
-          @submit.prevent="onVirtualKey(AGI_KEY.ENTER)"
-        >
-          <input
-            id="game-command"
-            :disabled="state.powerUp.open || (!state.inputReady && !state.walkthrough.active)"
-            aria-label="Game command"
-            aria-describedby="game-input-help"
-            ref="inputEl"
-            :value="state.prompt ? promptLine : inputLine"
-            :inputmode="state.prompt?.kind === 'getnum' ? 'numeric' : 'text'"
-            data-testid="input-line"
-            autocomplete="off"
-            autocapitalize="off"
-            enterkeyhint="send"
-            spellcheck="false"
-            @input="onInputEdit"
-            @compositionstart="composing = true"
-            @compositionend="onCompositionEnd"
-          />
-        </form>
-
-        <!-- The remix: freeze the world and ask the agent to change it. -->
-        <button
-          type="button"
-          class="power-up"
-          :class="{ armed: state.powerUp.open }"
-          data-testid="power-up"
-          :disabled="(creatingRoom && state.powerUp.open) || state.recording.active"
-          :aria-label="
-            creatingRoom && state.powerUp.open
-              ? 'Creating the next room'
-              : state.powerUp.open
-                ? 'Close assistant'
-                : 'Ask or remix this game'
-          "
-          :aria-expanded="state.powerUp.open"
-          :title="state.powerUp.open ? 'Back to game (Esc)' : 'Ask, remix, or inspect this game'"
-          @click.stop="onPowerUp"
-        >
-          <span class="power-up-glyph">✦</span>
-        </button>
-
-        <!-- Draggable visual/priority wipe for the dock's Split mode. -->
         <div
-          v-if="debugViewMode === 'split' && debugOpen"
-          class="split-handle"
-          :style="{ left: `${splitAt * 100}%` }"
-          data-testid="split-handle"
-          role="slider"
-          aria-label="Split position"
-          :aria-valuenow="Math.round(splitAt * 100)"
-          aria-valuemin="0"
-          aria-valuemax="100"
-          title="Drag to move the split"
-          @pointerdown.stop="onSplitDown"
-          @pointermove="onSplitMove"
-          @pointerup="onSplitUp"
-          @pointercancel="onSplitUp"
-          @click.stop
+          class="agent-bubble-head"
+          data-testid="agent-bubble-head"
+          title="Drag to move"
+          @pointerdown="onBubbleHeadDown"
+          @pointermove="onBubbleHeadMove"
+          @pointerup="onBubbleHeadUp"
+          @pointercancel="onBubbleHeadUp"
         >
-          <span class="split-grip">◂▸</span>
-        </div>
-
-        <DebugDock
-          v-if="debugOpen && state.phase === 'running'"
-          :frame="debugFrame"
-          :objects="state.debugObjects"
-          :trace="state.debugTrace"
-          :channels="state.debugChannels"
-          :view-mode="debugViewMode"
-          :has-gpu="!!gpuBackend"
-          :read-state="readEngineState"
-          :events-since="debugEventsSince"
-          :write="debugWrite"
-          :project="debugProject"
-          :pick3d="debugPick3d"
-          @set-channels="setDebugChannels"
-          @set-view-mode="debugViewMode = $event"
-          @close="debugOpen = false"
-        />
-
-        <div
-          v-if="state.powerUp.open"
-          class="agent-bubble"
-          :class="{ floating: bubblePos !== undefined, collapsed: bubbleCollapsed }"
-          :style="bubblePos ? { left: `${bubblePos.x}px`, top: `${bubblePos.y}px` } : {}"
-          data-testid="agent-bubble"
-          @click.stop
-          @pointerdown.stop
-        >
-          <div
-            class="agent-bubble-head"
-            data-testid="agent-bubble-head"
-            title="Drag to move"
-            @pointerdown="onBubbleHeadDown"
-            @pointermove="onBubbleHeadMove"
-            @pointerup="onBubbleHeadUp"
-            @pointercancel="onBubbleHeadUp"
-          >
-            <span class="agent-bubble-grip">⠿</span>
-            <span v-if="creatingRoom" class="agent-bubble-title">{{
-              state.powerUp.error ? "Could not create this room" : "Creating the next room"
-            }}</span>
-            <div v-else class="agent-mode-switch" role="group" aria-label="Agent mode">
-              <button
-                type="button"
-                data-testid="agent-mode-ask"
-                :aria-pressed="asking"
-                :disabled="state.powerUp.busy"
-                title="Ask questions without changing the game"
-                @click="state.powerUp.mode = 'ask'"
-              >
-                Ask
-              </button>
-              <button
-                type="button"
-                data-testid="agent-mode-remix"
-                :aria-pressed="!asking"
-                :disabled="state.powerUp.busy"
-                title="Make changes to this game"
-                @click="state.powerUp.mode = 'remix'"
-              >
-                Remix
-              </button>
-            </div>
+          <span class="agent-bubble-grip">⠿</span>
+          <span v-if="creatingRoom" class="agent-bubble-title">{{
+            state.powerUp.error ? "Could not create this room" : "Creating the next room"
+          }}</span>
+          <div v-else class="agent-mode-switch" role="group" aria-label="Agent mode">
             <button
               type="button"
-              class="agent-inspect"
-              :class="{ on: debugOpen }"
-              data-testid="inspect-toggle"
-              :aria-pressed="debugOpen"
-              title="AGI inspector: priority views, objects, vars, flags, trace"
-              @click="debugOpen = !debugOpen"
-            >
-              ◈ Inspect
-            </button>
-            <span class="agent-bubble-right">
-              <span class="agent-bubble-room" data-testid="agent-bubble-room"
-                >{{ asking ? "Read-only" : "Paused" }} ·
-                {{ state.powerUp.room > 0 ? `room ${state.powerUp.room}` : "…" }}</span
-              >
-              <button
-                type="button"
-                class="bubble-icon"
-                data-testid="agent-bubble-collapse"
-                :title="bubbleCollapsed ? 'Expand' : 'Collapse to the title bar'"
-                @click="bubbleCollapsed = !bubbleCollapsed"
-              >
-                {{ bubbleCollapsed ? "+" : "−" }}
-              </button>
-              <button
-                v-if="!creatingRoom || !state.powerUp.busy"
-                type="button"
-                class="bubble-icon bubble-close remix-close"
-                data-testid="agent-bubble-close"
-                aria-label="Back to game"
-                title="Back to game (Esc)"
-                :disabled="state.powerUp.busy"
-                @click="onPowerUp"
-              >
-                ×
-              </button>
-            </span>
-          </div>
-          <div v-if="!creatingRoom && !aiConfigured" class="ai-connect assistant-connect">
-            <p>Connect your AI provider to ask about or remix this game.</p>
-            <button
-              type="button"
-              class="ui-button ui-button--primary"
-              data-testid="connect-assistant-ai"
-              :disabled="aiSettingsUnavailable"
-              @click="openAiSettings($event, 'assistant')"
-            >
-              Connect AI
-            </button>
-          </div>
-          <div
-            v-if="!creatingRoom && state.powerUp.messages.length"
-            ref="conversationEl"
-            class="agent-conversation"
-            data-testid="agent-conversation"
-            @scroll="onConversationScroll"
-            role="log"
-            aria-label="Conversation"
-            aria-live="polite"
-          >
-            <div
-              v-for="(message, index) in state.powerUp.messages"
-              :key="index"
-              class="agent-message"
-              :class="message.role"
-            >
-              {{ message.text }}
-            </div>
-            <div
-              v-if="asking && state.powerUp.busy && state.agentTask?.progress?.text"
-              class="agent-message assistant"
-              data-testid="agent-stream-text"
-              aria-live="off"
-            >
-              {{ state.agentTask.progress.text }}
-            </div>
-          </div>
-          <div
-            v-if="
-              state.powerUp.busy &&
-              state.agentTask?.status !== 'paused' &&
-              !state.agentTask?.progress
-            "
-            class="remix-progress"
-          >
-            <span
-              role="status"
-              aria-live="polite"
-              aria-atomic="true"
-              data-testid="remix-progress-status"
-            >
-              {{ remixActivity }}
-            </span>
-            <progress
-              :aria-label="
-                creatingRoom
-                  ? 'Room generation in progress'
-                  : asking
-                    ? 'Investigation in progress'
-                    : 'Remix in progress'
-              "
-            ></progress>
-          </div>
-          <AgentTaskControls
-            :task="state.agentTask"
-            :show-text="!asking"
-            @stop="stopAgent"
-            @resume="continueAgent"
-            @discard="discardAgent"
-          />
-          <details class="agent-activity" :open="creatingRoom || state.powerUp.busy">
-            <summary>Activity</summary>
-            <div
-              ref="progressFeedEl"
-              class="agent-bubble-feed"
-              data-testid="agent-bubble-feed"
-              role="region"
-              :aria-label="creatingRoom ? 'Room generation activity' : 'Agent activity'"
-              tabindex="0"
-              @scroll.passive="onProgressScroll"
-            >
-              <div
-                v-for="entry in powerUpFeed"
-                :key="entry.id"
-                class="agent-bubble-line"
-                :class="entry.kind"
-              >
-                {{ entry.detail }}
-                <SoundPreview v-if="entry.audio?.length" :audio="entry.audio" />
-              </div>
-            </div>
-            <div v-if="!followProgress" class="remix-follow-controls">
-              <button
-                type="button"
-                class="ui-button ui-button--secondary"
-                data-testid="remix-jump-latest"
-                @click="jumpToLatest"
-              >
-                Jump to latest
-              </button>
-            </div>
-          </details>
-          <SoundPreview
-            v-if="!state.powerUp.busy && powerUpAudio.length"
-            :audio="powerUpAudio"
-            data-testid="agent-bubble-sound-preview"
-          />
-          <form
-            v-if="!creatingRoom && !state.powerUp.needsConfig"
-            class="agent-bubble-form"
-            @submit.prevent="onPowerUpSubmit"
-          >
-            <textarea
-              rows="2"
-              ref="powerUpEl"
-              v-model="powerUpLine"
-              data-testid="agent-bubble-input"
-              :aria-label="asking ? 'Ask about this game' : 'What would you like to change?'"
-              autocomplete="off"
-              spellcheck="false"
+              data-testid="agent-mode-ask"
+              :aria-pressed="asking"
               :disabled="state.powerUp.busy"
-              :placeholder="asking ? 'Ask about this game…' : 'What would you like to change?'"
-              @keydown="onPowerUpKey"
-            ></textarea>
-            <button
-              type="submit"
-              class="ui-button ui-button--primary"
-              data-testid="agent-bubble-send"
-              :disabled="state.powerUp.busy || !powerUpLine.trim()"
+              title="Ask questions without changing the game"
+              @click="state.powerUp.mode = 'ask'"
             >
-              {{ state.powerUp.busy ? "Working…" : asking ? "Ask" : "Remix" }}
+              Ask
             </button>
-          </form>
-          <p v-if="state.powerUp.error" class="agent-bubble-error" data-testid="agent-bubble-error">
-            {{ state.powerUp.error }}
-          </p>
+            <button
+              type="button"
+              data-testid="agent-mode-remix"
+              :aria-pressed="!asking"
+              :disabled="state.powerUp.busy"
+              title="Make changes to this game"
+              @click="state.powerUp.mode = 'remix'"
+            >
+              Remix
+            </button>
+          </div>
+          <button
+            type="button"
+            class="agent-inspect"
+            :class="{ on: debugOpen }"
+            data-testid="inspect-toggle"
+            :aria-pressed="debugOpen"
+            title="AGI inspector: priority views, objects, vars, flags, trace"
+            @click="debugOpen = !debugOpen"
+          >
+            ◈ Inspect
+          </button>
+          <span class="agent-bubble-right">
+            <span class="agent-bubble-room" data-testid="agent-bubble-room"
+              >{{ asking ? "Read-only" : "Paused" }} ·
+              {{ state.powerUp.room > 0 ? `room ${state.powerUp.room}` : "…" }}</span
+            >
+            <button
+              type="button"
+              class="bubble-icon"
+              data-testid="agent-bubble-collapse"
+              :title="bubbleCollapsed ? 'Expand' : 'Collapse to the title bar'"
+              @click="bubbleCollapsed = !bubbleCollapsed"
+            >
+              {{ bubbleCollapsed ? "+" : "−" }}
+            </button>
+            <button
+              v-if="!creatingRoom || !state.powerUp.busy"
+              type="button"
+              class="bubble-icon bubble-close remix-close"
+              data-testid="agent-bubble-close"
+              aria-label="Back to game"
+              title="Back to game (Esc)"
+              :disabled="state.powerUp.busy"
+              @click="onPowerUp"
+            >
+              ×
+            </button>
+          </span>
         </div>
+        <div v-if="!creatingRoom && !aiConfigured" class="ai-connect assistant-connect">
+          <p>Connect your AI provider to ask about or remix this game.</p>
+          <button
+            type="button"
+            class="ui-button ui-button--primary"
+            data-testid="connect-assistant-ai"
+            :disabled="aiSettingsUnavailable"
+            @click="openAiSettings($event, 'assistant')"
+          >
+            Connect AI
+          </button>
+        </div>
+        <div
+          v-if="!creatingRoom && state.powerUp.messages.length"
+          ref="conversationEl"
+          class="agent-conversation"
+          data-testid="agent-conversation"
+          @scroll="onConversationScroll"
+          role="log"
+          aria-label="Conversation"
+          aria-live="polite"
+        >
+          <div
+            v-for="(message, index) in state.powerUp.messages"
+            :key="index"
+            class="agent-message"
+            :class="message.role"
+          >
+            {{ message.text }}
+          </div>
+          <div
+            v-if="asking && state.powerUp.busy && state.agentTask?.progress?.text"
+            class="agent-message assistant"
+            data-testid="agent-stream-text"
+            aria-live="off"
+          >
+            {{ state.agentTask.progress.text }}
+          </div>
+        </div>
+        <div
+          v-if="
+            state.powerUp.busy && state.agentTask?.status !== 'paused' && !state.agentTask?.progress
+          "
+          class="remix-progress"
+        >
+          <span
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            data-testid="remix-progress-status"
+          >
+            {{ remixActivity }}
+          </span>
+          <progress
+            :aria-label="
+              creatingRoom
+                ? 'Room generation in progress'
+                : asking
+                  ? 'Investigation in progress'
+                  : 'Remix in progress'
+            "
+          ></progress>
+        </div>
+        <AgentTaskControls
+          :task="state.agentTask"
+          :show-text="!asking"
+          @stop="stopAgent"
+          @resume="continueAgent"
+          @discard="discardAgent"
+        />
+        <details class="agent-activity" :open="creatingRoom || state.powerUp.busy">
+          <summary>Activity</summary>
+          <div
+            ref="progressFeedEl"
+            class="agent-bubble-feed"
+            data-testid="agent-bubble-feed"
+            role="region"
+            :aria-label="creatingRoom ? 'Room generation activity' : 'Agent activity'"
+            tabindex="0"
+            @scroll.passive="onProgressScroll"
+          >
+            <div
+              v-for="entry in powerUpFeed"
+              :key="entry.id"
+              class="agent-bubble-line"
+              :class="entry.kind"
+            >
+              {{ entry.detail }}
+              <SoundPreview v-if="entry.audio?.length" :audio="entry.audio" />
+            </div>
+          </div>
+          <div v-if="!followProgress" class="remix-follow-controls">
+            <button
+              type="button"
+              class="ui-button ui-button--secondary"
+              data-testid="remix-jump-latest"
+              @click="jumpToLatest"
+            >
+              Jump to latest
+            </button>
+          </div>
+        </details>
+        <SoundPreview
+          v-if="!state.powerUp.busy && powerUpAudio.length"
+          :audio="powerUpAudio"
+          data-testid="agent-bubble-sound-preview"
+        />
+        <form
+          v-if="!creatingRoom && !state.powerUp.needsConfig"
+          class="agent-bubble-form"
+          @submit.prevent="onPowerUpSubmit"
+        >
+          <textarea
+            rows="2"
+            ref="powerUpEl"
+            v-model="powerUpLine"
+            data-testid="agent-bubble-input"
+            :aria-label="asking ? 'Ask about this game' : 'What would you like to change?'"
+            autocomplete="off"
+            spellcheck="false"
+            :disabled="state.powerUp.busy"
+            :placeholder="asking ? 'Ask about this game…' : 'What would you like to change?'"
+            @keydown="onPowerUpKey"
+          ></textarea>
+          <button
+            type="submit"
+            class="ui-button ui-button--primary"
+            data-testid="agent-bubble-send"
+            :disabled="state.powerUp.busy || !powerUpLine.trim()"
+          >
+            {{ state.powerUp.busy ? "Working…" : asking ? "Ask" : "Remix" }}
+          </button>
+        </form>
+        <p v-if="state.powerUp.error" class="agent-bubble-error" data-testid="agent-bubble-error">
+          {{ state.powerUp.error }}
+        </p>
       </div>
-
-      <!-- Walkthrough Transport Bar (Directly below the CRT screen) -->
-      <WalkthroughTransport
-        v-if="state.walkthrough.active && state.phase === 'running'"
-        :walkthrough="state.walkthrough"
-        @toggle-pause="toggleWalkthroughPause"
-        @set-speed="setWalkthroughSpeed"
-        @toggle-pause-on-dialog="toggleWalkthroughPauseOnDialog"
-        @seek-tick="onWalkthroughSeekTick"
-        @seek-checkpoint="onWalkthroughSeekCheckpoint"
-        @scrubbing="onWalkthroughScrubbing"
-      />
-
-      <!-- Captions under the screen (never overlays: all game text is on the CRT) -->
-      <TouchControls
-        v-if="touchControls && state.phase === 'running'"
-        :disabled="state.powerUp.open || state.paused"
-        :navigating="state.modal !== null"
-        :hold="state.holdToMove"
-        @direction="onTouchDirection"
-        @key="onVirtualKey"
-        @keyboard="inputEl?.focus({ preventScroll: true })"
-      />
-    </div>
-    <div v-if="state.phase === 'running'" class="screen-captions">
-      <template v-if="!state.walkthrough.seeking">
-        <span v-if="state.resumed" class="caption resume-caption" data-testid="resume-caption">
-          Resumed where you left off
-        </span>
-        <span v-if="state.prompt" class="caption" data-testid="prompt-hint">
-          [ Type your answer on the screen, Enter to accept, Esc to cancel ]
-        </span>
-        <span v-else-if="state.textMode" class="caption" data-testid="text-mode-hint">
-          [ Use the keys requested by the game ]
-        </span>
-        <span v-else-if="hasKeyPrompt" class="caption" data-testid="title-prompt-hint">
-          [ {{ touchControls ? `Tap screen or: ${keyPromptHint}` : keyPromptHint }} ]
-        </span>
-        <span v-else-if="state.modal === 'menu'" class="caption" data-testid="menu-hint">
-          [ Arrows to navigate, Enter to select, Esc to close ]
-        </span>
-        <span v-else-if="state.modal === 'inventory'" class="caption" data-testid="inventory-hint">
-          [ Arrows to select, Enter to choose, Esc to return ]
-        </span>
-        <span v-else-if="state.modal !== null" class="caption" data-testid="modal-hint">
-          [ Press Enter to continue ]
-        </span>
-      </template>
-    </div>
-
-    <p v-if="state.phase === 'running'" id="game-input-help" class="input-help">
-      {{
-        touchControls
-          ? "Type to open keyboard · Enter to send · Keys for F1–F10 and more"
-          : "Click the game to type · Enter to send · Arrows or numpad to walk · Home / PgUp / End / PgDn for diagonals"
-      }}
-    </p>
+    </PlayArea>
 
     <SoundPreview
       v-if="!state.powerUp.open && latestAgentAudio.length"
@@ -1829,86 +1085,6 @@ watch(
 </template>
 
 <style scoped>
-/* ---- The remix: one round button on the game frame (.screen is relative) ---- */
-.power-up {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
-  border: 2px solid #55ffff;
-  background: radial-gradient(circle at 35% 30%, #1b3b4a, #06131a);
-  color: #55ffff;
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  box-shadow: 0 0 12px rgba(85, 255, 255, 0.35);
-  transition:
-    transform 0.12s ease,
-    box-shadow 0.12s ease;
-  z-index: 3;
-}
-
-.power-up:hover {
-  transform: scale(1.08);
-}
-
-/* Split-mode wipe: a wide invisible drag strip with a visible edge and grip. */
-.split-handle {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 24px;
-  margin-left: -12px;
-  cursor: ew-resize;
-  touch-action: none;
-  z-index: 2;
-}
-
-.split-handle::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 2px;
-  margin-left: -1px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 0 4px rgba(0, 0, 0, 0.7);
-}
-
-.split-grip {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background: rgba(6, 12, 20, 0.92);
-  border: 1px solid #55ffff;
-  color: #55ffff;
-  border-radius: 6px;
-  padding: 3px 5px;
-  font-size: 10px;
-  line-height: 1;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
-@media (any-pointer: coarse) {
-  .split-handle {
-    width: 44px;
-    margin-left: -22px;
-  }
-}
-
-.power-up.armed {
-  border-color: #ffff55;
-  color: #ffff55;
-  box-shadow: 0 0 18px rgba(255, 255, 85, 0.55);
-}
-
 /* Inspector entry inside the power-up header: same segmented control
    language, but a toggle (the dock outlives the bubble). */
 .agent-inspect {
@@ -2229,133 +1405,10 @@ watch(
   margin: 6px 0 0;
 }
 
-.screen {
-  position: relative;
-  border: 2px solid #33455c;
-  background: #000;
-  box-shadow:
-    0 0 0 4px #090e17,
-    0 0 0 5px #223047,
-    0 0 56px #55ffff0d;
-  transition:
-    box-shadow 180ms ease-out,
-    border-color 180ms ease-out;
-}
-
-.screen.active {
-  border-color: #567087;
-}
-
-.screen.remixing {
-  border-color: #ffff55;
-  box-shadow:
-    0 0 0 4px #090e17,
-    0 0 0 5px #6e7045,
-    0 0 64px #ffff551c;
-}
-
-.game-surface {
-  display: block;
-  width: var(--game-width);
-  aspect-ratio: 8 / 5;
-  height: auto;
-  image-rendering: pixelated;
-  outline: none;
-  background: #000;
-}
-
-.screen-captions {
-  width: var(--game-width);
-  min-height: 1.4rem;
-  margin-top: 0.35rem;
-  text-align: center;
-}
-
-.caption {
-  display: inline-block;
-  border: 1px solid #5af;
-  color: #5af;
-  font-family: monospace;
-  font-size: 0.8rem;
-  font-weight: bold;
-  padding: 0.2rem 0.6rem;
-  border-radius: 3px;
-  white-space: normal;
-}
-
-/* The resume notice states a fact rather than asking for a keystroke, so it
-   sits still and fades out on its own instead of pulsing like the hints. */
-.resume-caption {
-  border-color: #7d7;
-  color: #7d7;
-  margin-right: 0.4rem;
-  animation: resume-fade 10s ease-in forwards;
-}
-
-@keyframes resume-fade {
-  0%,
-  70% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0.25;
-  }
-}
-
 .backend-tag {
   font-size: 0.7rem;
   color: #555;
   letter-spacing: 0.15em;
-}
-
-.screen.shake {
-  animation: screen-shake 0.1s linear infinite;
-}
-
-@keyframes screen-shake {
-  0% {
-    transform: translate(2px, 1px);
-  }
-  25% {
-    transform: translate(-2px, -1px);
-  }
-  50% {
-    transform: translate(1px, -2px);
-  }
-  75% {
-    transform: translate(-1px, 2px);
-  }
-  100% {
-    transform: translate(2px, 1px);
-  }
-}
-
-.input-help {
-  font-size: 12px;
-  color: #aaa;
-  text-align: center;
-  max-width: var(--game-width);
-  margin: 12px 0 0;
-}
-
-.input-row {
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
-.input-row input {
-  font-size: 16px;
-}
-
-.screen:has(.input-row input:focus-visible) {
-  outline: 2px solid #55ffff;
-  outline-offset: 4px;
 }
 
 .agent-panel {
