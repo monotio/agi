@@ -71,6 +71,9 @@ interface Insn {
   readonly target: number;
   /** if: rendered condition text. */
   readonly text: string;
+  /** action: opcode name and raw operand bytes, for consumers of the decode. */
+  readonly name?: string;
+  readonly args?: readonly number[];
 }
 
 type Node =
@@ -212,13 +215,16 @@ class Disassembler {
         pos = at + 1;
         continue;
       }
-      const args = spec.operands.map((kind, i) => operandText(kind, this.byte(at + 1 + i)));
+      const raw = spec.operands.map((_, i) => this.byte(at + 1 + i));
+      const args = spec.operands.map((kind, i) => operandText(kind, raw[i]!));
       this.insns.set(at, {
         at,
         end: at + 1 + spec.operands.length,
         kind: "action",
         target: -1,
         text: `${spec.name}(${args.join(", ")});`,
+        name: spec.name,
+        args: raw,
       });
       pos = at + 1 + spec.operands.length;
     }
@@ -531,4 +537,29 @@ export function disassembleLogicWarnings(
   const d = new Disassembler(payload, opts);
   d.build();
   return d.warnings;
+}
+
+/** One decoded action opcode: offset, name and raw operand bytes. */
+export interface DecodedAction {
+  readonly at: number;
+  readonly name: string;
+  readonly args: readonly number[];
+}
+
+/**
+ * The linear action decode — every opcode the stream executes, without the
+ * structural reconstruction. Consumers that only need "which rooms does this
+ * logic name" use this instead of parsing the rendered source. Unknown opcode
+ * bytes are skipped (one byte) the same way decodeLinear resyncs.
+ */
+export function decodeLogicActions(
+  payload: Uint8Array,
+  opts: DisassembleOptions = {},
+): readonly DecodedAction[] {
+  const d = new Disassembler(payload, opts);
+  const out: DecodedAction[] = [];
+  for (const insn of d.insns.values())
+    if (insn.kind === "action" && insn.name !== undefined)
+      out.push({ at: insn.at, name: insn.name, args: insn.args ?? [] });
+  return out;
 }
