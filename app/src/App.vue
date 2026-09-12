@@ -38,7 +38,7 @@ const crtEnabled = ref<boolean>(
 const presentation = createPresentation();
 providePresentation(presentation);
 const { gpuBackend, debugOpen } = presentation;
-const playArea = useTemplateRef<InstanceType<typeof PlayArea>>("playArea");
+const playArea = useTemplateRef("playArea");
 
 watch(crtEnabled, (on) => {
   localStorage.setItem("monotio_agi.crt", on ? "on" : "off");
@@ -82,7 +82,7 @@ const {
 
 const shellBridge = createShellBridge();
 provideShellBridge(shellBridge);
-const aiSettingsDialog = useTemplateRef<{ show(): void; close(): void }>("aiSettingsDialog");
+const aiSettingsDialog = useTemplateRef("aiSettingsDialog");
 const ai = createAiSettings(engine, {
   dialog: aiSettingsDialog,
   releaseMovement,
