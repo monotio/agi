@@ -68,6 +68,33 @@ test("a shared logic's transitions are not attributed to its number", () => {
   assert.deepEqual(direct.edges, [{ from: 9, to: 5, provenance: "static" }]);
 });
 
+test("picture use is a literal var binding, not a guess", () => {
+  // The AGI convention: v0 is the interpreter's room variable, so room
+  // logic 4's load.pic(v0) names picture 4 — but only with selfRoom set.
+  const conventional = scanStaticExits(
+    logic("load.pic(v0); draw.pic(v0); show.pic(); return;"),
+    undefined,
+    4,
+  );
+  assert.deepEqual(conventional.pictures, [4]);
+  // Without the self-room seed v0 is unbound: the scan claims nothing.
+  const unbound = scanStaticExits(logic("load.pic(v0); draw.pic(v0); return;"));
+  assert.deepEqual(unbound.pictures, []);
+  // A literal assigned var carries the binding to the call site.
+  const literal = scanStaticExits(logic("assignn(v12, 7); draw.pic(v12); return;"));
+  assert.deepEqual(literal.pictures, [7]);
+  // A var write between binding and use clears the claim.
+  const clobbered = scanStaticExits(
+    logic("assignn(v12, 7); random(1, 9, v12); draw.pic(v12); return;"),
+  );
+  assert.deepEqual(clobbered.pictures, []);
+  // assignv propagates the literal.
+  const copied = scanStaticExits(
+    logic("assignn(v12, 9); assignv(v13, v12); draw.pic(v13); return;"),
+  );
+  assert.deepEqual(copied.pictures, [9]);
+});
+
 test("observed, planned and static exits between the same pair all survive", () => {
   const journal = [
     entry({ seq: 0, from: null, to: 1, cause: "boot" }),
@@ -80,7 +107,7 @@ test("observed, planned and static exits between the same pair all survive", () 
   const graph = mergeRoomGraph({
     journal,
     plan: { "1": { title: "First", description: "", exits: { door: 2, back: 2 } } },
-    scans: new Map([[1, { targets: [2], variableTarget: false }]]),
+    scans: new Map([[1, { targets: [2], variableTarget: false, pictures: [] }]]),
     shared: new Set(),
   });
   // Two planned exits to room 2 keep their labels; the observed edge counts

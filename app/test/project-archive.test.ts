@@ -4,6 +4,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildProjectZip, buildPublicGameZip, readProjectContext } from "../src/projectArchive.ts";
 import { readGameZip } from "../src/gameZip.ts";
+import { buildZip } from "../src/zip.ts";
 
 test("exports supply an empty OBJECT file and preserve an existing inventory", async () => {
   const container = createContainer();
@@ -275,4 +276,79 @@ test("readProjectContext bounds depth, missing attachments, attachment fan-out a
   const firstImage = (context.transcript[0] as { content: unknown[] }).content[0];
   const secondImage = (context.transcript[1] as { content: unknown[] }).content[0];
   assert.equal(firstImage, secondImage, "repeated references share the same cached representation");
+});
+
+test("project archives carry the world map; published games never do", async () => {
+  const container = createContainer();
+  container.putResource("logic", 0, assembleLogic("return;", { dictionary: new Map() }).payload);
+  const data = {
+    projectId: "mapped",
+    title: "Mapped",
+    authoredAt: "2026-01-01",
+    provider: "stub",
+    model: "stub",
+    files: { ...Object.fromEntries(container.files), "WORDS.TOK": new Uint8Array(52) },
+    words: [] as [string, number][],
+    transcript: [],
+    authoringState: {},
+  };
+  const map = {
+    journal: [
+      {
+        seq: 1,
+        session: 1,
+        from: null,
+        to: 0,
+        cause: "boot" as const,
+        cycle: 1,
+        resourceSet: "r@0",
+        scoreDelta: 0,
+        gained: [],
+        lost: [],
+      },
+      {
+        seq: 2,
+        session: 1,
+        from: 0,
+        to: 2,
+        cause: "edge" as const,
+        edge: "right" as const,
+        cycle: 9,
+        resourceSet: "r@0",
+        scoreDelta: 3,
+        gained: [4],
+        lost: [],
+      },
+    ],
+    layout: { "2": { x: 400, y: -170 } },
+    notes: { "2": "check the guard timing" },
+  };
+  const opened = await readGameZip(await buildProjectZip(data, undefined, map));
+  assert.deepEqual(opened.map, map);
+  const publicGame = await readGameZip(buildPublicGameZip(data));
+  assert.equal(publicGame.map, undefined);
+});
+
+test("a corrupt MAP.JSON degrades to an empty map instead of refusing the import", async () => {
+  const container = createContainer();
+  container.putResource("logic", 0, assembleLogic("return;", { dictionary: new Map() }).payload);
+  const zip = buildZip([
+    ...[...container.files].map(([name, bytes]) => ({ name, data: bytes })),
+    { name: "WORDS.TOK", data: new Uint8Array(52) },
+    {
+      name: "PROJECT.JSON",
+      data: JSON.stringify({
+        format: "monotio.agi.project",
+        version: 1,
+        provider: "stub",
+        model: "stub",
+        conversation: { formatVersion: 1, messages: [] },
+        authoringState: {},
+      }),
+    },
+    { name: "MAP.JSON", data: "not json" },
+  ]);
+  const opened = await readGameZip(zip);
+  assert.ok(opened.project);
+  assert.equal(opened.map, undefined);
 });

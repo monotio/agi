@@ -110,6 +110,11 @@ export interface EngineState {
    * per-game journal.
    */
   roomJournal: RoomTransitionNotice[];
+  /**
+   * Bumped when the worker reports a resource patch — surfaces that cache a
+   * scan of the booted resources (the world map) subscribe to re-derive.
+   */
+  patchTick: number;
   /** Debug channels the app has armed on the worker. */
   debugChannels: { ownership: boolean; objects: boolean; trace: boolean; picture: boolean };
   /**

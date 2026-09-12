@@ -19,15 +19,6 @@ import type { WorkerContext } from "./context.ts";
 const V_ROOM = 0;
 const V_SCORE = 3;
 
-interface PendingEntry {
-  from: number | null;
-  to: number;
-  cause: RoomTransitionCause;
-  edge?: EdgeSide;
-  score: number;
-  carried: number[];
-}
-
 export function createJournal(ctx: WorkerContext) {
   /**
    * Carried-inventory snapshot for delta computation: the item numbers the

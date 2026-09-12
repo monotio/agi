@@ -256,9 +256,11 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       autosave: (msg) => deps.handleAutosave(msg),
       flushed: (msg) => deps.handleFlushed(msg),
       restored: (msg) => deps.handleRestored(msg),
-      // Deliberate no-op: the patch flow resynchronizes through the following
-      // reenter + frame; raw-worker e2e observes this notice directly.
-      metadataPatched: () => {},
+      // The patch flow resynchronizes through the following reenter + frame;
+      // this tick just invalidates scans of the booted resources (the map).
+      metadataPatched: () => {
+        state.patchTick++;
+      },
       log: (msg) => logAgent("log", msg.text),
       quit: () => {
         deps.ejectGame();

@@ -50,6 +50,7 @@ const {
   stopTestRecording,
   cancelTestRecording,
   saveRecordedTest,
+  roomMap,
 } = useEngineApi();
 const { aiModelLabel, aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
 const bridge = useShellBridge();
@@ -365,6 +366,17 @@ onUnmounted(() => {
         >
           <span>Run walkthrough<small>Watch real-time playthrough</small></span>
         </button>
+        <button
+          type="button"
+          role="menuitem"
+          data-testid="btn-world-map"
+          @click="
+            closeNavMenus();
+            roomMap.openMap();
+          "
+        >
+          <span>World map<small>Rooms you have seen, planned and found in logic</small></span>
+        </button>
         <button type="button" role="menuitem" data-testid="btn-start-over" @click="onStartOver">
           Start over
         </button>
@@ -394,7 +406,7 @@ onUnmounted(() => {
           :disabled="exportBusy || state.powerUp.busy"
           @click="onExportAgiZip(true, true)"
         >
-          <span>Project<small>Game and editing history</small></span>
+          <span>Project<small>Game, editing history and world map</small></span>
         </button>
       </ActionMenu>
       <button

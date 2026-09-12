@@ -45,6 +45,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     currentGame,
     flushAutosave,
     exportCurrentGame,
+    roomMap,
   } = engine;
   const { llmConfig, openAiSettings, aiConfigured } = ai;
 
@@ -489,7 +490,10 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
 
   /** What a project archive brought along besides the game — and what storage refused. */
   function progressNote(game: OpenedGame, stored: ImportStorageReport | null): string {
-    if (!game.progress) return "";
+    const mapNote = game.map
+      ? ` (world map ${stored?.map ? "stored" : "could not be stored"})`
+      : "";
+    if (!game.progress) return mapNote;
     const parts = Object.keys(game.progress.saves).map((slot) => {
       const status = stored?.slots.includes(Number(slot))
         ? "stored"
@@ -506,7 +510,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
           : "storage unconfirmed";
       parts.push(`autosave ${status}`);
     }
-    return parts.length ? ` (${parts.join("; ")})` : "";
+    return (parts.length ? ` (${parts.join("; ")})` : "") + mapNote;
   }
 
   async function onGameZip(file?: File): Promise<void> {
@@ -744,8 +748,15 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
         : await loadAuthoredGame(selectedProjectId.value);
       if (!data) throw new Error("No saved game is available.");
       const progressKey = exportResult ? exportResult.progressKey : data.projectId;
+      // The map's storage identity is the game's storage key — for a live
+      // export that is the in-memory map; for a stored project, the sidecar.
+      const mapTarget = game ? gameStorageKey(game) : data.projectId;
       const zipBytes = project
-        ? await buildProjectZip(data, readGameProgress(localStorage, progressKey))
+        ? await buildProjectZip(
+            data,
+            readGameProgress(localStorage, progressKey),
+            roomMap.storedSidecar(mapTarget),
+          )
         : buildPublicGameZip(data);
       const url = URL.createObjectURL(new Blob([zipBytes], { type: "application/zip" }));
       const a = document.createElement("a");

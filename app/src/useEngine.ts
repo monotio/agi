@@ -41,6 +41,7 @@ import { discoverInstalledGames } from "./gameDiscovery.ts";
 import { useWorkerLink } from "./useWorkerLink.ts";
 import { useGameLifecycle } from "./useGameLifecycle.ts";
 import { useEngineDebug } from "./useEngineDebug.ts";
+import { useRoomMap } from "./useRoomMap.ts";
 import type { WorkerInbound } from "./workerProtocol.ts";
 export type { PromptState };
 export type { ModalKind, TextHook, EngineState } from "./useEngineTypes.ts";
@@ -121,6 +122,7 @@ export function useEngine(
     debugTrace: [],
     debugTraceDropped: 0,
     roomJournal: [],
+    patchTick: 0,
     showObjView: null,
     debugChannels: { ownership: false, objects: false, trace: false, picture: false },
     debugConsumers: {
@@ -390,6 +392,15 @@ export function useEngine(
   });
   walkthroughAbort = walkthrough.abort;
 
+  const roomMap = useRoomMap({
+    state,
+    hook,
+    getBootedGame: () => lifecycle.getBootedGame(),
+    getSession: () => authoringController.getSession(),
+    pauseEngine,
+    resumeEngine,
+  });
+
   return {
     stopAgent: () => authoringController.getSession()?.task.stop(),
     continueAgent: () => authoringController.getSession()?.task.resume(),
@@ -425,6 +436,8 @@ export function useEngine(
     releaseAgentAudioPreviews,
     pauseEngine,
     resumeEngine,
+    roomMap,
+    observeMapFrame: roomMap.observeFrame,
     readFrames: debug.readFrames,
     updateAiConfig,
     openPowerUp,

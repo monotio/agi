@@ -84,7 +84,50 @@ export interface StaticRoomScan {
   readonly targets: readonly number[];
   /** new.room.v — the target is computed at runtime; value unknown. */
   readonly variableTarget: boolean;
+  /**
+   * Picture numbers this logic provably draws or loads: draw.pic/load.pic/
+   * overlay.pic/discard.pic all take a variable, so a number is recorded only
+   * when the scan's literal binding (below) still holds at the call site.
+   */
+  readonly pictures: readonly number[];
 }
+
+/**
+ * Opcodes that clobber a var binding, with the argument positions they write.
+ * A var written any other way drops its literal binding — the scan is
+ * deliberately conservative, so a missing entry means no claim, not a guess.
+ */
+const VAR_WRITES: Readonly<Record<string, readonly number[]>> = {
+  increment: [0],
+  decrement: [0],
+  assignn: [0],
+  assignv: [0],
+  addn: [0],
+  addv: [0],
+  subn: [0],
+  subv: [0],
+  muln: [0],
+  mulv: [0],
+  divn: [0],
+  divv: [0],
+  lindirectn: [0],
+  lindirectv: [0],
+  rindirect: [1],
+  random: [2],
+  "get.posn": [1, 2],
+  "get.priority": [1],
+  "get.dir": [1],
+  "get.room.v": [0],
+  "get.num": [1],
+  distance: [2],
+};
+
+const PICTURE_USES: ReadonlySet<string> = new Set([
+  "load.pic",
+  "draw.pic",
+  "overlay.pic",
+  "discard.pic",
+]);
 
 /**
  * Literal room targets in one logic's bytecode. new.room's operand is a
@@ -92,18 +135,44 @@ export interface StaticRoomScan {
  * logic N, so the literal is a candidate, labelled as such downstream.
  * Decoding failures (truncated or hostile payloads) yield an empty scan —
  * the map degrades, it does not refuse.
+ *
+ * Picture use is tracked through straight-line var bindings: assignn binds a
+ * literal, assignv propagates one, and every other var-writing opcode in
+ * VAR_WRITES clears it. When `selfRoom` names the room this logic serves,
+ * v0 — the interpreter's current-room variable — starts bound to it, which
+ * is the AGI convention `load.pic(v0); draw.pic(v0)` relies on. Conditional
+ * bindings still count: the result is a candidate, never an asserted use.
  */
-export function scanStaticExits(payload: Uint8Array, profile?: AgiProfile): StaticRoomScan {
+export function scanStaticExits(
+  payload: Uint8Array,
+  profile?: AgiProfile,
+  selfRoom?: number,
+): StaticRoomScan {
   try {
     const targets: number[] = [];
+    const pictures = new Set<number>();
+    const bound = new Map<number, number>();
+
+    if (selfRoom !== undefined) bound.set(0, selfRoom);
     let variableTarget = false;
     for (const action of decodeLogicActions(payload, profile !== undefined ? { profile } : {})) {
       if (action.name === "new.room") targets.push(action.args[0]!);
       else if (action.name === "new.room.v") variableTarget = true;
+      else if (action.name === "assignn") bound.set(action.args[0]!, action.args[1]!);
+      else if (action.name === "assignv") {
+        const value = bound.get(action.args[1]!);
+        if (value === undefined) bound.delete(action.args[0]!);
+        else bound.set(action.args[0]!, value);
+      } else if (PICTURE_USES.has(action.name)) {
+        const pic = bound.get(action.args[0]!);
+        if (pic !== undefined) pictures.add(pic);
+      }
+      for (const at of VAR_WRITES[action.name] ?? [])
+        if (action.name !== "assignn" && action.name !== "assignv") bound.delete(action.args[at]!);
     }
-    return { targets, variableTarget };
+    return { targets, variableTarget, pictures: [...pictures].sort((a, b) => a - b) };
   } catch {
-    return { targets: [], variableTarget: false };
+    return { targets: [], variableTarget: false, pictures: [] };
   }
 }
 
@@ -119,7 +188,9 @@ export function scanContainerExits(
   const scans = new Map<number, StaticRoomScan>();
   const shared = new Set<number>();
   for (const [num, payload] of logics) {
-    scans.set(num, scanStaticExits(payload, profile));
+    // selfRoom seeds the v0 convention; consumers must still check `shared`
+    // before attributing a picture use — a shared logic's v0 is its caller's.
+    scans.set(num, scanStaticExits(payload, profile, num));
     try {
       for (const action of decodeLogicActions(payload, profile !== undefined ? { profile } : {}))
         if (action.name === "call") shared.add(action.args[0]!);

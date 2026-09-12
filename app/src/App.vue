@@ -6,7 +6,16 @@ import AiSettingsDialog from "./AiSettings.vue";
 import SoundPreview from "./SoundPreview.vue";
 import WalkthroughBar from "./WalkthroughBar.vue";
 import PlayArea from "./PlayArea.vue";
-import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue";
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  ref,
+  useTemplateRef,
+  watch,
+} from "vue";
 import { useEngine, type AutosaveRecord, type ModalKind } from "./useEngine.ts";
 import { MODEL_OPTIONS } from "./agent/llmClient.ts";
 import { reconcileGameIndex } from "./gameStorage.ts";
@@ -52,6 +61,7 @@ function onMenuHashChange(): void {
 const engine = useEngine(
   (frame) => {
     presentation.present(frame);
+    engine.observeMapFrame(frame);
   },
   {
     onPromptType: (text) => {
@@ -60,6 +70,14 @@ const engine = useEngine(
   },
 );
 provideEngine(engine);
+
+// The map's graph code loads only when the player opens it — never on boot.
+const WorldMap = defineAsyncComponent(() => import("./WorldMap.vue"));
+const mapOpen = engine.roomMap.open;
+// A modal can swallow the keyup of a held direction; release it on open.
+watch(mapOpen, (isOpen) => {
+  if (isOpen) releaseMovement();
+});
 const {
   state,
   resumeAudio,
@@ -535,5 +553,7 @@ watch(
     />
 
     <AgentLogPanel />
+
+    <WorldMap v-if="mapOpen" />
   </div>
 </template>
