@@ -24,6 +24,7 @@ import {
 } from "./useAutosaveController.ts";
 import { clearCachedGame } from "./gameStorage.ts";
 import { clearGameSaves } from "./gameSaves.ts";
+import { removeMapSidecar } from "./roomMapStore.ts";
 import {
   type BootedGame,
   type CurrentGame,
@@ -63,6 +64,7 @@ export async function removeLibraryGame(projectId: ProjectId): Promise<void> {
   await clearCachedGame(projectId);
   clearAutosave(projectId);
   clearGameSaves(localStorage, projectId);
+  removeMapSidecar(localStorage, projectId);
 }
 
 /**

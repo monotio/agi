@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as storage from "../src/gameStorage.ts";
 import { readGameSaves, writeGameSave } from "../src/gameSaves.ts";
+import { mapKey, writeMapSidecar } from "../src/roomMapStore.ts";
 import {
   lastGameKey,
   readAutosave,
@@ -524,6 +525,12 @@ test("removing a library game clears its conversation, checkpoint, save slots an
   };
   assert.deepEqual(writeAutosave(localStorage, checkpoint), checkpoint);
   assert.equal(writeGameSave(localStorage, "gone", 1, "AAAA"), true);
+  writeMapSidecar(localStorage, "gone", {
+    journal: [],
+    layout: { 3: { x: 10, y: 20 } },
+    notes: {},
+  });
+  assert.ok(localStorage.getItem(mapKey("gone")) !== null, "map record written");
   localStorage.setItem("monotio_agi.lastGame", "gone");
 
   await removeLibraryGame("gone");
@@ -533,6 +540,7 @@ test("removing a library game clears its conversation, checkpoint, save slots an
   assert.equal(readAutosave("gone"), null, "checkpoint");
   assert.deepEqual(readGameSaves(localStorage, "gone"), {}, "save slots");
   assert.equal(lastGameKey(), null, "resume pointer");
+  assert.equal(localStorage.getItem(mapKey("gone")), null, "map record removed");
 });
 
 test("a database open that finishes after being blocked closes its abandoned connection", async (t) => {

@@ -32,6 +32,11 @@ The Playwright server uses Vite's `test` mode with a deterministic test provider
 browser tests mock paid providers. See [evals](evals/README.md) for live model
 evaluations.
 
+Worker behavior gets the cheapest meaningful regression test: a unit test under
+`app/test/` drives the worker modules with fake ports and a real `Engine`, and a
+Playwright spec covers only the user-visible behavior. Tests that mirror the
+implementation or duplicate another assertion are not kept.
+
 The gate checks installed dependencies against both manifests before testing.
 After switching branches or pulling dependency updates, run `npm ci` in both
 package roots to keep local verification aligned with CI.

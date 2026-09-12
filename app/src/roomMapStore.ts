@@ -73,6 +73,11 @@ export function writeMapSidecar(
   }
 }
 
+/** Forget a game's map record — the library removal path calls this too. */
+export function removeMapSidecar(storage: Pick<Storage, "removeItem">, target: string): void {
+  storage.removeItem(mapKey(target));
+}
+
 /** The serialized record for a project archive's MAP.JSON entry. */
 export function mapArchiveData(sidecar: RoomMapSidecar): string {
   return JSON.stringify(serializeMapSidecar(sidecar));
