@@ -203,10 +203,7 @@ const edgeGeoms = computed<EdgeGeom[]>(() => {
     const n = totals.get(k)!;
     const i = seen.get(k) ?? 0;
     seen.set(k, i + 1);
-    if (n === 1) {
-      return { edge, d: `M ${x1} ${y1} L ${x2} ${y2}`, lx: (x1 + x2) / 2, ly: (y1 + y2) / 2 - 6 };
-    }
-    const offset = (i - (n - 1) / 2) * 34;
+    const offset = n === 1 ? 0 : (i - (n - 1) / 2) * 34;
     const mx = (x1 + x2) / 2;
     const my = (y1 + y2) / 2;
     const len = Math.hypot(x2 - x1, y2 - y1) || 1;
@@ -214,14 +211,41 @@ const edgeGeoms = computed<EdgeGeom[]>(() => {
     const py = ((x2 - x1) / len) * offset;
     const cx = mx + px * 2;
     const cy = my + py * 2;
+    // Trim both ends to the node borders: the path must end at the target
+    // rect's edge, not its centre, or the node paints over the arrowhead.
+    const sd = norm(offset === 0 ? x2 - x1 : cx - x1, offset === 0 ? y2 - y1 : cy - y1);
+    const ed = norm(offset === 0 ? x2 - x1 : x2 - cx, offset === 0 ? y2 - y1 : y2 - cy);
+    const sx = x1 + sd.x * edgeInset(sd);
+    const sy = y1 + sd.y * edgeInset(sd);
+    const ex = x2 - ed.x * edgeInset(ed);
+    const ey = y2 - ed.y * edgeInset(ed);
     return {
       edge,
-      d: `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`,
+      d: offset === 0 ? `M ${sx} ${sy} L ${ex} ${ey}` : `M ${sx} ${sy} Q ${cx} ${cy} ${ex} ${ey}`,
       lx: mx + px,
       ly: my + py - 6,
     };
   });
 });
+
+/** Arrowhead fills per provenance. Marker children do not inherit the
+ * referencing path's stroke, so each provenance gets its own marker — the
+ * values must match the `.edge-*` stroke colours below. */
+const EDGE_COLORS = { observed: "#9fe6a0", planned: "#ffd977", static: "#8aa4ac" } as const;
+
+/** Unit-length direction. */
+function norm(x: number, y: number): { x: number; y: number } {
+  const l = Math.hypot(x, y) || 1;
+  return { x: x / l, y: y / l };
+}
+
+/** Centre-to-border distance of a node rect along a unit direction, plus a
+ * small gap so the arrowhead clears the node. */
+function edgeInset(dir: { x: number; y: number }): number {
+  const tx = dir.x === 0 ? Infinity : (NODE_W / 2 + 4) / Math.abs(dir.x);
+  const ty = dir.y === 0 ? Infinity : (NODE_H / 2 + 4) / Math.abs(dir.y);
+  return Math.min(tx, ty);
+}
 
 /** What an edge label means, spelled out — the graph shows only the word. */
 function edgeTooltip(edge: RoomGraphEdge): string {
@@ -714,15 +738,17 @@ function downloadSidecar(): void {
           >
             <defs>
               <marker
-                id="map-arrow"
+                v-for="(color, kind) in EDGE_COLORS"
+                :id="`map-arrow-${kind}`"
+                :key="kind"
                 viewBox="0 0 10 10"
-                refX="9"
+                refX="8"
                 refY="5"
                 markerWidth="7"
                 markerHeight="7"
                 orient="auto-start-reverse"
               >
-                <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
+                <path d="M 0 0 L 10 5 L 0 10 z" :fill="color" />
               </marker>
               <clipPath id="map-node-clip">
                 <rect :width="NODE_W" :height="NODE_H" rx="7" />
@@ -733,7 +759,11 @@ function downloadSidecar(): void {
               :key="`e${i}`"
               :class="`edge edge-${geom.edge.provenance}`"
             >
-              <path class="edge-line" :d="geom.d" marker-end="url(#map-arrow)" />
+              <path
+                class="edge-line"
+                :d="geom.d"
+                :marker-end="`url(#map-arrow-${geom.edge.provenance})`"
+              />
               <text v-if="geom.edge.label" class="edge-label" :x="geom.lx" :y="geom.ly">
                 {{ geom.edge.label }}
                 <title>{{ edgeTooltip(geom.edge) }}</title>
