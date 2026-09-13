@@ -346,7 +346,14 @@ function commitNote(): void {
 
 // ---- graph pointer drag --------------------------------------------------------
 
-let dragging: { room: number; dx: number; dy: number } | null = null;
+let dragging: {
+  room: number;
+  dx: number;
+  dy: number;
+  sx: number;
+  sy: number;
+  moved: boolean;
+} | null = null;
 
 function svgPoint(ev: PointerEvent): { x: number; y: number } {
   const svg = (ev.currentTarget as SVGGraphicsElement).ownerSVGElement!;
@@ -362,20 +369,37 @@ function onNodePointerDown(ev: PointerEvent, room: number): void {
   const pos = positioned.value.get(room);
   if (!pos) return;
   const p = svgPoint(ev);
-  dragging = { room, dx: p.x - pos.x, dy: p.y - pos.y };
+  dragging = {
+    room,
+    dx: p.x - pos.x,
+    dy: p.y - pos.y,
+    sx: ev.clientX,
+    sy: ev.clientY,
+    moved: false,
+  };
   (ev.currentTarget as Element).setPointerCapture(ev.pointerId);
 }
 
 function onNodePointerMove(ev: PointerEvent): void {
   if (!dragging) return;
+  // A click is not a move: only once the pointer travels a few px does the
+  // press become a drag, so plain selection never dirties the layout.
+  if (
+    !dragging.moved &&
+    Math.abs(ev.clientX - dragging.sx) + Math.abs(ev.clientY - dragging.sy) < 4
+  )
+    return;
+  dragging.moved = true;
   const p = svgPoint(ev);
   map.previewNode(dragging.room, p.x - dragging.dx, p.y - dragging.dy);
 }
 
 function onNodePointerUp(ev: PointerEvent, room: number): void {
   if (!dragging || dragging.room !== room) return;
-  const p = svgPoint(ev);
-  map.moveNode(room, p.x - dragging.dx, p.y - dragging.dy);
+  if (dragging.moved) {
+    const p = svgPoint(ev);
+    map.moveNode(room, p.x - dragging.dx, p.y - dragging.dy);
+  }
   dragging = null;
 }
 

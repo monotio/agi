@@ -35,7 +35,7 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the save format; the release contract pins its structure",
   },
   "app/src/WorldMap.vue": {
-    lines: 1121,
+    lines: 1145,
     boundary: "the world-map overlay: graph, room list and room details",
   },
   "src/picture/source.ts": {

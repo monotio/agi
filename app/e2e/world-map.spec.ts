@@ -508,6 +508,26 @@ test("the graph pans in both axes, zooms, and the detail pane dismisses", async 
   await page.mouse.down();
   await page.mouse.up();
   await expect(page.getByTestId("map-detail")).not.toBeVisible();
+
+  // Selecting a node is not a layout move; a real drag is.
+  const sidecarLayout = () =>
+    page.evaluate(
+      () =>
+        (JSON.parse(localStorage.getItem("monotio_agi.map.world-map-dense") ?? "{}").layout ??
+          {}) as Record<string, unknown>,
+    );
+  const node = page.getByTestId("map-node-4");
+  const nb = (await node.boundingBox())!;
+  await page.mouse.click(nb.x + nb.width / 2, nb.y + nb.height / 2);
+  expect(await sidecarLayout()).not.toHaveProperty("4");
+  // The click opened the detail pane, which reshaped the viewport — re-measure.
+  await node.scrollIntoViewIfNeeded();
+  const nb2 = (await node.boundingBox())!;
+  await page.mouse.move(nb2.x + nb2.width / 2, nb2.y + nb2.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(nb2.x + nb2.width / 2 + 60, nb2.y + nb2.height / 2 + 30, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => Object.keys(await sidecarLayout())).toContain("4");
 });
 
 test("cold open, warm open and select stay fast on the largest synthetic map", async ({ page }) => {
