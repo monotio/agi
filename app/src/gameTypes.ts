@@ -101,6 +101,8 @@ export interface Frame {
   picRow: number;
   /** Interpreter cycle this frame completed, when the worker reports it. */
   cycle?: number;
+  /** Container patch revision at capture; part of the frame's identity. */
+  patchGeneration?: number;
   /**
    * Per-pixel owning screen object (num + 1, 0 = background); present only
    * while the worker's ownership debug channel is armed.
@@ -114,6 +116,12 @@ export interface Frame {
    */
   picVisual?: Uint8Array;
   picPriority?: Uint8Array;
+  /**
+   * Logical pixels the show.obj preview cel wrote; present only while that
+   * modal is open. Lets a layered renderer treat the preview as its own
+   * identifiable layer instead of unowned band-15 pixels.
+   */
+  preview?: Uint8Array;
 }
 
 /** Decodes 40x25 [char, attr] text buffer into 25 display rows. */

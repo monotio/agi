@@ -302,6 +302,8 @@ export interface ImportStorageReport {
   failedSlots: number[];
   /** The autosave record as stored, or null when there was none or storage refused it. */
   autosave: AutosaveRecord | null;
+  /** Whether the imported world map reached storage, when the archive carried one. */
+  map?: boolean;
 }
 
 /**

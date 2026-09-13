@@ -51,6 +51,9 @@ export function createWorkerQueries(): WorkerQueries {
         reject,
         timer,
       });
+      // The query envelope is assembled here; callers are typed through
+      // WorkerQueryFn, so this is the one legitimate untyped literal.
+      // ast-grep-ignore: worker-postmessage-satisfies
       worker.postMessage({ type, id, ...extra });
     });
   }

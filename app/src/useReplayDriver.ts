@@ -1,9 +1,10 @@
 import type { Frame } from "./gameTypes.ts";
 import type { ReplayDriver, ReplayObservation } from "./replay.ts";
 import { runReplayBatch } from "./replayRunner.ts";
+import type { WorkerQueryFn } from "./workerProtocol.ts";
 
 export interface ReplayDriverContext {
-  readonly query: <T>(type: string, extra?: Record<string, unknown>) => Promise<T>;
+  readonly query: WorkerQueryFn;
   readonly sendKey: (code: number, sessionId?: number) => void;
   readonly sendDirection: (dir: number, sessionId?: number) => void;
   readonly submitPrompt: (text: string) => void;
@@ -27,7 +28,7 @@ export function createReplayDriver(ctx: ReplayDriverContext): ReplayDriver {
     latest: null,
     advance: (ticks, options) => {
       const activeSession = ctx.getActiveWalkthroughSession();
-      return ctx.query<ReplayObservation>("replayAdvance", {
+      return ctx.query("replayAdvance", {
         ticks,
         ...(options?.sessionId !== undefined
           ? { sessionId: options.sessionId }

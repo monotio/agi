@@ -5,6 +5,7 @@ import {
   type LibraryMetadata,
 } from "./gameMetadata.ts";
 import { storeImportedProgress, type ImportStorageReport } from "./gameProgress.ts";
+import { writeMapSidecar } from "./roomMapStore.ts";
 import {
   loadAuthoredGame,
   saveAuthoredGame,
@@ -103,10 +104,17 @@ export async function addLibraryGame(
     throw new Error(
       "Your browser could not save this game. Free some storage space and try again.",
     );
+  let report: ImportStorageReport | undefined;
   if (game.progress) {
-    const report = storeImportedProgress(localStorage, targetProjectId, revision, game.progress);
-    onProgressStored?.(report);
+    report = storeImportedProgress(localStorage, targetProjectId, revision, game.progress);
   }
+  // The map travels with the project it was made under; storage refusal is
+  // reported like progress, never silently dropped.
+  if (game.map) {
+    report ??= { slots: [], failedSlots: [], autosave: null };
+    report.map = writeMapSidecar(localStorage, targetProjectId, game.map);
+  }
+  if (report) onProgressStored?.(report);
   return targetProjectId;
 }
 

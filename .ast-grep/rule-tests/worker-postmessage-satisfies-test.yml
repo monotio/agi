@@ -1,0 +1,8 @@
+id: worker-postmessage-satisfies
+valid:
+  - 'worker.postMessage({ type: "pause", paused: true } satisfies WorkerInbound);'
+  - "self.postMessage(message, options ?? []);"
+  - "worker.postMessage(message);"
+invalid:
+  - 'worker.postMessage({ type: "pause", paused: true });'
+  - "self.postMessage({ result }, [buffer]);"

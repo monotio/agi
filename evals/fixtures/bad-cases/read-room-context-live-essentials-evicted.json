@@ -1,0 +1,581 @@
+{
+  "name": "oversized-live-field-evicts-room-ego-modal-and-observation-identity",
+  "result": {
+    "success": true,
+    "message": "Room 7: compiled resources and authored intent; live state is the current paused interpreter.",
+    "details": {
+      "room": 7,
+      "live": {
+        "room": 7,
+        "egoX": 121,
+        "egoY": 140,
+        "cycle": 412,
+        "inventory": [
+          {
+            "num": 0,
+            "name": "inventory object number 0 with a long descriptive name"
+          },
+          {
+            "num": 1,
+            "name": "inventory object number 1 with a long descriptive name"
+          },
+          {
+            "num": 2,
+            "name": "inventory object number 2 with a long descriptive name"
+          },
+          {
+            "num": 3,
+            "name": "inventory object number 3 with a long descriptive name"
+          },
+          {
+            "num": 4,
+            "name": "inventory object number 4 with a long descriptive name"
+          },
+          {
+            "num": 5,
+            "name": "inventory object number 5 with a long descriptive name"
+          },
+          {
+            "num": 6,
+            "name": "inventory object number 6 with a long descriptive name"
+          },
+          {
+            "num": 7,
+            "name": "inventory object number 7 with a long descriptive name"
+          },
+          {
+            "num": 8,
+            "name": "inventory object number 8 with a long descriptive name"
+          },
+          {
+            "num": 9,
+            "name": "inventory object number 9 with a long descriptive name"
+          },
+          {
+            "num": 10,
+            "name": "inventory object number 10 with a long descriptive name"
+          },
+          {
+            "num": 11,
+            "name": "inventory object number 11 with a long descriptive name"
+          },
+          {
+            "num": 12,
+            "name": "inventory object number 12 with a long descriptive name"
+          },
+          {
+            "num": 13,
+            "name": "inventory object number 13 with a long descriptive name"
+          },
+          {
+            "num": 14,
+            "name": "inventory object number 14 with a long descriptive name"
+          },
+          {
+            "num": 15,
+            "name": "inventory object number 15 with a long descriptive name"
+          },
+          {
+            "num": 16,
+            "name": "inventory object number 16 with a long descriptive name"
+          },
+          {
+            "num": 17,
+            "name": "inventory object number 17 with a long descriptive name"
+          },
+          {
+            "num": 18,
+            "name": "inventory object number 18 with a long descriptive name"
+          },
+          {
+            "num": 19,
+            "name": "inventory object number 19 with a long descriptive name"
+          },
+          {
+            "num": 20,
+            "name": "inventory object number 20 with a long descriptive name"
+          },
+          {
+            "num": 21,
+            "name": "inventory object number 21 with a long descriptive name"
+          },
+          {
+            "num": 22,
+            "name": "inventory object number 22 with a long descriptive name"
+          },
+          {
+            "num": 23,
+            "name": "inventory object number 23 with a long descriptive name"
+          },
+          {
+            "num": 24,
+            "name": "inventory object number 24 with a long descriptive name"
+          },
+          {
+            "num": 25,
+            "name": "inventory object number 25 with a long descriptive name"
+          },
+          {
+            "num": 26,
+            "name": "inventory object number 26 with a long descriptive name"
+          },
+          {
+            "num": 27,
+            "name": "inventory object number 27 with a long descriptive name"
+          },
+          {
+            "num": 28,
+            "name": "inventory object number 28 with a long descriptive name"
+          },
+          {
+            "num": 29,
+            "name": "inventory object number 29 with a long descriptive name"
+          },
+          {
+            "num": 30,
+            "name": "inventory object number 30 with a long descriptive name"
+          },
+          {
+            "num": 31,
+            "name": "inventory object number 31 with a long descriptive name"
+          },
+          {
+            "num": 32,
+            "name": "inventory object number 32 with a long descriptive name"
+          },
+          {
+            "num": 33,
+            "name": "inventory object number 33 with a long descriptive name"
+          },
+          {
+            "num": 34,
+            "name": "inventory object number 34 with a long descriptive name"
+          },
+          {
+            "num": 35,
+            "name": "inventory object number 35 with a long descriptive name"
+          },
+          {
+            "num": 36,
+            "name": "inventory object number 36 with a long descriptive name"
+          },
+          {
+            "num": 37,
+            "name": "inventory object number 37 with a long descriptive name"
+          },
+          {
+            "num": 38,
+            "name": "inventory object number 38 with a long descriptive name"
+          },
+          {
+            "num": 39,
+            "name": "inventory object number 39 with a long descriptive name"
+          }
+        ],
+        "modalKind": "show.obj",
+        "controls": [
+          "control 0: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
+          "control 1: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
+          "control 2: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
+          "control 3: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
+          "control 4: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
+          "control 5: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
+          "control 6: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
+          "control 7: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description ",
+          "control 8: very long control description very long control description very long control description very long control description very long control description very long control description very long control description very long control description "
+        ]
+      },
+      "liveObjects": [
+        {
+          "num": 0,
+          "name": "obj 0",
+          "x": 0,
+          "y": 100
+        },
+        {
+          "num": 1,
+          "name": "obj 1",
+          "x": 2,
+          "y": 101
+        },
+        {
+          "num": 2,
+          "name": "obj 2",
+          "x": 4,
+          "y": 102
+        },
+        {
+          "num": 3,
+          "name": "obj 3",
+          "x": 6,
+          "y": 103
+        },
+        {
+          "num": 4,
+          "name": "obj 4",
+          "x": 8,
+          "y": 104
+        },
+        {
+          "num": 5,
+          "name": "obj 5",
+          "x": 10,
+          "y": 105
+        },
+        {
+          "num": 6,
+          "name": "obj 6",
+          "x": 12,
+          "y": 106
+        },
+        {
+          "num": 7,
+          "name": "obj 7",
+          "x": 14,
+          "y": 107
+        },
+        {
+          "num": 8,
+          "name": "obj 8",
+          "x": 16,
+          "y": 108
+        },
+        {
+          "num": 9,
+          "name": "obj 9",
+          "x": 18,
+          "y": 109
+        },
+        {
+          "num": 10,
+          "name": "obj 10",
+          "x": 20,
+          "y": 110
+        },
+        {
+          "num": 11,
+          "name": "obj 11",
+          "x": 22,
+          "y": 111
+        },
+        {
+          "num": 12,
+          "name": "obj 12",
+          "x": 24,
+          "y": 112
+        },
+        {
+          "num": 13,
+          "name": "obj 13",
+          "x": 26,
+          "y": 113
+        },
+        {
+          "num": 14,
+          "name": "obj 14",
+          "x": 28,
+          "y": 114
+        },
+        {
+          "num": 15,
+          "name": "obj 15",
+          "x": 30,
+          "y": 115
+        },
+        {
+          "num": 16,
+          "name": "obj 16",
+          "x": 32,
+          "y": 116
+        },
+        {
+          "num": 17,
+          "name": "obj 17",
+          "x": 34,
+          "y": 117
+        },
+        {
+          "num": 18,
+          "name": "obj 18",
+          "x": 36,
+          "y": 118
+        },
+        {
+          "num": 19,
+          "name": "obj 19",
+          "x": 38,
+          "y": 119
+        },
+        {
+          "num": 20,
+          "name": "obj 20",
+          "x": 40,
+          "y": 120
+        },
+        {
+          "num": 21,
+          "name": "obj 21",
+          "x": 42,
+          "y": 121
+        },
+        {
+          "num": 22,
+          "name": "obj 22",
+          "x": 44,
+          "y": 122
+        },
+        {
+          "num": 23,
+          "name": "obj 23",
+          "x": 46,
+          "y": 123
+        },
+        {
+          "num": 24,
+          "name": "obj 24",
+          "x": 48,
+          "y": 124
+        },
+        {
+          "num": 25,
+          "name": "obj 25",
+          "x": 50,
+          "y": 125
+        },
+        {
+          "num": 26,
+          "name": "obj 26",
+          "x": 52,
+          "y": 126
+        },
+        {
+          "num": 27,
+          "name": "obj 27",
+          "x": 54,
+          "y": 127
+        },
+        {
+          "num": 28,
+          "name": "obj 28",
+          "x": 56,
+          "y": 128
+        },
+        {
+          "num": 29,
+          "name": "obj 29",
+          "x": 58,
+          "y": 129
+        },
+        {
+          "num": 30,
+          "name": "obj 30",
+          "x": 60,
+          "y": 130
+        },
+        {
+          "num": 31,
+          "name": "obj 31",
+          "x": 62,
+          "y": 131
+        },
+        {
+          "num": 32,
+          "name": "obj 32",
+          "x": 64,
+          "y": 132
+        },
+        {
+          "num": 33,
+          "name": "obj 33",
+          "x": 66,
+          "y": 133
+        },
+        {
+          "num": 34,
+          "name": "obj 34",
+          "x": 68,
+          "y": 134
+        },
+        {
+          "num": 35,
+          "name": "obj 35",
+          "x": 70,
+          "y": 135
+        },
+        {
+          "num": 36,
+          "name": "obj 36",
+          "x": 72,
+          "y": 136
+        },
+        {
+          "num": 37,
+          "name": "obj 37",
+          "x": 74,
+          "y": 137
+        },
+        {
+          "num": 38,
+          "name": "obj 38",
+          "x": 76,
+          "y": 138
+        },
+        {
+          "num": 39,
+          "name": "obj 39",
+          "x": 78,
+          "y": 139
+        },
+        {
+          "num": 40,
+          "name": "obj 40",
+          "x": 80,
+          "y": 140
+        },
+        {
+          "num": 41,
+          "name": "obj 41",
+          "x": 82,
+          "y": 141
+        },
+        {
+          "num": 42,
+          "name": "obj 42",
+          "x": 84,
+          "y": 142
+        },
+        {
+          "num": 43,
+          "name": "obj 43",
+          "x": 86,
+          "y": 143
+        },
+        {
+          "num": 44,
+          "name": "obj 44",
+          "x": 88,
+          "y": 144
+        },
+        {
+          "num": 45,
+          "name": "obj 45",
+          "x": 90,
+          "y": 145
+        },
+        {
+          "num": 46,
+          "name": "obj 46",
+          "x": 92,
+          "y": 146
+        },
+        {
+          "num": 47,
+          "name": "obj 47",
+          "x": 94,
+          "y": 147
+        },
+        {
+          "num": 48,
+          "name": "obj 48",
+          "x": 96,
+          "y": 148
+        },
+        {
+          "num": 49,
+          "name": "obj 49",
+          "x": 98,
+          "y": 149
+        },
+        {
+          "num": 50,
+          "name": "obj 50",
+          "x": 100,
+          "y": 150
+        },
+        {
+          "num": 51,
+          "name": "obj 51",
+          "x": 102,
+          "y": 151
+        },
+        {
+          "num": 52,
+          "name": "obj 52",
+          "x": 104,
+          "y": 152
+        },
+        {
+          "num": 53,
+          "name": "obj 53",
+          "x": 106,
+          "y": 153
+        },
+        {
+          "num": 54,
+          "name": "obj 54",
+          "x": 108,
+          "y": 154
+        },
+        {
+          "num": 55,
+          "name": "obj 55",
+          "x": 110,
+          "y": 155
+        },
+        {
+          "num": 56,
+          "name": "obj 56",
+          "x": 112,
+          "y": 156
+        },
+        {
+          "num": 57,
+          "name": "obj 57",
+          "x": 114,
+          "y": 157
+        },
+        {
+          "num": 58,
+          "name": "obj 58",
+          "x": 116,
+          "y": 158
+        },
+        {
+          "num": 59,
+          "name": "obj 59",
+          "x": 118,
+          "y": 159
+        }
+      ],
+      "origin": {
+        "kind": "staged",
+        "resourceSet": "9-abcdef01"
+      }
+    }
+  },
+  "projected": {
+    "maxFieldChars": 400,
+    "details": {
+      "live": {
+        "room": 7,
+        "egoX": 121,
+        "egoY": 140,
+        "cycle": 412,
+        "modalKind": "show.obj",
+        "inventory": {
+          "items": 40
+        },
+        "controls": {
+          "items": 9
+        }
+      },
+      "liveObjects": {
+        "items": 60
+      },
+      "origin": {
+        "kind": "staged",
+        "resourceSet": "9-abcdef01"
+      }
+    }
+  }
+}

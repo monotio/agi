@@ -18,19 +18,27 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from "vue";
 import type { Frame } from "./gameTypes.ts";
-import type { ScreenObjectState, TraceRecord } from "../../src/runtime/engine.ts";
+import type {
+  EngineStateReport,
+  ScreenObjectState,
+  TraceRecord,
+} from "../../src/runtime/engine.ts";
 import {
   cropFrameRgba,
   describeDebugEvent,
   describeObject,
   formatTraceRecord,
   inspectPixel,
+  latchIsStale,
+  latchPickAt,
   overlayBoxes,
   pickFromClient,
   type DebugEvent,
   type DebugViewMode,
+  type LatchedPick,
   type PickPoint,
 } from "./debugView.ts";
+import type { StagePick } from "./explodedPick.ts";
 
 type StampedTrace = TraceRecord & { seq: number; cycle: number };
 
@@ -50,10 +58,12 @@ const props = defineProps<{
   frame: Frame | null;
   objects: ScreenObjectState[];
   trace: StampedTrace[];
+  /** Records the worker dropped from its bounded backlog while we stalled. */
+  traceDropped: number;
   channels: { ownership: boolean; objects: boolean; trace: boolean };
   viewMode: DebugViewMode;
   hasGpu: boolean;
-  readState: () => Promise<Record<string, unknown>>;
+  readState: () => Promise<EngineStateReport | null>;
   eventsSince: (since: number) => Promise<Record<string, unknown>>;
   write: (vars: [number, number][], flags: [number, number][]) => Promise<unknown>;
   /**
@@ -62,11 +72,16 @@ const props = defineProps<{
    * (NDC -1..1, y up) back into logical picture space. Null while flat.
    */
   project: (band: number, x: number, y: number) => { x: number; y: number } | null;
-  pick3d: (nx: number, ny: number) => { x: number; y: number } | null;
+  pick3d: (nx: number, ny: number) => StagePick | null;
 }>();
 
 const emit = defineEmits<{
-  setChannels: [channels: Partial<{ ownership: boolean; objects: boolean; trace: boolean }>];
+  /**
+   * A surface that consumes debug payloads turned on or off. The engine
+   * derives the armed channel set from all consumers, so a checkbox can
+   * never disarm a channel another view still needs.
+   */
+  setConsumer: [consumer: "overlay" | "inspect" | "trace", on: boolean];
   setViewMode: [mode: DebugViewMode];
   close: [];
 }>();
@@ -119,26 +134,44 @@ function onHeadPointerUp(): void {
 
 // ---------- pick / point-select ----------
 
-interface LatchedPick {
-  point: PickPoint;
-  inspection: { color: number; priority: number; owner: number | null };
-  cycle: number;
-  patchGeneration: number;
-  cropUrl: string;
-}
-
 const hover = ref<{
   point: PickPoint;
   inspection: { color: number; priority: number; owner: number | null } | null;
 }>();
-const picked = ref<LatchedPick>();
+const picked = ref<(LatchedPick & { cropUrl: string }) | undefined>();
 
-const pickedObject = computed<ScreenObjectState | null>(() => {
-  const owner = picked.value?.inspection.owner;
-  return owner === null || owner === undefined
-    ? null
-    : (props.objects.find((o) => o.num === owner) ?? null);
-});
+// The object the pick resolved at latch time — a frozen snapshot, never a
+// live lookup, so a later frame or state report cannot rewrite the card.
+const pickedObject = computed(() => picked.value?.object ?? null);
+
+// A new game, restore, or seek regresses the cycle — the latched observation
+// described a frame that no longer exists, so drop it.
+watch(
+  () => props.frame,
+  (f) => {
+    if (picked.value && latchIsStale(picked.value, f)) picked.value = undefined;
+  },
+);
+
+function layerLabel(point: PickPoint): string {
+  const b = point.layerBand;
+  switch (point.layerKind) {
+    case "control":
+      return "control lines";
+    case "picture":
+      return `picture band ${b}`;
+    case "sprite":
+      return `sprite band ${b}`;
+    case "preview":
+      return "modal preview";
+    case "text":
+      return "text surface";
+    case "background":
+      return "background";
+    default:
+      return "outside picture band";
+  }
+}
 
 function eventPoint(ev: PointerEvent): PickPoint | null {
   const el = ev.currentTarget as HTMLElement;
@@ -150,10 +183,22 @@ function eventPoint(ev: PointerEvent): PickPoint | null {
     const ny = -(((ev.clientY - rect.top) / rect.height) * 2 - 1);
     const hit = props.pick3d(nx, ny);
     if (!hit) return null;
-    return {
-      logical: hit,
-      displayed: { x: hit.x * 2, y: (props.frame?.picRow ?? 1) * 8 + hit.y },
+    const bandLayer =
+      hit.kind === "control" ||
+      hit.kind === "picture" ||
+      hit.kind === "sprite" ||
+      hit.kind === "preview";
+    const point: PickPoint = {
+      // Band layers pick in logical picture space; the text surface and
+      // background report frame space (no logical pixel exists there).
+      logical: bandLayer ? { x: hit.x, y: hit.y } : null,
+      displayed: bandLayer
+        ? { x: hit.x * 2, y: (props.frame?.picRow ?? 1) * 8 + hit.y }
+        : { x: hit.x, y: hit.y },
+      layerKind: hit.kind,
     };
+    if (hit.band !== undefined) point.layerBand = hit.band;
+    return point;
   }
   return pickFromClient(ev.clientX, ev.clientY, rect, props.frame?.picRow ?? 1);
 }
@@ -186,30 +231,23 @@ function onOverlayClick(ev: PointerEvent): void {
     picked.value = undefined;
     return;
   }
-  const { x, y } = point.logical;
-  const inspection = inspectPixel(props.frame, x, y);
-  if (!inspection) return;
-  const crop = cropFrameRgba(props.frame, x, y, 12);
-  picked.value = {
-    point,
-    inspection,
-    cycle: props.frame.cycle ?? 0,
-    patchGeneration: report.value?.patchGeneration ?? 0,
-    cropUrl: cropToDataUrl(crop.width, crop.height, crop.data),
-  };
+  const latch = latchPickAt(props.frame, point);
+  if (!latch) return;
+  const crop = cropFrameRgba(props.frame, point.logical.x, point.logical.y, 12);
+  picked.value = { ...latch, cropUrl: cropToDataUrl(crop.width, crop.height, crop.data) };
 }
 
 async function copyPick(): Promise<void> {
   const p = picked.value;
   if (!p) return;
-  const owner = pickedObject.value;
   const payload = {
     logical: p.point.logical,
     displayed: p.point.displayed,
+    layer: p.point.layerKind ? { kind: p.point.layerKind, band: p.point.layerBand } : null,
     color: p.inspection.color,
     priority: p.inspection.priority,
     owner: p.inspection.owner,
-    object: owner ?? null,
+    object: p.object,
     cycle: p.cycle,
     patchGeneration: p.patchGeneration,
   };
@@ -222,6 +260,18 @@ async function copyPick(): Promise<void> {
 
 // ---------- state polling ----------
 
+const EMPTY_REPORT: StateReport = {
+  vars: [],
+  flags: [],
+  horizon: 0,
+  priorityBase: 0,
+  patchGeneration: 0,
+  room: 0,
+  egoX: 0,
+  egoY: 0,
+  egoDirection: 0,
+};
+
 const report = ref<StateReport>();
 const prevVars = ref<number[]>([]);
 const prevFlags = ref<number[]>([]);
@@ -230,7 +280,7 @@ const changedFlags = ref<Set<number>>(new Set());
 
 async function pollState(): Promise<void> {
   try {
-    const r = (await props.readState()) as unknown as StateReport;
+    const r: StateReport = (await props.readState()) ?? EMPTY_REPORT;
     const next = new Set<number>();
     for (let i = 0; i < 256; i++) {
       if (prevVars.value.length === 256 && r.vars[i] !== prevVars.value[i]) next.add(i);
@@ -505,8 +555,16 @@ watch(
 );
 
 function toggleTrace(): void {
-  emit("setChannels", { trace: !props.channels.trace });
+  emit("setConsumer", "trace", !props.channels.trace);
 }
+
+// The dock unmounts with the inspector closed or the game ejected; release
+// its channel consumers so nothing stays armed for a closed surface.
+onBeforeUnmount(() => {
+  emit("setConsumer", "overlay", false);
+  emit("setConsumer", "inspect", false);
+  emit("setConsumer", "trace", false);
+});
 
 const COLOR_NAMES = [
   "black",
@@ -633,12 +691,7 @@ const MODES: { id: DebugViewMode; label: string; title: string }[] = [
             v-model="overlayOn"
             type="checkbox"
             data-testid="dbg-overlay-toggle"
-            @change="
-              emit('setChannels', {
-                objects: overlayOn || inspectArmed,
-                ownership: overlayOn || inspectArmed,
-              })
-            "
+            @change="emit('setConsumer', 'overlay', overlayOn)"
           />
           Objects
         </label>
@@ -647,12 +700,7 @@ const MODES: { id: DebugViewMode; label: string; title: string }[] = [
             v-model="inspectArmed"
             type="checkbox"
             data-testid="dbg-inspect-toggle"
-            @change="
-              emit('setChannels', {
-                objects: overlayOn || inspectArmed,
-                ownership: overlayOn || inspectArmed,
-              })
-            "
+            @change="emit('setConsumer', 'inspect', inspectArmed)"
           />
           Inspect
         </label>
@@ -671,7 +719,7 @@ const MODES: { id: DebugViewMode; label: string; title: string }[] = [
             </template>
           </template>
         </template>
-        <template v-else>outside picture band</template>
+        <template v-else>{{ layerLabel(hover.point) }}</template>
       </div>
 
       <div v-if="picked" class="pick-card" data-testid="dbg-pick">
@@ -682,6 +730,8 @@ const MODES: { id: DebugViewMode; label: string; title: string }[] = [
           alt="crop around picked pixel"
         />
         <dl class="pick-fields">
+          <dt v-if="picked.point.layerKind">layer</dt>
+          <dd v-if="picked.point.layerKind">{{ layerLabel(picked.point) }}</dd>
           <dt>logical</dt>
           <dd>({{ picked.point.logical?.x }}, {{ picked.point.logical?.y }})</dd>
           <dt>displayed</dt>
@@ -806,6 +856,9 @@ const MODES: { id: DebugViewMode; label: string; title: string }[] = [
       </ol>
       <h3 class="dd-h3">Instruction trace</h3>
       <ol ref="traceEl" class="dd-list dd-trace" data-testid="dbg-trace">
+        <li v-if="traceDropped > 0" class="dd-hint" data-testid="dbg-trace-dropped">
+          …{{ traceDropped }} records dropped while the inspector was stalled
+        </li>
         <li v-for="r in traceFiltered.slice(-400)" :key="r.seq">
           <span class="cyc">c{{ r.cycle }}</span> {{ formatTraceRecord(r) }}
         </li>

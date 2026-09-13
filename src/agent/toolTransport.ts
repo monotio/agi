@@ -19,6 +19,54 @@ export type AnthropicToolBlock =
 const DETAIL_FIELD_BUDGET = 400;
 
 /**
+ * Scalar payload kept inside an evicted field's summary. Room, ego position,
+ * modal state and observation identity are small leaves that must survive
+ * even when they share a field with an unbounded inventory or object table.
+ */
+const SUMMARY_SCALAR_BUDGET = 220;
+const SUMMARY_SCALAR_CHARS = 80;
+
+/**
+ * Bounded stand-in for an evicted field: `{ truncated: true, ... }` keeps the
+ * field's scalar leaves verbatim and replaces each nested collection with a
+ * count, so the model retains the essential context and knows exactly what
+ * the diagnostic store still holds.
+ */
+function fieldSummary(value: unknown): Record<string, unknown> | undefined {
+  if (Array.isArray(value)) return { truncated: true, items: value.length };
+  if (typeof value === "string")
+    return { truncated: true, chars: value.length, head: value.slice(0, 120) };
+  if (value === null || typeof value !== "object") return undefined;
+  const summary: Record<string, unknown> = { truncated: true };
+  let used = 0;
+  let omitted = 0;
+  for (const [key, leaf] of Object.entries(value)) {
+    if (Array.isArray(leaf)) {
+      summary[key] = { truncated: true, items: leaf.length };
+      continue;
+    }
+    // A leaf that serializes small — scalar or compact object like an origin
+    // record — stays verbatim so essential context survives the eviction.
+    const s = leaf === undefined ? undefined : JSON.stringify(leaf);
+    if (
+      s !== undefined &&
+      s.length <= SUMMARY_SCALAR_CHARS &&
+      used + key.length + s.length <= SUMMARY_SCALAR_BUDGET
+    ) {
+      summary[key] = leaf;
+      used += key.length + s.length;
+      continue;
+    }
+    if (leaf !== null && typeof leaf === "object")
+      summary[key] = { truncated: true, keys: Object.keys(leaf).length };
+    else if (typeof leaf === "string") summary[key] = { truncated: true, chars: leaf.length };
+    else omitted++;
+  }
+  if (omitted > 0) summary["omittedScalars"] = omitted;
+  return summary;
+}
+
+/**
  * The compact model-facing projection of one tool result. The full result is
  * persisted in `store` under `id` so nothing is lost; the model sees small
  * fields verbatim plus a diagnosticId pointer for the evicted ones. Apply it
@@ -41,8 +89,19 @@ export function projectToolResult(
     } catch {
       serialized = undefined;
     }
-    if (serialized !== undefined && serialized.length <= DETAIL_FIELD_BUDGET) kept[key] = value;
-    else evicted.push(key);
+    if (serialized !== undefined && serialized.length <= DETAIL_FIELD_BUDGET) {
+      kept[key] = value;
+      continue;
+    }
+    evicted.push(key);
+    const summary = fieldSummary(value);
+    if (summary !== undefined) {
+      try {
+        if (JSON.stringify(summary).length <= DETAIL_FIELD_BUDGET) kept[key] = summary;
+      } catch {
+        /* an unserializable summary just stays evicted */
+      }
+    }
   }
   if (!evicted.length) return result;
   store.set(id, result);

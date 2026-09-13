@@ -10,6 +10,13 @@ export interface GameInspection {
   rows: string[];
 }
 
+/** The preview worker's protocol — separate from the engine worker's. */
+export interface PreviewWorkerInbound {
+  files: Record<string, Uint8Array>;
+  words: [string, number][];
+}
+export type PreviewWorkerOutbound = { result: GameInspection } | { error: string };
+
 class PreviewInput extends Error {}
 
 /** A disposable interpreter, with no authoring, persistence, audio or network capabilities. */

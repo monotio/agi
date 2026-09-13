@@ -1,17 +1,14 @@
-import type { RecordedOperation } from "../../src/agent/recordedReplay.ts";
-import type { EngineReplayState } from "../../src/runtime/replayState.ts";
 import { executeAgentTool } from "../../src/agent/tools.ts";
 import type { AgentSession } from "./agent/agentSession.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import {
   buildRecordedTest,
   type AssertionSuggestion,
-  type RecordedEvent,
-  type RecorderStateSnapshot,
   type RecordingSnapshot,
 } from "./gameRecording.ts";
 import type { BootedGame } from "./gameTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
+import type { WorkerInbound, WorkerQueryFn } from "./workerProtocol.ts";
 
 export interface TestRecorderState {
   readonly phase: string;
@@ -25,7 +22,7 @@ export interface TestRecorderState {
 export interface TestRecorderOptions {
   readonly state: TestRecorderState;
   readonly getWorker: () => Worker | null;
-  readonly query: <T>(type: string, extra?: Record<string, unknown>) => Promise<T>;
+  readonly query: WorkerQueryFn;
   readonly logAgent: LogAgentFn;
   readonly getBootedGame: () => BootedGame | null;
   readonly getOrCreateSession: (game: BootedGame, config: LlmConfig) => Promise<AgentSession>;
@@ -92,14 +89,7 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
     }
     state.recording.starting = true;
     try {
-      const reply = await query<{
-        ok: boolean;
-        image?: string;
-        replayState?: EngineReplayState;
-        cycle?: number;
-        state?: RecorderStateSnapshot;
-        error?: string;
-      }>("startRecording");
+      const reply = await query("startRecording");
       if (
         !reply.ok ||
         !reply.image ||
@@ -126,15 +116,7 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
   /** Stop capturing and return everything the worker recorded, or null. */
   async function stopTestRecording(): Promise<RecordingSnapshot | null> {
     if (!state.recording.active || !recordingStart) return null;
-    const reply = await query<{
-      operations?: RecordedOperation[];
-      events?: RecordedEvent[];
-      printed?: string[];
-      tainted?: string | null;
-      usedGetnum?: boolean;
-      cycle?: number;
-      state?: RecorderStateSnapshot | null;
-    }>("stopRecording");
+    const reply = await query("stopRecording");
     state.recording.active = false;
     const start = recordingStart;
     recordingStart = null;
@@ -154,7 +136,7 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
   /** Discard the active recording without saving anything. */
   function cancelTestRecording(): void {
     if (!state.recording.active) return;
-    getWorker()?.postMessage({ type: "cancelRecording" });
+    getWorker()?.postMessage({ type: "cancelRecording" } satisfies WorkerInbound);
     state.recording.active = false;
     recordingStart = null;
     logAgent("log", "Game test recording discarded.");
@@ -190,8 +172,8 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
     worker.postMessage({
       type: "patchMetadata",
       files: { "TESTS.JSON": new Uint8Array(author.state.testsPayload!) },
-    });
-    const files = await query<Record<string, Uint8Array> | null>("exportFiles");
+    } satisfies WorkerInbound);
+    const files = await query("exportFiles");
     if (!files || options.getBootedGame() !== game)
       return { ok: false, message: "The game changed while saving the recording. Try again." };
     await options.persistRemix(game, author, files);

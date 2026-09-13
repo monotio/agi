@@ -7,7 +7,12 @@ import {
   executeAgentTool,
   executeAgentToolAsync,
 } from "../../src/agent/tools.ts";
-import { splitToolResult } from "../../src/agent/toolTransport.ts";
+import {
+  anthropicToolContent,
+  openAiToolContent,
+  projectToolResult,
+  splitToolResult,
+} from "../../src/agent/toolTransport.ts";
 
 describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
   const badCasesDir = resolve("evals/fixtures/bad-cases");
@@ -19,8 +24,52 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
 
     it(`replays bad case: ${content.name} (${file})`, async () => {
       const session = createAgentSessionState();
-      const execute = content.async ? executeAgentToolAsync : executeAgentTool;
-      const res = await execute(session, content.tool, content.args);
+      // A literal `result` replays a transport-level failure (no tool call).
+      const res =
+        content.result ??
+        (await (content.async ? executeAgentToolAsync : executeAgentTool)(
+          session,
+          content.tool,
+          content.args,
+        ));
+
+      if (content.projected) {
+        const store = new Map<string, typeof res>();
+        const projected = projectToolResult(res, store, "replay-1");
+        const details = (projected.details ?? {}) as Record<string, unknown>;
+        assert.equal(details["diagnosticId"], "replay-1", `${file}: no diagnostic pointer`);
+        for (const [field, expected] of Object.entries(
+          content.projected.details as Record<string, Record<string, unknown>>,
+        )) {
+          const actual = details[field] as Record<string, unknown>;
+          assert.ok(actual, `${file}: projected details lost '${field}'`);
+          for (const [key, want] of Object.entries(expected)) {
+            if (want !== null && typeof want === "object") {
+              assert.deepEqual(
+                actual[key],
+                { truncated: true, ...want },
+                `${file}: ${field}.${key} count`,
+              );
+            } else {
+              assert.deepEqual(actual[key], want, `${file}: ${field}.${key}`);
+            }
+          }
+          assert.ok(
+            JSON.stringify(actual).length <= (content.projected.maxFieldChars ?? 400),
+            `${file}: projected '${field}' exceeds its field budget`,
+          );
+        }
+        assert.equal(store.get("replay-1"), res, `${file}: full result not in diagnostics`);
+        const wire = splitToolResult(projected);
+        for (const blocks of [openAiToolContent(wire), anthropicToolContent(wire)]) {
+          const text = (blocks[0] as { text: string }).text;
+          assert.ok(
+            text.includes('"diagnosticId":"replay-1"'),
+            `${file}: provider payload lost the diagnostic pointer`,
+          );
+        }
+        return;
+      }
       if (content.expectedTextMaxChars !== undefined) {
         const wire = splitToolResult(res);
         assert.ok(

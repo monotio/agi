@@ -581,6 +581,69 @@ test("model-facing projection evicts large fields into a retrievable diagnostic"
   assert.equal(absent.success, false);
 });
 
+test("an oversized live field keeps its essential scalars and reports counts", () => {
+  // read_room_context packs room, ego position, modal state and the
+  // observation identity into `live` beside unbounded inventory, controls and
+  // object tables. Over the field budget those essentials must still reach the
+  // model, with the evicted parts marked and counted.
+  const session = createAgentSessionState();
+  const live = {
+    room: 7,
+    egoX: 121,
+    egoY: 140,
+    modalKind: "show.obj",
+    checkpoint: 412,
+    inventory: Array.from({ length: 40 }, (_, i) => ({
+      num: i,
+      name: `inventory object number ${i} with a long descriptive name`,
+    })),
+    controls: Array.from(
+      { length: 9 },
+      (_, i) => `control ${i}: ` + "very long control description ".repeat(8),
+    ),
+  };
+  const full: AgentToolResult = {
+    success: true,
+    message: "Room 7.",
+    details: {
+      live,
+      liveObjects: Array.from({ length: 60 }, (_, i) => ({ num: i, name: `obj ${i}` })),
+    },
+  };
+  const projected = projectToolResult(full, session.diagnostics, "live-1");
+  const compact = projected.details?.["live"] as Record<string, unknown>;
+  assert.equal(compact["room"], 7);
+  assert.equal(compact["egoX"], 121);
+  assert.equal(compact["egoY"], 140);
+  assert.equal(compact["modalKind"], "show.obj");
+  assert.equal(compact["checkpoint"], 412);
+  assert.deepEqual(compact["inventory"], { truncated: true, items: 40 });
+  assert.deepEqual(compact["controls"], { truncated: true, items: 9 });
+  const objects = projected.details?.["liveObjects"] as Record<string, unknown>;
+  assert.deepEqual(objects, { truncated: true, items: 60 });
+  assert.equal(projected.details?.["diagnosticId"], "live-1");
+  assert.deepEqual(projected.details?.["truncatedFields"], ["live", "liveObjects"]);
+  assert.ok(
+    JSON.stringify(compact).length <= 400,
+    `summary is ${JSON.stringify(compact).length} characters`,
+  );
+  const stored = session.diagnostics.get("live-1");
+  assert.equal((stored?.details?.["live"] as typeof live).inventory.length, 40);
+
+  // Both provider serializations carry the essentials, not the raw tables.
+  for (const content of [splitToolResult(projected)]) {
+    for (const text of [
+      (openAiToolContent(content)[0] as { text: string }).text,
+      (anthropicToolContent(content)[0] as { text: string }).text,
+    ]) {
+      assert.ok(text.includes('"room":7'));
+      assert.ok(text.includes('"egoX":121'));
+      assert.ok(text.includes('"items":40'));
+      assert.ok(!text.includes("inventory object number 39"));
+    }
+  }
+});
+
 test("tool results carry explicit evidence origins and a resource-set identity", async () => {
   const session = bootedSession();
   const origin = (r: AgentToolResult) => r.details?.["origin"] as Record<string, unknown>;

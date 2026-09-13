@@ -555,6 +555,14 @@ export class Engine {
    * the trace window or requiring flag 10.
    */
   private traceListener: ((record: TraceRecord) => void) | null = null;
+  /**
+   * Host observation of completed room transitions: reported in place from
+   * completeNewRoom with the edge code still live. `restarted` marks the
+   * first new.room after a restart() reset.
+   */
+  private roomTransitionListener:
+    ((from: number, to: number, edge: number, restarted: boolean) => void) | null = null;
+  private restartPending = false;
   private readonly tracedText = new TextSurface();
   /** Live input-line edit buffer and the most recently accepted line (echo.line). */
   private editLine = "";
@@ -577,6 +585,8 @@ export class Engine {
   private readonly scratchVisual = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly scratchPriority = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly scratchOwnership = new Uint16Array(SCREEN_WIDTH * 168);
+  /** Logical pixels the show.obj preview cel wrote this composition. */
+  private readonly scratchPreview = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly cachedVisual = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly cachedPriority = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly cachedText = new Uint8Array(TEXT_COLS * TEXT_ROWS * 2);
@@ -3384,6 +3394,7 @@ export class Engine {
     this.scratchVisual.set(this.surface.visual);
     this.scratchPriority.set(this.surface.priority);
     this.scratchOwnership.fill(0);
+    this.scratchPreview.fill(0);
 
     const frame: PictureSurface = {
       visual: this.scratchVisual,
@@ -3427,7 +3438,12 @@ export class Engine {
       const view = this.views.get(this.modal.view);
       const cel = view && readViewCel(view, 0, 0);
       if (cel)
-        drawCel(frame, cel, (SCREEN_WIDTH - cel.width) >> 1, SCREEN_HEIGHT - 1, { priority: 15 });
+        drawCel(frame, cel, (SCREEN_WIDTH - cel.width) >> 1, SCREEN_HEIGHT - 1, {
+          priority: 15,
+          onPixel: (index: number) => {
+            this.scratchPreview[index] = 1;
+          },
+        });
     }
 
     if (this.modal?.kind === "showPri") {
@@ -3494,6 +3510,16 @@ export class Engine {
   }
 
   /**
+   * Per-pixel mask of the show.obj preview cel while that modal is open —
+   * composition metadata so a host can render the preview as its own layer
+   * instead of an unowned smear on band 15. Null in every other state.
+   */
+  getPreviewMask(): Uint8Array | null {
+    this.ensurePresentationCurrent();
+    return this.modal?.kind === "showObj" ? this.scratchPreview.slice() : null;
+  }
+
+  /**
    * The picture surface alone — drawn picture plus baked add.to.pic views,
    * no screen objects. Debug hosts that explode the frame into priority
    * layers sample this for the wall bands so sprite pixels leave no holes.
@@ -3511,6 +3537,17 @@ export class Engine {
    */
   setTraceListener(listener: ((record: TraceRecord) => void) | null): void {
     this.traceListener = listener;
+  }
+
+  /**
+   * Arm the room-transition sink used by the host's world-map journal. Pure
+   * observation: opcode execution is unchanged; the listener sees the edge
+   * code at the transition, before finishRoomChange clears it.
+   */
+  setRoomTransitionListener(
+    listener: ((from: number, to: number, edge: number, restarted: boolean) => void) | null,
+  ): void {
+    this.roomTransitionListener = listener;
   }
 
   /** f1 is engine state, updated when sprites draw rather than when a host asks for pixels. */
@@ -5269,6 +5306,9 @@ export class Engine {
     this.replayCheckpoint = 0;
     this.vars[V_PREV_ROOM] = this.vars[V_ROOM]!;
     this.vars[V_ROOM] = room;
+    const restarted = this.restartPending;
+    this.restartPending = false;
+    this.roomTransitionListener?.(this.vars[V_PREV_ROOM]!, room, this.vars[V_EDGE]!, restarted);
     this.vars[V_EGO_VIEW] = this.objects[0]!.view;
     this.horizon = 36;
     this.blockRect = null;
@@ -5526,6 +5566,7 @@ export class Engine {
     this.flags[F_SOUND_ENABLED] = soundEnabled;
     this.flags[F_NEW_ROOM] = 1;
     this.flags[F_RESTART] = 1;
+    this.restartPending = true;
     this.trace.setActive(false);
     if (this.trace.logic !== null) this.loadLogic(this.trace.logic);
   }
