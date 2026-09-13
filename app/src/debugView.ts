@@ -67,15 +67,44 @@ export interface PixelInspection {
   owner: number | null;
 }
 
-export function inspectPixel(frame: Frame, x: number, y: number): PixelInspection | null {
+/**
+ * Sample the picked logical pixel. `layer` names the exploded layer the pick
+ * selected: a picture or control band reads the picture-only surface — the
+ * exploded geometry can expose a pixel a composed sprite covers, and the
+ * composed value would contradict what the user clicked. A layer pick that
+ * cannot sample its own surface reports nothing rather than another layer's
+ * data. Only sprite (and flat, layer-less) picks may carry an owner.
+ */
+export function inspectPixel(
+  frame: Frame,
+  x: number,
+  y: number,
+  layer?: { kind: StagePick["kind"]; band?: number },
+): PixelInspection | null {
   if (x < 0 || x >= PIC_W || y < 0 || y >= PIC_H) return null;
   const i = y * PIC_W + x;
+  if (layer && (layer.kind === "picture" || layer.kind === "control")) {
+    const visual = frame.picVisual;
+    const priority = frame.picPriority;
+    if (!visual || !priority) return null;
+    return { color: visual[i]! & 0x0f, priority: priority[i]! & 0x0f, owner: null };
+  }
   const owned = frame.ownership?.[i] ?? 0;
+  const ownerAllowed = layer === undefined || layer.kind === "sprite";
   return {
     color: frame.visual[i]! & 0x0f,
     priority: frame.priority[i]! & 0x0f,
-    owner: owned > 0 ? owned - 1 : null,
+    owner: ownerAllowed && owned > 0 ? owned - 1 : null,
   };
+}
+
+/** The visual surface a picked layer reads from — the composed frame by default. */
+export function pickVisualSource(
+  frame: Frame,
+  kind: StagePick["kind"] | undefined,
+): Uint8Array | null {
+  if (kind === "picture" || kind === "control") return frame.picVisual ?? null;
+  return frame.visual;
 }
 
 /**
@@ -97,12 +126,23 @@ export interface LatchedPick {
 
 /**
  * Resolve a click into a self-contained observation. `point.layerKind`
- * suppresses the object identity for non-sprite layer picks (the ownership
- * mask still describes the composed frame honestly via `inspection.owner`).
+ * selects the sampled surface and suppresses object identity for non-sprite
+ * layer picks — the ownership mask describes the composed frame, and a
+ * composed sprite must not lend its owner to a picture band it merely covers.
  */
 export function latchPickAt(frame: Frame, point: PickPoint): LatchedPick | null {
   if (!point.logical) return null;
-  const inspection = inspectPixel(frame, point.logical.x, point.logical.y);
+  const inspection = inspectPixel(
+    frame,
+    point.logical.x,
+    point.logical.y,
+    point.layerKind === undefined
+      ? undefined
+      : {
+          kind: point.layerKind,
+          ...(point.layerBand !== undefined ? { band: point.layerBand } : {}),
+        },
+  );
   if (!inspection) return null;
   const spritePick = point.layerKind === undefined || point.layerKind === "sprite";
   const source =
@@ -136,6 +176,8 @@ export function cropFrameRgba(
   cx: number,
   cy: number,
   radius: number,
+  /** The surface to crop — the picked layer's source, defaulting to composed. */
+  source: Uint8Array = frame.visual,
 ): { width: number; height: number; data: Uint8Array } {
   const size = radius * 2 + 1;
   const x0 = Math.max(0, Math.min(cx - radius, PIC_W - size));
@@ -146,7 +188,7 @@ export function cropFrameRgba(
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = (y0 + y) * PIC_W + (x0 + x);
-      const [r, g, b] = EGA_PALETTE[frame.visual[i]! & 0x0f]!;
+      const [r, g, b] = EGA_PALETTE[source[i]! & 0x0f]!;
       const o = (y * w + x) * 4;
       data[o] = r;
       data[o + 1] = g;

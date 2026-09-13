@@ -33,6 +33,7 @@ import {
   latchPickAt,
   overlayBoxes,
   pickFromClient,
+  pickVisualSource,
   type DebugEvent,
   type DebugViewMode,
   type LatchedPick,
@@ -211,7 +212,17 @@ function onOverlayMove(ev: PointerEvent): void {
   }
   hover.value = {
     point,
-    inspection: inspectPixel(props.frame, point.logical.x, point.logical.y),
+    inspection: inspectPixel(
+      props.frame,
+      point.logical.x,
+      point.logical.y,
+      point.layerKind === undefined
+        ? undefined
+        : {
+            kind: point.layerKind,
+            ...(point.layerBand !== undefined ? { band: point.layerBand } : {}),
+          },
+    ),
   };
 }
 
@@ -233,7 +244,9 @@ function onOverlayClick(ev: PointerEvent): void {
   }
   const latch = latchPickAt(props.frame, point);
   if (!latch) return;
-  const crop = cropFrameRgba(props.frame, point.logical.x, point.logical.y, 12);
+  // Crop the same surface the inspection sampled — the picked layer's own.
+  const surface = pickVisualSource(props.frame, point.layerKind) ?? props.frame.visual;
+  const crop = cropFrameRgba(props.frame, point.logical.x, point.logical.y, 12, surface);
   picked.value = { ...latch, cropUrl: cropToDataUrl(crop.width, crop.height, crop.data) };
 }
 

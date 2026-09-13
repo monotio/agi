@@ -10,6 +10,7 @@ import {
   latchPickAt,
   overlayBoxes,
   pickFromClient,
+  pickVisualSource,
   type DebugEvent,
   type PickPoint,
 } from "../src/debugView.ts";
@@ -180,15 +181,43 @@ test("latchPickAt freezes the object snapshot and frame identity at click time",
   assert.ok(!latchIsStale(latch, null));
 });
 
-test("latchPickAt records no object identity for non-sprite layer picks", () => {
+test("a picture-layer pick samples the picture surface, not the composite", () => {
   const frame = frameFixture();
   frame.objects = [objectFixture()];
-  const flat = latchPickAt(frame, PICK)!;
-  assert.equal(flat.object?.num, 2); // flat 2D picks name the owner
-  const picture: PickPoint = { ...PICK, layerKind: "picture", layerBand: 4 };
+  // The composed pixel is a sprite (color 4, priority 11, owner 2) covering
+  // picture color 2 at priority 6 — the exploded geometry exposed it.
+  const picVisual = new Uint8Array(160 * 168).fill(15);
+  const picPriority = new Uint8Array(160 * 168).fill(9);
+  picVisual[50 * 160 + 40] = 2;
+  picPriority[50 * 160 + 40] = 6;
+  frame.picVisual = picVisual;
+  frame.picPriority = picPriority;
+
+  const picture: PickPoint = { ...PICK, layerKind: "picture", layerBand: 6 };
   const latch = latchPickAt(frame, picture)!;
-  assert.equal(latch.object, null); // even though the mask reports owner 2
-  assert.equal(latch.inspection.owner, 2);
+  assert.deepEqual(latch.inspection, { color: 2, priority: 6, owner: null });
+  assert.equal(latch.object, null);
+
+  // The sprite band pick on the same pixel reads the composed frame.
+  const sprite = latchPickAt(frame, { ...PICK, layerKind: "sprite", layerBand: 11 })!;
+  assert.deepEqual(sprite.inspection, { color: 4, priority: 11, owner: 2 });
+  assert.equal(sprite.object?.num, 2);
+
+  // The crop shows the picked layer's pixels: picture green 2, not the
+  // composed sprite red 4.
+  const crop = cropFrameRgba(frame, 40, 50, 4, pickVisualSource(frame, "picture")!);
+  const o = (4 * 9 + 4) * 4;
+  assert.deepEqual([...crop.data.slice(o, o + 4)], [0, 0xaa, 0, 255]);
+
+  // A layer pick without its source surface reports nothing rather than
+  // another layer's data.
+  const unarmed = frameFixture();
+  assert.equal(inspectPixel(unarmed, 40, 50, { kind: "picture", band: 6 }), null);
+  assert.equal(latchPickAt(unarmed, picture), null);
+
+  // Flat 2D picks still name the composed owner.
+  const flat = latchPickAt(frame, PICK)!;
+  assert.equal(flat.object?.num, 2);
 });
 
 test("latchPickAt returns null off the picture band and drops the latch on regression", () => {
