@@ -16,3 +16,5 @@ rule:
   any:
     - pattern: $RECV.postMessage({ $$$ARGS })
     - pattern: $RECV.postMessage({ $$$ARGS }, $$$REST)
+    - pattern: $RECV?.postMessage({ $$$ARGS })
+    - pattern: $RECV?.postMessage({ $$$ARGS }, $$$REST)
