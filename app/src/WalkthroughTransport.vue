@@ -192,6 +192,17 @@ function onMarkerClick(cp: WalkthroughCheckpoint): void {
   emit("seekCheckpoint", cp);
 }
 
+/**
+ * A pointer click must not leave keyboard focus on the control: while a
+ * story pause is up the next keystroke belongs to playback ("Press Enter to
+ * continue"), not to the button — a focused toggle would otherwise swallow
+ * Enter and silently re-trigger itself. Keyboard-activated clicks report
+ * detail 0 and keep focus so Tab/Enter navigation is untouched.
+ */
+function releaseFocus(ev: MouseEvent): void {
+  if (ev.detail > 0) (ev.currentTarget as HTMLElement).blur();
+}
+
 onUnmounted(() => {
   window.removeEventListener("pointermove", onTimelinePointerMove);
   window.removeEventListener("pointerup", onTimelinePointerUp);
@@ -222,7 +233,10 @@ onUnmounted(() => {
             ? 'Replay'
             : 'Pause'
       "
-      @click="emit('togglePause')"
+      @click="
+        emit('togglePause');
+        releaseFocus($event);
+      "
     >
       <svg
         v-if="walkthrough.status === 'paused'"
@@ -287,7 +301,10 @@ onUnmounted(() => {
           :style="{ left: `${cp.percent}%` }"
           :data-testid="`walkthrough-marker-${cp.index}`"
           :title="`${cp.label} (Score: ${cp.score} · Room ${cp.room})`"
-          @click.stop="onMarkerClick(cp)"
+          @click.stop="
+            onMarkerClick(cp);
+            releaseFocus($event);
+          "
         ></button>
 
         <!-- Thumb / Scrubber Handle -->
@@ -317,7 +334,10 @@ onUnmounted(() => {
         :class="{ 'walkthrough-speed-btn--active': walkthrough.speed === s }"
         :data-testid="`walkthrough-speed-${s}`"
         :title="`Set playback speed to ${s}×`"
-        @click="emit('setSpeed', s)"
+        @click="
+          emit('setSpeed', s);
+          releaseFocus($event);
+        "
       >
         {{ s }}×
       </button>
@@ -337,7 +357,10 @@ onUnmounted(() => {
       :aria-label="
         walkthrough.pauseOnDialog ? 'Disable pause on dialogue' : 'Enable pause on dialogue'
       "
-      @click="emit('togglePauseOnDialog')"
+      @click="
+        emit('togglePauseOnDialog');
+        releaseFocus($event);
+      "
     >
       <svg
         viewBox="0 0 24 24"
