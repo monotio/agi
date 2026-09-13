@@ -37,9 +37,17 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     lines: 1132,
     boundary: "the save format; the release contract pins its structure",
   },
+  "src/agent/history.ts": {
+    lines: 676,
+    boundary: "the history recording contract; the release contract pins its structure",
+  },
   "app/src/WorldMap.vue": {
-    lines: 1285,
-    boundary: "the world-map overlay: graph, room list and room details",
+    lines: 1558,
+    boundary: "the world-map overlay: graph, room list, room details and the plan-review bar",
+  },
+  "app/src/HistoryTransport.vue": {
+    lines: 614,
+    boundary: "the history transport: tape scrub, watch and resume controls",
   },
   "src/picture/source.ts": {
     lines: 1085,
@@ -50,8 +58,8 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the logic compiler, the validator of last resort",
   },
   "app/src/agent/agentSession.ts": {
-    lines: 895,
-    boundary: "the agent session lifecycle; size-only splits are out of scope for rc.10",
+    lines: 1017,
+    boundary: "the agent session lifecycle: plan, build, room and remix turns",
   },
   "app/src/useGameLibrary.ts": {
     lines: 882,
@@ -70,8 +78,9 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the agent bubble surface",
   },
   "app/src/useRoomMap.ts": {
-    lines: 750,
-    boundary: "the world-map composable: merge, pause ownership, thumbnails, persistence",
+    lines: 1036,
+    boundary:
+      "the world-map composable: merge, pause ownership, thumbnails, persistence and plan editing",
   },
   "src/agent/gameTests.ts": {
     lines: 733,
@@ -82,8 +91,13 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the local persistence records layer",
   },
   "src/agent/roomMap.ts": {
-    lines: 713,
-    boundary: "the room-graph model: journal, plan and static-scan merge",
+    lines: 765,
+    boundary:
+      "the room-graph model: journal, plan and static-scan merge, plus the sidecar contract",
+  },
+  "app/src/useAuthoringController.ts": {
+    lines: 689,
+    boundary: "the authoring controller: host-request turns, patches and map-driven room builds",
   },
   "app/src/agent/llmClient.ts": {
     lines: 705,

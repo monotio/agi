@@ -71,6 +71,7 @@ const sidecar: RoomMapSidecar = {
   ],
   layout: { "2": { x: 400, y: -170 } },
   notes: { "2": "check the guard timing" },
+  edgeNotes: { "0->2:right": "the bridge is out at night" },
 };
 
 test("map sidecar round-trips through storage", () => {

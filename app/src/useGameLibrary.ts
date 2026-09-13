@@ -20,6 +20,7 @@ import {
   updateGamePreview,
   type CachedGameMeta,
 } from "./gameStorage.ts";
+import { loadGameHistory } from "./historyStorage.ts";
 import { buildProjectZip, buildPublicGameZip } from "./projectArchive.ts";
 import { MAX_GAME_ZIP_BYTES, readGameFiles, readGameZip, type OpenedGame } from "./gameZip.ts";
 import { readGameProgress, type ImportStorageReport } from "./gameProgress.ts";
@@ -381,6 +382,38 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     const game = currentGame();
     if (game && !game.installed && game.projectId) selectedProjectId.value = game.projectId;
     cachedMeta.value = getCachedGameMeta(selectedProjectId.value);
+  }
+
+  /**
+   * Plan before build: the agent designs the world, the map opens over the
+   * library for review and nothing is authored until the player approves.
+   * Each plan gets a fresh project id — a kept draft for the same template is
+   * a different plan, never silently overwritten.
+   */
+  async function onPlanSelectedTemplate(): Promise<void> {
+    if (!selectedTemplateId.value || !adventureDraft.value.brief.trim()) return;
+    if (!aiConfigured.value) {
+      openAiSettings(null, "create");
+      return;
+    }
+    await resumeAudio();
+    await engine.plan.start(activeTemplate.value.rawMarkdown, llmConfig(), {
+      projectId: `${activeTemplate.value.id}-${crypto.randomUUID().slice(0, 8)}`,
+      templateId: activeTemplate.value.id,
+      title: activeTemplate.value.title,
+    });
+  }
+
+  /** The kept draft's resume offer — one pending plan at a time. */
+  const pendingPlan = engine.plan.pendingPlan;
+
+  async function onResumePendingPlan(): Promise<void> {
+    await resumeAudio();
+    await engine.plan.openPending();
+  }
+
+  function onDiscardPendingPlan(): void {
+    engine.plan.discardPending();
   }
 
   async function onBootSavedGame(alreadyBusy = false): Promise<void> {
@@ -751,11 +784,21 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       // The map's storage identity is the game's storage key — for a live
       // export that is the in-memory map; for a stored project, the sidecar.
       const mapTarget = game ? gameStorageKey(game) : data.projectId;
+      let history: Awaited<ReturnType<typeof loadGameHistory>> = null;
+      if (project) {
+        try {
+          history = await loadGameHistory(mapTarget);
+        } catch {
+          // A stored recording that fails validation is left out of the
+          // archive rather than blocking the project's download.
+        }
+      }
       const zipBytes = project
         ? await buildProjectZip(
             data,
             readGameProgress(localStorage, progressKey),
             roomMap.storedSidecar(mapTarget),
+            history ?? undefined,
           )
         : buildPublicGameZip(data);
       const url = URL.createObjectURL(new Blob([zipBytes], { type: "application/zip" }));
@@ -845,6 +888,10 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     onStartOver,
     onResumeAutosave,
     onBootSelectedTemplate,
+    onPlanSelectedTemplate,
+    pendingPlan,
+    onResumePendingPlan,
+    onDiscardPendingPlan,
     onBootSavedGame,
     onClearSavedGame,
     onPlayLibraryGame,

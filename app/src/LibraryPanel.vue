@@ -179,7 +179,7 @@ const bridge = useShellBridge();
               :test-id="`game-actions-${game.projectId}`"
             >
               <button
-                v-if="hasWalkthrough(game.library?.alias ?? game.projectId)"
+                v-if="hasWalkthrough(game.library?.revision ?? '')"
                 type="button"
                 role="menuitem"
                 data-testid="run-walkthrough"

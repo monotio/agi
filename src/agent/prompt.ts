@@ -62,8 +62,43 @@ Every tool's own description states what it does, what it returns and how it fai
 - When changing a running game, read before you patch and make the smallest complete change.
 `;
 
-/** Formats the initial Genesis turn prompt containing the template markdown. */
-export function createGenesisPrompt(templateText: string): string {
+/**
+ * The plan turn prompt: design the world, record it with update_world, author
+ * nothing. The phase allowlist enforces the restriction — the prompt asks for
+ * a small connected plan because the map is where the player reviews it.
+ */
+export function createPlanPrompt(templateText: string): string {
+  return `### PLAN PHASE: Design the world before anything is built
+
+Do not author resources in this turn — no logic, pictures, views, words or sounds. Design a small connected world (3 to 6 rooms) and record the whole plan through update_world: each room's number, a short title, a one-line brief of what happens there, and its named exits to other room numbers. Room 1 is the opening room unless the brief says otherwise. Record the facts and quests the brief implies too — the plan tells future room-authoring turns what to build.
+
+inspect_world_bible shows what is already recorded; read_authoring_guide has reference material if you need it.
+
+When the plan is complete, reply with one short paragraph summarizing the world. The player reviews this plan on the world map before anything is built.
+
+---
+${templateText.trim()}
+---`;
+}
+
+/**
+ * The revise prompt: the player's edited draft is already committed, so
+ * inspect_world_bible shows it verbatim. The note says what to change.
+ */
+export function createRevisePlanPrompt(note: string): string {
+  return `### PLAN REVISION
+
+The player edited the world plan on the map and asked for a revision:
+
+"${note.trim()}"
+
+inspect_world_bible shows the current plan — the player's edits are already recorded there and are theirs, not suggestions: keep every edit they did not ask to change. Revise through update_world; it replaces whole room entries, so restate a room's exits when you change one. Keep the world small and connected. Do not author resources.
+
+Reply with one short paragraph summarizing what changed. The player reviews the updated plan on the world map.`;
+}
+
+/** Formats the Genesis build-turn prompt containing the template markdown. */
+export function createGenesisPrompt(templateText: string, approvedPlan = false): string {
   return `### GENESIS PHASE: Build the opening of the game
 
 Author ONLY the opening room (Logic 0 + the initial room, picture 1 and logic 1 unless the brief specifies an intro/cutscene) and its required views, actors and vocabulary. DO NOT author Room 2 or subsequent rooms during Genesis. When the player walks through an exit into an unbuilt room, the engine pauses gameplay and prompts you to author that specific room just-in-time.
@@ -72,7 +107,11 @@ The brief decides the shape. A plain start in room 1 is one shape; a title card,
 
 Unless the brief specifically calls for a single-room game, design the opening room with one or more natural exits (walking edges, paths, doorways or passages) leading into the wider world. Exits simply call new.room(targetRoom). Any target room not yet authored will prompt a new room turn when the player crosses that boundary.
 
-Use update_world to record the overarching adventure roadmap: store planned rooms (numbers, titles, descriptions, exits), facts (world rules, backstory), and quests (dependencies, completed flags). This world storage tells future room authoring turns what to build next as the player explores.
+The world plan is already recorded through update_world — inspect_world_bible shows it. It is the roadmap for this build and for every later room-authoring turn.${
+    approvedPlan
+      ? ` The player reviewed and approved this plan on the map: it is the contract for this build, so keep the planned room numbers, titles and exits. If the build forces a deviation, record the change and its reason through update_world — never change the plan silently; the map shows what changed.`
+      : ""
+  }
 
 Deliver the opening room as a fully playable and solvable section. If the room contains puzzles or obstacles gating progress, make them completely solvable within this room and test them with write_game_tests.
 
@@ -205,11 +244,20 @@ ${input.sceneBrief.trim()}
 Deep inspection is targeted: read_room_context ${input.room} carries the room's logic, intent, live state and objects; 'state'/'frames' add the full tables and screen. Re-read a resource's revision before editing. Keep authored resource numbers out of ranges already in use, and patch the smallest thing that achieves what was asked. For every puzzle you author or change, store at least one game test for it with write_game_tests and check them with run_game_tests; handover runs them all again.`;
 }
 
-export function createRuntimeRoomPrompt(room: number, from: number): string {
+export function createRuntimeRoomPrompt(
+  room: number,
+  from: number,
+  playerNotes?: readonly string[],
+): string {
   return JSON.stringify({
     op: "room",
     room,
     from,
-    instruction: `Author exactly room ${room} (picture and standard AGI logic). Connect it back to room ${from}. Consult inspect_world_bible to retrieve the planned room description, quests, and facts established during Genesis or earlier rooms. Inspect the departure snapshot with read_room_context for flags, inventory and ego's actual view. Read global logic 0 and connected room logic when choosing shared flags, variables or future exits; resources and inventory definitions follow below. Author ONLY room ${room}; do not author rooms beyond this one. Any exits to yet-unvisited rooms simply call new.room(targetRoom). Deliver room ${room} as a fully solvable section up to its exits. Maintain unmannered, diegetic prose: direct statements, no fourth-wall breaks, and no score increments like "(+10)" in print messages (award points to v3). Use read_picture/read_view for visual inspection; gameplay is paused and read_room_context's frames section is unavailable during room preparation. Register any new words before compiling handlers, and author any new views or sounds the room uses. Do not overwrite other rooms or existing views/sounds. New inventory items are allowed: write_inventory_objects must keep the full existing table in order with unchanged names and startingRoom values, then append new items. Existing live item locations are preserved. Update update_world if new quests or facts emerge. Maintain world continuity and puzzle progression. When finished, call handover to validate the room and resume gameplay.`,
+    ...(playerNotes?.length ? { playerNotes } : {}),
+    instruction: `Author exactly room ${room} (picture and standard AGI logic).${
+      playerNotes?.length
+        ? " The playerNotes field lists intent the player pinned on the world map for this room — provenance, not resources and not observed behavior; honor it where it fits the plan."
+        : ""
+    } Connect it back to room ${from}. Consult inspect_world_bible to retrieve the planned room description, quests, and facts established during Genesis or earlier rooms. Inspect the departure snapshot with read_room_context for flags, inventory and ego's actual view. Read global logic 0 and connected room logic when choosing shared flags, variables or future exits; resources and inventory definitions follow below. Author ONLY room ${room}; do not author rooms beyond this one. Any exits to yet-unvisited rooms simply call new.room(targetRoom). Deliver room ${room} as a fully solvable section up to its exits. Maintain unmannered, diegetic prose: direct statements, no fourth-wall breaks, and no score increments like "(+10)" in print messages (award points to v3). Use read_picture/read_view for visual inspection; gameplay is paused and read_room_context's frames section is unavailable during room preparation. Register any new words before compiling handlers, and author any new views or sounds the room uses. Do not overwrite other rooms or existing views/sounds. New inventory items are allowed: write_inventory_objects must keep the full existing table in order with unchanged names and startingRoom values, then append new items. Existing live item locations are preserved. Update update_world if new quests or facts emerge. Maintain world continuity and puzzle progression. When finished, call handover to validate the room and resume gameplay.`,
   });
 }

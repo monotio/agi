@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { Speedrun, randomSource } from "./speedrun/runner.ts";
-import { readWalkthroughArtifact } from "./speedrun/artifact.ts";
+import { readWalkthroughArtifact, walkthroughServedRevisions } from "./speedrun/artifact.ts";
 
 const TARGET_HASH = KNOWN_GAME_HASH.KQ1;
 
@@ -108,35 +108,42 @@ test(
   },
 );
 
-test("readWalkthroughArtifact validates cryptographic binding of targetHash and supportedHashes", () => {
-  const kq1Artifact = readWalkthroughArtifact("app/public/walkthroughs/kq1.json");
-  assert.equal(kq1Artifact.game, "kq1");
-  assert.equal(kq1Artifact.targetHash, KNOWN_GAME_HASH.KQ1);
-  assert.deepEqual(kq1Artifact.supportedHashes, [KNOWN_GAME_HASH.KQ1]);
+test(
+  "readWalkthroughArtifact binds the tape to the served bundle revision",
+  { skip: fixtureSkip(KNOWN_GAME_HASH.KQ1, ["AGIDATA.OVL"]) },
+  async () => {
+    const kq1Artifact = await readWalkthroughArtifact("app/public/walkthroughs/kq1.json");
+    assert.equal(kq1Artifact.game, "kq1");
+    const served = await walkthroughServedRevisions(KNOWN_GAME_HASH.KQ1);
+    assert.equal(kq1Artifact.targetRevision, served[0]);
+    assert.ok(kq1Artifact.supportedRevisions?.includes(served[0]!));
 
-  const tempPath = join(tmpdir(), `agi-test-binding-${Date.now()}.json`);
-  try {
-    // Mismatch targetHash
-    const badTarget = { ...kq1Artifact, targetHash: KNOWN_GAME_HASH.SQ1 };
-    writeFileSync(tempPath, JSON.stringify(badTarget));
-    assert.throws(() => readWalkthroughArtifact(tempPath), /target hash matches route/);
-
-    // Mismatch supportedHashes
-    const badSupported = {
-      ...kq1Artifact,
-      targetHash: KNOWN_GAME_HASH.KQ1,
-      supportedHashes: [KNOWN_GAME_HASH.SQ1],
-    };
-    writeFileSync(tempPath, JSON.stringify(badSupported));
-    assert.throws(
-      () => readWalkthroughArtifact(tempPath),
-      /route hash included in supported hashes/,
-    );
-  } finally {
+    const tempPath = join(tmpdir(), `agi-test-binding-${Date.now()}.json`);
     try {
-      unlinkSync(tempPath);
-    } catch {
-      // ignore
+      // Mismatch targetRevision
+      const badTarget = { ...kq1Artifact, targetRevision: KNOWN_GAME_HASH.SQ1 };
+      writeFileSync(tempPath, JSON.stringify(badTarget));
+      await assert.rejects(
+        () => readWalkthroughArtifact(tempPath),
+        /target revision matches the served bundle/,
+      );
+
+      // Mismatch supportedRevisions
+      const badSupported = {
+        ...kq1Artifact,
+        supportedRevisions: [KNOWN_GAME_HASH.SQ1],
+      };
+      writeFileSync(tempPath, JSON.stringify(badSupported));
+      await assert.rejects(
+        () => readWalkthroughArtifact(tempPath),
+        /served bundle revision included in supported revisions/,
+      );
+    } finally {
+      try {
+        unlinkSync(tempPath);
+      } catch {
+        // ignore
+      }
     }
-  }
-});
+  },
+);

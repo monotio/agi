@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from "vue";
 import DebugDock from "./DebugDock.vue";
 import TouchControls from "./TouchControls.vue";
 import WalkthroughTransport from "./WalkthroughTransport.vue";
+import HistoryTransport from "./HistoryTransport.vue";
 import { useEngineApi } from "./engineContext.ts";
 import { usePresentation } from "./usePresentation.ts";
 import { useShellBridge } from "./shellBridge.ts";
@@ -123,6 +124,8 @@ function onScreenPointerDown(ev: PointerEvent): void {
 function onScreenClick(): void {
   resumeAudio();
   if (state.phase !== "running") return;
+  // The tape is a recording — screen clicks can't interact with it.
+  if (state.historyView.active) return;
   if (state.walkthrough.active) {
     if (advanceDialog()) return;
     if (state.walkthrough.status === "paused") {
@@ -183,7 +186,7 @@ function handlePromptType(text: string): void {
 }
 
 function echoPrompt(): void {
-  if (state.walkthrough.seeking) return;
+  if (state.walkthrough.seeking || state.historyView.active) return;
   const prompt = state.prompt;
   const lastFrame = presentation.lastFrame.value;
   if (!prompt || !lastFrame) return;
@@ -534,7 +537,11 @@ defineExpose({
       >
         <input
           id="game-command"
-          :disabled="state.powerUp.open || (!state.inputReady && !state.walkthrough.active)"
+          :disabled="
+            state.powerUp.open ||
+            state.historyView.active ||
+            (!state.inputReady && !state.walkthrough.active)
+          "
           aria-label="Game command"
           aria-describedby="game-input-help"
           ref="inputEl"
@@ -627,6 +634,9 @@ defineExpose({
       @scrubbing="onWalkthroughScrubbing"
     />
 
+    <!-- The recorded session's transport: pause the world, scrub the tape. -->
+    <HistoryTransport v-if="state.phase === 'running'" />
+
     <!-- Captions under the screen (never overlays: all game text is on the CRT) -->
     <TouchControls
       v-if="touchControls && state.phase === 'running'"
@@ -639,7 +649,7 @@ defineExpose({
     />
   </div>
   <div v-if="state.phase === 'running'" class="screen-captions">
-    <template v-if="!state.walkthrough.seeking">
+    <template v-if="!state.walkthrough.seeking && !state.historyView.active">
       <span v-if="state.resumed" class="caption resume-caption" data-testid="resume-caption">
         Resumed where you left off
       </span>

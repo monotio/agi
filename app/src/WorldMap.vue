@@ -23,6 +23,7 @@ import { useEngineApi } from "./engineContext.ts";
 import { EGA_RGB } from "../../src/picture/png.ts";
 import { mapArchiveData } from "./roomMapStore.ts";
 import { getOrExtractCheckpoints, loadWalkthrough, resolveWalkthrough } from "./walkthrough.ts";
+import MapPlanEditor from "./MapPlanEditor.vue";
 import type { RoomGraphEdge, RoomGraphNode } from "../../src/agent/roomMap.ts";
 import type { MapThumbnail } from "./useRoomMap.ts";
 
@@ -325,6 +326,12 @@ const selectedNode = computed<RoomGraphNode | null>(
   () => graph.value.nodes.find((n) => n.room === selected.value) ?? null,
 );
 
+/** A visit's tape position: open the transport (paused) at that moment. */
+function jumpToVisit(hist: { segment: string; seq: number; tick: number }): void {
+  map.closeMap();
+  void engine.historyView.jumpToVisit({ segment: hist.segment, tick: hist.tick });
+}
+
 const selectedEdges = computed(() => {
   const room = selected.value;
   if (room === undefined) return { out: [], in: [] };
@@ -509,6 +516,42 @@ function commitNote(): void {
   map.setNote(selected.value, noteDraft.value.trim());
 }
 
+// ---- plan review ---------------------------------------------------------------
+
+const reviseNote = ref("");
+const planBusy = computed(() => state.planReview?.busy ?? false);
+
+function onRevise(): void {
+  const note = reviseNote.value.trim();
+  if (!note) return;
+  reviseNote.value = "";
+  void engine.plan.revise(note);
+}
+
+/** A bare room in the plan — no connection yet; the detail pane names it. */
+function addStandaloneRoom(): void {
+  const result = map.addPlannedRoom(null, "New room", "", "");
+  if (result.room !== undefined) selectRoom(result.room, true);
+}
+
+// ---- edge notes -------------------------------------------------------------------
+
+function edgeKey(e: RoomGraphEdge): string {
+  return `${e.from}->${e.to}:${e.label ?? ""}`;
+}
+
+const edgeNoteDrafts = ref<Record<string, string>>({});
+watch([selected, () => map.layoutVersion.value, () => graph.value.edges], () => {
+  const drafts: Record<string, string> = {};
+  for (const e of [...selectedEdges.value.out, ...selectedEdges.value.in])
+    drafts[edgeKey(e)] = map.edgeNoteFor(e.from, e.to, e.label);
+  edgeNoteDrafts.value = drafts;
+});
+
+function commitEdgeNote(e: RoomGraphEdge): void {
+  map.setEdgeNote(e.from, e.to, e.label, edgeNoteDrafts.value[edgeKey(e)]?.trim() ?? "");
+}
+
 // ---- graph pointer drag --------------------------------------------------------
 
 let dragging: {
@@ -666,7 +709,9 @@ function downloadSidecar(): void {
     @close="onDialogClose"
   >
     <header class="map-header">
-      <h2 id="world-map-title">World map</h2>
+      <h2 id="world-map-title">
+        {{ map.reviewing.value ? `Plan — ${state.planReview?.title ?? "untitled"}` : "World map" }}
+      </h2>
       <span v-if="state.paused" class="map-paused" data-testid="map-paused">Game paused</span>
       <span v-if="storageError" class="map-error" role="alert" data-testid="map-error">
         {{ storageError }}
@@ -699,6 +744,63 @@ function downloadSidecar(): void {
         </button>
       </span>
     </header>
+    <div v-if="map.reviewing.value" class="map-review" data-testid="map-review">
+      <span class="map-review-tag">Nothing is built yet — this is the plan.</span>
+      <input
+        v-model="reviseNote"
+        class="map-revise-input"
+        maxlength="2000"
+        placeholder="Ask for a change to the plan…"
+        data-testid="map-revise-input"
+        :disabled="planBusy"
+        @keydown.enter.prevent="onRevise"
+      />
+      <button
+        type="button"
+        class="ui-button ui-button--secondary"
+        data-testid="map-revise"
+        :disabled="planBusy || !reviseNote.trim()"
+        @click="onRevise"
+      >
+        Revise
+      </button>
+      <button
+        v-if="state.planReview?.conflict"
+        type="button"
+        class="ui-button ui-button--secondary"
+        data-testid="map-refresh-plan"
+        @click="engine.plan.refreshDraft()"
+      >
+        Refresh to current plan
+      </button>
+      <button
+        type="button"
+        class="ui-button ui-button--primary"
+        data-testid="map-build-plan"
+        :disabled="planBusy"
+        @click="engine.plan.build()"
+      >
+        Build as shown
+      </button>
+      <button
+        type="button"
+        class="ui-button ui-button--secondary"
+        data-testid="map-keep-plan"
+        :disabled="planBusy"
+        @click="map.closeMap()"
+      >
+        Keep the draft
+      </button>
+      <span v-if="planBusy" class="map-review-busy" data-testid="map-review-busy">Working…</span>
+      <p
+        v-if="state.planReview?.error"
+        class="map-review-error"
+        role="alert"
+        data-testid="map-review-error"
+      >
+        {{ state.planReview.error }}
+      </p>
+    </div>
     <div class="map-body">
       <section class="map-list-pane" aria-label="Rooms">
         <ul
@@ -731,6 +833,15 @@ function downloadSidecar(): void {
             </button>
           </li>
         </ul>
+        <button
+          v-if="map.canPlan.value"
+          type="button"
+          class="map-add-room ui-button ui-button--secondary"
+          data-testid="map-add-room"
+          @click="addStandaloneRoom"
+        >
+          + Add a room
+        </button>
       </section>
 
       <section
@@ -945,6 +1056,27 @@ function downloadSidecar(): void {
             <ul v-else>
               <li v-for="(e, i) in selectedEdges.out" :key="i">
                 → Room {{ e.to }} — {{ edgeWord(e) }}
+                <button
+                  v-if="e.provenance === 'planned'"
+                  type="button"
+                  class="map-edge-remove"
+                  aria-label="Remove planned exit"
+                  :data-testid="`edge-remove-${e.from}-${e.to}-${e.label ?? ''}`"
+                  @click="map.removePlannedExit(e.from, e.label!)"
+                >
+                  ×
+                </button>
+                <input
+                  class="map-edge-note"
+                  :value="edgeNoteDrafts[edgeKey(e)]"
+                  maxlength="500"
+                  placeholder="note…"
+                  :data-testid="`edge-note-${e.from}-${e.to}-${e.label ?? ''}`"
+                  @change="
+                    edgeNoteDrafts[edgeKey(e)] = ($event.target as HTMLInputElement).value;
+                    commitEdgeNote(e);
+                  "
+                />
               </li>
             </ul>
           </div>
@@ -954,6 +1086,27 @@ function downloadSidecar(): void {
             <ul v-else>
               <li v-for="(e, i) in selectedEdges.in" :key="i">
                 ← Room {{ e.from }} — {{ edgeWord(e) }}
+                <button
+                  v-if="e.provenance === 'planned'"
+                  type="button"
+                  class="map-edge-remove"
+                  aria-label="Remove planned exit"
+                  :data-testid="`edge-remove-${e.from}-${e.to}-${e.label ?? ''}`"
+                  @click="map.removePlannedExit(e.from, e.label!)"
+                >
+                  ×
+                </button>
+                <input
+                  class="map-edge-note"
+                  :value="edgeNoteDrafts[edgeKey(e)]"
+                  maxlength="500"
+                  placeholder="note…"
+                  :data-testid="`edge-note-${e.from}-${e.to}-${e.label ?? ''}`"
+                  @change="
+                    edgeNoteDrafts[edgeKey(e)] = ($event.target as HTMLInputElement).value;
+                    commitEdgeNote(e);
+                  "
+                />
               </li>
             </ul>
           </div>
@@ -968,6 +1121,17 @@ function downloadSidecar(): void {
               >
               <template v-if="v.gained.length"> · got {{ v.gained.join(", ") }}</template>
               <template v-if="v.lost.length"> · lost {{ v.lost.join(", ") }}</template>
+              <button
+                v-if="v.history"
+                type="button"
+                class="map-visit-jump"
+                :data-testid="`map-visit-jump-${v.session}-${v.seq}`"
+                title="Travel to this visit on the recorded tape"
+                aria-label="Travel to this visit"
+                @click="jumpToVisit(v.history!)"
+              >
+                ⏮
+              </button>
             </li>
           </ul>
         </div>
@@ -991,6 +1155,7 @@ function downloadSidecar(): void {
         >
           Watch from here<small>{{ watchTarget.label }}</small>
         </button>
+        <MapPlanEditor v-if="map.canPlan.value" :node="selectedNode" />
       </section>
     </div>
   </dialog>
@@ -1290,6 +1455,21 @@ function downloadSidecar(): void {
   padding-left: 16px;
   font-size: 12px;
 }
+.map-visit-jump {
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid #5a4a85;
+  border-radius: 4px;
+  background: #221a38;
+  color: #c9b8ff;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.map-visit-jump:hover {
+  border-color: #c9b8ff;
+  color: #ffffff;
+}
 .map-note textarea {
   width: 100%;
   box-sizing: border-box;
@@ -1301,6 +1481,62 @@ function downloadSidecar(): void {
   padding: 6px 8px;
   font: inherit;
   font-size: 13px;
+}
+.map-review {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid #2a4048;
+  background: #13252b;
+}
+.map-review-tag {
+  font-size: 12px;
+  color: #ffd977;
+}
+.map-revise-input {
+  flex: 1 1 220px;
+  min-width: 160px;
+  background: #0b1518;
+  border: 1px solid #3a5661;
+  border-radius: 6px;
+  color: #e3ecee;
+  font-size: 13px;
+  padding: 6px 8px;
+  font-family: inherit;
+}
+.map-review-busy {
+  font-size: 12px;
+  color: #8aa4ac;
+}
+.map-review-error {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: #ff9b9b;
+}
+.map-add-room {
+  margin: 8px 12px;
+}
+.map-edge-remove {
+  background: none;
+  border: none;
+  color: #ff9b9b;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 4px;
+}
+.map-edge-note {
+  margin-left: 6px;
+  background: #0b1518;
+  border: 1px solid #2a4048;
+  border-radius: 4px;
+  color: #e3ecee;
+  font-size: 11px;
+  padding: 2px 6px;
+  width: 110px;
+  font-family: inherit;
 }
 @media (max-width: 700px) {
   .map-body {

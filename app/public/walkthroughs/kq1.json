@@ -1,9 +1,9 @@
 {
   "schema": "monotio.agi.walkthrough.v1",
   "game": "kq1",
-  "targetHash": "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
-  "supportedHashes": [
-    "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780"
+  "targetRevision": "d1553b8b6ac8e69c6ced7da7450b88a8ff093e83c52dcb0ed9df550b5661931a",
+  "supportedRevisions": [
+    "d1553b8b6ac8e69c6ced7da7450b88a8ff093e83c52dcb0ed9df550b5661931a"
   ],
   "coverage": "complete-game",
   "profile": "2.917",
@@ -23,7 +23,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 727,
+  "elapsedMs": 1250,
   "virtualTicks": 113368,
   "cycles": 16457,
   "actions": [
@@ -11834,10 +11834,235 @@
     "parserCount": 1,
     "lastInputLine": "bow",
     "horizon": 36,
+    "priorityBase": 48,
+    "patchGeneration": 0,
     "modalKind": null,
+    "modalSerial": 0,
     "inputEnabled": false,
     "pictureShown": true,
     "terminated": false,
+    "controls": [
+      {
+        "key": 15104,
+        "controller": 18,
+        "menuItems": [
+          {
+            "heading": "Info",
+            "text": "Help    ",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 15360,
+        "controller": 17,
+        "menuItems": [
+          {
+            "heading": "Special",
+            "text": "Sound On/Off       <F2>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 19,
+        "controller": 17,
+        "menuItems": [
+          {
+            "heading": "Special",
+            "text": "Sound On/Off       <F2>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 15616,
+        "controller": 13,
+        "menuItems": []
+      },
+      {
+        "key": 5,
+        "controller": 13,
+        "menuItems": []
+      },
+      {
+        "key": 15872,
+        "controller": 21,
+        "menuItems": [
+          {
+            "heading": "Game",
+            "text": "See Object     <F4>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 16128,
+        "controller": 1,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Save Game      <F5>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 16384,
+        "controller": 16,
+        "menuItems": []
+      },
+      {
+        "key": 16640,
+        "controller": 2,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Restore Game   <F7>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 17152,
+        "controller": 3,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Restart Game   <F9>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 17408,
+        "controller": 9,
+        "menuItems": []
+      },
+      {
+        "key": 9,
+        "controller": 4,
+        "menuItems": [
+          {
+            "heading": "Game",
+            "text": "Inventory     <Tab>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 8192,
+        "controller": 10,
+        "menuItems": []
+      },
+      {
+        "key": 10,
+        "controller": 11,
+        "menuItems": [
+          {
+            "heading": "Special",
+            "text": "Reset Joystick <Ctrl J>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 3,
+        "controller": 12,
+        "menuItems": []
+      },
+      {
+        "key": 24,
+        "controller": 12,
+        "menuItems": []
+      },
+      {
+        "key": 18,
+        "controller": 15,
+        "menuItems": []
+      },
+      {
+        "key": 11264,
+        "controller": 6,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Quit        <Alt Z>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 61,
+        "controller": 5,
+        "menuItems": [
+          {
+            "heading": "Action ",
+            "text": "Swim  =",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 45,
+        "controller": 8,
+        "menuItems": [
+          {
+            "heading": "Action ",
+            "text": "Duck  -",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 48,
+        "controller": 7,
+        "menuItems": [
+          {
+            "heading": "Action ",
+            "text": "Jump  0",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 27,
+        "controller": 25,
+        "menuItems": []
+      },
+      {
+        "key": 257,
+        "controller": 0,
+        "menuItems": []
+      },
+      {
+        "key": 769,
+        "controller": 25,
+        "menuItems": []
+      },
+      {
+        "key": 513,
+        "controller": 5,
+        "menuItems": [
+          {
+            "heading": "Action ",
+            "text": "Swim  =",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 1025,
+        "controller": 4,
+        "menuItems": [
+          {
+            "heading": "Game",
+            "text": "Inventory     <Tab>",
+            "enabled": true
+          }
+        ]
+      }
+    ],
     "inventory": [
       {
         "num": 0,

@@ -7,6 +7,7 @@
 import type { AgentHandler, LlmRequest } from "./agent/hostRequests.ts";
 import type { AgiAudio } from "./audio/AgiAudio.ts";
 import type { BootedGame, Frame } from "./gameTypes.ts";
+import type { HistoryBatch } from "../../src/agent/history.ts";
 import { decodeTextRows, gameStorageKey } from "./gameTypes.ts";
 import type { ReplayDriver, ReplayObservation } from "./replay.ts";
 import { LAST_GAME_KEY } from "./useAutosaveController.ts";
@@ -25,6 +26,10 @@ export interface WorkerLinkDeps {
   resetScreenState(): void;
   cancelPrompt(): void;
   handleAutosave(msg: Extract<WorkerOutbound, { type: "autosave" }>): void;
+  /** Persist one history batch; true answers it with a historyAck. */
+  handleHistoryBatch(msg: { epoch: number; batch: HistoryBatch }): Promise<boolean>;
+  /** History-transport position reports — progress and terminal replies. */
+  handleHistoryView(msg: Extract<WorkerOutbound, { type: "historyView" }>): void;
   handleFlushed(msg: Extract<WorkerOutbound, { type: "flushed" }>): void;
   handleRestored(msg: Extract<WorkerOutbound, { type: "restored" }>): void;
   handleSaveSlotRequest(
@@ -155,6 +160,15 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       debugTrace: (msg) => workerQueries.resolveQuery(msg.id, msg),
       recordingStarted: (msg) => workerQueries.resolveQuery(msg.id, msg),
       recordingStopped: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      // The history transport's position reports: progress posts only update
+      // the controller; the terminal one settles the requesting query.
+      historyView: (msg) => {
+        deps.handleHistoryView(msg);
+        if (msg.final) workerQueries.resolveQuery(msg.id, msg);
+      },
+      historyRetained: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      historyTaken: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      historyViewRestored: (msg) => workerQueries.resolveQuery(msg.id, msg),
       // The worker's acknowledgement that the freeze landed — the hook reads
       // the real pause state, not the request.
       paused: (msg) => {
@@ -262,6 +276,22 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         audio.stop();
       },
       autosave: (msg) => deps.handleAutosave(msg),
+      // The always-on recording's transport unit: commit it, then free the
+      // worker's in-flight credit. An uncommitted batch stays un-acked and
+      // the worker resends it — storage trouble stalls, never drops, the tape.
+      historyBatch: (msg) => {
+        void deps
+          .handleHistoryBatch(msg)
+          .then((committed) => {
+            if (committed)
+              w.postMessage({
+                type: "historyAck",
+                epoch: msg.epoch,
+                batch: msg.batch.batch,
+              } satisfies WorkerInbound);
+          })
+          .catch(() => {});
+      },
       flushed: (msg) => deps.handleFlushed(msg),
       restored: (msg) => deps.handleRestored(msg),
       // The patch flow resynchronizes through the following reenter + frame;

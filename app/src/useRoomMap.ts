@@ -13,7 +13,7 @@
  * frame cannot repaint a room. Static picture renders appear only where a
  * literal picture use was scanned, and are labelled static.
  */
-import { computed, reactive, ref, watch, type ComputedRef, type Ref } from "vue";
+import { computed, reactive, ref, toRaw, watch, type ComputedRef, type Ref } from "vue";
 import {
   mergeRoomGraph,
   scanContainerExits,
@@ -22,6 +22,18 @@ import {
   type RoomObservation,
   type StaticRoomScan,
 } from "../../src/agent/roomMap.ts";
+import {
+  createWorldDraft,
+  draftAddExit,
+  draftEdit,
+  draftRemoveExit,
+  draftRemoveRoom,
+  draftRenameRoom,
+  draftSetBrief,
+  lowestFreeRoom,
+  type WorldDraft,
+  type WorldPlan,
+} from "../../src/agent/worldPlan.ts";
 import { parseGameTests } from "../../src/agent/gameTests.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { renderPicture } from "../../src/picture/renderer.ts";
@@ -110,13 +122,24 @@ export interface RoomMapDeps {
   readonly hook: TextHook;
   readonly getBootedGame: () => BootedGame | null;
   readonly getSession: () => AgentSession | null;
-  readonly pauseEngine: () => void;
-  readonly resumeEngine: () => void;
+  readonly pauseEngine: (owner: string) => void;
+  readonly resumeEngine: (owner: string) => void;
   /** The map pauses the walkthrough driver as well as the cycle timer. */
   readonly pauseWalkthrough: () => void;
   readonly resumeWalkthrough: () => void;
   /** Injectable for tests; defaults to browser storage. */
   readonly storage?: Pick<Storage, "getItem" | "setItem"> | undefined;
+  /**
+   * The plan-review draft while the map is the review surface; edits land on
+   * it instead of forking the session world. Absent outside a review.
+   */
+  readonly getReviewDraft?: (() => WorldDraft | null) | undefined;
+  /** A map edit landed on the review draft — the owner persists it. */
+  readonly onReviewEdited?: (() => void) | undefined;
+  /** A map edit committed to the live session world — the owner persists it. */
+  readonly onWorldEdited?: (() => void) | undefined;
+  /** The review map closed (its own Close): the owner keeps the draft. */
+  readonly onReviewClosed?: (() => void) | undefined;
 }
 
 export interface RoomMap {
@@ -142,12 +165,43 @@ export interface RoomMap {
   resetLayout(): void;
   noteFor(room: number): string;
   setNote(room: number, note: string): void;
+  edgeNoteFor(from: number, to: number, label?: string): string;
+  setEdgeNote(from: number, to: number, label: string | undefined, note: string): void;
+  /** Player intent for a room — its note plus the notes on its edges. */
+  noteIntentFor(room: number): string[];
   thumbnailFor(room: number): MapThumbnail | null;
   observeFrame(frame: Frame): void;
   exportSidecar(): RoomMapSidecar;
   retrySave(): void;
   /** For a non-running game's export: the stored sidecar, or empty. */
   storedSidecar(target: string): RoomMapSidecar;
+  // ---- the map as the plan surface ----------------------------------------
+  /** The map is the plan-review surface — no game is running. */
+  readonly reviewing: Ref<boolean>;
+  /** The last plan edit's refusal, or "". */
+  readonly planError: Ref<string>;
+  /** Room a map-triggered build is authoring, if any. */
+  readonly buildingRoom: Ref<number | undefined>;
+  /** Open the map over the library as the plan-review surface. */
+  beginReview(projectId: string): void;
+  /** Leave review: persist the sidecar and release the in-memory map. */
+  endReview(): void;
+  setBuilding(room: number | undefined): void;
+  /** A plan surface exists to edit — the review draft or a live session world. */
+  readonly canPlan: ComputedRef<boolean>;
+  /** The plan entry for a room (review draft or session world), or null. */
+  plannedEntry(room: number): WorldPlan["rooms"][string] | null;
+  renamePlannedRoom(room: number, title: string): string | null;
+  setPlannedBrief(room: number, brief: string): string | null;
+  addPlannedRoom(
+    fromRoom: number | null,
+    title: string,
+    brief: string,
+    exitName: string,
+  ): { room?: number; error?: string };
+  removePlannedRoom(room: number): string | null;
+  addPlannedExit(from: number, name: string, to: number): string | null;
+  removePlannedExit(from: number, name: string): string | null;
 }
 
 export function useRoomMap(deps: RoomMapDeps): RoomMap {
@@ -160,6 +214,12 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   const storageError = ref("");
   const thumbVersion = ref(0);
   const layoutVersion = ref(0);
+  const reviewing = ref(false);
+  const planError = ref("");
+  const buildingRoom = ref<number>();
+  /** Bumped when a map edit changes the plan — the graph re-merges intent. */
+  const planVersion = ref(0);
+  const canPlan = computed(() => reviewing.value || plannedRooms() !== undefined);
 
   /** The durable journal — survives reboots and reloads of the same game. */
   const journal = reactive<RoomObservation[]>([]);
@@ -174,6 +234,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   };
   const layout = reactive<Record<string, { x: number; y: number }>>({});
   const notes = reactive<Record<string, string>>({});
+  const edgeNotes = reactive<Record<string, string>>({});
 
   /** The storage target the loaded map belongs to; "" while nothing is loaded. */
   let loadedKey = "";
@@ -181,9 +242,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   let session = 0;
   /** The booted resource revision this session's entries bind to. */
   let revision = "";
-  /** The game was already paused when the map opened — the map owns no resume. */
-  let pauseOwned = false;
-  /** Same for the walkthrough driver: paused by the map only if it was playing. */
+  /** Paused by the map only if the walkthrough driver was playing when it opened. */
   let walkthroughPauseOwned = false;
   /** Walkthrough coverage loaded for this storage target ("" = not loaded). */
   let coverageKey = "";
@@ -254,8 +313,16 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     return scanned;
   }
 
-  /** world.rooms intent from the authoring session — absent for imports. */
+  /**
+   * world.rooms intent the graph shows: the review draft while the map is the
+   * plan surface, else the live authoring session's world — absent for imports.
+   */
   function plannedRooms(): AuthoringState["world"]["rooms"] | undefined {
+    void planVersion.value;
+    if (reviewing.value) {
+      const review = deps.getReviewDraft?.();
+      if (review) return review.world.rooms;
+    }
     const snapshot = deps.getSession()?.getAuthoringState() as
       { authoring?: AuthoringState } | undefined;
     return snapshot?.authoring?.world?.rooms;
@@ -278,6 +345,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       scoreDelta: notice.scoreDelta,
       gained: notice.gained,
       lost: notice.lost,
+      ...(notice.history !== undefined ? { history: notice.history } : {}),
     };
   }
 
@@ -326,6 +394,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       },
       layout: { ...layout },
       notes: { ...notes },
+      edgeNotes: { ...edgeNotes },
     };
   }
 
@@ -365,6 +434,14 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     drainJournal();
     if (loadedKey) persist();
     loadedKey = key;
+    resetMapMemory();
+    revision = game?.revision ?? "";
+    if (key && storage) loadStoredSidecar(key);
+    session = journal.reduce((max, e) => Math.max(max, e.session), 0) + 1;
+  }
+
+  /** Clear every per-game collection — loadFor, unload and review share it. */
+  function resetMapMemory(): void {
     journal.splice(0, journal.length);
     discovered.rooms.clear();
     discovered.edges.clear();
@@ -372,6 +449,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     coverageKey = "";
     for (const k of Object.keys(layout)) delete layout[k];
     for (const k of Object.keys(notes)) delete notes[k];
+    for (const k of Object.keys(edgeNotes)) delete edgeNotes[k];
     thumbs.clear();
     staticThumbs.clear();
     pendingThumbs.clear();
@@ -379,29 +457,32 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     isolatedCursor = 0;
     scanned = null;
     selected.value = undefined;
+    planError.value = "";
     unsaved.value = false;
     storageError.value = "";
-    revision = game?.revision ?? "";
-    if (key && storage) {
-      try {
-        const stored = readMapSidecar(storage, key);
-        journal.push(...stored.journal);
-        for (const [num, count] of Object.entries(stored.discovered.rooms))
-          discovered.rooms.set(Number(num), count);
-        for (const e of stored.discovered.edges)
-          discovered.edges.set(`${e.from}->${e.to}:${e.label ?? ""}`, {
-            from: e.from,
-            to: e.to,
-            ...(e.label !== undefined ? { label: e.label } : {}),
-            count: e.count,
-          });
-        Object.assign(layout, stored.layout);
-        Object.assign(notes, stored.notes);
-      } catch (error) {
-        storageError.value = error instanceof Error ? error.message : String(error);
-      }
+  }
+
+  /** Read the stored sidecar into memory; a read failure is reported, not fatal. */
+  function loadStoredSidecar(key: string): void {
+    if (!storage) return;
+    try {
+      const stored = readMapSidecar(storage, key);
+      journal.push(...stored.journal);
+      for (const [num, count] of Object.entries(stored.discovered.rooms))
+        discovered.rooms.set(Number(num), count);
+      for (const e of stored.discovered.edges)
+        discovered.edges.set(`${e.from}->${e.to}:${e.label ?? ""}`, {
+          from: e.from,
+          to: e.to,
+          ...(e.label !== undefined ? { label: e.label } : {}),
+          count: e.count,
+        });
+      Object.assign(layout, stored.layout);
+      Object.assign(notes, stored.notes);
+      Object.assign(edgeNotes, stored.edgeNotes);
+    } catch (error) {
+      storageError.value = error instanceof Error ? error.message : String(error);
     }
-    session = journal.reduce((max, e) => Math.max(max, e.session), 0) + 1;
   }
 
   /** The game left the slot: persist, then release the in-memory map. */
@@ -410,30 +491,21 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     if (loadedKey) persist();
     loadedKey = "";
     state.roomJournal.splice(0, state.roomJournal.length);
-    journal.splice(0, journal.length);
-    discovered.rooms.clear();
-    discovered.edges.clear();
-    walkthroughCoverage.value = undefined;
-    coverageKey = "";
-    for (const k of Object.keys(layout)) delete layout[k];
-    for (const k of Object.keys(notes)) delete notes[k];
-    thumbs.clear();
-    staticThumbs.clear();
-    pendingThumbs.clear();
-    autoPositions.clear();
-    isolatedCursor = 0;
-    scanned = null;
-    selected.value = undefined;
+    resetMapMemory();
     session = 0;
     revision = "";
     open.value = false;
-    pauseOwned = false;
+    reviewing.value = false;
+    buildingRoom.value = undefined;
     walkthroughPauseOwned = false;
   }
 
   watch(
     () => state.phase,
     (phase) => {
+      // A plan review owns the map while no game runs — phase churn around
+      // the library must not unload the draft's surface under it.
+      if (reviewing.value) return;
       if (phase === "running") loadFor(deps.getBootedGame());
       else if (phase === "idle" || phase === "error") unload();
     },
@@ -588,6 +660,43 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     persist();
   }
 
+  /** Edge-note identity matches the sidecar: `from->to:label` ("" for none). */
+  function edgeNoteKey(from: number, to: number, label?: string): string {
+    return `${from}->${to}:${label ?? ""}`;
+  }
+
+  function edgeNoteFor(from: number, to: number, label?: string): string {
+    return edgeNotes[edgeNoteKey(from, to, label)] ?? "";
+  }
+
+  function setEdgeNote(from: number, to: number, label: string | undefined, note: string): void {
+    const key = edgeNoteKey(from, to, label);
+    if (note) edgeNotes[key] = note.slice(0, 400);
+    else delete edgeNotes[key];
+    persist();
+  }
+
+  /**
+   * What the player pinned on the map for a room: its own note first, then a
+   * bounded list of the edge notes touching it, each labelled by direction so
+   * an authoring prompt can tell entrance intent from exit intent.
+   */
+  function noteIntentFor(room: number): string[] {
+    const out: string[] = [];
+    const own = notes[String(room)];
+    if (own) out.push(own.slice(0, 400));
+    for (const [key, note] of Object.entries(edgeNotes)) {
+      const match = /^(\d+)->(\d+):(.*)$/.exec(key);
+      if (!match) continue;
+      const [, a, b, label] = match;
+      const via = label ? ` "${label}"` : "";
+      if (Number(b) === room) out.push(`exit from room ${a}${via}: ${note.slice(0, 400)}`);
+      else if (Number(a) === room) out.push(`exit to room ${b}${via}: ${note.slice(0, 400)}`);
+      if (out.length >= 16) break;
+    }
+    return out;
+  }
+
   // ---- thumbnails -------------------------------------------------------------
 
   /**
@@ -677,7 +786,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
    */
   async function loadCoverage(): Promise<void> {
     const game = deps.getBootedGame();
-    const alias = game?.alias ? resolveWalkthrough(game.alias) : null;
+    const alias = game?.revision ? resolveWalkthrough(game.revision) : null;
     const key = `${loadedKey}:${alias ?? ""}`;
     if (!game?.installed || !alias || coverageKey === key) return;
     coverageKey = key;
@@ -695,10 +804,9 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   function openMap(): void {
     if (open.value || state.phase !== "running") return;
     drainJournal();
-    // The map owns a pause over the active execution mode: the live cycle
+    // The map holds a pause over the active execution mode: the live cycle
     // timer and, during a walkthrough, the replay driver that keeps it moving.
-    pauseOwned = !state.paused;
-    if (pauseOwned) deps.pauseEngine();
+    deps.pauseEngine("map");
     walkthroughPauseOwned = state.walkthrough.status === "playing";
     if (walkthroughPauseOwned) deps.pauseWalkthrough();
     void loadCoverage();
@@ -707,17 +815,178 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
 
   function closeMap(): void {
     if (!open.value) return;
+    if (reviewing.value) {
+      // "Keep the draft": closing the review never builds; the stored plan
+      // survives and the owner clears its review state.
+      endReview();
+      deps.onReviewClosed?.();
+      return;
+    }
     open.value = false;
-    // Restore the pause the map created — unless another owner (the remix
-    // bubble) is still holding one.
-    if (pauseOwned && state.paused && !state.powerUp.open) deps.resumeEngine();
-    pauseOwned = false;
+    // Release the map's hold — the pause lifts only when no other owner
+    // (the remix bubble, the history transport) is still holding one.
+    deps.resumeEngine("map");
     if (walkthroughPauseOwned && state.walkthrough.status === "paused") deps.resumeWalkthrough();
     walkthroughPauseOwned = false;
   }
 
   function select(room: number | undefined): void {
     selected.value = room;
+  }
+
+  // ---- the map as the plan surface -----------------------------------------
+  //
+  // The same surface is two writers' front end. In review (no game running)
+  // edits land on the detached draft the plan controller persists; live, they
+  // fork the session's world at its current revision and commit through the
+  // revision check — a conflict refuses rather than overwriting a concurrent
+  // agent turn.
+
+  /**
+   * Open the map over the library as the plan-review surface: the stored
+   * sidecar for the pending project loads (layout and notes the game will
+   * keep), and the review draft drives the planned layer.
+   */
+  function beginReview(projectId: string): void {
+    drainJournal();
+    if (loadedKey) persist();
+    loadedKey = projectId;
+    resetMapMemory();
+    revision = "";
+    loadStoredSidecar(projectId);
+    session = journal.reduce((max, e) => Math.max(max, e.session), 0) + 1;
+    reviewing.value = true;
+    open.value = true;
+  }
+
+  function endReview(): void {
+    if (!reviewing.value) return;
+    reviewing.value = false;
+    unload();
+  }
+
+  function setBuilding(room: number | undefined): void {
+    buildingRoom.value = room;
+  }
+
+  /**
+   * Apply a draft mutation through the shared validator. Review edits land on
+   * the review draft; live edits fork the session world and commit only while
+   * its revision is still the draft's base — a moved world is a conflict, not
+   * a silent overwrite. A rejected mutation leaves the target untouched.
+   */
+  function editWorld(mutate: (draft: WorldDraft) => string | null): string | null {
+    const review = deps.getReviewDraft?.() ?? null;
+    if (reviewing.value) {
+      if (!review) return "The plan draft is not loaded.";
+      // The draft lives in reactive state — the ops clone it, and
+      // structuredClone cannot read through a proxy.
+      const error = mutate(toRaw(review));
+      if (error) return error;
+      deps.onReviewEdited?.();
+      planVersion.value++;
+      return null;
+    }
+    const session = deps.getSession();
+    if (!session) return "This game has no authoring plan to edit.";
+    const draft = createWorldDraft(session.state.authoring.world);
+    const error = mutate(draft);
+    if (error) return error;
+    const result = session.commitPlanDraft(draft);
+    if (result.status === "conflict")
+      return "The plan changed while you were editing — close and reopen the map.";
+    if (result.status === "invalid") return result.error;
+    deps.onWorldEdited?.();
+    planVersion.value++;
+    return null;
+  }
+
+  /** Run an edit and publish its refusal for the detail pane. */
+  function planOp(run: () => string | null): string | null {
+    const error = run();
+    planError.value = error ?? "";
+    return error;
+  }
+
+  function plannedEntry(room: number): WorldPlan["rooms"][string] | null {
+    return plannedRooms()?.[String(room)] ?? null;
+  }
+
+  function renamePlannedRoom(room: number, title: string): string | null {
+    return planOp(() => editWorld((draft) => draftRenameRoom(draft, room, title)));
+  }
+
+  function setPlannedBrief(room: number, brief: string): string | null {
+    return planOp(() => editWorld((draft) => draftSetBrief(draft, room, brief)));
+  }
+
+  /**
+   * A new planned node plus — when the source is in the plan — the named exit
+   * that reaches it, as one validated edit. The number is the lowest free one
+   * that no built resource, observation or plan entry already claims.
+   */
+  function addPlannedRoom(
+    fromRoom: number | null,
+    title: string,
+    brief: string,
+    exitName: string,
+  ): { room?: number; error?: string } {
+    if (!title.trim()) {
+      planError.value = "A room needs a title";
+      return { error: planError.value };
+    }
+    let created: number | undefined;
+    const error = planOp(() =>
+      editWorld((draft) => {
+        const scan = scanResources();
+        const taken = new Set<number>([...scan.logic, ...discovered.rooms.keys()]);
+        for (const entry of journal) taken.add(entry.to);
+        const num = lowestFreeRoom(draft.world.rooms, (n) => taken.has(n));
+        if (num === undefined) return "No free room numbers remain.";
+        const name = exitName.trim() || "passage";
+        const editError = draftEdit(draft, (world) => {
+          world.rooms[String(num)] = {
+            title: title.trim(),
+            description: brief.trim(),
+            exits: {},
+          };
+          const from = fromRoom === null ? undefined : world.rooms[String(fromRoom)];
+          if (from) from.exits[name] = num;
+        });
+        if (!editError) created = num;
+        return editError;
+      }),
+    );
+    return created !== undefined
+      ? { room: created }
+      : { error: error ?? "The room could not be added." };
+  }
+
+  /**
+   * Drop a planned room. Built rooms and rooms the journal has visited are
+   * refused: deleting either would claim a fact off the record. The draft op
+   * prunes the exits that pointed at the room.
+   */
+  function removePlannedRoom(room: number): string | null {
+    return planOp(() => {
+      const scan = scanResources();
+      if (scan.logic.has(room) || scan.picture.has(room))
+        return `Room ${room} is already built — its resources stay; change it in Remix instead.`;
+      if (
+        discovered.rooms.has(room) ||
+        journal.some((entry) => entry.to === room || entry.from === room)
+      )
+        return `Room ${room} is on the record — the map keeps visited rooms.`;
+      return editWorld((draft) => draftRemoveRoom(draft, room));
+    });
+  }
+
+  function addPlannedExit(from: number, name: string, to: number): string | null {
+    return planOp(() => editWorld((draft) => draftAddExit(draft, from, name, to)));
+  }
+
+  function removePlannedExit(from: number, name: string): string | null {
+    return planOp(() => editWorld((draft) => draftRemoveExit(draft, from, name)));
   }
 
   return {
@@ -739,11 +1008,28 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     resetLayout,
     noteFor,
     setNote,
+    edgeNoteFor,
+    setEdgeNote,
+    noteIntentFor,
     thumbnailFor,
     observeFrame,
     exportSidecar,
     retrySave,
     storedSidecar,
+    reviewing,
+    planError,
+    buildingRoom,
+    canPlan,
+    beginReview,
+    endReview,
+    setBuilding,
+    plannedEntry,
+    renamePlannedRoom,
+    setPlannedBrief,
+    addPlannedRoom,
+    removePlannedRoom,
+    addPlannedExit,
+    removePlannedExit,
   };
 }
 

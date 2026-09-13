@@ -28,6 +28,23 @@ import { createDebug } from "./debug.ts";
 import type { EdgeSide, RoomTransitionCause } from "../../../src/agent/roomMap.ts";
 import { createJournal } from "./journal.ts";
 import { createRecording } from "./recording.ts";
+import { createHistory } from "./history.ts";
+import { createHistoryView } from "./historyView.ts";
+import type { HistoryDrive } from "./historyReplay.ts";
+import type {
+  HistoryAnchor,
+  HistoryBatch,
+  HistoryBoot,
+  HistoryCommittedPatch,
+  HistoryEndReason,
+  HistoryEvent,
+  HistoryEventCause,
+  HistoryRecording,
+  HistoryRoomMark,
+  HistorySyncMark,
+} from "../../../src/agent/history.ts";
+import type { BootMessage } from "../workerProtocol.ts";
+import type { HostAnswerOutcome } from "./hostRequests.ts";
 
 /** The only platform access worker modules get: the post boundary and a clock. */
 export interface WorkerPorts {
@@ -78,12 +95,20 @@ export interface ReplayState {
   lastReplaySeed: number | null;
   isSeeking: boolean;
   currentSessionId: number;
+  /**
+   * A scratch session replaying a recorded history still resolves prompts
+   * through host requests — the recorded stream carries their answers — while
+   * a walkthrough replay drives the engine's own dialogs with recorded keys.
+   */
+  historyReplay: boolean;
 }
 
 /** worker/cycle.ts */
 export interface CycleState {
   timer: number | null;
   soundTimer: number | null;
+  /** 60 Hz sound-clock ticks since session start — history's tick timeline. */
+  tickCount: number;
   /** Interpreter cycles completed since boot; the frame ring's timeline. */
   cycleCount: number;
   lastCycleReportAt: number;
@@ -185,6 +210,57 @@ export interface JournalState {
   }[];
 }
 
+/** worker/history.ts — the always-on recording stream. */
+export interface HistoryState {
+  /**
+   * Live PRNG state — the same LCG the replay drive uses — seeded per boot
+   * and recorded into every segment's boot and anchors.
+   */
+  rng: number;
+  /** Bumped per boot so a replaced session's historyAcks drop. */
+  epoch: number;
+  /** Segment ids are `e<epoch>.s<n>`; the serial counts segments per epoch. */
+  segmentSerial: number;
+  /** The open segment's id; null between an end and the next safe boundary. */
+  segment: string | null;
+  /** Next event sequence number within the open segment. */
+  seq: number;
+  /** tickCount/cycleCount at segment start — event stamps are relative. */
+  tickBase: number;
+  cycleBase: number;
+  /** The batch being accumulated; posted whole. */
+  open: { events: HistoryEvent[]; marks: HistoryRoomMark[]; sync: HistorySyncMark[] };
+  openBytes: number;
+  /** Closed batches awaiting in-flight credit, with their serialized sizes. */
+  queue: { batch: HistoryBatch; size: number }[];
+  queuedBytes: number;
+  queuedEvents: number;
+  /** Posted-but-unacked batches; retained for resend until the host acks. */
+  sent: HistoryBatch[];
+  /** Monotonic batch counter for the epoch the host acknowledges. */
+  batch: number;
+  /** cycleCount at the last sync mark. */
+  lastSyncCycle: number;
+  /** A budget-ended segment restarts at the next resumable boundary. */
+  resumePending: boolean;
+  /** The segment a resumed boot continues from; cleared on a fresh boot. */
+  resumedFrom: { segment: string; seq: number; tick: number } | null;
+}
+
+/** worker/historyView.ts — the scratch session replaying the live recording. */
+export interface HistoryViewState {
+  /** The recording under view; null when no view session is open. */
+  recording: HistoryRecording | null;
+  /** Index into recording.segments the drive is on. */
+  segment: number;
+  /** The incremental replay drive; owns the scratch context. */
+  drive: HistoryDrive | null;
+  /** In-flight chunked request id — a newer request supersedes it. */
+  request: number | null;
+  /** The pending chunk's timer while a long drive is in flight. */
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
 /** worker/recording.ts */
 export interface RecordingState {
   /**
@@ -223,8 +299,12 @@ export interface WorkerFns {
   postHostRequest(op: HostRequestOp, context: Record<string, unknown>): never;
   settleHostRequest(outstanding: { op: string; authoring: boolean }): void;
   abandonHostRequest(): void;
-  deliverHostResponse(op: string, response: string): void;
-  onHostAnswer(msg: Inbound<"hostAnswer">): void;
+  deliverHostResponse(
+    op: string,
+    response: string,
+    committed?: HistoryCommittedPatch,
+  ): HostAnswerOutcome | undefined;
+  onHostAnswer(msg: Inbound<"hostAnswer">, committed?: HistoryCommittedPatch): void;
   onReenter(msg: Inbound<"reenter">): void;
   // replay.ts
   postReplay(blocked: string | null, fullState?: boolean): void;
@@ -235,6 +315,8 @@ export interface WorkerFns {
   tickEngine(): void;
   recordedClock(): void;
   advanceSoundClock(authoring?: boolean): void;
+  /** One host-poll pass — the timer body, also driven directly by tests. */
+  hostTick(): void;
   finishCycle(): void;
   startTimers(): void;
   stopTimers(): void;
@@ -268,6 +350,31 @@ export interface WorkerFns {
   onStartRecording(msg: Inbound<"startRecording">): void;
   onStopRecording(msg: Inbound<"stopRecording">): void;
   onCancelRecording(): void;
+  // history.ts
+  historyBoot(msg: BootMessage): void;
+  historyRecord(cause: HistoryEventCause): void;
+  /** Returns the recorded position the mark landed at, for the journal link. */
+  historyMark(
+    to: number,
+    via: string,
+    edge?: EdgeSide,
+  ): { segment: string; seq: number; tick: number } | null;
+  historyAnchor(reason: HistoryAnchor["reason"]): void;
+  historyBoundary(): void;
+  historyEnd(reason: HistoryEndReason): void;
+  historyResume(): void;
+  historyFlush(reason?: HistoryAnchor["reason"]): void;
+  /** The parked live session's resume point — the retained original. */
+  historySnapshot(): HistoryBoot | null;
+  onHistoryAck(msg: Inbound<"historyAck">): void;
+  // historyView.ts
+  onHistoryViewStart(msg: Inbound<"historyViewStart">): void;
+  onHistoryViewSeek(msg: Inbound<"historyViewSeek">): void;
+  onHistoryViewAdvance(msg: Inbound<"historyViewAdvance">): void;
+  onHistoryViewEnd(): void;
+  onHistoryViewTake(msg: Inbound<"historyViewTake">): void;
+  onHistoryRetain(msg: Inbound<"historyRetain">): void;
+  onHistoryViewRestore(msg: Inbound<"historyViewRestore">): void;
 }
 
 export interface WorkerContext {
@@ -280,6 +387,8 @@ export interface WorkerContext {
   input: InputState;
   hostRequests: HostRequestsState;
   replay: ReplayState;
+  history: HistoryState;
+  view: HistoryViewState;
   cycle: CycleState;
   autosave: AutosaveState;
   presentation: PresentationState;
@@ -312,10 +421,32 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       lastReplaySeed: null,
       isSeeking: false,
       currentSessionId: 0,
+      historyReplay: false,
     },
+    history: {
+      rng: 1,
+      epoch: 0,
+      segmentSerial: 0,
+      segment: null,
+      seq: 0,
+      tickBase: 0,
+      cycleBase: 0,
+      open: { events: [], marks: [], sync: [] },
+      openBytes: 0,
+      queue: [],
+      queuedBytes: 0,
+      queuedEvents: 0,
+      sent: [],
+      batch: 0,
+      lastSyncCycle: 0,
+      resumePending: false,
+      resumedFrom: null,
+    },
+    view: { recording: null, segment: 0, drive: null, request: null, timer: null },
     cycle: {
       timer: null,
       soundTimer: null,
+      tickCount: 0,
       cycleCount: 0,
       lastCycleReportAt: 0,
       lastHistoryAt: 0,
@@ -385,6 +516,8 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
   Object.assign(ctx.fns, createDebug(ctx));
   Object.assign(ctx.fns, createJournal(ctx));
   Object.assign(ctx.fns, createRecording(ctx));
+  Object.assign(ctx.fns, createHistory(ctx));
+  Object.assign(ctx.fns, createHistoryView(ctx));
   return ctx;
 }
 
@@ -426,6 +559,7 @@ export function resetSession(ctx: WorkerContext): void {
   ctx.clocks.cycle.reset(ctx.replay.replay ? 0 : now);
   ctx.cycle.lastCycleReportAt = now;
   ctx.cycle.lastHistoryAt = now;
+  ctx.cycle.tickCount = 0;
   ctx.cycle.cycleCount = 0;
   p.recentRing.reset();
   p.historyRing.reset();

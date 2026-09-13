@@ -180,7 +180,7 @@ function openDatabase(): Promise<IDBDatabase> {
     throw error;
   });
 }
-async function bodyTransaction<T>(
+export async function bodyTransaction<T>(
   mode: IDBTransactionMode,
   operation: (store: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T> {
@@ -474,7 +474,7 @@ async function writeBody(
   }
   localStorage.setItem(getStorageKey(data.projectId), JSON.stringify(storedIndex(data)));
 }
-function serializeWrite<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
+export function serializeWrite<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
   const next = (writes.get(projectId) ?? Promise.resolve()).catch(() => {}).then(operation);
   writes.set(projectId, next);
   void next
@@ -618,10 +618,12 @@ export function renameAuthoredGame(
 
 export function clearCachedGame(projectId: string): Promise<void> {
   return serializeWrite(projectId, async () => {
-    // The body and its conversation leave together: projectIds are deterministic,
-    // so a game added again must not inherit the removed one's history.
+    // The body, its conversation and its history leave together: projectIds are
+    // deterministic, so a game added again must not inherit the removed one's
+    // history.
     await bodyTransaction("readwrite", (store) => {
       store.delete(`conversation/${projectId}`);
+      store.delete(`history/${projectId}`);
       return store.delete(projectId);
     });
     localStorage.removeItem(getStorageKey(projectId));

@@ -83,14 +83,14 @@ function onStartLocalGameOver(game: InstalledGameDescriptor): void {
           {{ localAutosave(game) ? "Resume" : "Play" }}
         </button>
         <ActionMenu
-          v-if="localAutosave(game) || hasWalkthrough(game.hash)"
+          v-if="localAutosave(game) || hasWalkthrough(game.revision ?? '')"
           label="Game actions"
           icon="more"
           icon-only
           :test-id="`game-actions-${game.folder || game.alias || game.hash}`"
         >
           <button
-            v-if="hasWalkthrough(game.hash)"
+            v-if="hasWalkthrough(game.revision ?? '')"
             type="button"
             role="menuitem"
             data-testid="run-walkthrough"

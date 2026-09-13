@@ -1958,6 +1958,7 @@ export class Engine {
               playback: this.soundPlayback.snapshot(),
             }
           : null,
+      patchGeneration: this.patchGen,
       continuation: this.captureContinuation(),
     };
   }
@@ -2005,6 +2006,9 @@ export class Engine {
     this.soundPlayback = sound;
     this.playingSound = state.sound?.num ?? null;
     this.soundDoneFlag = state.sound?.doneFlag ?? null;
+    // The patch counter is session state: the recorded stream folds the same
+    // patches before this restore, so the count must land, not accumulate.
+    this.patchGen = state.patchGeneration ?? 0;
     // The recorded state had no parked pass: neither should the engine,
     // whatever a setup image's continuation applied before this ran.
     const continuation = state.continuation ?? null;

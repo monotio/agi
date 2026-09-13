@@ -1,9 +1,9 @@
 {
   "schema": "monotio.agi.walkthrough.v1",
   "game": "kq2",
-  "targetHash": "d404578e135a58dafd390b722e9f7bef57e30a693cf08608c824fc6315c73d93",
-  "supportedHashes": [
-    "d404578e135a58dafd390b722e9f7bef57e30a693cf08608c824fc6315c73d93"
+  "targetRevision": "16375e1aae7033480dc07715c8bb7a0a742e0ada34af7cd4e7acc0b8954cab42",
+  "supportedRevisions": [
+    "16375e1aae7033480dc07715c8bb7a0a742e0ada34af7cd4e7acc0b8954cab42"
   ],
   "coverage": "complete-game",
   "profile": "2.411",
@@ -23,7 +23,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 852,
+  "elapsedMs": 1492,
   "virtualTicks": 133467,
   "cycles": 18823,
   "actions": [
@@ -21666,10 +21666,223 @@
     "parserCount": 0,
     "lastInputLine": "",
     "horizon": 36,
+    "priorityBase": 48,
+    "patchGeneration": 0,
     "modalKind": null,
+    "modalSerial": 0,
     "inputEnabled": false,
     "pictureShown": true,
     "terminated": false,
+    "controls": [
+      {
+        "key": 15104,
+        "controller": 1,
+        "menuItems": [
+          {
+            "heading": "Sierra",
+            "text": "Help     ",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 15360,
+        "controller": 2,
+        "menuItems": [
+          {
+            "heading": "Special",
+            "text": "Sound On/Off  <F2>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 19,
+        "controller": 2,
+        "menuItems": [
+          {
+            "heading": "Special",
+            "text": "Sound On/Off  <F2>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 15616,
+        "controller": 3,
+        "menuItems": []
+      },
+      {
+        "key": 5,
+        "controller": 3,
+        "menuItems": []
+      },
+      {
+        "key": 15872,
+        "controller": 30,
+        "menuItems": [
+          {
+            "heading": "Action",
+            "text": "See Object  <F4>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 16128,
+        "controller": 18,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Save     <F5>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 16384,
+        "controller": 8,
+        "menuItems": []
+      },
+      {
+        "key": 16640,
+        "controller": 19,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Restore  <F7>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 16896,
+        "controller": 5,
+        "menuItems": []
+      },
+      {
+        "key": 17152,
+        "controller": 20,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Restart  <F9>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 17408,
+        "controller": 4,
+        "menuItems": []
+      },
+      {
+        "key": 9,
+        "controller": 12,
+        "menuItems": [
+          {
+            "heading": "Action",
+            "text": "Inventory  <Tab>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 8192,
+        "controller": 13,
+        "menuItems": []
+      },
+      {
+        "key": 10,
+        "controller": 10,
+        "menuItems": [
+          {
+            "heading": "Special",
+            "text": "Joystick  <Ctrl J>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 3,
+        "controller": 9,
+        "menuItems": []
+      },
+      {
+        "key": 18,
+        "controller": 11,
+        "menuItems": []
+      },
+      {
+        "key": 11264,
+        "controller": 21,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Quit  <Alt-Z>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 43,
+        "controller": 24,
+        "menuItems": []
+      },
+      {
+        "key": 61,
+        "controller": 22,
+        "menuItems": [
+          {
+            "heading": "Action",
+            "text": "Swim           =",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 45,
+        "controller": 25,
+        "menuItems": []
+      },
+      {
+        "key": 27,
+        "controller": 15,
+        "menuItems": []
+      },
+      {
+        "key": 513,
+        "controller": 22,
+        "menuItems": [
+          {
+            "heading": "Action",
+            "text": "Swim           =",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 1025,
+        "controller": 12,
+        "menuItems": [
+          {
+            "heading": "Action",
+            "text": "Inventory  <Tab>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 257,
+        "controller": 23,
+        "menuItems": []
+      },
+      {
+        "key": 769,
+        "controller": 15,
+        "menuItems": []
+      }
+    ],
     "inventory": [
       {
         "num": 0,

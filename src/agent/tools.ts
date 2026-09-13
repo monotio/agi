@@ -1693,6 +1693,12 @@ export interface AgentRuntimeDeps {
   readonly engine?: EngineStateSource | undefined;
   /** Captures the paused interpreter's resumable image, or null when it cannot. */
   readonly checkpoint?: (() => Uint8Array | null | Promise<Uint8Array | null>) | undefined;
+  /**
+   * Player intent notes pinned on the world map for a room (node and edge
+   * notes). Provenance for authoring — never resources, never a behavior
+   * claim.
+   */
+  readonly roomNotes?: ((room: number) => readonly string[]) | undefined;
 }
 
 /**
@@ -1927,6 +1933,8 @@ export async function executeAgentToolAsync(
       bindingCount: Object.keys(session.authoring.bindings).length,
       inventoryDefinitions: readInventoryObjects(session.getFiles().get("OBJECT"), session.profile),
     };
+    const playerNotes = deps?.roomNotes?.(room) ?? [];
+    if (playerNotes.length) details["playerNotes"] = playerNotes;
     if (live) {
       details["live"] = {
         room: live["room"],
@@ -1982,7 +1990,7 @@ export async function executeAgentToolAsync(
     }
     return {
       success: true,
-      message: `Room ${room}: compiled resources and authored intent${live ? "; live state is the current paused interpreter" : ""}${framesMessage ? `. ${framesMessage}` : ""}.`,
+      message: `Room ${room}: compiled resources and authored intent${playerNotes.length ? "; playerNotes carry the player's pinned map intent" : ""}${live ? "; live state is the current paused interpreter" : ""}${framesMessage ? `. ${framesMessage}` : ""}.`,
       details,
       ...(images.length ? { images } : {}),
     };

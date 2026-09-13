@@ -1,0 +1,366 @@
+/**
+ * History viewing: while the live session stays parked behind its
+ * acknowledged pause, a scratch session on the side replays the recorded
+ * stream through a real Engine and posts its frames to the real surface.
+ * The scratch runs on the history drive (worker/historyReplay.ts): recorded
+ * answers resolve its host requests, its own control traffic is swallowed,
+ * and its sound stays silent. It writes nothing — no autosave, no journal
+ * notices, no recorded batches, no provider calls.
+ *
+ * Resume here / Back to before: taking a viewed moment captures the
+ * scratch's full resume point and adopts it as the live session under a new
+ * segment whose boot records where it branched from; restoring a retained
+ * original is the same adoption with a stored boot record. The departing
+ * session's segment ends with reason "resume" — the tape is never
+ * rewritten, only continued.
+ */
+import { Engine } from "../../../src/runtime/engine.ts";
+import { openContainer } from "../../../src/container/container.ts";
+import { base64ToBytes, bytesToBase64 } from "../bytes.ts";
+import {
+  validateHistoryBoot,
+  type HistoryBoot,
+  type HistorySegment,
+} from "../../../src/agent/history.ts";
+import { resourceSetRevision } from "../../../src/agent/authoringState.ts";
+import { openHistoryDrive, type HistoryDrive } from "./historyReplay.ts";
+import type { Inbound, WorkerContext } from "./context.ts";
+
+const V_ROOM = 0;
+const V_SCORE = 3;
+
+/** Wall-clock budget per drive chunk so a long seek never starves the worker. */
+const CHUNK_BUDGET_MS = 12;
+
+export function createHistoryView(ctx: WorkerContext) {
+  /** Current position plus what the transport needs to gate Resume here. */
+  function position() {
+    const drive = ctx.view.drive;
+    const engine = drive?.ctx.engine ?? null;
+    return {
+      tick: drive?.tick ?? 0,
+      seq: drive?.seq ?? 0,
+      cycle: drive?.ctx.cycle.cycleCount ?? 0,
+      room: engine ? (engine.vars[V_ROOM] ?? 0) : 0,
+      score: engine ? (engine.vars[V_SCORE] ?? 0) : 0,
+      modal: engine?.modalKind ?? null,
+      canResume: engine !== null && engine.recordingImage() !== null,
+      diverged: drive?.diverged ?? null,
+      error: drive?.error ?? null,
+    };
+  }
+
+  function postReport(id: number, final: boolean, superseded = false): void {
+    ctx.ports.control({
+      type: "historyView",
+      id,
+      final,
+      ...(superseded ? { superseded: true } : {}),
+      segment: ctx.view.segment,
+      ...position(),
+    });
+  }
+
+  function postViewError(id: number, error: string): void {
+    ctx.ports.control({
+      type: "historyView",
+      id,
+      final: true,
+      segment: ctx.view.segment,
+      tick: ctx.view.drive?.tick ?? 0,
+      seq: ctx.view.drive?.seq ?? 0,
+      cycle: 0,
+      room: 0,
+      score: 0,
+      modal: null,
+      canResume: false,
+      diverged: null,
+      error,
+    });
+  }
+
+  /**
+   * The request a newer one replaced still settles — its host-side query
+   * resolves with superseded:true rather than leaking until timeout.
+   */
+  function settleRequest(): void {
+    const view = ctx.view;
+    if (view.timer !== null) {
+      clearTimeout(view.timer);
+      view.timer = null;
+    }
+    if (view.request !== null) {
+      const id = view.request;
+      view.request = null;
+      postReport(id, true, true);
+    }
+  }
+
+  /** Open the scratch drive on a segment: nearest anchor at-or-before the target. */
+  function openDrive(segment: HistorySegment, tick: number): HistoryDrive {
+    let anchorIdx: number | undefined;
+    for (let i = segment.anchors.length - 1; i >= 0; i--) {
+      if (segment.anchors[i]!.tick <= tick) {
+        anchorIdx = i;
+        break;
+      }
+    }
+    const drive = openHistoryDrive(segment, {
+      ...(anchorIdx !== undefined ? { anchor: anchorIdx } : {}),
+      ports: {
+        // Scratch host requests resolve from the recorded answers, never the
+        // host; only a real engine fault surfaces.
+        control: (message) => {
+          if (message.type === "error") ctx.ports.control(message);
+        },
+        // Frames flow to the real surface; sound and mirrors stay in the scratch.
+        presentation: (message, transfer) => {
+          if (message.type === "frame") ctx.ports.presentation(message, transfer);
+        },
+      },
+    });
+    return drive;
+  }
+
+  /**
+   * Step the current drive toward `target` in wall-clock chunks. A seek
+   * suppresses scratch frames until it lands; a watch (advance) republishes
+   * each chunk so the recording visibly unfolds. The terminal report goes
+   * out only while this is still the current request.
+   */
+  function pump(requestId: number, target: number, watch: boolean): void {
+    const view = ctx.view;
+    const drive = view.drive;
+    if (drive === null || view.request !== requestId) return; // superseded or closed
+    const scratch = drive.ctx;
+    // The seek gate is the worker's own isSeeking: scratch frames route
+    // through ctx.ports.presentation, which drops them while it is set.
+    ctx.replay.isSeeking = !watch;
+    const start = ctx.ports.now();
+    while (!drive.halted && (drive.tick < target || drive.nextEventTick <= target)) {
+      drive.step();
+      if (ctx.ports.now() - start > CHUNK_BUDGET_MS) {
+        if (watch) scratch.fns.postFrame();
+        postReport(requestId, false);
+        view.timer = setTimeout(() => {
+          view.timer = null;
+          pump(requestId, target, watch);
+        }, 0);
+        return;
+      }
+    }
+    view.request = null;
+    ctx.replay.isSeeking = false;
+    scratch.fns.postFrame();
+    postReport(requestId, true);
+  }
+
+  /**
+   * Serve a seek: reuse the drive when the target is ahead on the same
+   * segment, otherwise reopen at the nearest anchor at-or-before it — a
+   * backward scrub or a diverged drive both rebuild.
+   */
+  function beginSeek(requestId: number, segmentIdx: number, tick: number, watch: boolean): void {
+    settleRequest();
+    const view = ctx.view;
+    const segment = view.recording?.segments[segmentIdx];
+    if (segment === undefined) {
+      postViewError(requestId, `no segment ${segmentIdx} in the recording`);
+      return;
+    }
+    let drive = view.drive;
+    if (view.segment !== segmentIdx || drive === null || drive.halted || drive.tick > tick) {
+      drive = openDrive(segment, tick);
+      view.drive = drive;
+      view.segment = segmentIdx;
+    }
+    view.request = requestId;
+    pump(requestId, tick, watch);
+  }
+
+  function onHistoryViewStart(msg: Inbound<"historyViewStart">): void {
+    endView(false);
+    ctx.view.recording = msg.recording;
+    ctx.view.segment = msg.segment;
+    ctx.view.drive = null;
+    beginSeek(msg.id, msg.segment, msg.tick, false);
+  }
+
+  function onHistoryViewSeek(msg: Inbound<"historyViewSeek">): void {
+    if (ctx.view.recording === null) {
+      postViewError(msg.id, "no history view session is open");
+      return;
+    }
+    beginSeek(msg.id, msg.segment, msg.tick, false);
+  }
+
+  function onHistoryViewAdvance(msg: Inbound<"historyViewAdvance">): void {
+    const view = ctx.view;
+    if (view.recording === null || view.drive === null) {
+      postViewError(msg.id, "no history view session is open");
+      return;
+    }
+    beginSeek(
+      msg.id,
+      view.segment,
+      Math.min(view.drive.tick + msg.ticks, view.drive.endTick),
+      true,
+    );
+  }
+
+  /** Drop the scratch session; repaint asks the live engine to reclaim the surface. */
+  function endView(repaint: boolean): void {
+    settleRequest();
+    ctx.replay.isSeeking = false;
+    ctx.view.drive = null;
+    ctx.view.recording = null;
+    if (repaint && ctx.engine) {
+      // The displayed frame is a viewed one; the sameness cache would call
+      // an identical live frame a no-op, so invalidate before reposting.
+      ctx.presentation.lastVisual = null;
+      ctx.presentation.lastText = null;
+      ctx.presentation.lastModal = null;
+      ctx.presentation.lastInputEdit = "";
+      ctx.fns.postFrame();
+    }
+  }
+
+  function onHistoryViewEnd(): void {
+    endView(true);
+  }
+
+  /** The parked live session's resume point for the retained-original slot. */
+  function onHistoryRetain(msg: Inbound<"historyRetain">): void {
+    const h = ctx.history;
+    ctx.ports.control({
+      type: "historyRetained",
+      id: msg.id,
+      boot: ctx.fns.historySnapshot(),
+      from:
+        h.segment === null
+          ? null
+          : { segment: h.segment, seq: h.seq, tick: ctx.cycle.tickCount - h.tickBase },
+    });
+  }
+
+  /**
+   * Adopt a boot record as the live session: end the departing segment,
+   * rebuild the live engine on the record's container and image, hand it the
+   * recorded queues and serials, then open the next segment — its boot's
+   * resumedFrom points back at the position this session continued from.
+   */
+  function adoptBoot(
+    boot: HistoryBoot,
+    from: { segment: string; seq: number; tick: number } | null,
+  ): void {
+    ctx.fns.abandonHostRequest();
+    endView(false);
+    ctx.fns.historyEnd("resume");
+    const files = new Map(
+      Object.entries(boot.files).map(([name, data]) => [name, base64ToBytes(data)]),
+    );
+    const dictionary = new Map(boot.dictionary);
+    ctx.boot.liveDictionary = dictionary;
+    ctx.boot.currentBootFiles = files;
+    ctx.boot.currentDictionary = dictionary;
+    ctx.boot.authorRooms = boot.authorRooms;
+    ctx.boot.authoredWords = null;
+    ctx.boot.selectedSoundDevice = boot.soundDevice === 0 ? 0 : 1;
+    ctx.hostRequests.hostRequestOutstanding = null;
+    ctx.hostRequests.hostRequestSerial = boot.requestSerial;
+    ctx.hostRequests.pendingReenter = false;
+    ctx.input.keyQueue = [...(boot.inputQueue ?? [])];
+    ctx.input.deferredMovement = [...(boot.directionQueue ?? [])];
+    ctx.input.inputBuffer = [...(boot.inputLines ?? [])];
+    ctx.engine = new Engine(openContainer(files), ctx.host, dictionary);
+    ctx.fns.armJournal();
+    if (boot.image !== undefined) ctx.engine.restoreImage(base64ToBytes(boot.image));
+    if (boot.menus !== undefined) ctx.engine.restoreMenuState(boot.menus);
+    if (boot.replay !== undefined) ctx.engine.restoreReplayState(boot.replay);
+    ctx.fns.setKeyWaiting(ctx.engine.awaitingKey);
+    ctx.engine.vars[22] = ctx.boot.selectedSoundDevice === 0 ? 1 : 3;
+    // The adopted session is live but stays parked: the host's pause owners
+    // decide when it runs again (an open map or bubble can outlast the swap).
+    const now = ctx.ports.now();
+    ctx.clocks.cycle.reset(now);
+    ctx.clocks.sound.reset(now);
+    ctx.cycle.paused = true;
+    ctx.ports.control({ type: "paused", paused: true });
+    ctx.history.resumedFrom = from;
+    ctx.fns.rebaselineJournal();
+    ctx.fns.historyResume();
+    ctx.presentation.lastVisual = null;
+    ctx.fns.postFrame();
+  }
+
+  /** The viewed moment becomes the live session. */
+  function onHistoryViewTake(msg: Inbound<"historyViewTake">): void {
+    const view = ctx.view;
+    const drive = view.drive;
+    const scratch = drive?.ctx;
+    const engine = scratch?.engine ?? null;
+    const segment = view.recording?.segments[view.segment];
+    if (drive === null || scratch === undefined || engine === null || segment === undefined) {
+      ctx.ports.control({ type: "historyTaken", id: msg.id, ok: false, message: "not viewing" });
+      return;
+    }
+    const image = engine.recordingImage();
+    if (image === null) {
+      ctx.ports.control({
+        type: "historyTaken",
+        id: msg.id,
+        ok: false,
+        message: "the viewed moment is not a resumable boundary",
+      });
+      return;
+    }
+    const files = new Map(engine.containerFiles);
+    if (scratch.boot.authoredWords) files.set("WORDS.TOK", scratch.boot.authoredWords);
+    const boot: HistoryBoot = {
+      files: Object.fromEntries([...files].map(([name, data]) => [name, bytesToBase64(data)])),
+      dictionary: [...scratch.boot.liveDictionary.entries()],
+      authorRooms: scratch.boot.authorRooms,
+      image: bytesToBase64(image),
+      replay: engine.captureReplayState(),
+      menus: engine.readMenuState(),
+      inputQueue: [...scratch.input.keyQueue],
+      directionQueue: [...scratch.input.deferredMovement],
+      inputLines: [...scratch.input.inputBuffer],
+      clock: scratch.clocks.cycle.snapshot(),
+      rng: scratch.replay.replay?.random ?? ctx.history.rng,
+      soundDevice: scratch.boot.selectedSoundDevice,
+      resourceSet: resourceSetRevision({ getFiles: () => files }),
+      requestSerial: scratch.hostRequests.hostRequestSerial,
+    };
+    adoptBoot(boot, { segment: segment.id, seq: drive.seq, tick: drive.tick });
+    ctx.ports.control({ type: "historyTaken", id: msg.id, ok: true });
+  }
+
+  /** A retained original becomes the live session again. */
+  function onHistoryViewRestore(msg: Inbound<"historyViewRestore">): void {
+    let boot: HistoryBoot;
+    try {
+      boot = validateHistoryBoot(msg.boot);
+    } catch (error) {
+      ctx.ports.control({
+        type: "historyViewRestored",
+        id: msg.id,
+        ok: false,
+        message: String(error),
+      });
+      return;
+    }
+    adoptBoot(boot, msg.from);
+    ctx.ports.control({ type: "historyViewRestored", id: msg.id, ok: true });
+  }
+
+  return {
+    onHistoryViewStart,
+    onHistoryViewSeek,
+    onHistoryViewAdvance,
+    onHistoryViewEnd,
+    onHistoryViewTake,
+    onHistoryRetain,
+    onHistoryViewRestore,
+  };
+}

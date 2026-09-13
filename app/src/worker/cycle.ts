@@ -50,15 +50,72 @@ export function createCycle(ctx: WorkerContext) {
     ctx.fns.captureStateDiffs();
     ctx.fns.noteTransition();
     ctx.fns.flushTraceBatch();
+    ctx.fns.historyBoundary();
   }
 
   function advanceSoundClock(authoring = false): void {
-    if (ctx.replay.replay) return;
+    if (ctx.replay.replay && !ctx.replay.historyReplay) return;
     const frozen = authoring || ctx.cycle.paused;
     const ticks = ctx.clocks.sound.advance(ctx.ports.now(), frozen);
     for (let tick = 0; tick < ticks; tick++) {
       recordedClock();
     }
+  }
+
+  /**
+   * One host-poll pass — the timer body, also driven directly by Node tests
+   * with a controllable ports.now().
+   */
+  function hostTick(): void {
+    const now = ctx.ports.now();
+    if (!ctx.engine) return;
+    // The recorded tick axis is the host poll, not the sound tick: a poll
+    // carries as many sound ticks as elapsed wall time discharges — the
+    // post-pause backlog burst replays inside this one boundary.
+    ctx.cycle.tickCount++;
+    if (ctx.cycle.paused) {
+      ctx.clocks.cycle.poll(now, ctx.engine.vars[10]!, true);
+      return;
+    }
+    advanceSoundClock();
+    ctx.fns.deliverQueuedKey();
+    if (
+      ctx.engine.modalKind !== null ||
+      ctx.engine.continuationPending ||
+      ctx.engine.hostInteractionPending
+    ) {
+      tickEngine();
+      ctx.fns.noteTransition();
+      ctx.fns.flushTraceBatch();
+      ctx.fns.postFrame();
+      if (ctx.hostRequests.pendingReenter && !ctx.engine.hostInteractionPending) {
+        // The suspended re-entered room has landed (or been declined).
+        ctx.hostRequests.pendingReenter = false;
+        // A landed re-enter already consumed its cause; a declined one
+        // must not leave it armed for the next real transition.
+        ctx.journal.pendingCause = null;
+        ctx.fns.noteTransition();
+        ctx.fns.postFrame(true);
+      }
+    } else if (ctx.clocks.cycle.poll(now, ctx.engine.vars[10]!)) {
+      ctx.fns.flushDeferredMovement();
+      tickEngine();
+      finishCycle();
+      ctx.fns.postFrame(true);
+    }
+    if (now - ctx.cycle.lastCycleReportAt >= CYCLE_REPORT_MS) {
+      ctx.cycle.lastCycleReportAt = now;
+      const scalars = ctx.engine.readState();
+      ctx.ports.presentation({
+        type: "cycle",
+        cycle: ctx.cycle.cycleCount,
+        room: scalars.room,
+        egoX: scalars.egoX,
+        egoY: scalars.egoY,
+      });
+    }
+    if (Date.now() - ctx.autosave.lastAutosaveAt >= ctx.autosave.autosaveIntervalMs)
+      ctx.fns.autosave(false);
   }
 
   function startTimers(): void {
@@ -75,50 +132,7 @@ export function createCycle(ctx: WorkerContext) {
     if (ctx.cycle.timer === null) {
       ctx.cycle.timer = setInterval(() => {
         try {
-          const now = ctx.ports.now();
-          if (ctx.cycle.paused) {
-            ctx.clocks.cycle.poll(now, ctx.engine!.vars[10]!, true);
-            return;
-          }
-          advanceSoundClock();
-          ctx.fns.deliverQueuedKey();
-          if (
-            ctx.engine!.modalKind !== null ||
-            ctx.engine!.continuationPending ||
-            ctx.engine!.hostInteractionPending
-          ) {
-            tickEngine();
-            ctx.fns.noteTransition();
-            ctx.fns.flushTraceBatch();
-            ctx.fns.postFrame();
-            if (ctx.hostRequests.pendingReenter && !ctx.engine!.hostInteractionPending) {
-              // The suspended re-entered room has landed (or been declined).
-              ctx.hostRequests.pendingReenter = false;
-              // A landed re-enter already consumed its cause; a declined one
-              // must not leave it armed for the next real transition.
-              ctx.journal.pendingCause = null;
-              ctx.fns.noteTransition();
-              ctx.fns.postFrame(true);
-            }
-          } else if (ctx.clocks.cycle.poll(now, ctx.engine!.vars[10]!)) {
-            ctx.fns.flushDeferredMovement();
-            tickEngine();
-            finishCycle();
-            ctx.fns.postFrame(true);
-          }
-          if (now - ctx.cycle.lastCycleReportAt >= CYCLE_REPORT_MS) {
-            ctx.cycle.lastCycleReportAt = now;
-            const scalars = ctx.engine!.readState();
-            ctx.ports.presentation({
-              type: "cycle",
-              cycle: ctx.cycle.cycleCount,
-              room: scalars.room,
-              egoX: scalars.egoX,
-              egoY: scalars.egoY,
-            });
-          }
-          if (Date.now() - ctx.autosave.lastAutosaveAt >= ctx.autosave.autosaveIntervalMs)
-            ctx.fns.autosave(false);
+          hostTick();
         } catch (e) {
           stopTimers();
           ctx.ports.control({ type: "error", message: String(e) });
@@ -139,6 +153,7 @@ export function createCycle(ctx: WorkerContext) {
     stopTimers,
     finishCycle,
     advanceSoundClock,
+    hostTick,
     startTimers,
   };
 }

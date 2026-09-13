@@ -5,6 +5,11 @@ import { defineConfig, type Plugin } from "vite";
 import { scanFixtures } from "../test/fixtures.ts";
 import { BUILTIN_GAME_BUILDERS } from "../test/game-fixture.ts";
 import { KNOWN_GAMES } from "../src/games/knownGames.ts";
+import { gameRevision } from "./src/gameMetadata.ts";
+
+/** The file set a client fetches when it boots a fixture — what the revision covers. */
+const SERVED_FILE_PATTERN =
+  /^([A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/i;
 
 export interface InstalledFixtureDescriptor {
   readonly folder: string;
@@ -14,6 +19,7 @@ export interface InstalledFixtureDescriptor {
   readonly author?: string | undefined;
   readonly wordsSha256?: string | undefined;
   readonly objectSha256?: string | undefined;
+  readonly revision?: string | undefined;
   readonly walkthroughLabel?: string | undefined;
 }
 
@@ -26,29 +32,47 @@ export interface InstalledFixtureDescriptor {
  */
 function fixtureServer(): Plugin {
   const gamesRoot = join(import.meta.dirname, "..", "games");
-  const installedGames = (): InstalledFixtureDescriptor[] => {
-    const list: InstalledFixtureDescriptor[] = scanFixtures().all.map((fixture) => {
-      const known = fixture.known;
-      return {
-        folder: fixture.folder,
-        hash: fixture.hash,
-        alias: known?.alias ?? fixture.folder,
-        title: known?.title ?? fixture.title,
-        ...(fixture.author ? { author: fixture.author } : {}),
-        ...(fixture.wordsSha256 ? { wordsSha256: fixture.wordsSha256 } : {}),
-        ...(fixture.objectSha256 ? { objectSha256: fixture.objectSha256 } : {}),
-        ...(known?.walkthroughLabel ? { walkthroughLabel: known.walkthroughLabel } : {}),
-      };
-    });
+  /** Revision of exactly the file set the client will fetch for this target. */
+  const servedRevision = async (
+    files: ReadonlyMap<string, Uint8Array> | Record<string, Uint8Array>,
+  ): Promise<string> => {
+    const served: Record<string, Uint8Array> = {};
+    for (const [name, bytes] of files instanceof Map ? [...files] : Object.entries(files))
+      if (SERVED_FILE_PATTERN.test(name)) served[name.toUpperCase()] = bytes;
+    return gameRevision(served);
+  };
+  const installedGames = async (): Promise<InstalledFixtureDescriptor[]> => {
+    const list: InstalledFixtureDescriptor[] = await Promise.all(
+      scanFixtures().all.map(async (fixture) => {
+        const known = fixture.known;
+        const served: Record<string, Uint8Array> = {};
+        for (const actual of fixture.files.values())
+          if (SERVED_FILE_PATTERN.test(actual))
+            served[actual.toUpperCase()] = new Uint8Array(readFileSync(join(fixture.dir, actual)));
+        return {
+          folder: fixture.folder,
+          hash: fixture.hash,
+          alias: known?.alias ?? fixture.folder,
+          title: known?.title ?? fixture.title,
+          ...(fixture.author ? { author: fixture.author } : {}),
+          ...(fixture.wordsSha256 ? { wordsSha256: fixture.wordsSha256 } : {}),
+          ...(fixture.objectSha256 ? { objectSha256: fixture.objectSha256 } : {}),
+          revision: await gameRevision(served),
+          ...(known?.walkthroughLabel ? { walkthroughLabel: known.walkthroughLabel } : {}),
+        };
+      }),
+    );
     for (const known of KNOWN_GAMES) {
       if (!known.builtin) continue;
       if (list.some((g) => g.hash === known.wordsSha256 || g.alias === known.alias)) continue;
+      const builder = BUILTIN_GAME_BUILDERS[known.alias];
       list.push({
         folder: known.alias,
         hash: known.wordsSha256,
         alias: known.alias,
         title: known.title,
         author: known.author,
+        ...(builder ? { revision: await servedRevision(builder().files) } : {}),
         ...(known.walkthroughLabel ? { walkthroughLabel: known.walkthroughLabel } : {}),
       });
     }
@@ -67,82 +91,84 @@ function fixtureServer(): Plugin {
   return {
     name: "agi-fixture-server",
     configureServer(server) {
-      server.middlewares.use("/fixtures", (req, res) => {
-        const rel = (req.url ?? "").replace(/^\//, "").replace(/\/$/, "").split("?")[0]!;
-        if (rel === "") {
-          // Installed-game picker manifest.
-          res.setHeader("content-type", "application/json");
-          res.end(JSON.stringify(installedGames()));
-          return;
-        }
-        if (!/^[a-z0-9._-]+(\/[A-Za-z0-9._-]+)?$/.test(rel)) {
-          res.statusCode = 403;
-          res.end("forbidden");
-          return;
-        }
-        const [segment0, ...restSegments] = rel.split("/");
-        const builtin = builtinBuilder(segment0!);
-        if (builtin) {
-          const game = builtin();
-          if (restSegments.length === 0) {
+      server.middlewares.use("/fixtures", (req, res, next) => {
+        void (async () => {
+          const rel = (req.url ?? "").replace(/^\//, "").replace(/\/$/, "").split("?")[0]!;
+          if (rel === "") {
+            // Installed-game picker manifest.
             res.setHeader("content-type", "application/json");
-            res.end(JSON.stringify(Object.keys(game.files)));
+            res.end(JSON.stringify(await installedGames()));
             return;
           }
-          const fileName = restSegments[0]!.toUpperCase();
-          const bytes = game.files[fileName] ?? game.files[restSegments[0]!];
-          if (bytes) {
-            res.setHeader("content-type", "application/octet-stream");
-            res.end(Buffer.from(bytes));
+          if (!/^[a-z0-9._-]+(\/[A-Za-z0-9._-]+)?$/.test(rel)) {
+            res.statusCode = 403;
+            res.end("forbidden");
             return;
           }
-          res.statusCode = 404;
-          res.end("not found");
-          return;
-        }
-        const gameMatch = installedGames().find(
-          (g) => g.folder.toLowerCase() === segment0!.toLowerCase(),
-        );
-        let resolvedFolder = gameMatch?.folder;
-        if (!resolvedFolder) {
-          const matches = installedGames().filter(
-            (g) =>
-              g.hash?.toLowerCase() === segment0!.toLowerCase() ||
-              g.wordsSha256?.toLowerCase() === segment0!.toLowerCase() ||
-              g.alias?.toLowerCase() === segment0!.toLowerCase(),
+          const [segment0, ...restSegments] = rel.split("/");
+          const builtin = builtinBuilder(segment0!);
+          if (builtin) {
+            const game = builtin();
+            if (restSegments.length === 0) {
+              res.setHeader("content-type", "application/json");
+              res.end(JSON.stringify(Object.keys(game.files)));
+              return;
+            }
+            const fileName = restSegments[0]!.toUpperCase();
+            const bytes = game.files[fileName] ?? game.files[restSegments[0]!];
+            if (bytes) {
+              res.setHeader("content-type", "application/octet-stream");
+              res.end(Buffer.from(bytes));
+              return;
+            }
+            res.statusCode = 404;
+            res.end("not found");
+            return;
+          }
+          const gameMatch = (await installedGames()).find(
+            (g) => g.folder.toLowerCase() === segment0!.toLowerCase(),
           );
-          if (matches.length > 1) {
-            res.statusCode = 400;
-            res.setHeader("content-type", "application/json");
-            res.end(
-              JSON.stringify({
-                error: `Ambiguous fixture query "${segment0}" matches multiple editions (${matches.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
-              }),
+          let resolvedFolder = gameMatch?.folder;
+          if (!resolvedFolder) {
+            const matches = (await installedGames()).filter(
+              (g) =>
+                g.hash?.toLowerCase() === segment0!.toLowerCase() ||
+                g.wordsSha256?.toLowerCase() === segment0!.toLowerCase() ||
+                g.alias?.toLowerCase() === segment0!.toLowerCase(),
             );
+            if (matches.length > 1) {
+              res.statusCode = 400;
+              res.setHeader("content-type", "application/json");
+              res.end(
+                JSON.stringify({
+                  error: `Ambiguous fixture query "${segment0}" matches multiple editions (${matches.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
+                }),
+              );
+              return;
+            }
+            if (matches.length === 1) {
+              resolvedFolder = matches[0]!.folder;
+            }
+          }
+          resolvedFolder = resolvedFolder ?? segment0!;
+          const subPath = restSegments.join("/");
+          const path = subPath
+            ? join(gamesRoot, resolvedFolder, subPath)
+            : join(gamesRoot, resolvedFolder);
+          if (!existsSync(path)) {
+            res.statusCode = 404;
+            res.end("not found");
             return;
           }
-          if (matches.length === 1) {
-            resolvedFolder = matches[0]!.folder;
+          if (statSync(path).isDirectory()) {
+            // Directory manifest: avoids noisy 404 probing from the client.
+            res.setHeader("content-type", "application/json");
+            res.end(JSON.stringify(readdirSync(path)));
+            return;
           }
-        }
-        resolvedFolder = resolvedFolder ?? segment0!;
-        const subPath = restSegments.join("/");
-        const path = subPath
-          ? join(gamesRoot, resolvedFolder, subPath)
-          : join(gamesRoot, resolvedFolder);
-        if (!existsSync(path)) {
-          res.statusCode = 404;
-          res.end("not found");
-          return;
-        }
-        if (statSync(path).isDirectory()) {
-          // Directory manifest: avoids noisy 404 probing from the client.
-          res.setHeader("content-type", "application/json");
-          res.end(JSON.stringify(readdirSync(path)));
-          return;
-        }
-        res.setHeader("content-type", "application/octet-stream");
-        res.end(readFileSync(path));
+          res.setHeader("content-type", "application/octet-stream");
+          res.end(readFileSync(path));
+        })().catch(next);
       });
     },
   };

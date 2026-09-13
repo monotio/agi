@@ -17,6 +17,8 @@ import type { InstalledGameDescriptor } from "./gameTypes.ts";
 import type { PowerUpUiState } from "./useAuthoringController.ts";
 import type { PromptState } from "./usePromptController.ts";
 import type { WalkthroughUiState } from "./useWalkthroughController.ts";
+import type { HistoryViewMark } from "./useHistoryView.ts";
+import type { PlanReviewUiState } from "./usePlanController.ts";
 
 /** Engine modal kinds (the engine draws them on its text surface). */
 export type ModalKind = "print" | "inventory" | "menu" | "showObj" | "showPri" | "save" | "restore";
@@ -48,6 +50,40 @@ export interface TextHook {
   room: number;
   egoX: number;
   egoY: number;
+}
+
+/** The transport's UI state while viewing the recorded session. */
+export interface HistoryViewUiState {
+  /** A view session is open — the transport shows recorded history. */
+  active: boolean;
+  /** Opening: the tape is loading / the first drive is warming up. */
+  loading: boolean;
+  /** A seek is in flight. */
+  seeking: boolean;
+  /** Watch mode: paced advance is running. */
+  playing: boolean;
+  /** The user is dragging the thumb. */
+  scrubbing: boolean;
+  /** Watch speed multiplier (1/2/4/8). */
+  speed: number;
+  /** Which segment of the recording is under view (index). */
+  segment: number;
+  segmentCount: number;
+  /** Viewed position within the current segment. */
+  tick: number;
+  seq: number;
+  /** The viewed moment's room and score, for the transport readout. */
+  room: number;
+  score: number;
+  /** The viewed segment's recorded extent. */
+  totalTicks: number;
+  marks: HistoryViewMark[];
+  /** The viewed moment can become the live session (Resume here). */
+  canResume: boolean;
+  /** A retained original exists — Back to before is offered. */
+  retained: boolean;
+  diverged: { tick: number; detail: string } | null;
+  error: string;
 }
 
 export interface EngineState {
@@ -95,6 +131,16 @@ export interface EngineState {
   resumed: boolean;
   /** Player-action recording for a stored game test. */
   recording: { active: boolean; starting: boolean; error: string };
+  /** History batches committed-or-in-flight to storage; >0 means unsaved tape. */
+  historyPending: number;
+  /** The history transport: paused live session plus a scratch replay under it. */
+  historyView: HistoryViewUiState;
+  /**
+   * The world map's plan-review session — set while a generated or resumed
+   * draft is open for review; the map edits its detached world and only the
+   * build action turns it into resources.
+   */
+  planReview: PlanReviewUiState | null;
   /** Real-time walkthrough playback. */
   walkthrough: WalkthroughUiState;
   /** Live screen-object table while the objects debug channel is armed. */

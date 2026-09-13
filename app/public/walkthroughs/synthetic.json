@@ -1,9 +1,9 @@
 {
   "schema": "monotio.agi.walkthrough.v1",
   "game": "synthetic",
-  "targetHash": "d00cc5981820a66d3a56c802f8d747a73fe153d394a80463accf313947623fa1",
-  "supportedHashes": [
-    "d00cc5981820a66d3a56c802f8d747a73fe153d394a80463accf313947623fa1"
+  "targetRevision": "cee5199128b5bd05b609cb4b5d5941e1706010949c5177c19e4746fdddac0baf",
+  "supportedRevisions": [
+    "cee5199128b5bd05b609cb4b5d5941e1706010949c5177c19e4746fdddac0baf"
   ],
   "coverage": "complete-game",
   "profile": "2.936",
@@ -19,7 +19,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 33,
+  "elapsedMs": 34,
   "virtualTicks": 348,
   "cycles": 211,
   "actions": [
@@ -718,10 +718,14 @@
     "parserCount": 0,
     "lastInputLine": "",
     "horizon": 36,
+    "priorityBase": 48,
+    "patchGeneration": 0,
     "modalKind": null,
+    "modalSerial": 0,
     "inputEnabled": true,
     "pictureShown": true,
     "terminated": false,
+    "controls": [],
     "inventory": [
       {
         "num": 0,

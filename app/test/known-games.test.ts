@@ -113,15 +113,24 @@ test("hasWalkthrough and resolveWalkthrough resolve by alias or content hashes",
   assert.equal(resolveWalkthrough("MH1"), "mh1");
   assert.equal(resolveWalkthrough("unknown"), null);
 
-  // By WORDS.TOK hash
+  // A bare WORDS.TOK hash must NOT resolve a walkthrough: a remixed copy can
+  // keep the same vocabulary while changing the logic the tape replays against.
   const mh1 = KNOWN_GAMES.find((g) => g.alias === "mh1")!;
-  assert.equal(hasWalkthrough(mh1.wordsSha256), true);
-  assert.equal(resolveWalkthrough(mh1.wordsSha256), "mh1");
+  assert.equal(hasWalkthrough(mh1.wordsSha256), false);
+  assert.equal(resolveWalkthrough(mh1.wordsSha256), null);
 
-  // By target revision
+  // By target revision (the full bundle hash of the served file set)
   if (mh1.targetRevision) {
     assert.equal(hasWalkthrough(mh1.targetRevision), true);
     assert.equal(resolveWalkthrough(mh1.targetRevision), "mh1");
+  }
+
+  // By a non-target walkthrough revision — the dev-served bundle of a builtin
+  // whose catalog revision covers the full builder file set.
+  const ad = KNOWN_GAMES.find((g) => g.alias === "adventure-department")!;
+  for (const revision of ad.walkthroughRevisions ?? []) {
+    assert.equal(hasWalkthrough(revision), true);
+    assert.equal(resolveWalkthrough(revision), "adventure-department");
   }
 });
 

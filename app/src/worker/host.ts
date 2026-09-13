@@ -10,12 +10,17 @@ import type { WorkerContext } from "./context.ts";
 export function createEngineHost(ctx: WorkerContext): EngineHost {
   return {
     randomWord() {
+      // Live and replay share the LCG: the recorded seed in the segment's
+      // boot (or an anchor's rng) reproduces the identical sequence offline.
       let value: number;
-      if (!ctx.replay.replay) value = Math.floor(Math.random() * 65536);
-      else {
-        ctx.replay.replay.random =
-          (Math.imul(ctx.replay.replay.random, 1664525) + 1013904223) >>> 0;
-        value = ctx.replay.replay.random >>> 16;
+      if (ctx.replay.replay) {
+        const replay = ctx.replay.replay;
+        replay.random = (Math.imul(replay.random, 1664525) + 1013904223) >>> 0;
+        value = replay.random >>> 16;
+      } else {
+        const history = ctx.history;
+        history.rng = (Math.imul(history.rng, 1664525) + 1013904223) >>> 0;
+        value = history.rng >>> 16;
       }
       ctx.recording.recording?.tape.host(["random", value]);
       return value;
@@ -100,10 +105,11 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
       return ctx.fns.postHostRequest("saveList", {});
     },
     get promptSaveDescription() {
-      // Replays drive the save dialog with recorded key presses, so the engine's
-      // own in-dialog editor must run: a DOM prompt can never be answered by a
-      // recorded key, only by an explicit answer action.
-      if (ctx.replay.replay) return undefined;
+      // Walkthrough replays drive the save dialog with recorded key presses,
+      // so the engine's own in-dialog editor must run: a DOM prompt can never
+      // be answered by a recorded key, only by an explicit answer action. A
+      // history replay keeps the live path — its stream carries the answer.
+      if (ctx.replay.replay && !ctx.replay.historyReplay) return undefined;
       return (initial: string, maxLen: number, row: number, col: number) =>
         ctx.fns.postHostRequest("saveDescription", { initial, maxLen, row, col });
     },
@@ -126,6 +132,7 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
       return value;
     },
     quit() {
+      ctx.fns.historyEnd("quit");
       ctx.fns.stopTimers();
       ctx.ports.presentation({ type: "quit" });
     },

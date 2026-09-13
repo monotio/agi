@@ -67,12 +67,13 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await expect(settings).toHaveAttribute("aria-expanded", "false");
   const gameActions = page.getByTestId("game-actions-menu-menu");
   await expect(gameActions.getByTestId("btn-world-map")).toBeVisible();
+  await expect(gameActions.getByTestId("btn-look-back")).toBeVisible();
   await expect(gameActions.getByTestId("btn-start-over")).toBeVisible();
   await expect(gameActions.getByTestId("btn-record-test")).toBeVisible();
   await expect(gameActions.getByTestId("btn-export-live-zip")).toBeVisible();
   await expect(gameActions.getByTestId("btn-save-live-project")).toBeVisible();
   await expect(gameActions.getByTestId("menu-assistant")).toBeVisible();
-  await expect(gameActions.getByRole("menuitem")).toHaveCount(6);
+  await expect(gameActions.getByRole("menuitem")).toHaveCount(7);
   await page.screenshot({ path: test.info().outputPath("navigation-desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });
   for (const [trigger, popup] of [

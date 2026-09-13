@@ -26,6 +26,22 @@ export class CycleClock {
   }
 
   /**
+   * Accumulator state for a history anchor. `previous` is host-relative and
+   * intentionally not captured: `restore` re-bases it onto the given clock.
+   */
+  snapshot(): { remainder: number; increments: number; paused: boolean } {
+    return { remainder: this.remainder, increments: this.increments, paused: this.paused };
+  }
+
+  restore(state: { remainder: number; increments: number; paused: boolean }, now: number): void {
+    if (!Number.isFinite(now)) throw new Error("Cycle clock time must be finite.");
+    this.previous = now;
+    this.remainder = state.remainder;
+    this.increments = state.increments;
+    this.paused = state.paused;
+  }
+
+  /**
    * Advance from monotonic host time and consume at most one due logic cycle.
    * A delayed callback clears surplus increments rather than replaying a burst.
    * Delay zero imposes no wait; the host polling rate bounds its throughput.

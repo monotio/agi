@@ -10,6 +10,7 @@ import type { CachedGameData } from "./gameTypes.ts";
 import { progressEntries, type GameProgress } from "./gameProgress.ts";
 import { mapArchiveData } from "./roomMapStore.ts";
 import type { RoomMapSidecar } from "../../src/agent/roomMap.ts";
+import type { HistoryRecording } from "../../src/agent/history.ts";
 
 export interface ProjectContext {
   provider: string;
@@ -62,6 +63,7 @@ export async function buildProjectZip(
   data: CachedGameData,
   progress?: GameProgress,
   map?: RoomMapSidecar,
+  history?: HistoryRecording,
 ): Promise<Uint8Array<ArrayBuffer>> {
   const entries = gameEntries(data);
   const tests = data.files["TESTS.JSON"];
@@ -74,6 +76,10 @@ export async function buildProjectZip(
     (map.journal.length || Object.keys(map.layout).length || Object.keys(map.notes).length)
   )
     entries.push({ name: "MAP.JSON", data: mapArchiveData(map) });
+  // The session history travels with the project it was recorded in — a
+  // published game export never carries it.
+  if (history && history.segments.length)
+    entries.push({ name: "HISTORY.JSON", data: JSON.stringify(history) });
   const attachments = new Map<string, string>();
   async function visit(value: unknown): Promise<unknown> {
     if (typeof value === "string" && /^(data:image\/(?:png|jpeg|webp);base64,)/.test(value)) {

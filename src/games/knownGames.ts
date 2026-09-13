@@ -17,6 +17,12 @@ export interface KnownAgiGame {
   readonly walkthroughLabel?: string | undefined;
   readonly walkthroughCoverage?: "complete-game" | "chapter" | "partial" | undefined;
   /**
+   * Additional bundle revisions the walkthrough supports beyond
+   * `targetRevision` — e.g. a builtin served through the dev fixture server
+   * boots a filtered file set whose revision differs from the catalog's.
+   */
+  readonly walkthroughRevisions?: readonly string[] | undefined;
+  /**
    * The game's resources are assembled by project code, so no fixture files
    * need to exist on disk: the loader builds it from source. See the builder
    * registry in test/game-fixture.ts.
@@ -53,6 +59,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "2.936",
     wordsSha256: KNOWN_GAME_HASH.SYNTHETIC,
     objectSha256: "f58e6871c43d8639afca350562544a1f040dc94475c545ca069f4e69635d6425",
+    targetRevision: "cee5199128b5bd05b609cb4b5d5941e1706010949c5177c19e4746fdddac0baf",
     walkthroughLabel: "Complete route (50 pts)",
     walkthroughCoverage: "complete-game",
     builtin: true,
@@ -65,6 +72,12 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "2.936",
     wordsSha256: KNOWN_GAME_HASH.ADVENTURE_DEPARTMENT,
     objectSha256: "1a3d0818f9664f9d92b8e1b4721bc2568419849067c44bf36fc1a4ed0e8d67a9",
+    targetRevision: "dcd6f07a28acda1ec6b2c1e4508fe3348080fc463b14f47afbb0e58214aa26ee",
+    walkthroughRevisions: [
+      // The dev fixture server serves the public file set — TESTS.JSON is not
+      // booted — so a fixture-served boot reports this revision.
+      "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b",
+    ],
     walkthroughLabel: "Complete route (30 pts)",
     walkthroughCoverage: "complete-game",
     builtin: true,

@@ -1,9 +1,9 @@
 {
   "schema": "monotio.agi.walkthrough.v1",
   "game": "mh1",
-  "targetHash": "a1321c4bcac945ec224481989e22e42972ef02aee48221e3ec95b2d83cc479f6",
-  "supportedHashes": [
-    "a1321c4bcac945ec224481989e22e42972ef02aee48221e3ec95b2d83cc479f6"
+  "targetRevision": "010d2c6c1edf1a27bedded58faad86cb50a9f6970050f27736dc84d41854216d",
+  "supportedRevisions": [
+    "010d2c6c1edf1a27bedded58faad86cb50a9f6970050f27736dc84d41854216d"
   ],
   "coverage": "chapter",
   "profile": "3.002.102",
@@ -27,7 +27,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 968,
+  "elapsedMs": 1422,
   "virtualTicks": 50472,
   "cycles": 12561,
   "actions": [
@@ -6210,10 +6210,234 @@
     "parserCount": 0,
     "lastInputLine": "",
     "horizon": 1,
+    "priorityBase": 48,
+    "patchGeneration": 0,
     "modalKind": null,
+    "modalSerial": 0,
     "inputEnabled": false,
     "pictureShown": true,
     "terminated": false,
+    "controls": [
+      {
+        "key": 15360,
+        "controller": 16,
+        "menuItems": []
+      },
+      {
+        "key": 15104,
+        "controller": 2,
+        "menuItems": [
+          {
+            "heading": "Sierra   ",
+            "text": "Help <F1>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 17408,
+        "controller": 9,
+        "menuItems": []
+      },
+      {
+        "key": 9,
+        "controller": 7,
+        "menuItems": []
+      },
+      {
+        "key": 8192,
+        "controller": 40,
+        "menuItems": []
+      },
+      {
+        "key": 10,
+        "controller": 11,
+        "menuItems": [
+          {
+            "heading": "Special   ",
+            "text": "Joystick <Ctrl J>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 18,
+        "controller": 8,
+        "menuItems": []
+      },
+      {
+        "key": 11264,
+        "controller": 1,
+        "menuItems": [
+          {
+            "heading": "File   ",
+            "text": "Quit <Alt Z>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 15872,
+        "controller": 39,
+        "menuItems": []
+      },
+      {
+        "key": 16384,
+        "controller": 17,
+        "menuItems": []
+      },
+      {
+        "key": 16128,
+        "controller": 3,
+        "menuItems": [
+          {
+            "heading": "File   ",
+            "text": "Save <F5>   ",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 16640,
+        "controller": 4,
+        "menuItems": [
+          {
+            "heading": "File   ",
+            "text": "Restore <F7>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 17152,
+        "controller": 5,
+        "menuItems": [
+          {
+            "heading": "File   ",
+            "text": "Restart <F9>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 16896,
+        "controller": 36,
+        "menuItems": []
+      },
+      {
+        "key": 67,
+        "controller": 32,
+        "menuItems": []
+      },
+      {
+        "key": 99,
+        "controller": 31,
+        "menuItems": []
+      },
+      {
+        "key": 115,
+        "controller": 24,
+        "menuItems": []
+      },
+      {
+        "key": 83,
+        "controller": 33,
+        "menuItems": []
+      },
+      {
+        "key": 118,
+        "controller": 25,
+        "menuItems": []
+      },
+      {
+        "key": 102,
+        "controller": 26,
+        "menuItems": []
+      },
+      {
+        "key": 117,
+        "controller": 27,
+        "menuItems": []
+      },
+      {
+        "key": 101,
+        "controller": 28,
+        "menuItems": []
+      },
+      {
+        "key": 27,
+        "controller": 19,
+        "menuItems": []
+      },
+      {
+        "key": 32,
+        "controller": 20,
+        "menuItems": []
+      },
+      {
+        "key": 13,
+        "controller": 20,
+        "menuItems": []
+      },
+      {
+        "key": 20,
+        "controller": 21,
+        "menuItems": [
+          {
+            "heading": "Action   ",
+            "text": "Travel <F3>    ",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 15616,
+        "controller": 21,
+        "menuItems": [
+          {
+            "heading": "Action   ",
+            "text": "Travel <F3>    ",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 43,
+        "controller": 37,
+        "menuItems": []
+      },
+      {
+        "key": 45,
+        "controller": 38,
+        "menuItems": []
+      },
+      {
+        "key": 257,
+        "controller": 20,
+        "menuItems": []
+      },
+      {
+        "key": 513,
+        "controller": 20,
+        "menuItems": []
+      },
+      {
+        "key": 769,
+        "controller": 19,
+        "menuItems": []
+      },
+      {
+        "key": 1025,
+        "controller": 21,
+        "menuItems": [
+          {
+            "heading": "Action   ",
+            "text": "Travel <F3>    ",
+            "enabled": true
+          }
+        ]
+      }
+    ],
     "inventory": [
       {
         "num": 0,

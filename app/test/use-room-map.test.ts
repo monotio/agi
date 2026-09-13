@@ -3,7 +3,10 @@ import { test } from "node:test";
 import { nextTick, reactive } from "vue";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
+import { createAuthoringState } from "../../src/agent/authoringState.ts";
+import { commitWorldDraft, createWorldDraft, type WorldDraft } from "../../src/agent/worldPlan.ts";
 import { useRoomMap } from "../src/useRoomMap.ts";
+import type { AgentSession } from "../src/agent/agentSession.ts";
 import type { EngineState, TextHook } from "../src/useEngineTypes.ts";
 import type { BootedGame, Frame } from "../src/gameTypes.ts";
 import type { RoomTransitionNotice } from "../src/workerProtocol.ts";
@@ -21,6 +24,7 @@ function makeHarness(storage?: Pick<Storage, "getItem" | "setItem">): {
   resumes: number;
   wtPauses: number;
   wtResumes: number;
+  pauseAs(owner: string): void;
   notice(entry: Partial<RoomTransitionNotice> & { to: number }): void;
   frame(cycle: number, patchGeneration?: number): Frame;
   boot(files?: Record<string, Uint8Array>): Promise<void>;
@@ -30,6 +34,9 @@ function makeHarness(storage?: Pick<Storage, "getItem" | "setItem">): {
   let wtPauses = 0;
   let wtResumes = 0;
   let seq = 0;
+  // The owner set mirrors useEngine's pause bookkeeping: the engine stays
+  // paused while any owner holds it, whoever paused first.
+  const owners = new Set<string>();
   // Only the fields the map reads; the rest of EngineState is irrelevant here.
   const state = reactive({
     phase: "idle",
@@ -53,13 +60,15 @@ function makeHarness(storage?: Pick<Storage, "getItem" | "setItem">): {
     hook,
     getBootedGame: () => game,
     getSession: () => null,
-    pauseEngine: () => {
+    pauseEngine: (owner = "generic") => {
       pauses++;
-      state.paused = true;
+      owners.add(owner);
+      state.paused = owners.size > 0;
     },
-    resumeEngine: () => {
+    resumeEngine: (owner = "generic") => {
       resumes++;
-      state.paused = false;
+      owners.delete(owner);
+      state.paused = owners.size > 0;
     },
     pauseWalkthrough: () => {
       wtPauses++;
@@ -86,6 +95,10 @@ function makeHarness(storage?: Pick<Storage, "getItem" | "setItem">): {
     },
     get wtResumes() {
       return wtResumes;
+    },
+    pauseAs(owner: string) {
+      owners.add(owner);
+      state.paused = true;
     },
     notice(entry) {
       state.roomJournal.push({
@@ -134,7 +147,7 @@ test("notices drain into a durable journal and observed graph nodes", async () =
 });
 
 test("the map pauses on open and resumes only a pause it owns", async () => {
-  const { map, state, boot } = makeHarness();
+  const { map, state, boot, pauseAs } = makeHarness();
   await boot();
   map.openMap();
   assert.equal(map.open.value, true);
@@ -142,18 +155,18 @@ test("the map pauses on open and resumes only a pause it owns", async () => {
   map.closeMap();
   assert.equal(state.paused, false);
 
-  // Already paused by something else: the map must not release it.
-  state.paused = true;
+  // Another owner holds the pause: closing the map must not release it.
+  pauseAs("powerUp");
   map.openMap();
   map.closeMap();
   assert.equal(state.paused, true);
 });
 
 test("a pause the remix bubble still holds is not released by the map", async () => {
-  const { map, state, boot } = makeHarness();
+  const { map, state, boot, pauseAs } = makeHarness();
   await boot();
   map.openMap();
-  state.powerUp.open = true; // the bubble took over while the map was open
+  pauseAs("powerUp"); // the bubble took over while the map was open
   map.closeMap();
   assert.equal(state.paused, true);
 });
@@ -414,4 +427,198 @@ test("a stored test references its rooms but proves no traversal", async () => {
   const edge = graph.edges.find((e) => e.from === 1 && e.to === 8);
   assert.ok(edge);
   assert.equal(Object.hasOwn(edge, "tested"), false);
+});
+
+// ---- the map as the plan surface --------------------------------------------
+
+/**
+ * A session stand-in that commits drafts through the real revision check —
+ * the same shape the map reads (state.authoring + commitPlanDraft).
+ */
+function fakeSession(
+  rooms: Record<string, { title: string; description: string; exits: Record<string, number> }>,
+): AgentSession {
+  const state = { authoring: createAuthoringState() };
+  state.authoring.world.rooms = rooms;
+  return {
+    state,
+    getAuthoringState: () => ({ authoring: state.authoring }),
+    commitPlanDraft: (draft: WorldDraft) => {
+      const result = commitWorldDraft(state.authoring, draft);
+      if (result.status === "committed") state.authoring = result.authoring;
+      return result;
+    },
+  } as unknown as AgentSession;
+}
+
+function planHarness(opts: {
+  session?: AgentSession | null;
+  reviewDraft?: WorldDraft | null;
+  storage?: Pick<Storage, "getItem" | "setItem">;
+  onReviewEdited?: () => void;
+  onWorldEdited?: () => void;
+  onReviewClosed?: () => void;
+}) {
+  const state = reactive({
+    phase: "idle",
+    paused: false,
+    powerUp: { open: false },
+    roomJournal: [] as RoomTransitionNotice[],
+    walkthrough: { active: false, status: "idle", tick: 0 },
+    patchTick: 0,
+  }) as unknown as EngineState;
+  const hook = reactive({ room: -1 }) as unknown as TextHook;
+  const game: BootedGame = {
+    installed: false,
+    projectId: "proj-1",
+    title: "Authored",
+    revision: "rev-1",
+    files: {},
+    words: [],
+  };
+  const map = useRoomMap({
+    state,
+    hook,
+    getBootedGame: () => game,
+    getSession: () => opts.session ?? null,
+    pauseEngine: () => {
+      state.paused = true;
+    },
+    resumeEngine: () => {
+      state.paused = false;
+    },
+    pauseWalkthrough: () => {},
+    resumeWalkthrough: () => {},
+    storage: opts.storage,
+    getReviewDraft: () => opts.reviewDraft ?? null,
+    onReviewEdited: opts.onReviewEdited,
+    onWorldEdited: opts.onWorldEdited,
+    onReviewClosed: opts.onReviewClosed,
+  });
+  return { map, state, game };
+}
+
+test("review edits land on the detached draft and reach the persist callback", async () => {
+  const draft = createWorldDraft(
+    (() => {
+      const a = createAuthoringState();
+      a.world.rooms = {
+        "1": { title: "Hall", description: "", exits: { east: 2 } },
+        "2": { title: "Vault", description: "", exits: {} },
+      };
+      return a.world;
+    })(),
+  );
+  let edited = 0;
+  let closed = 0;
+  const { map } = planHarness({
+    reviewDraft: draft,
+    onReviewEdited: () => edited++,
+    onReviewClosed: () => closed++,
+  });
+  map.beginReview("proj-1");
+  assert.equal(map.reviewing.value, true);
+  // The draft's rooms drive the planned layer.
+  assert.equal(map.plannedEntry(2)?.title, "Vault");
+  assert.ok(map.graph.value.nodes.find((n) => n.room === 2)?.planned);
+
+  assert.equal(map.renamePlannedRoom(1, "Meadow"), null);
+  assert.equal(draft.world.rooms["1"]?.title, "Meadow");
+  assert.equal(edited, 1);
+  // A refused edit leaves the draft untouched and says why.
+  assert.match(map.renamePlannedRoom(9, "Nope") ?? "", /not in the plan/);
+  assert.equal(map.planError.value !== "", true);
+  assert.equal(draft.world.rooms["9"], undefined);
+  // Add a room off room 1 — node and exit in one validated edit.
+  const added = map.addPlannedRoom(1, "Tower", "A tall tower.", "up");
+  assert.equal(added.room, 3);
+  assert.equal(draft.world.rooms["3"]?.title, "Tower");
+  assert.equal(draft.world.rooms["1"]?.exits["up"], 3);
+  // Close = keep: the owner is told, the draft survives.
+  map.closeMap();
+  assert.equal(closed, 1);
+  assert.equal(map.reviewing.value, false);
+});
+
+test("live edits commit through the session's revision check", async () => {
+  const session = fakeSession({
+    "1": { title: "Hall", description: "", exits: {} },
+    "2": { title: "Vault", description: "", exits: {} },
+  });
+  let edited = 0;
+  const { map } = planHarness({ session, onWorldEdited: () => edited++ });
+  map.openMap();
+  assert.equal(map.plannedEntry(2)?.title, "Vault");
+  assert.equal(map.renamePlannedRoom(1, "Parlor"), null);
+  assert.equal(edited, 1);
+  assert.equal(
+    (
+      session.getAuthoringState() as {
+        authoring: { world: { rooms: Record<string, { title: string }> } };
+      }
+    ).authoring.world.rooms["1"]?.title,
+    "Parlor",
+  );
+  // A move under the edit's fork is a conflict, not a silent overwrite —
+  // commitWorldDraft refuses because the draft's base is stale. The map
+  // reports the refusal and the world keeps the concurrent change.
+  session.state.authoring.world.facts["elsewhere"] = "moved";
+  // Each live edit forks fresh from the current world, so a second edit
+  // still commits — conflicts only surface inside one edit's fork+commit.
+  assert.equal(map.renamePlannedRoom(2, "Crypt"), null);
+  assert.equal(session.state.authoring.world.facts["elsewhere"], "moved");
+  map.closeMap();
+});
+
+test("a visited room cannot be removed from the plan", async () => {
+  const session = fakeSession({
+    "1": { title: "Hall", description: "", exits: {} },
+    "2": { title: "Vault", description: "", exits: {} },
+  });
+  const { map, state } = planHarness({ session });
+  state.phase = "running";
+  await nextTick(); // loadFor drains and resets first; the visit lands after
+  state.roomJournal.push({
+    type: "roomTransition",
+    seq: 1,
+    from: 1,
+    to: 2,
+    cause: "edge",
+    edge: "right",
+    cycle: 4,
+    patchGeneration: 0,
+    scoreDelta: 0,
+    gained: [],
+    lost: [],
+  });
+  await nextTick();
+  map.openMap();
+  assert.match(map.removePlannedRoom(2) ?? "", /record|visited|built/i);
+  assert.ok(map.plannedEntry(2), "the plan keeps the visited room");
+  map.closeMap();
+});
+
+test("edge notes persist through the sidecar and join the room's intent", async () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (k: string) => values.get(k) ?? null,
+    setItem: (k: string, v: string) => values.set(k, v),
+  };
+  const first = planHarness({ storage });
+  // Boot the authored game so the sidecar loads under its project key.
+  first.state.phase = "running";
+  await nextTick();
+  first.map.setEdgeNote(1, 2, "east", "the bridge is out at night");
+  first.map.setNote(2, "moody vault");
+  // Edge notes carry their provenance — the room prompt can tell a pinned
+  // fact about the connection from a fact about the room itself.
+  assert.deepEqual(
+    first.map.noteIntentFor(2).sort(),
+    ['exit from room 1 "east": the bridge is out at night', "moody vault"].sort(),
+  );
+
+  const second = planHarness({ storage });
+  second.state.phase = "running";
+  await nextTick();
+  assert.equal(second.map.edgeNoteFor(1, 2, "east"), "the bridge is out at night");
 });

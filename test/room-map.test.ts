@@ -365,6 +365,7 @@ test("sidecar round-trips and rejects malformed or oversized data", () => {
     },
     layout: { "1": { x: 40, y: 80 } },
     notes: { "1": "start here" },
+    edgeNotes: {},
   };
   const parsed = validateMapSidecar(JSON.parse(JSON.stringify(serializeMapSidecar(sidecar))));
   assert.equal(parsed.journal.length, 2);

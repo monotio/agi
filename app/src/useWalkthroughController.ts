@@ -15,7 +15,6 @@ import { findInstalledFolder, type InstalledGameDescriptor } from "./gameTypes.t
 import type { AgentLogEntry } from "./agent/agentLog.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import { getCachedGameMeta, listCachedGames, type ProjectId } from "./gameStorage.ts";
-import { sha256Hex } from "./crypto.ts";
 import type { BootedGame } from "./gameTypes.ts";
 import type { WorkerInbound } from "./workerProtocol.ts";
 
@@ -304,15 +303,14 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
 
     // The artifact's binding names the build the tape was recorded on; refuse
     // a different edition up front instead of failing at a later checkpoint.
-    if (artifact.targetHash || artifact.supportedHashes?.length) {
-      const words = ctx.getBootedGame()?.files["WORDS.TOK"];
-      const wordsSha = words ? (await sha256Hex(words)).toLowerCase() : null;
+    if (artifact.targetRevision || artifact.supportedRevisions?.length) {
+      const revision = ctx.getBootedGame()?.revision;
       const supported = new Set(
-        [artifact.targetHash, ...(artifact.supportedHashes ?? [])].filter(
+        [artifact.targetRevision, ...(artifact.supportedRevisions ?? [])].filter(
           (h): h is string => typeof h === "string",
         ),
       );
-      if (!wordsSha || !supported.has(wordsSha)) {
+      if (!revision || !supported.has(revision.toLowerCase())) {
         if (ctx.getActiveSessionId() !== sessionId || abortController.signal.aborted) return;
         // Reject the pending observation wait so its listener is released.
         void observationPromise.catch(() => {});

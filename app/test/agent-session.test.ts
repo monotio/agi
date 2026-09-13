@@ -374,21 +374,29 @@ test("Genesis executes advertised room inspection through the shared asynchronou
   let requests = 0;
   let result: { success?: boolean; error?: string } | undefined;
   t.mock.method(globalThis, "fetch", async () => {
-    if (++requests > 1) throw new Error("End this bounded inspection test.");
-    return new Response(
-      providerSse("openai", {
-        id: "genesis-context",
-        output: [
-          {
-            type: "function_call",
-            call_id: "context",
-            name: "read_room_context",
-            arguments: '{"room":1}',
-          },
-        ],
-      }),
-      { headers: { "Content-Type": "text/event-stream" } },
-    );
+    if (++requests > 2) throw new Error("End this bounded inspection test.");
+    // Request 1 is the plan turn: settle it with a plain message so the
+    // build turn's read_room_context is the call under test.
+    const output =
+      requests === 1
+        ? [
+            {
+              type: "message",
+              role: "assistant",
+              content: [{ type: "output_text", text: "Planned." }],
+            },
+          ]
+        : [
+            {
+              type: "function_call",
+              call_id: "context",
+              name: "read_room_context",
+              arguments: '{"room":1}',
+            },
+          ];
+    return new Response(providerSse("openai", { id: `genesis-${requests}`, output }), {
+      headers: { "Content-Type": "text/event-stream" },
+    });
   });
   const session = new AgentSession(
     { provider: "openai", apiKey: "test-placeholder", model: "gpt-5.6-sol" },
@@ -398,6 +406,66 @@ test("Genesis executes advertised room inspection through the shared asynchronou
     },
   );
   await assert.rejects(session.startGenesis("A quiet courtyard."));
-  assert.equal(requests, 2);
+  assert.equal(requests, 3);
   assert.equal(result?.success, true, result?.error ?? "room context was not returned");
+});
+
+test("the plan turn advertises only plan tools and refuses resource writes", async (t) => {
+  const requests: { tool_choice?: { tools: { name: string }[] }; input: unknown }[] = [];
+  t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+    requests.push(JSON.parse(String(init.body)));
+    const output =
+      requests.length === 1
+        ? [
+            {
+              type: "function_call",
+              call_id: "write",
+              name: "write_logic_source",
+              arguments: '{"room":1,"source":"return;"}',
+            },
+            {
+              type: "function_call",
+              call_id: "world",
+              name: "update_world",
+              arguments: JSON.stringify({
+                rooms: [
+                  {
+                    num: 1,
+                    title: "Dock",
+                    description: "Where it starts.",
+                    exits: [{ name: "east", room: 2 }],
+                  },
+                ],
+                facts: [],
+                quests: [],
+              }),
+            },
+          ]
+        : [
+            {
+              type: "message",
+              role: "assistant",
+              content: [{ type: "output_text", text: "Planned." }],
+            },
+          ];
+    return new Response(providerSse("openai", { id: `p${requests.length}`, output }), {
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  });
+  const session = new AgentSession(
+    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    () => {},
+  );
+  await session.runPlan("A dockside mystery.");
+  // The provider saw only the plan allowlist — no resource tools.
+  assert.deepEqual(requests[0]!.tool_choice!.tools.map((tool) => tool.name).sort(), [
+    "inspect_world_bible",
+    "read_authoring_guide",
+    "update_world",
+  ]);
+  // The refused write left no resource behind; the world update did land.
+  assert.equal(session.state.container.getResource("logic", 1), null);
+  assert.equal(session.state.authoring.world.rooms["1"]?.title, "Dock");
+  // …and the refusal was reported back to the provider.
+  assert.match(JSON.stringify(requests[1]!.input), /not available in this phase/);
 });

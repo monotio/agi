@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fixtureDir, fixtureFiles } from "../fixtures.ts";
-import { loadGame } from "../game-fixture.ts";
+import { BUILTIN_GAME_BUILDERS, loadGame } from "../game-fixture.ts";
+import { resolveGameHash } from "../../src/games/knownGames.ts";
+import { gameRevision } from "../../app/src/gameMetadata.ts";
 import type { Action } from "./runner.ts";
 import { walkthrough, type Walkthrough } from "./walkthroughs.ts";
 
 export interface WalkthroughArtifact {
   schema: "monotio.agi.walkthrough.v1";
   game: string;
-  targetHash?: string | undefined;
-  supportedHashes?: readonly string[] | undefined;
+  targetRevision?: string | undefined;
+  supportedRevisions?: readonly string[] | undefined;
   coverage: Walkthrough["coverage"];
   profile: string;
   seed: number;
@@ -22,6 +24,42 @@ export interface WalkthroughArtifact {
   cycles: number;
   actions: Action[];
   finalState: unknown;
+}
+
+/**
+ * The file set a client actually fetches when it boots this target — what
+ * `BootedGame.revision` covers. The offer gate compares against this, so a
+ * remixed copy with untouched vocabulary does not inherit the tape.
+ */
+const SERVED_FILE_PATTERN =
+  /^([A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/i;
+
+/**
+ * The bundle revisions a walkthrough may be offered for: the served fixture
+ * set first, then — for builtins also reachable through the catalog — the
+ * full builder set.
+ */
+export async function walkthroughServedRevisions(target: string): Promise<string[]> {
+  const builder =
+    BUILTIN_GAME_BUILDERS[target.toLowerCase()] ??
+    BUILTIN_GAME_BUILDERS[resolveGameHash(target.toLowerCase()) ?? ""];
+  const all = new Map<string, Uint8Array>();
+  if (builder) {
+    for (const [name, bytes] of Object.entries(builder().files)) all.set(name, bytes);
+  } else {
+    const dir = fixtureDir(target);
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isFile())
+        all.set(entry.name.toUpperCase(), new Uint8Array(readFileSync(dir + entry.name)));
+    }
+  }
+  const served = new Map([...all].filter(([name]) => SERVED_FILE_PATTERN.test(name)));
+  const revisions = [await gameRevision(Object.fromEntries(served))];
+  if (builder) {
+    const full = await gameRevision(Object.fromEntries(all));
+    if (full !== revisions[0]) revisions.push(full);
+  }
+  return revisions;
 }
 
 /** Hash the same canonical resource/interpreter files the fixture loader consumes. */
@@ -46,21 +84,22 @@ export function walkthroughFixtureHashes(target: string): Record<string, string>
 }
 
 /** Read a completed replay; consumers also match its hashes to their fixture files. */
-export function readWalkthroughArtifact(path: string): WalkthroughArtifact {
+export async function readWalkthroughArtifact(path: string): Promise<WalkthroughArtifact> {
   const recording = JSON.parse(readFileSync(path, "utf8")) as WalkthroughArtifact;
   assert.equal(recording.schema, "monotio.agi.walkthrough.v1");
   const route = walkthrough(recording.game);
-  if (recording.targetHash) {
+  const served = await walkthroughServedRevisions(route.hash);
+  if (recording.targetRevision) {
     assert.equal(
-      recording.targetHash.toLowerCase(),
-      route.hash.toLowerCase(),
-      "target hash matches route",
+      recording.targetRevision.toLowerCase(),
+      served[0]!.toLowerCase(),
+      "target revision matches the served bundle",
     );
   }
-  if (recording.supportedHashes) {
+  if (recording.supportedRevisions) {
     assert.ok(
-      recording.supportedHashes.map((h) => h.toLowerCase()).includes(route.hash.toLowerCase()),
-      "route hash included in supported hashes",
+      recording.supportedRevisions.map((h) => h.toLowerCase()).includes(served[0]!.toLowerCase()),
+      "served bundle revision included in supported revisions",
     );
   }
   assert.equal(recording.status, "completed", "the recorded route completed");

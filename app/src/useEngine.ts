@@ -40,9 +40,12 @@ import { usePromptController, type PromptState } from "./usePromptController.ts"
 import { useSaveSlotController } from "./useSaveSlotController.ts";
 import { discoverInstalledGames } from "./gameDiscovery.ts";
 import { useWorkerLink } from "./useWorkerLink.ts";
+import { useHistoryController } from "./useHistoryController.ts";
+import { useHistoryView, freshHistoryView } from "./useHistoryView.ts";
 import { useGameLifecycle } from "./useGameLifecycle.ts";
 import { useEngineDebug } from "./useEngineDebug.ts";
 import { useRoomMap } from "./useRoomMap.ts";
+import { usePlanController } from "./usePlanController.ts";
 import type { WorkerInbound } from "./workerProtocol.ts";
 export type { PromptState };
 export type { ModalKind, TextHook, EngineState } from "./useEngineTypes.ts";
@@ -119,6 +122,9 @@ export function useEngine(
     },
     resumed: false,
     recording: { active: false, starting: false, error: "" },
+    historyPending: 0,
+    historyView: freshHistoryView(),
+    planReview: null,
     walkthrough: createInitialWalkthroughState(),
     debugObjects: [],
     debugTrace: [],
@@ -233,6 +239,13 @@ export function useEngine(
     configForGame: (projectId, config) => lifecycle.configForGame(projectId, config),
   });
 
+  const historyController = useHistoryController({
+    state,
+    getBootedGame: () => lifecycle.getBootedGame(),
+    getProfile: () => state.profile,
+    logAgent,
+  });
+
   const authoringController = useAuthoringController({
     state,
     getWorker: link.getWorker,
@@ -253,6 +266,7 @@ export function useEngine(
     },
     configForGame: (projectId, config) => lifecycle.configForGame(projectId, config),
     getLlmConfig: () => activeLlmConfig,
+    getRoomNotes: (room) => roomMap.noteIntentFor(room),
   });
 
   const testRecorder = useTestRecorder({
@@ -280,6 +294,9 @@ export function useEngine(
     releaseAgentAudioPreviews,
     pauseEngine,
     resumeEngine,
+    resetPauseOwners,
+    resetHistoryView: () => historyView.resetHistoryView(),
+    cancelPlanReview: () => planController.teardownReview(),
     getSessionId: () => activeWalkthroughSession,
     nextSessionId: () => ++activeWalkthroughSession,
     getActiveReplaySeed: () => activeReplaySeed,
@@ -298,6 +315,7 @@ export function useEngine(
     resetScreenState: lifecycle.resetScreenState,
     cancelPrompt: cancelPendingPrompts,
     handleAutosave: autosaveController.handleAutosave,
+    handleHistoryBatch: historyController.handleHistoryBatch,
     handleFlushed: autosaveController.handleFlushed,
     handleRestored: autosaveController.handleRestored,
     handleSaveSlotRequest: saveSlotController.handleSaveSlotRequest,
@@ -330,17 +348,34 @@ export function useEngine(
    * a query is always applied before the query is served — at most one more
    * cycle runs first, and nobody reads state before the freeze lands. The
    * worker's `paused` reply mirrors the real state into the test hook.
+   *
+   * Several overlays can hold the pause at once (map, remix bubble, history
+   * transport, AI settings). Each caller owns its hold: the freeze message
+   * goes out when the first owner parks, and the resume only when the last
+   * owner releases — nobody's pause ends while another is still open.
    */
-  function pauseEngine(): void {
-    link.getWorker()?.postMessage({ type: "pause", paused: true } satisfies WorkerInbound);
+  const pauseOwners = new Set<string>();
+
+  function pauseEngine(owner = "generic"): void {
+    if (pauseOwners.size === 0)
+      link.getWorker()?.postMessage({ type: "pause", paused: true } satisfies WorkerInbound);
+    pauseOwners.add(owner);
     audio.setPaused(true);
     state.paused = true;
   }
 
-  function resumeEngine(): void {
-    link.getWorker()?.postMessage({ type: "pause", paused: false } satisfies WorkerInbound);
-    audio.setPaused(false);
-    state.paused = false;
+  function resumeEngine(owner = "generic"): void {
+    pauseOwners.delete(owner);
+    if (pauseOwners.size === 0) {
+      link.getWorker()?.postMessage({ type: "pause", paused: false } satisfies WorkerInbound);
+      audio.setPaused(false);
+      state.paused = false;
+    }
+  }
+
+  /** A replaced worker takes its freeze with it; no owner survives the swap. */
+  function resetPauseOwners(): void {
+    pauseOwners.clear();
   }
 
   const { openPowerUp, closePowerUp, submitPowerUp } = authoringController;
@@ -403,7 +438,39 @@ export function useEngine(
     resumeEngine,
     pauseWalkthrough: walkthrough.pauseWalkthrough,
     resumeWalkthrough: walkthrough.resumeWalkthrough,
+    getReviewDraft: () => state.planReview?.draft ?? null,
+    onReviewEdited: () => planController.persistDraft(),
+    onWorldEdited: () => void authoringController.persistSessionState(),
+    onReviewClosed: () => planController.keepReview(),
   });
+
+  const planController = usePlanController({
+    state,
+    logAgent,
+    roomMap,
+    authoring: authoringController,
+    getLlmConfig: () => activeLlmConfig,
+    setActiveLlmConfig: (config) => {
+      activeLlmConfig = config;
+    },
+    finishAuthoredBoot: (session, resources, boot) =>
+      lifecycle.finishAuthoredBoot(session, resources, boot),
+    buildRoomFromMap: (room, from, notes) =>
+      authoringController.buildRoomFromMap(room, from, notes),
+  });
+
+  const historyView = useHistoryView({
+    state,
+    getWorker: link.getWorker,
+    query: link.query,
+    getBootedGame: () => lifecycle.getBootedGame(),
+    pauseEngine,
+    resumeEngine,
+    drainHistoryCommits: historyController.drainHistoryCommits,
+    highlightRoom: (room) => roomMap.select(room),
+    logAgent,
+  });
+  link.deps.handleHistoryView = historyView.applyReport;
 
   return {
     stopAgent: () => authoringController.getSession()?.task.stop(),
@@ -441,6 +508,8 @@ export function useEngine(
     pauseEngine,
     resumeEngine,
     roomMap,
+    historyView,
+    plan: planController,
     observeMapFrame: roomMap.observeFrame,
     readFrames: debug.readFrames,
     updateAiConfig,

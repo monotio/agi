@@ -78,6 +78,8 @@ export function createAutosave(ctx: WorkerContext) {
     ctx.ports.presentation(msg);
     ctx.autosave.lastAutosaveCycle = ctx.cycle.cycleCount;
     ctx.autosave.lastAutosaveAt = Date.now();
+    // The autosave cadence is the history anchor cadence — same boundary.
+    ctx.fns.historyAnchor("autosave");
     return true;
   }
 
@@ -96,6 +98,7 @@ export function createAutosave(ctx: WorkerContext) {
     // autosave is posted first, so a host that awaits the acknowledgement
     // can await browser storage before resolving this request.
     const taken = autosave(true);
+    ctx.fns.historyFlush();
     ctx.ports.control({
       type: "flushed",
       id: msg.id,

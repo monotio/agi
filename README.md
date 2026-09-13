@@ -75,7 +75,11 @@ To create an adventure with an AI provider, pick a starting point under
 Each template opens a Markdown brief you can edit. Or choose **Your own
 adventure** and describe the hero, setting and trouble. Plain language and
 structured [adventure briefs](games/README.md) both work. Connect your provider in
-**Connect AI**, then click **Create adventure**.
+**Connect AI**, then click **Create adventure** — or **Plan it on the map
+first** to review the world before anything is built: the agent designs the
+rooms and connections, the map shows them as a plan you can rename, extend and
+annotate, and only **Build as shown** starts authoring. A kept plan waits in
+the create panel until you resume or discard it.
 
 The agent builds the opening room, including its artwork, characters and game
 logic. When you enter an unwritten room, play pauses while the agent creates it;
@@ -149,14 +153,27 @@ entries; the folder picker is the fallback. Files are read locally into your
 library, so playing does not require keeping the source folder connected.
 
 Completed remixes save in your browser. While playing, the header offers
-**Settings**, a three-dot **Game actions** menu (Start over, World map, Game
-export, Project) and **Menu**. **Menu** saves before leaving, and **Resume**
-restores your game and position. **World map** pauses the game and shows every
-room it is known to contain: rooms you have visited, rooms the agent has
-planned, and rooms and exits found in the game's logic, each labeled by how it
-is known. Selecting a room shows its connections, visits and a thumbnail;
-discoveries and node layout are saved per project and are read-only — editing
-the world from the map is not yet supported.
+**Settings**, a three-dot **Game actions** menu (Start over, World map, Look
+back, Game export, Project) and **Menu**. **Menu** saves before leaving, and
+**Resume** restores your game and position.
+
+Every session is recorded as you play. **Look back** pauses the game and opens
+a transport under the screen: scrub the timeline to any recorded moment, watch
+it replay, then return to live. **Resume here** continues playing from the
+viewed moment and keeps the session you left as **Back to before**, so trying
+an earlier branch never destroys the original. One earlier session is kept —
+taking control again replaces it. The map's room visits link to their moments
+on the tape.
+
+**World map** pauses the game and shows every room it is known to contain:
+rooms you have visited, rooms the agent has planned, and rooms and exits found
+in the game's logic, each labeled by how it is known. Selecting a room shows
+its connections, visits and a thumbnail. The map is also where the world is
+planned: rename planned rooms, edit their briefs, add or remove rooms and
+exits, and pin notes to rooms and edges — the agent sees those notes when it
+builds that part of the world. **Build this room** on a planned node authors
+it without waiting for you to walk there. Discoveries, layout and notes are
+saved per project.
 
 The game's own Save/Restore actions open an engine-rendered selector with twelve
 numbered slots per game. Choose a slot with Up/Down and Enter, name a new save,
@@ -165,10 +182,10 @@ These saves preserve the AGI binary format and are separate from autosave.
 Browser storage supplies the save directory; DOS drive and path dialogs are not
 emulated. Clearing browser data removes these local saves.
 
-| Export                         | What travels with it                                                                                                                                                             |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Game actions → Game export** | Playable resources and public game metadata.                                                                                                                                     |
-| **Game actions → Project**     | The game plus its authoring conversation, images, source descriptions, world notes, stored game tests, world-map discoveries and layout, and your saved games and last autosave. |
+| Export                         | What travels with it                                                                                                                                                                                                  |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Game actions → Game export** | Playable resources and public game metadata.                                                                                                                                                                          |
+| **Game actions → Project**     | The game plus its authoring conversation, images, source descriptions, world notes, stored game tests, world-map discoveries, layout and notes, the recorded session history, and your saved games and last autosave. |
 
 Both downloads are ZIPs you can reopen with **Add game → ZIP file**. Public game
 exports can include a description, author, license and remix provenance in

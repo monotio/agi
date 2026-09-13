@@ -158,7 +158,7 @@ test("timeout cancels a production session and marks its usage incomplete", asyn
   }
 });
 
-test("captures the actual Anthropic Genesis startup subset with baseline schemas", async () => {
+test("captures the actual Anthropic Genesis plan-turn subset with baseline schemas", async () => {
   const outputRoot = mkdtempSync(join(tmpdir(), "agi-effort-anthropic-"));
   try {
     const report = await runGenesisSession({
@@ -187,7 +187,10 @@ test("captures the actual Anthropic Genesis startup subset with baseline schemas
     );
     for (const tool of body.tools)
       assert.deepEqual(tool.input_schema, catalogByName.get(tool.name)!.parameters);
-    assert.equal(body.messages[0].content.startsWith("### GENESIS PHASE:"), true);
+    // Genesis now opens with the plan turn; the build turn follows once the
+    // world is recorded. The baseline override still targets the build's
+    // ### GENESIS PHASE: message when it arrives.
+    assert.equal(body.messages[0].content.startsWith("### PLAN PHASE:"), true);
     assert.equal(body.messages[0].content.endsWith("# Tiny template\n---"), true);
   } finally {
     rmSync(outputRoot, { recursive: true, force: true });

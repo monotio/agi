@@ -133,7 +133,11 @@ export function createReplay(ctx: WorkerContext) {
         : ctx.replay.lastReplaySeed !== null
           ? ctx.replay.lastReplaySeed
           : 0;
+    // The live segment ends here: the scratch session's traffic is never
+    // recorded, and resuming starts a fresh segment marked resumed-from.
+    ctx.fns.historyEnd("walkthrough");
     ctx.replay.replay = { tick: 0, revision: 0, random: seed >>> 0 };
+    ctx.replay.historyReplay = false;
     // A request in flight belonged to the replaced engine; its late answer
     // is dropped by the serial check and the host resolves its UI now.
     ctx.fns.abandonHostRequest();
@@ -153,7 +157,11 @@ export function createReplay(ctx: WorkerContext) {
   }
 
   function onExitReplay(): void {
+    // The replayed engine becomes the live one: its LCG state becomes the
+    // live PRNG state so the resumed segment's boot records it faithfully.
+    if (ctx.replay.replay) ctx.history.rng = ctx.replay.replay.random;
     ctx.replay.replay = null;
+    ctx.replay.historyReplay = false;
     ctx.replay.currentSessionId = 0;
     ctx.replay.isSeeking = false;
     ctx.fns.rebaselineJournal();
@@ -165,6 +173,9 @@ export function createReplay(ctx: WorkerContext) {
     ctx.cycle.lastCycleReportAt = ctx.ports.now();
     ctx.fns.stopTimers();
     ctx.fns.startTimers();
+    // Live play continues under a new segment marked resumed-from — the
+    // original recording is never rewritten.
+    ctx.fns.historyResume();
     ctx.fns.postFrame();
   }
 

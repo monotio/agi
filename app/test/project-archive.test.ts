@@ -323,6 +323,7 @@ test("project archives carry the world map; published games never do", async () 
     ],
     layout: { "2": { x: 400, y: -170 } },
     notes: { "2": "check the guard timing" },
+    edgeNotes: { "0->2:right": "the bridge is out at night" },
   };
   const opened = await readGameZip(await buildProjectZip(data, undefined, map));
   assert.deepEqual(opened.map, map);

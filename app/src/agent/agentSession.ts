@@ -27,10 +27,19 @@ import { openContainer } from "../../../src/container/container.ts";
 import {
   createGenesisPrompt,
   createOrientationPrompt,
+  createPlanPrompt,
+  createRevisePlanPrompt,
   createRuntimeRoomPrompt,
   createSceneBrief,
   type OrientationInput,
 } from "../../../src/agent/prompt.ts";
+import {
+  commitWorld,
+  commitWorldDraft,
+  type WorldCommit,
+  type WorldDraft,
+  type WorldPlan,
+} from "../../../src/agent/worldPlan.ts";
 import {
   createAnthropicConversation,
   LlmResponseError,
@@ -63,6 +72,11 @@ export interface PowerUpResult {
 
 /** Tools active during Genesis and Room Authoring. Stable across both phases for prompt cache reuse. */
 const AUTHORING_SESSION_TOOLS = AGENT_TOOLS.map((tool) => tool.name);
+/**
+ * The plan turn's tool surface — world intent and reference reads only, never
+ * resource writes. Enforced by the runtime's allowedTools gate.
+ */
+const PLAN_PHASE_TOOLS = ["update_world", "inspect_world_bible", "read_authoring_guide"];
 
 export interface BootResources {
   files: Record<string, Uint8Array>;
@@ -413,7 +427,7 @@ Answer the player's question using evidence from inspection when needed. For hin
 
   private async observeTurn(
     pending: Promise<LlmTurnResult>,
-    phase: "ask" | "remix" | "genesis" | "room",
+    phase: "ask" | "remix" | "plan" | "genesis" | "room",
   ): Promise<LlmTurnResult> {
     try {
       const turn = await pending;
@@ -609,13 +623,109 @@ Answer the player's question using evidence from inspection when needed. For hin
   }
 
   /**
-   * Author the Genesis world (words, view 0, picture 1, logic 0, logic 1)
-   * by feeding the raw template markdown into the agent loop.
+   * Genesis is two turns: the plan turn designs the world (update_world
+   * only), the build turn authors the opening room's resources against it.
+   * The default create flow runs them back to back; the map's plan review
+   * runs them through runPlan / runBuild with a draft in between.
    */
   startGenesis(templateMarkdown: string): Promise<BootResources> {
-    return this.task.run(() => this.genesis(templateMarkdown));
+    return this.task.run(async () => {
+      await this.planTurn(templateMarkdown, null);
+      return this.buildTurn(templateMarkdown, false);
+    });
   }
-  private async genesis(templateMarkdown: string): Promise<BootResources> {
+
+  /** The plan turn alone — the world is left in authoring.world for review. */
+  runPlan(templateMarkdown: string): Promise<void> {
+    return this.task.run(() => this.planTurn(templateMarkdown, null));
+  }
+
+  /**
+   * Another plan turn answering the player's note. The caller commits the
+   * edited draft first, so inspect_world_bible shows the player's version.
+   */
+  runRevisePlan(note: string): Promise<void> {
+    return this.task.run(() => this.planTurn("", note));
+  }
+
+  /** The build turn alone — the committed plan is the approved roadmap. */
+  runBuild(templateMarkdown: string): Promise<BootResources> {
+    return this.task.run(() => this.buildTurn(templateMarkdown, true));
+  }
+
+  private async planTurn(templateMarkdown: string, reviseNote: string | null): Promise<void> {
+    if (!this.conversation && !this.stubFallback)
+      throw new Error("Connect an API key in AI settings before creating a game.");
+    if (this.stubFallback) {
+      this.onEvent(
+        "request",
+        reviseNote === null ? "[Plan] planning the world" : `[Plan] revising: ${reviseNote}`,
+      );
+      this.stubFallback.plan(this.state, reviseNote);
+      return;
+    }
+    const conversation = this.conversation;
+    if (!conversation) throw new Error("No conversation provider configured");
+    conversation.setAvailableTools(PLAN_PHASE_TOOLS);
+    this.onEvent(
+      "request",
+      reviseNote === null
+        ? `Planning the world with ${this.config.provider} (${this.config.model})`
+        : `Revising the plan: ${reviseNote.slice(0, 160)}`,
+    );
+    let turn = await this.observeTurn(
+      conversation.sendUserMessage(
+        reviseNote === null
+          ? createPlanPrompt(templateMarkdown)
+          : createRevisePlanPrompt(reviseNote),
+      ),
+      "plan",
+    );
+    for (let round = 0; turn.toolCalls.length > 0 && round < 24; round++) {
+      const results: { toolCallId: string; result: AgentToolResult }[] = [];
+      for (const tc of turn.toolCalls) {
+        await this.task.checkpoint(false);
+        this.onEvent("request", `[Plan] ${tc.name}`, { tool: tc.name, args: tc.input });
+        const toolStart = performance.now();
+        const res = await executeAgentToolAsync(this.state, tc.name, tc.input, {
+          allowedTools: PLAN_PHASE_TOOLS,
+        });
+        this.pendingToolMs += performance.now() - toolStart;
+        this.onEvent(
+          res.success ? "response" : "error",
+          res.success ? `[Plan] ${tc.name} succeeded` : `[Plan] ${tc.name} failed: ${res.error}`,
+          { tool: tc.name, args: tc.input, result: { ...res, images: undefined } },
+        );
+        this.task.recordTool(tc.name, tc.input, res);
+        results.push({ toolCallId: tc.id, result: this.projectForModel(res) });
+      }
+      conversation.appendToolResults(results);
+      turn = await this.observeTurn(conversation.complete(), "plan");
+    }
+    if (turn.toolCalls.length > 0)
+      throw new Error("The plan turn did not settle; revise the plan or start over.");
+  }
+
+  /**
+   * Commit a player draft against the current world revision; a "conflict"
+   * means the world moved since the draft forked — the caller offers a
+   * refresh rather than overwriting.
+   */
+  commitPlanDraft(draft: WorldDraft): WorldCommit {
+    const result = commitWorldDraft(this.state.authoring, draft);
+    if (result.status === "committed") this.state.authoring = result.authoring;
+    return result;
+  }
+
+  /** Adopt a plan wholesale — a stored draft restoring into a fresh session. */
+  adoptWorldPlan(world: WorldPlan): void {
+    const result = commitWorld(this.state.authoring, world);
+    if (result.status !== "committed")
+      throw new Error(result.status === "invalid" ? result.error : "Plan conflict");
+    this.state.authoring = result.authoring;
+  }
+
+  private async buildTurn(templateMarkdown: string, approvedPlan: boolean): Promise<BootResources> {
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating a game.");
     this.conversation?.setAvailableTools(AUTHORING_SESSION_TOOLS);
@@ -651,7 +761,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       `Beginning Genesis authoring with ${this.config.provider} (${this.config.model})`,
     );
 
-    const genesisPrompt = createGenesisPrompt(templateMarkdown);
+    const genesisPrompt = createGenesisPrompt(templateMarkdown, approvedPlan);
     let turn = await this.observeTurn(this.conversation.sendUserMessage(genesisPrompt), "genesis");
 
     while (!this.state.genesisComplete) {
@@ -749,6 +859,9 @@ Answer the player's question using evidence from inspection when needed. For hin
         state: () => req.context["state"] ?? null,
         objects: () => req.context["objects"] ?? [],
       },
+      // The host's pinned map notes stay reachable when the turn inspects a
+      // room other than the one the request names.
+      roomNotes: this.runtime.roomNotes,
     };
     this.onEvent("request", `[Runtime room] authoring room ${room} from room ${from}`);
     const resources = executeAgentTool(staged, "inspect_world_bible", {
@@ -759,10 +872,19 @@ Answer the player's question using evidence from inspection when needed. For hin
       kind: null,
     });
     const previous = executeAgentTool(staged, "read_logic", { num: from });
+    // Player intent pinned on the map for this room — provenance the host
+    // attached to the request, validated to a bounded list of strings.
+    const rawNotes = req.context["playerNotes"];
+    const playerNotes = Array.isArray(rawNotes)
+      ? rawNotes
+          .filter((note): note is string => typeof note === "string")
+          .slice(0, 16)
+          .map((note) => note.slice(0, 400))
+      : undefined;
     try {
       let turn = await this.observeTurn(
         this.conversation.sendUserMessage(
-          createRuntimeRoomPrompt(room, from) +
+          createRuntimeRoomPrompt(room, from, playerNotes) +
             `\nResources: ${resources.message ?? ""}\nInventory (preserve this order): ${JSON.stringify(staged.sources.objects)}\nPrevious room logic:\n${previous.message ?? ""}`,
         ),
         "room",

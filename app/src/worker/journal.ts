@@ -55,6 +55,7 @@ export function createJournal(ctx: WorkerContext) {
     if (j.pending.length === 0) return;
     const patchGeneration = ctx.engine!.patchGeneration;
     for (const entry of j.pending) {
+      const history = ctx.fns.historyMark(entry.to, entry.cause, entry.edge);
       ctx.ports.control({
         type: "roomTransition",
         seq: ++j.seq,
@@ -67,11 +68,15 @@ export function createJournal(ctx: WorkerContext) {
         scoreDelta: entry.score - j.lastScore,
         gained: entry.carried.filter((num) => !j.lastCarried.includes(num)),
         lost: j.lastCarried.filter((num) => !entry.carried.includes(num)),
+        ...(history !== null ? { history } : {}),
       });
       j.lastScore = entry.score;
       j.lastCarried = entry.carried;
     }
     j.pending = [];
+    // Every room entry is a resume point: the map's journey and the history
+    // anchors share the same recorded boundary.
+    ctx.fns.historyAnchor("room");
   }
 
   /**
@@ -94,6 +99,7 @@ export function createJournal(ctx: WorkerContext) {
       return;
     }
     if (restarted) {
+      ctx.fns.historyRecord({ kind: "restart" });
       record(to, "restart");
       return;
     }

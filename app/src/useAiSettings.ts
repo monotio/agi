@@ -75,7 +75,7 @@ export function createAiSettings(engine: EngineApi, deps: AiSettingsDeps) {
         : (deps.createButtonEl() ?? null);
     deps.releaseMovement();
     if (state.phase === "running" && !state.paused) {
-      pauseEngine();
+      pauseEngine("aiSettings");
       aiSettingsOwnedPause = true;
     }
     aiSettingsDialog.value?.show();
@@ -115,7 +115,7 @@ export function createAiSettings(engine: EngineApi, deps: AiSettingsDeps) {
   function onAiSettingsClosed(): void {
     if (aiSettingsOwnedPause) {
       aiSettingsOwnedPause = false;
-      resumeEngine();
+      resumeEngine("aiSettings");
     }
     const returnFocus = aiSettingsReturnFocus;
     aiSettingsReturnFocus = null;
