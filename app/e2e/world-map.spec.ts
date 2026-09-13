@@ -226,6 +226,15 @@ test("an imported game shows its static graph before any visit", async ({ page }
       .filter({ hasText: "logic exits off the left edge" })
       .count(),
   ).toBeGreaterThan(0);
+
+  // No two labels share a spot: opposite-direction siblings fan to opposite
+  // sides (a reversed edge's perpendicular must not collapse onto its twin),
+  // a duplicated fact renders once, and coincident midpoints get a per-pair
+  // jitter. On this fixture the result is exact — every label sits alone.
+  const labelPos = await page
+    .locator(".edge-label")
+    .evaluateAll((els) => els.map((e) => `${e.getAttribute("x")},${e.getAttribute("y")}`));
+  expect(new Set(labelPos).size).toBe(labelPos.length);
   await page.screenshot({ path: "test-results/world-map-imported.png" });
 });
 
@@ -509,6 +518,24 @@ test("the graph pans in both axes, zooms, and the detail pane dismisses", async 
   const after = await scroll.evaluate((el) => ({ x: el.scrollLeft, y: el.scrollTop }));
   expect(after.x).toBeGreaterThan(0);
   expect(after.y).toBeGreaterThan(0);
+
+  // A pan released outside the window must not stay latched: the browser may
+  // never deliver the captured pointerup, so a pointermove arriving with no
+  // buttons held must end the pan. Simulate exactly that (a real mouse.up
+  // would reach the captured element and mask the defect).
+  await page.mouse.move(box.x + 60, box.y + 60);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 100, box.y + 100, { steps: 2 });
+  await expect(scroll).toHaveClass(/panning/);
+  await page.evaluate(() => {
+    document
+      .querySelector("[data-testid=map-graph]")!
+      .dispatchEvent(
+        new PointerEvent("pointermove", { bubbles: true, buttons: 0, clientX: 500, clientY: 500 }),
+      );
+  });
+  await expect(scroll).not.toHaveClass(/panning/);
+  await page.mouse.up();
 
   // Fit returns the whole graph to the pane: both scroll ranges collapse
   // (≤2px slack for integer rounding of the svg size).

@@ -171,6 +171,12 @@ function onBgPointerDown(ev: PointerEvent): void {
 function onBgPointerMove(ev: PointerEvent): void {
   const el = graphScroll.value;
   if (!panning || !el) return;
+  if ((ev.buttons & 1) === 0) {
+    // Released outside the window: the captured pointerup never arrived.
+    panning = null;
+    panningActive.value = false;
+    return;
+  }
   const dx = ev.clientX - panning.x;
   const dy = ev.clientY - panning.y;
   panning.moved = Math.max(panning.moved, Math.abs(dx) + Math.abs(dy));
@@ -202,6 +208,8 @@ interface EdgeGeom {
   readonly d: string;
   readonly lx: number;
   readonly ly: number;
+  /** False when a same-direction sibling already renders this label text. */
+  readonly showLabel: boolean;
 }
 
 const edgeGeoms = computed<EdgeGeom[]>(() => {
@@ -212,6 +220,9 @@ const edgeGeoms = computed<EdgeGeom[]>(() => {
     totals.set(k, (totals.get(k) ?? 0) + 1);
   }
   const seen = new Map<string, number>();
+  // A label renders once per directed pair: an observed "right" and a static
+  // "right" are the same fact — the earlier (higher-priority) edge keeps it.
+  const drawnLabels = new Set<string>();
   return graph.value.edges.map((edge) => {
     const a = posOf(edge.from);
     const b = posOf(edge.to);
@@ -219,12 +230,16 @@ const edgeGeoms = computed<EdgeGeom[]>(() => {
     const y1 = a.y + NODE_H / 2;
     const x2 = b.x + NODE_W / 2;
     const y2 = b.y + NODE_H / 2;
+    const labelKey = `${edge.from}|${edge.to}|${edge.label ?? ""}`;
+    const showLabel = edge.label !== undefined && !drawnLabels.has(labelKey);
+    if (showLabel) drawnLabels.add(labelKey);
     if (edge.from === edge.to) {
       return {
         edge,
         d: `M ${x1} ${a.y} a 26 18 0 1 1 0.1 0`,
         lx: x1,
         ly: a.y - 22,
+        showLabel,
       };
     }
     const k = `${Math.min(edge.from, edge.to)}|${Math.max(edge.from, edge.to)}`;
@@ -234,9 +249,15 @@ const edgeGeoms = computed<EdgeGeom[]>(() => {
     const offset = n === 1 ? 0 : (i - (n - 1) / 2) * 34;
     const mx = (x1 + x2) / 2;
     const my = (y1 + y2) / 2;
-    const len = Math.hypot(x2 - x1, y2 - y1) || 1;
-    const px = (-(y2 - y1) / len) * offset;
-    const py = ((x2 - x1) / len) * offset;
+    // The fan-out perpendicular must come from the canonical pair direction
+    // (low→high room), not this edge's own direction: a reversed edge's
+    // perpendicular flips, which would collapse both siblings onto the same
+    // curve and the same label spot.
+    const lo = posOf(Math.min(edge.from, edge.to));
+    const hi = posOf(Math.max(edge.from, edge.to));
+    const clen = Math.hypot(hi.x - lo.x, hi.y - lo.y) || 1;
+    const px = (-(hi.y - lo.y) / clen) * offset;
+    const py = ((hi.x - lo.x) / clen) * offset;
     const cx = mx + px * 2;
     const cy = my + py * 2;
     // Trim both ends to the node borders: the path must end at the target
@@ -247,11 +268,18 @@ const edgeGeoms = computed<EdgeGeom[]>(() => {
     const sy = y1 + sd.y * edgeInset(sd);
     const ex = x2 - ed.x * edgeInset(ed);
     const ey = y2 - ed.y * edgeInset(ed);
+    // Labels anchor at the midpoint — which distinct pairs can share (a long
+    // edge's midpoint lands on a local pair's). A deterministic per-pair
+    // jitter along the edge axis separates those.
+    let h = 0;
+    for (let c = 0; c < k.length; c++) h = (h * 31 + k.charCodeAt(c)) | 0;
+    const jitter = ((Math.abs(h) % 5) - 2) * 14;
     return {
       edge,
       d: offset === 0 ? `M ${sx} ${sy} L ${ex} ${ey}` : `M ${sx} ${sy} Q ${cx} ${cy} ${ex} ${ey}`,
-      lx: mx + px,
-      ly: my + py - 6,
+      lx: mx + px + ((hi.x - lo.x) / clen) * jitter,
+      ly: my + py - 6 + ((hi.y - lo.y) / clen) * jitter,
+      showLabel,
     };
   });
 });
@@ -519,6 +547,15 @@ function onNodePointerDown(ev: PointerEvent, room: number): void {
 
 function onNodePointerMove(ev: PointerEvent): void {
   if (!dragging) return;
+  if ((ev.buttons & 1) === 0) {
+    // Released outside the window: the captured pointerup never arrived.
+    if (dragging.moved) {
+      const p = svgPoint(ev);
+      map.moveNode(dragging.room, p.x - dragging.dx, p.y - dragging.dy);
+    }
+    dragging = null;
+    return;
+  }
   // A click is not a move: only once the pointer travels a few px does the
   // press become a drag, so plain selection never dirties the layout.
   if (
@@ -797,7 +834,7 @@ function downloadSidecar(): void {
                 :d="geom.d"
                 :marker-end="`url(#map-arrow-${geom.edge.provenance})`"
               />
-              <text v-if="geom.edge.label" class="edge-label" :x="geom.lx" :y="geom.ly">
+              <text v-if="geom.showLabel" class="edge-label" :x="geom.lx" :y="geom.ly">
                 {{ geom.edge.label }}
               </text>
             </g>

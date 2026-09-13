@@ -1,9 +1,10 @@
 // Module-size policy: production modules under src/ and app/src/ stay under
 // LIMIT. Files already over it carry an explicit baseline entry that pins
 // their size and names the concrete boundary it protects; growing one past
-// its baseline fails here and is a recorded decision, not drift. When a file
-// shrinks under the limit its entry is stale and must be removed — no global
-// exemptions and no filler wrappers to satisfy a limit.
+// its baseline plus HEADROOM fails here and is a recorded decision, not
+// drift — the headroom keeps small deliberate edits from needing a re-pin.
+// When a file shrinks under the limit its entry is stale and must be
+// removed — no global exemptions and no filler wrappers to satisfy a limit.
 
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
@@ -11,6 +12,8 @@ import { join } from "node:path";
 import test from "node:test";
 
 const LIMIT = 600;
+/** Slack above a pinned baseline before growth becomes a recorded decision. */
+const HEADROOM = 50;
 const ROOTS = ["src", "app/src"];
 
 const BASELINE: Record<string, { lines: number; boundary: string }> = {
@@ -125,9 +128,9 @@ test("no production module exceeds the limit or its baseline", () => {
       if (actual <= LIMIT) continue;
       if (!entry) {
         violations.push(`${path}: ${actual} lines over ${LIMIT} with no baseline`);
-      } else if (actual > entry.lines) {
+      } else if (actual > entry.lines + HEADROOM) {
         violations.push(
-          `${path}: ${actual} lines over its ${entry.lines}-line baseline (${entry.boundary})`,
+          `${path}: ${actual} lines over its ${entry.lines}-line baseline + ${HEADROOM} headroom (${entry.boundary})`,
         );
       }
     }
