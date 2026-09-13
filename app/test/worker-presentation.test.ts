@@ -98,6 +98,30 @@ test("show.obj publishes the preview mask and dismissal clears it", () => {
   assert.ok(reopened.type === "frame" && reopened.preview instanceof Uint8Array);
 });
 
+test("frame buffers post as transfers while the worker keeps its own copies", () => {
+  const { ctx, presentation, transfers } = workerHarness(priorityGame());
+  ctx.fns.onDebug({ type: "debug", channels: { ownership: true } });
+  ctx.fns.tickEngine();
+  ctx.fns.postFrame();
+  const idx = presentation.findLastIndex((m) => m.type === "frame");
+  const frame = presentation[idx]!;
+  assert.ok(frame.type === "frame");
+  const transfer = transfers[idx]!;
+  assert.ok(transfer !== undefined && transfer.length > 0, "the frame posts a transfer list");
+  // Every posted buffer leaves the worker: each ships inside the transfer list.
+  for (const buf of [frame.visual, frame.priority, frame.text, frame.ownership]) {
+    assert.ok(buf instanceof Uint8Array || buf instanceof Uint16Array);
+    assert.ok(
+      transfer.includes(buf.buffer),
+      "posted buffers must be transferred, not copied or retained",
+    );
+  }
+  // The sameness copies the worker keeps for the next comparison are its own:
+  // they must not alias the buffers that were just transferred away.
+  assert.notEqual(ctx.presentation.lastVisual!.buffer, frame.visual.buffer);
+  assert.notEqual(ctx.presentation.lastText!.buffer, frame.text.buffer);
+});
+
 test("arming then disarming a channel ships a frame for each transition", () => {
   const { ctx, presentation } = workerHarness(priorityGame());
   ctx.fns.tickEngine();

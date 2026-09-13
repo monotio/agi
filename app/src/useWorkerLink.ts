@@ -41,6 +41,16 @@ export interface WorkerLinkDeps {
   ejectGame(): void;
 }
 
+/**
+ * The outbound dispatch table. Required on every member: a protocol type
+ * without a handler is a compile error here, not a message dropped at
+ * runtime. The exhaustive suite in test/worker-link.test.ts delivers each
+ * member once, and a negative fixture there pins this shape.
+ */
+export type WorkerOutboundHandlers = {
+  [K in WorkerOutbound["type"]]: (msg: Extract<WorkerOutbound, { type: K }>) => void;
+};
+
 export interface WorkerLinkOptions {
   readonly state: EngineState;
   readonly hook: TextHook;
@@ -132,9 +142,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
     let traceEpochSeen = -1;
     // The map is required, not partial: a union member without a handler is a
     // type error here, so deleting one fails `npm run check` at compile time.
-    const handlers: {
-      [K in WorkerOutbound["type"]]: (msg: Extract<WorkerOutbound, { type: K }>) => void;
-    } = {
+    const handlers: WorkerOutboundHandlers = {
       // Query replies — each settles its pending promise with the payload the
       // request asked for (see WorkerQueryReplies / WorkerQueryPayload).
       engineState: (msg) => workerQueries.resolveQuery(msg.id, msg.state),

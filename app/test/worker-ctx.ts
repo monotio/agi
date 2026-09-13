@@ -19,6 +19,8 @@ export interface WorkerHarness {
   ctx: WorkerContext;
   control: WorkerControl[];
   presentation: WorkerPresentation[];
+  /** Transfer lists posted alongside each presentation message. */
+  transfers: (Transferable[] | undefined)[];
 }
 
 /** One logic resource per entry, numbered from 0. */
@@ -33,14 +35,18 @@ export function gameContainer(logics: string[], extra?: (c: GameContainer) => vo
 export function workerHarness(container: GameContainer): WorkerHarness {
   const control: WorkerControl[] = [];
   const presentation: WorkerPresentation[] = [];
+  const transfers: (Transferable[] | undefined)[] = [];
   const ports: WorkerPorts = {
     control: (message) => control.push(message),
-    presentation: (message) => presentation.push(message),
+    presentation: (message, transfer) => {
+      presentation.push(message);
+      transfers.push(transfer);
+    },
     now: () => 0,
   };
   const ctx = createWorkerContext(ports);
   ctx.host = createEngineHost(ctx);
   ctx.engine = new Engine(container, ctx.host, new Map());
   ctx.engine.flags[9] = 1;
-  return { ctx, control, presentation };
+  return { ctx, control, presentation, transfers };
 }

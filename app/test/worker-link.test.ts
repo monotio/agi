@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { useWorkerLink } from "../src/useWorkerLink.ts";
+import { useWorkerLink, type WorkerOutboundHandlers } from "../src/useWorkerLink.ts";
 import type { WorkerOutbound, WorkerQueryPayload, WorkerQueryType } from "../src/workerProtocol.ts";
 import type { EngineState, TextHook } from "../src/useEngineTypes.ts";
 import type { AgiAudio } from "../src/audio/AgiAudio.ts";
@@ -59,6 +59,12 @@ const OUTBOUND_TYPES = [
 type AssertNever<T extends never> = T;
 type _Missing = AssertNever<Exclude<WorkerOutbound["type"], (typeof OUTBOUND_TYPES)[number]>>;
 type _Extra = AssertNever<Exclude<(typeof OUTBOUND_TYPES)[number], WorkerOutbound["type"]>>;
+
+// Negative type fixture: the dispatch map is required, so a table missing a
+// member must not compile. If the map regresses to optional handlers this
+// assignment becomes legal and the directive itself fails the typecheck.
+// @ts-expect-error — "quit" is unhandled
+const _missingQuit: WorkerOutboundHandlers = {} as Omit<WorkerOutboundHandlers, "quit">;
 
 function fakeWorker() {
   const posted: unknown[] = [];
