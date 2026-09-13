@@ -25,7 +25,7 @@ export function mapKey(target: string): string {
 }
 
 export function emptyMapSidecar(): RoomMapSidecar {
-  return { journal: [], layout: {}, notes: {} };
+  return { journal: [], discovered: { rooms: {}, edges: [] }, layout: {}, notes: {} };
 }
 
 /**

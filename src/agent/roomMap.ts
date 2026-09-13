@@ -11,7 +11,7 @@
  * through call/call.v is shared — its transitions are recorded but never
  * attributed to the logic's own number. In-degree is not reachability.
  */
-import { decodeLogicActions } from "../logic/disassembler.ts";
+import { decodeLogicInsns } from "../logic/disassembler.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 
 export type RoomTransitionCause =
@@ -51,14 +51,20 @@ export interface RoomGraphEdge {
   readonly label?: string;
   /** Observed traversal count. */
   readonly count?: number;
+  /** A stored run (walkthrough or recorded test) exercised this transition. */
+  readonly tested?: boolean;
 }
 
 export interface RoomGraphNode {
   readonly room: number;
   readonly title?: string;
-  /** Visited at least once by the journal. */
+  /** Visited at least once by the journal or retained discovery. */
   readonly observed: boolean;
   readonly visits: number;
+  /** A stored game test starts in and asserts against this room. */
+  readonly validated: boolean;
+  /** A stored walkthrough's recorded run reached this room. */
+  readonly playtested: boolean;
   /** The authoring world has a plan entry for this room. */
   readonly planned: boolean;
   /** A logic resource exists for this room. */
@@ -71,11 +77,30 @@ export interface RoomGraphNode {
   readonly variableExit: boolean;
   /** Incoming transitions exist but their source room is unresolved. */
   readonly unknownSource: boolean;
+  /** The room's logic calls an unresolved logic; listed exits may be incomplete. */
+  readonly unknownCalls: boolean;
 }
 
 export interface RoomGraph {
   readonly nodes: readonly RoomGraphNode[];
   readonly edges: readonly RoomGraphEdge[];
+}
+
+/**
+ * Bounded durable discovery, kept separately from the detailed journal: when
+ * the journal is capped its oldest entries are evicted, but the aggregate
+ * keeps every visited room and traversable transition ever observed. Jumps
+ * are position changes, not traversable edges, and stay out of `edges`.
+ */
+export interface RoomMapDiscovery {
+  /** Visited rooms -> total visit count. */
+  readonly rooms: Readonly<Record<string, number>>;
+  readonly edges: readonly {
+    readonly from: number;
+    readonly to: number;
+    readonly label?: string;
+    readonly count: number;
+  }[];
 }
 
 /** Literal exit scan of one logic: attributed edges plus unresolved context. */
@@ -85,11 +110,16 @@ export interface StaticRoomScan {
   /** new.room.v — the target is computed at runtime; value unknown. */
   readonly variableTarget: boolean;
   /**
-   * Picture numbers this logic provably draws or loads: draw.pic/load.pic/
-   * overlay.pic/discard.pic all take a variable, so a number is recorded only
-   * when the scan's literal binding (below) still holds at the call site.
+   * Picture numbers this logic provably draws — draw.pic/overlay.pic only;
+   * load.pic/discard.pic move memory and render nothing, so they are not
+   * evidence a room displays the picture. A number is recorded only when a
+   * literal binding survives to the call site (see scanStaticExits).
    */
   readonly pictures: readonly number[];
+  /** Logics this logic provably calls — call literals and resolved call.v. */
+  readonly calls: readonly number[];
+  /** call.v without a surviving literal binding — the callee set is incomplete. */
+  readonly unresolvedCall: boolean;
 }
 
 /**
@@ -110,8 +140,6 @@ const VAR_WRITES: Readonly<Record<string, readonly number[]>> = {
   mulv: [0],
   divn: [0],
   divv: [0],
-  lindirectn: [0],
-  lindirectv: [0],
   rindirect: [1],
   random: [2],
   "get.posn": [1, 2],
@@ -122,12 +150,7 @@ const VAR_WRITES: Readonly<Record<string, readonly number[]>> = {
   distance: [2],
 };
 
-const PICTURE_USES: ReadonlySet<string> = new Set([
-  "load.pic",
-  "draw.pic",
-  "overlay.pic",
-  "discard.pic",
-]);
+const PICTURE_DRAWS: ReadonlySet<string> = new Set(["draw.pic", "overlay.pic"]);
 
 /**
  * Literal room targets in one logic's bytecode. new.room's operand is a
@@ -149,30 +172,95 @@ export function scanStaticExits(
   selfRoom?: number,
 ): StaticRoomScan {
   try {
+    const insns = decodeLogicInsns(payload, profile !== undefined ? { profile } : {});
+
+    // Conditional regions: an if's then-block runs end..target, and every
+    // goto spans min(end,target)..max(end,target) — a forward goto's region is
+    // the else-block it skips, a backward goto's region is its loop body.
+    // A binding made inside a region holds only until the region ends: on the
+    // path that skipped or exited it, the var kept its previous value. A var
+    // written anywhere inside a region is ambiguous after it ends too — the
+    // earlier binding may or may not have been overwritten — so bindings to
+    // that var expire at the region's end as well.
+    const regions: { start: number; end: number; writes: Set<number> }[] = [];
+    for (const insn of insns) {
+      let start = -1,
+        end = -1;
+      if (insn.kind === "if") {
+        start = insn.end;
+        end = insn.target;
+      } else if (insn.kind === "goto" && insn.target !== insn.end) {
+        start = Math.min(insn.end, insn.target);
+        end = Math.max(insn.end, insn.target);
+      }
+      if (start < 0) continue;
+      const writes = new Set<number>();
+      for (const inner of insns) {
+        if (inner.at < start || inner.at >= end || inner.name === undefined) continue;
+        if (inner.name === "call" || inner.name === "call.v") {
+          // A call inside the region can write any var — mark all ambiguous.
+          for (let v = 0; v < 256; v++) writes.add(v);
+        } else if (inner.name === "assignn" || inner.name === "assignv")
+          writes.add(inner.args?.[0] ?? -1);
+        else for (const at of VAR_WRITES[inner.name] ?? []) writes.add(inner.args?.[at] ?? -1);
+      }
+      regions.push({ start, end, writes });
+    }
+    const scopeEnd = (at: number): number => {
+      let end = Number.POSITIVE_INFINITY;
+      for (const r of regions) if (at >= r.start && at < r.end && r.end < end) end = r.end;
+      return end;
+    };
+
     const targets: number[] = [];
     const pictures = new Set<number>();
-    const bound = new Map<number, number>();
-
-    if (selfRoom !== undefined) bound.set(0, selfRoom);
+    const calls = new Set<number>();
+    const bound = new Map<number, { value: number; scopeEnd: number }>();
     let variableTarget = false;
-    for (const action of decodeLogicActions(payload, profile !== undefined ? { profile } : {})) {
-      if (action.name === "new.room") targets.push(action.args[0]!);
-      else if (action.name === "new.room.v") variableTarget = true;
-      else if (action.name === "assignn") bound.set(action.args[0]!, action.args[1]!);
-      else if (action.name === "assignv") {
-        const value = bound.get(action.args[1]!);
-        if (value === undefined) bound.delete(action.args[0]!);
-        else bound.set(action.args[0]!, value);
-      } else if (PICTURE_USES.has(action.name)) {
-        const pic = bound.get(action.args[0]!);
-        if (pic !== undefined) pictures.add(pic);
+    let unresolvedCall = false;
+
+    if (selfRoom !== undefined)
+      bound.set(0, { value: selfRoom, scopeEnd: Number.POSITIVE_INFINITY });
+
+    for (const insn of insns) {
+      if (insn.kind !== "action" || insn.name === undefined) continue;
+      for (const [v, b] of bound) if (b.scopeEnd <= insn.at) bound.delete(v);
+      for (const r of regions) if (r.end <= insn.at) for (const v of r.writes) bound.delete(v);
+      const name = insn.name;
+      const args = insn.args ?? [];
+      if (name === "new.room") targets.push(args[0]!);
+      else if (name === "new.room.v") variableTarget = true;
+      else if (name === "assignn")
+        bound.set(args[0]!, { value: args[1]!, scopeEnd: scopeEnd(insn.at) });
+      else if (name === "assignv") {
+        const value = bound.get(args[1]!);
+        if (value === undefined) bound.delete(args[0]!);
+        else bound.set(args[0]!, { value: value.value, scopeEnd: scopeEnd(insn.at) });
+      } else if (name === "call" || name === "call.v") {
+        const target = name === "call" ? args[0]! : bound.get(args[0]!)?.value;
+        if (target === undefined) unresolvedCall = true;
+        else calls.add(target);
+        // The callee can write any var — every binding is unknown afterwards.
+        bound.clear();
+      } else if (name === "lindirectn" || name === "lindirectv") {
+        // vars[vars[x]] = … writes through a computed address: any var may go.
+        bound.clear();
+      } else if (PICTURE_DRAWS.has(name)) {
+        const pic = bound.get(args[0]!);
+        if (pic !== undefined) pictures.add(pic.value);
+      } else {
+        for (const at of VAR_WRITES[name] ?? []) bound.delete(args[at]!);
       }
-      for (const at of VAR_WRITES[action.name] ?? [])
-        if (action.name !== "assignn" && action.name !== "assignv") bound.delete(action.args[at]!);
     }
-    return { targets, variableTarget, pictures: [...pictures].sort((a, b) => a - b) };
+    return {
+      targets,
+      variableTarget,
+      pictures: [...pictures].sort((a, b) => a - b),
+      calls: [...calls].sort((a, b) => a - b),
+      unresolvedCall,
+    };
   } catch {
-    return { targets: [], variableTarget: false, pictures: [] };
+    return { targets: [], variableTarget: false, pictures: [], calls: [], unresolvedCall: false };
   }
 }
 
@@ -186,24 +274,33 @@ export function scanContainerExits(
   profile?: AgiProfile,
 ): { scans: Map<number, StaticRoomScan>; shared: Set<number> } {
   const scans = new Map<number, StaticRoomScan>();
-  const shared = new Set<number>();
+  // Logic 0 runs in every room's context and every called logic runs in its
+  // caller's: neither's transitions belong to its own number.
+  const shared = new Set<number>([0]);
   for (const [num, payload] of logics) {
     // selfRoom seeds the v0 convention; consumers must still check `shared`
     // before attributing a picture use — a shared logic's v0 is its caller's.
     scans.set(num, scanStaticExits(payload, profile, num));
-    try {
-      for (const action of decodeLogicActions(payload, profile !== undefined ? { profile } : {}))
-        if (action.name === "call") shared.add(action.args[0]!);
-    } catch {
-      /* the scan above already yielded empty for this payload */
-    }
   }
+  for (const scan of scans.values()) for (const callee of scan.calls) shared.add(callee);
   return { scans, shared };
 }
 
 /** Merge the three sources without collapsing distinct exits between a pair. */
 export function mergeRoomGraph(input: {
   readonly journal: readonly RoomObservation[];
+  /** Durable discovery aggregate; survives journal eviction. */
+  readonly discovered?: RoomMapDiscovery;
+  /**
+   * Stored-test coverage: rooms a recorded run reached or a stored game test
+   * validates, and (from, to) transitions a recorded run exercised. Shown only
+   * for what the stored data actually names.
+   */
+  readonly coverage?: {
+    readonly playtested?: ReadonlySet<number>;
+    readonly validated?: ReadonlySet<number>;
+    readonly edges?: ReadonlySet<string>;
+  };
   readonly plan?: Readonly<
     Record<string, { title: string; description: string; exits: Record<string, number> }>
   >;
@@ -221,12 +318,15 @@ export function mergeRoomGraph(input: {
       title?: string;
       observed: boolean;
       visits: number;
+      validated: boolean;
+      playtested: boolean;
       planned: boolean;
       authored: boolean;
       picture: boolean;
       staticTarget: boolean;
       variableExit: boolean;
       unknownSource: boolean;
+      unknownCalls: boolean;
     }
   >();
   const node = (room: number) => {
@@ -235,12 +335,15 @@ export function mergeRoomGraph(input: {
       n = {
         observed: false,
         visits: 0,
+        validated: false,
+        playtested: false,
         planned: false,
         authored: false,
         picture: false,
         staticTarget: false,
         variableExit: false,
         unknownSource: false,
+        unknownCalls: false,
       };
       nodes.set(room, n);
     }
@@ -248,19 +351,40 @@ export function mergeRoomGraph(input: {
   };
 
   // Walkable observations become edges keyed by (from, to, edge side); a
-  // restore, restart or re-entry is journal fact but never a walkable exit.
+  // restore, restart, re-entry or jump is journal fact but never a walkable
+  // exit. The discovery aggregate already counts every traversal the journal
+  // records, so the two are merged with max — never summed.
   const observed = new Map<string, { from: number; to: number; label?: string; count: number }>();
+  const putObserved = (from: number, to: number, label: string | undefined, count: number) => {
+    const key = `${from}->${to}:${label ?? ""}`;
+    const existing = observed.get(key);
+    if (existing) existing.count = Math.max(existing.count, count);
+    else observed.set(key, { from, to, ...(label !== undefined ? { label } : {}), count });
+  };
+  for (const e of input.discovered?.edges ?? []) putObserved(e.from, e.to, e.label, e.count);
+  const discoveredRooms = input.discovered?.rooms ?? {};
+  const journalVisits = new Map<number, number>();
+  const journalEdgeCounts = new Map<string, number>();
   for (const entry of input.journal) {
+    journalVisits.set(entry.to, (journalVisits.get(entry.to) ?? 0) + 1);
     node(entry.to).observed = true;
-    node(entry.to).visits++;
     if (entry.from !== null) node(entry.from).observed = true;
-    if (entry.from === null || !["edge", "logic", "jump"].includes(entry.cause)) continue;
+    if (entry.from === null || !["edge", "logic"].includes(entry.cause)) continue;
     const label = entry.cause === "edge" && entry.edge ? entry.edge : undefined;
     const key = `${entry.from}->${entry.to}:${label ?? ""}`;
-    const existing = observed.get(key);
-    if (existing) existing.count++;
-    else
-      observed.set(key, { from: entry.from, to: entry.to, ...(label ? { label } : {}), count: 1 });
+    const count = (journalEdgeCounts.get(key) ?? 0) + 1;
+    journalEdgeCounts.set(key, count);
+    putObserved(entry.from, entry.to, label, count);
+  }
+  for (const [room, visits] of Object.entries(discoveredRooms)) {
+    const n = node(Number(room));
+    n.observed = true;
+    n.visits = Math.max(n.visits, visits);
+  }
+  for (const [room, visits] of journalVisits) {
+    const n = node(room);
+    n.observed = true;
+    n.visits = Math.max(n.visits, visits);
   }
 
   const planned: RoomGraphEdge[] = [];
@@ -276,23 +400,49 @@ export function mergeRoomGraph(input: {
 
   const staticEdges: RoomGraphEdge[] = [];
   for (const [num, scan] of input.scans ?? []) {
-    const shared = input.shared?.has(num) === true;
+    if (input.shared?.has(num) === true) {
+      // The logic runs under an unresolved caller: its targets exist but
+      // attributing the exits to this logic's number would invent a route.
+      for (const to of scan.targets) {
+        node(to).staticTarget = true;
+        node(to).unknownSource = true;
+      }
+      continue;
+    }
     if (scan.variableTarget) node(num).variableExit = true;
+    if (scan.unresolvedCall) node(num).unknownCalls = true;
     for (const to of scan.targets) {
       node(to).staticTarget = true;
-      if (shared) {
-        // The logic runs under an unresolved caller: the target exists but
-        // attributing the exit to this logic's number would invent a route.
-        node(to).unknownSource = true;
-      } else {
-        node(num);
-        staticEdges.push({ from: num, to, provenance: "static" });
-      }
+      node(num);
+      staticEdges.push({ from: num, to, provenance: "static" });
     }
   }
 
-  for (const num of input.resources?.logic ?? []) node(num).authored = true;
-  for (const num of input.resources?.picture ?? []) node(num).picture = true;
+  // A resource is not room evidence: the flags annotate rooms the journal,
+  // plan or static scan already established, and never invent nodes.
+  for (const num of input.resources?.logic ?? []) {
+    const n = nodes.get(num);
+    if (n) n.authored = true;
+  }
+  for (const num of input.resources?.picture ?? []) {
+    const n = nodes.get(num);
+    if (n) n.picture = true;
+  }
+
+  // Stored-test coverage names facts it actually exercised: a room a recorded
+  // run reached, a room a stored game test validates, and the transitions a
+  // recorded run crossed. Nodes without other evidence stay absent. Coverage
+  // keys name (from, to) pairs only — the artifacts cannot name an edge side.
+  for (const room of input.coverage?.playtested ?? []) {
+    const n = nodes.get(room);
+    if (n) n.playtested = true;
+  }
+  for (const room of input.coverage?.validated ?? []) {
+    const n = nodes.get(room);
+    if (n) n.validated = true;
+  }
+  const tested = (e: { from: number; to: number }): { tested: true } | Record<string, never> =>
+    input.coverage?.edges?.has(`${e.from}->${e.to}`) === true ? { tested: true } : {};
 
   const ordered = [...nodes.entries()].sort((a, b) => a[0] - b[0]);
   return {
@@ -304,9 +454,10 @@ export function mergeRoomGraph(input: {
         provenance: "observed" as const,
         ...(e.label !== undefined ? { label: e.label } : {}),
         count: e.count,
+        ...tested(e),
       })),
-      ...planned,
-      ...staticEdges,
+      ...planned.map((e) => ({ ...e, ...tested(e) })),
+      ...staticEdges.map((e) => ({ ...e, ...tested(e) })),
     ],
   };
 }
@@ -314,6 +465,12 @@ export function mergeRoomGraph(input: {
 /** The persisted sidecar: journal + UI layout, versioned and bounded. */
 export interface RoomMapSidecar {
   journal: RoomObservation[];
+  /**
+   * Bounded discovery aggregate: visited rooms and traversable edges ever
+   * observed. Outlives journal eviction — the journal holds recent detail,
+   * this holds the durable facts.
+   */
+  discovered: { rooms: Record<string, number>; edges: RoomMapDiscovery["edges"][number][] };
   /** Manually positioned nodes, keyed by room number. */
   layout: Record<string, { x: number; y: number }>;
   /** Per-room UI notes; separate from the canonical authoring plan. */
@@ -321,6 +478,8 @@ export interface RoomMapSidecar {
 }
 
 const MAX_JOURNAL_ENTRIES = 4096;
+const MAX_DISCOVERED_ROOMS = 256;
+const MAX_DISCOVERED_EDGES = 1024;
 const MAX_LAYOUT_NODES = 512;
 const MAX_NOTES = 512;
 const MAX_NOTE_CHARS = 4000;
@@ -358,7 +517,12 @@ export function validateMapSidecar(value: unknown): RoomMapSidecar {
   const raw = value as Record<string, unknown>;
   if (raw["format"] !== "monotio.agi.map" || raw["version"] !== 1)
     throw new Error("Unsupported map data version.");
-  const sidecar: RoomMapSidecar = { journal: [], layout: {}, notes: {} };
+  const sidecar: RoomMapSidecar = {
+    journal: [],
+    discovered: { rooms: {}, edges: [] },
+    layout: {},
+    notes: {},
+  };
 
   const journal = raw["journal"] ?? [];
   if (!Array.isArray(journal) || journal.length > MAX_JOURNAL_ENTRIES)
@@ -399,6 +563,51 @@ export function validateMapSidecar(value: unknown): RoomMapSidecar {
       gained: numList(e["gained"] ?? [], "gained items"),
       lost: numList(e["lost"] ?? [], "lost items"),
     });
+  }
+
+  const discovered = raw["discovered"];
+  if (discovered !== undefined) {
+    if (!discovered || typeof discovered !== "object" || Array.isArray(discovered))
+      throw new Error("Invalid map discovery data.");
+    const d = discovered as Record<string, unknown>;
+    const rooms = d["rooms"] ?? {};
+    if (!rooms || typeof rooms !== "object" || Array.isArray(rooms))
+      throw new Error("Invalid map discovery rooms.");
+    const roomEntries = Object.entries(rooms);
+    if (roomEntries.length > MAX_DISCOVERED_ROOMS)
+      throw new Error("Map discovery has too many rooms.");
+    for (const [num, count] of roomEntries) {
+      if (!/^\d+$/.test(num)) throw new Error("Invalid discovery room.");
+      roomNum(Number(num), "discovery room");
+      if (!Number.isInteger(count) || (count as number) < 1 || (count as number) > 1_000_000)
+        throw new Error("Invalid discovery visit count.");
+      sidecar.discovered.rooms[num] = count as number;
+    }
+    const edges = d["edges"] ?? [];
+    if (!Array.isArray(edges) || edges.length > MAX_DISCOVERED_EDGES)
+      throw new Error("Map discovery has too many edges.");
+    const seenEdges = new Set<string>();
+    for (const edge of edges) {
+      if (!edge || typeof edge !== "object" || Array.isArray(edge))
+        throw new Error("Invalid discovery edge.");
+      const e = edge as Record<string, unknown>;
+      const from = roomNum(e["from"], "discovery edge source");
+      const to = roomNum(e["to"], "discovery edge target");
+      const label = e["label"];
+      if (label !== undefined && (typeof label !== "string" || label.length > 64))
+        throw new Error("Invalid discovery edge label.");
+      if (!Number.isInteger(e["count"]) || (e["count"] as number) < 1)
+        throw new Error("Invalid discovery edge count.");
+      const identity = `${from}->${to}:${label ?? ""}`;
+      if (seenEdges.has(identity)) throw new Error("Duplicate discovery edge.");
+      seenEdges.add(identity);
+      sidecar.discovered.edges.push({
+        from,
+        to,
+        ...(label !== undefined ? { label: label as string } : {}),
+        count: e["count"] as number,
+      });
+    }
   }
 
   const layout = raw["layout"];
@@ -446,6 +655,7 @@ export function serializeMapSidecar(sidecar: RoomMapSidecar): Record<string, unk
     format: "monotio.agi.map",
     version: 1,
     journal: sidecar.journal,
+    discovered: sidecar.discovered,
     layout: sidecar.layout,
     notes: sidecar.notes,
   };

@@ -41,6 +41,7 @@ function fakeStorage(initial: Record<string, string> = {}): {
 }
 
 const sidecar: RoomMapSidecar = {
+  discovered: { rooms: {}, edges: [] },
   journal: [
     {
       seq: 1,

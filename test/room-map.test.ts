@@ -107,7 +107,9 @@ test("observed, planned and static exits between the same pair all survive", () 
   const graph = mergeRoomGraph({
     journal,
     plan: { "1": { title: "First", description: "", exits: { door: 2, back: 2 } } },
-    scans: new Map([[1, { targets: [2], variableTarget: false, pictures: [] }]]),
+    scans: new Map([
+      [1, { targets: [2], variableTarget: false, pictures: [], calls: [], unresolvedCall: false }],
+    ]),
     shared: new Set(),
   });
   // Two planned exits to room 2 keep their labels; the observed edge counts
@@ -144,20 +146,145 @@ test("a node exists with no observations, plan entry or resource", () => {
   assert.equal(four.picture, false);
 });
 
-test("disconnected nodes and resource/picture mismatch are separate facts", () => {
+test("a resource alone is not room evidence — it annotates established nodes", () => {
   const graph = mergeRoomGraph({
     journal: [entry({ seq: 0, to: 1, cause: "boot" })],
     scans: new Map(),
-    resources: { logic: new Set([1, 8]), picture: new Set([9]) },
+    resources: { logic: new Set([1, 42]), picture: new Set([99]) },
   });
   const one = graph.nodes.find((n) => n.room === 1)!;
-  const eight = graph.nodes.find((n) => n.room === 8)!;
-  const nine = graph.nodes.find((n) => n.room === 9)!;
-  assert.equal(one.authored, true);
-  assert.equal(eight.authored, true);
-  assert.equal(eight.observed, false, "a resource alone is not a visit");
-  assert.equal(nine.picture, true);
-  assert.equal(nine.authored, false);
+  assert.equal(one.authored, true, "logic 1 annotates the visited room");
+  // Logic 42 and picture 99 exist but nothing establishes them as rooms.
+  assert.equal(
+    graph.nodes.find((n) => n.room === 42),
+    undefined,
+  );
+  assert.equal(
+    graph.nodes.find((n) => n.room === 99),
+    undefined,
+  );
+  assert.deepEqual(
+    graph.nodes.map((n) => n.room),
+    [1],
+  );
+});
+
+test("a debug jump is journal fact, never a traversable edge", () => {
+  const graph = mergeRoomGraph({
+    journal: [
+      entry({ seq: 0, to: 1, cause: "boot" }),
+      entry({ seq: 1, from: 1, to: 8, cause: "jump" }),
+      entry({ seq: 2, from: 8, to: 3, cause: "edge", edge: "left" }),
+    ],
+  });
+  // The jump keeps both rooms observed but adds no edge.
+  assert.ok(graph.nodes.find((n) => n.room === 8)?.observed);
+  assert.equal(
+    graph.edges.find((e) => e.from === 1 && e.to === 8),
+    undefined,
+  );
+  assert.deepEqual(graph.edges, [
+    { from: 8, to: 3, provenance: "observed", label: "left", count: 1 },
+  ]);
+});
+
+test("call.v resolves through a literal binding; unresolved calls stay unknown", () => {
+  const logics = new Map<number, Uint8Array>([
+    [0, logic("assignn(v20, 42); call.v(v20); return;")],
+    [42, logic("new.room(7); return;")],
+    [3, logic("call.v(v21); return;")],
+  ]);
+  const { scans, shared } = scanContainerExits(logics);
+  // The resolved call marks 42 as shared: its new.room runs in the caller's room.
+  assert.ok(shared.has(42));
+  assert.equal(scans.get(3)?.unresolvedCall, true);
+  const graph = mergeRoomGraph({ journal: [], scans, shared });
+  assert.equal(graph.nodes.find((n) => n.room === 7)?.unknownSource, true);
+  assert.equal(graph.nodes.find((n) => n.room === 3)?.unknownCalls, true);
+  assert.deepEqual(graph.edges, []);
+});
+
+test("picture inference is conservative across calls, branches and loads", () => {
+  // A call between binding and use can rewrite the var — no claim.
+  const called = scanStaticExits(
+    logic("assignn(v12, 7); call(42); draw.pic(v12); return;"),
+    undefined,
+    4,
+  );
+  assert.deepEqual(called.pictures, []);
+  // A divergent branch leaves the binding ambiguous at the join.
+  const branched = scanStaticExits(
+    logic("assignn(v12, 7); if (isset(f1)) { assignn(v12, 9); } draw.pic(v12); return;"),
+    undefined,
+    4,
+  );
+  assert.deepEqual(branched.pictures, []);
+  // Loading and discarding a picture renders nothing — not evidence.
+  const loaded = scanStaticExits(
+    logic("assignn(v12, 7); load.pic(v12); discard.pic(v12); return;"),
+    undefined,
+    4,
+  );
+  assert.deepEqual(loaded.pictures, []);
+  // An untouched binding across a branch that writes another var still holds.
+  const clean = scanStaticExits(
+    logic("assignn(v12, 7); if (isset(f1)) { assignn(v5, 1); } draw.pic(v12); return;"),
+    undefined,
+    4,
+  );
+  assert.deepEqual(clean.pictures, [7]);
+});
+
+test("the discovery aggregate preserves evicted journal facts", () => {
+  const graph = mergeRoomGraph({
+    // The journal evicted everything — the aggregate still reports the facts.
+    journal: [],
+    discovered: {
+      rooms: { "1": 4, "8": 2 },
+      edges: [{ from: 1, to: 8, label: "right", count: 3 }],
+    },
+  });
+  assert.equal(graph.nodes.find((n) => n.room === 1)?.visits, 4);
+  assert.deepEqual(graph.edges, [
+    { from: 1, to: 8, provenance: "observed", label: "right", count: 3 },
+  ]);
+  // Journal entries the aggregate already counts merge by max, never sum.
+  const merged = mergeRoomGraph({
+    journal: [
+      entry({ seq: 0, to: 1, cause: "boot" }),
+      entry({ seq: 1, from: 1, to: 8, cause: "edge", edge: "right" }),
+      entry({ seq: 2, from: 1, to: 8, cause: "edge", edge: "right" }),
+    ],
+    discovered: {
+      rooms: { "1": 4, "8": 2 },
+      edges: [{ from: 1, to: 8, label: "right", count: 3 }],
+    },
+  });
+  assert.equal(merged.edges.find((e) => e.from === 1 && e.to === 8)?.count, 3);
+});
+
+test("stored coverage marks nodes it names and transitions it exercised", () => {
+  const graph = mergeRoomGraph({
+    journal: [
+      entry({ seq: 0, to: 1, cause: "boot" }),
+      entry({ seq: 1, from: 1, to: 3, cause: "edge", edge: "right" }),
+    ],
+    coverage: {
+      playtested: new Set([1, 3]),
+      validated: new Set([1, 5]),
+      edges: new Set(["1->3"]),
+    },
+  });
+  const one = graph.nodes.find((n) => n.room === 1)!;
+  assert.equal(one.playtested, true);
+  assert.equal(one.validated, true);
+  assert.equal(graph.nodes.find((n) => n.room === 3)?.playtested, true);
+  // Coverage never invents a node: 5 has no other evidence.
+  assert.equal(
+    graph.nodes.find((n) => n.room === 5),
+    undefined,
+  );
+  assert.equal(graph.edges.find((e) => e.from === 1 && e.to === 3)?.tested, true);
 });
 
 test("sidecar round-trips and rejects malformed or oversized data", () => {
@@ -167,6 +294,10 @@ test("sidecar round-trips and rejects malformed or oversized data", () => {
   ];
   const sidecar = {
     journal,
+    discovered: {
+      rooms: { "1": 1, "2": 1 },
+      edges: [{ from: 1, to: 2, label: "right", count: 1 }],
+    },
     layout: { "1": { x: 40, y: 80 } },
     notes: { "1": "start here" },
   };

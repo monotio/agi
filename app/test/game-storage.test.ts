@@ -527,6 +527,7 @@ test("removing a library game clears its conversation, checkpoint, save slots an
   assert.equal(writeGameSave(localStorage, "gone", 1, "AAAA"), true);
   writeMapSidecar(localStorage, "gone", {
     journal: [],
+    discovered: { rooms: {}, edges: [] },
     layout: { 3: { x: 10, y: 20 } },
     notes: {},
   });

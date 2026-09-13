@@ -190,28 +190,6 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
   resumeAudio();
   const isInputReady = state.walkthrough.active ? true : state.inputReady;
   if (state.phase !== "running" || !isInputReady) return;
-  if (
-    state.walkthrough.active &&
-    (state.walkthrough.status === "playing" ||
-      state.walkthrough.status === "paused" ||
-      state.walkthrough.status === "completed")
-  ) {
-    // The walkthrough drives the game; human keys own playback shortcuts only.
-    if (ev.key === " " && !state.powerUp.open) {
-      ev.preventDefault();
-      toggleWalkthroughPause();
-      return;
-    }
-    if (ev.key === "Enter" && !state.powerUp.open) {
-      ev.preventDefault();
-      if (state.walkthrough.status === "paused") {
-        resumeWalkthrough();
-        return;
-      }
-      if (advanceDialog()) return;
-    }
-    return;
-  }
   if (ev.isComposing || ev.keyCode === 229) return;
   if (ev.target instanceof Element && ev.target.closest("dialog[open]")) return;
   // The bubble owns the keyboard while it is open: the world is frozen and
@@ -226,6 +204,8 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
   }
   // Page controls keep native keyboard behavior. The invisible input owns
   // game keys; Shift+Tab lets a player leave it even during a game modal.
+  // These guards run before the walkthrough shortcuts too, so a map dialog's
+  // note field keeps its Space and Enter.
   const target = ev.target;
   if (
     (target instanceof Element &&
@@ -233,6 +213,28 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
       target.closest("button, input, textarea, select, a, audio, summary, dialog")) ||
     (ev.key === "Tab" && ev.shiftKey)
   ) {
+    return;
+  }
+  if (
+    state.walkthrough.active &&
+    (state.walkthrough.status === "playing" ||
+      state.walkthrough.status === "paused" ||
+      state.walkthrough.status === "completed")
+  ) {
+    // The walkthrough drives the game; human keys own playback shortcuts only.
+    if (ev.key === " ") {
+      ev.preventDefault();
+      toggleWalkthroughPause();
+      return;
+    }
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      if (state.walkthrough.status === "paused") {
+        resumeWalkthrough();
+        return;
+      }
+      if (advanceDialog()) return;
+    }
     return;
   }
   if (ev.key === "ScrollLock") {

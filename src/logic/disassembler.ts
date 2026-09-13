@@ -563,3 +563,22 @@ export function decodeLogicActions(
       out.push({ at: insn.at, name: insn.name, args: insn.args ?? [] });
   return out;
 }
+
+/** The instruction stream for consumers that need control-flow boundaries. */
+export interface DecodedInsn {
+  readonly at: number;
+  readonly end: number;
+  readonly kind: "return" | "goto" | "if" | "action" | "data";
+  /** goto/if: the jump target; -1 for everything else. */
+  readonly target: number;
+  readonly name?: string;
+  readonly args?: readonly number[];
+}
+
+export function decodeLogicInsns(
+  payload: Uint8Array,
+  opts: DisassembleOptions = {},
+): readonly DecodedInsn[] {
+  const d = new Disassembler(payload, opts);
+  return [...d.insns.values()];
+}

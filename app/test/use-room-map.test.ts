@@ -17,12 +17,16 @@ function makeHarness(storage?: Pick<Storage, "getItem" | "setItem">): {
   hook: TextHook;
   pauses: number;
   resumes: number;
+  wtPauses: number;
+  wtResumes: number;
   notice(entry: Partial<RoomTransitionNotice> & { to: number }): void;
   frame(cycle: number, patchGeneration?: number): Frame;
   boot(files?: Record<string, Uint8Array>): Promise<void>;
 } {
   let pauses = 0;
   let resumes = 0;
+  let wtPauses = 0;
+  let wtResumes = 0;
   let seq = 0;
   // Only the fields the map reads; the rest of EngineState is irrelevant here.
   const state = reactive({
@@ -30,6 +34,8 @@ function makeHarness(storage?: Pick<Storage, "getItem" | "setItem">): {
     paused: false,
     powerUp: { open: false },
     roomJournal: [] as RoomTransitionNotice[],
+    walkthrough: { active: false, status: "idle", tick: 0 },
+    patchTick: 0,
   }) as unknown as EngineState;
   const hook = reactive({ room: -1 }) as unknown as TextHook;
   const game: BootedGame = {
@@ -53,6 +59,14 @@ function makeHarness(storage?: Pick<Storage, "getItem" | "setItem">): {
       resumes++;
       state.paused = false;
     },
+    pauseWalkthrough: () => {
+      wtPauses++;
+      if (state.walkthrough.status === "playing") state.walkthrough.status = "paused";
+    },
+    resumeWalkthrough: () => {
+      wtResumes++;
+      if (state.walkthrough.status === "paused") state.walkthrough.status = "playing";
+    },
     storage,
   });
   return {
@@ -64,6 +78,12 @@ function makeHarness(storage?: Pick<Storage, "getItem" | "setItem">): {
     },
     get resumes() {
       return resumes;
+    },
+    get wtPauses() {
+      return wtPauses;
+    },
+    get wtResumes() {
+      return wtResumes;
     },
     notice(entry) {
       state.roomJournal.push({
@@ -214,4 +234,91 @@ test("unloading the game releases the map without leaking into the next", async 
   assert.equal(map.open.value, false);
   assert.equal(map.journal.length, 0);
   assert.equal(map.graph.value.nodes.length, 0);
+});
+
+test("the map pauses the walkthrough driver and resumes only a pause it owns", async () => {
+  const h = makeHarness();
+  const { map, state } = h;
+  await h.boot();
+  state.walkthrough.active = true;
+  state.walkthrough.status = "playing";
+
+  map.openMap();
+  assert.equal(h.wtPauses, 1);
+  assert.equal(state.walkthrough.status, "paused");
+  map.closeMap();
+  assert.equal(h.wtResumes, 1);
+  assert.equal(state.walkthrough.status, "playing");
+
+  // Already paused by the player: the map must not release it on close.
+  state.walkthrough.status = "paused";
+  map.openMap();
+  map.closeMap();
+  assert.equal(h.wtPauses, 1);
+  assert.equal(state.walkthrough.status, "paused");
+});
+
+test("current room follows the live position, not the journal's last entry", async () => {
+  const { map, state, hook, notice, boot } = makeHarness();
+  await boot();
+  notice({ to: 1, cause: "boot", cycle: 1 });
+  await nextTick();
+  // A replay seek moved the engine to room 8 with no journal entry: the
+  // durable record says 1, the live hook says 8 — the marker shows 8.
+  hook.room = 8;
+  assert.equal(map.currentRoom.value, 8);
+  // After eject the journal's last entry is the only known position.
+  state.phase = "idle";
+  await nextTick();
+  assert.equal(map.currentRoom.value, null);
+});
+
+test("journal eviction never erases discovered rooms or walked edges", async () => {
+  const { map, notice, boot } = makeHarness();
+  await boot();
+  notice({ to: 1, cause: "boot", cycle: 1 });
+  notice({ to: 2, from: 1, cause: "edge", edge: "right", cycle: 2 });
+  // Push the detailed journal past its 4096-entry cap with later re-entries.
+  for (let i = 0; i < 4100; i++) notice({ to: 2, from: 2, cause: "edge", edge: "top", cycle: i });
+  await nextTick();
+  assert.equal(map.journal.length, 4096);
+  const rooms = map.graph.value.nodes.map((n) => n.room);
+  // Room 1's detail is evicted but the visit fact survives.
+  assert.ok(rooms.includes(1));
+  assert.ok(rooms.includes(2));
+  const node = map.graph.value.nodes.find((n) => n.room === 1);
+  assert.equal(node?.observed, true);
+  assert.equal(node?.visits, 1);
+  const edge = map.graph.value.edges.find(
+    (e) => e.from === 1 && e.to === 2 && e.provenance === "observed",
+  );
+  assert.equal(edge?.count, 1);
+});
+
+test("stored tests mark validated rooms and covered transitions", async () => {
+  const tests = new TextEncoder().encode(
+    JSON.stringify({
+      format: "monotio.agi.tests.v1",
+      tests: [
+        {
+          name: "walk to the castle",
+          room: 1,
+          steps: [{ action: "wait", until: { room: 3 } }],
+          expect: { room: 5 },
+        },
+      ],
+    }),
+  );
+  const { map, notice, boot } = makeHarness();
+  await boot({ "TESTS.JSON": tests });
+  notice({ to: 1, cause: "boot", cycle: 1 });
+  notice({ to: 3, from: 1, cause: "edge", edge: "right", cycle: 2 });
+  notice({ to: 5, from: 3, cause: "logic", cycle: 3 });
+  await nextTick();
+  const graph = map.graph.value;
+  for (const room of [1, 3, 5])
+    assert.equal(graph.nodes.find((n) => n.room === room)?.validated, true, `room ${room}`);
+  // The recorded run named 1 → 3 → 5; both observed edges carry the flag.
+  assert.equal(graph.edges.find((e) => e.from === 1 && e.to === 3)?.tested, true);
+  assert.equal(graph.edges.find((e) => e.from === 3 && e.to === 5)?.tested, true);
 });

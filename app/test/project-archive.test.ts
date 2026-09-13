@@ -293,6 +293,7 @@ test("project archives carry the world map; published games never do", async () 
     authoringState: {},
   };
   const map = {
+    discovered: { rooms: {}, edges: [] },
     journal: [
       {
         seq: 1,

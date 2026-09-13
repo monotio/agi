@@ -22,10 +22,12 @@ import {
   type RoomObservation,
   type StaticRoomScan,
 } from "../../src/agent/roomMap.ts";
+import { parseGameTests } from "../../src/agent/gameTests.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { renderPicture } from "../../src/picture/renderer.ts";
 import { createPictureSurface } from "../../src/types.ts";
-import { detectProfile } from "../../src/runtime/profile.ts";
+import { detectProfile, type AgiProfile } from "../../src/runtime/profile.ts";
+import { getOrExtractCheckpoints, loadWalkthrough, resolveWalkthrough } from "./walkthrough.ts";
 import type { AgentSession } from "./agent/agentSession.ts";
 import type { AuthoringState } from "../../src/agent/authoringState.ts";
 import { gameStorageKey, type BootedGame, type Frame } from "./gameTypes.ts";
@@ -33,8 +35,12 @@ import type { EngineState, TextHook } from "./useEngineTypes.ts";
 import { emptyMapSidecar, readMapSidecar, writeMapSidecar } from "./roomMapStore.ts";
 import type { RoomTransitionNotice } from "./workerProtocol.ts";
 
-/** Durable journal cap — the sidecar contract bounds at the same number. */
+/** Durable journal cap — the sidecar contract bounds at the same number. The
+ * detailed journal keeps the newest entries; visited rooms and traversable
+ * edges also roll into the bounded discovery aggregate, so eviction loses
+ * detail, never discovery. */
 const MAX_JOURNAL = 4096;
+const MAX_DISCOVERED_EDGES = 1024;
 /** Observed-frame thumbnails; evicted oldest-first. */
 const MAX_THUMBS = 96;
 /** Static picture renders; evicted oldest-first. */
@@ -58,6 +64,45 @@ interface ScannedResources {
   readonly logic: Set<number>;
   readonly picture: Set<number>;
   readonly files: Record<string, Uint8Array>;
+  /** Rooms stored game tests name plus the transitions their runs recorded. */
+  readonly testCoverage: { validated: Set<number>; edges: Set<string> };
+}
+
+/**
+ * The stored-test facts a TESTS.JSON actually supports: `room` anchors the
+ * run, `until.room` waits and `expect.room` assert arrivals, and each pair of
+ * consecutively named rooms records a traversal the test exercised. Nothing
+ * else is claimed — a pair may have passed through unnamed rooms, so coverage
+ * flags an existing edge rather than creating one.
+ */
+function storedTestCoverage(
+  files: Record<string, Uint8Array>,
+  profile: AgiProfile | undefined,
+): { validated: Set<number>; edges: Set<string> } {
+  const validated = new Set<number>();
+  const edges = new Set<string>();
+  let doc;
+  try {
+    doc = parseGameTests(files["TESTS.JSON"], profile);
+  } catch {
+    return { validated, edges };
+  }
+  for (const test of doc.tests) {
+    const named: number[] = [test.room];
+    for (const step of test.steps) {
+      const until = step["until"];
+      if (until && typeof until === "object" && !Array.isArray(until)) {
+        const room = (until as Record<string, unknown>)["room"];
+        if (typeof room === "number") named.push(room);
+      }
+    }
+    const expectRoom = test.expect?.["room"];
+    if (typeof expectRoom === "number") named.push(expectRoom);
+    for (const room of named) validated.add(room);
+    for (let i = 0; i + 1 < named.length; i++)
+      if (named[i] !== named[i + 1]) edges.add(`${named[i]}->${named[i + 1]}`);
+  }
+  return { validated, edges };
 }
 
 export interface RoomMapDeps {
@@ -67,6 +112,9 @@ export interface RoomMapDeps {
   readonly getSession: () => AgentSession | null;
   readonly pauseEngine: () => void;
   readonly resumeEngine: () => void;
+  /** The map pauses the walkthrough driver as well as the cycle timer. */
+  readonly pauseWalkthrough: () => void;
+  readonly resumeWalkthrough: () => void;
   /** Injectable for tests; defaults to browser storage. */
   readonly storage?: Pick<Storage, "getItem" | "setItem"> | undefined;
 }
@@ -115,6 +163,15 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
 
   /** The durable journal — survives reboots and reloads of the same game. */
   const journal = reactive<RoomObservation[]>([]);
+  /**
+   * Bounded aggregate of every room ever visited and every traversable edge
+   * ever crossed. Unlike the capped journal this is lossless: eviction removes
+   * detail (cycles, deltas) but never the fact that a room was visited.
+   */
+  const discovered = {
+    rooms: new Map<number, number>(),
+    edges: new Map<string, { from: number; to: number; label?: string; count: number }>(),
+  };
   const layout = reactive<Record<string, { x: number; y: number }>>({});
   const notes = reactive<Record<string, string>>({});
 
@@ -126,6 +183,14 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   let revision = "";
   /** The game was already paused when the map opened — the map owns no resume. */
   let pauseOwned = false;
+  /** Same for the walkthrough driver: paused by the map only if it was playing. */
+  let walkthroughPauseOwned = false;
+  /** Walkthrough coverage loaded for this storage target ("" = not loaded). */
+  let coverageKey = "";
+  const walkthroughCoverage = ref<{
+    playtested: Set<number>;
+    edges: Set<string>;
+  }>();
 
   /** Observed thumbnails by room; insertion order is the eviction order. */
   const thumbs = new Map<number, MapThumbnail>();
@@ -149,6 +214,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
         logic: new Set(),
         picture: new Set(),
         files: {},
+        testCoverage: { validated: new Set(), edges: new Set() },
       };
     const key = game.revision;
     if (scanned && scanned.key === key && scanned.files === game.files) return scanned;
@@ -170,6 +236,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
         logic: new Set(),
         picture,
         files: game.files,
+        testCoverage: storedTestCoverage(game.files, undefined),
       };
       return scanned;
     }
@@ -182,6 +249,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       logic: new Set(logicPayloads.keys()),
       picture,
       files: game.files,
+      testCoverage: storedTestCoverage(game.files, profile),
     };
     staticThumbs.clear();
     return scanned;
@@ -214,14 +282,32 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     };
   }
 
+  /** Roll an observation into the discovery aggregate — the lossless record. */
+  function noteDiscovery(entry: RoomObservation): void {
+    discovered.rooms.set(entry.to, (discovered.rooms.get(entry.to) ?? 0) + 1);
+    if (entry.from === null || (entry.cause !== "edge" && entry.cause !== "logic")) return;
+    const key = `${entry.from}->${entry.to}:${entry.edge ?? ""}`;
+    const existing = discovered.edges.get(key);
+    if (existing) existing.count++;
+    else if (discovered.edges.size < MAX_DISCOVERED_EDGES)
+      discovered.edges.set(key, {
+        from: entry.from,
+        to: entry.to,
+        ...(entry.edge !== undefined ? { label: entry.edge } : {}),
+        count: 1,
+      });
+  }
+
   /** Drain the link's raw notices into the durable journal. */
   function drainJournal(): void {
     const pending = state.roomJournal;
     if (pending.length === 0) return;
     const notices = pending.splice(0, pending.length);
     for (const notice of notices) {
-      journal.push(toObservation(notice));
+      const entry = toObservation(notice);
+      journal.push(entry);
       if (journal.length > MAX_JOURNAL) journal.splice(0, journal.length - MAX_JOURNAL);
+      noteDiscovery(entry);
       // Expect a landing frame at this identity; last same-cycle entry wins
       // because the frame shows the final room of that cycle.
       pendingThumbs.set(`${notice.patchGeneration}:${notice.cycle}`, notice.to);
@@ -235,6 +321,10 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   function exportSidecar(): RoomMapSidecar {
     return {
       journal: [...journal],
+      discovered: {
+        rooms: Object.fromEntries(discovered.rooms),
+        edges: [...discovered.edges.values()],
+      },
       layout: { ...layout },
       notes: { ...notes },
     };
@@ -277,6 +367,10 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     if (loadedKey) persist();
     loadedKey = key;
     journal.splice(0, journal.length);
+    discovered.rooms.clear();
+    discovered.edges.clear();
+    walkthroughCoverage.value = undefined;
+    coverageKey = "";
     for (const k of Object.keys(layout)) delete layout[k];
     for (const k of Object.keys(notes)) delete notes[k];
     thumbs.clear();
@@ -293,6 +387,15 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       try {
         const stored = readMapSidecar(storage, key);
         journal.push(...stored.journal);
+        for (const [num, count] of Object.entries(stored.discovered.rooms))
+          discovered.rooms.set(Number(num), count);
+        for (const e of stored.discovered.edges)
+          discovered.edges.set(`${e.from}->${e.to}:${e.label ?? ""}`, {
+            from: e.from,
+            to: e.to,
+            ...(e.label !== undefined ? { label: e.label } : {}),
+            count: e.count,
+          });
         Object.assign(layout, stored.layout);
         Object.assign(notes, stored.notes);
       } catch (error) {
@@ -309,6 +412,10 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     loadedKey = "";
     state.roomJournal.splice(0, state.roomJournal.length);
     journal.splice(0, journal.length);
+    discovered.rooms.clear();
+    discovered.edges.clear();
+    walkthroughCoverage.value = undefined;
+    coverageKey = "";
     for (const k of Object.keys(layout)) delete layout[k];
     for (const k of Object.keys(notes)) delete notes[k];
     thumbs.clear();
@@ -322,6 +429,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     revision = "";
     open.value = false;
     pauseOwned = false;
+    walkthroughPauseOwned = false;
   }
 
   watch(
@@ -333,11 +441,20 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   );
   watch(() => state.roomJournal.length, drainJournal);
 
-  /** The current room: the newest observation's target, else the live hook. */
+  /**
+   * The current room is live position, not history: a replay seek or Take
+   * control moves the engine without journal entries, so the durable record
+   * is only the fallback once nothing is running.
+   */
   const currentRoom = computed<number | null>(() => {
-    const last = journal[journal.length - 1];
-    if (last) return last.to;
-    return state.phase === "running" ? hook.room : null;
+    void state.walkthrough.tick;
+    if (state.walkthrough.active) {
+      const room =
+        typeof window === "undefined" ? undefined : window.__AGI_REPLAY__?.latest?.state.room;
+      if (typeof room === "number") return room;
+    }
+    if (state.phase === "running") return hook.room;
+    return journal[journal.length - 1]?.to ?? null;
   });
 
   const graph = computed<RoomGraph>(() => {
@@ -347,8 +464,18 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     void state.patchTick;
     const scan = scanResources();
     const plan = plannedRooms();
+    const wt = walkthroughCoverage.value;
     return mergeRoomGraph({
       journal,
+      discovered: {
+        rooms: Object.fromEntries(discovered.rooms),
+        edges: [...discovered.edges.values()],
+      },
+      coverage: {
+        playtested: wt?.playtested ?? new Set<number>(),
+        validated: scan.testCoverage.validated,
+        edges: new Set([...scan.testCoverage.edges, ...(wt?.edges ?? [])]),
+      },
       ...(plan !== undefined ? { plan } : {}),
       scans: scan.scans,
       shared: scan.shared,
@@ -495,11 +622,44 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
 
   // ---- open/close ---------------------------------------------------------------
 
+  /**
+   * The walkthrough artifact's checkpoint rooms and recorded traversals —
+   * playtested facts for this game's graph. Loaded once per storage target;
+   * resolved against the game's own edition (hasWalkthrough filters).
+   */
+  async function loadCoverage(): Promise<void> {
+    const game = deps.getBootedGame();
+    const alias = game?.alias ? resolveWalkthrough(game.alias) : null;
+    const key = `${loadedKey}:${alias ?? ""}`;
+    if (!game?.installed || !alias || coverageKey === key) return;
+    coverageKey = key;
+    try {
+      const artifact = await loadWalkthrough(alias);
+      if (coverageKey !== key) return;
+      const playtested = new Set<number>();
+      const edges = new Set<string>();
+      let prev: number | null = null;
+      for (const cp of getOrExtractCheckpoints(artifact)) {
+        playtested.add(cp.room);
+        if (prev !== null && prev !== cp.room) edges.add(`${prev}->${cp.room}`);
+        prev = cp.room;
+      }
+      walkthroughCoverage.value = { playtested, edges };
+    } catch {
+      /* no readable walkthrough — the map shows the rest */
+    }
+  }
+
   function openMap(): void {
     if (open.value || state.phase !== "running") return;
     drainJournal();
+    // The map owns a pause over the active execution mode: the live cycle
+    // timer and, during a walkthrough, the replay driver that keeps it moving.
     pauseOwned = !state.paused;
     if (pauseOwned) deps.pauseEngine();
+    walkthroughPauseOwned = state.walkthrough.status === "playing";
+    if (walkthroughPauseOwned) deps.pauseWalkthrough();
+    void loadCoverage();
     open.value = true;
   }
 
@@ -510,6 +670,8 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     // bubble) is still holding one.
     if (pauseOwned && state.paused && !state.powerUp.open) deps.resumeEngine();
     pauseOwned = false;
+    if (walkthroughPauseOwned && state.walkthrough.status === "paused") deps.resumeWalkthrough();
+    walkthroughPauseOwned = false;
   }
 
   function select(room: number | undefined): void {

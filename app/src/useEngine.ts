@@ -401,6 +401,8 @@ export function useEngine(
     getSession: () => authoringController.getSession(),
     pauseEngine,
     resumeEngine,
+    pauseWalkthrough: walkthrough.pauseWalkthrough,
+    resumeWalkthrough: walkthrough.resumeWalkthrough,
   });
 
   return {

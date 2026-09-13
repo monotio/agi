@@ -270,7 +270,8 @@ const PROVENANCE_WORD: Record<string, string> = {
 function edgeWord(edge: RoomGraphEdge): string {
   const via = edge.label ? ` via ${edge.label}` : "";
   const count = edge.count && edge.count > 1 ? ` ×${edge.count}` : "";
-  return `${PROVENANCE_WORD[edge.provenance]}${via}${count}`;
+  const covered = edge.tested ? " · covered by a stored test" : "";
+  return `${PROVENANCE_WORD[edge.provenance]}${via}${count}${covered}`;
 }
 
 const nodeBadges = computed(() => {
@@ -278,6 +279,8 @@ const nodeBadges = computed(() => {
   for (const n of graph.value.nodes) {
     const badges: string[] = [];
     if (n.observed) badges.push("visited");
+    if (n.validated) badges.push("validated by tests");
+    if (n.playtested) badges.push("playtested");
     if (n.planned) badges.push("planned");
     if (n.authored) badges.push("logic");
     if (n.picture) badges.push("picture");
@@ -487,9 +490,14 @@ function downloadSidecar(): void {
           <span v-if="selectedNode.observed">Visited {{ selectedNode.visits }}×</span>
           <span v-else>Not visited</span>
           <template v-if="selectedNode.planned"> · planned</template>
+          <template v-if="selectedNode.validated"> · validated by a stored test</template>
+          <template v-if="selectedNode.playtested"> · reached in a recorded run</template>
           <template v-if="selectedNode.authored"> · logic exists</template>
           <template v-if="selectedNode.picture"> · picture exists</template>
           <template v-if="selectedNode.variableExit"> · has a computed exit</template>
+          <template v-if="selectedNode.unknownCalls">
+            · calls an unresolved logic — exits may be incomplete</template
+          >
           <template v-if="selectedNode.unknownSource">
             · entered from a shared logic — source unknown</template
           >
