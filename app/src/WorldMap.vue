@@ -7,8 +7,16 @@
  *
  * A native modal dialog: Escape closes only this shell overlay and returns
  * focus to its invoker, the game's own dialog and prompt state untouched.
- * The graph is plain SVG — no graph library: the model is independent, the
- * markup is keyboard- and pointer-reachable, and there is no bundle cost.
+ * The graph is plain SVG — no graph library. The comparison on record
+ * (RC.10, 3.3): against the maintained candidates (d3-force, Cytoscape.js,
+ * vis-network, sigma.js), a library buys force layout and viewport culling
+ * but costs 60–200 kB gzipped, carries its own input model (pan/zoom/keys
+ * we'd have to cage so Space still types into the parser), and its editing
+ * APIs assume node/edge ownership — while RC.11 needs drag, add-node,
+ * add-edge and inline rename on OUR merge of three provenances. Hand-rolled
+ * SVG keeps every node a real focusable element, pinch/drag free, the model
+ * renderer-independent, and zero dependency surface. The room list does not
+ * depend on the graph at all.
  */
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useEngineApi } from "./engineContext.ts";
@@ -726,6 +734,10 @@ function downloadSidecar(): void {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* The auto row takes the detail's content height; without a cap a tall
+     detail starves the list row and its scrollport hides list items under
+     this pane. */
+  max-height: 38dvh;
   overflow-y: auto;
 }
 .map-detail h3 {

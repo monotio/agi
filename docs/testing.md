@@ -308,6 +308,31 @@ Use small goals, replan after state changes and assert the observed outcome. A
 missing static path is a routing question, not evidence of an interpreter defect.
 These are contributor tools; they do not add path planning to the in-app agent.
 
+## World map
+
+The world map (Game actions → World map) merges three provenances that must
+stay distinct: **observed** transitions the live worker reported, **planned**
+rooms and exits from the authoring world, and **static** literal `new.room`
+targets found in logic resources. Restore, restart, re-entry and debug jumps
+are recorded in the journal but never drawn as exits; a variable target is an
+unknown exit, not a guess.
+
+Coverage vocabulary is factual: a room is "visited" only when the journal saw
+it, "playtested" when a walkthrough checkpoint names it, and "validated by
+tests" when a stored `TESTS.JSON` test names it; an edge is "tested" only when
+a stored run exercised that pair. There is no "dead end" or "unreachable"
+label — in-degree is not reachability.
+
+`test/room-map.test.ts` covers the merge model (call-context, branch and
+variable-write conservatism, discovery surviving journal eviction);
+`app/test/use-room-map.test.ts` covers the composable (pause ownership,
+current-room tracking, stored-test coverage);
+`app/e2e/world-map.spec.ts` covers the browser contract — pause ownership,
+imported static graphs, Watch from here, no provider request, phone layout,
+and measured open/select timings on a 256-room synthetic map. The sidecar
+(`MAP.JSON` in project archives, `monotio_agi.map.<key>` in storage) is
+validated by `app/src/roomMapStore.ts`; unknown versions read as empty.
+
 ## Documentation captures
 
 The [media gallery](media/README.md) includes images returned by the actual agent

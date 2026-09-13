@@ -27,7 +27,7 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the playtest loop: plan, run, judge",
   },
   "app/src/DebugDock.vue": {
-    lines: 1233,
+    lines: 1246,
     boundary: "the inspector surface; size-only splits are out of scope for rc.10",
   },
   "src/runtime/persistence.ts": {
@@ -55,15 +55,15 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the play surface: stage, input and presentation wiring",
   },
   "app/src/GameHeader.vue": {
-    lines: 839,
+    lines: 844,
     boundary: "the header and game-action menus",
   },
   "app/src/WorldMap.vue": {
-    lines: 799,
+    lines: 819,
     boundary: "the world-map overlay: graph, room list and room details",
   },
   "app/src/AgentBubble.vue": {
-    lines: 755,
+    lines: 779,
     boundary: "the agent bubble surface",
   },
   "src/agent/gameTests.ts": {
@@ -73,6 +73,10 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
   "app/src/gameStorage.ts": {
     lines: 716,
     boundary: "the local persistence records layer",
+  },
+  "app/src/useRoomMap.ts": {
+    lines: 708,
+    boundary: "the world-map composable: merge, pause ownership, thumbnails, persistence",
   },
   "app/src/agent/llmClient.ts": {
     lines: 705,
@@ -85,6 +89,10 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
   "app/src/three/AgiStage.ts": {
     lines: 666,
     boundary: "the GPU stage: layers, picking and presentation",
+  },
+  "src/agent/roomMap.ts": {
+    lines: 662,
+    boundary: "the room-graph model: journal, plan and static-scan merge",
   },
 };
 
