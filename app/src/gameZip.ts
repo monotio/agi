@@ -1,5 +1,7 @@
 import { readProjectContext, type ProjectContext } from "./projectArchive.ts";
 import { readProgressEntries, type GameProgress } from "./gameProgress.ts";
+import { readMapArchive } from "./roomMapStore.ts";
+import type { RoomMapSidecar } from "../../src/agent/roomMap.ts";
 import { crc32 } from "./zip.ts";
 import { readPublicMetadata, type PublicGameMetadata } from "./gameMetadata.ts";
 import { openContainer, DIRECTORY_FILES } from "../../src/container/container.ts";
@@ -20,6 +22,8 @@ export interface OpenedGame {
   project?: ProjectContext;
   /** The player's save slots and autosave; a project archive carries them, a published game never does. */
   progress?: GameProgress;
+  /** The world-map journal and UI layout; project archives only. */
+  map?: RoomMapSidecar;
   metadata?: PublicGameMetadata;
 }
 
@@ -226,11 +230,23 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
   const projectBytes = entries.get(`${root}PROJECT.JSON`);
   const project = projectBytes ? readProjectContext(projectBytes, entries, root) : undefined;
   const progress = project ? readProgressEntries(entries, root, files) : undefined;
+  // A corrupt map must not sink the import: it is derived UI data, so it
+  // degrades to an empty map rather than refusing the whole project.
+  let map: OpenedGame["map"];
+  const mapBytes = project ? entries.get(`${root}MAP.JSON`) : undefined;
+  if (mapBytes) {
+    try {
+      map = readMapArchive(mapBytes);
+    } catch {
+      map = undefined;
+    }
+  }
   return {
     files,
     words,
     ...gameMetadata,
     ...(project ? { project } : {}),
     ...(progress ? { progress } : {}),
+    ...(map ? { map } : {}),
   };
 }

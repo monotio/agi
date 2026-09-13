@@ -1932,6 +1932,7 @@ export async function executeAgentToolAsync(
         room: live["room"],
         egoX: live["egoX"],
         egoY: live["egoY"],
+        cycle: live["cycle"],
         inventory: live["inventory"],
         modalKind: live["modalKind"],
         controls: describeControls(live["controls"]),

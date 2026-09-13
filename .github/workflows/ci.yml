@@ -223,14 +223,18 @@ jobs:
           skip_app_build: true
           skip_api_build: true
           azure_static_web_apps_api_token: ${{ env.AZURE_STATIC_WEB_APPS_API_TOKEN }}
-      - name: Verify public headers
+      - name: Verify public response
         env:
           FRONT_DOOR_HOST: ${{ secrets.FRONT_DOOR_HOST }}
         run: |
           curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 10 --dump-header /tmp/agi-headers "https://agi.monotio.com/" -o /tmp/agi-index
-          grep -qi '^cross-origin-opener-policy: same-origin' /tmp/agi-headers
-          grep -qi '^cross-origin-embedder-policy: require-corp' /tmp/agi-headers
-          grep -q '/assets/' /tmp/agi-index
+          grep -q '<title>AGI IS HERE' /tmp/agi-index
+          grep -q 'id="app"' /tmp/agi-index
+          grep -qi '^x-content-type-options: nosniff' /tmp/agi-headers
+          asset="$(grep -o '/assets/[^"]*\.js' /tmp/agi-index | head -1)"
+          test -n "$asset"
+          curl --fail --silent --show-error "https://agi.monotio.com$asset" -o /tmp/agi-asset
+          test "$(wc -c < /tmp/agi-asset)" -gt 10000
 
   verify:
     name: Verify deployed browser app

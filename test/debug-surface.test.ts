@@ -54,6 +54,50 @@ test("getOwnership records the topmost object on overlapping pixels", () => {
   assert.equal(ownership[100 * 160 + 21], 2);
 });
 
+test("getOwnership reports sparse object numbers in both paint orders", () => {
+  // Objects 3 and 201 keep the table from passing on index-by-accident:
+  // ownership is object number + 1, never the position in a dense array.
+  // A 2x2 cel on baseline y occupies rows y-1..y, so baselines 100 and 101
+  // overlap on row 100; the higher baseline paints second and wins.
+  const tall = (container: ReturnType<typeof createContainer>): void => {
+    container.putResource(
+      "view",
+      2,
+      buildView({ loops: [{ cels: [{ width: 2, height: 2, pixels: [1, 1, 1, 1] }] }] }),
+    );
+  };
+  const sparse = (source: string): Engine => {
+    const container = createContainer();
+    container.putResource("logic", 0, assembleLogic(source, { dictionary: new Map() }).payload);
+    container.putResource("logic", 1, assembleLogic("return;", { dictionary: new Map() }).payload);
+    tall(container);
+    return new Engine(container, host);
+  };
+
+  // Equal baselines keep object-number order: o201 paints over o3.
+  // ignore.objs keeps the collision check from pushing the cels apart.
+  const equal = sparse(
+    "load.view(2); animate.obj(o3); set.view(o3, 2); ignore.objs(o3); position(o3, 20, 100); draw(o3); stop.cycling(o3);" +
+      " animate.obj(o201); set.view(o201, 2); ignore.objs(o201); position(o201, 20, 100); draw(o201); stop.cycling(o201); return;",
+  );
+  equal.tick();
+  equal.tick();
+  const shared = equal.getOwnership();
+  assert.equal(shared[100 * 160 + 20], 202, "o201 owns the shared pixel");
+  assert.equal(shared[99 * 160 + 22], 0, "an unpainted neighbour stays background");
+
+  // o3's baseline below o201's reverses the paint order: o3 paints last.
+  const reversed = sparse(
+    "load.view(2); animate.obj(o201); set.view(o201, 2); ignore.objs(o201); position(o201, 20, 100); draw(o201); stop.cycling(o201);" +
+      " animate.obj(o3); set.view(o3, 2); ignore.objs(o3); position(o3, 20, 101); draw(o3); stop.cycling(o3); return;",
+  );
+  reversed.tick();
+  reversed.tick();
+  const flip = reversed.getOwnership();
+  assert.equal(flip[100 * 160 + 20], 4, "o3 paints second and owns row 100");
+  assert.equal(flip[99 * 160 + 20], 202, "o201 still owns its uncovered top row");
+});
+
 test("readState reports the priority band base for overlay drawing", () => {
   const engine = game("set.pri.base(60); return;");
   engine.tick();

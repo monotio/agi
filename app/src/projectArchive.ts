@@ -8,6 +8,8 @@ import { compactContainer } from "../../src/container/container.ts";
 import { detectProfile } from "../../src/runtime/profile.ts";
 import type { CachedGameData } from "./gameTypes.ts";
 import { progressEntries, type GameProgress } from "./gameProgress.ts";
+import { mapArchiveData } from "./roomMapStore.ts";
+import type { RoomMapSidecar } from "../../src/agent/roomMap.ts";
 
 export interface ProjectContext {
   provider: string;
@@ -59,11 +61,19 @@ export function buildPublicGameZip(
 export async function buildProjectZip(
   data: CachedGameData,
   progress?: GameProgress,
+  map?: RoomMapSidecar,
 ): Promise<Uint8Array<ArrayBuffer>> {
   const entries = gameEntries(data);
   const tests = data.files["TESTS.JSON"];
   if (tests) entries.push({ name: "TESTS.JSON", data: tests });
   if (progress) entries.push(...progressEntries(progress));
+  // Map data is project UI state: a published game never carries it, and an
+  // empty map adds nothing to the archive.
+  if (
+    map &&
+    (map.journal.length || Object.keys(map.layout).length || Object.keys(map.notes).length)
+  )
+    entries.push({ name: "MAP.JSON", data: mapArchiveData(map) });
   const attachments = new Map<string, string>();
   async function visit(value: unknown): Promise<unknown> {
     if (typeof value === "string" && /^(data:image\/(?:png|jpeg|webp);base64,)/.test(value)) {

@@ -1,12 +1,16 @@
-import { inspectGame } from "./gameInspection.ts";
+import {
+  inspectGame,
+  type PreviewWorkerInbound,
+  type PreviewWorkerOutbound,
+} from "./gameInspection.ts";
 
-self.onmessage = (
-  event: MessageEvent<{ files: Record<string, Uint8Array>; words: [string, number][] }>,
-) => {
+self.onmessage = (event: MessageEvent<PreviewWorkerInbound>) => {
   try {
     const result = inspectGame(event.data);
-    self.postMessage({ result }, [result.rgba.buffer]);
+    self.postMessage({ result } satisfies PreviewWorkerOutbound, [result.rgba.buffer]);
   } catch (error) {
-    self.postMessage({ error: error instanceof Error ? error.message : String(error) });
+    self.postMessage({
+      error: error instanceof Error ? error.message : String(error),
+    } satisfies PreviewWorkerOutbound);
   }
 };

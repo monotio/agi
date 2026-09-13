@@ -1,0 +1,20 @@
+id: worker-postmessage-satisfies
+snapshots:
+  'link.getWorker()?.postMessage({ type: "debug", channels });':
+    labels:
+      - source: 'link.getWorker()?.postMessage({ type: "debug", channels })'
+        style: primary
+        start: 0
+        end: 58
+  self.postMessage({ result }, [buffer]);:
+    labels:
+      - source: self.postMessage({ result }, [buffer])
+        style: primary
+        start: 0
+        end: 38
+  'worker.postMessage({ type: "pause", paused: true });':
+    labels:
+      - source: 'worker.postMessage({ type: "pause", paused: true })'
+        style: primary
+        start: 0
+        end: 51

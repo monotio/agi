@@ -1,4 +1,5 @@
 import type { AgiAudio, AudioMode } from "./AgiAudio.ts";
+import type { WorkerInbound } from "../workerProtocol.ts";
 
 export interface AudioControllerState {
   soundMode: AudioMode;
@@ -17,7 +18,7 @@ export interface AudioController {
 export function useAudioController(
   audio: AgiAudio,
   state: AudioControllerState,
-  postWorkerMessage: (msg: unknown) => void,
+  postWorkerMessage: (msg: WorkerInbound) => void,
 ): AudioController {
   function toggleMute(): boolean {
     const muted = audio.toggleMute();

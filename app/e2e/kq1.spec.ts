@@ -738,9 +738,10 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
   if (await leaveAnyway.isVisible()) await leaveAnyway.click();
 
   // The remix is a saved game of its own; it must not overwrite the
-  // installed game's storage identity.
+  // installed game's storage identity. The world map's discovery record is
+  // scoped to the installed game itself, so it is allowed to remain.
   const stored = await page.evaluate(() =>
-    Object.keys(localStorage).filter((k) => k.includes("kq1")),
+    Object.keys(localStorage).filter((k) => k.includes("kq1") && !k.startsWith("monotio_agi.map.")),
   );
   expect(stored).toEqual([]);
   await expect(savedCard).toHaveCount(1);

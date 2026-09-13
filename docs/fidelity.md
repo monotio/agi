@@ -473,3 +473,20 @@ player exactly like a game message, and a host that never acknowledges leaves th
 parked rather than dead.
 
 Tests: [save-dialog.test.ts](../test/save-dialog.test.ts) (parked restore errors).
+
+### Host observation surfaces
+
+Two engine APIs exist for the host's inspector and world map and change no
+observable game behavior: `getPreviewMask()` returns the pixels the `show.obj`
+preview cel wrote while that modal is open — composition metadata so a layered
+renderer can keep the cel identifiable rather than treating it as an ordinary
+screen object; and `setRoomTransitionListener()` reports `(from, to, edge,
+restarted)` at the moment `completeNewRoom` runs, before `finishRoomChange`
+clears the edge code — pure observation, so a journal can attribute the entry
+without an opcode or flag side channel. Neither hooks the interpreter: no
+opcode, flag, variable or pixel differs whether they are armed or not.
+
+Tests: [worker-presentation.test.ts](../app/test/worker-presentation.test.ts)
+(mask publish and dismissal),
+[worker-journal.test.ts](../app/test/worker-journal.test.ts) (transition
+attribution and replay silence).

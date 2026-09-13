@@ -111,6 +111,10 @@ only for released formats and keep their original fixtures.
   run against the real app: screenshots for visual changes, request and download
   assertions for transport changes. Stub-provider success says nothing about model
   quality, cost or player enjoyment.
+- Worker behavior gets the cheapest meaningful regression test: a
+  `app/test/worker-*.test.ts` unit test driving the module with fake ports and a
+  real `Engine`, plus a Playwright spec only for the user-visible behavior. Do not
+  write a test that mirrors the implementation or duplicates another assertion.
 - A recurring defect becomes an eslint or ast-grep rule or a permanent test; then
   delete the reminder.
 - Harness integrity is tested offline. Model and prompt changes are validated

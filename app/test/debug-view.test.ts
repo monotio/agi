@@ -3,13 +3,19 @@ import { test } from "node:test";
 import {
   cropFrameRgba,
   describeDebugEvent,
+  describeObject,
   formatTraceRecord,
   inspectPixel,
+  latchIsStale,
+  latchPickAt,
   overlayBoxes,
   pickFromClient,
+  pickVisualSource,
   type DebugEvent,
+  type PickPoint,
 } from "../src/debugView.ts";
 import type { Frame } from "../src/gameTypes.ts";
+import type { ScreenObjectState } from "../../src/runtime/engine.ts";
 
 function frameFixture(): Frame {
   const visual = new Uint8Array(160 * 168).fill(15);
@@ -123,4 +129,101 @@ test("overlayBoxes converts object records to logical-pixel boxes", () => {
     follow: false,
     wander: false,
   });
+});
+
+function objectFixture(over: Partial<ScreenObjectState> = {}): ScreenObjectState {
+  return {
+    num: 2,
+    view: 10,
+    loop: 0,
+    cel: 1,
+    x: 40,
+    y: 100,
+    width: 12,
+    height: 20,
+    priority: 11,
+    fixedPriority: false,
+    direction: 3,
+    stepSize: 1,
+    stepTime: 1,
+    cycling: true,
+    cycleMode: 0,
+    cycleTime: 1,
+    motionMode: 0,
+    update: true,
+    ...over,
+  };
+}
+
+const PICK: PickPoint = { logical: { x: 40, y: 50 }, displayed: { x: 80, y: 58 } };
+
+test("latchPickAt freezes the object snapshot and frame identity at click time", () => {
+  const frame = frameFixture();
+  frame.patchGeneration = 7;
+  frame.objects = [objectFixture()];
+  const latch = latchPickAt(frame, PICK)!;
+  assert.equal(latch.cycle, 42);
+  assert.equal(latch.patchGeneration, 7); // the frame's own revision, not a poll
+  assert.equal(describeObject(latch.object!), "o2 · view 10 loop 0 cel 1 · pri 11 · normal");
+
+  // The object moves, changes, then disappears in later observations; newer
+  // frames arrive out of order. The latched card keeps its original fields.
+  frame.objects[0]!.x = 99;
+  frame.objects[0]!.view = 77;
+  frame.objects.length = 0;
+  const stale = { ...frame, cycle: 41, objects: [objectFixture({ num: 2, x: 5 })] };
+  const newer = { ...frame, cycle: 55, patchGeneration: 8, objects: [] };
+  assert.equal(describeObject(latch.object!), "o2 · view 10 loop 0 cel 1 · pri 11 · normal");
+  assert.equal(latch.cycle, 42);
+  assert.equal(latch.patchGeneration, 7);
+  assert.ok(latchIsStale(latch, stale)); // restore/seek/new game regresses cycle
+  assert.ok(!latchIsStale(latch, newer));
+  assert.ok(!latchIsStale(latch, null));
+});
+
+test("a picture-layer pick samples the picture surface, not the composite", () => {
+  const frame = frameFixture();
+  frame.objects = [objectFixture()];
+  // The composed pixel is a sprite (color 4, priority 11, owner 2) covering
+  // picture color 2 at priority 6 — the exploded geometry exposed it.
+  const picVisual = new Uint8Array(160 * 168).fill(15);
+  const picPriority = new Uint8Array(160 * 168).fill(9);
+  picVisual[50 * 160 + 40] = 2;
+  picPriority[50 * 160 + 40] = 6;
+  frame.picVisual = picVisual;
+  frame.picPriority = picPriority;
+
+  const picture: PickPoint = { ...PICK, layerKind: "picture", layerBand: 6 };
+  const latch = latchPickAt(frame, picture)!;
+  assert.deepEqual(latch.inspection, { color: 2, priority: 6, owner: null });
+  assert.equal(latch.object, null);
+
+  // The sprite band pick on the same pixel reads the composed frame.
+  const sprite = latchPickAt(frame, { ...PICK, layerKind: "sprite", layerBand: 11 })!;
+  assert.deepEqual(sprite.inspection, { color: 4, priority: 11, owner: 2 });
+  assert.equal(sprite.object?.num, 2);
+
+  // The crop shows the picked layer's pixels: picture green 2, not the
+  // composed sprite red 4.
+  const crop = cropFrameRgba(frame, 40, 50, 4, pickVisualSource(frame, "picture")!);
+  const o = (4 * 9 + 4) * 4;
+  assert.deepEqual([...crop.data.slice(o, o + 4)], [0, 0xaa, 0, 255]);
+
+  // A layer pick without its source surface reports nothing rather than
+  // another layer's data.
+  const unarmed = frameFixture();
+  assert.equal(inspectPixel(unarmed, 40, 50, { kind: "picture", band: 6 }), null);
+  assert.equal(latchPickAt(unarmed, picture), null);
+
+  // Flat 2D picks still name the composed owner.
+  const flat = latchPickAt(frame, PICK)!;
+  assert.equal(flat.object?.num, 2);
+});
+
+test("latchPickAt returns null off the picture band and drops the latch on regression", () => {
+  const frame = frameFixture();
+  assert.equal(latchPickAt(frame, { ...PICK, logical: null }), null);
+  const latch = latchPickAt(frame, PICK)!;
+  // cycle went backwards without a defined cycle on the latch → not stale
+  assert.ok(!latchIsStale({ ...latch, cycle: null }, frame));
 });

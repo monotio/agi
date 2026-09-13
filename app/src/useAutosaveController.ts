@@ -24,6 +24,7 @@ import {
 import { resolveGameHash } from "../../src/games/knownGames.ts";
 import type { EngineMenuState } from "../../src/runtime/engine.ts";
 import { isProgressPreview } from "./progressPreview.ts";
+import type { WorkerInbound } from "./workerProtocol.ts";
 
 export const LAST_GAME_KEY = "monotio_agi.lastGame";
 const RESUME_CAPTION_MS = 10_000;
@@ -356,7 +357,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         done({ status: "timeout" });
       }, timeoutMs);
       flushDetailedWaiters.set(id, done);
-      worker.postMessage({ type: "flush", id });
+      worker.postMessage({ type: "flush", id } satisfies WorkerInbound);
     });
   }
 
