@@ -502,4 +502,41 @@ const bridge = useShellBridge();
   border-radius: 4px;
   font: inherit;
 }
+.saved-game-gallery {
+  display: grid;
+  /* Top-aligned on purpose: an open Details grows its own card only. */
+  align-items: start;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr));
+  gap: 18px;
+  margin-top: 20px;
+}
+.saved-world-card {
+  margin-top: 1rem;
+  background: #102118;
+  border: 1px solid #285438;
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.saved-world-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.saved-world-tag {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+@media (max-width: 600px) {
+  .library-pane {
+    padding: 18px;
+  }
+}
 </style>

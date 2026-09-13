@@ -391,4 +391,26 @@ const {
   padding: 1.5rem;
   box-sizing: border-box;
 }
+@media (max-width: 600px) {
+  .setup-panel {
+    padding: 0;
+  }
+  .welcome {
+    padding: 12px 0 28px;
+  }
+  .welcome-kicker {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+  }
+  .catalog-shelf {
+    padding: 18px;
+  }
+  .catalog-art,
+  .thumbnail-placeholder {
+    min-height: 0;
+  }
+  .catalog-copy {
+    padding: 18px;
+  }
+}
 </style>

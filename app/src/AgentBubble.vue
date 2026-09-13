@@ -752,4 +752,28 @@ function onPowerUpKey(ev: KeyboardEvent): void {
 .assistant-connect {
   margin-top: 12px;
 }
+@media (max-width: 600px) {
+  .agent-bubble {
+    position: fixed;
+    top: auto;
+    left: auto;
+    transform: none;
+    bottom: 16px;
+    right: 16px;
+    width: calc(100% - 32px);
+    box-sizing: border-box;
+    max-height: min(70dvh, 480px);
+    overflow-y: auto;
+  }
+  .agent-bubble-head {
+    flex-wrap: wrap;
+  }
+  .agent-bubble-room {
+    font-size: 10px;
+  }
+  .agent-bubble-form textarea {
+    min-width: 0;
+    width: 100%;
+  }
+}
 </style>

@@ -277,4 +277,12 @@ bridge.createButtonEl = () => createButton.value;
   gap: 0.5rem;
   margin-top: 0.5rem;
 }
+@media (max-width: 600px) {
+  .create-pane {
+    padding: 18px;
+  }
+  .template-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 </style>

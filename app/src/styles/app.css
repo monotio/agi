@@ -52,71 +52,13 @@
   .app-container {
     padding: 16px 0;
   }
-  .setup-panel {
-    padding: 0;
-  }
-  .create-pane {
-    padding: 18px;
-  }
-  .library-pane {
-    padding: 18px;
-  }
-  .welcome {
-    padding: 12px 0 28px;
-  }
-  .welcome-kicker {
-    font-size: 10px;
-    letter-spacing: 0.1em;
-  }
-  .catalog-shelf {
-    padding: 18px;
-  }
-  .catalog-art,
-  .thumbnail-placeholder {
-    min-height: 0;
-  }
-  .catalog-copy {
-    padding: 18px;
-  }
-  .template-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .header {
-    gap: 16px;
-  }
-  .agent-bubble {
-    position: fixed;
-    top: auto;
-    left: auto;
-    transform: none;
-    bottom: 16px;
-    right: 16px;
-    width: calc(100% - 32px);
-    box-sizing: border-box;
-    max-height: min(70dvh, 480px);
-    overflow-y: auto;
-  }
-  .agent-bubble-head {
-    flex-wrap: wrap;
-  }
-  .agent-bubble-room {
-    font-size: 10px;
-  }
-  .agent-bubble-form textarea {
-    min-width: 0;
-    width: 100%;
-  }
-  .config-col,
-  .config-col.key-col {
-    min-width: 0;
-    flex-basis: 100%;
-  }
 }
 
 /*
  * Menu-screen rules shared by SetupPanel, CreatePanel, LibraryPanel and
  * CatalogPanel: the disclosure summaries, the featured-card thumbnail rules,
  * and the saved/local/hosted card styles the gallery mixes in one grid.
+ * Rules a single component owns live in that component's scoped style.
  */
 #tutorial,
 .create-pane,
@@ -187,14 +129,6 @@ details[open] > .section-summary {
 }
 .library-error {
   color: #ffc2bd !important;
-}
-.saved-game-gallery {
-  display: grid;
-  /* Top-aligned on purpose: an open Details grows its own card only. */
-  align-items: start;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr));
-  gap: 18px;
-  margin-top: 20px;
 }
 .saved-game-card {
   display: flex;
@@ -286,31 +220,6 @@ details[open] > .section-summary {
 .library-details-disclosure[open] > summary {
   color: #efffff;
 }
-.saved-world-card {
-  margin-top: 1rem;
-  background: #102118;
-  border: 1px solid #285438;
-  padding: 0.75rem 1rem;
-  border-radius: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.saved-world-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.saved-world-tag {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
 .saved-world-badge {
   background: #194d34;
   border: 1px solid #339966;

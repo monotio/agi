@@ -836,4 +836,9 @@ h1 {
   font: 12px monospace;
   white-space: nowrap;
 }
+@media (max-width: 600px) {
+  .header {
+    gap: 16px;
+  }
+}
 </style>
