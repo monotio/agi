@@ -162,6 +162,75 @@ function posOf(room: number): { x: number; y: number } {
   return positioned.value.get(room) ?? { x: 0, y: 0 };
 }
 
+// ---- edges --------------------------------------------------------------------
+// Two edges on one node pair (walked both ways, or a walked side plus a
+// planned exit name) would draw as identical overlapping lines. Siblings fan
+// out into parallel quadratic curves so each keeps its own line, arrow and
+// label position.
+
+interface EdgeGeom {
+  readonly edge: RoomGraphEdge;
+  /** Path data for the line/curve; self-loops carry their own arc. */
+  readonly d: string;
+  readonly lx: number;
+  readonly ly: number;
+}
+
+const edgeGeoms = computed<EdgeGeom[]>(() => {
+  void positioned.value;
+  const totals = new Map<string, number>();
+  for (const e of graph.value.edges) {
+    const k = `${Math.min(e.from, e.to)}|${Math.max(e.from, e.to)}`;
+    totals.set(k, (totals.get(k) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  return graph.value.edges.map((edge) => {
+    const a = posOf(edge.from);
+    const b = posOf(edge.to);
+    const x1 = a.x + NODE_W / 2;
+    const y1 = a.y + NODE_H / 2;
+    const x2 = b.x + NODE_W / 2;
+    const y2 = b.y + NODE_H / 2;
+    if (edge.from === edge.to) {
+      return {
+        edge,
+        d: `M ${x1} ${a.y} a 26 18 0 1 1 0.1 0`,
+        lx: x1,
+        ly: a.y - 22,
+      };
+    }
+    const k = `${Math.min(edge.from, edge.to)}|${Math.max(edge.from, edge.to)}`;
+    const n = totals.get(k)!;
+    const i = seen.get(k) ?? 0;
+    seen.set(k, i + 1);
+    if (n === 1) {
+      return { edge, d: `M ${x1} ${y1} L ${x2} ${y2}`, lx: (x1 + x2) / 2, ly: (y1 + y2) / 2 - 6 };
+    }
+    const offset = (i - (n - 1) / 2) * 34;
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    const len = Math.hypot(x2 - x1, y2 - y1) || 1;
+    const px = (-(y2 - y1) / len) * offset;
+    const py = ((x2 - x1) / len) * offset;
+    const cx = mx + px * 2;
+    const cy = my + py * 2;
+    return {
+      edge,
+      d: `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`,
+      lx: mx + px,
+      ly: my + py - 6,
+    };
+  });
+});
+
+/** What an edge label means, spelled out — the graph shows only the word. */
+function edgeTooltip(edge: RoomGraphEdge): string {
+  if (edge.provenance === "observed")
+    return edge.label ? `walked off the ${edge.label} edge` : "walked";
+  if (edge.provenance === "planned") return edge.label ? `planned exit “${edge.label}”` : "planned";
+  return "named in logic";
+}
+
 /** Visits to the selected room, newest first. */
 const selectedVisits = computed(() => {
   const room = selected.value;
@@ -315,8 +384,23 @@ async function watchFromHere(): Promise<void> {
 
 // ---- selection, notes, layout -------------------------------------------------
 
-function selectRoom(room: number): void {
+function selectRoom(room: number, center = false): void {
   map.select(room);
+  if (center) void nextTick(() => centerNode(room));
+}
+
+/** Scroll the graph so the selected node sits at the pane's centre. List
+ * selection is a lookup gesture — the graph should answer it visually. */
+function centerNode(room: number): void {
+  const el = graphScroll.value;
+  if (!el || !graphOpen.value) return;
+  const pos = posOf(room);
+  const z = zoom.value;
+  el.scrollTo({
+    left: (pos.x - bounds.value.x + NODE_W / 2) * z - el.clientWidth / 2,
+    top: (pos.y - bounds.value.y + NODE_H / 2) * z - el.clientHeight / 2,
+    behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+  });
 }
 
 function onListKeydown(ev: KeyboardEvent): void {
@@ -328,7 +412,7 @@ function onListKeydown(ev: KeyboardEvent): void {
   else if (ev.key === "ArrowUp") next = at < 0 ? 0 : Math.max(0, at - 1);
   else return;
   ev.preventDefault();
-  selectRoom(nodes[next]!.room);
+  selectRoom(nodes[next]!.room, true);
   listEl.value
     ?.querySelector(`[data-room="${nodes[next]!.room}"]`)
     ?.scrollIntoView({ block: "nearest" });
@@ -438,7 +522,15 @@ const PROVENANCE_WORD: Record<string, string> = {
 };
 
 function edgeWord(edge: RoomGraphEdge): string {
-  const via = edge.label ? ` via ${edge.label}` : "";
+  // An observed label is the screen edge the player crossed out through —
+  // "right" means "walked off the right edge of the from-room", which the
+  // bare word alone doesn't say.
+  const via =
+    edge.label === undefined
+      ? ""
+      : edge.provenance === "observed"
+        ? ` off the ${edge.label} edge`
+        : ` via ${edge.label}`;
   const count = edge.count && edge.count > 1 ? ` ×${edge.count}` : "";
   const covered = edge.tested ? " · covered by a stored test" : "";
   return `${PROVENANCE_WORD[edge.provenance]}${via}${count}${covered}`;
@@ -537,7 +629,7 @@ function downloadSidecar(): void {
             :class="{ selected: selected === node.room, current: currentRoom === node.room }"
             :data-testid="`map-room-${node.room}`"
           >
-            <button type="button" class="map-list-button" @click="selectRoom(node.room)">
+            <button type="button" class="map-list-button" @click="selectRoom(node.room, true)">
               <span class="map-room-name">
                 <template v-if="currentRoom === node.room">▶ </template>
                 Room {{ node.room }}<template v-if="node.title"> — {{ node.title }}</template>
@@ -637,33 +729,14 @@ function downloadSidecar(): void {
               </clipPath>
             </defs>
             <g
-              v-for="(edge, i) in graph.edges"
+              v-for="(geom, i) in edgeGeoms"
               :key="`e${i}`"
-              :class="`edge edge-${edge.provenance}`"
+              :class="`edge edge-${geom.edge.provenance}`"
             >
-              <path
-                v-if="edge.from === edge.to"
-                class="edge-line"
-                :d="`M ${posOf(edge.from).x + NODE_W / 2} ${posOf(edge.from).y}
-                   a 26 18 0 1 1 0.1 0`"
-                marker-end="url(#map-arrow)"
-              />
-              <line
-                v-else
-                class="edge-line"
-                :x1="posOf(edge.from).x + NODE_W / 2"
-                :y1="posOf(edge.from).y + NODE_H / 2"
-                :x2="posOf(edge.to).x + NODE_W / 2"
-                :y2="posOf(edge.to).y + NODE_H / 2"
-                marker-end="url(#map-arrow)"
-              />
-              <text
-                v-if="edge.label"
-                class="edge-label"
-                :x="(posOf(edge.from).x + posOf(edge.to).x) / 2 + NODE_W / 2"
-                :y="(posOf(edge.from).y + posOf(edge.to).y) / 2 + NODE_H / 2 - 6"
-              >
-                {{ edge.label }}
+              <path class="edge-line" :d="geom.d" marker-end="url(#map-arrow)" />
+              <text v-if="geom.edge.label" class="edge-label" :x="geom.lx" :y="geom.ly">
+                {{ geom.edge.label }}
+                <title>{{ edgeTooltip(geom.edge) }}</title>
               </text>
             </g>
             <g

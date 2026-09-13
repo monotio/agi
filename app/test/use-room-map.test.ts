@@ -181,6 +181,23 @@ test("a stale patch generation cannot repaint a room", async () => {
   assert.equal(map.thumbnailFor(4)?.kind, "observed");
 });
 
+test("directional edges place rooms on the side they were reached from", async () => {
+  const { map, notice, boot } = makeHarness();
+  await boot();
+  notice({ to: 0, cause: "boot", cycle: 1 });
+  // KQ1 room 1: left edge → 2, right edge → 8, top edge → 16, bottom → 5.
+  notice({ to: 2, from: 0, cause: "edge", edge: "left", cycle: 2 });
+  notice({ to: 8, from: 0, cause: "edge", edge: "right", cycle: 3 });
+  notice({ to: 16, from: 0, cause: "edge", edge: "top", cycle: 4 });
+  notice({ to: 5, from: 0, cause: "edge", edge: "bottom", cycle: 5 });
+  await nextTick();
+  const home = map.positionFor(0);
+  assert.ok(map.positionFor(2).x < home.x, "left-exit room must lie left");
+  assert.ok(map.positionFor(8).x > home.x, "right-exit room must lie right");
+  assert.ok(map.positionFor(16).y < home.y, "top-exit room must lie above");
+  assert.ok(map.positionFor(5).y > home.y, "bottom-exit room must lie below");
+});
+
 test("layout moves persist; a write failure surfaces as unsaved", async () => {
   const values = new Map<string, string>();
   let writes = true;

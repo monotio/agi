@@ -35,7 +35,7 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the save format; the release contract pins its structure",
   },
   "app/src/WorldMap.vue": {
-    lines: 1145,
+    lines: 1218,
     boundary: "the world-map overlay: graph, room list and room details",
   },
   "src/picture/source.ts": {
@@ -75,7 +75,7 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the local persistence records layer",
   },
   "app/src/useRoomMap.ts": {
-    lines: 709,
+    lines: 735,
     boundary: "the world-map composable: merge, pause ownership, thumbnails, persistence",
   },
   "app/src/agent/llmClient.ts": {

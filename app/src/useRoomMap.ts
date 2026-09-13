@@ -509,25 +509,51 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     return { x: cx + 32 * CELL_W, y: cy };
   }
 
+  /** Direction of travel an edge label encodes. Observed edges carry the
+   * source room's exit edge ("right" = the target lies off its right edge);
+   * planned edges carry authored exit names ("east" = the target lies east).
+   * Screen space grows downward, so top/north/up is negative y. */
+  const EDGE_VECTORS: Record<string, { dx: number; dy: number }> = {
+    top: { dx: 0, dy: -1 },
+    north: { dx: 0, dy: -1 },
+    up: { dx: 0, dy: -1 },
+    bottom: { dx: 0, dy: 1 },
+    south: { dx: 0, dy: 1 },
+    down: { dx: 0, dy: 1 },
+    left: { dx: -1, dy: 0 },
+    west: { dx: -1, dy: 0 },
+    right: { dx: 1, dy: 0 },
+    east: { dx: 1, dy: 0 },
+  };
+
   function positionFor(room: number): { x: number; y: number } {
     const manual = layout[String(room)];
     if (manual) return manual;
     const auto = autoPositions.get(room);
     if (auto) return auto;
-    // Anchor beside the cheapest connected neighbour already placed; a node
-    // with no placed neighbour starts its own component column.
-    let anchor: { x: number; y: number } | null = null;
+    // Anchor relative to a connected neighbour already placed. A directional
+    // edge wins over an unnamed one: "walked off the left edge into room 2"
+    // means room 2 belongs left of the source, not wherever the spiral lands.
+    let directed: { x: number; y: number } | null = null;
+    let adjacent: { x: number; y: number } | null = null;
     for (const edge of graph.value.edges) {
-      const other = edge.from === room ? edge.to : edge.to === room ? edge.from : null;
-      if (other === null) continue;
-      const placed = layout[String(other)] ?? autoPositions.get(other);
-      if (placed) {
-        anchor = placed;
-        break;
+      const outbound = edge.from === room;
+      const inbound = edge.to === room;
+      if (!outbound && !inbound) continue;
+      const placed =
+        layout[String(outbound ? edge.to : edge.from)] ??
+        autoPositions.get(outbound ? edge.to : edge.from);
+      if (!placed) continue;
+      if (!adjacent) adjacent = { x: placed.x + CELL_W, y: placed.y };
+      const v = edge.label ? EDGE_VECTORS[edge.label] : undefined;
+      if (v && !directed) {
+        directed = outbound
+          ? { x: placed.x - v.dx * CELL_W, y: placed.y - v.dy * CELL_H }
+          : { x: placed.x + v.dx * CELL_W, y: placed.y + v.dy * CELL_H };
       }
     }
-    const origin = anchor ?? { x: 0, y: isolatedCursor++ * CELL_H * 3 };
-    const pos = freeCell(origin.x + CELL_W, origin.y);
+    const origin = directed ?? adjacent ?? { x: 0, y: isolatedCursor++ * CELL_H * 3 };
+    const pos = freeCell(origin.x, origin.y);
     autoPositions.set(room, pos);
     return pos;
   }

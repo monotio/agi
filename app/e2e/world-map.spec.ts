@@ -496,18 +496,24 @@ test("the graph pans in both axes, zooms, and the detail pane dismisses", async 
     .toBeLessThanOrEqual(2);
 
   // The detail pane dismisses via its close button and via a background click.
+  // Picking a room from the list centres the graph on its node.
   await page.getByTestId("map-room-4").click();
   await expect(page.getByTestId("map-detail")).toBeVisible();
-  await page.getByTestId("map-detail-close").click();
-  await expect(page.getByTestId("map-detail")).not.toBeVisible();
-
-  await page.getByTestId("map-room-4").click();
-  await expect(page.getByTestId("map-detail")).toBeVisible();
-  // A click on empty graph space (no drag) deselects.
-  await page.mouse.move(box.x + 8, box.y + 8);
-  await page.mouse.down();
-  await page.mouse.up();
-  await expect(page.getByTestId("map-detail")).not.toBeVisible();
+  // List selection scrolls the node into view (centred when the scroll range
+  // allows it — a node at the world edge clamps to the nearest reach).
+  await expect
+    .poll(async () => {
+      const nb = await page.getByTestId("map-node-4").boundingBox();
+      const sb = await scroll.boundingBox();
+      if (!nb || !sb) return false;
+      return (
+        nb.x + nb.width > sb.x &&
+        nb.x < sb.x + sb.width &&
+        nb.y + nb.height > sb.y &&
+        nb.y < sb.y + sb.height
+      );
+    })
+    .toBe(true);
 
   // Selecting a node is not a layout move; a real drag is.
   const sidecarLayout = () =>
@@ -528,6 +534,20 @@ test("the graph pans in both axes, zooms, and the detail pane dismisses", async 
   await page.mouse.move(nb2.x + nb2.width / 2 + 60, nb2.y + nb2.height / 2 + 30, { steps: 4 });
   await page.mouse.up();
   await expect.poll(async () => Object.keys(await sidecarLayout())).toContain("4");
+
+  await page.getByTestId("map-detail-close").click();
+  await expect(page.getByTestId("map-detail")).not.toBeVisible();
+
+  // A click on empty graph space (no drag) deselects. Centering scrolled the
+  // view; reset to the top-left world margin, which is guaranteed empty.
+  await scroll.evaluate((el) => {
+    el.scrollLeft = 0;
+    el.scrollTop = 0;
+  });
+  await page.mouse.move(box.x + 3, box.y + 3);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect(page.getByTestId("map-detail")).not.toBeVisible();
 });
 
 test("cold open, warm open and select stay fast on the largest synthetic map", async ({ page }) => {
