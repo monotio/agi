@@ -40,12 +40,16 @@ import type { RoomTransitionNotice } from "./workerProtocol.ts";
  * edges also roll into the bounded discovery aggregate, so eviction loses
  * detail, never discovery. */
 const MAX_JOURNAL = 4096;
-const MAX_DISCOVERED_EDGES = 1024;
+// The discovery domain is finite: 256 source rooms × 256 targets × 5 label
+// variants (four screen edges + none). The aggregate retains every distinct
+// traversable edge a game can express — the bound exists for corrupt input,
+// not as a policy that silently drops real observations.
+const MAX_DISCOVERED_EDGES = 256 * 256 * 5;
 /** Observed-frame thumbnails; evicted oldest-first. */
 const MAX_THUMBS = 96;
 /** Static picture renders; evicted oldest-first. Sized so a full game of
  * picture-bearing rooms stays cached — nodes render one image each. */
-const MAX_STATIC_THUMBS = 128;
+const MAX_STATIC_THUMBS = 256;
 /** Rooms the journal still expects a landing frame for. */
 const MAX_PENDING_THUMBS = 64;
 
@@ -65,45 +69,40 @@ interface ScannedResources {
   readonly logic: Set<number>;
   readonly picture: Set<number>;
   readonly files: Record<string, Uint8Array>;
-  /** Rooms stored game tests name plus the transitions their runs recorded. */
-  readonly testCoverage: { validated: Set<number>; edges: Set<string> };
+  /** Rooms stored game tests name — a definition reference, not a pass. */
+  readonly testCoverage: { referenced: Set<number> };
 }
 
 /**
- * The stored-test facts a TESTS.JSON actually supports: `room` anchors the
- * run, `until.room` waits and `expect.room` assert arrivals, and each pair of
- * consecutively named rooms records a traversal the test exercised. Nothing
- * else is claimed — a pair may have passed through unnamed rooms, so coverage
- * flags an existing edge rather than creating one.
+ * The stored-test facts a TESTS.JSON actually supports: `room`, `until.room`
+ * and `expect.room` name rooms a test *intends* to exercise. No run result is
+ * stored, so a definition is a reference, never a pass — and consecutive room
+ * names do not prove a direct transition, so no edge coverage is claimed.
  */
 function storedTestCoverage(
   files: Record<string, Uint8Array>,
   profile: AgiProfile | undefined,
-): { validated: Set<number>; edges: Set<string> } {
-  const validated = new Set<number>();
-  const edges = new Set<string>();
+): { referenced: Set<number> } {
+  const referenced = new Set<number>();
   let doc;
   try {
     doc = parseGameTests(files["TESTS.JSON"], profile);
   } catch {
-    return { validated, edges };
+    return { referenced };
   }
   for (const test of doc.tests) {
-    const named: number[] = [test.room];
+    referenced.add(test.room);
     for (const step of test.steps) {
       const until = step["until"];
       if (until && typeof until === "object" && !Array.isArray(until)) {
         const room = (until as Record<string, unknown>)["room"];
-        if (typeof room === "number") named.push(room);
+        if (typeof room === "number") referenced.add(room);
       }
     }
     const expectRoom = test.expect?.["room"];
-    if (typeof expectRoom === "number") named.push(expectRoom);
-    for (const room of named) validated.add(room);
-    for (let i = 0; i + 1 < named.length; i++)
-      if (named[i] !== named[i + 1]) edges.add(`${named[i]}->${named[i + 1]}`);
+    if (typeof expectRoom === "number") referenced.add(expectRoom);
   }
-  return { validated, edges };
+  return { referenced };
 }
 
 export interface RoomMapDeps {
@@ -190,7 +189,6 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   let coverageKey = "";
   const walkthroughCoverage = ref<{
     playtested: Set<number>;
-    edges: Set<string>;
   }>();
 
   /** Observed thumbnails by room; insertion order is the eviction order. */
@@ -215,7 +213,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
         logic: new Set(),
         picture: new Set(),
         files: {},
-        testCoverage: { validated: new Set(), edges: new Set() },
+        testCoverage: { referenced: new Set() },
       };
     const key = game.revision;
     if (scanned && scanned.key === key && scanned.files === game.files) return scanned;
@@ -474,8 +472,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       },
       coverage: {
         playtested: wt?.playtested ?? new Set<number>(),
-        validated: scan.testCoverage.validated,
-        edges: new Set([...scan.testCoverage.edges, ...(wt?.edges ?? [])]),
+        referenced: scan.testCoverage.referenced,
       },
       ...(plan !== undefined ? { plan } : {}),
       scans: scan.scans,
@@ -613,46 +610,62 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     thumbVersion.value++;
   }
 
+  /**
+   * Pure read — never renders. Static renders happen in prepareStaticThumbs:
+   * a render inside a read bumps thumbVersion, which invalidates the very
+   * computed that asked, and a capped cache would then thrash per node on
+   * every read of a pictured map.
+   */
   function thumbnailFor(room: number): MapThumbnail | null {
     void thumbVersion.value;
-    const observed = thumbs.get(room);
-    if (observed) return observed;
-    const cached = staticThumbs.get(room);
-    if (cached) return cached;
+    return thumbs.get(room) ?? staticThumbs.get(room) ?? null;
+  }
+
+  /**
+   * Render the static-picture thumbs the current graph needs and does not yet
+   * have — one container and profile per pass, one version bump at the end.
+   * Runs on each graph revision; a warm cache reduces it to a cheap scan.
+   */
+  function prepareStaticThumbs(): void {
     const scan = scanResources();
-    if (scan.shared.has(room)) return null;
-    const roomScan = scan.scans.get(room);
-    if (!roomScan) return null;
-    for (const pic of roomScan.pictures) {
-      if (!scan.picture.has(pic)) continue;
+    const missing: [number, number][] = [];
+    for (const n of graph.value.nodes) {
+      if (thumbs.has(n.room) || staticThumbs.has(n.room)) continue;
+      if (scan.shared.has(n.room)) continue;
+      const pic = scan.scans.get(n.room)?.pictures.find((p) => scan.picture.has(p));
+      if (pic !== undefined) missing.push([n.room, pic]);
+    }
+    if (missing.length === 0) return;
+    const files = new Map(Object.entries(scan.files));
+    const container = openContainer(files);
+    const profile = detectProfile(files);
+    let produced = false;
+    for (const [room, pic] of missing) {
       try {
-        const container = openContainer(new Map(Object.entries(scan.files)));
         const payload = container.getResource("picture", pic);
         if (!payload) continue;
         const surface = createPictureSurface();
-        renderPicture(payload, surface, {
-          profile: detectProfile(new Map(Object.entries(scan.files))),
-        });
-        const thumb: MapThumbnail = { pixels: surface.visual.slice(), kind: "static" };
-        staticThumbs.delete(room);
-        staticThumbs.set(room, thumb);
+        renderPicture(payload, surface, { profile });
+        staticThumbs.set(room, { pixels: surface.visual.slice(), kind: "static" });
         if (staticThumbs.size > MAX_STATIC_THUMBS)
           staticThumbs.delete(staticThumbs.keys().next().value!);
-        thumbVersion.value++;
-        return thumb;
+        produced = true;
       } catch {
-        return null;
+        /* an undrawable picture leaves the node faceless */
       }
     }
-    return null;
+    if (produced) thumbVersion.value++;
   }
+  watch(graph, prepareStaticThumbs);
 
   // ---- open/close ---------------------------------------------------------------
 
   /**
-   * The walkthrough artifact's checkpoint rooms and recorded traversals —
-   * playtested facts for this game's graph. Loaded once per storage target;
-   * resolved against the game's own edition (hasWalkthrough filters).
+   * The walkthrough artifact's checkpoint rooms — playtested facts for this
+   * game's graph. Checkpoints are sparse waypoints: the run may have passed
+   * through unrecorded rooms between them, so no direct-transition coverage
+   * is claimed. Loaded once per storage target; resolved against the game's
+   * own edition (hasWalkthrough filters).
    */
   async function loadCoverage(): Promise<void> {
     const game = deps.getBootedGame();
@@ -664,14 +677,8 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       const artifact = await loadWalkthrough(alias);
       if (coverageKey !== key) return;
       const playtested = new Set<number>();
-      const edges = new Set<string>();
-      let prev: number | null = null;
-      for (const cp of getOrExtractCheckpoints(artifact)) {
-        playtested.add(cp.room);
-        if (prev !== null && prev !== cp.room) edges.add(`${prev}->${cp.room}`);
-        prev = cp.room;
-      }
-      walkthroughCoverage.value = { playtested, edges };
+      for (const cp of getOrExtractCheckpoints(artifact)) playtested.add(cp.room);
+      walkthroughCoverage.value = { playtested };
     } catch {
       /* no readable walkthrough — the map shows the rest */
     }

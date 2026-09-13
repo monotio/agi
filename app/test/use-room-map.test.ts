@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { nextTick, reactive } from "vue";
+import { createContainer } from "../../src/container/container.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
 import { useRoomMap } from "../src/useRoomMap.ts";
 import type { EngineState, TextHook } from "../src/useEngineTypes.ts";
 import type { BootedGame, Frame } from "../src/gameTypes.ts";
@@ -312,11 +314,63 @@ test("journal eviction never erases discovered rooms or walked edges", async () 
   assert.equal(edge?.count, 1);
 });
 
-test("stored tests mark validated rooms and covered transitions", async () => {
+test("discovery retains every distinct edge the room domain allows", async () => {
+  const { map, notice, boot } = makeHarness();
+  await boot();
+  notice({ to: 0, cause: "boot", cycle: 0 });
+  const sides = ["top", "right", "bottom", "left"] as const;
+  // 1,280 distinct directed transitions — past the old 1,024 cap — then
+  // enough repeats of one hop to evict the detailed journal entirely.
+  for (let i = 0; i < 1280; i++)
+    notice({
+      to: i % 256,
+      from: Math.floor(i / 5) % 256,
+      cause: "edge",
+      edge: sides[i % 4]!,
+      cycle: i + 1,
+    });
+  for (let i = 0; i < 4100; i++)
+    notice({ to: 0, from: 0, cause: "edge", edge: "top", cycle: 2000 + i });
+  await nextTick();
+  assert.equal(map.journal.length, 4096);
+  const observed = map.graph.value.edges.filter((e) => e.provenance === "observed");
+  // Every distinct transition survived; the 0->0/top eviction entries merge
+  // into the identical key already produced at i=0.
+  assert.equal(observed.length, 1280);
+  // A late, arbitrary member of the distinct set is still present
+  // (i=511 → from=102, to=255, label "left").
+  assert.ok(observed.some((e) => e.from === 102 && e.to === 255 && e.label === "left"));
+});
+
+test("thumbnail reads are pure — no render, no version churn", async () => {
+  const game = createContainer();
+  game.putResource("picture", 1, Uint8Array.of(0xf0, 3, 0xf8, 0, 0, 0xff));
+  game.putResource(
+    "logic",
+    1,
+    // v0 is selfRoom → the scan attributes picture 1 to room 1.
+    assembleLogic("load.pic(v0);draw.pic(v0);return;", { dictionary: new Map() }).payload,
+  );
+  const { map, notice, boot } = makeHarness();
+  await boot(Object.fromEntries(game.files));
+  notice({ to: 1, cause: "boot", cycle: 1 });
+  await nextTick();
+  await nextTick(); // the graph watcher prepares static thumbs off-read
+  const first = map.thumbnailFor(1);
+  assert.equal(first?.kind, "static");
+  const settled = map.thumbVersion.value;
+  for (let i = 0; i < 3; i++) assert.equal(map.thumbnailFor(1), first);
+  assert.equal(map.thumbVersion.value, settled);
+});
+
+test("a stored test references its rooms but proves no traversal", async () => {
+  // A definition with no stored run result — the zero-step test in the plan's
+  // probe marks intent only: rooms are referenced, edges carry no flag.
   const tests = new TextEncoder().encode(
     JSON.stringify({
       format: "monotio.agi.tests.v1",
       tests: [
+        { name: "Unrun", room: 1, steps: [], expect: { room: 8 } },
         {
           name: "walk to the castle",
           room: 1,
@@ -329,13 +383,17 @@ test("stored tests mark validated rooms and covered transitions", async () => {
   const { map, notice, boot } = makeHarness();
   await boot({ "TESTS.JSON": tests });
   notice({ to: 1, cause: "boot", cycle: 1 });
-  notice({ to: 3, from: 1, cause: "edge", edge: "right", cycle: 2 });
-  notice({ to: 5, from: 3, cause: "logic", cycle: 3 });
+  notice({ to: 8, from: 1, cause: "edge", edge: "right", cycle: 2 });
+  // Rooms 3 and 5 need their own evidence — coverage never invents a node.
+  notice({ to: 3, from: 1, cause: "logic", cycle: 3 });
+  notice({ to: 5, from: 3, cause: "logic", cycle: 4 });
   await nextTick();
   const graph = map.graph.value;
-  for (const room of [1, 3, 5])
-    assert.equal(graph.nodes.find((n) => n.room === room)?.validated, true, `room ${room}`);
-  // The recorded run named 1 → 3 → 5; both observed edges carry the flag.
-  assert.equal(graph.edges.find((e) => e.from === 1 && e.to === 3)?.tested, true);
-  assert.equal(graph.edges.find((e) => e.from === 3 && e.to === 5)?.tested, true);
+  for (const room of [1, 3, 5, 8])
+    assert.equal(graph.nodes.find((n) => n.room === room)?.referenced, true, `room ${room}`);
+  // Even a real 1 -> 8 edge gets no coverage flag — an unrun test asserts
+  // arrival, not which transition was exercised.
+  const edge = graph.edges.find((e) => e.from === 1 && e.to === 8);
+  assert.ok(edge);
+  assert.equal(Object.hasOwn(edge, "tested"), false);
 });

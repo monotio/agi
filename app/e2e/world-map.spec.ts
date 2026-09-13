@@ -620,3 +620,83 @@ test("cold open, warm open and select stay fast on the largest synthetic map", a
   expect(selectMs).toBeLessThan(1000);
   await page.screenshot({ path: "test-results/world-map-dense-256.png" });
 });
+
+test("a pictured map past the old static cache stays responsive", async ({ page }) => {
+  // 140 rooms each drawing their own picture — past the old 128-entry static
+  // cache, where read-time renders thrashed the version counter and the map
+  // did not display within five seconds.
+  const ROOMS = 140;
+  const game = createContainer();
+  const pic = Uint8Array.of(0xf0, 3, 0xf8, 0, 0, 0xff);
+  game.putResource(
+    "logic",
+    0,
+    assembleLogic("if(!isset(f200)){set(f200);accept.input();new.room(1);}return;", {
+      dictionary: new Map(),
+    }).payload,
+  );
+  for (let i = 1; i <= ROOMS; i++) {
+    game.putResource("picture", i, pic);
+    game.putResource(
+      "logic",
+      i,
+      // v0 is selfRoom: room i draws picture i. The literal new.room behind a
+      // never-set flag gives the scan a static edge without the room bouncing.
+      assembleLogic(
+        `load.pic(v0);draw.pic(v0);if(isset(f199)){new.room(${(i % ROOMS) + 1});}return;`,
+        { dictionary: new Map() },
+      ).payload,
+    );
+  }
+  await page.goto("/");
+  await cacheGame(page, {
+    projectId: "world-map-pictured",
+    title: "Pictured map fixture",
+    provider: "stub",
+    model: "stub",
+    imported: true,
+    roomGeneration: false,
+    files: Object.fromEntries(game.files),
+    words: [],
+  });
+  await page.reload();
+  await page.getByTestId("btn-resume-cached").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+
+  const timed = async (fn: () => Promise<unknown>): Promise<number> => {
+    const t0 = Date.now();
+    await fn();
+    return Date.now() - t0;
+  };
+  const thumbs = page.locator(".map-node .node-thumb");
+  const openMap = async () => {
+    await openGameOptions(page, "game-actions-menu");
+    await page.getByTestId("btn-world-map").click();
+    await expect(page.getByTestId("world-map")).toBeVisible();
+    await expect(thumbs).toHaveCount(ROOMS, { timeout: 5000 });
+  };
+
+  const coldMs = await timed(openMap);
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("world-map")).not.toBeVisible();
+  const warmMs = await timed(openMap);
+  const selectMs = await timed(async () => {
+    await page.getByTestId("map-room-70").click();
+    await expect(page.getByTestId("map-detail")).toContainText("Room 70");
+  });
+
+  const info = test.info();
+  for (const [name, ms] of [
+    ["cold open", coldMs],
+    ["warm open", warmMs],
+    ["select feedback", selectMs],
+  ] as const) {
+    info.annotations.push({
+      type: `map ${name} (ms, ${ROOMS} pictured rooms, chromium)`,
+      description: `${ms}`,
+    });
+  }
+  expect(warmMs).toBeLessThan(2000);
+  expect(selectMs).toBeLessThan(1000);
+  await page.screenshot({ path: "test-results/world-map-pictured-140.png" });
+});

@@ -51,8 +51,6 @@ export interface RoomGraphEdge {
   readonly label?: string;
   /** Observed traversal count. */
   readonly count?: number;
-  /** A stored run (walkthrough or recorded test) exercised this transition. */
-  readonly tested?: boolean;
 }
 
 export interface RoomGraphNode {
@@ -61,8 +59,8 @@ export interface RoomGraphNode {
   /** Visited at least once by the journal or retained discovery. */
   readonly observed: boolean;
   readonly visits: number;
-  /** A stored game test starts in and asserts against this room. */
-  readonly validated: boolean;
+  /** A stored game test names this room — a definition, not a passing run. */
+  readonly referenced: boolean;
   /** A stored walkthrough's recorded run reached this room. */
   readonly playtested: boolean;
   /** The authoring world has a plan entry for this room. */
@@ -140,12 +138,17 @@ const VAR_WRITES: Readonly<Record<string, readonly number[]>> = {
   mulv: [0],
   divn: [0],
   divv: [0],
-  rindirect: [1],
+  rindirect: [0], // vars[a0] = vars[vars[a1]] — writes operand 0
   random: [2],
   "get.posn": [1, 2],
+  "last.cel": [1],
+  "current.cel": [1],
+  "current.loop": [1],
+  "current.view": [1],
+  "number.of.loops": [1],
   "get.priority": [1],
   "get.dir": [1],
-  "get.room.v": [0],
+  "get.room.v": [1], // vars[a1] = itemLocations[vars[a0]] — writes operand 1
   "get.num": [1],
   distance: [2],
 };
@@ -197,8 +200,14 @@ export function scanStaticExits(
       const writes = new Set<number>();
       for (const inner of insns) {
         if (inner.at < start || inner.at >= end || inner.name === undefined) continue;
-        if (inner.name === "call" || inner.name === "call.v") {
-          // A call inside the region can write any var — mark all ambiguous.
+        if (
+          inner.name === "call" ||
+          inner.name === "call.v" ||
+          inner.name === "lindirectn" ||
+          inner.name === "lindirectv"
+        ) {
+          // A call or computed-address write inside the region can hit any
+          // var — mark all ambiguous.
           for (let v = 0; v < 256; v++) writes.add(v);
         } else if (inner.name === "assignn" || inner.name === "assignv")
           writes.add(inner.args?.[0] ?? -1);
@@ -292,14 +301,15 @@ export function mergeRoomGraph(input: {
   /** Durable discovery aggregate; survives journal eviction. */
   readonly discovered?: RoomMapDiscovery;
   /**
-   * Stored-test coverage: rooms a recorded run reached or a stored game test
-   * validates, and (from, to) transitions a recorded run exercised. Shown only
-   * for what the stored data actually names.
+   * Coverage evidence, limited to what the stored data proves: `playtested`
+   * rooms are checkpoints a recorded walkthrough run actually reached;
+   * `referenced` rooms are merely named by a stored test definition — no run
+   * result is stored, so definitions assert intent, never a pass. Neither
+   * source records per-room transitions, so no edge coverage is claimed.
    */
   readonly coverage?: {
     readonly playtested?: ReadonlySet<number>;
-    readonly validated?: ReadonlySet<number>;
-    readonly edges?: ReadonlySet<string>;
+    readonly referenced?: ReadonlySet<number>;
   };
   readonly plan?: Readonly<
     Record<string, { title: string; description: string; exits: Record<string, number> }>
@@ -318,7 +328,7 @@ export function mergeRoomGraph(input: {
       title?: string;
       observed: boolean;
       visits: number;
-      validated: boolean;
+      referenced: boolean;
       playtested: boolean;
       planned: boolean;
       authored: boolean;
@@ -335,7 +345,7 @@ export function mergeRoomGraph(input: {
       n = {
         observed: false,
         visits: 0,
-        validated: false,
+        referenced: false,
         playtested: false,
         planned: false,
         authored: false,
@@ -429,20 +439,18 @@ export function mergeRoomGraph(input: {
     if (n) n.picture = true;
   }
 
-  // Stored-test coverage names facts it actually exercised: a room a recorded
-  // run reached, a room a stored game test validates, and the transitions a
-  // recorded run crossed. Nodes without other evidence stay absent. Coverage
-  // keys name (from, to) pairs only — the artifacts cannot name an edge side.
+  // Coverage marks only what its evidence proves: `playtested` rooms are
+  // checkpoints a recorded run reached; `referenced` rooms are named by a
+  // stored test definition. Nodes without other evidence stay absent, and no
+  // edge is claimed — neither artifact records actual transitions.
   for (const room of input.coverage?.playtested ?? []) {
     const n = nodes.get(room);
     if (n) n.playtested = true;
   }
-  for (const room of input.coverage?.validated ?? []) {
+  for (const room of input.coverage?.referenced ?? []) {
     const n = nodes.get(room);
-    if (n) n.validated = true;
+    if (n) n.referenced = true;
   }
-  const tested = (e: { from: number; to: number }): { tested: true } | Record<string, never> =>
-    input.coverage?.edges?.has(`${e.from}->${e.to}`) === true ? { tested: true } : {};
 
   const ordered = [...nodes.entries()].sort((a, b) => a[0] - b[0]);
   return {
@@ -454,10 +462,9 @@ export function mergeRoomGraph(input: {
         provenance: "observed" as const,
         ...(e.label !== undefined ? { label: e.label } : {}),
         count: e.count,
-        ...tested(e),
       })),
-      ...planned.map((e) => ({ ...e, ...tested(e) })),
-      ...staticEdges.map((e) => ({ ...e, ...tested(e) })),
+      ...planned,
+      ...staticEdges,
     ],
   };
 }
@@ -479,7 +486,8 @@ export interface RoomMapSidecar {
 
 const MAX_JOURNAL_ENTRIES = 4096;
 const MAX_DISCOVERED_ROOMS = 256;
-const MAX_DISCOVERED_EDGES = 1024;
+// The full discovery domain: 256×256 directed pairs × 5 label variants.
+const MAX_DISCOVERED_EDGES = 256 * 256 * 5;
 const MAX_LAYOUT_NODES = 512;
 const MAX_NOTES = 512;
 const MAX_NOTE_CHARS = 4000;

@@ -95,6 +95,32 @@ test("picture use is a literal var binding, not a guess", () => {
   assert.deepEqual(copied.pictures, [9]);
 });
 
+test("indirect and read-result writes clobber the var they actually write", () => {
+  // rindirect(v12, v20) is vars[v12] = vars[vars[v20]] — v12 is overwritten
+  // with an unknown, so the draw is unclaimed.
+  assert.deepEqual(
+    scanStaticExits(logic("assignn(v12, 7); rindirect(v12, v20); draw.pic(v12); return;")).pictures,
+    [],
+  );
+  // get.room.v(v20, v12) writes its second operand — same outcome.
+  assert.deepEqual(
+    scanStaticExits(logic("assignn(v12, 7); get.room.v(v20, v12); draw.pic(v12); return;"))
+      .pictures,
+    [],
+  );
+  // Writes to other vars leave the binding: rindirect's read side is operand 1.
+  assert.deepEqual(
+    scanStaticExits(logic("assignn(v12, 7); rindirect(v20, v12); draw.pic(v12); return;")).pictures,
+    [7],
+  );
+  // The object-query family writes operand 1 too.
+  assert.deepEqual(
+    scanStaticExits(logic("assignn(v12, 7); current.view(o5, v12); draw.pic(v12); return;"))
+      .pictures,
+    [],
+  );
+});
+
 test("observed, planned and static exits between the same pair all survive", () => {
   const journal = [
     entry({ seq: 0, from: null, to: 1, cause: "boot" }),
@@ -263,7 +289,7 @@ test("the discovery aggregate preserves evicted journal facts", () => {
   assert.equal(merged.edges.find((e) => e.from === 1 && e.to === 8)?.count, 3);
 });
 
-test("stored coverage marks nodes it names and transitions it exercised", () => {
+test("coverage marks the rooms its evidence names, never a transition", () => {
   const graph = mergeRoomGraph({
     journal: [
       entry({ seq: 0, to: 1, cause: "boot" }),
@@ -271,20 +297,21 @@ test("stored coverage marks nodes it names and transitions it exercised", () => 
     ],
     coverage: {
       playtested: new Set([1, 3]),
-      validated: new Set([1, 5]),
-      edges: new Set(["1->3"]),
+      referenced: new Set([1, 5]),
     },
   });
   const one = graph.nodes.find((n) => n.room === 1)!;
   assert.equal(one.playtested, true);
-  assert.equal(one.validated, true);
+  assert.equal(one.referenced, true);
   assert.equal(graph.nodes.find((n) => n.room === 3)?.playtested, true);
   // Coverage never invents a node: 5 has no other evidence.
   assert.equal(
     graph.nodes.find((n) => n.room === 5),
     undefined,
   );
-  assert.equal(graph.edges.find((e) => e.from === 1 && e.to === 3)?.tested, true);
+  // Neither artifact records transitions — no edge flag exists to set.
+  const edge = graph.edges.find((e) => e.from === 1 && e.to === 3)!;
+  assert.equal(Object.hasOwn(edge, "tested"), false);
 });
 
 test("sidecar round-trips and rejects malformed or oversized data", () => {
