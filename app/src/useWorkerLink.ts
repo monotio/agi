@@ -358,6 +358,12 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       },
     };
     worker = w;
+    // A fresh worker boots with every debug channel disarmed; re-arm the set
+    // the UI still expects so a game switch never silently blanks the dock.
+    w.postMessage({
+      type: "debug",
+      channels: { ...state.debugChannels },
+    } satisfies WorkerInbound);
     w.onmessage = (ev: MessageEvent) => {
       // A replaced worker's messages never land here.
       if (worker !== w) return;

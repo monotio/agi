@@ -501,6 +501,16 @@ test("a replaced worker's replies are dropped before dispatch", async () => {
   assert.equal((await pending).length, 1);
 });
 
+test("wiring a fresh worker re-posts the armed debug channels", () => {
+  const { link, state } = makeLink();
+  state.debugChannels = { ownership: true, objects: true, trace: false, picture: true };
+  const w = fakeWorker();
+  link.wireWorker(w as unknown as Worker);
+  const first = w.posted[0] as { type: string; channels?: Record<string, boolean> };
+  assert.equal(first.type, "debug", "the new worker re-arms before any boot traffic");
+  assert.deepEqual(first.channels, { ownership: true, objects: true, trace: false, picture: true });
+});
+
 test("unregistered message shapes drop at ingress", () => {
   const { link } = makeLink();
   const w = fakeWorker();
