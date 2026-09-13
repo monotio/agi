@@ -43,13 +43,14 @@ const MAX_JOURNAL = 4096;
 const MAX_DISCOVERED_EDGES = 1024;
 /** Observed-frame thumbnails; evicted oldest-first. */
 const MAX_THUMBS = 96;
-/** Static picture renders; evicted oldest-first. */
-const MAX_STATIC_THUMBS = 64;
+/** Static picture renders; evicted oldest-first. Sized so a full game of
+ * picture-bearing rooms stays cached — nodes render one image each. */
+const MAX_STATIC_THUMBS = 128;
 /** Rooms the journal still expects a landing frame for. */
 const MAX_PENDING_THUMBS = 64;
 
-const CELL_W = 200;
-const CELL_H = 170;
+const CELL_W = 220;
+const CELL_H = 190;
 
 export interface MapThumbnail {
   readonly pixels: Uint8Array;

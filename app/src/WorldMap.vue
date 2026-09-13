@@ -24,6 +24,7 @@ import { EGA_RGB } from "../../src/picture/png.ts";
 import { mapArchiveData } from "./roomMapStore.ts";
 import { getOrExtractCheckpoints, loadWalkthrough, resolveWalkthrough } from "./walkthrough.ts";
 import type { RoomGraphEdge, RoomGraphNode } from "../../src/agent/roomMap.ts";
+import type { MapThumbnail } from "./useRoomMap.ts";
 
 const engine = useEngineApi();
 const { state } = engine;
@@ -34,12 +35,12 @@ const { selected, unsaved, storageError } = map;
 const dialog = useTemplateRef("dialog");
 const thumbCanvas = useTemplateRef("thumbCanvas");
 const listEl = useTemplateRef("listEl");
-const graphFold = useTemplateRef("graphFold");
+const graphOpen = ref(true);
 
 onMounted(() => {
   dialog.value?.showModal();
   // Phones read the list first; the graph stays one tap away.
-  if (graphFold.value && matchMedia("(max-width: 700px)").matches) graphFold.value.open = false;
+  if (matchMedia("(max-width: 700px)").matches) graphOpen.value = false;
 });
 onUnmounted(() => {
   if (dialog.value?.open) dialog.value.close();
@@ -60,7 +61,7 @@ const positioned = computed(() => {
   return out;
 });
 
-const viewBox = computed(() => {
+const bounds = computed(() => {
   let minX = Infinity,
     minY = Infinity,
     maxX = -Infinity,
@@ -71,12 +72,90 @@ const viewBox = computed(() => {
     maxX = Math.max(maxX, pos.x + NODE_W);
     maxY = Math.max(maxY, pos.y + NODE_H);
   }
-  if (!Number.isFinite(minX)) return "0 0 640 400";
-  return `${minX - 40} ${minY - 40} ${maxX - minX + 80} ${maxY - minY + 80}`;
+  if (!Number.isFinite(minX)) return { x: 0, y: 0, w: 640, h: 400 };
+  return { x: minX - 40, y: minY - 40, w: maxX - minX + 80, h: maxY - minY + 80 };
 });
+const viewBox = computed(
+  () => `${bounds.value.x} ${bounds.value.y} ${bounds.value.w} ${bounds.value.h}`,
+);
 
-const NODE_W = 120;
-const NODE_H = 44;
+const NODE_W = 128;
+/** Picture area height; the caption strip sits below it inside the node. */
+const IMG_H = 96;
+const CAP_H = 22;
+const NODE_H = IMG_H + CAP_H;
+
+// ---- pan and zoom -------------------------------------------------------------
+// The svg is sized to the world times the zoom factor, so the pane scrolls
+// in both axes at any zoom; a background drag pans and ctrl/cmd+wheel zooms.
+
+const graphScroll = useTemplateRef("graphScroll");
+const zoom = ref(1);
+const svgW = computed(() => Math.max(1, Math.round(bounds.value.w * zoom.value)));
+const svgH = computed(() => Math.max(1, Math.round(bounds.value.h * zoom.value)));
+
+function setZoom(next: number, clientX?: number, clientY?: number): void {
+  const el = graphScroll.value;
+  const z = Math.min(3, Math.max(0.15, next));
+  if (!el || z === zoom.value) {
+    zoom.value = z;
+    return;
+  }
+  // Keep the point under the cursor (or the viewport centre) stable.
+  const r = el.getBoundingClientRect();
+  const ox = (clientX ?? r.left + r.width / 2) - r.left;
+  const oy = (clientY ?? r.top + r.height / 2) - r.top;
+  const px = ox + el.scrollLeft;
+  const py = oy + el.scrollTop;
+  const ratio = z / zoom.value;
+  zoom.value = z;
+  void nextTick(() => {
+    el.scrollLeft = px * ratio - ox;
+    el.scrollTop = py * ratio - oy;
+  });
+}
+
+function fitGraph(): void {
+  const el = graphScroll.value;
+  if (!el) return;
+  setZoom(Math.min(el.clientWidth / bounds.value.w, el.clientHeight / bounds.value.h, 1.5));
+}
+
+function onGraphWheel(ev: WheelEvent): void {
+  if (!ev.ctrlKey && !ev.metaKey) return;
+  ev.preventDefault();
+  setZoom(zoom.value * (ev.deltaY < 0 ? 1.2 : 1 / 1.2), ev.clientX, ev.clientY);
+}
+
+let panning: { x: number; y: number; left: number; top: number; moved: number } | null = null;
+const panningActive = ref(false);
+
+function onBgPointerDown(ev: PointerEvent): void {
+  if (ev.pointerType === "touch") return; // native touch scrolling already pans
+  if ((ev.target as Element).closest(".map-node")) return;
+  const el = graphScroll.value;
+  if (!el) return;
+  panning = { x: ev.clientX, y: ev.clientY, left: el.scrollLeft, top: el.scrollTop, moved: 0 };
+  panningActive.value = true;
+  (ev.currentTarget as Element).setPointerCapture(ev.pointerId);
+}
+
+function onBgPointerMove(ev: PointerEvent): void {
+  const el = graphScroll.value;
+  if (!panning || !el) return;
+  const dx = ev.clientX - panning.x;
+  const dy = ev.clientY - panning.y;
+  panning.moved = Math.max(panning.moved, Math.abs(dx) + Math.abs(dy));
+  el.scrollLeft = panning.left - dx;
+  el.scrollTop = panning.top - dy;
+}
+
+function onBgPointerUp(): void {
+  // A press that never moved is a click on empty space: dismiss the detail.
+  if (panning && panning.moved < 5) map.select(undefined);
+  panning = null;
+  panningActive.value = false;
+}
 
 /** Position lookup for the template — every edge endpoint is a graph node. */
 function posOf(room: number): { x: number; y: number } {
@@ -144,6 +223,65 @@ watch(
   },
   { immediate: true },
 );
+
+// ---- node thumbnails ----------------------------------------------------------
+// Each graph node draws its picture. The composable caches the pixel surfaces;
+// here we cache the encoded image per room, keyed on the surface's identity so
+// a re-rendered or newly-observed frame re-encodes while an evicted-then-restored
+// entry still hits.
+
+const thumbUrlCache = new Map<number, { thumb: MapThumbnail; url: string }>();
+let encodeCanvas: HTMLCanvasElement | null = null;
+
+/** Half-scale PNG of the picture surface — enough for a node face. */
+function thumbDataUrl(thumb: MapThumbnail): string {
+  const c = (encodeCanvas ??= document.createElement("canvas"));
+  c.width = 80;
+  c.height = 84;
+  const ctx = c.getContext("2d")!;
+  const img = ctx.createImageData(80, 84);
+  for (let y = 0; y < 84; y++) {
+    for (let x = 0; x < 80; x++) {
+      const rgb = EGA_RGB[thumb.pixels[y * 320 + x * 2]! & 0x0f]!;
+      const i = (y * 80 + x) * 4;
+      img.data[i] = rgb[0];
+      img.data[i + 1] = rgb[1];
+      img.data[i + 2] = rgb[2];
+      img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return c.toDataURL("image/png");
+}
+
+const nodeThumbs = computed(() => {
+  void map.thumbVersion.value;
+  const out = new Map<number, string>();
+  for (const node of graph.value.nodes) {
+    const thumb = map.thumbnailFor(node.room);
+    if (!thumb) continue;
+    const hit = thumbUrlCache.get(node.room);
+    if (hit && hit.thumb === thumb) {
+      out.set(node.room, hit.url);
+      continue;
+    }
+    const url = thumbDataUrl(thumb);
+    if (thumbUrlCache.size > 300) thumbUrlCache.clear();
+    thumbUrlCache.set(node.room, { thumb, url });
+    out.set(node.room, url);
+  }
+  return out;
+});
+
+/** One-line caption: the room number, plus a truncated title when it has one. */
+function nodeLabel(node: RoomGraphNode): string {
+  const name = `Room ${node.room}`;
+  if (!node.title) return name;
+  const budget = 19 - name.length;
+  if (budget < 3) return name;
+  const title = node.title.length > budget ? `${node.title.slice(0, budget)}…` : node.title;
+  return `${name} — ${title}`;
+}
 
 // ---- Watch from here ---------------------------------------------------------
 
@@ -388,97 +526,191 @@ function downloadSidecar(): void {
         </ul>
       </section>
 
-      <details ref="graphFold" class="map-graph-pane" open data-testid="map-graph-pane">
-        <summary>Graph</summary>
-        <svg
-          class="map-graph"
-          :viewBox="viewBox"
-          role="group"
-          aria-label="Room graph"
-          data-testid="map-graph"
+      <section
+        class="map-graph-pane"
+        :class="{ closed: !graphOpen }"
+        aria-label="Room graph"
+        data-testid="map-graph-pane"
+      >
+        <div class="map-graph-bar">
+          <button
+            type="button"
+            class="map-graph-fold"
+            :aria-expanded="graphOpen"
+            data-testid="map-graph-fold"
+            @click="graphOpen = !graphOpen"
+          >
+            {{ graphOpen ? "▾" : "▸" }} Graph
+          </button>
+          <span v-show="graphOpen" class="map-zoom">
+            <button
+              type="button"
+              class="map-zoom-btn"
+              data-testid="map-zoom-out"
+              aria-label="Zoom out"
+              @click="setZoom(zoom / 1.25)"
+            >
+              −
+            </button>
+            <button
+              type="button"
+              class="map-zoom-btn map-zoom-level"
+              data-testid="map-zoom-level"
+              title="Reset zoom to 100%"
+              @click="setZoom(1)"
+            >
+              {{ Math.round(zoom * 100) }}%
+            </button>
+            <button
+              type="button"
+              class="map-zoom-btn"
+              data-testid="map-zoom-in"
+              aria-label="Zoom in"
+              @click="setZoom(zoom * 1.25)"
+            >
+              +
+            </button>
+            <button type="button" class="map-zoom-btn" data-testid="map-zoom-fit" @click="fitGraph">
+              Fit
+            </button>
+          </span>
+        </div>
+        <div
+          v-show="graphOpen"
+          ref="graphScroll"
+          class="map-graph-scroll"
+          :class="{ panning: panningActive }"
+          data-testid="map-graph-scroll"
+          @wheel="onGraphWheel"
         >
-          <defs>
-            <marker
-              id="map-arrow"
-              viewBox="0 0 10 10"
-              refX="9"
-              refY="5"
-              markerWidth="7"
-              markerHeight="7"
-              orient="auto-start-reverse"
-            >
-              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
-            </marker>
-          </defs>
-          <g
-            v-for="(edge, i) in graph.edges"
-            :key="`e${i}`"
-            :class="`edge edge-${edge.provenance}`"
+          <svg
+            class="map-graph"
+            :viewBox="viewBox"
+            :width="svgW"
+            :height="svgH"
+            role="group"
+            aria-label="Room graph"
+            data-testid="map-graph"
+            @pointerdown="onBgPointerDown"
+            @pointermove="onBgPointerMove"
+            @pointerup="onBgPointerUp"
+            @pointercancel="onBgPointerUp"
           >
-            <path
-              v-if="edge.from === edge.to"
-              class="edge-line"
-              :d="`M ${posOf(edge.from).x + NODE_W / 2} ${posOf(edge.from).y}
+            <defs>
+              <marker
+                id="map-arrow"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
+              </marker>
+              <clipPath id="map-node-clip">
+                <rect :width="NODE_W" :height="NODE_H" rx="7" />
+              </clipPath>
+            </defs>
+            <g
+              v-for="(edge, i) in graph.edges"
+              :key="`e${i}`"
+              :class="`edge edge-${edge.provenance}`"
+            >
+              <path
+                v-if="edge.from === edge.to"
+                class="edge-line"
+                :d="`M ${posOf(edge.from).x + NODE_W / 2} ${posOf(edge.from).y}
                    a 26 18 0 1 1 0.1 0`"
-              marker-end="url(#map-arrow)"
-            />
-            <line
-              v-else
-              class="edge-line"
-              :x1="posOf(edge.from).x + NODE_W / 2"
-              :y1="posOf(edge.from).y + NODE_H / 2"
-              :x2="posOf(edge.to).x + NODE_W / 2"
-              :y2="posOf(edge.to).y + NODE_H / 2"
-              marker-end="url(#map-arrow)"
-            />
-            <text
-              v-if="edge.label"
-              class="edge-label"
-              :x="(posOf(edge.from).x + posOf(edge.to).x) / 2 + NODE_W / 2"
-              :y="(posOf(edge.from).y + posOf(edge.to).y) / 2 + NODE_H / 2 - 6"
+                marker-end="url(#map-arrow)"
+              />
+              <line
+                v-else
+                class="edge-line"
+                :x1="posOf(edge.from).x + NODE_W / 2"
+                :y1="posOf(edge.from).y + NODE_H / 2"
+                :x2="posOf(edge.to).x + NODE_W / 2"
+                :y2="posOf(edge.to).y + NODE_H / 2"
+                marker-end="url(#map-arrow)"
+              />
+              <text
+                v-if="edge.label"
+                class="edge-label"
+                :x="(posOf(edge.from).x + posOf(edge.to).x) / 2 + NODE_W / 2"
+                :y="(posOf(edge.from).y + posOf(edge.to).y) / 2 + NODE_H / 2 - 6"
+              >
+                {{ edge.label }}
+              </text>
+            </g>
+            <g
+              v-for="node in graph.nodes"
+              :key="node.room"
+              class="map-node"
+              :class="{
+                observed: node.observed,
+                planned: node.planned,
+                static: !node.observed && !node.planned,
+                selected: selected === node.room,
+                current: currentRoom === node.room,
+              }"
+              :transform="`translate(${posOf(node.room).x} ${posOf(node.room).y})`"
+              tabindex="0"
+              role="button"
+              :aria-label="`Room ${node.room}${node.title ? `, ${node.title}` : ''}`"
+              :data-testid="`map-node-${node.room}`"
+              @click="selectRoom(node.room)"
+              @keydown="onNodeKeydown($event, node.room)"
+              @pointerdown="onNodePointerDown($event, node.room)"
+              @pointermove="onNodePointerMove"
+              @pointerup="onNodePointerUp($event, node.room)"
             >
-              {{ edge.label }}
-            </text>
-          </g>
-          <g
-            v-for="node in graph.nodes"
-            :key="node.room"
-            class="map-node"
-            :class="{
-              observed: node.observed,
-              planned: node.planned,
-              static: !node.observed && !node.planned,
-              selected: selected === node.room,
-              current: currentRoom === node.room,
-            }"
-            :transform="`translate(${posOf(node.room).x} ${posOf(node.room).y})`"
-            tabindex="0"
-            role="button"
-            :aria-label="`Room ${node.room}${node.title ? `, ${node.title}` : ''}`"
-            :data-testid="`map-node-${node.room}`"
-            @click="selectRoom(node.room)"
-            @keydown="onNodeKeydown($event, node.room)"
-            @pointerdown="onNodePointerDown($event, node.room)"
-            @pointermove="onNodePointerMove"
-            @pointerup="onNodePointerUp($event, node.room)"
-          >
-            <rect class="node-box" :width="NODE_W" :height="NODE_H" rx="7" />
-            <text class="node-label" x="10" y="18">Room {{ node.room }}</text>
-            <text v-if="node.title" class="node-title" x="10" y="34">{{ node.title }}</text>
-          </g>
-        </svg>
-        <p class="map-legend">
+              <rect class="node-box" :width="NODE_W" :height="NODE_H" rx="7" />
+              <image
+                v-if="nodeThumbs.get(node.room)"
+                class="node-thumb"
+                :href="nodeThumbs.get(node.room)"
+                x="0"
+                y="0"
+                :width="NODE_W"
+                :height="IMG_H"
+                preserveAspectRatio="xMidYMid slice"
+                clip-path="url(#map-node-clip)"
+              />
+              <text v-else class="node-empty-label" :x="NODE_W / 2" :y="IMG_H / 2">
+                Room {{ node.room }}
+              </text>
+              <rect
+                class="node-caption"
+                :y="IMG_H"
+                :width="NODE_W"
+                :height="CAP_H"
+                clip-path="url(#map-node-clip)"
+              />
+              <text class="node-label" x="8" :y="IMG_H + 15">{{ nodeLabel(node) }}</text>
+            </g>
+          </svg>
+        </div>
+        <p v-show="graphOpen" class="map-legend">
           <span class="edge edge-observed">—</span> walked ·
           <span class="edge edge-planned">- -</span> planned ·
           <span class="edge edge-static">…</span> named in logic
         </p>
-      </details>
+      </section>
 
       <section v-if="selectedNode" class="map-detail" data-testid="map-detail">
         <h3>
           Room {{ selectedNode.room
           }}<template v-if="selectedNode.title"> — {{ selectedNode.title }}</template>
           <span v-if="currentRoom === selectedNode.room" class="map-current-tag">you are here</span>
+          <button
+            type="button"
+            class="map-detail-close"
+            aria-label="Dismiss room details"
+            data-testid="map-detail-close"
+            @click="map.select(undefined)"
+          >
+            ×
+          </button>
         </h3>
         <template v-if="thumbKind">
           <canvas
@@ -654,19 +886,63 @@ function downloadSidecar(): void {
   color: #8aa4ac;
 }
 .map-graph-pane {
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
   min-height: 240px;
+  /* A grid item refuses to shrink below its content size; without this the
+     svg's width would stretch the pane instead of scrolling inside it. */
+  min-width: 0;
+  overflow: hidden;
 }
-.map-graph-pane summary {
-  padding: 8px 12px;
-  cursor: pointer;
+.map-graph-pane.closed {
+  min-height: 0;
+}
+.map-graph-bar {
+  display: flex;
+  align-items: center;
+  padding: 4px 12px;
+}
+.map-graph-fold {
+  background: none;
+  border: none;
   color: #8aa4ac;
   font-size: 12px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.map-zoom {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 4px;
+}
+.map-zoom-btn {
+  background: #16262c;
+  color: #c9dade;
+  border: 1px solid #3a5661;
+  border-radius: 4px;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+.map-zoom-btn:hover {
+  background: #1d3a44;
+}
+.map-zoom-level {
+  min-width: 44px;
+}
+.map-graph-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  cursor: grab;
+}
+.map-graph-scroll.panning {
+  cursor: grabbing;
 }
 .map-graph {
   display: block;
-  width: 100%;
-  min-height: 320px;
 }
 .map-node {
   cursor: pointer;
@@ -691,9 +967,21 @@ function downloadSidecar(): void {
   stroke: #9fe6a0;
   stroke-width: 2.5;
 }
+.node-thumb {
+  pointer-events: none;
+}
+.node-caption {
+  fill: rgba(10, 20, 24, 0.82);
+}
+.node-empty-label {
+  fill: #5f7b85;
+  font-size: 13px;
+  text-anchor: middle;
+}
 .node-label {
   fill: #e3ecee;
-  font-size: 12px;
+  font-size: 11px;
+  pointer-events: none;
 }
 .node-title {
   fill: #8aa4ac;
@@ -743,6 +1031,23 @@ function downloadSidecar(): void {
 .map-detail h3 {
   margin: 0;
   font-size: 15px;
+  display: flex;
+  align-items: center;
+}
+.map-detail-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #8aa4ac;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.map-detail-close:hover {
+  background: #1d3a44;
+  color: #e3ecee;
 }
 .map-current-tag {
   color: #9fe6a0;
@@ -805,9 +1110,6 @@ function downloadSidecar(): void {
     border-right: none;
     border-bottom: 1px solid #2a4048;
     max-height: 34dvh;
-  }
-  .map-graph-pane:not([open]) {
-    min-height: 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {

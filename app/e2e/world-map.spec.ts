@@ -143,8 +143,8 @@ test("phone layout puts the room list first and the graph one tap away", async (
   await expect(page.getByTestId("map-room-list")).toBeVisible();
   // The graph folds closed on small screens; the list stays usable.
   const pane = page.getByTestId("map-graph-pane");
-  if (!(await pane.evaluate((el) => (el as HTMLDetailsElement).open))) {
-    await pane.locator("summary").click();
+  if (await pane.evaluate((el) => el.classList.contains("closed"))) {
+    await page.getByTestId("map-graph-fold").click();
   }
   await expect(page.getByTestId("map-graph")).toBeVisible();
   await page.getByTestId("map-room-4").click();
@@ -439,6 +439,75 @@ test("reduced motion renders the same map without animation", async ({ page }) =
     );
   expect(animating).toBe(false);
   await page.screenshot({ path: "test-results/world-map-reduced-motion.png" });
+});
+
+test("the graph pans in both axes, zooms, and the detail pane dismisses", async ({ page }) => {
+  // The 18-room dense plan spreads wide enough to scroll on both axes.
+  const game = mapGame();
+  await page.goto("/");
+  await cacheGame(page, {
+    ...DENSE_GAME,
+    files: Object.fromEntries(game.files),
+    words: [],
+  });
+  await page.reload();
+  await page.getByTestId("btn-resume-cached").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+
+  await openGameOptions(page, "game-actions-menu");
+  await page.getByTestId("btn-world-map").click();
+  const scroll = page.getByTestId("map-graph-scroll");
+  await expect(scroll).toBeVisible();
+
+  // Zooming in makes the world larger than the pane in both axes.
+  const svg = page.getByTestId("map-graph");
+  const width0 = Number(await svg.getAttribute("width"));
+  await page.getByTestId("map-zoom-in").click();
+  await page.getByTestId("map-zoom-in").click();
+  await expect.poll(async () => Number(await svg.getAttribute("width"))).toBeGreaterThan(width0);
+  const range = await scroll.evaluate((el) => ({
+    x: el.scrollWidth - el.clientWidth,
+    y: el.scrollHeight - el.clientHeight,
+  }));
+  expect(range.x, "horizontal scroll range").toBeGreaterThan(0);
+  expect(range.y, "vertical scroll range").toBeGreaterThan(0);
+
+  // A background drag pans the view on both axes. The press starts on the
+  // world's top-left margin — guaranteed empty at any zoom — and moves
+  // toward the corner so the scroll offset grows.
+  const box = (await scroll.boundingBox())!;
+  await page.mouse.move(box.x + 30, box.y + 30);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 5, box.y + 5, { steps: 4 });
+  await page.mouse.up();
+  const after = await scroll.evaluate((el) => ({ x: el.scrollLeft, y: el.scrollTop }));
+  expect(after.x).toBeGreaterThan(0);
+  expect(after.y).toBeGreaterThan(0);
+
+  // Fit returns the whole graph to the pane: both scroll ranges collapse
+  // (≤2px slack for integer rounding of the svg size).
+  await page.getByTestId("map-zoom-fit").click();
+  await expect
+    .poll(async () =>
+      scroll.evaluate((el) =>
+        Math.max(el.scrollWidth - el.clientWidth, el.scrollHeight - el.clientHeight),
+      ),
+    )
+    .toBeLessThanOrEqual(2);
+
+  // The detail pane dismisses via its close button and via a background click.
+  await page.getByTestId("map-room-4").click();
+  await expect(page.getByTestId("map-detail")).toBeVisible();
+  await page.getByTestId("map-detail-close").click();
+  await expect(page.getByTestId("map-detail")).not.toBeVisible();
+
+  await page.getByTestId("map-room-4").click();
+  await expect(page.getByTestId("map-detail")).toBeVisible();
+  // A click on empty graph space (no drag) deselects.
+  await page.mouse.move(box.x + 8, box.y + 8);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect(page.getByTestId("map-detail")).not.toBeVisible();
 });
 
 test("cold open, warm open and select stay fast on the largest synthetic map", async ({ page }) => {
