@@ -193,6 +193,8 @@ test("an imported game shows its static graph before any visit", async ({ page }
   await openGameOptions(page, "game-actions-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
+  // The scroll canvas opens on the live room, not the world's empty corner.
+  await expect(page.getByTestId("map-node-83")).toBeInViewport();
 
   // Nothing walked yet: only the boot room is observed; every other row is a
   // logic-named candidate, never a claimed route.
@@ -200,6 +202,30 @@ test("an imported game shows its static graph before any visit", async ({ page }
   await expect.poll(() => items.count(), { timeout: 15_000 }).toBeGreaterThan(10);
   const unvisited = items.filter({ hasNotText: "visited" });
   await expect(unvisited.first()).toContainText("logic");
+
+  // KQ1's courtyard logic encodes the geography: room 2 lies off room 1's
+  // left edge (v2==4), room 8 off its right (v2==2), room 16 off its top
+  // (v2==1) — the static edges carry those sides and the layout must honor
+  // them before any visit.
+  const pos = async (room: number) => {
+    const t = await page.getByTestId(`map-node-${room}`).getAttribute("transform");
+    const m = /translate\(([-\d.]+) ([-\d.]+)\)/.exec(t ?? "");
+    if (!m) throw new Error(`node ${room} has no position`);
+    return { x: Number(m[1]), y: Number(m[2]) };
+  };
+  const [p1, p2, p8, p16] = await Promise.all([pos(1), pos(2), pos(8), pos(16)]);
+  expect(p2.x, "room 2 left of room 1").toBeLessThan(p1.x);
+  expect(p8.x, "room 8 right of room 1").toBeGreaterThan(p1.x);
+  expect(p16.y, "room 16 above room 1").toBeLessThan(p1.y);
+
+  // Edge groups carry native tooltips on a wide invisible hit-path — a
+  // labeled static edge spells out which side its logic exits on.
+  expect(
+    await page
+      .locator(".edge-static > title")
+      .filter({ hasText: "logic exits off the left edge" })
+      .count(),
+  ).toBeGreaterThan(0);
   await page.screenshot({ path: "test-results/world-map-imported.png" });
 });
 

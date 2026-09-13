@@ -571,6 +571,8 @@ export interface DecodedInsn {
   readonly kind: "return" | "goto" | "if" | "action" | "data";
   /** goto/if: the jump target; -1 for everything else. */
   readonly target: number;
+  /** if: the rendered condition list (e.g. `equaln(v2, 4) && isset(f5)`). */
+  readonly text?: string;
   readonly name?: string;
   readonly args?: readonly number[];
 }

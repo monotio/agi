@@ -200,6 +200,24 @@ test("directional edges place rooms on the side they were reached from", async (
   assert.ok(map.positionFor(5).y > home.y, "bottom-exit room must lie below");
 });
 
+test("a room placed before its labeled edge arrives re-places on the named side", async () => {
+  const { map, notice, boot } = makeHarness();
+  await boot();
+  notice({ to: 1, cause: "boot", cycle: 1 });
+  notice({ to: 2, from: 1, cause: "logic", cycle: 2 });
+  await nextTick();
+  // No direction evidence yet: the fallback anchors room 2 right of room 1.
+  const p1 = map.positionFor(1);
+  assert.ok(map.positionFor(2).x > p1.x);
+  // The observed edge lands later: left edge of room 1 → room 2 is LEFT.
+  notice({ to: 2, from: 1, cause: "edge", edge: "left", cycle: 3 });
+  await nextTick();
+  await nextTick(); // the graph watcher invalidates auto positions
+  // Positions derive in node order, as the component's positions computed does.
+  for (const n of map.graph.value.nodes) map.positionFor(n.room);
+  assert.ok(map.positionFor(2).x < p1.x);
+});
+
 test("layout moves persist; a write failure surfaces as unsaved", async () => {
   const values = new Map<string, string>();
   let writes = true;

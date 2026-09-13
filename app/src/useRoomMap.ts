@@ -656,7 +656,15 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     }
     if (produced) thumbVersion.value++;
   }
-  watch(graph, prepareStaticThumbs);
+  watch(graph, () => {
+    // Evidence can improve for an already-placed room (a labeled edge arrives
+    // after the fallback anchored it): recompute auto positions against the
+    // current graph. Manual layout entries are unaffected.
+    autoPositions.clear();
+    isolatedCursor = 0;
+    layoutVersion.value++;
+    prepareStaticThumbs();
+  });
 
   // ---- open/close ---------------------------------------------------------------
 

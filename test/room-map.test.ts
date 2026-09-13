@@ -34,8 +34,37 @@ function entry(partial: Partial<RoomObservation>): RoomObservation {
 
 test("static scan finds literal targets, including inside conditionals", () => {
   const scan = scanStaticExits(logic("if (isset(f1)) { new.room(7); } new.room(3); return;"));
-  assert.deepEqual(scan.targets, [7, 3]);
+  assert.deepEqual(scan.targets, [{ to: 7 }, { to: 3 }]);
   assert.equal(scan.variableTarget, false);
+});
+
+test("a v2 guard names the exit edge — KQ1's courtyard directions", () => {
+  // Room 1's logic: left edge → 2, right → 8, top → 16. The label on a
+  // static edge is what lets the map place the target on the named side.
+  const scan = scanStaticExits(
+    logic("if(v2==4){new.room(2);} if(v2==2){new.room(8);} if(v2==1){new.room(16);} return;"),
+  );
+  assert.deepEqual(scan.targets, [
+    { to: 2, edge: "left" },
+    { to: 8, edge: "right" },
+    { to: 16, edge: "top" },
+  ]);
+  const graph = mergeRoomGraph({ journal: [], scans: new Map([[1, scan]]) });
+  const edge = graph.edges.find((e) => e.from === 1 && e.to === 2);
+  assert.equal(edge?.provenance, "static");
+  assert.equal(edge?.label, "left");
+});
+
+test("guards that do not pin a single edge leave the exit unlabeled", () => {
+  // An OR between two edges: either could have fired.
+  const ambiguous = scanStaticExits(logic("if(v2==4 || v2==2){new.room(2);} return;"));
+  assert.deepEqual(ambiguous.targets, [{ to: 2 }]);
+  // The else branch runs when v2 is NOT 4 — no single edge to name.
+  const elseBranch = scanStaticExits(logic("if(v2==4){new.room(2);}else{new.room(8);} return;"));
+  assert.deepEqual(elseBranch.targets, [{ to: 2, edge: "left" }, { to: 8 }]);
+  // A conjunct still pins the edge: v2==4 must hold for the then-block.
+  const conjunct = scanStaticExits(logic("if(v2==4 && isset(f5)){new.room(2);} return;"));
+  assert.deepEqual(conjunct.targets, [{ to: 2, edge: "left" }]);
 });
 
 test("a computed room target is a variable exit, never an asserted route", () => {
@@ -134,7 +163,16 @@ test("observed, planned and static exits between the same pair all survive", () 
     journal,
     plan: { "1": { title: "First", description: "", exits: { door: 2, back: 2 } } },
     scans: new Map([
-      [1, { targets: [2], variableTarget: false, pictures: [], calls: [], unresolvedCall: false }],
+      [
+        1,
+        {
+          targets: [{ to: 2 }],
+          variableTarget: false,
+          pictures: [],
+          calls: [],
+          unresolvedCall: false,
+        },
+      ],
     ]),
     shared: new Set(),
   });

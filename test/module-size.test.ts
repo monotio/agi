@@ -35,7 +35,7 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the save format; the release contract pins its structure",
   },
   "app/src/WorldMap.vue": {
-    lines: 1247,
+    lines: 1285,
     boundary: "the world-map overlay: graph, room list and room details",
   },
   "src/picture/source.ts": {
@@ -66,6 +66,10 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     lines: 779,
     boundary: "the agent bubble surface",
   },
+  "app/src/useRoomMap.ts": {
+    lines: 750,
+    boundary: "the world-map composable: merge, pause ownership, thumbnails, persistence",
+  },
   "src/agent/gameTests.ts": {
     lines: 733,
     boundary: "the stored game-test runner",
@@ -74,9 +78,9 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     lines: 716,
     boundary: "the local persistence records layer",
   },
-  "app/src/useRoomMap.ts": {
-    lines: 742,
-    boundary: "the world-map composable: merge, pause ownership, thumbnails, persistence",
+  "src/agent/roomMap.ts": {
+    lines: 713,
+    boundary: "the room-graph model: journal, plan and static-scan merge",
   },
   "app/src/agent/llmClient.ts": {
     lines: 705,
@@ -89,10 +93,6 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
   "app/src/three/AgiStage.ts": {
     lines: 666,
     boundary: "the GPU stage: layers, picking and presentation",
-  },
-  "src/agent/roomMap.ts": {
-    lines: 670,
-    boundary: "the room-graph model: journal, plan and static-scan merge",
   },
 };
 

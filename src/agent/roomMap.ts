@@ -103,8 +103,13 @@ export interface RoomMapDiscovery {
 
 /** Literal exit scan of one logic: attributed edges plus unresolved context. */
 export interface StaticRoomScan {
-  /** Literal new.room targets, in code order (duplicates preserved). */
-  readonly targets: readonly number[];
+  /**
+   * Literal new.room targets, in code order (duplicates preserved). `edge` is
+   * the screen edge a containing `v2 == code` guard names — the side of the
+   * source room the exit leaves through — present only when the guard is an
+   * unambiguous top-level `equaln(v2, N)` clause.
+   */
+  readonly targets: readonly { readonly to: number; readonly edge?: EdgeSide }[];
   /** new.room.v — the target is computed at runtime; value unknown. */
   readonly variableTarget: boolean;
   /**
@@ -169,6 +174,24 @@ const PICTURE_DRAWS: ReadonlySet<string> = new Set(["draw.pic", "overlay.pic"]);
  * is the AGI convention `load.pic(v0); draw.pic(v0)` relies on. Conditional
  * bindings still count: the result is a candidate, never an asserted use.
  */
+/**
+ * The screen edge an if-condition pins on v2, if it pins one unambiguously:
+ * every top-level `equaln(v2, N)` clause must hold for the then-block, so a
+ * single literal N names the departure edge. OR-groups render as one
+ * parenthesized clause and cannot match; conflicting clauses void the claim.
+ */
+function guardEdge(conditionText: string): EdgeSide | undefined {
+  let edge: EdgeSide | undefined;
+  for (const clause of conditionText.split(" && ")) {
+    const m = /^equaln\(v2, (\d+)\)$/.exec(clause);
+    if (m === null) continue;
+    const side = EDGE_SIDES[Number(m[1]) as keyof typeof EDGE_SIDES];
+    if (side === undefined || (edge !== undefined && edge !== side)) return undefined;
+    edge = side;
+  }
+  return edge;
+}
+
 export function scanStaticExits(
   payload: Uint8Array,
   profile?: AgiProfile,
@@ -185,13 +208,15 @@ export function scanStaticExits(
     // written anywhere inside a region is ambiguous after it ends too — the
     // earlier binding may or may not have been overwritten — so bindings to
     // that var expire at the region's end as well.
-    const regions: { start: number; end: number; writes: Set<number> }[] = [];
+    const regions: { start: number; end: number; writes: Set<number>; edge?: EdgeSide }[] = [];
     for (const insn of insns) {
       let start = -1,
         end = -1;
+      let edge: EdgeSide | undefined;
       if (insn.kind === "if") {
         start = insn.end;
         end = insn.target;
+        edge = guardEdge(insn.text ?? "");
       } else if (insn.kind === "goto" && insn.target !== insn.end) {
         start = Math.min(insn.end, insn.target);
         end = Math.max(insn.end, insn.target);
@@ -213,7 +238,7 @@ export function scanStaticExits(
           writes.add(inner.args?.[0] ?? -1);
         else for (const at of VAR_WRITES[inner.name] ?? []) writes.add(inner.args?.[at] ?? -1);
       }
-      regions.push({ start, end, writes });
+      regions.push(edge === undefined ? { start, end, writes } : { start, end, writes, edge });
     }
     const scopeEnd = (at: number): number => {
       let end = Number.POSITIVE_INFINITY;
@@ -221,7 +246,7 @@ export function scanStaticExits(
       return end;
     };
 
-    const targets: number[] = [];
+    const targets: { to: number; edge?: EdgeSide }[] = [];
     const pictures = new Set<number>();
     const calls = new Set<number>();
     const bound = new Map<number, { value: number; scopeEnd: number }>();
@@ -237,8 +262,20 @@ export function scanStaticExits(
       for (const r of regions) if (r.end <= insn.at) for (const v of r.writes) bound.delete(v);
       const name = insn.name;
       const args = insn.args ?? [];
-      if (name === "new.room") targets.push(args[0]!);
-      else if (name === "new.room.v") variableTarget = true;
+      if (name === "new.room") {
+        // The innermost if-region with a v2 guard names the edge this exit
+        // leaves through — both nested guards hold, so the tighter one wins.
+        let edge: EdgeSide | undefined;
+        let span = Number.POSITIVE_INFINITY;
+        for (const r of regions) {
+          if (insn.at < r.start || insn.at >= r.end || r.edge === undefined) continue;
+          if (r.end - r.start < span) {
+            span = r.end - r.start;
+            edge = r.edge;
+          }
+        }
+        targets.push(edge === undefined ? { to: args[0]! } : { to: args[0]!, edge });
+      } else if (name === "new.room.v") variableTarget = true;
       else if (name === "assignn")
         bound.set(args[0]!, { value: args[1]!, scopeEnd: scopeEnd(insn.at) });
       else if (name === "assignv") {
@@ -413,18 +450,24 @@ export function mergeRoomGraph(input: {
     if (input.shared?.has(num) === true) {
       // The logic runs under an unresolved caller: its targets exist but
       // attributing the exits to this logic's number would invent a route.
-      for (const to of scan.targets) {
-        node(to).staticTarget = true;
-        node(to).unknownSource = true;
+      for (const t of scan.targets) {
+        node(t.to).staticTarget = true;
+        node(t.to).unknownSource = true;
       }
       continue;
     }
     if (scan.variableTarget) node(num).variableExit = true;
     if (scan.unresolvedCall) node(num).unknownCalls = true;
-    for (const to of scan.targets) {
-      node(to).staticTarget = true;
+    for (const t of scan.targets) {
+      node(t.to).staticTarget = true;
       node(num);
-      staticEdges.push({ from: num, to, provenance: "static" });
+      // The v2 guard on the new.room names the source room's departure edge —
+      // an exit "left" means the target lies left of this room.
+      staticEdges.push(
+        t.edge === undefined
+          ? { from: num, to: t.to, provenance: "static" }
+          : { from: num, to: t.to, provenance: "static", label: t.edge },
+      );
     }
   }
 

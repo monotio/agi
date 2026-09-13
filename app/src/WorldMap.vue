@@ -36,11 +36,36 @@ const dialog = useTemplateRef("dialog");
 const thumbCanvas = useTemplateRef("thumbCanvas");
 const listEl = useTemplateRef("listEl");
 const graphOpen = ref(true);
+/** Until the user takes the viewport (pan, zoom, select), it tracks the live room. */
+let followLive = true;
 
 onMounted(() => {
   dialog.value?.showModal();
   // Phones read the list first; the graph stays one tap away.
   if (matchMedia("(max-width: 700px)").matches) graphOpen.value = false;
+  // The scroll canvas opens on the pane's top-left corner — usually empty
+  // world margin. Centre the world at mount; once the live room is known the
+  // view follows it while evidence settles (each layout change re-centres
+  // instantly, so async graph data can't leave it behind). The first user
+  // pan, wheel-zoom or selection hands the view over.
+  void nextTick(() => {
+    const el = graphScroll.value;
+    el?.scrollTo({
+      left: (el.scrollWidth - el.clientWidth) / 2,
+      top: (el.scrollHeight - el.clientHeight) / 2,
+    });
+  });
+  watch(
+    () => [currentRoom.value, map.layoutVersion.value] as const,
+    () => {
+      const room = currentRoom.value;
+      if (!followLive || room == null || !positioned.value.has(room)) return;
+      void nextTick(() => {
+        if (followLive) centerNode(room, true);
+      });
+    },
+    { immediate: true },
+  );
 });
 onUnmounted(() => {
   if (dialog.value?.open) dialog.value.close();
@@ -95,6 +120,7 @@ const svgW = computed(() => Math.max(1, Math.round(bounds.value.w * zoom.value))
 const svgH = computed(() => Math.max(1, Math.round(bounds.value.h * zoom.value)));
 
 function setZoom(next: number, clientX?: number, clientY?: number): void {
+  followLive = false;
   const el = graphScroll.value;
   const z = Math.min(3, Math.max(0.15, next));
   if (!el || z === zoom.value) {
@@ -122,6 +148,7 @@ function fitGraph(): void {
 }
 
 function onGraphWheel(ev: WheelEvent): void {
+  followLive = false; // any wheel is the user taking the viewport
   if (!ev.ctrlKey && !ev.metaKey) return;
   ev.preventDefault();
   setZoom(zoom.value * (ev.deltaY < 0 ? 1.2 : 1 / 1.2), ev.clientX, ev.clientY);
@@ -131,6 +158,7 @@ let panning: { x: number; y: number; left: number; top: number; moved: number } 
 const panningActive = ref(false);
 
 function onBgPointerDown(ev: PointerEvent): void {
+  followLive = false;
   if (ev.pointerType === "touch") return; // native touch scrolling already pans
   if ((ev.target as Element).closest(".map-node")) return;
   const el = graphScroll.value;
@@ -252,7 +280,7 @@ function edgeTooltip(edge: RoomGraphEdge): string {
   if (edge.provenance === "observed")
     return edge.label ? `walked off the ${edge.label} edge` : "walked";
   if (edge.provenance === "planned") return edge.label ? `planned exit “${edge.label}”` : "planned";
-  return "named in logic";
+  return edge.label ? `logic exits off the ${edge.label} edge` : "named in logic";
 }
 
 /** Visits to the selected room, newest first. */
@@ -409,13 +437,14 @@ async function watchFromHere(): Promise<void> {
 // ---- selection, notes, layout -------------------------------------------------
 
 function selectRoom(room: number, center = false): void {
+  followLive = false;
   map.select(room);
   if (center) void nextTick(() => centerNode(room));
 }
 
 /** Scroll the graph so the selected node sits at the pane's centre. List
  * selection is a lookup gesture — the graph should answer it visually. */
-function centerNode(room: number): void {
+function centerNode(room: number, instant = false): void {
   const el = graphScroll.value;
   if (!el || !graphOpen.value) return;
   const pos = posOf(room);
@@ -423,7 +452,7 @@ function centerNode(room: number): void {
   el.scrollTo({
     left: (pos.x - bounds.value.x + NODE_W / 2) * z - el.clientWidth / 2,
     top: (pos.y - bounds.value.y + NODE_H / 2) * z - el.clientHeight / 2,
-    behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    behavior: instant || matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
   });
 }
 
@@ -498,6 +527,7 @@ function onNodePointerMove(ev: PointerEvent): void {
   )
     return;
   dragging.moved = true;
+  followLive = false; // a real drag owns the viewport from here on
   const p = svgPoint(ev);
   map.previewNode(dragging.room, p.x - dragging.dx, p.y - dragging.dy);
 }
@@ -528,6 +558,7 @@ function onNodeKeydown(ev: KeyboardEvent, room: number): void {
             : null;
   if (delta) {
     ev.preventDefault();
+    followLive = false;
     map.moveNode(room, pos.x + delta[0]!, pos.y + delta[1]!);
     return;
   }
@@ -758,6 +789,9 @@ function downloadSidecar(): void {
               :key="`e${i}`"
               :class="`edge edge-${geom.edge.provenance}`"
             >
+              <title>{{ edgeTooltip(geom.edge) }}</title>
+              <!-- A wide invisible stroke makes the thin line hoverable. -->
+              <path class="edge-hit" :d="geom.d" />
               <path
                 class="edge-line"
                 :d="geom.d"
@@ -765,7 +799,6 @@ function downloadSidecar(): void {
               />
               <text v-if="geom.edge.label" class="edge-label" :x="geom.lx" :y="geom.ly">
                 {{ geom.edge.label }}
-                <title>{{ edgeTooltip(geom.edge) }}</title>
               </text>
             </g>
             <g
@@ -1134,6 +1167,11 @@ function downloadSidecar(): void {
   fill: #c9dade;
   font-size: 10px;
   text-anchor: middle;
+}
+.edge-hit {
+  stroke: transparent;
+  stroke-width: 12;
+  fill: none;
 }
 .map-legend {
   padding: 6px 12px;
