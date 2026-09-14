@@ -8,7 +8,7 @@ type WorkerReply =
   | { type: "booted" }
   | { type: "metadataPatched" }
   | { type: "cycle"; cycle: number }
-  | { type: "paused"; paused: boolean }
+  | { type: "paused"; paused: boolean; cycle: number }
   | { type: "error"; message: string }
   | { type: "engineState"; id: number; state: EngineStateReport }
   | { type: "exportFiles"; id: number; files: Record<string, Uint8Array> };

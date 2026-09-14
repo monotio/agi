@@ -77,16 +77,41 @@ export function createHistory(ctx: WorkerContext) {
   }
 
   /**
+   * Between-poll sound discharges sit in pendingSpill until the recording
+   * can order them: a recorded boundary that follows emits them as a
+   * `clock` event first — replay must apply the mutation before the pause,
+   * input or answer that observed its effect — while a poll that reaches
+   * them first just folds them into its observation.
+   */
+  function flushSpill(): void {
+    const h = ctx.history;
+    if (h.pendingSpill === 0 || h.segment === null) {
+      h.pendingSpill = 0;
+      return;
+    }
+    h.open.events.push({
+      seq: h.seq++,
+      tick: h.spillTick,
+      cycle: cycle(),
+      cause: { kind: "clock", ticks: h.pendingSpill },
+    });
+    h.openBytes += 48;
+    h.pendingSpill = 0;
+  }
+
+  /**
    * One host poll's clock observation: the sound ticks wall time discharged
-   * since the previous poll — pendingSound counts both this poll's own
-   * advance and the sound timer's between-poll discharges, all of which
-   * precede the cycle decision — plus whether the cycle poll fired. The run
-   * lane is RLE on the tick axis: a steady 60 Hz cadence is one long run.
+   * since the previous poll — pendingSound counts this poll's own advance
+   * and pendingSpill the between-poll discharges no boundary claimed, all
+   * of which precede the cycle decision — plus whether the cycle poll
+   * fired. The run lane is RLE on the tick axis: a steady 60 Hz cadence is
+   * one long run.
    */
   function historyClockObs(cycleFired: boolean): void {
     const h = ctx.history;
-    const sound = h.pendingSound;
+    const sound = h.pendingSound + h.pendingSpill;
     h.pendingSound = 0;
+    h.pendingSpill = 0;
     if (!live()) return;
     const t = tick();
     const last = h.open.clock[h.open.clock.length - 1];
@@ -119,6 +144,7 @@ export function createHistory(ctx: WorkerContext) {
     }
     if (!live()) return;
     const h = ctx.history;
+    flushSpill();
     h.open.events.push({ seq: h.seq++, tick: tick(), cycle: cycle(), cause });
     h.openBytes += JSON.stringify(cause).length + 64;
     if (h.open.events.length >= BATCH_EVENT_MAX || h.openBytes >= BATCH_BYTE_MAX) closeBatch();
@@ -135,6 +161,7 @@ export function createHistory(ctx: WorkerContext) {
   ): { segment: string; seq: number; tick: number } | null {
     if (!live()) return null;
     const h = ctx.history;
+    flushSpill();
     const mark = {
       seq: h.seq,
       tick: tick(),
@@ -150,6 +177,10 @@ export function createHistory(ctx: WorkerContext) {
 
   function syncMark(): void {
     const h = ctx.history;
+    // A mark positions itself at the next event's seq — a pending spill
+    // must claim that seq first or the mark would verify a pre-discharge
+    // replay against post-discharge live state.
+    flushSpill();
     h.open.sync.push(computeSyncMark(ctx.engine!, h.seq, tick(), cycle()));
     h.lastSyncCycle = ctx.cycle.cycleCount;
     h.openBytes += 96;
@@ -260,11 +291,14 @@ export function createHistory(ctx: WorkerContext) {
   /**
    * The host stopped draining: rather than grow without bound, drop the
    * backlog and end the segment so its committed tail stays replayable. The
-   * end marker's seq exposes the dropped tail as a gap in the stored stream.
+   * end batch declares the abandoned batch numbers in `gap` — storage may
+   * skip exactly those, while an undeclared jump still refuses — and its
+   * seq exposes the dropped tail as a gap in the stored stream.
    */
   function overflow(): void {
     const h = ctx.history;
     const segment = h.segment;
+    const abandoned = h.queue.map((entry) => entry.batch.batch);
     h.queue.length = 0;
     h.queuedBytes = 0;
     h.queuedEvents = 0;
@@ -283,6 +317,7 @@ export function createHistory(ctx: WorkerContext) {
       marks: [],
       sync: [],
       end: { seq: h.seq, tick: tick(), cycle: cycle(), reason: "budget" },
+      ...(abandoned.length ? { gap: abandoned } : {}),
     };
     // The end marker always posts, even past the credit bound — the bound
     // exists to cap NEW batches, and this one usually fires exactly because
@@ -358,6 +393,12 @@ export function createHistory(ctx: WorkerContext) {
     h.resendDelay = RESEND_MS; // progress resets the backoff
     if (h.sent.length === 0) disarmResend();
     drain();
+    // A parked eject reply releases once the whole tail is durable.
+    if (h.pendingEndReply !== null && h.sent.length === 0 && h.queue.length === 0) {
+      const id = h.pendingEndReply;
+      h.pendingEndReply = null;
+      ctx.ports.control({ type: "historyEnded", id });
+    }
   }
 
   /**
@@ -373,6 +414,23 @@ export function createHistory(ctx: WorkerContext) {
   }
 
   /**
+   * The eject handshake: end the segment, then hold the reply until every
+   * posted and queued batch carries its ack — the host destroys the worker
+   * once the query settles, so anything still owed an ack would die with
+   * it. A storage layer that never acks is bounded by the query's own
+   * timeout; the resend backoff keeps retrying in the meantime.
+   */
+  function onHistoryEnd(msg: Inbound<"historyEnd">): void {
+    historyEnd("eject");
+    const h = ctx.history;
+    if (h.sent.length > 0 || h.queue.length > 0) {
+      h.pendingEndReply = msg.id;
+      return;
+    }
+    ctx.ports.control({ type: "historyEnded", id: msg.id });
+  }
+
+  /**
    * End the open segment: the last batch carries the end marker so the
    * stored stream shows where and why the recording stopped.
    */
@@ -380,6 +438,7 @@ export function createHistory(ctx: WorkerContext) {
     const h = ctx.history;
     if (h.segment === null) return;
     const segment = h.segment;
+    flushSpill();
     h.resumedFrom = { segment, seq: h.seq, tick: tick() };
     h.open.events.push({
       seq: h.seq++,
@@ -441,6 +500,9 @@ export function createHistory(ctx: WorkerContext) {
     h.lastSyncCycle = 0;
     h.resumePending = false;
     h.resumedFrom = null;
+    h.pendingSound = 0;
+    h.pendingSpill = 0;
+    h.pendingEndReply = null;
     h.rng = (typeof msg.rngSeed === "number" ? msg.rngSeed : 1) >>> 0;
     if (ctx.replay.replay) return; // a seeded boot is a scratch replay session
     beginSegment({
@@ -610,6 +672,7 @@ export function createHistory(ctx: WorkerContext) {
     historyFlush,
     historySnapshot: snapshotBoot,
     onHistoryAck,
+    onHistoryEnd,
     onHistoryRetry,
     onStartRecording,
     onStopRecording,

@@ -60,11 +60,10 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       return;
     }
     if (msg.type === "historyEnd") {
-      // The end marker and final batch post before the reply, so the host's
-      // commit is in flight when the query settles — the drain after it is
-      // what makes eject wait for a durable tape.
-      ctx.fns.historyEnd("eject");
-      control({ type: "historyEnded", id: msg.id });
+      // The end marker posts now, but the reply holds until every batch is
+      // acked — the host destroys the worker when the query settles, so a
+      // reply sent early would strand a tail still owed a commit.
+      ctx.fns.onHistoryEnd(msg);
       return;
     }
     if (msg.type === "historyViewRestore") {

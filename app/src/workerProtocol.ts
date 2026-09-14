@@ -222,7 +222,7 @@ export type WorkerInbound =
  * notices. Posted through sendControl; not suppressed while seeking.
  */
 export type WorkerControl =
-  | { type: "paused"; paused: boolean }
+  | { type: "paused"; paused: boolean; cycle: number }
   | {
       type: "hostRequest";
       id: number;

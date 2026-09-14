@@ -296,7 +296,7 @@ export function createHistoryView(ctx: WorkerContext) {
       ctx.clocks.sound.restore(ctx.ports.now(), boot.soundRemainder);
     else ctx.clocks.sound.reset(ctx.ports.now());
     ctx.cycle.paused = true;
-    ctx.ports.control({ type: "paused", paused: true });
+    ctx.ports.control({ type: "paused", paused: true, cycle: ctx.cycle.cycleCount });
     ctx.history.resumedFrom = from;
     ctx.history.rng = boot.rng;
     ctx.fns.rebaselineJournal();

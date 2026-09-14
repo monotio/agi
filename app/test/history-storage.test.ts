@@ -28,6 +28,7 @@ import {
   loadProjectHistory,
   loadRetainedOriginal,
   mergeHistoryBatch,
+  migrateHistoryRecord,
   resolveStagedSwap,
   saveHistoryBookmark,
   stageRetainedOriginal,
@@ -187,24 +188,55 @@ test("the replay boundary rejects a tape whose event lane is out of order", () =
   assert.throws(() => validateHistoryRecording(recording), /ordered by seq/);
 });
 
-test("an end batch may jump the ledger the queue overflow dropped", async () => {
+test("an end batch alone cannot skip a failed lower batch", async () => {
+  const key = "tape-store-endgap";
+  const ev = (seq: number) => ({
+    seq,
+    tick: seq,
+    cycle: seq,
+    cause: { kind: "key" as const, code: 60 + seq },
+  });
+  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936"), true);
+  assert.equal(await appendHistoryBatch(key, batch(2, { events: [ev(1)] }), "2.936"), true);
+
+  // Batch 3's commit failed; a normal eject closer (batch 4, end:eject,
+  // no gap declaration) must NOT seal the segment past it — the marker
+  // alone is not permission to abandon the missing batch's events.
+  const closer = batch(4, {
+    events: [ev(3)],
+    end: { seq: 4, tick: 4, cycle: 4, reason: "eject" },
+  });
+  assert.equal(await appendHistoryBatch(key, closer, "2.936"), false);
+  assert.equal((await loadGameHistory(key))?.segments[0]?.end, undefined);
+
+  // The missing batch lands on resend; then the closer retries and seals.
+  assert.equal(await appendHistoryBatch(key, batch(3, { events: [ev(2)] }), "2.936"), true);
+  assert.equal(await appendHistoryBatch(key, closer, "2.936"), true);
+  const segment = (await loadGameHistory(key))?.segments[0];
+  assert.equal(segment?.end?.reason, "eject");
+  assert.equal(segment?.events.map((e) => e.seq).join(","), "1,2,3");
+});
+
+test("an end batch may jump only the batch numbers its sender abandoned", async () => {
   const key = "tape-store-endjump";
   assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936"), true);
   assert.equal(await appendHistoryBatch(key, batch(2, {}), "2.936"), true);
+
   // Batches 3-4 were dropped by the worker's queue overflow; its budget
-  // closing batch must still seal the segment.
-  assert.equal(
-    await appendHistoryBatch(
-      key,
-      batch(5, { end: { seq: 40, tick: 40, cycle: 40, reason: "budget" } }),
-      "2.936",
-    ),
-    true,
-  );
+  // closing batch seals the segment only by declaring the abandoned run.
+  const end = { seq: 40, tick: 40, cycle: 40, reason: "budget" as const };
+  assert.equal(await appendHistoryBatch(key, batch(5, { end }), "2.936"), false);
+  assert.equal(await appendHistoryBatch(key, batch(5, { end, gap: [3, 4] }), "2.936"), true);
   const segment = (await loadGameHistory(key))?.segments[0];
   assert.equal(segment?.end?.reason, "budget");
-  // A non-end batch still may not skip — the gap rule holds for events.
-  assert.equal(await appendHistoryBatch(key, batch(9, {}), "2.936"), false);
+
+  // The abandoned numbers joined the ledger: a late resend of one dedups
+  // to an ack — the worker is not made to retry a write it dropped.
+  assert.equal(await appendHistoryBatch(key, batch(3, {}), "2.936"), true);
+  assert.equal((await loadGameHistory(key))?.segments[0]?.events.length, 0);
+
+  // A gap declaration is not a blank check: batch 8 was never abandoned.
+  assert.equal(await appendHistoryBatch(key, batch(9, { gap: [6, 7] }), "2.936"), false);
 });
 
 test("a staged swap leaves the kept session intact until the adoption commits", async () => {
@@ -390,20 +422,108 @@ test("the segment bound drops the oldest ended segments but never the live tail"
   assert.equal(recording.segments[0]?.id, "s-b.3");
 });
 
-test("an open oldest segment blocks eviction — its session may still be live", async () => {
+test("an open head does not pin the ended segments behind it", async () => {
   const key = "tape-store-open-head";
-  // 66 open segments: over the count bound, but nothing carries an end, so
-  // nothing may be dropped — evicting an open head would strand its live
-  // session's batches forever.
-  for (let seg = 1; seg <= 66; seg++) {
+  // One crashed session left its segment open; 70 later sessions ended
+  // cleanly. The bound must still evict the ended ones oldest-first —
+  // an unfinished head cannot disable retention for the whole tape.
+  assert.equal(
+    await appendHistoryBatch(key, { ...batch(1), segment: "s-o.0", boot: BOOT }, "2.936"),
+    true,
+  );
+  const end = { seq: 0, tick: 0, cycle: 0, reason: "quit" as const };
+  for (let seg = 1; seg <= 70; seg++) {
     assert.equal(
-      await appendHistoryBatch(key, { ...batch(1), segment: `s-o.${seg}`, boot: BOOT }, "2.936"),
+      await appendHistoryBatch(
+        key,
+        { ...batch(1), segment: `s-o.${seg}`, boot: BOOT, end },
+        "2.936",
+      ),
       true,
     );
   }
   const recording = await loadGameHistory(key);
-  assert.equal(recording?.segments.length, 66);
-  assert.equal(recording?.dropped ?? 0, 0);
+  assert.ok(recording !== null);
+  assert.equal(recording.segments.length, 64);
+  assert.equal(recording.dropped, 7);
+  // The open head survived — every drop was an ended segment.
+  assert.equal(recording.segments[0]?.id, "s-o.0");
+  assert.equal(recording.segments.at(-1)?.id, "s-o.70");
+
+  // A late batch for an evicted segment acks-and-drops instead of pinning
+  // the sender's resend on a segment that is gone on purpose.
+  assert.equal(await appendHistoryBatch(key, { ...batch(2), segment: "s-o.1" }, "2.936"), true);
+  assert.equal(
+    (await loadGameHistory(key))?.segments.find((s) => s.id === "s-o.1"),
+    undefined,
+    "the tombstone swallowed the straggler",
+  );
+});
+
+test("an all-open tape still sheds its oldest segments past the bound", async () => {
+  const key = "tape-store-all-open";
+  // 66 unfinished sessions — tabs that crashed or never closed. Nothing
+  // carries an end, yet the bound holds: the oldest sheds and the newest
+  // open tail — the session that could still be live — is always kept.
+  for (let seg = 1; seg <= 66; seg++) {
+    assert.equal(
+      await appendHistoryBatch(key, { ...batch(1), segment: `s-p.${seg}`, boot: BOOT }, "2.936"),
+      true,
+    );
+  }
+  const recording = await loadGameHistory(key);
+  assert.equal(recording?.segments.length, 64);
+  assert.equal(recording?.dropped, 2);
+  assert.equal(recording?.segments[0]?.id, "s-p.3");
+  assert.equal(recording?.segments.at(-1)?.id, "s-p.66");
+});
+
+test("a mid-session key change carries the live tape to the new record", async () => {
+  const from = "tape-migrate-from";
+  const to = "tape-migrate-to";
+  assert.equal(
+    await appendHistoryBatch(from, { ...batch(1), segment: "sM.1", boot: BOOT }, "2.936"),
+    true,
+  );
+  assert.equal(
+    await appendHistoryBatch(
+      from,
+      {
+        ...batch(2),
+        segment: "sM.1",
+        events: [{ seq: 0, tick: 1, cycle: 1, cause: { kind: "key", code: 65 } }],
+      },
+      "2.936",
+    ),
+    true,
+  );
+
+  await migrateHistoryRecord(from, to);
+
+  // The continuing session's next batch lands on the moved record — its
+  // ledger carried, so batch 3 is simply next.
+  assert.equal(
+    await appendHistoryBatch(
+      to,
+      {
+        ...batch(3),
+        segment: "sM.1",
+        events: [{ seq: 1, tick: 2, cycle: 2, cause: { kind: "key", code: 66 } }],
+      },
+      "2.936",
+    ),
+    true,
+  );
+  const moved = await loadGameHistory(to);
+  assert.equal(moved?.segments.length, 1);
+  assert.equal(moved?.segments[0]?.events.length, 2);
+  // The source keeps its own copy — that game's sessions still replay.
+  assert.equal((await loadGameHistory(from))?.segments[0]?.events.length, 1);
+});
+
+test("migrating an absent record is a no-op", async () => {
+  await migrateHistoryRecord("tape-migrate-none", "tape-migrate-none-2");
+  assert.equal(await loadGameHistory("tape-migrate-none-2"), null);
 });
 
 test("the total byte bound evicts oldest segments and reports the loss", async () => {

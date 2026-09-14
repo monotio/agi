@@ -209,8 +209,9 @@ test("every WorkerOutbound member reaches its handler once", async () => {
     audioCalls.length = 0;
     switch (type) {
       case "paused":
-        deliver(w, { type, paused: true });
+        deliver(w, { type, paused: true, cycle: 42 });
         assert.equal(hook.paused, true);
+        assert.equal(hook.cycle, 42);
         break;
       case "hostRequest": {
         deliver(w, { type, id: 9, op: "getnum", context: {} });

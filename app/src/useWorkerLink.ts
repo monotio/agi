@@ -171,9 +171,13 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       historyTaken: (msg) => workerQueries.resolveQuery(msg.id, msg),
       historyViewRestored: (msg) => workerQueries.resolveQuery(msg.id, msg),
       // The worker's acknowledgement that the freeze landed — the hook reads
-      // the real pause state, not the request.
+      // the real pause state, not the request. The ack carries the
+      // authoritative cycle counter too: the heartbeat only reports every
+      // 250 ms, so a pause observed between reports would otherwise leave
+      // the hook asserting against a stale count.
       paused: (msg) => {
         hook.paused = msg.paused;
+        hook.cycle = msg.cycle;
       },
       // The worker parks on a player key (have.key, a selector, a
       // confirmation) without posting a host request; this flag mirrors that

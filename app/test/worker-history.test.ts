@@ -45,6 +45,15 @@ const OBJECT_FILE = new Uint8Array([
 ]);
 
 /**
+ * A 32-tick tone — the same fixture layout test/runtime-sound uses, with a
+ * longer duration so a test can complete it between host polls: after
+ * `sound(1, f60)` runs, thirty-three discharged sound ticks set f60.
+ */
+const SOUND_1 = new Uint8Array([
+  8, 0, 15, 0, 15, 0, 15, 0, 32, 0, 0x23, 0x81, 0x94, 0xff, 0xff, 0xff, 0xff,
+]);
+
+/**
  * logic 0 scripts the session's boundaries: f200 an edge exit to room 2
  * with a score gain and a pickup, f201 a get.num suspension whose resumed
  * pass scores and rooms to 3, f202 an LCG roll, f203 the quit confirmation,
@@ -73,6 +82,7 @@ function historyGame(): GameContainer {
        if (isset(f214)) { reset(f214); call(12); }
        if (isset(f215)) { reset(f215); get.num("p2?", v12); }
        if (isset(f216)) { reset(f216); accept.input(); }
+       if (isset(f220)) { reset(f220); set(f9); load.sound(1); sound(1, f60); }
        if (v0 > 0) { call.v(v0); }
        return;`,
       `if (isset(f5)) { assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic(); } return;`,
@@ -83,6 +93,7 @@ function historyGame(): GameContainer {
       c.putResource("picture", 1, PICTURE_1);
       c.putResource("picture", 2, PICTURE_1);
       c.putResource("picture", 3, PICTURE_1);
+      c.putResource("sound", 1, SOUND_1);
       c.putFile("OBJECT", OBJECT_FILE);
     },
   );
@@ -95,6 +106,8 @@ interface HistoryHarness {
   send(msg: WorkerInbound): void;
   /** One 60 Hz host poll: one recorded sound tick and one cycle poll. */
   tick(n?: number): void;
+  /** The sound timer's own callback: discharges between host polls. */
+  soundStep(n?: number): void;
   /** Pending resend timers (the backoff schedule), run on demand. */
   timers: { fn: () => void; ms: number }[];
   /** Fire and consume the oldest pending resend timer. */
@@ -159,10 +172,17 @@ function historyHarness(
     }
     if (autoAck) ackAll();
   };
+  const soundStep = (n = 1): void => {
+    // Advance the wall clock without a host poll — exactly what the sound
+    // timer's own interval does between polls.
+    now += (n * 1000) / 60;
+    ctx.fns.advanceSoundClock();
+    if (autoAck) ackAll();
+  };
   const fireTimer = (): void => {
     timers.shift()?.fn();
   };
-  return { ctx, control, presentation, send, tick, timers, fireTimer };
+  return { ctx, control, presentation, send, tick, soundStep, timers, fireTimer };
 }
 
 /**
@@ -624,7 +644,7 @@ test("a budget overflow still posts its end marker at full credit", () => {
   assert.ok((ctx.history.resumedFrom?.tick ?? 0) > 0, "the resume marker survives the drop");
 });
 
-test("historyEnd closes the segment and posts its batch even at full credit", () => {
+test("historyEnd posts its batch at full credit and replies once the tail is durable", () => {
   const h = historyHarness(historyGame(), { rngSeed: 7 }, { autoAck: false });
   const { ctx, send, tick } = h;
   tick(4);
@@ -634,15 +654,31 @@ test("historyEnd closes the segment and posts its batch even at full credit", ()
     send({ type: "flush", id: 100 + i });
   }
   assert.equal(ctx.history.sent.length, HISTORY_INFLIGHT_MAX, "credit is full");
+  const epoch = ctx.history.epoch;
 
   send({ type: "historyEnd", id: 300 });
-  const ended = h.control.filter((m) => m.type === "historyEnded");
-  assert.equal(ended.length, 1, "the reply confirms the close");
+  // The eject end batch posts past the credit bound — but the reply holds:
+  // the host destroys the worker when the query settles, and the queued
+  // tail is still owed acks.
   const ends = h.control.filter(
     (m) => m.type === "historyBatch" && m.batch.end?.reason === "eject",
   );
   assert.equal(ends.length, 1, "the eject end batch posts past the credit bound");
   assert.equal(ctx.history.segment, null);
+  assert.equal(
+    h.control.filter((m) => m.type === "historyEnded").length,
+    0,
+    "the reply waits for the tail's acks",
+  );
+
+  // Every commit lands — the reply follows the last ack.
+  let guard = 0;
+  while (ctx.history.sent.length > 0 && guard++ < 16)
+    send({ type: "historyAck", epoch, batch: ctx.history.sent[0]!.batch });
+  assert.equal(ctx.history.queue.length, 0);
+  const ended = h.control.filter((m) => m.type === "historyEnded");
+  assert.equal(ended.length, 1, "the reply confirms a durable tape");
+  assert.equal(ended[0]!.type === "historyEnded" ? ended[0]!.id : null, 300);
 });
 
 test("a jittered wall clock replays to the same observed state", () => {
@@ -713,6 +749,66 @@ test("a suspended-tab gap in the host polls replays to the same observed state",
   assert.equal(replayed.error, null);
   assert.equal(replayed.diverged, null, "a gapped tape must not diverge");
   assert.equal(historySyncDigest(replayed.ctx.engine!), liveDigest);
+});
+
+test("a between-poll sound discharge lands on the tape before the pause it preceded", () => {
+  const h = historyHarness(historyGame(), { rngSeed: 9 });
+  const { ctx, send, tick, soundStep } = h;
+  tick(4);
+  send({ type: "debugWrite", id: 0, flags: [[220, 1]] });
+  tick(3);
+  assert.equal(ctx.engine!.flags[60], 0, "the sound is playing");
+
+  // The sound timer's own interval discharges the remaining ticks between
+  // polls — completing the sound live (f60 sets). The pause lands after
+  // that mutation but before the next host poll: folding the discharges
+  // into the next poll's observation would replay the completion AFTER
+  // the pause boundary that already sealed its anchor.
+  soundStep(40);
+  assert.equal(ctx.engine!.flags[60], 1, "the between-poll discharge completed the sound");
+  send({ type: "pause", paused: true });
+  tick(3);
+  send({ type: "pause", paused: false });
+  tick(4);
+  send({ type: "flush", id: 9 });
+
+  const segment = collectSegments(h.control)[0]!;
+  const kinds = segment.events.map((e) => e.cause.kind);
+  const clockAt = kinds.indexOf("clock");
+  const pauseAt = kinds.indexOf("pause");
+  assert.ok(
+    clockAt >= 0 && clockAt < pauseAt,
+    `the spilled discharges precede the pause on the tape: ${kinds.join(",")}`,
+  );
+  const clock = segment.events[clockAt]!;
+  assert.ok(clock.cause.kind === "clock" && clock.cause.ticks === 40);
+
+  const replayed = replayHistorySegment(segment);
+  assert.equal(replayed.error, null);
+  assert.equal(replayed.diverged, null, "the pause boundary verifies post-discharge state");
+  assert.equal(replayed.ctx.engine!.flags[60], 1, "the completion replays before the pause");
+  assert.equal(historySyncDigest(replayed.ctx.engine!), historySyncDigest(ctx.engine!));
+});
+
+test("a between-poll sound discharge lands on the tape before the input it preceded", () => {
+  const h = historyHarness(historyGame(), { rngSeed: 10 });
+  const { ctx, send, tick, soundStep } = h;
+  tick(4);
+  send({ type: "debugWrite", id: 0, flags: [[220, 1]] });
+  tick(3);
+  soundStep(40);
+  assert.equal(ctx.engine!.flags[60], 1);
+  send({ type: "key", code: 65 });
+  tick(6);
+  send({ type: "flush", id: 9 });
+
+  const segment = collectSegments(h.control)[0]!;
+  const kinds = segment.events.map((e) => e.cause.kind);
+  assert.ok(kinds.indexOf("clock") >= 0 && kinds.indexOf("clock") < kinds.indexOf("key"));
+  const replayed = replayHistorySegment(segment);
+  assert.equal(replayed.error, null);
+  assert.equal(replayed.diverged, null);
+  assert.equal(historySyncDigest(replayed.ctx.engine!), historySyncDigest(ctx.engine!));
 });
 
 test("a fresh worker never reuses another session's persisted identity", async () => {

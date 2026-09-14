@@ -96,3 +96,61 @@ test("a refused commit stays unsaved until a resend commits it", async () => {
     "the new session's own refusal is counted — the old ledger is gone",
   );
 });
+
+test("a mid-session storage-key change migrates the tape instead of orphaning it", async () => {
+  const state = {
+    historyPending: 0,
+    historyUnsaved: null as { batches: number; since: number } | null,
+  };
+  let booted = game("hc-catalog");
+  const controller = useHistoryController({
+    state,
+    getBootedGame: () => booted,
+    getProfile: () => "2.936",
+    logAgent: () => {},
+  });
+
+  // The session's stream commits under the catalog game's key.
+  const b = (n: number, extra: Partial<HistoryBatch> = {}): HistoryBatch => ({
+    segment: "sR.1",
+    batch: n,
+    seqStart: n - 1,
+    seqEnd: n,
+    events: [],
+    marks: [],
+    sync: [],
+    ...extra,
+  });
+  assert.equal(
+    await controller.handleHistoryBatch({ epoch: 0, batch: b(1, { boot: BOOT }) }),
+    true,
+  );
+  assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: b(2) }), true);
+
+  // Saving a recording converts the catalog game into a remix project:
+  // `booted` swaps mid-session while the same worker keeps posting the
+  // same segment's batches. The record must move — without the migration
+  // every later commit refuses against a key that never saw the boot.
+  booted = game("hc-remix");
+  assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: b(3) }), true);
+  assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: b(4) }), true);
+  assert.equal(state.historyUnsaved, null, "no batch is stranded by the key change");
+
+  // The moved record holds the whole stream; a resend dedups under it.
+  const { loadGameHistory } = await import("../src/historyStorage.ts");
+  const moved = await loadGameHistory("hc-remix");
+  assert.equal(moved?.segments.length, 1);
+  assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: b(4) }), true);
+
+  // A different session's batch under yet another key is a real switch —
+  // the migration path does not follow it.
+  booted = game("hc-other");
+  assert.equal(
+    await controller.handleHistoryBatch({
+      epoch: 0,
+      batch: { ...b(1, { boot: BOOT }), segment: "sZ.1" },
+    }),
+    true,
+  );
+  assert.equal((await loadGameHistory("hc-other"))?.segments.length, 1);
+});

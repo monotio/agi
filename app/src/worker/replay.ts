@@ -557,6 +557,11 @@ export function openHistoryDrive(
       case "sound":
         engine!.setSoundEnabled(cause.enabled);
         return;
+      case "clock":
+        // Between-poll sound discharges ride the event stream so a cause
+        // that observed their effect replays after them.
+        for (let i = 0; i < cause.ticks; i++) ctx.fns.recordedClock();
+        return;
       case "device": {
         const device = cause.device === 0 ? 0 : 1;
         if (device !== ctx.boot.selectedSoundDevice) engine!.stopSoundPlayback();

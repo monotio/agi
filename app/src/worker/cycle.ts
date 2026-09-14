@@ -28,9 +28,22 @@ export function createCycle(ctx: WorkerContext) {
   }
 
   function recordedClock(): void {
-    // A discharged sound tick counts toward the next poll's clock
-    // observation — the sound timer discharges between polls too.
-    if (ctx.replay.replay === null && ctx.history.segment !== null) ctx.history.pendingSound++;
+    // A discharged sound tick mutates the engine immediately, so the tape
+    // must order it: inside a host poll it joins that poll's clock
+    // observation; outside one — the sound timer's own interval, or a
+    // mid-dispatch advance before a host request suspends — it spills, and
+    // the next recorded boundary emits it as a `clock` cause first. Folding
+    // every discharge into the next poll's observation would let a pause or
+    // input recorded in between replay ahead of a mutation it followed.
+    const h = ctx.history;
+    if (ctx.replay.replay === null && h.segment !== null) {
+      if (h.inPoll) {
+        h.pendingSound++;
+      } else {
+        if (h.pendingSpill === 0) h.spillTick = ctx.cycle.tickCount - h.tickBase;
+        h.pendingSpill++;
+      }
+    }
     ctx.recording.recording?.tape.clock();
     ctx.engine?.advanceClock(1000 / 60);
     ctx.engine?.soundTick();
@@ -78,46 +91,57 @@ export function createCycle(ctx: WorkerContext) {
   function stepHostTick(now: number, obs?: { sound?: number; cycle?: boolean }): boolean {
     const engine = ctx.engine;
     if (!engine) return false;
-    if (ctx.cycle.paused) {
-      // The frozen clock still re-bases so a resume inherits no backlog;
-      // stray discharges recorded under a paused poll still feed — the
-      // pause landed after them on the live tick axis.
-      const parked = obs?.sound ?? ctx.clocks.sound.advance(now, true);
-      for (let i = 0; i < parked; i++) recordedClock();
-      ctx.clocks.cycle.poll(now, engine.vars[10]!, true);
-      return false;
-    }
-    // The clock always advances — its carry stays honest across the tick —
-    // but a recorded lane feeds its own count, never the re-derived one.
-    const discharged = ctx.clocks.sound.advance(now, false);
-    const soundTicks = obs?.sound ?? discharged;
-    for (let i = 0; i < soundTicks; i++) recordedClock();
-    ctx.fns.deliverQueuedKey();
-    if (engine.modalKind !== null || engine.continuationPending || engine.hostInteractionPending) {
-      tickEngine();
-      ctx.fns.noteTransition();
-      ctx.fns.flushTraceBatch();
-      ctx.fns.postFrame();
-      if (ctx.hostRequests.pendingReenter && !engine.hostInteractionPending) {
-        // The suspended re-entered room has landed (or been declined).
-        ctx.hostRequests.pendingReenter = false;
-        // A landed re-enter already consumed its cause; a declined one
-        // must not leave it armed for the next real transition.
-        ctx.journal.pendingCause = null;
-        ctx.fns.noteTransition();
-        ctx.fns.postFrame(true);
+    // Discharges inside this boundary count toward its clock observation;
+    // ones outside spill into the event stream in arrival order instead.
+    ctx.history.inPoll = true;
+    try {
+      if (ctx.cycle.paused) {
+        // The frozen clock still re-bases so a resume inherits no backlog;
+        // stray discharges recorded under a paused poll still feed — the
+        // pause landed after them on the live tick axis.
+        const parked = obs?.sound ?? ctx.clocks.sound.advance(now, true);
+        for (let i = 0; i < parked; i++) recordedClock();
+        ctx.clocks.cycle.poll(now, engine.vars[10]!, true);
+        return false;
       }
-      return false;
+      // The clock always advances — its carry stays honest across the tick —
+      // but a recorded lane feeds its own count, never the re-derived one.
+      const discharged = ctx.clocks.sound.advance(now, false);
+      const soundTicks = obs?.sound ?? discharged;
+      for (let i = 0; i < soundTicks; i++) recordedClock();
+      ctx.fns.deliverQueuedKey();
+      if (
+        engine.modalKind !== null ||
+        engine.continuationPending ||
+        engine.hostInteractionPending
+      ) {
+        tickEngine();
+        ctx.fns.noteTransition();
+        ctx.fns.flushTraceBatch();
+        ctx.fns.postFrame();
+        if (ctx.hostRequests.pendingReenter && !engine.hostInteractionPending) {
+          // The suspended re-entered room has landed (or been declined).
+          ctx.hostRequests.pendingReenter = false;
+          // A landed re-enter already consumed its cause; a declined one
+          // must not leave it armed for the next real transition.
+          ctx.journal.pendingCause = null;
+          ctx.fns.noteTransition();
+          ctx.fns.postFrame(true);
+        }
+        return false;
+      }
+      // The cycle clock always polls — its accumulators stay honest — but a
+      // recorded lane decides whether the live poll fired.
+      const polled = ctx.clocks.cycle.poll(now, engine.vars[10]!);
+      if (!(obs?.cycle ?? polled)) return false;
+      ctx.fns.flushDeferredMovement();
+      tickEngine();
+      finishCycle();
+      ctx.fns.postFrame(true);
+      return true;
+    } finally {
+      ctx.history.inPoll = false;
     }
-    // The cycle clock always polls — its accumulators stay honest — but a
-    // recorded lane decides whether the live poll fired.
-    const polled = ctx.clocks.cycle.poll(now, engine.vars[10]!);
-    if (!(obs?.cycle ?? polled)) return false;
-    ctx.fns.flushDeferredMovement();
-    tickEngine();
-    finishCycle();
-    ctx.fns.postFrame(true);
-    return true;
   }
 
   /**
@@ -186,7 +210,14 @@ export function createCycle(ctx: WorkerContext) {
       ctx.clocks.cycle.restore({ remainder, increments, paused: false }, ctx.ports.now());
       ctx.cycle.pendingClock = null;
     }
-    ctx.ports.control({ type: "paused", paused: ctx.cycle.paused });
+    // The ack carries the authoritative cycle counter: the heartbeat only
+    // reports every CYCLE_REPORT_MS, so a pause landing between reports
+    // would leave the host asserting against a stale count.
+    ctx.ports.control({
+      type: "paused",
+      paused: ctx.cycle.paused,
+      cycle: ctx.cycle.cycleCount,
+    });
   }
 
   return {

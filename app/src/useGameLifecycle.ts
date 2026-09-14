@@ -224,13 +224,15 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     state.leaving = false;
     options.abortWalkthrough();
     options.promptCancel();
-    // Close the tape before the worker dies: the reply lands after the end
-    // batch posts, and the drain after its commit settles — otherwise the
-    // queued tail and the "eject" end marker die with the worker. The walk-
+    // Close the tape before the worker dies: the reply lands only once
+    // every posted and queued batch carries its ack, and the drain after
+    // waits out the matching commits — otherwise the queued tail and the
+    // "eject" end marker die with the worker. Ten seconds covers a resend
+    // backoff cycle so a transient storage refusal still lands. The walk-
     // through session bump comes after: a replay reply is stamped with the
     // session id, and bumping first would drop `historyEnded` as stale.
     try {
-      await link.query("historyEnd", {}, 5_000);
+      await link.query("historyEnd", {}, 10_000);
     } catch {
       // A worker that cannot answer has already stopped recording.
     }

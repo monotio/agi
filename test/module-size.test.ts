@@ -123,11 +123,11 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the GPU stage: layers, picking and presentation",
   },
   "app/src/worker/context.ts": {
-    lines: 619,
+    lines: 671,
     boundary: "the worker session state: ports, cycle, input, replay and history fields",
   },
   "app/src/worker/history.ts": {
-    lines: 611,
+    lines: 683,
     boundary:
       "the one recorder: always-on tape, stored game-test recording lifecycle, anchors and batches",
   },

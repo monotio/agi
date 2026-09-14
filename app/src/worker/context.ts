@@ -255,11 +255,29 @@ export interface HistoryState {
   };
   openBytes: number;
   /**
-   * 60 Hz sound ticks discharged since the last host poll — the sound timer
-   * discharges between polls too, so a poll's observation counts everything
-   * since the previous one: all of it precedes the poll's cycle decision.
+   * 60 Hz sound ticks discharged inside the current host poll — the poll's
+   * clock observation counts them directly: they precede the poll's cycle
+   * decision.
    */
   pendingSound: number;
+  /**
+   * Sound ticks discharged OUTSIDE a poll — the sound timer or a
+   * mid-dispatch advance. They spill into the event stream as a `clock`
+   * cause the moment a recorded boundary follows (a pause or input that
+   * arrived after the mutation must replay after it); when a poll reaches
+   * them first they simply fold into its observation.
+   */
+  pendingSpill: number;
+  /** The tick the current spill began on — the clock event's stamp. */
+  spillTick: number;
+  /** True while a host-poll step runs — discharges inside it are lane-counted. */
+  inPoll: boolean;
+  /**
+   * A `historyEnd` query awaiting a fully durable tape: the reply holds
+   * until every posted and queued batch is acked, so eject cannot kill the
+   * worker with its tail still owed an ack.
+   */
+  pendingEndReply: number | null;
   /** Closed batches awaiting in-flight credit, with their serialized sizes. */
   queue: { batch: HistoryBatch; size: number }[];
   queuedBytes: number;
@@ -411,6 +429,8 @@ export interface WorkerFns {
   /** The parked live session's resume point — the retained original. */
   historySnapshot(): HistoryBoot | null;
   onHistoryAck(msg: Inbound<"historyAck">): void;
+  /** The eject handshake: end the segment, reply once the tail is durable. */
+  onHistoryEnd(msg: Inbound<"historyEnd">): void;
   onHistoryRetry(): void;
   // historyView.ts
   onHistoryViewStart(msg: Inbound<"historyViewStart">): void;
@@ -489,6 +509,10 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       open: { events: [], marks: [], sync: [], clock: [] },
       openBytes: 0,
       pendingSound: 0,
+      pendingSpill: 0,
+      spillTick: 0,
+      inPoll: false,
+      pendingEndReply: null,
       queue: [],
       queuedBytes: 0,
       queuedEvents: 0,

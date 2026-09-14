@@ -88,6 +88,18 @@ export type HistoryEventCause =
   | { kind: "restart" }
   | { kind: "pause"; paused: boolean }
   | { kind: "sound"; enabled: boolean }
+  | {
+      /**
+       * 60 Hz sound discharges that ran between host polls — the sound
+       * timer or a mid-dispatch clock advance. They ride the event stream,
+       * not the next poll's clock observation: a pause or input can be
+       * recorded between the discharge and that poll, and only an ordered
+       * event keeps replay from applying it after the boundary that
+       * already observed its effect.
+       */
+      kind: "clock";
+      ticks: number;
+    }
   | { kind: "device"; device: number }
   | {
       kind: "debugWrite";
@@ -263,6 +275,13 @@ export interface HistoryBatch {
   clock?: HistoryClockRun[];
   anchor?: HistoryAnchor;
   end?: { seq: number; tick: number; cycle: number; reason: HistoryEndReason };
+  /**
+   * Batch numbers this batch's sender deliberately abandoned — the queue
+   * overflow's dropped tail. Storage may skip exactly these in the commit
+   * ledger; an `end` marker alone never grants a jump, so a normal closer
+   * still waits for its missing predecessors.
+   */
+  gap?: number[];
 }
 
 // ---------- sync marks ----------
@@ -556,6 +575,8 @@ function eventCause(value: unknown): HistoryEventCause {
       return { kind: "pause", paused: value["paused"] === true };
     case "sound":
       return { kind: "sound", enabled: value["enabled"] === true };
+    case "clock":
+      return { kind: "clock", ticks: int(value["ticks"], "clock ticks", 1_000_000) };
     case "device":
       return { kind: "device", device: int(value["device"], "device", 0xff) };
     case "debugWrite": {
