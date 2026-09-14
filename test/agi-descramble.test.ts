@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { descrambleAgi } from "../scripts/agi-descramble.ts";
+import { descrambleAgi } from "../scripts/descramble-agi.ts";
 
 test("loader carries the final key bit into both the wrap and the following block", () => {
   const key = new Uint8Array(128);
