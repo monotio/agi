@@ -716,6 +716,22 @@ function downloadSidecar(): void {
           Download MAP.JSON
         </button>
       </span>
+      <span
+        v-if="map.planDirty.value || map.planSaveError.value"
+        class="map-unsaved"
+        role="alert"
+        data-testid="map-plan-unsaved"
+      >
+        {{ map.planSaveError.value || "The plan has unsaved edits." }}
+        <button
+          type="button"
+          class="ui-button ui-button--secondary"
+          data-testid="map-plan-retry"
+          @click="map.retryPlanSave()"
+        >
+          Retry
+        </button>
+      </span>
       <span class="map-header-actions">
         <button
           type="button"

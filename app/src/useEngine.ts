@@ -131,6 +131,8 @@ export function useEngine(
     debugTraceDropped: 0,
     roomJournal: [],
     patchTick: 0,
+    worldTick: 0,
+    planDurableRev: "",
     showObjView: null,
     debugChannels: { ownership: false, objects: false, trace: false, picture: false },
     debugConsumers: {
@@ -443,9 +445,9 @@ export function useEngine(
     resumeEngine,
     pauseWalkthrough: walkthrough.pauseWalkthrough,
     resumeWalkthrough: walkthrough.resumeWalkthrough,
-    onWorldEdited: () => void authoringController.persistSessionState(),
-    buildRoomFromMap: (room, from, notes) =>
-      authoringController.buildRoomFromMap(room, from, notes),
+    onWorldEdited: () => authoringController.persistSessionState(),
+    buildRoomFromMap: (room, from, notes, exitName) =>
+      authoringController.buildRoomFromMap(room, from, notes, exitName),
   });
 
   const historyView = useHistoryView({

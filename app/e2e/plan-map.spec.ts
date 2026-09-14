@@ -107,6 +107,73 @@ test("editing a planned node and walking into it builds the edited version", asy
   await expect(page.getByTestId("map-detail")).toContainText("north");
 });
 
+test("a refused plan write flags unsaved, retains the edit, and Retry lands it", async ({
+  page,
+}) => {
+  // Refuse project-store writes while armed — the flag is a page global, so
+  // arming and disarming it needs no app hooks.
+  await page.addInitScript(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (
+      this: IDBObjectStore,
+      ...args: Parameters<IDBObjectStore["put"]>
+    ) {
+      const w = window as Window & { __agiFailSaves?: boolean };
+      if (w.__agiFailSaves && this.name === "projects")
+        throw new DOMException("quota", "QuotaExceededError");
+      return put.apply(this, args);
+    };
+  });
+  await createAdventure(page);
+  await openMap(page);
+  await page.getByTestId("map-room-2").click();
+  const title = page.getByTestId("plan-room-title");
+  await expect(title).toHaveValue("The Hall");
+
+  // Storage refuses the write: the edit stays in memory, flagged visibly.
+  await page.evaluate(() => {
+    (window as Window & { __agiFailSaves?: boolean }).__agiFailSaves = true;
+  });
+  await title.fill("The Gallery");
+  await title.press("Tab");
+  const flag = page.getByTestId("map-plan-unsaved");
+  await expect(flag).toContainText("could not be saved");
+  await expect(title).toHaveValue("The Gallery");
+
+  // Close and reopen: the in-memory edit and its flag are still there.
+  await page.getByTestId("map-close").click();
+  await expect(page.getByTestId("world-map")).toBeHidden();
+  await openMap(page);
+  await page.getByTestId("map-room-2").click();
+  await expect(page.getByTestId("plan-room-title")).toHaveValue("The Gallery");
+  await expect(flag).toBeVisible();
+
+  // Retry with healthy storage writes the exact in-memory revision.
+  await page.evaluate(() => {
+    (window as Window & { __agiFailSaves?: boolean }).__agiFailSaves = false;
+  });
+  await page.getByTestId("map-plan-retry").click();
+  await expect(flag).toBeHidden();
+  const stored = await page.evaluate(async () => {
+    const { listCachedGames, loadAuthoredGame } = await import("/src/gameStorage.ts");
+    const id = listCachedGames()[0]!.projectId;
+    const data = await loadAuthoredGame(id);
+    const authoring = data?.authoringState?.["authoring"] as
+      { world?: { rooms?: Record<string, { title?: string }> } } | undefined;
+    return authoring?.world?.rooms?.["2"]?.title ?? null;
+  });
+  expect(stored).toBe("The Gallery");
+
+  // Across a reload the durable revision is what the session reopens with.
+  await page.getByTestId("map-close").click();
+  await page.reload();
+  await page.getByTestId("btn-resume-cached").click();
+  await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 30_000 });
+  await openMap(page);
+  await page.getByTestId("map-room-2").click();
+  await expect(page.getByTestId("plan-room-title")).toHaveValue("The Gallery");
+});
+
 test("the plan surface stays usable on a phone and under reduced motion", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -169,5 +236,59 @@ test("a running authored game extends from a planned map node", async ({ page })
   }
   await input.fill("east");
   await input.press("Enter");
+  await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(2);
+});
+
+test("a planned exit the source room lacks becomes a real route when built", async ({ page }) => {
+  // Room 2's plan edge names north→3; room 2's authored logic has no north
+  // route. Building room 3 from the map must rewrite room 2 in the same turn.
+  await page.goto("/");
+  await openDeveloperActivity(page);
+  await page.getByTestId("boot-agent").click();
+  await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("agent-panel")).toContainText("assembled room 1", {
+    timeout: 30_000,
+  });
+  await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(1);
+
+  const input = page.getByTestId("input-line");
+  const say = async (text: string) => {
+    await input.focus();
+    if ((await textHook(page)).modal !== null) {
+      await page.keyboard.press("Enter");
+      await expect.poll(async () => (await textHook(page)).modal).toBe(null);
+    }
+    await input.fill(text);
+    await input.press("Enter");
+  };
+
+  // Walk east: room 2 authors just-in-time.
+  await say("east");
+  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(2);
+
+  // North is plan intent only — the compiled logic has no such route.
+  await say("north");
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
+
+  // Building the planned node rewrites room 2's logic in the same commit.
+  await openMap(page);
+  await page.getByTestId("map-room-3").click();
+  await expect(page.getByTestId("map-detail")).toContainText("planned");
+  await page.getByTestId("map-build-room").click();
+  await expect(page.getByTestId("agent-panel")).toContainText("authored room 3", {
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId("agent-panel")).toContainText("'north' now reaches room 3", {
+    timeout: 15_000,
+  });
+  await page.getByTestId("map-close").click();
+  await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+
+  // Ordinary input now crosses it — no teleport, no host-side rule.
+  await say("north");
+  await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(3);
+
+  // The return route the stub authored still works.
+  await say("west");
   await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(2);
 });

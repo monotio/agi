@@ -80,6 +80,7 @@ function historyGame(): GameContainer {
        if (isset(f211)) { reset(f211); restart.game(); }
        if (isset(f212)) { reset(f212); new.room(8); }
        if (isset(f213)) { reset(f213); new.room(9); }
+       if (isset(f217)) { reset(f217); new.room(10); }
        if (isset(f214)) { reset(f214); call(12); }
        if (isset(f215)) { reset(f215); get.num("p2?", v12); }
        if (isset(f216)) { reset(f216); accept.input(); }
@@ -995,4 +996,177 @@ test("a zero-state draw records its clock word; replay drains the lane back", ()
       historySyncDigest(replayedStripped.ctx.engine!) !== historySyncDigest(ctx.engine!),
     "a missing clock word cannot replay to the recorded state",
   );
+});
+
+test("a room answer's cross-room patch commits atomically or not at all", () => {
+  const h = historyHarness(historyGame(), { rngSeed: 1, authorRooms: true });
+  const { send, tick } = h;
+  const ctx = h.ctx;
+  tick(4);
+  const seen = new Set<number>();
+  const awaitOp = (op: string) => {
+    for (let i = 0; i < 400; i++) {
+      const req = h.control.find((m) => m.type === "hostRequest" && m.op === op && !seen.has(m.id));
+      if (req && req.type === "hostRequest") {
+        seen.add(req.id);
+        return req;
+      }
+      tick(1);
+    }
+    return assert.fail(`host request ${op} never posted`);
+  };
+  const answer = (op: string, response: string) => {
+    send({ type: "hostAnswer", id: awaitOp(op).id, response });
+  };
+  const type = (text: string) => {
+    send({ type: "input", text });
+  };
+  const roomLogic = (n: number, extra = "", dictionary = new Map<string, number>()) =>
+    Array.from(
+      assembleLogic(
+        `if (isset(f5)) { assignn(v50, ${n}); load.pic(v50); draw.pic(v50); show.pic(); accept.input(); } ${extra} return;`,
+        { dictionary },
+      ).payload,
+    );
+  // The one transaction: room 8's logic gains a locked door east, room 9 is
+  // the destination dependency behind it (its own east exit heads for the
+  // still-missing room 10), room 1 gains a clue, and the vocabulary gains
+  // "east" — all-or-nothing.
+  const east = new Map([["east", 5]]);
+  // said() is destructive — the first matching test consumes the parse — so
+  // the flag check leads each clause.
+  const room8Door = roomLogic(
+    8,
+    `if (isset(f30) && said("east")) { new.room(9); }
+     if (!isset(f30) && said("east")) { assignn(v63, 1); }`,
+    east,
+  );
+  const room9OneWay = roomLogic(9, `if (said("east")) { new.room(10); }`, east);
+  const room9Rewritten = roomLogic(
+    9,
+    `assignn(v64, 88); if (said("east")) { new.room(10); }`,
+    east,
+  );
+  const room1Clue = roomLogic(1, "assignn(v61, 77);");
+  const room1Second = roomLogic(1, "assignn(v62, 88);");
+
+  // f212 parks the pass on new.room(8): the answer's patch authors rooms 8-9
+  // and rewrites already-built logic 1 in the same commit — the clue.
+  send({ type: "debugWrite", id: 1, flags: [[212, 1]] });
+  answer(
+    "room",
+    JSON.stringify({
+      room: 8,
+      words: [["east", 5]],
+      resources: [
+        { kind: "logic", num: 1, data: room1Clue },
+        { kind: "logic", num: 8, data: room8Door },
+        { kind: "picture", num: 8, data: Array.from(PICTURE_1) },
+        { kind: "logic", num: 9, data: room9OneWay },
+        { kind: "picture", num: 9, data: Array.from(PICTURE_1) },
+      ],
+    }),
+  );
+  tick(4);
+  assert.equal(ctx.engine!.vars[0], 8, "the authored room landed through the cross-room patch");
+
+  // The conditional door: locked until f30, then ordinary input crosses it.
+  type("east");
+  tick(4);
+  assert.equal(ctx.engine!.vars[63], 1, "the locked door answered east");
+  assert.equal(ctx.engine!.vars[0], 8, "a locked door does not move the player");
+  send({ type: "debugWrite", id: 2, flags: [[30, 1]] });
+  type("east");
+  tick(4);
+  assert.equal(ctx.engine!.vars[0], 9, "the unlocked door delivered the promised room");
+
+  // One-way: room 9's logic has no return — west is dead air.
+  type("west");
+  tick(4);
+  assert.equal(ctx.engine!.vars[0], 9, "the one-way route has no return");
+
+  // Back in room 1 the rewritten logic runs on entry — the clue is real.
+  send({ type: "debugWrite", id: 3, flags: [[6, 1]] });
+  tick(4);
+  assert.equal(ctx.engine!.vars[0], 1);
+  assert.equal(ctx.engine!.vars[61], 77, "the rewritten room-1 logic ran");
+
+  // A patch whose bundle carries an invalid member refuses the whole commit:
+  // no transition, and room 1's second rewrite never lands.
+  send({ type: "debugWrite", id: 4, flags: [[217, 1]] });
+  answer(
+    "room",
+    JSON.stringify({
+      room: 10,
+      resources: [
+        { kind: "logic", num: 1, data: room1Second },
+        { kind: "logic", num: 10, data: roomLogic(10) },
+        { kind: "view", num: 0, data: [1, 2, 3] },
+        { kind: "picture", num: 10, data: Array.from(PICTURE_1) },
+      ],
+    }),
+  );
+  tick(4);
+  assert.equal(ctx.engine!.vars[0], 1, "a refused patch leaves the room");
+  assert.equal(ctx.engine!.modalKind, "print");
+  send({ type: "dismissPrint" });
+  tick(2);
+  // Re-entering room 1 runs its logic again — the refused v62 write is absent.
+  send({ type: "debugWrite", id: 5, flags: [[6, 1]] });
+  tick(4);
+  assert.equal(ctx.engine!.vars[62], 0, "the refused rewrite never landed");
+
+  // The named edge case: the source room itself parked in new.room. Room 9's
+  // own logic suspends on east→10; the answer rewrites that very logic while
+  // the pass is parked inside it, plus authors room 10 — the transition still
+  // completes, and the rewrite is live on the next entry.
+  send({ type: "debugWrite", id: 6, flags: [[212, 1]] });
+  tick(4);
+  assert.equal(ctx.engine!.vars[0], 8, "room 8 re-entered, still authored");
+  type("east");
+  tick(4);
+  assert.equal(ctx.engine!.vars[0], 9);
+  type("east");
+  const parked = awaitOp("room");
+  send({
+    type: "hostAnswer",
+    id: parked.id,
+    response: JSON.stringify({
+      room: 10,
+      resources: [
+        { kind: "logic", num: 9, data: room9Rewritten },
+        { kind: "logic", num: 10, data: roomLogic(10) },
+        { kind: "picture", num: 10, data: Array.from(PICTURE_1) },
+      ],
+    }),
+  });
+  tick(4);
+  assert.equal(
+    ctx.engine!.vars[0],
+    10,
+    "the parked source room's rewrite did not lose the transition",
+  );
+  // Return through 8 to 9 — the parked-room rewrite runs its new entry code.
+  send({ type: "debugWrite", id: 7, flags: [[6, 1]] });
+  tick(3);
+  send({ type: "debugWrite", id: 8, flags: [[212, 1]] });
+  tick(4);
+  type("east");
+  tick(4);
+  assert.equal(ctx.engine!.vars[0], 9);
+  assert.equal(ctx.engine!.vars[64], 88, "the parked-room rewrite is live");
+
+  // The committed patch is what the tape carries: replay applies the recorded
+  // bytes verbatim — from the boot and from the last anchor alike.
+  send({ type: "flush", id: 99 });
+  const segment = collectSegments(h.control).at(-1)!;
+  const liveDigest = historySyncDigest(ctx.engine!);
+  for (const replayed of [
+    replayHistorySegment(segment),
+    replayHistorySegment(segment, { anchor: segment.anchors.length - 1 }),
+  ]) {
+    assert.equal(replayed.error, null);
+    assert.equal(replayed.diverged, null);
+    assert.equal(historySyncDigest(replayed.ctx.engine!), liveDigest);
+  }
 });

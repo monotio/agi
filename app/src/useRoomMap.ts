@@ -31,6 +31,7 @@ import {
   draftRenameRoom,
   draftSetBrief,
   lowestFreeRoom,
+  worldRevision,
   type WorldDraft,
   type WorldPlan,
 } from "../../src/agent/worldPlan.ts";
@@ -67,6 +68,25 @@ const MAX_PENDING_THUMBS = 64;
 
 const CELL_W = 220;
 const CELL_H = 190;
+
+/**
+ * One displayed plan field: `draft` is the user's text, `base` the plan value
+ * the draft last agreed with — the per-field compare-and-set expectation.
+ * When the plan moved under a dirty draft, `conflict` holds the plan's
+ * current text; the draft stays untouched for explicit reconciliation.
+ */
+export interface PlanFieldEdit {
+  draft: string;
+  base: string;
+  conflict: string | null;
+}
+
+/** The detail pane's edit session for one room's plan entry. */
+export interface PlanRoomEdit {
+  room: number;
+  title: PlanFieldEdit;
+  brief: PlanFieldEdit;
+}
 
 export interface MapThumbnail {
   readonly pixels: Uint8Array;
@@ -129,11 +149,12 @@ export interface RoomMapDeps {
   readonly resumeWalkthrough: () => void;
   /** Injectable for tests; defaults to browser storage. */
   readonly storage?: Pick<Storage, "getItem" | "setItem"> | undefined;
-  /** A map edit committed to the live session world — the owner persists it. */
-  readonly onWorldEdited?: (() => void) | undefined;
+  /** A map edit committed to the live session world — the owner persists it
+   *  and reports whether the write became durable (void counts as written). */
+  readonly onWorldEdited?: (() => boolean | void | Promise<boolean | void>) | undefined;
   /** "Build this room": author one planned room against the named inbound edge. */
   readonly buildRoomFromMap?:
-    ((room: number, from: number, notes: string[]) => Promise<void>) | undefined;
+    ((room: number, from: number, notes: string[], exitName?: string) => Promise<void>) | undefined;
 }
 
 export interface RoomMap {
@@ -172,6 +193,12 @@ export interface RoomMap {
   // ---- the map as the plan surface ----------------------------------------
   /** The last plan edit's refusal, or "". */
   readonly planError: Ref<string>;
+  /** The session world's revision is newer than the last durable write. */
+  readonly planDirty: ComputedRef<boolean>;
+  /** Why the last plan write failed, or "". */
+  readonly planSaveError: Ref<string>;
+  /** Persist the in-memory plan again after a refused write. */
+  retryPlanSave(): Promise<void>;
   /** Room a map-triggered build is authoring, if any. */
   readonly buildingRoom: Ref<number | undefined>;
   setBuilding(room: number | undefined): void;
@@ -181,6 +208,22 @@ export interface RoomMap {
   readonly canPlan: ComputedRef<boolean>;
   /** The plan entry for a room in the session world, or null. */
   plannedEntry(room: number): WorldPlan["rooms"][string] | null;
+  /** Open a field-edit session for a room's plan entry — null when not planned. */
+  beginPlanEdit(room: number): PlanRoomEdit | null;
+  /** Follow a plan update under an open session: clean fields refresh, dirty ones flag. */
+  syncPlanEdit(edit: PlanRoomEdit): void;
+  /**
+   * Commit a displayed field with per-field compare-and-set. Returns null on
+   * commit, "conflict" when the plan moved under a dirty draft (the field's
+   * `conflict` then holds the plan's text), or a refusal message.
+   */
+  commitPlanField(edit: PlanRoomEdit | null, field: "title" | "brief"): string | null;
+  /** Reconcile a flagged field — keep the user's text or take the plan's. */
+  resolvePlanField(
+    edit: PlanRoomEdit | null,
+    field: "title" | "brief",
+    keep: "mine" | "plan",
+  ): string | null;
   renamePlannedRoom(room: number, title: string): string | null;
   setPlannedBrief(room: number, brief: string): string | null;
   addPlannedRoom(
@@ -208,6 +251,84 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   const buildingRoom = ref<number>();
   /** Bumped when a map edit changes the plan — the graph re-merges intent. */
   const planVersion = ref(0);
+  /**
+   * Plan-save ordering: each persist takes a ticket; only the newest write's
+   * outcome updates the flag, so a late ack for an older write can never
+   * label newer content saved — or hide a newer failure. Successful writes
+   * report their revision into state.planDurableRev (every authoring-state
+   * save does); this path only fills that in when the channel did not.
+   */
+  let planWriteTicket = 0;
+  const planSaveError = ref("");
+  /**
+   * The revision storage last handed this session to the map. Captured when
+   * the session object first appears — before any edit — so a world whose
+   * durable rev is unreported still starts clean instead of seeding itself.
+   */
+  let planBaselineSession: AgentSession | null = null;
+  let planBaselineRev = "";
+
+  function planRevisionNow(): string | null {
+    const session = deps.getSession();
+    const rooms = session?.state.authoring.world;
+    if (!rooms) {
+      planBaselineSession = null;
+      planBaselineRev = "";
+      return null;
+    }
+    if (session !== planBaselineSession) {
+      planBaselineSession = session;
+      planBaselineRev = worldRevision(rooms);
+    }
+    return worldRevision(rooms);
+  }
+
+  // The baseline is captured eagerly — session attach bumps worldTick — so a
+  // first call arriving mid-edit never seeds the baseline to edited content.
+  watch(
+    () => state.worldTick,
+    () => {
+      void planRevisionNow();
+    },
+    { immediate: true },
+  );
+
+  /**
+   * The edited-vs-durable comparison: the durable channel wins while it has
+   * a report; before the first one, the session's opening revision stands
+   * in — it is what storage handed us.
+   */
+  const planDirty = computed<boolean>(() => {
+    void planVersion.value;
+    void state.worldTick;
+    void state.planDurableRev;
+    const rev = planRevisionNow();
+    if (rev === null) return false;
+    const durable = state.planDurableRev || planBaselineRev;
+    return rev !== durable;
+  });
+
+  /** Persist the plan the map just edited; durable only tracks acked writes. */
+  async function persistPlan(): Promise<void> {
+    const rev = planRevisionNow();
+    const durableAtIssue = state.planDurableRev;
+    const ticket = ++planWriteTicket;
+    const ok = (await deps.onWorldEdited?.()) ?? true;
+    if (ticket !== planWriteTicket) return; // a newer write owns the verdict
+    if (!ok) {
+      planSaveError.value =
+        "The plan could not be saved — edits are kept in memory; Retry writes them again.";
+      return;
+    }
+    planSaveError.value = "";
+    // persistSessionState reports this write itself; fill in only when the
+    // channel stayed silent and no newer durable report landed mid-flight.
+    if (rev !== null && state.planDurableRev === durableAtIssue) state.planDurableRev = rev;
+  }
+
+  async function retryPlanSave(): Promise<void> {
+    await persistPlan();
+  }
   const canPlan = computed(() => plannedRooms() !== undefined);
 
   /** The durable journal — survives reboots and reloads of the same game. */
@@ -308,6 +429,9 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
    */
   function plannedRooms(): AuthoringState["world"]["rooms"] | undefined {
     void planVersion.value;
+    // Agent-side commits (turn adoptions, session installs) signal through
+    // worldTick — a plan-only change produces no patchTick.
+    void state.worldTick;
     const snapshot = deps.getSession()?.getAuthoringState() as
       { authoring?: AuthoringState } | undefined;
     return snapshot?.authoring?.world?.rooms;
@@ -443,6 +567,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     scanned = null;
     selected.value = undefined;
     planError.value = "";
+    planSaveError.value = "";
     unsaved.value = false;
     storageError.value = "";
   }
@@ -839,10 +964,13 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       return;
     }
     let from: number | null = null;
+    let exitName: string | undefined;
     const rooms = deps.getSession()?.state.authoring.world.rooms ?? {};
     for (const [num, candidate] of Object.entries(rooms)) {
-      if (Object.values(candidate.exits).includes(room)) {
+      const named = Object.entries(candidate.exits).find(([, to]) => to === room);
+      if (named) {
         from = Number(num);
+        exitName = named[0];
         break;
       }
     }
@@ -850,7 +978,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     buildingRoom.value = room;
     planError.value = "";
     try {
-      await deps.buildRoomFromMap(room, from, noteIntentFor(room));
+      await deps.buildRoomFromMap(room, from, noteIntentFor(room), exitName);
     } catch (error) {
       planError.value = String(error);
     } finally {
@@ -876,8 +1004,8 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     if (result.status === "conflict")
       return "The plan changed while you were editing — close and reopen the map.";
     if (result.status === "invalid") return result.error;
-    deps.onWorldEdited?.();
     planVersion.value++;
+    void persistPlan();
     return null;
   }
 
@@ -969,6 +1097,120 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     return planOp(() => editWorld((draft) => draftRemoveExit(draft, from, name)));
   }
 
+  // ---- displayed field edits ---------------------------------------------
+  //
+  // A form's base is captured when the edit session opens (room selected),
+  // not when a field saves. Each commit compares the field's live plan value
+  // against that base — a plan update under an open form flags a conflict
+  // and keeps the user's text for an explicit keep/revert choice, never a
+  // silent overwrite. Clean fields simply follow the plan. A busy turn still
+  // refuses through commitPlanDraft; these bases catch the turn that
+  // completed while the form stayed open.
+
+  function planFieldValue(room: number, field: "title" | "brief"): string | null {
+    const entry = plannedEntry(room);
+    return entry ? (field === "title" ? entry.title : entry.description) : null;
+  }
+
+  function beginPlanEdit(room: number): PlanRoomEdit | null {
+    const entry = plannedEntry(room);
+    if (!entry) return null;
+    return {
+      room,
+      title: { draft: entry.title, base: entry.title, conflict: null },
+      brief: { draft: entry.description, base: entry.description, conflict: null },
+    };
+  }
+
+  function syncPlanEdit(edit: PlanRoomEdit): void {
+    const entry = plannedEntry(edit.room);
+    if (!entry) return;
+    for (const field of ["title", "brief"] as const) {
+      const f = edit[field];
+      const current = field === "title" ? entry.title : entry.description;
+      if (current === f.base) {
+        // Back at the CAS anchor — any earlier flag is stale.
+        f.conflict = null;
+        continue;
+      }
+      if (f.draft === f.base || f.draft === current) {
+        // Clean — or the plan converged to the user's text: follow it.
+        f.draft = current;
+        f.base = current;
+        f.conflict = null;
+      } else {
+        // Dirty under a moved plan: flag with the plan's current text and
+        // keep the base anchored so the commit CAS still refuses.
+        f.conflict = current;
+      }
+    }
+  }
+
+  /**
+   * The shared write for a field: the live value must still be `expect` —
+   * the base for a plain commit, the flagged value for an explicit
+   * overwrite. A mismatch flags `conflict` and writes nothing.
+   */
+  function writePlanField(
+    edit: PlanRoomEdit,
+    field: "title" | "brief",
+    expect: string,
+  ): string | null {
+    const current = planFieldValue(edit.room, field);
+    if (current === null) return planOp(() => `Room ${edit.room} is no longer in the plan.`);
+    if (current !== expect) {
+      edit[field].conflict = current;
+      return "conflict";
+    }
+    const error = planOp(() =>
+      editWorld((draft) =>
+        field === "title"
+          ? draftRenameRoom(draft, edit.room, edit[field].draft)
+          : draftSetBrief(draft, edit.room, edit[field].draft),
+      ),
+    );
+    if (error === null) {
+      edit[field].base = edit[field].draft;
+      edit[field].conflict = null;
+    }
+    return error;
+  }
+
+  function commitPlanField(edit: PlanRoomEdit | null, field: "title" | "brief"): string | null {
+    if (!edit) return null;
+    const f = edit[field];
+    const current = planFieldValue(edit.room, field);
+    if (f.draft === current) {
+      // Nothing to write — including the plan converging to the draft.
+      if (current !== null) {
+        f.base = current;
+        f.conflict = null;
+      }
+      return null;
+    }
+    if (field === "title" && !f.draft.trim()) return null; // an emptied blur is not an edit
+    return writePlanField(edit, field, f.base);
+  }
+
+  function resolvePlanField(
+    edit: PlanRoomEdit | null,
+    field: "title" | "brief",
+    keep: "mine" | "plan",
+  ): string | null {
+    if (!edit) return null;
+    const f = edit[field];
+    if (f.conflict === null) return null;
+    if (keep === "plan") {
+      const current = planFieldValue(edit.room, field);
+      f.draft = current ?? f.conflict;
+      f.base = f.draft;
+      f.conflict = null;
+      return null;
+    }
+    // Explicit overwrite — still CAS against the value the user saw flagged.
+    return writePlanField(edit, field, f.conflict);
+  }
+
   return {
     open,
     selected,
@@ -997,11 +1239,18 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     retrySave,
     storedSidecar,
     planError,
+    planDirty,
+    planSaveError,
+    retryPlanSave,
     buildingRoom,
     canPlan,
     setBuilding,
     buildPlannedRoom,
     plannedEntry,
+    beginPlanEdit,
+    syncPlanEdit,
+    commitPlanField,
+    resolvePlanField,
     renamePlannedRoom,
     setPlannedBrief,
     addPlannedRoom,

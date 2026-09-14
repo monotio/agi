@@ -214,16 +214,22 @@ export function createRuntimeRoomPrompt(
   room: number,
   from: number,
   playerNotes?: readonly string[],
+  plannedExit?: string,
 ): string {
   return JSON.stringify({
     op: "room",
     room,
     from,
     ...(playerNotes?.length ? { playerNotes } : {}),
+    ...(plannedExit ? { plannedExit } : {}),
     instruction: `Author exactly room ${room} (picture and standard AGI logic).${
       playerNotes?.length
         ? " The playerNotes field lists intent the player pinned on the world map for this room — provenance, not resources and not observed behavior; honor it where it fits the plan."
         : ""
-    } Connect it back to room ${from}. Consult inspect_world_bible to retrieve the planned room description, quests, and facts established during Genesis or earlier rooms. Inspect the departure snapshot with read_room_context for flags, inventory and ego's actual view. Read global logic 0 and connected room logic when choosing shared flags, variables or future exits; resources and inventory definitions follow below. Author ONLY room ${room}; do not author rooms beyond this one. Any exits to yet-unvisited rooms simply call new.room(targetRoom). Deliver room ${room} as a fully solvable section up to its exits. Maintain unmannered, diegetic prose: direct statements, no fourth-wall breaks, and no score increments like "(+10)" in print messages (award points to v3). Use read_picture/read_view for visual inspection; gameplay is paused and read_room_context's frames section is unavailable during room preparation. Register any new words before compiling handlers, and author any new views or sounds the room uses. Do not overwrite other rooms or existing views/sounds. New inventory items are allowed: write_inventory_objects must keep the full existing table in order with unchanged names and startingRoom values, then append new items. Existing live item locations are preserved. Update update_world if new quests or facts emerge. Maintain world continuity and puzzle progression. When finished, call handover to validate the room and resume gameplay.`,
+    }${
+      plannedExit
+        ? ` The world plan expects room ${from} to reach this room through its '${plannedExit}' exit. If room ${from}'s logic does not already implement that route, rewrite it in this response — the planned connection must be real compiled behavior, not intent.`
+        : ""
+    } Connect it back to room ${from}. Consult inspect_world_bible to retrieve the planned room description, quests, and facts established during Genesis or earlier rooms. Inspect the departure snapshot with read_room_context for flags, inventory and ego's actual view. Read global logic 0 and connected room logic when choosing shared flags, variables or future exits; resources and inventory definitions follow below. Room ${room} is the turn's center, not a boundary: when the story needs it — a promised exit the source room lacks, a clue added to an earlier room, a shared door or consequence — rewrite those existing logics, pictures, views or sounds in this same turn; the whole change lands as one transaction. Any exits to yet-unvisited rooms simply call new.room(targetRoom). Deliver room ${room} as a fully solvable section up to its exits. Maintain unmannered, diegetic prose: direct statements, no fourth-wall breaks, and no score increments like "(+10)" in print messages (award points to v3). Use read_picture/read_view for visual inspection; gameplay is paused and read_room_context's frames section is unavailable during room preparation. Register any new words before compiling handlers, and author any new views or sounds the room uses. Keep every existing resource's number and identity stable when rewriting it. New inventory items are allowed: write_inventory_objects must keep the full existing table in order with unchanged names and startingRoom values, then append new items. Existing live item locations are preserved. Update update_world if new quests or facts emerge. Maintain world continuity and puzzle progression. When finished, call handover to validate the room and resume gameplay.`,
   });
 }

@@ -925,10 +925,17 @@ Answer the player's question using evidence from inspection when needed. For hin
           .slice(0, 16)
           .map((note) => note.slice(0, 400))
       : undefined;
+    // A map-built extension names the planned exit it is realizing: the turn
+    // must leave that route implemented in the source room's logic.
+    const rawExit = req.context["plannedExit"];
+    const plannedExit =
+      typeof rawExit === "string" && rawExit.length > 0 && rawExit.length <= 40
+        ? rawExit
+        : undefined;
     try {
       let turn = await this.observeTurn(
         this.conversation.sendUserMessage(
-          createRuntimeRoomPrompt(room, from, playerNotes) +
+          createRuntimeRoomPrompt(room, from, playerNotes, plannedExit) +
             `\nResources: ${resources.message ?? ""}\nInventory (preserve this order): ${JSON.stringify(staged.sources.objects)}\nPrevious room logic:\n${previous.message ?? ""}`,
         ),
         "room",
@@ -991,7 +998,7 @@ Answer the player's question using evidence from inspection when needed. For hin
             } else {
               result = await executeAgentToolAsync(candidate, tc.name, tc.input, snapshot);
               if (result.success) {
-                validateRoomCandidate(this.state, staged, candidate, room);
+                validateRoomCandidate(this.state, staged, candidate);
                 staged = candidate;
                 if (
                   result.details?.["writtenResources"] ||

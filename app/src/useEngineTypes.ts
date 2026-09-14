@@ -173,6 +173,19 @@ export interface EngineState {
    * scan of the booted resources (the world map) subscribe to re-derive.
    */
   patchTick: number;
+  /**
+   * Bumped when the session's authoring world may have changed — a turn's
+   * adoption, a tape checkpoint post, a session-state adoption. Plan surfaces
+   * re-read the world on this tick even when no resource moved.
+   */
+  worldTick: number;
+  /**
+   * The world revision of the last confirmed durable write — set by every
+   * path that persists the authoring state (map edits, turn commits,
+   * adoptions). The map's dirty flag compares the live revision against it;
+   * "" means no write has been reported this session.
+   */
+  planDurableRev: string;
   /** Debug channels the app has armed on the worker. */
   debugChannels: { ownership: boolean; objects: boolean; trace: boolean; picture: boolean };
   /**

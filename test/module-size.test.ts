@@ -90,9 +90,9 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the agent bubble surface",
   },
   "app/src/useRoomMap.ts": {
-    lines: 1008,
+    lines: 1260,
     boundary:
-      "the world-map composable: merge, pause ownership, thumbnails, persistence, plan editing and map-driven builds",
+      "the world-map composable: merge, pause ownership, thumbnails, persistence, plan editing, durable-revision tracking and map-driven builds",
   },
   "src/agent/gameTests.ts": {
     lines: 733,

@@ -205,7 +205,7 @@ test("a provider power-up returns compiled vocabulary and inventory files with i
   assert.equal(result.text, "You have a crystal.");
 });
 
-test("room helper edits are transactional and cannot rewrite another room", async (t) => {
+test("room helper edits are transactional and may rewrite another room", async (t) => {
   const { assembleLogic } = await import("../../src/logic/assembler.ts");
   const { sourceContextRevision } = await import("../../src/agent/authoringTools.ts");
   const state = createAgentSessionState();
@@ -213,17 +213,14 @@ test("room helper edits are transactional and cannot rewrite another room", asyn
   state.container.putResource("logic", 1, original);
   state.sources.logics.set(1, "assignn(v40, 1); return;");
   let count = 0;
-  let rejected = "";
-  t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
-    const request = JSON.parse(String(init.body));
+  t.mock.method(globalThis, "fetch", async () => {
     count++;
-    if (count === 2) rejected = JSON.stringify(request.input);
     const output =
       count === 1
         ? [
             {
               type: "function_call",
-              call_id: "wrong",
+              call_id: "cross",
               name: "edit_resource_source",
               arguments: JSON.stringify({
                 kind: "logic",
@@ -270,9 +267,21 @@ test("room helper edits are transactional and cannot rewrite another room", asyn
     () => {},
     state,
   );
-  await session.handle({ op: "room", context: { room: 2, from: 1 } });
-  assert.deepEqual(state.container.getResource("logic", 1), original);
-  assert.match(rejected, /requested room/);
+  const response = await session.handle({ op: "room", context: { room: 2, from: 1 } });
+  // The source-room rewrite lands in the same transaction as the new room.
+  assert.deepEqual(
+    state.container.getResource("logic", 1),
+    assembleLogic("assignn(v40, 2); return;", { dictionary: new Map() }).payload,
+  );
+  const patch = JSON.parse(response);
+  assert.deepEqual(
+    patch.resources.map((r: { kind: string; num: number }) => [r.kind, r.num]),
+    [
+      ["logic", 1],
+      ["logic", 2],
+      ["picture", 2],
+    ],
+  );
   assert.equal(state.authoring.world.facts["weather"], "rain");
 });
 

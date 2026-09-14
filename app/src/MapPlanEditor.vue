@@ -10,6 +10,7 @@
 import { computed, ref, watch } from "vue";
 import { useEngineApi } from "./engineContext.ts";
 import type { RoomGraphNode } from "../../src/agent/roomMap.ts";
+import type { PlanRoomEdit } from "./useRoomMap.ts";
 
 const props = defineProps<{ node: RoomGraphNode }>();
 const engine = useEngineApi();
@@ -18,8 +19,12 @@ const map = engine.roomMap;
 const entry = computed(() => map.plannedEntry(props.node.room));
 const planExits = computed(() => Object.entries(entry.value?.exits ?? {}));
 
-const titleDraft = ref("");
-const briefDraft = ref("");
+/**
+ * The field-edit session for the selected room: drafts carry per-field
+ * bases captured when the session opened, so a plan update landing under
+ * the open form flags a conflict instead of being silently overwritten.
+ */
+const edit = ref<PlanRoomEdit>();
 const newExitName = ref("");
 const newExitTarget = ref("");
 const addOpen = ref(false);
@@ -30,8 +35,7 @@ const addExitName = ref("");
 watch(
   () => props.node.room,
   () => {
-    titleDraft.value = entry.value?.title ?? "";
-    briefDraft.value = entry.value?.description ?? "";
+    edit.value = map.beginPlanEdit(props.node.room) ?? undefined;
     newExitName.value = "";
     newExitTarget.value = "";
     addOpen.value = false;
@@ -42,14 +46,17 @@ watch(
   { immediate: true },
 );
 
-function commitTitle(): void {
-  if (titleDraft.value.trim() && titleDraft.value !== entry.value?.title)
-    map.renamePlannedRoom(props.node.room, titleDraft.value);
-}
+// The plan moved under the open form — an agent turn or a take adopting a
+// different world. Clean fields follow; dirty ones wait for the user. A
+// room entering the plan while selected opens its session here.
+watch(entry, (next) => {
+  if (!next) return;
+  if (!edit.value) edit.value = map.beginPlanEdit(props.node.room) ?? undefined;
+  else map.syncPlanEdit(edit.value);
+});
 
-function commitBrief(): void {
-  if (briefDraft.value !== (entry.value?.description ?? ""))
-    map.setPlannedBrief(props.node.room, briefDraft.value);
+function commitField(field: "title" | "brief"): void {
+  if (edit.value) map.commitPlanField(edit.value, field);
 }
 
 function addExit(): void {
@@ -87,25 +94,73 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
 
 <template>
   <div class="plan-editor" data-testid="map-plan-editor">
-    <template v-if="entry">
+    <template v-if="entry && edit">
       <label class="plan-field">
         Name
         <input
-          v-model="titleDraft"
+          v-model="edit.title.draft"
           maxlength="160"
           data-testid="plan-room-title"
-          @change="commitTitle"
+          @change="commitField('title')"
         />
       </label>
+      <div
+        v-if="edit.title.conflict !== null"
+        class="plan-conflict"
+        role="alert"
+        data-testid="plan-title-conflict"
+      >
+        The plan now says “{{ edit.title.conflict }}”.
+        <button
+          type="button"
+          class="ui-button ui-button--secondary"
+          data-testid="plan-title-keep"
+          @click="map.resolvePlanField(edit, 'title', 'mine')"
+        >
+          Keep mine
+        </button>
+        <button
+          type="button"
+          class="ui-button ui-button--secondary"
+          data-testid="plan-title-use-plan"
+          @click="map.resolvePlanField(edit, 'title', 'plan')"
+        >
+          Use the plan's
+        </button>
+      </div>
       <label class="plan-field">
         What happens here
         <textarea
-          v-model="briefDraft"
+          v-model="edit.brief.draft"
           rows="2"
           data-testid="plan-room-brief"
-          @change="commitBrief"
+          @change="commitField('brief')"
         />
       </label>
+      <div
+        v-if="edit.brief.conflict !== null"
+        class="plan-conflict"
+        role="alert"
+        data-testid="plan-brief-conflict"
+      >
+        The plan now says “{{ edit.brief.conflict }}”.
+        <button
+          type="button"
+          class="ui-button ui-button--secondary"
+          data-testid="plan-brief-keep"
+          @click="map.resolvePlanField(edit, 'brief', 'mine')"
+        >
+          Keep mine
+        </button>
+        <button
+          type="button"
+          class="ui-button ui-button--secondary"
+          data-testid="plan-brief-use-plan"
+          @click="map.resolvePlanField(edit, 'brief', 'plan')"
+        >
+          Use the plan's
+        </button>
+      </div>
       <div class="plan-exits">
         <h4>Planned exits</h4>
         <p v-if="!planExits.length" class="map-none">None planned.</p>
@@ -147,7 +202,9 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
         </div>
       </div>
     </template>
-    <p v-else class="map-none" data-testid="plan-not-planned">This room is not in the plan.</p>
+    <p v-else-if="!entry" class="map-none" data-testid="plan-not-planned">
+      This room is not in the plan.
+    </p>
 
     <div class="plan-actions">
       <button
@@ -290,6 +347,18 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
 .plan-error {
   color: #ff9b9b;
   font-size: 12px;
+  margin: 0;
+}
+.plan-conflict {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: #e8c98a;
+  border: 1px dashed #6a5a34;
+  border-radius: 6px;
+  padding: 6px 8px;
   margin: 0;
 }
 </style>

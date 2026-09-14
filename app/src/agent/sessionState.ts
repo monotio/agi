@@ -79,23 +79,19 @@ export function changedResources(
   return changes;
 }
 
-/** Room tools may create this room and fresh dependencies, while preserving the existing game. */
+/**
+ * A room turn may create the room and revise already-built resources — other
+ * rooms' logic, shared views and sounds, the vocabulary — in the same staged
+ * transaction. The triggers that keep it coherent: nothing may be removed or
+ * corrupted (changedResources throws), existing vocabulary IDs stay bound, and
+ * inventory items keep their names and starting rooms.
+ */
 export function validateRoomCandidate(
   original: AgentSessionState,
   before: AgentSessionState,
   candidate: AgentSessionState,
-  room: number,
 ): void {
-  for (const resource of changedResources(before, candidate)) {
-    const allowed =
-      resource.kind === "logic" || resource.kind === "picture"
-        ? resource.num === room
-        : payload(original, resource.kind, resource.num) === null;
-    if (!allowed)
-      throw new Error(
-        "Room preparation may write only the requested room, new views/sounds, vocabulary, and appended inventory items.",
-      );
-  }
+  changedResources(before, candidate);
   for (const [word, id] of original.sources.words)
     if (candidate.sources.words.get(word) !== id)
       throw new Error("Room preparation must preserve existing vocabulary IDs.");
