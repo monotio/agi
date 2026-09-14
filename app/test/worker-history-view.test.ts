@@ -528,3 +528,120 @@ test("viewing before any room draws reports the moment as non-resumable", () => 
   // Room 0 drew no picture: the engine cannot snapshot, so Resume here stays off.
   assert.equal(report.canResume, false);
 });
+
+test("a failed start leaves no half-open session behind", () => {
+  const { h, recording } = playedSession();
+  const { ctx, send } = h;
+
+  // A start naming a segment the tape does not have fails cleanly.
+  send({ type: "historyViewStart", id: 1, recording, segment: 9, tick: 0 });
+  const refused = finalView(h.control, 1);
+  assert.ok(refused.error !== null);
+  assert.equal(ctx.view.recording, null, "no recording stays mounted");
+  assert.equal(ctx.view.drive, null, "no drive stays mounted");
+  assert.equal(ctx.replay.isSeeking, false, "the frame gate released");
+
+  // The live engine still owns the surface: its commands still run.
+  const liveTicks = ctx.cycle.tickCount;
+  send({ type: "historyViewSeek", id: 2, segment: 0, tick: 1 });
+  const orphan = finalView(h.control, 2);
+  assert.match(orphan.error ?? "", /no history view session/);
+  send({ type: "pause", paused: false });
+  h.tick(2);
+  assert.ok(ctx.cycle.tickCount > liveTicks, "the live engine resumed normally");
+});
+
+test("a start whose anchor mismatches the folded stream reports the error and cleans up", () => {
+  const { h, recording, lastTick } = playedSession();
+  const { ctx, send } = h;
+
+  // Tamper the anchor the seek selects (the last at-or-before the target):
+  // the drive cannot trust it — the open reports the structural failure
+  // instead of parking a dead session.
+  const tampered = JSON.parse(JSON.stringify(recording)) as HistoryRecording;
+  const anchor = tampered.segments[0]!.anchors.at(-1);
+  assert.ok(anchor, "the session recorded an anchor to corrupt");
+  anchor.resourceSet = "bogus-revision";
+
+  send({ type: "historyViewStart", id: 1, recording: tampered, segment: 0, tick: lastTick });
+  const report = finalView(h.control, 1);
+  assert.match(report.error ?? "", /resource set/);
+  assert.equal(ctx.view.recording, null, "the failed open mounted nothing");
+  assert.equal(ctx.view.drive, null);
+  assert.equal(ctx.replay.isSeeking, false);
+
+  // A good start still works afterwards — the failed open poisoned nothing.
+  send({ type: "historyViewStart", id: 2, recording, segment: 0, tick: lastTick });
+  const opened = finalView(h.control, 2);
+  assert.equal(opened.error, null);
+  assert.equal(opened.tick, lastTick);
+  send({ type: "historyViewEnd" });
+});
+
+test("a take carries the authoring checkpoint belonging to the adopted position", () => {
+  const h = viewHarness(viewGame(), { rngSeed: 0xbeef });
+  const { send, tick } = h;
+  tick(4);
+  send({ type: "debugWrite", id: 0, flags: [[216, 1]] });
+  tick(2);
+  send({ type: "input", text: "look" });
+  tick(2);
+  send({ type: "debugWrite", id: 1, flags: [[200, 1]] });
+  tick(5); // room 2 drew — resumable from here on
+  send({ type: "authoring", snapshot: { plan: "first commit" } });
+  tick(2);
+  send({ type: "authoring", snapshot: { plan: "second commit" } });
+  tick(2);
+  // A commit whose checkpoint never reached the tape: the patch lands with
+  // no authoring event after it.
+  send({ type: "patch", kind: "picture", num: 2, payload: PICTURE_1 });
+  tick(2);
+  send({ type: "pause", paused: true });
+  const recording = asRecording(collectSegments(h.control));
+  const checkpoints = recording.segments[0]!.events.filter((e) => e.cause.kind === "authoring");
+  assert.equal(checkpoints.length, 2, "both commits landed on the tape");
+  const takeAt = (id: number, tick: number) => {
+    send({ type: "historyViewStart", id, recording, segment: 0, tick });
+    const opened = finalView(h.control, id);
+    assert.equal(opened.error, null);
+    assert.equal(opened.canResume, true, `tick ${tick} is a resumable boundary`);
+    send({ type: "historyViewTake", id: id + 100 });
+    const taken = h.control.find(
+      (m): m is Extract<WorkerControl, { type: "historyTaken" }> =>
+        m.type === "historyTaken" && m.id === id + 100,
+    );
+    assert.ok(taken && taken.ok, `take refused: ${JSON.stringify(taken)}`);
+    return taken;
+  };
+
+  // At the last commit's position the adopted state is the one it produced —
+  // and the reply's boot names the adopted revision for the host to verify.
+  const latest = takeAt(1, checkpoints[1]!.tick);
+  assert.deepEqual(latest.session, { plan: "second commit" });
+  assert.equal(
+    latest.boot?.resourceSet,
+    recording.segments[0]!.boot.resourceSet,
+    "the reply's boot names the adopted revision",
+  );
+
+  // One tick earlier the second commit is still in the future: the position
+  // adopts the first commit's state, not the newest on the tape.
+  const middle = takeAt(2, checkpoints[1]!.tick - 1);
+  assert.deepEqual(middle.session, { plan: "first commit" });
+
+  // Upstream of every checkpoint there is no snapshot — the host's
+  // same-revision carry or a clean rebuild decides, never a stale future.
+  const earliest = takeAt(3, checkpoints[0]!.tick - 1);
+  assert.equal(earliest.session, undefined, "no checkpoint upstream of the position");
+
+  // At the uncheckpointed patch the tape cannot name the state belonging to
+  // the adopted bytes — the older checkpoint is a different revision's and
+  // must not install.
+  const patch = recording.segments[0]!.events.find((e) => e.cause.kind === "patch")!;
+  const uncheckpointed = takeAt(4, patch.tick);
+  assert.equal(
+    uncheckpointed.session,
+    undefined,
+    "a mutation newer than the last checkpoint vetoes the stale snapshot",
+  );
+});

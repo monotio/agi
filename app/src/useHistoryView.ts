@@ -21,7 +21,8 @@ import {
   type HistoryBookmark,
 } from "./historyStorage.ts";
 import { gameStorageKey, type BootedGame } from "./gameTypes.ts";
-import type { HistoryRecording, HistorySegment } from "../../src/agent/history.ts";
+import type { HistoryBoot, HistoryRecording, HistorySegment } from "../../src/agent/history.ts";
+import type { AgentSession } from "./agent/agentSession.ts";
 import type { WorkerControl, WorkerInbound, WorkerQueryFn } from "./workerProtocol.ts";
 import type { EngineState, HistoryViewUiState } from "./useEngineTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
@@ -81,6 +82,14 @@ export interface HistoryViewDeps {
   readonly drainHistoryCommits: () => Promise<void>;
   /** Map highlight when the user picks a mark that names a room. */
   readonly highlightRoom: (room: number) => void;
+  /** The live authoring session — held and adopted across a swap. */
+  readonly getSession: () => AgentSession | null;
+  /**
+   * The session leg of an adoption: install the state belonging to the
+   * adopted boot into the AgentSession and bring the stored project to the
+   * same revision. A throw leaves the session's adoption hold set.
+   */
+  readonly adoptSession: (game: BootedGame, boot: HistoryBoot, snapshot: unknown) => Promise<void>;
   readonly logAgent: LogAgentFn;
 }
 
@@ -197,6 +206,12 @@ export function useHistoryView(deps: HistoryViewDeps) {
   let bookmarks: HistoryBookmark[] = [];
   let watchTimer: ReturnType<typeof setTimeout> | null = null;
   let seekSerial = 0;
+  /**
+   * The open session's generation: close and reset invalidate every awaited
+   * continuation still in flight, so a late start/seek reply can neither
+   * reactivate a closed view nor act on a worker that replaced it.
+   */
+  let openSerial = 0;
 
   const view = () => deps.state.historyView;
 
@@ -206,11 +221,16 @@ export function useHistoryView(deps: HistoryViewDeps) {
     transport.dispose();
     recording = null;
     bookmarks = [];
+    openSerial++;
+    seekSerial++;
     Object.assign(view(), freshHistoryView());
   }
 
   function applyReport(msg: HistoryViewReport): void {
     if (msg.superseded) return;
+    // Reports belong to an open view: a late one landing after close/reset
+    // must not resurrect position, error or divergence state.
+    if (!view().active) return;
     const v = view();
     v.segment = msg.segment;
     v.tick = msg.tick;
@@ -243,6 +263,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     if (deps.state.phase !== "running" || deps.state.walkthrough.active) return;
     v.loading = true;
     v.error = "";
+    const mine = ++openSerial;
     deps.pauseEngine("history");
     try {
       // Ordering barrier: the worker posts every queued batch before the
@@ -252,13 +273,16 @@ export function useHistoryView(deps: HistoryViewDeps) {
       const game = deps.getBootedGame();
       if (!game) throw new Error("no game is running");
       const key = gameStorageKey(game);
-      recording = await loadGameHistory(key);
+      const loaded = await loadGameHistory(key);
+      if (mine !== openSerial) return;
+      recording = loaded;
       // A swap that was interrupted last time — the promotion write failed
       // or the acknowledgement was lost — settles from the tape's evidence
       // before the transport opens; only an unprovable one stays pending.
       const swap = await resolveStagedSwap(key, recording);
       bookmarks = await loadHistoryBookmarks(key);
       const retained = await loadRetainedOriginal(key);
+      if (mine !== openSerial) return;
       v.retained = retained !== null;
       v.pendingSwap = swap === "ambiguous";
       v.dropped = recording?.dropped ?? 0;
@@ -280,7 +304,16 @@ export function useHistoryView(deps: HistoryViewDeps) {
         { recording, segment: segIdx, tick: target },
         120_000,
       );
+      if (mine !== openSerial) {
+        // The view was closed or reset while the worker opened it — tear
+        // down the scratch session this reply just confirmed.
+        deps.getWorker()?.postMessage({ type: "historyViewEnd" } satisfies WorkerInbound);
+        return;
+      }
       if (reply.error !== null) {
+        // The worker's failed start already dropped its view state; the end
+        // message covers an implementation that errored after opening.
+        deps.getWorker()?.postMessage({ type: "historyViewEnd" } satisfies WorkerInbound);
         v.error = reply.error;
         return;
       }
@@ -288,10 +321,12 @@ export function useHistoryView(deps: HistoryViewDeps) {
       applyReport(reply);
       deps.logAgent("log", `history: viewing segment ${seg.id}`);
     } catch (error) {
-      v.error = error instanceof Error ? error.message : String(error);
+      if (mine === openSerial) v.error = error instanceof Error ? error.message : String(error);
     } finally {
-      v.loading = false;
-      if (!v.active) deps.resumeEngine("history");
+      if (mine === openSerial) {
+        v.loading = false;
+        if (!v.active) deps.resumeEngine("history");
+      }
     }
   }
 
@@ -299,6 +334,8 @@ export function useHistoryView(deps: HistoryViewDeps) {
   function closeHistory(): void {
     const v = view();
     if (!v.active && !v.loading) return;
+    openSerial++;
+    seekSerial++;
     stopWatch();
     transport.dispose();
     deps.getWorker()?.postMessage({ type: "historyViewEnd" } satisfies WorkerInbound);
@@ -326,7 +363,10 @@ export function useHistoryView(deps: HistoryViewDeps) {
       const reply = await deps.query("historyViewSeek", { segment, tick }, 120_000);
       applyReport(reply);
     } catch (error) {
-      if (mine === seekSerial) v.error = error instanceof Error ? error.message : String(error);
+      // A closed view keeps no error — extras.errors shows it whenever set,
+      // so a late failure would resurrect the transport on a dead session.
+      if (mine === seekSerial && v.active)
+        v.error = error instanceof Error ? error.message : String(error);
     } finally {
       if (mine === seekSerial) v.seeking = false;
     }
@@ -436,22 +476,42 @@ export function useHistoryView(deps: HistoryViewDeps) {
    *   not keep posing as a live view. The owed candidate stays durable.
    */
   async function swapSessions(
-    adoptQuery: () => Promise<{ ok: boolean; message?: string | null }>,
+    adoptQuery: () => Promise<{
+      ok: boolean;
+      message?: string | null;
+      /** The state the worker adopted — the take's fresh boot, or the kept record's. */
+      boot?: HistoryBoot;
+      /** The authoring state belonging to those bytes, when one is on record. */
+      session?: unknown;
+    }>,
     verb: string,
   ): Promise<boolean> {
     const v = view();
     const game = deps.getBootedGame();
     if (!game) return false;
     const key = gameStorageKey(game);
+    // A user close mid-swap invalidates the swap's UI writes — the staged
+    // candidate stays durable and the next open's settle pass resurfaces it.
+    const mine = openSerial;
+    const stillMine = () => openSerial === mine;
+    // The adoption transaction holds authoring until the session carries the
+    // state belonging to the adopted bytes — an uncertain or failed install
+    // keeps the hold rather than let a turn run against a different revision.
+    const session = deps.getSession();
+    session?.holdAdoption(`${verb} is adopting a session — authoring resumes when it lands.`);
     const departing = await deps.query("historyRetain", {}, 10_000);
     if (departing.boot === null) {
-      v.error = "The paused session can't be kept — a game prompt is still open.";
+      session?.releaseAdoption();
+      if (stillMine()) v.error = "The paused session can't be kept — a game prompt is still open.";
       return false;
     }
     const candidate = {
       boot: departing.boot,
       from: departing.from,
       retainedAt: Date.now(),
+      // The departing session's authoring state goes into the record — a
+      // later Back to before reinstalls exactly this.
+      ...(session ? { session: session.snapshotAuthoring() } : {}),
     };
     if (!(await stageRetainedOriginal(key, candidate))) {
       // A previous swap's candidate is still pending — settle it from the
@@ -460,43 +520,93 @@ export function useHistoryView(deps: HistoryViewDeps) {
       await deps.drainHistoryCommits();
       await resolveStagedSwap(key, await loadGameHistory(key), departing.from?.segment);
       if (!(await stageRetainedOriginal(key, candidate))) {
-        v.pendingSwap = true;
-        v.error = "An earlier swap's kept session is still being saved — keep or release it first.";
+        session?.releaseAdoption();
+        if (stillMine()) {
+          v.pendingSwap = true;
+          v.error =
+            "An earlier swap's kept session is still being saved — keep or release it first.";
+        }
         return false;
       }
       // The leftover settled — a promoted one changes what this swap replaces.
-      v.pendingSwap = false;
-      v.retained = (await loadRetainedOriginal(key)) !== null;
+      if (stillMine()) {
+        v.pendingSwap = false;
+        v.retained = (await loadRetainedOriginal(key)) !== null;
+      }
     }
-    let reply: { ok: boolean; message?: string | null };
+    let reply: {
+      ok: boolean;
+      message?: string | null;
+      boot?: HistoryBoot;
+      session?: unknown;
+    };
     try {
       reply = await adoptQuery();
     } catch (error) {
+      // The outcome is uncertain: whichever session is live must be released
+      // even when the user already closed the transport. The authoring hold
+      // stays — a retry installs the adopted state and releases it.
+      const wasOpen = stillMine() && v.active;
       closeHistory();
-      v.pendingSwap = true;
-      v.error = `${verb}'s outcome is uncertain (${String(error)}) — the kept session is held for recovery.`;
+      // When the user closed first the card stays quiet — the next open's
+      // settle pass resurfaces the owed candidate.
+      if (wasOpen) {
+        view().pendingSwap = true;
+        view().error = `${verb}'s outcome is uncertain (${String(error)}) — the kept session is held for recovery.`;
+      }
       return false;
     }
     if (!reply.ok) {
+      session?.releaseAdoption();
       try {
         await clearStagedOriginal(key);
       } catch {
-        v.pendingSwap = true;
+        if (stillMine()) view().pendingSwap = true;
       }
-      v.error = reply.message ?? `${verb} failed.`;
+      if (stillMine()) view().error = reply.message ?? `${verb} failed.`;
       return false;
+    }
+    // The session leg of the transaction: the AgentSession installs the
+    // state belonging to the bytes the worker just adopted, and the stored
+    // project follows to the same revision. A failure — or an ack that
+    // names no adopted boot — keeps the adoption hold: recovery is a
+    // retrying swap, not a silent turn against a different revision.
+    if (reply.boot === undefined) {
+      const wasOpen = stillMine() && v.active;
+      closeHistory();
+      if (wasOpen) {
+        view().pendingSwap = true;
+        view().error = `${verb}'s reply carried no adopted state — authoring is held until the next adoption.`;
+      }
+      return true;
+    }
+    try {
+      await deps.adoptSession(game, reply.boot, reply.session);
+    } catch (error) {
+      const wasOpen = stillMine() && v.active;
+      closeHistory();
+      if (wasOpen) {
+        view().pendingSwap = true;
+        view().error = `${verb} adopted the session, but its authoring state could not be installed (${String(error)}) — authoring is held until the next adoption.`;
+      }
+      return true;
     }
     try {
       await commitStagedOriginal(key);
     } catch (error) {
+      const wasOpen = stillMine() && v.active;
       closeHistory();
-      v.pendingSwap = true;
-      v.error = `The session was kept but its record could not be saved (${String(error)}) — finish or release it from Look back.`;
+      if (wasOpen) {
+        view().pendingSwap = true;
+        view().error = `The session was kept but its record could not be saved (${String(error)}) — finish or release it from Look back.`;
+      }
       deps.logAgent("log", `history: ${verb} adopted; the kept session's promotion is pending`);
       return true;
     }
-    v.active = false;
-    v.retained = true;
+    if (stillMine()) {
+      v.active = false;
+      v.retained = true;
+    }
     deps.resumeEngine("history");
     return true;
   }
@@ -511,8 +621,10 @@ export function useHistoryView(deps: HistoryViewDeps) {
     if (v.pendingSwap) {
       // A leftover swap settles before the gate — it may be owed the kept
       // slot this press would replace.
+      const mine = openSerial;
       await deps.drainHistoryCommits();
       const swap = await resolveStagedSwap(key, await loadGameHistory(key));
+      if (openSerial !== mine) return; // closed while settling
       v.pendingSwap = swap === "ambiguous";
       v.retained = (await loadRetainedOriginal(key)) !== null;
       if (v.pendingSwap) {
@@ -530,13 +642,19 @@ export function useHistoryView(deps: HistoryViewDeps) {
     v.error = "";
     stopWatch();
     try {
-      const done = await swapSessions(
-        () => deps.query("historyViewTake", {}, 15_000),
-        "Resume here",
-      );
+      const done = await swapSessions(async () => {
+        const reply = await deps.query("historyViewTake", {}, 15_000);
+        return reply.ok
+          ? {
+              ok: true,
+              ...(reply.boot !== undefined ? { boot: reply.boot } : {}),
+              ...(reply.session !== undefined ? { session: reply.session } : {}),
+            }
+          : reply;
+      }, "Resume here");
       if (done) deps.logAgent("log", `history: resumed from ${v.segment}:${v.tick}`);
     } catch (error) {
-      v.error = error instanceof Error ? error.message : String(error);
+      if (view().active) v.error = error instanceof Error ? error.message : String(error);
     }
   }
 
@@ -585,29 +703,49 @@ export function useHistoryView(deps: HistoryViewDeps) {
     const key = gameStorageKey(game);
     v.error = "";
     stopWatch();
+    const mine = openSerial;
     try {
       // A leftover staged candidate settles first — it may be owed the very
       // slot this restore reads. One the tape cannot settle stays pending.
       await deps.drainHistoryCommits();
       const swap = await resolveStagedSwap(key, await loadGameHistory(key));
+      if (openSerial !== mine) return; // closed while settling
       v.pendingSwap = swap === "ambiguous";
       if (v.pendingSwap) {
         v.error = "An earlier swap's kept session is still being saved — keep or release it first.";
         return;
       }
       const retained = await loadRetainedOriginal(key);
+      if (openSerial !== mine) return;
       if (retained === null) {
         v.error = "No earlier session is kept.";
         return;
       }
-      const done = await swapSessions(
-        () =>
-          deps.query("historyViewRestore", { boot: retained.boot, from: retained.from }, 15_000),
-        "Back to before",
-      );
+      const done = await swapSessions(async () => {
+        const reply = await deps.query(
+          "historyViewRestore",
+          { boot: retained.boot, from: retained.from },
+          15_000,
+        );
+        // Both sides must name the same revision: an ack for different bytes
+        // than the record sent means the stored boot did not survive.
+        if (
+          reply.ok &&
+          reply.resourceSet !== undefined &&
+          reply.resourceSet !== retained.boot.resourceSet
+        )
+          throw new Error("the worker acknowledged a different revision than the kept session");
+        return reply.ok
+          ? {
+              ok: true,
+              boot: retained.boot,
+              ...(retained.session !== undefined ? { session: retained.session } : {}),
+            }
+          : reply;
+      }, "Back to before");
       if (done) deps.logAgent("log", "history: back to the retained session");
     } catch (error) {
-      v.error = error instanceof Error ? error.message : String(error);
+      if (view().active) v.error = error instanceof Error ? error.message : String(error);
     }
   }
 

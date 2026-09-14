@@ -33,6 +33,14 @@ const V_SCORE = 3;
 const CHUNK_BUDGET_MS = 12;
 
 export function createHistoryView(ctx: WorkerContext) {
+  /**
+   * Whether the view session has successfully opened: a start whose landing
+   * report carried an error leaves no half-open session — the recording and
+   * drive are dropped so later view traffic gets a clean refusal, and the
+   * live surface was never repainted over by scratch frames.
+   */
+  let opened = false;
+
   /** Current position plus what the transport needs to gate Resume here. */
   function position() {
     const drive = ctx.view.drive;
@@ -140,24 +148,40 @@ export function createHistoryView(ctx: WorkerContext) {
     // "same" and never post, leaving the screen one position behind.
     ctx.replay.isSeeking = !watch;
     scratch.replay.isSeeking = !watch;
-    const start = ctx.ports.now();
-    while (!drive.halted && (drive.tick < target || drive.nextEventTick <= target)) {
-      drive.step();
-      if (ctx.ports.now() - start > CHUNK_BUDGET_MS) {
-        if (watch) scratch.fns.postFrame();
-        postReport(requestId, false);
-        view.timer = setTimeout(() => {
-          view.timer = null;
-          pump(requestId, target, watch);
-        }, 0);
-        return;
+    try {
+      const start = ctx.ports.now();
+      while (!drive.halted && (drive.tick < target || drive.nextEventTick <= target)) {
+        drive.step();
+        if (ctx.ports.now() - start > CHUNK_BUDGET_MS) {
+          if (watch) scratch.fns.postFrame();
+          postReport(requestId, false);
+          view.timer = setTimeout(() => {
+            view.timer = null;
+            pump(requestId, target, watch);
+          }, 0);
+          return;
+        }
       }
+    } catch (error) {
+      // A thrown boundary must not leave the frame gate latched: report the
+      // failure as the request's terminal answer and release both flags.
+      view.request = null;
+      ctx.replay.isSeeking = false;
+      scratch.replay.isSeeking = false;
+      postViewError(requestId, String(error));
+      if (!opened) endView(false);
+      return;
     }
     view.request = null;
     ctx.replay.isSeeking = false;
     scratch.replay.isSeeking = false;
     scratch.fns.postFrame();
     postReport(requestId, true);
+    // A start that could not open the tape leaves no half-open session.
+    if (!opened) {
+      if (drive.error !== null) endView(false);
+      else opened = true;
+    }
   }
 
   /**
@@ -171,6 +195,7 @@ export function createHistoryView(ctx: WorkerContext) {
     const segment = view.recording?.segments[segmentIdx];
     if (segment === undefined) {
       postViewError(requestId, `no segment ${segmentIdx} in the recording`);
+      if (!opened) endView(false); // a start that cannot serve leaves no session
       return;
     }
     let drive = view.drive;
@@ -216,6 +241,7 @@ export function createHistoryView(ctx: WorkerContext) {
   /** Drop the scratch session; repaint asks the live engine to reclaim the surface. */
   function endView(repaint: boolean): void {
     settleRequest();
+    opened = false;
     ctx.replay.isSeeking = false;
     ctx.view.drive = null;
     ctx.view.recording = null;
@@ -345,8 +371,41 @@ export function createHistoryView(ctx: WorkerContext) {
       resourceSet: resourceSetRevision({ getFiles: () => files }),
       requestSerial: scratch.hostRequests.hostRequestSerial,
     };
+    // The authoring state belonging to these bytes: the last checkpoint the
+    // host committed at-or-before this position — earlier segments count, a
+    // take mid-commit simply sees the previous one. Scanning back, a
+    // resource mutation newer than the newest checkpoint means the tape
+    // lacks the covering checkpoint (an unbatched post, a truncated
+    // stream) — a stale snapshot must never install, so the scan reports
+    // none and the host's carry-or-rebuild decides.
+    let session: Record<string, unknown> | undefined;
+    scan: for (let s = view.segment; s >= 0; s--) {
+      const seg = view.recording!.segments[s]!;
+      const last = s === view.segment ? drive.seq : Number.MAX_SAFE_INTEGER;
+      for (let i = seg.events.length - 1; i >= 0; i--) {
+        const event = seg.events[i]!;
+        if (event.seq >= last) continue;
+        const cause = event.cause;
+        if (cause.kind === "authoring") {
+          session = cause.snapshot;
+          break scan;
+        }
+        if (
+          cause.kind === "patch" ||
+          cause.kind === "patchMeta" ||
+          (cause.kind === "answer" && cause.prepared === true)
+        )
+          break scan;
+      }
+    }
     adoptBoot(boot, { segment: segment.id, seq: drive.seq, tick: drive.tick });
-    ctx.ports.control({ type: "historyTaken", id: msg.id, ok: true });
+    ctx.ports.control({
+      type: "historyTaken",
+      id: msg.id,
+      ok: true,
+      boot,
+      ...(session !== undefined ? { session } : {}),
+    });
   }
 
   /** A retained original becomes the live session again. */
@@ -364,7 +423,15 @@ export function createHistoryView(ctx: WorkerContext) {
       return;
     }
     adoptBoot(boot, msg.from);
-    ctx.ports.control({ type: "historyViewRestored", id: msg.id, ok: true });
+    // The ack names the adopted revision so the host can check the record it
+    // sent is the state the worker actually took — a mismatch means the
+    // stored boot did not survive the trip.
+    ctx.ports.control({
+      type: "historyViewRestored",
+      id: msg.id,
+      ok: true,
+      resourceSet: boot.resourceSet,
+    });
   }
 
   return {

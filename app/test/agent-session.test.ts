@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AgentSession } from "../src/agent/agentSession.ts";
 import { createAgentSessionState } from "../../src/agent/tools.ts";
+import { openContainer } from "../../src/container/container.ts";
 import { parseWordsTok, buildWordsTok } from "../../src/logic/words.ts";
 import { buildView } from "../../src/view/view.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
@@ -567,4 +568,59 @@ test("a finished turn's adopt keeps a live map edit the turn never touched", asy
   assert.equal(adoptTurnState(live, again, fork2), true);
   assert.equal(live.authoring.world.rooms["3"]?.title, "Crypt");
   assert.equal(live.authoring.world.rooms["4"], undefined);
+});
+
+test("adoptAuthoredData verifies the adopted revision and leaves the hold for the caller", async () => {
+  const session = new AgentSession(
+    { provider: "stub", model: "offline-stub", apiKey: "" },
+    () => {},
+  );
+  await session.startGenesis("");
+  const files = Object.fromEntries(session.state.getFiles());
+  const revision = session.resourceSet();
+  const snapshot = session.snapshotAuthoring();
+  const planned = JSON.stringify(session.state.authoring);
+
+  // The hold blocks every turn — a mid-adoption session cannot author.
+  session.holdAdoption("the swap is still landing");
+  await assert.rejects(session.runPowerUp("add a lamp", 1), /still landing/);
+
+  // Bytes that are not the revision the worker adopted refuse before the
+  // session's state moves — the hold survives the refusal.
+  const foreign = openContainer(new Map(Object.entries(files)));
+  foreign.putResource("logic", 7, assembleLogic("return;", { dictionary: new Map() }).payload);
+  assert.throws(
+    () => session.adoptAuthoredData(Object.fromEntries(foreign.files), [], snapshot, revision),
+    /do not match the revision/,
+  );
+  await assert.rejects(session.runPowerUp("add a lamp", 1), /still landing/);
+
+  // The matching revision installs — the hold is the caller's to release
+  // once the whole transaction lands.
+  session.adoptAuthoredData(files, [], snapshot, revision);
+  await assert.rejects(session.runPowerUp("add a lamp", 1), /still landing/);
+  session.releaseAdoption();
+  assert.equal(JSON.stringify(session.state.authoring), planned);
+});
+
+test("adoptAuthoredData without a snapshot carries same-revision state, rebuilds foreign bytes clean", async () => {
+  const session = new AgentSession(
+    { provider: "stub", model: "offline-stub", apiKey: "" },
+    () => {},
+  );
+  await session.startGenesis("");
+  const files = Object.fromEntries(session.state.getFiles());
+  const planned = JSON.stringify(session.state.authoring);
+
+  // Same bytes, no checkpoint: the session's state already describes them —
+  // it carries, keeping the plan.
+  session.adoptAuthoredData(files, [], undefined, session.resourceSet());
+  assert.equal(JSON.stringify(session.state.authoring), planned);
+
+  // Foreign bytes, no checkpoint: nothing on the tape names this revision —
+  // the session rebuilds clean rather than author a future it cannot see.
+  const foreign = openContainer(new Map(Object.entries(files)));
+  foreign.putResource("logic", 7, assembleLogic("return;", { dictionary: new Map() }).payload);
+  session.adoptAuthoredData(Object.fromEntries(foreign.files), []);
+  assert.notEqual(JSON.stringify(session.state.authoring), planned);
 });

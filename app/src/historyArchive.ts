@@ -26,6 +26,12 @@ export interface RetainedOriginal {
   /** The departing session's tape position; null outside an open segment. */
   from: { segment: string; seq: number; tick: number } | null;
   retainedAt: number;
+  /**
+   * The departing session's authoring state (sources, bindings, world plan)
+   * at retain time — reinstalled on a Back-to-before adoption so the
+   * session works from the bytes it is shown, not the future it left.
+   */
+  session?: Record<string, unknown>;
 }
 
 /** A player-placed mark on the recording. */
@@ -66,6 +72,7 @@ export function validateRetained(value: RetainedOriginal): RetainedOriginal | nu
       )
         return null;
     }
+    if (value.session !== undefined && !isObj(value.session)) return null;
     return value;
   } catch {
     return null;

@@ -215,7 +215,15 @@ export type WorkerInbound =
       id: number;
       boot: HistoryBoot;
       from: { segment: string; seq: number; tick: number } | null;
-    };
+    }
+  /**
+   * The authoring session committed a state change — sources, bindings and
+   * world plan — that the tape records as an `authoring` cause. Posted after
+   * the commit's patch/answer traffic so the snapshot describes the state
+   * those causes produced; a later Resume here reinstalls the checkpoint
+   * that belongs to the adopted bytes.
+   */
+  | { type: "authoring"; snapshot: Record<string, unknown> };
 
 /**
  * Worker → host control channel: request/response traffic and lifecycle
@@ -326,10 +334,26 @@ export type WorkerControl =
       boot: HistoryBoot | null;
       from: { segment: string; seq: number; tick: number } | null;
     }
-  | { type: "historyTaken"; id: number; ok: boolean; message?: string }
+  | {
+      type: "historyTaken";
+      id: number;
+      ok: boolean;
+      message?: string;
+      /** The adopted boot — the revision both sides now run. */
+      boot?: HistoryBoot;
+      /** The tape's last authoring checkpoint at-or-before the taken position. */
+      session?: unknown;
+    }
   /** The segment's end batch was posted; it commits before the worker dies. */
   | { type: "historyEnded"; id: number }
-  | { type: "historyViewRestored"; id: number; ok: boolean; message?: string };
+  | {
+      type: "historyViewRestored";
+      id: number;
+      ok: boolean;
+      message?: string;
+      /** The resourceSet revision the worker adopted — checked against the record's. */
+      resourceSet?: string;
+    };
 
 /**
  * Worker → host presentation channel: the frame stream, text-surface

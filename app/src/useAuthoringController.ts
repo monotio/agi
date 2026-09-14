@@ -21,6 +21,8 @@ import {
 import { gameStorageKey, type BootedGame } from "./gameTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
 import type { WorkerInbound, WorkerQueryFn } from "./workerProtocol.ts";
+import type { HistoryBoot } from "../../src/agent/history.ts";
+import { base64ToBytes } from "./bytes.ts";
 
 /** Remix bubble state; the transcript slice is the live tool-call feed. */
 export interface PowerUpUiState {
@@ -94,6 +96,14 @@ export interface AuthoringController {
   buildRoomFromMap(room: number, from: number, notes: string[]): Promise<void>;
   /** Persist the session's authoring state for the booted project. */
   persistSessionState(): Promise<void>;
+  /** Post the session's authoring state as a tape checkpoint. */
+  postSessionSnapshot(author?: AgentSession | null): void;
+  /**
+   * The session leg of a history adoption: install the state belonging to
+   * the adopted boot, then bring the booted game and stored project to the
+   * same revision. A failure leaves the session's adoption hold set.
+   */
+  adoptSessionState(game: BootedGame, boot: HistoryBoot, snapshot: unknown): Promise<void>;
   assembleExportData(
     data: CachedGameData,
     game: BootedGame,
@@ -167,6 +177,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         profile,
       });
     }
+    // Baseline checkpoint: the tape names the state this session begins
+    // from, so a rewind to before its first commit restores it intact.
+    if (getBootedGame() === game) postSessionSnapshot(s);
   }
 
   async function getOrCreateSession(game: BootedGame, config: LlmConfig): Promise<AgentSession> {
@@ -457,6 +470,10 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
           [payload.buffer],
         );
       }
+      // The tape checkpoint rides the same ordered queue: it lands after
+      // the commit's patches, so a take between them restores the state
+      // that produced them.
+      postSessionSnapshot();
       // Worker messages are ordered: snapshot after every patch has landed, before persisting the matching conversation.
       if (booted) {
         const game = booted;
@@ -614,6 +631,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
           [payload.buffer],
         );
       }
+      postSessionSnapshot(author);
       const currentFiles = await query("exportFiles");
       if (!currentFiles || getBootedGame() !== game)
         throw new Error("The game changed while the room was being authored.");
@@ -640,6 +658,65 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       ))
     )
       logAgent("error", "Browser storage could not save the updated world plan.");
+    // The committed world plan is a tape checkpoint too: a Resume here
+    // adoption installs the snapshot that belongs to the adopted bytes.
+    postSessionSnapshot();
+  }
+
+  /**
+   * The session's authoring state lands on the tape as an `authoring`
+   * cause. Posted after every commit — the baseline at attach, each remix
+   * patch, each room answer, each world-plan commit — so the tape always
+   * names the state a take should restore. A no-op while no segment is
+   * live; the adoption fallback (same-revision carry) covers that gap.
+   */
+  function postSessionSnapshot(author: AgentSession | null = session): void {
+    if (!author) return;
+    getWorker()?.postMessage({
+      type: "authoring",
+      snapshot: author.snapshotAuthoring(),
+    } satisfies WorkerInbound);
+  }
+
+  /**
+   * The session leg of a history adoption, run after the worker acked: the
+   * session rebuilds its state on the adopted boot (the tape's checkpoint,
+   * the kept record's snapshot, or a same-revision carry), the booted game
+   * and stored project follow to the same revision. A throw leaves the
+   * session's adoption hold set — the next successful adoption releases it.
+   */
+  async function adoptSessionState(
+    game: BootedGame,
+    boot: HistoryBoot,
+    snapshot: unknown,
+  ): Promise<void> {
+    const files: Record<string, Uint8Array> = {};
+    for (const [name, data] of Object.entries(boot.files)) files[name] = base64ToBytes(data);
+    const words = boot.dictionary;
+    const author = getBootedGame() === game ? session : null;
+    if (author) {
+      // The bytes must equal the revision the worker reported adopting —
+      // a mismatched install throws before touching the session.
+      author.adoptAuthoredData(files, words, snapshot, boot.resourceSet);
+      if (!game.installed && game.projectId) {
+        const context = author.getProviderContext();
+        if (
+          !(await updateGameConversation(
+            game.projectId,
+            author.getTranscript(),
+            author.getSessionId(),
+            author.getAuthoringState(),
+            context.provider,
+            context.model,
+            files,
+          ))
+        )
+          logAgent("error", "Browser storage could not save the adopted session state.");
+      }
+    }
+    await updateBootedResources(game, files, words);
+    // Both legs landed: the session describes the bytes the worker runs.
+    author?.releaseAdoption();
   }
 
   function assembleExportData(
@@ -690,6 +767,8 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     handleRoomAuthoring,
     buildRoomFromMap,
     persistSessionState,
+    postSessionSnapshot,
+    adoptSessionState,
     assembleExportData,
   };
 }

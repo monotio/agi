@@ -18,7 +18,7 @@ import {
   type AgentToolResult,
 } from "../../../src/agent/tools.ts";
 import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
-import { validateAuthoringState } from "../../../src/agent/authoringState.ts";
+import { resourceSetRevision, validateAuthoringState } from "../../../src/agent/authoringState.ts";
 import {
   adoptTurnState,
   forkAgentState,
@@ -103,6 +103,89 @@ The world is frozen at a cycle boundary in room ${room}, and the player has aske
 Look before you write: read_room_context carries the room's live state, object table and resources — pass its 'frames' arg for the paused screen and 'state' for the full tables; read_logic / read_picture only when the request touches that resource. Patch the smallest thing that achieves what was asked — a color remap is patch_view_cels with 'recolor', no pixel rows needed — in the room the player is standing in unless they said otherwise. handover runs the full stored suite; playtest only when behavior is uncertain. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
 }
 
+/** A checkpoint off the tape is untrusted input: it must be an object before stateFromAuthoredData validates its fields. */
+function validateAuthoringSnapshot(snapshot: unknown): Record<string, unknown> {
+  if (typeof snapshot !== "object" || snapshot === null || Array.isArray(snapshot))
+    throw new Error("The recorded authoring checkpoint is malformed.");
+  return snapshot as Record<string, unknown>;
+}
+
+/**
+ * Build the session state a set of authored bytes belongs to: container plus
+ * auxiliary payloads, the live dictionary, and — when the tape or a project
+ * record supplies one — the snapshot's validated authoring state and
+ * sources. Shared by project load (fromAuthoredData) and history adoption
+ * (adoptAuthoredData); the snapshot's deep validation lives here so both
+ * paths reject the same malformed input.
+ */
+function stateFromAuthoredData(
+  files: Record<string, Uint8Array>,
+  words: [string, number][],
+  authoringState?: Record<string, unknown>,
+): AgentSessionState {
+  const fileMap = new Map(Object.entries(files));
+  const container = openContainer(fileMap);
+  const state = createAgentSessionState(container);
+  // Real copies, not refs: a Node Buffer's .slice() is a view, so callers
+  // must never rely on the session detaching their byte arrays itself.
+  state.wordsPayload = files["WORDS.TOK"] ? new Uint8Array(files["WORDS.TOK"]) : undefined;
+  state.objectPayload = files["OBJECT"] ? new Uint8Array(files["OBJECT"]) : undefined;
+  state.testsPayload = files["TESTS.JSON"] ? new Uint8Array(files["TESTS.JSON"]) : undefined;
+  for (const [w, id] of words) {
+    state.sources.words.set(w, id);
+  }
+  if (authoringState) {
+    if (authoringState["authoring"])
+      state.authoring = validateAuthoringState(authoringState["authoring"]);
+    const sources = authoringState["sources"] as Record<string, unknown> | undefined;
+    if (sources) {
+      for (const kind of ["logics", "pictures"] as const) {
+        const entries = sources[kind];
+        if (entries !== undefined) {
+          if (!Array.isArray(entries) || entries.length > 256)
+            throw new Error(`Invalid project ${kind} sources.`);
+          for (const entry of entries) {
+            if (
+              !Array.isArray(entry) ||
+              entry.length !== 2 ||
+              !Number.isInteger(entry[0]) ||
+              entry[0] < 0 ||
+              entry[0] > 255 ||
+              typeof entry[1] !== "string"
+            )
+              throw new Error(`Invalid project ${kind} source.`);
+            state.sources[kind].set(entry[0], entry[1]);
+          }
+        }
+      }
+      for (const kind of ["views", "sounds"] as const) {
+        const entries = sources[kind];
+        if (entries === undefined) continue;
+        if (!Array.isArray(entries) || entries.length > 256)
+          throw new Error(`Invalid project ${kind} sources.`);
+        for (const entry of entries) {
+          if (
+            !Array.isArray(entry) ||
+            entry.length !== 2 ||
+            !Number.isInteger(entry[0]) ||
+            entry[0] < 0 ||
+            entry[0] > 255
+          )
+            throw new Error(`Invalid project ${kind} source.`);
+          if (kind === "views") {
+            buildView(entry[1] as BuildViewInput, state.profile);
+            state.sources.views.set(entry[0], entry[1] as BuildViewInput);
+          } else {
+            buildSound(entry[1] as SoundTrackInput[]);
+            state.sources.sounds.set(entry[0], entry[1] as SoundTrackInput[]);
+          }
+        }
+      }
+    }
+  }
+  return state;
+}
+
 export class AgentSession implements AgentHandler {
   readonly task: AgentRun;
   private messages: AgentChatMessage[] = [];
@@ -177,6 +260,7 @@ export class AgentSession implements AgentHandler {
     return this.task.run(() => this.ask(question, room));
   }
   private async ask(question: string, room: number): Promise<string> {
+    this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before using Ask or Remix.");
     this.messages.push({ role: "user", text: question });
@@ -298,6 +382,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     return this.task.run(() => this.remix(instruction, room));
   }
   private async remix(instruction: string, room: number): Promise<PowerUpResult> {
+    this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before using Ask or Remix.");
     this.messages.push({ role: "user", text: instruction });
@@ -495,6 +580,78 @@ Answer the player's question using evidence from inspection when needed. For hin
     });
   }
 
+  /**
+   * The state a history checkpoint carries: authoring plan and sources —
+   * everything getAuthoringState persists except the chat, which a Resume
+   * here keeps as provenance rather than rewinding.
+   */
+  snapshotAuthoring(): Record<string, unknown> {
+    const full = this.getAuthoringState();
+    delete full["chat"];
+    return full;
+  }
+
+  /** resourceSetRevision of the session's file set — the worker's identity for the same bytes. */
+  resourceSet(): string {
+    return resourceSetRevision(this.state);
+  }
+
+  /**
+   * While a history adoption is in flight — or after its session leg
+   * failed — the bytes the worker runs no longer match this session's
+   * state, so no turn or map commit may start until adoptAuthoredData
+   * installs state belonging to them.
+   */
+  private adoptionHold: string | null = null;
+
+  holdAdoption(reason: string): void {
+    this.adoptionHold = reason;
+  }
+
+  releaseAdoption(): void {
+    this.adoptionHold = null;
+  }
+
+  private assertAdoptable(): void {
+    if (this.adoptionHold !== null) throw new Error(this.adoptionHold);
+  }
+
+  /**
+   * Install the authoring state belonging to a history-adopted boot: the
+   * container and dictionary come from the boot, the snapshot from the
+   * tape's last checkpoint or the kept session's record. Without a
+   * snapshot, the current state qualifies only when it already describes
+   * exactly these bytes — otherwise the session rebuilds clean rather than
+   * keep authoring a future it can no longer see. Conversation and chat
+   * stay untouched: the abandoned future remains on the record.
+   */
+  adoptAuthoredData(
+    files: Record<string, Uint8Array>,
+    words: [string, number][],
+    snapshot?: unknown,
+    expectedRevision?: string,
+  ): void {
+    const adoptedRevision = resourceSetRevision({
+      getFiles: () => new Map(Object.entries(files)),
+    });
+    if (expectedRevision !== undefined && adoptedRevision !== expectedRevision)
+      throw new Error(
+        `the adopted bytes do not match the revision the worker adopted (${adoptedRevision} ≠ ${expectedRevision})`,
+      );
+    const authoringState =
+      snapshot !== undefined
+        ? validateAuthoringSnapshot(snapshot)
+        : this.resourceSet() === adoptedRevision
+          ? this.snapshotAuthoring()
+          : undefined;
+    const next = stateFromAuthoredData(files, words, authoringState);
+    next.genesisComplete = this.state.genesisComplete;
+    Object.assign(this.state, next);
+    // The adoption hold is the caller's to release once the whole
+    // transaction — session, booted game, durable record — has landed;
+    // a throw above leaves it set.
+  }
+
   getSessionId(): string | undefined {
     return this.conversation?.getSessionId?.() ?? this.retainedSessionId;
   }
@@ -532,6 +689,9 @@ Answer the player's question using evidence from inspection when needed. For hin
     );
     replacement.messages = this.getMessages();
     replacement.runtime = this.runtime;
+    // A mid-swap credential change must not unlock authoring against bytes
+    // the session has not adopted — the hold belongs to the shared state.
+    replacement.adoptionHold = this.adoptionHold;
     replacement.oriented = this.oriented;
     replacement.orientation = this.orientation ? { ...this.orientation } : undefined;
     return replacement;
@@ -550,66 +710,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     sessionId?: string,
     authoringState?: Record<string, unknown>,
   ): AgentSession {
-    const fileMap = new Map(Object.entries(files));
-    const container = openContainer(fileMap);
-    const state = createAgentSessionState(container);
-    // Real copies, not refs: a Node Buffer's .slice() is a view, so callers
-    // must never rely on the session detaching their byte arrays itself.
-    state.wordsPayload = files["WORDS.TOK"] ? new Uint8Array(files["WORDS.TOK"]) : undefined;
-    state.objectPayload = files["OBJECT"] ? new Uint8Array(files["OBJECT"]) : undefined;
-    state.testsPayload = files["TESTS.JSON"] ? new Uint8Array(files["TESTS.JSON"]) : undefined;
-    for (const [w, id] of words) {
-      state.sources.words.set(w, id);
-    }
-    if (authoringState) {
-      if (authoringState["authoring"])
-        state.authoring = validateAuthoringState(authoringState["authoring"]);
-      const sources = authoringState["sources"] as Record<string, unknown> | undefined;
-      if (sources) {
-        for (const kind of ["logics", "pictures"] as const) {
-          const entries = sources[kind];
-          if (entries !== undefined) {
-            if (!Array.isArray(entries) || entries.length > 256)
-              throw new Error(`Invalid project ${kind} sources.`);
-            for (const entry of entries) {
-              if (
-                !Array.isArray(entry) ||
-                entry.length !== 2 ||
-                !Number.isInteger(entry[0]) ||
-                entry[0] < 0 ||
-                entry[0] > 255 ||
-                typeof entry[1] !== "string"
-              )
-                throw new Error(`Invalid project ${kind} source.`);
-              state.sources[kind].set(entry[0], entry[1]);
-            }
-          }
-        }
-        for (const kind of ["views", "sounds"] as const) {
-          const entries = sources[kind];
-          if (entries === undefined) continue;
-          if (!Array.isArray(entries) || entries.length > 256)
-            throw new Error(`Invalid project ${kind} sources.`);
-          for (const entry of entries) {
-            if (
-              !Array.isArray(entry) ||
-              entry.length !== 2 ||
-              !Number.isInteger(entry[0]) ||
-              entry[0] < 0 ||
-              entry[0] > 255
-            )
-              throw new Error(`Invalid project ${kind} source.`);
-            if (kind === "views") {
-              buildView(entry[1] as BuildViewInput, state.profile);
-              state.sources.views.set(entry[0], entry[1] as BuildViewInput);
-            } else {
-              buildSound(entry[1] as SoundTrackInput[]);
-              state.sources.sounds.set(entry[0], entry[1] as SoundTrackInput[]);
-            }
-          }
-        }
-      }
-    }
+    const state = stateFromAuthoredData(files, words, authoringState);
     state.genesisComplete = true;
     const session = new AgentSession(config, onEvent, state, transcript, sessionId);
     const chat = authoringState?.["chat"];
@@ -644,6 +745,7 @@ Answer the player's question using evidence from inspection when needed. For hin
    * committed mid-turn would be silently overwritten.
    */
   commitPlanDraft(draft: WorldDraft): WorldCommit {
+    if (this.adoptionHold !== null) return { status: "invalid", error: this.adoptionHold };
     if (this.task.snapshot().status !== "idle") return { status: "busy" };
     const result = commitWorldDraft(this.state.authoring, draft);
     if (result.status === "committed") this.state.authoring = result.authoring;
@@ -652,6 +754,7 @@ Answer the player's question using evidence from inspection when needed. For hin
 
   /** Adopt a plan wholesale — a stored draft restoring into a fresh session. */
   adoptWorldPlan(world: WorldPlan): void {
+    this.assertAdoptable();
     if (this.task.snapshot().status !== "idle")
       throw new Error("The agent is mid-turn — the plan can be adopted when it finishes.");
     const result = commitWorld(this.state.authoring, world);
@@ -661,6 +764,7 @@ Answer the player's question using evidence from inspection when needed. For hin
   }
 
   private async buildTurn(templateMarkdown: string): Promise<BootResources> {
+    this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating a game.");
     this.conversation?.setAvailableTools(AUTHORING_SESSION_TOOLS);
@@ -763,6 +867,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     return this.task.run(() => this.prepareRoom(req));
   }
   private async prepareRoom(req: LlmRequest): Promise<string> {
+    this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating the next room.");
     if (this.stubFallback) {

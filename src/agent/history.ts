@@ -106,6 +106,18 @@ export type HistoryEventCause =
       vars: [number, number][];
       flags: [number, number][];
     }
+  | {
+      /**
+       * The host-side authoring session's state at a committed change — the
+       * sources, vocabulary, bindings and world plan the AgentSession works
+       * from. The tape carries it so a Resume here adoption can reinstall
+       * the state belonging to the adopted bytes rather than keeping a
+       * future the player can no longer see. Replay treats it as metadata:
+       * it is not an engine input.
+       */
+      kind: "authoring";
+      snapshot: Record<string, unknown>;
+    }
   | { kind: "end"; reason: HistoryEndReason };
 
 export interface HistoryEvent {
@@ -592,6 +604,12 @@ function eventCause(value: unknown): HistoryEventCause {
         vars: pairs(value["vars"] ?? [], "debugWrite.vars"),
         flags: pairs(value["flags"] ?? [], "debugWrite.flags"),
       };
+    }
+    case "authoring": {
+      const snapshot = value["snapshot"];
+      if (!isObj(snapshot) || JSON.stringify(snapshot).length > 4 * 1024 * 1024)
+        fail("authoring snapshot is invalid.");
+      return { kind: "authoring", snapshot };
     }
     case "end":
       return { kind: "end", reason: text(value["reason"], "end reason", 64) as HistoryEndReason };

@@ -41,6 +41,11 @@ export interface WorkerLinkDeps {
     context: Record<string, unknown>,
   ): Promise<string>;
   handleRoomAuthoring(req: LlmRequest, agent: AgentHandler): Promise<string>;
+  /**
+   * Runs after a successful hostAnswer is posted — the tape has the answer
+   * cause, so follow-up traffic (the authoring checkpoint) lands after it.
+   */
+  hostAnswered?(req: LlmRequest): void;
   getAgentSession(): AgentHandler | null;
   getReplayDriver(): ReplayDriver;
   ejectGame(): void;
@@ -200,6 +205,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
           .then((response) => {
             logAgent("response", response.slice(0, 120));
             w.postMessage({ type: "hostAnswer", id, response } satisfies WorkerInbound);
+            deps.hostAnswered?.(req);
           })
           .catch((e) => {
             logAgent("response", `agent error: ${String(e)}`);

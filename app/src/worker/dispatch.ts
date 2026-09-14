@@ -284,6 +284,20 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       });
       return;
     }
+    if (msg.type === "authoring") {
+      // Host-side session state, not an engine input: it lands on the tape
+      // after the commit it describes so a later adoption replays to it.
+      // An oversized snapshot would fail tape validation on read — drop it
+      // rather than poison the stream.
+      const snapshot = msg.snapshot;
+      const size =
+        typeof snapshot === "object" && snapshot !== null && !Array.isArray(snapshot)
+          ? (JSON.stringify(snapshot)?.length ?? 0)
+          : 0;
+      if (size > 0 && size <= 4 * 1024 * 1024)
+        ctx.fns.historyRecord({ kind: "authoring", snapshot });
+      return;
+    }
     if (msg.type === "soundEnabled") {
       if (!ctx.engine) return;
       ctx.recording.recording?.tape.record(["soundEnabled", msg.enabled ? 1 : 0]);

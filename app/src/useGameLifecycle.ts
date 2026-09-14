@@ -347,6 +347,10 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       authorRooms: true,
       ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
     } satisfies WorkerInbound);
+    // The baseline lands on the tape only now — attachSessionRuntime's post
+    // ran before the segment existed. A rewind to before the first commit
+    // restores exactly this state.
+    authoring.postSessionSnapshot(session);
   }
 
   /**
@@ -426,6 +430,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             authorRooms: Boolean(cached.roomGeneration),
             ...(await autosave.takeResumeState(cached.files)),
           } satisfies WorkerInbound);
+          // Same baseline as a fresh boot — posted after the segment opens.
+          if (cachedSession) authoring.postSessionSnapshot(cachedSession);
           return;
         }
         throw new Error(

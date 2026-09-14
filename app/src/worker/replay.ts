@@ -618,6 +618,8 @@ export function openHistoryDrive(
             response: cause.response,
           });
         return;
+      case "authoring":
+        return; // host-side session state — the take path reads it, the engine never does
       case "restart":
       case "end":
         return; // reproduced by the tick stream / the segment boundary itself

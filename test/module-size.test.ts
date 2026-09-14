@@ -51,7 +51,7 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the one transport bar: timeline, marks and mode extras for both sources",
   },
   "app/src/useHistoryView.ts": {
-    lines: 864,
+    lines: 1004,
     boundary:
       "the history-view controller: seek, watch, marks, bookmarks, the staged-swap lifecycle and its transport source",
   },
@@ -69,8 +69,9 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the logic compiler, the validator of last resort",
   },
   "app/src/agent/agentSession.ts": {
-    lines: 960,
-    boundary: "the agent session lifecycle: genesis, room and remix turns",
+    lines: 1065,
+    boundary:
+      "the agent session lifecycle: genesis, room and remix turns, and revision-checked adoption",
   },
   "app/src/useGameLibrary.ts": {
     lines: 896,
@@ -107,8 +108,9 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
       "the room-graph model: journal, plan and static-scan merge, plus the sidecar contract",
   },
   "app/src/useAuthoringController.ts": {
-    lines: 689,
-    boundary: "the authoring controller: host-request turns, patches and map-driven room builds",
+    lines: 774,
+    boundary:
+      "the authoring controller: host-request turns, patches, map-driven room builds and session adoption",
   },
   "app/src/agent/llmClient.ts": {
     lines: 705,

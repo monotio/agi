@@ -322,6 +322,11 @@ export function useEngine(
     handlePromptRequest: promptController.handlePromptRequest,
     handleRoomAuthoring: (req: LlmRequest, agent: AgentHandler) =>
       authoringController.handleRoomAuthoring(req, agent, (dir) => sendDirection(dir)),
+    // The room answer's authoring checkpoint posts after the hostAnswer —
+    // the tape records the state after the cause that produced it.
+    hostAnswered: (req: LlmRequest) => {
+      if (req.op === "room") authoringController.postSessionSnapshot();
+    },
     getAgentSession: () => authoringController.getSession(),
     getReplayDriver: () => replayDriver,
     ejectGame: () => lifecycle.ejectGame(),
@@ -452,6 +457,9 @@ export function useEngine(
     resumeEngine,
     drainHistoryCommits: historyController.drainHistoryCommits,
     highlightRoom: (room) => roomMap.select(room),
+    getSession: () => authoringController.getSession(),
+    adoptSession: (game, boot, snapshot) =>
+      authoringController.adoptSessionState(game, boot, snapshot),
     logAgent,
   });
   link.deps.handleHistoryView = historyView.applyReport;
