@@ -138,8 +138,8 @@ export interface RoomMapDeps {
   readonly onReviewEdited?: (() => void) | undefined;
   /** A map edit committed to the live session world — the owner persists it. */
   readonly onWorldEdited?: (() => void) | undefined;
-  /** The review map closed (its own Close): the owner keeps the draft. */
-  readonly onReviewClosed?: (() => void) | undefined;
+  /** The review map asked to close; return false to refuse — an unpersisted draft stays open. */
+  readonly onReviewClosed?: (() => boolean | void) | undefined;
 }
 
 export interface RoomMap {
@@ -816,10 +816,11 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   function closeMap(): void {
     if (!open.value) return;
     if (reviewing.value) {
-      // "Keep the draft": closing the review never builds; the stored plan
-      // survives and the owner clears its review state.
+      // "Keep the draft": closing the review never builds. The owner decides
+      // — a draft storage refused stays open with its error shown, so the
+      // review ends only after the draft is durable.
+      if (deps.onReviewClosed?.() === false) return;
       endReview();
-      deps.onReviewClosed?.();
       return;
     }
     open.value = false;

@@ -10,11 +10,12 @@
  * Exactly one retained original exists per game.
  */
 import {
+  commitStagedOriginal,
   loadGameHistory,
   loadHistoryBookmarks,
   loadRetainedOriginal,
   saveHistoryBookmark,
-  saveRetainedOriginal,
+  stageRetainedOriginal,
   type HistoryBookmark,
 } from "./historyStorage.ts";
 import { gameStorageKey, type BootedGame } from "./gameTypes.ts";
@@ -53,6 +54,8 @@ export function freshHistoryView(): HistoryViewUiState {
     marks: [],
     canResume: false,
     retained: false,
+    confirmReplace: false,
+    dropped: 0,
     diverged: null,
     error: "",
   };
@@ -243,6 +246,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       bookmarks = await loadHistoryBookmarks(key);
       const retained = await loadRetainedOriginal(key);
       v.retained = retained !== null;
+      v.dropped = recording?.dropped ?? 0;
       if (recording === null || recording.segments.length === 0) {
         v.error = "Nothing is recorded yet — play a little first.";
         return;
@@ -286,6 +290,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     v.loading = false;
     v.seeking = false;
     v.scrubbing = false;
+    v.confirmReplace = false;
     deps.resumeEngine("history");
   }
 
@@ -298,6 +303,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     tick = Math.max(0, Math.min(tick, segmentExtent(seg)));
     stopWatch();
     v.error = "";
+    v.confirmReplace = false;
     v.seeking = true;
     const mine = ++seekSerial;
     try {
@@ -310,17 +316,34 @@ export function useHistoryView(deps: HistoryViewDeps) {
     }
   }
 
-  /** Step to the next mark in `dir` (+1/-1) on the sorted mark lane. */
+  /**
+   * Step to the next mark in `dir` (+1/-1) on the sorted mark lane. The
+   * viewed position is (segment, tick): a seek lands at tick granularity,
+   * so marks sharing a tick are indistinguishable — the comparison is
+   * strict so the mark under the viewed point is "current", never "next".
+   */
   async function stepMark(dir: 1 | -1): Promise<void> {
     const v = view();
     const marks = v.marks;
     if (!v.active || marks.length === 0) return;
-    const here = marks.findIndex(
-      (m) => m.segment > v.segment || (m.segment === v.segment && m.tick >= v.tick),
-    );
-    const idx =
-      dir > 0 ? (here < 0 ? marks.length - 1 : here) : here < 0 ? marks.length - 1 : here - 1;
-    const mark = marks[Math.min(Math.max(idx, 0), marks.length - 1)]!;
+    const after = (m: HistoryViewMark): boolean =>
+      m.segment > v.segment || (m.segment === v.segment && m.tick > v.tick);
+    const before = (m: HistoryViewMark): boolean =>
+      m.segment < v.segment || (m.segment === v.segment && m.tick < v.tick);
+    let idx: number;
+    if (dir > 0) {
+      idx = marks.findIndex(after);
+      if (idx < 0) idx = marks.length - 1;
+    } else {
+      idx = -1;
+      for (let i = marks.length - 1; i >= 0; i--)
+        if (before(marks[i]!)) {
+          idx = i;
+          break;
+        }
+      if (idx < 0) idx = 0;
+    }
+    const mark = marks[idx]!;
     await seekTo(mark.segment, mark.tick);
     if (mark.room !== null) deps.highlightRoom(mark.room);
   }
@@ -392,19 +415,27 @@ export function useHistoryView(deps: HistoryViewDeps) {
     const game = deps.getBootedGame();
     if (!game || recording === null) return;
     const key = gameStorageKey(game);
+    // Taking control while a session is kept would replace it — the
+    // transport shows the confirming label; this second press proceeds.
+    if (v.retained && !v.confirmReplace) {
+      v.confirmReplace = true;
+      return;
+    }
+    v.confirmReplace = false;
     v.error = "";
     stopWatch();
     try {
-      // The departing live session becomes the retained original first —
-      // the swap is only taken once the original is durable.
-      const retained = await deps.query("historyRetain", {}, 10_000);
-      if (retained.boot === null) {
+      // The departing live session is staged first — the kept original is
+      // replaced only after the worker acknowledges the adoption, so a
+      // failed or uncertain swap never costs the retained session.
+      const departing = await deps.query("historyRetain", {}, 10_000);
+      if (departing.boot === null) {
         v.error = "The paused session can't be kept — a game prompt is still open.";
         return;
       }
-      await saveRetainedOriginal(key, {
-        boot: retained.boot,
-        from: retained.from,
+      await stageRetainedOriginal(key, {
+        boot: departing.boot,
+        from: departing.from,
         retainedAt: Date.now(),
       });
       const taken = await deps.query("historyViewTake", {}, 15_000);
@@ -412,6 +443,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
         v.error = taken.message ?? "Resume here failed.";
         return;
       }
+      await commitStagedOriginal(key);
       v.active = false;
       v.retained = true;
       // The worker adopted the viewed state still parked; release the pause
@@ -421,6 +453,11 @@ export function useHistoryView(deps: HistoryViewDeps) {
     } catch (error) {
       v.error = error instanceof Error ? error.message : String(error);
     }
+  }
+
+  /** Back out of a pending replacement confirmation. */
+  function cancelReplace(): void {
+    view().confirmReplace = false;
   }
 
   /** Swap back: the retained original resumes; the current session is kept. */
@@ -443,7 +480,9 @@ export function useHistoryView(deps: HistoryViewDeps) {
         v.error = "This session can't be kept — a game prompt is still open.";
         return;
       }
-      await saveRetainedOriginal(key, {
+      // Stage the departing session; the retained slot is rewritten only
+      // after the worker acknowledges it adopted the original.
+      await stageRetainedOriginal(key, {
         boot: departing.boot,
         from: departing.from,
         retainedAt: Date.now(),
@@ -457,6 +496,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
         v.error = restored.message ?? "Back to before failed.";
         return;
       }
+      await commitStagedOriginal(key);
       v.active = false;
       v.retained = true;
       deps.resumeEngine("history");
@@ -513,6 +553,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     pauseHistory,
     setHistorySpeed,
     resumeHere,
+    cancelReplace,
     backToBefore,
     addBookmark,
     jumpToVisit,

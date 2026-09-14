@@ -331,6 +331,90 @@ test("Resume here adopts the viewed moment; Back to before restores the original
   assert.equal(historySyncDigest(ctx.engine!), liveDigest);
 });
 
+test("the adopted session resumes the recorded PRNG and cycle clock", () => {
+  const { h, recording } = playedSession();
+  const { ctx, send, tick } = h;
+
+  const recordedRoll = ctx.engine!.vars[60]!;
+  assert.ok(recordedRoll >= 1 && recordedRoll <= 250);
+  const abandonedRng = ctx.history.rng; // the live session's post-roll state
+
+  // View the moment just before the recorded roll.
+  const rollEvent = recording.segments[0]!.events.find(
+    (e) => e.cause.kind === "debugWrite" && e.cause.flags?.some(([n]) => n === 202),
+  )!;
+  const midTick = Math.max(0, rollEvent.tick - 1);
+  send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: midTick });
+  assert.equal(finalView(h.control, 1).canResume, true);
+
+  send({ type: "historyRetain", id: 2 });
+  const retained = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyRetained" }> =>
+      m.type === "historyRetained" && m.id === 2,
+  );
+  assert.ok(retained && retained.boot !== null);
+  assert.equal(retained.boot.rng, abandonedRng, "the retained boot carries the abandoned rng");
+
+  // The scratch's clock at the viewed position — the take must carry it,
+  // not the abandoned session's stale live clock.
+  const viewedClock = ctx.view.drive!.ctx.clocks.cycle.snapshot();
+
+  send({ type: "historyViewTake", id: 3 });
+  const taken = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyTaken" }> =>
+      m.type === "historyTaken" && m.id === 3,
+  );
+  assert.ok(taken && taken.ok);
+
+  const branch = collectSegments(h.control).at(-1)!;
+  // The live PRNG is the viewed position's — not the abandoned future's.
+  assert.equal(ctx.history.rng, branch.boot.rng);
+  assert.notEqual(ctx.history.rng, abandonedRng);
+  // The branch segment's boot records the adopted clock — the abandoned
+  // session's live clock was still ticking when it was stamped.
+  assert.deepEqual(branch.boot.clock, viewedClock);
+
+  // The recorded clock waits out the parked interval: restoring it at adopt
+  // time would have the first parked poll discard its accumulators.
+  assert.deepEqual(ctx.cycle.pendingClock, viewedClock);
+  tick(2);
+  assert.ok(ctx.cycle.pendingClock !== null, "parked polls never touched it");
+
+  send({ type: "pause", paused: false });
+  const clock = ctx.clocks.cycle.snapshot();
+  assert.equal(clock.remainder, viewedClock.remainder);
+  assert.equal(clock.increments, viewedClock.increments);
+  assert.equal(clock.paused, false);
+  assert.equal(ctx.cycle.pendingClock, null);
+
+  // The LCG continues from the recorded state — the same boundary rolls the
+  // value the tape recorded, not whatever the abandoned future held.
+  send({ type: "debugWrite", id: 9, flags: [[202, 1]] });
+  tick(3);
+  assert.equal(ctx.engine!.vars[60], recordedRoll, "the roll resumes the recorded rng");
+
+  // Back to before with a recorded clock: the same deferral lands it on the
+  // release — the parked polls in between must not consume it first.
+  const patched = {
+    ...retained.boot,
+    clock: { remainder: 30, increments: 4, paused: false },
+  };
+  send({ type: "pause", paused: true });
+  send({ type: "historyViewRestore", id: 4, boot: patched, from: retained.from });
+  const restored = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyViewRestored" }> =>
+      m.type === "historyViewRestored" && m.id === 4,
+  );
+  assert.ok(restored && restored.ok);
+  assert.deepEqual(ctx.cycle.pendingClock, patched.clock);
+  assert.equal(ctx.history.rng, retained.boot.rng, "the parked session's rng is back");
+  tick(2);
+  assert.deepEqual(ctx.cycle.pendingClock, patched.clock, "still pending through parked polls");
+  send({ type: "pause", paused: false });
+  assert.equal(ctx.clocks.cycle.snapshot().increments, 4);
+  assert.equal(ctx.clocks.cycle.snapshot().remainder, 30);
+});
+
 /** Read v60 — the LCG roll's landing spot. */
 function playedRoll(ctx: WorkerContext): number {
   return ctx.engine!.vars[60]!;

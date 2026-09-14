@@ -52,6 +52,7 @@ const {
   saveRecordedTest,
   roomMap,
   historyView,
+  retryHistorySave,
 } = useEngineApi();
 const { aiModelLabel, aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
 const bridge = useShellBridge();
@@ -489,6 +490,26 @@ onUnmounted(() => {
         Back to game
       </button>
     </div>
+  </div>
+  <div
+    v-if="state.historyUnsaved"
+    class="export-refusal"
+    data-testid="history-unsaved"
+    role="alert"
+  >
+    <p>
+      Recording hasn't saved since
+      {{ new Date(state.historyUnsaved.since).toLocaleTimeString() }} — the tape keeps recording and
+      retries on its own.
+    </p>
+    <button
+      type="button"
+      class="ui-button ui-button--secondary"
+      data-testid="history-retry"
+      @click="retryHistorySave()"
+    >
+      Try now
+    </button>
   </div>
   <div
     v-if="state.recording.active"

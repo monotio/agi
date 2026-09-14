@@ -123,6 +123,7 @@ export function useEngine(
     resumed: false,
     recording: { active: false, starting: false, error: "" },
     historyPending: 0,
+    historyUnsaved: null,
     historyView: freshHistoryView(),
     planReview: null,
     walkthrough: createInitialWalkthroughState(),
@@ -509,6 +510,9 @@ export function useEngine(
     resumeEngine,
     roomMap,
     historyView,
+    /** The "history not saved" banner's retry — nudge the worker's resend. */
+    retryHistorySave: () =>
+      link.getWorker()?.postMessage({ type: "historyRetry" } satisfies WorkerInbound),
     plan: planController,
     observeMapFrame: roomMap.observeFrame,
     readFrames: debug.readFrames,

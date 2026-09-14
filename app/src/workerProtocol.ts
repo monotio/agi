@@ -176,6 +176,11 @@ export type WorkerInbound =
    */
   | { type: "historyAck"; epoch: number; batch: number }
   /**
+   * The player's retry on the "history not saved" notice: repost the oldest
+   * un-acked batch now rather than waiting out the resend backoff.
+   */
+  | { type: "historyRetry" }
+  /**
    * Open a history-viewing session: the live engine is already paused and
    * parked; a scratch session on the side replays the recorded stream to
    * `tick` in `segment` (an index into recording.segments). Progress posts

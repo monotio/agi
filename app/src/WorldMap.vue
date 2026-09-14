@@ -74,6 +74,9 @@ onUnmounted(() => {
 
 function onDialogClose(): void {
   map.closeMap();
+  // A refused review close (storage would not keep the draft) leaves the
+  // map's state open — reopen the shell so the player sees why.
+  if (map.open.value && dialog.value && !dialog.value.open) dialog.value.showModal();
 }
 
 const graph = computed(() => map.graph.value);
@@ -789,7 +792,18 @@ function downloadSidecar(): void {
         :disabled="planBusy"
         @click="map.closeMap()"
       >
-        Keep the draft
+        {{ state.planReview?.unsaved ? "Try saving again" : "Keep the draft" }}
+      </button>
+      <button
+        v-if="state.planReview?.unsaved"
+        type="button"
+        class="ui-button ui-button--secondary"
+        data-testid="map-discard-plan"
+        :disabled="planBusy"
+        title="Throw this plan away — nothing was saved"
+        @click="engine.plan.discardPending()"
+      >
+        Discard the plan
       </button>
       <span v-if="planBusy" class="map-review-busy" data-testid="map-review-busy">Working…</span>
       <p

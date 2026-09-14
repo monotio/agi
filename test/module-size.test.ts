@@ -111,6 +111,10 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     lines: 666,
     boundary: "the GPU stage: layers, picking and presentation",
   },
+  "app/src/worker/context.ts": {
+    lines: 619,
+    boundary: "the worker session state: ports, cycle, input, replay and history fields",
+  },
 };
 
 function* productionFiles(dir: string): Generator<string> {

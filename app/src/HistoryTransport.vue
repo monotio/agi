@@ -343,6 +343,13 @@ onUnmounted(() => {
             · replaying…</template
           ></span
         >
+        <span
+          v-if="view.dropped > 0"
+          class="history-note"
+          data-testid="history-dropped"
+          title="The tape outgrew its storage bound — playback starts at the oldest kept session"
+          >earlier tape dropped</span
+        >
       </span>
 
       <button
@@ -375,17 +382,34 @@ onUnmounted(() => {
         Back to before
       </button>
       <button
+        v-if="view.confirmReplace"
+        type="button"
+        class="ui-button ui-button--secondary history-action"
+        data-testid="btn-keep-original"
+        title="Don't resume — keep the session already saved"
+        @click="
+          historyView.cancelReplace();
+          releaseFocus($event);
+        "
+      >
+        Keep the original
+      </button>
+      <button
         type="button"
         class="ui-button ui-button--primary history-action"
         data-testid="btn-resume-here"
         :disabled="!view.canResume || view.diverged !== null || view.seeking"
-        title="Continue playing from this moment; the current session is kept as Back to before"
+        :title="
+          view.confirmReplace
+            ? 'The session kept as Back to before will be replaced — press again to confirm'
+            : 'Continue playing from this moment; the current session is kept as Back to before'
+        "
         @click="
           void historyView.resumeHere();
           releaseFocus($event);
         "
       >
-        Resume here
+        {{ view.confirmReplace ? "Replace the kept session?" : "Resume here" }}
       </button>
     </template>
 
@@ -600,6 +624,12 @@ onUnmounted(() => {
   padding: 3px 10px;
   font-size: 12px;
   min-height: 28px;
+  white-space: nowrap;
+}
+.history-note {
+  margin-left: 8px;
+  font-size: 11px;
+  color: #e0c98a;
   white-space: nowrap;
 }
 .history-status {

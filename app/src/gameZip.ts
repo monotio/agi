@@ -1,6 +1,7 @@
 import { readProjectContext, type ProjectContext } from "./projectArchive.ts";
 import { readProgressEntries, type GameProgress } from "./gameProgress.ts";
 import { readMapArchive } from "./roomMapStore.ts";
+import { readHistoryArchive, type ProjectHistory } from "./historyArchive.ts";
 import type { RoomMapSidecar } from "../../src/agent/roomMap.ts";
 import { crc32 } from "./zip.ts";
 import { readPublicMetadata, type PublicGameMetadata } from "./gameMetadata.ts";
@@ -24,6 +25,8 @@ export interface OpenedGame {
   progress?: GameProgress;
   /** The world-map journal and UI layout; project archives only. */
   map?: RoomMapSidecar;
+  /** The recorded session tape with its kept original and bookmarks; project archives only. */
+  history?: ProjectHistory;
   metadata?: PublicGameMetadata;
 }
 
@@ -241,6 +244,18 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
       map = undefined;
     }
   }
+  // A corrupt tape must not sink the import either: the recording is derived
+  // session data, so it degrades to a fresh tape rather than refusing the
+  // whole project.
+  let history: OpenedGame["history"];
+  const historyBytes = project ? entries.get(`${root}HISTORY.JSON`) : undefined;
+  if (historyBytes) {
+    try {
+      history = readHistoryArchive(historyBytes);
+    } catch {
+      history = undefined;
+    }
+  }
   return {
     files,
     words,
@@ -248,5 +263,6 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
     ...(project ? { project } : {}),
     ...(progress ? { progress } : {}),
     ...(map ? { map } : {}),
+    ...(history ? { history } : {}),
   };
 }

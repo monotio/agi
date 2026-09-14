@@ -82,6 +82,13 @@ export interface HistoryViewUiState {
   canResume: boolean;
   /** A retained original exists — Back to before is offered. */
   retained: boolean;
+  /**
+   * Resume here would replace the kept session: the transport asked and is
+   * waiting for the second, confirming press. Any seek or close resets it.
+   */
+  confirmReplace: boolean;
+  /** Segments the retention bound evicted before this tape was opened. */
+  dropped: number;
   diverged: { tick: number; detail: string } | null;
   error: string;
 }
@@ -133,6 +140,12 @@ export interface EngineState {
   recording: { active: boolean; starting: boolean; error: string };
   /** History batches committed-or-in-flight to storage; >0 means unsaved tape. */
   historyPending: number;
+  /**
+   * Batches the storage layer refused, tracked apart from in-flight work:
+   * the worker keeps and resends them, but the tape's durability lag is
+   * visible — "history not saved since …" with a retry.
+   */
+  historyUnsaved: { batches: number; since: number } | null;
   /** The history transport: paused live session plus a scratch replay under it. */
   historyView: HistoryViewUiState;
   /**

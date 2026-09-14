@@ -281,12 +281,17 @@ export function createHistoryView(ctx: WorkerContext) {
     ctx.engine.vars[22] = ctx.boot.selectedSoundDevice === 0 ? 1 : 3;
     // The adopted session is live but stays parked: the host's pause owners
     // decide when it runs again (an open map or bubble can outlast the swap).
-    const now = ctx.ports.now();
-    ctx.clocks.cycle.reset(now);
-    ctx.clocks.sound.reset(now);
+    // Its host continuation is restored whole: the live PRNG resumes from the
+    // recorded state (not the abandoned future's) and the recorded cycle
+    // clock is deferred — a parked poll would discard its accumulators, so
+    // it lands on the host's first release instead.
+    ctx.cycle.pendingClock = boot.clock ?? null;
+    if (boot.clock === undefined) ctx.clocks.cycle.reset(ctx.ports.now());
+    ctx.clocks.sound.reset(ctx.ports.now());
     ctx.cycle.paused = true;
     ctx.ports.control({ type: "paused", paused: true });
     ctx.history.resumedFrom = from;
+    ctx.history.rng = boot.rng;
     ctx.fns.rebaselineJournal();
     ctx.fns.historyResume();
     ctx.presentation.lastVisual = null;

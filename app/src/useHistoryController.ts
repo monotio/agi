@@ -6,8 +6,11 @@
  * worker retains it and resends, so storage trouble degrades to a stalled
  * acknowledgement, never a silently dropped tape.
  *
- * `state.historyPending` counts commits in flight — the UI's "recording has
- * unsaved work" signal.
+ * Two counters report that lag: `state.historyPending` counts commits in
+ * flight, and `state.historyUnsaved` counts batches the storage layer has
+ * refused — the "history not saved since …" signal. Refused batches stay
+ * listed until a resend commits them; a game switch clears the ledger (the
+ * old worker's resends are gone with it).
  */
 import { appendHistoryBatch } from "./historyStorage.ts";
 import { gameStorageKey, type BootedGame } from "./gameTypes.ts";
@@ -15,7 +18,10 @@ import type { HistoryBatch } from "../../src/agent/history.ts";
 import type { AgentLogEntry } from "./agent/agentLog.ts";
 
 export interface HistoryControllerContext {
-  readonly state: { historyPending: number };
+  readonly state: {
+    historyPending: number;
+    historyUnsaved: { batches: number; since: number } | null;
+  };
   readonly getBootedGame: () => BootedGame | null;
   readonly getProfile: () => string | null;
   readonly logAgent: (kind: AgentLogEntry["kind"], message: string) => void;
@@ -30,19 +36,43 @@ export interface HistoryController {
 
 export function useHistoryController(ctx: HistoryControllerContext): HistoryController {
   const commits = new Set<Promise<unknown>>();
+  /** `${segment}:${batch}` → when the commit first failed. */
+  const unsaved = new Map<string, number>();
+  let activeKey = "";
+
+  function syncUnsaved(): void {
+    ctx.state.historyUnsaved = unsaved.size
+      ? { batches: unsaved.size, since: Math.min(...unsaved.values()) }
+      : null;
+  }
 
   function handleHistoryBatch(msg: { epoch: number; batch: HistoryBatch }): Promise<boolean> {
     const game = ctx.getBootedGame();
     const storageKey = game ? gameStorageKey(game) : "";
+    if (storageKey !== activeKey) {
+      // A replaced worker's un-acked batches can never resend — the ledger
+      // they left behind belongs to the previous session, not this tape.
+      unsaved.clear();
+      activeKey = storageKey;
+      syncUnsaved();
+    }
     if (!storageKey) return Promise.resolve(false);
+    const batchKey = `${msg.batch.segment}:${msg.batch.batch}`;
     ctx.state.historyPending++;
     const pending = appendHistoryBatch(storageKey, msg.batch, ctx.getProfile() ?? "")
       .then((committed) => {
-        if (!committed && ctx.getBootedGame() === game)
-          ctx.logAgent("log", `history batch ${msg.batch.batch} not yet durable`);
+        if (committed) unsaved.delete(batchKey);
+        else {
+          unsaved.set(batchKey, unsaved.get(batchKey) ?? Date.now());
+          if (ctx.getBootedGame() === game)
+            ctx.logAgent("log", `history batch ${msg.batch.batch} not yet durable`);
+        }
+        syncUnsaved();
         return committed;
       })
       .catch((error) => {
+        unsaved.set(batchKey, unsaved.get(batchKey) ?? Date.now());
+        syncUnsaved();
         if (ctx.getBootedGame() === game)
           ctx.logAgent("log", `history commit failed: ${String(error)}`);
         return false;

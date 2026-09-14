@@ -52,6 +52,12 @@ export interface WorkerPorts {
   presentation(message: WorkerPresentation, transfer?: Transferable[]): void;
   /** performance.now */
   now(): number;
+  /**
+   * setTimeout for deferred retries (history resend backoff). A test port
+   * that omits it leaves retries to the explicit historyRetry command.
+   */
+  schedule?: ((fn: () => void, ms: number) => unknown) | undefined;
+  cancelSchedule?: ((timer: unknown) => void) | undefined;
 }
 
 /** Settings the boot message owns; a replay reset keeps them. */
@@ -122,6 +128,12 @@ export interface CycleState {
    * cycle is invisible since nobody reads state before the freeze lands.
    */
   paused: boolean;
+  /**
+   * A boot record's clock awaiting the first unpaused poll. Adoption parks
+   * the session; a parked poll discards accumulators, so the recorded pacing
+   * state applies only when the host actually releases the pause.
+   */
+  pendingClock: { remainder: number; increments: number; paused: boolean } | null;
 }
 
 /** worker/autosave.ts */
@@ -219,7 +231,13 @@ export interface HistoryState {
   rng: number;
   /** Bumped per boot so a replaced session's historyAcks drop. */
   epoch: number;
-  /** Segment ids are `e<epoch>.s<n>`; the serial counts segments per epoch. */
+  /**
+   * The recording session's persisted identity, drawn fresh per boot.
+   * Segment ids are `<session>.s<n>` — unique across workers and reloads,
+   * so two sessions recording the same game never write to one segment.
+   */
+  session: string;
+  /** The serial counts segments within this session. */
   segmentSerial: number;
   /** The open segment's id; null between an end and the next safe boundary. */
   segment: string | null;
@@ -245,6 +263,13 @@ export interface HistoryState {
   resumePending: boolean;
   /** The segment a resumed boot continues from; cleared on a fresh boot. */
   resumedFrom: { segment: string; seq: number; tick: number } | null;
+  /** Serialized bytes + events posted under the open segment (rollover bound). */
+  segmentBytes: number;
+  segmentEvents: number;
+  /** Backoff timer for resending un-acked batches; null while disarmed. */
+  resendTimer: unknown;
+  /** Current resend backoff in ms; resets on progress. */
+  resendDelay: number;
 }
 
 /** worker/historyView.ts — the scratch session replaying the live recording. */
@@ -367,6 +392,7 @@ export interface WorkerFns {
   /** The parked live session's resume point — the retained original. */
   historySnapshot(): HistoryBoot | null;
   onHistoryAck(msg: Inbound<"historyAck">): void;
+  onHistoryRetry(): void;
   // historyView.ts
   onHistoryViewStart(msg: Inbound<"historyViewStart">): void;
   onHistoryViewSeek(msg: Inbound<"historyViewSeek">): void;
@@ -426,6 +452,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
     history: {
       rng: 1,
       epoch: 0,
+      session: "",
       segmentSerial: 0,
       segment: null,
       seq: 0,
@@ -441,6 +468,10 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       lastSyncCycle: 0,
       resumePending: false,
       resumedFrom: null,
+      segmentBytes: 0,
+      segmentEvents: 0,
+      resendTimer: null,
+      resendDelay: 4_000,
     },
     view: { recording: null, segment: 0, drive: null, request: null, timer: null },
     cycle: {
@@ -453,6 +484,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       initialLogicStarted: false,
       lastInputReady: false,
       paused: false,
+      pendingClock: null,
     },
     autosave: {
       autosaveIntervalMs: 5_000,
@@ -532,6 +564,7 @@ export function resetSession(ctx: WorkerContext): void {
   const now = ctx.ports.now();
   ctx.cycle.initialLogicStarted = false;
   ctx.cycle.paused = false;
+  ctx.cycle.pendingClock = null;
   ctx.input.inputBuffer = [];
   ctx.input.keyQueue = [];
   ctx.input.deferredMovement.length = 0;

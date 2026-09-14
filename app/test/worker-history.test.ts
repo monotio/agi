@@ -16,6 +16,10 @@ import {
 import { resourceSetRevision } from "../../src/agent/authoringState.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { gameContainer } from "./worker-ctx.ts";
+import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+import { appendHistoryBatch, loadGameHistory } from "../src/historyStorage.ts";
+
+installIndexedDbFixture();
 import {
   createWorkerContext,
   type WorkerContext,
@@ -91,6 +95,10 @@ interface HistoryHarness {
   send(msg: WorkerInbound): void;
   /** One 60 Hz host poll: one recorded sound tick and one cycle poll. */
   tick(n?: number): void;
+  /** Pending resend timers (the backoff schedule), run on demand. */
+  timers: { fn: () => void; ms: number }[];
+  /** Fire and consume the oldest pending resend timer. */
+  fireTimer(): void;
 }
 
 function historyHarness(
@@ -100,11 +108,21 @@ function historyHarness(
 ): HistoryHarness {
   const control: WorkerControl[] = [];
   const presentation: WorkerPresentation[] = [];
+  const timers: { fn: () => void; ms: number }[] = [];
   let now = 0;
   const ports: WorkerPorts = {
     control: (message) => control.push(message),
     presentation: (message) => presentation.push(message),
     now: () => now,
+    schedule: (fn, ms) => {
+      const entry = { fn, ms };
+      timers.push(entry);
+      return entry;
+    },
+    cancelSchedule: (timer) => {
+      const index = timers.indexOf(timer as { fn: () => void; ms: number });
+      if (index >= 0) timers.splice(index, 1);
+    },
   };
   const ctx = createWorkerContext(ports);
   ctx.host = createEngineHost(ctx);
@@ -139,7 +157,10 @@ function historyHarness(
     }
     if (autoAck) ackAll();
   };
-  return { ctx, control, presentation, send, tick };
+  const fireTimer = (): void => {
+    timers.shift()?.fn();
+  };
+  return { ctx, control, presentation, send, tick, timers, fireTimer };
 }
 
 /**
@@ -563,4 +584,91 @@ test("un-acked batches stay under the in-flight bound and resend on drain", () =
     send({ type: "historyAck", epoch, batch: ctx.history.sent[0]!.batch });
   assert.equal(ctx.history.sent.length, 0);
   assert.equal(ctx.history.queue.length, 0);
+});
+
+test("a fresh worker never reuses another session's persisted identity", async () => {
+  // Two independent sessions of the same game — the reload/resume case.
+  // Their segment ids must differ end-to-end, and the persisted committer
+  // must fold both tapes without one deduping the other's batches.
+  const first = historyHarness(historyGame(), { rngSeed: 0xaa });
+  first.tick(4);
+  first.send({ type: "debugWrite", id: 0, flags: [[200, 1]] });
+  first.tick(4);
+  first.send({ type: "key", code: 65 });
+  first.tick(3);
+
+  const second = historyHarness(historyGame(), { rngSeed: 0xbb });
+  second.tick(4);
+  // The second session is longer and different — dedup must not fold it.
+  second.send({ type: "debugWrite", id: 0, flags: [[200, 1]] });
+  second.tick(4);
+  second.send({ type: "input", text: "look" });
+  second.tick(2);
+  second.send({ type: "debugWrite", id: 1, flags: [[202, 1]] });
+  second.tick(4);
+  second.send({ type: "pause", paused: true });
+
+  const segmentsA = collectSegments(first.control);
+  const segmentsB = collectSegments(second.control);
+  const idsA = new Set(segmentsA.map((s) => s.id));
+  const idsB = new Set(segmentsB.map((s) => s.id));
+  assert.ok(idsA.size > 0 && idsB.size > 0);
+  for (const id of idsB) assert.ok(!idsA.has(id), `${id} must be unique per session`);
+
+  // Both sessions persist under one storage key and replay separately.
+  const key = "tape-session-identity";
+  for (const message of first.control)
+    if (message.type === "historyBatch")
+      assert.equal(await appendHistoryBatch(key, message.batch, "2.936"), true);
+  for (const message of second.control)
+    if (message.type === "historyBatch")
+      assert.equal(await appendHistoryBatch(key, message.batch, "2.936"), true);
+
+  const stored = await loadGameHistory(key);
+  assert.ok(stored !== null);
+  assert.equal(stored.segments.length, segmentsA.length + segmentsB.length);
+
+  const replayA = replayHistorySegment(stored.segments.find((s) => idsA.has(s.id))!);
+  assert.equal(replayA.diverged, null);
+  assert.equal(historySyncDigest(replayA.ctx.engine!), historySyncDigest(first.ctx.engine!));
+  const replayB = replayHistorySegment(stored.segments.find((s) => idsB.has(s.id))!);
+  assert.equal(replayB.diverged, null);
+  assert.equal(historySyncDigest(replayB.ctx.engine!), historySyncDigest(second.ctx.engine!));
+});
+
+test("a failed commit's batch resends on its own schedule and on retry", () => {
+  const h = historyHarness(historyGame(), { rngSeed: 3 }, { autoAck: false });
+  const { ctx, send, tick } = h;
+  tick(4);
+  const epoch = ctx.history.epoch;
+
+  send({ type: "key", code: 65 });
+  tick(1);
+  send({ type: "flush", id: 50 });
+  const sent = ctx.history.sent.map((b) => b.batch);
+  assert.ok(sent.length >= 2, "the boot batch and the flushed batch are owed acks");
+
+  // The backoff timer is armed — running it reposts the OLDEST owed batch
+  // and rearms at double the delay, without touching the credit count.
+  assert.equal(h.timers.length, 1);
+  assert.equal(h.timers[0]!.ms, 4_000);
+  const before = h.control.filter((m) => m.type === "historyBatch").length;
+  h.fireTimer();
+  const reposts = h.control.filter((m) => m.type === "historyBatch").slice(before);
+  assert.equal(reposts.length, 1);
+  assert.equal(reposts[0]!.batch.batch, sent[0]);
+  assert.equal(ctx.history.sent.length, sent.length, "a resend spends no new credit");
+  assert.equal(h.timers.length, 1, "the backoff rearmed");
+  assert.equal(h.timers[0]!.ms, 8_000, "the delay doubles");
+
+  // The player's retry does the same immediately, restarting the short delay.
+  h.fireTimer();
+  send({ type: "historyRetry" });
+  assert.equal(h.timers[0]!.ms, 4_000, "retry restarts the backoff");
+
+  // Once the host commits, the ack frees credit and the timer disarms.
+  let guard = 0;
+  while (ctx.history.sent.length > 0 && guard++ < 16)
+    send({ type: "historyAck", epoch, batch: ctx.history.sent[0]!.batch });
+  assert.equal(h.timers.length, 0, "nothing left to resend");
 });

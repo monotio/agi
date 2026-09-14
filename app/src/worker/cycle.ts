@@ -143,6 +143,16 @@ export function createCycle(ctx: WorkerContext) {
 
   function onPause(msg: Inbound<"pause">): void {
     ctx.cycle.paused = msg.paused === true;
+    // An adopted session carries its recorded clock across the parked
+    // interval: restoring it at adopt time would lose the accumulators to
+    // the first parked poll, so it lands now — once, on release.
+    if (!ctx.cycle.paused && ctx.cycle.pendingClock !== null) {
+      // The snapshot's own paused flag would re-discard the accumulators on
+      // the next poll — the host is releasing, so the restored clock runs.
+      const { remainder, increments } = ctx.cycle.pendingClock;
+      ctx.clocks.cycle.restore({ remainder, increments, paused: false }, ctx.ports.now());
+      ctx.cycle.pendingClock = null;
+    }
     ctx.ports.control({ type: "paused", paused: ctx.cycle.paused });
   }
 

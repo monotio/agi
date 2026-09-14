@@ -20,7 +20,7 @@ import {
   updateGamePreview,
   type CachedGameMeta,
 } from "./gameStorage.ts";
-import { loadGameHistory } from "./historyStorage.ts";
+import { loadProjectHistory } from "./historyStorage.ts";
 import { buildProjectZip, buildPublicGameZip } from "./projectArchive.ts";
 import { MAX_GAME_ZIP_BYTES, readGameFiles, readGameZip, type OpenedGame } from "./gameZip.ts";
 import { readGameProgress, type ImportStorageReport } from "./gameProgress.ts";
@@ -526,7 +526,10 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     const mapNote = game.map
       ? ` (world map ${stored?.map ? "stored" : "could not be stored"})`
       : "";
-    if (!game.progress) return mapNote;
+    const historyNote = game.history
+      ? ` (session tape ${stored?.history ? "stored" : "could not be stored"})`
+      : "";
+    if (!game.progress) return mapNote + historyNote;
     const parts = Object.keys(game.progress.saves).map((slot) => {
       const status = stored?.slots.includes(Number(slot))
         ? "stored"
@@ -543,7 +546,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
           : "storage unconfirmed";
       parts.push(`autosave ${status}`);
     }
-    return (parts.length ? ` (${parts.join("; ")})` : "") + mapNote;
+    return (parts.length ? ` (${parts.join("; ")})` : "") + mapNote + historyNote;
   }
 
   async function onGameZip(file?: File): Promise<void> {
@@ -784,10 +787,10 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       // The map's storage identity is the game's storage key — for a live
       // export that is the in-memory map; for a stored project, the sidecar.
       const mapTarget = game ? gameStorageKey(game) : data.projectId;
-      let history: Awaited<ReturnType<typeof loadGameHistory>> = null;
+      let history: Awaited<ReturnType<typeof loadProjectHistory>> = null;
       if (project) {
         try {
-          history = await loadGameHistory(mapTarget);
+          history = await loadProjectHistory(mapTarget);
         } catch {
           // A stored recording that fails validation is left out of the
           // archive rather than blocking the project's download.

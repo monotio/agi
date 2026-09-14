@@ -57,6 +57,11 @@ export interface PlanReviewUiState {
   /** The last turn's failure, shown in the review bar. */
   error: string;
   /**
+   * Storage refused the draft. Close/Keep stay open until a retry lands or
+   * the player discards the plan — a refused draft is never reported kept.
+   */
+  unsaved: boolean;
+  /**
    * The world moved since the draft forked (a concurrent agent turn). Build
    * and revise refuse until the player refreshes the draft from the world.
    */
@@ -108,10 +113,14 @@ export function usePlanController(deps: PlanControllerDeps) {
     }
   }
 
-  /** Persist the live draft and point the pending marker at its project. */
-  function persistDraft(): void {
+  /**
+   * Persist the live draft and point the pending marker at its project.
+   * False when storage refused: the draft stays open and editable, and the
+   * review flags itself unsaved so callers must not report it kept.
+   */
+  function persistDraft(): boolean {
     const review = state.planReview;
-    if (!review || !storage) return;
+    if (!review || !storage) return true;
     const stored: StoredPlanDraft = {
       version: 1,
       projectId: review.projectId,
@@ -124,9 +133,13 @@ export function usePlanController(deps: PlanControllerDeps) {
     if (writePlanDraft(storage, stored)) {
       writePendingPlan(storage, review.projectId);
       pendingPlan.value = stored;
-    } else {
-      review.error = "Browser storage could not keep this plan draft. It stays open, unsaved.";
+      review.unsaved = false;
+      return true;
     }
+    review.unsaved = true;
+    review.error =
+      "Browser storage could not keep this plan draft — it stays open. Try again, or discard the plan.";
+    return false;
   }
 
   /** Forget a stored draft; the current review is untouched unless asked. */
@@ -161,6 +174,7 @@ export function usePlanController(deps: PlanControllerDeps) {
         draft: createWorldDraft(session.state.authoring.world),
         busy: false,
         error: "",
+        unsaved: false,
         conflict: false,
       };
       persistDraft();
@@ -195,6 +209,7 @@ export function usePlanController(deps: PlanControllerDeps) {
         draft: { baseRevision: "", world: structuredClone(stored.world) },
         busy: false,
         error: "",
+        unsaved: false,
         conflict: false,
       };
       roomMap.beginReview(stored.projectId);
@@ -223,12 +238,15 @@ export function usePlanController(deps: PlanControllerDeps) {
 
   /**
    * The map's own Close during a review: keep the stored draft, drop the
-   * session — reopening adopts the stored world into a fresh one.
+   * session — reopening adopts the stored world into a fresh one. A refused
+   * persist keeps the review open and returns false; the map stays up and
+   * the error names retry and discard.
    */
-  function keepReview(): void {
-    persistDraft();
+  function keepReview(): boolean {
+    if (!persistDraft()) return false;
     state.planReview = null;
     authoring.resetSession();
+    return true;
   }
 
   /**

@@ -28,6 +28,13 @@ export const HISTORY_EVENT_LIMIT = 250_000;
 export const HISTORY_BYTE_LIMIT = 48 * 1024 * 1024;
 /** Posted-but-unacknowledged batch credit, same pattern as the trace stream. */
 export const HISTORY_INFLIGHT_MAX = 4;
+/**
+ * Per-segment bounds during healthy recording: a live segment ends and rolls
+ * over rather than grow past these, so the persisted tape's total is bounded
+ * by HISTORY_SEGMENTS_MAX bounded segments.
+ */
+export const HISTORY_SEGMENT_BYTE_LIMIT = 8 * 1024 * 1024;
+export const HISTORY_SEGMENT_EVENT_LIMIT = 25_000;
 
 export type HistoryPatchKind = "logic" | "picture" | "view" | "sound";
 
@@ -214,6 +221,8 @@ export interface HistoryRecording {
   resourceSet: string;
   startedAt: number;
   segments: HistorySegment[];
+  /** Segments the retention bound evicted; segment[0] is the earliest kept. */
+  dropped?: number;
 }
 
 /** One transport unit: stream data up to and including its closing anchor. */
@@ -651,6 +660,7 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
     profile: text(value["profile"], "profile", 64),
     resourceSet: text(value["resourceSet"], "resourceSet", MAX_HISTORY_STRING),
     startedAt: int(value["startedAt"], "startedAt"),
+    ...(value["dropped"] !== undefined ? { dropped: int(value["dropped"], "dropped") } : {}),
     segments: segments.map((s): HistorySegment => {
       if (!isObj(s)) fail("segment must be an object.");
       const segment: HistorySegment = {

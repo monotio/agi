@@ -19,6 +19,8 @@ import {
   HISTORY_BYTE_LIMIT,
   HISTORY_EVENT_LIMIT,
   HISTORY_INFLIGHT_MAX,
+  HISTORY_SEGMENT_BYTE_LIMIT,
+  HISTORY_SEGMENT_EVENT_LIMIT,
   computeSyncMark,
   type HistoryAnchor,
   type HistoryBatch,
@@ -36,6 +38,9 @@ const SYNC_CYCLE_INTERVAL = 20;
 /** Close the accumulating batch before a single post grows unwieldy. */
 const BATCH_EVENT_MAX = 256;
 const BATCH_BYTE_MAX = 256 * 1024;
+/** Resend backoff for un-acked batches: starts short, doubles to a minute. */
+const RESEND_MS = 4_000;
+const RESEND_MAX_MS = 60_000;
 
 export function createHistory(ctx: WorkerContext) {
   /** A live segment records; scratch replay traffic never does. */
@@ -98,11 +103,25 @@ export function createHistory(ctx: WorkerContext) {
     h.openBytes += 96;
   }
 
-  /** Per-cycle boundary work: periodic sync marks and a pending rollover. */
+  /**
+   * Per-cycle boundary work: periodic sync marks, a pending resume, and the
+   * segment rollover — a live segment ends with "budget" and continues under
+   * a fresh one rather than growing the persisted segment without bound.
+   */
   function historyBoundary(): void {
     maybeResume();
     if (!live()) return;
-    if (ctx.cycle.cycleCount - ctx.history.lastSyncCycle >= SYNC_CYCLE_INTERVAL) syncMark();
+    const h = ctx.history;
+    if (
+      h.segmentBytes >= HISTORY_SEGMENT_BYTE_LIMIT ||
+      h.segmentEvents >= HISTORY_SEGMENT_EVENT_LIMIT
+    ) {
+      historyEnd("budget");
+      h.resumePending = true;
+      maybeResume();
+      return;
+    }
+    if (ctx.cycle.cycleCount - h.lastSyncCycle >= SYNC_CYCLE_INTERVAL) syncMark();
   }
 
   /**
@@ -171,6 +190,8 @@ export function createHistory(ctx: WorkerContext) {
     h.queue.push({ batch, size });
     h.queuedBytes += size;
     h.queuedEvents += batch.events.length;
+    h.segmentBytes += size;
+    h.segmentEvents += batch.events.length;
     drain();
     if (h.queuedBytes > HISTORY_BYTE_LIMIT || h.queuedEvents > HISTORY_EVENT_LIMIT) overflow();
   }
@@ -204,12 +225,50 @@ export function createHistory(ctx: WorkerContext) {
     };
     h.sent.push(batch);
     ctx.ports.control({ type: "historyBatch", epoch: h.epoch, batch });
+    armResend();
   }
 
   function post(batch: HistoryBatch): void {
     const h = ctx.history;
     h.sent.push(batch);
     ctx.ports.control({ type: "historyBatch", epoch: h.epoch, batch });
+    armResend();
+  }
+
+  /** Resend the oldest un-acked batch, bypassing the new-batch credit. */
+  function resend(): void {
+    const h = ctx.history;
+    if (h.sent.length > 0)
+      ctx.ports.control({ type: "historyBatch", epoch: h.epoch, batch: h.sent[0]! });
+  }
+
+  /**
+   * While batches sit un-acked, keep retrying on a backoff schedule — the
+   * credit cap bounds NEW posts, never the recovery of ones already owed an
+   * ack. Without this, four refused commits would stall the tape forever.
+   */
+  function armResend(): void {
+    const h = ctx.history;
+    if (h.resendTimer !== null || h.sent.length === 0) return;
+    const schedule = ctx.ports.schedule;
+    if (schedule === undefined) return;
+    h.resendTimer = schedule(() => {
+      h.resendTimer = null;
+      if (h.sent.length === 0) {
+        h.resendDelay = RESEND_MS;
+        return;
+      }
+      resend();
+      h.resendDelay = Math.min(h.resendDelay * 2, RESEND_MAX_MS);
+      armResend();
+    }, h.resendDelay);
+  }
+
+  function disarmResend(): void {
+    const h = ctx.history;
+    if (h.resendTimer === null) return;
+    ctx.ports.cancelSchedule?.(h.resendTimer);
+    h.resendTimer = null;
   }
 
   function drain(): void {
@@ -221,10 +280,9 @@ export function createHistory(ctx: WorkerContext) {
       post(batch);
     }
     // Nothing new to post but the host left a batch un-acked — resend the
-    // oldest. The host dedups by (epoch, batch), so a slow commit and a
-    // dropped one retry through the same path.
-    if (h.queue.length === 0 && h.sent.length > 0 && h.sent.length < HISTORY_INFLIGHT_MAX)
-      ctx.ports.control({ type: "historyBatch", epoch: h.epoch, batch: h.sent[0]! });
+    // oldest. The host dedups by (segment, batch), so a slow commit and a
+    // dropped one retry through the same path, even at full credit.
+    if (h.queue.length === 0 && h.sent.length > 0) resend();
   }
 
   /** The host persisted one batch — free the credit and drain the backlog. */
@@ -234,7 +292,21 @@ export function createHistory(ctx: WorkerContext) {
     const index = h.sent.findIndex((batch) => batch.batch === msg.batch);
     if (index < 0) return; // a stale or duplicate ack
     h.sent.splice(index, 1);
+    h.resendDelay = RESEND_MS; // progress resets the backoff
+    if (h.sent.length === 0) disarmResend();
     drain();
+  }
+
+  /**
+   * The player's "retry" on the unsaved-history notice: repost the oldest
+   * un-acked batch now and restart the backoff from its short delay.
+   */
+  function onHistoryRetry(): void {
+    const h = ctx.history;
+    h.resendDelay = RESEND_MS;
+    disarmResend(); // rearm at the short delay, not the doubled one
+    resend();
+    armResend();
   }
 
   /**
@@ -258,19 +330,38 @@ export function createHistory(ctx: WorkerContext) {
   }
 
   /**
+   * The recording session's persisted identity. A fresh random id per boot
+   * keeps every session's segment ids unique across worker lifetimes — the
+   * storage dedup sees retransmissions of one session, never two different
+   * sessions colliding on `e1.s1`.
+   */
+  function newSessionId(): string {
+    const uuid =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID().replaceAll("-", "")
+        : Math.random().toString(36).slice(2) + Date.now().toString(36);
+    return `s${uuid.slice(0, 12)}`;
+  }
+
+  /**
    * Boot starts a fresh epoch: any open segment ends, the stream resets, and
    * a live (non-seeded) boot begins a new segment with a full boot record.
    */
   function historyBoot(msg: BootMessage): void {
     const h = ctx.history;
     historyEnd("boot");
+    disarmResend();
     h.epoch++;
+    h.session = newSessionId();
     h.segmentSerial = 0;
     h.batch = 0;
     h.sent = [];
     h.queue = [];
     h.queuedBytes = 0;
     h.queuedEvents = 0;
+    h.segmentBytes = 0;
+    h.segmentEvents = 0;
+    h.resendDelay = RESEND_MS;
     h.open = { events: [], marks: [], sync: [] };
     h.openBytes = 0;
     h.seq = 0;
@@ -296,11 +387,13 @@ export function createHistory(ctx: WorkerContext) {
 
   function beginSegment(boot: HistoryBoot): void {
     const h = ctx.history;
-    h.segment = `e${h.epoch}.s${++h.segmentSerial}`;
+    h.segment = `${h.session}.s${++h.segmentSerial}`;
     h.seq = 0;
     h.tickBase = ctx.cycle.tickCount;
     h.cycleBase = ctx.cycle.cycleCount;
     h.lastSyncCycle = ctx.cycle.cycleCount;
+    h.segmentBytes = 0;
+    h.segmentEvents = 0;
     h.open = { events: [], marks: [], sync: [] };
     h.openBytes = 0;
     closeBatch({ boot });
@@ -333,7 +426,10 @@ export function createHistory(ctx: WorkerContext) {
       inputQueue: [...ctx.input.keyQueue],
       directionQueue: [...ctx.input.deferredMovement],
       inputLines: [...ctx.input.inputBuffer],
-      clock: ctx.clocks.cycle.snapshot(),
+      // An adoption's clock sits in pendingClock until the host releases the
+      // parked session — snapshot it so the segment's boot records the
+      // adopted continuation, not the abandoned session's stale live clock.
+      clock: ctx.cycle.pendingClock ?? ctx.clocks.cycle.snapshot(),
       rng: h.rng,
       soundDevice: ctx.boot.selectedSoundDevice,
       resourceSet: currentResourceSet(),
@@ -374,6 +470,7 @@ export function createHistory(ctx: WorkerContext) {
     historyFlush,
     historySnapshot: snapshotBoot,
     onHistoryAck,
+    onHistoryRetry,
   };
 }
 

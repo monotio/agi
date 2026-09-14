@@ -31,6 +31,10 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.fns.onHistoryAck(msg);
       return;
     }
+    if (msg.type === "historyRetry") {
+      ctx.fns.onHistoryRetry();
+      return;
+    }
     if (msg.type === "historyViewStart") {
       ctx.fns.onHistoryViewStart(msg);
       return;

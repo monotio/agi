@@ -27,7 +27,7 @@ function memStorage(): Storage {
  * mode editing the controller's draft, a real stub-backed session, and the
  * boot tail captured instead of spawning a worker.
  */
-function makeHarness() {
+function makeHarness(backingStorage?: Storage) {
   const state = reactive({
     phase: "idle",
     paused: false,
@@ -40,7 +40,7 @@ function makeHarness() {
     agentLog: [],
   }) as unknown as EngineState;
   const hook = reactive({ room: -1 }) as unknown as TextHook;
-  const storage = memStorage();
+  const storage = backingStorage ?? memStorage();
   const logAgent: LogAgentFn = () => {};
   let session: AgentSession | null = null;
   const authoring = {
@@ -194,4 +194,62 @@ test("buildPlannedRoom authors one room against the planned inbound edge", async
   ]);
   assert.equal(map.buildingRoom.value, undefined);
   map.endReview();
+});
+
+test("a refused draft write keeps the review open until retry or discard", async () => {
+  // The quota case: every draft write throws. Keep and Close both route
+  // through closeMap — a refused persist must not pretend the plan kept.
+  const values = new Map<string, string>();
+  let failing = true;
+  const storage = {
+    getItem: (k: string) => values.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      if (failing) throw new Error("QuotaExceededError");
+      values.set(k, v);
+    },
+    removeItem: (k: string) => void values.delete(k),
+  } as unknown as Storage;
+  const { state, map, plan } = makeHarness(storage);
+  await plan.start("# Brief", STUB, BOOT);
+
+  const review = state.planReview;
+  assert.ok(review);
+  assert.equal(review.unsaved, true, "the boot-time persist already failed");
+  assert.match(review.error, /could not keep/i);
+
+  // Keep the draft (and Close, and the dialog's Escape → closeMap): the
+  // review stays open and editable, the error names the way out.
+  map.renamePlannedRoom(1, "Still Mine");
+  map.closeMap();
+  assert.equal(map.reviewing.value, true, "an unsaved draft never closes as kept");
+  assert.equal(state.planReview, review);
+  assert.equal(review.draft.world.rooms["1"]?.title, "Still Mine", "the draft stays editable");
+
+  // Storage recovers: the same close retries the write and this time lands.
+  failing = false;
+  map.closeMap();
+  assert.equal(map.reviewing.value, false);
+  assert.equal(state.planReview == null, true);
+  assert.equal(readPlanDraft(storage, "custom-plan001")?.world.rooms["1"]?.title, "Still Mine");
+});
+
+test("explicit discard closes a review whose draft could not persist", async () => {
+  const storage = {
+    getItem: () => null,
+    setItem: () => {
+      throw new Error("QuotaExceededError");
+    },
+    removeItem: () => {},
+  } as unknown as Storage;
+  const { state, map, plan } = makeHarness(storage);
+  await plan.start("# Brief", STUB, BOOT);
+  assert.equal(state.planReview?.unsaved, true);
+
+  map.closeMap(); // refused — the draft is not durable
+  assert.equal(map.reviewing.value, true);
+
+  // The player's explicit out: throw the plan away.
+  plan.discardPending();
+  assert.equal(map.reviewing.value, false);
+  assert.equal(state.planReview, null);
 });

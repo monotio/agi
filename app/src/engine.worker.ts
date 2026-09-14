@@ -15,6 +15,8 @@ const ports: WorkerPorts = {
   control: (message, options) => sendControl(message, options),
   presentation: (message, options) => sendPresentation(message, options),
   now: () => performance.now(),
+  schedule: (fn, ms) => setTimeout(fn, ms),
+  cancelSchedule: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
 };
 
 /** All mutable worker state lives on the context; see worker/context.ts. */
