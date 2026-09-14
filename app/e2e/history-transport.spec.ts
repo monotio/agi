@@ -87,9 +87,11 @@ interface ViewState {
   playing: boolean;
   segment: number;
   tick: number;
+  totalTicks: number;
   room: number;
   canResume: boolean;
   retained: boolean;
+  diverged: { tick: number; detail: string } | null;
 }
 
 async function viewState(page: Page): Promise<ViewState | null> {
@@ -184,6 +186,121 @@ test("Resume here continues from the viewed moment; Back to before restores the 
   await expect(page.getByTestId("history-transport")).toBeHidden({ timeout: 20_000 });
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
+});
+
+test("a diverged tape labels the position unverified and keeps Resume here off", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  await bootTapeGame(page);
+  await writeFlag(page, 6);
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
+  await waitForCycles(page, 3);
+
+  // Open and close the transport once: the pause seals the recorded tail and
+  // the open's drain commits it before the corruption lands.
+  await openLookBack(page);
+  await page.getByTestId("btn-back-to-live").click();
+  await expect(page.getByTestId("history-transport")).toBeHidden();
+
+  // Corrupt the stored tape: flip every sync mark's expected digest in the
+  // first segment, so any replay across it fails the marks it crosses.
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open("monotio-agi-projects", 1);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    interface StoredTape {
+      recording: { segments: { sync: { digest: string; tick: number }[] }[] };
+    }
+    const record = await new Promise<StoredTape>((resolve, reject) => {
+      const req = db
+        .transaction("projects", "readonly")
+        .objectStore("projects")
+        .get("history/history-transport-fixture");
+      req.onsuccess = () => resolve(req.result as StoredTape);
+      req.onerror = () => reject(req.error);
+    });
+    for (const mark of record.recording.segments[0]!.sync)
+      mark.digest = (mark.digest[0] === "0" ? "1" : "0") + mark.digest.slice(1);
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("projects", "readwrite");
+      tx.objectStore("projects").put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  });
+
+  // The live worker replays its in-memory tape; reload so the stored —
+  // corrupted — recording is the one under view.
+  await page.reload();
+  await page.getByTestId("btn-resume-cached").click();
+  await expect.poll(async () => (await textHook(page)).room).toBeGreaterThanOrEqual(1);
+  await openLookBack(page);
+
+  // Step into the corrupted first segment: the drive replays across the
+  // flipped marks and the verification must fail at the first one it meets.
+  await page.getByTestId("history-seg-prev").click();
+  await expect
+    .poll(async () => (await viewState(page))?.diverged !== null, { timeout: 20_000 })
+    .toBe(true);
+
+  // The position is labeled unverified and Resume here stays off.
+  await expect(page.getByTestId("history-diverged")).toContainText("Unverified");
+  await expect(page.getByTestId("btn-resume-here")).toBeDisabled();
+});
+
+test("a tape the app cannot read reports the failure and leaves live play alone", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  await bootTapeGame(page);
+  await writeFlag(page, 6);
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
+  await waitForCycles(page, 2);
+
+  // Seal and commit the tail so a record exists to reject.
+  await openLookBack(page);
+  await page.getByTestId("btn-back-to-live").click();
+  await expect(page.getByTestId("history-transport")).toBeHidden();
+
+  // A record version this app does not know must be refused, not replayed.
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open("monotio-agi-projects", 1);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    const record = await new Promise<Record<string, unknown>>((resolve, reject) => {
+      const req = db
+        .transaction("projects", "readonly")
+        .objectStore("projects")
+        .get("history/history-transport-fixture");
+      req.onsuccess = () => resolve(req.result as Record<string, unknown>);
+      req.onerror = () => reject(req.error);
+    });
+    record["version"] = 99;
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("projects", "readwrite");
+      tx.objectStore("projects").put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  });
+
+  await page.reload();
+  await page.getByTestId("btn-resume-cached").click();
+  await expect.poll(async () => (await textHook(page)).room).toBeGreaterThanOrEqual(1);
+
+  await openGameOptions(page, "game-actions-menu");
+  await page.getByTestId("btn-look-back").click();
+  await expect(page.getByTestId("history-error")).toContainText("not supported");
+  expect((await viewState(page))?.active).toBe(false);
+
+  // Nothing was parked: the live engine kept running.
+  await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+  await waitForCycles(page, 2);
 });
 
 test("a map visit jumps straight to its moment on the tape", async ({ page }) => {

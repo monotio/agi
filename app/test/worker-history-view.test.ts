@@ -11,12 +11,23 @@ import assert from "node:assert/strict";
 import type { GameContainer } from "../../src/types.ts";
 import {
   HISTORY_FORMAT_VERSION,
+  historyBootSemantic,
+  historyFingerprint,
   historySyncDigest,
+  type HistoryAnchor,
   type HistoryBatch,
   type HistoryRecording,
   type HistorySegment,
 } from "../../src/agent/history.ts";
 import { gameContainer } from "./worker-ctx.ts";
+import {
+  decodeHostImage,
+  decodeSave,
+  encodeHostImage,
+  encodeSave,
+} from "../../src/runtime/persistence.ts";
+import { PROFILES } from "../../src/runtime/profile.ts";
+import { base64ToBytes, bytesToBase64 } from "../src/bytes.ts";
 import {
   createWorkerContext,
   type WorkerContext,
@@ -294,7 +305,14 @@ test("Resume here adopts the viewed moment; Back to before restores the original
   });
 
   // Take: the viewed moment becomes the live session, parked for the host.
-  send({ type: "historyViewTake", id: 3 });
+  send({
+    type: "historyViewTake",
+    id: 3,
+    segment: 0,
+    tick: midTick,
+    seq: viewedSeq,
+    generation: opened.generation,
+  });
   const taken = h.control.find(
     (m): m is Extract<WorkerControl, { type: "historyTaken" }> =>
       m.type === "historyTaken" && m.id === 3,
@@ -354,7 +372,8 @@ test("the adopted session resumes the recorded PRNG and cycle clock", () => {
   )!;
   const midTick = Math.max(0, rollEvent.tick - 1);
   send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: midTick });
-  assert.equal(finalView(h.control, 1).canResume, true);
+  const opened = finalView(h.control, 1);
+  assert.equal(opened.canResume, true);
 
   send({ type: "historyRetain", id: 2 });
   const retained = h.control.find(
@@ -368,7 +387,14 @@ test("the adopted session resumes the recorded PRNG and cycle clock", () => {
   // not the abandoned session's stale live clock.
   const viewedClock = ctx.view.drive!.ctx.clocks.cycle.snapshot();
 
-  send({ type: "historyViewTake", id: 3 });
+  send({
+    type: "historyViewTake",
+    id: 3,
+    segment: 0,
+    tick: midTick,
+    seq: opened.seq,
+    generation: opened.generation,
+  });
   const taken = h.control.find(
     (m): m is Extract<WorkerControl, { type: "historyTaken" }> =>
       m.type === "historyTaken" && m.id === 3,
@@ -408,6 +434,9 @@ test("the adopted session resumes the recorded PRNG and cycle clock", () => {
     ...retained.boot,
     clock: { remainder: 30, increments: 4, paused: false },
   };
+  // The changed record is a new claim — re-stamp its fingerprint as the
+  // recorder would.
+  patched.fingerprint = historyFingerprint(historyBootSemantic(patched));
   send({ type: "pause", paused: true });
   send({ type: "historyViewRestore", id: 4, boot: patched, from: retained.from });
   const restored = h.control.find(
@@ -500,6 +529,23 @@ test("a corrupted tape reports divergence instead of a position", () => {
   const report = finalView(h.control, 2);
   assert.equal(report.error, null);
   assert.ok(report.diverged !== null, "the tampered stream cannot pass its sync marks");
+
+  // The unverified position cannot be taken worker-side either — a take
+  // naming it is refused even with the view's own generation.
+  send({
+    type: "historyViewTake",
+    id: 3,
+    segment: 0,
+    tick: report.tick,
+    seq: report.seq,
+    generation: report.generation,
+  });
+  const refused = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyTaken" }> =>
+      m.type === "historyTaken" && m.id === 3,
+  );
+  assert.equal(refused?.ok, false);
+  assert.match(refused?.message ?? "", /diverged/);
 });
 
 test("a seek to an unwatched segment's open tail stops at the stream's end", () => {
@@ -527,6 +573,22 @@ test("viewing before any room draws reports the moment as non-resumable", () => 
   assert.equal(report.error, null);
   // Room 0 drew no picture: the engine cannot snapshot, so Resume here stays off.
   assert.equal(report.canResume, false);
+  // And the worker refuses a take naming it anyway — eligibility is
+  // enforced at the take, not only by the transport's disabled button.
+  send({
+    type: "historyViewTake",
+    id: 2,
+    segment: 0,
+    tick: report.tick,
+    seq: report.seq,
+    generation: report.generation,
+  });
+  const refused = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyTaken" }> =>
+      m.type === "historyTaken" && m.id === 2,
+  );
+  assert.equal(refused?.ok, false);
+  assert.match(refused?.message ?? "", /resumable boundary/);
 });
 
 test("a failed start leaves no half-open session behind", () => {
@@ -605,7 +667,14 @@ test("a take carries the authoring checkpoint belonging to the adopted position"
     const opened = finalView(h.control, id);
     assert.equal(opened.error, null);
     assert.equal(opened.canResume, true, `tick ${tick} is a resumable boundary`);
-    send({ type: "historyViewTake", id: id + 100 });
+    send({
+      type: "historyViewTake",
+      id: id + 100,
+      segment: 0,
+      tick,
+      seq: opened.seq,
+      generation: opened.generation,
+    });
     const taken = h.control.find(
       (m): m is Extract<WorkerControl, { type: "historyTaken" }> =>
         m.type === "historyTaken" && m.id === id + 100,
@@ -644,4 +713,121 @@ test("a take carries the authoring checkpoint belonging to the adopted position"
     undefined,
     "a mutation newer than the last checkpoint vetoes the stale snapshot",
   );
+});
+
+test("the anchor fingerprint fails on mutations the sync digest cannot see", () => {
+  const { h, recording, lastTick } = playedSession();
+  const { send } = h;
+
+  const anchor = recording.segments[0]!.anchors.at(-1);
+  assert.ok(anchor?.fingerprint, "the session recorded a fingerprinted anchor");
+
+  // Every lane mutates semantic state the sync digest does not cover —
+  // room, score, text rows and object coordinates all stay identical, so
+  // only the recorded-versus-restored fingerprint can catch the drift.
+  const mutants: [string, (anchor: HistoryAnchor) => void][] = [
+    ["PRNG", (a) => (a.rng = (a.rng + 1) & 0xffff)],
+    ["request serial", (a) => a.requestSerial++],
+    ["queued keys", (a) => a.inputQueue.push(13)],
+    ["queued direction", (a) => a.directionQueue.push(2)],
+    ["queued input lines", (a) => a.inputLines.push("east")],
+    ["cycle clock", (a) => (a.clock.remainder += 1)],
+    ["sound clock", (a) => (a.soundRemainder = (a.soundRemainder ?? 0) + 1)],
+    ["patch generation", (a) => ((a.replay as { patchGeneration: number }).patchGeneration += 1)],
+    [
+      "engine clock remainder",
+      (a) => ((a.replay as { clockRemainderMs: number }).clockRemainderMs += 1),
+    ],
+    [
+      "object motion state",
+      (a) => {
+        (a.replay as { objectExtras: { wanderCount: number }[] }).objectExtras[3]!.wanderCount = 7;
+      },
+    ],
+    [
+      "a string inside the save image",
+      (a) => {
+        const host = decodeHostImage(base64ToBytes(a.image));
+        const save = decodeSave(host.image, PROFILES["2.936"]);
+        save.strings[0] = `${save.strings[0]}x`;
+        a.image = bytesToBase64(
+          encodeHostImage(
+            encodeSave(save, PROFILES["2.936"]),
+            host.screen ?? [],
+            host.presentation,
+            host.continuation,
+          ),
+        );
+      },
+    ],
+  ];
+
+  for (const [what, mutate] of mutants) {
+    const tampered = JSON.parse(JSON.stringify(recording)) as HistoryRecording;
+    mutate(tampered.segments[0]!.anchors.at(-1)!);
+    send({ type: "historyViewStart", id: 1, recording: tampered, segment: 0, tick: lastTick });
+    const report = finalView(h.control, 1);
+    assert.match(
+      report.error ?? "",
+      /semantic fingerprint does not hold/,
+      `${what}: the recorded expectation did not hold for the restored state`,
+    );
+    assert.equal(report.canResume, false);
+    assert.equal(h.ctx.view.drive, null, `${what}: the failed open mounted nothing`);
+    send({ type: "historyViewEnd" });
+  }
+
+  // The untouched tape still opens.
+  send({ type: "historyViewStart", id: 2, recording, segment: 0, tick: lastTick });
+  assert.equal(finalView(h.control, 2).error, null);
+  send({ type: "historyViewEnd" });
+});
+
+test("the take boundary refuses anything but the settled verified position", () => {
+  const { h, recording, lastTick } = playedSession();
+  const { ctx, send } = h;
+
+  send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: lastTick });
+  const opened = finalView(h.control, 1);
+  assert.equal(opened.error, null);
+  assert.equal(opened.canResume, true);
+  const pos = {
+    segment: 0,
+    tick: opened.tick,
+    seq: opened.seq,
+    generation: opened.generation,
+  };
+
+  const take = (id: number, extra: Partial<typeof pos> = {}) => {
+    send({ type: "historyViewTake", id, ...pos, ...extra });
+    const reply = h.control.find(
+      (m): m is Extract<WorkerControl, { type: "historyTaken" }> =>
+        m.type === "historyTaken" && m.id === id,
+    );
+    assert.ok(reply, `take ${id} got no reply`);
+    return reply;
+  };
+
+  // A take naming a position the drive no longer sits on is refused.
+  assert.match(take(2, { segment: 1 }).message ?? "", /moved/);
+  assert.match(take(3, { tick: pos.tick - 1 }).message ?? "", /moved/);
+  assert.match(take(4, { seq: pos.seq + 1 }).message ?? "", /moved/);
+  // A take from another view session's serial is refused even when its
+  // position still matches.
+  assert.match(take(5, { generation: pos.generation - 1 }).message ?? "", /not viewing/);
+  // A seek still settling cannot be taken.
+  ctx.view.request = 99;
+  assert.match(take(6).message ?? "", /settling/);
+  ctx.view.request = null;
+
+  // A take a closed session issued is refused even when the reopened view
+  // lands on the same position.
+  send({ type: "historyViewEnd" });
+  send({ type: "historyViewStart", id: 8, recording, segment: 0, tick: lastTick });
+  const reopened = finalView(h.control, 8);
+  assert.equal(reopened.tick, pos.tick, "the reopened view sits on the same position");
+  assert.equal(reopened.seq, pos.seq);
+  assert.notEqual(reopened.generation, pos.generation);
+  assert.match(take(9).message ?? "", /not viewing/, "the stale session's take is refused");
+  assert.equal(take(10, { generation: reopened.generation }).ok, true);
 });

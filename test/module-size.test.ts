@@ -38,9 +38,9 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the save format; the release contract pins its structure",
   },
   "src/agent/history.ts": {
-    lines: 825,
+    lines: 970,
     boundary:
-      "the history recording contract incl. the recorded clock and RNG-reseed lanes; the release contract pins its structure",
+      "the history recording contract incl. the recorded clock, RNG-reseed and semantic-fingerprint lanes; the release contract pins its structure",
   },
   "app/src/WorldMap.vue": {
     lines: 1458,
@@ -134,7 +134,7 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
       "the one recorder: always-on tape, stored game-test recording lifecycle, anchors and batches",
   },
   "app/src/worker/replay.ts": {
-    lines: 731,
+    lines: 835,
     boundary:
       "the one replay drive: the live-session drive and the scratch tape drive on the shared tick",
   },

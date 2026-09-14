@@ -200,8 +200,22 @@ export type WorkerInbound =
   | { type: "historyViewAdvance"; id: number; ticks: number }
   /** Close the viewing session: the scratch session is discarded. */
   | { type: "historyViewEnd" }
-  /** Take control at the viewed moment: the viewed state becomes live. */
-  | { type: "historyViewTake"; id: number }
+  /**
+   * Take control at the viewed moment: the viewed state becomes live. The
+   * position fields pin the request to the settled position the host
+   * confirmed and `generation` pins it to the view session that confirmed
+   * it — the worker refuses a take naming a position the drive no longer
+   * sits on, one still settling, one the tape failed to verify, or one a
+   * stale view session issued.
+   */
+  | {
+      type: "historyViewTake";
+      id: number;
+      segment: number;
+      tick: number;
+      seq: number;
+      generation: number;
+    }
   /** Snapshot the parked live session as the retained original. */
   | { type: "historyRetain"; id: number }
   /**
@@ -312,6 +326,8 @@ export type WorkerControl =
       id: number;
       final: boolean;
       superseded?: boolean;
+      /** The view session this report belongs to — echoed back by a take. */
+      generation: number;
       segment: number;
       tick: number;
       seq: number;

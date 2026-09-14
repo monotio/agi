@@ -102,6 +102,7 @@ function makeHarness(opts?: {
   }) as unknown as EngineState;
   const game = { installed: false, projectId: "view-test" } as BootedGame;
   const seeks: SeekQuery[] = [];
+  const takes: Record<string, unknown>[] = [];
   const inbound: WorkerInbound[] = [];
   const resumes: string[] = [];
   const pauses: string[] = [];
@@ -172,6 +173,7 @@ function makeHarness(opts?: {
           type: "historyView",
           id: 0,
           final: true,
+          generation: 7,
           segment,
           tick,
           seq: seqAt(segment, tick),
@@ -192,6 +194,7 @@ function makeHarness(opts?: {
           from: { segment: "sX.2", seq: 9, tick: 9 },
         };
       if (type === "historyViewTake") {
+        takes.push(extra as Record<string, unknown>);
         const ok = opts?.takeOk?.() ?? true;
         return {
           type: "historyTaken",
@@ -216,6 +219,7 @@ function makeHarness(opts?: {
     state,
     view,
     seeks,
+    takes,
     inbound,
     resumes,
     pauses,
@@ -318,7 +322,7 @@ test("Resume here stages the departing session; only an acknowledged take replac
 test("an acknowledged take promotes the staged session to retained", async () => {
   const key = "view-test";
   await importGameHistory(key, { recording: RECORDING });
-  const { state, view } = makeHarness();
+  const { state, view, takes } = makeHarness();
   await view.openHistory({ segment: 0, tick: 8 });
   const v = state.historyView;
   // No retained yet — first press takes directly.
@@ -328,6 +332,9 @@ test("an acknowledged take promotes the staged session to retained", async () =>
   const retained = await loadRetainedOriginal(key);
   assert.equal(retained?.boot.rng, 42, "the departing session's boot was staged then committed");
   assert.equal(v.retained, true);
+  // The take names the settled position the host confirmed plus the view
+  // session's serial — the worker refuses a take that no longer matches.
+  assert.deepEqual(takes, [{ segment: 0, tick: 8, seq: 8, generation: 7 }]);
 });
 
 test("a take acknowledged but never promoted leaves a recoverable pending swap", async () => {
@@ -432,6 +439,7 @@ test("closing during the start query drops the late reply and releases exactly i
     type: "historyView",
     id: 0,
     final: true,
+    generation: 7,
     segment: 1,
     tick: 1,
     seq: 2,
@@ -498,6 +506,7 @@ test("resetting during the start query abandons the open entirely", async () => 
     type: "historyView",
     id: 0,
     final: true,
+    generation: 7,
     segment: 0,
     tick: 8,
     seq: 9,
@@ -556,6 +565,7 @@ test("a seek answer landing after close writes nothing back", async () => {
     type: "historyView",
     id: 0,
     final: true,
+    generation: 7,
     segment: 0,
     tick: 4,
     seq: 5,

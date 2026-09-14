@@ -904,6 +904,13 @@ and GR1 `0x5467,0x3b00,0x3ad9,0x3a29,0x341c,0x9648`; synthetic resource-loading
 intercepts are SQ2 0x3113 and GR1 0x3459. Do not extend the conclusion to
 unexecuted post-restore reconstruction, startup or other profiles.
 
+Block 5's loaded-logic resume records are the restore's authoritative
+loaded-logic set: the replay sequence's load-logic pairs cover only
+game-issued `load.logics`, while `call`/`call.v` dispatch and `new.room` load
+without pairs. Restore rebuilds the set in record order so every recorded
+logic is resident at its saved scan-resume offset — a `call` back into a
+scan-parked logic resumes there, not at the bytecode entry.
+
 RC.12 acceptance contract: keep RNG and BIOS-reseed-input position out of
 original `.SAV` blocks; preserve the current stream across authentic save,
 restore and accepted restart. History anchors intentionally restore stronger

@@ -2501,6 +2501,18 @@ export class Engine {
             throw new RangeError(`unknown replay pair kind ${pair.kind}`);
         }
       }
+      // Block 5 is the authoritative loaded-logic set: the sequence's
+      // load-logic pairs cover only game-issued `load.logics`, while call
+      // dispatch and new.room load without pairs. Rebuild in record order so
+      // every recorded logic is resident at its saved resume offset.
+      if (this.profile.saveBlocks === 5) {
+        this.logics.clear();
+        this.scanStart.clear();
+        for (const record of resume) {
+          this.loadLogic(record.logic);
+          this.scanStart.set(record.logic, record.offset);
+        }
+      }
     } finally {
       this.replayRecording = recording;
     }

@@ -67,6 +67,8 @@ export interface HistoryViewUiState {
   speed: number;
   /** Which segment of the recording is under view (index). */
   segment: number;
+  /** The worker's view-session serial — echoed back on Resume here. */
+  generation: number;
   segmentCount: number;
   /** Viewed position within the current segment. */
   tick: number;

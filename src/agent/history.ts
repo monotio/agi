@@ -228,6 +228,8 @@ export interface HistoryAnchor {
   /** resourceSetRevision of the container at this anchor. */
   resourceSet: string;
   patchGeneration: number;
+  /** Recorded semantic fingerprint — replay must re-derive it after restore. */
+  fingerprint?: HistoryFingerprint;
 }
 
 /**
@@ -259,6 +261,8 @@ export interface HistoryBoot {
   /** resourceSetRevision of `files`. */
   resourceSet: string;
   requestSerial: number;
+  /** Recorded semantic fingerprint — replay must re-derive it after restore. */
+  fingerprint?: HistoryFingerprint;
 }
 
 /**
@@ -367,6 +371,126 @@ export function computeSyncMark(
     patchGeneration: engine.patchGeneration,
     modal: engine.modalKind,
   };
+}
+
+// ---------- semantic fingerprints ----------
+
+/** The fingerprint format riding anchors and segment boots. */
+export const HISTORY_FINGERPRINT_VERSION = 1;
+
+/**
+ * A recorded hash over the semantic state at a resume point. Replay
+ * re-captures the same fields from the restored scratch session and the
+ * two must agree — the recorded expectation is compared against the
+ * restore, never a hash recomputed over state that was never checked.
+ */
+export interface HistoryFingerprint {
+  v: number;
+  /** 16 hex chars: FNV-1a-64 over the canonical semantic record. */
+  hash: string;
+}
+
+/**
+ * The fields a fingerprint covers — everything that decides future
+ * behavior at a resume point: the save image (vars, flags, strings, item
+ * locations, the object table's motion/cycle records, screen and the
+ * parked continuation), the host replay state (parser, controllers, menu
+ * state, sound playback, the engine's own input queue and continuation),
+ * the worker's queued input and request serial, the PRNG word, both
+ * scheduler accumulators, the sound device and the container identity.
+ *
+ * Excluded host-only fields, and why:
+ * - `files`: `resourceSet` is their identity — hashing megabytes of
+ *   container bytes per resume point buys nothing the revision does not.
+ * - `seq`/`tick`/`cycle`/`reason`/`resumedFrom`: position and provenance —
+ *   where the record sits, not what it means.
+ * - Wall-clock bases (`previous` on both clocks): re-based onto the host
+ *   clock at restore by contract; only the accumulators are state.
+ * - Engine fields `restoreReplayState` deliberately re-arms
+ *   (pendingAnswer, saveDialogMode, modal serials): they describe an
+ *   in-flight interaction, not resumable state.
+ */
+export interface HistorySemanticState {
+  authorRooms?: boolean;
+  dictionary?: [string, number][];
+  image?: string;
+  replay?: unknown;
+  menus?: unknown;
+  inputQueue?: number[];
+  directionQueue?: number[];
+  inputLines?: string[];
+  requestSerial: number;
+  rng: number;
+  clock?: HistoryClock;
+  soundRemainder?: number;
+  soundDevice: number;
+  resourceSet: string;
+  patchGeneration?: number;
+}
+
+const sortDictionary = (entries: readonly [string, number][]): [string, number][] =>
+  [...entries].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+
+/** The semantic view of a recorded anchor — every resumable-state field it carries. */
+export function historyAnchorSemantic(anchor: HistoryAnchor): HistorySemanticState {
+  const out: HistorySemanticState = {
+    image: anchor.image,
+    replay: anchor.replay,
+    inputQueue: anchor.inputQueue,
+    directionQueue: anchor.directionQueue,
+    inputLines: anchor.inputLines,
+    requestSerial: anchor.requestSerial,
+    rng: anchor.rng,
+    clock: anchor.clock,
+    soundDevice: anchor.soundDevice,
+    resourceSet: anchor.resourceSet,
+    patchGeneration: anchor.patchGeneration,
+  };
+  if (anchor.soundRemainder !== undefined) out.soundRemainder = anchor.soundRemainder;
+  return out;
+}
+
+/** The semantic view of a segment boot — every resumable-state field it carries. */
+export function historyBootSemantic(boot: HistoryBoot): HistorySemanticState {
+  const out: HistorySemanticState = {
+    authorRooms: boot.authorRooms,
+    dictionary: sortDictionary(boot.dictionary),
+    requestSerial: boot.requestSerial,
+    rng: boot.rng,
+    soundDevice: boot.soundDevice,
+    resourceSet: boot.resourceSet,
+  };
+  if (boot.image !== undefined) out.image = boot.image;
+  if (boot.replay !== undefined) out.replay = boot.replay;
+  if (boot.menus !== undefined) out.menus = boot.menus;
+  if (boot.inputQueue !== undefined) out.inputQueue = boot.inputQueue;
+  if (boot.directionQueue !== undefined) out.directionQueue = boot.directionQueue;
+  if (boot.inputLines !== undefined) out.inputLines = boot.inputLines;
+  if (boot.clock !== undefined) out.clock = boot.clock;
+  if (boot.soundRemainder !== undefined) out.soundRemainder = boot.soundRemainder;
+  return out;
+}
+
+/** Deterministic serialization: sorted object keys, arrays in order, undefined dropped. */
+function canonicalize(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) return `[${value.map(canonicalize).join(",")}]`;
+  const parts: string[] = [];
+  for (const key of Object.keys(value).sort()) {
+    const child = (value as Record<string, unknown>)[key];
+    if (child === undefined) continue;
+    parts.push(`${JSON.stringify(key)}:${canonicalize(child)}`);
+  }
+  return `{${parts.join(",")}}`;
+}
+
+export function historyFingerprint(state: HistorySemanticState): HistoryFingerprint {
+  const text = canonicalize(state);
+  let hash = 0xcbf29ce484222325n;
+  for (let i = 0; i < text.length; i++) {
+    hash = ((hash ^ BigInt(text.charCodeAt(i))) * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  return { v: HISTORY_FINGERPRINT_VERSION, hash: hash.toString(16).padStart(16, "0") };
 }
 
 // ---------- validation (project archives are untrusted input) ----------
@@ -687,12 +811,20 @@ function syncMarks(value: unknown): HistorySyncMark[] {
   });
 }
 
+function fingerprint(value: unknown): HistoryFingerprint {
+  if (!isObj(value)) fail("fingerprint must be an object.");
+  return {
+    v: int(value["v"], "fingerprint v", 0xffff),
+    hash: text(value["hash"], "fingerprint hash", 64),
+  };
+}
+
 function anchor(value: unknown): HistoryAnchor {
   if (!isObj(value)) fail("anchor must be an object.");
   const reason = value["reason"];
   if (!["boot", "room", "autosave", "flush", "pause", "resume"].includes(String(reason)))
     fail("anchor reason is invalid.");
-  return {
+  const out: HistoryAnchor = {
     seq: int(value["seq"], "anchor seq"),
     tick: int(value["tick"], "anchor tick"),
     cycle: int(value["cycle"], "anchor cycle"),
@@ -718,6 +850,12 @@ function anchor(value: unknown): HistoryAnchor {
     resourceSet: text(value["resourceSet"], "anchor resourceSet", MAX_HISTORY_STRING),
     patchGeneration: int(value["patchGeneration"], "anchor patchGeneration"),
   };
+  if (value["fingerprint"] !== undefined) {
+    out.fingerprint = fingerprint(value["fingerprint"]);
+    if (historyFingerprint(historyAnchorSemantic(out)).hash !== out.fingerprint.hash)
+      fail("anchor fingerprint does not match its recorded state.");
+  }
+  return out;
 }
 
 function boot(value: unknown): HistoryBoot {
@@ -769,6 +907,11 @@ function boot(value: unknown): HistoryBoot {
   if (value["clock"] !== undefined) out.clock = clock(value["clock"]);
   if (value["soundRemainder"] !== undefined)
     out.soundRemainder = num(value["soundRemainder"], "boot soundRemainder", 1000);
+  if (value["fingerprint"] !== undefined) {
+    out.fingerprint = fingerprint(value["fingerprint"]);
+    if (historyFingerprint(historyBootSemantic(out)).hash !== out.fingerprint.hash)
+      fail("boot fingerprint does not match its recorded state.");
+  }
   return out;
 }
 

@@ -323,6 +323,12 @@ export interface HistoryViewState {
   recording: HistoryRecording | null;
   /** Index into recording.segments the drive is on. */
   segment: number;
+  /**
+   * The open session's serial: every start bumps it, every position report
+   * carries it, and a take must echo it — a take a stale session issued is
+   * refused even when its position coincidentally matches.
+   */
+  generation: number;
   /** The incremental replay drive; owns the scratch context. */
   drive: HistoryDrive | null;
   /** In-flight chunked request id — a newer request supersedes it. */
@@ -544,7 +550,14 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       resendTimer: null,
       resendDelay: 4_000,
     },
-    view: { recording: null, segment: 0, drive: null, request: null, timer: null },
+    view: {
+      recording: null,
+      segment: 0,
+      generation: 0,
+      drive: null,
+      request: null,
+      timer: null,
+    },
     cycle: {
       timer: null,
       soundTimer: null,

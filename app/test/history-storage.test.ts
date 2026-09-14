@@ -13,6 +13,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   HISTORY_FORMAT_VERSION,
+  historyBootSemantic,
+  historyFingerprint,
   validateHistoryRecording,
   type HistoryBatch,
   type HistoryBoot,
@@ -187,6 +189,28 @@ test("the replay boundary rejects a tape whose event lane is out of order", () =
     ],
   };
   assert.throws(() => validateHistoryRecording(recording), /ordered by seq/);
+});
+
+test("a stamped record whose fields drifted fails validation", () => {
+  // The fingerprint is the recorded expectation over the record's own
+  // semantic fields — a record that no longer matches its stamp never
+  // reaches a drive.
+  const stamped: HistoryBoot = {
+    ...BOOT,
+    fingerprint: historyFingerprint(historyBootSemantic(BOOT)),
+  };
+  const good = {
+    version: HISTORY_FORMAT_VERSION,
+    profile: "2.936",
+    resourceSet: "rev-1",
+    startedAt: 0,
+    segments: [{ id: "s-f.1", boot: stamped, anchors: [], events: [], marks: [], sync: [] }],
+  };
+  validateHistoryRecording(good); // self-consistent: passes
+
+  const drifted = JSON.parse(JSON.stringify(good));
+  drifted.segments[0].boot.rng = 8;
+  assert.throws(() => validateHistoryRecording(drifted), /fingerprint does not match/);
 });
 
 test("an end batch alone cannot skip a failed lower batch", async () => {

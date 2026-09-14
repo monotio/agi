@@ -18,13 +18,18 @@ import { Engine } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import type { GameContainer } from "../../../src/types.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
-import { base64ToBytes } from "../bytes.ts";
+import { base64ToBytes, bytesToBase64 } from "../bytes.ts";
 import type { ReplayObservation } from "../replay.ts";
 import {
   computeSyncMark,
+  HISTORY_FINGERPRINT_VERSION,
+  historyAnchorSemantic,
+  historyBootSemantic,
+  historyFingerprint,
   type HistoryAnchor,
   type HistoryCommittedPatch,
   type HistoryEvent,
+  type HistorySemanticState,
   type HistorySegment,
   type HistorySyncMark,
 } from "../../../src/agent/history.ts";
@@ -337,6 +342,48 @@ export interface HistoryDrive {
 }
 
 /**
+ * Re-derive a resume point's semantic record from the restored scratch
+ * session — the same fields the fingerprint covers, taken from the live
+ * objects, not the record itself. A field the record carries but the
+ * restored state cannot produce (an image that no longer snapshots) is a
+ * failure, not an omission.
+ */
+function captureSemanticState(
+  ctx: WorkerContext,
+  template: HistorySemanticState,
+): HistorySemanticState {
+  const engine = ctx.engine;
+  if (engine === null) throw new Error("no engine to capture");
+  const files = new Map(engine.containerFiles);
+  if (ctx.boot.authoredWords) files.set("WORDS.TOK", ctx.boot.authoredWords);
+  const out: HistorySemanticState = {
+    requestSerial: ctx.hostRequests.hostRequestSerial,
+    rng: ctx.replay.replay?.random ?? 0,
+    soundDevice: ctx.boot.selectedSoundDevice,
+    resourceSet: resourceSetRevision({ getFiles: () => files }),
+  };
+  if (template.authorRooms !== undefined) out.authorRooms = ctx.boot.authorRooms;
+  if (template.dictionary !== undefined)
+    out.dictionary = [...ctx.boot.liveDictionary.entries()].sort(([a], [b]) =>
+      a < b ? -1 : a > b ? 1 : 0,
+    );
+  if (template.image !== undefined) {
+    const image = engine.recordingImage();
+    if (image === null) throw new Error("the restored state is not a resumable boundary");
+    out.image = bytesToBase64(image);
+  }
+  if (template.replay !== undefined) out.replay = engine.captureReplayState();
+  if (template.menus !== undefined) out.menus = engine.readMenuState();
+  if (template.inputQueue !== undefined) out.inputQueue = [...ctx.input.keyQueue];
+  if (template.directionQueue !== undefined) out.directionQueue = [...ctx.input.deferredMovement];
+  if (template.inputLines !== undefined) out.inputLines = [...ctx.input.inputBuffer];
+  if (template.clock !== undefined) out.clock = ctx.clocks.cycle.snapshot();
+  if (template.soundRemainder !== undefined) out.soundRemainder = ctx.clocks.sound.snapshot();
+  if (template.patchGeneration !== undefined) out.patchGeneration = engine.patchGeneration;
+  return out;
+}
+
+/**
  * Build the scratch session the drive steps: fold the container mutations
  * the events before the start committed, restore the boot record or the
  * chosen anchor, then replay events at their recorded ticks.
@@ -421,8 +468,12 @@ export function openHistoryDrive(
     const foldContainer = openContainer(baseFiles);
     const { wordsPatched } = foldFiles(foldContainer, dictionary, segment.events, startSeq);
     const files = new Map(foldContainer.files);
-    if (anchor && resourceSetRevision({ getFiles: () => files }) !== anchor.resourceSet) {
-      outcome.error = `anchor ${anchor.seq} resource set does not match the folded stream`;
+    const recordedSet = anchor ? anchor.resourceSet : segment.boot.resourceSet;
+    if (resourceSetRevision({ getFiles: () => files }) !== recordedSet) {
+      outcome.error =
+        anchor !== null
+          ? `anchor ${anchor.seq} resource set does not match the folded stream`
+          : "boot resource set does not match its recorded files";
       finished = true;
       return drive;
     }
@@ -456,7 +507,11 @@ export function openHistoryDrive(
     ctx.cycle.tickCount = startTick;
 
     const image = anchor ? anchor.image : segment.boot.image;
-    if (image !== undefined) ctx.engine.restoreImage(base64ToBytes(image));
+    // The recorded presentation is the state at this resume point — the
+    // live-restore redraw (status and input rows re-stamped) would rewrite
+    // the text ages the snapshot carries.
+    if (image !== undefined)
+      ctx.engine.restoreImage(base64ToBytes(image), { preservePresentation: true });
     const menus = anchor ? undefined : segment.boot.menus;
     if (menus !== undefined) ctx.engine.restoreMenuState(menus);
     const replayState = anchor ? anchor.replay : segment.boot.replay;
@@ -472,6 +527,26 @@ export function openHistoryDrive(
     if (soundRemainder !== undefined) ctx.clocks.sound.restore(virtualNow, soundRemainder);
     ctx.cycle.paused = clock?.paused ?? false;
     if (ctx.engine.awaitingKey) ctx.fns.setKeyWaiting(true);
+
+    // The resume point's semantic fingerprint was recorded live; the
+    // scratch re-derives it from the restored state and the two must
+    // agree before a single event replays — drift the sync digest does
+    // not cover (PRNG, strings, motion state, queues, clocks) fails here.
+    const fingerprint = anchor?.fingerprint ?? segment.boot.fingerprint;
+    if (fingerprint !== undefined) {
+      if (fingerprint.v !== HISTORY_FINGERPRINT_VERSION)
+        throw new Error(`resume point carries fingerprint version ${fingerprint.v}`);
+      const actual = historyFingerprint(
+        captureSemanticState(
+          ctx,
+          anchor !== null ? historyAnchorSemantic(anchor) : historyBootSemantic(segment.boot),
+        ),
+      );
+      if (actual.hash !== fingerprint.hash)
+        throw new Error(
+          `${anchor !== null ? `anchor ${anchor.seq}` : "boot"} semantic fingerprint does not hold: the restored state is not the recorded state`,
+        );
+    }
 
     engine = ctx.engine;
     replay = ctx.replay.replay;

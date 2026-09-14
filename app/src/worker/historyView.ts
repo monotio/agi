@@ -18,6 +18,9 @@ import { Engine } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { base64ToBytes, bytesToBase64 } from "../bytes.ts";
 import {
+  HISTORY_FINGERPRINT_VERSION,
+  historyBootSemantic,
+  historyFingerprint,
   validateHistoryBoot,
   type HistoryBoot,
   type HistorySegment,
@@ -46,13 +49,19 @@ export function createHistoryView(ctx: WorkerContext) {
     const drive = ctx.view.drive;
     const engine = drive?.ctx.engine ?? null;
     return {
+      generation: ctx.view.generation,
       tick: drive?.tick ?? 0,
       seq: drive?.seq ?? 0,
       cycle: drive?.ctx.cycle.cycleCount ?? 0,
       room: engine ? (engine.vars[V_ROOM] ?? 0) : 0,
       score: engine ? (engine.vars[V_SCORE] ?? 0) : 0,
       modal: engine?.modalKind ?? null,
-      canResume: engine !== null && engine.recordingImage() !== null,
+      canResume:
+        drive !== null &&
+        engine !== null &&
+        drive.diverged === null &&
+        drive.error === null &&
+        engine.recordingImage() !== null,
       diverged: drive?.diverged ?? null,
       error: drive?.error ?? null,
     };
@@ -74,6 +83,7 @@ export function createHistoryView(ctx: WorkerContext) {
       type: "historyView",
       id,
       final: true,
+      generation: ctx.view.generation,
       segment: ctx.view.segment,
       tick: ctx.view.drive?.tick ?? 0,
       seq: ctx.view.drive?.seq ?? 0,
@@ -210,6 +220,7 @@ export function createHistoryView(ctx: WorkerContext) {
 
   function onHistoryViewStart(msg: Inbound<"historyViewStart">): void {
     endView(false);
+    ctx.view.generation++;
     ctx.view.recording = msg.recording;
     ctx.view.segment = msg.segment;
     ctx.view.drive = null;
@@ -284,13 +295,37 @@ export function createHistoryView(ctx: WorkerContext) {
     boot: HistoryBoot,
     from: { segment: string; seq: number; tick: number } | null,
   ): void {
-    ctx.fns.abandonHostRequest();
-    endView(false);
-    ctx.fns.historyEnd("resume");
     const files = new Map(
       Object.entries(boot.files).map(([name, data]) => [name, base64ToBytes(data)]),
     );
     const dictionary = new Map(boot.dictionary);
+    // Build and verify the incoming session before any live mutation: a boot
+    // whose recorded state does not reproduce after restore is refused with
+    // the departing session untouched. The image's recorded presentation is
+    // restored verbatim — the live-restore redraw would rewrite the text
+    // ages the snapshot carries.
+    const candidate = new Engine(openContainer(files), ctx.host, dictionary);
+    if (boot.image !== undefined)
+      candidate.restoreImage(base64ToBytes(boot.image), { preservePresentation: true });
+    if (boot.menus !== undefined) candidate.restoreMenuState(boot.menus);
+    if (boot.replay !== undefined) candidate.restoreReplayState(boot.replay);
+    if (boot.fingerprint !== undefined) {
+      if (boot.fingerprint.v !== HISTORY_FINGERPRINT_VERSION)
+        throw new Error(`history boot carries fingerprint version ${boot.fingerprint.v}`);
+      const semantic = historyBootSemantic(boot);
+      if (semantic.image !== undefined) {
+        const image = candidate.recordingImage();
+        if (image === null) throw new Error("the adopted state is not a resumable boundary");
+        semantic.image = bytesToBase64(image);
+      }
+      if (semantic.replay !== undefined) semantic.replay = candidate.captureReplayState();
+      if (semantic.menus !== undefined) semantic.menus = candidate.readMenuState();
+      if (historyFingerprint(semantic).hash !== boot.fingerprint.hash)
+        throw new Error("the adopted state is not the recorded state");
+    }
+    ctx.fns.abandonHostRequest();
+    endView(false);
+    ctx.fns.historyEnd("resume");
     ctx.boot.liveDictionary = dictionary;
     ctx.boot.currentBootFiles = files;
     ctx.boot.currentDictionary = dictionary;
@@ -303,11 +338,8 @@ export function createHistoryView(ctx: WorkerContext) {
     ctx.input.keyQueue = [...(boot.inputQueue ?? [])];
     ctx.input.deferredMovement = [...(boot.directionQueue ?? [])];
     ctx.input.inputBuffer = [...(boot.inputLines ?? [])];
-    ctx.engine = new Engine(openContainer(files), ctx.host, dictionary);
+    ctx.engine = candidate;
     ctx.fns.armJournal();
-    if (boot.image !== undefined) ctx.engine.restoreImage(base64ToBytes(boot.image));
-    if (boot.menus !== undefined) ctx.engine.restoreMenuState(boot.menus);
-    if (boot.replay !== undefined) ctx.engine.restoreReplayState(boot.replay);
     ctx.fns.setKeyWaiting(ctx.engine.awaitingKey);
     ctx.engine.vars[22] = ctx.boot.selectedSoundDevice === 0 ? 1 : 3;
     // The adopted session is live but stays parked: the host's pause owners
@@ -331,15 +363,48 @@ export function createHistoryView(ctx: WorkerContext) {
     ctx.fns.postFrame();
   }
 
-  /** The viewed moment becomes the live session. */
+  /**
+   * The viewed moment becomes the live session. The worker enforces the
+   * take itself rather than trusting the transport's button state: the
+   * message must name the settled position the host confirmed (a stale
+   * press after another seek adopts nothing), the drive must have
+   * finished its checks (no request in flight), and the tape must have
+   * held to this position — a diverged or errored drive shows an
+   * unverified state and adopting it would make it live.
+   */
   function onHistoryViewTake(msg: Inbound<"historyViewTake">): void {
+    const refuse = (message: string): void => {
+      ctx.ports.control({ type: "historyTaken", id: msg.id, ok: false, message });
+    };
     const view = ctx.view;
     const drive = view.drive;
     const scratch = drive?.ctx;
     const engine = scratch?.engine ?? null;
     const segment = view.recording?.segments[view.segment];
-    if (drive === null || scratch === undefined || engine === null || segment === undefined) {
-      ctx.ports.control({ type: "historyTaken", id: msg.id, ok: false, message: "not viewing" });
+    if (
+      msg.generation !== view.generation ||
+      drive === null ||
+      scratch === undefined ||
+      engine === null ||
+      segment === undefined
+    ) {
+      refuse("not viewing");
+      return;
+    }
+    if (view.request !== null) {
+      refuse("a seek is still settling");
+      return;
+    }
+    if (msg.segment !== view.segment || msg.tick !== drive.tick || msg.seq !== drive.seq) {
+      refuse("the viewed position moved since the take was issued");
+      return;
+    }
+    if (drive.diverged !== null) {
+      refuse(`the tape diverged: ${drive.diverged.detail}`);
+      return;
+    }
+    if (drive.error !== null) {
+      refuse(drive.error);
       return;
     }
     const image = engine.recordingImage();
@@ -371,6 +436,9 @@ export function createHistoryView(ctx: WorkerContext) {
       resourceSet: resourceSetRevision({ getFiles: () => files }),
       requestSerial: scratch.hostRequests.hostRequestSerial,
     };
+    // The adopted position's semantic fingerprint rides the boot so the
+    // segment it opens verifies the same resume point on replay.
+    boot.fingerprint = historyFingerprint(historyBootSemantic(boot));
     // The authoring state belonging to these bytes: the last checkpoint the
     // host committed at-or-before this position — earlier segments count, a
     // take mid-commit simply sees the previous one. Scanning back, a
@@ -398,7 +466,12 @@ export function createHistoryView(ctx: WorkerContext) {
           break scan;
       }
     }
-    adoptBoot(boot, { segment: segment.id, seq: drive.seq, tick: drive.tick });
+    try {
+      adoptBoot(boot, { segment: segment.id, seq: drive.seq, tick: drive.tick });
+    } catch (error) {
+      refuse(String(error));
+      return;
+    }
     ctx.ports.control({
       type: "historyTaken",
       id: msg.id,
@@ -422,7 +495,17 @@ export function createHistoryView(ctx: WorkerContext) {
       });
       return;
     }
-    adoptBoot(boot, msg.from);
+    try {
+      adoptBoot(boot, msg.from);
+    } catch (error) {
+      ctx.ports.control({
+        type: "historyViewRestored",
+        id: msg.id,
+        ok: false,
+        message: String(error),
+      });
+      return;
+    }
     // The ack names the adopted revision so the host can check the record it
     // sent is the state the worker actually took — a mismatch means the
     // stored boot did not survive the trip.

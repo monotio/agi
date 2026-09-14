@@ -54,6 +54,7 @@ export function freshHistoryView(): HistoryViewUiState {
     scrubbing: false,
     speed: 1,
     segment: 0,
+    generation: 0,
     segmentCount: 0,
     tick: 0,
     seq: 0,
@@ -232,6 +233,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     // must not resurrect position, error or divergence state.
     if (!view().active) return;
     const v = view();
+    v.generation = msg.generation;
     v.segment = msg.segment;
     v.tick = msg.tick;
     v.seq = msg.seq;
@@ -643,7 +645,11 @@ export function useHistoryView(deps: HistoryViewDeps) {
     stopWatch();
     try {
       const done = await swapSessions(async () => {
-        const reply = await deps.query("historyViewTake", {}, 15_000);
+        const reply = await deps.query(
+          "historyViewTake",
+          { segment: v.segment, tick: v.tick, seq: v.seq, generation: v.generation },
+          15_000,
+        );
         return reply.ok
           ? {
               ok: true,
@@ -970,7 +976,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       if (v.diverged !== null)
         errors.push({
           testid: "history-diverged",
-          text: `The tape stops agreeing with itself here: ${v.diverged.detail}`,
+          text: `Unverified — the tape stops agreeing with itself here: ${v.diverged.detail}`,
         });
       return errors;
     },

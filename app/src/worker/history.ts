@@ -30,6 +30,9 @@ import {
   HISTORY_SEGMENT_BYTE_LIMIT,
   HISTORY_SEGMENT_EVENT_LIMIT,
   computeSyncMark,
+  historyAnchorSemantic,
+  historyBootSemantic,
+  historyFingerprint,
   type HistoryAnchor,
   type HistoryBatch,
   type HistoryBoot,
@@ -225,26 +228,31 @@ export function createHistory(ctx: WorkerContext) {
     if (!image) return;
     const h = ctx.history;
     syncMark();
-    closeBatch({
-      anchor: {
-        seq: h.seq,
-        tick: tick(),
-        cycle: cycle(),
-        reason,
-        image: bytesToBase64(image),
-        replay: engine.captureReplayState(),
-        inputQueue: [...ctx.input.keyQueue],
-        directionQueue: [...ctx.input.deferredMovement],
-        inputLines: [...ctx.input.inputBuffer],
-        requestSerial: ctx.hostRequests.hostRequestSerial,
-        rng: h.rng,
-        soundDevice: ctx.boot.selectedSoundDevice,
-        clock: ctx.clocks.cycle.snapshot(),
-        soundRemainder: ctx.clocks.sound.snapshot(),
-        resourceSet: currentResourceSet(),
-        patchGeneration: engine.patchGeneration,
-      },
-    });
+    const anchor: HistoryAnchor = {
+      seq: h.seq,
+      tick: tick(),
+      cycle: cycle(),
+      reason,
+      image: bytesToBase64(image),
+      replay: engine.captureReplayState(),
+      inputQueue: [...ctx.input.keyQueue],
+      directionQueue: [...ctx.input.deferredMovement],
+      inputLines: [...ctx.input.inputBuffer],
+      requestSerial: ctx.hostRequests.hostRequestSerial,
+      rng: h.rng,
+      soundDevice: ctx.boot.selectedSoundDevice,
+      // A deferred adoption clock pending release is the session's clock —
+      // the same rule snapshotBoot follows.
+      clock: ctx.cycle.pendingClock ?? ctx.clocks.cycle.snapshot(),
+      soundRemainder: ctx.clocks.sound.snapshot(),
+      resourceSet: currentResourceSet(),
+      patchGeneration: engine.patchGeneration,
+    };
+    // The fingerprint is recorded now and re-derived from the restored
+    // scratch at replay — drift the sync digest does not cover (PRNG,
+    // strings, motion state, queues, clocks) fails at the resume point.
+    anchor.fingerprint = historyFingerprint(historyAnchorSemantic(anchor));
+    closeBatch({ anchor });
   }
 
   function closeBatch(extra?: {
@@ -507,7 +515,7 @@ export function createHistory(ctx: WorkerContext) {
     h.pendingEndReply = null;
     h.rng = (typeof msg.rngSeed === "number" ? msg.rngSeed : 1) & 0xffff;
     if (ctx.replay.replay) return; // a seeded boot is a scratch replay session
-    beginSegment({
+    const boot: HistoryBoot = {
       files: bootFiles(),
       dictionary: [...ctx.boot.liveDictionary.entries()],
       authorRooms: ctx.boot.authorRooms,
@@ -519,7 +527,9 @@ export function createHistory(ctx: WorkerContext) {
         ? { image: msg.restoreImage }
         : {}),
       ...(msg.restoreMenus !== undefined ? { menus: msg.restoreMenus } : {}),
-    });
+    };
+    boot.fingerprint = historyFingerprint(historyBootSemantic(boot));
+    beginSegment(boot);
   }
 
   function beginSegment(boot: HistoryBoot): void {
@@ -553,7 +563,7 @@ export function createHistory(ctx: WorkerContext) {
     const image = engine.recordingImage();
     if (!image) return null;
     const h = ctx.history;
-    return {
+    const boot: HistoryBoot = {
       files: bootFiles(),
       dictionary: [...ctx.boot.liveDictionary.entries()],
       authorRooms: ctx.boot.authorRooms,
@@ -574,6 +584,8 @@ export function createHistory(ctx: WorkerContext) {
       requestSerial: ctx.hostRequests.hostRequestSerial,
       ...(h.resumedFrom !== null ? { resumedFrom: h.resumedFrom } : {}),
     };
+    boot.fingerprint = historyFingerprint(historyBootSemantic(boot));
+    return boot;
   }
 
   function maybeResume(): void {
