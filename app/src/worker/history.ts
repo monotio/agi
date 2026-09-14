@@ -42,6 +42,13 @@ const BATCH_BYTE_MAX = 256 * 1024;
 const RESEND_MS = 4_000;
 const RESEND_MAX_MS = 60_000;
 
+/**
+ * Clock/counter mix for session ids when the platform lacks crypto —
+ * module-level so two fresh workers booting in the same millisecond still
+ * mint distinct ids.
+ */
+let nonceCounter = 0;
+
 export function createHistory(ctx: WorkerContext) {
   /** A live segment records; scratch replay traffic never does. */
   function live(): boolean {
@@ -330,17 +337,27 @@ export function createHistory(ctx: WorkerContext) {
   }
 
   /**
-   * The recording session's persisted identity. A fresh random id per boot
-   * keeps every session's segment ids unique across worker lifetimes — the
+   * The recording session's persisted identity. A fresh id per boot keeps
+   * every session's segment ids unique across worker lifetimes — the
    * storage dedup sees retransmissions of one session, never two different
-   * sessions colliding on `e1.s1`.
+   * sessions colliding on `e1.s1`. crypto.getRandomValues supplies the
+   * entropy; where the platform lacks it a clock-and-counter mix fills in —
+   * not random, only a collision guard, since ids just have to be unique.
    */
+  function sessionNonce(): string {
+    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+      const bytes = crypto.getRandomValues(new Uint8Array(9));
+      let hex = "";
+      for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+      return hex;
+    }
+    nonceCounter = (nonceCounter + 1) & 0xffff;
+    const mixed = (Date.now() & 0xffffffffff) * 0x10000 + nonceCounter;
+    return mixed.toString(36).padStart(12, "0").slice(-12);
+  }
+
   function newSessionId(): string {
-    const uuid =
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID().replaceAll("-", "")
-        : Math.random().toString(36).slice(2) + Date.now().toString(36);
-    return `s${uuid.slice(0, 12)}`;
+    return `s${sessionNonce().slice(0, 12)}`;
   }
 
   /**

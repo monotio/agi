@@ -46,8 +46,14 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the world-map overlay: graph, room list, room details and the plan-review bar",
   },
   "app/src/HistoryTransport.vue": {
-    lines: 614,
-    boundary: "the history transport: tape scrub, watch and resume controls",
+    lines: 683,
+    boundary:
+      "the history transport: tape scrub, watch, resume controls and the interrupted-swap row",
+  },
+  "app/src/useHistoryView.ts": {
+    lines: 665,
+    boundary:
+      "the history-view controller: seek, watch, marks, bookmarks and the staged-swap lifecycle",
   },
   "src/picture/source.ts": {
     lines: 1085,

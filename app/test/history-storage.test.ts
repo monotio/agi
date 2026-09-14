@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   HISTORY_FORMAT_VERSION,
+  validateHistoryRecording,
   type HistoryBatch,
   type HistoryBoot,
 } from "../../src/agent/history.ts";
@@ -26,6 +27,7 @@ import {
   loadHistoryBookmarks,
   loadProjectHistory,
   loadRetainedOriginal,
+  resolveStagedSwap,
   saveHistoryBookmark,
   stageRetainedOriginal,
   type RetainedOriginal,
@@ -123,14 +125,85 @@ test("a resent batch lands once, and a batchless segment waits for its boot", as
   assert.equal(recording?.segments[0]?.events.length, 1);
 
   // Out of order: a batch for an unknown segment is refused until its boot
-  // batch lands — then both fold in.
+  // batch lands — then the run continues consecutively from it.
   assert.equal(await appendHistoryBatch(key, { ...batch(9), segment: "s-a.9" }, "2.936"), false);
   assert.equal(
-    await appendHistoryBatch(key, { ...batch(1), segment: "s-a.9", boot: BOOT }, "2.936"),
+    await appendHistoryBatch(key, { ...batch(8), segment: "s-a.9", boot: BOOT }, "2.936"),
     true,
   );
   assert.equal(await appendHistoryBatch(key, { ...batch(9), segment: "s-a.9" }, "2.936"), true);
   assert.equal((await loadGameHistory(key))?.segments.length, 2);
+});
+
+test("a later batch is refused until the failed one between commits", async () => {
+  const key = "tape-store-order";
+  const ev = (seq: number) => ({
+    seq,
+    tick: seq,
+    cycle: seq,
+    cause: { kind: "key" as const, code: 60 + seq },
+  });
+  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936"), true);
+  assert.equal(await appendHistoryBatch(key, batch(2, { events: [ev(1)] }), "2.936"), true);
+
+  // Batch 3's commit fails; batch 4 arrives first on the resend turn and
+  // must NOT append — its events belong after 3's.
+  assert.equal(await appendHistoryBatch(key, batch(4, { events: [ev(3)] }), "2.936"), false);
+  assert.equal((await loadGameHistory(key))?.segments[0]?.events.map((e) => e.seq).join(","), "1");
+
+  // The missing batch lands on resend; then the held batch retries and
+  // appends in the stream's original order.
+  assert.equal(await appendHistoryBatch(key, batch(3, { events: [ev(2)] }), "2.936"), true);
+  assert.equal(await appendHistoryBatch(key, batch(4, { events: [ev(3)] }), "2.936"), true);
+  assert.equal(
+    (await loadGameHistory(key))?.segments[0]?.events.map((e) => e.seq).join(","),
+    "1,2,3",
+  );
+});
+
+test("the replay boundary rejects a tape whose event lane is out of order", () => {
+  // The contract half of ordering: whatever a commit bug or a hand-edited
+  // archive produces, a disordered stream must not replay.
+  const recording = {
+    version: HISTORY_FORMAT_VERSION,
+    profile: "2.936",
+    resourceSet: "rev-1",
+    startedAt: 0,
+    segments: [
+      {
+        id: "s-o.1",
+        boot: BOOT,
+        anchors: [],
+        events: [
+          { seq: 2, tick: 2, cycle: 2, cause: { kind: "key", code: 65 } },
+          { seq: 1, tick: 1, cycle: 1, cause: { kind: "key", code: 66 } },
+        ],
+        marks: [],
+        sync: [],
+      },
+    ],
+  };
+  assert.throws(() => validateHistoryRecording(recording), /ordered by seq/);
+});
+
+test("an end batch may jump the ledger the queue overflow dropped", async () => {
+  const key = "tape-store-endjump";
+  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936"), true);
+  assert.equal(await appendHistoryBatch(key, batch(2, {}), "2.936"), true);
+  // Batches 3-4 were dropped by the worker's queue overflow; its budget
+  // closing batch must still seal the segment.
+  assert.equal(
+    await appendHistoryBatch(
+      key,
+      batch(5, { end: { seq: 40, tick: 40, cycle: 40, reason: "budget" } }),
+      "2.936",
+    ),
+    true,
+  );
+  const segment = (await loadGameHistory(key))?.segments[0];
+  assert.equal(segment?.end?.reason, "budget");
+  // A non-end batch still may not skip — the gap rule holds for events.
+  assert.equal(await appendHistoryBatch(key, batch(9, {}), "2.936"), false);
 });
 
 test("a staged swap leaves the kept session intact until the adoption commits", async () => {
@@ -165,6 +238,77 @@ test("a staged copy is the recovery route when no retained original exists", asy
   // session is the only copy, and Back to before must still find it.
   await stageRetainedOriginal(key, retainedOn("s-a.1", 3));
   assert.deepEqual(await loadRetainedOriginal(key), retainedOn("s-a.1", 3));
+});
+
+test("a second stage is refused while a swap candidate is still pending", async () => {
+  const key = "tape-store-staged-blocked";
+  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936"), true);
+  assert.equal(await stageRetainedOriginal(key, retainedOn("s-a.1", 1)), true);
+  // The first swap's promotion never landed — the next swap must not
+  // overwrite the only durable copy of that departing session.
+  assert.equal(await stageRetainedOriginal(key, retainedOn("s-a.9", 2)), false);
+  assert.deepEqual(await loadRetainedOriginal(key), retainedOn("s-a.1", 1));
+});
+
+test("the departing segment's resume end settles its staged swap as adopted", async () => {
+  const key = "tape-store-resolve-resume";
+  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936"), true);
+  const staged = retainedOn("s-a.1", 4);
+  await stageRetainedOriginal(key, staged);
+  // The adoption ran; its "resume" end committed but the promotion write
+  // did not. The tape alone settles the candidate into the retained slot.
+  assert.equal(
+    await appendHistoryBatch(
+      key,
+      batch(2, { end: { seq: 4, tick: 9, cycle: 9, reason: "resume" } }),
+      "2.936",
+    ),
+    true,
+  );
+  const recording = await loadGameHistory(key);
+  assert.equal(await resolveStagedSwap(key, recording), "promoted");
+  assert.deepEqual(await loadRetainedOriginal(key), staged);
+});
+
+test("a natural end settles the staged swap as never adopted", async () => {
+  const key = "tape-store-resolve-quit";
+  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936"), true);
+  await stageRetainedOriginal(key, retainedOn("s-a.1", 4));
+  // The departing session was quit while a staged swap was still pending —
+  // the snapshot is redundant and clears.
+  assert.equal(
+    await appendHistoryBatch(
+      key,
+      batch(2, { end: { seq: 4, tick: 9, cycle: 9, reason: "quit" } }),
+      "2.936",
+    ),
+    true,
+  );
+  const recording = await loadGameHistory(key);
+  assert.equal(await resolveStagedSwap(key, recording), "cleared");
+  assert.equal(await loadRetainedOriginal(key), null);
+});
+
+test("an open departing segment stays ambiguous until the worker's word settles it", async () => {
+  const key = "tape-store-resolve-open";
+  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936"), true);
+  const staged = retainedOn("s-a.1", 4);
+  await stageRetainedOriginal(key, staged);
+  const recording = await loadGameHistory(key);
+  // The segment is still open: the "resume" end may simply be the write
+  // that failed — the tape alone cannot call it either way.
+  assert.equal(await resolveStagedSwap(key, recording), "ambiguous");
+  assert.deepEqual(await loadRetainedOriginal(key), staged);
+
+  // The worker still live on that segment proves the swap never ran.
+  assert.equal(await resolveStagedSwap(key, recording, "s-a.1"), "cleared");
+  assert.equal(await loadRetainedOriginal(key), null);
+
+  // Staged again, and this time the worker reports a different live
+  // segment — the adoption happened, the promotion is owed.
+  await stageRetainedOriginal(key, staged);
+  assert.equal(await resolveStagedSwap(key, recording, "s-a.2"), "promoted");
+  assert.deepEqual(await loadRetainedOriginal(key), staged);
 });
 
 test("an imported project's tape persists whole — recording, kept session, bookmarks", async () => {

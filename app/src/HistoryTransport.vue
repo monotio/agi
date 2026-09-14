@@ -184,7 +184,7 @@ onUnmounted(() => {
 
 <template>
   <div
-    v-if="view.active || view.loading || view.error"
+    v-if="view.active || view.loading || view.error || view.pendingSwap"
     class="history-transport"
     data-testid="history-transport"
   >
@@ -415,6 +415,40 @@ onUnmounted(() => {
 
     <span v-else-if="view.loading" class="history-status">Opening the tape…</span>
 
+    <div
+      v-if="view.pendingSwap"
+      class="history-pending"
+      data-testid="history-pending-swap"
+      role="group"
+      aria-label="Interrupted kept session"
+    >
+      <span class="history-note">A kept session's save was interrupted.</span>
+      <button
+        type="button"
+        class="ui-button ui-button--secondary history-action"
+        data-testid="btn-finish-swap"
+        title="Finish saving it — it becomes the session Back to before restores"
+        @click="
+          void historyView.finishPendingSwap();
+          releaseFocus($event);
+        "
+      >
+        Keep it
+      </button>
+      <button
+        type="button"
+        class="ui-button ui-button--secondary history-action"
+        data-testid="btn-drop-swap"
+        title="Let the interrupted copy go — nothing is kept"
+        @click="
+          void historyView.dropPendingSwap();
+          releaseFocus($event);
+        "
+      >
+        Let it go
+      </button>
+    </div>
+
     <p v-if="view.error" class="history-error" data-testid="history-error" role="alert">
       {{ view.error }}
     </p>
@@ -631,6 +665,11 @@ onUnmounted(() => {
   font-size: 11px;
   color: #e0c98a;
   white-space: nowrap;
+}
+.history-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .history-status {
   font-size: 12px;

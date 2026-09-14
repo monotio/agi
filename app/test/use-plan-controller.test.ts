@@ -16,9 +16,14 @@ const BOOT = { projectId: "custom-plan001", templateId: "custom", title: "The Pl
 function memStorage(): Storage {
   const values = new Map<string, string>();
   return {
+    get length() {
+      return values.size;
+    },
+    key: (i) => [...values.keys()][i] ?? null,
     getItem: (k) => values.get(k) ?? null,
     setItem: (k, v) => void values.set(k, v),
     removeItem: (k) => void values.delete(k),
+    clear: () => values.clear(),
   } as Storage;
 }
 
@@ -231,6 +236,44 @@ test("a refused draft write keeps the review open until retry or discard", async
   assert.equal(map.reviewing.value, false);
   assert.equal(state.planReview == null, true);
   assert.equal(readPlanDraft(storage, "custom-plan001")?.world.rooms["1"]?.title, "Still Mine");
+});
+
+test("a failed pending-pointer write keeps the review open — and the draft still resurfaces", async () => {
+  // The draft itself lands; only the second write — the pending-plan
+  // pointer the resume offer reads — is refused. Keep must not report the
+  // plan stored, or the draft would sit unreadable.
+  const values = new Map<string, string>();
+  const storage = {
+    get length() {
+      return values.size;
+    },
+    key: (i: number) => [...values.keys()][i] ?? null,
+    getItem: (k: string) => values.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      if (k === "monotio_agi.pendingPlan") throw new Error("QuotaExceededError");
+      values.set(k, v);
+    },
+    removeItem: (k: string) => void values.delete(k),
+  } as unknown as Storage;
+  const { state, map, plan } = makeHarness(storage);
+  await plan.start("# Brief", STUB, BOOT);
+
+  const review = state.planReview;
+  assert.ok(review);
+  assert.equal(review.unsaved, true, "a pointer-less draft is not kept");
+  assert.match(review.error, /could not keep/i);
+
+  // Keep is refused — the review stays open and editable.
+  map.closeMap();
+  assert.equal(map.reviewing.value, true);
+  assert.equal(state.planReview, review);
+
+  // The draft itself did land — orphaned, but not lost: a fresh controller
+  // enumerates stored drafts and re-offers it for resume.
+  assert.equal(readPendingPlan(storage), null, "the pointer never wrote");
+  assert.ok(readPlanDraft(storage, "custom-plan001"), "the draft landed");
+  const again = makeHarness(storage);
+  assert.equal(again.plan.pendingPlan.value?.projectId, "custom-plan001");
 });
 
 test("explicit discard closes a review whose draft could not persist", async () => {

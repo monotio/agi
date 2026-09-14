@@ -87,6 +87,12 @@ export interface HistoryViewUiState {
    * waiting for the second, confirming press. Any seek or close resets it.
    */
   confirmReplace: boolean;
+  /**
+   * A staged swap's outcome was never settled — the worker may have adopted
+   * while the promotion write failed or its reply was lost. The departing
+   * session's copy stays durable until the player keeps or releases it.
+   */
+  pendingSwap: boolean;
   /** Segments the retention bound evicted before this tape was opened. */
   dropped: number;
   diverged: { tick: number; detail: string } | null;

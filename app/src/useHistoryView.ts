@@ -10,10 +10,12 @@
  * Exactly one retained original exists per game.
  */
 import {
+  clearStagedOriginal,
   commitStagedOriginal,
   loadGameHistory,
   loadHistoryBookmarks,
   loadRetainedOriginal,
+  resolveStagedSwap,
   saveHistoryBookmark,
   stageRetainedOriginal,
   type HistoryBookmark,
@@ -55,6 +57,7 @@ export function freshHistoryView(): HistoryViewUiState {
     canResume: false,
     retained: false,
     confirmReplace: false,
+    pendingSwap: false,
     dropped: 0,
     diverged: null,
     error: "",
@@ -243,9 +246,14 @@ export function useHistoryView(deps: HistoryViewDeps) {
       if (!game) throw new Error("no game is running");
       const key = gameStorageKey(game);
       recording = await loadGameHistory(key);
+      // A swap that was interrupted last time — the promotion write failed
+      // or the acknowledgement was lost — settles from the tape's evidence
+      // before the transport opens; only an unprovable one stays pending.
+      const swap = await resolveStagedSwap(key, recording);
       bookmarks = await loadHistoryBookmarks(key);
       const retained = await loadRetainedOriginal(key);
       v.retained = retained !== null;
+      v.pendingSwap = swap === "ambiguous";
       v.dropped = recording?.dropped ?? 0;
       if (recording === null || recording.segments.length === 0) {
         v.error = "Nothing is recorded yet — play a little first.";
@@ -408,6 +416,83 @@ export function useHistoryView(deps: HistoryViewDeps) {
     view().speed = speed;
   }
 
+  /**
+   * The shared swap body: stage the departing session, ask the worker to
+   * adopt, promote the staged copy only after the acknowledgement. The
+   * three failure lands differ and are handled differently:
+   * - a definite refusal clears the redundant stage and stays in the view;
+   * - an uncertain one (lost reply) ends the view — it releases whichever
+   *   session is live — and leaves the candidate for the tape to settle;
+   * - an acknowledged adoption whose promotion write failed also ends the
+   *   view: the swap already happened worker-side, so the transport must
+   *   not keep posing as a live view. The owed candidate stays durable.
+   */
+  async function swapSessions(
+    adoptQuery: () => Promise<{ ok: boolean; message?: string | null }>,
+    verb: string,
+  ): Promise<boolean> {
+    const v = view();
+    const game = deps.getBootedGame();
+    if (!game) return false;
+    const key = gameStorageKey(game);
+    const departing = await deps.query("historyRetain", {}, 10_000);
+    if (departing.boot === null) {
+      v.error = "The paused session can't be kept — a game prompt is still open.";
+      return false;
+    }
+    const candidate = {
+      boot: departing.boot,
+      from: departing.from,
+      retainedAt: Date.now(),
+    };
+    if (!(await stageRetainedOriginal(key, candidate))) {
+      // A previous swap's candidate is still pending — settle it from the
+      // tape's evidence (and the live segment the worker just reported)
+      // before this one may stage over it.
+      await deps.drainHistoryCommits();
+      await resolveStagedSwap(key, await loadGameHistory(key), departing.from?.segment);
+      if (!(await stageRetainedOriginal(key, candidate))) {
+        v.pendingSwap = true;
+        v.error = "An earlier swap's kept session is still being saved — keep or release it first.";
+        return false;
+      }
+      // The leftover settled — a promoted one changes what this swap replaces.
+      v.pendingSwap = false;
+      v.retained = (await loadRetainedOriginal(key)) !== null;
+    }
+    let reply: { ok: boolean; message?: string | null };
+    try {
+      reply = await adoptQuery();
+    } catch (error) {
+      closeHistory();
+      v.pendingSwap = true;
+      v.error = `${verb}'s outcome is uncertain (${String(error)}) — the kept session is held for recovery.`;
+      return false;
+    }
+    if (!reply.ok) {
+      try {
+        await clearStagedOriginal(key);
+      } catch {
+        v.pendingSwap = true;
+      }
+      v.error = reply.message ?? `${verb} failed.`;
+      return false;
+    }
+    try {
+      await commitStagedOriginal(key);
+    } catch (error) {
+      closeHistory();
+      v.pendingSwap = true;
+      v.error = `The session was kept but its record could not be saved (${String(error)}) — finish or release it from Look back.`;
+      deps.logAgent("log", `history: ${verb} adopted; the kept session's promotion is pending`);
+      return true;
+    }
+    v.active = false;
+    v.retained = true;
+    deps.resumeEngine("history");
+    return true;
+  }
+
   /** The viewed moment becomes the live session; the parked one is retained. */
   async function resumeHere(): Promise<void> {
     const v = view();
@@ -415,6 +500,18 @@ export function useHistoryView(deps: HistoryViewDeps) {
     const game = deps.getBootedGame();
     if (!game || recording === null) return;
     const key = gameStorageKey(game);
+    if (v.pendingSwap) {
+      // A leftover swap settles before the gate — it may be owed the kept
+      // slot this press would replace.
+      await deps.drainHistoryCommits();
+      const swap = await resolveStagedSwap(key, await loadGameHistory(key));
+      v.pendingSwap = swap === "ambiguous";
+      v.retained = (await loadRetainedOriginal(key)) !== null;
+      if (v.pendingSwap) {
+        v.error = "An earlier swap's kept session is still being saved — keep or release it first.";
+        return;
+      }
+    }
     // Taking control while a session is kept would replace it — the
     // transport shows the confirming label; this second press proceeds.
     if (v.retained && !v.confirmReplace) {
@@ -425,31 +522,11 @@ export function useHistoryView(deps: HistoryViewDeps) {
     v.error = "";
     stopWatch();
     try {
-      // The departing live session is staged first — the kept original is
-      // replaced only after the worker acknowledges the adoption, so a
-      // failed or uncertain swap never costs the retained session.
-      const departing = await deps.query("historyRetain", {}, 10_000);
-      if (departing.boot === null) {
-        v.error = "The paused session can't be kept — a game prompt is still open.";
-        return;
-      }
-      await stageRetainedOriginal(key, {
-        boot: departing.boot,
-        from: departing.from,
-        retainedAt: Date.now(),
-      });
-      const taken = await deps.query("historyViewTake", {}, 15_000);
-      if (!taken.ok) {
-        v.error = taken.message ?? "Resume here failed.";
-        return;
-      }
-      await commitStagedOriginal(key);
-      v.active = false;
-      v.retained = true;
-      // The worker adopted the viewed state still parked; release the pause
-      // the transport held so the session runs live again.
-      deps.resumeEngine("history");
-      deps.logAgent("log", `history: resumed from ${v.segment}:${v.tick}`);
+      const done = await swapSessions(
+        () => deps.query("historyViewTake", {}, 15_000),
+        "Resume here",
+      );
+      if (done) deps.logAgent("log", `history: resumed from ${v.segment}:${v.tick}`);
     } catch (error) {
       v.error = error instanceof Error ? error.message : String(error);
     }
@@ -460,6 +537,37 @@ export function useHistoryView(deps: HistoryViewDeps) {
     view().confirmReplace = false;
   }
 
+  /** Finish the interrupted swap: the staged candidate becomes the kept session. */
+  async function finishPendingSwap(): Promise<void> {
+    const v = view();
+    const game = deps.getBootedGame();
+    if (!game) return;
+    try {
+      await commitStagedOriginal(gameStorageKey(game));
+      v.pendingSwap = false;
+      v.retained = true;
+      v.error = "";
+    } catch (error) {
+      v.error = `The kept session still cannot be saved: ${String(error)}`;
+    }
+  }
+
+  /** Release the interrupted swap's candidate — the staged copy is dropped. */
+  async function dropPendingSwap(): Promise<void> {
+    const v = view();
+    const game = deps.getBootedGame();
+    if (!game) return;
+    try {
+      const key = gameStorageKey(game);
+      await clearStagedOriginal(key);
+      v.pendingSwap = false;
+      v.retained = (await loadRetainedOriginal(key)) !== null;
+      v.error = "";
+    } catch (error) {
+      v.error = String(error);
+    }
+  }
+
   /** Swap back: the retained original resumes; the current session is kept. */
   async function backToBefore(): Promise<void> {
     const v = view();
@@ -467,40 +575,29 @@ export function useHistoryView(deps: HistoryViewDeps) {
     const game = deps.getBootedGame();
     if (!game) return;
     const key = gameStorageKey(game);
-    const retained = await loadRetainedOriginal(key);
-    if (retained === null) {
-      v.error = "No earlier session is kept.";
-      return;
-    }
     v.error = "";
     stopWatch();
     try {
-      const departing = await deps.query("historyRetain", {}, 10_000);
-      if (departing.boot === null) {
-        v.error = "This session can't be kept — a game prompt is still open.";
+      // A leftover staged candidate settles first — it may be owed the very
+      // slot this restore reads. One the tape cannot settle stays pending.
+      await deps.drainHistoryCommits();
+      const swap = await resolveStagedSwap(key, await loadGameHistory(key));
+      v.pendingSwap = swap === "ambiguous";
+      if (v.pendingSwap) {
+        v.error = "An earlier swap's kept session is still being saved — keep or release it first.";
         return;
       }
-      // Stage the departing session; the retained slot is rewritten only
-      // after the worker acknowledges it adopted the original.
-      await stageRetainedOriginal(key, {
-        boot: departing.boot,
-        from: departing.from,
-        retainedAt: Date.now(),
-      });
-      const restored = await deps.query(
-        "historyViewRestore",
-        { boot: retained.boot, from: retained.from },
-        15_000,
+      const retained = await loadRetainedOriginal(key);
+      if (retained === null) {
+        v.error = "No earlier session is kept.";
+        return;
+      }
+      const done = await swapSessions(
+        () =>
+          deps.query("historyViewRestore", { boot: retained.boot, from: retained.from }, 15_000),
+        "Back to before",
       );
-      if (!restored.ok) {
-        v.error = restored.message ?? "Back to before failed.";
-        return;
-      }
-      await commitStagedOriginal(key);
-      v.active = false;
-      v.retained = true;
-      deps.resumeEngine("history");
-      deps.logAgent("log", "history: back to the retained session");
+      if (done) deps.logAgent("log", "history: back to the retained session");
     } catch (error) {
       v.error = error instanceof Error ? error.message : String(error);
     }
@@ -554,6 +651,8 @@ export function useHistoryView(deps: HistoryViewDeps) {
     setHistorySpeed,
     resumeHere,
     cancelReplace,
+    finishPendingSwap,
+    dropPendingSwap,
     backToBefore,
     addBookmark,
     jumpToVisit,

@@ -305,6 +305,22 @@ function fail(message: string): never {
   throw new Error(`Invalid history recording: ${message}`);
 }
 
+/**
+ * The committed stream is a contiguous prefix — a batch lands only as its
+ * segment's next sequence, so every lane reads in stream order: events
+ * strictly (each owns its seq), marks, sync marks and anchors not
+ * decreasing (a boundary stamps the position without consuming it). A tape
+ * whose lanes are out of order was written badly; replay would apply it
+ * wrongly, so validation refuses it at the boundary.
+ */
+function checkSeqOrder(list: readonly { seq: number }[], name: string, strict: boolean): void {
+  for (let i = 1; i < list.length; i++) {
+    const prev = list[i - 1]!.seq;
+    const cur = list[i]!.seq;
+    if (strict ? cur <= prev : cur < prev) fail(`segment ${name} must be ordered by seq.`);
+  }
+}
+
 function isObj(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -685,6 +701,10 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
           reason: reason as HistoryEndReason,
         };
       }
+      checkSeqOrder(segment.events, "events", true);
+      checkSeqOrder(segment.marks, "marks", false);
+      checkSeqOrder(segment.sync, "sync marks", false);
+      checkSeqOrder(segment.anchors, "anchors", false);
       return segment;
     }),
   };

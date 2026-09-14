@@ -35,6 +35,7 @@ import type { LogAgentFn } from "./useInputController.ts";
 import type { ProjectId } from "./gameTypes.ts";
 import {
   clearPendingPlan,
+  listPlanDrafts,
   readPendingPlan,
   readPlanDraft,
   removePlanDraft,
@@ -105,12 +106,27 @@ export function usePlanController(deps: PlanControllerDeps) {
   function readPending(): StoredPlanDraft | null {
     if (!storage) return null;
     const projectId = readPendingPlan(storage);
-    if (!projectId) return null;
+    if (projectId) {
+      try {
+        const draft = readPlanDraft(storage, projectId);
+        if (draft) return draft;
+      } catch {
+        // fall through: an orphaned draft may still exist
+      }
+      clearPendingPlan(storage);
+    }
+    // The pointer write can fail after the draft itself landed — enumerate
+    // the draft keys so a pointer-less kept plan is still offered.
+    let newest: StoredPlanDraft | null = null;
     try {
-      return readPlanDraft(storage, projectId);
+      for (const draft of listPlanDrafts(storage)) {
+        if (newest === null || draft.savedAt > newest.savedAt) newest = draft;
+      }
     } catch {
       return null;
     }
+    if (newest) writePendingPlan(storage, newest.projectId);
+    return newest;
   }
 
   /**
@@ -129,9 +145,9 @@ export function usePlanController(deps: PlanControllerDeps) {
       templateMarkdown: review.templateMarkdown,
       baseRevision: review.draft.baseRevision,
       world: review.draft.world,
+      savedAt: Date.now(),
     };
-    if (writePlanDraft(storage, stored)) {
-      writePendingPlan(storage, review.projectId);
+    if (writePlanDraft(storage, stored) && writePendingPlan(storage, review.projectId)) {
       pendingPlan.value = stored;
       review.unsaved = false;
       return true;

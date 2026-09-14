@@ -46,7 +46,7 @@ test("a refused commit stays unsaved until a resend commits it", async () => {
   // A batch whose segment never opened is refused — and stays listed.
   const orphan: HistoryBatch = {
     segment: "sX.9",
-    batch: 7,
+    batch: 2,
     seqStart: 0,
     seqEnd: 1,
     events: [{ seq: 0, tick: 1, cycle: 1, cause: { kind: "key", code: 65 } }],

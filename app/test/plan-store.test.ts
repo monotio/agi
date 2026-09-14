@@ -44,6 +44,7 @@ function draft(overrides: Partial<StoredPlanDraft> = {}): StoredPlanDraft {
       facts: { caretaker: "Keeps the brass key." },
       quests: {},
     },
+    savedAt: 1,
     ...overrides,
   };
 }

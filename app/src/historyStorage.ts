@@ -93,7 +93,11 @@ function evictSegments(
 /**
  * Commit one posted history batch into the game's stored recording. Returns
  * false when the batch has no segment to land on (its boot batch never
- * committed) — the worker keeps it queued and resends.
+ * committed) or when an earlier batch of its segment is still uncommitted —
+ * the worker keeps the batch queued and resends oldest-first, so the gap
+ * closes and the refused batch retries. That ordering is the tape's
+ * integrity: a late resend must never append its events after a younger
+ * batch's, or replay applies them out of order.
  */
 export function appendHistoryBatch(
   storageKey: string,
@@ -107,7 +111,8 @@ export function appendHistoryBatch(
         await bodyTransaction<unknown>("readonly", (store) => store.get(key)),
       );
       const committed: Record<string, number[]> = { ...(stored?.committed ?? {}) };
-      if ((committed[batch.segment] ?? []).includes(batch.batch)) return true;
+      const ledger = (committed[batch.segment] ??= []);
+      if (ledger.includes(batch.batch)) return true; // a resend of a committed batch
       const bytes: Record<string, number> = { ...(stored?.bytes ?? {}) };
       const recording: HistoryRecording = stored?.recording ?? {
         version: HISTORY_FORMAT_VERSION,
@@ -130,13 +135,25 @@ export function appendHistoryBatch(
           sync: [],
         };
         recording.segments.push(segment);
+      } else if (
+        batch.batch !== (ledger[ledger.length - 1] ?? 0) + 1 &&
+        !(batch.end !== undefined && batch.batch > (ledger[ledger.length - 1] ?? 0))
+      ) {
+        // A segment's batches are one consecutive run of the session's
+        // counter: only the next number extends it. Refusing keeps the
+        // stream a contiguous verified prefix — the missing batch's resend
+        // lands first, then this one retries. The one legal jump is a
+        // batch carrying the segment's end: the worker's queue overflow
+        // drops unsent middle batches, so its closing batch can never be
+        // reached by the consecutive rule. Its seq gap marks the loss.
+        return false;
       }
       segment.events.push(...batch.events);
       segment.marks.push(...batch.marks);
       segment.sync.push(...batch.sync);
       if (batch.anchor !== undefined) segment.anchors.push(batch.anchor);
       if (batch.end !== undefined) segment.end = batch.end;
-      (committed[batch.segment] ??= []).push(batch.batch);
+      ledger.push(batch.batch);
       bytes[batch.segment] = (bytes[batch.segment] ?? 0) + JSON.stringify(batch).length;
       evictSegments(recording, committed, bytes);
       await bodyTransaction("readwrite", (store) =>
@@ -177,15 +194,23 @@ export async function loadGameHistory(storageKey: string): Promise<HistoryRecord
  * Stage a departing session for the swap the worker is about to be asked to
  * make. The existing retained original is untouched until the adoption is
  * acknowledged — a failed or uncertain swap never costs the kept session.
+ * False when a staged candidate is already pending: overlapping swaps must
+ * settle it (resolveStagedSwap, then finish or release) rather than
+ * overwrite the recovery copy.
  */
-export function stageRetainedOriginal(storageKey: string, staged: RetainedOriginal): Promise<void> {
+export function stageRetainedOriginal(
+  storageKey: string,
+  staged: RetainedOriginal,
+): Promise<boolean> {
   const key = `history/${storageKey}`;
   return serializeWrite(key, async () => {
     const stored = readStoredHistory(
       await bodyTransaction<unknown>("readonly", (store) => store.get(key)),
     );
-    if (stored === null) return;
+    if (stored === null) return true; // no record yet — nothing to conflict with
+    if (stored.staged !== undefined) return false;
     await bodyTransaction("readwrite", (store) => store.put({ ...stored, staged }));
+    return true;
   });
 }
 
@@ -214,6 +239,81 @@ export function clearStagedOriginal(storageKey: string): Promise<void> {
     const next = { ...stored };
     delete next.staged;
     await bodyTransaction("readwrite", (store) => store.put(next));
+  });
+}
+
+export type StagedSwapResolution = "none" | "promoted" | "cleared" | "ambiguous";
+
+/**
+ * Settle a staged candidate left behind by an interrupted swap. The tape is
+ * the witness: only adoption stamps the departing segment's "resume" end,
+ * so a staged copy with that marker is owed the retained slot (the worker
+ * adopted; only the promotion write failed). One whose session plainly went
+ * on — a non-resume end, a later segment continuing it, or the very
+ * segment still being the tape's live tail — is a redundant snapshot. When
+ * the tape proves neither (the segment is absent or open under a session
+ * that can no longer be identified) the candidate stays for the player's
+ * explicit keep/release — both candidates remain durable until then.
+ *
+ * `liveSegment` is the worker's current segment when the caller just asked
+ * (resumeHere/backToBefore). It is decisive in both directions: a staged
+ * candidate whose departing segment is still live was never adopted; one
+ * whose segment the worker has left was. Without it the tape alone cannot
+ * prove an open segment dead — its "resume" end may be the very write that
+ * failed — so that case stays ambiguous rather than risk the only durable
+ * copy of a departed session.
+ */
+export function resolveStagedSwap(
+  storageKey: string,
+  recording: HistoryRecording | null,
+  liveSegment?: string | null,
+): Promise<StagedSwapResolution> {
+  const key = `history/${storageKey}`;
+  return serializeWrite(key, async () => {
+    const stored = readStoredHistory(
+      await bodyTransaction<unknown>("readonly", (store) => store.get(key)),
+    );
+    const staged = stored?.staged;
+    if (stored === null || staged === undefined) return "none";
+    const from = staged.from ?? undefined;
+    const departing = recording?.segments.find((s) => s.id === from?.segment);
+    let adopted: boolean;
+    let continued: boolean;
+    if (departing?.end !== undefined) {
+      // The departing segment's end is decisive on its own: only adoption
+      // stamps "resume"; any other end means the session went on to die
+      // naturally and the staged snapshot is redundant.
+      adopted = departing.end.reason === "resume";
+      continued = !adopted;
+    } else {
+      // Only an adopted session boots a segment resuming from an EARLIER
+      // tick of the departing one (a take of its own tape); a continuation
+      // resumes at-or-after the staged tick. The caller's live-segment
+      // hint is decisive in both directions when the tape is silent.
+      adopted =
+        (from !== undefined &&
+          (recording?.segments.some(
+            (s) =>
+              s.boot.resumedFrom?.segment === from.segment && s.boot.resumedFrom.tick < from.tick,
+          ) ??
+            false)) ||
+        (liveSegment != null && from !== undefined && liveSegment !== from.segment);
+      continued =
+        !adopted &&
+        from !== undefined &&
+        ((recording?.segments.some(
+          (s) =>
+            s.boot.resumedFrom?.segment === from.segment && s.boot.resumedFrom.tick >= from.tick,
+        ) ??
+          false) ||
+          (liveSegment != null && liveSegment === from.segment));
+    }
+    if (!adopted && !continued) return "ambiguous";
+    const next = { ...stored };
+    if (adopted) next.retained = staged;
+    delete next.staged;
+    await bodyTransaction("readwrite", (store) => store.put(next));
+    return adopted ? "promoted" : "cleared";
   });
 }
 

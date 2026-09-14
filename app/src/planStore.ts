@@ -25,6 +25,8 @@ export interface StoredPlanDraft {
   /** worldRevision the draft forked from; "" adopts unconditionally. */
   baseRevision: string;
   world: WorldPlan;
+  /** Written stamp — the pointer-less fallback picks the newest draft. */
+  savedAt: number;
 }
 
 function planKey(projectId: string): string {
@@ -64,6 +66,7 @@ export function validatePlanDraft(value: unknown): StoredPlanDraft {
     templateMarkdown: raw["templateMarkdown"] as string,
     baseRevision: raw["baseRevision"] as string,
     world: authoring.world,
+    savedAt: typeof raw["savedAt"] === "number" ? raw["savedAt"] : 0,
   };
 }
 
@@ -107,11 +110,40 @@ export function readPendingPlan(storage: Pick<Storage, "getItem">): string | nul
   return raw.length > 0 && raw.length <= 128 ? raw : null;
 }
 
-export function writePendingPlan(storage: Pick<Storage, "setItem">, projectId: string): void {
+/**
+ * Every readable stored draft, for recovery when the pending pointer is
+ * missing (a quota refusal that lands between the draft write and the
+ * pointer write). Unreadable entries are skipped — a draft that cannot be
+ * parsed is not a resumable offer.
+ */
+export function listPlanDrafts(
+  storage: Pick<Storage, "length" | "key" | "getItem">,
+): StoredPlanDraft[] {
+  const out: StoredPlanDraft[] = [];
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i);
+    if (key === null || !key.startsWith(PLAN_PREFIX)) continue;
+    try {
+      const draft = readPlanDraft(storage, key.slice(PLAN_PREFIX.length));
+      if (draft) out.push(draft);
+    } catch {
+      // not resumable
+    }
+  }
+  return out;
+}
+
+/**
+ * Point the pending marker at a kept draft's project. False when storage
+ * refuses: a draft without its pointer is undiscoverable to the resume
+ * offer, so callers must not report the keep as done.
+ */
+export function writePendingPlan(storage: Pick<Storage, "setItem">, projectId: string): boolean {
   try {
     storage.setItem(PENDING_KEY, projectId);
+    return true;
   } catch {
-    // Quota refusal leaves the draft itself stored; the pointer is a hint.
+    return false;
   }
 }
 

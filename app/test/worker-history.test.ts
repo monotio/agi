@@ -636,6 +636,27 @@ test("a fresh worker never reuses another session's persisted identity", async (
   assert.equal(historySyncDigest(replayB.ctx.engine!), historySyncDigest(second.ctx.engine!));
 });
 
+test("session ids stay distinct when the platform has no crypto", () => {
+  // The CodeQL-flagged path: crypto.getRandomValues is absent (embedded or
+  // locked-down contexts), so the clock/counter mix must still mint unique
+  // segment ids — even for two fresh workers booted in the same instant.
+  const real = globalThis.crypto;
+  Object.defineProperty(globalThis, "crypto", { value: undefined, configurable: true });
+  try {
+    const first = historyHarness(historyGame(), { rngSeed: 1 });
+    const second = historyHarness(historyGame(), { rngSeed: 1 });
+    first.tick(2);
+    second.tick(2);
+    const ids = [
+      ...collectSegments(first.control).map((s) => s.id),
+      ...collectSegments(second.control).map((s) => s.id),
+    ];
+    assert.equal(new Set(ids).size, ids.length, `colliding session ids: ${ids.join(",")}`);
+  } finally {
+    Object.defineProperty(globalThis, "crypto", { value: real, configurable: true });
+  }
+});
+
 test("a failed commit's batch resends on its own schedule and on retry", () => {
   const h = historyHarness(historyGame(), { rngSeed: 3 }, { autoAck: false });
   const { ctx, send, tick } = h;
