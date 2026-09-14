@@ -106,7 +106,8 @@ export interface BootMessage {
   /** Test-mode host clock and reproducible random input. */
   replaySeed?: number;
   /**
-   * Live-session PRNG seed for the recorded history stream; recorded into the
+   * Live-session PRNG seed for the recorded history stream — the original's
+   * 16-bit word (docs/fidelity.md, "Original RNG"); recorded into the
    * segment's boot so the same random sequence replays offline.
    */
   rngSeed?: number;

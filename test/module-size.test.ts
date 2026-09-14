@@ -38,9 +38,9 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the save format; the release contract pins its structure",
   },
   "src/agent/history.ts": {
-    lines: 765,
+    lines: 825,
     boundary:
-      "the history recording contract incl. the recorded clock lane; the release contract pins its structure",
+      "the history recording contract incl. the recorded clock and RNG-reseed lanes; the release contract pins its structure",
   },
   "app/src/WorldMap.vue": {
     lines: 1458,

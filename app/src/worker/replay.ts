@@ -171,7 +171,9 @@ export function createReplay(ctx: WorkerContext) {
     // The live segment ends here: the scratch session's traffic is never
     // recorded, and resuming starts a fresh segment marked resumed-from.
     ctx.fns.historyEnd("walkthrough");
-    ctx.replay.replay = { tick: 0, revision: 0, random: seed >>> 0 };
+    ctx.replay.replay = { tick: 0, revision: 0, random: seed & 0xffff };
+    ctx.replay.reseeds = [];
+    ctx.replay.reseedCursor = 0;
     ctx.replay.historyReplay = false;
     // A request in flight belonged to the replaced engine; its late answer
     // is dropped by the serial check and the host resolves its UI now.
@@ -192,10 +194,12 @@ export function createReplay(ctx: WorkerContext) {
   }
 
   function onExitReplay(): void {
-    // The replayed engine becomes the live one: its LCG state becomes the
-    // live PRNG state so the resumed segment's boot records it faithfully.
+    // The replayed engine becomes the live one: its RNG word becomes the
+    // live RNG state so the resumed segment's boot records it faithfully.
     if (ctx.replay.replay) ctx.history.rng = ctx.replay.replay.random;
     ctx.replay.replay = null;
+    ctx.replay.reseeds = [];
+    ctx.replay.reseedCursor = 0;
     ctx.replay.historyReplay = false;
     ctx.replay.currentSessionId = 0;
     ctx.replay.isSeeking = false;
@@ -439,6 +443,14 @@ export function openHistoryDrive(
       revision: 0,
       random: anchor ? anchor.rng : segment.boot.rng,
     };
+    // The recorded BIOS-clock lane: every reseed the live session drew at
+    // or after the start position, in draw order — the scratch RNG's
+    // zero-state reads drain it. Events before the anchor were consumed
+    // by draws the replay never re-runs.
+    ctx.replay.reseeds = events
+      .filter((e) => e.seq >= startSeq && e.cause.kind === "reseed")
+      .map((e) => (e.cause as { kind: "reseed"; value: number }).value);
+    ctx.replay.reseedCursor = 0;
     ctx.replay.historyReplay = true;
     ctx.cycle.cycleCount = startCycle;
     ctx.cycle.tickCount = startTick;
@@ -620,6 +632,10 @@ export function openHistoryDrive(
         return;
       case "authoring":
         return; // host-side session state — the take path reads it, the engine never does
+      case "reseed":
+        // Positional only: the drive collected the lane at open and the
+        // scratch RNG drains it inside the pass that draws at zero-state.
+        return;
       case "restart":
       case "end":
         return; // reproduced by the tick stream / the segment boundary itself

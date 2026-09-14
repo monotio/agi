@@ -270,19 +270,22 @@ test("immediate quit notifies the host once and stops execution", () => {
   assert.equal(engine.vars[100], 0);
 });
 
-test("wander permits stationary direction and rejects countdowns below six", () => {
+test("wander's first update draws only a direction; the wrapped count counts down", () => {
+  // Binary contract (docs/fidelity.md, wander countdown): a zero old count
+  // wraps to 255 and is kept — the below-six reroll is a `while`, not a
+  // do/while — so the first update consumes exactly one draw.
   const words = [0, 5, 6];
   let calls = 0;
   const engine = game(`if (!isset(f200)) { set(f200); ${setup} wander(o0); } return;`, "2.936", {
     ...host,
-    randomWord: () => {
+    randomByte: () => {
       calls++;
       return words.shift() ?? 6;
     },
   });
   engine.tick();
   engine.tick();
-  assert.equal(calls, 3);
+  assert.equal(calls, 1);
   assert.equal(engine.screenObjects[0]!.direction, 0);
 });
 
@@ -306,7 +309,7 @@ test("a stationary follower retries with a nonzero direction and a saved delay",
     "2.936",
     {
       ...host,
-      randomWord: () => {
+      randomByte: () => {
         calls++;
         return words.shift() ?? 2;
       },

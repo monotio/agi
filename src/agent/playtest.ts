@@ -135,7 +135,7 @@ export class Simulation {
     const container = openContainer(state.getFiles(), { kind: state.profile.container });
     const words = container.files.get("WORDS.TOK");
     const dictionary = new Map(words ? parseWordsTok(words).map(({ word, id }) => [word, id]) : []);
-    const randomWord = randomSource(123456789);
+    const randomByte = randomSource(123456789);
     const unsupported = (name: string): never => {
       throw new SimulationStop(
         `Simulation requires host service ${name}; no external action was performed.`,
@@ -172,8 +172,8 @@ export class Simulation {
       },
       versionString: () =>
         this.recordedCalls ? (this.recordedValue("version") as string) : `AGI ${state.profile.id}`,
-      randomWord: () =>
-        this.recordedCalls ? (this.recordedValue("random") as number) : randomWord(),
+      randomByte: () =>
+        this.recordedCalls ? (this.recordedValue("random") as number) : randomByte(),
       soundDevice: () => (this.recordedCalls ? (this.recordedValue("soundDevice") as number) : 1),
       waitKey: () => {
         if (this.recordedCalls) return this.recordedValue("waitKey") as number;

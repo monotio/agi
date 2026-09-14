@@ -21,7 +21,12 @@
 import { validateEngineReplayState, type EngineReplayState } from "../runtime/replayState.ts";
 import type { EngineMenuState } from "../runtime/engine.ts";
 
-export const HISTORY_FORMAT_VERSION = 1;
+/**
+ * v1 → v2: the RNG became the original's 16-bit contract — a v1 tape's
+ * recorded LCG stream cannot reproduce under it — and the `reseed` cause
+ * joined the event vocabulary.
+ */
+export const HISTORY_FORMAT_VERSION = 2;
 
 /** Worker in-memory ring bounds: records and bytes pending the host's ack. */
 export const HISTORY_EVENT_LIMIT = 250_000;
@@ -118,6 +123,18 @@ export type HistoryEventCause =
       kind: "authoring";
       snapshot: Record<string, unknown>;
     }
+  | {
+      /**
+       * One BIOS-clock word the RNG consumed on a zero-state draw
+       * (docs/fidelity.md, "Original RNG"): an external input, recorded
+       * because zero is reachable mid-stream — recording only the boot's
+       * seed could never reproduce a later clock read. Replay feeds the
+       * stream's recorded words back in draw order; the event itself is
+       * positional, applied through the reseed lane inside the pass.
+       */
+      kind: "reseed";
+      value: number;
+    }
   | { kind: "end"; reason: HistoryEndReason };
 
 export interface HistoryEvent {
@@ -184,7 +201,9 @@ export interface HistoryClockRun {
 /**
  * A complete mid-play restore point: the recording image (save bytes, screen
  * and parked continuation) plus everything outside it — transient replay
- * state, the worker's input queues and request serial, PRNG and clocks.
+ * state, the worker's input queues and request serial, the RNG word and
+ * clocks. History deliberately restores the RNG position the authentic
+ * save excludes (docs/fidelity.md, save/restart audit).
  */
 export interface HistoryAnchor {
   /** Position in the segment's event stream (events applied before it). */
@@ -231,7 +250,7 @@ export interface HistoryBoot {
   inputQueue?: number[];
   directionQueue?: number[];
   inputLines?: string[];
-  /** LCG PRNG state. */
+  /** The RNG's 16-bit state word at this point (docs/fidelity.md, "Original RNG"). */
   rng: number;
   clock?: HistoryClock;
   /** Sound-clock fractional carry (ms·60 units) at this resume point. */
@@ -611,6 +630,8 @@ function eventCause(value: unknown): HistoryEventCause {
         fail("authoring snapshot is invalid.");
       return { kind: "authoring", snapshot };
     }
+    case "reseed":
+      return { kind: "reseed", value: int(value["value"], "reseed value", 0xffff) };
     case "end":
       return { kind: "end", reason: text(value["reason"], "end reason", 64) as HistoryEndReason };
     default:
@@ -688,7 +709,7 @@ function anchor(value: unknown): HistoryAnchor {
     directionQueue: numberList(value["directionQueue"], "anchor directionQueue"),
     inputLines: stringList(value["inputLines"], "anchor inputLines"),
     requestSerial: int(value["requestSerial"], "anchor requestSerial"),
-    rng: int(value["rng"], "anchor rng", 0xffffffff),
+    rng: int(value["rng"], "anchor rng", 0xffff),
     clock: clock(value["clock"]),
     ...(value["soundRemainder"] !== undefined
       ? { soundRemainder: num(value["soundRemainder"], "anchor soundRemainder", 1000) }
@@ -712,7 +733,7 @@ function boot(value: unknown): HistoryBoot {
     ),
     dictionary: dictionary(value["dictionary"]),
     authorRooms: value["authorRooms"] === true,
-    rng: int(value["rng"], "boot rng", 0xffffffff),
+    rng: int(value["rng"], "boot rng", 0xffff),
     ...(value["resumedFrom"] !== undefined
       ? {
           resumedFrom: (() => {

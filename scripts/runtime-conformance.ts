@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { openContainer } from "../src/container/container.ts";
 import { parseWordsTok } from "../src/logic/words.ts";
 import { Engine } from "../src/runtime/engine.ts";
+import { rngDraw } from "../src/runtime/rng.ts";
 import { CycleClock } from "../src/runtime/cycleClock.ts";
 import { PROFILES, type ProfileId } from "../src/runtime/profile.ts";
 import type { SoundOutput } from "../src/sound/sound.ts";
@@ -48,9 +49,12 @@ export function runtimeResults(files: ReadonlyMap<string, Uint8Array>, input: un
         line = null;
         return pending;
       },
-      randomWord: () => {
-        random = (Math.imul(random, 1664525) + 1013904223) >>> 0;
-        return random >>> 16;
+      randomByte: () => {
+        // The interpreter's own RNG (src/runtime/rng.ts); the seed doubles
+        // as the deterministic stand-in for a zero-state clock read.
+        const draw = rngDraw(random, () => (seed as number) & 0xffff);
+        random = draw.state;
+        return draw.byte;
       },
       soundOutput: (output) => {
         sounds.push(output);

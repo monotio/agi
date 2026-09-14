@@ -125,7 +125,7 @@ function capture(
       record(["keys", batch]);
       return batch;
     },
-    randomWord() {
+    randomByte() {
       const value = ++random;
       record(["random", value]);
       return value;

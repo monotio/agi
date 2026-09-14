@@ -160,6 +160,10 @@ from state 1; `(1,0)` raises CPU divide error (interrupt 0), observed in the
 isolated probe. Do not silently swap bounds. A controlled engine fault is an
 appropriate host representation of the zero-divisor case; do not emulate a
 machine crash. Do not advertise reversed bounds as an authoring feature.
+Shipped code does lean on the behavior, though: kq2 logic 167 rolls
+`random(30,0,v)` — span 65,527, so the byte is never reduced — for
+`30 + byte` wrapped to a byte. The assembler must accept it for
+disassemble→assemble round-trips.
 
 Direction helper 0x4207 returns `randomByte % 9`, including zero. The blocked
 follow path at 0x0e08 retries this helper until direction is nonzero. Its distance

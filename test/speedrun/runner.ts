@@ -123,7 +123,7 @@ export class Speedrun {
         this.actions.push({ kind: "answer", text: String(answer!) });
         return answer!;
       },
-      randomWord: randomSource(seed),
+      randomByte: randomSource(seed),
     };
     this.engine = new Engine(container, host, dict, {
       profile: detectProfile(files),

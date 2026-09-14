@@ -171,8 +171,10 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.fns.onHistoryViewEnd();
       ctx.replay.currentSessionId = typeof boot.sessionId === "number" ? boot.sessionId : 0;
       ctx.replay.replay = Number.isInteger(boot.replaySeed)
-        ? { tick: 0, revision: 0, random: boot.replaySeed! >>> 0 }
+        ? { tick: 0, revision: 0, random: boot.replaySeed! & 0xffff }
         : null;
+      ctx.replay.reseeds = [];
+      ctx.replay.reseedCursor = 0;
       ctx.replay.historyReplay = false;
       const files = new Map<string, Uint8Array>(Object.entries(boot.files));
       ctx.boot.liveDictionary = new Map<string, number>(boot.words);

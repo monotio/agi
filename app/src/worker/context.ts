@@ -53,6 +53,13 @@ export interface WorkerPorts {
   /** performance.now */
   now(): number;
   /**
+   * The unsigned 16-bit word a zero-state RNG draw consumes — the
+   * BIOS-clock read's modern stand-in (docs/fidelity.md, "Original RNG").
+   * The real worker wires crypto.getRandomValues; tests inject a
+   * deterministic sequence so a recorded `reseed` event is predictable.
+   */
+  seedWord?: () => number;
+  /**
    * setTimeout for deferred retries (history resend backoff). A test port
    * that omits it leaves retries to the explicit historyRetry command.
    */
@@ -96,7 +103,15 @@ export interface HostRequestsState {
 
 /** worker/replay.ts */
 export interface ReplayState {
+  /** `random` is the RNG's 16-bit state word (docs/fidelity.md, "Original RNG"). */
   replay: { tick: number; revision: number; random: number } | null;
+  /**
+   * The tape's recorded BIOS-clock words — each `reseed` event's value in
+   * draw order — drained one per zero-state draw a history replay hits.
+   * Empty for a walkthrough replay, which carries no recorded lane.
+   */
+  reseeds: number[];
+  reseedCursor: number;
   replayRequest: number | null;
   lastReplaySeed: number | null;
   isSeeking: boolean;
@@ -225,8 +240,9 @@ export interface JournalState {
 /** worker/history.ts — the always-on recording stream. */
 export interface HistoryState {
   /**
-   * Live PRNG state — the same LCG the replay drive uses — seeded per boot
-   * and recorded into every segment's boot and anchors.
+   * Live RNG state — the interpreter's 16-bit word (docs/fidelity.md,
+   * "Original RNG") — seeded per boot and recorded into every segment's
+   * boot and anchors. The scratch replay drive carries its own.
    */
   rng: number;
   /** Bumped per boot so a replaced session's historyAcks drop. */
@@ -491,6 +507,8 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
     hostRequests: { hostRequestSerial: 0, hostRequestOutstanding: null, pendingReenter: false },
     replay: {
       replay: null,
+      reseeds: [],
+      reseedCursor: 0,
       replayRequest: null,
       lastReplaySeed: null,
       isSeeking: false,

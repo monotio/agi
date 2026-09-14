@@ -12,8 +12,10 @@ import { walkthrough } from "./speedrun/walkthroughs.ts";
 const TARGET_HASH = KNOWN_GAME_HASH.KQ1;
 
 test("speedrun randomness has a stable seed contract", () => {
+  // The interpreter's 16-bit stream (docs/fidelity.md, "Original RNG") —
+  // bytes 50, 92, 122, 150 from state 1.
   const next = randomSource(1);
-  assert.deepEqual(Array.from({ length: 4 }, next), [15496, 24200, 33046, 46195]);
+  assert.deepEqual(Array.from({ length: 4 }, next), [50, 92, 122, 150]);
 });
 
 test(

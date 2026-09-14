@@ -15,6 +15,7 @@ const ports: WorkerPorts = {
   control: (message, options) => sendControl(message, options),
   presentation: (message, options) => sendPresentation(message, options),
   now: () => performance.now(),
+  seedWord: () => crypto.getRandomValues(new Uint16Array(1))[0]!,
   schedule: (fn, ms) => setTimeout(fn, ms),
   cancelSchedule: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
 };

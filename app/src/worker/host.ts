@@ -4,26 +4,50 @@
  */
 import { openContainer } from "../../../src/container/container.ts";
 import { HostWait, type EngineHost } from "../../../src/runtime/engine.ts";
+import { rngDraw } from "../../../src/runtime/rng.ts";
 import { bytesToBase64 } from "../bytes.ts";
 import type { WorkerContext } from "./context.ts";
 
 export function createEngineHost(ctx: WorkerContext): EngineHost {
   return {
-    randomWord() {
-      // Live and replay share the LCG: the recorded seed in the segment's
-      // boot (or an anchor's rng) reproduces the identical sequence offline.
-      let value: number;
-      if (ctx.replay.replay) {
-        const replay = ctx.replay.replay;
-        replay.random = (Math.imul(replay.random, 1664525) + 1013904223) >>> 0;
-        value = replay.random >>> 16;
-      } else {
-        const history = ctx.history;
-        history.rng = (Math.imul(history.rng, 1664525) + 1013904223) >>> 0;
-        value = history.rng >>> 16;
-      }
-      ctx.recording.recording?.tape.host(["random", value]);
-      return value;
+    randomByte() {
+      // Live and replay share the interpreter's 16-bit RNG
+      // (docs/fidelity.md, "Original RNG"): the recorded state in the
+      // segment's boot (or an anchor's rng) reproduces the identical
+      // sequence offline. A draw entering at zero reads the clock — an
+      // external input — so live sessions record each reseed onto the
+      // tape and history replays drain them back in draw order.
+      const replay = ctx.replay.replay;
+      const draw = rngDraw(replay ? replay.random : ctx.history.rng, () => {
+        if (replay === null) {
+          // The harness's modern stand-in for the BIOS-clock read: injected
+          // per port so tests stay deterministic, crypto in production —
+          // labeled different from Sierra's source per the plan.
+          const word =
+            (ctx.ports.seedWord?.() ??
+              (typeof crypto !== "undefined"
+                ? crypto.getRandomValues(new Uint16Array(1))[0]!
+                : Math.floor(ctx.ports.now()))) & 0xffff;
+          ctx.fns.historyRecord({ kind: "reseed", value: word });
+          return word;
+        }
+        const recorded = ctx.replay.reseeds[ctx.replay.reseedCursor];
+        if (recorded !== undefined) {
+          ctx.replay.reseedCursor++;
+          return recorded;
+        }
+        if (ctx.replay.historyReplay)
+          throw new Error(
+            "Recorded reseed lane exhausted — replay drew a clock word the tape never carried.",
+          );
+        // A walkthrough replay has no recorded lane; the tick-derived
+        // word keeps the scratch session deterministic.
+        return replay.tick & 0xffff;
+      });
+      if (replay) replay.random = draw.state;
+      else ctx.history.rng = draw.state;
+      ctx.recording.recording?.tape.host(["random", draw.byte]);
+      return draw.byte;
     },
     print(text) {
       if (ctx.recording.recording && ctx.recording.recording.printed.length < 16)

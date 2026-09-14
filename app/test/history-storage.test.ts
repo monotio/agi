@@ -17,6 +17,7 @@ import {
   type HistoryBatch,
   type HistoryBoot,
 } from "../../src/agent/history.ts";
+import { updateBodyRecord } from "../src/gameStorage.ts";
 import {
   appendHistoryBatch,
   clearStagedOriginal,
@@ -579,4 +580,42 @@ test("two clients committing concurrently never lose an acknowledged batch", asy
   assert.equal(b, true);
   const recording = await loadGameHistory("tape-store-twotab");
   assert.deepEqual(recording?.segments.map((s) => s.id).sort(), ["s-t.a", "s-t.b"]);
+});
+
+test("a tape from an older format version is replaced, not extended", async () => {
+  const key = "tape-store-version";
+  // Seed the record a previous build left: the storage envelope is
+  // version 1 either way — the tape's own version moved under it.
+  await updateBodyRecord(`history/${key}`, () => ({
+    put: {
+      format: "monotio.agi.history",
+      version: 1,
+      projectId: `history/${key}`,
+      recording: {
+        version: HISTORY_FORMAT_VERSION - 1,
+        profile: "2.936",
+        resourceSet: "rev-old",
+        startedAt: 1,
+        segments: [{ id: "old.1", boot: BOOT, anchors: [], events: [], marks: [], sync: [] }],
+      },
+      committed: { "old.1": [1] },
+      bytes: { "old.1": 10 },
+      retained: retainedOn("old.1"),
+      bookmarks: [{ segment: "old.1", seq: 0, tick: 0, label: "old", at: 1 }],
+    },
+    result: undefined,
+  }));
+
+  // The new session's boot batch replaces the tape — appending a current
+  // segment under the old version label would make the whole record
+  // unreadable, and the old tape's extras point at segments that are gone.
+  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936"), true);
+  const recording = await loadGameHistory(key);
+  assert.equal(recording?.version, HISTORY_FORMAT_VERSION);
+  assert.deepEqual(
+    recording?.segments.map((s) => s.id),
+    ["s-a.1"],
+  );
+  assert.equal(await loadRetainedOriginal(key), null);
+  assert.deepEqual(await loadHistoryBookmarks(key), []);
 });

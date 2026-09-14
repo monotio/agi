@@ -14,6 +14,7 @@ import {
   type HistorySegment,
 } from "../../src/agent/history.ts";
 import { resourceSetRevision } from "../../src/agent/authoringState.ts";
+import { rngDraw } from "../../src/runtime/rng.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { gameContainer } from "./worker-ctx.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
@@ -117,7 +118,7 @@ interface HistoryHarness {
 function historyHarness(
   container: GameContainer,
   boot?: Partial<BootMessage>,
-  opts?: { autoAck?: boolean; stepMs?: (n: number) => number },
+  opts?: { autoAck?: boolean; stepMs?: (n: number) => number; seedWords?: number[] },
 ): HistoryHarness {
   const control: WorkerControl[] = [];
   const presentation: WorkerPresentation[] = [];
@@ -127,6 +128,7 @@ function historyHarness(
     control: (message) => control.push(message),
     presentation: (message) => presentation.push(message),
     now: () => now,
+    seedWord: () => opts?.seedWords?.shift() ?? 0x1234,
     schedule: (fn, ms) => {
       const entry = { fn, ms };
       timers.push(entry);
@@ -917,4 +919,80 @@ test("a failed commit's batch resends on its own schedule and on retry", () => {
   while (ctx.history.sent.length > 0 && guard++ < 16)
     send({ type: "historyAck", epoch, batch: ctx.history.sent[0]!.batch });
   assert.equal(h.timers.length, 0, "nothing left to resend");
+});
+
+test("a zero-state draw records its clock word; replay drains the lane back", () => {
+  // rngSeed 0 enters the first draw at zero state — the original reads the
+  // BIOS clock there, so the worker records the injected seed word as a
+  // `reseed` event and the replay drive feeds it back in draw order.
+  const h = historyHarness(historyGame(), { rngSeed: 0 }, { seedWords: [0xbeef] });
+  const { ctx, send, tick } = h;
+  tick(4);
+  send({ type: "debugWrite", id: 0, flags: [[202, 1]] });
+  tick(3);
+  const rolled = ctx.engine!.vars[60]!;
+  assert.equal(rolled, 1 + (rngDraw(0xbeef, () => 0).byte % 250), "v60 is the seeded draw");
+  // A room entry anchors past the draw so a sync mark covers it.
+  send({ type: "debugWrite", id: 1, flags: [[200, 1]] });
+  tick(4);
+  assert.equal(ctx.engine!.vars[0], 2);
+
+  const segment = collectSegments(h.control)[0]!;
+  const reseeds = segment.events.filter((e) => e.cause.kind === "reseed");
+  assert.equal(reseeds.length, 1, "one clock read hit the tape");
+  assert.equal(
+    (reseeds[0]!.cause as { kind: "reseed"; value: number }).value,
+    0xbeef,
+    "the injected word is what the tape recorded",
+  );
+  // rngDraw(0xbeef) → state, byte — the live draw consumed the seeded lane.
+  const expected = rngDraw(0xbeef, () => 0);
+  assert.equal(ctx.history.rng, expected.state);
+
+  const replayed = replayHistorySegment(segment);
+  assert.equal(replayed.error, null);
+  assert.equal(replayed.diverged, null, "every recorded sync mark holds");
+  assert.equal(replayed.ctx.engine!.vars[60], rolled, "the replayed draw matches live");
+  assert.equal(replayed.ctx.replay.reseedCursor, 1, "the replay consumed the recorded word");
+  assert.equal(replayed.ctx.replay.replay!.random, ctx.history.rng);
+
+  // From the anchor the reseed's draw has already run — its word must not
+  // re-enter the lane: the FIFO holds only reseeds at-or-after the start.
+  const anchored = replayHistorySegment(segment, { anchor: segment.anchors.length - 1 });
+  assert.equal(anchored.error, null);
+  assert.equal(anchored.diverged, null);
+  assert.equal(anchored.ctx.replay.reseedCursor, 0, "the pre-anchor reseed stays consumed");
+  assert.equal(anchored.ctx.engine!.vars[60], rolled, "the anchored replay lands identically");
+
+  // A tampered reseed word feeds a different clock read: the stream must
+  // not pass as verified.
+  const torn: HistorySegment = {
+    ...segment,
+    events: segment.events.map((e) =>
+      e.cause.kind === "reseed"
+        ? { ...e, cause: { kind: "reseed", value: (e.cause.value + 1) & 0xffff } }
+        : e,
+    ),
+  };
+  const replayedTorn = replayHistorySegment(torn);
+  assert.ok(
+    replayedTorn.error !== null ||
+      replayedTorn.diverged !== null ||
+      historySyncDigest(replayedTorn.ctx.engine!) !== historySyncDigest(ctx.engine!),
+    "a forged clock word cannot replay to the recorded state",
+  );
+
+  // Removing the entry starves the lane — replay must refuse, not reseed
+  // from live entropy.
+  const stripped: HistorySegment = {
+    ...segment,
+    events: segment.events.filter((e) => e.cause.kind !== "reseed"),
+  };
+  const replayedStripped = replayHistorySegment(stripped);
+  assert.ok(
+    replayedStripped.error !== null ||
+      replayedStripped.diverged !== null ||
+      historySyncDigest(replayedStripped.ctx.engine!) !== historySyncDigest(ctx.engine!),
+    "a missing clock word cannot replay to the recorded state",
+  );
 });

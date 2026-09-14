@@ -39,7 +39,7 @@ export function inspectGame(game: {
     saveGame: stop,
     restoreGame: stop,
     quit: stop,
-    randomWord: () => 12345,
+    randomByte: () => 123,
   };
   const engine = new Engine(
     openContainer(new Map(Object.entries(game.files))),

@@ -142,18 +142,27 @@ export async function mergeHistoryBatch(
   try {
     return await updateBodyRecord<boolean>(key, (raw) => {
       const stored = readStoredHistory(raw);
-      const committed: Record<string, number[]> = { ...(stored?.committed ?? {}) };
+      // A tape from an older format version is unreadable to this build —
+      // the new session's batches must not extend it under its stale label.
+      // Pre-release tapes carry no migration: the fresh recording replaces
+      // it and the old tape's dedup ledger, retention tombstones and
+      // segment-referencing extras go with it.
+      const staleTape = stored !== null && stored.recording.version !== HISTORY_FORMAT_VERSION;
+      const committed: Record<string, number[]> = staleTape ? {} : { ...(stored?.committed ?? {}) };
       const ledger = (committed[batch.segment] ??= []);
       if (ledger.includes(batch.batch)) return { result: true }; // a resend of a committed batch
-      const bytes: Record<string, number> = { ...(stored?.bytes ?? {}) };
-      const recording: HistoryRecording = stored?.recording ?? {
-        version: HISTORY_FORMAT_VERSION,
-        profile,
-        resourceSet: batch.boot?.resourceSet ?? "",
-        startedAt: Date.now(),
-        segments: [],
-      };
-      const evicted: string[] = [...(stored?.evicted ?? [])];
+      const bytes: Record<string, number> = staleTape ? {} : { ...(stored?.bytes ?? {}) };
+      const recording: HistoryRecording =
+        !staleTape && stored?.recording !== undefined
+          ? stored.recording
+          : {
+              version: HISTORY_FORMAT_VERSION,
+              profile,
+              resourceSet: batch.boot?.resourceSet ?? "",
+              startedAt: Date.now(),
+              segments: [],
+            };
+      const evicted: string[] = staleTape ? [] : [...(stored?.evicted ?? [])];
       let segment = recording.segments.find((s) => s.id === batch.segment);
       if (segment === undefined) {
         // A batch without its boot opens nothing — the worker's resend will
@@ -211,10 +220,11 @@ export async function mergeHistoryBatch(
           // The adopted session's own boot batch commits right after a
           // Resume here — the retained original, the staged swap candidate
           // and the bookmarks must survive every commit, not just the ones
-          // that set them.
-          ...(stored?.retained !== undefined ? { retained: stored.retained } : {}),
-          ...(stored?.staged !== undefined ? { staged: stored.staged } : {}),
-          ...(stored?.bookmarks !== undefined ? { bookmarks: stored.bookmarks } : {}),
+          // that set them. A stale-version tape's extras point at segments
+          // the replacement dropped, so they go with it.
+          ...(!staleTape && stored?.retained !== undefined ? { retained: stored.retained } : {}),
+          ...(!staleTape && stored?.staged !== undefined ? { staged: stored.staged } : {}),
+          ...(!staleTape && stored?.bookmarks !== undefined ? { bookmarks: stored.bookmarks } : {}),
         } satisfies StoredHistory,
         result: true,
       };

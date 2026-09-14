@@ -6,9 +6,11 @@
  * at every room entry and on flush — carry a full resume point, so a
  * segment replays offline from its boot or from any anchor.
  *
- * Live randomness runs on the same LCG the replay drive uses (seeded per
- * boot, recorded into the segment's boot), so the recorded event stream
- * reproduces identically offline. A segment ends explicitly — boot,
+ * Live randomness runs the interpreter's 16-bit RNG (docs/fidelity.md,
+ * "Original RNG") — the state word rides the segment's boot and anchors,
+ * and every zero-state clock read lands on the tape as a `reseed` event —
+ * so the recorded event stream reproduces identically offline. A segment
+ * ends explicitly — boot,
  * walkthrough, quit, eject or budget — and a live session that outlives its
  * segment continues under a new one whose boot snapshots the current state.
  *
@@ -503,7 +505,7 @@ export function createHistory(ctx: WorkerContext) {
     h.pendingSound = 0;
     h.pendingSpill = 0;
     h.pendingEndReply = null;
-    h.rng = (typeof msg.rngSeed === "number" ? msg.rngSeed : 1) >>> 0;
+    h.rng = (typeof msg.rngSeed === "number" ? msg.rngSeed : 1) & 0xffff;
     if (ctx.replay.replay) return; // a seeded boot is a scratch replay session
     beginSegment({
       files: bootFiles(),

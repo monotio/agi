@@ -19,6 +19,12 @@ export interface Walkthrough {
   alias: string;
   label: string;
   coverage: "complete-game" | "chapter" | "partial";
+  /**
+   * The host RNG seed the route is tuned to — the interpreter's 16-bit
+   * stream makes each seed a different roll of every timed and wandering
+   * event. Defaults to 1.
+   */
+  seed?: number;
   route(run: Speedrun): void;
   expected: {
     room: number;
@@ -39,6 +45,7 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
     alias: "kq1",
     label: "completed throne-room ending",
     coverage: "complete-game",
+    seed: 32,
     route: kq1Complete,
     expected: {
       room: 53,
@@ -63,6 +70,7 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
     alias: "kq2",
     label: "completed wedding and ending credits with maximum score",
     coverage: "complete-game",
+    seed: 123,
     route: kq2Complete,
     expected: {
       room: 106,
@@ -75,6 +83,7 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
     alias: "sq1",
     label: "completed ceremony and ending credits with maximum score",
     coverage: "complete-game",
+    seed: 12,
     route: sq1Complete,
     expected: {
       room: 64,
@@ -191,7 +200,10 @@ export function verifyWalkthrough(
   if (expected.egoView !== undefined) assert.equal(egoView, expected.egoView, "ending view");
 }
 
-export function runWalkthrough(route: Walkthrough, run = new Speedrun(route.hash, 1)): Speedrun {
+export function runWalkthrough(
+  route: Walkthrough,
+  run = new Speedrun(route.hash, route.seed ?? 1),
+): Speedrun {
   assert.equal(run.hash, route.hash, "walkthrough fixture hash");
   route.route(run);
   verifyWalkthrough(route, {

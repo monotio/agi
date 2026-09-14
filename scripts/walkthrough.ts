@@ -16,7 +16,7 @@ if (missing) {
 } else {
   const output = resolve(process.argv[3] ?? `/tmp/agi-${route.alias}-speedrun.json`);
   const started = performance.now();
-  const run = new Speedrun(route.hash, 1, { dwellModals: true });
+  const run = new Speedrun(route.hash, route.seed ?? 1, { dwellModals: true });
   const fixtureHashes = walkthroughFixtureHashes(route.hash);
   const servedRevisions = await walkthroughServedRevisions(route.hash);
   let failure: string | null = null;

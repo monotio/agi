@@ -8,7 +8,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { reactive } from "vue";
 import { useHistoryView, freshHistoryView } from "../src/useHistoryView.ts";
-import type { HistoryBoot, HistoryRecording, HistorySegment } from "../../src/agent/history.ts";
+import {
+  HISTORY_FORMAT_VERSION,
+  type HistoryBoot,
+  type HistoryRecording,
+  type HistorySegment,
+} from "../../src/agent/history.ts";
 import {
   commitStagedOriginal,
   importGameHistory,
@@ -51,7 +56,7 @@ function segment(id: string, marks: [number, number, number][]): HistorySegment 
 
 /** Two marks share tick 4 in segment 0; segment 1 starts a new run. */
 const RECORDING: HistoryRecording = {
-  version: 1,
+  version: HISTORY_FORMAT_VERSION,
   profile: "2.936",
   resourceSet: "rev-1",
   startedAt: 0,
