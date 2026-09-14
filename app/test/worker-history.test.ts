@@ -27,7 +27,7 @@ import {
 } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
-import { replayHistorySegment } from "../src/worker/historyReplay.ts";
+import { replayHistorySegment } from "../src/worker/replay.ts";
 import type {
   BootMessage,
   WorkerControl,
@@ -104,7 +104,7 @@ interface HistoryHarness {
 function historyHarness(
   container: GameContainer,
   boot?: Partial<BootMessage>,
-  opts?: { autoAck?: boolean },
+  opts?: { autoAck?: boolean; stepMs?: (n: number) => number },
 ): HistoryHarness {
   const control: WorkerControl[] = [];
   const presentation: WorkerPresentation[] = [];
@@ -150,9 +150,11 @@ function historyHarness(
   // The test drives hostTick on the controlled clock; the real timers would
   // interleave polls at unpredictable points.
   ctx.fns.stopTimers();
+  let polls = 0;
   const tick = (n = 1): void => {
     for (let i = 0; i < n; i++) {
-      now += 1000 / 60;
+      now += opts?.stepMs?.(polls) ?? 1000 / 60;
+      polls++;
       ctx.fns.hostTick();
     }
     if (autoAck) ackAll();
@@ -193,6 +195,7 @@ function collectSegments(control: WorkerControl[]): HistorySegment[] {
     segment.events.push(...batch.events);
     segment.marks.push(...batch.marks);
     segment.sync.push(...batch.sync);
+    if (batch.clock !== undefined) (segment.clock ??= []).push(...batch.clock);
     if (batch.anchor !== undefined) segment.anchors.push(batch.anchor);
     if (batch.end !== undefined) segment.end = batch.end;
   }
@@ -553,7 +556,7 @@ test("a tampered stream reports its divergence at the broken mark", () => {
   assert.ok(replayed.diverged !== null, "the changed answer must diverge");
 });
 
-test("un-acked batches stay under the in-flight bound and resend on drain", () => {
+test("un-acked batches stay under the in-flight bound and drain on acks", () => {
   const h = historyHarness(historyGame(), { rngSeed: 3 }, { autoAck: false });
   const { ctx, send, tick } = h;
   tick(4);
@@ -584,6 +587,132 @@ test("un-acked batches stay under the in-flight bound and resend on drain", () =
     send({ type: "historyAck", epoch, batch: ctx.history.sent[0]!.batch });
   assert.equal(ctx.history.sent.length, 0);
   assert.equal(ctx.history.queue.length, 0);
+});
+
+test("a budget overflow still posts its end marker at full credit", () => {
+  const h = historyHarness(historyGame(), { rngSeed: 5 }, { autoAck: false });
+  const { ctx, send, tick } = h;
+  tick(4);
+
+  // Fill the credit: the boot batch plus enough forced batches to hold every
+  // in-flight slot, with more waiting in the queue.
+  for (let i = 0; i < 6; i++) {
+    send({ type: "key", code: 49 + (i % 9) });
+    tick(1);
+    send({ type: "flush", id: 100 + i });
+  }
+  assert.equal(ctx.history.sent.length, HISTORY_INFLIGHT_MAX, "credit is full");
+  const segment = ctx.history.segment;
+  assert.ok(segment !== null);
+
+  // The host still isn't acking and the backlog keeps growing — past the
+  // byte budget the recorder must shed it and close the segment so the
+  // stored tail stays replayable.
+  ctx.history.queuedBytes = 48 * 1024 * 1024;
+  send({ type: "key", code: 50 });
+  tick(1);
+  send({ type: "flush", id: 200 });
+
+  const ends = h.control.filter(
+    (m) => m.type === "historyBatch" && m.batch.end?.reason === "budget",
+  );
+  assert.equal(ends.length, 1, "the end marker posts even past the credit bound");
+  assert.equal(ends[0]!.type === "historyBatch" ? ends[0]!.batch.segment : null, segment);
+  assert.equal(ctx.history.segment, null, "the segment closed");
+  assert.equal(ctx.history.resumedFrom?.segment, segment);
+  assert.equal(ctx.history.resumedFrom?.seq, ctx.history.seq);
+  assert.ok((ctx.history.resumedFrom?.tick ?? 0) > 0, "the resume marker survives the drop");
+});
+
+test("historyEnd closes the segment and posts its batch even at full credit", () => {
+  const h = historyHarness(historyGame(), { rngSeed: 7 }, { autoAck: false });
+  const { ctx, send, tick } = h;
+  tick(4);
+  for (let i = 0; i < 6; i++) {
+    send({ type: "key", code: 49 + (i % 9) });
+    tick(1);
+    send({ type: "flush", id: 100 + i });
+  }
+  assert.equal(ctx.history.sent.length, HISTORY_INFLIGHT_MAX, "credit is full");
+
+  send({ type: "historyEnd", id: 300 });
+  const ended = h.control.filter((m) => m.type === "historyEnded");
+  assert.equal(ended.length, 1, "the reply confirms the close");
+  const ends = h.control.filter(
+    (m) => m.type === "historyBatch" && m.batch.end?.reason === "eject",
+  );
+  assert.equal(ends.length, 1, "the eject end batch posts past the credit bound");
+  assert.equal(ctx.history.segment, null);
+});
+
+test("a jittered wall clock replays to the same observed state", () => {
+  // Main-thread stutter: nine 8 ms polls then a 150 ms catch-up, repeating.
+  // The burst discharges nine sound ticks inside one poll and shifts the
+  // cycle-fire boundary — the virtual 1/60 s clock replays neither.
+  const h = historyHarness(
+    historyGame(),
+    { rngSeed: 0x5eed },
+    { stepMs: (n) => (n % 10 === 9 ? 150 : 8) },
+  );
+  const { ctx, send, tick } = h;
+  send({ type: "debugWrite", id: 1, vars: [[10, 2]] });
+  tick(60);
+  send({ type: "debugWrite", id: 2, flags: [[200, 1]] });
+  tick(60);
+  send({ type: "key", code: 65 });
+  tick(10);
+  send({ type: "flush", id: 9 });
+  const liveDigest = historySyncDigest(ctx.engine!);
+
+  const segment = collectSegments(h.control)[0]!;
+  // The tape carried the observation: the stutter shows up as bursts that
+  // are not the virtual clock's uniform one-sound-tick-per-poll.
+  assert.ok(
+    segment.clock !== undefined &&
+      segment.clock.some((r) => r.sound !== 1) &&
+      segment.clock.some((r) => r.cycle),
+    "the clock lane recorded the real discharge and fire pattern",
+  );
+  const replayed = replayHistorySegment(segment);
+  assert.equal(replayed.error, null);
+  assert.equal(replayed.diverged, null, "a jittered tape must not diverge");
+  assert.equal(historySyncDigest(replayed.ctx.engine!), liveDigest);
+
+  // The lane is load-bearing: replaying the same tape with it stripped —
+  // the pre-lane virtual derivation — diverges at a sync mark.
+  const torn = { ...segment };
+  delete torn.clock;
+  const without = replayHistorySegment(torn);
+  assert.equal(without.error, null);
+  assert.ok(without.diverged !== null, "the same tape without its clock lane must diverge");
+});
+
+test("a suspended-tab gap in the host polls replays to the same observed state", () => {
+  // A background tab's polls stall for a second, then resume — the gap's
+  // elapsed time must not leak into the replayed clock observations.
+  let gap = false;
+  const h = historyHarness(
+    historyGame(),
+    { rngSeed: 0x5eed },
+    { stepMs: () => (gap ? ((gap = false), 1000) : 1000 / 60) },
+  );
+  const { ctx, send, tick } = h;
+  tick(9);
+  send({ type: "debugWrite", id: 1, flags: [[200, 1]] });
+  tick(4);
+  gap = true;
+  tick(1); // one poll carrying a whole second of elapsed wall time
+  tick(4);
+  send({ type: "key", code: 65 });
+  tick(9);
+  send({ type: "flush", id: 9 });
+  const liveDigest = historySyncDigest(ctx.engine!);
+
+  const segment = collectSegments(h.control)[0]!;
+  const replayed = replayHistorySegment(segment);
+  assert.equal(replayed.error, null);
+  assert.equal(replayed.diverged, null, "a gapped tape must not diverge");
+  assert.equal(historySyncDigest(replayed.ctx.engine!), liveDigest);
 });
 
 test("a fresh worker never reuses another session's persisted identity", async () => {

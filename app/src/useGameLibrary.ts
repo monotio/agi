@@ -384,38 +384,6 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     cachedMeta.value = getCachedGameMeta(selectedProjectId.value);
   }
 
-  /**
-   * Plan before build: the agent designs the world, the map opens over the
-   * library for review and nothing is authored until the player approves.
-   * Each plan gets a fresh project id — a kept draft for the same template is
-   * a different plan, never silently overwritten.
-   */
-  async function onPlanSelectedTemplate(): Promise<void> {
-    if (!selectedTemplateId.value || !adventureDraft.value.brief.trim()) return;
-    if (!aiConfigured.value) {
-      openAiSettings(null, "create");
-      return;
-    }
-    await resumeAudio();
-    await engine.plan.start(activeTemplate.value.rawMarkdown, llmConfig(), {
-      projectId: `${activeTemplate.value.id}-${crypto.randomUUID().slice(0, 8)}`,
-      templateId: activeTemplate.value.id,
-      title: activeTemplate.value.title,
-    });
-  }
-
-  /** The kept draft's resume offer — one pending plan at a time. */
-  const pendingPlan = engine.plan.pendingPlan;
-
-  async function onResumePendingPlan(): Promise<void> {
-    await resumeAudio();
-    await engine.plan.openPending();
-  }
-
-  function onDiscardPendingPlan(): void {
-    engine.plan.discardPending();
-  }
-
   async function onBootSavedGame(alreadyBusy = false): Promise<void> {
     if (libraryActionBusy.value && !alreadyBusy) return;
     if (!alreadyBusy) libraryActionBusy.value = true;
@@ -789,6 +757,17 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       const mapTarget = game ? gameStorageKey(game) : data.projectId;
       let history: Awaited<ReturnType<typeof loadProjectHistory>> = null;
       if (project) {
+        // Commits are async: wait out the in-flight set so the archive's
+        // tape ends where the session actually did, then refuse outright if
+        // storage refused a batch — a partial tape inside a project archive
+        // claims a recording that isn't there.
+        if (live) await engine.drainHistoryCommits();
+        const unsaved = state.historyUnsaved;
+        if (live && unsaved)
+          throw new Error(
+            `${unsaved.batches} history ${unsaved.batches === 1 ? "batch is" : "batches are"} ` +
+              "not saved yet — fix browser storage or wait, then download again.",
+          );
         try {
           history = await loadProjectHistory(mapTarget);
         } catch {
@@ -891,10 +870,6 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     onStartOver,
     onResumeAutosave,
     onBootSelectedTemplate,
-    onPlanSelectedTemplate,
-    pendingPlan,
-    onResumePendingPlan,
-    onDiscardPendingPlan,
     onBootSavedGame,
     onClearSavedGame,
     onPlayLibraryGame,

@@ -19,7 +19,12 @@ import {
 } from "../../../src/agent/tools.ts";
 import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
 import { validateAuthoringState } from "../../../src/agent/authoringState.ts";
-import { forkAgentState, changedResources, validateRoomCandidate } from "./sessionState.ts";
+import {
+  adoptTurnState,
+  forkAgentState,
+  changedResources,
+  validateRoomCandidate,
+} from "./sessionState.ts";
 import { readInventoryObjects } from "../../../src/agent/inventory.ts";
 import { prepareRoomPatch } from "../../../src/agent/roomPatch.ts";
 import { buildWordsTok } from "../../../src/logic/words.ts";
@@ -27,8 +32,6 @@ import { openContainer } from "../../../src/container/container.ts";
 import {
   createGenesisPrompt,
   createOrientationPrompt,
-  createPlanPrompt,
-  createRevisePlanPrompt,
   createRuntimeRoomPrompt,
   createSceneBrief,
   type OrientationInput,
@@ -36,6 +39,7 @@ import {
 import {
   commitWorld,
   commitWorldDraft,
+  worldRevision,
   type WorldCommit,
   type WorldDraft,
   type WorldPlan,
@@ -72,11 +76,6 @@ export interface PowerUpResult {
 
 /** Tools active during Genesis and Room Authoring. Stable across both phases for prompt cache reuse. */
 const AUTHORING_SESSION_TOOLS = AGENT_TOOLS.map((tool) => tool.name);
-/**
- * The plan turn's tool surface — world intent and reference reads only, never
- * resource writes. Enforced by the runtime's allowedTools gate.
- */
-const PLAN_PHASE_TOOLS = ["update_world", "inspect_world_bible", "read_authoring_guide"];
 
 export interface BootResources {
   files: Record<string, Uint8Array>;
@@ -334,6 +333,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     this.conversation.setAvailableTools();
 
     const staged = forkAgentState(this.state);
+    const forkRevision = worldRevision(this.state.authoring.world);
     try {
       let turn = await this.observeTurn(this.conversation.sendUserMessage(prompt), "remix");
 
@@ -400,7 +400,11 @@ Answer the player's question using evidence from inspection when needed. For hin
         )
           files[name] = after.slice();
       }
-      Object.assign(this.state, staged);
+      if (adoptTurnState(this.state, staged, forkRevision))
+        this.onEvent(
+          "response",
+          "[Remix] A map edit landed mid-remix; the turn's plan change was superseded.",
+        );
       const text = turn.text || "Changes are ready.";
       this.messages.push({ role: "assistant", text });
       this.onEvent("response", `[Remix] ${text.slice(0, 300)}`, {
@@ -427,7 +431,7 @@ Answer the player's question using evidence from inspection when needed. For hin
 
   private async observeTurn(
     pending: Promise<LlmTurnResult>,
-    phase: "ask" | "remix" | "plan" | "genesis" | "room",
+    phase: "ask" | "remix" | "genesis" | "room",
   ): Promise<LlmTurnResult> {
     try {
       const turn = await pending;
@@ -623,95 +627,24 @@ Answer the player's question using evidence from inspection when needed. For hin
   }
 
   /**
-   * Genesis is two turns: the plan turn designs the world (update_world
-   * only), the build turn authors the opening room's resources against it.
-   * The default create flow runs them back to back; the map's plan review
-   * runs them through runPlan / runBuild with a draft in between.
+   * Genesis is one turn: the agent records the world through update_world —
+   * the map shows the plan as it lands — and builds the opening room in the
+   * same run. There is no separate plan approval: the map stays editable
+   * afterwards and later rooms build when entered or from Build this room.
    */
   startGenesis(templateMarkdown: string): Promise<BootResources> {
-    return this.task.run(async () => {
-      await this.planTurn(templateMarkdown, null);
-      return this.buildTurn(templateMarkdown, false);
-    });
-  }
-
-  /** The plan turn alone — the world is left in authoring.world for review. */
-  runPlan(templateMarkdown: string): Promise<void> {
-    return this.task.run(() => this.planTurn(templateMarkdown, null));
-  }
-
-  /**
-   * Another plan turn answering the player's note. The caller commits the
-   * edited draft first, so inspect_world_bible shows the player's version.
-   */
-  runRevisePlan(note: string): Promise<void> {
-    return this.task.run(() => this.planTurn("", note));
-  }
-
-  /** The build turn alone — the committed plan is the approved roadmap. */
-  runBuild(templateMarkdown: string): Promise<BootResources> {
-    return this.task.run(() => this.buildTurn(templateMarkdown, true));
-  }
-
-  private async planTurn(templateMarkdown: string, reviseNote: string | null): Promise<void> {
-    if (!this.conversation && !this.stubFallback)
-      throw new Error("Connect an API key in AI settings before creating a game.");
-    if (this.stubFallback) {
-      this.onEvent(
-        "request",
-        reviseNote === null ? "[Plan] planning the world" : `[Plan] revising: ${reviseNote}`,
-      );
-      this.stubFallback.plan(this.state, reviseNote);
-      return;
-    }
-    const conversation = this.conversation;
-    if (!conversation) throw new Error("No conversation provider configured");
-    conversation.setAvailableTools(PLAN_PHASE_TOOLS);
-    this.onEvent(
-      "request",
-      reviseNote === null
-        ? `Planning the world with ${this.config.provider} (${this.config.model})`
-        : `Revising the plan: ${reviseNote.slice(0, 160)}`,
-    );
-    let turn = await this.observeTurn(
-      conversation.sendUserMessage(
-        reviseNote === null
-          ? createPlanPrompt(templateMarkdown)
-          : createRevisePlanPrompt(reviseNote),
-      ),
-      "plan",
-    );
-    for (let round = 0; turn.toolCalls.length > 0 && round < 24; round++) {
-      const results: { toolCallId: string; result: AgentToolResult }[] = [];
-      for (const tc of turn.toolCalls) {
-        await this.task.checkpoint(false);
-        this.onEvent("request", `[Plan] ${tc.name}`, { tool: tc.name, args: tc.input });
-        const toolStart = performance.now();
-        const res = await executeAgentToolAsync(this.state, tc.name, tc.input, {
-          allowedTools: PLAN_PHASE_TOOLS,
-        });
-        this.pendingToolMs += performance.now() - toolStart;
-        this.onEvent(
-          res.success ? "response" : "error",
-          res.success ? `[Plan] ${tc.name} succeeded` : `[Plan] ${tc.name} failed: ${res.error}`,
-          { tool: tc.name, args: tc.input, result: { ...res, images: undefined } },
-        );
-        this.task.recordTool(tc.name, tc.input, res);
-        results.push({ toolCallId: tc.id, result: this.projectForModel(res) });
-      }
-      conversation.appendToolResults(results);
-      turn = await this.observeTurn(conversation.complete(), "plan");
-    }
-    if (turn.toolCalls.length > 0)
-      throw new Error("The plan turn did not settle; revise the plan or start over.");
+    return this.task.run(() => this.buildTurn(templateMarkdown));
   }
 
   /**
    * Commit a player draft against the current world revision; a "conflict"
    * means the world moved since the draft forked — the caller offers a
-   * refresh rather than overwriting.
+   * refresh rather than overwriting. A running turn refuses instead: its
+   * staged fork adopts back wholesale at completion, so a map edit
+   * committed mid-turn would be silently overwritten.
    */
   commitPlanDraft(draft: WorldDraft): WorldCommit {
+    if (this.task.snapshot().status !== "idle") return { status: "busy" };
     const result = commitWorldDraft(this.state.authoring, draft);
     if (result.status === "committed") this.state.authoring = result.authoring;
     return result;
@@ -719,18 +652,23 @@ Answer the player's question using evidence from inspection when needed. For hin
 
   /** Adopt a plan wholesale — a stored draft restoring into a fresh session. */
   adoptWorldPlan(world: WorldPlan): void {
+    if (this.task.snapshot().status !== "idle")
+      throw new Error("The agent is mid-turn — the plan can be adopted when it finishes.");
     const result = commitWorld(this.state.authoring, world);
     if (result.status !== "committed")
       throw new Error(result.status === "invalid" ? result.error : "Plan conflict");
     this.state.authoring = result.authoring;
   }
 
-  private async buildTurn(templateMarkdown: string, approvedPlan: boolean): Promise<BootResources> {
+  private async buildTurn(templateMarkdown: string): Promise<BootResources> {
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating a game.");
     this.conversation?.setAvailableTools(AUTHORING_SESSION_TOOLS);
     if (this.stubFallback) {
       this.onEvent("request", "Starting Genesis using offline StubAgent");
+      // The stub records its world plan through the same update_world tool —
+      // the map's planned nodes land in the same turn the room does.
+      this.stubFallback.plan(this.state);
       const resources = this.stubFallback.initialResources();
       for (const res of resources) {
         this.state.container.putResource(res.kind, res.num, res.payload);
@@ -761,7 +699,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       `Beginning Genesis authoring with ${this.config.provider} (${this.config.model})`,
     );
 
-    const genesisPrompt = createGenesisPrompt(templateMarkdown, approvedPlan);
+    const genesisPrompt = createGenesisPrompt(templateMarkdown);
     let turn = await this.observeTurn(this.conversation.sendUserMessage(genesisPrompt), "genesis");
 
     while (!this.state.genesisComplete) {
@@ -850,6 +788,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     // Tools work against a detached container. A failed turn cannot leave
     // half a room in the session that the next attempt mistakes for success.
     let staged = forkAgentState(this.state);
+    const forkRevision = worldRevision(this.state.authoring.world);
     staged.genesisComplete = true;
     staged.sources.objects = readInventoryObjects(staged.getFiles().get("OBJECT"), staged.profile);
     this.conversation.setAvailableTools(AUTHORING_SESSION_TOOLS);
@@ -1004,7 +943,11 @@ Answer the player's question using evidence from inspection when needed. For hin
         response,
         this.state.sources.words,
       );
-      Object.assign(this.state, staged);
+      if (adoptTurnState(this.state, staged, forkRevision))
+        this.onEvent(
+          "response",
+          `[Room] A map edit landed mid-build; the turn's plan change was superseded.`,
+        );
       this.onEvent("response", `Authored room ${room}: logic, picture and dependencies ready`);
       return response;
     } catch (error) {

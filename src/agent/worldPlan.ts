@@ -45,6 +45,9 @@ export function createWorldDraft(world: WorldPlan): WorldDraft {
 
 export type WorldCommit =
   | { status: "committed"; authoring: AuthoringState }
+  /** A room or remix turn owns the session world until its staged fork
+   *  adopts back — a mid-turn commit would be silently overwritten. */
+  | { status: "busy" }
   | { status: "conflict" }
   | { status: "invalid"; error: string };
 

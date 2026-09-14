@@ -27,14 +27,14 @@ import { createPresentation } from "./presentation.ts";
 import { createDebug } from "./debug.ts";
 import type { EdgeSide, RoomTransitionCause } from "../../../src/agent/roomMap.ts";
 import { createJournal } from "./journal.ts";
-import { createRecording } from "./recording.ts";
 import { createHistory } from "./history.ts";
 import { createHistoryView } from "./historyView.ts";
-import type { HistoryDrive } from "./historyReplay.ts";
+import type { HistoryDrive } from "./replay.ts";
 import type {
   HistoryAnchor,
   HistoryBatch,
   HistoryBoot,
+  HistoryClockRun,
   HistoryCommittedPatch,
   HistoryEndReason,
   HistoryEvent,
@@ -247,8 +247,19 @@ export interface HistoryState {
   tickBase: number;
   cycleBase: number;
   /** The batch being accumulated; posted whole. */
-  open: { events: HistoryEvent[]; marks: HistoryRoomMark[]; sync: HistorySyncMark[] };
+  open: {
+    events: HistoryEvent[];
+    marks: HistoryRoomMark[];
+    sync: HistorySyncMark[];
+    clock: HistoryClockRun[];
+  };
   openBytes: number;
+  /**
+   * 60 Hz sound ticks discharged since the last host poll — the sound timer
+   * discharges between polls too, so a poll's observation counts everything
+   * since the previous one: all of it precedes the poll's cycle decision.
+   */
+  pendingSound: number;
   /** Closed batches awaiting in-flight credit, with their serialized sizes. */
   queue: { batch: HistoryBatch; size: number }[];
   queuedBytes: number;
@@ -327,9 +338,9 @@ export interface WorkerFns {
   deliverHostResponse(
     op: string,
     response: string,
-    committed?: HistoryCommittedPatch,
+    committed?: HistoryCommittedPatch | null,
   ): HostAnswerOutcome | undefined;
-  onHostAnswer(msg: Inbound<"hostAnswer">, committed?: HistoryCommittedPatch): void;
+  onHostAnswer(msg: Inbound<"hostAnswer">, committed?: HistoryCommittedPatch | null): void;
   onReenter(msg: Inbound<"reenter">): void;
   // replay.ts
   postReplay(blocked: string | null, fullState?: boolean): void;
@@ -340,6 +351,13 @@ export interface WorkerFns {
   tickEngine(): void;
   recordedClock(): void;
   advanceSoundClock(authoring?: boolean): void;
+  /**
+   * One host poll — the shared step the timer body and both replay drives
+   * run. `obs` supplies the tape's recorded scheduler decision (sound
+   * ticks discharged, whether the cycle poll fired); each field falls back
+   * to the clock's own derivation. Returns whether a logic cycle ran.
+   */
+  stepHostTick(now: number, obs?: { sound?: number; cycle?: boolean }): boolean;
   /** One host-poll pass — the timer body, also driven directly by tests. */
   hostTick(): void;
   finishCycle(): void;
@@ -370,14 +388,15 @@ export interface WorkerFns {
   markReenter(): void;
   markRestore(): void;
   markJump(): void;
-  // recording.ts
-  recordEvent(event: RecordedEvent): void;
+  // history.ts — the stored game-test session also lives there
   onStartRecording(msg: Inbound<"startRecording">): void;
   onStopRecording(msg: Inbound<"stopRecording">): void;
   onCancelRecording(): void;
   // history.ts
   historyBoot(msg: BootMessage): void;
   historyRecord(cause: HistoryEventCause): void;
+  /** One host poll's clock observation: pending sound count + cycle fired. */
+  historyClockObs(cycleFired: boolean): void;
   /** Returns the recorded position the mark landed at, for the journal link. */
   historyMark(
     to: number,
@@ -427,7 +446,16 @@ export interface WorkerContext {
 export function createWorkerContext(ports: WorkerPorts): WorkerContext {
   const now = ports.now();
   const ctx: WorkerContext = {
-    ports,
+    ports: {
+      ...ports,
+      presentation: (message, transfer) => {
+        // A seek suppresses the transient stream — frames, mirrors, sound.
+        // The forced autosave is the exception: a pagehide flush during a
+        // seek must still reach storage, or the snapshot silently never lands.
+        if (ctx.replay.isSeeking && message.type !== "autosave") return;
+        ports.presentation(message, transfer);
+      },
+    },
     engine: null,
     host: undefined as unknown as EngineHost,
     boot: {
@@ -458,8 +486,9 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       seq: 0,
       tickBase: 0,
       cycleBase: 0,
-      open: { events: [], marks: [], sync: [] },
+      open: { events: [], marks: [], sync: [], clock: [] },
       openBytes: 0,
+      pendingSound: 0,
       queue: [],
       queuedBytes: 0,
       queuedEvents: 0,
@@ -547,7 +576,6 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
   Object.assign(ctx.fns, createPresentation(ctx));
   Object.assign(ctx.fns, createDebug(ctx));
   Object.assign(ctx.fns, createJournal(ctx));
-  Object.assign(ctx.fns, createRecording(ctx));
   Object.assign(ctx.fns, createHistory(ctx));
   Object.assign(ctx.fns, createHistoryView(ctx));
   return ctx;

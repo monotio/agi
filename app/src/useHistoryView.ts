@@ -25,6 +25,12 @@ import type { HistoryRecording, HistorySegment } from "../../src/agent/history.t
 import type { WorkerControl, WorkerInbound, WorkerQueryFn } from "./workerProtocol.ts";
 import type { EngineState, HistoryViewUiState } from "./useEngineTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
+import {
+  useTransport,
+  type TransportButton,
+  type TransportExtras,
+  type TransportSource,
+} from "./useTransport.ts";
 
 export interface HistoryViewMark {
   /** Index into the recording's segment list. */
@@ -197,6 +203,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
   /** A worker replacement ends the view session — called from reset paths. */
   function resetHistoryView(): void {
     stopWatch();
+    transport.dispose();
     recording = null;
     bookmarks = [];
     Object.assign(view(), freshHistoryView());
@@ -293,6 +300,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     const v = view();
     if (!v.active && !v.loading) return;
     stopWatch();
+    transport.dispose();
     deps.getWorker()?.postMessage({ type: "historyViewEnd" } satisfies WorkerInbound);
     v.active = false;
     v.loading = false;
@@ -639,6 +647,199 @@ export function useHistoryView(deps: HistoryViewDeps) {
     if (mark.room !== null) deps.highlightRoom(mark.room);
   }
 
+  function stepSegment(dir: 1 | -1): void {
+    const v = view();
+    const next = v.segment + dir;
+    if (next >= 0 && next < v.segmentCount) void seekTo(next, dir > 0 ? 0 : v.totalTicks);
+  }
+
+  /**
+   * The transport's source for the live recording: the viewed segment's
+   * position is the tape position; its marks are the timeline's notches.
+   */
+  const historySource: TransportSource = {
+    get tick() {
+      return view().tick;
+    },
+    get totalTicks() {
+      return view().totalTicks;
+    },
+    get seeking() {
+      return view().seeking;
+    },
+    get playing() {
+      return view().playing;
+    },
+    get speed() {
+      return view().speed;
+    },
+    get marks() {
+      const v = view();
+      return v.marks
+        .filter((m) => m.segment === v.segment)
+        .map((m, i) => ({
+          key: i,
+          percent: v.totalTicks > 0 ? (m.tick / v.totalTicks) * 100 : 0,
+          label: m.label,
+          kind: m.kind,
+          payload: m,
+        }));
+    },
+    seekTick: (tick) => void seekTo(view().segment, tick),
+    togglePlay: () => (view().playing ? pauseHistory() : playHistory()),
+    setSpeed: setHistorySpeed,
+    setScrubbing: (active) => {
+      view().scrubbing = active;
+    },
+    step: (dir) => void stepMark(dir),
+    clickMark: (mark) => {
+      const m = mark.payload as HistoryViewMark;
+      void seekTo(m.segment, m.tick);
+      highlightMark(m);
+    },
+  };
+
+  const historyExtras: TransportExtras = {
+    get visible() {
+      const v = view();
+      return v.active || v.loading || v.error !== "" || v.pendingSwap;
+    },
+    get controls() {
+      return view().active;
+    },
+    get loadingText() {
+      return view().loading ? "Opening the tape…" : undefined;
+    },
+    testid: "history-transport",
+    timelineTestid: "history-timeline",
+    timelineLabel: "History timeline",
+    fillTestid: "history-progress-fill",
+    thumbTestid: "history-thumb",
+    markerClass: "history-marker",
+    get play() {
+      const v = view();
+      return {
+        testid: "btn-history-play",
+        icon: v.playing ? ("pause" as const) : ("play" as const),
+        title: v.playing ? "Pause the tape (Space)" : "Watch the tape unfold (Space)",
+        aria: v.playing ? "Pause" : "Watch",
+        disabled: v.seeking,
+      };
+    },
+    speedTestid: "history-speed-",
+    speedActiveClass: "history-speed-btn--active",
+    tooltipClass: "history-tooltip",
+    speedTitle: (speed) => `Watch at ${speed}×`,
+    get readout() {
+      const v = view();
+      const pct = v.totalTicks > 0 ? Math.round((v.tick / v.totalTicks) * 100) : 0;
+      return `Room ${v.room} · ${pct}%${v.seeking ? " · replaying…" : ""}`;
+    },
+    posTestid: "history-pos",
+    get segments() {
+      const v = view();
+      return {
+        prevTestid: "history-seg-prev",
+        nextTestid: "history-seg-next",
+        labelTestid: "history-segment",
+        index: v.segment,
+        count: v.segmentCount,
+        step: stepSegment,
+      };
+    },
+    get dropped() {
+      return view().dropped;
+    },
+    get leading() {
+      return [
+        {
+          testid: "btn-back-to-live",
+          title: "Back to live (Esc) — the parked session resumes where you left it",
+          aria: "Back to live",
+          icon: "back" as const,
+          variant: "danger" as const,
+          run: () => closeHistory(),
+        },
+      ];
+    },
+    get trailing() {
+      const v = view();
+      const buttons: TransportButton[] = [
+        {
+          testid: "btn-history-bookmark",
+          title: "Pin this moment on the tape",
+          aria: "Bookmark this moment",
+          icon: "bookmark",
+          run: () => void addBookmark(),
+        },
+      ];
+      if (v.retained)
+        buttons.push({
+          testid: "btn-back-to-before",
+          title: "Swap back to the session kept before Resume here",
+          label: "Back to before",
+          variant: "secondary",
+          run: () => void backToBefore(),
+        });
+      if (v.confirmReplace)
+        buttons.push({
+          testid: "btn-keep-original",
+          title: "Don't resume — keep the session already saved",
+          label: "Keep the original",
+          variant: "secondary",
+          run: () => cancelReplace(),
+        });
+      buttons.push({
+        testid: "btn-resume-here",
+        title: v.confirmReplace
+          ? "The session kept as Back to before will be replaced — press again to confirm"
+          : "Continue playing from this moment; the current session is kept as Back to before",
+        label: v.confirmReplace ? "Replace the kept session?" : "Resume here",
+        variant: "primary",
+        disabled: !v.canResume || v.diverged !== null || v.seeking,
+        run: () => void resumeHere(),
+      });
+      return buttons;
+    },
+    storyPause: undefined,
+    get pending() {
+      if (!view().pendingSwap) return undefined;
+      return {
+        testid: "history-pending-swap",
+        text: "A kept session's save was interrupted.",
+        buttons: [
+          {
+            testid: "btn-finish-swap",
+            title: "Finish saving it — it becomes the session Back to before restores",
+            label: "Keep it",
+            variant: "secondary" as const,
+            run: () => void finishPendingSwap(),
+          },
+          {
+            testid: "btn-drop-swap",
+            title: "Let the interrupted copy go — nothing is kept",
+            label: "Let it go",
+            variant: "secondary" as const,
+            run: () => void dropPendingSwap(),
+          },
+        ],
+      };
+    },
+    get errors() {
+      const v = view();
+      const errors: { testid: string; text: string }[] = [];
+      if (v.error !== "") errors.push({ testid: "history-error", text: v.error });
+      if (v.diverged !== null)
+        errors.push({
+          testid: "history-diverged",
+          text: `The tape stops agreeing with itself here: ${v.diverged.detail}`,
+        });
+      return errors;
+    },
+  };
+
+  const transport = useTransport(historySource, historyExtras);
+
   return {
     resetHistoryView,
     openHistory,
@@ -658,6 +859,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     jumpToVisit,
     highlightMark,
     applyReport,
+    transport,
   };
 }
 

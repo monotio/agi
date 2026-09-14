@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import { writeFileSync, unlinkSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { Speedrun, randomSource } from "./speedrun/runner.ts";
 import { readWalkthroughArtifact, walkthroughServedRevisions } from "./speedrun/artifact.ts";
+import { BUILTIN_GAME_BUILDERS } from "./game-fixture.ts";
+import { walkthrough } from "./speedrun/walkthroughs.ts";
 
 const TARGET_HASH = KNOWN_GAME_HASH.KQ1;
 
@@ -107,6 +109,30 @@ test(
     assert.throws(() => run.assertCarried(1, "Test item"), /Test item \(item 1\) must be carried/);
   },
 );
+
+test("every shipped walkthrough is a v2 artifact bound to its bundle revision", async () => {
+  // Runs without fixtures: builtin targets resolve their served revision from
+  // the builder; fixture targets still prove schema, binding field, and shape.
+  const dir = "app/public/walkthroughs";
+  const files = readdirSync(dir).filter((name) => name.endsWith(".json"));
+  assert.ok(files.length > 0, "walkthrough artifacts ship with the app");
+  for (const file of files) {
+    const path = join(dir, file);
+    const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    assert.equal(raw["schema"], "monotio.agi.walkthrough.v2", `${file} schema`);
+    assert.match(
+      String(raw["targetRevision"]),
+      /^[0-9a-f]{64}$/i,
+      `${file} declares the bundle revision it was recorded on`,
+    );
+    const hash = walkthrough(String(raw["game"])).hash;
+    if (BUILTIN_GAME_BUILDERS[hash] ?? BUILTIN_GAME_BUILDERS[String(raw["game"])]) {
+      const artifact = await readWalkthroughArtifact(path);
+      const served = await walkthroughServedRevisions(hash);
+      assert.equal(artifact.targetRevision, served[0], `${file} binds the served revision`);
+    }
+  }
+});
 
 test(
   "readWalkthroughArtifact binds the tape to the served bundle revision",

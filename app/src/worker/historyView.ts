@@ -2,7 +2,7 @@
  * History viewing: while the live session stays parked behind its
  * acknowledged pause, a scratch session on the side replays the recorded
  * stream through a real Engine and posts its frames to the real surface.
- * The scratch runs on the history drive (worker/historyReplay.ts): recorded
+ * The scratch runs on the history drive (worker/replay.ts): recorded
  * answers resolve its host requests, its own control traffic is swallowed,
  * and its sound stays silent. It writes nothing — no autosave, no journal
  * notices, no recorded batches, no provider calls.
@@ -23,7 +23,7 @@ import {
   type HistorySegment,
 } from "../../../src/agent/history.ts";
 import { resourceSetRevision } from "../../../src/agent/authoringState.ts";
-import { openHistoryDrive, type HistoryDrive } from "./historyReplay.ts";
+import { openHistoryDrive, type HistoryDrive } from "./replay.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 
 const V_ROOM = 0;
@@ -133,9 +133,13 @@ export function createHistoryView(ctx: WorkerContext) {
     const drive = view.drive;
     if (drive === null || view.request !== requestId) return; // superseded or closed
     const scratch = drive.ctx;
-    // The seek gate is the worker's own isSeeking: scratch frames route
-    // through ctx.ports.presentation, which drops them while it is set.
+    // The seek gates both contexts: the live flag drops scratch frames in
+    // transit, and the scratch's own flag makes its postFrame return before
+    // the sameness cache sees them — otherwise a dropped mid-seek frame
+    // would count as published and the terminal frame could judge itself
+    // "same" and never post, leaving the screen one position behind.
     ctx.replay.isSeeking = !watch;
+    scratch.replay.isSeeking = !watch;
     const start = ctx.ports.now();
     while (!drive.halted && (drive.tick < target || drive.nextEventTick <= target)) {
       drive.step();
@@ -151,6 +155,7 @@ export function createHistoryView(ctx: WorkerContext) {
     }
     view.request = null;
     ctx.replay.isSeeking = false;
+    scratch.replay.isSeeking = false;
     scratch.fns.postFrame();
     postReport(requestId, true);
   }
@@ -287,7 +292,9 @@ export function createHistoryView(ctx: WorkerContext) {
     // it lands on the host's first release instead.
     ctx.cycle.pendingClock = boot.clock ?? null;
     if (boot.clock === undefined) ctx.clocks.cycle.reset(ctx.ports.now());
-    ctx.clocks.sound.reset(ctx.ports.now());
+    if (boot.soundRemainder !== undefined)
+      ctx.clocks.sound.restore(ctx.ports.now(), boot.soundRemainder);
+    else ctx.clocks.sound.reset(ctx.ports.now());
     ctx.cycle.paused = true;
     ctx.ports.control({ type: "paused", paused: true });
     ctx.history.resumedFrom = from;
@@ -332,6 +339,7 @@ export function createHistoryView(ctx: WorkerContext) {
       directionQueue: [...scratch.input.deferredMovement],
       inputLines: [...scratch.input.inputBuffer],
       clock: scratch.clocks.cycle.snapshot(),
+      soundRemainder: scratch.clocks.sound.snapshot(),
       rng: scratch.replay.replay?.random ?? ctx.history.rng,
       soundDevice: scratch.boot.selectedSoundDevice,
       resourceSet: resourceSetRevision({ getFiles: () => files }),

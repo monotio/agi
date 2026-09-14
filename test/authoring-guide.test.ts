@@ -67,7 +67,7 @@ test("the tool is catalogued for Ask turns and validates its topic argument", ()
 
 test("the genesis prompt offers a boot skeleton without prescribing the opening's shape", () => {
   const prompt = createGenesisPrompt("# Night Train\nA sleeper car mystery.");
-  assert.ok(prompt.startsWith("### GENESIS PHASE:"));
+  assert.ok(prompt.startsWith("### GENESIS:"));
   assert.match(prompt, /yours to adapt or replace/);
   assert.match(prompt, /text-screen intro/);
   assert.ok(!/Use this logic 0 boot script/.test(prompt));

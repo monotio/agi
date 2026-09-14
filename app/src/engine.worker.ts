@@ -30,7 +30,6 @@ function sendControl(message: WorkerControl, options?: Transferable[]): void {
 }
 
 function sendPresentation(message: WorkerPresentation, options?: Transferable[]): void {
-  if (ctx.replay.isSeeking) return;
   if (ctx.replay.currentSessionId > 0 && !("sessionId" in message)) {
     (message as Record<string, unknown>)["sessionId"] = ctx.replay.currentSessionId;
   }

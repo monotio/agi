@@ -17,6 +17,12 @@ import type { LlmConfig } from "./agent/llmClient.ts";
 import { getCachedGameMeta, listCachedGames, type ProjectId } from "./gameStorage.ts";
 import type { BootedGame } from "./gameTypes.ts";
 import type { WorkerInbound } from "./workerProtocol.ts";
+import {
+  useTransport,
+  type TransportExtras,
+  type TransportModel,
+  type TransportSource,
+} from "./useTransport.ts";
 
 export interface WalkthroughUiState {
   active: boolean;
@@ -111,6 +117,8 @@ export interface WalkthroughController {
   toggleWalkthroughPauseOnDialog(): void;
   advanceDialog(): boolean;
   abort(): void;
+  /** The transport's view of this source — the artifact under play. */
+  readonly transport: TransportModel;
 }
 
 export function useWalkthroughController(ctx: WalkthroughControllerContext): WalkthroughController {
@@ -142,6 +150,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
   }
 
   function abort(): void {
+    transport.dispose();
     if (walkthroughAbortController) {
       walkthroughAbortController.abort();
       walkthroughAbortController = null;
@@ -579,6 +588,105 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     state.walkthrough.pauseOnDialog = !state.walkthrough.pauseOnDialog;
   }
 
+  /**
+   * The transport's source for a walkthrough artifact: the runner's position
+   * is the tape position; its checkpoints are the timeline's marks.
+   */
+  const walkthroughSource: TransportSource = {
+    get tick() {
+      return state.walkthrough.tick;
+    },
+    get totalTicks() {
+      return state.walkthrough.totalTicks;
+    },
+    get seeking() {
+      return state.walkthrough.seeking;
+    },
+    get playing() {
+      return state.walkthrough.status === "playing";
+    },
+    get speed() {
+      return state.walkthrough.speed;
+    },
+    get marks() {
+      return state.walkthrough.checkpoints.map((cp) => ({
+        key: cp.index,
+        percent: cp.percent,
+        label: cp.label,
+        details: `Score: ${cp.score} · Room ${cp.room}`,
+        kind: "checkpoint",
+        testid: `walkthrough-marker-${cp.index}`,
+        payload: cp,
+      }));
+    },
+    seekTick: (tick) => void seekToTick(tick),
+    togglePlay: toggleWalkthroughPause,
+    setSpeed: setWalkthroughSpeed,
+    setScrubbing: (active) => {
+      state.walkthrough.scrubbing = active;
+    },
+    step: (dir) => {
+      const pct = Math.max(0, Math.min(100, state.walkthrough.percent + dir * 5));
+      void seekToTick(Math.round((pct / 100) * state.walkthrough.totalTicks));
+    },
+    clickMark: (mark) => void seekToCheckpoint(mark.payload as WalkthroughCheckpoint),
+  };
+
+  const walkthroughExtras: TransportExtras = {
+    get visible() {
+      return state.walkthrough.active && state.phase === "running";
+    },
+    controls: true,
+    loadingText: undefined,
+    testid: "walkthrough-transport",
+    timelineTestid: "walkthrough-timeline",
+    timelineLabel: "Walkthrough timeline",
+    fillTestid: "walkthrough-progress-fill",
+    thumbTestid: "walkthrough-thumb",
+    markerClass: "walkthrough-marker",
+    get play() {
+      const status = state.walkthrough.status;
+      return {
+        testid: "btn-walkthrough-pause",
+        icon:
+          status === "paused"
+            ? ("play" as const)
+            : status === "completed"
+              ? ("replay" as const)
+              : ("pause" as const),
+        title:
+          status === "paused"
+            ? "Play (Space)"
+            : status === "completed"
+              ? "Replay from start"
+              : "Pause (Space)",
+        aria: status === "paused" ? "Play" : status === "completed" ? "Replay" : "Pause",
+        disabled: false,
+      };
+    },
+    speedTestid: "walkthrough-speed-",
+    speedActiveClass: "walkthrough-speed-btn--active",
+    tooltipClass: "walkthrough-tooltip",
+    speedTitle: (speed) => `Set playback speed to ${speed}×`,
+    readout: undefined,
+    posTestid: undefined,
+    segments: undefined,
+    dropped: 0,
+    leading: [],
+    trailing: [],
+    get storyPause() {
+      return {
+        testid: "btn-walkthrough-pause-on-dialog",
+        on: state.walkthrough.pauseOnDialog,
+        toggle: toggleWalkthroughPauseOnDialog,
+      };
+    },
+    pending: undefined,
+    errors: [],
+  };
+
+  const transport = useTransport(walkthroughSource, walkthroughExtras);
+
   return {
     startWalkthrough,
     stopWalkthrough,
@@ -591,5 +699,6 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     toggleWalkthroughPauseOnDialog,
     advanceDialog,
     abort,
+    transport,
   };
 }

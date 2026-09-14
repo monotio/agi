@@ -123,24 +123,19 @@ export function createHostRequests(ctx: WorkerContext) {
   function deliverHostResponse(
     op: string,
     response: string,
-    committed?: HistoryCommittedPatch,
+    committed?: HistoryCommittedPatch | null,
   ): HostAnswerOutcome | undefined {
     if (!ctx.engine) return undefined;
     switch (op) {
       case "getnum": {
         const n = Number.parseInt(response, 10);
         const value = Number.isFinite(n) ? n : 0;
-        if (ctx.recording.recording) {
-          ctx.recording.recording.usedGetnum = true;
-          ctx.fns.recordEvent({ cycle: ctx.cycle.cycleCount, kind: "answer", text: response });
-        }
+        if (ctx.recording.recording) ctx.recording.recording.usedGetnum = true;
         ctx.recording.recording?.tape.host(["number", value]);
         ctx.engine.deliverHostAnswer(value);
         return;
       }
       case "getstring": {
-        if (ctx.recording.recording)
-          ctx.fns.recordEvent({ cycle: ctx.cycle.cycleCount, kind: "answer", text: response });
         ctx.recording.recording?.tape.host(["string", response]);
         ctx.engine.deliverHostAnswer(response);
         return;
@@ -199,6 +194,12 @@ export function createHostRequests(ctx: WorkerContext) {
         let patch: HistoryCommittedPatch | undefined;
         if (room >= 0) {
           try {
+            if (committed === null) {
+              // History replay of a declined room: the tape carries no
+              // patch — the refusal is the answer, nothing to compile.
+              ctx.engine.deliverHostAnswer(false);
+              return { room, prepared: false };
+            }
             if (committed !== undefined) {
               // History replay: the recorded patch bytes are the answer.
               applyRoomPatchFiles(decodeCommittedPatch(committed));
@@ -241,9 +242,13 @@ export function createHostRequests(ctx: WorkerContext) {
 
   /**
    * `committed` is the history replay path: the answer event's recorded patch
-   * applies verbatim instead of recompiling the response.
+   * applies verbatim instead of recompiling the response — `null` marks a
+   * recorded decline, which delivers the refusal without compiling at all.
    */
-  function onHostAnswer(msg: Inbound<"hostAnswer">, committed?: HistoryCommittedPatch): void {
+  function onHostAnswer(
+    msg: Inbound<"hostAnswer">,
+    committed?: HistoryCommittedPatch | null,
+  ): void {
     // The main thread resolved the in-flight host request. A stale id —
     // an answer for a request already abandoned — is dropped, never
     // delivered.
@@ -314,16 +319,25 @@ export function createHostRequests(ctx: WorkerContext) {
     } catch (wait) {
       if (!(wait instanceof HostWait)) {
         // A declined re-enter never transitions; disarm so the next real
-        // transition is not mislabeled.
+        // transition is not mislabeled — and the tape never saw it: the
+        // reenter is recorded only once the room accepts it.
         ctx.journal.pendingCause = null;
         throw wait;
       }
       // Room authoring suspended the transition: the hostAnswer message
       // delivers it and the timer's tick completes it, then reports.
+      ctx.fns.historyRecord({
+        kind: "reenter",
+        ...(typeof msg.room === "number" ? { room: msg.room } : {}),
+      });
       ctx.hostRequests.pendingReenter = true;
       ctx.fns.postFrame(true);
       return;
     }
+    ctx.fns.historyRecord({
+      kind: "reenter",
+      ...(typeof msg.room === "number" ? { room: msg.room } : {}),
+    });
     ctx.fns.noteTransition();
     ctx.fns.postFrame(true);
   }

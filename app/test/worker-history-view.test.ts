@@ -68,16 +68,24 @@ interface ViewHarness {
   tick(n?: number): void;
 }
 
-function viewHarness(container: GameContainer, boot?: Partial<BootMessage>): ViewHarness {
+function viewHarness(
+  container: GameContainer,
+  boot?: Partial<BootMessage>,
+  opts?: { gated?: boolean },
+): ViewHarness {
   const control: WorkerControl[] = [];
   const presentation: WorkerPresentation[] = [];
   let now = 0;
-  const ports: WorkerPorts = {
+  const ctx = createWorkerContext({
     control: (message) => control.push(message),
-    presentation: (message) => presentation.push(message),
+    presentation: (message) => {
+      // The real worker drops presentation while a seek is in flight —
+      // without the gate the fake port sees frames a browser never would.
+      if (opts?.gated && ctx.replay.isSeeking) return;
+      presentation.push(message);
+    },
     now: () => now,
-  };
-  const ctx = createWorkerContext(ports);
+  } satisfies WorkerPorts);
   ctx.host = createEngineHost(ctx);
   // The host commits each batch and acks it; resent duplicates get acked
   // again — that is how the worker's resend converges. Track messages by
@@ -140,6 +148,7 @@ function collectSegments(control: WorkerControl[]): HistorySegment[] {
     segment.events.push(...batch.events);
     segment.marks.push(...batch.marks);
     segment.sync.push(...batch.sync);
+    if (batch.clock !== undefined) (segment.clock ??= []).push(...batch.clock);
     if (batch.anchor !== undefined) segment.anchors.push(batch.anchor);
     if (batch.end !== undefined) segment.end = batch.end;
   }
@@ -419,6 +428,45 @@ test("the adopted session resumes the recorded PRNG and cycle clock", () => {
 function playedRoll(ctx: WorkerContext): number {
   return ctx.engine!.vars[60]!;
 }
+
+test("a seek republishes the landing frame a dropped mid-seek frame matched", () => {
+  // The gated port drops scratch frames in transit exactly like the real
+  // worker's sendPresentation does while a seek is in flight.
+  const h = viewHarness(viewGame(), { rngSeed: 0xbeef }, { gated: true });
+  const { send, tick } = h;
+  tick(4);
+  send({ type: "debugWrite", id: 0, flags: [[216, 1]] }); // arm parser input
+  tick(2);
+  send({ type: "edit", text: "look" });
+  tick(3);
+  send({ type: "pause", paused: true });
+  const recording = asRecording(collectSegments(h.control));
+  const editEvent = recording.segments[0]!.events.find((e) => e.cause.kind === "edit");
+  assert.ok(editEvent, "the tape carries the typed edit");
+
+  // View just before the typing — the surface shows an empty input line.
+  const beforeTick = Math.max(0, editEvent.tick - 1);
+  send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: beforeTick });
+  assert.equal(finalView(h.control, 1).error, null);
+  const frameBefore = h.presentation.at(-1);
+  assert.ok(frameBefore?.type === "frame" && frameBefore.edit === "");
+
+  // Scrub forward across the typed command. Mid-seek the edit applies and
+  // the scratch postFrame computes the landing frame — the transit gate
+  // drops it. The landing frame is identical, so unless the scratch's own
+  // gate kept the cache unpolluted the terminal postFrame judges it "same"
+  // and posts nothing: the screen would keep the pre-seek frame while the
+  // readout says the position moved.
+  send({ type: "historyViewSeek", id: 2, segment: 0, tick: editEvent.tick + 2 });
+  assert.equal(finalView(h.control, 2).error, null);
+  const frameAfter = h.presentation.at(-1);
+  assert.ok(frameAfter?.type === "frame", "the landing position must post a frame");
+  assert.equal(
+    frameAfter.edit,
+    "look",
+    "the frame at the landing position shows the typed command",
+  );
+});
 
 test("a corrupted tape reports divergence instead of a position", () => {
   const { h, recording, lastTick } = playedSession();

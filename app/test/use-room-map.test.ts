@@ -4,7 +4,7 @@ import { nextTick, reactive } from "vue";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { createAuthoringState } from "../../src/agent/authoringState.ts";
-import { commitWorldDraft, createWorldDraft, type WorldDraft } from "../../src/agent/worldPlan.ts";
+import { commitWorldDraft, type WorldDraft } from "../../src/agent/worldPlan.ts";
 import { useRoomMap } from "../src/useRoomMap.ts";
 import type { AgentSession } from "../src/agent/agentSession.ts";
 import type { EngineState, TextHook } from "../src/useEngineTypes.ts";
@@ -453,11 +453,9 @@ function fakeSession(
 
 function planHarness(opts: {
   session?: AgentSession | null;
-  reviewDraft?: WorldDraft | null;
   storage?: Pick<Storage, "getItem" | "setItem">;
-  onReviewEdited?: () => void;
   onWorldEdited?: () => void;
-  onReviewClosed?: () => void;
+  buildRoomFromMap?: (room: number, from: number, notes: string[]) => Promise<void>;
 }) {
   const state = reactive({
     phase: "idle",
@@ -490,54 +488,92 @@ function planHarness(opts: {
     pauseWalkthrough: () => {},
     resumeWalkthrough: () => {},
     storage: opts.storage,
-    getReviewDraft: () => opts.reviewDraft ?? null,
-    onReviewEdited: opts.onReviewEdited,
     onWorldEdited: opts.onWorldEdited,
-    onReviewClosed: opts.onReviewClosed,
+    buildRoomFromMap: opts.buildRoomFromMap,
   });
   return { map, state, game };
 }
 
-test("review edits land on the detached draft and reach the persist callback", async () => {
-  const draft = createWorldDraft(
-    (() => {
-      const a = createAuthoringState();
-      a.world.rooms = {
-        "1": { title: "Hall", description: "", exits: { east: 2 } },
-        "2": { title: "Vault", description: "", exits: {} },
-      };
-      return a.world;
-    })(),
-  );
-  let edited = 0;
-  let closed = 0;
-  const { map } = planHarness({
-    reviewDraft: draft,
-    onReviewEdited: () => edited++,
-    onReviewClosed: () => closed++,
+test("live edits land on the session world and the map drives the planned layer", async () => {
+  const session = fakeSession({
+    "1": { title: "Hall", description: "", exits: { east: 2 } },
+    "2": { title: "Vault", description: "", exits: {} },
   });
-  map.beginReview("proj-1");
-  assert.equal(map.reviewing.value, true);
-  // The draft's rooms drive the planned layer.
+  let edited = 0;
+  const { map } = planHarness({ session, onWorldEdited: () => edited++ });
+  map.openMap();
   assert.equal(map.plannedEntry(2)?.title, "Vault");
   assert.ok(map.graph.value.nodes.find((n) => n.room === 2)?.planned);
 
   assert.equal(map.renamePlannedRoom(1, "Meadow"), null);
-  assert.equal(draft.world.rooms["1"]?.title, "Meadow");
+  assert.equal(session.state.authoring.world.rooms["1"]?.title, "Meadow");
   assert.equal(edited, 1);
-  // A refused edit leaves the draft untouched and says why.
+  // A refused edit leaves the world untouched and says why.
   assert.match(map.renamePlannedRoom(9, "Nope") ?? "", /not in the plan/);
   assert.equal(map.planError.value !== "", true);
-  assert.equal(draft.world.rooms["9"], undefined);
+  assert.equal(session.state.authoring.world.rooms["9"], undefined);
   // Add a room off room 1 — node and exit in one validated edit.
   const added = map.addPlannedRoom(1, "Tower", "A tall tower.", "up");
   assert.equal(added.room, 3);
-  assert.equal(draft.world.rooms["3"]?.title, "Tower");
-  assert.equal(draft.world.rooms["1"]?.exits["up"], 3);
-  // Close = keep: the owner is told, the draft survives.
+  assert.equal(session.state.authoring.world.rooms["3"]?.title, "Tower");
+  assert.equal(session.state.authoring.world.rooms["1"]?.exits["up"], 3);
+});
+
+test("Build this room authors against the planned inbound edge, notes as intent", async () => {
+  const session = fakeSession({
+    "1": { title: "Hall", description: "", exits: {} },
+    "2": { title: "Landing", description: "", exits: { north: 3 } },
+    "3": { title: "Vault", description: "The loot.", exits: {} },
+  });
+  const roomBuilds: { room: number; from: number; notes: string[] }[] = [];
+  const { map } = planHarness({
+    session,
+    buildRoomFromMap: async (room, from, notes) => {
+      roomBuilds.push({ room, from, notes });
+    },
+  });
+  map.openMap();
+  map.setNote(3, "the vault door should feel trapped");
+  map.setEdgeNote(2, 3, "north", "the guard watches this way");
+  await map.buildPlannedRoom(3);
+  assert.equal(roomBuilds.length, 1);
+  assert.equal(roomBuilds[0]?.room, 3);
+  assert.equal(roomBuilds[0]?.from, 2); // the plan's north exit targets it
+  assert.deepEqual(roomBuilds[0]?.notes, [
+    "the vault door should feel trapped",
+    'exit from room 2 "north": the guard watches this way',
+  ]);
+  assert.equal(map.buildingRoom.value, undefined);
+  // A room that is not in the plan refuses instead of building.
+  await map.buildPlannedRoom(9);
+  assert.equal(roomBuilds.length, 1);
+  assert.match(map.planError.value, /not in the plan/);
+});
+
+test("the map refuses to close while a room build is in flight", async () => {
+  const session = fakeSession({
+    "1": { title: "Hall", description: "", exits: {} },
+    "2": { title: "Vault", description: "", exits: {} },
+  });
+  let release: (() => void) | null = null;
+  const { map, state } = planHarness({
+    session,
+    buildRoomFromMap: () => new Promise<void>((resolve) => (release = resolve)),
+  });
+  state.phase = "running";
+  map.openMap();
+  const building = map.buildPlannedRoom(2);
+  await nextTick();
+  assert.equal(map.buildingRoom.value, 2);
+
   map.closeMap();
-  assert.equal(closed, 1);
-  assert.equal(map.reviewing.value, false);
+  assert.equal(map.open.value, true, "closing mid-build is refused");
+  assert.match(map.planError.value, /still being built/);
+
+  release!();
+  await building;
+  map.closeMap();
+  assert.equal(map.open.value, false, "the close lands once the build finished");
 });
 
 test("live edits commit through the session's revision check", async () => {

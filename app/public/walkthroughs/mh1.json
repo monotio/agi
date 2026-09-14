@@ -1,5 +1,5 @@
 {
-  "schema": "monotio.agi.walkthrough.v1",
+  "schema": "monotio.agi.walkthrough.v2",
   "game": "mh1",
   "targetRevision": "010d2c6c1edf1a27bedded58faad86cb50a9f6970050f27736dc84d41854216d",
   "supportedRevisions": [

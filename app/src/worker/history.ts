@@ -1,10 +1,10 @@
 /**
- * Always-on history recording. Every accepted live boundary — input, host
- * answers, patches, pauses — lands in the open batch; batches post to the
- * host under bounded in-flight credit and the host persists them, then acks.
- * Anchors — taken on the autosave cadence, at every room entry and on
- * flush — carry a full resume point, so a segment replays offline from its
- * boot or from any anchor.
+ * Always-on history recording — the one intake. Every accepted live
+ * boundary — input, host answers, patches, pauses — lands in the open
+ * batch; batches post to the host under bounded in-flight credit and the
+ * host persists them, then acks. Anchors — taken on the autosave cadence,
+ * at every room entry and on flush — carry a full resume point, so a
+ * segment replays offline from its boot or from any anchor.
  *
  * Live randomness runs on the same LCG the replay drive uses (seeded per
  * boot, recorded into the segment's boot), so the recorded event stream
@@ -12,9 +12,15 @@
  * walkthrough, quit, eject or budget — and a live session that outlives its
  * segment continues under a new one whose boot snapshots the current state.
  *
+ * The stored game-test session rides this stream: its player-action list is
+ * a view of the recorded causes (`recordedEventFromCause`), so a recording
+ * and the tape can never disagree about what the player did.
+ *
  * Pure functions of the worker context — importable under Node.
  */
 import { bytesToBase64 } from "../bytes.ts";
+import { OperationRecorder } from "../../../src/agent/recordedReplay.ts";
+import { recordedEventFromCause } from "../gameRecording.ts";
 import {
   HISTORY_BYTE_LIMIT,
   HISTORY_EVENT_LIMIT,
@@ -70,8 +76,47 @@ export function createHistory(ctx: WorkerContext) {
     return files;
   }
 
-  /** Push one accepted boundary cause into the accumulating batch. */
+  /**
+   * One host poll's clock observation: the sound ticks wall time discharged
+   * since the previous poll — pendingSound counts both this poll's own
+   * advance and the sound timer's between-poll discharges, all of which
+   * precede the cycle decision — plus whether the cycle poll fired. The run
+   * lane is RLE on the tick axis: a steady 60 Hz cadence is one long run.
+   */
+  function historyClockObs(cycleFired: boolean): void {
+    const h = ctx.history;
+    const sound = h.pendingSound;
+    h.pendingSound = 0;
+    if (!live()) return;
+    const t = tick();
+    const last = h.open.clock[h.open.clock.length - 1];
+    if (
+      last !== undefined &&
+      last.tick + last.n === t &&
+      last.sound === sound &&
+      last.cycle === cycleFired
+    )
+      last.n++;
+    else h.open.clock.push({ tick: t, n: 1, sound, cycle: cycleFired });
+    h.openBytes += 24;
+  }
+
+  /**
+   * Push one accepted boundary cause into the accumulating batch. The
+   * stored-test event list is a view of this same stream — a game-test
+   * recording still captures its player actions while the tape sits between
+   * segments (an overflow gap), so the projection precedes the live check.
+   */
   function historyRecord(cause: HistoryEventCause): void {
+    const rec = ctx.recording.recording;
+    if (rec !== null) {
+      if (rec.events.length >= 5000) {
+        rec.tainted = "Recording reached its action limit; record a shorter scenario.";
+      } else {
+        const event = recordedEventFromCause(cause, ctx.cycle.cycleCount);
+        if (event !== null) rec.events.push(event);
+      }
+    }
     if (!live()) return;
     const h = ctx.history;
     h.open.events.push({ seq: h.seq++, tick: tick(), cycle: cycle(), cause });
@@ -162,6 +207,7 @@ export function createHistory(ctx: WorkerContext) {
         rng: h.rng,
         soundDevice: ctx.boot.selectedSoundDevice,
         clock: ctx.clocks.cycle.snapshot(),
+        soundRemainder: ctx.clocks.sound.snapshot(),
         resourceSet: currentResourceSet(),
         patchGeneration: engine.patchGeneration,
       },
@@ -182,17 +228,25 @@ export function createHistory(ctx: WorkerContext) {
       events: h.open.events,
       marks: h.open.marks,
       sync: h.open.sync,
+      ...(h.open.clock.length ? { clock: h.open.clock } : {}),
       ...(extra?.boot !== undefined ? { boot: extra.boot } : {}),
       ...(extra?.anchor !== undefined ? { anchor: extra.anchor } : {}),
       ...(extra?.end !== undefined ? { end: extra.end } : {}),
     };
-    h.open = { events: [], marks: [], sync: [] };
+    h.open = { events: [], marks: [], sync: [], clock: [] };
     h.openBytes = 0;
     enqueue(batch);
   }
 
   function enqueue(batch: HistoryBatch): void {
     const h = ctx.history;
+    if (batch.end !== undefined) {
+      // A segment's closer never queues behind the credit bound — a queued
+      // end dies unposted on eject or stalls behind a host that stopped
+      // acking, and the stored stream would never show where play stopped.
+      post(batch);
+      return;
+    }
     const size = JSON.stringify(batch).length;
     h.queue.push({ batch, size });
     h.queuedBytes += size;
@@ -214,11 +268,11 @@ export function createHistory(ctx: WorkerContext) {
     h.queue.length = 0;
     h.queuedBytes = 0;
     h.queuedEvents = 0;
-    h.open = { events: [], marks: [], sync: [] };
+    h.open = { events: [], marks: [], sync: [], clock: [] };
     h.openBytes = 0;
     h.segment = null;
     h.resumePending = true;
-    if (segment === null || h.sent.length >= HISTORY_INFLIGHT_MAX) return;
+    if (segment === null) return;
     h.resumedFrom = { segment, seq: h.seq, tick: tick() };
     const batch: HistoryBatch = {
       segment,
@@ -230,6 +284,10 @@ export function createHistory(ctx: WorkerContext) {
       sync: [],
       end: { seq: h.seq, tick: tick(), cycle: cycle(), reason: "budget" },
     };
+    // The end marker always posts, even past the credit bound — the bound
+    // exists to cap NEW batches, and this one usually fires exactly because
+    // the bound is full. Without it the stored segment never closes and the
+    // dropped tail is a silent hole instead of a marked gap.
     h.sent.push(batch);
     ctx.ports.control({ type: "historyBatch", epoch: h.epoch, batch });
     armResend();
@@ -286,10 +344,8 @@ export function createHistory(ctx: WorkerContext) {
       h.queuedEvents -= batch.events.length;
       post(batch);
     }
-    // Nothing new to post but the host left a batch un-acked — resend the
-    // oldest. The host dedups by (segment, batch), so a slow commit and a
-    // dropped one retry through the same path, even at full credit.
-    if (h.queue.length === 0 && h.sent.length > 0) resend();
+    // Un-acked recovery belongs to the backoff timer alone — resending the
+    // oldest on every drain double-posts each new batch and every ack.
   }
 
   /** The host persisted one batch — free the credit and drain the backlog. */
@@ -379,7 +435,7 @@ export function createHistory(ctx: WorkerContext) {
     h.segmentBytes = 0;
     h.segmentEvents = 0;
     h.resendDelay = RESEND_MS;
-    h.open = { events: [], marks: [], sync: [] };
+    h.open = { events: [], marks: [], sync: [], clock: [] };
     h.openBytes = 0;
     h.seq = 0;
     h.lastSyncCycle = 0;
@@ -411,7 +467,7 @@ export function createHistory(ctx: WorkerContext) {
     h.lastSyncCycle = ctx.cycle.cycleCount;
     h.segmentBytes = 0;
     h.segmentEvents = 0;
-    h.open = { events: [], marks: [], sync: [] };
+    h.open = { events: [], marks: [], sync: [], clock: [] };
     h.openBytes = 0;
     closeBatch({ boot });
   }
@@ -447,6 +503,7 @@ export function createHistory(ctx: WorkerContext) {
       // parked session — snapshot it so the segment's boot records the
       // adopted continuation, not the abandoned session's stale live clock.
       clock: ctx.cycle.pendingClock ?? ctx.clocks.cycle.snapshot(),
+      soundRemainder: ctx.clocks.sound.snapshot(),
       rng: h.rng,
       soundDevice: ctx.boot.selectedSoundDevice,
       resourceSet: currentResourceSet(),
@@ -476,9 +533,75 @@ export function createHistory(ctx: WorkerContext) {
     if (h.open.events.length || h.open.marks.length || h.open.sync.length) closeBatch();
   }
 
+  /**
+   * The stored game-test session: an op tape for the setup replay plus the
+   * event view historyRecord fills. The same safe-boundary gates an
+   * autosave uses: a suspended host request, a text screen or the
+   * pre-first-room gap cannot resume; a parked window or key wait records
+   * with its continuation.
+   */
+  function onStartRecording(msg: Inbound<"startRecording">): void {
+    if (!ctx.engine) {
+      ctx.ports.control({
+        type: "recordingStarted",
+        id: msg.id,
+        ok: false,
+        error: "No game is running.",
+      });
+      return;
+    }
+    const hostImage = ctx.engine.recordingImage();
+    if (!hostImage) {
+      ctx.ports.control({
+        type: "recordingStarted",
+        id: msg.id,
+        ok: false,
+        error: "Recording needs a quiet moment: answer the open prompt and let the room draw.",
+      });
+      return;
+    }
+    ctx.recording.recording = {
+      tape: new OperationRecorder(),
+      events: [],
+      printed: [],
+      tainted: null,
+      usedGetnum: false,
+    };
+    ctx.ports.control({
+      type: "recordingStarted",
+      id: msg.id,
+      ok: true,
+      image: bytesToBase64(hostImage),
+      replayState: ctx.engine.captureReplayState(),
+      cycle: ctx.cycle.cycleCount,
+      state: ctx.engine.readState(),
+    });
+  }
+
+  function onStopRecording(msg: Inbound<"stopRecording">): void {
+    const taken = ctx.recording.recording;
+    ctx.recording.recording = null;
+    ctx.ports.control({
+      type: "recordingStopped",
+      id: msg.id,
+      operations: taken?.tape.operations ?? [],
+      events: taken?.events ?? [],
+      printed: taken?.printed ?? [],
+      tainted: taken?.tainted ?? taken?.tape.error ?? null,
+      usedGetnum: false,
+      cycle: ctx.cycle.cycleCount,
+      state: ctx.engine ? ctx.engine.readState() : null,
+    });
+  }
+
+  function onCancelRecording(): void {
+    ctx.recording.recording = null;
+  }
+
   return {
     historyBoot,
     historyRecord,
+    historyClockObs,
     historyMark,
     historyAnchor,
     historyBoundary,
@@ -488,6 +611,9 @@ export function createHistory(ctx: WorkerContext) {
     historySnapshot: snapshotBoot,
     onHistoryAck,
     onHistoryRetry,
+    onStartRecording,
+    onStopRecording,
+    onCancelRecording,
   };
 }
 

@@ -18,7 +18,6 @@ import type { PowerUpUiState } from "./useAuthoringController.ts";
 import type { PromptState } from "./usePromptController.ts";
 import type { WalkthroughUiState } from "./useWalkthroughController.ts";
 import type { HistoryViewMark } from "./useHistoryView.ts";
-import type { PlanReviewUiState } from "./usePlanController.ts";
 
 /** Engine modal kinds (the engine draws them on its text surface). */
 export type ModalKind = "print" | "inventory" | "menu" | "showObj" | "showPri" | "save" | "restore";
@@ -154,12 +153,6 @@ export interface EngineState {
   historyUnsaved: { batches: number; since: number } | null;
   /** The history transport: paused live session plus a scratch replay under it. */
   historyView: HistoryViewUiState;
-  /**
-   * The world map's plan-review session — set while a generated or resumed
-   * draft is open for review; the map edits its detached world and only the
-   * build action turns it into resources.
-   */
-  planReview: PlanReviewUiState | null;
   /** Real-time walkthrough playback. */
   walkthrough: WalkthroughUiState;
   /** Live screen-object table while the objects debug channel is armed. */

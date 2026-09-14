@@ -557,64 +557,70 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
    * through the same room turn just-in-time authoring uses, then apply the
    * response the way the worker's room path would — validate against the
    * live container, patch the running game, persist the project snapshot.
-   * The map holds its pause while this runs.
+   * The build holds its own pause: closing the map mid-build must not let
+   * play resume into a room whose authoring turn is still in flight.
    */
   async function buildRoomFromMap(room: number, from: number, notes: string[]): Promise<void> {
     const game = getBootedGame();
     if (!game || game.installed || !game.projectId)
       throw new Error("Building from the map extends a game authored here.");
     if (state.powerUp.busy) throw new Error("Wait for the current agent task to finish.");
-    const config =
-      configForGame && getLlmConfig ? configForGame(game.projectId, getLlmConfig()) : null;
-    if (!config || (config.provider !== "stub" && !config.apiKey.trim()))
-      throw new Error("Connect your AI provider to build a room from the map.");
-    const author = await getOrCreateSession(game, config);
-    attachSessionRuntime(author, game);
-    logAgent("request", `[Map build] room ${room} from room ${from}`, { room, from, notes });
-    const response = await author.handle({
-      op: "room",
-      context: {
-        room,
-        from,
-        state: await query("state"),
-        objects: await query("objects"),
-        ...(notes.length ? { playerNotes: notes } : {}),
-      },
-    });
-    if (!response) throw new Error(`Room ${room} could not be created.`);
-    const files = await query("exportFiles");
-    if (!files || getBootedGame() !== game)
-      throw new Error("The game changed while the room was being authored.");
-    const container = openContainer(new Map(Object.entries(files)));
-    const dictionary = new Map(
-      parseWordsTok(files["WORDS.TOK"] ?? new Uint8Array()).map(
-        (entry) => [entry.word, entry.id] as [string, number],
-      ),
-    );
-    // The same gate the worker's suspended path applies: dictionary may only
-    // grow, only this room's resources may be (re)written, and the room needs
-    // logic plus picture.
-    const compiled = prepareRoomPatch(container, room, response, dictionary);
-    const worker = getWorker();
-    worker?.postMessage({
-      type: "patchMetadata",
-      files: {
-        "WORDS.TOK": buildWordsTok(compiled.words.map(([word, id]) => ({ word, id }))),
-        ...(compiled.objects ? { OBJECT: compiled.objects } : {}),
-        ...(compiled.tests ? { "TESTS.JSON": compiled.tests } : {}),
-      },
-    } satisfies WorkerInbound);
-    for (const res of compiled.resources) {
-      const payload = new Uint8Array(res.payload);
-      worker?.postMessage(
-        { type: "patch", kind: res.kind, num: res.num, payload } satisfies WorkerInbound,
-        [payload.buffer],
+    pauseEngine("mapBuild");
+    try {
+      const config =
+        configForGame && getLlmConfig ? configForGame(game.projectId, getLlmConfig()) : null;
+      if (!config || (config.provider !== "stub" && !config.apiKey.trim()))
+        throw new Error("Connect your AI provider to build a room from the map.");
+      const author = await getOrCreateSession(game, config);
+      attachSessionRuntime(author, game);
+      logAgent("request", `[Map build] room ${room} from room ${from}`, { room, from, notes });
+      const response = await author.handle({
+        op: "room",
+        context: {
+          room,
+          from,
+          state: await query("state"),
+          objects: await query("objects"),
+          ...(notes.length ? { playerNotes: notes } : {}),
+        },
+      });
+      if (!response) throw new Error(`Room ${room} could not be created.`);
+      const files = await query("exportFiles");
+      if (!files || getBootedGame() !== game)
+        throw new Error("The game changed while the room was being authored.");
+      const container = openContainer(new Map(Object.entries(files)));
+      const dictionary = new Map(
+        parseWordsTok(files["WORDS.TOK"] ?? new Uint8Array()).map(
+          (entry) => [entry.word, entry.id] as [string, number],
+        ),
       );
+      // The same gate the worker's suspended path applies: dictionary may only
+      // grow, only this room's resources may be (re)written, and the room needs
+      // logic plus picture.
+      const compiled = prepareRoomPatch(container, room, response, dictionary);
+      const worker = getWorker();
+      worker?.postMessage({
+        type: "patchMetadata",
+        files: {
+          "WORDS.TOK": buildWordsTok(compiled.words.map(([word, id]) => ({ word, id }))),
+          ...(compiled.objects ? { OBJECT: compiled.objects } : {}),
+          ...(compiled.tests ? { "TESTS.JSON": compiled.tests } : {}),
+        },
+      } satisfies WorkerInbound);
+      for (const res of compiled.resources) {
+        const payload = new Uint8Array(res.payload);
+        worker?.postMessage(
+          { type: "patch", kind: res.kind, num: res.num, payload } satisfies WorkerInbound,
+          [payload.buffer],
+        );
+      }
+      const currentFiles = await query("exportFiles");
+      if (!currentFiles || getBootedGame() !== game)
+        throw new Error("The game changed while the room was being authored.");
+      await persistRemix(game, author, currentFiles);
+    } finally {
+      resumeEngine("mapBuild");
     }
-    const currentFiles = await query("exportFiles");
-    if (!currentFiles || getBootedGame() !== game)
-      throw new Error("The game changed while the room was being authored.");
-    await persistRemix(game, author, currentFiles);
   }
 
   /** Store the session's authoring state — plan edits the map committed. */

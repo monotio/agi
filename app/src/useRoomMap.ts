@@ -13,7 +13,7 @@
  * frame cannot repaint a room. Static picture renders appear only where a
  * literal picture use was scanned, and are labelled static.
  */
-import { computed, reactive, ref, toRaw, watch, type ComputedRef, type Ref } from "vue";
+import { computed, reactive, ref, watch, type ComputedRef, type Ref } from "vue";
 import {
   mergeRoomGraph,
   scanContainerExits,
@@ -129,17 +129,11 @@ export interface RoomMapDeps {
   readonly resumeWalkthrough: () => void;
   /** Injectable for tests; defaults to browser storage. */
   readonly storage?: Pick<Storage, "getItem" | "setItem"> | undefined;
-  /**
-   * The plan-review draft while the map is the review surface; edits land on
-   * it instead of forking the session world. Absent outside a review.
-   */
-  readonly getReviewDraft?: (() => WorldDraft | null) | undefined;
-  /** A map edit landed on the review draft — the owner persists it. */
-  readonly onReviewEdited?: (() => void) | undefined;
   /** A map edit committed to the live session world — the owner persists it. */
   readonly onWorldEdited?: (() => void) | undefined;
-  /** The review map asked to close; return false to refuse — an unpersisted draft stays open. */
-  readonly onReviewClosed?: (() => boolean | void) | undefined;
+  /** "Build this room": author one planned room against the named inbound edge. */
+  readonly buildRoomFromMap?:
+    ((room: number, from: number, notes: string[]) => Promise<void>) | undefined;
 }
 
 export interface RoomMap {
@@ -176,20 +170,16 @@ export interface RoomMap {
   /** For a non-running game's export: the stored sidecar, or empty. */
   storedSidecar(target: string): RoomMapSidecar;
   // ---- the map as the plan surface ----------------------------------------
-  /** The map is the plan-review surface — no game is running. */
-  readonly reviewing: Ref<boolean>;
   /** The last plan edit's refusal, or "". */
   readonly planError: Ref<string>;
   /** Room a map-triggered build is authoring, if any. */
   readonly buildingRoom: Ref<number | undefined>;
-  /** Open the map over the library as the plan-review surface. */
-  beginReview(projectId: string): void;
-  /** Leave review: persist the sidecar and release the in-memory map. */
-  endReview(): void;
   setBuilding(room: number | undefined): void;
-  /** A plan surface exists to edit — the review draft or a live session world. */
+  /** Author one planned room's resources just-in-time from the map. */
+  buildPlannedRoom(room: number): Promise<void>;
+  /** The live session's world plan exists to edit. */
   readonly canPlan: ComputedRef<boolean>;
-  /** The plan entry for a room (review draft or session world), or null. */
+  /** The plan entry for a room in the session world, or null. */
   plannedEntry(room: number): WorldPlan["rooms"][string] | null;
   renamePlannedRoom(room: number, title: string): string | null;
   setPlannedBrief(room: number, brief: string): string | null;
@@ -214,12 +204,11 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   const storageError = ref("");
   const thumbVersion = ref(0);
   const layoutVersion = ref(0);
-  const reviewing = ref(false);
   const planError = ref("");
   const buildingRoom = ref<number>();
   /** Bumped when a map edit changes the plan — the graph re-merges intent. */
   const planVersion = ref(0);
-  const canPlan = computed(() => reviewing.value || plannedRooms() !== undefined);
+  const canPlan = computed(() => plannedRooms() !== undefined);
 
   /** The durable journal — survives reboots and reloads of the same game. */
   const journal = reactive<RoomObservation[]>([]);
@@ -314,15 +303,11 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   }
 
   /**
-   * world.rooms intent the graph shows: the review draft while the map is the
-   * plan surface, else the live authoring session's world — absent for imports.
+   * world.rooms intent the graph shows: the live authoring session's world —
+   * absent for imports, which have no plan to show.
    */
   function plannedRooms(): AuthoringState["world"]["rooms"] | undefined {
     void planVersion.value;
-    if (reviewing.value) {
-      const review = deps.getReviewDraft?.();
-      if (review) return review.world.rooms;
-    }
     const snapshot = deps.getSession()?.getAuthoringState() as
       { authoring?: AuthoringState } | undefined;
     return snapshot?.authoring?.world?.rooms;
@@ -495,7 +480,6 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     session = 0;
     revision = "";
     open.value = false;
-    reviewing.value = false;
     buildingRoom.value = undefined;
     walkthroughPauseOwned = false;
   }
@@ -503,9 +487,6 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   watch(
     () => state.phase,
     (phase) => {
-      // A plan review owns the map while no game runs — phase churn around
-      // the library must not unload the draft's surface under it.
-      if (reviewing.value) return;
       if (phase === "running") loadFor(deps.getBootedGame());
       else if (phase === "idle" || phase === "error") unload();
     },
@@ -815,12 +796,11 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
 
   function closeMap(): void {
     if (!open.value) return;
-    if (reviewing.value) {
-      // "Keep the draft": closing the review never builds. The owner decides
-      // — a draft storage refused stays open with its error shown, so the
-      // review ends only after the draft is durable.
-      if (deps.onReviewClosed?.() === false) return;
-      endReview();
+    if (buildingRoom.value !== undefined) {
+      // A room build in flight holds its own pause — but closing now would
+      // leave the player at a frozen screen with the build invisible. The
+      // map stays up until the turn finishes.
+      planError.value = `Room ${buildingRoom.value} is still being built — the map stays open until it finishes.`;
       return;
     }
     open.value = false;
@@ -837,63 +817,62 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
 
   // ---- the map as the plan surface -----------------------------------------
   //
-  // The same surface is two writers' front end. In review (no game running)
-  // edits land on the detached draft the plan controller persists; live, they
-  // fork the session's world at its current revision and commit through the
-  // revision check — a conflict refuses rather than overwriting a concurrent
-  // agent turn.
-
-  /**
-   * Open the map over the library as the plan-review surface: the stored
-   * sidecar for the pending project loads (layout and notes the game will
-   * keep), and the review draft drives the planned layer.
-   */
-  function beginReview(projectId: string): void {
-    drainJournal();
-    if (loadedKey) persist();
-    loadedKey = projectId;
-    resetMapMemory();
-    revision = "";
-    loadStoredSidecar(projectId);
-    session = journal.reduce((max, e) => Math.max(max, e.session), 0) + 1;
-    reviewing.value = true;
-    open.value = true;
-  }
-
-  function endReview(): void {
-    if (!reviewing.value) return;
-    reviewing.value = false;
-    unload();
-  }
+  // The live world map is also the planning surface: edits fork the session's
+  // world at its current revision and commit through the revision check — a
+  // conflict refuses rather than overwriting a concurrent agent turn.
 
   function setBuilding(room: number | undefined): void {
     buildingRoom.value = room;
   }
 
   /**
-   * Apply a draft mutation through the shared validator. Review edits land on
-   * the review draft; live edits fork the session world and commit only while
-   * its revision is still the draft's base — a moved world is a conflict, not
-   * a silent overwrite. A rejected mutation leaves the target untouched.
+   * Extend the running game from a map node: author one planned room's
+   * resources through the same room turn just-in-time authoring uses, against
+   * the planned inbound edge when the plan names one. The map stays open —
+   * the patch lands on the paused live game.
+   */
+  async function buildPlannedRoom(room: number): Promise<void> {
+    if (buildingRoom.value !== undefined || !deps.buildRoomFromMap) return;
+    const entry = plannedEntry(room);
+    if (!entry) {
+      planError.value = `Room ${room} is not in the plan.`;
+      return;
+    }
+    let from: number | null = null;
+    const rooms = deps.getSession()?.state.authoring.world.rooms ?? {};
+    for (const [num, candidate] of Object.entries(rooms)) {
+      if (Object.values(candidate.exits).includes(room)) {
+        from = Number(num);
+        break;
+      }
+    }
+    from ??= currentRoom.value ?? 1;
+    buildingRoom.value = room;
+    planError.value = "";
+    try {
+      await deps.buildRoomFromMap(room, from, noteIntentFor(room));
+    } catch (error) {
+      planError.value = String(error);
+    } finally {
+      buildingRoom.value = undefined;
+    }
+  }
+
+  /**
+   * Apply a draft mutation through the shared validator. Edits fork the
+   * session world and commit only while its revision is still the draft's
+   * base — a moved world is a conflict, not a silent overwrite. A rejected
+   * mutation leaves the target untouched.
    */
   function editWorld(mutate: (draft: WorldDraft) => string | null): string | null {
-    const review = deps.getReviewDraft?.() ?? null;
-    if (reviewing.value) {
-      if (!review) return "The plan draft is not loaded.";
-      // The draft lives in reactive state — the ops clone it, and
-      // structuredClone cannot read through a proxy.
-      const error = mutate(toRaw(review));
-      if (error) return error;
-      deps.onReviewEdited?.();
-      planVersion.value++;
-      return null;
-    }
     const session = deps.getSession();
     if (!session) return "This game has no authoring plan to edit.";
     const draft = createWorldDraft(session.state.authoring.world);
     const error = mutate(draft);
     if (error) return error;
     const result = session.commitPlanDraft(draft);
+    if (result.status === "busy")
+      return "The agent is mid-turn — the map accepts edits again when it finishes.";
     if (result.status === "conflict")
       return "The plan changed while you were editing — close and reopen the map.";
     if (result.status === "invalid") return result.error;
@@ -1017,13 +996,11 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     exportSidecar,
     retrySave,
     storedSidecar,
-    reviewing,
     planError,
     buildingRoom,
     canPlan,
-    beginReview,
-    endReview,
     setBuilding,
+    buildPlannedRoom,
     plannedEntry,
     renamePlannedRoom,
     setPlannedBrief,

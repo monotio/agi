@@ -353,7 +353,7 @@ onUnmounted(() => {
           type="button"
           role="menuitem"
           data-testid="menu-assistant"
-          :disabled="state.powerUp.busy"
+          :disabled="state.powerUp.busy || state.historyView.active"
           @click="onPowerUp"
         >
           <span>Assistant<small>Ask about or remix this game</small></span>
@@ -398,7 +398,12 @@ onUnmounted(() => {
           type="button"
           role="menuitem"
           data-testid="btn-record-test"
-          :disabled="state.recording.active || state.recording.starting || state.powerUp.busy"
+          :disabled="
+            state.recording.active ||
+            state.recording.starting ||
+            state.powerUp.busy ||
+            state.historyView.active
+          "
           @click="onRecordStart"
         >
           <span>Record as game test<small>Replayable project regression test</small></span>
@@ -420,7 +425,7 @@ onUnmounted(() => {
           :disabled="exportBusy || state.powerUp.busy"
           @click="onExportAgiZip(true, true)"
         >
-          <span>Project<small>Game, editing history and world map</small></span>
+          <span>Project<small>Game, play history and world map</small></span>
         </button>
       </ActionMenu>
       <button

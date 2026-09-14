@@ -519,17 +519,7 @@ function commitNote(): void {
   map.setNote(selected.value, noteDraft.value.trim());
 }
 
-// ---- plan review ---------------------------------------------------------------
-
-const reviseNote = ref("");
-const planBusy = computed(() => state.planReview?.busy ?? false);
-
-function onRevise(): void {
-  const note = reviseNote.value.trim();
-  if (!note) return;
-  reviseNote.value = "";
-  void engine.plan.revise(note);
-}
+// ---- plan editing ---------------------------------------------------------------
 
 /** A bare room in the plan — no connection yet; the detail pane names it. */
 function addStandaloneRoom(): void {
@@ -712,9 +702,7 @@ function downloadSidecar(): void {
     @close="onDialogClose"
   >
     <header class="map-header">
-      <h2 id="world-map-title">
-        {{ map.reviewing.value ? `Plan — ${state.planReview?.title ?? "untitled"}` : "World map" }}
-      </h2>
+      <h2 id="world-map-title">World map</h2>
       <span v-if="state.paused" class="map-paused" data-testid="map-paused">Game paused</span>
       <span v-if="storageError" class="map-error" role="alert" data-testid="map-error">
         {{ storageError }}
@@ -747,74 +735,6 @@ function downloadSidecar(): void {
         </button>
       </span>
     </header>
-    <div v-if="map.reviewing.value" class="map-review" data-testid="map-review">
-      <span class="map-review-tag">Nothing is built yet — this is the plan.</span>
-      <input
-        v-model="reviseNote"
-        class="map-revise-input"
-        maxlength="2000"
-        placeholder="Ask for a change to the plan…"
-        data-testid="map-revise-input"
-        :disabled="planBusy"
-        @keydown.enter.prevent="onRevise"
-      />
-      <button
-        type="button"
-        class="ui-button ui-button--secondary"
-        data-testid="map-revise"
-        :disabled="planBusy || !reviseNote.trim()"
-        @click="onRevise"
-      >
-        Revise
-      </button>
-      <button
-        v-if="state.planReview?.conflict"
-        type="button"
-        class="ui-button ui-button--secondary"
-        data-testid="map-refresh-plan"
-        @click="engine.plan.refreshDraft()"
-      >
-        Refresh to current plan
-      </button>
-      <button
-        type="button"
-        class="ui-button ui-button--primary"
-        data-testid="map-build-plan"
-        :disabled="planBusy"
-        @click="engine.plan.build()"
-      >
-        Build as shown
-      </button>
-      <button
-        type="button"
-        class="ui-button ui-button--secondary"
-        data-testid="map-keep-plan"
-        :disabled="planBusy"
-        @click="map.closeMap()"
-      >
-        {{ state.planReview?.unsaved ? "Try saving again" : "Keep the draft" }}
-      </button>
-      <button
-        v-if="state.planReview?.unsaved"
-        type="button"
-        class="ui-button ui-button--secondary"
-        data-testid="map-discard-plan"
-        :disabled="planBusy"
-        title="Throw this plan away — nothing was saved"
-        @click="engine.plan.discardPending()"
-      >
-        Discard the plan
-      </button>
-      <span v-if="planBusy" class="map-review-busy" data-testid="map-review-busy">Working…</span>
-      <p
-        v-if="state.planReview?.error"
-        class="map-review-error"
-        role="alert"
-        data-testid="map-review-error"
-      >
-        {{ state.planReview.error }}
-      </p>
-    </div>
     <div class="map-body">
       <section class="map-list-pane" aria-label="Rooms">
         <ul
@@ -1495,40 +1415,6 @@ function downloadSidecar(): void {
   padding: 6px 8px;
   font: inherit;
   font-size: 13px;
-}
-.map-review {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px 16px;
-  border-bottom: 1px solid #2a4048;
-  background: #13252b;
-}
-.map-review-tag {
-  font-size: 12px;
-  color: #ffd977;
-}
-.map-revise-input {
-  flex: 1 1 220px;
-  min-width: 160px;
-  background: #0b1518;
-  border: 1px solid #3a5661;
-  border-radius: 6px;
-  color: #e3ecee;
-  font-size: 13px;
-  padding: 6px 8px;
-  font-family: inherit;
-}
-.map-review-busy {
-  font-size: 12px;
-  color: #8aa4ac;
-}
-.map-review-error {
-  flex-basis: 100%;
-  margin: 0;
-  font-size: 12px;
-  color: #ff9b9b;
 }
 .map-add-room {
   margin: 8px 12px;

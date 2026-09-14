@@ -28,9 +28,9 @@ if (missing) {
   }
   const elapsedMs = Math.round(performance.now() - started);
   const artifact: WalkthroughArtifact = {
-    schema: "monotio.agi.walkthrough.v1",
+    schema: "monotio.agi.walkthrough.v2",
     game: route.alias,
-    targetRevision: servedRevisions[0],
+    targetRevision: servedRevisions[0]!,
     supportedRevisions: servedRevisions,
     coverage: route.coverage,
     profile: run.engine.profile.id,

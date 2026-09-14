@@ -81,7 +81,7 @@ function addRoom(): void {
 }
 
 /** A planned room the resources don't cover yet can be built in place. */
-const canBuild = computed(() => !map.reviewing.value && props.node.planned && !props.node.authored);
+const canBuild = computed(() => props.node.planned && !props.node.authored);
 const building = computed(() => map.buildingRoom.value === props.node.room);
 </script>
 
@@ -156,7 +156,7 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
         class="ui-button ui-button--primary"
         data-testid="map-build-room"
         :disabled="map.buildingRoom.value !== undefined"
-        @click="engine.plan.buildPlannedRoom(node.room)"
+        @click="map.buildPlannedRoom(node.room)"
       >
         {{ building ? "Building…" : "Build this room" }}
       </button>

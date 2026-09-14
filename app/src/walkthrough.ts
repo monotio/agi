@@ -17,10 +17,10 @@ for (const game of KNOWN_GAMES) {
 }
 
 export interface WalkthroughArtifact {
-  schema: "monotio.agi.walkthrough.v1";
+  schema: "monotio.agi.walkthrough.v2";
   game: string;
   /** The full bundle revision (sorted-name SHA-256) the tape was recorded on. */
-  targetRevision?: string | undefined;
+  targetRevision: string;
   supportedRevisions?: readonly string[] | undefined;
   coverage: "complete-game" | "chapter" | "partial";
   profile: string;
@@ -85,7 +85,7 @@ export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact 
     throw new Error("Walkthrough artifact must be an object.");
   }
   const obj = data as Record<string, unknown>;
-  if (obj["schema"] !== "monotio.agi.walkthrough.v1") {
+  if (obj["schema"] !== "monotio.agi.walkthrough.v2") {
     throw new Error(`Unsupported walkthrough schema: ${String(obj["schema"])}`);
   }
   if (typeof obj["game"] !== "string" || !KNOWN_WALKTHROUGHS[obj["game"].toLowerCase()]) {
@@ -94,13 +94,10 @@ export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact 
   const game = obj["game"].toLowerCase();
   const HASH_REGEX = /^[0-9a-f]{64}$/i;
 
-  let targetRevision: string | undefined;
-  if (obj["targetRevision"] !== undefined) {
-    if (typeof obj["targetRevision"] !== "string" || !HASH_REGEX.test(obj["targetRevision"])) {
-      throw new Error(`Invalid walkthrough targetRevision: ${String(obj["targetRevision"])}`);
-    }
-    targetRevision = obj["targetRevision"].toLowerCase();
+  if (typeof obj["targetRevision"] !== "string" || !HASH_REGEX.test(obj["targetRevision"])) {
+    throw new Error(`Invalid walkthrough targetRevision: ${String(obj["targetRevision"])}`);
   }
+  const targetRevision = obj["targetRevision"].toLowerCase();
 
   let supportedRevisions: string[] | undefined;
   if (obj["supportedRevisions"] !== undefined) {
@@ -217,9 +214,9 @@ export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact 
   }
 
   return {
-    schema: "monotio.agi.walkthrough.v1",
+    schema: "monotio.agi.walkthrough.v2",
     game,
-    ...(targetRevision !== undefined ? { targetRevision } : {}),
+    targetRevision,
     ...(supportedRevisions !== undefined ? { supportedRevisions } : {}),
     coverage,
     profile: String(obj["profile"]),

@@ -267,8 +267,9 @@ describe("first-turn prompts", () => {
     assert.ok(userPrompt.includes("# The Lost Kingdom"), "includes template title");
     assert.ok(userPrompt.includes("GENESIS"), "includes genesis instruction");
     assert.ok(userPrompt.includes("handover"), "names the closing tool");
-    assert.ok(
-      userPrompt.includes("Author ONLY the opening room"),
+    assert.match(
+      userPrompt,
+      /author ONLY the opening room/i,
       "enforces single-room genesis boundary",
     );
     assert.ok(userPrompt.includes("update_world"), "mandates world storage for roadmap");

@@ -4,9 +4,14 @@ import { usePromptController, type PromptState } from "../src/usePromptControlle
 
 test("usePromptController opens and resolves string prompts", async () => {
   const logged: string[] = [];
-  const state: { prompt: PromptState | null; walkthrough: { seeking: boolean } } = {
+  const state: {
+    prompt: PromptState | null;
+    walkthrough: { seeking: boolean };
+    historyView: { active: boolean };
+  } = {
     prompt: null,
     walkthrough: { seeking: false },
+    historyView: { active: false },
   };
 
   const controller = usePromptController({
@@ -44,9 +49,14 @@ test("usePromptController opens and resolves string prompts", async () => {
 });
 
 test("usePromptController formats saveDescription as JSON", async () => {
-  const state: { prompt: PromptState | null; walkthrough: { seeking: boolean } } = {
+  const state: {
+    prompt: PromptState | null;
+    walkthrough: { seeking: boolean };
+    historyView: { active: boolean };
+  } = {
     prompt: null,
     walkthrough: { seeking: false },
+    historyView: { active: false },
   };
 
   const controller = usePromptController({
@@ -69,10 +79,43 @@ test("usePromptController formats saveDescription as JSON", async () => {
   assert.equal(await cancelPromise, JSON.stringify({ value: null }));
 });
 
-test("usePromptController cancelPrompt resolves with empty string and clears state", async () => {
-  const state: { prompt: PromptState | null; walkthrough: { seeking: boolean } } = {
+test("usePromptController holds answers while the tape is under view", async () => {
+  const state: {
+    prompt: PromptState | null;
+    walkthrough: { seeking: boolean };
+    historyView: { active: boolean };
+  } = {
     prompt: null,
     walkthrough: { seeking: false },
+    historyView: { active: false },
+  };
+  const controller = usePromptController({ state, logAgent: () => {} });
+
+  const promptPromise = controller.handlePromptRequest("getstring", {
+    prompt: "Enter name:",
+    maxLen: 20,
+    row: 10,
+    col: 5,
+  });
+  state.historyView.active = true;
+  controller.submitPrompt("Graham");
+  assert.equal(controller.isPromptPending(), true, "the view must not tick the parked engine");
+  assert.notEqual(state.prompt, null, "the prompt survives for the return to live");
+
+  state.historyView.active = false;
+  controller.submitPrompt("Graham");
+  assert.equal(await promptPromise, "Graham");
+});
+
+test("usePromptController cancelPrompt resolves with empty string and clears state", async () => {
+  const state: {
+    prompt: PromptState | null;
+    walkthrough: { seeking: boolean };
+    historyView: { active: boolean };
+  } = {
+    prompt: null,
+    walkthrough: { seeking: false },
+    historyView: { active: false },
   };
 
   const controller = usePromptController({

@@ -244,16 +244,20 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
       map = undefined;
     }
   }
-  // A corrupt tape must not sink the import either: the recording is derived
-  // session data, so it degrades to a fresh tape rather than refusing the
-  // whole project.
+  // The tape is part of the released project format: a corrupt or
+  // unsupported HISTORY.JSON is reported, not silently dropped — the import
+  // would otherwise claim a recording it never carried.
   let history: OpenedGame["history"];
   const historyBytes = project ? entries.get(`${root}HISTORY.JSON`) : undefined;
   if (historyBytes) {
     try {
       history = readHistoryArchive(historyBytes);
-    } catch {
-      history = undefined;
+    } catch (error) {
+      throw new Error(
+        `HISTORY.JSON is not readable (${String(error).replace(/^Error: /, "")}). ` +
+          "Obtain a fresh copy of the project or remove the file to import without its play history.",
+        { cause: error },
+      );
     }
   }
   return {

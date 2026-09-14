@@ -141,6 +141,23 @@ export interface HistoryClock {
 }
 
 /**
+ * A run of identical per-poll clock observations, run-length encoded on the
+ * segment's tick axis: `n` consecutive host polls beginning at `tick` each
+ * discharged `sound` 60 Hz sound ticks and did (`cycle`) or did not fire a
+ * logic cycle. Wall-clock scheduling is a recorded input — replay feeds the
+ * observation back instead of re-deriving discharge counts from a virtual
+ * clock, so timer jitter and suspended-tab gaps replay identically.
+ */
+export interface HistoryClockRun {
+  tick: number;
+  n: number;
+  /** 60 Hz sound ticks each covered poll discharged — any count. */
+  sound: number;
+  /** Whether each covered poll's cycle poll fired a logic cycle. */
+  cycle: boolean;
+}
+
+/**
  * A complete mid-play restore point: the recording image (save bytes, screen
  * and parked continuation) plus everything outside it — transient replay
  * state, the worker's input queues and request serial, PRNG and clocks.
@@ -162,6 +179,8 @@ export interface HistoryAnchor {
   requestSerial: number;
   rng: number;
   clock: HistoryClock;
+  /** Sound-clock fractional carry (ms·60 units) at this boundary. */
+  soundRemainder?: number;
   soundDevice: number;
   /** resourceSetRevision of the container at this anchor. */
   resourceSet: string;
@@ -191,6 +210,8 @@ export interface HistoryBoot {
   /** LCG PRNG state. */
   rng: number;
   clock?: HistoryClock;
+  /** Sound-clock fractional carry (ms·60 units) at this resume point. */
+  soundRemainder?: number;
   soundDevice: number;
   /** resourceSetRevision of `files`. */
   resourceSet: string;
@@ -209,6 +230,8 @@ export interface HistorySegment {
   events: HistoryEvent[];
   marks: HistoryRoomMark[];
   sync: HistorySyncMark[];
+  /** Per-poll clock observations, RLE on the tick axis; absent on pre-lane tapes. */
+  clock?: HistoryClockRun[];
   /** seq of the next unrecorded event at end; a gap before it marks a dropped tail. */
   end?: { seq: number; tick: number; cycle: number; reason: HistoryEndReason };
 }
@@ -236,6 +259,8 @@ export interface HistoryBatch {
   events: HistoryEvent[];
   marks: HistoryRoomMark[];
   sync: HistorySyncMark[];
+  /** The clock observations recorded while this batch accumulated. */
+  clock?: HistoryClockRun[];
   anchor?: HistoryAnchor;
   end?: { seq: number; tick: number; cycle: number; reason: HistoryEndReason };
 }
@@ -375,6 +400,29 @@ function clock(value: unknown): HistoryClock {
     increments: int(value["increments"], "clock.increments"),
     paused: value["paused"] === true,
   };
+}
+
+/**
+ * The clock-observation lane: runs must be ordered by start tick and
+ * non-overlapping; coverage gaps are tolerated (a torn batch's tail) and
+ * replay falls back to virtual derivation for uncovered polls.
+ */
+function clockRuns(value: unknown): HistoryClockRun[] {
+  if (!Array.isArray(value) || value.length > MAX_HISTORY_EVENTS)
+    fail("clock runs must be a bounded list.");
+  let covered = 0;
+  return value.map((r) => {
+    if (!isObj(r)) fail("clock run must be an object.");
+    const run: HistoryClockRun = {
+      tick: int(r["tick"], "clock run tick"),
+      n: int(r["n"], "clock run n"),
+      sound: int(r["sound"], "clock run sound"),
+      cycle: r["cycle"] === true,
+    };
+    if (run.n === 0 || run.tick < covered) fail("clock runs must be ordered and non-overlapping.");
+    covered = run.tick + run.n;
+    return run;
+  });
 }
 
 /** Mirrors the engine's restoreMenuState contract so archives validate ahead of restore. */
@@ -603,6 +651,9 @@ function anchor(value: unknown): HistoryAnchor {
     requestSerial: int(value["requestSerial"], "anchor requestSerial"),
     rng: int(value["rng"], "anchor rng", 0xffffffff),
     clock: clock(value["clock"]),
+    ...(value["soundRemainder"] !== undefined
+      ? { soundRemainder: num(value["soundRemainder"], "anchor soundRemainder", 1000) }
+      : {}),
     soundDevice: int(value["soundDevice"], "anchor soundDevice", 0xff),
     resourceSet: text(value["resourceSet"], "anchor resourceSet", MAX_HISTORY_STRING),
     patchGeneration: int(value["patchGeneration"], "anchor patchGeneration"),
@@ -656,6 +707,8 @@ function boot(value: unknown): HistoryBoot {
   if (value["inputLines"] !== undefined)
     out.inputLines = stringList(value["inputLines"], "boot inputLines");
   if (value["clock"] !== undefined) out.clock = clock(value["clock"]);
+  if (value["soundRemainder"] !== undefined)
+    out.soundRemainder = num(value["soundRemainder"], "boot soundRemainder", 1000);
   return out;
 }
 
@@ -688,6 +741,7 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
         events: events(s["events"]),
         marks: roomMarks(s["marks"]),
         sync: syncMarks(s["sync"]),
+        ...(s["clock"] !== undefined ? { clock: clockRuns(s["clock"]) } : {}),
       };
       if (s["end"] !== undefined) {
         const e = s["end"];

@@ -28,6 +28,9 @@ export function createCycle(ctx: WorkerContext) {
   }
 
   function recordedClock(): void {
+    // A discharged sound tick counts toward the next poll's clock
+    // observation — the sound timer discharges between polls too.
+    if (ctx.replay.replay === null && ctx.history.segment !== null) ctx.history.pendingSound++;
     ctx.recording.recording?.tape.clock();
     ctx.engine?.advanceClock(1000 / 60);
     ctx.engine?.soundTick();
@@ -63,6 +66,61 @@ export function createCycle(ctx: WorkerContext) {
   }
 
   /**
+   * One host poll — the timer body, the walkthrough drive's per-tick step
+   * and the history drive's. `obs` carries the scheduler's recorded
+   * decision when a tape supplies one (sound ticks discharged on the poll,
+   * whether its cycle poll fired); live play and game-test replays derive
+   * both from `now`. Each field falls back to the clock's own derivation,
+   * so a lane with a torn coverage gap replays like the nominal tape.
+   * The caller owns its tick axis. Returns whether a logic cycle ran —
+   * the live recorder folds that into the poll's clock observation.
+   */
+  function stepHostTick(now: number, obs?: { sound?: number; cycle?: boolean }): boolean {
+    const engine = ctx.engine;
+    if (!engine) return false;
+    if (ctx.cycle.paused) {
+      // The frozen clock still re-bases so a resume inherits no backlog;
+      // stray discharges recorded under a paused poll still feed — the
+      // pause landed after them on the live tick axis.
+      const parked = obs?.sound ?? ctx.clocks.sound.advance(now, true);
+      for (let i = 0; i < parked; i++) recordedClock();
+      ctx.clocks.cycle.poll(now, engine.vars[10]!, true);
+      return false;
+    }
+    // The clock always advances — its carry stays honest across the tick —
+    // but a recorded lane feeds its own count, never the re-derived one.
+    const discharged = ctx.clocks.sound.advance(now, false);
+    const soundTicks = obs?.sound ?? discharged;
+    for (let i = 0; i < soundTicks; i++) recordedClock();
+    ctx.fns.deliverQueuedKey();
+    if (engine.modalKind !== null || engine.continuationPending || engine.hostInteractionPending) {
+      tickEngine();
+      ctx.fns.noteTransition();
+      ctx.fns.flushTraceBatch();
+      ctx.fns.postFrame();
+      if (ctx.hostRequests.pendingReenter && !engine.hostInteractionPending) {
+        // The suspended re-entered room has landed (or been declined).
+        ctx.hostRequests.pendingReenter = false;
+        // A landed re-enter already consumed its cause; a declined one
+        // must not leave it armed for the next real transition.
+        ctx.journal.pendingCause = null;
+        ctx.fns.noteTransition();
+        ctx.fns.postFrame(true);
+      }
+      return false;
+    }
+    // The cycle clock always polls — its accumulators stay honest — but a
+    // recorded lane decides whether the live poll fired.
+    const polled = ctx.clocks.cycle.poll(now, engine.vars[10]!);
+    if (!(obs?.cycle ?? polled)) return false;
+    ctx.fns.flushDeferredMovement();
+    tickEngine();
+    finishCycle();
+    ctx.fns.postFrame(true);
+    return true;
+  }
+
+  /**
    * One host-poll pass — the timer body, also driven directly by Node tests
    * with a controllable ports.now().
    */
@@ -73,36 +131,11 @@ export function createCycle(ctx: WorkerContext) {
     // carries as many sound ticks as elapsed wall time discharges — the
     // post-pause backlog burst replays inside this one boundary.
     ctx.cycle.tickCount++;
-    if (ctx.cycle.paused) {
-      ctx.clocks.cycle.poll(now, ctx.engine.vars[10]!, true);
-      return;
-    }
-    advanceSoundClock();
-    ctx.fns.deliverQueuedKey();
-    if (
-      ctx.engine.modalKind !== null ||
-      ctx.engine.continuationPending ||
-      ctx.engine.hostInteractionPending
-    ) {
-      tickEngine();
-      ctx.fns.noteTransition();
-      ctx.fns.flushTraceBatch();
-      ctx.fns.postFrame();
-      if (ctx.hostRequests.pendingReenter && !ctx.engine.hostInteractionPending) {
-        // The suspended re-entered room has landed (or been declined).
-        ctx.hostRequests.pendingReenter = false;
-        // A landed re-enter already consumed its cause; a declined one
-        // must not leave it armed for the next real transition.
-        ctx.journal.pendingCause = null;
-        ctx.fns.noteTransition();
-        ctx.fns.postFrame(true);
-      }
-    } else if (ctx.clocks.cycle.poll(now, ctx.engine.vars[10]!)) {
-      ctx.fns.flushDeferredMovement();
-      tickEngine();
-      finishCycle();
-      ctx.fns.postFrame(true);
-    }
+    const cycleFired = stepHostTick(now);
+    // The poll's clock observation: the sound ticks wall time discharged
+    // since the previous poll plus whether its cycle poll fired — the tape
+    // records the scheduler's output, never the wall clock itself.
+    ctx.fns.historyClockObs(cycleFired);
     if (now - ctx.cycle.lastCycleReportAt >= CYCLE_REPORT_MS) {
       ctx.cycle.lastCycleReportAt = now;
       const scalars = ctx.engine.readState();
@@ -163,6 +196,7 @@ export function createCycle(ctx: WorkerContext) {
     stopTimers,
     finishCycle,
     advanceSoundClock,
+    stepHostTick,
     hostTick,
     startTimers,
   };

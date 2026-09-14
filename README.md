@@ -75,16 +75,14 @@ To create an adventure with an AI provider, pick a starting point under
 Each template opens a Markdown brief you can edit. Or choose **Your own
 adventure** and describe the hero, setting and trouble. Plain language and
 structured [adventure briefs](games/README.md) both work. Connect your provider in
-**Connect AI**, then click **Create adventure** — or **Plan it on the map
-first** to review the world before anything is built: the agent designs the
-rooms and connections, the map shows them as a plan you can rename, extend and
-annotate, and only **Build as shown** starts authoring. A kept plan waits in
-the create panel until you resume or discard it.
+**Connect AI**, then click **Create adventure**.
 
-The agent builds the opening room, including its artwork, characters and game
-logic. When you enter an unwritten room, play pauses while the agent creates it;
-you can follow its progress in the activity panel. Rooms you return to run from
-their saved resources.
+The agent plans the world and builds the opening room — artwork, characters
+and game logic — in one turn, and the world map already shows the planned
+rooms: rename them, extend them, annotate them while you play. When you enter
+an unwritten room — or pick **Build this room** on its map node — play pauses
+while the agent creates it; you can follow its progress in the activity panel.
+Rooms you return to run from their saved resources.
 
 Click the game to type, press **Enter** to submit, and use the arrow keys to walk.
 **Home**, **Page Up**, **End** and **Page Down** walk diagonally.

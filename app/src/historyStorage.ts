@@ -21,7 +21,7 @@ import {
   type ProjectHistory,
   type RetainedOriginal,
 } from "./historyArchive.ts";
-import { bodyTransaction, serializeWrite } from "./gameStorage.ts";
+import { bodyTransaction, serializeWrite, updateBodyRecord } from "./gameStorage.ts";
 
 export type { HistoryBookmark, ProjectHistory, RetainedOriginal } from "./historyArchive.ts";
 
@@ -70,23 +70,25 @@ function readStoredHistory(raw: unknown): StoredHistory | null {
   return value as unknown as StoredHistory;
 }
 
-/** Drop the oldest segments while a bound is exceeded; the live tail stays. */
+/**
+ * Drop the oldest ended segments while a bound is exceeded. An open
+ * segment — the live tail, or one whose end batch is still in flight — is
+ * never evicted: dropping it would strand its session's batches forever.
+ */
 function evictSegments(
   recording: HistoryRecording,
   committed: Record<string, number[]>,
   bytes: Record<string, number>,
 ): void {
-  const drop = (): void => {
+  let total = Object.values(bytes).reduce((sum, n) => sum + n, 0);
+  while (recording.segments.length > 1 && recording.segments[0]!.end !== undefined) {
+    if (recording.segments.length <= HISTORY_SEGMENTS_MAX && total <= HISTORY_TOTAL_BYTE_LIMIT)
+      break;
     const dropped = recording.segments.shift()!;
     delete committed[dropped.id];
+    total -= bytes[dropped.id] ?? 0;
     delete bytes[dropped.id];
     recording.dropped = (recording.dropped ?? 0) + 1;
-  };
-  while (recording.segments.length > HISTORY_SEGMENTS_MAX && recording.segments.length > 1) drop();
-  let total = Object.values(bytes).reduce((sum, n) => sum + n, 0);
-  while (total > HISTORY_TOTAL_BYTE_LIMIT && recording.segments.length > 1) {
-    total -= bytes[recording.segments[0]!.id] ?? 0;
-    drop();
   }
 }
 
@@ -105,14 +107,28 @@ export function appendHistoryBatch(
   profile: string,
 ): Promise<boolean> {
   const key = `history/${storageKey}`;
-  return serializeWrite(key, async () => {
-    try {
-      const stored = readStoredHistory(
-        await bodyTransaction<unknown>("readonly", (store) => store.get(key)),
-      );
+  return serializeWrite(key, () => mergeHistoryBatch(key, batch, profile));
+}
+
+/**
+ * The batch merge each tab runs: read-modify-write inside one read-write
+ * transaction, so a second client's commit can never slip between the read
+ * and the write and silently drop acknowledged history. Exported for the
+ * two-client storage test, which interleaves two merge calls the way two
+ * tabs would — each tab's own appendHistoryBatch mutex does not reach the
+ * other tab, so the transaction is the only guard.
+ */
+export async function mergeHistoryBatch(
+  key: string,
+  batch: HistoryBatch,
+  profile: string,
+): Promise<boolean> {
+  try {
+    return await updateBodyRecord<boolean>(key, (raw) => {
+      const stored = readStoredHistory(raw);
       const committed: Record<string, number[]> = { ...(stored?.committed ?? {}) };
       const ledger = (committed[batch.segment] ??= []);
-      if (ledger.includes(batch.batch)) return true; // a resend of a committed batch
+      if (ledger.includes(batch.batch)) return { result: true }; // a resend of a committed batch
       const bytes: Record<string, number> = { ...(stored?.bytes ?? {}) };
       const recording: HistoryRecording = stored?.recording ?? {
         version: HISTORY_FORMAT_VERSION,
@@ -125,7 +141,7 @@ export function appendHistoryBatch(
       if (segment === undefined) {
         // A batch without its boot opens nothing — the worker's resend will
         // eventually deliver the boot batch that does.
-        if (batch.boot === undefined) return false;
+        if (batch.boot === undefined) return { result: false };
         segment = {
           id: batch.segment,
           boot: batch.boot,
@@ -146,18 +162,19 @@ export function appendHistoryBatch(
         // batch carrying the segment's end: the worker's queue overflow
         // drops unsent middle batches, so its closing batch can never be
         // reached by the consecutive rule. Its seq gap marks the loss.
-        return false;
+        return { result: false };
       }
       segment.events.push(...batch.events);
       segment.marks.push(...batch.marks);
       segment.sync.push(...batch.sync);
+      if (batch.clock !== undefined) (segment.clock ??= []).push(...batch.clock);
       if (batch.anchor !== undefined) segment.anchors.push(batch.anchor);
       if (batch.end !== undefined) segment.end = batch.end;
       ledger.push(batch.batch);
       bytes[batch.segment] = (bytes[batch.segment] ?? 0) + JSON.stringify(batch).length;
       evictSegments(recording, committed, bytes);
-      await bodyTransaction("readwrite", (store) =>
-        store.put({
+      return {
+        put: {
           format: "monotio.agi.history",
           version: 1,
           projectId: key,
@@ -171,14 +188,14 @@ export function appendHistoryBatch(
           ...(stored?.retained !== undefined ? { retained: stored.retained } : {}),
           ...(stored?.staged !== undefined ? { staged: stored.staged } : {}),
           ...(stored?.bookmarks !== undefined ? { bookmarks: stored.bookmarks } : {}),
-        } satisfies StoredHistory),
-      );
-      return true;
-    } catch (error) {
-      console.error("History commit failed:", error);
-      return false;
-    }
-  });
+        } satisfies StoredHistory,
+        result: true,
+      };
+    });
+  } catch (error) {
+    console.error("History commit failed:", error);
+    return false;
+  }
 }
 
 /** The stored recording for a game, validated; null when none was committed. */
@@ -203,43 +220,42 @@ export function stageRetainedOriginal(
   staged: RetainedOriginal,
 ): Promise<boolean> {
   const key = `history/${storageKey}`;
-  return serializeWrite(key, async () => {
-    const stored = readStoredHistory(
-      await bodyTransaction<unknown>("readonly", (store) => store.get(key)),
-    );
-    if (stored === null) return true; // no record yet — nothing to conflict with
-    if (stored.staged !== undefined) return false;
-    await bodyTransaction("readwrite", (store) => store.put({ ...stored, staged }));
-    return true;
-  });
+  return serializeWrite(key, () =>
+    updateBodyRecord<boolean>(key, (raw) => {
+      const stored = readStoredHistory(raw);
+      if (stored === null) return { result: true }; // no record yet — nothing to conflict with
+      if (stored.staged !== undefined) return { result: false };
+      return { put: { ...stored, staged }, result: true };
+    }),
+  );
 }
 
 /** The worker acknowledged the swap: the staged candidate becomes the retained original. */
 export function commitStagedOriginal(storageKey: string): Promise<void> {
   const key = `history/${storageKey}`;
-  return serializeWrite(key, async () => {
-    const stored = readStoredHistory(
-      await bodyTransaction<unknown>("readonly", (store) => store.get(key)),
-    );
-    if (stored === null || stored.staged === undefined) return;
-    const next = { ...stored, retained: stored.staged };
-    delete next.staged;
-    await bodyTransaction("readwrite", (store) => store.put(next));
-  });
+  return serializeWrite(key, () =>
+    updateBodyRecord<void>(key, (raw) => {
+      const stored = readStoredHistory(raw);
+      if (stored === null || stored.staged === undefined) return { result: undefined };
+      const next = { ...stored, retained: stored.staged };
+      delete next.staged;
+      return { put: next, result: undefined };
+    }),
+  );
 }
 
 /** The swap is settled and the staged copy is not needed — drop it. */
 export function clearStagedOriginal(storageKey: string): Promise<void> {
   const key = `history/${storageKey}`;
-  return serializeWrite(key, async () => {
-    const stored = readStoredHistory(
-      await bodyTransaction<unknown>("readonly", (store) => store.get(key)),
-    );
-    if (stored === null || stored.staged === undefined) return;
-    const next = { ...stored };
-    delete next.staged;
-    await bodyTransaction("readwrite", (store) => store.put(next));
-  });
+  return serializeWrite(key, () =>
+    updateBodyRecord<void>(key, (raw) => {
+      const stored = readStoredHistory(raw);
+      if (stored === null || stored.staged === undefined) return { result: undefined };
+      const next = { ...stored };
+      delete next.staged;
+      return { put: next, result: undefined };
+    }),
+  );
 }
 
 export type StagedSwapResolution = "none" | "promoted" | "cleared" | "ambiguous";
@@ -269,52 +285,51 @@ export function resolveStagedSwap(
   liveSegment?: string | null,
 ): Promise<StagedSwapResolution> {
   const key = `history/${storageKey}`;
-  return serializeWrite(key, async () => {
-    const stored = readStoredHistory(
-      await bodyTransaction<unknown>("readonly", (store) => store.get(key)),
-    );
-    const staged = stored?.staged;
-    if (stored === null || staged === undefined) return "none";
-    const from = staged.from ?? undefined;
-    const departing = recording?.segments.find((s) => s.id === from?.segment);
-    let adopted: boolean;
-    let continued: boolean;
-    if (departing?.end !== undefined) {
-      // The departing segment's end is decisive on its own: only adoption
-      // stamps "resume"; any other end means the session went on to die
-      // naturally and the staged snapshot is redundant.
-      adopted = departing.end.reason === "resume";
-      continued = !adopted;
-    } else {
-      // Only an adopted session boots a segment resuming from an EARLIER
-      // tick of the departing one (a take of its own tape); a continuation
-      // resumes at-or-after the staged tick. The caller's live-segment
-      // hint is decisive in both directions when the tape is silent.
-      adopted =
-        (from !== undefined &&
-          (recording?.segments.some(
+  return serializeWrite(key, () =>
+    updateBodyRecord<StagedSwapResolution>(key, (raw) => {
+      const stored = readStoredHistory(raw);
+      const staged = stored?.staged;
+      if (stored === null || staged === undefined) return { result: "none" };
+      const from = staged.from ?? undefined;
+      const departing = recording?.segments.find((s) => s.id === from?.segment);
+      let adopted: boolean;
+      let continued: boolean;
+      if (departing?.end !== undefined) {
+        // The departing segment's end is decisive on its own: only adoption
+        // stamps "resume"; any other end means the session went on to die
+        // naturally and the staged snapshot is redundant.
+        adopted = departing.end.reason === "resume";
+        continued = !adopted;
+      } else {
+        // Only an adopted session boots a segment resuming from an EARLIER
+        // tick of the departing one (a take of its own tape); a continuation
+        // resumes at-or-after the staged tick. The caller's live-segment
+        // hint is decisive in both directions when the tape is silent.
+        adopted =
+          (from !== undefined &&
+            (recording?.segments.some(
+              (s) =>
+                s.boot.resumedFrom?.segment === from.segment && s.boot.resumedFrom.tick < from.tick,
+            ) ??
+              false)) ||
+          (liveSegment != null && from !== undefined && liveSegment !== from.segment);
+        continued =
+          !adopted &&
+          from !== undefined &&
+          ((recording?.segments.some(
             (s) =>
-              s.boot.resumedFrom?.segment === from.segment && s.boot.resumedFrom.tick < from.tick,
+              s.boot.resumedFrom?.segment === from.segment && s.boot.resumedFrom.tick >= from.tick,
           ) ??
-            false)) ||
-        (liveSegment != null && from !== undefined && liveSegment !== from.segment);
-      continued =
-        !adopted &&
-        from !== undefined &&
-        ((recording?.segments.some(
-          (s) =>
-            s.boot.resumedFrom?.segment === from.segment && s.boot.resumedFrom.tick >= from.tick,
-        ) ??
-          false) ||
-          (liveSegment != null && liveSegment === from.segment));
-    }
-    if (!adopted && !continued) return "ambiguous";
-    const next = { ...stored };
-    if (adopted) next.retained = staged;
-    delete next.staged;
-    await bodyTransaction("readwrite", (store) => store.put(next));
-    return adopted ? "promoted" : "cleared";
-  });
+            false) ||
+            (liveSegment != null && liveSegment === from.segment));
+      }
+      if (!adopted && !continued) return { result: "ambiguous" };
+      const next = { ...stored };
+      if (adopted) next.retained = staged;
+      delete next.staged;
+      return { put: next, result: adopted ? "promoted" : "cleared" };
+    }),
+  );
 }
 
 /**
@@ -334,15 +349,15 @@ export async function loadRetainedOriginal(storageKey: string): Promise<Retained
 /** Append a player bookmark; the record keeps them ordered by time placed. */
 export function saveHistoryBookmark(storageKey: string, bookmark: HistoryBookmark): Promise<void> {
   const key = `history/${storageKey}`;
-  return serializeWrite(key, async () => {
-    const stored = readStoredHistory(
-      await bodyTransaction<unknown>("readonly", (store) => store.get(key)),
-    );
-    if (stored === null) return;
-    const bookmarks = [...(stored.bookmarks ?? []), bookmark];
-    if (bookmarks.length > 500) bookmarks.splice(0, bookmarks.length - 500);
-    await bodyTransaction("readwrite", (store) => store.put({ ...stored, bookmarks }));
-  });
+  return serializeWrite(key, () =>
+    updateBodyRecord<void>(key, (raw) => {
+      const stored = readStoredHistory(raw);
+      if (stored === null) return { result: undefined };
+      const bookmarks = [...(stored.bookmarks ?? []), bookmark];
+      if (bookmarks.length > 500) bookmarks.splice(0, bookmarks.length - 500);
+      return { put: { ...stored, bookmarks }, result: undefined };
+    }),
+  );
 }
 
 /** The stored bookmarks — segment ids may point at dropped segments. */

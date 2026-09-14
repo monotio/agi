@@ -17,7 +17,7 @@ const captured = {
   input: [
     {
       role: "user",
-      content: "### GENESIS PHASE: Historical instructions\n---\n---\nname: old\n---\n# Old\n---",
+      content: "### GENESIS: Historical instructions\n---\n---\nname: old\n---\n# Old\n---",
     },
   ],
   tools: AGENT_TOOLS.map((tool) => ({
@@ -60,7 +60,7 @@ test("baseline replay restores complete OpenAI and Anthropic tool schemas and Ge
   assert.ok(nestedProperty);
   nestedProperty.description = "short nested";
   const openai = applyBaselineOverride(
-    { tools: changed, input: [{ role: "user", content: "### GENESIS PHASE: CURRENT" }] },
+    { tools: changed, input: [{ role: "user", content: "### GENESIS: CURRENT" }] },
     variant,
     "openai",
   );
@@ -77,7 +77,7 @@ test("baseline replay restores complete OpenAI and Anthropic tool schemas and Ge
   const anthropic = applyBaselineOverride(
     {
       tools: anthropicTools,
-      messages: [{ role: "user", content: "### GENESIS PHASE: CURRENT" }],
+      messages: [{ role: "user", content: "### GENESIS: CURRENT" }],
     },
     variant,
     "anthropic",
@@ -158,7 +158,7 @@ test("timeout cancels a production session and marks its usage incomplete", asyn
   }
 });
 
-test("captures the actual Anthropic Genesis plan-turn subset with baseline schemas", async () => {
+test("captures the actual Anthropic Genesis turn's tool subset with baseline schemas", async () => {
   const outputRoot = mkdtempSync(join(tmpdir(), "agi-effort-anthropic-"));
   try {
     const report = await runGenesisSession({
@@ -187,10 +187,9 @@ test("captures the actual Anthropic Genesis plan-turn subset with baseline schem
     );
     for (const tool of body.tools)
       assert.deepEqual(tool.input_schema, catalogByName.get(tool.name)!.parameters);
-    // Genesis now opens with the plan turn; the build turn follows once the
-    // world is recorded. The baseline override still targets the build's
-    // ### GENESIS PHASE: message when it arrives.
-    assert.equal(body.messages[0].content.startsWith("### PLAN PHASE:"), true);
+    // Genesis is one flow: the first request is the single genesis turn that
+    // records the world through update_world and builds the opening room.
+    assert.equal(body.messages[0].content.startsWith("### GENESIS:"), true);
     assert.equal(body.messages[0].content.endsWith("# Tiny template\n---"), true);
   } finally {
     rmSync(outputRoot, { recursive: true, force: true });

@@ -12,17 +12,8 @@ import { useGameLibrary } from "./useGameLibrary.ts";
 import { useShellBridge } from "./shellBridge.ts";
 
 const { aiConfigured, aiSettingsUnavailable, openAiSettings } = useAiSettings();
-const {
-  selectedTemplateId,
-  adventureDraft,
-  savedGames,
-  pendingAutosave,
-  pendingPlan,
-  onBootSelectedTemplate,
-  onPlanSelectedTemplate,
-  onResumePendingPlan,
-  onDiscardPendingPlan,
-} = useGameLibrary();
+const { selectedTemplateId, adventureDraft, savedGames, pendingAutosave, onBootSelectedTemplate } =
+  useGameLibrary();
 const bridge = useShellBridge();
 
 const createDetails = useTemplateRef("createDetails");
@@ -142,31 +133,6 @@ bridge.createButtonEl = () => createButton.value;
       </div>
     </section>
 
-    <div v-if="pendingPlan" class="pending-plan" data-testid="pending-plan">
-      <p>
-        A plan for <strong>{{ pendingPlan.title }}</strong> is waiting on the map — nothing is built
-        yet.
-      </p>
-      <div class="pending-plan-actions">
-        <button
-          type="button"
-          class="ui-button ui-button--primary"
-          data-testid="resume-plan"
-          @click="onResumePendingPlan"
-        >
-          Resume the plan
-        </button>
-        <button
-          type="button"
-          class="ui-button ui-button--secondary"
-          data-testid="discard-plan"
-          @click="onDiscardPendingPlan"
-        >
-          Discard
-        </button>
-      </div>
-    </div>
-
     <div v-if="!aiConfigured" class="ai-connect" data-testid="create-ai-connect">
       <p>Connect your AI provider to generate a game.</p>
       <button
@@ -190,16 +156,6 @@ bridge.createButtonEl = () => createButton.value;
         @click="onBootSelectedTemplate"
       >
         Create adventure
-      </button>
-      <button
-        type="button"
-        class="ui-button ui-button--secondary"
-        data-testid="plan-game"
-        :disabled="!selectedTemplateId || !adventureDraft.brief.trim()"
-        title="Design the world first — review and edit it on the map before anything is built"
-        @click="onPlanSelectedTemplate"
-      >
-        Plan it on the map first
       </button>
     </div>
   </details>
@@ -320,22 +276,6 @@ bridge.createButtonEl = () => createButton.value;
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 0.5rem;
-}
-.pending-plan {
-  margin: 16px 0;
-  padding: 14px;
-  border: 1px solid #5a4a85;
-  border-radius: 8px;
-  background: #1a1626;
-}
-.pending-plan p {
-  margin: 0 0 10px;
-  color: #d8cff2;
-  font-size: 14px;
-}
-.pending-plan-actions {
-  display: flex;
-  gap: 8px;
 }
 @media (max-width: 600px) {
   .create-pane {

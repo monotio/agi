@@ -42,10 +42,10 @@ import { discoverInstalledGames } from "./gameDiscovery.ts";
 import { useWorkerLink } from "./useWorkerLink.ts";
 import { useHistoryController } from "./useHistoryController.ts";
 import { useHistoryView, freshHistoryView } from "./useHistoryView.ts";
+import type { TransportModel } from "./useTransport.ts";
 import { useGameLifecycle } from "./useGameLifecycle.ts";
 import { useEngineDebug } from "./useEngineDebug.ts";
 import { useRoomMap } from "./useRoomMap.ts";
-import { usePlanController } from "./usePlanController.ts";
 import type { WorkerInbound } from "./workerProtocol.ts";
 export type { PromptState };
 export type { ModalKind, TextHook, EngineState } from "./useEngineTypes.ts";
@@ -125,7 +125,6 @@ export function useEngine(
     historyPending: 0,
     historyUnsaved: null,
     historyView: freshHistoryView(),
-    planReview: null,
     walkthrough: createInitialWalkthroughState(),
     debugObjects: [],
     debugTrace: [],
@@ -297,7 +296,6 @@ export function useEngine(
     resumeEngine,
     resetPauseOwners,
     resetHistoryView: () => historyView.resetHistoryView(),
-    cancelPlanReview: () => planController.teardownReview(),
     getSessionId: () => activeWalkthroughSession,
     nextSessionId: () => ++activeWalkthroughSession,
     getActiveReplaySeed: () => activeReplaySeed,
@@ -308,6 +306,7 @@ export function useEngine(
       activeLlmConfig = config;
     },
     abortWalkthrough: () => walkthroughAbort(),
+    drainHistoryCommits: historyController.drainHistoryCommits,
   });
 
   // The wire dispatches to controllers that did not exist when the link was
@@ -439,23 +438,7 @@ export function useEngine(
     resumeEngine,
     pauseWalkthrough: walkthrough.pauseWalkthrough,
     resumeWalkthrough: walkthrough.resumeWalkthrough,
-    getReviewDraft: () => state.planReview?.draft ?? null,
-    onReviewEdited: () => planController.persistDraft(),
     onWorldEdited: () => void authoringController.persistSessionState(),
-    onReviewClosed: () => planController.keepReview(),
-  });
-
-  const planController = usePlanController({
-    state,
-    logAgent,
-    roomMap,
-    authoring: authoringController,
-    getLlmConfig: () => activeLlmConfig,
-    setActiveLlmConfig: (config) => {
-      activeLlmConfig = config;
-    },
-    finishAuthoredBoot: (session, resources, boot) =>
-      lifecycle.finishAuthoredBoot(session, resources, boot),
     buildRoomFromMap: (room, from, notes) =>
       authoringController.buildRoomFromMap(room, from, notes),
   });
@@ -510,10 +493,24 @@ export function useEngine(
     resumeEngine,
     roomMap,
     historyView,
+    /**
+     * The transport bar's model — the walkthrough artifact's while one plays,
+     * else the live recording's when the tape is under view (or surfacing a
+     * load error / interrupted swap).
+     */
+    get transport(): TransportModel | null {
+      if (state.phase !== "running") return null;
+      if (state.walkthrough.active) return walkthrough.transport;
+      const v = state.historyView;
+      return v.active || v.loading || v.error !== "" || v.pendingSwap
+        ? historyView.transport
+        : null;
+    },
     /** The "history not saved" banner's retry — nudge the worker's resend. */
     retryHistorySave: () =>
       link.getWorker()?.postMessage({ type: "historyRetry" } satisfies WorkerInbound),
-    plan: planController,
+    /** Export waits out in-flight history commits before reading the tape. */
+    drainHistoryCommits: historyController.drainHistoryCommits,
     observeMapFrame: roomMap.observeFrame,
     readFrames: debug.readFrames,
     updateAiConfig,

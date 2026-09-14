@@ -2,13 +2,11 @@
 import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from "vue";
 import DebugDock from "./DebugDock.vue";
 import TouchControls from "./TouchControls.vue";
-import WalkthroughTransport from "./WalkthroughTransport.vue";
-import HistoryTransport from "./HistoryTransport.vue";
+import TransportBar from "./TransportBar.vue";
 import { useEngineApi } from "./engineContext.ts";
 import { usePresentation } from "./usePresentation.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import type { ModalKind } from "./useEngine.ts";
-import type { WalkthroughCheckpoint } from "./walkthrough.ts";
 import { pcKey, movementDirection } from "./gameControls.ts";
 import { AGI_KEY, DIRECTION_KEYS } from "../../src/runtime/keys.ts";
 import { GLYPH_CURSOR, TEXT_COLS } from "../../src/runtime/textSurface.ts";
@@ -27,11 +25,6 @@ const {
   sendDirection,
   sendKey,
   submitPrompt,
-  setWalkthroughSpeed,
-  toggleWalkthroughPause,
-  toggleWalkthroughPauseOnDialog,
-  seekToTick,
-  seekToCheckpoint,
   setDebugConsumer,
   debugWrite,
   debugEventsSince,
@@ -463,18 +456,6 @@ function onSplitUp(): void {
   splitDragEl = null;
 }
 
-function onWalkthroughSeekTick(tick: number): void {
-  void seekToTick(tick);
-}
-
-function onWalkthroughSeekCheckpoint(cp: WalkthroughCheckpoint): void {
-  void seekToCheckpoint(cp);
-}
-
-function onWalkthroughScrubbing(active: boolean): void {
-  state.walkthrough.scrubbing = active;
-}
-
 onMounted(() => {
   void presentation.initStage(props.crtEnabled);
   bridge.focusGameInput = focusInput;
@@ -564,7 +545,9 @@ defineExpose({
         class="power-up"
         :class="{ armed: state.powerUp.open }"
         data-testid="power-up"
-        :disabled="(creatingRoom && state.powerUp.open) || state.recording.active"
+        :disabled="
+          (creatingRoom && state.powerUp.open) || state.recording.active || state.historyView.active
+        "
         :aria-label="
           creatingRoom && state.powerUp.open
             ? 'Creating the next room'
@@ -622,20 +605,8 @@ defineExpose({
       <slot />
     </div>
 
-    <!-- Walkthrough Transport Bar (Directly below the CRT screen) -->
-    <WalkthroughTransport
-      v-if="state.walkthrough.active && state.phase === 'running'"
-      :walkthrough="state.walkthrough"
-      @toggle-pause="toggleWalkthroughPause"
-      @set-speed="setWalkthroughSpeed"
-      @toggle-pause-on-dialog="toggleWalkthroughPauseOnDialog"
-      @seek-tick="onWalkthroughSeekTick"
-      @seek-checkpoint="onWalkthroughSeekCheckpoint"
-      @scrubbing="onWalkthroughScrubbing"
-    />
-
-    <!-- The recorded session's transport: pause the world, scrub the tape. -->
-    <HistoryTransport v-if="state.phase === 'running'" />
+    <!-- The one transport: a walkthrough artifact or the live recording. -->
+    <TransportBar v-if="engine.transport" :model="engine.transport" />
 
     <!-- Captions under the screen (never overlays: all game text is on the CRT) -->
     <TouchControls

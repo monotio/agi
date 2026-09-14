@@ -275,6 +275,54 @@ test("room helper edits are transactional and cannot rewrite another room", asyn
   assert.equal(state.authoring.world.facts["weather"], "rain");
 });
 
+test("pinned map notes reach the room turn's request body", async (t) => {
+  const bodies: string[] = [];
+  t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+    bodies.push(String(init.body));
+    const output =
+      bodies.length === 1
+        ? [
+            {
+              type: "function_call",
+              call_id: "room",
+              name: "write_logic_source",
+              arguments: JSON.stringify({ room: 2, source: "return;" }),
+            },
+            {
+              type: "function_call",
+              call_id: "pic",
+              name: "write_picture",
+              arguments: JSON.stringify({ room: 2, source: "vis 1\nfill 0,0\nend" }),
+            },
+          ]
+        : [];
+    return new Response(providerSse("openai", { id: String(bodies.length), output }), {
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  });
+  const session = new AgentSession(
+    { provider: "openai", apiKey: "placeholder", model: "test" },
+    () => {},
+    createAgentSessionState(),
+  );
+  await session.handle({
+    op: "room",
+    context: {
+      room: 2,
+      from: 1,
+      playerNotes: ["the vault door should feel trapped"],
+    },
+  });
+  const request = JSON.parse(bodies[0]!);
+  const firstUser = request.input?.[0]?.content?.[0]?.text ?? JSON.stringify(request.input);
+  assert.match(
+    firstUser,
+    /the vault door should feel trapped/,
+    "the pinned note reaches the provider's request body",
+  );
+  assert.match(firstUser, /"playerNotes"/);
+});
+
 test("a stalled remix pauses and can be discarded without claiming completion", async (t) => {
   let calls = 0;
   t.mock.method(
@@ -374,26 +422,16 @@ test("Genesis executes advertised room inspection through the shared asynchronou
   let requests = 0;
   let result: { success?: boolean; error?: string } | undefined;
   t.mock.method(globalThis, "fetch", async () => {
-    if (++requests > 2) throw new Error("End this bounded inspection test.");
-    // Request 1 is the plan turn: settle it with a plain message so the
-    // build turn's read_room_context is the call under test.
-    const output =
-      requests === 1
-        ? [
-            {
-              type: "message",
-              role: "assistant",
-              content: [{ type: "output_text", text: "Planned." }],
-            },
-          ]
-        : [
-            {
-              type: "function_call",
-              call_id: "context",
-              name: "read_room_context",
-              arguments: '{"room":1}',
-            },
-          ];
+    if (++requests > 1) throw new Error("End this bounded inspection test.");
+    // The one-flow genesis turn's read_room_context is the call under test.
+    const output = [
+      {
+        type: "function_call",
+        call_id: "context",
+        name: "read_room_context",
+        arguments: '{"room":1}',
+      },
+    ];
     return new Response(providerSse("openai", { id: `genesis-${requests}`, output }), {
       headers: { "Content-Type": "text/event-stream" },
     });
@@ -406,48 +444,43 @@ test("Genesis executes advertised room inspection through the shared asynchronou
     },
   );
   await assert.rejects(session.startGenesis("A quiet courtyard."));
-  assert.equal(requests, 3);
+  assert.equal(requests, 2);
   assert.equal(result?.success, true, result?.error ?? "room context was not returned");
 });
 
-test("the plan turn advertises only plan tools and refuses resource writes", async (t) => {
+test("genesis is one turn: the world plan and resource writes share the tool surface", async (t) => {
   const requests: { tool_choice?: { tools: { name: string }[] }; input: unknown }[] = [];
   t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
     requests.push(JSON.parse(String(init.body)));
-    const output =
-      requests.length === 1
-        ? [
+    if (requests.length > 1) throw new Error("End this bounded genesis test.");
+    // One flow: update_world and a resource write land in the same turn —
+    // no plan phase gates either of them.
+    const output = [
+      {
+        type: "function_call",
+        call_id: "world",
+        name: "update_world",
+        arguments: JSON.stringify({
+          rooms: [
             {
-              type: "function_call",
-              call_id: "write",
-              name: "write_logic_source",
-              arguments: '{"room":1,"source":"return;"}',
+              num: 1,
+              title: "Dock",
+              description: "Where it starts.",
+              exits: [{ name: "east", room: 2 }],
             },
-            {
-              type: "function_call",
-              call_id: "world",
-              name: "update_world",
-              arguments: JSON.stringify({
-                rooms: [
-                  {
-                    num: 1,
-                    title: "Dock",
-                    description: "Where it starts.",
-                    exits: [{ name: "east", room: 2 }],
-                  },
-                ],
-                facts: [],
-                quests: [],
-              }),
-            },
-          ]
-        : [
-            {
-              type: "message",
-              role: "assistant",
-              content: [{ type: "output_text", text: "Planned." }],
-            },
-          ];
+            { num: 2, title: "Tide Room", description: "The next stop.", exits: [] },
+          ],
+          facts: [],
+          quests: [],
+        }),
+      },
+      {
+        type: "function_call",
+        call_id: "words",
+        name: "write_words",
+        arguments: '{"words":["dock"],"groups":null}',
+      },
+    ];
     return new Response(providerSse("openai", { id: `p${requests.length}`, output }), {
       headers: { "Content-Type": "text/event-stream" },
     });
@@ -456,16 +489,82 @@ test("the plan turn advertises only plan tools and refuses resource writes", asy
     { provider: "openai", apiKey: "test-placeholder", model: "test" },
     () => {},
   );
-  await session.runPlan("A dockside mystery.");
-  // The provider saw only the plan allowlist — no resource tools.
-  assert.deepEqual(requests[0]!.tool_choice!.tools.map((tool) => tool.name).sort(), [
-    "inspect_world_bible",
-    "read_authoring_guide",
-    "update_world",
-  ]);
-  // The refused write left no resource behind; the world update did land.
-  assert.equal(session.state.container.getResource("logic", 1), null);
+  await assert.rejects(session.startGenesis("A dockside mystery."));
+  const tools = requests[0]!.tool_choice!.tools.map((tool) => tool.name);
+  assert.ok(tools.includes("update_world"));
+  assert.ok(tools.includes("write_logic_source"), "resource tools share the genesis surface");
+  // Both calls ran: the plan recorded and the write landed in one turn.
   assert.equal(session.state.authoring.world.rooms["1"]?.title, "Dock");
-  // …and the refusal was reported back to the provider.
-  assert.match(JSON.stringify(requests[1]!.input), /not available in this phase/);
+  assert.equal(session.state.authoring.world.rooms["2"]?.title, "Tide Room");
+  assert.ok(session.state.sources.words.has("dock"));
+  assert.equal(requests.length, 2, "one turn — the plan never takes a provider round of its own");
+});
+
+test("a map edit mid-turn is refused, and the turn's world survives a clean adopt", async (t) => {
+  // Hold the remix turn open on a deferred provider response; while it is in
+  // flight, a plan commit would be overwritten by the staged fork's adopt.
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  t.mock.method(globalThis, "fetch", async () => {
+    await gate;
+    return new Response(
+      providerSse("openai", {
+        id: "remix1",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "Done." }],
+          },
+        ],
+      }),
+      { headers: { "Content-Type": "text/event-stream" } },
+    );
+  });
+  const state = createAgentSessionState();
+  state.authoring.world.rooms["1"] = { title: "Hall", description: "", exits: {} };
+  const session = new AgentSession(
+    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    () => {},
+    state,
+  );
+  const { createWorldDraft, draftRenameRoom } = await import("../../src/agent/worldPlan.ts");
+  const turn = session.runPowerUp("paint the room blue", 1);
+  try {
+    // The request is in flight — the map's commit is refused, not lost.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const draft = createWorldDraft(state.authoring.world);
+    assert.equal(draftRenameRoom(draft, 1, "Parlor"), null);
+    assert.equal(session.commitPlanDraft(draft).status, "busy");
+  } finally {
+    release();
+  }
+  await turn;
+  // After the turn the world is editable again.
+  const second = createWorldDraft(state.authoring.world);
+  assert.equal(draftRenameRoom(second, 1, "Parlor"), null);
+  assert.equal(session.commitPlanDraft(second).status, "committed");
+  assert.equal(state.authoring.world.rooms["1"]?.title, "Parlor");
+});
+
+test("a finished turn's adopt keeps a live map edit the turn never touched", async () => {
+  const { adoptTurnState, forkAgentState } = await import("../src/agent/sessionState.ts");
+  const { worldRevision } = await import("../../src/agent/worldPlan.ts");
+  const live = createAgentSessionState();
+  live.authoring.world.rooms["1"] = { title: "Hall", description: "", exits: {} };
+  const staged = forkAgentState(live);
+  const fork = worldRevision(live.authoring.world);
+  // The player edits while the turn runs; the turn's tools never touch world.
+  live.authoring.world.rooms["2"] = { title: "Vault", description: "", exits: {} };
+  assert.equal(adoptTurnState(live, staged, fork), false);
+  assert.equal(live.authoring.world.rooms["2"]?.title, "Vault");
+  // Both writing world is a conflict — the player's visible world wins and
+  // the caller is told.
+  const again = forkAgentState(live);
+  const fork2 = worldRevision(live.authoring.world);
+  live.authoring.world.rooms["3"] = { title: "Crypt", description: "", exits: {} };
+  again.authoring.world.rooms["4"] = { title: "Tower", description: "", exits: {} };
+  assert.equal(adoptTurnState(live, again, fork2), true);
+  assert.equal(live.authoring.world.rooms["3"]?.title, "Crypt");
+  assert.equal(live.authoring.world.rooms["4"], undefined);
 });

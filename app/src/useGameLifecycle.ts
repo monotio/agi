@@ -44,14 +44,14 @@ export interface GameLifecycleOptions {
   readonly resetPauseOwners: () => void;
   /** The history transport's scratch session dies with the worker. */
   readonly resetHistoryView: () => void;
-  /** A boot or eject replaces the screen — drop any open plan review. */
-  readonly cancelPlanReview: () => void;
   readonly getSessionId: () => number;
   readonly nextSessionId: () => number;
   readonly getActiveReplaySeed: () => number | null;
   readonly setActiveReplaySeed: (seed: number | null) => void;
   readonly setActiveLlmConfig: (config: LlmConfig) => void;
   readonly abortWalkthrough: () => void;
+  /** Eject waits out in-flight history commits before the worker dies. */
+  readonly drainHistoryCommits: () => Promise<void>;
 }
 
 export function useGameLifecycle(options: GameLifecycleOptions) {
@@ -88,7 +88,6 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     state.soundPlaying = false;
     options.resetPauseOwners();
     options.resetHistoryView();
-    options.cancelPlanReview();
     state.shake = false;
     link.clearShake();
     hook.modal = null;
@@ -223,9 +222,20 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       throw error;
     }
     state.leaving = false;
-    options.nextSessionId();
     options.abortWalkthrough();
     options.promptCancel();
+    // Close the tape before the worker dies: the reply lands after the end
+    // batch posts, and the drain after its commit settles — otherwise the
+    // queued tail and the "eject" end marker die with the worker. The walk-
+    // through session bump comes after: a replay reply is stamped with the
+    // session id, and bumping first would drop `historyEnded` as stale.
+    try {
+      await link.query("historyEnd", {}, 5_000);
+    } catch {
+      // A worker that cannot answer has already stopped recording.
+    }
+    await options.drainHistoryCommits();
+    options.nextSessionId();
     link.drainPendingQueries();
     state.walkthrough.active = false;
     state.walkthrough.status = "stopped";

@@ -38,22 +38,27 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the save format; the release contract pins its structure",
   },
   "src/agent/history.ts": {
-    lines: 676,
-    boundary: "the history recording contract; the release contract pins its structure",
+    lines: 765,
+    boundary:
+      "the history recording contract incl. the recorded clock lane; the release contract pins its structure",
   },
   "app/src/WorldMap.vue": {
-    lines: 1558,
-    boundary: "the world-map overlay: graph, room list, room details and the plan-review bar",
+    lines: 1458,
+    boundary: "the world-map overlay: graph, room list, room details and plan editing",
   },
-  "app/src/HistoryTransport.vue": {
-    lines: 683,
-    boundary:
-      "the history transport: tape scrub, watch, resume controls and the interrupted-swap row",
+  "app/src/TransportBar.vue": {
+    lines: 656,
+    boundary: "the one transport bar: timeline, marks and mode extras for both sources",
   },
   "app/src/useHistoryView.ts": {
-    lines: 665,
+    lines: 864,
     boundary:
-      "the history-view controller: seek, watch, marks, bookmarks and the staged-swap lifecycle",
+      "the history-view controller: seek, watch, marks, bookmarks, the staged-swap lifecycle and its transport source",
+  },
+  "app/src/useWalkthroughController.ts": {
+    lines: 703,
+    boundary:
+      "the walkthrough session: artifact load, replay runner, seek restarts and its transport source",
   },
   "src/picture/source.ts": {
     lines: 1085,
@@ -64,11 +69,11 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the logic compiler, the validator of last resort",
   },
   "app/src/agent/agentSession.ts": {
-    lines: 1017,
-    boundary: "the agent session lifecycle: plan, build, room and remix turns",
+    lines: 960,
+    boundary: "the agent session lifecycle: genesis, room and remix turns",
   },
   "app/src/useGameLibrary.ts": {
-    lines: 882,
+    lines: 896,
     boundary: "library import, export and storage operations",
   },
   "app/src/PlayArea.vue": {
@@ -84,9 +89,9 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the agent bubble surface",
   },
   "app/src/useRoomMap.ts": {
-    lines: 1036,
+    lines: 1008,
     boundary:
-      "the world-map composable: merge, pause ownership, thumbnails, persistence and plan editing",
+      "the world-map composable: merge, pause ownership, thumbnails, persistence, plan editing and map-driven builds",
   },
   "src/agent/gameTests.ts": {
     lines: 733,
@@ -120,6 +125,16 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
   "app/src/worker/context.ts": {
     lines: 619,
     boundary: "the worker session state: ports, cycle, input, replay and history fields",
+  },
+  "app/src/worker/history.ts": {
+    lines: 611,
+    boundary:
+      "the one recorder: always-on tape, stored game-test recording lifecycle, anchors and batches",
+  },
+  "app/src/worker/replay.ts": {
+    lines: 731,
+    boundary:
+      "the one replay drive: the live-session drive and the scratch tape drive on the shared tick",
   },
 };
 

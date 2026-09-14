@@ -27,6 +27,7 @@ import {
   loadHistoryBookmarks,
   loadProjectHistory,
   loadRetainedOriginal,
+  mergeHistoryBatch,
   resolveStagedSwap,
   saveHistoryBookmark,
   stageRetainedOriginal,
@@ -365,11 +366,18 @@ test("an imported project's tape persists whole — recording, kept session, boo
   assert.deepEqual(await loadRetainedOriginal(key), retained, "the kept session survived");
 });
 
-test("the segment bound drops the oldest segments but never the live tail", async () => {
+test("the segment bound drops the oldest ended segments but never the live tail", async () => {
   const key = "tape-store-bound";
+  const end = { seq: 0, tick: 0, cycle: 0, reason: "quit" as const };
   for (let seg = 1; seg <= 66; seg++) {
+    // Every segment but the tail is ended — an open segment is live or
+    // unresolved and is never evicted.
     assert.equal(
-      await appendHistoryBatch(key, { ...batch(1), segment: `s-b.${seg}`, boot: BOOT }, "2.936"),
+      await appendHistoryBatch(
+        key,
+        { ...batch(1), segment: `s-b.${seg}`, boot: BOOT, ...(seg < 66 ? { end } : {}) },
+        "2.936",
+      ),
       true,
     );
   }
@@ -382,12 +390,29 @@ test("the segment bound drops the oldest segments but never the live tail", asyn
   assert.equal(recording.segments[0]?.id, "s-b.3");
 });
 
+test("an open oldest segment blocks eviction — its session may still be live", async () => {
+  const key = "tape-store-open-head";
+  // 66 open segments: over the count bound, but nothing carries an end, so
+  // nothing may be dropped — evicting an open head would strand its live
+  // session's batches forever.
+  for (let seg = 1; seg <= 66; seg++) {
+    assert.equal(
+      await appendHistoryBatch(key, { ...batch(1), segment: `s-o.${seg}`, boot: BOOT }, "2.936"),
+      true,
+    );
+  }
+  const recording = await loadGameHistory(key);
+  assert.equal(recording?.segments.length, 66);
+  assert.equal(recording?.dropped ?? 0, 0);
+});
+
 test("the total byte bound evicts oldest segments and reports the loss", async () => {
   const key = "tape-store-bytes";
   // A patch event's payload is honest tape data — size the segments so a
   // few of them exceed the total bound without needing the segment cap.
   const payload = "A".repeat(4 * 1024 * 1024);
   const needed = Math.ceil(HISTORY_TOTAL_BYTE_LIMIT / (4 * 1024 * 1024)) + 2;
+  const end = { seq: 1, tick: 1, cycle: 1, reason: "quit" as const };
   for (let seg = 1; seg <= needed; seg++) {
     assert.equal(
       await appendHistoryBatch(
@@ -396,6 +421,7 @@ test("the total byte bound evicts oldest segments and reports the loss", async (
           ...batch(1),
           segment: `s-c.${seg}`,
           boot: BOOT,
+          ...(seg < needed ? { end } : {}),
           events: [
             {
               seq: 0,
@@ -415,4 +441,22 @@ test("the total byte bound evicts oldest segments and reports the loss", async (
   assert.ok(recording.segments.length < needed);
   assert.equal(recording.dropped, needed - recording.segments.length);
   assert.equal(recording.segments.at(-1)?.id, `s-c.${needed}`);
+});
+
+test("two clients committing concurrently never lose an acknowledged batch", async () => {
+  const key = "history/tape-store-twotab";
+  // Two tabs each run a live session on the same project and post their
+  // segments' boot batches at once. Each tab's own appendHistoryBatch mutex
+  // does not reach the other tab — the read-modify-write must hold one
+  // read-write transaction or the second put erases the first segment, and
+  // the acked batch is never resent. mergeHistoryBatch is the per-tab half:
+  // calling it twice concurrently is exactly what two tabs produce.
+  const [a, b] = await Promise.all([
+    mergeHistoryBatch(key, { ...batch(1), segment: "s-t.a", boot: BOOT }, "2.936"),
+    mergeHistoryBatch(key, { ...batch(1), segment: "s-t.b", boot: { ...BOOT, rng: 42 } }, "2.936"),
+  ]);
+  assert.equal(a, true);
+  assert.equal(b, true);
+  const recording = await loadGameHistory("tape-store-twotab");
+  assert.deepEqual(recording?.segments.map((s) => s.id).sort(), ["s-t.a", "s-t.b"]);
 });

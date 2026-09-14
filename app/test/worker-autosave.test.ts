@@ -62,3 +62,25 @@ test("the autosave message carries files only when patchGeneration changed", () 
   assert.equal(posted.length, 2);
   assert.ok("files" in posted[1]! && posted[1].files !== undefined, "the patch travelled");
 });
+
+test("a forced flush's autosave survives a seek in flight", () => {
+  const { ctx, presentation } = workerHarness(drawnGame());
+  ctx.fns.tickEngine();
+  assert.ok(ctx.engine!.autosaveImage(), "room 1 has drawn, so the boundary is snapshottable");
+
+  // A pagehide flush lands mid-seek: the transient stream is suppressed but
+  // the snapshot must still post, or the last position is lost on reload.
+  ctx.replay.isSeeking = true;
+  ctx.fns.postFrame();
+  ctx.fns.onFlush({ type: "flush", id: 1 });
+  assert.equal(
+    presentation.filter((m) => m.type === "frame").length,
+    0,
+    "frames stay suppressed while seeking",
+  );
+  assert.equal(
+    presentation.filter((m) => m.type === "autosave").length,
+    1,
+    "the forced autosave is not dropped",
+  );
+});

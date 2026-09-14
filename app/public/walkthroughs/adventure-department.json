@@ -1,5 +1,5 @@
 {
-  "schema": "monotio.agi.walkthrough.v1",
+  "schema": "monotio.agi.walkthrough.v2",
   "game": "adventure-department",
   "targetRevision": "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b",
   "supportedRevisions": [

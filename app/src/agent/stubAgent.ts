@@ -156,83 +156,49 @@ export class StubAgent implements AgentHandler {
   }
 
   /**
-   * Deterministic plan turn: writes a small connected world through the real
-   * update_world tool, so the map-review flow exercises the same plan → draft
-   * → build pipeline the model path uses. A revise turn appends one annex
-   * room titled from the player's note — each revision is visibly different.
+   * Deterministic world plan: writes a small connected world through the real
+   * update_world tool, so the one-flow genesis exercises the same
+   * plan → build path the model uses — the map's planned nodes land in the
+   * same turn the opening room does.
    */
-  plan(state: AgentSessionState, reviseNote: string | null): void {
-    if (reviseNote === null) {
-      const result = executeAgentTool(state, "update_world", {
-        rooms: [
-          {
-            num: 1,
-            title: "The Clearing",
-            description: "Where the adventure begins.",
-            exits: [{ name: "east", room: 2 }],
-          },
-          {
-            num: 2,
-            title: "The Hall",
-            description: "A long hall with a locked door.",
-            exits: [
-              { name: "west", room: 1 },
-              { name: "north", room: 3 },
-            ],
-          },
-          {
-            num: 3,
-            title: "The Vault",
-            description: "The prize waits inside.",
-            exits: [{ name: "south", room: 2 }],
-          },
-        ],
-        facts: [{ name: "stub_world", text: "A deterministic three-room world." }],
-        quests: [
-          {
-            name: "reach_vault",
-            description: "Reach the vault.",
-            requires: [],
-            completedFlag: null,
-          },
-        ],
-      });
-      this.onEvent(
-        result.success ? "response" : "error",
-        result.success ? "[Plan stub] planned a three-room world" : `[Plan stub] ${result.error}`,
-      );
-      return;
-    }
-    const existing = state.authoring.world.rooms;
-    const annex = Math.max(0, ...Object.keys(existing).map(Number)) + 1;
-    const opening = existing["1"] ?? { title: "The Clearing", description: "", exits: {} };
-    const title = `Annex: ${reviseNote.trim().slice(0, 24) || "more"}`.slice(0, 160);
+  plan(state: AgentSessionState): void {
     const result = executeAgentTool(state, "update_world", {
       rooms: [
         {
           num: 1,
-          title: opening.title,
-          description: opening.description,
+          title: "The Clearing",
+          description: "Where the adventure begins.",
+          exits: [{ name: "east", room: 2 }],
+        },
+        {
+          num: 2,
+          title: "The Hall",
+          description: "A long hall with a locked door.",
           exits: [
-            ...Object.entries(opening.exits).map(([name, room]) => ({ name, room })),
-            { name: `annex${annex}`, room: annex },
+            { name: "west", room: 1 },
+            { name: "north", room: 3 },
           ],
         },
         {
-          num: annex,
-          title,
-          description: "Added by the player's revision note.",
-          exits: [{ name: "back", room: 1 }],
+          num: 3,
+          title: "The Vault",
+          description: "The prize waits inside.",
+          exits: [{ name: "south", room: 2 }],
         },
       ],
-      facts: [],
-      quests: [],
+      facts: [{ name: "stub_world", text: "A deterministic three-room world." }],
+      quests: [
+        {
+          name: "reach_vault",
+          description: "Reach the vault.",
+          requires: [],
+          completedFlag: null,
+        },
+      ],
     });
     this.onEvent(
       result.success ? "response" : "error",
-      result.success
-        ? `[Plan stub] revised the plan: added room ${annex}`
-        : `[Plan stub] ${result.error}`,
+      result.success ? "[Plan stub] planned a three-room world" : `[Plan stub] ${result.error}`,
     );
   }
 

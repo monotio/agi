@@ -59,6 +59,14 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.fns.onHistoryRetain(msg);
       return;
     }
+    if (msg.type === "historyEnd") {
+      // The end marker and final batch post before the reply, so the host's
+      // commit is in flight when the query settles — the drain after it is
+      // what makes eject wait for a durable tape.
+      ctx.fns.historyEnd("eject");
+      control({ type: "historyEnded", id: msg.id });
+      return;
+    }
     if (msg.type === "historyViewRestore") {
       ctx.fns.onHistoryViewRestore(msg);
       return;
@@ -154,10 +162,6 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       return;
     }
     if (msg.type === "reenter") {
-      ctx.fns.historyRecord({
-        kind: "reenter",
-        ...(typeof msg.room === "number" ? { room: msg.room } : {}),
-      });
       ctx.fns.onReenter(msg);
       return;
     }

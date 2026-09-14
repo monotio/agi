@@ -208,7 +208,7 @@ test("SAVES/ counts only beside PROJECT.JSON, ignores other names, and refuses w
   );
 });
 
-test("the project archive round-trips the recorded tape; a corrupt one degrades to none", async () => {
+test("the project archive round-trips the recorded tape; a corrupt one rejects", async () => {
   const { files, progress } = played();
   const history: ProjectHistory = {
     recording: {
@@ -259,15 +259,17 @@ test("the project archive round-trips the recorded tape; a corrupt one degrades 
   // A published game export never carries the tape.
   assert.ok(!zipNames(buildPublicGameZip(cachedGame(files))).includes("HISTORY.JSON"));
 
-  // A corrupt tape does not sink the import — the project still opens.
-  const corrupt = await readGameZip(
-    buildZip([
-      ...archiveEntries(files, true),
-      { name: "HISTORY.JSON", data: new TextEncoder().encode("{not a tape") },
-    ]),
+  // A corrupt tape must not import as if the project carried no recording.
+  await assert.rejects(
+    () =>
+      readGameZip(
+        buildZip([
+          ...archiveEntries(files, true),
+          { name: "HISTORY.JSON", data: new TextEncoder().encode("{not a tape") },
+        ]),
+      ),
+    /HISTORY\.JSON is not readable/,
   );
-  assert.equal(corrupt.history, undefined);
-  assert.ok(corrupt.project !== undefined, "the project itself still imported");
 
   // A public archive's HISTORY.JSON is ignored outright — not project data.
   const stray = await readGameZip(

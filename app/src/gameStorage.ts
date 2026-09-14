@@ -194,6 +194,47 @@ export async function bodyTransaction<T>(
       reject(transaction.error ?? new Error("Project storage transaction aborted."));
   });
 }
+
+/**
+ * Read-modify-write on one record inside a single read-write transaction.
+ * Separate get and put transactions from two tabs can interleave — the
+ * second put silently overwrites the first's merge — so a caller that
+ * updates an existing record must hold one transaction across both.
+ * `update` gets the raw stored value (undefined when absent) and returns
+ * the record to write plus the operation's result; omit `put` to commit no
+ * write. Throwing aborts the transaction and propagates.
+ */
+export async function updateBodyRecord<T>(
+  key: string,
+  update: (stored: unknown) => { put?: unknown; result: T },
+): Promise<T> {
+  const db = await openDatabase();
+  return new Promise<T>((resolve, reject) => {
+    const transaction = db.transaction("projects", "readwrite");
+    const store = transaction.objectStore("projects");
+    const request = store.get(key);
+    let outcome: { put?: unknown; result: T } | undefined;
+    let contractError: Error | undefined;
+    request.onsuccess = () => {
+      try {
+        outcome = update(request.result);
+        if (outcome.put !== undefined) store.put(outcome.put);
+      } catch (error) {
+        contractError = error instanceof Error ? error : new Error(String(error));
+        transaction.abort();
+      }
+    };
+    transaction.oncomplete = () => {
+      if (outcome === undefined) reject(new Error("Project storage transaction closed early."));
+      else resolve(outcome.result);
+    };
+    transaction.onerror = () => reject(contractError ?? transaction.error ?? request.error);
+    transaction.onabort = () =>
+      reject(
+        contractError ?? transaction.error ?? new Error("Project storage transaction aborted."),
+      );
+  });
+}
 export class ConcurrencyConflictError extends Error {
   readonly currentRecord?: StoredGameBody | undefined;
   constructor(message: string, currentRecord?: StoredGameBody) {

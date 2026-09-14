@@ -232,7 +232,7 @@ const bridge = useShellBridge();
                 :disabled="exportBusy"
                 @click="onExportLibraryGame(game, true)"
               >
-                <span>Project<small>Game and editing history</small></span>
+                <span>Project<small>Game and play history</small></span>
               </button>
               <div role="separator"></div>
               <button

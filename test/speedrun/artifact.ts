@@ -9,9 +9,9 @@ import type { Action } from "./runner.ts";
 import { walkthrough, type Walkthrough } from "./walkthroughs.ts";
 
 export interface WalkthroughArtifact {
-  schema: "monotio.agi.walkthrough.v1";
+  schema: "monotio.agi.walkthrough.v2";
   game: string;
-  targetRevision?: string | undefined;
+  targetRevision: string;
   supportedRevisions?: readonly string[] | undefined;
   coverage: Walkthrough["coverage"];
   profile: string;
@@ -86,16 +86,19 @@ export function walkthroughFixtureHashes(target: string): Record<string, string>
 /** Read a completed replay; consumers also match its hashes to their fixture files. */
 export async function readWalkthroughArtifact(path: string): Promise<WalkthroughArtifact> {
   const recording = JSON.parse(readFileSync(path, "utf8")) as WalkthroughArtifact;
-  assert.equal(recording.schema, "monotio.agi.walkthrough.v1");
+  assert.equal(recording.schema, "monotio.agi.walkthrough.v2");
   const route = walkthrough(recording.game);
   const served = await walkthroughServedRevisions(route.hash);
-  if (recording.targetRevision) {
-    assert.equal(
-      recording.targetRevision.toLowerCase(),
-      served[0]!.toLowerCase(),
-      "target revision matches the served bundle",
-    );
-  }
+  assert.ok(
+    typeof recording.targetRevision === "string" &&
+      /^[0-9a-f]{64}$/i.test(recording.targetRevision),
+    "the tape declares the bundle revision it was recorded on",
+  );
+  assert.equal(
+    recording.targetRevision.toLowerCase(),
+    served[0]!.toLowerCase(),
+    "target revision matches the served bundle",
+  );
   if (recording.supportedRevisions) {
     assert.ok(
       recording.supportedRevisions.map((h) => h.toLowerCase()).includes(served[0]!.toLowerCase()),

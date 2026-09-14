@@ -203,6 +203,12 @@ export type WorkerInbound =
   | { type: "historyViewTake"; id: number }
   /** Snapshot the parked live session as the retained original. */
   | { type: "historyRetain"; id: number }
+  /**
+   * Close the live segment with an "eject" end marker and post its final
+   * batch before the host terminates the worker — the tape ends where play
+   * stopped instead of dropping the queued tail.
+   */
+  | { type: "historyEnd"; id: number }
   /** Swap the live session back to a retained original. */
   | {
       type: "historyViewRestore";
@@ -321,6 +327,8 @@ export type WorkerControl =
       from: { segment: string; seq: number; tick: number } | null;
     }
   | { type: "historyTaken"; id: number; ok: boolean; message?: string }
+  /** The segment's end batch was posted; it commits before the worker dies. */
+  | { type: "historyEnded"; id: number }
   | { type: "historyViewRestored"; id: number; ok: boolean; message?: string };
 
 /**
@@ -450,6 +458,7 @@ export interface WorkerQueryReplies {
   historyViewAdvance: Extract<WorkerControl, { type: "historyView" }>;
   historyViewTake: Extract<WorkerControl, { type: "historyTaken" }>;
   historyRetain: Extract<WorkerControl, { type: "historyRetained" }>;
+  historyEnd: Extract<WorkerControl, { type: "historyEnded" }>;
   historyViewRestore: Extract<WorkerControl, { type: "historyViewRestored" }>;
   debugWrite: Extract<WorkerControl, { type: "debugWritten" }>;
   debugTrace: Extract<WorkerControl, { type: "debugTrace" }>;
@@ -473,6 +482,7 @@ export interface WorkerQueryPayload {
   historyViewAdvance: WorkerQueryReplies["historyViewAdvance"];
   historyViewTake: WorkerQueryReplies["historyViewTake"];
   historyRetain: WorkerQueryReplies["historyRetain"];
+  historyEnd: WorkerQueryReplies["historyEnd"];
   historyViewRestore: WorkerQueryReplies["historyViewRestore"];
   debugWrite: WorkerQueryReplies["debugWrite"];
   debugTrace: WorkerQueryReplies["debugTrace"];
