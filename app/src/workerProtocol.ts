@@ -52,6 +52,7 @@ import type { RecordedEvent } from "./gameRecording.ts";
 import type { LlmRequest } from "./agent/hostRequests.ts";
 import type { ReplayObservation } from "./replay.ts";
 import type { RingFrame } from "./frameRing.ts";
+import type { HistoryBatch, HistoryBoot, HistoryRecording } from "../../src/agent/history.ts";
 
 /** Ops the worker may suspend on; see agent/hostRequests.ts. */
 export type HostRequestOp = LlmRequest["op"];
@@ -104,6 +105,12 @@ export interface BootMessage {
   restoreMenus?: EngineMenuState;
   /** Test-mode host clock and reproducible random input. */
   replaySeed?: number;
+  /**
+   * Live-session PRNG seed for the recorded history stream — the original's
+   * 16-bit word (docs/fidelity.md, "Original RNG"); recorded into the
+   * segment's boot so the same random sequence replays offline.
+   */
+  rngSeed?: number;
 }
 
 export type WorkerInbound =
@@ -163,14 +170,82 @@ export type WorkerInbound =
    * batch so the worker's posted-but-undelivered queue stays bounded while
    * the consumer is stalled. epoch invalidates acks from a replaced session.
    */
-  | { type: "traceAck"; epoch: number; batch: number };
+  | { type: "traceAck"; epoch: number; batch: number }
+  /**
+   * The host persisted one history batch — frees the worker's in-flight
+   * credit so the next queued batch posts. epoch invalidates stale acks.
+   */
+  | { type: "historyAck"; epoch: number; batch: number }
+  /**
+   * The player's retry on the "history not saved" notice: repost the oldest
+   * un-acked batch now rather than waiting out the resend backoff.
+   */
+  | { type: "historyRetry" }
+  /**
+   * Open a history-viewing session: the live engine is already paused and
+   * parked; a scratch session on the side replays the recorded stream to
+   * `tick` in `segment` (an index into recording.segments). Progress posts
+   * as non-final historyView notices; the terminal one answers the query.
+   */
+  | {
+      type: "historyViewStart";
+      id: number;
+      recording: HistoryRecording;
+      segment: number;
+      tick: number;
+    }
+  /** Scrub to a recorded position; a later seek supersedes one in flight. */
+  | { type: "historyViewSeek"; id: number; segment: number; tick: number }
+  /** Watch the recording unfold: advance the viewed position by `ticks`. */
+  | { type: "historyViewAdvance"; id: number; ticks: number }
+  /** Close the viewing session: the scratch session is discarded. */
+  | { type: "historyViewEnd" }
+  /**
+   * Take control at the viewed moment: the viewed state becomes live. The
+   * position fields pin the request to the settled position the host
+   * confirmed and `generation` pins it to the view session that confirmed
+   * it — the worker refuses a take naming a position the drive no longer
+   * sits on, one still settling, one the tape failed to verify, or one a
+   * stale view session issued.
+   */
+  | {
+      type: "historyViewTake";
+      id: number;
+      segment: number;
+      tick: number;
+      seq: number;
+      generation: number;
+    }
+  /** Snapshot the parked live session as the retained original. */
+  | { type: "historyRetain"; id: number }
+  /**
+   * Close the live segment with an "eject" end marker and post its final
+   * batch before the host terminates the worker — the tape ends where play
+   * stopped instead of dropping the queued tail.
+   */
+  | { type: "historyEnd"; id: number }
+  /** Swap the live session back to a retained original. */
+  | {
+      type: "historyViewRestore";
+      id: number;
+      boot: HistoryBoot;
+      from: { segment: string; seq: number; tick: number } | null;
+    }
+  /**
+   * The authoring session committed a state change — sources, bindings and
+   * world plan — that the tape records as an `authoring` cause. Posted after
+   * the commit's patch/answer traffic so the snapshot describes the state
+   * those causes produced; a later Resume here reinstalls the checkpoint
+   * that belongs to the adopted bytes.
+   */
+  | { type: "authoring"; snapshot: Record<string, unknown> };
 
 /**
  * Worker → host control channel: request/response traffic and lifecycle
  * notices. Posted through sendControl; not suppressed while seeking.
  */
 export type WorkerControl =
-  | { type: "paused"; paused: boolean }
+  | { type: "paused"; paused: boolean; cycle: number }
   | {
       type: "hostRequest";
       id: number;
@@ -223,6 +298,12 @@ export type WorkerControl =
       message?: string;
     }
   | { type: "booted"; profile: string }
+  /**
+   * One posted history batch: the always-on recording's transport unit.
+   * Batches are committed with the anchor they carry, then acknowledged with
+   * historyAck so the worker's ring stays bounded.
+   */
+  | { type: "historyBatch"; epoch: number; batch: HistoryBatch }
   | RoomTransitionNotice
   | {
       type: "flushed";
@@ -234,7 +315,62 @@ export type WorkerControl =
       textMode: boolean;
       pictureShown: boolean;
     }
-  | { type: "metadataPatched" };
+  | { type: "metadataPatched" }
+  /**
+   * The history-viewing session's position report: progress while a seek is
+   * in flight (final:false), the terminal answer to the query that asked
+   * (final:true — superseded when a newer request cut it short).
+   */
+  | {
+      type: "historyView";
+      id: number;
+      final: boolean;
+      superseded?: boolean;
+      /** The view session this report belongs to — echoed back by a take. */
+      generation: number;
+      segment: number;
+      tick: number;
+      seq: number;
+      cycle: number;
+      room: number;
+      score: number;
+      modal: string | null;
+      /** The viewed moment is a boundary the live session could resume from. */
+      canResume: boolean;
+      diverged: HistoryViewDivergence | null;
+      error: string | null;
+    }
+  /**
+   * The parked live session's retained-original snapshot (null boot = not
+   * resumable). `from` is the position the departing session sits at in its
+   * own open segment — the restore's provenance.
+   */
+  | {
+      type: "historyRetained";
+      id: number;
+      boot: HistoryBoot | null;
+      from: { segment: string; seq: number; tick: number } | null;
+    }
+  | {
+      type: "historyTaken";
+      id: number;
+      ok: boolean;
+      message?: string;
+      /** The adopted boot — the revision both sides now run. */
+      boot?: HistoryBoot;
+      /** The tape's last authoring checkpoint at-or-before the taken position. */
+      session?: unknown;
+    }
+  /** The segment's end batch was posted; it commits before the worker dies. */
+  | { type: "historyEnded"; id: number }
+  | {
+      type: "historyViewRestored";
+      id: number;
+      ok: boolean;
+      message?: string;
+      /** The resourceSet revision the worker adopted — checked against the record's. */
+      resourceSet?: string;
+    };
 
 /**
  * Worker → host presentation channel: the frame stream, text-surface
@@ -324,7 +460,20 @@ export interface RoomTransitionNotice {
   scoreDelta: number;
   gained: number[];
   lost: number[];
+  /**
+   * Where this transition sits in the recorded history — the map's jump-to-
+   * visit affordance. Absent only when no live segment recorded it.
+   */
+  history?: { segment: string; seq: number; tick: number };
   sessionId?: number;
+}
+
+/** A history replay divergence as the wire carries it. */
+export interface HistoryViewDivergence {
+  at: { seq: number; tick: number; cycle: number };
+  detail: string;
+  expected?: string;
+  actual?: string;
 }
 
 /** Every message the worker may post. */
@@ -345,6 +494,13 @@ export interface WorkerQueryReplies {
   startRecording: Extract<WorkerControl, { type: "recordingStarted" }>;
   stopRecording: Extract<WorkerControl, { type: "recordingStopped" }>;
   replayAdvance: Extract<WorkerControl, { type: "replay" }>;
+  historyViewStart: Extract<WorkerControl, { type: "historyView" }>;
+  historyViewSeek: Extract<WorkerControl, { type: "historyView" }>;
+  historyViewAdvance: Extract<WorkerControl, { type: "historyView" }>;
+  historyViewTake: Extract<WorkerControl, { type: "historyTaken" }>;
+  historyRetain: Extract<WorkerControl, { type: "historyRetained" }>;
+  historyEnd: Extract<WorkerControl, { type: "historyEnded" }>;
+  historyViewRestore: Extract<WorkerControl, { type: "historyViewRestored" }>;
   debugWrite: Extract<WorkerControl, { type: "debugWritten" }>;
   debugTrace: Extract<WorkerControl, { type: "debugTrace" }>;
   debugEvents: Extract<WorkerControl, { type: "debugEvents" }>;
@@ -362,6 +518,13 @@ export interface WorkerQueryPayload {
   startRecording: WorkerQueryReplies["startRecording"];
   stopRecording: WorkerQueryReplies["stopRecording"];
   replayAdvance: WorkerQueryReplies["replayAdvance"]["observation"];
+  historyViewStart: WorkerQueryReplies["historyViewStart"];
+  historyViewSeek: WorkerQueryReplies["historyViewSeek"];
+  historyViewAdvance: WorkerQueryReplies["historyViewAdvance"];
+  historyViewTake: WorkerQueryReplies["historyViewTake"];
+  historyRetain: WorkerQueryReplies["historyRetain"];
+  historyEnd: WorkerQueryReplies["historyEnd"];
+  historyViewRestore: WorkerQueryReplies["historyViewRestore"];
   debugWrite: WorkerQueryReplies["debugWrite"];
   debugTrace: WorkerQueryReplies["debugTrace"];
   debugEvents: WorkerQueryReplies["debugEvents"];

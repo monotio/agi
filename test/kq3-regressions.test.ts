@@ -15,7 +15,7 @@ function game(restarted = true, overrides: Partial<EngineHost> = {}) {
     statusLine() {},
     takeKeys: () => [],
     takeInputLine: () => null,
-    randomWord: () => 66,
+    randomByte: () => 66,
     ...overrides,
   };
   const engine = new Engine(container, host, dict, { profile: "2.936", restarted });

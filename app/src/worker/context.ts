@@ -27,7 +27,24 @@ import { createPresentation } from "./presentation.ts";
 import { createDebug } from "./debug.ts";
 import type { EdgeSide, RoomTransitionCause } from "../../../src/agent/roomMap.ts";
 import { createJournal } from "./journal.ts";
-import { createRecording } from "./recording.ts";
+import { createHistory } from "./history.ts";
+import { createHistoryView } from "./historyView.ts";
+import type { HistoryDrive } from "./replay.ts";
+import type {
+  HistoryAnchor,
+  HistoryBatch,
+  HistoryBoot,
+  HistoryClockRun,
+  HistoryCommittedPatch,
+  HistoryEndReason,
+  HistoryEvent,
+  HistoryEventCause,
+  HistoryRecording,
+  HistoryRoomMark,
+  HistorySyncMark,
+} from "../../../src/agent/history.ts";
+import type { BootMessage } from "../workerProtocol.ts";
+import type { HostAnswerOutcome } from "./hostRequests.ts";
 
 /** The only platform access worker modules get: the post boundary and a clock. */
 export interface WorkerPorts {
@@ -35,6 +52,19 @@ export interface WorkerPorts {
   presentation(message: WorkerPresentation, transfer?: Transferable[]): void;
   /** performance.now */
   now(): number;
+  /**
+   * The unsigned 16-bit word a zero-state RNG draw consumes — the
+   * BIOS-clock read's modern stand-in (docs/fidelity.md, "Original RNG").
+   * The real worker wires crypto.getRandomValues; tests inject a
+   * deterministic sequence so a recorded `reseed` event is predictable.
+   */
+  seedWord?: () => number;
+  /**
+   * setTimeout for deferred retries (history resend backoff). A test port
+   * that omits it leaves retries to the explicit historyRetry command.
+   */
+  schedule?: ((fn: () => void, ms: number) => unknown) | undefined;
+  cancelSchedule?: ((timer: unknown) => void) | undefined;
 }
 
 /** Settings the boot message owns; a replay reset keeps them. */
@@ -73,17 +103,33 @@ export interface HostRequestsState {
 
 /** worker/replay.ts */
 export interface ReplayState {
+  /** `random` is the RNG's 16-bit state word (docs/fidelity.md, "Original RNG"). */
   replay: { tick: number; revision: number; random: number } | null;
+  /**
+   * The tape's recorded BIOS-clock words — each `reseed` event's value in
+   * draw order — drained one per zero-state draw a history replay hits.
+   * Empty for a walkthrough replay, which carries no recorded lane.
+   */
+  reseeds: number[];
+  reseedCursor: number;
   replayRequest: number | null;
   lastReplaySeed: number | null;
   isSeeking: boolean;
   currentSessionId: number;
+  /**
+   * A scratch session replaying a recorded history still resolves prompts
+   * through host requests — the recorded stream carries their answers — while
+   * a walkthrough replay drives the engine's own dialogs with recorded keys.
+   */
+  historyReplay: boolean;
 }
 
 /** worker/cycle.ts */
 export interface CycleState {
   timer: number | null;
   soundTimer: number | null;
+  /** 60 Hz sound-clock ticks since session start — history's tick timeline. */
+  tickCount: number;
   /** Interpreter cycles completed since boot; the frame ring's timeline. */
   cycleCount: number;
   lastCycleReportAt: number;
@@ -97,6 +143,12 @@ export interface CycleState {
    * cycle is invisible since nobody reads state before the freeze lands.
    */
   paused: boolean;
+  /**
+   * A boot record's clock awaiting the first unpaused poll. Adoption parks
+   * the session; a parked poll discards accumulators, so the recorded pacing
+   * state applies only when the host actually releases the pause.
+   */
+  pendingClock: { remainder: number; increments: number; paused: boolean } | null;
 }
 
 /** worker/autosave.ts */
@@ -185,6 +237,106 @@ export interface JournalState {
   }[];
 }
 
+/** worker/history.ts — the always-on recording stream. */
+export interface HistoryState {
+  /**
+   * Live RNG state — the interpreter's 16-bit word (docs/fidelity.md,
+   * "Original RNG") — seeded per boot and recorded into every segment's
+   * boot and anchors. The scratch replay drive carries its own.
+   */
+  rng: number;
+  /** Bumped per boot so a replaced session's historyAcks drop. */
+  epoch: number;
+  /**
+   * The recording session's persisted identity, drawn fresh per boot.
+   * Segment ids are `<session>.s<n>` — unique across workers and reloads,
+   * so two sessions recording the same game never write to one segment.
+   */
+  session: string;
+  /** The serial counts segments within this session. */
+  segmentSerial: number;
+  /** The open segment's id; null between an end and the next safe boundary. */
+  segment: string | null;
+  /** Next event sequence number within the open segment. */
+  seq: number;
+  /** tickCount/cycleCount at segment start — event stamps are relative. */
+  tickBase: number;
+  cycleBase: number;
+  /** The batch being accumulated; posted whole. */
+  open: {
+    events: HistoryEvent[];
+    marks: HistoryRoomMark[];
+    sync: HistorySyncMark[];
+    clock: HistoryClockRun[];
+  };
+  openBytes: number;
+  /**
+   * 60 Hz sound ticks discharged inside the current host poll — the poll's
+   * clock observation counts them directly: they precede the poll's cycle
+   * decision.
+   */
+  pendingSound: number;
+  /**
+   * Sound ticks discharged OUTSIDE a poll — the sound timer or a
+   * mid-dispatch advance. They spill into the event stream as a `clock`
+   * cause the moment a recorded boundary follows (a pause or input that
+   * arrived after the mutation must replay after it); when a poll reaches
+   * them first they simply fold into its observation.
+   */
+  pendingSpill: number;
+  /** The tick the current spill began on — the clock event's stamp. */
+  spillTick: number;
+  /** True while a host-poll step runs — discharges inside it are lane-counted. */
+  inPoll: boolean;
+  /**
+   * A `historyEnd` query awaiting a fully durable tape: the reply holds
+   * until every posted and queued batch is acked, so eject cannot kill the
+   * worker with its tail still owed an ack.
+   */
+  pendingEndReply: number | null;
+  /** Closed batches awaiting in-flight credit, with their serialized sizes. */
+  queue: { batch: HistoryBatch; size: number }[];
+  queuedBytes: number;
+  queuedEvents: number;
+  /** Posted-but-unacked batches; retained for resend until the host acks. */
+  sent: HistoryBatch[];
+  /** Monotonic batch counter for the epoch the host acknowledges. */
+  batch: number;
+  /** cycleCount at the last sync mark. */
+  lastSyncCycle: number;
+  /** A budget-ended segment restarts at the next resumable boundary. */
+  resumePending: boolean;
+  /** The segment a resumed boot continues from; cleared on a fresh boot. */
+  resumedFrom: { segment: string; seq: number; tick: number } | null;
+  /** Serialized bytes + events posted under the open segment (rollover bound). */
+  segmentBytes: number;
+  segmentEvents: number;
+  /** Backoff timer for resending un-acked batches; null while disarmed. */
+  resendTimer: unknown;
+  /** Current resend backoff in ms; resets on progress. */
+  resendDelay: number;
+}
+
+/** worker/historyView.ts — the scratch session replaying the live recording. */
+export interface HistoryViewState {
+  /** The recording under view; null when no view session is open. */
+  recording: HistoryRecording | null;
+  /** Index into recording.segments the drive is on. */
+  segment: number;
+  /**
+   * The open session's serial: every start bumps it, every position report
+   * carries it, and a take must echo it — a take a stale session issued is
+   * refused even when its position coincidentally matches.
+   */
+  generation: number;
+  /** The incremental replay drive; owns the scratch context. */
+  drive: HistoryDrive | null;
+  /** In-flight chunked request id — a newer request supersedes it. */
+  request: number | null;
+  /** The pending chunk's timer while a long drive is in flight. */
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
 /** worker/recording.ts */
 export interface RecordingState {
   /**
@@ -223,8 +375,12 @@ export interface WorkerFns {
   postHostRequest(op: HostRequestOp, context: Record<string, unknown>): never;
   settleHostRequest(outstanding: { op: string; authoring: boolean }): void;
   abandonHostRequest(): void;
-  deliverHostResponse(op: string, response: string): void;
-  onHostAnswer(msg: Inbound<"hostAnswer">): void;
+  deliverHostResponse(
+    op: string,
+    response: string,
+    committed?: HistoryCommittedPatch | null,
+  ): HostAnswerOutcome | undefined;
+  onHostAnswer(msg: Inbound<"hostAnswer">, committed?: HistoryCommittedPatch | null): void;
   onReenter(msg: Inbound<"reenter">): void;
   // replay.ts
   postReplay(blocked: string | null, fullState?: boolean): void;
@@ -235,6 +391,15 @@ export interface WorkerFns {
   tickEngine(): void;
   recordedClock(): void;
   advanceSoundClock(authoring?: boolean): void;
+  /**
+   * One host poll — the shared step the timer body and both replay drives
+   * run. `obs` supplies the tape's recorded scheduler decision (sound
+   * ticks discharged, whether the cycle poll fired); each field falls back
+   * to the clock's own derivation. Returns whether a logic cycle ran.
+   */
+  stepHostTick(now: number, obs?: { sound?: number; cycle?: boolean }): boolean;
+  /** One host-poll pass — the timer body, also driven directly by tests. */
+  hostTick(): void;
   finishCycle(): void;
   startTimers(): void;
   stopTimers(): void;
@@ -263,11 +428,40 @@ export interface WorkerFns {
   markReenter(): void;
   markRestore(): void;
   markJump(): void;
-  // recording.ts
-  recordEvent(event: RecordedEvent): void;
+  // history.ts — the stored game-test session also lives there
   onStartRecording(msg: Inbound<"startRecording">): void;
   onStopRecording(msg: Inbound<"stopRecording">): void;
   onCancelRecording(): void;
+  // history.ts
+  historyBoot(msg: BootMessage): void;
+  historyRecord(cause: HistoryEventCause): void;
+  /** One host poll's clock observation: pending sound count + cycle fired. */
+  historyClockObs(cycleFired: boolean): void;
+  /** Returns the recorded position the mark landed at, for the journal link. */
+  historyMark(
+    to: number,
+    via: string,
+    edge?: EdgeSide,
+  ): { segment: string; seq: number; tick: number } | null;
+  historyAnchor(reason: HistoryAnchor["reason"]): void;
+  historyBoundary(): void;
+  historyEnd(reason: HistoryEndReason): void;
+  historyResume(): void;
+  historyFlush(reason?: HistoryAnchor["reason"]): void;
+  /** The parked live session's resume point — the retained original. */
+  historySnapshot(): HistoryBoot | null;
+  onHistoryAck(msg: Inbound<"historyAck">): void;
+  /** The eject handshake: end the segment, reply once the tail is durable. */
+  onHistoryEnd(msg: Inbound<"historyEnd">): void;
+  onHistoryRetry(): void;
+  // historyView.ts
+  onHistoryViewStart(msg: Inbound<"historyViewStart">): void;
+  onHistoryViewSeek(msg: Inbound<"historyViewSeek">): void;
+  onHistoryViewAdvance(msg: Inbound<"historyViewAdvance">): void;
+  onHistoryViewEnd(): void;
+  onHistoryViewTake(msg: Inbound<"historyViewTake">): void;
+  onHistoryRetain(msg: Inbound<"historyRetain">): void;
+  onHistoryViewRestore(msg: Inbound<"historyViewRestore">): void;
 }
 
 export interface WorkerContext {
@@ -280,6 +474,8 @@ export interface WorkerContext {
   input: InputState;
   hostRequests: HostRequestsState;
   replay: ReplayState;
+  history: HistoryState;
+  view: HistoryViewState;
   cycle: CycleState;
   autosave: AutosaveState;
   presentation: PresentationState;
@@ -292,7 +488,16 @@ export interface WorkerContext {
 export function createWorkerContext(ports: WorkerPorts): WorkerContext {
   const now = ports.now();
   const ctx: WorkerContext = {
-    ports,
+    ports: {
+      ...ports,
+      presentation: (message, transfer) => {
+        // A seek suppresses the transient stream — frames, mirrors, sound.
+        // The forced autosave is the exception: a pagehide flush during a
+        // seek must still reach storage, or the snapshot silently never lands.
+        if (ctx.replay.isSeeking && message.type !== "autosave") return;
+        ports.presentation(message, transfer);
+      },
+    },
     engine: null,
     host: undefined as unknown as EngineHost,
     boot: {
@@ -308,20 +513,62 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
     hostRequests: { hostRequestSerial: 0, hostRequestOutstanding: null, pendingReenter: false },
     replay: {
       replay: null,
+      reseeds: [],
+      reseedCursor: 0,
       replayRequest: null,
       lastReplaySeed: null,
       isSeeking: false,
       currentSessionId: 0,
+      historyReplay: false,
+    },
+    history: {
+      rng: 1,
+      epoch: 0,
+      session: "",
+      segmentSerial: 0,
+      segment: null,
+      seq: 0,
+      tickBase: 0,
+      cycleBase: 0,
+      open: { events: [], marks: [], sync: [], clock: [] },
+      openBytes: 0,
+      pendingSound: 0,
+      pendingSpill: 0,
+      spillTick: 0,
+      inPoll: false,
+      pendingEndReply: null,
+      queue: [],
+      queuedBytes: 0,
+      queuedEvents: 0,
+      sent: [],
+      batch: 0,
+      lastSyncCycle: 0,
+      resumePending: false,
+      resumedFrom: null,
+      segmentBytes: 0,
+      segmentEvents: 0,
+      resendTimer: null,
+      resendDelay: 4_000,
+    },
+    view: {
+      recording: null,
+      segment: 0,
+      generation: 0,
+      drive: null,
+      request: null,
+      timer: null,
     },
     cycle: {
       timer: null,
       soundTimer: null,
+      tickCount: 0,
       cycleCount: 0,
       lastCycleReportAt: 0,
       lastHistoryAt: 0,
       initialLogicStarted: false,
       lastInputReady: false,
       paused: false,
+      pendingClock: null,
     },
     autosave: {
       autosaveIntervalMs: 5_000,
@@ -384,7 +631,8 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
   Object.assign(ctx.fns, createPresentation(ctx));
   Object.assign(ctx.fns, createDebug(ctx));
   Object.assign(ctx.fns, createJournal(ctx));
-  Object.assign(ctx.fns, createRecording(ctx));
+  Object.assign(ctx.fns, createHistory(ctx));
+  Object.assign(ctx.fns, createHistoryView(ctx));
   return ctx;
 }
 
@@ -399,6 +647,7 @@ export function resetSession(ctx: WorkerContext): void {
   const now = ctx.ports.now();
   ctx.cycle.initialLogicStarted = false;
   ctx.cycle.paused = false;
+  ctx.cycle.pendingClock = null;
   ctx.input.inputBuffer = [];
   ctx.input.keyQueue = [];
   ctx.input.deferredMovement.length = 0;
@@ -426,6 +675,7 @@ export function resetSession(ctx: WorkerContext): void {
   ctx.clocks.cycle.reset(ctx.replay.replay ? 0 : now);
   ctx.cycle.lastCycleReportAt = now;
   ctx.cycle.lastHistoryAt = now;
+  ctx.cycle.tickCount = 0;
   ctx.cycle.cycleCount = 0;
   p.recentRing.reset();
   p.historyRing.reset();

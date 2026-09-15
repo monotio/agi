@@ -1,17 +1,21 @@
 import assert from "node:assert/strict";
-import { writeFileSync, unlinkSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { Speedrun, randomSource } from "./speedrun/runner.ts";
-import { readWalkthroughArtifact } from "./speedrun/artifact.ts";
+import { readWalkthroughArtifact, walkthroughServedRevisions } from "./speedrun/artifact.ts";
+import { BUILTIN_GAME_BUILDERS } from "./game-fixture.ts";
+import { walkthrough } from "./speedrun/walkthroughs.ts";
 
 const TARGET_HASH = KNOWN_GAME_HASH.KQ1;
 
 test("speedrun randomness has a stable seed contract", () => {
+  // The interpreter's 16-bit stream (docs/fidelity.md, "Original RNG") —
+  // bytes 50, 92, 122, 150 from state 1.
   const next = randomSource(1);
-  assert.deepEqual(Array.from({ length: 4 }, next), [15496, 24200, 33046, 46195]);
+  assert.deepEqual(Array.from({ length: 4 }, next), [50, 92, 122, 150]);
 });
 
 test(
@@ -108,35 +112,66 @@ test(
   },
 );
 
-test("readWalkthroughArtifact validates cryptographic binding of targetHash and supportedHashes", () => {
-  const kq1Artifact = readWalkthroughArtifact("app/public/walkthroughs/kq1.json");
-  assert.equal(kq1Artifact.game, "kq1");
-  assert.equal(kq1Artifact.targetHash, KNOWN_GAME_HASH.KQ1);
-  assert.deepEqual(kq1Artifact.supportedHashes, [KNOWN_GAME_HASH.KQ1]);
-
-  const tempPath = join(tmpdir(), `agi-test-binding-${Date.now()}.json`);
-  try {
-    // Mismatch targetHash
-    const badTarget = { ...kq1Artifact, targetHash: KNOWN_GAME_HASH.SQ1 };
-    writeFileSync(tempPath, JSON.stringify(badTarget));
-    assert.throws(() => readWalkthroughArtifact(tempPath), /target hash matches route/);
-
-    // Mismatch supportedHashes
-    const badSupported = {
-      ...kq1Artifact,
-      targetHash: KNOWN_GAME_HASH.KQ1,
-      supportedHashes: [KNOWN_GAME_HASH.SQ1],
-    };
-    writeFileSync(tempPath, JSON.stringify(badSupported));
-    assert.throws(
-      () => readWalkthroughArtifact(tempPath),
-      /route hash included in supported hashes/,
+test("every shipped walkthrough is a v2 artifact bound to its bundle revision", async () => {
+  // Runs without fixtures: builtin targets resolve their served revision from
+  // the builder; fixture targets still prove schema, binding field, and shape.
+  const dir = "app/public/walkthroughs";
+  const files = readdirSync(dir).filter((name) => name.endsWith(".json"));
+  assert.ok(files.length > 0, "walkthrough artifacts ship with the app");
+  for (const file of files) {
+    const path = join(dir, file);
+    const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    assert.equal(raw["schema"], "monotio.agi.walkthrough.v2", `${file} schema`);
+    assert.match(
+      String(raw["targetRevision"]),
+      /^[0-9a-f]{64}$/i,
+      `${file} declares the bundle revision it was recorded on`,
     );
-  } finally {
-    try {
-      unlinkSync(tempPath);
-    } catch {
-      // ignore
+    const hash = walkthrough(String(raw["game"])).hash;
+    if (BUILTIN_GAME_BUILDERS[hash] ?? BUILTIN_GAME_BUILDERS[String(raw["game"])]) {
+      const artifact = await readWalkthroughArtifact(path);
+      const served = await walkthroughServedRevisions(hash);
+      assert.equal(artifact.targetRevision, served[0], `${file} binds the served revision`);
     }
   }
 });
+
+test(
+  "readWalkthroughArtifact binds the tape to the served bundle revision",
+  { skip: fixtureSkip(KNOWN_GAME_HASH.KQ1, ["AGIDATA.OVL"]) },
+  async () => {
+    const kq1Artifact = await readWalkthroughArtifact("app/public/walkthroughs/kq1.json");
+    assert.equal(kq1Artifact.game, "kq1");
+    const served = await walkthroughServedRevisions(KNOWN_GAME_HASH.KQ1);
+    assert.equal(kq1Artifact.targetRevision, served[0]);
+    assert.ok(kq1Artifact.supportedRevisions?.includes(served[0]!));
+
+    const tempPath = join(tmpdir(), `agi-test-binding-${Date.now()}.json`);
+    try {
+      // Mismatch targetRevision
+      const badTarget = { ...kq1Artifact, targetRevision: KNOWN_GAME_HASH.SQ1 };
+      writeFileSync(tempPath, JSON.stringify(badTarget));
+      await assert.rejects(
+        () => readWalkthroughArtifact(tempPath),
+        /target revision matches the served bundle/,
+      );
+
+      // Mismatch supportedRevisions
+      const badSupported = {
+        ...kq1Artifact,
+        supportedRevisions: [KNOWN_GAME_HASH.SQ1],
+      };
+      writeFileSync(tempPath, JSON.stringify(badSupported));
+      await assert.rejects(
+        () => readWalkthroughArtifact(tempPath),
+        /served bundle revision included in supported revisions/,
+      );
+    } finally {
+      try {
+        unlinkSync(tempPath);
+      } catch {
+        // ignore
+      }
+    }
+  },
+);

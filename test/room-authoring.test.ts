@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { prepareRoomPatch } from "../src/agent/roomPatch.ts";
-import { StubAgent } from "../app/src/agent/stubAgent.ts";
+import { disassembleLogic } from "../src/logic/disassembler.ts";
+import { StubAgent, GAME_DICTIONARY } from "../app/src/agent/stubAgent.ts";
 
 const dictionary = new Map([["look", 100]]);
 const logic = Array.from(assembleLogic("return;", { dictionary }).payload);
@@ -64,14 +65,50 @@ for (const [name, bad, error] of [
   });
 }
 
-test("room patches cannot overwrite another room", () => {
+test("room patches may rewrite other rooms' resources in the same transaction", () => {
   const container = createContainer();
   container.putResource("logic", 1, new Uint8Array(logic));
-  const bad = {
+  const rewrite = {
     ...response,
     resources: [...response.resources, { kind: "logic", num: 1, data: logic }],
   };
-  assert.throws(() => prepareRoomPatch(container, 7, JSON.stringify(bad), dictionary), /overwrite/);
+  const patch = prepareRoomPatch(container, 7, JSON.stringify(rewrite), dictionary);
+  assert.deepEqual(
+    patch.resources.map((r) => [r.kind, r.num]),
+    [
+      ["logic", 7],
+      ["picture", 7],
+      ["logic", 1],
+    ],
+  );
+  // Still staged: the live container is untouched until the caller commits.
+  assert.equal(container.getResource("logic", 7), null);
+});
+
+test("a stub build realizing a planned exit rewrites the source room's logic", async () => {
+  const agent = new StubAgent(() => {});
+  const raw = await agent.handle({
+    op: "room",
+    context: { room: 3, from: 2, plannedExit: "north" },
+  });
+  const patch = prepareRoomPatch(createContainer(), 3, raw, GAME_DICTIONARY);
+  // Room 2 was never authored by this session, so the transaction supplies
+  // both its rewritten logic and a picture — the extension is playable.
+  assert.deepEqual(
+    patch.resources.map((r) => [r.kind, r.num]),
+    [
+      ["logic", 2],
+      ["picture", 2],
+      ["logic", 3],
+      ["picture", 3],
+    ],
+  );
+  const rewritten = disassembleLogic(
+    patch.resources.find((r) => r.kind === "logic" && r.num === 2)!.payload,
+    { dictionary: new Map(patch.words) },
+  );
+  assert.match(rewritten, /said\("north"\)/);
+  assert.match(rewritten, /new\.room\(3\)/);
 });
 
 test("a fresh stub session authors the requested room number after a reload", async () => {

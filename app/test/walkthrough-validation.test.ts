@@ -9,8 +9,9 @@ import {
 
 test("validateWalkthroughArtifact accepts valid walkthrough structure", () => {
   const valid: WalkthroughArtifact = {
-    schema: "monotio.agi.walkthrough.v1",
+    schema: "monotio.agi.walkthrough.v2",
     game: "kq1",
+    targetRevision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
     coverage: "complete-game",
     profile: "2.917",
     seed: 12345,
@@ -40,6 +41,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
       validateWalkthroughArtifact({
         schema: "invalid.schema.v2",
         game: "kq1",
+        targetRevision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
         coverage: "complete-game",
         profile: "2.917",
         seed: 0,
@@ -55,7 +57,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v2",
         game: "unknown-game",
         coverage: "complete-game",
         profile: "2.917",
@@ -72,8 +74,9 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v2",
         game: "kq1",
+        targetRevision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
         coverage: "complete-game",
         profile: "2.917",
         seed: -1,
@@ -87,8 +90,9 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v2",
         game: "kq1",
+        targetRevision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
         coverage: "complete-game",
         profile: "2.917",
         seed: 0,
@@ -102,8 +106,9 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v2",
         game: "kq1",
+        targetRevision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
         coverage: "complete-game",
         profile: "2.917",
         seed: 0,
@@ -119,8 +124,9 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v2",
         game: "kq1",
+        targetRevision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
         coverage: "complete-game",
         profile: "2.917",
         seed: 0,
@@ -134,8 +140,9 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v2",
         game: "kq1",
+        targetRevision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
         coverage: "complete-game",
         profile: "2.917",
         seed: 0,
@@ -149,8 +156,9 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v2",
         game: "kq1",
+        targetRevision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
         coverage: "complete-game",
         profile: "2.917",
         seed: 0,
@@ -164,8 +172,9 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v2",
         game: "kq1",
+        targetRevision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
         coverage: "complete-game",
         profile: "2.917",
         seed: 0,
@@ -178,16 +187,33 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   );
 });
 
-test("validateWalkthroughArtifact validates targetHash and supportedHashes when present", () => {
+test("validateWalkthroughArtifact requires targetRevision and validates supportedRevisions", () => {
   const validHash = "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780";
   const validUpper = "41D863172326C712C0AEBADF12FC63B049FF5D892743F4EE990004C344EB3780";
 
-  // Valid targetHash and supportedHashes (normalized to lowercase)
+  // A pre-rename tape — v1 schema or no binding — must not validate.
+  assert.throws(
+    () =>
+      validateWalkthroughArtifact({
+        schema: "monotio.agi.walkthrough.v2",
+        game: "kq1",
+        coverage: "complete-game",
+        profile: "2.917",
+        seed: 1,
+        virtualTicks: 100,
+        cycles: 10,
+        elapsedMs: 50,
+        actions: [],
+      }),
+    /Invalid walkthrough targetRevision/,
+  );
+
+  // Valid targetRevision and supportedRevisions (normalized to lowercase)
   const result = validateWalkthroughArtifact({
-    schema: "monotio.agi.walkthrough.v1",
+    schema: "monotio.agi.walkthrough.v2",
     game: "kq1",
-    targetHash: validUpper,
-    supportedHashes: [validUpper],
+    targetRevision: validUpper,
+    supportedRevisions: [validUpper],
     coverage: "complete-game",
     profile: "2.917",
     seed: 1,
@@ -196,16 +222,16 @@ test("validateWalkthroughArtifact validates targetHash and supportedHashes when 
     elapsedMs: 50,
     actions: [],
   });
-  assert.equal(result.targetHash, validHash);
-  assert.deepEqual(result.supportedHashes, [validHash]);
+  assert.equal(result.targetRevision, validHash);
+  assert.deepEqual(result.supportedRevisions, [validHash]);
 
-  // Invalid targetHash (too short, non-hex, wrong type)
+  // Invalid targetRevision (too short, non-hex, wrong type)
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v2",
         game: "kq1",
-        targetHash: "not-a-hash",
+        targetRevision: "not-a-hash",
         coverage: "complete-game",
         profile: "2.917",
         seed: 1,
@@ -214,14 +240,14 @@ test("validateWalkthroughArtifact validates targetHash and supportedHashes when 
         elapsedMs: 50,
         actions: [],
       }),
-    /Invalid walkthrough targetHash/,
+    /Invalid walkthrough targetRevision/,
   );
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v2",
         game: "kq1",
-        targetHash: 12345,
+        targetRevision: 12345,
         coverage: "complete-game",
         profile: "2.917",
         seed: 1,
@@ -230,16 +256,17 @@ test("validateWalkthroughArtifact validates targetHash and supportedHashes when 
         elapsedMs: 50,
         actions: [],
       }),
-    /Invalid walkthrough targetHash/,
+    /Invalid walkthrough targetRevision/,
   );
 
-  // Invalid supportedHashes (not array, entry invalid)
+  // Invalid supportedRevisions (not array, entry invalid)
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v2",
         game: "kq1",
-        supportedHashes: "not-an-array",
+        targetRevision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
+        supportedRevisions: "not-an-array",
         coverage: "complete-game",
         profile: "2.917",
         seed: 1,
@@ -248,14 +275,15 @@ test("validateWalkthroughArtifact validates targetHash and supportedHashes when 
         elapsedMs: 50,
         actions: [],
       }),
-    /supportedHashes must be an array/,
+    /supportedRevisions must be an array/,
   );
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v2",
         game: "kq1",
-        supportedHashes: ["short"],
+        targetRevision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
+        supportedRevisions: ["short"],
         coverage: "complete-game",
         profile: "2.917",
         seed: 1,
@@ -264,7 +292,7 @@ test("validateWalkthroughArtifact validates targetHash and supportedHashes when 
         elapsedMs: 50,
         actions: [],
       }),
-    /Invalid walkthrough supportedHash at index 0/,
+    /Invalid walkthrough supportedRevision at index 0/,
   );
 });
 
@@ -288,8 +316,9 @@ test("loadWalkthrough memoizes results and evicts failed fetches", async () => {
       ok: true,
       status: 200,
       json: async () => ({
-        schema: "monotio.agi.walkthrough.v1",
+        schema: "monotio.agi.walkthrough.v2",
         game: "kq1",
+        targetRevision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
         coverage: "complete-game",
         profile: "2.917",
         seed: 42,

@@ -1,9 +1,10 @@
 {
-  "schema": "monotio.agi.walkthrough.v1",
+  "schema": "monotio.agi.walkthrough.v2",
   "game": "adventure-department",
-  "targetHash": "c9085eb86d115abce91442186553a4b4a39cf30a2729fc8faaf259d74c07175d",
-  "supportedHashes": [
-    "c9085eb86d115abce91442186553a4b4a39cf30a2729fc8faaf259d74c07175d"
+  "targetRevision": "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b",
+  "supportedRevisions": [
+    "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b",
+    "dcd6f07a28acda1ec6b2c1e4508fe3348080fc463b14f47afbb0e58214aa26ee"
   ],
   "coverage": "complete-game",
   "profile": "2.936",
@@ -20,7 +21,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 37,
+  "elapsedMs": 41,
   "virtualTicks": 1520,
   "cycles": 133,
   "actions": [
@@ -680,7 +681,7 @@
       18,
       151,
       4,
-      76,
+      108,
       0,
       0,
       0,
@@ -1161,10 +1162,14 @@
     "parserCount": 2,
     "lastInputLine": "fix priority",
     "horizon": 112,
+    "priorityBase": 48,
+    "patchGeneration": 0,
     "modalKind": null,
+    "modalSerial": 0,
     "inputEnabled": true,
     "pictureShown": true,
     "terminated": false,
+    "controls": [],
     "inventory": []
   }
 }

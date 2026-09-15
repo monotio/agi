@@ -1,5 +1,7 @@
 import type { EngineReplayState } from "../../src/runtime/replayState.ts";
 import type { RecordedOperation } from "../../src/agent/recordedReplay.ts";
+import type { HistoryEventCause } from "../../src/agent/history.ts";
+import { AGI_KEY } from "../../src/runtime/keys.ts";
 /**
  * Player-action recorder for stored game tests.
  *
@@ -22,6 +24,38 @@ export type RecordedEvent =
   | { cycle: number; kind: "release" }
   /** A get.string / get.num prompt the player answered. */
   | { cycle: number; kind: "answer"; text: string };
+
+/**
+ * The stored-test event list is a view of the history stream: the always-on
+ * tape (`src/agent/history.ts`) is the one recording format, and a game-test
+ * recording keeps only the player-action slice — command lines, keys,
+ * direction holds and releases, prompt answers — stamped at the interpreter
+ * cycle the cause arrived on. Causes a test cannot express project to null.
+ */
+export function recordedEventFromCause(
+  cause: HistoryEventCause,
+  cycle: number,
+): RecordedEvent | null {
+  switch (cause.kind) {
+    case "key":
+      return { cycle, kind: "key", code: cause.code };
+    case "release":
+      return { cycle, kind: "release" };
+    case "direction":
+      return { cycle, kind: "direction", dir: cause.dir };
+    case "input":
+      return { cycle, kind: "command", text: cause.text };
+    // A print dismiss is the Enter keypress the runner replays.
+    case "dismiss":
+      return { cycle, kind: "key", code: AGI_KEY.ENTER };
+    case "answer":
+      return cause.op === "getnum" || cause.op === "getstring"
+        ? { cycle, kind: "answer", text: cause.response }
+        : null;
+    default:
+      return null;
+  }
+}
 
 /** The slice of engine.readState() the assertion diff works on. */
 export interface RecorderStateSnapshot {

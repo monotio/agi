@@ -51,6 +51,8 @@ const {
   cancelTestRecording,
   saveRecordedTest,
   roomMap,
+  historyView,
+  retryHistorySave,
 } = useEngineApi();
 const { aiModelLabel, aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
 const bridge = useShellBridge();
@@ -351,14 +353,14 @@ onUnmounted(() => {
           type="button"
           role="menuitem"
           data-testid="menu-assistant"
-          :disabled="state.powerUp.busy"
+          :disabled="state.powerUp.busy || state.historyView.active"
           @click="onPowerUp"
         >
           <span>Assistant<small>Ask about or remix this game</small></span>
           <span class="setting-value">✦</span>
         </button>
         <button
-          v-if="hasWalkthrough(currentGame()?.alias ?? '') && !state.walkthrough.active"
+          v-if="hasWalkthrough(currentGame()?.revision ?? '') && !state.walkthrough.active"
           type="button"
           role="menuitem"
           data-testid="btn-run-walkthrough"
@@ -377,6 +379,18 @@ onUnmounted(() => {
         >
           <span>World map<small>Rooms you have seen, planned and found in logic</small></span>
         </button>
+        <button
+          type="button"
+          role="menuitem"
+          data-testid="btn-look-back"
+          :disabled="state.walkthrough.active || state.recording.active || state.historyView.active"
+          @click="
+            closeNavMenus();
+            void historyView.openHistory();
+          "
+        >
+          <span>Look back<small>Pause and travel through this session</small></span>
+        </button>
         <button type="button" role="menuitem" data-testid="btn-start-over" @click="onStartOver">
           Start over
         </button>
@@ -384,7 +398,12 @@ onUnmounted(() => {
           type="button"
           role="menuitem"
           data-testid="btn-record-test"
-          :disabled="state.recording.active || state.recording.starting || state.powerUp.busy"
+          :disabled="
+            state.recording.active ||
+            state.recording.starting ||
+            state.powerUp.busy ||
+            state.historyView.active
+          "
           @click="onRecordStart"
         >
           <span>Record as game test<small>Replayable project regression test</small></span>
@@ -406,7 +425,7 @@ onUnmounted(() => {
           :disabled="exportBusy || state.powerUp.busy"
           @click="onExportAgiZip(true, true)"
         >
-          <span>Project<small>Game, editing history and world map</small></span>
+          <span>Project<small>Game, play history and world map</small></span>
         </button>
       </ActionMenu>
       <button
@@ -476,6 +495,26 @@ onUnmounted(() => {
         Back to game
       </button>
     </div>
+  </div>
+  <div
+    v-if="state.historyUnsaved"
+    class="export-refusal"
+    data-testid="history-unsaved"
+    role="alert"
+  >
+    <p>
+      Recording hasn't saved since
+      {{ new Date(state.historyUnsaved.since).toLocaleTimeString() }} — the tape keeps recording and
+      retries on its own.
+    </p>
+    <button
+      type="button"
+      class="ui-button ui-button--secondary"
+      data-testid="history-retry"
+      @click="retryHistorySave()"
+    >
+      Try now
+    </button>
   </div>
   <div
     v-if="state.recording.active"

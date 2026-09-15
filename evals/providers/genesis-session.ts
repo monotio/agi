@@ -206,7 +206,7 @@ export function applyBaselineOverride(
     items.map((item) =>
       item?.role === "user" &&
       typeof item.content === "string" &&
-      item.content.startsWith("### GENESIS PHASE:")
+      item.content.startsWith("### GENESIS:")
         ? { ...item, content: variant.userPrompt }
         : item,
     );

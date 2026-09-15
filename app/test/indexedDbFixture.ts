@@ -5,9 +5,18 @@ interface MemoryRequest<T> {
   onerror: (() => void) | null;
 }
 
-/** The smallest IndexedDB surface needed by game storage tests. */
+/**
+ * The smallest IndexedDB surface needed by game storage tests.
+ *
+ * Read-write transactions serialize the way real IndexedDB serializes them
+ * per object store: a second transaction's requests wait until the first
+ * commits or aborts. Without this, two storage clients interleaved on the
+ * fake could never reproduce the lost-update the single-transaction merge
+ * guards against.
+ */
 export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
   const records = new Map<IDBValidKey, unknown>();
+  let writeTail: Promise<void> = Promise.resolve();
   const request = <T>(transaction: Record<string, unknown>, operation: () => T): IDBRequest<T> => {
     transaction["pending"] = Number(transaction["pending"]) + 1;
     const value: MemoryRequest<T> = {
@@ -17,27 +26,37 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
       onerror: null,
     };
     queueMicrotask(() => {
-      try {
-        value.result = operation();
-        value.onsuccess?.();
-        transaction["pending"] = Number(transaction["pending"]) - 1;
-        queueMicrotask(() => {
-          if (!transaction["aborted"] && transaction["pending"] === 0)
-            (transaction["oncomplete"] as (() => void) | null)?.();
-        });
-      } catch (error) {
-        // A failed request settles its transaction the way IndexedDB does:
-        // the request errors, then the transaction errors and aborts.
-        value.error = error as DOMException;
-        value.onerror?.();
-        transaction["pending"] = Number(transaction["pending"]) - 1;
-        transaction["aborted"] = true;
-        transaction["error"] = error;
-        queueMicrotask(() => {
-          (transaction["onerror"] as (() => void) | null)?.();
-          (transaction["onabort"] as (() => void) | null)?.();
-        });
-      }
+      const gate = transaction["gate"] as Promise<void> | undefined;
+      const run = () => {
+        try {
+          value.result = operation();
+          value.onsuccess?.();
+          transaction["pending"] = Number(transaction["pending"]) - 1;
+          queueMicrotask(() => {
+            if (!transaction["aborted"] && transaction["pending"] === 0) {
+              transaction["settled"] = true;
+              (transaction["oncomplete"] as (() => void) | null)?.();
+              (transaction["release"] as (() => void) | undefined)?.();
+            }
+          });
+        } catch (error) {
+          // A failed request settles its transaction the way IndexedDB does:
+          // the request errors, then the transaction errors and aborts.
+          value.error = error as DOMException;
+          value.onerror?.();
+          transaction["pending"] = Number(transaction["pending"]) - 1;
+          transaction["aborted"] = true;
+          transaction["settled"] = true;
+          transaction["error"] = error;
+          queueMicrotask(() => {
+            (transaction["onerror"] as (() => void) | null)?.();
+            (transaction["onabort"] as (() => void) | null)?.();
+            (transaction["release"] as (() => void) | undefined)?.();
+          });
+        }
+      };
+      if (gate === undefined) run();
+      else void gate.then(run);
     });
     return value as unknown as IDBRequest<T>;
   };
@@ -45,17 +64,37 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
     onversionchange: null,
     close: () => {},
     createObjectStore: () => ({}),
-    transaction: () => {
+    transaction: (_stores: string, mode: string) => {
       const transaction: Record<string, unknown> = {
         oncomplete: null,
         onerror: null,
         onabort: null,
         aborted: false,
+        settled: false,
         pending: 0,
       };
+      if (mode === "readwrite") {
+        transaction["gate"] = writeTail;
+        writeTail = new Promise<void>((resolve) => {
+          transaction["release"] = resolve;
+        });
+        // An empty transaction commits as soon as the creating task yields.
+        queueMicrotask(() =>
+          queueMicrotask(() => {
+            if (transaction["pending"] === 0 && !transaction["settled"]) {
+              transaction["settled"] = true;
+              (transaction["release"] as (() => void) | undefined)?.();
+            }
+          }),
+        );
+      }
       transaction["abort"] = () => {
         transaction["aborted"] = true;
-        queueMicrotask(() => (transaction["onabort"] as (() => void) | null)?.());
+        transaction["settled"] = true;
+        queueMicrotask(() => {
+          (transaction["onabort"] as (() => void) | null)?.();
+          (transaction["release"] as (() => void) | undefined)?.();
+        });
       };
       transaction["objectStore"] = () => ({
         get: (key: IDBValidKey) =>

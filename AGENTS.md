@@ -8,9 +8,16 @@ its checks instead of inventing an approval step. Keep rules tied to a concrete 
 
 AGI IS HERE is an authentic Sierra AGI interpreter in TypeScript, wrapped by a
 harness in which an agent authors and live-patches real AGI resources while you
-play. Engine behavior is clean-room from Peter Kelly's CC0 agi-re specification
-(https://peterkelly.github.io/agi-re/spec/): read the common contract and the
-selected profile's variants before implementing an opcode. MIT, by Monotio.
+play. Engine behavior is independently implemented using Peter Kelly's CC0
+agi-re specification (https://peterkelly.github.io/agi-re/spec/) and behavioral
+evidence from original Sierra interpreter binaries. Read the common contract
+and selected profile's variants before implementing an opcode. For exact or
+uncertain authenticity behavior, inspect/disassemble the original interpreter
+in local `games/*` fixtures; record build, binary hash, addresses and conclusions
+in `docs/fidelity.md`. Distinguish interpreter machine code from game LOGIC
+bytecode and facts from inference. Do not substitute another interpreter's
+implementation or self-replay agreement for original-behavior evidence.
+MIT, by Monotio.
 README.md is the public front door; CONTRIBUTING.md covers development and
 contributions, docs/testing.md fixtures and compatibility checks,
 docs/hosting.md hosting and releases, and docs/fidelity.md interpreter behavior.
@@ -61,8 +68,16 @@ only for released formats and keep their original fixtures.
   hatch is the optional `prepareRoom` host hook, which lets the agent write a
   missing room during `new.room`; the worker installs it only for games created in
   the app, never for imported or fixture games.
-- Container edits preserve resource IDs, record formats and interpreter behavior.
-  Repack replaced resources transactionally so superseded data does not accumulate.
+- Authoring may change existing rooms and shared logics/resources to evolve a
+  story; the triggering room is not an edit-scope boundary. Validate and commit
+  the complete change transactionally, including affected references and
+  vocabulary/inventory bindings, against the intended resource revision. Keep
+  existing IDs while referenced; coordinated rewrites must update all affected
+  references. Apply changes at a safe continuation boundary. Preserve real AGI
+  formats and interpreter behavior; repack superseded resources transactionally.
+- Keep local original interpreter binaries and bulk disassembly outside public
+  builds and archives. Publish behavioral findings and independently authored
+  tests, with explicit skips for tests requiring privately held binaries.
 - Fidelity: every opcode exercised by a fixture needs the specified observable
   behavior, selected per interpreter profile (`src/runtime/profile.ts`). A no-op is
   valid only where the spec says so. `test/games.test.ts` checks dispatch coverage;

@@ -12,6 +12,20 @@ export class SoundClock {
     this.remainder = 0;
   }
 
+  /** The sub-tick carry, in ms·60 units — a history anchor's sound-clock state. */
+  snapshot(): number {
+    return this.remainder;
+  }
+
+  /** Re-base onto the host clock with a recorded carry (a history take). */
+  restore(now: number, remainder: number): void {
+    if (!Number.isFinite(now)) throw new Error("Sound clock time must be finite.");
+    if (!Number.isFinite(remainder) || remainder < 0)
+      throw new Error("Sound clock remainder must be finite and nonnegative.");
+    this.previous = now;
+    this.remainder = remainder;
+  }
+
   /** Return whole 60Hz ticks since the previous observation, preserving fractions. */
   advance(now: number, paused = false): number {
     const elapsed = Math.max(0, now - this.previous);

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
+import { getKnownGameByAlias } from "../../src/games/knownGames.ts";
 import { isolateStorage } from "./engineProbe.ts";
 
 const missing = fixtureSkip(KNOWN_GAME_HASH.KQ1, ["AGIDATA.OVL"]);
@@ -762,6 +763,49 @@ test.describe("Walkthrough UI", () => {
         audioPlaying: false,
         soundPlaying: false,
       });
+  });
+
+  test("offers the walkthrough only to the recorded bundle revision", async ({ page }) => {
+    // No fixtureSkip — the manifest is mocked and nothing boots.
+    const synthetic = getKnownGameByAlias("synthetic")!;
+    const remixedRevision = "f".repeat(64);
+    await page.route("**/fixtures/", (route) =>
+      route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            // A remixed KQ1 install keeps the WORDS.TOK fingerprint but hashes
+            // to a bundle revision the tape was not recorded on.
+            folder: "kq1-remix",
+            hash: KNOWN_GAME_HASH.KQ1,
+            alias: "kq1",
+            title: "KQ1 REMIX",
+            wordsSha256: KNOWN_GAME_HASH.KQ1,
+            revision: remixedRevision,
+          },
+          {
+            folder: "synthetic-copy",
+            hash: synthetic.wordsSha256,
+            alias: "synthetic",
+            title: "SYNTHETIC COPY",
+            wordsSha256: synthetic.wordsSha256,
+            revision: synthetic.targetRevision,
+          },
+        ]),
+      }),
+    );
+    await isolateStorage(page);
+    await page.goto("/");
+
+    // Same vocabulary and fingerprint alias, different bundle → no offer, and
+    // with no autosave the card has no actions menu at all.
+    await expect(page.getByTestId("game-actions-kq1-remix")).toHaveCount(0);
+
+    // The untouched edition still gets the offer under its own menu.
+    const menuBtn = page.getByTestId("game-actions-synthetic-copy");
+    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
+    await menuBtn.click();
+    await expect(page.getByTestId("run-walkthrough")).toBeVisible();
   });
 
   test("scrubbing back and forth in kq1 during dialogue does not throw bridge cancellation error", async ({

@@ -12,7 +12,7 @@ import { BrowserReplay } from "./speedrunReplay.ts";
 import { settled } from "./engineProbe.ts";
 
 const path = process.env["AGI_SPEEDRUN_FILE"];
-const recording = path ? readWalkthroughArtifact(path) : null;
+const recording = path ? await readWalkthroughArtifact(path) : null;
 const missing = fixtureSkip(KNOWN_GAME_HASH.KQ1, ["AGIDATA.OVL"]);
 
 for (const phone of [false, true]) {

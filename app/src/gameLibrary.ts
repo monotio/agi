@@ -6,6 +6,7 @@ import {
 } from "./gameMetadata.ts";
 import { storeImportedProgress, type ImportStorageReport } from "./gameProgress.ts";
 import { writeMapSidecar } from "./roomMapStore.ts";
+import { importGameHistory } from "./historyStorage.ts";
 import {
   loadAuthoredGame,
   saveAuthoredGame,
@@ -113,6 +114,12 @@ export async function addLibraryGame(
   if (game.map) {
     report ??= { slots: [], failedSlots: [], autosave: null };
     report.map = writeMapSidecar(localStorage, targetProjectId, game.map);
+  }
+  // The recorded tape too — the transport replays it under the imported
+  // project id, and a refused write lands in the same report.
+  if (game.history) {
+    report ??= { slots: [], failedSlots: [], autosave: null };
+    report.history = await importGameHistory(targetProjectId, game.history);
   }
   if (report) onProgressStored?.(report);
   return targetProjectId;

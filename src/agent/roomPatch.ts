@@ -22,7 +22,15 @@ export interface RoomPatch {
   words: [string, number][];
 }
 
-/** Validate the entire response, including container capacity, before any live write. */
+/**
+ * Validate the entire response, including container capacity, before any live
+ * write. The room number is context, not an authority boundary: a turn may
+ * rewrite other already-built resources — a source room gaining a planned exit,
+ * a shared logic — as long as every payload parses, existing vocabulary IDs and
+ * inventory bindings stay stable, and the requested room ends up playable. Any
+ * rejection lands before `resources` is returned, so callers either commit the
+ * whole staged set or nothing.
+ */
 export function prepareRoomPatch(
   container: GameContainer,
   room: number,
@@ -78,12 +86,6 @@ export function prepareRoomPatch(
     const key = `${kind}:${num}`;
     if (seen.has(key)) throw new Error("Duplicate room resource");
     seen.add(key);
-    if (
-      container.getResource(kind, num) &&
-      !((kind === "logic" || kind === "picture") && num === room)
-    ) {
-      throw new Error("Room authoring may not overwrite another resource");
-    }
     const payload = new Uint8Array(resource.data);
     if (kind === "logic") {
       const source = disassembleLogic(payload, { dictionary: nextDictionary, profile });

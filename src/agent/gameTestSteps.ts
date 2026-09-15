@@ -1,5 +1,6 @@
 import { decodeRecordedReplay } from "./recordedReplay.ts";
 import { validateTarget, type Target } from "./navigation.ts";
+import { rngDraw } from "../runtime/rng.ts";
 /**
  * The game-test step and expectation vocabulary shared by the stored
  * TESTS.JSON format (src/agent/gameTests.ts), the playtest simulation
@@ -14,12 +15,18 @@ import { validateTarget, type Target } from "./navigation.ts";
 /** The direction-key table is protocol data owned by src/runtime/keys.ts. */
 export { DIRECTION_KEYS } from "../runtime/keys.ts";
 
-/** Repeatable random input, never a chosen result for an individual game branch. */
+/**
+ * Repeatable random input, never a chosen result for an individual game
+ * branch. Runs the interpreter's own RNG (src/runtime/rng.ts); the seed
+ * doubles as the deterministic stand-in for a zero-state clock read, so a
+ * stored test and a speedrun can never disagree about a draw.
+ */
 export function randomSource(seed: number): () => number {
-  let value = seed >>> 0;
+  let state = seed & 0xffff;
   return () => {
-    value = (Math.imul(value, 1664525) + 1013904223) >>> 0;
-    return value >>> 16;
+    const draw = rngDraw(state, () => seed & 0xffff);
+    state = draw.state;
+    return draw.byte;
   };
 }
 

@@ -159,10 +159,10 @@ test(
     // The question room and the question itself are random() picks; both pins
     // are the deterministic seed-1 outcome. The picture underneath is solid
     // black, so the exact printed rows are the (only) observable here.
-    assert.equal(run.state().room, 141, "the seed-1 question room");
+    assert.equal(run.state().room, 142, "the seed-1 question room");
     assert.equal(
       run.messages[0],
-      "In order to verify your legal ownership, please use your King's Quest IV manual to answer the following question:\n\n On page 3, what is the eighth word in the third paragraph?",
+      "In order to verify your legal ownership, please use your King's Quest IV manual to answer the following question:\n\n On page 7, what is the ninth word of the third paragraph?",
       "the seed-1 manual question",
     );
   },

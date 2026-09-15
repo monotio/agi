@@ -35,13 +35,199 @@ node --experimental-strip-types scripts/descramble-agi.ts games/<folder> /tmp/<f
 ndisasm -b 16 -e 0x200 /tmp/<folder>-agi.bin > /tmp/<folder>.asm
 ```
 
-The v2 scrambling XORs the image per 128-byte block with the 128-byte key at the loader's offset
-0x41; between blocks each key byte rotates right, the low bit chaining forward from byte 0 into the
-next byte's high bit (byte 0's own low bit folds back into its high bit; byte 127's low bit falls
-off). The loader is `SIERRA.COM` on most installations, or a game-specific `*.COM`. Decoded binaries
-and disassemblies are Sierra data: keep them with the local fixtures, never committed.
+The v2 scrambling XORs each 128-byte block with the evolving 128-byte key at
+loader file offset 0x41. Initial carry is zero. After each block, rotate each
+key byte through carry, from byte 0 through byte 127; OR the final carry into
+byte 0's high bit. The loader's saved flags also retain that final carry for
+rotation of the next block. This is not a simple circular rotation.
+
+**Descrambler repaired on 2026-09-14:** the old tool incorrectly initialized
+carry from byte 0 each block and omitted the final wrap. That produced corrupt
+instructions in otherwise plausible images. Synthetic carry regressions failed
+against that implementation and pass the repair. No original instruction was
+patched or guessed. The independent
+[loader probe](../scripts/probe-interpreter-loader.py) executes the original
+COM routine and compares **every output byte** with the TypeScript CLI:
+
+| Input            | COM routine offset (loaded at 0x100) | Bytes compared |
+| ---------------- | ------------------------------------ | -------------- |
+| KQ1 / KQ1.COM    | 0x9f4                                | 39,424         |
+| KQ2 / SIERRA.COM | 0x969                                | 38,400         |
+| KQ3 / SIERRA.COM | 0x9f4                                | 39,424         |
+| BC / BC.COM      | 0x96d                                | 38,400         |
+| SQ2 / SIERRA.COM | 0x9f4                                | 39,424         |
+
+All five comparisons pass. Decoded SHA-256 identities appear below. Reproduce
+with `python scripts/probe-interpreter-loader.py games/kq1 --loader KQ1.COM --entry 0x9f4`
+using optional Unicorn 2.1.4; substitute the table's directory/loader/entry.
+Already-MZ inputs are copied unchanged. Decoded binaries and disassemblies are
+Sierra data: keep them with local fixtures or in scratch storage, never committed.
 
 ## Compatibility notes
+
+### Original RNG and wander countdown — binary investigation, 2026-09-14
+
+These are new implementation requirements, not claims that the engine already
+matches. Investigation used local original interpreter machine code, NDISASM
+3.02 and Unicorn 2.1.4 in 16-bit mode. No other interpreter implementation was
+used. The executable's MZ header size is read from its paragraph count (0x200
+for these inputs); addresses below are relative to the load module. DS addresses
+are separately identified. Whole-file linear disassembly includes data and can
+misalign instructions: routine entry points and actual execution established
+these results, not a text search alone.
+
+#### Verified inputs
+
+| Local input                  | Build from AGIDATA.OVL | RNG entry | State DS offset | Executed states |
+| ---------------------------- | ---------------------- | --------- | --------------- | --------------- |
+| `games/kq1/AGI`, descrambled | 2.917                  | 0x70f9    | 0x1707          | all 65,536      |
+| `games/kq2/AGI`, descrambled | 2.411                  | 0x6dfe    | 0x15e0          | all 65,536      |
+| `games/kq3/AGI`, descrambled | 2.936                  | 0x71c0    | 0x1711          | all 65,536      |
+| `games/bc/AGI`, descrambled  | 2.439                  | 0x6f1b    | 0x168d          | all 65,536      |
+| `games/sq2/AGI`, descrambled | 2.936                  | 0x71c0    | 0x1711          | all 65,536      |
+| `games/mumg/agi`, already MZ | 2.915                  | 0x70e5    | 0x1707          | all 65,536      |
+| `games/kq4/AGI`              | 3.002.086              | 0x75ff    | 0x1781          | all 65,536      |
+| `games/demopac4/AGI`         | 3.002.102              | 0x7617    | 0x1793          | all 65,536      |
+| `games/mh1/AGI`              | 3.002.107              | 0x7617    | 0x1793          | all 65,536      |
+| `games/gr1/AGI`              | 3.002.149              | 0x753e    | 0x1548          | all 65,536      |
+
+SHA-256 of each executed input (decoded executable where indicated):
+
+```text
+kq1 decoded  bf53a4f98e32a7feec127b153100b66678c48715fec1ae2e823b947c0b5aef04
+kq2 decoded  d99938d6622ef18556bea76ebe72214b18cecac7305b83885a1157ddcff539bf
+kq3 decoded  4b50c681c224326e09933170823b846e7dbe340dafc76f07ee0af990ebb93400
+bc decoded   e717bfe1059eff8c2d7ace9052e194b50ddec9257421b4e77356e91331142ade
+sq2 decoded  11dce8acb65eda6b4a28e90f8c50019c96c445918d19763d57bd503ede549a79
+sq2 shipped  2d4c5389e6665570f83f024cdbe9b369d048b864183d2921ca45e7f6758021cc
+mumg         6ee9d44b87e11dd3dba847468902932ab53ed08e714e349dc3679de544fc4c2f
+kq4          b9b27b403015bb18f6562ba1b8b04c2829e0c3b53c042196bee7924d1df7be65
+demopac4     7cf6eac9d5bbfbd944a2b5d7189878ffe4b2d608646d91c87d5372399fa9d1d0
+mh1          ed8b58d354e10b069a1ce137c61bfa3536b2bb9c69cc7510bc864af29daf161e
+gr1          12a52b728b1b1f8d27b21e85cab022a30ef359bca200ba9ed4d6e78a50979f41
+```
+
+The repaired loader closes the earlier KQ1/KQ2/KQ3/BC evidence gap. All four
+now execute correctly, including their wander routines. Verification remains
+specific to these builds; it does not establish every interpreter profile.
+
+#### RNG behavior established by executing the original routine
+
+1. State is an unsigned **16-bit** word. If it is zero on entry, call BIOS
+   interrupt 1Ah with AH=0 and replace state with **DX**, the low clock word.
+2. Compute `state = (state * 31821 + 1) & 0xffff` (multiplier `0x7c4d`).
+   The high product word is discarded.
+3. Return `(state & 255) ^ (state >>> 8)`, an unsigned **byte**, not the high
+   word of a 32-bit generator. Preserve the full 16-bit state for the next call.
+
+In 3.002.149, the zero check is at 0x7546, BIOS read at 0x754f, multiplication
+at 0x7558, state store at 0x755d and byte folding at 0x7560. The matching 2.936
+locations are 0x71c8, 0x71d1, 0x71da, 0x71df and 0x71e2.
+
+**Zero is not a one-time initialization flag.** State 58,235 advances to zero
+and returns zero. The following call reads BIOS again. With supplied BIOS DX
+0x1234 it advances to 43,429 and returns 12. With BIOS DX=0 it advances to 1
+and returns 1. The probe injects the BIOS result; it does not emulate hardware
+clock cadence. Recording only the first seed cannot reproduce later zero-state
+clock reads. Replacing the branch with `state || 1` changes original behavior.
+
+Exact sequence from state 1, before any BIOS read:
+
+| Draw | Next state | Returned byte |
+| ---- | ---------- | ------------- |
+| 1    | 31822      | 50            |
+| 2    | 11127      | 92            |
+| 3    | 46796      | 122           |
+| 4    | 52061      | 150           |
+| 5    | 14074      | 204           |
+| 6    | 41267      | 146           |
+| 7    | 12376      | 104           |
+| 8    | 10873      | 83            |
+| 9    | 25190      | 4             |
+| 10   | 175        | 175           |
+
+#### Range mapping and consumers
+
+The 3.002.149 `random(n,m,v)` handler at 0x523e reads unsigned byte operands,
+forms a 16-bit `(m-n+1)`, calls RNG at 0x526d, uses unsigned remainder at
+0x5272, adds n and stores the low byte. For valid n<=m this is
+`n + (randomByte % (m - n + 1))`. It still consumes a draw when n=m.
+Starting each case at state 1: `(0,255)` gives 50, `(10,20)` gives 16,
+`(42,42)` gives 42. These were executed through the original handler.
+
+Malformed reversed bounds are not normalized by Sierra: `(20,10)` gives 70
+from state 1; `(1,0)` raises CPU divide error (interrupt 0), observed in the
+isolated probe. Do not silently swap bounds. A controlled engine fault is an
+appropriate host representation of the zero-divisor case; do not emulate a
+machine crash. Do not advertise reversed bounds as an authoring feature.
+Shipped code does lean on the behavior, though: kq2 logic 167 rolls
+`random(30,0,v)` — span 65,527, so the byte is never reduced — for
+`30 + byte` wrapped to a byte. The assembler must accept it for
+disassemble→assemble round-trips.
+
+Direction helper 0x4207 returns `randomByte % 9`, including zero. The blocked
+follow path at 0x0e08 retries this helper until direction is nonzero. Its distance
+retry at 0x0e59 also consumes the same RNG, with remainder and threshold retry.
+Those call sites were disassembled; the complete follow routine was not executed
+in this pass. Preserve its existing call-order logic while replacing the source.
+
+#### Wander: decrement first, conditionally reroll the count
+
+Executed entry points: 3.002.149 at 0x41be (ego pointer DS:0x07d0),
+3.002.086 at 0x42f7 (DS:0x099d), and 3.002.102/.107 at 0x430d
+(DS:0x09b0). Corrected v2 images also executed: KQ1 at 0x3f5a
+(DS:0x0963), KQ2 at 0x3e58 (DS:0x0951), BC at 0x3e82 (DS:0x0951),
+KQ3 and SQ2 at 0x3f5a (DS:0x096b). All nine produced the vectors below.
+
+The routine reads the old byte count and decrements it modulo 256. If the old
+count was zero **or** object flag 0x4000 (stationary) is set, choose a direction
+using one draw modulo 9. Then, **while the already decremented count is below
+6**, draw modulo 51 into the count and retry if still below 6. This is a `while`,
+not a `do/while`: old zero wraps to 255 and is retained. A stationary object
+whose decremented count is at least 6 also retains that count. Otherwise no
+random draw is made. Ego direction is also written to v6.
+
+Each row starts at RNG state 1 and object direction 0:
+
+| Old count | Stationary | New direction | New count | Final RNG state |
+| --------- | ---------- | ------------- | --------- | --------------- |
+| 0         | false      | 5             | 255       | 31822           |
+| 1         | false      | 0             | 0         | 1               |
+| 1         | true       | 5             | 41        | 11127           |
+| 8         | true       | 5             | 7         | 31822           |
+| 255       | true       | 5             | 254       | 31822           |
+
+The current engine's unconditional count reroll on direction change consumes
+extra randomness and changes motion. Apply the evidenced count behavior to the
+nine verified inputs, including the corrected v2 builds.
+
+#### Reproduce without shipping original code or adding runtime dependencies
+
+The independent harness [probe-interpreter-rng.py](../scripts/probe-interpreter-rng.py)
+loads local bytes into an isolated 16-bit CPU, intercepts BIOS clock input and
+checks returned values/state. It requires optional Unicorn, outside npm/runtime:
+
+```bash
+python3 -m venv /tmp/agi-binary-venv
+/tmp/agi-binary-venv/bin/pip install unicorn==2.1.4
+node --experimental-strip-types scripts/descramble-agi.ts games/sq2 /tmp/sq2-agi.bin
+/tmp/agi-binary-venv/bin/python scripts/probe-interpreter-rng.py /tmp/sq2-agi.bin --entry 0x71c0 --state 0x1711 --sha256 11dce8acb65eda6b4a28e90f8c50019c96c445918d19763d57bd503ede549a79 --exhaustive
+/tmp/agi-binary-venv/bin/python scripts/probe-interpreter-rng.py games/gr1/AGI --entry 0x753e --state 0x1548 --sha256 12a52b728b1b1f8d27b21e85cab022a30ef359bca200ba9ed4d6e78a50979f41 --range-entry 0x523e --wander-entry 0x41be --ego-pointer 0x7d0 --exhaustive
+```
+
+Use the table's entry/state/hash for the other inputs. The ten exhaustive runs
+passed 655,360 state comparisons. A temporary probe with multiplier 31823 failed
+against the original binary; the unchanged probe passed, including zero clock
+input. Python syntax and documentation formatting checks passed. No runtime
+implementation was changed by this investigation.
+
+This RNG probe intercepts BIOS input; it does not establish hardware clock
+cadence. The separate [save/restart audit](#original-save-and-restart-audit)
+now executes those original routine cores in 2.936 and 3.002.149: authentic
+save/restore and accepted restart preserve the current RNG stream. Harness
+history deliberately restores RNG and external-input cursor as its stronger
+checkpoint contract. Full startup and post-restore reconstruction remain
+separate from these bounded routine results.
 
 ### Completion animation updates
 
@@ -398,18 +584,17 @@ Disassembly evidence (load-module offsets):
 
 Implication for this engine: the worker suspends the interpreter pass during
 get.string/get.num instead of blocking its event loop, so the sound clock keeps
-advancing — matching the hardware. Replay still treats a parked prompt as zero elapsed
-virtual ticks (no cycles run while suspended), a record/replay determinism trade-off,
-not a claim about hardware.
+advancing — matching the hardware. Replay records the separate clock lane so suspended logic does not imply
+zero elapsed sound time. This harness clock contract remains distinct from
+full DOS interrupt-cadence verification.
 
 ### SN76489 attenuation latching and rest notes
 
-On the Texas Instruments SN76489 (and NCR 8496) Digital Complex Sound Generator (PSG) used in the
-IBM PCjr and Tandy 1000, only the 10-bit tone frequency registers (registers 0, 2, and 4) accept a
-second data byte (`bit 7 = 0`) to complete the 10-bit divisor. The 4-bit attenuation registers
-(registers 1, 3, 5, and 7) and the noise control register (register 6) are latch-only (`bit 7 = 1`).
-Any data bytes (`bit 7 = 0`) sent while an attenuation or noise register is latched are ignored by
-the silicon.
+The current audio backend accepts continuation data bytes for tone registers
+and ignores them for attenuation/noise latches. This is the current presentation
+policy; the broad claim that every SN76489/NCR 8496 variant ignores those bytes
+requires chip-specific evidence and is not established by interpreter execution.
+See the [sound audit](#original-sound-player-audit) and RC.13 hardware work.
 
 In multi-channel AGI sound resources (such as King's Quest II Sound 6, the two-voice church organ
 hymn in Room 71), unused channels or rest notes are encoded with `tone = 0` and attenuation 15
@@ -421,9 +606,10 @@ Two failure modes arise if hardware latching semantics and rest notes are not mo
    `0x00` byte (e.g. from an unsuppressed tone update or stream data) written while an attenuation
    register is latched will be interpreted as attenuation `0` (0 dB / 100% volume), producing an
    unintended maximum-volume stuck note or drone.
-2. In `SoundPlayback`, notes with `tone = 0` represent rests; emitting tone divisor command bytes
-   for these notes sends redundant frequency commands (`[high, 0x00]`) to unvoiced or silent
-   channels. Suppressing frequency writes when `tone = 0` keeps inactive voice divisors untouched.
+2. `SoundPlayback` suppresses frequency writes when `tone = 0`, leaving inactive
+   voice divisors untouched. Original KQ1/MH1/GR1 routines emit these writes.
+   Suppression is a deliberate presentation divergence, not reproduced original
+   command-stream behavior. Resolve chip/device semantics before changing it.
 
 Specification: The AGI behavioral specification documents the 5-byte note structure and defines
 tone divisor 0 as silence/rest, but does not detail the TI SN76489 chip latching state machine.
@@ -490,3 +676,293 @@ Tests: [worker-presentation.test.ts](../app/test/worker-presentation.test.ts)
 (mask publish and dismissal),
 [worker-journal.test.ts](../app/test/worker-journal.test.ts) (transition
 attribution and replay silence).
+
+### Original motion and animation audit
+
+Executed original interpreter machine code on 2026-09-14 using
+[scripts/probe-interpreter-motion.py](../scripts/probe-interpreter-motion.py)
+and optional Unicorn 2.1.4. This establishes handler and animation state
+transitions, not graphics, collision scanning or whole-loop cadence: the final
+cel-resource setter is intercepted to capture its requested cel. No original
+instructions or game assets are bundled with the probe.
+
+Inputs and SHA-256 (v2 inputs are decoded with the corrected loader procedure):
+
+| Input/build                | SHA-256                                                            |
+| -------------------------- | ------------------------------------------------------------------ |
+| KQ3 decoded, 2.936         | `4b50c681c224326e09933170823b846e7dbe340dafc76f07ee0af990ebb93400` |
+| `games/mh1/AGI`, 3.002.107 | `ed8b58d354e10b069a1ce137c61bfa3536b2bb9c69cc7510bc864af29daf161e` |
+| `games/gr1/AGI`, 3.002.149 | `12a52b728b1b1f8d27b21e85cab022a30ef359bca200ba9ed4d6e78a50979f41` |
+
+All routine addresses below are load-module offsets; the final row is a DS offset.
+
+| Routine                | KQ3 2.936 | MH1 3.002.107 | GR1 3.002.149 |
+| ---------------------- | --------- | ------------- | ------------- |
+| normal.cycle           | 0x6b82    | 0x6fd3        | 0x6efa        |
+| reverse.cycle          | 0x6beb    | 0x703c        | 0x6f63        |
+| end.of.loop            | 0x6bae    | 0x6fff        | 0x6f26        |
+| reverse.loop           | 0x6c17    | 0x7068        | 0x6f8f        |
+| follow.ego             | 0x6e02    | 0x7253        | 0x717a        |
+| move.obj               | 0x6ce4    | 0x7135        | 0x705c        |
+| follow update          | 0x0b36    | 0x0d8b        | 0x0d84        |
+| animation update       | 0x48b3    | 0x4cf7        | 0x4b0e        |
+| cycle.time             | 0x6c54    | 0x70a5        | 0x6fcc        |
+| intercepted cel setter | 0x3ccb    | 0x407e        | 0x3f2f        |
+| ego table pointer (DS) | 0x096b    | 0x09b0        | 0x07d0        |
+
+Twelve scenario rows per executable passed, 36 total. A negative control using
+the current engine's stopped normal.cycle behavior failed at that assertion.
+Independent synthetic Engine execution confirmed these mismatches:
+
+- `normal.cycle` and `reverse.cycle` set cycling bit 0x20 as well as mode. They
+  do not set update bit 0x10 or reset cadence counters. After `stop.cycling`,
+  either command resumes cycling; the current handlers change only mode.
+- `follow.ego` sets update bit 0x10 and captures
+  `max(requestedDistance, currentStepSize)` at opcode execution. Step size 4
+  with requests `[0,1,4,5,255]` produces thresholds `[4,4,4,5,255]`; retry is 255. An ego three pixels away on the same baseline completes on the next
+  motion update in all five cases. `move.obj` also sets update bit 0x10.
+  Current target/follow helpers can retain the stopped update partition.
+- Object bytes 0x27..0x2a are one shared parameter bank. `move.obj` writes
+  `[targetX,targetY,savedStep,completionFlag]`; `follow.ego` writes
+  `[effectiveThreshold,completionFlag,255,unchanged]`; `end.of.loop` and
+  `reverse.loop` write their completion flag into the **first byte**. Animation
+  completion reads that first byte even when later motion overwrote it.
+
+For a non-ego actor at (10,80), step size 4 and three cels:
+
+| Opcode sequence                                  | Final shared bank | Observable result                      |
+| ------------------------------------------------ | ----------------- | -------------------------------------- |
+| `move.obj(o1,90,80,2,f62); end.of.loop(o1,f61);` | `[61,80,4,62]`    | Target X becomes 61.                   |
+| `end.of.loop(o1,f61); move.obj(o1,90,80,2,f62);` | `[90,80,4,62]`    | Completion at cel 2 sets f90, not f61. |
+
+`reverse.loop` has the same overwrite and sets f90 on reaching cel 0 in the
+second ordering. One initial animation call consumes the delay before an
+eligible call advances from cel 1. Completion stops cycling, zeros direction
+and returns cycle mode to normal. These final effects already match the engine.
+`cycle.time(v=7)` writes both interval and remaining counter to 7, also a match.
+Do not infer full scheduler tick counts from this isolated routine execution.
+
+RC.12 implementation contract: fix cycling/update/threshold effects; replace
+independently writable motion/cycle fields with one authoritative four-byte
+bank and mode-dependent accessors; preserve bytes a handler does not write.
+Flag index zero is valid. Use the same bank for 43-byte save object records and
+rewind snapshots. Current follow-retry, cycle-flag and wander-count packing is
+not the original layout; do not retain it as a compatibility layer. Test both
+opcode orderings before and after restore, plus one record→seek→resume sequence.
+Early profiles, full collision/footprint ordering and stochastic follow retries
+remain RC.13 investigations, not verified claims.
+
+Reproduce after decoding the private KQ3 executable:
+
+```sh
+python scripts/probe-interpreter-motion.py /tmp/agi-fixed-kq3.bin --profile 2.936
+python scripts/probe-interpreter-motion.py games/mh1/AGI --profile 3.002.107
+python scripts/probe-interpreter-motion.py games/gr1/AGI --profile 3.002.149
+```
+
+### Original sound player audit
+
+Executed on 2026-09-14 with
+[scripts/probe-interpreter-sound.py](../scripts/probe-interpreter-sound.py),
+Unicorn 2.1.4 and each binary's matching original AGIDATA.OVL. Only resource
+lookup is substituted with a synthetic loaded-resource descriptor; opcode,
+flag, player, envelope and stop code execute unchanged. Port writes are captured,
+not sent to hardware. This does not establish interrupt cadence, audible PSG
+behavior or modal-editor timing.
+
+MH1 and GR1 executable hashes are listed in the motion audit above. KQ1 2.917
+corrected decoded executable SHA-256 is
+`bf53a4f98e32a7feec127b153100b66678c48715fec1ae2e823b947c0b5aef04`.
+The probe additionally requires these AGIDATA.OVL hashes:
+
+| Build         | AGIDATA.OVL SHA-256                                                |
+| ------------- | ------------------------------------------------------------------ |
+| KQ1 2.917     | `f7ca256c1c0ab12509d695baabdd44a3c5e72a570b08118d3ead995a47f4c383` |
+| MH1 3.002.107 | `bb22a87cd215ed52154d49754493e0eb2f6be5688411d8f3b7ac17c417ddae1f` |
+| GR1 3.002.149 | `914990f09b49109a34d511011c7764abb5575581fbc190c8cebc930b1027f804` |
+
+| Location              | KQ1 2.917 | MH1 3.002.107 | GR1 3.002.149 |
+| --------------------- | --------- | ------------- | ------------- |
+| sound opcode          | 0x510b    | 0x55ef        | 0x5406        |
+| substituted lookup    | 0x5010    | 0x54f4        | 0x530b        |
+| stop helper           | 0x516c    | 0x5650        | 0x5467        |
+| player tick           | 0x7f55    | 0x8473        | 0x8330        |
+| envelope (DS)         | 0x17ae    | 0x183a        | 0x15ef        |
+| output selectors (DS) | 0x17f2    | 0x1888        | 0x163d        |
+
+Confirmed matches in all three builds:
+
+- Starting sound clears its completion flag. Replacing f40 with f41 sets f40
+  and clears f41; replacing using f40 again leaves f40 clear.
+- Stopping active sound sets its completion flag. Stopping idle sound does
+  nothing, including when the old flag was manually cleared afterward.
+- Starting with f9 clear still installs playback and clears completion; the
+  **next sound tick** stops and sets completion. Clearing f9 during playback
+  also terminates at the next tick, rather than merely muting a running tune.
+- A duration-2 note completes on tick 3: note load, countdown, terminator.
+  Duration zero wraps: note load stores 0, the next tick stores 65535. The
+  engine's logical 65536 duration is behaviorally consistent with that wrap.
+
+Two RC.12 mismatches are independently verified. First, current
+`DEFAULT_ENVELOPE_TABLE` matches KQ1's 68-entry envelope, but the measured v3
+builds use 78 entries and decay more slowly. Exact `(delta, repetition count)`
+contracts, followed by hold sentinel 128:
+
+- KQ1: `(-2,1),(-3,1),(-2,1),(-1,1),(0,2),(1,4),(2,8),(3,7),(4,4),`
+  `(5,4),(6,5),(7,4),(8,4),(9,4),(10,4),(11,6),(12,6),(13,1)`.
+- MH1/GR1: `(-2,1),(-3,1),(-2,1),(-1,1),(0,5),(1,6),(2,10),(3,8),(4,5),`
+  `(5,5),(6,5),(7,4),(8,4),(9,4),(10,4),(11,6),(12,6),(13,1)`.
+
+Second, all three originals apply v23 attenuation only while advancing an
+active envelope. At hold and afterward they reuse the last clamped envelope
+value without v23. Noise has no active envelope and also skips v23. MH1 branches
+at 0x85d9..0x85dc and 0x85e6..0x85f9 bypass the v23 addition at 0x8611;
+execution confirms the effect. With duration 120, control 0x90, device 1, v23=3:
+
+| Tick | KQ1 attenuation | MH1/GR1 attenuation | Current engine |
+| ---- | --------------- | ------------------- | -------------- |
+| 7    | 4               | 3                   | 4              |
+| 11   | 5               | 4                   | 5              |
+| 30   | 8               | 6                   | 8              |
+| 67   | 15              | 14                  | 15             |
+| 68   | 13              | 14                  | 15             |
+| 77   | 13              | 15                  | 15             |
+| 78   | 13              | 13                  | 15             |
+
+Noise-only duration 2, tone 0xe001, control 0xf0 and v23=3 emits attenuation
+0xf0 in every measured original, versus 0xf3 in the current engine.
+
+Implementation: select the envelope through the interpreter profile and use
+that selection for both playback and snapshot index bounds. Preserve KQ1's
+shape; map the measured v3 families explicitly rather than replacing every
+common-profile table. Apply v23 inside the active-envelope/non-hold branch;
+keep the existing later Tandy adjustment branch. Test the table above and
+snapshot restoration across ticks 67/68 and 77/78. Broader profile claims need
+additional evidence. The v3 expectation was observed failing on KQ1, exposing
+this real profile distinction; the final profile-specific probe passes all three.
+
+Original tone-zero output is also established: the player emits two 0x00 port
+bytes before attenuation on device 1. The current suppression is therefore a
+command-stream divergence, not original-interpreter behavior. This does not
+prove audible harm or resolve chip data-byte latching. Retain silence pending
+RC.13 hardware/reference investigation; do not restore stray audible notes just
+to match port bytes. No new RC.11 blocker was demonstrated by this sound audit.
+
+```sh
+python scripts/probe-interpreter-sound.py /tmp/agi-fixed-kq1.bin --data games/kq1/AGIDATA.OVL
+python scripts/probe-interpreter-sound.py games/mh1/AGI
+python scripts/probe-interpreter-sound.py games/gr1/AGI
+```
+
+### Original save and restart audit
+
+[scripts/probe-interpreter-lifecycle.py](../scripts/probe-interpreter-lifecycle.py)
+executes original save-writer/restore-reader cores and accepted restart reset
+paths with optional Unicorn 2.1.4. Save/restore starts after successful file
+selection and stops before resource reconstruction; DOS file reads/writes use
+an in-memory file. Restart uses a synthetic OBJECT image and intercepts the
+listed peripheral calls. This is bounded lifecycle evidence, not full DOS
+startup or post-restore execution. Missing private inputs produce explicit skips.
+
+GR1's executable hash is listed above. Corrected decoded SQ2 2.936 SHA-256 is
+`11dce8acb65eda6b4a28e90f8c50019c96c445918d19763d57bd503ede549a79`.
+
+| Routine/data             | SQ2 2.936     | GR1 3.002.149 |
+| ------------------------ | ------------- | ------------- |
+| save core, entry→stop    | 0x27fb→0x28a3 | 0x2a9f→0x2b47 |
+| restore core, entry→stop | 0x25d6→0x2647 | 0x2856→0x28c7 |
+| accepted restart         | 0x2472        | 0x26e0        |
+| state initializer        | 0x0fa5        | 0x11b3        |
+| RNG word (DS)            | 0x1711        | 0x1548        |
+
+The original writer selects these blocks; the RNG word is not among them:
+
+| Block       | SQ2 2.936                               | GR1 3.002.149                           |
+| ----------- | --------------------------------------- | --------------------------------------- |
+| description | DS0x1c6c, 31 bytes                      | DS0x1aaf, 31 bytes                      |
+| 1           | DS0x0002, 0x5e1 bytes                   | DS0x0002, 0x404 bytes                   |
+| 2           | pointer DS0x96b, length DS0x96f         | pointer DS0x7d0, length DS0x7d4         |
+| 3           | pointer DS0x971, length DS0x975         | pointer DS0x7d6, length DS0x7da         |
+| 4           | pointer DS0x1707, word(DS0x141)×2 bytes | pointer DS0x153e, word(DS0x141)×2 bytes |
+| 5           | DS0x985, logic-frame serializer 0x1364  | DS0x7ea, logic-frame serializer 0x1579  |
+
+In both builds, save leaves RNG unchanged and the restore I/O core preserves
+the current RNG, not the value present when saving. Exact
+`(saved RNG, current RNG before restore, RNG after restore)` vectors:
+`(0,1,1)`, `(1,0,0)`, `(0xbeef,0x1234,0x1234)`, `(0xffff,0xbeef,0xbeef)`.
+Main-state bytes actually restore; the synthetic files contain 1,633 bytes for
+SQ2 and 1,156 for GR1, so this is not a no-op read/write probe.
+
+Accepted restart was executed for RNG `[0,1,0xbeef,0xffff]` with f9 both clear
+and set. It preserves RNG and f9, clears both DS timing words 0x129 and 0x12b
+(initially 123 and 456), and sets f6. Original variable/flag clears and object
+reset execute. No reseed occurs in this measured reset path, including when
+RNG is zero. The two builds passed 24 combined save/restore and restart cases.
+
+Restart peripheral intercepts are SQ2 `0x5234,0x382e,0x3726,0x30d6,0x930e,0x37f7`
+and GR1 `0x5467,0x3b00,0x3ad9,0x3a29,0x341c,0x9648`; synthetic resource-loading
+intercepts are SQ2 0x3113 and GR1 0x3459. Do not extend the conclusion to
+unexecuted post-restore reconstruction, startup or other profiles.
+
+Block 5's loaded-logic resume records are the restore's authoritative
+loaded-logic set: the replay sequence's load-logic pairs cover only
+game-issued `load.logics`, while `call`/`call.v` dispatch and `new.room` load
+without pairs. Restore rebuilds the set in record order so every recorded
+logic is resident at its saved scan-resume offset — a `call` back into a
+scan-parked logic resumes there, not at the bytecode entry.
+
+RC.12 acceptance contract: keep RNG and BIOS-reseed-input position out of
+original `.SAV` blocks; preserve the current stream across authentic save,
+restore and accepted restart. History anchors intentionally restore stronger
+host state and must retain their explicit RNG/input position separately. Test
+consume→save→consume→restore→consume against the current stream, and restart
+at RNG zero followed by a random call: restart consumes no BIOS input; the
+subsequent call consumes exactly one. Protect f9/f6 and timing-word behavior
+through record→seek→resume. Original save block 2 copies raw object records;
+replace the parameter bank using the proven offsets above in RC.12. Complete
+object-flag mapping and full `.SAV` interoperability remain RC.13, alongside
+startup and post-restore resource reconstruction. The inspected engine already
+preserves host RNG on restart and excludes it from authentic saves; this audit
+adds no RC.11 blocker.
+
+```sh
+python scripts/probe-interpreter-lifecycle.py /tmp/agi-fixed-sq2.bin
+python scripts/probe-interpreter-lifecycle.py games/gr1/AGI
+```
+
+### Original parser unknown-word audit
+
+The [input probe](../scripts/probe-interpreter-input.py) executes GR 3.002.149's
+original `parse` wrapper at load-module offset 0x1be0 and `said` at 0x0baa.
+Executable SHA-256 is `12a52b728b1b1f8d27b21e85cab022a30ef359bca200ba9ed4d6e78a50979f41`;
+AGIDATA.OVL is `914990f09b49109a34d511011c7764abb5575581fbc190c8cebc930b1027f804`.
+No parser helper is intercepted. A synthetic empty WORDS dictionary (52-byte
+zero header) is installed at DS:0x6000 through pointer DS:0x0ab2. String 0 is
+`xyzzy`. Original parsing sets word count DS:0x0ab0 to 1, first group at
+DS:0x0a88 to zero, v9 to 1 and f2 true. Unknown text still occupies a parsed
+word slot.
+
+| Fresh parse, then said pattern | Original result | Current engine result |
+| ------------------------------ | --------------- | --------------------- |
+| [1] (anyword)                  | true            | false                 |
+| [0]                            | true            | false                 |
+| [9999] (rest of line)          | true            | true                  |
+| [100]                          | false           | false                 |
+| [1,1]                          | false           | false                 |
+
+Success sets f4; another `said` then fails because input was consumed. Failure
+leaves f4 clear. All five original cases passed; a deliberately incorrect
+expectation for [100] failed. A separate current Engine execution reproduced
+the differing rows. This proves the GR unknown-word boundary, not all profiles,
+dictionary decompression cases or keyboard event timing.
+
+RC.12: add these regressions first. Preserve an explicit zero group for unknown
+slots, or read implicit zero within the parser's authoritative word count.
+`evalSaid` must test that count rather than only `parsedWords.length`; never
+permit a wildcard beyond it. Preserve exact matching, f2/f4 and tail matching.
+Include the consumed-input repeat and a parser snapshot roundtrip. Group zero
+matching is observed behavior, not a recommendation for generated story code.
+
+```bash
+/tmp/agi-binary-venv/bin/python scripts/probe-interpreter-input.py games/gr1/AGI games/gr1/AGIDATA.OVL
+```

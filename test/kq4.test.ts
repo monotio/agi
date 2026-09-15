@@ -33,7 +33,7 @@ class Host implements EngineHost {
   takeKeys(): number[] {
     return this.keys.splice(0);
   }
-  randomWord(): number {
+  randomByte(): number {
     // Logic 140 deals the copy protection with random(1, 79, v115) and sends
     // the run to room 141/142/143 by thirds (disassembly-verified). 40 lands
     // v115 at 41, the room-142 third; kq4-regressions uses 66 for room 143.

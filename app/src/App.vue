@@ -96,6 +96,7 @@ const {
   flushAutosave,
   lastAutosaveRecord,
   shutdownEngine,
+  historyView,
 } = engine;
 
 const shellBridge = createShellBridge();
@@ -188,7 +189,8 @@ const latestAgentAudio = computed(
  */
 function onGlobalKeydown(ev: KeyboardEvent): void {
   resumeAudio();
-  const isInputReady = state.walkthrough.active ? true : state.inputReady;
+  const isInputReady =
+    state.walkthrough.active || state.historyView.active ? true : state.inputReady;
   if (state.phase !== "running" || !isInputReady) return;
   if (ev.isComposing || ev.keyCode === 229) return;
   if (ev.target instanceof Element && ev.target.closest("dialog[open]")) return;
@@ -234,6 +236,27 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
         return;
       }
       if (advanceDialog()) return;
+    }
+    return;
+  }
+  if (state.historyView.active) {
+    // The tape owns the keyboard: playback shortcuts only — the parked
+    // engine gets nothing while the recording is under view.
+    if (ev.key === " ") {
+      ev.preventDefault();
+      if (state.historyView.playing) historyView.pauseHistory();
+      else historyView.playHistory();
+      return;
+    }
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      historyView.closeHistory();
+      return;
+    }
+    if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+      ev.preventDefault();
+      void historyView.stepMark(ev.key === "ArrowRight" ? 1 : -1);
+      return;
     }
     return;
   }

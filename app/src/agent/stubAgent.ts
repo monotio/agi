@@ -7,6 +7,7 @@
 import { assembleLogic } from "../../../src/logic/assembler.ts";
 import { buildView } from "../../../src/view/view.ts";
 import { compilePictureSource } from "../../../src/picture/source.ts";
+import { executeAgentTool, type AgentSessionState } from "../../../src/agent/tools.ts";
 import type { LlmRequest, AgentHandler, AgentEventSink } from "./hostRequests.ts";
 import type { RoomPatch } from "../../../src/agent/roomPatch.ts";
 
@@ -52,7 +53,7 @@ export const EGO_VIEW = buildView({
  * (old rooms stay alive), east enters a reserved room using new.room.
  * The harness authors missing rooms. All parser responses are ordinary AGI.
  */
-function roomSource(n: number, back: number | null, extra?: string): string {
+function roomSource(n: number, back: number | null, extra?: string, extraExit?: string): string {
   const westExit = back !== null ? `if (said("west") || equaln(v2, 4)) { new.room(${back}); }` : "";
   return `
 #message 1 "You stand in generated room ${n}."
@@ -71,6 +72,7 @@ if (isset(f5)) {
   print(1);
 ${extra ?? ""}
 }
+${extraExit ?? ""}
 ${westExit}
 ${n < 255 ? `if (said("east") || equaln(v2, 2)) { new.room(${n + 1}); }` : ""}
 if (said("look")) { print(m1); }
@@ -154,6 +156,53 @@ export class StubAgent implements AgentHandler {
     return { text: `A weathered sign now stands in room ${room}.`, patched };
   }
 
+  /**
+   * Deterministic world plan: writes a small connected world through the real
+   * update_world tool, so the one-flow genesis exercises the same
+   * plan → build path the model uses — the map's planned nodes land in the
+   * same turn the opening room does.
+   */
+  plan(state: AgentSessionState): void {
+    const result = executeAgentTool(state, "update_world", {
+      rooms: [
+        {
+          num: 1,
+          title: "The Clearing",
+          description: "Where the adventure begins.",
+          exits: [{ name: "east", room: 2 }],
+        },
+        {
+          num: 2,
+          title: "The Hall",
+          description: "A long hall with a locked door.",
+          exits: [
+            { name: "west", room: 1 },
+            { name: "north", room: 3 },
+          ],
+        },
+        {
+          num: 3,
+          title: "The Vault",
+          description: "The prize waits inside.",
+          exits: [{ name: "south", room: 2 }],
+        },
+      ],
+      facts: [{ name: "stub_world", text: "A deterministic three-room world." }],
+      quests: [
+        {
+          name: "reach_vault",
+          description: "Reach the vault.",
+          requires: [],
+          completedFlag: null,
+        },
+      ],
+    });
+    this.onEvent(
+      result.success ? "response" : "error",
+      result.success ? "[Plan stub] planned a three-room world" : `[Plan stub] ${result.error}`,
+    );
+  }
+
   /** Resources for the base game (logic 0 + ego view + room 1). */
   initialResources(): { kind: "logic" | "view" | "picture"; num: number; payload: Uint8Array }[] {
     const room1 = assembleLogic(roomSource(1, null), { dictionary: GAME_DICTIONARY });
@@ -176,8 +225,50 @@ export class StubAgent implements AgentHandler {
         const from = Number(req.context["from"]);
         const n = Number(req.context["room"]);
         if (!Number.isInteger(n) || n < 1 || n > 255) throw new Error("Invalid room number");
-        const logic = assembleLogic(roomSource(n, from), { dictionary: GAME_DICTIONARY });
+        const resources: { kind: string; num: number; data: number[] }[] = [];
+        // A map build names the planned exit it realizes: the same turn must
+        // leave that route implemented in the source room's logic — rewriting
+        // an already-built room is an ordinary part of the transaction.
+        const rawExit = req.context["plannedExit"];
+        const plannedExit =
+          typeof rawExit === "string" && /^[a-z][a-z0-9 -]{0,39}$/i.test(rawExit)
+            ? rawExit.toLowerCase()
+            : undefined;
+        const dictionary = new Map(GAME_DICTIONARY);
+        if (plannedExit && Number.isInteger(from) && from >= 1 && from <= 255 && from !== n) {
+          const back = this.roomBack.get(from) ?? (from > 1 ? from - 1 : null);
+          const already =
+            (plannedExit === "east" && n === from + 1) || (plannedExit === "west" && n === back);
+          if (!already) {
+            const edge = { north: 1, east: 2, south: 3, west: 4 }[plannedExit];
+            if (!dictionary.has(plannedExit))
+              dictionary.set(plannedExit, Math.max(...dictionary.values()) + 1);
+            const trigger =
+              edge !== undefined
+                ? `if (said("${plannedExit}") || equaln(v2, ${edge})) { new.room(${n}); }`
+                : `if (said("${plannedExit}")) { new.room(${n}); }`;
+            const rewritten = assembleLogic(
+              roomSource(from, back, (this.roomExtras.get(from) ?? []).join("\n"), trigger),
+              { dictionary },
+            );
+            resources.push({ kind: "logic", num: from, data: Array.from(rewritten.payload) });
+            if (!this.roomBack.has(from)) {
+              resources.push({ kind: "picture", num: from, data: Array.from(roomPicture(from)) });
+              this.rooms.push(from);
+              this.roomBack.set(from, back);
+            }
+            this.onEvent(
+              "response",
+              `[Room stub] rewrote logic ${from}: '${plannedExit}' now reaches room ${n}`,
+            );
+          }
+        }
+        const logic = assembleLogic(roomSource(n, from), { dictionary });
         const picture = roomPicture(n);
+        resources.push(
+          { kind: "logic", num: n, data: Array.from(logic.payload) },
+          { kind: "picture", num: n, data: Array.from(picture) },
+        );
         this.rooms.push(n);
         this.roomBack.set(n, from);
         this.onEvent(
@@ -186,12 +277,11 @@ export class StubAgent implements AgentHandler {
         );
         // Resources travel IN the bridge response: the worker is suspended on
         // the room request and cannot process patch messages until it resumes.
+        // `words` rides along only when a planned exit added vocabulary.
         return JSON.stringify({
           room: n,
-          resources: [
-            { kind: "logic", num: n, data: Array.from(logic.payload) },
-            { kind: "picture", num: n, data: Array.from(picture) },
-          ],
+          resources,
+          ...(dictionary.size !== GAME_DICTIONARY.size ? { words: [...dictionary] } : {}),
         });
       }
       default:

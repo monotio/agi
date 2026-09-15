@@ -93,6 +93,8 @@ export interface EngineReplayState {
   menuRequested: boolean;
   objectExtras: { priority: number; cycleFlag: number | null; wanderCount: number }[];
   sound: { num: number; doneFlag: number; playback: PlaybackState } | null;
+  /** Live-patch counter — harness session state, not save-file state. */
+  patchGeneration?: number;
   /** The parked pass, when the snapshot was taken at a resumable boundary. */
   continuation?: ParkedContinuation | null;
 }
@@ -283,10 +285,12 @@ export function validateEngineReplayState(value: unknown): EngineReplayState {
     "objectExtras",
     "sound",
   ];
-  // States captured before continuations existed carry no field for one.
-  const withContinuation =
-    typeof value === "object" && value !== null && Object.hasOwn(value, "continuation");
-  const s = record(value, withContinuation ? [...fields, "continuation"] : fields);
+  // States captured before continuations or the patch counter existed carry
+  // no field for them.
+  const optional = ["continuation", "patchGeneration"].filter(
+    (field) => typeof value === "object" && value !== null && Object.hasOwn(value, field),
+  );
+  const s = record(value, [...fields, ...optional]);
   const controllers = array(s["controllers"], 256, (v) => number(v, 0, 1));
   const objectExtras = array(s["objectExtras"], 256, (v) => {
     const o = record(v, ["priority", "cycleFlag", "wanderCount"]);
@@ -362,6 +366,8 @@ export function validateEngineReplayState(value: unknown): EngineReplayState {
     menuRequested: bool(s["menuRequested"]),
     objectExtras,
     sound,
+    patchGeneration:
+      s["patchGeneration"] === undefined ? 0 : number(s["patchGeneration"], 0, 0xffffffff),
     continuation: s["continuation"] === undefined ? null : validateContinuation(s["continuation"]),
   };
 }

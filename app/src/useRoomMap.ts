@@ -22,6 +22,19 @@ import {
   type RoomObservation,
   type StaticRoomScan,
 } from "../../src/agent/roomMap.ts";
+import {
+  createWorldDraft,
+  draftAddExit,
+  draftEdit,
+  draftRemoveExit,
+  draftRemoveRoom,
+  draftRenameRoom,
+  draftSetBrief,
+  lowestFreeRoom,
+  worldRevision,
+  type WorldDraft,
+  type WorldPlan,
+} from "../../src/agent/worldPlan.ts";
 import { parseGameTests } from "../../src/agent/gameTests.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { renderPicture } from "../../src/picture/renderer.ts";
@@ -55,6 +68,25 @@ const MAX_PENDING_THUMBS = 64;
 
 const CELL_W = 220;
 const CELL_H = 190;
+
+/**
+ * One displayed plan field: `draft` is the user's text, `base` the plan value
+ * the draft last agreed with — the per-field compare-and-set expectation.
+ * When the plan moved under a dirty draft, `conflict` holds the plan's
+ * current text; the draft stays untouched for explicit reconciliation.
+ */
+export interface PlanFieldEdit {
+  draft: string;
+  base: string;
+  conflict: string | null;
+}
+
+/** The detail pane's edit session for one room's plan entry. */
+export interface PlanRoomEdit {
+  room: number;
+  title: PlanFieldEdit;
+  brief: PlanFieldEdit;
+}
 
 export interface MapThumbnail {
   readonly pixels: Uint8Array;
@@ -110,13 +142,19 @@ export interface RoomMapDeps {
   readonly hook: TextHook;
   readonly getBootedGame: () => BootedGame | null;
   readonly getSession: () => AgentSession | null;
-  readonly pauseEngine: () => void;
-  readonly resumeEngine: () => void;
+  readonly pauseEngine: (owner: string) => void;
+  readonly resumeEngine: (owner: string) => void;
   /** The map pauses the walkthrough driver as well as the cycle timer. */
   readonly pauseWalkthrough: () => void;
   readonly resumeWalkthrough: () => void;
   /** Injectable for tests; defaults to browser storage. */
   readonly storage?: Pick<Storage, "getItem" | "setItem"> | undefined;
+  /** A map edit committed to the live session world — the owner persists it
+   *  and reports whether the write became durable (void counts as written). */
+  readonly onWorldEdited?: (() => boolean | void | Promise<boolean | void>) | undefined;
+  /** "Build this room": author one planned room against the named inbound edge. */
+  readonly buildRoomFromMap?:
+    ((room: number, from: number, notes: string[], exitName?: string) => Promise<void>) | undefined;
 }
 
 export interface RoomMap {
@@ -142,12 +180,61 @@ export interface RoomMap {
   resetLayout(): void;
   noteFor(room: number): string;
   setNote(room: number, note: string): void;
+  edgeNoteFor(from: number, to: number, label?: string): string;
+  setEdgeNote(from: number, to: number, label: string | undefined, note: string): void;
+  /** Player intent for a room — its note plus the notes on its edges. */
+  noteIntentFor(room: number): string[];
   thumbnailFor(room: number): MapThumbnail | null;
   observeFrame(frame: Frame): void;
   exportSidecar(): RoomMapSidecar;
   retrySave(): void;
   /** For a non-running game's export: the stored sidecar, or empty. */
   storedSidecar(target: string): RoomMapSidecar;
+  // ---- the map as the plan surface ----------------------------------------
+  /** The last plan edit's refusal, or "". */
+  readonly planError: Ref<string>;
+  /** The session world's revision is newer than the last durable write. */
+  readonly planDirty: ComputedRef<boolean>;
+  /** Why the last plan write failed, or "". */
+  readonly planSaveError: Ref<string>;
+  /** Persist the in-memory plan again after a refused write. */
+  retryPlanSave(): Promise<void>;
+  /** Room a map-triggered build is authoring, if any. */
+  readonly buildingRoom: Ref<number | undefined>;
+  setBuilding(room: number | undefined): void;
+  /** Author one planned room's resources just-in-time from the map. */
+  buildPlannedRoom(room: number): Promise<void>;
+  /** The live session's world plan exists to edit. */
+  readonly canPlan: ComputedRef<boolean>;
+  /** The plan entry for a room in the session world, or null. */
+  plannedEntry(room: number): WorldPlan["rooms"][string] | null;
+  /** Open a field-edit session for a room's plan entry — null when not planned. */
+  beginPlanEdit(room: number): PlanRoomEdit | null;
+  /** Follow a plan update under an open session: clean fields refresh, dirty ones flag. */
+  syncPlanEdit(edit: PlanRoomEdit): void;
+  /**
+   * Commit a displayed field with per-field compare-and-set. Returns null on
+   * commit, "conflict" when the plan moved under a dirty draft (the field's
+   * `conflict` then holds the plan's text), or a refusal message.
+   */
+  commitPlanField(edit: PlanRoomEdit | null, field: "title" | "brief"): string | null;
+  /** Reconcile a flagged field — keep the user's text or take the plan's. */
+  resolvePlanField(
+    edit: PlanRoomEdit | null,
+    field: "title" | "brief",
+    keep: "mine" | "plan",
+  ): string | null;
+  renamePlannedRoom(room: number, title: string): string | null;
+  setPlannedBrief(room: number, brief: string): string | null;
+  addPlannedRoom(
+    fromRoom: number | null,
+    title: string,
+    brief: string,
+    exitName: string,
+  ): { room?: number; error?: string };
+  removePlannedRoom(room: number): string | null;
+  addPlannedExit(from: number, name: string, to: number): string | null;
+  removePlannedExit(from: number, name: string): string | null;
 }
 
 export function useRoomMap(deps: RoomMapDeps): RoomMap {
@@ -160,6 +247,89 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   const storageError = ref("");
   const thumbVersion = ref(0);
   const layoutVersion = ref(0);
+  const planError = ref("");
+  const buildingRoom = ref<number>();
+  /** Bumped when a map edit changes the plan — the graph re-merges intent. */
+  const planVersion = ref(0);
+  /**
+   * Plan-save ordering: each persist takes a ticket; only the newest write's
+   * outcome updates the flag, so a late ack for an older write can never
+   * label newer content saved — or hide a newer failure. Successful writes
+   * report their revision into state.planDurableRev (every authoring-state
+   * save does); this path only fills that in when the channel did not.
+   */
+  let planWriteTicket = 0;
+  const planSaveError = ref("");
+  /**
+   * The revision storage last handed this session to the map. Captured when
+   * the session object first appears — before any edit — so a world whose
+   * durable rev is unreported still starts clean instead of seeding itself.
+   */
+  let planBaselineSession: AgentSession | null = null;
+  let planBaselineRev = "";
+
+  function planRevisionNow(): string | null {
+    const session = deps.getSession();
+    const rooms = session?.state.authoring.world;
+    if (!rooms) {
+      planBaselineSession = null;
+      planBaselineRev = "";
+      return null;
+    }
+    if (session !== planBaselineSession) {
+      planBaselineSession = session;
+      planBaselineRev = worldRevision(rooms);
+    }
+    return worldRevision(rooms);
+  }
+
+  // The baseline is captured eagerly — session attach bumps worldTick — so a
+  // first call arriving mid-edit never seeds the baseline to edited content.
+  watch(
+    () => state.worldTick,
+    () => {
+      void planRevisionNow();
+    },
+    { immediate: true },
+  );
+
+  /**
+   * The edited-vs-durable comparison: the durable channel wins while it has
+   * a report; before the first one, the session's opening revision stands
+   * in — it is what storage handed us.
+   */
+  const planDirty = computed<boolean>(() => {
+    void planVersion.value;
+    void state.worldTick;
+    void state.planDurableRev;
+    const rev = planRevisionNow();
+    if (rev === null) return false;
+    const durable = state.planDurableRev || planBaselineRev;
+    return rev !== durable;
+  });
+
+  /** Persist the plan the map just edited; durable only tracks acked writes. */
+  async function persistPlan(): Promise<void> {
+    const rev = planRevisionNow();
+    const durableAtIssue = state.planDurableRev;
+    const ticket = ++planWriteTicket;
+    const ok = (await deps.onWorldEdited?.()) ?? true;
+    if (ticket !== planWriteTicket) return; // a newer write owns the verdict
+    if (!ok) {
+      planSaveError.value =
+        "The plan could not be saved — edits are kept in memory; Retry writes them again.";
+      return;
+    }
+    planSaveError.value = "";
+    // persistSessionState reports this write itself; fill in only when the
+    // channel stayed silent and no newer durable report landed mid-flight.
+    if (rev !== null && state.planDurableRev === durableAtIssue) state.planDurableRev = rev;
+  }
+
+  async function retryPlanSave(): Promise<void> {
+    await persistPlan();
+  }
+  const canPlan = computed(() => plannedRooms() !== undefined);
 
   /** The durable journal — survives reboots and reloads of the same game. */
   const journal = reactive<RoomObservation[]>([]);
@@ -174,6 +344,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   };
   const layout = reactive<Record<string, { x: number; y: number }>>({});
   const notes = reactive<Record<string, string>>({});
+  const edgeNotes = reactive<Record<string, string>>({});
 
   /** The storage target the loaded map belongs to; "" while nothing is loaded. */
   let loadedKey = "";
@@ -181,9 +352,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   let session = 0;
   /** The booted resource revision this session's entries bind to. */
   let revision = "";
-  /** The game was already paused when the map opened — the map owns no resume. */
-  let pauseOwned = false;
-  /** Same for the walkthrough driver: paused by the map only if it was playing. */
+  /** Paused by the map only if the walkthrough driver was playing when it opened. */
   let walkthroughPauseOwned = false;
   /** Walkthrough coverage loaded for this storage target ("" = not loaded). */
   let coverageKey = "";
@@ -254,8 +423,15 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     return scanned;
   }
 
-  /** world.rooms intent from the authoring session — absent for imports. */
+  /**
+   * world.rooms intent the graph shows: the live authoring session's world —
+   * absent for imports, which have no plan to show.
+   */
   function plannedRooms(): AuthoringState["world"]["rooms"] | undefined {
+    void planVersion.value;
+    // Agent-side commits (turn adoptions, session installs) signal through
+    // worldTick — a plan-only change produces no patchTick.
+    void state.worldTick;
     const snapshot = deps.getSession()?.getAuthoringState() as
       { authoring?: AuthoringState } | undefined;
     return snapshot?.authoring?.world?.rooms;
@@ -278,6 +454,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       scoreDelta: notice.scoreDelta,
       gained: notice.gained,
       lost: notice.lost,
+      ...(notice.history !== undefined ? { history: notice.history } : {}),
     };
   }
 
@@ -326,6 +503,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       },
       layout: { ...layout },
       notes: { ...notes },
+      edgeNotes: { ...edgeNotes },
     };
   }
 
@@ -365,6 +543,14 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     drainJournal();
     if (loadedKey) persist();
     loadedKey = key;
+    resetMapMemory();
+    revision = game?.revision ?? "";
+    if (key && storage) loadStoredSidecar(key);
+    session = journal.reduce((max, e) => Math.max(max, e.session), 0) + 1;
+  }
+
+  /** Clear every per-game collection — loadFor, unload and review share it. */
+  function resetMapMemory(): void {
     journal.splice(0, journal.length);
     discovered.rooms.clear();
     discovered.edges.clear();
@@ -372,6 +558,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     coverageKey = "";
     for (const k of Object.keys(layout)) delete layout[k];
     for (const k of Object.keys(notes)) delete notes[k];
+    for (const k of Object.keys(edgeNotes)) delete edgeNotes[k];
     thumbs.clear();
     staticThumbs.clear();
     pendingThumbs.clear();
@@ -379,29 +566,33 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     isolatedCursor = 0;
     scanned = null;
     selected.value = undefined;
+    planError.value = "";
+    planSaveError.value = "";
     unsaved.value = false;
     storageError.value = "";
-    revision = game?.revision ?? "";
-    if (key && storage) {
-      try {
-        const stored = readMapSidecar(storage, key);
-        journal.push(...stored.journal);
-        for (const [num, count] of Object.entries(stored.discovered.rooms))
-          discovered.rooms.set(Number(num), count);
-        for (const e of stored.discovered.edges)
-          discovered.edges.set(`${e.from}->${e.to}:${e.label ?? ""}`, {
-            from: e.from,
-            to: e.to,
-            ...(e.label !== undefined ? { label: e.label } : {}),
-            count: e.count,
-          });
-        Object.assign(layout, stored.layout);
-        Object.assign(notes, stored.notes);
-      } catch (error) {
-        storageError.value = error instanceof Error ? error.message : String(error);
-      }
+  }
+
+  /** Read the stored sidecar into memory; a read failure is reported, not fatal. */
+  function loadStoredSidecar(key: string): void {
+    if (!storage) return;
+    try {
+      const stored = readMapSidecar(storage, key);
+      journal.push(...stored.journal);
+      for (const [num, count] of Object.entries(stored.discovered.rooms))
+        discovered.rooms.set(Number(num), count);
+      for (const e of stored.discovered.edges)
+        discovered.edges.set(`${e.from}->${e.to}:${e.label ?? ""}`, {
+          from: e.from,
+          to: e.to,
+          ...(e.label !== undefined ? { label: e.label } : {}),
+          count: e.count,
+        });
+      Object.assign(layout, stored.layout);
+      Object.assign(notes, stored.notes);
+      Object.assign(edgeNotes, stored.edgeNotes);
+    } catch (error) {
+      storageError.value = error instanceof Error ? error.message : String(error);
     }
-    session = journal.reduce((max, e) => Math.max(max, e.session), 0) + 1;
   }
 
   /** The game left the slot: persist, then release the in-memory map. */
@@ -410,24 +601,11 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     if (loadedKey) persist();
     loadedKey = "";
     state.roomJournal.splice(0, state.roomJournal.length);
-    journal.splice(0, journal.length);
-    discovered.rooms.clear();
-    discovered.edges.clear();
-    walkthroughCoverage.value = undefined;
-    coverageKey = "";
-    for (const k of Object.keys(layout)) delete layout[k];
-    for (const k of Object.keys(notes)) delete notes[k];
-    thumbs.clear();
-    staticThumbs.clear();
-    pendingThumbs.clear();
-    autoPositions.clear();
-    isolatedCursor = 0;
-    scanned = null;
-    selected.value = undefined;
+    resetMapMemory();
     session = 0;
     revision = "";
     open.value = false;
-    pauseOwned = false;
+    buildingRoom.value = undefined;
     walkthroughPauseOwned = false;
   }
 
@@ -588,6 +766,43 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     persist();
   }
 
+  /** Edge-note identity matches the sidecar: `from->to:label` ("" for none). */
+  function edgeNoteKey(from: number, to: number, label?: string): string {
+    return `${from}->${to}:${label ?? ""}`;
+  }
+
+  function edgeNoteFor(from: number, to: number, label?: string): string {
+    return edgeNotes[edgeNoteKey(from, to, label)] ?? "";
+  }
+
+  function setEdgeNote(from: number, to: number, label: string | undefined, note: string): void {
+    const key = edgeNoteKey(from, to, label);
+    if (note) edgeNotes[key] = note.slice(0, 400);
+    else delete edgeNotes[key];
+    persist();
+  }
+
+  /**
+   * What the player pinned on the map for a room: its own note first, then a
+   * bounded list of the edge notes touching it, each labelled by direction so
+   * an authoring prompt can tell entrance intent from exit intent.
+   */
+  function noteIntentFor(room: number): string[] {
+    const out: string[] = [];
+    const own = notes[String(room)];
+    if (own) out.push(own.slice(0, 400));
+    for (const [key, note] of Object.entries(edgeNotes)) {
+      const match = /^(\d+)->(\d+):(.*)$/.exec(key);
+      if (!match) continue;
+      const [, a, b, label] = match;
+      const via = label ? ` "${label}"` : "";
+      if (Number(b) === room) out.push(`exit from room ${a}${via}: ${note.slice(0, 400)}`);
+      else if (Number(a) === room) out.push(`exit to room ${b}${via}: ${note.slice(0, 400)}`);
+      if (out.length >= 16) break;
+    }
+    return out;
+  }
+
   // ---- thumbnails -------------------------------------------------------------
 
   /**
@@ -677,7 +892,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
    */
   async function loadCoverage(): Promise<void> {
     const game = deps.getBootedGame();
-    const alias = game?.alias ? resolveWalkthrough(game.alias) : null;
+    const alias = game?.revision ? resolveWalkthrough(game.revision) : null;
     const key = `${loadedKey}:${alias ?? ""}`;
     if (!game?.installed || !alias || coverageKey === key) return;
     coverageKey = key;
@@ -695,10 +910,9 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   function openMap(): void {
     if (open.value || state.phase !== "running") return;
     drainJournal();
-    // The map owns a pause over the active execution mode: the live cycle
+    // The map holds a pause over the active execution mode: the live cycle
     // timer and, during a walkthrough, the replay driver that keeps it moving.
-    pauseOwned = !state.paused;
-    if (pauseOwned) deps.pauseEngine();
+    deps.pauseEngine("map");
     walkthroughPauseOwned = state.walkthrough.status === "playing";
     if (walkthroughPauseOwned) deps.pauseWalkthrough();
     void loadCoverage();
@@ -707,17 +921,294 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
 
   function closeMap(): void {
     if (!open.value) return;
+    if (buildingRoom.value !== undefined) {
+      // A room build in flight holds its own pause — but closing now would
+      // leave the player at a frozen screen with the build invisible. The
+      // map stays up until the turn finishes.
+      planError.value = `Room ${buildingRoom.value} is still being built — the map stays open until it finishes.`;
+      return;
+    }
     open.value = false;
-    // Restore the pause the map created — unless another owner (the remix
-    // bubble) is still holding one.
-    if (pauseOwned && state.paused && !state.powerUp.open) deps.resumeEngine();
-    pauseOwned = false;
+    // Release the map's hold — the pause lifts only when no other owner
+    // (the remix bubble, the history transport) is still holding one.
+    deps.resumeEngine("map");
     if (walkthroughPauseOwned && state.walkthrough.status === "paused") deps.resumeWalkthrough();
     walkthroughPauseOwned = false;
   }
 
   function select(room: number | undefined): void {
     selected.value = room;
+  }
+
+  // ---- the map as the plan surface -----------------------------------------
+  //
+  // The live world map is also the planning surface: edits fork the session's
+  // world at its current revision and commit through the revision check — a
+  // conflict refuses rather than overwriting a concurrent agent turn.
+
+  function setBuilding(room: number | undefined): void {
+    buildingRoom.value = room;
+  }
+
+  /**
+   * Extend the running game from a map node: author one planned room's
+   * resources through the same room turn just-in-time authoring uses, against
+   * the planned inbound edge when the plan names one. The map stays open —
+   * the patch lands on the paused live game.
+   */
+  async function buildPlannedRoom(room: number): Promise<void> {
+    if (buildingRoom.value !== undefined || !deps.buildRoomFromMap) return;
+    const entry = plannedEntry(room);
+    if (!entry) {
+      planError.value = `Room ${room} is not in the plan.`;
+      return;
+    }
+    let from: number | null = null;
+    let exitName: string | undefined;
+    const rooms = deps.getSession()?.state.authoring.world.rooms ?? {};
+    for (const [num, candidate] of Object.entries(rooms)) {
+      const named = Object.entries(candidate.exits).find(([, to]) => to === room);
+      if (named) {
+        from = Number(num);
+        exitName = named[0];
+        break;
+      }
+    }
+    from ??= currentRoom.value ?? 1;
+    buildingRoom.value = room;
+    planError.value = "";
+    try {
+      await deps.buildRoomFromMap(room, from, noteIntentFor(room), exitName);
+    } catch (error) {
+      planError.value = String(error);
+    } finally {
+      buildingRoom.value = undefined;
+    }
+  }
+
+  /**
+   * Apply a draft mutation through the shared validator. Edits fork the
+   * session world and commit only while its revision is still the draft's
+   * base — a moved world is a conflict, not a silent overwrite. A rejected
+   * mutation leaves the target untouched.
+   */
+  function editWorld(mutate: (draft: WorldDraft) => string | null): string | null {
+    const session = deps.getSession();
+    if (!session) return "This game has no authoring plan to edit.";
+    const draft = createWorldDraft(session.state.authoring.world);
+    const error = mutate(draft);
+    if (error) return error;
+    const result = session.commitPlanDraft(draft);
+    if (result.status === "busy")
+      return "The agent is mid-turn — the map accepts edits again when it finishes.";
+    if (result.status === "conflict")
+      return "The plan changed while you were editing — close and reopen the map.";
+    if (result.status === "invalid") return result.error;
+    planVersion.value++;
+    void persistPlan();
+    return null;
+  }
+
+  /** Run an edit and publish its refusal for the detail pane. */
+  function planOp(run: () => string | null): string | null {
+    const error = run();
+    planError.value = error ?? "";
+    return error;
+  }
+
+  function plannedEntry(room: number): WorldPlan["rooms"][string] | null {
+    return plannedRooms()?.[String(room)] ?? null;
+  }
+
+  function renamePlannedRoom(room: number, title: string): string | null {
+    return planOp(() => editWorld((draft) => draftRenameRoom(draft, room, title)));
+  }
+
+  function setPlannedBrief(room: number, brief: string): string | null {
+    return planOp(() => editWorld((draft) => draftSetBrief(draft, room, brief)));
+  }
+
+  /**
+   * A new planned node plus — when the source is in the plan — the named exit
+   * that reaches it, as one validated edit. The number is the lowest free one
+   * that no built resource, observation or plan entry already claims.
+   */
+  function addPlannedRoom(
+    fromRoom: number | null,
+    title: string,
+    brief: string,
+    exitName: string,
+  ): { room?: number; error?: string } {
+    if (!title.trim()) {
+      planError.value = "A room needs a title";
+      return { error: planError.value };
+    }
+    let created: number | undefined;
+    const error = planOp(() =>
+      editWorld((draft) => {
+        const scan = scanResources();
+        const taken = new Set<number>([...scan.logic, ...discovered.rooms.keys()]);
+        for (const entry of journal) taken.add(entry.to);
+        const num = lowestFreeRoom(draft.world.rooms, (n) => taken.has(n));
+        if (num === undefined) return "No free room numbers remain.";
+        const name = exitName.trim() || "passage";
+        const editError = draftEdit(draft, (world) => {
+          world.rooms[String(num)] = {
+            title: title.trim(),
+            description: brief.trim(),
+            exits: {},
+          };
+          const from = fromRoom === null ? undefined : world.rooms[String(fromRoom)];
+          if (from) from.exits[name] = num;
+        });
+        if (!editError) created = num;
+        return editError;
+      }),
+    );
+    return created !== undefined
+      ? { room: created }
+      : { error: error ?? "The room could not be added." };
+  }
+
+  /**
+   * Drop a planned room. Built rooms and rooms the journal has visited are
+   * refused: deleting either would claim a fact off the record. The draft op
+   * prunes the exits that pointed at the room.
+   */
+  function removePlannedRoom(room: number): string | null {
+    return planOp(() => {
+      const scan = scanResources();
+      if (scan.logic.has(room) || scan.picture.has(room))
+        return `Room ${room} is already built — its resources stay; change it in Remix instead.`;
+      if (
+        discovered.rooms.has(room) ||
+        journal.some((entry) => entry.to === room || entry.from === room)
+      )
+        return `Room ${room} is on the record — the map keeps visited rooms.`;
+      return editWorld((draft) => draftRemoveRoom(draft, room));
+    });
+  }
+
+  function addPlannedExit(from: number, name: string, to: number): string | null {
+    return planOp(() => editWorld((draft) => draftAddExit(draft, from, name, to)));
+  }
+
+  function removePlannedExit(from: number, name: string): string | null {
+    return planOp(() => editWorld((draft) => draftRemoveExit(draft, from, name)));
+  }
+
+  // ---- displayed field edits ---------------------------------------------
+  //
+  // A form's base is captured when the edit session opens (room selected),
+  // not when a field saves. Each commit compares the field's live plan value
+  // against that base — a plan update under an open form flags a conflict
+  // and keeps the user's text for an explicit keep/revert choice, never a
+  // silent overwrite. Clean fields simply follow the plan. A busy turn still
+  // refuses through commitPlanDraft; these bases catch the turn that
+  // completed while the form stayed open.
+
+  function planFieldValue(room: number, field: "title" | "brief"): string | null {
+    const entry = plannedEntry(room);
+    return entry ? (field === "title" ? entry.title : entry.description) : null;
+  }
+
+  function beginPlanEdit(room: number): PlanRoomEdit | null {
+    const entry = plannedEntry(room);
+    if (!entry) return null;
+    return {
+      room,
+      title: { draft: entry.title, base: entry.title, conflict: null },
+      brief: { draft: entry.description, base: entry.description, conflict: null },
+    };
+  }
+
+  function syncPlanEdit(edit: PlanRoomEdit): void {
+    const entry = plannedEntry(edit.room);
+    if (!entry) return;
+    for (const field of ["title", "brief"] as const) {
+      const f = edit[field];
+      const current = field === "title" ? entry.title : entry.description;
+      if (current === f.base) {
+        // Back at the CAS anchor — any earlier flag is stale.
+        f.conflict = null;
+        continue;
+      }
+      if (f.draft === f.base || f.draft === current) {
+        // Clean — or the plan converged to the user's text: follow it.
+        f.draft = current;
+        f.base = current;
+        f.conflict = null;
+      } else {
+        // Dirty under a moved plan: flag with the plan's current text and
+        // keep the base anchored so the commit CAS still refuses.
+        f.conflict = current;
+      }
+    }
+  }
+
+  /**
+   * The shared write for a field: the live value must still be `expect` —
+   * the base for a plain commit, the flagged value for an explicit
+   * overwrite. A mismatch flags `conflict` and writes nothing.
+   */
+  function writePlanField(
+    edit: PlanRoomEdit,
+    field: "title" | "brief",
+    expect: string,
+  ): string | null {
+    const current = planFieldValue(edit.room, field);
+    if (current === null) return planOp(() => `Room ${edit.room} is no longer in the plan.`);
+    if (current !== expect) {
+      edit[field].conflict = current;
+      return "conflict";
+    }
+    const error = planOp(() =>
+      editWorld((draft) =>
+        field === "title"
+          ? draftRenameRoom(draft, edit.room, edit[field].draft)
+          : draftSetBrief(draft, edit.room, edit[field].draft),
+      ),
+    );
+    if (error === null) {
+      edit[field].base = edit[field].draft;
+      edit[field].conflict = null;
+    }
+    return error;
+  }
+
+  function commitPlanField(edit: PlanRoomEdit | null, field: "title" | "brief"): string | null {
+    if (!edit) return null;
+    const f = edit[field];
+    const current = planFieldValue(edit.room, field);
+    if (f.draft === current) {
+      // Nothing to write — including the plan converging to the draft.
+      if (current !== null) {
+        f.base = current;
+        f.conflict = null;
+      }
+      return null;
+    }
+    if (field === "title" && !f.draft.trim()) return null; // an emptied blur is not an edit
+    return writePlanField(edit, field, f.base);
+  }
+
+  function resolvePlanField(
+    edit: PlanRoomEdit | null,
+    field: "title" | "brief",
+    keep: "mine" | "plan",
+  ): string | null {
+    if (!edit) return null;
+    const f = edit[field];
+    if (f.conflict === null) return null;
+    if (keep === "plan") {
+      const current = planFieldValue(edit.room, field);
+      f.draft = current ?? f.conflict;
+      f.base = f.draft;
+      f.conflict = null;
+      return null;
+    }
+    // Explicit overwrite — still CAS against the value the user saw flagged.
+    return writePlanField(edit, field, f.conflict);
   }
 
   return {
@@ -739,11 +1230,33 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     resetLayout,
     noteFor,
     setNote,
+    edgeNoteFor,
+    setEdgeNote,
+    noteIntentFor,
     thumbnailFor,
     observeFrame,
     exportSidecar,
     retrySave,
     storedSidecar,
+    planError,
+    planDirty,
+    planSaveError,
+    retryPlanSave,
+    buildingRoom,
+    canPlan,
+    setBuilding,
+    buildPlannedRoom,
+    plannedEntry,
+    beginPlanEdit,
+    syncPlanEdit,
+    commitPlanField,
+    resolvePlanField,
+    renamePlannedRoom,
+    setPlannedBrief,
+    addPlannedRoom,
+    removePlannedRoom,
+    addPlannedExit,
+    removePlannedExit,
   };
 }
 

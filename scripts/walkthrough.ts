@@ -3,7 +3,11 @@ import { resolve } from "node:path";
 import { fixtureSkip } from "../test/fixtures.ts";
 import { Speedrun } from "../test/speedrun/runner.ts";
 import { walkthrough, runWalkthrough } from "../test/speedrun/walkthroughs.ts";
-import { walkthroughFixtureHashes, type WalkthroughArtifact } from "../test/speedrun/artifact.ts";
+import {
+  walkthroughFixtureHashes,
+  walkthroughServedRevisions,
+  type WalkthroughArtifact,
+} from "../test/speedrun/artifact.ts";
 
 const route = walkthrough(process.argv[2] ?? "");
 const missing = fixtureSkip(route.hash, ["AGIDATA.OVL"]);
@@ -12,8 +16,9 @@ if (missing) {
 } else {
   const output = resolve(process.argv[3] ?? `/tmp/agi-${route.alias}-speedrun.json`);
   const started = performance.now();
-  const run = new Speedrun(route.hash, 1, { dwellModals: true });
+  const run = new Speedrun(route.hash, route.seed ?? 1, { dwellModals: true });
   const fixtureHashes = walkthroughFixtureHashes(route.hash);
+  const servedRevisions = await walkthroughServedRevisions(route.hash);
   let failure: string | null = null;
   try {
     runWalkthrough(route, run);
@@ -23,10 +28,10 @@ if (missing) {
   }
   const elapsedMs = Math.round(performance.now() - started);
   const artifact: WalkthroughArtifact = {
-    schema: "monotio.agi.walkthrough.v1",
+    schema: "monotio.agi.walkthrough.v2",
     game: route.alias,
-    targetHash: route.hash,
-    supportedHashes: [route.hash],
+    targetRevision: servedRevisions[0]!,
+    supportedRevisions: servedRevisions,
     coverage: route.coverage,
     profile: run.engine.profile.id,
     seed: run.seed,

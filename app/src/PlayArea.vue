@@ -2,12 +2,11 @@
 import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from "vue";
 import DebugDock from "./DebugDock.vue";
 import TouchControls from "./TouchControls.vue";
-import WalkthroughTransport from "./WalkthroughTransport.vue";
+import TransportBar from "./TransportBar.vue";
 import { useEngineApi } from "./engineContext.ts";
 import { usePresentation } from "./usePresentation.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import type { ModalKind } from "./useEngine.ts";
-import type { WalkthroughCheckpoint } from "./walkthrough.ts";
 import { pcKey, movementDirection } from "./gameControls.ts";
 import { AGI_KEY, DIRECTION_KEYS } from "../../src/runtime/keys.ts";
 import { GLYPH_CURSOR, TEXT_COLS } from "../../src/runtime/textSurface.ts";
@@ -26,11 +25,6 @@ const {
   sendDirection,
   sendKey,
   submitPrompt,
-  setWalkthroughSpeed,
-  toggleWalkthroughPause,
-  toggleWalkthroughPauseOnDialog,
-  seekToTick,
-  seekToCheckpoint,
   setDebugConsumer,
   debugWrite,
   debugEventsSince,
@@ -123,6 +117,8 @@ function onScreenPointerDown(ev: PointerEvent): void {
 function onScreenClick(): void {
   resumeAudio();
   if (state.phase !== "running") return;
+  // The tape is a recording — screen clicks can't interact with it.
+  if (state.historyView.active) return;
   if (state.walkthrough.active) {
     if (advanceDialog()) return;
     if (state.walkthrough.status === "paused") {
@@ -183,7 +179,7 @@ function handlePromptType(text: string): void {
 }
 
 function echoPrompt(): void {
-  if (state.walkthrough.seeking) return;
+  if (state.walkthrough.seeking || state.historyView.active) return;
   const prompt = state.prompt;
   const lastFrame = presentation.lastFrame.value;
   if (!prompt || !lastFrame) return;
@@ -460,18 +456,6 @@ function onSplitUp(): void {
   splitDragEl = null;
 }
 
-function onWalkthroughSeekTick(tick: number): void {
-  void seekToTick(tick);
-}
-
-function onWalkthroughSeekCheckpoint(cp: WalkthroughCheckpoint): void {
-  void seekToCheckpoint(cp);
-}
-
-function onWalkthroughScrubbing(active: boolean): void {
-  state.walkthrough.scrubbing = active;
-}
-
 onMounted(() => {
   void presentation.initStage(props.crtEnabled);
   bridge.focusGameInput = focusInput;
@@ -534,7 +518,11 @@ defineExpose({
       >
         <input
           id="game-command"
-          :disabled="state.powerUp.open || (!state.inputReady && !state.walkthrough.active)"
+          :disabled="
+            state.powerUp.open ||
+            state.historyView.active ||
+            (!state.inputReady && !state.walkthrough.active)
+          "
           aria-label="Game command"
           aria-describedby="game-input-help"
           ref="inputEl"
@@ -557,7 +545,9 @@ defineExpose({
         class="power-up"
         :class="{ armed: state.powerUp.open }"
         data-testid="power-up"
-        :disabled="(creatingRoom && state.powerUp.open) || state.recording.active"
+        :disabled="
+          (creatingRoom && state.powerUp.open) || state.recording.active || state.historyView.active
+        "
         :aria-label="
           creatingRoom && state.powerUp.open
             ? 'Creating the next room'
@@ -615,17 +605,8 @@ defineExpose({
       <slot />
     </div>
 
-    <!-- Walkthrough Transport Bar (Directly below the CRT screen) -->
-    <WalkthroughTransport
-      v-if="state.walkthrough.active && state.phase === 'running'"
-      :walkthrough="state.walkthrough"
-      @toggle-pause="toggleWalkthroughPause"
-      @set-speed="setWalkthroughSpeed"
-      @toggle-pause-on-dialog="toggleWalkthroughPauseOnDialog"
-      @seek-tick="onWalkthroughSeekTick"
-      @seek-checkpoint="onWalkthroughSeekCheckpoint"
-      @scrubbing="onWalkthroughScrubbing"
-    />
+    <!-- The one transport: a walkthrough artifact or the live recording. -->
+    <TransportBar v-if="engine.transport" :model="engine.transport" />
 
     <!-- Captions under the screen (never overlays: all game text is on the CRT) -->
     <TouchControls
@@ -639,7 +620,7 @@ defineExpose({
     />
   </div>
   <div v-if="state.phase === 'running'" class="screen-captions">
-    <template v-if="!state.walkthrough.seeking">
+    <template v-if="!state.walkthrough.seeking && !state.historyView.active">
       <span v-if="state.resumed" class="caption resume-caption" data-testid="resume-caption">
         Resumed where you left off
       </span>

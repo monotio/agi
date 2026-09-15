@@ -37,9 +37,28 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     lines: 1132,
     boundary: "the save format; the release contract pins its structure",
   },
+  "src/agent/history.ts": {
+    lines: 970,
+    boundary:
+      "the history recording contract incl. the recorded clock, RNG-reseed and semantic-fingerprint lanes; the release contract pins its structure",
+  },
   "app/src/WorldMap.vue": {
-    lines: 1285,
-    boundary: "the world-map overlay: graph, room list and room details",
+    lines: 1458,
+    boundary: "the world-map overlay: graph, room list, room details and plan editing",
+  },
+  "app/src/TransportBar.vue": {
+    lines: 656,
+    boundary: "the one transport bar: timeline, marks and mode extras for both sources",
+  },
+  "app/src/useHistoryView.ts": {
+    lines: 1004,
+    boundary:
+      "the history-view controller: seek, watch, marks, bookmarks, the staged-swap lifecycle and its transport source",
+  },
+  "app/src/useWalkthroughController.ts": {
+    lines: 703,
+    boundary:
+      "the walkthrough session: artifact load, replay runner, seek restarts and its transport source",
   },
   "src/picture/source.ts": {
     lines: 1085,
@@ -50,11 +69,12 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the logic compiler, the validator of last resort",
   },
   "app/src/agent/agentSession.ts": {
-    lines: 895,
-    boundary: "the agent session lifecycle; size-only splits are out of scope for rc.10",
+    lines: 1065,
+    boundary:
+      "the agent session lifecycle: genesis, room and remix turns, and revision-checked adoption",
   },
   "app/src/useGameLibrary.ts": {
-    lines: 882,
+    lines: 896,
     boundary: "library import, export and storage operations",
   },
   "app/src/PlayArea.vue": {
@@ -70,8 +90,9 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the agent bubble surface",
   },
   "app/src/useRoomMap.ts": {
-    lines: 750,
-    boundary: "the world-map composable: merge, pause ownership, thumbnails, persistence",
+    lines: 1260,
+    boundary:
+      "the world-map composable: merge, pause ownership, thumbnails, persistence, plan editing, durable-revision tracking and map-driven builds",
   },
   "src/agent/gameTests.ts": {
     lines: 733,
@@ -82,8 +103,14 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the local persistence records layer",
   },
   "src/agent/roomMap.ts": {
-    lines: 713,
-    boundary: "the room-graph model: journal, plan and static-scan merge",
+    lines: 765,
+    boundary:
+      "the room-graph model: journal, plan and static-scan merge, plus the sidecar contract",
+  },
+  "app/src/useAuthoringController.ts": {
+    lines: 774,
+    boundary:
+      "the authoring controller: host-request turns, patches, map-driven room builds and session adoption",
   },
   "app/src/agent/llmClient.ts": {
     lines: 705,
@@ -96,6 +123,20 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
   "app/src/three/AgiStage.ts": {
     lines: 666,
     boundary: "the GPU stage: layers, picking and presentation",
+  },
+  "app/src/worker/context.ts": {
+    lines: 671,
+    boundary: "the worker session state: ports, cycle, input, replay and history fields",
+  },
+  "app/src/worker/history.ts": {
+    lines: 683,
+    boundary:
+      "the one recorder: always-on tape, stored game-test recording lifecycle, anchors and batches",
+  },
+  "app/src/worker/replay.ts": {
+    lines: 835,
+    boundary:
+      "the one replay drive: the live-session drive and the scratch tape drive on the shared tick",
   },
 };
 

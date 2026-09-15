@@ -25,6 +25,8 @@ import { readGameZip } from "../app/src/gameZip.ts";
 import { buildProjectZip, buildPublicGameZip } from "../app/src/projectArchive.ts";
 import { buildZip, type ZipFileInput } from "../app/src/zip.ts";
 import type { CachedGameData } from "../app/src/gameTypes.ts";
+import type { ProjectHistory } from "../app/src/historyArchive.ts";
+import { HISTORY_FORMAT_VERSION } from "../src/agent/history.ts";
 
 /**
  * A player's progress travels with the project archive only: the numbered
@@ -204,6 +206,79 @@ test("SAVES/ counts only beside PROJECT.JSON, ignores other names, and refuses w
     ),
     /does not hold a save image/,
   );
+});
+
+test("the project archive round-trips the recorded tape; a corrupt one rejects", async () => {
+  const { files, progress } = played();
+  const history: ProjectHistory = {
+    recording: {
+      version: HISTORY_FORMAT_VERSION,
+      profile: "2.936",
+      resourceSet: "rev-a",
+      startedAt: 1_757_000_000_000,
+      dropped: 2,
+      segments: [
+        {
+          id: "sess1.s1",
+          boot: {
+            files: { "VOL.0": toBase64(Uint8Array.of(1, 2)) },
+            dictionary: [["look", 10]],
+            authorRooms: false,
+            rng: 48879,
+            soundDevice: 1,
+            resourceSet: "rev-a",
+            requestSerial: 0,
+          },
+          anchors: [],
+          events: [{ seq: 0, tick: 3, cycle: 3, cause: { kind: "key", code: 65 } }],
+          marks: [],
+          sync: [],
+        },
+      ],
+    },
+    retained: {
+      boot: {
+        files: { "VOL.0": toBase64(Uint8Array.of(1, 2)) },
+        dictionary: [["look", 10]],
+        authorRooms: false,
+        rng: 31074,
+        soundDevice: 1,
+        resourceSet: "rev-a",
+        requestSerial: 3,
+      },
+      from: { segment: "sess1.s1", seq: 0, tick: 3 },
+      retainedAt: 1_757_000_500_000,
+    },
+    bookmarks: [{ segment: "sess1.s1", seq: 0, tick: 3, label: "Here", at: 1_757_000_700_000 }],
+  };
+  const projectBytes = await buildProjectZip(cachedGame(files), progress, undefined, history);
+  assert.ok(zipNames(projectBytes).includes("HISTORY.JSON"));
+  const project = await readGameZip(projectBytes);
+  assert.deepEqual(project.history, history, "recording, kept session and bookmarks round-trip");
+
+  // A published game export never carries the tape.
+  assert.ok(!zipNames(buildPublicGameZip(cachedGame(files))).includes("HISTORY.JSON"));
+
+  // A corrupt tape must not import as if the project carried no recording.
+  await assert.rejects(
+    () =>
+      readGameZip(
+        buildZip([
+          ...archiveEntries(files, true),
+          { name: "HISTORY.JSON", data: new TextEncoder().encode("{not a tape") },
+        ]),
+      ),
+    /HISTORY\.JSON is not readable/,
+  );
+
+  // A public archive's HISTORY.JSON is ignored outright — not project data.
+  const stray = await readGameZip(
+    buildZip([
+      ...archiveEntries(files, false),
+      { name: "HISTORY.JSON", data: new TextEncoder().encode("{}") },
+    ]),
+  );
+  assert.equal(stray.history, undefined);
 });
 
 test("a malformed-base64 autosave image fails with the SAVES/AUTOSAVE.JSON import error", async () => {

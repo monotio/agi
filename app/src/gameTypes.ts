@@ -47,6 +47,8 @@ export interface InstalledGameDescriptor {
   readonly walkthroughLabel?: string | undefined;
   readonly wordsSha256?: string | undefined;
   readonly objectSha256?: string | undefined;
+  /** Full bundle revision of the served file set — walkthrough offers key on it. */
+  readonly revision?: string | undefined;
   readonly folder?: string | undefined;
 }
 

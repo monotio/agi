@@ -66,7 +66,7 @@ export function createInput(ctx: WorkerContext) {
     }
     flushDeferredMovement();
     const key = Number(msg.code) & 0xffff;
-    ctx.fns.recordEvent({ cycle: ctx.cycle.cycleCount, kind: "key", code: key });
+    ctx.fns.historyRecord({ kind: "key", code: key });
     // A parked key wait answers from the queue directly — any key,
     // including a navigation key that would otherwise defer.
     const keyWaitParked = ctx.engine?.awaitingKey === true;
@@ -103,7 +103,9 @@ export function createInput(ctx: WorkerContext) {
           ? msg.releaseEligible
           : ctx.engine.releaseGate !== 0;
       if (eligible && ctx.input.deferredMovement.length < 19) ctx.input.deferredMovement.push(0);
-      if (eligible) ctx.fns.recordEvent({ cycle: ctx.cycle.cycleCount, kind: "release" });
+      if (eligible) {
+        ctx.fns.historyRecord({ kind: "release" });
+      }
       flushDeferredMovement();
       return;
     }
@@ -111,8 +113,9 @@ export function createInput(ctx: WorkerContext) {
     if (ctx.engine.modalKind !== null) {
       // Arrows steer the open modal (inventory selection, menu) instead of
       // ego; the direction key word replays the same navigation.
-      if (dirKey !== undefined)
-        ctx.fns.recordEvent({ cycle: ctx.cycle.cycleCount, kind: "key", code: dirKey });
+      if (dirKey !== undefined) {
+        ctx.fns.historyRecord({ kind: "key", code: dirKey });
+      }
       ctx.recording.recording?.tape.record(["navigate", dir]);
       ctx.engine.modalNavigate(dir);
       ctx.fns.postFrame();
@@ -122,9 +125,11 @@ export function createInput(ctx: WorkerContext) {
     if (dirKey !== undefined) {
       // Hold-to-move games keep the heading until the release; tap games
       // toggle it with the key word itself, exactly as the runner replays.
-      if (ctx.engine.releaseGate !== 0)
-        ctx.fns.recordEvent({ cycle: ctx.cycle.cycleCount, kind: "direction", dir });
-      else ctx.fns.recordEvent({ cycle: ctx.cycle.cycleCount, kind: "key", code: dirKey });
+      if (ctx.engine.releaseGate !== 0) {
+        ctx.fns.historyRecord({ kind: "direction", dir });
+      } else {
+        ctx.fns.historyRecord({ kind: "key", code: dirKey });
+      }
       if (ctx.input.deferredMovement.length > 0 && !ctx.engine.awaitingKey) {
         if (ctx.input.deferredMovement.length < 19) ctx.input.deferredMovement.push(dirKey);
       } else ctx.input.keyQueue.push(dirKey);
@@ -134,13 +139,14 @@ export function createInput(ctx: WorkerContext) {
 
   function onInput(msg: Inbound<"input">): void {
     const text = String(msg.text);
-    ctx.fns.recordEvent({ cycle: ctx.cycle.cycleCount, kind: "command", text });
+    ctx.fns.historyRecord({ kind: "input", text });
     ctx.input.inputBuffer.push(text);
   }
 
   function onEdit(msg: Inbound<"edit">): void {
     if (!ctx.engine) return;
     // Live mirror of the host's input widget onto the engine's input row.
+    ctx.fns.historyRecord({ kind: "edit", text: String(msg.text) });
     ctx.recording.recording?.tape.record(["edit", String(msg.text)]);
     ctx.engine.setEditLine(String(msg.text));
     // Host typing is already in the input widget. Publish only edits made by game logic.
@@ -151,7 +157,7 @@ export function createInput(ctx: WorkerContext) {
   function onDismissPrint(): void {
     if (!ctx.engine) return;
     ctx.recording.recording?.tape.record(["ack"]);
-    ctx.fns.recordEvent({ cycle: ctx.cycle.cycleCount, kind: "key", code: AGI_KEY.ENTER });
+    ctx.fns.historyRecord({ kind: "dismiss" });
     const pending = ctx.engine.hostInteraction;
     // A click on the suspended selector or confirmation answers with its
     // cancel key; a request still in flight resolves into a dropped answer.

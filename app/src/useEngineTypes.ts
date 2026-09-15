@@ -17,6 +17,7 @@ import type { InstalledGameDescriptor } from "./gameTypes.ts";
 import type { PowerUpUiState } from "./useAuthoringController.ts";
 import type { PromptState } from "./usePromptController.ts";
 import type { WalkthroughUiState } from "./useWalkthroughController.ts";
+import type { HistoryViewMark } from "./useHistoryView.ts";
 
 /** Engine modal kinds (the engine draws them on its text surface). */
 export type ModalKind = "print" | "inventory" | "menu" | "showObj" | "showPri" | "save" | "restore";
@@ -48,6 +49,55 @@ export interface TextHook {
   room: number;
   egoX: number;
   egoY: number;
+}
+
+/** The transport's UI state while viewing the recorded session. */
+export interface HistoryViewUiState {
+  /** A view session is open — the transport shows recorded history. */
+  active: boolean;
+  /** Opening: the tape is loading / the first drive is warming up. */
+  loading: boolean;
+  /** A seek is in flight. */
+  seeking: boolean;
+  /** Watch mode: paced advance is running. */
+  playing: boolean;
+  /** The user is dragging the thumb. */
+  scrubbing: boolean;
+  /** Watch speed multiplier (1/2/4/8). */
+  speed: number;
+  /** Which segment of the recording is under view (index). */
+  segment: number;
+  /** The worker's view-session serial — echoed back on Resume here. */
+  generation: number;
+  segmentCount: number;
+  /** Viewed position within the current segment. */
+  tick: number;
+  seq: number;
+  /** The viewed moment's room and score, for the transport readout. */
+  room: number;
+  score: number;
+  /** The viewed segment's recorded extent. */
+  totalTicks: number;
+  marks: HistoryViewMark[];
+  /** The viewed moment can become the live session (Resume here). */
+  canResume: boolean;
+  /** A retained original exists — Back to before is offered. */
+  retained: boolean;
+  /**
+   * Resume here would replace the kept session: the transport asked and is
+   * waiting for the second, confirming press. Any seek or close resets it.
+   */
+  confirmReplace: boolean;
+  /**
+   * A staged swap's outcome was never settled — the worker may have adopted
+   * while the promotion write failed or its reply was lost. The departing
+   * session's copy stays durable until the player keeps or releases it.
+   */
+  pendingSwap: boolean;
+  /** Segments the retention bound evicted before this tape was opened. */
+  dropped: number;
+  diverged: { tick: number; detail: string } | null;
+  error: string;
 }
 
 export interface EngineState {
@@ -95,6 +145,16 @@ export interface EngineState {
   resumed: boolean;
   /** Player-action recording for a stored game test. */
   recording: { active: boolean; starting: boolean; error: string };
+  /** History batches committed-or-in-flight to storage; >0 means unsaved tape. */
+  historyPending: number;
+  /**
+   * Batches the storage layer refused, tracked apart from in-flight work:
+   * the worker keeps and resends them, but the tape's durability lag is
+   * visible — "history not saved since …" with a retry.
+   */
+  historyUnsaved: { batches: number; since: number } | null;
+  /** The history transport: paused live session plus a scratch replay under it. */
+  historyView: HistoryViewUiState;
   /** Real-time walkthrough playback. */
   walkthrough: WalkthroughUiState;
   /** Live screen-object table while the objects debug channel is armed. */
@@ -115,6 +175,19 @@ export interface EngineState {
    * scan of the booted resources (the world map) subscribe to re-derive.
    */
   patchTick: number;
+  /**
+   * Bumped when the session's authoring world may have changed — a turn's
+   * adoption, a tape checkpoint post, a session-state adoption. Plan surfaces
+   * re-read the world on this tick even when no resource moved.
+   */
+  worldTick: number;
+  /**
+   * The world revision of the last confirmed durable write — set by every
+   * path that persists the authoring state (map edits, turn commits,
+   * adoptions). The map's dirty flag compares the live revision against it;
+   * "" means no write has been reported this session.
+   */
+  planDurableRev: string;
   /** Debug channels the app has armed on the worker. */
   debugChannels: { ownership: boolean; objects: boolean; trace: boolean; picture: boolean };
   /**

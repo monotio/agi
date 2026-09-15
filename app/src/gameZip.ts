@@ -1,6 +1,7 @@
 import { readProjectContext, type ProjectContext } from "./projectArchive.ts";
 import { readProgressEntries, type GameProgress } from "./gameProgress.ts";
 import { readMapArchive } from "./roomMapStore.ts";
+import { readHistoryArchive, type ProjectHistory } from "./historyArchive.ts";
 import type { RoomMapSidecar } from "../../src/agent/roomMap.ts";
 import { crc32 } from "./zip.ts";
 import { readPublicMetadata, type PublicGameMetadata } from "./gameMetadata.ts";
@@ -24,6 +25,8 @@ export interface OpenedGame {
   progress?: GameProgress;
   /** The world-map journal and UI layout; project archives only. */
   map?: RoomMapSidecar;
+  /** The recorded session tape with its kept original and bookmarks; project archives only. */
+  history?: ProjectHistory;
   metadata?: PublicGameMetadata;
 }
 
@@ -241,6 +244,22 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
       map = undefined;
     }
   }
+  // The tape is part of the released project format: a corrupt or
+  // unsupported HISTORY.JSON is reported, not silently dropped — the import
+  // would otherwise claim a recording it never carried.
+  let history: OpenedGame["history"];
+  const historyBytes = project ? entries.get(`${root}HISTORY.JSON`) : undefined;
+  if (historyBytes) {
+    try {
+      history = readHistoryArchive(historyBytes);
+    } catch (error) {
+      throw new Error(
+        `HISTORY.JSON is not readable (${String(error).replace(/^Error: /, "")}). ` +
+          "Obtain a fresh copy of the project or remove the file to import without its play history.",
+        { cause: error },
+      );
+    }
+  }
   return {
     files,
     words,
@@ -248,5 +267,6 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
     ...(project ? { project } : {}),
     ...(progress ? { progress } : {}),
     ...(map ? { map } : {}),
+    ...(history ? { history } : {}),
   };
 }

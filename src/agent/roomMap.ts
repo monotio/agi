@@ -39,6 +39,12 @@ export interface RoomObservation {
   /** Inventory item numbers gained/lost since the previous entry. */
   readonly gained: readonly number[];
   readonly lost: readonly number[];
+  /**
+   * The visit's position on the recorded tape — segment id plus the tick its
+   * room mark landed at — when the always-on recording covered it. The map's
+   * "travel to this visit" jumps the history transport straight here.
+   */
+  readonly history?: { segment: string; seq: number; tick: number };
 }
 
 export type EdgeProvenance = "observed" | "planned" | "static";
@@ -525,6 +531,12 @@ export interface RoomMapSidecar {
   layout: Record<string, { x: number; y: number }>;
   /** Per-room UI notes; separate from the canonical authoring plan. */
   notes: Record<string, string>;
+  /**
+   * Per-edge UI notes keyed `from->to:label` (label "" when the edge has
+   * none) — the same identity mergeRoomGraph uses. Player intent provenance
+   * for later authoring; never a plan field and never a resource claim.
+   */
+  edgeNotes: Record<string, string>;
 }
 
 const MAX_JOURNAL_ENTRIES = 4096;
@@ -573,6 +585,7 @@ export function validateMapSidecar(value: unknown): RoomMapSidecar {
     discovered: { rooms: {}, edges: [] },
     layout: {},
     notes: {},
+    edgeNotes: {},
   };
 
   const journal = raw["journal"] ?? [];
@@ -601,6 +614,18 @@ export function validateMapSidecar(value: unknown): RoomMapSidecar {
       throw new Error("Invalid journal cycle.");
     if (typeof e["resourceSet"] !== "string" || e["resourceSet"].length > 128)
       throw new Error("Invalid journal resource revision.");
+    const hist = e["history"];
+    if (hist !== undefined) {
+      if (!hist || typeof hist !== "object" || Array.isArray(hist))
+        throw new Error("Invalid journal history position.");
+      const hp = hist as Record<string, unknown>;
+      if (typeof hp["segment"] !== "string" || hp["segment"].length > 64)
+        throw new Error("Invalid journal history segment.");
+      if (!Number.isInteger(hp["seq"]) || (hp["seq"] as number) < 0)
+        throw new Error("Invalid journal history sequence.");
+      if (!Number.isInteger(hp["tick"]) || (hp["tick"] as number) < 0)
+        throw new Error("Invalid journal history tick.");
+    }
     sidecar.journal.push({
       seq: e["seq"] as number,
       session: e["session"] as number,
@@ -613,6 +638,15 @@ export function validateMapSidecar(value: unknown): RoomMapSidecar {
       scoreDelta: Number.isInteger(e["scoreDelta"]) ? (e["scoreDelta"] as number) : 0,
       gained: numList(e["gained"] ?? [], "gained items"),
       lost: numList(e["lost"] ?? [], "lost items"),
+      ...(hist !== undefined
+        ? {
+            history: {
+              segment: (hist as Record<string, unknown>)["segment"] as string,
+              seq: (hist as Record<string, unknown>)["seq"] as number,
+              tick: (hist as Record<string, unknown>)["tick"] as number,
+            },
+          }
+        : {}),
     });
   }
 
@@ -697,6 +731,23 @@ export function validateMapSidecar(value: unknown): RoomMapSidecar {
       sidecar.notes[num] = note;
     }
   }
+
+  const edgeNotes = raw["edgeNotes"];
+  if (edgeNotes !== undefined) {
+    if (!edgeNotes || typeof edgeNotes !== "object" || Array.isArray(edgeNotes))
+      throw new Error("Invalid map edge notes.");
+    const entries = Object.entries(edgeNotes);
+    if (entries.length > MAX_NOTES) throw new Error("Map has too many notes.");
+    for (const [key, note] of entries) {
+      const m = /^(\d+)->(\d+):(.{0,64})$/.exec(key);
+      if (!m) throw new Error("Invalid edge note key.");
+      roomNum(Number(m[1]), "edge note source");
+      roomNum(Number(m[2]), "edge note target");
+      if (typeof note !== "string" || note.length > MAX_NOTE_CHARS)
+        throw new Error("Invalid map note.");
+      sidecar.edgeNotes[key] = note;
+    }
+  }
   return sidecar;
 }
 
@@ -709,5 +760,6 @@ export function serializeMapSidecar(sidecar: RoomMapSidecar): Record<string, unk
     discovered: sidecar.discovered,
     layout: sidecar.layout,
     notes: sidecar.notes,
+    edgeNotes: sidecar.edgeNotes,
   };
 }

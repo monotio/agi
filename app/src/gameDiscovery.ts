@@ -25,6 +25,7 @@ export async function discoverInstalledGames(): Promise<InstalledGameDescriptor[
             ...(item.walkthroughLabel ? { walkthroughLabel: item.walkthroughLabel } : {}),
             ...(item.wordsSha256 ? { wordsSha256: item.wordsSha256 } : {}),
             ...(item.objectSha256 ? { objectSha256: item.objectSha256 } : {}),
+            ...(item.revision ? { revision: item.revision } : {}),
             ...(item.folder ? { folder: item.folder } : {}),
           } as InstalledGameDescriptor;
         })

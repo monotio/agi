@@ -16,6 +16,8 @@ export interface PromptControllerOptions {
   readonly state: {
     prompt: PromptState | null;
     walkthrough: { seeking: boolean };
+    /** The tape's view parks the live session — its prompts must not answer. */
+    historyView: { active: boolean };
   };
   readonly logAgent: LogAgentFn;
 }
@@ -39,6 +41,10 @@ export function usePromptController(options: PromptControllerOptions): PromptCon
 
   function submitPrompt(value: string, cancelled = false): void {
     if (!promptResolver) return;
+    // While the recording is under view the live session is parked: its
+    // prompt stays open for the return to live, but an answer now would
+    // resolve the hostRequest and tick the parked engine.
+    if (options.state.historyView.active) return;
     if (!cancelled && !options.state.walkthrough.seeking && value.trim().length > 0) {
       options.logAgent("input", value.trim());
     }

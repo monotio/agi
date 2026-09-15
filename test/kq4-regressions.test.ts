@@ -26,7 +26,7 @@ function bootKq4() {
     statusLine() {},
     takeKeys: () => keys.splice(0),
     takeInputLine: () => null,
-    randomWord: () => 66,
+    randomByte: () => 66,
   };
   const engine = new Engine(container, host, dict, { profile });
   return { engine, keys };

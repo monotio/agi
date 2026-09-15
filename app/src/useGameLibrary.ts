@@ -20,6 +20,7 @@ import {
   updateGamePreview,
   type CachedGameMeta,
 } from "./gameStorage.ts";
+import { loadProjectHistory } from "./historyStorage.ts";
 import { buildProjectZip, buildPublicGameZip } from "./projectArchive.ts";
 import { MAX_GAME_ZIP_BYTES, readGameFiles, readGameZip, type OpenedGame } from "./gameZip.ts";
 import { readGameProgress, type ImportStorageReport } from "./gameProgress.ts";
@@ -493,7 +494,10 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     const mapNote = game.map
       ? ` (world map ${stored?.map ? "stored" : "could not be stored"})`
       : "";
-    if (!game.progress) return mapNote;
+    const historyNote = game.history
+      ? ` (session tape ${stored?.history ? "stored" : "could not be stored"})`
+      : "";
+    if (!game.progress) return mapNote + historyNote;
     const parts = Object.keys(game.progress.saves).map((slot) => {
       const status = stored?.slots.includes(Number(slot))
         ? "stored"
@@ -510,7 +514,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
           : "storage unconfirmed";
       parts.push(`autosave ${status}`);
     }
-    return (parts.length ? ` (${parts.join("; ")})` : "") + mapNote;
+    return (parts.length ? ` (${parts.join("; ")})` : "") + mapNote + historyNote;
   }
 
   async function onGameZip(file?: File): Promise<void> {
@@ -751,11 +755,32 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       // The map's storage identity is the game's storage key — for a live
       // export that is the in-memory map; for a stored project, the sidecar.
       const mapTarget = game ? gameStorageKey(game) : data.projectId;
+      let history: Awaited<ReturnType<typeof loadProjectHistory>> = null;
+      if (project) {
+        // Commits are async: wait out the in-flight set so the archive's
+        // tape ends where the session actually did, then refuse outright if
+        // storage refused a batch — a partial tape inside a project archive
+        // claims a recording that isn't there.
+        if (live) await engine.drainHistoryCommits();
+        const unsaved = state.historyUnsaved;
+        if (live && unsaved)
+          throw new Error(
+            `${unsaved.batches} history ${unsaved.batches === 1 ? "batch is" : "batches are"} ` +
+              "not saved yet — fix browser storage or wait, then download again.",
+          );
+        try {
+          history = await loadProjectHistory(mapTarget);
+        } catch {
+          // A stored recording that fails validation is left out of the
+          // archive rather than blocking the project's download.
+        }
+      }
       const zipBytes = project
         ? await buildProjectZip(
             data,
             readGameProgress(localStorage, progressKey),
             roomMap.storedSidecar(mapTarget),
+            history ?? undefined,
           )
         : buildPublicGameZip(data);
       const url = URL.createObjectURL(new Blob([zipBytes], { type: "application/zip" }));

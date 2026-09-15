@@ -1,13 +1,13 @@
 {
-  "schema": "monotio.agi.walkthrough.v1",
+  "schema": "monotio.agi.walkthrough.v2",
   "game": "kq1",
-  "targetHash": "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
-  "supportedHashes": [
-    "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780"
+  "targetRevision": "d1553b8b6ac8e69c6ced7da7450b88a8ff093e83c52dcb0ed9df550b5661931a",
+  "supportedRevisions": [
+    "d1553b8b6ac8e69c6ced7da7450b88a8ff093e83c52dcb0ed9df550b5661931a"
   ],
   "coverage": "complete-game",
   "profile": "2.917",
-  "seed": 1,
+  "seed": 32,
   "fixtureHashes": {
     "AGI": "5ab189ebd9822739962767afe0113853e23797ef16dd4784d2dc93423934fb74",
     "AGIDATA.OVL": "f7ca256c1c0ab12509d695baabdd44a3c5e72a570b08118d3ead995a47f4c383",
@@ -23,9 +23,9 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 727,
-  "virtualTicks": 113368,
-  "cycles": 16457,
+  "elapsedMs": 1266,
+  "virtualTicks": 110614,
+  "cycles": 15943,
   "actions": [
     {
       "kind": "advance",
@@ -1481,7 +1481,15 @@
     },
     {
       "kind": "advance",
-      "ticks": 570
+      "ticks": 552
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 312
     },
     {
       "kind": "direction",
@@ -1929,7 +1937,231 @@
     },
     {
       "kind": "advance",
-      "ticks": 696
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 1
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 642
     },
     {
       "kind": "key",
@@ -3033,6 +3265,14 @@
     },
     {
       "kind": "advance",
+      "ticks": 3012
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
       "ticks": 1
     },
     {
@@ -3042,6 +3282,222 @@
     {
       "kind": "advance",
       "ticks": 163
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 270
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 72
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 294
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 270
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 72
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 294
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 270
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 7
+    },
+    {
+      "kind": "advance",
+      "ticks": 72
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "direction",
+      "dir": 0
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 4
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "direction",
+      "dir": 3
+    },
+    {
+      "kind": "advance",
+      "ticks": 294
     },
     {
       "kind": "direction",
@@ -5413,7 +5869,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 42
+      "ticks": 102
     },
     {
       "kind": "direction",
@@ -5529,11 +5985,11 @@
     },
     {
       "kind": "direction",
-      "dir": 8
+      "dir": 6
     },
     {
       "kind": "advance",
-      "ticks": 36
+      "ticks": 12
     },
     {
       "kind": "direction",
@@ -5541,7 +5997,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 60
+      "ticks": 144
     },
     {
       "kind": "direction",
@@ -5885,7 +6341,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 377
+      "ticks": 389
     },
     {
       "kind": "key",
@@ -6965,11 +7421,11 @@
     },
     {
       "kind": "advance",
-      "ticks": 12
+      "ticks": 18
     },
     {
       "kind": "direction",
-      "dir": 5
+      "dir": 3
     },
     {
       "kind": "advance",
@@ -7076,7 +7532,7 @@
       "label": "Sleeping giant's chest",
       "room": 58,
       "score": 102,
-      "x": 18,
+      "x": 20,
       "y": 45
     },
     {
@@ -7093,7 +7549,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 183
+      "ticks": 171
     },
     {
       "kind": "direction",
@@ -7885,6 +8341,14 @@
     },
     {
       "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "direction",
+      "dir": 5
+    },
+    {
+      "kind": "advance",
       "ticks": 377
     },
     {
@@ -7989,15 +8453,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 245
-    },
-    {
-      "kind": "key",
-      "code": 13
-    },
-    {
-      "kind": "advance",
-      "ticks": 163
+      "ticks": 228
     },
     {
       "kind": "direction",
@@ -9277,7 +9733,15 @@
     },
     {
       "kind": "advance",
-      "ticks": 162
+      "ticks": 263
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 79
     },
     {
       "kind": "direction",
@@ -9317,127 +9781,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 8006
-    },
-    {
-      "kind": "direction",
-      "dir": 6
-    },
-    {
-      "kind": "advance",
-      "ticks": 118
-    },
-    {
-      "kind": "direction",
-      "dir": 0
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "direction",
-      "dir": 5
-    },
-    {
-      "kind": "advance",
-      "ticks": 180
-    },
-    {
-      "kind": "direction",
-      "dir": 0
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "direction",
-      "dir": 5
-    },
-    {
-      "kind": "advance",
-      "ticks": 264
-    },
-    {
-      "kind": "direction",
-      "dir": 0
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "direction",
-      "dir": 1
-    },
-    {
-      "kind": "advance",
-      "ticks": 18
-    },
-    {
-      "kind": "direction",
-      "dir": 0
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "direction",
-      "dir": 1
-    },
-    {
-      "kind": "advance",
-      "ticks": 246
-    },
-    {
-      "kind": "direction",
-      "dir": 0
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "direction",
-      "dir": 1
-    },
-    {
-      "kind": "advance",
-      "ticks": 180
-    },
-    {
-      "kind": "direction",
-      "dir": 0
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "direction",
-      "dir": 2
-    },
-    {
-      "kind": "advance",
-      "ticks": 197
-    },
-    {
-      "kind": "key",
-      "code": 13
-    },
-    {
-      "kind": "advance",
-      "ticks": 103
-    },
-    {
-      "kind": "direction",
-      "dir": 0
-    },
-    {
-      "kind": "advance",
-      "ticks": 252
+      "ticks": 240
     },
     {
       "kind": "key",
@@ -9477,7 +9821,47 @@
     },
     {
       "kind": "advance",
-      "ticks": 218
+      "ticks": 798
+    },
+    {
+      "kind": "key",
+      "code": 106
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 117
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 109
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 112
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 230
     },
     {
       "kind": "key",
@@ -9869,7 +10253,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 30
+      "ticks": 6
     },
     {
       "kind": "key",
@@ -9973,7 +10357,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 243
+      "ticks": 261
     },
     {
       "kind": "key",
@@ -10861,7 +11245,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 427
+      "ticks": 367
     },
     {
       "kind": "key",
@@ -10869,7 +11253,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 110
+      "ticks": 170
     },
     {
       "kind": "direction",
@@ -10893,7 +11277,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 250
+      "ticks": 208
     },
     {
       "kind": "key",
@@ -10901,7 +11285,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 380
+      "ticks": 374
     },
     {
       "kind": "direction",
@@ -11307,8 +11691,8 @@
       0,
       0,
       2,
-      18,
-      27,
+      26,
+      26,
       0,
       0,
       3,
@@ -11364,8 +11748,8 @@
       0,
       0,
       0,
-      179,
-      3,
+      247,
+      2,
       0,
       0,
       0,
@@ -11399,9 +11783,9 @@
       40,
       90,
       2,
-      0,
-      98,
-      54,
+      1,
+      92,
+      42,
       1,
       1,
       30,
@@ -11834,10 +12218,235 @@
     "parserCount": 1,
     "lastInputLine": "bow",
     "horizon": 36,
+    "priorityBase": 48,
+    "patchGeneration": 0,
     "modalKind": null,
+    "modalSerial": 0,
     "inputEnabled": false,
     "pictureShown": true,
     "terminated": false,
+    "controls": [
+      {
+        "key": 15104,
+        "controller": 18,
+        "menuItems": [
+          {
+            "heading": "Info",
+            "text": "Help    ",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 15360,
+        "controller": 17,
+        "menuItems": [
+          {
+            "heading": "Special",
+            "text": "Sound On/Off       <F2>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 19,
+        "controller": 17,
+        "menuItems": [
+          {
+            "heading": "Special",
+            "text": "Sound On/Off       <F2>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 15616,
+        "controller": 13,
+        "menuItems": []
+      },
+      {
+        "key": 5,
+        "controller": 13,
+        "menuItems": []
+      },
+      {
+        "key": 15872,
+        "controller": 21,
+        "menuItems": [
+          {
+            "heading": "Game",
+            "text": "See Object     <F4>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 16128,
+        "controller": 1,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Save Game      <F5>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 16384,
+        "controller": 16,
+        "menuItems": []
+      },
+      {
+        "key": 16640,
+        "controller": 2,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Restore Game   <F7>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 17152,
+        "controller": 3,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Restart Game   <F9>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 17408,
+        "controller": 9,
+        "menuItems": []
+      },
+      {
+        "key": 9,
+        "controller": 4,
+        "menuItems": [
+          {
+            "heading": "Game",
+            "text": "Inventory     <Tab>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 8192,
+        "controller": 10,
+        "menuItems": []
+      },
+      {
+        "key": 10,
+        "controller": 11,
+        "menuItems": [
+          {
+            "heading": "Special",
+            "text": "Reset Joystick <Ctrl J>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 3,
+        "controller": 12,
+        "menuItems": []
+      },
+      {
+        "key": 24,
+        "controller": 12,
+        "menuItems": []
+      },
+      {
+        "key": 18,
+        "controller": 15,
+        "menuItems": []
+      },
+      {
+        "key": 11264,
+        "controller": 6,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Quit        <Alt Z>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 61,
+        "controller": 5,
+        "menuItems": [
+          {
+            "heading": "Action ",
+            "text": "Swim  =",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 45,
+        "controller": 8,
+        "menuItems": [
+          {
+            "heading": "Action ",
+            "text": "Duck  -",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 48,
+        "controller": 7,
+        "menuItems": [
+          {
+            "heading": "Action ",
+            "text": "Jump  0",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 27,
+        "controller": 25,
+        "menuItems": []
+      },
+      {
+        "key": 257,
+        "controller": 0,
+        "menuItems": []
+      },
+      {
+        "key": 769,
+        "controller": 25,
+        "menuItems": []
+      },
+      {
+        "key": 513,
+        "controller": 5,
+        "menuItems": [
+          {
+            "heading": "Action ",
+            "text": "Swim  =",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 1025,
+        "controller": 4,
+        "menuItems": [
+          {
+            "heading": "Game",
+            "text": "Inventory     <Tab>",
+            "enabled": true
+          }
+        ]
+      }
+    ],
     "inventory": [
       {
         "num": 0,

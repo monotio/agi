@@ -1,5 +1,6 @@
 import { createAgentSessionState, type AgentSessionState } from "../../../src/agent/tools.ts";
 import { validateAuthoringState } from "../../../src/agent/authoringState.ts";
+import { worldRevision } from "../../../src/agent/worldPlan.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { RESOURCE_KINDS, type ResourceKind } from "../../../src/types.ts";
 import { validateRoomInventory } from "../../../src/agent/inventory.ts";
@@ -19,6 +20,27 @@ export function forkAgentState(source: AgentSessionState): AgentSessionState {
   Object.assign(next, { diagnostics: source.diagnostics, testEvidence: source.testEvidence });
   for (const [num, count] of source.pictureRounds) next.pictureRounds.set(num, count);
   return next;
+}
+
+/**
+ * Adopt a finished turn's staged state over the live one without losing a
+ * mid-turn map edit: the fork began from `forkRevision` (worldRevision of
+ * the live world at fork time). When the live world moved meanwhile and the
+ * turn did not touch it, the player's world survives the adopt. Both moving
+ * is a conflict — the player's visible world still wins — and the caller
+ * reports the turn's dropped plan change on the record. Returns whether a
+ * conflict was resolved this way.
+ */
+export function adoptTurnState(
+  live: AgentSessionState,
+  staged: AgentSessionState,
+  forkRevision: string,
+): boolean {
+  const liveMoved = worldRevision(live.authoring.world) !== forkRevision;
+  const conflict = liveMoved && worldRevision(staged.authoring.world) !== forkRevision;
+  if (liveMoved) staged.authoring = { ...staged.authoring, world: live.authoring.world };
+  Object.assign(live, staged);
+  return conflict;
 }
 
 function payload(
@@ -57,23 +79,19 @@ export function changedResources(
   return changes;
 }
 
-/** Room tools may create this room and fresh dependencies, while preserving the existing game. */
+/**
+ * A room turn may create the room and revise already-built resources — other
+ * rooms' logic, shared views and sounds, the vocabulary — in the same staged
+ * transaction. The triggers that keep it coherent: nothing may be removed or
+ * corrupted (changedResources throws), existing vocabulary IDs stay bound, and
+ * inventory items keep their names and starting rooms.
+ */
 export function validateRoomCandidate(
   original: AgentSessionState,
   before: AgentSessionState,
   candidate: AgentSessionState,
-  room: number,
 ): void {
-  for (const resource of changedResources(before, candidate)) {
-    const allowed =
-      resource.kind === "logic" || resource.kind === "picture"
-        ? resource.num === room
-        : payload(original, resource.kind, resource.num) === null;
-    if (!allowed)
-      throw new Error(
-        "Room preparation may write only the requested room, new views/sounds, vocabulary, and appended inventory items.",
-      );
-  }
+  changedResources(before, candidate);
   for (const [word, id] of original.sources.words)
     if (candidate.sources.words.get(word) !== id)
       throw new Error("Room preparation must preserve existing vocabulary IDs.");

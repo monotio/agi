@@ -41,6 +41,12 @@ const OUTBOUND_TYPES = [
   "shake",
   "showObj",
   "autosave",
+  "historyBatch",
+  "historyView",
+  "historyRetained",
+  "historyEnded",
+  "historyTaken",
+  "historyViewRestored",
   "controls",
   "inputEdit",
   "cycle",
@@ -138,6 +144,11 @@ function makeLink() {
     resetScreenState: () => depCalls.push("resetScreenState"),
     cancelPrompt: () => depCalls.push("cancelPrompt"),
     handleAutosave: () => depCalls.push("autosave"),
+    handleHistoryBatch: async () => {
+      depCalls.push("historyBatch");
+      return true;
+    },
+    handleHistoryView: () => depCalls.push("historyView"),
     handleFlushed: () => depCalls.push("flushed"),
     handleRestored: () => depCalls.push("restored"),
     handleSaveSlotRequest: () => "ok",
@@ -198,8 +209,9 @@ test("every WorkerOutbound member reaches its handler once", async () => {
     audioCalls.length = 0;
     switch (type) {
       case "paused":
-        deliver(w, { type, paused: true });
+        deliver(w, { type, paused: true, cycle: 42 });
         assert.equal(hook.paused, true);
+        assert.equal(hook.cycle, 42);
         break;
       case "hostRequest": {
         deliver(w, { type, id: 9, op: "getnum", context: {} });
@@ -407,6 +419,102 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         });
         assert.ok(depCalls.includes("autosave"));
         break;
+      case "historyBatch": {
+        deliver(w, {
+          type,
+          epoch: 3,
+          batch: {
+            segment: "e3.s1",
+            batch: 2,
+            seqStart: 0,
+            seqEnd: 1,
+            events: [],
+            marks: [],
+            sync: [],
+          },
+        });
+        await new Promise((r) => setTimeout(r, 0));
+        assert.ok(depCalls.includes("historyBatch"));
+        assert.ok(
+          w.posted.some(
+            (m) =>
+              (m as { type: string }).type === "historyAck" &&
+              (m as { epoch: number }).epoch === 3 &&
+              (m as { batch: number }).batch === 2,
+          ),
+          "a committed batch is acknowledged",
+        );
+        break;
+      }
+      case "historyView": {
+        // Progress posts reach the controller but do not settle the query;
+        // only the terminal report resolves it.
+        const pending = link.query("historyViewSeek", { segment: 0, tick: 5 });
+        const sent = w.posted.at(-1) as { id: number };
+        let settled = false;
+        void pending.then(() => (settled = true));
+        deliver(w, {
+          type,
+          id: sent.id,
+          final: false,
+          generation: 3,
+          segment: 0,
+          tick: 2,
+          seq: 1,
+          cycle: 2,
+          room: 1,
+          score: 0,
+          modal: null,
+          canResume: true,
+          diverged: null,
+          error: null,
+        });
+        await new Promise((r) => setTimeout(r, 0));
+        assert.equal(settled, false, "progress must not resolve the query");
+        assert.ok(depCalls.includes("historyView"));
+        deliver(w, {
+          type,
+          id: sent.id,
+          final: true,
+          generation: 3,
+          segment: 0,
+          tick: 5,
+          seq: 2,
+          cycle: 5,
+          room: 1,
+          score: 0,
+          modal: null,
+          canResume: true,
+          diverged: null,
+          error: null,
+        });
+        assert.equal((await pending).tick, 5);
+        break;
+      }
+      case "historyRetained": {
+        const r = await roundTrip(link, w, "historyRetain", {
+          type,
+          id: 0,
+          boot: null,
+          from: null,
+        });
+        assert.equal(r.boot, null);
+        break;
+      }
+      case "historyTaken": {
+        const r = await roundTrip(link, w, "historyViewTake", { type, id: 0, ok: true });
+        assert.equal(r.ok, true);
+        break;
+      }
+      case "historyViewRestored": {
+        const r = await roundTrip(link, w, "historyViewRestore", { type, id: 0, ok: true });
+        assert.equal(r.ok, true);
+        break;
+      }
+      case "historyEnded": {
+        await roundTrip(link, w, "historyEnd", { type, id: 0 });
+        break;
+      }
       case "controls":
         deliver(w, { type, controls: [] });
         assert.deepEqual(state.controls, []);

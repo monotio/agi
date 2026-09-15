@@ -180,7 +180,7 @@ function openDatabase(): Promise<IDBDatabase> {
     throw error;
   });
 }
-async function bodyTransaction<T>(
+export async function bodyTransaction<T>(
   mode: IDBTransactionMode,
   operation: (store: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T> {
@@ -192,6 +192,47 @@ async function bodyTransaction<T>(
     transaction.onerror = () => reject(transaction.error ?? request.error);
     transaction.onabort = () =>
       reject(transaction.error ?? new Error("Project storage transaction aborted."));
+  });
+}
+
+/**
+ * Read-modify-write on one record inside a single read-write transaction.
+ * Separate get and put transactions from two tabs can interleave — the
+ * second put silently overwrites the first's merge — so a caller that
+ * updates an existing record must hold one transaction across both.
+ * `update` gets the raw stored value (undefined when absent) and returns
+ * the record to write plus the operation's result; omit `put` to commit no
+ * write. Throwing aborts the transaction and propagates.
+ */
+export async function updateBodyRecord<T>(
+  key: string,
+  update: (stored: unknown) => { put?: unknown; result: T },
+): Promise<T> {
+  const db = await openDatabase();
+  return new Promise<T>((resolve, reject) => {
+    const transaction = db.transaction("projects", "readwrite");
+    const store = transaction.objectStore("projects");
+    const request = store.get(key);
+    let outcome: { put?: unknown; result: T } | undefined;
+    let contractError: Error | undefined;
+    request.onsuccess = () => {
+      try {
+        outcome = update(request.result);
+        if (outcome.put !== undefined) store.put(outcome.put);
+      } catch (error) {
+        contractError = error instanceof Error ? error : new Error(String(error));
+        transaction.abort();
+      }
+    };
+    transaction.oncomplete = () => {
+      if (outcome === undefined) reject(new Error("Project storage transaction closed early."));
+      else resolve(outcome.result);
+    };
+    transaction.onerror = () => reject(contractError ?? transaction.error ?? request.error);
+    transaction.onabort = () =>
+      reject(
+        contractError ?? transaction.error ?? new Error("Project storage transaction aborted."),
+      );
   });
 }
 export class ConcurrencyConflictError extends Error {
@@ -474,7 +515,7 @@ async function writeBody(
   }
   localStorage.setItem(getStorageKey(data.projectId), JSON.stringify(storedIndex(data)));
 }
-function serializeWrite<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
+export function serializeWrite<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
   const next = (writes.get(projectId) ?? Promise.resolve()).catch(() => {}).then(operation);
   writes.set(projectId, next);
   void next
@@ -618,10 +659,12 @@ export function renameAuthoredGame(
 
 export function clearCachedGame(projectId: string): Promise<void> {
   return serializeWrite(projectId, async () => {
-    // The body and its conversation leave together: projectIds are deterministic,
-    // so a game added again must not inherit the removed one's history.
+    // The body, its conversation and its history leave together: projectIds are
+    // deterministic, so a game added again must not inherit the removed one's
+    // history.
     await bodyTransaction("readwrite", (store) => {
       store.delete(`conversation/${projectId}`);
+      store.delete(`history/${projectId}`);
       return store.delete(projectId);
     });
     localStorage.removeItem(getStorageKey(projectId));

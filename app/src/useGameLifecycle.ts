@@ -7,7 +7,7 @@
 import { continuationTranscript } from "./projectArchive.ts";
 import { detectKnownGame, gameRevision, updateBootedResources } from "./gameMetadata.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
-import { AgentSession } from "./agent/agentSession.ts";
+import { AgentSession, type BootResources } from "./agent/agentSession.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import type { AgiAudio } from "./audio/AgiAudio.ts";
 import {
@@ -38,14 +38,20 @@ export interface GameLifecycleOptions {
   readonly testRecorder: ReturnType<typeof useTestRecorder>;
   readonly promptCancel: () => void;
   readonly releaseAgentAudioPreviews: () => void;
-  readonly pauseEngine: () => void;
-  readonly resumeEngine: () => void;
+  readonly pauseEngine: (owner: string) => void;
+  readonly resumeEngine: (owner: string) => void;
+  /** A replaced worker takes every pause hold with it. */
+  readonly resetPauseOwners: () => void;
+  /** The history transport's scratch session dies with the worker. */
+  readonly resetHistoryView: () => void;
   readonly getSessionId: () => number;
   readonly nextSessionId: () => number;
   readonly getActiveReplaySeed: () => number | null;
   readonly setActiveReplaySeed: (seed: number | null) => void;
   readonly setActiveLlmConfig: (config: LlmConfig) => void;
   readonly abortWalkthrough: () => void;
+  /** Eject waits out in-flight history commits before the worker dies. */
+  readonly drainHistoryCommits: () => Promise<void>;
 }
 
 export function useGameLifecycle(options: GameLifecycleOptions) {
@@ -80,6 +86,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     state.rows = [];
     options.promptCancel();
     state.soundPlaying = false;
+    options.resetPauseOwners();
+    options.resetHistoryView();
     state.shake = false;
     link.clearShake();
     hook.modal = null;
@@ -178,7 +186,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
   async function ejectGame(ejectOptions?: { abandonUnsaved?: boolean }): Promise<void> {
     if (state.leaving || state.powerUp.busy) return;
     state.leaving = true;
-    options.pauseEngine();
+    options.pauseEngine("eject");
     try {
       const game = booted;
       const session = authoring.getSession();
@@ -210,13 +218,26 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       }
     } catch (error) {
       state.leaving = false;
-      options.resumeEngine();
+      options.resumeEngine("eject");
       throw error;
     }
     state.leaving = false;
-    options.nextSessionId();
     options.abortWalkthrough();
     options.promptCancel();
+    // Close the tape before the worker dies: the reply lands only once
+    // every posted and queued batch carries its ack, and the drain after
+    // waits out the matching commits — otherwise the queued tail and the
+    // "eject" end marker die with the worker. Ten seconds covers a resend
+    // backoff cycle so a transient storage refusal still lands. The walk-
+    // through session bump comes after: a replay reply is stamped with the
+    // session id, and bumping first would drop `historyEnded` as stale.
+    try {
+      await link.query("historyEnd", {}, 10_000);
+    } catch {
+      // A worker that cannot answer has already stopped recording.
+    }
+    await options.drainHistoryCommits();
+    options.nextSessionId();
     link.drainPendingQueries();
     state.walkthrough.active = false;
     state.walkthrough.status = "stopped";
@@ -246,6 +267,93 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
   }
 
   /**
+   * The tail both create flows share once resources exist: record the
+   * project, put the game in the slot, then boot a fresh worker with it. The
+   * direct flow reaches it after startGenesis; the map's plan review reaches
+   * it through the build turn after the player approves the draft.
+   */
+  async function finishAuthoredBoot(
+    session: AgentSession,
+    resources: BootResources,
+    boot: {
+      projectId: ProjectId;
+      templateId?: string | undefined;
+      title: string;
+      config: LlmConfig;
+    },
+  ): Promise<void> {
+    const { files, words, transcript, sessionId } = resources;
+    const { projectId, templateId, title, config } = boot;
+    const w = link.spawnWorker();
+    const authoredGame: CachedGameData = {
+      projectId,
+      templateId,
+      title,
+      authoredAt: new Date().toISOString(),
+      provider: config.provider,
+      model: config.model,
+      files,
+      words,
+      transcript,
+      sessionId,
+      authoringState: session.getAuthoringState(),
+      roomGeneration: true,
+    };
+    const known = await detectKnownGame(files);
+    const revision = await gameRevision(files);
+    booted = {
+      installed: false,
+      projectId,
+      alias: known?.alias,
+      title,
+      revision,
+      files,
+      words,
+      authoredGame,
+    };
+    authoring.attachSessionRuntime(session, booted);
+
+    const saved = await saveAuthoredGame(projectId, {
+      templateId,
+      title,
+      provider: config.provider,
+      model: config.model,
+      files,
+      words,
+      transcript,
+      sessionId,
+      authoringState: session.getAuthoringState(),
+      roomGeneration: true,
+    });
+    if (!saved)
+      logAgent(
+        "error",
+        "Browser storage could not save this world. Use Game actions → Project to keep it.",
+      );
+    if (saved)
+      logAgent(
+        "log",
+        `Saved the world and its authoring conversation in this browser (${projectId}).`,
+      );
+
+    const activeReplaySeed = options.getActiveReplaySeed();
+    w.postMessage({
+      type: "boot",
+      sessionId: options.getSessionId(),
+      soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
+      files,
+      words,
+      autosaveFiles: true,
+      authorRooms: true,
+      ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
+    } satisfies WorkerInbound);
+    // The baseline lands on the tape only now — attachSessionRuntime's post
+    // ran before the segment existed. A rewind to before the first commit
+    // restores exactly this state.
+    authoring.postSessionSnapshot(session);
+  }
+
+  /**
    * Boot an agent-authored adventure using the unified AgentSession.
    * Can run either with live LLM (Anthropic / OpenAI) or offline deterministic stub.
    */
@@ -263,13 +371,12 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     state.phase = "loading";
     state.error = "";
     try {
-      const w = link.spawnWorker();
-
       let projectId = bootOptions?.projectId || "custom";
       const title = bootOptions?.title || projectId;
       const templateId = bootOptions?.templateId;
 
       if (bootOptions?.useCached) {
+        const w = link.spawnWorker();
         const cached = await loadAuthoredGame(projectId);
         if (cached) {
           logAgent(
@@ -323,6 +430,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             authorRooms: Boolean(cached.roomGeneration),
             ...(await autosave.takeResumeState(cached.files)),
           } satisfies WorkerInbound);
+          // Same baseline as a fresh boot — posted after the segment opens.
+          if (cachedSession) authoring.postSessionSnapshot(cachedSession);
           return;
         }
         throw new Error(
@@ -340,71 +449,13 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       options.setActiveLlmConfig(config);
       const genesisSession = new AgentSession(config, logAgent);
       authoring.setSession(genesisSession);
-
-      const { files, words, transcript, sessionId } =
-        await genesisSession.startGenesis(templateMarkdown);
-      const authoredGame: CachedGameData = {
+      const resources = await genesisSession.startGenesis(templateMarkdown);
+      await finishAuthoredBoot(genesisSession, resources, {
         projectId,
         templateId,
         title,
-        authoredAt: new Date().toISOString(),
-        provider: config.provider,
-        model: config.model,
-        files,
-        words,
-        transcript,
-        sessionId,
-        authoringState: genesisSession.getAuthoringState(),
-        roomGeneration: true,
-      };
-      const known = await detectKnownGame(files);
-      const revision = await gameRevision(files);
-      booted = {
-        installed: false,
-        projectId,
-        alias: known?.alias,
-        title,
-        revision,
-        files,
-        words,
-        authoredGame,
-      };
-      authoring.attachSessionRuntime(genesisSession, booted);
-
-      const saved = await saveAuthoredGame(projectId, {
-        templateId,
-        title,
-        provider: config.provider,
-        model: config.model,
-        files,
-        words,
-        transcript,
-        sessionId,
-        authoringState: genesisSession.getAuthoringState(),
-        roomGeneration: true,
+        config,
       });
-      if (!saved)
-        logAgent(
-          "error",
-          "Browser storage could not save this world. Use Game actions → Project to keep it.",
-        );
-      if (saved)
-        logAgent(
-          "log",
-          `Saved the world and its authoring conversation in this browser (${projectId}).`,
-        );
-
-      const activeReplaySeed = options.getActiveReplaySeed();
-      w.postMessage({
-        type: "boot",
-        sessionId: options.getSessionId(),
-        soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
-        files,
-        words,
-        autosaveFiles: true,
-        authorRooms: true,
-        ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
-      } satisfies WorkerInbound);
     } catch (e) {
       state.phase = "error";
       state.error = String(e);
@@ -487,6 +538,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     configForGame,
     bootGame,
     bootAuthoredGame,
+    finishAuthoredBoot,
     bootAgentGame,
     ejectGame,
     isInstalledGame,

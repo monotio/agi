@@ -32,6 +32,7 @@ import { TraceWindow } from "./trace.ts";
 import { InputQueue } from "./inputQueue.ts";
 import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, normalizeModalKey } from "./keys.ts";
 import { fnv1a32 } from "./hash.ts";
+import { rngDraw } from "./rng.ts";
 import {
   validateEngineReplayState,
   type EngineReplayState,
@@ -176,8 +177,15 @@ export interface EngineHost {
   soundDevice?(): number;
   /** Optional adapter override for v23 attenuation, read on every sound tick. */
   soundAttenuation?(): number;
-  /** Optional reproducible unsigned random-word source for simulation hosts. */
-  randomWord?(): number;
+  /**
+   * The interpreter's RNG (docs/fidelity.md, "Original RNG"): the host's
+   * next unsigned byte, 0–255. The host lane owns the 16-bit state — the
+   * worker's runs the original `state*31821+1` step and records every
+   * zero-state clock reseed onto the history tape so replay reproduces
+   * the identical stream. A host that omits it gets the same state
+   * machine driven by Math.random.
+   */
+  randomByte?(): number;
   /** stopSound: silences active audio playback. */
   stopSound?(): void;
   /** The interpreter accepted quit; the host may close its playing session. */
@@ -654,6 +662,12 @@ export class Engine {
   private inputWidthCap: number | null = null;
   /** Lazily decoded OBJECT-file inventory names (XOR "Avis Durgan"). */
   private itemNameCache: string[] | null = null;
+  /**
+   * Fallback RNG state for hosts without a `randomByte` lane — the same
+   * 16-bit contract, reseeding from Math.random at zero (the BIOS clock
+   * read's untracked stand-in; recorded sessions always run the host lane).
+   */
+  private rngState = 0;
 
   private readonly container: GameContainer;
   private readonly host: EngineHost;
@@ -1958,6 +1972,7 @@ export class Engine {
               playback: this.soundPlayback.snapshot(),
             }
           : null,
+      patchGeneration: this.patchGen,
       continuation: this.captureContinuation(),
     };
   }
@@ -2005,6 +2020,9 @@ export class Engine {
     this.soundPlayback = sound;
     this.playingSound = state.sound?.num ?? null;
     this.soundDoneFlag = state.sound?.doneFlag ?? null;
+    // The patch counter is session state: the recorded stream folds the same
+    // patches before this restore, so the count must land, not accumulate.
+    this.patchGen = state.patchGeneration ?? 0;
     // The recorded state had no parked pass: neither should the engine,
     // whatever a setup image's continuation applied before this ran.
     const continuation = state.continuation ?? null;
@@ -2481,6 +2499,18 @@ export class Engine {
           }
           default:
             throw new RangeError(`unknown replay pair kind ${pair.kind}`);
+        }
+      }
+      // Block 5 is the authoritative loaded-logic set: the sequence's
+      // load-logic pairs cover only game-issued `load.logics`, while call
+      // dispatch and new.room load without pairs. Rebuild in record order so
+      // every recorded logic is resident at its saved resume offset.
+      if (this.profile.saveBlocks === 5) {
+        this.logics.clear();
+        this.scanStart.clear();
+        for (const record of resume) {
+          this.loadLogic(record.logic);
+          this.scanStart.set(record.logic, record.offset);
         }
       }
     } finally {
@@ -2960,6 +2990,19 @@ export class Engine {
     if (o === this.objects[0]) this.vars[V_EGO_DIR] = o.direction;
   }
 
+  /**
+   * One draw of the interpreter's RNG: the host lane's byte, or the
+   * engine's own 16-bit state machine when the host supplies none.
+   * docs/fidelity.md, "Original RNG".
+   */
+  private randomByte(): number {
+    const supplied = this.host.randomByte?.();
+    if (supplied !== undefined) return supplied & 0xff;
+    const draw = rngDraw(this.rngState, () => Math.floor(Math.random() * 65536));
+    this.rngState = draw.state;
+    return draw.byte;
+  }
+
   private updateObjects(): void {
     // The movement pass starts by clearing the border bytes v2, v4 and v5, so a
     // border contact is visible to logic for exactly one cycle.
@@ -3026,17 +3069,17 @@ export class Engine {
           f.retryDelay = 0;
           obj.direction = direct;
         } else if (obj.stationary) {
+          // The blocked follow path retries the direction draw until
+          // nonzero, then retries the distance draw until it reaches the
+          // threshold — both on the same RNG (docs/fidelity.md, RNG).
           do {
-            obj.direction =
-              ((this.host.randomWord?.() ?? Math.floor(Math.random() * 65536)) & 0xffff) % 9;
+            obj.direction = this.randomByte() % 9;
           } while (obj.direction === 0);
           const distance = Math.floor((Math.abs(dx) + Math.abs(dy)) / 2) + 1;
           if (distance <= obj.stepSize) f.retryDelay = obj.stepSize;
           else {
             do {
-              f.retryDelay =
-                ((this.host.randomWord?.() ?? Math.floor(Math.random() * 65536)) & 0xffff) %
-                distance;
+              f.retryDelay = this.randomByte() % distance;
             } while (f.retryDelay < obj.stepSize);
           }
         } else if (f.retryDelay !== 0) {
@@ -3047,15 +3090,15 @@ export class Engine {
         return;
       }
       case MOTION_WANDER: {
+        // Decrement first modulo 256; only an exhausted count (old zero —
+        // wraps to 255 and is kept) or a stationary object draws a new
+        // direction, and the reroll keeps an already-valid count — a
+        // `while`, not a do/while (docs/fidelity.md, wander countdown).
         const previousCount = obj.wanderCount;
         obj.wanderCount = (previousCount - 1) & 0xff;
         if (previousCount === 0 || obj.stationary) {
-          obj.direction =
-            ((this.host.randomWord?.() ?? Math.floor(Math.random() * 65536)) & 0xffff) % 9;
-          do {
-            obj.wanderCount =
-              ((this.host.randomWord?.() ?? Math.floor(Math.random() * 65536)) & 0xffff) % 51;
-          } while (obj.wanderCount < 6);
+          obj.direction = this.randomByte() % 9;
+          while (obj.wanderCount < 6) obj.wanderCount = this.randomByte() % 51;
         }
         if (obj === this.objects[0]) this.vars[V_EGO_DIR] = obj.direction;
         return;
@@ -5113,10 +5156,17 @@ export class Engine {
         return next;
       }
       case 0x82: {
+        // random(n,m,v): the draw is consumed even when n==m; the span is a
+        // 16-bit (m-n+1), the remainder is taken unsigned, and the stored
+        // result is the low byte. Reversed bounds are not normalized —
+        // a zero span is the original's divide error, surfaced as a fault
+        // (docs/fidelity.md, RNG consumers).
         const lo = a(0);
-        const hi = a(1);
-        const random = (this.host.randomWord?.() ?? Math.floor(Math.random() * 65536)) & 0xffff;
-        this.vars[a(2)] = lo + (random % (hi - lo + 1));
+        const span = (a(1) - lo + 1) & 0xffff;
+        const random = this.randomByte();
+        if (span === 0)
+          throw new Error(`random(${lo},${a(1)}) divides by a zero range — CPU divide error`);
+        this.vars[a(2)] = (lo + (random % span)) & 0xff;
         return next;
       }
       // program.control: v6 follows ego. player.control: ego follows v6. The

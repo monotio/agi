@@ -5,17 +5,23 @@ import type { ReplayAction } from "./replay.ts";
 import {
   KNOWN_GAMES,
   getKnownGameByAlias,
-  getKnownGameByHash,
   getKnownGameByRevision,
-  detectKnownGameByHashes,
   type KnownAgiGame,
 } from "../../src/games/knownGames.ts";
 
+/** Bundle revisions a recorded walkthrough supports beyond its catalog targetRevision. */
+const BY_WALKTHROUGH_REVISION = new Map<string, KnownAgiGame>();
+for (const game of KNOWN_GAMES) {
+  for (const revision of game.walkthroughRevisions ?? [])
+    BY_WALKTHROUGH_REVISION.set(revision.toLowerCase(), game);
+}
+
 export interface WalkthroughArtifact {
-  schema: "monotio.agi.walkthrough.v1";
+  schema: "monotio.agi.walkthrough.v2";
   game: string;
-  targetHash?: string | undefined;
-  supportedHashes?: readonly string[] | undefined;
+  /** The full bundle revision (sorted-name SHA-256) the tape was recorded on. */
+  targetRevision: string;
+  supportedRevisions?: readonly string[] | undefined;
   coverage: "complete-game" | "chapter" | "partial";
   profile: string;
   seed: number;
@@ -46,14 +52,20 @@ export const KNOWN_WALKTHROUGHS: Record<string, WalkthroughMeta> = Object.fromEn
   ]),
 );
 
-/** Resolve a hash-or-alias to its catalog entry (WORDS.TOK hash, bundle revision, or alias). */
-function knownGameFor(hashOrAlias: string): KnownAgiGame | null {
-  const normalized = hashOrAlias.toLowerCase();
+/**
+ * Resolve a walkthrough offer to its catalog entry — by alias (a canonical
+ * edition name) or by the full bundle revision of the copy being played.
+ * The WORDS.TOK fingerprint deliberately does not resolve here: a remix that
+ * leaves vocabulary alone keeps it, and the replay would refuse at the
+ * per-file check after offering.
+ */
+function knownGameFor(idOrRevision: string): KnownAgiGame | null {
+  const normalized = idOrRevision.toLowerCase();
   return (
-    getKnownGameByHash(normalized) ??
     getKnownGameByAlias(normalized) ??
     getKnownGameByRevision(normalized) ??
-    detectKnownGameByHashes(normalized)
+    BY_WALKTHROUGH_REVISION.get(normalized) ??
+    null
   );
 }
 
@@ -73,7 +85,7 @@ export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact 
     throw new Error("Walkthrough artifact must be an object.");
   }
   const obj = data as Record<string, unknown>;
-  if (obj["schema"] !== "monotio.agi.walkthrough.v1") {
+  if (obj["schema"] !== "monotio.agi.walkthrough.v2") {
     throw new Error(`Unsupported walkthrough schema: ${String(obj["schema"])}`);
   }
   if (typeof obj["game"] !== "string" || !KNOWN_WALKTHROUGHS[obj["game"].toLowerCase()]) {
@@ -82,26 +94,23 @@ export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact 
   const game = obj["game"].toLowerCase();
   const HASH_REGEX = /^[0-9a-f]{64}$/i;
 
-  let targetHash: string | undefined;
-  if (obj["targetHash"] !== undefined) {
-    if (typeof obj["targetHash"] !== "string" || !HASH_REGEX.test(obj["targetHash"])) {
-      throw new Error(`Invalid walkthrough targetHash: ${String(obj["targetHash"])}`);
-    }
-    targetHash = obj["targetHash"].toLowerCase();
+  if (typeof obj["targetRevision"] !== "string" || !HASH_REGEX.test(obj["targetRevision"])) {
+    throw new Error(`Invalid walkthrough targetRevision: ${String(obj["targetRevision"])}`);
   }
+  const targetRevision = obj["targetRevision"].toLowerCase();
 
-  let supportedHashes: string[] | undefined;
-  if (obj["supportedHashes"] !== undefined) {
-    if (!Array.isArray(obj["supportedHashes"])) {
-      throw new Error("Walkthrough supportedHashes must be an array.");
+  let supportedRevisions: string[] | undefined;
+  if (obj["supportedRevisions"] !== undefined) {
+    if (!Array.isArray(obj["supportedRevisions"])) {
+      throw new Error("Walkthrough supportedRevisions must be an array.");
     }
-    supportedHashes = [];
-    for (let i = 0; i < obj["supportedHashes"].length; i++) {
-      const h = obj["supportedHashes"][i];
+    supportedRevisions = [];
+    for (let i = 0; i < obj["supportedRevisions"].length; i++) {
+      const h = obj["supportedRevisions"][i];
       if (typeof h !== "string" || !HASH_REGEX.test(h)) {
-        throw new Error(`Invalid walkthrough supportedHash at index ${i}: ${String(h)}`);
+        throw new Error(`Invalid walkthrough supportedRevision at index ${i}: ${String(h)}`);
       }
-      supportedHashes.push(h.toLowerCase());
+      supportedRevisions.push(h.toLowerCase());
     }
   }
 
@@ -205,10 +214,10 @@ export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact 
   }
 
   return {
-    schema: "monotio.agi.walkthrough.v1",
+    schema: "monotio.agi.walkthrough.v2",
     game,
-    ...(targetHash !== undefined ? { targetHash } : {}),
-    ...(supportedHashes !== undefined ? { supportedHashes } : {}),
+    targetRevision,
+    ...(supportedRevisions !== undefined ? { supportedRevisions } : {}),
     coverage,
     profile: String(obj["profile"]),
     seed,

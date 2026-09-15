@@ -179,7 +179,7 @@ const bridge = useShellBridge();
               :test-id="`game-actions-${game.projectId}`"
             >
               <button
-                v-if="hasWalkthrough(game.library?.alias ?? game.projectId)"
+                v-if="hasWalkthrough(game.library?.revision ?? '')"
                 type="button"
                 role="menuitem"
                 data-testid="run-walkthrough"
@@ -232,7 +232,7 @@ const bridge = useShellBridge();
                 :disabled="exportBusy"
                 @click="onExportLibraryGame(game, true)"
               >
-                <span>Project<small>Game and editing history</small></span>
+                <span>Project<small>Game and play history</small></span>
               </button>
               <div role="separator"></div>
               <button

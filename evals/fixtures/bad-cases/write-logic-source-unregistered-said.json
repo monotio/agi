@@ -1,0 +1,11 @@
+{
+  "name": "write-logic-source-unregistered-said",
+  "description": "A cross-room rewrite that said()s a word never registered with write_words: compile must fail and store nothing, so the staged transaction never sees half-valid logic.",
+  "tool": "write_logic_source",
+  "args": {
+    "room": 1,
+    "source": "if (said(\"vault\")) { print(1); } return;"
+  },
+  "expectedSuccess": false,
+  "expectedErrorSnippet": "not in the dictionary"
+}

@@ -790,7 +790,7 @@ test("score, var range, object and reachable expectations report observed values
 test("the speedrun runner imports the shared step vocabulary", () => {
   assert.equal(RUNNER_DIRECTION_KEYS, DIRECTION_KEYS, "one PC direction-key table");
   assert.equal(runnerRandomSource, randomSource, "one seeded random source");
-  assert.deepEqual(Array.from({ length: 4 }, randomSource(1)), [15496, 24200, 33046, 46195]);
+  assert.deepEqual(Array.from({ length: 4 }, randomSource(1)), [50, 92, 122, 150]);
   for (const [dx, dy, direction] of [
     [0, 0, 0],
     [0, -1, 1],
@@ -862,7 +862,7 @@ function recordSetupImage(state: AgentSessionState): string {
     print: () => {},
     displayAt: () => {},
     statusLine: () => {},
-    randomWord: () => 42,
+    randomByte: () => 42,
     takeInputLine: () => {
       const taken = line;
       line = null;

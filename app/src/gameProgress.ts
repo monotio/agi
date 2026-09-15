@@ -304,6 +304,8 @@ export interface ImportStorageReport {
   autosave: AutosaveRecord | null;
   /** Whether the imported world map reached storage, when the archive carried one. */
   map?: boolean;
+  /** Whether the imported session tape reached storage, when the archive carried one. */
+  history?: boolean;
 }
 
 /**

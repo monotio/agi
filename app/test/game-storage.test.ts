@@ -530,6 +530,7 @@ test("removing a library game clears its conversation, checkpoint, save slots an
     discovered: { rooms: {}, edges: [] },
     layout: { 3: { x: 10, y: 20 } },
     notes: {},
+    edgeNotes: {},
   });
   assert.ok(localStorage.getItem(mapKey("gone")) !== null, "map record written");
   localStorage.setItem("monotio_agi.lastGame", "gone");

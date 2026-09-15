@@ -6,7 +6,9 @@ import type { LlmConfig } from "./agent/llmClient.ts";
 import type { AgentFrame, FrameRequest } from "../../src/agent/frames.ts";
 import { continuationTranscript } from "./projectArchive.ts";
 import { gameRevision, updateBootedResources } from "./gameMetadata.ts";
-import { parseWordsTok } from "../../src/logic/words.ts";
+import { buildWordsTok, parseWordsTok } from "../../src/logic/words.ts";
+import { openContainer } from "../../src/container/container.ts";
+import { prepareRoomPatch } from "../../src/agent/roomPatch.ts";
 import {
   getCachedGameMeta,
   loadAuthoredGame,
@@ -16,9 +18,12 @@ import {
   updateGameConversation,
   type CachedGameData,
 } from "./gameStorage.ts";
+import { worldRevision } from "../../src/agent/worldPlan.ts";
 import { gameStorageKey, type BootedGame } from "./gameTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
 import type { WorkerInbound, WorkerQueryFn } from "./workerProtocol.ts";
+import type { HistoryBoot } from "../../src/agent/history.ts";
+import { base64ToBytes } from "./bytes.ts";
 
 /** Remix bubble state; the transcript slice is the live tool-call feed. */
 export interface PowerUpUiState {
@@ -46,13 +51,17 @@ export interface AuthoringControllerOptions {
     agentTask: AgentRunState | null;
     readonly agentLog: readonly AgentLogEntry[];
     readonly profile: string | null;
+    /** Bumped on each committed world change so plan surfaces re-derive. */
+    worldTick: number;
+    /** The world revision the last confirmed durable write carried. */
+    planDurableRev: string;
   };
   readonly getWorker: () => Worker | null;
   readonly query: WorkerQueryFn;
   readonly logAgent: LogAgentFn;
   readonly readFrames: (req: FrameRequest) => Promise<AgentFrame[]>;
-  readonly pauseEngine: () => void;
-  readonly resumeEngine: () => void;
+  readonly pauseEngine: (owner: string) => void;
+  readonly resumeEngine: (owner: string) => void;
   readonly getBootedGame: () => BootedGame | null;
   readonly setBootedGame: (game: BootedGame | null) => void;
   readonly flushAutosave: (timeoutMs?: number) => Promise<unknown>;
@@ -61,6 +70,8 @@ export interface AuthoringControllerOptions {
   readonly onRemixCreated?: ((remixProjectId: string) => void) | undefined;
   readonly configForGame?: ((projectId: string, fallback: LlmConfig) => LlmConfig) | undefined;
   readonly getLlmConfig?: (() => LlmConfig) | undefined;
+  /** Player intent pinned on the map for a room — attached to room requests. */
+  readonly getRoomNotes?: ((room: number) => string[]) | undefined;
 }
 
 export interface AuthoringController {
@@ -86,6 +97,19 @@ export interface AuthoringController {
     agent: AgentHandler,
     sendDirection: (dir: number) => void,
   ): Promise<string>;
+  /** Author one planned room's resources into the running game (map build). */
+  buildRoomFromMap(room: number, from: number, notes: string[], exitName?: string): Promise<void>;
+  /** Persist the session's authoring state; false when storage refused or
+   *  there is no project to write to. */
+  persistSessionState(): Promise<boolean>;
+  /** Post the session's authoring state as a tape checkpoint. */
+  postSessionSnapshot(author?: AgentSession | null): void;
+  /**
+   * The session leg of a history adoption: install the state belonging to
+   * the adopted boot, then bring the booted game and stored project to the
+   * same revision. A failure leaves the session's adoption hold set.
+   */
+  adoptSessionState(game: BootedGame, boot: HistoryBoot, snapshot: unknown): Promise<void>;
   assembleExportData(
     data: CachedGameData,
     game: BootedGame,
@@ -111,6 +135,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     onRemixCreated,
     configForGame,
     getLlmConfig,
+    getRoomNotes,
   } = options;
 
   let session: AgentSession | null = null;
@@ -148,6 +173,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       frames: { read: readFrames },
       engine: engineSource,
       checkpoint: checkpointSource,
+      // Map-pinned intent is visible to read_room_context for any room the
+      // agent inspects, not just the one a request names.
+      roomNotes: (room) => getRoomNotes?.(room) ?? [],
     });
     if (game.installed || (game.projectId && getCachedGameMeta(game.projectId)?.imported)) {
       s.setOrientation({
@@ -155,6 +183,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         profile,
       });
     }
+    // Baseline checkpoint: the tape names the state this session begins
+    // from, so a rewind to before its first commit restores it intact.
+    if (getBootedGame() === game) postSessionSnapshot(s);
   }
 
   async function getOrCreateSession(game: BootedGame, config: LlmConfig): Promise<AgentSession> {
@@ -193,7 +224,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   async function openPowerUp(config: LlmConfig): Promise<void> {
     if (state.powerUp.open && state.powerUp.mode === "room") return;
     if (state.powerUp.mode === "room") state.powerUp.mode = "remix";
-    pauseEngine();
+    pauseEngine("powerUp");
     state.powerUp.open = true;
     state.powerUp.busy = true;
     state.powerUp.reply = "";
@@ -292,7 +323,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     if (state.powerUp.busy) return;
     state.powerUp.open = false;
     state.powerUp.busy = false;
-    resumeEngine();
+    resumeEngine("powerUp");
   }
 
   /** Persist resource bytes and their matching authoring history as one project snapshot. */
@@ -311,6 +342,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     const revision = await gameRevision(files);
     const catalogChanged =
       original?.library?.source === "catalog" && original.library.revision !== revision;
+    let writtenRev: string;
     if (game.installed || catalogChanged) {
       const remixProjectId = `remix-${crypto.randomUUID()}`;
       const parentProjectId = original?.projectId ?? game.projectId;
@@ -343,6 +375,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         imported: true,
         roomGeneration: false,
       };
+      writtenRev = planRevisionOf(author);
       if (!(await saveAuthoredGame(remixProjectId, data)))
         throw new Error(
           "Browser storage could not save this remix. Use Game actions → Project to keep it.",
@@ -364,23 +397,27 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       };
       setBootedGame(newBooted);
       onRemixCreated?.(remixProjectId);
-    } else if (
-      !(await updateGameConversation(
-        game.projectId!,
-        author.getTranscript(),
-        author.getSessionId(),
-        author.getAuthoringState(),
-        context.provider,
-        context.model,
-        files,
-      ))
-    ) {
-      throw new Error(
-        "Browser storage could not save this remix. Use Game actions → Project to keep it.",
-      );
+    } else {
+      writtenRev = planRevisionOf(author);
+      if (
+        !(await updateGameConversation(
+          game.projectId!,
+          author.getTranscript(),
+          author.getSessionId(),
+          author.getAuthoringState(),
+          context.provider,
+          context.model,
+          files,
+        ))
+      ) {
+        throw new Error(
+          "Browser storage could not save this remix. Use Game actions → Project to keep it.",
+        );
+      }
     }
     await updateBootedResources(game, files, words);
     remixNeedsSave = false;
+    reportPlanSaved(writtenRev);
   }
 
   /**
@@ -416,6 +453,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         }
         if (booted && !booted.installed) {
           const context = session.getProviderContext();
+          const writtenRev = planRevisionOf(session);
           if (
             !(await updateGameConversation(
               booted.projectId!,
@@ -429,6 +467,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
             throw new Error(
               "Conversation could not be saved. Use Game actions → Project to keep it.",
             );
+          reportPlanSaved(writtenRev);
         }
         return;
       }
@@ -445,6 +484,10 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
           [payload.buffer],
         );
       }
+      // The tape checkpoint rides the same ordered queue: it lands after
+      // the commit's patches, so a take between them restores the state
+      // that produced them.
+      postSessionSnapshot();
       // Worker messages are ordered: snapshot after every patch has landed, before persisting the matching conversation.
       if (booted) {
         const game = booted;
@@ -462,7 +505,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       }
       await flushAutosave(2000);
       state.powerUp.open = false;
-      resumeEngine();
+      resumeEngine("powerUp");
     } catch (e) {
       state.powerUp.error = String(e);
     } finally {
@@ -506,6 +549,10 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     };
     const progress = state.powerUp;
     sendDirection(0);
+    // Map-pinned intent travels with the request: the room prompt carries it
+    // and the request log shows what the player asked for.
+    const notes = getRoomNotes?.(Number(req.context["room"])) ?? [];
+    if (notes.length) req.context = { ...req.context, playerNotes: notes };
     try {
       const result = await agent.handle(req);
       if (!result)
@@ -513,18 +560,18 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       if (state.powerUp === progress) {
         state.powerUp.open = false;
         if (game && getBootedGame() === game && author && game.projectId) {
-          if (
-            !(await updateGameConversation(
-              game.projectId,
-              author.getTranscript(),
-              author.getSessionId(),
-              author.getAuthoringState(),
-              author.getProviderContext().provider,
-              author.getProviderContext().model,
-              Object.fromEntries(author.state.getFiles()),
-            ))
-          )
-            logAgent("error", "Browser storage could not save the room conversation.");
+          const writtenRev = planRevisionOf(author);
+          const saved = await updateGameConversation(
+            game.projectId,
+            author.getTranscript(),
+            author.getSessionId(),
+            author.getAuthoringState(),
+            author.getProviderContext().provider,
+            author.getProviderContext().model,
+            Object.fromEntries(author.state.getFiles()),
+          );
+          if (saved) reportPlanSaved(writtenRev);
+          else logAgent("error", "Browser storage could not save the room conversation.");
         }
       }
       return result;
@@ -534,6 +581,184 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     } finally {
       if (state.powerUp === progress) state.powerUp.busy = false;
     }
+  }
+
+  /**
+   * Extend the running game from the world map: author one planned room
+   * through the same room turn just-in-time authoring uses, then apply the
+   * response the way the worker's room path would — validate against the
+   * live container, patch the running game, persist the project snapshot.
+   * The build holds its own pause: closing the map mid-build must not let
+   * play resume into a room whose authoring turn is still in flight.
+   */
+  async function buildRoomFromMap(
+    room: number,
+    from: number,
+    notes: string[],
+    exitName?: string,
+  ): Promise<void> {
+    const game = getBootedGame();
+    if (!game || game.installed || !game.projectId)
+      throw new Error("Building from the map extends a game authored here.");
+    if (state.powerUp.busy) throw new Error("Wait for the current agent task to finish.");
+    pauseEngine("mapBuild");
+    try {
+      const config =
+        configForGame && getLlmConfig ? configForGame(game.projectId, getLlmConfig()) : null;
+      if (!config || (config.provider !== "stub" && !config.apiKey.trim()))
+        throw new Error("Connect your AI provider to build a room from the map.");
+      const author = await getOrCreateSession(game, config);
+      attachSessionRuntime(author, game);
+      logAgent("request", `[Map build] room ${room} from room ${from}`, { room, from, notes });
+      const response = await author.handle({
+        op: "room",
+        context: {
+          room,
+          from,
+          state: await query("state"),
+          objects: await query("objects"),
+          ...(notes.length ? { playerNotes: notes } : {}),
+          ...(exitName ? { plannedExit: exitName } : {}),
+        },
+      });
+      if (!response) throw new Error(`Room ${room} could not be created.`);
+      const files = await query("exportFiles");
+      if (!files || getBootedGame() !== game)
+        throw new Error("The game changed while the room was being authored.");
+      const container = openContainer(new Map(Object.entries(files)));
+      const dictionary = new Map(
+        parseWordsTok(files["WORDS.TOK"] ?? new Uint8Array()).map(
+          (entry) => [entry.word, entry.id] as [string, number],
+        ),
+      );
+      // The same gate the worker's suspended path applies: the whole staged
+      // set is validated before anything lands — dictionary may only grow,
+      // rewrites of other rooms' resources commit or fail as one transaction,
+      // and the room needs logic plus picture.
+      const compiled = prepareRoomPatch(container, room, response, dictionary);
+      const worker = getWorker();
+      worker?.postMessage({
+        type: "patchMetadata",
+        files: {
+          "WORDS.TOK": buildWordsTok(compiled.words.map(([word, id]) => ({ word, id }))),
+          ...(compiled.objects ? { OBJECT: compiled.objects } : {}),
+          ...(compiled.tests ? { "TESTS.JSON": compiled.tests } : {}),
+        },
+      } satisfies WorkerInbound);
+      for (const res of compiled.resources) {
+        const payload = new Uint8Array(res.payload);
+        worker?.postMessage(
+          { type: "patch", kind: res.kind, num: res.num, payload } satisfies WorkerInbound,
+          [payload.buffer],
+        );
+      }
+      postSessionSnapshot(author);
+      const currentFiles = await query("exportFiles");
+      if (!currentFiles || getBootedGame() !== game)
+        throw new Error("The game changed while the room was being authored.");
+      await persistRemix(game, author, currentFiles);
+    } finally {
+      resumeEngine("mapBuild");
+    }
+  }
+
+  /** A write landed: record the revision it carried — captured before the
+   *  persist, since the world can move while the write is in flight. */
+  function reportPlanSaved(rev: string): void {
+    if (rev) state.planDurableRev = rev;
+  }
+
+  /** The revision of the authoring state as it stands this tick. */
+  function planRevisionOf(author: AgentSession): string {
+    return worldRevision(author.state.authoring.world);
+  }
+
+  /**
+   * Store the session's authoring state — plan edits the map committed.
+   * The boolean is the durable outcome the map's dirty tracking needs:
+   * false for a refused write and for a game with no project to write to
+   * (installed/imported), so a newer edit is never labeled saved.
+   */
+  async function persistSessionState(): Promise<boolean> {
+    const game = getBootedGame();
+    const author = session;
+    if (!game || game.installed || !game.projectId || !author) return false;
+    const context = author.getProviderContext();
+    const writtenRev = planRevisionOf(author);
+    const saved = await updateGameConversation(
+      game.projectId,
+      author.getTranscript(),
+      author.getSessionId(),
+      author.getAuthoringState(),
+      context.provider,
+      context.model,
+    );
+    if (!saved) logAgent("error", "Browser storage could not save the updated world plan.");
+    else reportPlanSaved(writtenRev);
+    // The committed world plan is a tape checkpoint too: a Resume here
+    // adoption installs the snapshot that belongs to the adopted bytes.
+    postSessionSnapshot();
+    return saved;
+  }
+
+  /**
+   * The session's authoring state lands on the tape as an `authoring`
+   * cause. Posted after every commit — the baseline at attach, each remix
+   * patch, each room answer, each world-plan commit — so the tape always
+   * names the state a take should restore. A no-op while no segment is
+   * live; the adoption fallback (same-revision carry) covers that gap.
+   */
+  function postSessionSnapshot(author: AgentSession | null = session): void {
+    if (!author) return;
+    // The world may have moved — plan surfaces re-read it even when no
+    // resource changed (a plan-only update_world produces no patch).
+    state.worldTick++;
+    getWorker()?.postMessage({
+      type: "authoring",
+      snapshot: author.snapshotAuthoring(),
+    } satisfies WorkerInbound);
+  }
+
+  /**
+   * The session leg of a history adoption, run after the worker acked: the
+   * session rebuilds its state on the adopted boot (the tape's checkpoint,
+   * the kept record's snapshot, or a same-revision carry), the booted game
+   * and stored project follow to the same revision. A throw leaves the
+   * session's adoption hold set — the next successful adoption releases it.
+   */
+  async function adoptSessionState(
+    game: BootedGame,
+    boot: HistoryBoot,
+    snapshot: unknown,
+  ): Promise<void> {
+    const files: Record<string, Uint8Array> = {};
+    for (const [name, data] of Object.entries(boot.files)) files[name] = base64ToBytes(data);
+    const words = boot.dictionary;
+    const author = getBootedGame() === game ? session : null;
+    if (author) {
+      // The bytes must equal the revision the worker reported adopting —
+      // a mismatched install throws before touching the session.
+      author.adoptAuthoredData(files, words, snapshot, boot.resourceSet);
+      if (!game.installed && game.projectId) {
+        const context = author.getProviderContext();
+        const writtenRev = planRevisionOf(author);
+        const saved = await updateGameConversation(
+          game.projectId,
+          author.getTranscript(),
+          author.getSessionId(),
+          author.getAuthoringState(),
+          context.provider,
+          context.model,
+          files,
+        );
+        if (saved) reportPlanSaved(writtenRev);
+        else logAgent("error", "Browser storage could not save the adopted session state.");
+      }
+    }
+    await updateBootedResources(game, files, words);
+    // Both legs landed: the session describes the bytes the worker runs.
+    author?.releaseAdoption();
+    state.worldTick++;
   }
 
   function assembleExportData(
@@ -582,6 +807,10 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     setRemixNeedsSave,
     resetSession,
     handleRoomAuthoring,
+    buildRoomFromMap,
+    persistSessionState,
+    postSessionSnapshot,
+    adoptSessionState,
     assembleExportData,
   };
 }

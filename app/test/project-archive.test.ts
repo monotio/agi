@@ -323,6 +323,7 @@ test("project archives carry the world map; published games never do", async () 
     ],
     layout: { "2": { x: 400, y: -170 } },
     notes: { "2": "check the guard timing" },
+    edgeNotes: { "0->2:right": "the bridge is out at night" },
   };
   const opened = await readGameZip(await buildProjectZip(data, undefined, map));
   assert.deepEqual(opened.map, map);
@@ -352,4 +353,26 @@ test("a corrupt MAP.JSON degrades to an empty map instead of refusing the import
   const opened = await readGameZip(zip);
   assert.ok(opened.project);
   assert.equal(opened.map, undefined);
+});
+
+test("a corrupt HISTORY.JSON rejects the import and names the file", async () => {
+  const container = createContainer();
+  container.putResource("logic", 0, assembleLogic("return;", { dictionary: new Map() }).payload);
+  const zip = buildZip([
+    ...[...container.files].map(([name, bytes]) => ({ name, data: bytes })),
+    { name: "WORDS.TOK", data: new Uint8Array(52) },
+    {
+      name: "PROJECT.JSON",
+      data: JSON.stringify({
+        format: "monotio.agi.project",
+        version: 1,
+        provider: "stub",
+        model: "stub",
+        conversation: { formatVersion: 1, messages: [] },
+        authoringState: {},
+      }),
+    },
+    { name: "HISTORY.JSON", data: "not json" },
+  ]);
+  await assert.rejects(() => readGameZip(zip), /HISTORY\.JSON is not readable/);
 });

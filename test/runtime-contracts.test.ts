@@ -74,7 +74,7 @@ test("alternate text mode skips post-logic movement and animation until graphics
 test("random actions consume the injected random source, including inclusive endpoints", () => {
   const values = [0, 10, 65535];
   const e = game("random(5,15,v200);random(5,15,v201);random(0,255,v202);return;", {
-    randomWord: () => values.shift()!,
+    randomByte: () => values.shift()!,
   });
   e.tick();
   assert.deepEqual(Array.from(e.vars.slice(200, 203)), [5, 15, 255]);
