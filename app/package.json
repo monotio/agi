@@ -19,12 +19,12 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
     "openai": "^7.10.0",
-    "three": "^0.185.1",
+    "three": "^0.186.0",
     "vue": "^3.5.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
-    "@types/three": "^0.185.4",
+    "@types/three": "^0.186.0",
     "@vitejs/plugin-vue": "^6.0.0",
     "typescript": "~6.0.3",
     "vite": "^8.2.2",
