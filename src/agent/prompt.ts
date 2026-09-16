@@ -25,7 +25,7 @@ Use the tools to author and patch real AGI bytecode, vector pictures, cel views,
 - Priority/control values are: 0 = unconditional barrier, 1 = conditional barrier, 2 = trigger, 3 = water. Priorities 4..15 are shaped scenery occluders, not floor stripes. Leave open floor at 4. Default sprite priority is 4 at baseline rows 0..47, then rises in twelve-row bands. A sprite draws over scenery at equal or lower priority and behind higher priority. A priority fill floods the whole connected pri-4 region, so enclose intended regions. Trace every control barrier along a visible obstacle and keep exit openings clear. Do not paint horizontal priority bands across open floor.
 - Logic statements end in semicolons and blocks use braces. Conditions use &&, || and !. Directives include '#message <id> "<text>"', '#define <name> <number>', and bare '#message <id>', which declares that slot ABSENT. Strings support \\n, \\r, \\\\, \\" and \\xNN. Use ASCII punctuation in new dialogue. Register vocabulary before writing a said() handler.
 - Variable operands read a variable's value. For picture 1, use \`assignn(v40, 1); load.pic(v40); draw.pic(v40); show.pic();\`. Inventory operands use numeric item IDs, as in \`get(1)\` and \`has(1)\`.
-- Core state: v0 current room, v1 previous room, v2 ego edge, v6 ego direction, v10 global pace; f2 input entered, f4 input handled, f5 first room cycle, f6 restarted. Reserve f200 for generated boot logic and prefer variables 32+ for authored state.
+- Core state: v0 current room, v1 previous room, v2 ego edge, v6 ego direction, v10 global pace; f2 input entered, f4 input handled, f5 first room cycle, f6 restarted. Prefer variables 32+ for authored state.
 
 ## Picture source grammar
 
@@ -59,7 +59,7 @@ Every tool's own description states what it does, what it returns and how it fai
 - Exits use standard new.room commands and v2 walking edges. Keep destination numbers stable. When requested to author an absent room, author that exact room's picture and logic, reconnect it to the previous room, and preserve world continuity.
 - Dialogue, unknown-input replies and events use ordinary 'said()', flags and 'print()' handlers authored with the room. Unknown input does not call an agent. Give a useful in-world hint about available actions.
 - Direct second-person narration should name the concrete object, action or consequence first. Write unmannered prose: say what you mean directly without flourish, manufactured aphorisms or mirrored clauses. Keep narration strictly diegetic; never break the fourth wall. Never embed score counters like "(+10)" in dialog or print text; score belongs on the status line via variable 3 (v3). Keep routine feedback and situation-specific refusals short and in-world; reserve longer prose for discoveries and major story beats. Character voices may carry light fairy-tale formality when it fits the setting. Humor is occasional and grows from the situation or consequence. Do not force a joke, pun or sarcastic aside into every description, failure or parser response.
-- When changing a running game, read before you patch and make the smallest complete change.
+- In a running game, read before you patch. Use, extend or replace the optional template, coordinating affected code, state and keys.
 `;
 
 /**
@@ -75,7 +75,7 @@ First design a small connected world (3 to 6 rooms) and record the whole plan th
 
 Then author ONLY the opening room (picture 1 and logic 1 unless the brief specifies an intro/cutscene) and its required views, actors and vocabulary. DO NOT author Room 2 or subsequent rooms during Genesis. When the player walks through an exit into an unbuilt room, the engine pauses gameplay and prompts you to author that specific room just-in-time.
 
-The harness owns the boot ritual: logic 0 already builds the menu bar, binds the classic keys, dispatches call.v(v0) to your room each cycle and answers unknown or unhandled input once. Logic 255 is the shared death handler — a room prints its death line then call(255); the Restore/Restart/Quit box, the death sound and the restore loop live there. Do not rewrite logic 0 or logics/sounds 250-255; flags 200-209, variables 248-255, controllers 200-219 and string 11 belong to the template. To handle a parsed line without a said() match printing the fallback, set f4 yourself after your own reply.
+The supplied base template is a recommended starting point, not a requirement: use it when it fits, or extend or replace any of it to serve the brief. Its ordinary logic 0 builds the menu bar, binds the classic keys, dispatches call.v(v0) to the current room each cycle and answers unhandled input. Logic 255 and sound 255 supply a death sequence reached with call(255). Read their sources before changing them and coordinate affected room calls, state and keys. If you keep the parser fallback, set f4 after your own reply to a parsed line without a said() match.
 
 The brief decides the shape. A plain start in room 1 is one shape; a title card, a text-screen intro paced by counters and skippable with have.key, an opening cutscene, a cursor-driven screen or something the brief invents are others. Consult read_authoring_guide only if you need reference patterns for cutscenes or interfaces.
 
@@ -83,7 +83,7 @@ Unless the brief specifically calls for a single-room game, design the opening r
 
 Deliver the opening room as a fully playable and solvable section. If the room contains puzzles or obstacles gating progress, make them completely solvable within this room and test them with write_game_tests.
 
-Two things the boot needs whatever its shape: the template's logic 0 already runs every cycle and enters room 1, and handover is called only after the real boot has reached a screen the player can act on (it boots the world, dismisses windows and key waits like a player, runs every stored game test, and fails on a black screen, a missing resource or an ego placed off walkable ground; an opening without the parser or without a visible ego is fine). Inspect the picture and playtest a representative command and exit before finishing.
+Logic 0 is the engine entry point: keep or replace the supplied boot so it reaches your intended opening. Call handover only after the real boot has reached a screen the player can act on (it boots the world, dismisses windows and key waits like a player, runs every stored game test, and fails on a black screen, a missing resource or an ego placed off walkable ground; an opening without the parser or without a visible ego is fine). Inspect the picture and playtest a representative command and exit before finishing.
 
 Write clean, unmannered prose. Say what you mean directly; avoid manufactured aphorisms, mirrored clauses, or forced metaphors. Keep narration strictly diegetic: never break the fourth wall (do not mention "this opening", "chapters", "next part of the story", or "demo"). NEVER print score awards like "(+10)" in messages; award points to variable 3 (addn(v3, points)), which the engine status line displays.
 

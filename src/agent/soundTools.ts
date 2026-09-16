@@ -13,7 +13,6 @@ import {
 import { parseSound } from "../sound/sound.ts";
 import { renderSoundPreview } from "../sound/preview.ts";
 import { soundFeedback, type SoundFeedbackOptions } from "./soundFeedback.ts";
-import { templateSlotError } from "./baseTemplate.ts";
 
 const CHANNELS = ["melody", "harmony", "bass", "noise"] as const;
 type ChannelName = (typeof CHANNELS)[number];
@@ -367,8 +366,6 @@ export function executeSoundTool(
   if (name === "write_music") {
     try {
       const compiled = compileMusic(args);
-      const reservedSound = templateSlotError(state, "sound", compiled.num);
-      if (reservedSound) throw new Error(reservedSound);
       const payload = buildSound(compiled.tracks);
       const sound = parseSound(payload);
       state.container.putResource("sound", compiled.num, payload);

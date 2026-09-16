@@ -104,18 +104,15 @@ test("write_room describes and compiles real room behavior with named references
   assert.ok((played.details?.["messages"] as string[]).includes("Taken -- safely."));
 });
 
-test("write_room refuses a reserved template flag through the compiled payload", () => {
+test("write_room can coordinate interactions with the editable template state", () => {
   const state = setup();
   installBaseTemplate(state, state.profile);
-  // A raw flag number slips past the binding guard — the assembled bytecode
-  // is where the template's ownership is enforced.
   const result = executeRoomTool(state, "write_room", {
     ...args(),
     interactions: [{ commands: ["look"], response: "Nothing.", setFlag: 202 }],
   })!;
-  assert.equal(result.success, false);
-  assert.match(result.error ?? "", /harness base template/);
-  assert.equal(state.container.getResource("logic", 1), null, "nothing installed");
+  assert.equal(result.success, true, result.error ?? "");
+  assert.ok(state.container.getResource("logic", 1));
 });
 
 test("write_room accepts the new-room revision advertised to the model", () => {

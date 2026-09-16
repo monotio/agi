@@ -68,11 +68,12 @@ test("the tool is catalogued for Ask turns and validates its topic argument", ()
 test("the genesis prompt names the template boot without prescribing the opening's shape", () => {
   const prompt = createGenesisPrompt("# Night Train\nA sleeper car mystery.");
   assert.ok(prompt.startsWith("### GENESIS:"));
-  assert.match(prompt, /harness owns the boot ritual/);
+  assert.match(prompt, /recommended starting point/);
   assert.match(prompt, /call\(255\)/);
   assert.match(prompt, /text-screen intro/);
   assert.ok(!/Use this logic 0 boot script/.test(prompt));
-  assert.match(prompt, /Do not rewrite logic 0/);
+  assert.match(prompt, /extend or replace any of it/);
+  assert.match(AUTHORING_GUIDE["base-template"]!.body, /ordinary game resources/);
 });
 
 test("every code sketch in the guide assembles for the default profile", () => {

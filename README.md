@@ -82,7 +82,9 @@ and game logic — in one turn, and the world map already shows the planned
 rooms: rename them, extend them, annotate them while you play. When you enter
 an unwritten room — or pick **Build this room** on its map node — play pauses
 while the agent creates it; you can follow its progress in the activity panel.
-Rooms you return to run from their saved resources.
+Rooms you return to run from their saved resources. New games start with AGI
+boilerplate for boot, menus and death handling; the agent can use, extend or
+replace it to suit the adventure.
 
 Click the game to type, press **Enter** to submit, and use the arrow keys to walk.
 **Home**, **Page Up**, **End** and **Page Down** walk diagonally.

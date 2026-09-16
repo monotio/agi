@@ -15,7 +15,6 @@ import { editableSource, executeAuthoringTool, sourceContextRevision } from "./a
 import { resourceCacheHint, validateAuthoringState, type BindingKind } from "./authoringState.ts";
 import { readInventoryObjects } from "./inventory.ts";
 import { normalizeAuthoredLogic } from "./logicText.ts";
-import { templateSlotError, templateWriteError } from "./baseTemplate.ts";
 
 const reference = {
   type: ["integer", "string"],
@@ -232,8 +231,6 @@ export function executeRoomTool(
   if (name !== "write_room") return undefined;
   try {
     const room = referenceId(state, args["room"], "logic", "room", 1);
-    const reservedRoom = templateSlotError(state, "logic", room);
-    if (reservedRoom) throw new Error(reservedRoom);
     const previous = state.container.getResource("logic", room);
     // The token read_logic reports: editable text plus compilation context.
     const previousSource = previous ? editableSource(state, "logic", room) : undefined;
@@ -443,9 +440,6 @@ export function executeRoomTool(
     lines.push("return;");
     const normalized = normalizeAuthoredLogic(lines.join("\n"));
     const compiled = assembleLogic(normalized.source, { dictionary, profile: state.profile });
-    // Generated source can still name a reserved slot through a flag arg.
-    const templateWrite = templateWriteError(state, compiled.payload);
-    if (templateWrite) throw new Error(templateWrite);
     const wordsPayload = buildWordsTok([...dictionary].map(([word, id]) => ({ word, id })));
     staged.authoring.world.rooms[String(room)] = { title, description, exits: namedExits };
     const authoring = validateAuthoringState(staged.authoring);

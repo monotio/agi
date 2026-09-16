@@ -55,7 +55,6 @@ import {
 import { ROOM_TOOLS, executeRoomTool } from "./roomTools.ts";
 import { verifyPlanConnections } from "./roomMap.ts";
 import { buildSound, type SoundNoteInput, type SoundTrackInput } from "./soundBuilder.ts";
-import { templateSlotError, templateWriteError } from "./baseTemplate.ts";
 import { AUTHORING_GUIDE_TOOL, readAuthoringGuide } from "./authoringGuide.ts";
 import {
   GAME_TEST_TOOLS,
@@ -782,8 +781,6 @@ function executeLegacyTool(
       if (!Number.isInteger(room) || room < 0 || room > 255) {
         return { success: false, error: `Invalid logic resource number: ${room}. Must be 0..255.` };
       }
-      const reservedSlot = templateSlotError(session, "logic", room);
-      if (reservedSlot) return { success: false, error: reservedSlot };
       if (source.trim().length === 0) {
         return { success: false, error: "Logic source code cannot be empty." };
       }
@@ -800,10 +797,6 @@ function executeLegacyTool(
           dictionary: session.sources.words,
           profile: session.profile,
         });
-        // Compiled bytecode can reach template slots the binding guard never
-        // names — the assembled payload is the validator of last resort.
-        const templateWrite = templateWriteError(session, assembled.payload);
-        if (templateWrite) return { success: false, error: templateWrite };
         session.container.putResource("logic", room, assembled.payload);
         session.sources.logics.set(room, normalized.source);
         // A rewrite that drops a declared plan exit still commits — the plan
@@ -1497,8 +1490,6 @@ function executeLegacyTool(
       if (!Number.isInteger(num) || num < 0 || num > 255) {
         return { success: false, error: `Invalid sound resource number: ${num}. Must be 0..255.` };
       }
-      const reservedSound = templateSlotError(session, "sound", num);
-      if (reservedSound) return { success: false, error: reservedSound };
       const rawTracks = Array.isArray(args["tracks"]) ? (args["tracks"] as unknown[]) : [];
       const tracks: SoundTrackInput[] = [];
       for (const t of rawTracks) {

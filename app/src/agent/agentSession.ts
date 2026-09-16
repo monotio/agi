@@ -858,9 +858,8 @@ Answer the player's question using evidence from inspection when needed. For hin
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating a game.");
-    // The harness owns the boot ritual for new games: logic 0's menu bar and
-    // parser fallbacks, the shared death logic and its sound land before the
-    // first model turn.
+    // Seed editable boilerplate before the first model turn. These are
+    // ordinary resources the agent can use, extend or replace.
     installBaseTemplate(this.state, this.state.profile);
     this.conversation?.setAvailableTools(AUTHORING_SESSION_TOOLS);
     if (this.stubFallback) {

@@ -13,16 +13,14 @@ import {
   BASE_TEMPLATE_LOGIC0_SOURCE,
   TEMPLATE_DEATH_LOGIC,
   TEMPLATE_DEATH_SOUND,
-  hasBaseTemplate,
   installBaseTemplate,
-  templateSlotError,
 } from "../src/agent/baseTemplate.ts";
 import { buildSound } from "../src/agent/soundBuilder.ts";
 import { createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts";
 import { compilePictureSource } from "../src/picture/source.ts";
 
 /**
- * The harness base template: a fixed logic 0 with
+ * The default base template: logic 0 with
  * the Sierra menu bar, key bindings and parser fallbacks, plus the shared
  * death logic 255 and its sound. The expected code bytes below are derived by
  * hand from src/logic/opcodes.ts and the assembler's framing rules —
@@ -792,52 +790,10 @@ describe("base template bytecode", () => {
 
 // ---------- reserved slots ----------
 
-describe("template reserved slots", () => {
-  const plain = { authoring: {} };
-  const templated = { authoring: { baseTemplate: true } };
-
-  test("templateSlotError is null for untemplated sessions", () => {
-    assert.equal(hasBaseTemplate(plain), false);
-    for (const [kind, num] of [
-      ["logic", 0],
-      ["logic", 255],
-      ["sound", 255],
-      ["flag", 200],
-      ["variable", 250],
-    ] as const) {
-      assert.equal(templateSlotError(plain, kind, num), null);
-    }
-  });
-
-  test("templateSlotError rejects the reserved ranges for template sessions", () => {
-    assert.equal(hasBaseTemplate(templated), true);
-    for (const num of [0, 250, 251, 252, 253, 254, 255]) {
-      const err = templateSlotError(templated, "logic", num);
-      assert.ok(err?.includes("harness base template"), `logic ${num}`);
-    }
-    for (const num of [250, 255]) {
-      assert.ok(templateSlotError(templated, "sound", num)?.includes("harness base template"));
-    }
-    assert.ok(templateSlotError(templated, "flag", 200));
-    assert.ok(templateSlotError(templated, "flag", 209));
-    assert.ok(templateSlotError(templated, "variable", 248));
-    assert.ok(templateSlotError(templated, "variable", 255));
-  });
-
-  test("unreserved neighbours stay writable", () => {
-    assert.equal(templateSlotError(templated, "logic", 1), null);
-    assert.equal(templateSlotError(templated, "logic", 249), null);
-    assert.equal(templateSlotError(templated, "sound", 249), null);
-    assert.equal(templateSlotError(templated, "flag", 199), null);
-    assert.equal(templateSlotError(templated, "flag", 210), null);
-    assert.equal(templateSlotError(templated, "variable", 247), null);
-    assert.equal(templateSlotError(templated, "variable", 100), null);
-  });
-
-  test("installBaseTemplate writes logic 0, logic 255 and the sound, then marks the session", () => {
+describe("editable template boilerplate", () => {
+  test("installBaseTemplate supplies editable logic sources and a death sound", () => {
     const state = createAgentSessionState();
     installBaseTemplate(state, state.profile);
-    assert.equal(hasBaseTemplate(state), true);
     assert.ok(state.container.getResource("logic", 0));
     assert.ok(state.container.getResource("logic", TEMPLATE_DEATH_LOGIC));
     assert.ok(state.container.getResource("sound", TEMPLATE_DEATH_SOUND));
@@ -845,79 +801,76 @@ describe("template reserved slots", () => {
     assert.equal(state.sources.logics.get(TEMPLATE_DEATH_LOGIC), BASE_TEMPLATE_DEATH_LOGIC_SOURCE);
   });
 
-  test("the tools reject writes into reserved slots once the template is installed", () => {
+  test("an agent can replace the boot, shared death logic and music", () => {
     const state = createAgentSessionState();
     installBaseTemplate(state, state.profile);
-    for (const num of [0, 250, 255]) {
-      const res = executeAgentTool(state, "write_logic_source", {
-        room: num,
-        source: "return;",
-      });
-      assert.equal(res.success, false, `write_logic_source ${num}`);
-      assert.match(res.error ?? "", /harness base template/);
-    }
-    const snd = executeAgentTool(state, "write_sound", { num: 255, tracks: [] });
-    assert.equal(snd.success, false);
-    assert.match(snd.error ?? "", /harness base template/);
-  });
-
-  test("compiled room bytecode may not write the reserved slots", () => {
-    const state = createAgentSessionState();
-    installBaseTemplate(state, state.profile);
-    // Raw numbers reach the reserved slots without ever naming a binding —
-    // the assembled payload is the validator of last resort.
-    for (const [label, line] of [
-      ["flag write", "reset(f200);"],
-      ["death latch", "set(f202);"],
-      ["variable write", "assignn(v250, 42);"],
-      ["string write", 'set.string(s11, "hijacked");'],
-      ["done-flag write", "sound(255, f205);"],
-      ["key takeover", "set.key(27, 0, 50);"],
-      ["controller claim", "set.key(0, 100, 205);"],
-      ["indirect var write", "assignn(v50, 250); lindirectn(v50, 1);"],
-      ["indirect flag write", "assignn(v50, 202); set.v(v50);"],
-      ["reserved pointer", "lindirectn(v251, 1);"],
+    for (const [room, source] of [
+      [0, "assignn(v42, 77); return;"],
+      [
+        255,
+        'reset(f202); assignn(v250, 42); set.string(s11, "Continue"); set.key(27, 0, 50); return;',
+      ],
     ] as const) {
-      const res = executeAgentTool(state, "write_logic_source", {
-        room: 5,
-        source: `${line}\nreturn;`,
-      });
-      assert.equal(res.success, false, label);
-      assert.match(res.error ?? "", /harness base template/, label);
-      assert.equal(state.container.getResource("logic", 5), null, `${label}: nothing installed`);
+      const result = executeAgentTool(state, "write_logic_source", { room, source });
+      assert.equal(result.success, true, result.error ?? "");
+      assert.equal(state.sources.logics.get(room), source);
     }
-    // Intended interactions stay legal: call(255) is the death ritual's
-    // front door, reads don't write, and unreserved slots are the room's own.
-    const legal = executeAgentTool(state, "write_logic_source", {
-      room: 5,
-      source: [
-        "if (isset(f202)) { call(255); }",
-        "set(f50);",
-        "assignn(v50, 7);",
-        'set.string(s5, "mine");',
-        "set.key(0, 100, 50);",
-        "assignn(v60, 199); set.v(v60);",
-        "return;",
-      ].join("\n"),
-    });
-    assert.equal(legal.success, true, legal.error ?? "");
-    assert.ok(state.container.getResource("logic", 5));
-    // And untemplated sessions keep their freedom entirely.
-    const plain = createAgentSessionState();
-    const free = executeAgentTool(plain, "write_logic_source", {
-      room: 5,
-      source: "reset(f200); assignn(v250, 42); return;",
-    });
-    assert.equal(free.success, true, free.error ?? "");
+    for (const [name, args] of [
+      ["write_sound", { num: 255, tracks: [] }],
+      [
+        "write_music",
+        {
+          num: 255,
+          tempo: 120,
+          tracks: [{ channel: "melody", volume: 5, events: [{ note: "C3", beats: 1, repeat: 1 }] }],
+        },
+      ],
+    ] as const) {
+      const result = executeAgentTool(state, name, args);
+      assert.equal(result.success, true, result.error ?? "");
+    }
+    const engine = new Engine(state.container, new TemplateHost(), DICT);
+    engine.tick();
+    assert.equal(engine.vars[42], 77, "the replacement boot executes");
+    assert.equal(engine.flags[200], 0, "the original boot is no longer installed");
   });
 
-  test("the tools still write reserved-looking slots in untemplated sessions", () => {
+  test("bindings can name template state and allocate slots freed by a rewrite", () => {
     const state = createAgentSessionState();
-    const res = executeAgentTool(state, "write_logic_source", {
-      room: 255,
-      source: "return;",
+    installBaseTemplate(state, state.profile);
+    for (const [kind, id] of [
+      ["logic", 0],
+      ["sound", 255],
+      ["flag", 202],
+      ["variable", 250],
+    ] as const) {
+      const result = executeAgentTool(state, "reserve_binding", {
+        name: `custom_${kind}`,
+        kind,
+        id,
+      });
+      assert.equal(result.success, true, result.error ?? "");
+    }
+    // All lower authored flags are occupied. While the original boot uses
+    // f200, allocation must skip it based on actual code, not ownership.
+    for (let id = 32; id < 200; id++)
+      state.authoring.bindings[`used_${id}`] = { kind: "flag", num: id };
+    const before = executeAgentTool(state, "reserve_binding", {
+      name: "before_rewrite",
+      kind: "flag",
+      id: null,
     });
-    assert.equal(res.success, true);
+    assert.equal(before.success, true, before.error ?? "");
+    assert.notEqual(state.authoring.bindings["before_rewrite"]!.num, 200);
+    const rewrite = executeAgentTool(state, "write_logic_source", { room: 0, source: "return;" });
+    assert.equal(rewrite.success, true, rewrite.error ?? "");
+    const after = executeAgentTool(state, "reserve_binding", {
+      name: "after_rewrite",
+      kind: "flag",
+      id: null,
+    });
+    assert.equal(after.success, true, after.error ?? "");
+    assert.equal(state.authoring.bindings["after_rewrite"]!.num, 200);
   });
 });
 

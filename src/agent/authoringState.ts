@@ -2,8 +2,6 @@
 export type BindingKind = "logic" | "picture" | "view" | "sound" | "flag" | "variable";
 export interface AuthoringState {
   version: 1;
-  /** True when genesis installed the fixed base template (reserved slots apply). */
-  baseTemplate?: boolean;
   /** Authored musical intent, usable only while the compiled SOUND revision matches. */
   music?: Record<string, { revision: string; tempo: number }>;
   bindings: Record<string, { kind: BindingKind; num: number }>;
@@ -92,10 +90,6 @@ export function validateAuthoringState(value: unknown): AuthoringState {
   const raw = record(value, "authoring state", 8);
   if (raw["version"] !== 1) throw new Error("Unsupported authoring state version.");
   const result = createAuthoringState();
-  if (raw["baseTemplate"] !== undefined) {
-    if (raw["baseTemplate"] !== true) throw new Error("Invalid baseTemplate marker.");
-    result.baseTemplate = true;
-  }
   if (raw["music"] !== undefined) {
     const music: NonNullable<AuthoringState["music"]> = {};
     for (const [num, entry] of Object.entries(record(raw["music"], "music", 256))) {

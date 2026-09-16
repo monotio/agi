@@ -1,20 +1,13 @@
 /**
- * The fixed base template a newly authored game starts from. The harness writes these resources at genesis, not the model: logic
- * 0 owns the menu bar, the parser fallbacks and the room dispatch; logic 255
- * is the shared death logic a room calls the way Sierra rooms called theirs;
- * sound 255 is the one death sound.
+ * Editable boilerplate supplied before genesis: logic 0 provides menus, parser
+ * fallbacks and room dispatch; logic 255 and sound 255 provide a death sequence.
+ * These are ordinary AGI resources. The agent may use, extend or replace them
+ * and their state conventions as the game requires.
  *
- * Reserved slots a template game must not reuse: flags f200-f209, variables
- * v248-v255, controllers 200-219, string s11, logics 0 and 250-255, sounds
- * 250-255. The authoring guide documents them; the tools reject writes and
- * bindings into them while the template marker is on the authoring state.
- *
- * Every byte of the compiled logics is asserted hand-computed in
- * test/base-template.test.ts; keep the sources and that test in lockstep.
+ * The default bytecode is asserted by hand in test/base-template.test.ts.
  */
 
 import { assembleLogic } from "../logic/assembler.ts";
-import { decodeLogicActions } from "../logic/disassembler.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { buildSound, type SoundTrackInput } from "./soundBuilder.ts";
 import type { AgentSessionState } from "./tools.ts";
@@ -23,202 +16,6 @@ import type { AgentSessionState } from "./tools.ts";
 export const TEMPLATE_DEATH_LOGIC = 255;
 /** The template death sound `load.sound`/`sound` address. */
 export const TEMPLATE_DEATH_SOUND = 255;
-/** First controller number the template's menus and key bindings own. */
-export const TEMPLATE_CONTROLLER_BASE = 200;
-/** One past the last controller the template owns. */
-export const TEMPLATE_CONTROLLER_LIMIT = 220;
-/** First flag the template owns (f200 boot latch; f201 death-sound done; f202 dead; f203 death-choice scratch). */
-export const TEMPLATE_FLAG_BASE = 200;
-/** One past the last flag the template owns. */
-export const TEMPLATE_FLAG_LIMIT = 210;
-/** First variable the template owns (v250 death choice; v251-v255 scratch). */
-export const TEMPLATE_VARIABLE_BASE = 248;
-/** One past the last variable the template owns. */
-export const TEMPLATE_VARIABLE_LIMIT = 256;
-/** The scratch string the unknown-word fallback echoes through. */
-export const TEMPLATE_STRING_BASE = 11;
-
-/** True when this session carries the harness template (genesis-authored only). */
-export function hasBaseTemplate(state: { authoring: { baseTemplate?: boolean } }): boolean {
-  return state.authoring.baseTemplate === true;
-}
-
-/** Error when a write or binding would collide with a reserved template slot. */
-export function templateSlotError(
-  state: { authoring: { baseTemplate?: boolean } },
-  kind: string,
-  num: number,
-): string | null {
-  if (!hasBaseTemplate(state)) return null;
-  const reserved =
-    (kind === "logic" && (num === 0 || num >= 250)) ||
-    (kind === "sound" && num >= 250) ||
-    (kind === "flag" && num >= TEMPLATE_FLAG_BASE && num < TEMPLATE_FLAG_LIMIT) ||
-    (kind === "variable" && num >= TEMPLATE_VARIABLE_BASE && num < TEMPLATE_VARIABLE_LIMIT);
-  return reserved
-    ? `${kind} ${num} belongs to the harness base template (logics 0 and 250-255, sounds 250-255, flags 200-209, variables 248-255, controllers 200-219, string 11). The boot, menu and death rituals live there — choose another number.`
-    : null;
-}
-
-/**
- * The key pairs the template binds — ESC, F1, F5, F7, F9, Alt-Z, Tab. A room
- * rebinding one intercepts the menu/help/save/restore/restart/quit/inventory
- * surface, so compiled bytecode may not claim them.
- */
-const TEMPLATE_KEYS: ReadonlySet<number> = new Set([
-  (27 << 8) | 0, // ESC
-  (0 << 8) | 59, // F1
-  (0 << 8) | 63, // F5
-  (0 << 8) | 65, // F7
-  (0 << 8) | 67, // F9
-  (0 << 8) | 44, // Alt-Z
-  (9 << 8) | 0, // Tab
-]);
-
-/** Action operand positions that write a flag — direct writes and done-flags. */
-const FLAG_WRITES: Readonly<Record<string, readonly number[]>> = {
-  set: [0],
-  reset: [0],
-  toggle: [0],
-  "end.of.loop": [1],
-  "reverse.loop": [1],
-  "move.obj": [4],
-  "move.obj.v": [4],
-  "follow.ego": [2],
-  sound: [1],
-};
-
-/** Action operand positions that write a variable directly. */
-const VAR_WRITES: Readonly<Record<string, readonly number[]>> = {
-  increment: [0],
-  decrement: [0],
-  assignn: [0],
-  assignv: [0],
-  addn: [0],
-  addv: [0],
-  subn: [0],
-  subv: [0],
-  muln: [0],
-  mulv: [0],
-  divn: [0],
-  divv: [0],
-  rindirect: [0],
-  random: [2],
-  "get.posn": [1, 2],
-  "last.cel": [1],
-  "current.cel": [1],
-  "current.loop": [1],
-  "current.view": [1],
-  "number.of.loops": [1],
-  "get.priority": [1],
-  "get.dir": [1],
-  "get.room.v": [1],
-  "get.num": [1],
-  distance: [2],
-};
-
-/** Actions whose operand 0 writes a string slot. */
-const STRING_WRITES: ReadonlySet<string> = new Set([
-  "set.string",
-  "get.string",
-  "word.to.string",
-  "parse",
-  "set.simple",
-]);
-
-/**
- * Scan compiled room bytecode for writes into template-owned slots — the
- * bindings guard only stops a *named* reservation; source can reach the same
- * slots through raw numbers, and this check is the validator of last resort.
- * Literal `assignn`/`assignv` bindings are tracked so indirect writes
- * (set.v, lindirectn, call targets aside) are caught when the pointer var
- * provably holds a reserved index; an unprovable pointer is not a violation
- * on its own. call(255) and reads stay allowed — only writes are template
- * ownership.
- *
- * Returns the violation's message, or null when the payload is clean. A
- * payload that will not decode reports nothing — the assembler is the syntax
- * gate, this scan only interprets what assembled.
- */
-export function templateWriteError(
-  state: { authoring: { baseTemplate?: boolean } },
-  payload: Uint8Array,
-): string | null {
-  if (!hasBaseTemplate(state)) return null;
-  const reservedFlag = (n: number): boolean => n >= TEMPLATE_FLAG_BASE && n < TEMPLATE_FLAG_LIMIT;
-  const reservedVar = (n: number): boolean =>
-    n >= TEMPLATE_VARIABLE_BASE && n < TEMPLATE_VARIABLE_LIMIT;
-  const describe = (what: string, at: number): string =>
-    `${what} at bytecode offset ${at} belongs to the harness base template (flags 200-209, variables 248-255, controllers 200-219, string 11, its menu keys). The boot, menu and death rituals live there — choose another slot.`;
-  let actions: ReturnType<typeof decodeLogicActions>;
-  try {
-    actions = decodeLogicActions(payload);
-  } catch {
-    return null;
-  }
-  // Literal var bindings, maintained in stream order: assignn binds, assignv
-  // propagates, every other var-writing action clears. Indirect writes
-  // through a var with a surviving literal resolve statically.
-  const bound = new Map<number, number>();
-  for (const action of actions) {
-    for (const position of FLAG_WRITES[action.name] ?? []) {
-      const flag = action.args[position];
-      if (flag !== undefined && reservedFlag(flag))
-        return describe(`write to flag ${flag}`, action.at);
-    }
-    for (const position of VAR_WRITES[action.name] ?? []) {
-      const num = action.args[position];
-      if (num !== undefined && reservedVar(num))
-        return describe(`write to variable ${num}`, action.at);
-    }
-    if (STRING_WRITES.has(action.name)) {
-      if (action.args[0] === TEMPLATE_STRING_BASE)
-        return describe(`write to string ${TEMPLATE_STRING_BASE}`, action.at);
-    }
-    if (action.name === "set.key") {
-      const key = ((action.args[0] ?? 0) << 8) | (action.args[1] ?? 0);
-      const controller = action.args[2] ?? -1;
-      if (controller >= TEMPLATE_CONTROLLER_BASE && controller < TEMPLATE_CONTROLLER_LIMIT)
-        return describe(`key binding to controller ${controller}`, action.at);
-      if (TEMPLATE_KEYS.has(key))
-        return describe("key binding for a template-owned key", action.at);
-    }
-    // Indirect flag/var writes: the operand is a var holding the slot. A
-    // reserved pointer var, or a literal surviving in the reserved range, is
-    // a provable violation.
-    for (const name of ["set.v", "reset.v", "toggle.v", "lindirectn", "lindirectv"]) {
-      if (action.name !== name) continue;
-      const pointer = action.args[0];
-      if (pointer === undefined) continue;
-      if (reservedVar(pointer))
-        return describe(`${name} through reserved variable ${pointer}`, action.at);
-      const literal = bound.get(pointer);
-      const target = literal;
-      if (
-        target !== undefined &&
-        (name === "lindirectn" || name === "lindirectv"
-          ? reservedVar(target)
-          : reservedFlag(target))
-      )
-        return describe(`${name} into reserved slot ${target}`, action.at);
-    }
-    if (action.name === "assignn") bound.set(action.args[0]!, action.args[1]!);
-    else if (action.name === "assignv") {
-      const source = bound.get(action.args[1]!);
-      if (source !== undefined) bound.set(action.args[0]!, source);
-      else bound.delete(action.args[0]!);
-    } else {
-      // Any var-writing action clears the literal it overwrites — a pointer
-      // that survives is only a pointer the stream provably still holds.
-      for (const position of VAR_WRITES[action.name] ?? []) {
-        const overwritten = action.args[position];
-        if (overwritten !== undefined) bound.delete(overwritten);
-      }
-    }
-  }
-  return null;
-}
-
 /**
  * Template logic 0: first-cycle boot builds the menu bar and key bindings and
  * enters room 1; every later cycle runs the room first, then the menu and key
@@ -426,7 +223,7 @@ export const BASE_TEMPLATE_DEATH_TRACKS: readonly SoundTrackInput[] = [
 ];
 
 /**
- * Compile and install the fixed template into a fresh authoring session.
+ * Compile and install editable boilerplate into a fresh authoring session.
  * Genesis calls this before the first model turn; imported or older authored
  * games never pass through here and keep their own rituals.
  */
@@ -443,5 +240,4 @@ export function installBaseTemplate(state: AgentSessionState, profile: AgiProfil
     TEMPLATE_DEATH_SOUND,
     buildSound(BASE_TEMPLATE_DEATH_TRACKS),
   );
-  state.authoring.baseTemplate = true;
 }

@@ -80,6 +80,10 @@ comments or documentation.
   existing IDs while referenced; coordinated rewrites must update all affected
   references. Apply changes at a safe continuation boundary. Preserve real AGI
   formats and interpreter behavior; repack superseded resources transactionally.
+- The supplied base template is editable boilerplate, not a protected runtime
+  layer. The agent may use, extend or replace its boot, menus, death handling,
+  sounds and state conventions. Validate coordinated changes and their behavior;
+  do not reserve template ownership in tools or schemas.
 - Keep local original interpreter binaries and bulk disassembly outside public
   builds and archives. Publish behavioral findings and independently authored
   tests, with explicit skips for tests requiring privately held binaries.

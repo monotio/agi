@@ -560,9 +560,8 @@ test("stub genesis installs the harness base template before the stub's room", a
     () => {},
   );
   await session.startGenesis("");
-  assert.equal(session.state.authoring.baseTemplate, true, "the marker is set");
-  // The harness owns the boot/menu/fallback logic, the death logic and the
-  // death sound; the stub authored only its room, picture and ego view.
+  // The default boot/menu/fallback logic, death logic and death sound are
+  // supplied before the stub authors its room, picture and ego view.
   for (const [kind, num] of [
     ["logic", 0],
     ["logic", 255],
