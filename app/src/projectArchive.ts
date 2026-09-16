@@ -1,12 +1,14 @@
 import { buildZip, type ZipFileInput } from "./zip.ts";
 import { sha256Hex } from "./crypto.ts";
-import { publicGameMetadata } from "./gameMetadata.ts";
+import { base64ToBytes, bytesToBase64 } from "./bytes.ts";
+import { publicGameMetadata, isPlayableFileName } from "./gameMetadata.ts";
 import { validateAuthoringState } from "../../src/agent/authoringState.ts";
 import { buildView, type BuildViewInput } from "../../src/view/view.ts";
 import { buildObjectFile, buildSound, type SoundTrackInput } from "../../src/agent/tools.ts";
 import { compactContainer } from "../../src/container/container.ts";
 import { detectProfile } from "../../src/runtime/profile.ts";
 import type { CachedGameData } from "./gameTypes.ts";
+import { mimeExtension, normalizeReferences, type StoredReference } from "./referenceArt.ts";
 import { progressEntries, type GameProgress } from "./gameProgress.ts";
 import { mapArchiveData } from "./roomMapStore.ts";
 import type { RoomMapSidecar } from "../../src/agent/roomMap.ts";
@@ -19,6 +21,7 @@ export interface ProjectContext {
   transcript: unknown[];
   authoringState?: Record<string, unknown> | undefined;
   conversationHistory?: { provider: string; model: string; transcript: unknown[] }[] | undefined;
+  references?: StoredReference[] | undefined;
 }
 
 /** Only current game resources and interpreter identification travel publicly. */
@@ -28,11 +31,7 @@ function gameEntries(
   const packed = compactContainer(new Map(Object.entries(data.files)));
   if (!packed.has("OBJECT")) packed.set("OBJECT", buildObjectFile([], detectProfile(packed)));
   const entries = [...packed]
-    .filter(([name]) =>
-      /^([A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/i.test(
-        name,
-      ),
-    )
+    .filter(([name]) => isPlayableFileName(name))
     .map(([name, bytes]) => ({ name, data: bytes }) as ZipFileInput);
   entries.push({
     name: "GAME.JSON",
@@ -123,6 +122,20 @@ export async function buildProjectZip(
   validateTranscript(data.transcript ?? [], data.provider);
   const transcript = await visit(data.transcript ?? []);
   const conversationHistory = await visit(data.conversationHistory ?? []);
+  // Reference art is project data: metadata rides in PROJECT.JSON, the bytes
+  // in REFERENCES/<id>.<ext> entries. A Game export never carries either.
+  const references = data.references?.length
+    ? data.references.map((reference) => ({
+        ...reference,
+        images: reference.images.map(({ png: _png, ...meta }) => meta),
+      }))
+    : undefined;
+  for (const reference of data.references ?? [])
+    for (const [index, image] of reference.images.entries())
+      entries.push({
+        name: `REFERENCES/${reference.id}.${index}.${mimeExtension(image.mime)}`,
+        data: base64ToBytes(image.png),
+      });
   entries.push({
     name: "PROJECT.JSON",
     data: JSON.stringify({
@@ -134,6 +147,7 @@ export async function buildProjectZip(
       conversation: { formatVersion: 1, messages: transcript },
       authoringState: data.authoringState ?? {},
       conversationHistory,
+      ...(references !== undefined ? { references } : {}),
     }),
   });
   return finishArchive(entries);
@@ -328,6 +342,7 @@ export function readProjectContext(
   if (raw.conversationHistory) {
     scanRaw(raw.conversationHistory);
   }
+  if (raw.references !== undefined) scanRaw(raw.references);
 
   const attachmentCache = new Map<string, unknown>();
 
@@ -402,6 +417,24 @@ export function readProjectContext(
       transcript: validateTranscript(item.transcript, item.provider),
     };
   });
+  // Reference art: metadata without its image bytes; each image's bytes are a
+  // REFERENCES/<id>.<index>.<ext> entry reattached by declared position.
+  const references = Array.isArray(raw.references)
+    ? (raw.references as Record<string, unknown>[]).map((reference) => {
+        const images = Array.isArray(reference["images"]) ? reference["images"] : [];
+        return {
+          ...reference,
+          images: images.map((item, index) => {
+            const image = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+            const mime = typeof image["mime"] === "string" ? image["mime"] : "image/png";
+            const name = `REFERENCES/${reference["id"]}.${index}.${mimeExtension(mime)}`;
+            const data = entries.get(`${root}${name}`.toUpperCase());
+            if (!data) throw new Error("A project reference image is missing.");
+            return { ...image, png: bytesToBase64(data) };
+          }),
+        };
+      })
+    : undefined;
   return {
     provider: raw.provider,
     model: raw.model,
@@ -411,6 +444,7 @@ export function readProjectContext(
     transcript,
     authoringState: authoringState as Record<string, unknown>,
     conversationHistory,
+    ...(references !== undefined ? { references: normalizeReferences(references) } : {}),
   };
 }
 

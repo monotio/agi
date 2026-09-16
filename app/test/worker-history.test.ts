@@ -13,12 +13,17 @@ import {
   type HistoryBatch,
   type HistorySegment,
 } from "../../src/agent/history.ts";
-import { resourceSetRevision } from "../../src/agent/authoringState.ts";
+import { resourceSetHint } from "../../src/agent/authoringState.ts";
 import { rngDraw } from "../../src/runtime/rng.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
+import { createAgentSessionState } from "../../src/agent/tools.ts";
+import { installBaseTemplate } from "../../src/agent/baseTemplate.ts";
 import { gameContainer } from "./worker-ctx.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+import { testProjectId, testRevision } from "./identity.ts";
 import { appendHistoryBatch, loadGameHistory } from "../src/historyStorage.ts";
+
+const IDENTITY = { project: testProjectId("worker-history"), revision: testRevision("tape") };
 
 installIndexedDbFixture();
 import {
@@ -316,7 +321,7 @@ test("a recorded live session replays from its boot to the same observed state",
       name,
       Uint8Array.from(atob(data), (c) => c.charCodeAt(0)),
     );
-  assert.equal(segment.boot.resourceSet, resourceSetRevision({ getFiles: () => bootFiles }));
+  assert.equal(segment.boot.resourceSet, resourceSetHint({ getFiles: () => bootFiles }));
 
   const liveDigest = historySyncDigest(ctx.engine!);
   const replayed = replayHistorySegment(segment);
@@ -847,10 +852,10 @@ test("a fresh worker never reuses another session's persisted identity", async (
   const key = "tape-session-identity";
   for (const message of first.control)
     if (message.type === "historyBatch")
-      assert.equal(await appendHistoryBatch(key, message.batch, "2.936"), true);
+      assert.equal(await appendHistoryBatch(key, message.batch, "2.936", IDENTITY), true);
   for (const message of second.control)
     if (message.type === "historyBatch")
-      assert.equal(await appendHistoryBatch(key, message.batch, "2.936"), true);
+      assert.equal(await appendHistoryBatch(key, message.batch, "2.936", IDENTITY), true);
 
   const stored = await loadGameHistory(key);
   assert.ok(stored !== null);
@@ -1167,6 +1172,114 @@ test("a room answer's cross-room patch commits atomically or not at all", () => 
   ]) {
     assert.equal(replayed.error, null);
     assert.equal(replayed.diverged, null);
+    assert.equal(historySyncDigest(replayed.ctx.engine!), liveDigest);
+  }
+});
+
+test("a template session — menu save, death box, death restore — replays to the same state", () => {
+  // Genesis installs the harness template; the authored room only carries a
+  // die verb. The recorded session saves through the real menu, dies,
+  // restarts from the box, dies again and restores — every boundary the
+  // tape carries.
+  const session = createAgentSessionState();
+  const dictionary = new Map<string, number>([["die", 100]]);
+  installBaseTemplate(session, session.profile);
+  const container = session.container;
+  container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      `if (isset(f5)) { assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic(); set.horizon(40); accept.input(); }
+       if (said("die")) { call(255); }
+       return;`,
+      { dictionary, profile: session.profile },
+    ).payload,
+  );
+  container.putResource("picture", 1, PICTURE_1);
+
+  // 120 ms steps: at the template's Normal speed (v10 = 2, 50 ms increments)
+  // every host poll fires a logic cycle.
+  const h = historyHarness(
+    container,
+    { rngSeed: 0xbeef, words: [["die", 100]] },
+    { stepMs: () => 120 },
+  );
+  const { ctx, send, tick } = h;
+  tick(4);
+  assert.equal(ctx.engine!.vars[0], 1, "the template booted into room 1");
+  assert.match(ctx.engine!.textRow(0), /Score/, "the template status line is up");
+
+  const seen = new Set<number>();
+  const awaitOp = (op: string) => {
+    for (let i = 0; i < 40; i++) {
+      const req = h.control.find((m) => m.type === "hostRequest" && m.op === op && !seen.has(m.id));
+      if (req && req.type === "hostRequest") {
+        seen.add(req.id);
+        return req;
+      }
+      tick(1);
+    }
+    return assert.fail(`host request ${op} never posted`);
+  };
+  const answer = (op: string, response: string) => {
+    send({ type: "hostAnswer", id: awaitOp(op).id, response });
+  };
+
+  // File > Save through the real menu: ESC opens it with Save Game already
+  // highlighted, ENTER runs save.game() through controller 201.
+  send({ type: "key", code: 27 });
+  tick(2);
+  assert.equal(ctx.engine!.modalKind, "menu");
+  send({ type: "key", code: 13 });
+  tick(2);
+  answer("saveList", "[]");
+  send({ type: "key", code: 13 });
+  answer("saveDescription", JSON.stringify({ value: "checkpoint" }));
+  send({ type: "key", code: 13 });
+  const write = awaitOp("saveWrite");
+  const savedImage = String(write.context["image"]);
+  send({ type: "hostAnswer", id: write.id, response: "true" });
+  tick(3);
+  assert.equal(ctx.engine!.modalKind, null, "the selector dismissed");
+
+  // "die" reaches logic 255: the box draws on the text surface and f202
+  // parks the player dead. SPACE steps the choice; ENTER accepts Restart,
+  // which f16 runs without a confirmation.
+  send({ type: "input", text: "die" });
+  tick(3);
+  assert.equal(ctx.engine!.flags[202], 1, "the death ritual armed");
+  assert.match(ctx.engine!.textRow(10), /You have died/);
+  send({ type: "key", code: 32 });
+  tick(2);
+  assert.match(ctx.engine!.textRow(13), />/, "SPACE stepped onto Restart");
+  send({ type: "key", code: 13 });
+  tick(4);
+  assert.equal(ctx.engine!.flags[202], 0, "restart left the death loop");
+  assert.equal(ctx.engine!.vars[0], 1, "restart re-entered room 1");
+
+  // Die again; this time ENTER on Restore consumes the menu save image and
+  // the player stands back in room 1, alive.
+  send({ type: "input", text: "die" });
+  tick(3);
+  assert.equal(ctx.engine!.flags[202], 1);
+  send({ type: "key", code: 13 });
+  tick(2);
+  answer("saveList", JSON.stringify([{ slot: 1, image: savedImage }]));
+  send({ type: "key", code: 13 });
+  answer("restore", savedImage);
+  tick(4);
+  assert.equal(ctx.engine!.flags[202], 0, "the restore left the death loop");
+  assert.equal(ctx.engine!.vars[0], 1);
+
+  send({ type: "flush", id: 99 });
+  const segment = collectSegments(h.control).at(-1)!;
+  const liveDigest = historySyncDigest(ctx.engine!);
+  for (const replayed of [
+    replayHistorySegment(segment),
+    replayHistorySegment(segment, { anchor: segment.anchors.length - 1 }),
+  ]) {
+    assert.equal(replayed.error, null);
+    assert.equal(replayed.diverged, null, "every recorded sync mark holds");
     assert.equal(historySyncDigest(replayed.ctx.engine!), liveDigest);
   }
 });

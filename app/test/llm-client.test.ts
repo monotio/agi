@@ -217,6 +217,82 @@ test("Anthropic refusal surfaces the category and closes the pending tool call",
   assert.match(JSON.stringify(closing.content), /nothing was executed/i);
 });
 
+test("uploaded reference art reaches both providers as image blocks", async (t) => {
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
+  const b64 = "iVBORwECAwQ="; // base64 of the bytes above
+  const images = [{ png, caption: "Player-supplied reference for view 0 — red jacket." }];
+
+  const anthropicRequests: Record<string, unknown>[] = [];
+  const openAiRequests: Record<string, unknown>[] = [];
+  t.mock.method(globalThis, "fetch", async (input: unknown, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    const body = JSON.parse(String(init?.body));
+    if (url.includes("anthropic")) anthropicRequests.push(body);
+    else openAiRequests.push(body);
+    return url.includes("anthropic")
+      ? new Response(
+          providerSse("anthropic", {
+            id: "a1",
+            type: "message",
+            role: "assistant",
+            stop_reason: "end_turn",
+            content: [{ type: "text", text: "done" }],
+            usage: { input_tokens: 10, output_tokens: 5 },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        )
+      : new Response(
+          providerSse("openai", {
+            id: "o1",
+            status: "completed",
+            output: [],
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        );
+  });
+
+  const anthropic = createAnthropicConversation({
+    provider: "anthropic",
+    model: "test",
+    apiKey: "placeholder",
+  });
+  await anthropic.sendUserMessage("make the character look like this", images);
+  const aMessages = anthropicRequests[0]?.["messages"] as {
+    role: string;
+    content: { type: string; text?: string; source?: { type: string; data: string } }[];
+  }[];
+  const aUser = aMessages.at(-1)!;
+  assert.equal(aUser.role, "user");
+  const aImage = aUser.content.find((block) => block.type === "image");
+  assert.ok(aImage, "Anthropic user message carries an image block");
+  assert.equal(aImage.source?.type, "base64");
+  assert.equal(aImage.source?.data, b64);
+  const aCaption = aUser.content.find(
+    (block) => block.type === "text" && block.text?.includes("reference"),
+  );
+  assert.ok(aCaption, "the caption rides beside the image");
+
+  const openAi = createOpenAiConversation({
+    provider: "openai",
+    model: "test",
+    apiKey: "placeholder",
+  });
+  await openAi.sendUserMessage("make the character look like this", images);
+  const oInput = openAiRequests[0]?.["input"] as {
+    role: string;
+    content: { type: string; text?: string; image_url?: string }[];
+  }[];
+  const oUser = oInput.at(-1)!;
+  assert.equal(oUser.role, "user");
+  const oImage = oUser.content.find((block) => block.type === "input_image");
+  assert.ok(oImage, "OpenAI user message carries an input_image block");
+  assert.equal(oImage.image_url, `data:image/png;base64,${b64}`);
+  const oCaption = oUser.content.find(
+    (block) => block.type === "input_text" && block.text?.includes("reference"),
+  );
+  assert.ok(oCaption, "the caption rides beside the image");
+});
+
 test("malformed complete tool arguments do not turn into an empty successful call", async (t) => {
   t.mock.method(
     globalThis,

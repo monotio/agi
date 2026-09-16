@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { testProjectId } from "./identity.ts";
 import { AgentSession } from "../src/agent/agentSession.ts";
 import { createAgentSessionState, executeAgentTool } from "../../src/agent/tools.ts";
 import { buildProjectZip } from "../src/projectArchive.ts";
@@ -23,7 +24,7 @@ test("musical intent survives a saved project and resets after raw effect author
   const session = new AgentSession(config, () => {}, state);
   const archive = await buildProjectZip({
     title: "Musical project",
-    projectId: "music-test",
+    projectId: testProjectId("music-test"),
     provider: "openai",
     model: "test",
     authoredAt: "2026-09-06",

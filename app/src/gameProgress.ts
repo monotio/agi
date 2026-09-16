@@ -12,18 +12,21 @@ import { openContainer } from "../../src/container/container.ts";
 import { readGameSaves, writeGameSave } from "./gameSaves.ts";
 import { isProgressPreview, storeRecordWithPreviewFallback } from "./progressPreview.ts";
 import type { ZipFileInput } from "./zip.ts";
-import { gameStorageKey, type ProjectId } from "./gameTypes.ts";
+import type { ProjectId } from "./gameTypes.ts";
+import { gameIdentity, type GameIdentity, type ResourceRevision } from "../../src/gameIdentity.ts";
 
 const AUTOSAVE_PREFIX = "monotio_agi.autosave.";
 
+/**
+ * Which entry a stored autosave belongs to: `installed` selects the resume
+ * path, `identity.project` is the entry's storage key (an authored project
+ * id, or an installed edition's folder/hash) and `identity.revision` the
+ * playable bytes it was taken under. Aliases are queries, not record
+ * fields — nothing else may name the game.
+ */
 export interface AutosaveGame {
   readonly installed: boolean;
-  readonly revision: string;
-  readonly projectId?: ProjectId | undefined;
-  readonly hash?: string | undefined;
-  readonly alias?: string | undefined;
-  /** Installed editions share one content hash; progress belongs to the folder. */
-  readonly folder?: string | undefined;
+  readonly identity: GameIdentity;
 }
 
 /** One stored autosave: the save-file image plus what it takes to boot into it. */
@@ -43,7 +46,7 @@ export interface AutosaveRecord {
 }
 
 export function autosaveTargetKey(game: AutosaveGame): string {
-  return gameStorageKey(game);
+  return game.identity.project;
 }
 
 export function autosaveKey(target: string): string {
@@ -62,40 +65,10 @@ export function parseAutosaveRecord(raw: unknown): AutosaveRecord | null {
     if (!Number.isInteger(parsed.room) || parsed.room < 0 || parsed.room > 255) return null;
     if (!Number.isInteger(parsed.cycle) || parsed.cycle < 0 || !Number.isFinite(parsed.savedAt))
       return null;
-    const rawGame = parsed.game as
-      | {
-          projectId?: unknown;
-          hash?: unknown;
-          alias?: unknown;
-          folder?: unknown;
-          installed?: unknown;
-          revision?: unknown;
-        }
-      | undefined;
-    if (
-      typeof rawGame?.installed !== "boolean" ||
-      typeof rawGame?.revision !== "string" ||
-      !/^[a-f0-9]{64}$/.test(rawGame.revision)
-    )
-      return null;
-    const installed = rawGame.installed;
-    const revision = rawGame.revision;
-    const projectId = typeof rawGame.projectId === "string" ? rawGame.projectId : undefined;
-    const hash = typeof rawGame.hash === "string" ? rawGame.hash : undefined;
-    const alias = typeof rawGame.alias === "string" ? rawGame.alias : undefined;
-    const folder = typeof rawGame.folder === "string" ? rawGame.folder : undefined;
-    if (installed ? !hash && !alias && !folder : !projectId) return null;
-    parsed.game = {
-      installed,
-      revision,
-      ...(installed
-        ? {
-            ...(hash ? { hash } : {}),
-            ...(alias ? { alias } : {}),
-            ...(folder ? { folder } : {}),
-          }
-        : { projectId: projectId! }),
-    };
+    const rawGame = parsed.game as { installed?: unknown; identity?: unknown } | undefined;
+    const identity = gameIdentity(rawGame?.identity);
+    if (typeof rawGame?.installed !== "boolean" || identity === null) return null;
+    parsed.game = { installed: rawGame.installed, identity };
     if (!isProgressPreview(parsed.preview)) delete parsed.preview;
     return parsed;
   } catch {
@@ -323,7 +296,7 @@ export interface ImportStorageReport {
 export function storeImportedProgress(
   storage: Pick<Storage, "getItem" | "setItem">,
   projectId: ProjectId,
-  revision: string,
+  revision: ResourceRevision,
   progress: GameProgress,
 ): ImportStorageReport {
   const report: ImportStorageReport = { slots: [], failedSlots: [], autosave: null };
@@ -339,7 +312,7 @@ export function storeImportedProgress(
   if (progress.autosave)
     report.autosave = writeAutosave(storage, {
       ...progress.autosave,
-      game: { projectId, installed: false, revision },
+      game: { installed: false, identity: { project: projectId, revision } },
     });
   return report;
 }

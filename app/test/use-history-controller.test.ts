@@ -11,6 +11,7 @@ import { useHistoryController } from "../src/useHistoryController.ts";
 import type { BootedGame } from "../src/gameTypes.ts";
 import type { HistoryBatch, HistoryBoot } from "../../src/agent/history.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+import { testProjectId, testRevision } from "./identity.ts";
 
 installIndexedDbFixture();
 
@@ -24,8 +25,15 @@ const BOOT: HistoryBoot = {
   requestSerial: 0,
 };
 
-function game(projectId: string): BootedGame {
-  return { installed: false, title: "", revision: "", files: {}, words: [], projectId };
+function game(id: string): BootedGame {
+  return {
+    installed: false,
+    title: "",
+    revision: testRevision("game"),
+    files: {},
+    words: [],
+    projectId: testProjectId(id),
+  };
 }
 
 test("a refused commit stays unsaved until a resend commits it", async () => {

@@ -39,7 +39,7 @@ import {
   type HistoryEndReason,
   type HistoryEventCause,
 } from "../../../src/agent/history.ts";
-import { resourceSetRevision } from "../../../src/agent/authoringState.ts";
+import { resourceSetHint } from "../../../src/agent/authoringState.ts";
 import type { EdgeSide } from "../../../src/agent/roomMap.ts";
 import type { BootMessage } from "../workerProtocol.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
@@ -68,11 +68,11 @@ export function createHistory(ctx: WorkerContext) {
   const tick = () => ctx.cycle.tickCount - ctx.history.tickBase;
   const cycle = () => ctx.cycle.cycleCount - ctx.history.cycleBase;
 
-  /** resourceSetRevision of the live container — patches included. */
+  /** resourceSetHint of the live container — patches included. */
   function currentResourceSet(): string {
     const files = new Map(ctx.engine!.containerFiles);
     if (ctx.boot.authoredWords) files.set("WORDS.TOK", ctx.boot.authoredWords);
-    return resourceSetRevision({ getFiles: () => files });
+    return resourceSetHint({ getFiles: () => files });
   }
 
   function bootFiles(): Record<string, string> {

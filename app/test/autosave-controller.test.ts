@@ -12,19 +12,22 @@ import { writeAutosave, type AutosaveRecord } from "../src/gameProgress.ts";
 import { gameRevision } from "../src/gameMetadata.ts";
 import type { BootedGame } from "../src/gameTypes.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+import { testProjectId, testRevision } from "./identity.ts";
+import { requireResourceRevision } from "../../src/gameIdentity.ts";
 import { saveAuthoredGame, clearCachedGame } from "../src/gameStorage.ts";
 
 installIndexedDbFixture();
 
-test("autosaveMatches distinguishes installed and authored games correctly", () => {
-  // Installed game matching by hash or alias
+test("autosaveMatches matches the storage key the record was written under", () => {
+  // Installed records match their project key — a folder or a content hash;
+  // an alias is a query resolved before the record is ever read.
   const installedRecord = {
     installed: true,
-    revision: "rev1",
-    hash: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
-    alias: "kq1",
+    identity: {
+      project: testProjectId("41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780"),
+      revision: testRevision("rev1"),
+    },
   };
-  assert.equal(autosaveMatches(installedRecord, "kq1"), true);
   assert.equal(
     autosaveMatches(
       installedRecord,
@@ -32,13 +35,13 @@ test("autosaveMatches distinguishes installed and authored games correctly", () 
     ),
     true,
   );
+  assert.equal(autosaveMatches(installedRecord, "kq1"), false);
   assert.equal(autosaveMatches(installedRecord, "sq1"), false);
 
-  // Authored game matching by projectId
+  // Authored game matching by project id
   const authoredRecord = {
     installed: false,
-    revision: "rev2",
-    projectId: "remix-123",
+    identity: { project: testProjectId("remix-123"), revision: testRevision("rev2") },
   };
   assert.equal(autosaveMatches(authoredRecord, "remix-123"), true);
   assert.equal(autosaveMatches(authoredRecord, "remix-456"), false);
@@ -56,10 +59,10 @@ test("installed autosaves are folder-scoped so same-hash editions keep separate 
     savedAt: Date.now(),
     game: {
       installed: true,
-      revision: "b".repeat(64),
-      hash: sharedHash,
-      alias: "gr1",
-      folder: "gr1",
+      identity: {
+        project: testProjectId("gr1"),
+        revision: requireResourceRevision("b".repeat(64)),
+      },
     },
   };
 
@@ -75,9 +78,15 @@ test("installed autosaves are folder-scoped so same-hash editions keep separate 
   assert.equal(autosaveMatches(record.game, sharedHash), false);
   assert.equal(autosaveMatches(record.game, "agi-imported-gold-rush-polar-bear-project"), false);
 
-  // A record without a folder (older shape) still matches by hash and alias.
-  const legacy = { installed: true, revision: "b".repeat(64), hash: sharedHash, alias: "gr1" };
-  assert.equal(autosaveMatches(legacy, "gr1"), true);
+  // A folder-less record keys on the content hash: only that key matches.
+  const legacy = {
+    installed: true,
+    identity: {
+      project: testProjectId(sharedHash),
+      revision: requireResourceRevision("b".repeat(64)),
+    },
+  };
+  assert.equal(autosaveMatches(legacy, "gr1"), false);
   assert.equal(autosaveMatches(legacy, sharedHash), true);
   assert.equal(autosaveMatches(legacy, "agi-imported-gold-rush-polar-bear-project"), false);
 });
@@ -121,8 +130,10 @@ test("readAutosave, clearAutosave, and lastGameKey manage localStorage entries",
     savedAt: Date.now(),
     game: {
       installed: false,
-      revision: "0".repeat(64),
-      projectId: targetKey,
+      identity: {
+        project: testProjectId(targetKey),
+        revision: requireResourceRevision("0".repeat(64)),
+      },
     },
   };
 
@@ -158,7 +169,7 @@ test("useAutosaveController stores autosave and notifies lifecycle callbacks", a
   const bootedGame: BootedGame = {
     installed: true,
     title: "Test Game",
-    revision: "test-rev",
+    revision: testRevision("test-rev"),
     files: dummyFiles,
     words: [],
     alias: "kq1",
@@ -237,7 +248,7 @@ test("remixed project with Sierra alias uses projectId for autosave identity and
     LOGDIR: new Uint8Array([0, 1]),
   };
 
-  await saveAuthoredGame("remix-project-789", {
+  await saveAuthoredGame(testProjectId("remix-project-789"), {
     title: "King's Quest Remix",
     provider: "stub",
     model: "offline-stub",
@@ -246,10 +257,12 @@ test("remixed project with Sierra alias uses projectId for autosave identity and
     roomGeneration: true,
   });
 
-  const revision = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+  const revision = requireResourceRevision(
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  );
   const remixGame: BootedGame = {
     installed: false,
-    projectId: "remix-project-789",
+    projectId: testProjectId("remix-project-789"),
     alias: "kq1", // presentation alias preserved from Sierra KQ1
     title: "King's Quest Remix",
     revision,
@@ -284,14 +297,13 @@ test("remixed project with Sierra alias uses projectId for autosave identity and
     });
     await controller.getAutosaveWrite();
 
-    // 1. Stored under projectId, not alias
+    // 1. Stored under projectId; the record carries identity, never an alias
     assert.equal(lastGameKey(), "remix-project-789");
     const record = readAutosave("remix-project-789");
     assert.notEqual(record, null);
-    assert.equal(record?.game.projectId, "remix-project-789");
+    assert.equal(record?.game.identity.project, "remix-project-789");
     assert.equal(record?.game.installed, false);
-    // Presentation alias is intentionally omitted from local project autosave
-    assert.equal(record?.game.alias, undefined);
+    assert.deepEqual(Object.keys(record!.game).sort(), ["identity", "installed"]);
 
     // 2. autosaveMatches refuses presentation alias for local project
     assert.equal(autosaveMatches(record!.game, "remix-project-789"), true);
@@ -312,7 +324,7 @@ test("remixed project with Sierra alias uses projectId for autosave identity and
   } finally {
     clearAutosave("remix-project-789");
     clearAutosave("kq1");
-    await clearCachedGame("remix-project-789");
+    await clearCachedGame(testProjectId("remix-project-789"));
   }
 });
 
@@ -382,8 +394,7 @@ test("resetScreen preserves pending resume record while full reset clears it", a
     room: 2,
     game: {
       installed: true,
-      alias: "kq1",
-      revision,
+      identity: { project: testProjectId("kq1"), revision },
     },
     image: "base64image",
   };
@@ -414,10 +425,10 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
   const bootedGame: BootedGame = {
     installed: false,
     title: "Test Game",
-    revision: "test-rev",
+    revision: testRevision("test-rev"),
     files: { LOGDIR: new Uint8Array([0, 1]) },
     words: [],
-    projectId: "detailed-test",
+    projectId: testProjectId("detailed-test"),
   };
 
   const ctx: AutosaveControllerContext = {

@@ -20,6 +20,9 @@ import {
   type HistorySegment,
 } from "../../src/agent/history.ts";
 import { gameContainer } from "./worker-ctx.ts";
+import { openContainer } from "../../src/container/container.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
+import { buildView } from "../../src/view/view.ts";
 import {
   decodeHostImage,
   decodeSave,
@@ -27,6 +30,7 @@ import {
   encodeSave,
 } from "../../src/runtime/persistence.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
+import { testProjectId, testRevision } from "./identity.ts";
 import { base64ToBytes, bytesToBase64 } from "../src/bytes.ts";
 import {
   createWorkerContext,
@@ -52,24 +56,96 @@ const PICTURE_1 = new Uint8Array([
  * opens the parser input line. Each room logic draws its picture so the
  * tape's anchors and snapshots exist.
  */
-function viewGame(): GameContainer {
-  return gameContainer(
-    [
-      `if (isset(f6)) { reset(f6); new.room(1); }
-       if (isset(f200)) { reset(f200); assignn(v3, 5); new.room(2); }
-       if (isset(f202)) { reset(f202); random(1, 250, v60); }
-       if (isset(f216)) { reset(f216); accept.input(); }
-       if (v0 > 0) { call.v(v0); }
-       return;`,
-      `if (isset(f5)) { assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic(); } return;`,
-      `if (isset(f5)) { assignn(v50, 2); load.pic(v50); draw.pic(v50); show.pic(); } return;`,
-    ],
-    (c) => {
-      c.putResource("picture", 1, PICTURE_1);
-      c.putResource("picture", 2, PICTURE_1);
-    },
+const VIEW_LOGICS = [
+  `if (isset(f6)) { reset(f6); new.room(1); }
+   if (isset(f200)) { reset(f200); assignn(v3, 5); new.room(2); }
+   if (isset(f202)) { reset(f202); random(1, 250, v60); }
+   if (isset(f216)) { reset(f216); accept.input(); }
+   if (isset(f218)) { reset(f218); load.view(1); animate.obj(o1); set.view(o1, 1);
+     ignore.objs(o1); position(o1, 10, 80); draw(o1); assignn(v61, 4); step.size(o1, v61);
+     move.obj(o1, 90, 80, 2, f62); end.of.loop(o1, f61); }
+   if (isset(f219)) { reset(f219); set(f16); restart.game(); }
+   if (isset(f221)) { reset(f221); set(f9); load.sound(1); sound(1, f60); }
+   if (isset(f222)) { reset(f222);
+     set.string(s0, "xyzzy"); parse(s0);
+     if (said(1)) { assignn(v100, 1); }
+     parse(s0);
+     if (said(0)) { assignn(v101, 1); }
+     parse(s0); }
+   if (isset(f223)) { reset(f223); parse(s0); if (said(1)) { assignn(v102, 1); } }
+   if (isset(f224)) { reset(f224); get.num("n?", v11); assignv(v64, v11); }
+   if (isset(f225)) { reset(f225); get(0); }
+   if (isset(f226)) { reset(f226); assignn(v66, 255); if (obj.in.room(0, v66)) { assignn(v65, 1); } }
+   if (isset(f227)) { reset(f227); wait: if (!have.key()) { goto wait; } assignn(v62, 1); }
+   if (v0 > 0) { call.v(v0); }
+   return;`,
+  `if (isset(f5)) { assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic(); } return;`,
+  `if (isset(f5)) { assignn(v50, 2); load.pic(v50); draw.pic(v50); show.pic(); } return;`,
+];
+
+/** Two-item OBJECT file — the same fixture layout test/worker-history uses. */
+const VIEW_OBJECT_FILE = new Uint8Array([
+  6, 0, 10, 6, 0, 0, 10, 0, 0, 107, 101, 121, 0, 99, 111, 105, 110, 0,
+]);
+
+function populateViewResources(c: GameContainer, extra?: (c: GameContainer) => void): void {
+  c.putFile("OBJECT", VIEW_OBJECT_FILE);
+  c.putResource("picture", 1, PICTURE_1);
+  c.putResource("picture", 2, PICTURE_1);
+  c.putResource(
+    "view",
+    1,
+    buildView({
+      loops: [
+        {
+          cels: [
+            { width: 2, height: 1, pixels: [1, 1] },
+            { width: 2, height: 1, pixels: [2, 2] },
+            { width: 2, height: 1, pixels: [3, 3] },
+          ],
+        },
+      ],
+    }),
   );
+  extra?.(c);
 }
+
+function viewGame(extra?: (c: GameContainer) => void): GameContainer {
+  return gameContainer(VIEW_LOGICS, (c) => populateViewResources(c, extra));
+}
+
+/**
+ * The same game packed into a combined v3 container: with no interpreter
+ * version string the folder detection lands on the default v3 profile,
+ * 3.002.149 — the build whose 78-entry envelope the audit measured.
+ */
+function viewGameV3(extra?: (c: GameContainer) => void): GameContainer {
+  const section = 256 * 3;
+  const dir = new Uint8Array(8 + 4 * section).fill(0xff);
+  for (let i = 0; i < 4; i++) {
+    const offset = 8 + i * section;
+    dir[i * 2] = offset & 0xff;
+    dir[i * 2 + 1] = offset >> 8;
+  }
+  const c = openContainer(
+    new Map([
+      ["GAMEDIR", dir],
+      ["GAMEVOL.0", new Uint8Array(0)],
+    ]),
+  );
+  for (const [num, source] of VIEW_LOGICS.entries())
+    c.putResource("logic", num, assembleLogic(source, { dictionary: new Map() }).payload);
+  populateViewResources(c, extra);
+  return c;
+}
+
+/**
+ * A 200-tick tone on channel 0 at base attenuation 0 — long enough for the
+ * v3 envelope's 77 steps and hold to play out inside one test session.
+ */
+const SOUND_LONG = new Uint8Array([
+  8, 0, 15, 0, 15, 0, 15, 0, 200, 0, 0x23, 0x81, 0x90, 0xff, 0xff, 0xff, 0xff,
+]);
 
 interface ViewHarness {
   ctx: WorkerContext;
@@ -170,6 +246,7 @@ function asRecording(segments: HistorySegment[]): HistoryRecording {
   const first = segments[0]!;
   return {
     version: HISTORY_FORMAT_VERSION,
+    identity: { project: testProjectId("view-fixture"), revision: testRevision("view") },
     profile: "2.936",
     resourceSet: first.boot.resourceSet,
     startedAt: 0,
@@ -451,6 +528,224 @@ test("the adopted session resumes the recorded PRNG and cycle clock", () => {
   send({ type: "pause", paused: false });
   assert.equal(ctx.clocks.cycle.snapshot().increments, 4);
   assert.equal(ctx.clocks.cycle.snapshot().remainder, 30);
+});
+
+test("a take mid-motion adopts the shared parameter bank, not separate fields", () => {
+  // f218 arms the original's overwrite sequence: move.obj fills the bank,
+  // then end.of.loop's flag byte lands on the destination byte, so the
+  // object travels to 61 — never 90 (docs/fidelity.md, motion audit). If
+  // the record → seek → adopt chain dropped the bank, the adopted session
+  // would drive to the stale target the old separate fields held.
+  const h = viewHarness(viewGame(), { rngSeed: 0xbeef });
+  const { ctx, send, tick } = h;
+  tick(4);
+  send({ type: "debugWrite", id: 0, flags: [[200, 1]] });
+  tick(5);
+  send({ type: "debugWrite", id: 1, flags: [[218, 1]] });
+  tick(3); // the sequence is armed and mid-flight
+  send({ type: "pause", paused: true });
+  const recording = asRecording(collectSegments(h.control));
+
+  const arm = recording.segments[0]!.events.find(
+    (e) => e.cause.kind === "debugWrite" && e.cause.flags?.some(([n]) => n === 218),
+  );
+  assert.ok(arm, "the recorded stream carries the sequence's boundary");
+  const midTick = arm.tick + 2;
+  send({ type: "historyViewStart", id: 2, recording, segment: 0, tick: midTick });
+  const opened = finalView(h.control, 2);
+  assert.equal(opened.error, null);
+  assert.equal(opened.canResume, true, "a mid-motion position is resumable");
+
+  send({
+    type: "historyViewTake",
+    id: 3,
+    segment: 0,
+    tick: opened.tick,
+    seq: opened.seq,
+    generation: opened.generation,
+  });
+  const taken = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyTaken" }> =>
+      m.type === "historyTaken" && m.id === 3,
+  );
+  assert.ok(taken && taken.ok, "the take succeeded");
+
+  // The adopted engine carries the bank the scratch replayed — flag byte on
+  // the destination, saved step and completion flag in the trailing bytes.
+  const o = ctx.engine!.screenObjects[1]!;
+  assert.deepEqual(o.paramBank, [61, 80, 4, 62]);
+
+  send({ type: "pause", paused: false });
+  tick(80);
+  assert.equal(o.x, 60, "the adopted session drove to the flag byte's target");
+  assert.equal(ctx.engine!.flags[61], 1, "the loop's flag latched");
+  assert.equal(ctx.engine!.flags[62], 1, "the motion's flag latched");
+  assert.equal(o.motionMode, 0);
+  assert.equal(o.stepSize, 4, "the saved step size came back");
+});
+
+test("a take mid-envelope adopts the v3 table and crosses its hold", () => {
+  // GR1 3.002.149's envelope runs 77 steps before its hold — envelope
+  // positions in [68,77] do not exist under the 2.917 table, so adopting
+  // one restores only when the playback selected the v3 table and its own
+  // length bounds the snapshot (docs/fidelity.md, sound player audit).
+  const container = viewGameV3((c) => c.putResource("sound", 1, SOUND_LONG));
+  const h = viewHarness(container, { rngSeed: 0xbeef });
+  const { ctx, send, tick } = h;
+  assert.equal(ctx.engine!.profile.id, "3.002.149");
+  tick(4);
+  send({ type: "debugWrite", id: 0, flags: [[200, 1]] });
+  tick(5); // room 2 drawn — resumable
+  send({ type: "debugWrite", id: 1, vars: [[23, 3]] });
+  send({ type: "debugWrite", id: 2, flags: [[221, 1]] });
+  tick(71); // the envelope index lands in the v3-only range
+
+  const liveIndex = ctx.engine!.captureReplayState().sound?.playback.channels[0]!.envelopeIndex;
+  assert.ok(
+    liveIndex !== undefined && liveIndex >= 68 && liveIndex <= 77,
+    `envelope index ${liveIndex} sits in the v3-only range`,
+  );
+  send({ type: "pause", paused: true });
+  const recording = asRecording(collectSegments(h.control));
+  const lastTick = Math.max(
+    ...recording.segments[0]!.events.map((e) => e.tick),
+    ...recording.segments[0]!.sync.map((s) => s.tick),
+  );
+
+  // Replaying the tape rebuilds the scratch's playback at the same v3
+  // position; adopting it restores that state into the live engine. A
+  // shared 68-entry bound would refuse the recorded position here.
+  send({ type: "historyViewStart", id: 3, recording, segment: 0, tick: lastTick });
+  const opened = finalView(h.control, 3);
+  assert.equal(opened.error, null);
+  assert.equal(opened.canResume, true);
+  send({
+    type: "historyViewTake",
+    id: 4,
+    segment: 0,
+    tick: opened.tick,
+    seq: opened.seq,
+    generation: opened.generation,
+  });
+  const taken = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyTaken" }> =>
+      m.type === "historyTaken" && m.id === 4,
+  );
+  assert.ok(taken && taken.ok, "the take adopted the mid-envelope position");
+  const adopted = ctx.engine!.captureReplayState().sound?.playback.channels[0];
+  assert.ok(adopted, "the adopted engine carries the sound's playback state");
+  assert.equal(adopted.envelopeIndex, liveIndex);
+
+  // Resumed ticks run the v3 tail to its hold: the last advancing step
+  // clamps at 15 (0x9f), then the hold transition and every held tick emit
+  // the stored 13 (0x9d) — v23 never re-enters (docs/fidelity.md).
+  h.presentation.length = 0;
+  send({ type: "pause", paused: false });
+  tick(12);
+  const attenuations = h.presentation
+    .filter(
+      (m): m is Extract<WorkerPresentation, { type: "soundOutput" }> => m.type === "soundOutput",
+    )
+    .map((m) => m.output)
+    .filter((o): o is { kind: "psg"; bytes: number[] } => o.kind === "psg")
+    .map((o) => o.bytes.at(-1)!)
+    .filter((b) => (b & 0xf0) === 0x90);
+  const hold = attenuations.indexOf(0x9d);
+  assert.ok(hold > 0, "the resumed stream crosses the v3 hold");
+  assert.ok(
+    attenuations.slice(hold).every((b) => b === 0x9d),
+    `held ticks keep the stored value: ${attenuations.join(",")}`,
+  );
+});
+
+test("a take adopts the unknown-word slot said() still matches", () => {
+  // docs/fidelity.md, parser unknown-word audit: an unknown token occupies
+  // a parsed slot holding group zero. The slot rides the anchor's replay
+  // state, so a seek replaying the f222 pass sees said(1) and said(0) match
+  // — and the adopted session can still match after adoption.
+  const h = viewHarness(viewGame(), { rngSeed: 0xbeef });
+  const { ctx, send, tick } = h;
+  tick(4);
+  send({ type: "debugWrite", id: 0, flags: [[200, 1]] });
+  tick(5); // room 2 drawn — resumable
+  send({ type: "debugWrite", id: 1, flags: [[222, 1]] });
+  tick(2);
+  send({ type: "pause", paused: true });
+  const recording = asRecording(collectSegments(h.control));
+  const lastTick = Math.max(
+    ...recording.segments[0]!.events.map((e) => e.tick),
+    ...recording.segments[0]!.sync.map((s) => s.tick),
+  );
+
+  send({ type: "historyViewStart", id: 2, recording, segment: 0, tick: lastTick });
+  const opened = finalView(h.control, 2);
+  assert.equal(opened.error, null);
+  assert.equal(opened.canResume, true);
+  send({
+    type: "historyViewTake",
+    id: 3,
+    segment: 0,
+    tick: opened.tick,
+    seq: opened.seq,
+    generation: opened.generation,
+  });
+  const taken = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyTaken" }> =>
+      m.type === "historyTaken" && m.id === 3,
+  );
+  assert.ok(taken && taken.ok, "the take adopted the post-parse position");
+
+  // The scratch replayed the said checks against the zero slot — and the
+  // anchor carried the slot itself into the adopted engine.
+  assert.equal(ctx.engine!.vars[100], 1, "the replayed said(1) matched");
+  assert.equal(ctx.engine!.vars[101], 1, "the replayed said(0) matched");
+  const parser = ctx.engine!.captureReplayState();
+  assert.deepEqual(parser.parsedWords, [0], "the adopted parser slot holds group zero");
+  assert.equal(parser.parserCount, 1);
+  assert.equal(parser.inputReady, 0, "f2 is per-cycle — cleared past the parse's own cycle");
+
+  // Still live after adoption: re-parsing the restored string 0 yields the
+  // zero slot again and said(1) matches it.
+  send({ type: "pause", paused: false });
+  send({ type: "debugWrite", id: 4, flags: [[223, 1]] });
+  tick(3);
+  assert.equal(ctx.engine!.vars[102], 1, "said(1) matches in the adopted session");
+});
+
+test("restart at RNG zero consumes no clock read; the next draw records one", () => {
+  // docs/fidelity.md, save/restart audit, through the harness's own lane:
+  // accepted restart leaves the worker's RNG word alone, so a stream still at
+  // zero reseeds on the NEXT random call — and that one BIOS-word equivalent
+  // lands on the tape where the tape drive can replay it.
+  const h = viewHarness(viewGame(), { rngSeed: 0 });
+  const { ctx, send, tick } = h;
+  tick(4);
+  send({ type: "debugWrite", id: 0, flags: [[219, 1]] }); // accepted restart
+  tick(4); // the restart aborts, then f6 re-enters room 1
+  assert.equal(ctx.history.rng, 0, "restart preserved the zero-state stream");
+
+  send({ type: "debugWrite", id: 1, flags: [[202, 1]] }); // random(1,250,v60)
+  tick(3);
+  assert.notEqual(ctx.history.rng, 0, "the draw reseeded and advanced");
+
+  send({ type: "pause", paused: true });
+  const recording = asRecording(collectSegments(h.control));
+  const reseeds = recording.segments
+    .flatMap((s) => s.events)
+    .filter((e) => e.cause.kind === "reseed");
+  assert.equal(reseeds.length, 1, "exactly one recorded BIOS-word read");
+
+  // The tape carries the word; viewing it replays the draw without drawing
+  // a second one (a lane miss would throw inside the seek).
+  const lastTick = Math.max(
+    ...recording.segments[0]!.events.map((e) => e.tick),
+    ...recording.segments[0]!.sync.map((s) => s.tick),
+  );
+  send({ type: "historyViewStart", id: 2, recording, segment: 0, tick: lastTick });
+  const opened = finalView(h.control, 2);
+  assert.equal(opened.error, null);
+  assert.equal(opened.tick, lastTick);
+  send({ type: "historyViewEnd" });
 });
 
 /** Read v60 — the LCG roll's landing spot. */
@@ -741,7 +1036,7 @@ test("the anchor fingerprint fails on mutations the sync digest cannot see", () 
     [
       "object motion state",
       (a) => {
-        (a.replay as { objectExtras: { wanderCount: number }[] }).objectExtras[3]!.wanderCount = 7;
+        (a.replay as { objectExtras: { priority: number }[] }).objectExtras[3]!.priority = 7;
       },
     ],
     [
@@ -830,4 +1125,128 @@ test("the take boundary refuses anything but the settled verified position", () 
   assert.notEqual(reopened.generation, pos.generation);
   assert.match(take(9).message ?? "", /not viewing/, "the stale session's take is refused");
   assert.equal(take(10, { generation: reopened.generation }).ok, true);
+});
+
+test("a take adopts a parked key wait and the pack; a suspended prompt is not resumable", () => {
+  // The D2 leftovers: a suspended host request is never an adoptable
+  // boundary, the one suspended kind the continuation can describe — a
+  // parked have.key — resumes on the adopted segment, and the OBJECT-file
+  // pack rides the adopted image.
+  const h = viewHarness(viewGame(), { rngSeed: 0xbeef });
+  const { ctx, send, tick } = h;
+  tick(4);
+
+  const seen = new Set<number>();
+  const awaitOp = (op: string) => {
+    for (let i = 0; i < 40; i++) {
+      const req = h.control.find((m) => m.type === "hostRequest" && m.op === op && !seen.has(m.id));
+      if (req && req.type === "hostRequest") {
+        seen.add(req.id);
+        return req;
+      }
+      tick(1);
+    }
+    return assert.fail(`host request ${op} never posted`);
+  };
+
+  // Play in a drawn room so the session's boundaries are resumable:
+  // f200 edges to room 2, whose entry is the anchor the seeks start from.
+  send({ type: "debugWrite", id: 0, flags: [[200, 1]] });
+  tick(5);
+  assert.equal(ctx.engine!.vars[0], 2, "room 2 entered");
+
+  // The key lands in the pack before the recorded waits.
+  send({ type: "debugWrite", id: 1, flags: [[225, 1]] });
+  tick(2);
+
+  // A have.key busy loop parks the pass on a key wait — the suspended kind
+  // the continuation record can describe.
+  send({ type: "debugWrite", id: 2, flags: [[227, 1]] });
+  tick(4);
+  assert.equal(ctx.engine!.awaitingKey, true, "the recorded wait parked on a key");
+  send({ type: "key", code: 65 });
+  tick(3);
+  assert.equal(ctx.engine!.vars[62], 1, "the recorded key resumed the pass");
+
+  // A get.num prompt suspends on a host request the continuation cannot
+  // describe; the parked polls give the suspended span recorded ticks.
+  send({ type: "debugWrite", id: 3, flags: [[224, 1]] });
+  const prompt = awaitOp("getnum");
+  tick(3);
+  send({ type: "hostAnswer", id: prompt.id, response: "7" });
+  tick(3);
+  assert.equal(ctx.engine!.vars[64], 7, "the answered prompt's pass resumed");
+
+  send({ type: "pause", paused: true });
+  const recording = asRecording(collectSegments(h.control));
+  const segment = recording.segments[0]!;
+  const keyEvent = segment.events.find((e) => e.cause.kind === "key" && e.cause.code === 65)!;
+  const answerEvent = segment.events.find((e) => e.cause.kind === "answer")!;
+  assert.ok(keyEvent.tick < answerEvent.tick, "the key wait precedes the prompt");
+
+  // The parked key wait is a resumable boundary: the take adopts the
+  // suspended pass and an arriving key completes it on the new segment.
+  const parkedAt = keyEvent.tick - 1;
+  send({ type: "historyViewStart", id: 10, recording, segment: 0, tick: parkedAt });
+  const viewed = finalView(h.control, 10);
+  assert.equal(viewed.error, null);
+  assert.equal(viewed.canResume, true, "a parked key wait adopts");
+  send({
+    type: "historyViewTake",
+    id: 11,
+    segment: 0,
+    tick: parkedAt,
+    seq: viewed.seq,
+    generation: viewed.generation,
+  });
+  const taken = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyTaken" }> =>
+      m.type === "historyTaken" && m.id === 11,
+  );
+  assert.ok(taken && taken.ok);
+  assert.equal(ctx.engine!.awaitingKey, true, "the adopted pass still waits on its key");
+  send({ type: "pause", paused: false });
+  send({ type: "key", code: 66 });
+  tick(3);
+  assert.equal(ctx.engine!.vars[62], 1, "the arrived key resumed the adopted pass");
+
+  // Same recording, second view: the get.num-suspended tick refuses —
+  // a live host request is not a resumable boundary.
+  send({ type: "pause", paused: true });
+  send({
+    type: "historyViewStart",
+    id: 12,
+    recording,
+    segment: 0,
+    tick: answerEvent.tick - 1,
+  });
+  const suspended = finalView(h.control, 12);
+  assert.equal(suspended.error, null);
+  assert.equal(suspended.canResume, false, "a host-request suspension is not a boundary");
+
+  // The answer's own tick is resumable — the take lands the resumed pass.
+  send({ type: "historyViewSeek", id: 13, segment: 0, tick: answerEvent.tick });
+  const landed = finalView(h.control, 13);
+  assert.equal(landed.error, null);
+  assert.equal(landed.canResume, true);
+  send({
+    type: "historyViewTake",
+    id: 14,
+    segment: 0,
+    tick: answerEvent.tick,
+    seq: landed.seq,
+    generation: landed.generation,
+  });
+  const takenAgain = h.control.find(
+    (m): m is Extract<WorkerControl, { type: "historyTaken" }> =>
+      m.type === "historyTaken" && m.id === 14,
+  );
+  assert.ok(takenAgain && takenAgain.ok);
+  assert.equal(ctx.engine!.vars[64], 7, "the resumed prompt's writes adopted");
+
+  // The pack crossed both takes: the picked-up key rides the adopted image.
+  send({ type: "pause", paused: false });
+  send({ type: "debugWrite", id: 15, flags: [[226, 1]] });
+  tick(3);
+  assert.equal(ctx.engine!.vars[65], 1, "the carried key survived the take");
 });

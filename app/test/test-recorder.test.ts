@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { testRevision } from "./identity.ts";
 import assert from "node:assert/strict";
 import { useTestRecorder, type TestRecorderState } from "../src/useTestRecorder.ts";
 import type { BootedGame } from "../src/useEngine.ts";
@@ -218,7 +219,7 @@ test("saveRecordedTest rejects tainted recordings", async () => {
   const booted: BootedGame = {
     installed: true,
     title: "Test Game",
-    revision: "abc",
+    revision: testRevision("abc"),
     files: {},
     words: [],
   };

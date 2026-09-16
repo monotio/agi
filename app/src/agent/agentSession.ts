@@ -15,10 +15,11 @@ import {
   executeAgentToolAsync,
   type AgentRuntimeDeps,
   type AgentSessionState,
+  type AgentToolImage,
   type AgentToolResult,
 } from "../../../src/agent/tools.ts";
 import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
-import { resourceSetRevision, validateAuthoringState } from "../../../src/agent/authoringState.ts";
+import { resourceSetHint, validateAuthoringState } from "../../../src/agent/authoringState.ts";
 import {
   adoptTurnState,
   forkAgentState,
@@ -27,6 +28,7 @@ import {
 } from "./sessionState.ts";
 import { readInventoryObjects } from "../../../src/agent/inventory.ts";
 import { prepareRoomPatch } from "../../../src/agent/roomPatch.ts";
+import { installBaseTemplate } from "../../../src/agent/baseTemplate.ts";
 import { buildWordsTok } from "../../../src/logic/words.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import {
@@ -52,7 +54,7 @@ import {
   type UnifiedConversation,
   type LlmTurnResult,
 } from "./llmClient.ts";
-import { StubAgent } from "./stubAgent.ts";
+import { GAME_DICTIONARY, StubAgent } from "./stubAgent.ts";
 import { projectToolResult } from "../../../src/agent/toolTransport.ts";
 import type { AgentEventSink, AgentHandler, LlmRequest } from "./hostRequests.ts";
 import { continuationTranscript } from "../projectArchive.ts";
@@ -256,10 +258,14 @@ export class AgentSession implements AgentHandler {
     this.runtime = deps;
   }
 
-  runAsk(question: string, room: number): Promise<string> {
-    return this.task.run(() => this.ask(question, room));
+  runAsk(question: string, room: number, images?: readonly AgentToolImage[]): Promise<string> {
+    return this.task.run(() => this.ask(question, room, images));
   }
-  private async ask(question: string, room: number): Promise<string> {
+  private async ask(
+    question: string,
+    room: number,
+    images?: readonly AgentToolImage[],
+  ): Promise<string> {
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before using Ask or Remix.");
@@ -288,11 +294,14 @@ export class AgentSession implements AgentHandler {
     const inspected = forkAgentState(this.state);
     try {
       let turn = await this.observeTurn(
-        this.conversation.sendUserMessage(`${context}### ASK REQUEST
+        this.conversation.sendUserMessage(
+          `${context}### ASK REQUEST
 The game is paused in room ${room}. This turn is a read-only conversation, not a request to edit.
 ${question.trim()}
 
-Answer the player's question using evidence from inspection when needed. For hints, avoid spoilers beyond what was requested. Distinguish game logic from suspected engine faults and explain what you observed and what remains uncertain. playtest_room starts from boot, not the live checkpoint. Do not claim to have replayed earlier events or inspected a call stack unless a tool actually supplies it. If a content fix would help, describe it for the player to apply in Remix. Engine implementation changes belong in the development workflow. Keep the reply concise and useful; this conversation stays open.`),
+Answer the player's question using evidence from inspection when needed. For hints, avoid spoilers beyond what was requested. Distinguish game logic from suspected engine faults and explain what you observed and what remains uncertain. playtest_room starts from boot, not the live checkpoint. Do not claim to have replayed earlier events or inspected a call stack unless a tool actually supplies it. If a content fix would help, describe it for the player to apply in Remix. Engine implementation changes belong in the development workflow. Keep the reply concise and useful; this conversation stays open.`,
+          images,
+        ),
         "ask",
       );
       while (turn.toolCalls.length) {
@@ -378,10 +387,18 @@ Answer the player's question using evidence from inspection when needed. For hin
    * resources, and finishes with a text turn; every tool call streams into
    * the bubble through onEvent. Returns what to patch into the interpreter.
    */
-  runPowerUp(instruction: string, room: number): Promise<PowerUpResult> {
-    return this.task.run(() => this.remix(instruction, room));
+  runPowerUp(
+    instruction: string,
+    room: number,
+    images?: readonly AgentToolImage[],
+  ): Promise<PowerUpResult> {
+    return this.task.run(() => this.remix(instruction, room, images));
   }
-  private async remix(instruction: string, room: number): Promise<PowerUpResult> {
+  private async remix(
+    instruction: string,
+    room: number,
+    images?: readonly AgentToolImage[],
+  ): Promise<PowerUpResult> {
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before using Ask or Remix.");
@@ -420,7 +437,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     const staged = forkAgentState(this.state);
     const forkRevision = worldRevision(this.state.authoring.world);
     try {
-      let turn = await this.observeTurn(this.conversation.sendUserMessage(prompt), "remix");
+      let turn = await this.observeTurn(this.conversation.sendUserMessage(prompt, images), "remix");
 
       while (turn.toolCalls.length > 0) {
         let handedOver = false;
@@ -591,9 +608,9 @@ Answer the player's question using evidence from inspection when needed. For hin
     return full;
   }
 
-  /** resourceSetRevision of the session's file set — the worker's identity for the same bytes. */
+  /** resourceSetHint of the session's file set — the worker's identity for the same bytes. */
   resourceSet(): string {
-    return resourceSetRevision(this.state);
+    return resourceSetHint(this.state);
   }
 
   /**
@@ -631,7 +648,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     snapshot?: unknown,
     expectedRevision?: string,
   ): void {
-    const adoptedRevision = resourceSetRevision({
+    const adoptedRevision = resourceSetHint({
       getFiles: () => new Map(Object.entries(files)),
     });
     if (expectedRevision !== undefined && adoptedRevision !== expectedRevision)
@@ -767,6 +784,10 @@ Answer the player's question using evidence from inspection when needed. For hin
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating a game.");
+    // The harness owns the boot ritual for new games: logic 0's menu bar and
+    // parser fallbacks, the shared death logic and its sound land before the
+    // first model turn (docs/rc12-plan.md Part 1).
+    installBaseTemplate(this.state, this.state.profile);
     this.conversation?.setAvailableTools(AUTHORING_SESSION_TOOLS);
     if (this.stubFallback) {
       this.onEvent("request", "Starting Genesis using offline StubAgent");
@@ -778,16 +799,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         this.state.container.putResource(res.kind, res.num, res.payload);
       }
       this.state.genesisComplete = true;
-      // Standard stub dictionary
-      const stubWords: [string, number][] = [
-        ["look", 100],
-        ["east", 101],
-        ["west", 102],
-        ["north", 103],
-        ["south", 104],
-        ["take", 105],
-        ["open", 106],
-      ];
+      const stubWords: [string, number][] = [...GAME_DICTIONARY];
       for (const [w, id] of stubWords) {
         this.state.sources.words.set(w, id);
       }

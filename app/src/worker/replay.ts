@@ -33,7 +33,7 @@ import {
   type HistorySegment,
   type HistorySyncMark,
 } from "../../../src/agent/history.ts";
-import { resourceSetRevision } from "../../../src/agent/authoringState.ts";
+import { resourceSetHint } from "../../../src/agent/authoringState.ts";
 import {
   createWorkerContext,
   resetSession,
@@ -360,7 +360,7 @@ function captureSemanticState(
     requestSerial: ctx.hostRequests.hostRequestSerial,
     rng: ctx.replay.replay?.random ?? 0,
     soundDevice: ctx.boot.selectedSoundDevice,
-    resourceSet: resourceSetRevision({ getFiles: () => files }),
+    resourceSet: resourceSetHint({ getFiles: () => files }),
   };
   if (template.authorRooms !== undefined) out.authorRooms = ctx.boot.authorRooms;
   if (template.dictionary !== undefined)
@@ -469,7 +469,7 @@ export function openHistoryDrive(
     const { wordsPatched } = foldFiles(foldContainer, dictionary, segment.events, startSeq);
     const files = new Map(foldContainer.files);
     const recordedSet = anchor ? anchor.resourceSet : segment.boot.resourceSet;
-    if (resourceSetRevision({ getFiles: () => files }) !== recordedSet) {
+    if (resourceSetHint({ getFiles: () => files }) !== recordedSet) {
       outcome.error =
         anchor !== null
           ? `anchor ${anchor.seq} resource set does not match the folded stream`

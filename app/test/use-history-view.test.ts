@@ -1,8 +1,10 @@
 /**
- * The host half of the history transport: mark stepping is relative to the
- * viewed (segment, tick, seq) position — a mark under the current position
- * is "current", so next must pass it — and Resume here's swap is staged:
- * the kept session is only replaced once the worker acknowledges the take.
+ * The host half of the always-visible transport: mark stepping is relative
+ * to the viewed position on the flattened axis — a mark under the current
+ * position is "current", so next must pass it — and Resume-from-here's swap
+ * is staged: the departing session only joins the kept-branch list once the
+ * worker acknowledges the take. Interrupted swaps never ask the player to
+ * vote; provable ones settle from tape evidence on the next open.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -10,6 +12,7 @@ import { reactive } from "vue";
 import { useHistoryView, freshHistoryView } from "../src/useHistoryView.ts";
 import {
   HISTORY_FORMAT_VERSION,
+  type HistoryBatch,
   type HistoryBoot,
   type HistoryRecording,
   type HistorySegment,
@@ -17,10 +20,12 @@ import {
 import {
   commitStagedOriginal,
   importGameHistory,
-  loadRetainedOriginal,
+  loadRetainedBranches,
+  loadTapeOutline,
   stageRetainedOriginal,
 } from "../src/historyStorage.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+import { testProjectId, testRevision } from "./identity.ts";
 import type { EngineState } from "../src/useEngineTypes.ts";
 import type { BootedGame } from "../src/gameTypes.ts";
 import type { WorkerInbound } from "../src/workerProtocol.ts";
@@ -37,7 +42,11 @@ const BOOT: HistoryBoot = {
   requestSerial: 0,
 };
 
-function segment(id: string, marks: [number, number, number][]): HistorySegment {
+function segment(
+  id: string,
+  marks: [number, number, number][],
+  end?: { seq: number; tick: number; cycle: number; reason: "resume" | "boot" },
+): HistorySegment {
   return {
     id,
     boot: BOOT,
@@ -51,12 +60,14 @@ function segment(id: string, marks: [number, number, number][]): HistorySegment 
       via: "edge",
     })),
     sync: [],
+    ...(end !== undefined ? { end } : {}),
   };
 }
 
 /** Two marks share tick 4 in segment 0; segment 1 starts a new run. */
 const RECORDING: HistoryRecording = {
   version: HISTORY_FORMAT_VERSION,
+  identity: { project: testProjectId("history-view"), revision: testRevision("history-view") },
   profile: "2.936",
   resourceSet: "rev-1",
   startedAt: 0,
@@ -230,9 +241,27 @@ function makeHarness(opts?: {
   };
 }
 
+/** A batch the worker would post while playing — drives the live axis. */
+function batch(segment: string, ticks: number[]): HistoryBatch {
+  return {
+    segment,
+    batch: 1,
+    seqStart: 0,
+    seqEnd: ticks.length,
+    events: ticks.map((tick, i) => ({
+      seq: i,
+      tick,
+      cycle: tick,
+      cause: { kind: "key", code: 65 },
+    })),
+    marks: [],
+    sync: [],
+  };
+}
+
 test("mark stepping advances relative to the viewed position", async () => {
   const key = "view-test";
-  await importGameHistory(key, { recording: RECORDING });
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
   const seqAt = (segment: number, tick: number): number => {
     // The drive lands on the last mark at-or-before the target tick.
     const marks = RECORDING.segments[segment]!.marks.filter((m) => m.tick <= tick);
@@ -276,73 +305,126 @@ test("mark stepping advances relative to the viewed position", async () => {
   assert.deepEqual(seeks.at(-1), { segment: 0, tick: 4 });
 });
 
-test("Resume here stages the departing session; only an acknowledged take replaces the kept one", async () => {
+test("Pause before any recorded batch parks under the transport and resumes clean", async () => {
+  const { state, view, pauses, resumes } = makeHarness();
+  const v = state.historyView;
+  view.pauseAtLive();
+  assert.equal(v.parked, true);
+  assert.deepEqual(pauses, ["transport"]);
+
+  view.resumeLive();
+  assert.equal(v.parked, false);
+  assert.deepEqual(resumes, ["transport"]);
+  // Resume at LIVE is not a swap — nothing was staged or kept.
+  assert.deepEqual(await loadRetainedBranches("view-test"), []);
+  const outline = await loadTapeOutline("view-test");
+  assert.equal(outline?.pending ?? 0, 0);
+});
+
+test("the live axis tracks batches and a scrub into the tape parks then opens the view", async () => {
   const key = "view-test";
-  await importGameHistory(key, { recording: RECORDING });
-  // An earlier session is already kept.
-  const kept = {
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
+  const { state, view, seeks, pauses } = makeHarness();
+  const v = state.historyView;
+  const model = view.transport;
+
+  // Live play: the newest batch moves the LIVE endpoint; the position pins
+  // to the tape's right end without any tape load.
+  view.observeBatch(batch("sX.1", [2, 4, 6, 8]));
+  assert.equal(model.totalTicks, 8);
+  assert.equal(model.tick, 8, "the live position is the newest moment");
+  assert.equal(model.percent, 100);
+
+  // A click into the middle of the tape pauses live play and opens the view
+  // at the same position the gesture meant.
+  await view.dispatchSeek(4);
+  assert.equal(v.parked, true, "the transport holds the live pause");
+  assert.equal(v.active, true, `the view opened — error: ${v.error}`);
+  assert.deepEqual(seeks.at(-1), { segment: 0, tick: 4 });
+  assert.ok(pauses.includes("transport") && pauses.includes("history"));
+});
+
+test("LIVE restores the parked session still paused; Resume continues it", async () => {
+  const key = "view-test";
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
+  const { state, view, resumes } = makeHarness();
+  const v = state.historyView;
+  const model = view.transport;
+
+  await view.openHistory({ segment: 0, tick: 8 });
+  assert.equal(v.active, true);
+  assert.equal(model.live?.here, false, "the surface is the tape, not live");
+
+  // The LIVE endpoint brings back the parked surface — still paused.
+  view.goLive();
+  assert.equal(v.active, false);
+  assert.equal(v.parked, true, "LIVE leaves the session parked");
+  assert.equal(model.live?.here, true);
+  assert.equal(model.play.label, "Resume");
+
+  // Resume at LIVE releases only the transport hold — no swap, no branch.
+  view.resumeLive();
+  assert.equal(v.parked, false);
+  assert.deepEqual(resumes, ["history", "transport"]);
+  assert.deepEqual(await loadRetainedBranches(key), []);
+});
+
+test("Resume from here keeps the departing session as a branch — no confirmation", async () => {
+  const key = "view-test";
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
+  // An earlier rewind already kept one session.
+  await stageRetainedOriginal(key, {
+    id: "b-old",
     boot: { ...BOOT, rng: 11 },
     from: { segment: "sX.1", seq: 3, tick: 6 },
     retainedAt: 1,
-  };
-  await stageRetainedOriginal(key, kept);
-  await commitStagedOriginal(key);
-  assert.deepEqual(await loadRetainedOriginal(key), kept);
+  });
+  await commitStagedOriginal(key, "b-old");
 
   let takeOk = false;
   const { state, view } = makeHarness({ takeOk: () => takeOk });
   await view.openHistory({ segment: 0, tick: 8 });
   const v = state.historyView;
-  assert.equal(v.retained, true);
+  assert.equal(v.branches, 1, "the kept session counts as a branch");
 
-  // A kept session exists: the first press asks for confirmation, nothing moves.
-  await view.resumeHere();
-  assert.equal(v.confirmReplace, true);
-  assert.equal(v.active, true);
-
-  // Confirmed — but the take fails: the departing session was staged yet
-  // the kept one still answers, and the error shows.
-  await view.resumeHere();
-  assert.equal(v.confirmReplace, false);
+  // First press swaps immediately — no "Replace the kept session?" vote.
+  await view.resumeFromHere();
+  assert.equal(v.active, true, "a refused take leaves the view open");
   assert.match(v.error, /failed/i);
-  assert.equal(v.active, true, "the view stays open on a failed take");
-  assert.deepEqual(await loadRetainedOriginal(key), kept, "the kept original survived");
+  assert.equal((await loadRetainedBranches(key)).length, 1, "the kept session survived");
 
-  // Retry: re-confirm, the take succeeds — the staged departing session is
-  // committed over the kept one.
   takeOk = true;
-  await view.resumeHere();
-  assert.equal(v.confirmReplace, true);
-  await view.resumeHere();
-  assert.equal(v.active, false, "the adopted session went live");
-  const retained = await loadRetainedOriginal(key);
-  assert.equal(retained?.boot.rng, 42, "the departing session replaced the kept one");
+  await view.resumeFromHere();
+  assert.equal(v.active, false, `the adopted session went live — error: ${v.error}`);
+  const branches = await loadRetainedBranches(key);
+  assert.equal(branches.length, 2, "both rewinds are kept");
+  assert.equal(branches[1]!.boot.rng, 42, "the departing session joined the list");
+  assert.equal(v.branches, 2);
 });
 
-test("an acknowledged take promotes the staged session to retained", async () => {
+test("an acknowledged take promotes the staged session to a branch", async () => {
   const key = "view-test";
-  await importGameHistory(key, { recording: RECORDING });
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
   const { state, view, takes } = makeHarness();
   await view.openHistory({ segment: 0, tick: 8 });
   const v = state.historyView;
-  // No retained yet — first press takes directly.
-  await view.resumeHere();
-  assert.equal(v.confirmReplace, false);
+  await view.resumeFromHere();
   assert.equal(v.active, false, `the adopted session went live — error: ${v.error}`);
-  const retained = await loadRetainedOriginal(key);
-  assert.equal(retained?.boot.rng, 42, "the departing session's boot was staged then committed");
-  assert.equal(v.retained, true);
+  const branches = await loadRetainedBranches(key);
+  assert.equal(branches.length, 1);
+  assert.equal(branches[0]!.boot.rng, 42, "the departing session's boot was staged then promoted");
+  assert.equal(v.branches, 1);
   // The take names the settled position the host confirmed plus the view
   // session's serial — the worker refuses a take that no longer matches.
   assert.deepEqual(takes, [{ segment: 0, tick: 8, seq: 8, generation: 7 }]);
 });
 
-test("a take acknowledged but never promoted leaves a recoverable pending swap", async () => {
+test("a take acknowledged but never promoted stays pending — no player vote", async () => {
   const key = "view-test";
-  await importGameHistory(key, { recording: RECORDING });
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
   // Fail exactly the promotion write: the take's query handler arms it —
   // the stage has already landed, the worker is about to acknowledge.
-  const { state, view, resumes } = makeHarness({
+  const { state, view, resumes, pauses } = makeHarness({
     takeOk: () => {
       const put = RECORDS.set.bind(RECORDS);
       let armed = true;
@@ -360,32 +442,57 @@ test("a take acknowledged but never promoted leaves a recoverable pending swap",
   await view.openHistory({ segment: 0, tick: 8 });
   const v = state.historyView;
 
-  await view.resumeHere();
+  await view.resumeFromHere();
   // The worker adopted — the transport must NOT keep posing as a view of
-  // history: it closes and releases the now-live adopted session.
+  // history: it closes, parks the now-live adopted session, and shows the
+  // quiet pending status rather than a Keep it / Let it go vote.
   assert.equal(v.active, false, "the adopted session went live");
-  assert.deepEqual(resumes, ["history"], "the pause owner was released");
-  assert.equal(v.pendingSwap, true);
+  assert.equal(v.parked, true, "the surface returns parked — Resume releases it");
+  assert.deepEqual(resumes, ["history"], "the view's hold released");
+  assert.ok(pauses.includes("transport"), "the parked surface is the transport's hold");
+  assert.equal(v.pendingSwaps, 1);
   assert.match(v.error, /could not be saved/i);
   // The staged candidate stayed durable — the departing session's only copy.
-  const recoverable = await loadRetainedOriginal(key);
-  assert.equal(recoverable?.boot.rng, 42, "the staged departing session is still there");
-
-  // The explicit finish promotes it — the swap completes.
-  await view.finishPendingSwap();
-  assert.equal(v.pendingSwap, false);
-  assert.equal(v.retained, true);
-  assert.equal(v.error, "");
-  const retained = await loadRetainedOriginal(key);
-  assert.equal(retained?.boot.rng, 42, "the kept session is the departed one");
+  assert.equal((await loadRetainedBranches(key)).length, 0, "nothing promoted yet");
+  const outline = await loadTapeOutline(key);
+  assert.equal(outline?.pending, 1, "the candidate stays preserved, unsettled");
 });
 
-test("a staged swap the tape cannot settle blocks the next swap for explicit resolution", async () => {
+test("a staged candidate the tape proves adopted settles into a branch on the next open", async () => {
   const key = "view-test";
-  await importGameHistory(key, { recording: RECORDING });
+  // The departing segment ended with the "resume" stamp only adoption
+  // writes — the staged candidate is owed a branch slot.
+  const adopted: HistoryRecording = {
+    ...RECORDING,
+    segments: [
+      RECORDING.segments[0]!,
+      { ...RECORDING.segments[1]!, end: { seq: 9, tick: 9, cycle: 9, reason: "resume" } },
+    ],
+  };
+  await importGameHistory(key, { recording: adopted }, RECORDING.identity);
+  await stageRetainedOriginal(key, {
+    id: "s-owed",
+    boot: { ...BOOT, rng: 77 },
+    from: { segment: "sX.2", seq: 9, tick: 9 },
+    retainedAt: 3,
+  });
+
+  const { state, view } = makeHarness();
+  await view.openHistory({ segment: 0, tick: 8 });
+  const v = state.historyView;
+  assert.equal(v.pendingSwaps, 0, "the provable swap settled itself");
+  const branches = await loadRetainedBranches(key);
+  assert.equal(branches.length, 1, "the owed candidate became a branch");
+  assert.equal(branches[0]!.boot.rng, 77);
+});
+
+test("a staged candidate the tape cannot settle stays quiet and blocks nothing", async () => {
+  const key = "view-test";
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
   // An earlier swap left a staged candidate whose departing segment is
   // still open and unidentified — the tape cannot prove either outcome.
   await stageRetainedOriginal(key, {
+    id: "s-open",
     boot: { ...BOOT, rng: 77 },
     from: { segment: "sGone.1", seq: 1, tick: 2 },
     retainedAt: 3,
@@ -393,27 +500,22 @@ test("a staged swap the tape cannot settle blocks the next swap for explicit res
   const { state, view } = makeHarness();
   await view.openHistory({ segment: 0, tick: 8 });
   const v = state.historyView;
-  assert.equal(v.pendingSwap, true, "the unsettled swap surfaces");
+  assert.equal(v.pendingSwaps, 1, "the unsettled swap surfaces quietly");
 
-  // The next Resume here refuses rather than overwrite the recovery copy.
-  await view.resumeHere();
-  assert.equal(v.active, true, "the view stays put — nothing was swapped");
-  assert.match(v.error, /kept session is still being saved/i);
-  const recoverable = await loadRetainedOriginal(key);
-  assert.equal(recoverable?.boot.rng, 77, "the pending candidate was not overwritten");
-
-  // Let it go: the candidate drops and the next swap proceeds normally.
-  await view.dropPendingSwap();
-  assert.equal(v.pendingSwap, false);
-  await view.resumeHere();
+  // The next rewind proceeds anyway — the ambiguous candidate is preserved
+  // beside it, never overwritten and never voted on.
+  await view.resumeFromHere();
   assert.equal(v.active, false, `the swap ran — error: ${v.error}`);
-  const retained = await loadRetainedOriginal(key);
-  assert.equal(retained?.boot.rng, 42, "the new departing session was kept");
+  const branches = await loadRetainedBranches(key);
+  assert.equal(branches.length, 1, "the new departing session was kept");
+  assert.equal(branches[0]!.boot.rng, 42);
+  const outline = await loadTapeOutline(key);
+  assert.equal(outline?.pending, 1, "the ambiguous candidate stayed put");
 });
 
 test("closing during the start query drops the late reply and releases exactly its pause", async () => {
   const key = "view-test";
-  await importGameHistory(key, { recording: RECORDING });
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
   const { state, view, inbound, resumes, release, waitHeld } = makeHarness({
     defer: ["historyViewStart"],
   });
@@ -465,7 +567,7 @@ test("closing during the start query drops the late reply and releases exactly i
 
 test("closing during the commit drain abandons the open before any worker traffic", async () => {
   const key = "view-test";
-  await importGameHistory(key, { recording: RECORDING });
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
   const { state, view, inbound, resumes, release, waitHeld } = makeHarness({
     defer: ["drain"],
   });
@@ -490,9 +592,44 @@ test("closing during the commit drain abandons the open before any worker traffi
   );
 });
 
+test("a seek requested while the tape opens lands once the view confirms", async () => {
+  const key = "view-test";
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
+  const { state, view, seeks, release, waitHeld } = makeHarness({
+    defer: ["historyViewStart"],
+  });
+  const v = state.historyView;
+
+  view.observeBatch(batch("sX.1", [2, 4, 6, 8]));
+  void view.dispatchSeek(4);
+  await waitHeld("historyViewStart");
+  assert.equal(v.loading, true);
+  // A newer request during the open replaces the earlier one.
+  void view.dispatchSeek(6);
+  release("historyViewStart", {
+    type: "historyView",
+    id: 0,
+    final: true,
+    generation: 7,
+    segment: 1,
+    tick: 1,
+    seq: 2,
+    cycle: 1,
+    room: 4,
+    score: 0,
+    modal: null,
+    canResume: true,
+    diverged: null,
+    error: null,
+  });
+  for (let i = 0; i < 50 && seeks.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
+  assert.equal(v.active, true);
+  assert.deepEqual(seeks, [{ segment: 0, tick: 6 }], "only the newest request sought");
+});
+
 test("resetting during the start query abandons the open entirely", async () => {
   const key = "view-test";
-  await importGameHistory(key, { recording: RECORDING });
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
   const { state, view, inbound, release, waitHeld } = makeHarness({
     defer: ["historyViewStart"],
   });
@@ -529,17 +666,19 @@ test("resetting during the start query abandons the open entirely", async () => 
   );
 });
 
-test("a failed start releases the pause and ends the worker's half-open view", async () => {
+test("a failed start leaves the game parked at LIVE with the error on the bar", async () => {
   const key = "view-test";
-  await importGameHistory(key, { recording: RECORDING });
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
   const { state, view, inbound, resumes } = makeHarness({
     startError: "anchor 3 resource set does not match the folded stream",
   });
-  await view.openHistory();
   const v = state.historyView;
+  view.observeBatch(batch("sX.1", [2, 4, 6, 8]));
+  await view.dispatchSeek(4);
   assert.equal(v.active, false);
   assert.match(v.error, /resource set/);
-  assert.deepEqual(resumes, ["history"], "the parked session resumes");
+  assert.equal(v.parked, true, "the live game stays parked — LIVE is still there");
+  assert.deepEqual(resumes, ["history"], "the open's own hold released");
   assert.equal(
     inbound.filter((m) => m.type === "historyViewEnd").length,
     1,
@@ -549,7 +688,7 @@ test("a failed start releases the pause and ends the worker's half-open view", a
 
 test("a seek answer landing after close writes nothing back", async () => {
   const key = "view-test";
-  await importGameHistory(key, { recording: RECORDING });
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
   const { state, view, release, waitHeld } = makeHarness({ defer: ["historyViewSeek"] });
   await view.openHistory({ segment: 0, tick: 8 });
   const v = state.historyView;
@@ -583,14 +722,14 @@ test("a seek answer landing after close writes nothing back", async () => {
   assert.equal(v.error, "", "no error resurrects the transport");
 });
 
-test("Resume here installs the tape's checkpoint and keeps the departing session's state", async () => {
+test("Resume from here installs the tape's checkpoint and keeps the departing session's state", async () => {
   const key = "view-test";
-  await importGameHistory(key, { recording: RECORDING });
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
   const { state, view, adoptions, sessionState } = makeHarness();
   await view.openHistory({ segment: 0, tick: 8 });
   const v = state.historyView;
 
-  await view.resumeHere();
+  await view.resumeFromHere();
   assert.equal(v.active, false, `the adopted session went live — error: ${v.error}`);
   assert.equal(v.error, "");
 
@@ -601,24 +740,24 @@ test("Resume here installs the tape's checkpoint and keeps the departing session
   assert.equal(adoptions[0]!.snapshot, TAKE_SNAPSHOT);
   assert.equal(sessionState.hold, null, "a landed adoption releases the hold");
 
-  // The departing session's own snapshot went into the kept record — a
-  // later Back to before restores exactly this state.
-  const retained = await loadRetainedOriginal(key);
-  assert.deepEqual(retained?.session, SESSION_SNAPSHOT);
+  // The departing session's own snapshot went into the kept branch — a
+  // later Undo rewind restores exactly this state.
+  const branches = await loadRetainedBranches(key);
+  assert.deepEqual(branches[0]?.session, SESSION_SNAPSHOT);
 });
 
 test("a failed authoring install keeps the adoption hold and ends the view", async () => {
   const key = "view-test";
-  await importGameHistory(key, { recording: RECORDING });
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
   const { state, view, adoptions, sessionState } = makeHarness({
     adoptError: "the recorded authoring checkpoint is malformed",
   });
   await view.openHistory({ segment: 0, tick: 8 });
   const v = state.historyView;
 
-  await view.resumeHere();
+  await view.resumeFromHere();
   assert.equal(v.active, false, "the worker adopted — the view does not keep posing as live");
-  assert.equal(v.pendingSwap, true);
+  assert.equal(v.pendingSwaps, 1);
   assert.match(v.error, /could not be installed/i);
   assert.equal(adoptions.length, 0, "nothing installed");
   assert.ok(
@@ -627,46 +766,75 @@ test("a failed authoring install keeps the adoption hold and ends the view", asy
   );
 
   // The departing session's record stayed durable for recovery.
-  const recoverable = await loadRetainedOriginal(key);
-  assert.equal(recoverable?.boot.rng, 42);
+  const outline = await loadTapeOutline(key);
+  assert.equal(outline?.pending, 1);
 });
 
-test("Back to before installs the kept record's session state and checks the revision", async () => {
+test("Undo rewind installs the newest branch's session and moves it off the list", async () => {
   const key = "view-test";
-  await importGameHistory(key, { recording: RECORDING });
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
   const keptSnapshot: Record<string, unknown> = { plan: "the kept session's state" };
   await stageRetainedOriginal(key, {
+    id: "b-kept",
     boot: { ...BOOT, rng: 11, resourceSet: "rev-kept" },
     from: { segment: "sX.1", seq: 3, tick: 6 },
     retainedAt: 1,
     session: keptSnapshot,
   });
-  await commitStagedOriginal(key);
+  await commitStagedOriginal(key, "b-kept");
 
   const { state, view, adoptions, sessionState } = makeHarness();
   await view.openHistory({ segment: 0, tick: 8 });
   const v = state.historyView;
-  assert.equal(v.retained, true);
+  assert.equal(v.branches, 1);
 
-  await view.backToBefore();
+  await view.undoRewind();
   assert.equal(v.active, false, `the kept session went live — error: ${v.error}`);
-  // The install got the kept record's boot and its stored session snapshot.
+  // The install got the branch record's boot and its stored session snapshot.
   assert.equal(adoptions.at(-1)?.boot.resourceSet, "rev-kept");
   assert.deepEqual(adoptions.at(-1)?.snapshot, keptSnapshot);
   assert.equal(sessionState.hold, null);
+  // The adopted branch left the list; the session it replaced joined it.
+  const branches = await loadRetainedBranches(key);
+  assert.equal(branches.length, 1);
+  assert.equal(branches[0]!.boot.rng, 42, "the departing session took the undo slot");
+  assert.equal(branches[0]!.id === "b-kept", false, "the adopted branch's slot is gone");
+});
+
+test("Undo rewind straight from live play parks the session through the swap", async () => {
+  const key = "view-test";
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
+  await stageRetainedOriginal(key, {
+    id: "b-kept",
+    boot: { ...BOOT, rng: 11, resourceSet: "rev-kept" },
+    from: { segment: "sX.1", seq: 3, tick: 6 },
+    retainedAt: 1,
+  });
+  await commitStagedOriginal(key, "b-kept");
+
+  const { state, view, pauses, resumes, adoptions } = makeHarness();
+  const v = state.historyView;
+  view.observeBatch(batch("sX.1", [2, 4]));
+  v.branches = 1; // the outline's count — the controller refreshes it on open
+  await view.undoRewind();
+  assert.equal(v.active, false);
+  assert.equal(v.parked, false, "the adopted session resumed");
+  assert.ok(pauses.includes("transport"), "the swap parked the live session");
+  assert.ok(resumes.includes("transport"), "the landed swap released it");
+  assert.equal(adoptions.at(-1)?.boot.resourceSet, "rev-kept");
 });
 
 test("a restore ack naming a different revision is an uncertain outcome — the hold stays", async () => {
   const key = "view-test";
-  await importGameHistory(key, { recording: RECORDING });
-  const keptSnapshot: Record<string, unknown> = { plan: "kept" };
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
   await stageRetainedOriginal(key, {
+    id: "b-kept",
     boot: { ...BOOT, rng: 11, resourceSet: "rev-kept" },
     from: { segment: "sX.1", seq: 3, tick: 6 },
     retainedAt: 1,
-    session: keptSnapshot,
+    session: { plan: "kept" },
   });
-  await commitStagedOriginal(key);
+  await commitStagedOriginal(key, "b-kept");
 
   // The worker acks a revision the record never carried — corruption on the
   // way in. The swap must not install against it nor release the hold.
@@ -676,9 +844,9 @@ test("a restore ack naming a different revision is an uncertain outcome — the 
   await view.openHistory({ segment: 0, tick: 8 });
   const v = state.historyView;
 
-  await view.backToBefore();
+  await view.undoRewind();
   assert.equal(v.active, false, "an uncertain swap ends the view");
-  assert.equal(v.pendingSwap, true);
+  assert.equal(v.pendingSwaps, 1);
   assert.match(v.error, /uncertain/i);
   assert.equal(adoptions.length, 0, "nothing installed against an unverifiable revision");
   assert.ok(sessionState.hold !== null, "the hold survives — a retrying swap releases it");

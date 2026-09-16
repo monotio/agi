@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { useAuthoringController, type PowerUpUiState } from "../src/useAuthoringController.ts";
 import type { LlmConfig } from "../src/agent/llmClient.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+import { testProjectId, testRevision } from "./identity.ts";
 import { saveAuthoredGame, clearCachedGame } from "../src/gameStorage.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -175,7 +176,7 @@ function createTestFiles(): Record<string, Uint8Array> {
 
 test("handleRoomAuthoring establishes on-demand session for imported authorable project and creates room", async (t) => {
   installLocalStorageMock(t);
-  const projectId = "imported-authorable-proj";
+  const projectId = testProjectId("imported-authorable-proj");
   const files = createTestFiles();
   await saveAuthoredGame(projectId, {
     title: "Imported Authorable Game",
@@ -191,7 +192,7 @@ test("handleRoomAuthoring establishes on-demand session for imported authorable 
     installed: false,
     projectId,
     title: "Imported Authorable Game",
-    revision: "rev-1",
+    revision: testRevision("rev-1"),
     files,
     words: [],
   };
@@ -254,7 +255,7 @@ test("handleRoomAuthoring establishes on-demand session for imported authorable 
 
 test("handleRoomAuthoring rejects and sets needsConfig when credentials are missing", async (t) => {
   installLocalStorageMock(t);
-  const projectId = "imported-no-creds-proj";
+  const projectId = testProjectId("imported-no-creds-proj");
   const files = createTestFiles();
   await saveAuthoredGame(projectId, {
     title: "Imported Game No Creds",
@@ -270,7 +271,7 @@ test("handleRoomAuthoring rejects and sets needsConfig when credentials are miss
     installed: false,
     projectId,
     title: "Imported Game No Creds",
-    revision: "rev-1",
+    revision: testRevision("rev-1"),
     files,
     words: [],
   };
@@ -335,7 +336,7 @@ test("handleRoomAuthoring rejects and sets needsConfig when credentials are miss
 
 test("handleRoomAuthoring rejects when roomGeneration is false", async (t) => {
   installLocalStorageMock(t);
-  const projectId = "imported-public-proj";
+  const projectId = testProjectId("imported-public-proj");
   const files = createTestFiles();
   await saveAuthoredGame(projectId, {
     title: "Public Imported Game",
@@ -351,7 +352,7 @@ test("handleRoomAuthoring rejects when roomGeneration is false", async (t) => {
     installed: false,
     projectId,
     title: "Public Imported Game",
-    revision: "rev-1",
+    revision: testRevision("rev-1"),
     files,
     words: [],
   };

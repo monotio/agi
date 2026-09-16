@@ -16,7 +16,8 @@ import {
   saveAuthoredGame,
   updateAuthoredGameFiles,
 } from "./gameStorage.ts";
-import type { BootedGame, CurrentGame, ProjectId } from "./gameTypes.ts";
+import { gameStorageKey, type BootedGame, type CurrentGame, type ProjectId } from "./gameTypes.ts";
+import { projectId, requireProjectId } from "../../src/gameIdentity.ts";
 import { fetchFixtureFiles, resolveFixtureTarget } from "./gameDiscovery.ts";
 import type { useAuthoringController } from "./useAuthoringController.ts";
 import type { useAutosaveController } from "./useAutosaveController.ts";
@@ -135,12 +136,12 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       : config;
   }
 
-  async function bootGame(hashOrAlias: string): Promise<void> {
+  async function bootGame(query: string): Promise<void> {
     if (!import.meta.env?.DEV) throw new Error("Installed fixtures are development-only");
     state.phase = "loading";
     state.error = "";
     try {
-      const { target, match } = resolveFixtureTarget(state.installedGames, hashOrAlias);
+      const { target, match } = resolveFixtureTarget(state.installedGames, query);
       const files = await fetchFixtureFiles(target);
       // Parse the dictionary on the main thread; ship entries to the worker.
       const words = parseWordsTok(files["WORDS.TOK"]!).map(
@@ -148,8 +149,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       );
       const known = await detectKnownGame(files);
       const revision = await gameRevision(files);
-      const folder = match?.folder ?? hashOrAlias;
-      const alias = known?.alias ?? match?.alias ?? hashOrAlias;
+      const folder = match?.folder ?? query;
+      const alias = known?.alias ?? match?.alias ?? query;
       const title = known?.title ?? match?.title ?? folder.toUpperCase();
       const hash = match?.hash ?? target;
 
@@ -371,7 +372,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     state.phase = "loading";
     state.error = "";
     try {
-      let projectId = bootOptions?.projectId || "custom";
+      let projectId = bootOptions?.projectId || requireProjectId("custom");
       const title = bootOptions?.title || projectId;
       const templateId = bootOptions?.templateId;
 
@@ -408,7 +409,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           booted = {
             installed: false,
             projectId,
-            alias: cached.library?.alias ?? known?.alias,
+            alias: known?.alias,
             title: cached.title ?? known?.title ?? title,
             revision,
             files: cached.files,
@@ -441,7 +442,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
 
       if (!bootOptions?.overwrite && (await loadAuthoredGame(projectId))) {
         let safeId = projectId;
-        do safeId = `${projectId}-${crypto.randomUUID().slice(0, 8)}`;
+        do safeId = requireProjectId(`${projectId}-${crypto.randomUUID().slice(0, 8)}`);
         while (await loadAuthoredGame(safeId));
         projectId = safeId;
       }
@@ -475,8 +476,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
   }
 
   /** Whether this development environment offers the original game files. */
-  function isInstalledGame(aliasOrHash: string): boolean {
-    const norm = aliasOrHash.toLowerCase();
+  function isInstalledGame(query: string): boolean {
+    const norm = query.toLowerCase();
     return (state.installedGames ?? []).some(
       (entry) =>
         entry.hash.toLowerCase() === norm ||
@@ -509,7 +510,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     const session = authoring.getSession();
     const data: CachedGameData | null = game.installed
       ? {
-          projectId: game.alias ?? game.hash ?? "installed",
+          projectId: projectId(game.alias) ?? projectId(game.hash) ?? requireProjectId("installed"),
           title: game.title,
           provider: "stub",
           model: state.profile ?? "unknown",
@@ -526,7 +527,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       logAgent("error", "Browser storage could not save this world. Keep the downloaded ZIP.");
     }
     const assembled = authoring.assembleExportData(data, game, session, files);
-    const progressKey = game.installed ? (game.hash ?? game.alias ?? "installed") : game.projectId!;
+    const progressKey = gameStorageKey(game);
     return { data: assembled, progressKey };
   }
 

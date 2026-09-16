@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { testProjectId } from "./identity.ts";
+import { requireResourceRevision } from "../../src/gameIdentity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
@@ -89,6 +91,34 @@ test("folder and ZIP resource identity is independent of path, case and entry or
   );
   const changed = game('display(5, 2, "Different game"); return;');
   assert.notEqual(await gameRevision(changed), await gameRevision(files));
+
+  // Authoring records never move the revision: tests, notes, and the map are
+  // not part of the canonical playable file set.
+  const base = await gameRevision(files);
+  for (const extra of ["TESTS.JSON", "NOTES.TXT", "MAP.JSON"]) {
+    assert.equal(await gameRevision({ ...files, [extra]: new Uint8Array([1, 2, 3]) }), base);
+  }
+
+  // Archive timestamps are irrelevant: the same zip with different mod-time
+  // fields reads back to the same revision.
+  const zip = buildPublicGameZip({ title: "T", roomGeneration: false, files });
+  const stamped = zip.slice();
+  const view = new DataView(stamped.buffer, stamped.byteOffset, stamped.byteLength);
+  for (let i = 0; i + 4 <= stamped.length; i++) {
+    const sig = view.getUint32(i, true);
+    if (sig === 0x04034b50) {
+      view.setUint16(i + 10, 0xbeef, true); // local header mod time
+      view.setUint16(i + 12, 0x7c21, true); // local header mod date
+    } else if (sig === 0x02014b50) {
+      view.setUint16(i + 12, 0xbeef, true); // central header mod time
+      view.setUint16(i + 14, 0x7c21, true); // central header mod date
+    }
+  }
+  assert.notDeepEqual([...stamped], [...zip]);
+  assert.equal(
+    await gameRevision((await readGameZip(stamped)).files),
+    await gameRevision((await readGameZip(zip)).files),
+  );
   assert.throws(
     () => readGameFiles(new Map([...Object.entries(files), ["other/LOGDIR", files["LOGDIR"]!]])),
     /one AGI game/,
@@ -157,7 +187,7 @@ test("public metadata is versioned, bounded and cannot carry private history or 
   assert.equal(
     normalizeLibraryMetadata(
       { version: 1, source: "toString" },
-      { revision: "1".repeat(64), source: "zip" },
+      { revision: requireResourceRevision("1".repeat(64)), source: "zip" },
     ).source,
     "zip",
   );
@@ -265,7 +295,7 @@ test("a remix copy gets independent identity and bytes while preserving its orig
   const copy = (await loadAuthoredGame(copyProjectId))!;
   assert.notEqual(copy.projectId, before.projectId);
   assert.deepEqual(copy.library?.parent, {
-    projectId: before.projectId,
+    project: before.projectId,
     revision: before.library?.revision,
   });
   assert.equal(
@@ -384,7 +414,13 @@ test("import stores saves and autosave without a progress observer", async (t) =
       cycle: 1,
       room: 0,
       savedAt: 1757000000000,
-      game: { projectId: "source", installed: false, revision: "ab".repeat(32) },
+      game: {
+        installed: false,
+        identity: {
+          project: testProjectId("source"),
+          revision: requireResourceRevision("ab".repeat(32)),
+        },
+      },
     },
   };
   const projectId = await addLibraryGame(
@@ -396,8 +432,8 @@ test("import stores saves and autosave without a progress observer", async (t) =
   const stored = readGameProgress(localStorage, projectId);
   assert.deepEqual(stored.saves["3"], slot);
   assert.equal(stored.autosave?.image, progress.autosave?.image);
-  assert.equal(stored.autosave?.game.projectId, projectId);
-  assert.equal(stored.autosave?.game.revision, await gameRevision(files));
+  assert.equal(stored.autosave?.game.identity.project, projectId);
+  assert.equal(stored.autosave?.game.identity.revision, await gameRevision(files));
 });
 
 test("import reports which progress entries browser storage refused", async (t) => {
@@ -437,7 +473,13 @@ test("import reports which progress entries browser storage refused", async (t) 
     cycle: 1,
     room: 1,
     savedAt: 1_757_000_000_000,
-    game: { projectId: "refused", installed: false, revision: "ab".repeat(32) },
+    game: {
+      installed: false,
+      identity: {
+        project: testProjectId("refused"),
+        revision: requireResourceRevision("ab".repeat(32)),
+      },
+    },
   };
   const progress: GameProgress = { saves: { "1": slot, "7": slot }, autosave };
   // Browser storage refuses every progress write after the first. Install a

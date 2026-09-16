@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { testProjectId, testRevision } from "./identity.ts";
 import { computed, nextTick, reactive } from "vue";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -46,12 +47,13 @@ function makeHarness(storage?: Pick<Storage, "getItem" | "setItem">): {
     walkthrough: { active: false, status: "idle", tick: 0 },
     patchTick: 0,
     worldTick: 0,
+    agentLog: [],
   }) as unknown as EngineState;
   const hook = reactive({ room: -1 }) as unknown as TextHook;
   const game: BootedGame = {
     installed: true,
     title: "Test Game",
-    revision: "rev-1",
+    revision: testRevision("rev-1"),
     files: {},
     words: [],
     folder: "test-game",
@@ -414,6 +416,8 @@ test("a stored test references its rooms but proves no traversal", async () => {
   );
   const { map, notice, boot } = makeHarness();
   await boot({ "TESTS.JSON": tests });
+  // Test coverage is a technical status — only the creator surface shows it.
+  map.openMap({ experience: "create" });
   notice({ to: 1, cause: "boot", cycle: 1 });
   notice({ to: 8, from: 1, cause: "edge", edge: "right", cycle: 2 });
   // Rooms 3 and 5 need their own evidence — coverage never invents a node.
@@ -444,6 +448,7 @@ function fakeSession(
   return {
     state,
     getAuthoringState: () => ({ authoring: state.authoring }),
+    getMessages: () => [],
     commitPlanDraft: (draft: WorldDraft) => {
       const result = commitWorldDraft(state.authoring, draft);
       if (result.status === "committed") state.authoring = result.authoring;
@@ -472,13 +477,14 @@ function planHarness(opts: {
     patchTick: 0,
     worldTick: 0,
     planDurableRev: "",
+    agentLog: [],
   }) as unknown as EngineState;
   const hook = reactive({ room: -1 }) as unknown as TextHook;
   const game: BootedGame = {
     installed: false,
-    projectId: "proj-1",
+    projectId: testProjectId("proj-1"),
     title: "Authored",
-    revision: "rev-1",
+    revision: testRevision("rev-1"),
     files: {},
     words: [],
   };
@@ -502,19 +508,80 @@ function planHarness(opts: {
   return { map, state, game };
 }
 
+test("the map defaults to the play experience — no plan, no plan actions", async () => {
+  const session = fakeSession({
+    "1": { title: "Hall", description: "", exits: { east: 2 } },
+    "2": { title: "Vault", description: "", exits: {} },
+  });
+  const { map, state } = planHarness({ session });
+  state.phase = "running";
+  map.openMap();
+  assert.equal(map.experience.value, "play");
+  assert.equal(map.planAvailable.value, true, "a plan exists — the entry point may offer it");
+  assert.equal(map.canPlan.value, false);
+  // The graph shows only what the player knows: visited rooms, no planned nodes.
+  assert.equal(
+    map.graph.value.nodes.find((n) => n.room === 2),
+    undefined,
+  );
+  assert.equal(
+    map.graph.value.edges.some((e) => e.provenance === "planned"),
+    false,
+  );
+  // Plan reads and writes refuse on the play surface.
+  assert.equal(map.plannedEntry(2), null);
+  assert.match(map.renamePlannedRoom(1, "Meadow") ?? "", /creator action/);
+  assert.equal(session.state.authoring.world.rooms["1"]?.title, "Hall");
+  await map.buildPlannedRoom(2); // a no-op refusal — never a thrown plan write
+  assert.equal(map.buildingRoom.value, undefined);
+});
+
+test("the create experience exposes the plan and its edit affordances", async () => {
+  const session = fakeSession({
+    "1": { title: "Hall", description: "", exits: { east: 2 } },
+    "2": { title: "Vault", description: "", exits: {} },
+  });
+  const { map, state } = planHarness({ session });
+  state.phase = "running";
+  map.openMap({ experience: "create" });
+  assert.equal(map.experience.value, "create");
+  assert.equal(map.canPlan.value, true);
+  assert.equal(map.plannedEntry(2)?.title, "Vault");
+  assert.ok(
+    map.graph.value.edges.some((e) => e.provenance === "planned" && e.from === 1 && e.to === 2),
+  );
+  // Closing and reopening without an experience returns to the play default.
+  map.closeMap();
+  map.openMap();
+  assert.equal(map.experience.value, "play");
+  assert.equal(map.canPlan.value, false);
+});
+
+test("an imported game offers no plan surface even asked as creator", async () => {
+  // No session: imports carry no editable world plan, so "create" degrades
+  // to the discovered view rather than showing plan affordances.
+  const { map, state } = planHarness({ session: null });
+  state.phase = "running";
+  map.openMap({ experience: "create" });
+  assert.equal(map.planAvailable.value, false);
+  assert.equal(map.canPlan.value, false, "nothing to edit");
+  assert.equal(map.plannedEntry(1), null);
+});
+
 test("live edits land on the session world and the map drives the planned layer", async () => {
   const session = fakeSession({
     "1": { title: "Hall", description: "", exits: { east: 2 } },
     "2": { title: "Vault", description: "", exits: {} },
   });
   let edited = 0;
-  const { map } = planHarness({
+  const { map, state } = planHarness({
     session,
     onWorldEdited: () => {
       edited++;
     },
   });
-  map.openMap();
+  state.phase = "running";
+  map.openMap({ experience: "create" });
   assert.equal(map.plannedEntry(2)?.title, "Vault");
   assert.ok(map.graph.value.nodes.find((n) => n.room === 2)?.planned);
 
@@ -539,13 +606,14 @@ test("Build this room authors against the planned inbound edge, notes as intent"
     "3": { title: "Vault", description: "The loot.", exits: {} },
   });
   const roomBuilds: { room: number; from: number; notes: string[]; exitName?: string }[] = [];
-  const { map } = planHarness({
+  const { map, state } = planHarness({
     session,
     buildRoomFromMap: async (room, from, notes, exitName) => {
       roomBuilds.push({ room, from, notes, ...(exitName ? { exitName } : {}) });
     },
   });
-  map.openMap();
+  state.phase = "running";
+  map.openMap({ experience: "create" });
   map.setNote(3, "the vault door should feel trapped");
   map.setEdgeNote(2, 3, "north", "the guard watches this way");
   await map.buildPlannedRoom(3);
@@ -564,7 +632,7 @@ test("Build this room authors against the planned inbound edge, notes as intent"
   assert.match(map.planError.value, /not in the plan/);
 });
 
-test("the map refuses to close while a room build is in flight", async () => {
+test("the map may close while a room build is in flight; the bubble takes over its progress", async () => {
   const session = fakeSession({
     "1": { title: "Hall", description: "", exits: {} },
     "2": { title: "Vault", description: "", exits: {} },
@@ -575,19 +643,21 @@ test("the map refuses to close while a room build is in flight", async () => {
     buildRoomFromMap: () => new Promise<void>((resolve) => (release = resolve)),
   });
   state.phase = "running";
-  map.openMap();
+  map.openMap({ experience: "create" });
   const building = map.buildPlannedRoom(2);
   await nextTick();
   assert.equal(map.buildingRoom.value, 2);
 
   map.closeMap();
-  assert.equal(map.open.value, true, "closing mid-build is refused");
-  assert.match(map.planError.value, /still being built/);
+  assert.equal(map.open.value, false, "closing mid-build is allowed");
+  assert.equal(state.powerUp.mode, "room", "the build's progress moved to the bubble");
+  assert.equal(state.powerUp.room, 2);
+  assert.equal(state.powerUp.busy, true);
 
   release!();
   await building;
-  map.closeMap();
-  assert.equal(map.open.value, false, "the close lands once the build finished");
+  assert.equal(state.powerUp.busy, false, "a landed build settles the bubble");
+  assert.equal(state.powerUp.open, false);
 });
 
 test("live edits commit through the session's revision check", async () => {
@@ -596,13 +666,14 @@ test("live edits commit through the session's revision check", async () => {
     "2": { title: "Vault", description: "", exits: {} },
   });
   let edited = 0;
-  const { map } = planHarness({
+  const { map, state } = planHarness({
     session,
     onWorldEdited: () => {
       edited++;
     },
   });
-  map.openMap();
+  state.phase = "running";
+  map.openMap({ experience: "create" });
   assert.equal(map.plannedEntry(2)?.title, "Vault");
   assert.equal(map.renamePlannedRoom(1, "Parlor"), null);
   assert.equal(edited, 1);
@@ -647,7 +718,7 @@ test("a visited room cannot be removed from the plan", async () => {
     lost: [],
   });
   await nextTick();
-  map.openMap();
+  map.openMap({ experience: "create" });
   assert.match(map.removePlannedRoom(2) ?? "", /record|visited|built/i);
   assert.ok(map.plannedEntry(2), "the plan keeps the visited room");
   map.closeMap();
@@ -685,7 +756,7 @@ test("a plan update under an open edit refreshes clean fields and flags dirty on
   });
   const { map, state } = planHarness({ session });
   state.phase = "running";
-  map.openMap();
+  map.openMap({ experience: "create" });
   const edit = map.beginPlanEdit(2)!;
   assert.equal(edit.title.draft, "Vault");
   assert.equal(edit.brief.draft, "The loot.");
@@ -732,7 +803,7 @@ test("a clean field's commit survives an unrelated field's update", async () => 
   });
   const { map, state } = planHarness({ session });
   state.phase = "running";
-  map.openMap();
+  map.openMap({ experience: "create" });
   const edit = map.beginPlanEdit(2)!;
   edit.title.draft = "Crypt";
   // The agent touched another field of the same room — not the title. The
@@ -755,6 +826,7 @@ test("plan reads re-derive on worldTick — a plan-only turn invalidates the map
   });
   const { map, state } = planHarness({ session });
   state.phase = "running";
+  map.openMap({ experience: "create" });
   const title = computed(() => map.plannedEntry(2)?.title);
   assert.equal(title.value, "Vault");
   // A plan-only update_world lands no resource patch — only worldTick moves.
@@ -781,7 +853,7 @@ test("a refused plan write keeps edits in memory; Retry lands the same revision"
     },
   });
   state.phase = "running";
-  map.openMap();
+  map.openMap({ experience: "create" });
   // The opening revision is what storage handed us — clean before any edit.
   assert.equal(map.planDirty.value, false);
 
@@ -795,7 +867,7 @@ test("a refused plan write keeps edits in memory; Retry lands the same revision"
 
   // Closing and reopening retains the in-memory edit and the flag.
   map.closeMap();
-  map.openMap();
+  map.openMap({ experience: "create" });
   assert.equal(map.plannedEntry(2)?.title, "Crypt");
   assert.equal(map.planDirty.value, true);
   assert.equal(calls, 1);
@@ -833,7 +905,7 @@ test("a late ack for an older write cannot label newer content saved", async () 
     },
   });
   state.phase = "running";
-  map.openMap();
+  map.openMap({ experience: "create" });
 
   assert.equal(map.renamePlannedRoom(1, "Parlor"), null); // write 1: rev A
   assert.equal(map.renamePlannedRoom(2, "Crypt"), null); // write 2: rev B
@@ -869,7 +941,7 @@ test("a newer durable report mid-flight is never overwritten by a stale ack", as
     onWorldEdited: () => new Promise<boolean>((r) => release.push(r)),
   });
   state.phase = "running";
-  map.openMap();
+  map.openMap({ experience: "create" });
   assert.equal(map.renamePlannedRoom(2, "Crypt"), null);
   await nextTick();
   assert.equal(release.length, 1);
@@ -897,7 +969,7 @@ test("an older write's late refusal cannot surface over a newer write's success"
     onWorldEdited: () => new Promise<boolean>((r) => release.push(r)),
   });
   state.phase = "running";
-  map.openMap();
+  map.openMap({ experience: "create" });
   assert.equal(map.renamePlannedRoom(1, "Parlor"), null); // write 1 in flight
   assert.equal(map.renamePlannedRoom(2, "Crypt"), null); // write 2 in flight
   await nextTick();
@@ -926,7 +998,7 @@ test("the in-memory revision stays exportable while the write is refused", async
     onWorldEdited: () => Promise.resolve(false),
   });
   state.phase = "running";
-  map.openMap();
+  map.openMap({ experience: "create" });
   assert.equal(map.renamePlannedRoom(2, "Crypt"), null);
   await nextTick();
   await nextTick();

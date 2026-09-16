@@ -13,6 +13,7 @@ import {
   listCachedGames,
   type ProjectId,
 } from "./gameStorage.ts";
+import { requireProjectId } from "../../src/gameIdentity.ts";
 import type { OpenedGame } from "./gameZip.ts";
 
 export interface CheckedOpening {
@@ -51,7 +52,7 @@ export async function addLibraryGame(
     : known
       ? known.alias
       : `imported-${revision}`;
-  const preferredId = catalog ? `${basePrefix}-${catalog.version}` : basePrefix;
+  const preferredId = requireProjectId(catalog ? `${basePrefix}-${catalog.version}` : basePrefix);
   // Imported projects carry independent histories. Trusted catalog sources are repeatable fixtures.
   if (!game.project || source === "catalog") {
     const existing = listCachedGames().find((entry) => {
@@ -67,13 +68,12 @@ export async function addLibraryGame(
   }
   let targetProjectId = preferredId;
   if ((game.project && source !== "catalog") || (await loadAuthoredGame(targetProjectId))) {
-    do targetProjectId = `${preferredId}-${crypto.randomUUID()}`;
+    do targetProjectId = requireProjectId(`${preferredId}-${crypto.randomUUID()}`);
     while (await loadAuthoredGame(targetProjectId));
   }
   const library: LibraryMetadata = {
     ...game.metadata,
     version: 1,
-    ...(known?.alias ? { alias: known.alias } : {}),
     revision,
     source,
     ...(catalog ? { catalog } : {}),
@@ -96,6 +96,7 @@ export async function addLibraryGame(
       sessionId: game.project?.sessionId,
       authoringState: game.project?.authoringState,
       conversationHistory: game.project?.conversationHistory,
+      references: game.project?.references,
       roomGeneration,
       files: game.files,
       words: game.words,
@@ -119,7 +120,10 @@ export async function addLibraryGame(
   // project id, and a refused write lands in the same report.
   if (game.history) {
     report ??= { slots: [], failedSlots: [], autosave: null };
-    report.history = await importGameHistory(targetProjectId, game.history);
+    report.history = await importGameHistory(targetProjectId, game.history, {
+      project: targetProjectId,
+      revision,
+    });
   }
   if (report) onProgressStored?.(report);
   return targetProjectId;
@@ -130,7 +134,7 @@ export async function copyLibraryGame(projectId: ProjectId): Promise<ProjectId> 
   const original = await loadAuthoredGame(projectId);
   if (!original) throw new Error("This game is no longer in your library. Import it again.");
   let id: ProjectId;
-  do id = `remix-${crypto.randomUUID()}`;
+  do id = requireProjectId(`remix-${crypto.randomUUID()}`);
   while (await loadAuthoredGame(id));
   const revision = await gameRevision(original.files);
   if (
@@ -140,15 +144,10 @@ export async function copyLibraryGame(projectId: ProjectId): Promise<ProjectId> 
       library: {
         ...original.library,
         version: 1,
-        alias: undefined,
         revision,
         source: "remix",
         catalog: undefined,
-        parent: {
-          projectId: original.projectId,
-          ...(original.library?.alias ? { alias: original.library.alias } : {}),
-          revision,
-        },
+        parent: { project: original.projectId, revision },
         validation: original.library?.validation ?? {
           status: "unverified",
           message: "Opening not checked yet.",

@@ -17,11 +17,13 @@ import {
 } from "../../src/agent/history.ts";
 
 /**
- * The session Resume here swapped away from: a full resume point plus the
- * tape position it paused at. Exactly one per game — taking control again
- * replaces it.
+ * A session Resume from here swapped away from: a full resume point plus the
+ * tape position it paused at. A bounded list is kept per game — repeated
+ * rewinds preserve earlier branches rather than overwrite the one undo copy.
  */
 export interface RetainedOriginal {
+  /** Stable key for the branch slot — staging, commit and restore name it. */
+  id: string;
   boot: HistoryBoot;
   /** The departing session's tape position; null outside an open segment. */
   from: { segment: string; seq: number; tick: number } | null;
@@ -46,7 +48,8 @@ export interface HistoryBookmark {
 /** What a project archive's HISTORY.JSON carries. */
 export interface ProjectHistory {
   recording: HistoryRecording;
-  retained?: RetainedOriginal;
+  /** Kept recovery branches, oldest first — the rewind undo list. */
+  branches?: RetainedOriginal[];
   bookmarks?: HistoryBookmark[];
 }
 
@@ -61,6 +64,7 @@ function isObj(value: unknown): value is Record<string, unknown> {
 
 export function validateRetained(value: RetainedOriginal): RetainedOriginal | null {
   try {
+    if (typeof value.id !== "string" || value.id === "") return null;
     validateHistoryBoot(value.boot);
     if (value.from !== null) {
       const from = value.from;
@@ -91,14 +95,20 @@ export function readHistoryArchive(bytes: Uint8Array): ProjectHistory {
   if (!isObj(raw) || raw["format"] !== "monotio.agi.history" || raw["version"] !== 1)
     throw new Error("HISTORY.JSON is not a history record this app understands.");
   const recording = validateHistoryRecording(raw["recording"]);
-  let retained: RetainedOriginal | undefined;
-  if (raw["retained"] !== undefined) {
-    const value = raw["retained"];
+  const branches: RetainedOriginal[] = [];
+  // rc.11 archives wrote a single `retained` slot; read it as a one-branch list.
+  const rawBranches = raw["branches"] ?? (raw["retained"] !== undefined ? [raw["retained"]] : []);
+  if (!Array.isArray(rawBranches) || rawBranches.length > 16)
+    throw new Error("HISTORY.JSON branches are invalid.");
+  for (const value of rawBranches) {
     if (!isObj(value) || !Number.isFinite(value["retainedAt"]))
-      throw new Error("HISTORY.JSON retained original is invalid.");
-    const checked = validateRetained(value as unknown as RetainedOriginal);
-    if (checked === null) throw new Error("HISTORY.JSON retained original is invalid.");
-    retained = checked;
+      throw new Error("HISTORY.JSON retained branch is invalid.");
+    const checked = validateRetained({
+      id: `b${branches.length}`,
+      ...value,
+    } as unknown as RetainedOriginal);
+    if (checked === null) throw new Error("HISTORY.JSON retained branch is invalid.");
+    branches.push(checked);
   }
   let bookmarks: HistoryBookmark[] | undefined;
   if (raw["bookmarks"] !== undefined) {
@@ -129,7 +139,7 @@ export function readHistoryArchive(bytes: Uint8Array): ProjectHistory {
   }
   return {
     recording,
-    ...(retained !== undefined ? { retained } : {}),
+    ...(branches.length > 0 ? { branches } : {}),
     ...(bookmarks !== undefined ? { bookmarks } : {}),
   };
 }

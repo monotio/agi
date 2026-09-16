@@ -368,6 +368,28 @@ test("a stalled remix pauses and can be discarded without claiming completion", 
   await rejected;
 });
 
+test("stub genesis installs the harness base template before the stub's room", async () => {
+  const session = new AgentSession(
+    { provider: "stub", model: "offline-stub", apiKey: "" },
+    () => {},
+  );
+  await session.startGenesis("");
+  assert.equal(session.state.authoring.baseTemplate, true, "the marker is set");
+  // The harness owns the boot/menu/fallback logic, the death logic and the
+  // death sound; the stub authored only its room, picture and ego view.
+  for (const [kind, num] of [
+    ["logic", 0],
+    ["logic", 255],
+    ["sound", 255],
+  ] as const)
+    assert.ok(
+      session.state.container.getResource(kind, num),
+      `${kind} ${num} came from the template`,
+    );
+  assert.ok(session.state.sources.logics.has(0), "logic 0 source is on record");
+  assert.ok(session.state.container.getResource("logic", 1), "the stub's room 1");
+});
+
 test("offline room and remix snapshots track the resources applied to the worker", async () => {
   const session = new AgentSession(
     { provider: "stub", model: "offline-stub", apiKey: "" },
