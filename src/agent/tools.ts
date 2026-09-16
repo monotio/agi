@@ -114,8 +114,9 @@ export interface ToolDefinition {
  * blocks or OpenAI Responses items; the app's llmClient adapts.
  */
 export interface AgentToolImage {
-  /** PNG bytes, with pixel art scaled by nearest neighbour. */
+  /** Encoded image bytes; rendered tool images default to PNG. */
   readonly png: Uint8Array;
+  readonly mime?: "image/png" | "image/jpeg" | "image/webp";
   /** What the picture shows, for the accompanying text. */
   readonly caption: string;
 }

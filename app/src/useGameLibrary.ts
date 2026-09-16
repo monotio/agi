@@ -21,6 +21,7 @@ import {
   type CachedGameMeta,
 } from "./gameStorage.ts";
 import { loadProjectHistory } from "./historyStorage.ts";
+import { collectHistoryBackup } from "./historyBackup.ts";
 import { buildProjectZip, buildPublicGameZip } from "./projectArchive.ts";
 import { MAX_GAME_ZIP_BYTES, readGameFiles, readGameZip, type OpenedGame } from "./gameZip.ts";
 import { readGameProgress, type ImportStorageReport } from "./gameProgress.ts";
@@ -231,7 +232,6 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
   /** Download failures are visible in both the picker and the game. */
   const exportRefusal = ref<string>("");
   const exportBusy = ref(false);
-  const exportSavedProgressKey = ref<string>();
 
   /**
    * Autosave the picker can offer. The app
@@ -501,10 +501,11 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     const mapNote = game.map
       ? ` (world map ${stored?.map ? "stored" : "could not be stored"})`
       : "";
+    const recoveryNote = game.backupWarning ? ` (${game.backupWarning})` : "";
     const historyNote = game.history
       ? ` (session tape ${stored?.history ? "stored" : "could not be stored"})`
       : "";
-    if (!game.progress) return mapNote + historyNote;
+    if (!game.progress) return mapNote + historyNote + recoveryNote;
     const parts = Object.keys(game.progress.saves).map((slot) => {
       const status = stored?.slots.includes(Number(slot))
         ? "stored"
@@ -521,7 +522,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
           : "storage unconfirmed";
       parts.push(`autosave ${status}`);
     }
-    return (parts.length ? ` (${parts.join("; ")})` : "") + mapNote + historyNote;
+    return (parts.length ? ` (${parts.join("; ")})` : "") + mapNote + historyNote + recoveryNote;
   }
 
   async function onGameZip(file?: File): Promise<void> {
@@ -716,29 +717,18 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     }
   }
 
-  async function onExportAgiZip(
-    live = false,
-    project = false,
-    savedProgress = false,
-  ): Promise<void> {
+  async function onExportAgiZip(live = false, project = false): Promise<void> {
     const game = live ? currentGame() : null;
     const gameKey = game ? gameStorageKey(game) : undefined;
-    const useSavedProgress =
-      savedProgress && project && live && gameKey === exportSavedProgressKey.value;
-    exportSavedProgressKey.value = undefined;
     exportRefusal.value = "";
     exportBusy.value = true;
+    if (live && project) engine.pauseEngine("backup");
     try {
-      // A project is for continuing elsewhere: the live game checkpoints first,
-      // and the archive carries the player's save slots and latest autosave.
-      if (live && project && !useSavedProgress && !(await flushAutosave(2000))) {
-        const current = currentGame();
-        const currentKey = current ? gameStorageKey(current) : undefined;
-        if (currentKey === gameKey) exportSavedProgressKey.value = gameKey;
-        throw new Error(
-          "Current progress could not be saved. Close any open game window and try again, or download with only the progress already saved in this browser.",
+      const notes: string[] = [];
+      if (live && project && !(await flushAutosave(2000)))
+        notes.push(
+          "Browser storage did not save the latest progress; this backup uses a direct worker checkpoint when available.",
         );
-      }
       const current = currentGame();
       const currentKey = current ? gameStorageKey(current) : undefined;
       if (live && currentKey !== gameKey)
@@ -754,32 +744,77 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       // The map's storage identity is the game's storage key — for a live
       // export that is the in-memory map; for a stored project, the sidecar.
       const mapTarget = game ? gameStorageKey(game) : data.projectId;
-      let history: Awaited<ReturnType<typeof loadProjectHistory>> = null;
-      if (project) {
-        // Commits are async: wait out the in-flight set so the archive's
-        // tape ends where the session actually did, then refuse outright if
-        // storage refused a batch — a partial tape inside a project archive
-        // claims a recording that isn't there.
-        if (live) await engine.drainHistoryCommits();
-        const unsaved = state.historyUnsaved;
-        if (live && unsaved)
-          throw new Error(
-            `${unsaved.batches} history ${unsaved.batches === 1 ? "batch is" : "batches are"} ` +
-              "not saved yet — fix browser storage or wait, then download again.",
-          );
-        try {
-          history = await loadProjectHistory(mapTarget);
-        } catch {
-          // A stored recording that fails validation is left out of the
-          // archive rather than blocking the project's download.
-        }
+      if (live && project) await engine.drainHistoryCommits();
+      let recovery: Awaited<ReturnType<EngineApi["recoverHistory"]>> | null = null;
+      const backup = project
+        ? await collectHistoryBackup(
+            () => loadProjectHistory(mapTarget),
+            live
+              ? async () => {
+                  recovery = await engine.recoverHistory();
+                  return recovery.batches;
+                }
+              : null,
+          )
+        : null;
+      let progressReadFailed = false;
+      const progress = project
+        ? readGameProgress(
+            {
+              getItem: (key) => {
+                try {
+                  return localStorage.getItem(key);
+                } catch (error) {
+                  progressReadFailed = true;
+                  throw error;
+                }
+              },
+              setItem: (key, value) => localStorage.setItem(key, value),
+            },
+            progressKey,
+          )
+        : undefined;
+      if (progressReadFailed)
+        notes.push(
+          "Some previously saved progress could not be read and may be missing from this backup.",
+        );
+      // The reply owns a current checkpoint independently of browser storage.
+      const snapshot = recovery as Awaited<ReturnType<EngineApi["recoverHistory"]>> | null;
+      if (live && project && progress && snapshot?.boot?.image) {
+        const identityProject = projectId(progressKey);
+        if (identityProject)
+          progress.autosave = {
+            format: "monotio.agi.autosave",
+            version: 1,
+            image: snapshot.boot.image,
+            ...(snapshot.boot.menus ? { menus: snapshot.boot.menus } : {}),
+            cycle: snapshot.cycle,
+            room: snapshot.room,
+            savedAt: Date.now(),
+            game: {
+              installed: game?.installed ?? false,
+              identity: {
+                project: identityProject,
+                revision: data.library?.revision ?? (await gameRevision(data.files)),
+              },
+            },
+          };
+      } else if (live && project) {
+        notes.push(
+          "Current progress could not be captured; only previously saved progress is included.",
+        );
+      }
+      if (backup) {
+        backup.report.notes.push(...notes);
+        backup.report.complete = backup.report.notes.length === 0;
       }
       const zipBytes = project
         ? await buildProjectZip(
             data,
-            readGameProgress(localStorage, progressKey),
+            progress,
             roomMap.storedSidecar(mapTarget),
-            history ?? undefined,
+            backup?.history ?? undefined,
+            backup?.report,
           )
         : buildPublicGameZip(data);
       const url = URL.createObjectURL(new Blob([zipBytes], { type: "application/zip" }));
@@ -788,9 +823,12 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       a.download = `agi-${data.projectId}-${project ? "project" : "game"}.zip`;
       a.click();
       URL.revokeObjectURL(url);
+      if (backup && !backup.report.complete)
+        exportRefusal.value = `Backup downloaded with limitations: ${backup.report.notes.join(" ")}`;
     } catch (error) {
       exportRefusal.value = `Download failed: ${String(error).replace(/^Error: /, "")}`;
     } finally {
+      if (live && project) engine.resumeEngine("backup");
       exportBusy.value = false;
     }
   }
@@ -852,7 +890,6 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     activeTemplate,
     exportBusy,
     exportRefusal,
-    exportSavedProgressKey,
     catalogHasProgress,
     selectLibraryGame,
     beginRename,

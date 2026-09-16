@@ -15,12 +15,11 @@
  *
  * Retention is bounded twice: a segment-count cap and a total byte budget
  * (accumulated per segment from committed batch sizes). Either bound drops
- * the oldest segments first — never the live tail — and counts the loss in
+ * the oldest eligible segments first, protecting live writer leases, and counts loss in
  * `dropped` so the transport can say where the tape starts.
  *
- * The pre-append layout — one version-1 record holding the whole tape — is
- * cleared, not migrated: a commit overwrites it with a fresh manifest and a
- * read reports an empty tape.
+ * Obsolete prerelease layouts are cleared, not migrated: a commit replaces
+ * them with a fresh manifest and a read reports an empty tape.
  */
 import {
   HISTORY_FORMAT_VERSION,
@@ -48,15 +47,19 @@ export type { HistoryBookmark, ProjectHistory, RetainedOriginal } from "./histor
 
 /**
  * Segments retained per game. A session that outlives its segment opens
- * another; the bound drops the oldest complete segments first — the live
- * tail is never dropped.
+ * another; the bound drops the oldest ended or expired segments first.
+ * Every open segment with a renewed writer lease stays protected.
  */
 const HISTORY_SEGMENTS_MAX = 64;
 
+/** Paused writers renew independently of batches; crashed writers expire. */
+export const HISTORY_WRITER_RENEW_MS = 30_000;
+export const HISTORY_WRITER_LEASE_MS = 120_000;
+
 /**
  * Total serialized bytes the tape may occupy; beyond it the oldest segments
- * are evicted. The live tail is exempt — the earliest kept position moves
- * forward, playback never loses what is still being recorded.
+ * are evicted. Active writer leases are exempt, so concurrent writers may
+ * temporarily exceed this budget until their leases end or expire.
  */
 export const HISTORY_TOTAL_BYTE_LIMIT = 64 * 1024 * 1024;
 /** Recovery branches kept per game — the rewind undo list's bound. */
@@ -73,6 +76,8 @@ const MANIFEST_MARKS_MAX = 200;
 /** A segment's place in tape order plus the retention-relevant metadata. */
 interface ManifestSegment {
   id: string;
+  /** Segment ids are unique writer ownership tokens; an open lease protects its tape. */
+  writerExpiresAt?: number;
   /** The files blob this segment's boot references — release key on eviction. */
   blob?: string;
   end?: HistorySegment["end"];
@@ -91,7 +96,7 @@ interface ManifestSegment {
  */
 interface HistoryManifest {
   format: "monotio.agi.history";
-  version: 2;
+  version: 3;
   /** The object store's keyPath: `history/<gameStorageKey>` — a record locator, not an identity. */
   projectId: string;
   /** The tape header — HistoryRecording minus its segment bodies. */
@@ -110,13 +115,8 @@ interface HistoryManifest {
   committed: Record<string, number[]>;
   /** Serialized bytes committed per segment id — the eviction budget. */
   bytes: Record<string, number>;
-  /**
-   * Segment ids retention already dropped. A late batch for one — an end
-   * marker that was in flight when its segment evicted — acks and drops:
-   * refusing would pin the worker's resend on a segment that is gone on
-   * purpose.
-   */
-  evicted?: string[];
+  /** Exact published batches retained as bounded dedup receipts after eviction. */
+  evicted?: { id: string; ranges: [number, number][] }[];
   /**
    * Kept recovery branches, oldest first — Resume from here's departing
    * sessions. Bounded by HISTORY_BRANCHES_MAX so repeated rewinds preserve
@@ -177,35 +177,11 @@ function readManifest(raw: unknown): HistoryManifest | "legacy" | null {
   const value = raw as Record<string, unknown>;
   if (value["format"] !== "monotio.agi.history")
     throw new Error("This history record version is not supported by this app.");
-  // Version 1 is the pre-append whole-tape record: cleared storage, never
-  // migrated — commits replace it and reads report an empty tape.
-  if (value["version"] === 1) return "legacy";
-  if (value["version"] !== 2)
+  // Before the first public release, old layouts are replaced, never migrated.
+  if (value["version"] === 1 || value["version"] === 2) return "legacy";
+  if (value["version"] !== 3)
     throw new Error("This history record version is not supported by this app.");
-  const manifest = value as unknown as Omit<HistoryManifest, "staged"> & {
-    retained?: StoredRetained;
-    staged?: StoredRetained | StoredRetained[];
-  };
-  // The one-slot records predate branch lists: fold them in, renaming their
-  // blob refs so every retained file set keeps its holder.
-  if (manifest.retained !== undefined) {
-    const kept = { ...manifest.retained, id: manifest.retained.id || "kept" };
-    (manifest.branches ??= []).push(kept);
-    for (const refs of Object.values(manifest.blobs)) {
-      const i = refs.indexOf("retained");
-      if (i >= 0) refs[i] = `branch:${kept.id}`;
-    }
-    delete manifest.retained;
-  }
-  if (manifest.staged !== undefined && !Array.isArray(manifest.staged)) {
-    const pending = { ...manifest.staged, id: manifest.staged.id || "pending" };
-    manifest.staged = [pending];
-    for (const refs of Object.values(manifest.blobs)) {
-      const i = refs.indexOf("staged");
-      if (i >= 0) refs[i] = `staged:${pending.id}`;
-    }
-  }
-  return manifest as HistoryManifest;
+  return value as unknown as HistoryManifest;
 }
 
 const manifestKey = (storageKey: string): string => `history/${storageKey}`;
@@ -267,31 +243,47 @@ function releaseBlob(
 }
 
 /**
- * Evict segments while a bound is exceeded, deleting their batch records and
- * releasing their blob refs in the same write set. Ended segments evict
- * oldest-first wherever they sit — an open segment ahead of them (a crashed
- * or still-writing session's tail) must not pin every later segment past the
- * bound. When only open segments remain over budget, the oldest sheds too:
- * a live tail is always the newest append, so the newest open segment stays.
- * Evicted ids are tombstoned so a late batch for one acks-and-drops instead
- * of pinning the sender's resend on a segment that is gone on purpose.
+ * Evict ended or expired segments oldest-first. Every live writer is
+ * protected, even when it is not the newest tab. Bounds may be exceeded
+ * while all writers hold leases; crashed or suspended writers become
+ * eligible after expiry. The current commit is always retained.
  */
-function evictSegments(manifest: HistoryManifest, key: string, w: HistoryWrites): void {
+function evictSegments(
+  manifest: HistoryManifest,
+  key: string,
+  w: HistoryWrites,
+  current: string,
+): void {
   let total = Object.values(manifest.bytes).reduce((sum, n) => sum + n, 0);
   const over = () =>
     manifest.segments.length > HISTORY_SEGMENTS_MAX || total > HISTORY_TOTAL_BYTE_LIMIT;
-  const evicted = (manifest.evicted ??= []);
+  const now = Date.now();
   while (manifest.segments.length > 1 && over()) {
-    const ended = manifest.segments.findIndex((segment) => segment.end !== undefined);
-    const dropped = manifest.segments.splice(ended >= 0 ? ended : 0, 1)[0]!;
-    for (const n of manifest.committed[dropped.id] ?? [])
+    const eligible = manifest.segments.findIndex(
+      (segment) =>
+        segment.id !== current &&
+        (segment.end !== undefined || (segment.writerExpiresAt ?? 0) <= now),
+    );
+    if (eligible < 0) break;
+    const dropped = manifest.segments.splice(eligible, 1)[0]!;
+    const committed = manifest.committed[dropped.id] ?? [];
+    const ranges: [number, number][] = [];
+    for (const n of committed) {
       w.deletes.push(batchKey(key, dropped.id, n));
+      const last = ranges.at(-1);
+      if (last !== undefined && last[1] + 1 === n) last[1] = n;
+      else ranges.push([n, n]);
+    }
+    // Only actual publications become receipts. A lost ACK can retry after
+    // retention, but no previously unseen or abandoned batch earns an ACK.
+    // Extremely old receipts expire conservatively: retries then refuse.
+    const evicted = (manifest.evicted ??= []);
+    evicted.push({ id: dropped.id, ranges: ranges.slice(-HISTORY_SEGMENTS_MAX) });
+    if (evicted.length > HISTORY_SEGMENTS_MAX) evicted.shift();
     delete manifest.committed[dropped.id];
     total -= manifest.bytes[dropped.id] ?? 0;
     delete manifest.bytes[dropped.id];
     if (dropped.blob !== undefined) releaseBlob(manifest, key, dropped.blob, `s:${dropped.id}`, w);
-    evicted.push(dropped.id);
-    if (evicted.length > HISTORY_SEGMENTS_MAX) evicted.shift();
     manifest.recording.dropped = (manifest.recording.dropped ?? 0) + 1;
   }
 }
@@ -299,7 +291,7 @@ function evictSegments(manifest: HistoryManifest, key: string, w: HistoryWrites)
 function manifestPut(manifest: HistoryManifest): unknown {
   const put: Record<string, unknown> = {
     format: "monotio.agi.history",
-    version: 2,
+    version: 3,
     projectId: manifest.projectId,
     recording: manifest.recording,
     segments: manifest.segments,
@@ -324,7 +316,7 @@ function freshManifest(
 ): HistoryManifest {
   return {
     format: "monotio.agi.history",
-    version: 2,
+    version: 3,
     projectId: key,
     recording: {
       version: HISTORY_FORMAT_VERSION,
@@ -359,6 +351,21 @@ export function appendHistoryBatch(
   return serializeWrite(key, () => mergeHistoryBatch(key, batch, profile, identity));
 }
 
+/** Renew the owning segment while its worker is alive, including while paused. */
+export function renewHistoryWriter(storageKey: string, segment: string): Promise<boolean> {
+  const key = manifestKey(storageKey);
+  return serializeWrite(key, () =>
+    updateBodyRecords<boolean>(key, (raw) => {
+      const manifest = readManifest(raw);
+      if (manifest === null || manifest === "legacy") return { result: false };
+      const writer = manifest.segments.find((entry) => entry.id === segment);
+      if (writer === undefined || writer.end !== undefined) return { result: false };
+      writer.writerExpiresAt = Date.now() + HISTORY_WRITER_LEASE_MS;
+      return { puts: [manifestPut(manifest)], result: true };
+    }),
+  );
+}
+
 /**
  * The batch merge each tab runs: the batch record, its file blob and the
  * manifest update commit inside one read-write transaction, so a second
@@ -383,12 +390,13 @@ export async function mergeHistoryBatch(
       // A tape from an older layout or recording version is unreadable to
       // this build — the new session's batches must not extend it under its
       // stale label. Pre-release tapes carry no migration: the fresh
-      // manifest replaces it and the old tape's ledger, tombstones and
-      // segment-referencing extras go with it.
+      // manifest replaces it, clearing its ledger and segment references.
       const staleTape =
         stored === "legacy" ||
         (stored !== null && stored.recording.version !== HISTORY_FORMAT_VERSION);
       const w = emptyWrites();
+      if (stored === "legacy" && (raw as { version: number }).version === 2)
+        w.deletes.push(...manifestFollow(raw as HistoryManifest));
       const manifest: HistoryManifest =
         !staleTape && stored !== null
           ? stored
@@ -407,13 +415,16 @@ export async function mergeHistoryBatch(
       if (ledger.includes(batch.batch)) return { result: true }; // a resend of a committed batch
       let directory = manifest.segments.find((s) => s.id === batch.segment);
       if (directory === undefined) {
-        // A batch without its boot opens nothing — the worker's resend will
-        // eventually deliver the boot batch that does. The one exception:
-        // a segment retention already evicted is gone on purpose — its
-        // stragglers ack-and-drop so the sender's resend does not pin on a
-        // segment that can never come back.
-        if (batch.boot === undefined)
-          return { result: (manifest.evicted ?? []).includes(batch.segment) };
+        const receipt = manifest.evicted?.find((entry) => entry.id === batch.segment);
+        if (receipt !== undefined)
+          return {
+            result: receipt.ranges.some(
+              ([first, last]) => first <= batch.batch && batch.batch <= last,
+            ),
+          };
+        // No unknown segment can acknowledge durability. An expired writer
+        // retains its uncommitted batches for the host's recovery download.
+        if (batch.boot === undefined) return { result: false };
         directory = { id: batch.segment, ...(filesRef !== undefined ? { blob: filesRef } : {}) };
         manifest.segments.push(directory);
         (manifest.blobs[filesRef!] ??= []).push(`s:${batch.segment}`);
@@ -435,9 +446,7 @@ export async function mergeHistoryBatch(
           const abandoned = new Set(batch.gap ?? []);
           for (let b = last + 1; b < batch.batch; b++)
             if (!abandoned.has(b)) return { result: false };
-          // The abandoned numbers join the ledger: a resend of one dedups
-          // to an ack instead of retrying a write the sender dropped.
-          for (let b = last + 1; b < batch.batch; b++) ledger.push(b);
+          // Declared gaps permit the jump but never join the committed ledger.
         } else if (batch.batch !== last + 1) return { result: false };
       }
       const { boot, anchor, ...rest } = batch;
@@ -451,7 +460,12 @@ export async function mergeHistoryBatch(
       ledger.push(batch.batch);
       manifest.bytes[batch.segment] =
         (manifest.bytes[batch.segment] ?? 0) + JSON.stringify(batch).length;
-      if (batch.end !== undefined) directory.end = batch.end;
+      if (batch.end !== undefined) {
+        directory.end = batch.end;
+        delete directory.writerExpiresAt;
+      } else if (directory.end === undefined) {
+        directory.writerExpiresAt = Date.now() + HISTORY_WRITER_LEASE_MS;
+      }
       // The transport's flattened axis: the manifest tracks each segment's
       // extent and room marks so the live timeline needs no tape load.
       const extent = Math.max(
@@ -466,7 +480,7 @@ export async function mergeHistoryBatch(
         directory.marks =
           marks.length > MANIFEST_MARKS_MAX ? marks.slice(-MANIFEST_MARKS_MAX) : marks;
       }
-      evictSegments(manifest, key, w);
+      evictSegments(manifest, key, w, batch.segment);
       w.puts.push(manifestPut(manifest));
       return { ...w, result: true };
     });
@@ -492,7 +506,7 @@ function manifestFollow(manifest: HistoryManifest): string[] {
 
 /**
  * Fold one segment's committed batches back into tape order. Abandoned
- * numbers have no record and are skipped; a boot on a later batch is ignored
+ * numbers never enter the ledger; a boot on a later batch is ignored
  * the way the append path ignored it — the segment's opener owns the boot.
  */
 function assembleSegment(
@@ -625,7 +639,8 @@ export function migrateHistoryRecord(fromStorageKey: string, toStorageKey: strin
           manifest.blobs = Object.fromEntries(
             Object.entries(fromManifest.blobs).map(([hash, refs]) => [hash, [...refs]]),
           );
-          if (fromManifest.evicted !== undefined) manifest.evicted = [...fromManifest.evicted];
+          if (fromManifest.evicted !== undefined)
+            manifest.evicted = structuredClone(fromManifest.evicted);
           if (fromManifest.branches !== undefined)
             manifest.branches = structuredClone(fromManifest.branches);
           if (fromManifest.staged !== undefined)
@@ -672,8 +687,14 @@ export function migrateHistoryRecord(fromStorageKey: string, toStorageKey: strin
           const blob = records.get(blobKey(from, hash)) as StoredBlob | undefined;
           if (blob !== undefined) w.puts.push({ ...blob, projectId: blobKey(to, hash) });
         }
-        const evicted = new Set([...(manifest.evicted ?? []), ...(fromManifest.evicted ?? [])]);
-        if (evicted.size > 0) manifest.evicted = [...evicted];
+        const receipts = new Map(
+          [...(fromManifest.evicted ?? []), ...(manifest.evicted ?? [])].map((entry) => [
+            entry.id,
+            entry,
+          ]),
+        );
+        if (receipts.size > 0)
+          manifest.evicted = [...receipts.values()].slice(-HISTORY_SEGMENTS_MAX);
         manifest.recording.dropped =
           (manifest.recording.dropped ?? 0) + (fromManifest.recording.dropped ?? 0);
         w.puts.push(manifestPut(manifest));
@@ -1019,6 +1040,8 @@ export function importGameHistory(
       await updateBodyRecords<void>(key, (raw) => {
         const stored = readManifest(raw);
         const w = emptyWrites();
+        if (stored === "legacy" && (raw as { version: number }).version === 2)
+          w.deletes.push(...manifestFollow(raw as HistoryManifest));
         if (stored !== null && stored !== "legacy") {
           // Replacing an existing append tape: its batch and blob records
           // go in the same transaction so none are orphaned.

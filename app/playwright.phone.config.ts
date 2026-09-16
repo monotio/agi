@@ -10,6 +10,7 @@ export default defineConfig({
   ...base,
   testMatch: [
     "phone-input.spec.ts",
+    "history-transport.spec.ts",
     "kq-phone.spec.ts",
     "ai-settings.spec.ts",
     "menu-flow.spec.ts",

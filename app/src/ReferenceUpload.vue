@@ -155,7 +155,12 @@ async function onSendToAgent(): Promise<void> {
   sending.value = true;
   error.value = "";
   try {
+    if (engine.state.powerUp.busy || engine.state.powerUp.mode === "room")
+      throw new Error("Wait for the current agent turn before sending a reference.");
     if (!engine.state.powerUp.open) await engine.openPowerUp(llmConfig());
+    if (engine.state.powerUp.needsConfig)
+      throw new Error("Connect your model before sending a reference.");
+    engine.state.powerUp.mode = "remix";
     const note =
       brief.value.trim() ||
       (attached.value?.kind === "character"
@@ -176,7 +181,12 @@ async function onSendExisting(reference: StoredReference): Promise<void> {
   sendingId.value = reference.id;
   error.value = "";
   try {
+    if (engine.state.powerUp.busy || engine.state.powerUp.mode === "room")
+      throw new Error("Wait for the current agent turn before sending a reference.");
     if (!engine.state.powerUp.open) await engine.openPowerUp(llmConfig());
+    if (engine.state.powerUp.needsConfig)
+      throw new Error("Connect your model before sending a reference.");
+    engine.state.powerUp.mode = "remix";
     await engine.submitPowerUp(
       reference.brief ||
         `Look at the attached reference for ${
@@ -366,7 +376,7 @@ function close(): void {
               :disabled="sendingId !== ''"
               @click="onSendExisting(reference)"
             >
-              {{ sendingId === reference.id ? "Sending…" : "Send" }}
+              {{ sendingId === reference.id ? "Sending…" : "Use in edit" }}
             </button>
             <button
               type="button"
@@ -418,13 +428,13 @@ function close(): void {
             :disabled="busy || sending"
             @click="onSendToAgent"
           >
-            {{ sending ? "Sending…" : "Send to agent" }}
+            {{ sending ? "Sending…" : "Use in edit" }}
           </button>
         </footer>
       </template>
       <template v-else>
         <p class="reference-hint" data-testid="reference-attached">
-          Reference attached. It rides your next agent message as an image — or send it now with a
+          Reference attached and selected for your next agent message. Use it in an edit now with a
           note.
         </p>
         <footer class="reference-upload-foot">
@@ -435,7 +445,7 @@ function close(): void {
             :disabled="sending"
             @click="onSendToAgent"
           >
-            {{ sending ? "Sending…" : "Send to agent" }}
+            {{ sending ? "Sending…" : "Use in edit" }}
           </button>
         </footer>
       </template>

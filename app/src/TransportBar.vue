@@ -90,297 +90,243 @@ onUnmounted(() => {
 <template>
   <div v-if="model.visible" class="transport" :data-testid="model.testid">
     <template v-if="model.controls">
-      <button
-        v-for="btn in model.leading"
-        :key="btn.testid"
-        type="button"
-        class="transport-btn"
-        :class="{ 'transport-btn--danger': btn.variant === 'danger' }"
-        :data-testid="btn.testid"
-        :title="btn.title"
-        :aria-label="btn.aria"
-        :disabled="btn.disabled"
-        @click="
-          btn.run();
-          releaseFocus($event);
-        "
-      >
-        <svg
-          v-if="btn.icon === 'back'"
-          viewBox="0 0 24 24"
-          width="16"
-          height="16"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
-        </svg>
-        <template v-else>{{ btn.label }}</template>
-      </button>
-
-      <button
-        type="button"
-        class="transport-play-btn"
-        :class="{ 'transport-play-btn--labeled': model.play.label !== undefined }"
-        :data-testid="model.play.testid"
-        :title="model.play.title"
-        :aria-label="model.play.aria"
-        :disabled="model.play.disabled"
-        @click="
-          model.play.run();
-          releaseFocus($event);
-        "
-      >
-        <svg
-          v-if="model.play.icon === 'play'"
-          viewBox="0 0 24 24"
-          width="16"
-          height="16"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path d="M8 5v14l11-7z" />
-        </svg>
-        <svg
-          v-else-if="model.play.icon === 'replay'"
-          viewBox="0 0 24 24"
-          width="16"
-          height="16"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path
-            d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"
-          />
-        </svg>
-        <svg
-          v-else
-          viewBox="0 0 24 24"
-          width="16"
-          height="16"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-        </svg>
-        <span v-if="model.play.label" class="transport-play-label">{{ model.play.label }}</span>
-      </button>
-
-      <div
-        ref="timelineEl"
-        class="transport-timeline"
-        :data-testid="model.timelineTestid"
-        role="slider"
-        tabindex="0"
-        :aria-label="model.timelineLabel"
-        aria-valuemin="0"
-        aria-valuemax="100"
-        :aria-valuenow="Math.round(model.scrubPercent ?? model.percent)"
-        @pointerdown="onTimelinePointerDown"
-        @pointermove="onTimelineHover"
-        @pointerleave="onTimelinePointerLeave"
-        @keydown="onTimelineKeydown"
-      >
-        <div class="transport-track">
-          <div
-            class="transport-progress-fill"
-            :data-testid="model.fillTestid"
-            :style="{ width: `${model.scrubPercent ?? model.percent}%` }"
-          ></div>
-          <button
-            v-for="mark in model.marks"
-            :key="mark.key"
-            type="button"
-            class="transport-marker"
-            :class="[
-              model.markerClass,
-              mark.kind ? `transport-marker--${mark.kind}` : '',
-              mark.kind ? `${model.markerClass}--${mark.kind}` : '',
-              {
-                'transport-marker--passed': (model.scrubPercent ?? model.percent) >= mark.percent,
-                [`${model.markerClass}--passed`]:
-                  (model.scrubPercent ?? model.percent) >= mark.percent,
-              },
-            ]"
-            :style="{ left: `${mark.percent}%` }"
-            :data-testid="mark.testid"
-            :title="mark.details ? `${mark.label} (${mark.details})` : mark.label"
-            @click.stop="onMarkClick(mark, $event)"
-          ></button>
-          <div
-            class="transport-thumb"
-            :data-testid="model.thumbTestid"
-            :style="{ left: `${model.scrubPercent ?? model.percent}%` }"
-          ></div>
-          <div v-if="model.live" class="transport-live-tick" aria-hidden="true"></div>
-        </div>
-        <div
-          v-if="model.hover"
-          class="transport-tooltip"
-          :class="model.tooltipClass"
-          :style="{ left: `${model.hover.percent}%` }"
-        >
-          <span class="transport-tooltip-label">{{ model.hover.label }}</span>
-          <span v-if="model.hover.details" class="transport-tooltip-details">{{
-            model.hover.details
-          }}</span>
-        </div>
-      </div>
-
-      <button
-        v-if="model.live"
-        type="button"
-        class="transport-btn transport-live-btn"
-        :class="{ 'transport-live-btn--here': model.live.here }"
-        :data-testid="model.live.testid"
-        :aria-pressed="model.live.here"
-        :title="
-          model.live.here
-            ? 'The current game'
-            : 'Back to the current game — it stays paused until you resume'
-        "
-        @click="
-          model.live!.run();
-          releaseFocus($event);
-        "
-      >
-        LIVE
-      </button>
-
-      <div
-        v-if="model.speedGroup"
-        class="transport-speed-group"
-        role="group"
-        aria-label="Playback speed"
-      >
+      <div class="transport-primary">
         <button
-          v-for="s in [1, 2, 4, 8]"
-          :key="s"
           type="button"
-          class="ui-button ui-button--secondary transport-speed-btn"
-          :class="{
-            'transport-speed-btn--active': model.speed === s,
-            [model.speedActiveClass]: model.speed === s,
-          }"
-          :data-testid="`${model.speedTestid}${s}`"
-          :title="model.speedTitle(s)"
+          class="transport-play-btn"
+          :class="{ 'transport-play-btn--labeled': model.play.label !== undefined }"
+          :data-testid="model.play.testid"
+          :title="model.play.title"
+          :aria-label="model.play.aria"
+          :disabled="model.play.disabled"
           @click="
-            model.setSpeed(s);
+            model.play.run();
             releaseFocus($event);
           "
         >
-          {{ s }}×
+          <svg
+            v-if="model.play.icon === 'play'"
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M8 5v14l11-7z" />
+          </svg>
+          <svg
+            v-else-if="model.play.icon === 'replay'"
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"
+            />
+          </svg>
+          <svg
+            v-else
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+          </svg>
+          <span v-if="model.play.label" class="transport-play-label">{{ model.play.label }}</span>
+        </button>
+
+        <div
+          ref="timelineEl"
+          class="transport-timeline"
+          :data-testid="model.timelineTestid"
+          role="slider"
+          tabindex="0"
+          :aria-label="model.timelineLabel"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :aria-valuenow="Math.round(model.scrubPercent ?? model.percent)"
+          @pointerdown="onTimelinePointerDown"
+          @pointermove="onTimelineHover"
+          @pointerleave="onTimelinePointerLeave"
+          @keydown="onTimelineKeydown"
+        >
+          <div class="transport-track">
+            <div
+              class="transport-progress-fill"
+              :data-testid="model.fillTestid"
+              :style="{ width: `${model.scrubPercent ?? model.percent}%` }"
+            ></div>
+            <button
+              v-for="mark in model.marks"
+              :key="mark.key"
+              type="button"
+              class="transport-marker"
+              :class="[
+                model.markerClass,
+                mark.kind ? `transport-marker--${mark.kind}` : '',
+                mark.kind ? `${model.markerClass}--${mark.kind}` : '',
+                {
+                  'transport-marker--passed': (model.scrubPercent ?? model.percent) >= mark.percent,
+                  [`${model.markerClass}--passed`]:
+                    (model.scrubPercent ?? model.percent) >= mark.percent,
+                },
+              ]"
+              :style="{ left: `${mark.percent}%` }"
+              :data-testid="mark.testid"
+              :title="mark.details ? `${mark.label} (${mark.details})` : mark.label"
+              @click.stop="onMarkClick(mark, $event)"
+            ></button>
+            <div
+              class="transport-thumb"
+              :data-testid="model.thumbTestid"
+              :style="{ left: `${model.scrubPercent ?? model.percent}%` }"
+            ></div>
+            <div v-if="model.live" class="transport-live-tick" aria-hidden="true"></div>
+          </div>
+          <div
+            v-if="model.hover"
+            class="transport-tooltip"
+            :class="model.tooltipClass"
+            :style="{ left: `${model.hover.percent}%` }"
+          >
+            <span class="transport-tooltip-label">{{ model.hover.label }}</span>
+            <span v-if="model.hover.details" class="transport-tooltip-details">{{
+              model.hover.details
+            }}</span>
+          </div>
+        </div>
+
+        <button
+          v-if="model.live"
+          type="button"
+          class="transport-btn transport-live-btn"
+          :class="{ 'transport-live-btn--here': model.live.here }"
+          :data-testid="model.live.testid"
+          :aria-pressed="model.live.here"
+          :title="
+            model.live.here
+              ? 'The current game'
+              : 'Back to the current game — it stays paused until you resume'
+          "
+          @click="
+            model.live!.run();
+            releaseFocus($event);
+          "
+        >
+          LIVE
         </button>
       </div>
-
-      <span v-if="model.posTestid" class="transport-pos" :data-testid="model.posTestid">
-        <template v-if="model.segments && model.segments.count > 1">
+      <div class="transport-secondary">
+        <div
+          v-if="model.speedGroup"
+          class="transport-speed-group"
+          role="group"
+          aria-label="Playback speed"
+        >
           <button
+            v-for="s in [1, 2, 4, 8]"
+            :key="s"
             type="button"
-            class="transport-btn transport-seg-btn"
-            :data-testid="model.segments.prevTestid"
-            :disabled="model.segments.index === 0"
-            title="Previous session"
+            class="ui-button ui-button--secondary transport-speed-btn"
+            :class="{
+              'transport-speed-btn--active': model.speed === s,
+              [model.speedActiveClass]: model.speed === s,
+            }"
+            :data-testid="`${model.speedTestid}${s}`"
+            :title="model.speedTitle(s)"
             @click="
-              model.segments!.step(-1);
+              model.setSpeed(s);
               releaseFocus($event);
             "
           >
-            ‹
+            {{ s }}×
           </button>
-          <span :data-testid="model.segments.labelTestid"
-            >{{ model.segments.index + 1 }}/{{ model.segments.count }}</span
-          >
-          <button
-            type="button"
-            class="transport-btn transport-seg-btn"
-            :data-testid="model.segments.nextTestid"
-            :disabled="model.segments.index + 1 >= model.segments.count"
-            title="Next session"
-            @click="
-              model.segments!.step(1);
-              releaseFocus($event);
-            "
-          >
-            ›
-          </button>
-        </template>
-        <span v-if="model.readout" class="transport-readout">{{ model.readout }}</span>
-        <span
-          v-if="model.dropped > 0"
-          class="transport-note"
-          data-testid="history-dropped"
-          title="The tape outgrew its storage bound — playback starts at the oldest kept session"
-          >earlier tape dropped</span
-        >
-      </span>
+        </div>
 
-      <button
-        v-for="btn in model.trailing"
-        :key="btn.testid"
-        type="button"
-        class="transport-btn"
-        :class="{
-          'transport-action': btn.variant !== undefined,
-          'ui-button ui-button--primary': btn.variant === 'primary',
-          'ui-button ui-button--secondary': btn.variant === 'secondary',
-        }"
-        :data-testid="btn.testid"
-        :title="btn.title"
-        :aria-label="btn.aria"
-        :disabled="btn.disabled"
-        @click="
-          btn.run();
-          releaseFocus($event);
-        "
-      >
-        <svg
-          v-if="btn.icon === 'bookmark'"
-          viewBox="0 0 24 24"
-          width="14"
-          height="14"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2z" />
-        </svg>
-        <template v-if="btn.label">{{ btn.label }}</template>
-      </button>
+        <span v-if="model.posTestid" class="transport-pos" :data-testid="model.posTestid">
+          <span v-if="model.readout" class="transport-readout">{{ model.readout }}</span>
+          <span
+            v-if="model.dropped > 0"
+            class="transport-note"
+            data-testid="history-dropped"
+            title="The tape outgrew its storage bound — playback starts at the oldest kept session"
+            >earlier tape dropped</span
+          >
+        </span>
 
-      <button
-        v-if="model.storyPause"
-        type="button"
-        class="ui-button ui-button--secondary transport-speed-btn transport-story-pause"
-        :class="{
-          'transport-speed-btn--active': model.storyPause.on,
-          [model.speedActiveClass]: model.storyPause.on,
-        }"
-        :data-testid="model.storyPause.testid"
-        :title="
-          model.storyPause.on
-            ? 'Pause on dialogue: enabled (pauses on dialogue)'
-            : 'Pause on dialogue: disabled (auto-advances with reading dwell)'
-        "
-        :aria-label="model.storyPause.on ? 'Disable pause on dialogue' : 'Enable pause on dialogue'"
-        @click="
-          model.storyPause!.toggle();
-          releaseFocus($event);
-        "
-      >
-        <svg
-          viewBox="0 0 24 24"
-          width="13"
-          height="13"
-          fill="currentColor"
-          aria-hidden="true"
-          class="transport-story-pause-icon"
+        <button
+          v-for="btn in model.trailing"
+          :key="btn.testid"
+          type="button"
+          class="transport-btn"
+          :class="{
+            'transport-action': btn.variant !== undefined,
+            'ui-button ui-button--primary': btn.variant === 'primary',
+            'ui-button ui-button--secondary': btn.variant === 'secondary',
+          }"
+          :data-testid="btn.testid"
+          :title="btn.title"
+          :aria-label="btn.aria"
+          :disabled="btn.disabled"
+          @click="
+            btn.run();
+            releaseFocus($event);
+          "
         >
-          <path
-            d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 4h5v8l-2.5-1.5L6 12V4z"
-          />
-        </svg>
-        Pause on dialogue
-      </button>
+          <svg
+            v-if="btn.icon === 'bookmark'"
+            viewBox="0 0 24 24"
+            width="14"
+            height="14"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2z" />
+          </svg>
+          <template v-if="btn.label">{{ btn.label }}</template>
+        </button>
+
+        <button
+          v-if="model.storyPause"
+          type="button"
+          class="ui-button ui-button--secondary transport-speed-btn transport-story-pause"
+          :class="{
+            'transport-speed-btn--active': model.storyPause.on,
+            [model.speedActiveClass]: model.storyPause.on,
+          }"
+          :data-testid="model.storyPause.testid"
+          :title="
+            model.storyPause.on
+              ? 'Pause on dialogue: enabled (pauses on dialogue)'
+              : 'Pause on dialogue: disabled (auto-advances with reading dwell)'
+          "
+          :aria-label="
+            model.storyPause.on ? 'Disable pause on dialogue' : 'Enable pause on dialogue'
+          "
+          @click="
+            model.storyPause!.toggle();
+            releaseFocus($event);
+          "
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="13"
+            height="13"
+            fill="currentColor"
+            aria-hidden="true"
+            class="transport-story-pause-icon"
+          >
+            <path
+              d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 4h5v8l-2.5-1.5L6 12V4z"
+            />
+          </svg>
+          Pause on dialogue
+        </button>
+      </div>
     </template>
 
     <span v-else-if="model.loadingText" class="transport-status">{{ model.loadingText }}</span>
@@ -428,7 +374,8 @@ onUnmounted(() => {
 <style scoped>
 .transport {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 12px;
   width: var(--game-width);
   box-sizing: border-box;
@@ -438,6 +385,20 @@ onUnmounted(() => {
   border: 1px solid #1a5259;
   border-radius: 8px;
   user-select: none;
+}
+.transport-primary,
+.transport-secondary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.transport-secondary {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.transport-secondary:empty {
+  display: none;
 }
 .transport-btn {
   display: inline-flex;
@@ -469,15 +430,6 @@ onUnmounted(() => {
 }
 .transport-btn:active:not(:disabled) {
   transform: scale(0.95);
-}
-.transport-btn--danger {
-  color: #ffb0b0;
-  border-color: #7a4a4a;
-  background: #331b1b;
-}
-.transport-btn--danger:hover:not(:disabled) {
-  background: #452222;
-  border-color: #ffb0b0;
 }
 .transport-play-btn {
   display: inline-flex;
@@ -511,7 +463,7 @@ onUnmounted(() => {
   transform: scale(0.95);
 }
 .transport-play-btn--labeled {
-  width: auto;
+  width: 160px;
   padding: 0 10px;
   gap: 6px;
 }
@@ -546,6 +498,7 @@ onUnmounted(() => {
 .transport-timeline {
   position: relative;
   flex: 1;
+  min-width: 96px;
   height: 26px;
   display: flex;
   align-items: center;
@@ -699,12 +652,6 @@ onUnmounted(() => {
   color: #9aa7b8;
   white-space: nowrap;
 }
-.transport-seg-btn {
-  min-width: 20px;
-  height: 20px;
-  padding: 0 4px;
-  font-size: 13px;
-}
 .transport-readout {
   min-width: 96px;
   text-align: right;
@@ -744,5 +691,47 @@ onUnmounted(() => {
   display: inline;
   cursor: pointer;
   text-decoration: underline;
+}
+@media (max-width: 600px) {
+  .transport {
+    gap: 6px;
+    padding: 6px 8px;
+  }
+  .transport-primary {
+    gap: 8px;
+  }
+  .transport-play-btn,
+  .transport-btn,
+  .transport-speed-btn,
+  .transport-timeline {
+    min-height: 44px;
+  }
+  .transport-play-btn,
+  .transport-btn,
+  .transport-speed-btn {
+    min-width: 44px;
+  }
+  .transport-play-btn--labeled {
+    width: 88px;
+    padding: 0 6px;
+    flex-shrink: 0;
+  }
+  .transport-play-btn svg {
+    flex-shrink: 0;
+  }
+  .transport-play-label {
+    white-space: normal;
+    text-align: left;
+  }
+  .transport-pos {
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+  .transport-readout {
+    text-align: left;
+  }
+  .transport-pending {
+    flex-wrap: wrap;
+  }
 }
 </style>

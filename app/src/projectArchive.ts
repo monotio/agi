@@ -14,6 +14,8 @@ import { mapArchiveData } from "./roomMapStore.ts";
 import type { RoomMapSidecar } from "../../src/agent/roomMap.ts";
 import { historyArchiveData, type ProjectHistory } from "./historyArchive.ts";
 
+import type { BackupReport } from "./historyBackup.ts";
+
 export interface ProjectContext {
   provider: string;
   model: string;
@@ -63,8 +65,22 @@ export async function buildProjectZip(
   progress?: GameProgress,
   map?: RoomMapSidecar,
   history?: ProjectHistory,
+  backup?: BackupReport,
 ): Promise<Uint8Array<ArrayBuffer>> {
   const entries = gameEntries(data);
+  if (backup) {
+    const { recoveryBatches, ...report } = backup;
+    entries.push({ name: "BACKUP.JSON", data: JSON.stringify(report) });
+    if (recoveryBatches.length)
+      entries.push({
+        name: "HISTORY-RECOVERY.JSON",
+        data: JSON.stringify({
+          format: "monotio.agi.history-recovery",
+          version: 1,
+          batches: recoveryBatches,
+        }),
+      });
+  }
   const tests = data.files["TESTS.JSON"];
   if (tests) entries.push({ name: "TESTS.JSON", data: tests });
   if (progress) entries.push(...progressEntries(progress));
@@ -163,13 +179,13 @@ function finishArchive(entries: ZipFileInput[]): Uint8Array<ArrayBuffer> {
     expanded += size;
     if (size > 64 * 1024 * 1024 || expanded > 256 * 1024 * 1024)
       throw new Error(
-        "This project exceeds the supported archive size. Choose Game actions → Game export to keep its playable resources.",
+        "This project exceeds the supported archive size. Choose Game → Export game… to keep its playable resources.",
       );
   }
   const zip = buildZip(entries);
   if (zip.length > 128 * 1024 * 1024)
     throw new Error(
-      "This project exceeds the 128 MB archive limit. Choose Game actions → Game export to keep its playable resources.",
+      "This project exceeds the 128 MB archive limit. Choose Game → Export game… to keep its playable resources.",
     );
   return zip;
 }

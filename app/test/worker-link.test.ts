@@ -45,6 +45,7 @@ const OUTBOUND_TYPES = [
   "historyView",
   "historyRetained",
   "historyEnded",
+  "historyRecovery",
   "historyTaken",
   "historyViewRestored",
   "controls",
@@ -509,6 +510,18 @@ test("every WorkerOutbound member reaches its handler once", async () => {
       case "historyViewRestored": {
         const r = await roundTrip(link, w, "historyViewRestore", { type, id: 0, ok: true });
         assert.equal(r.ok, true);
+        break;
+      }
+      case "historyRecovery": {
+        const result = await roundTrip(link, w, "historyRecover", {
+          type,
+          id: 0,
+          batches: [],
+          boot: null,
+          cycle: 0,
+          room: 0,
+        });
+        assert.deepEqual(result.batches, []);
         break;
       }
       case "historyEnded": {

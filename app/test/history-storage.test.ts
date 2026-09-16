@@ -28,6 +28,7 @@ import {
   HISTORY_BRANCHES_MAX,
   HISTORY_STAGED_MAX,
   HISTORY_TOTAL_BYTE_LIMIT,
+  HISTORY_WRITER_LEASE_MS,
   importGameHistory,
   loadGameHistory,
   loadHistoryBookmarks,
@@ -37,6 +38,7 @@ import {
   mergeHistoryBatch,
   migrateHistoryRecord,
   resolveStagedSwap,
+  renewHistoryWriter,
   saveHistoryBookmark,
   stageRetainedOriginal,
   type RetainedOriginal,
@@ -298,9 +300,8 @@ test("an end batch may jump only the batch numbers its sender abandoned", async 
   const segment = (await loadGameHistory(key))?.segments[0];
   assert.equal(segment?.end?.reason, "budget");
 
-  // The abandoned numbers joined the ledger: a late resend of one dedups
-  // to an ack — the worker is not made to retry a write it dropped.
-  assert.equal(await appendHistoryBatch(key, batch(3, {}), "2.936", IDENTITY), true);
+  // An abandoned payload never became durable and must not receive an ACK.
+  assert.equal(await appendHistoryBatch(key, batch(3, {}), "2.936", IDENTITY), false);
   assert.equal((await loadGameHistory(key))?.segments[0]?.events.length, 0);
 
   // A gap declaration is not a blank check: batch 8 was never abandoned.
@@ -587,24 +588,21 @@ test("an open head does not pin the ended segments behind it", async () => {
   assert.equal(recording.segments[0]?.id, "s-o.0");
   assert.equal(recording.segments.at(-1)?.id, "s-o.70");
 
-  // A late batch for an evicted segment acks-and-drops instead of pinning
-  // the sender's resend on a segment that is gone on purpose.
+  // A late batch for an evicted segment remains unacknowledged: the host
+  // must retain it for recovery rather than claim it became durable.
   assert.equal(
     await appendHistoryBatch(key, { ...batch(2), segment: "s-o.1" }, "2.936", IDENTITY),
-    true,
+    false,
   );
   assert.equal(
     (await loadGameHistory(key))?.segments.find((s) => s.id === "s-o.1"),
     undefined,
-    "the tombstone swallowed the straggler",
+    "the evicted segment stays absent",
   );
 });
 
-test("an all-open tape still sheds its oldest segments past the bound", async () => {
+test("retention never evicts another live writer or acknowledges its discarded events", async () => {
   const key = "tape-store-all-open";
-  // 66 unfinished sessions — tabs that crashed or never closed. Nothing
-  // carries an end, yet the bound holds: the oldest sheds and the newest
-  // open tail — the session that could still be live — is always kept.
   for (let seg = 1; seg <= 66; seg++) {
     assert.equal(
       await appendHistoryBatch(
@@ -616,11 +614,24 @@ test("an all-open tape still sheds its oldest segments past the bound", async ()
       true,
     );
   }
+  const event = { seq: 0, tick: 1, cycle: 1, cause: { kind: "key" as const, code: 65 } };
+  assert.equal(
+    await appendHistoryBatch(
+      key,
+      {
+        ...batch(2),
+        segment: "s-p.1",
+        events: [event],
+      },
+      "2.936",
+      IDENTITY,
+    ),
+    true,
+  );
   const recording = await loadGameHistory(key);
-  assert.equal(recording?.segments.length, 64);
-  assert.equal(recording?.dropped, 2);
-  assert.equal(recording?.segments[0]?.id, "s-p.3");
-  assert.equal(recording?.segments.at(-1)?.id, "s-p.66");
+  assert.equal(recording?.segments.length, 66);
+  assert.deepEqual(recording?.segments[0]?.events, [event]);
+  assert.equal(RECORDS.has(`history/${key}/s/s-p.1/00000002`), true);
 });
 
 test("a mid-session key change carries the live tape to the new record", async () => {
@@ -963,5 +974,107 @@ test("a same-layout tape under an older recording version drops its orphaned rec
   assert.deepEqual(
     recording?.segments.map((s) => s.id),
     ["s-a.1"],
+  );
+});
+
+test("obsolete singleton layouts clear their batches and blobs without migrating branches", async () => {
+  const key = "tape-store-obsolete-singleton";
+  await appendHistoryBatch(
+    key,
+    {
+      ...batch(1),
+      segment: "old",
+      boot: {
+        ...BOOT,
+        files: { "VOL.0": "b2xk" },
+      },
+    },
+    "2.936",
+    IDENTITY,
+  );
+  const old = RECORDS.get(`history/${key}`) as { version: number; blobs: Record<string, string[]> };
+  old.version = 2;
+  const oldBlob = Object.keys(old.blobs)[0]!;
+  assert.equal(await loadGameHistory(key), null);
+  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
+  assert.equal(RECORDS.has(`history/${key}/s/old/00000001`), false);
+  assert.equal(RECORDS.has(`history/${key}/blob/${oldBlob}`), false);
+  assert.deepEqual(
+    (await loadGameHistory(key))?.segments.map((s) => s.id),
+    ["s-a.1"],
+  );
+});
+
+test("renewed paused writers survive pressure while crashed writers expire", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 1000 });
+  const key = "tape-store-writer-leases";
+  for (let seg = 1; seg <= 66; seg++) {
+    await appendHistoryBatch(
+      key,
+      { ...batch(1), segment: `writer-${seg}`, boot: BOOT },
+      "2.936",
+      IDENTITY,
+    );
+  }
+  t.mock.timers.tick(HISTORY_WRITER_LEASE_MS - 1);
+  assert.equal(await renewHistoryWriter(key, "writer-1"), true);
+  t.mock.timers.tick(2);
+  assert.equal(
+    await appendHistoryBatch(
+      key,
+      {
+        ...batch(1),
+        segment: "new-writer",
+        boot: BOOT,
+      },
+      "2.936",
+      IDENTITY,
+    ),
+    true,
+  );
+  const recording = await loadGameHistory(key);
+  assert.equal(recording?.segments.length, 64);
+  assert.equal(recording?.dropped, 3);
+  assert.equal(recording?.segments[0]?.id, "writer-1");
+  assert.equal(recording?.segments.at(-1)?.id, "new-writer");
+  assert.equal(await renewHistoryWriter(key, "writer-2"), false);
+  assert.equal(
+    await appendHistoryBatch(key, { ...batch(2), segment: "writer-2" }, "2.936", IDENTITY),
+    false,
+  );
+  assert.equal(RECORDS.has(`history/${key}/s/writer-2/00000002`), false);
+});
+
+test("evicted final-batch resends deduplicate without acknowledging uncommitted batches", async () => {
+  const key = "tape-store-evicted-ack";
+  const end = { seq: 0, tick: 0, cycle: 0, reason: "budget" as const };
+  await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY);
+  const final = batch(3, { end, gap: [2] });
+  assert.equal(await appendHistoryBatch(key, final, "2.936", IDENTITY), true);
+  for (let seg = 1; seg <= 64; seg++) {
+    await appendHistoryBatch(
+      key,
+      { ...batch(1), segment: `later-${seg}`, boot: BOOT, end },
+      "2.936",
+      IDENTITY,
+    );
+  }
+  assert.equal(RECORDS.has(`history/${key}/s/s-a.1/00000003`), false);
+  assert.equal(
+    await appendHistoryBatch(key, final, "2.936", IDENTITY),
+    true,
+    "retry after lost ACK",
+  );
+  assert.equal(await appendHistoryBatch(key, batch(4), "2.936", IDENTITY), false, "never stored");
+  assert.equal(
+    await appendHistoryBatch(key, batch(2), "2.936", IDENTITY),
+    false,
+    "abandoned gap was never stored",
+  );
+  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
+  assert.equal(
+    (await loadGameHistory(key))?.segments.some((s) => s.id === "s-a.1"),
+    false,
+    "boot resend cannot resurrect a retained-away segment",
   );
 });

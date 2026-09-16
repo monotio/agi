@@ -15,6 +15,7 @@ import { readGameZip } from "../src/gameZip.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView, parseView } from "../../src/view/view.ts";
+import { openAiToolContent, anthropicToolContent } from "../../src/agent/toolTransport.ts";
 import { base64ToBytes } from "../src/bytes.ts";
 import type { CachedGameData } from "../src/gameTypes.ts";
 
@@ -175,4 +176,17 @@ test("project archives carry reference bytes; game exports exclude them", async 
   assert.ok(!zipText.includes("REFERENCES/"), "game export carries no reference entries");
   assert.ok(Object.keys(gameFiles).every((name) => !name.startsWith("REFERENCES")));
   assert.equal(opened.project?.references?.[0]?.attachedAt.project, IDENTITY.project);
+});
+
+test("reference JPEG and WebP bytes retain their MIME in both provider requests", () => {
+  for (const mime of ["image/jpeg", "image/webp"] as const) {
+    const decoded = { ...decodedSheet(), mime, bytes: Uint8Array.of(0xff, 0xd8, 0xff) };
+    const images = referenceAgentImages(roomReference("mime", 1, "harbour", IDENTITY, decoded));
+    const content = { text: "reference", images };
+    const openai = openAiToolContent(content).find((block) => block.type === "input_image");
+    const anthropic = anthropicToolContent(content).find((block) => block.type === "image");
+    assert.equal(openai?.image_url, `data:${mime};base64,/9j/`);
+    assert.equal(anthropic?.source.media_type, mime);
+    assert.equal(anthropic?.source.data, "/9j/");
+  }
 });

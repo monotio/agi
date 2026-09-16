@@ -9,7 +9,14 @@ export type OpenAiToolBlock =
   { type: "input_text"; text: string } | { type: "input_image"; detail: "high"; image_url: string };
 export type AnthropicToolBlock =
   | { type: "text"; text: string }
-  | { type: "image"; source: { type: "base64"; media_type: "image/png"; data: string } };
+  | {
+      type: "image";
+      source: {
+        type: "base64";
+        media_type: "image/png" | "image/jpeg" | "image/webp";
+        data: string;
+      };
+    };
 
 /**
  * Serialized-character budget per `details` field. Larger fields move to the
@@ -151,7 +158,7 @@ export function openAiToolContent(content: ToolContent): OpenAiToolBlock[] {
     blocks.push({
       type: "input_image",
       detail: "high",
-      image_url: `data:image/png;base64,${imageBase64(image.png)}`,
+      image_url: `data:${image.mime ?? "image/png"};base64,${imageBase64(image.png)}`,
     });
   }
   return blocks;
@@ -163,7 +170,11 @@ export function anthropicToolContent(content: ToolContent): AnthropicToolBlock[]
     blocks.push({ type: "text", text: image.caption });
     blocks.push({
       type: "image",
-      source: { type: "base64", media_type: "image/png", data: imageBase64(image.png) },
+      source: {
+        type: "base64",
+        media_type: image.mime ?? "image/png",
+        data: imageBase64(image.png),
+      },
     });
   }
   return blocks;

@@ -25,7 +25,6 @@ defineProps<{
   debugOpen: boolean;
   exportBusy: boolean;
   exportRefusal: string;
-  exportSavedProgressKey: string | undefined;
 }>();
 
 const emit = defineEmits<{
@@ -33,7 +32,7 @@ const emit = defineEmits<{
   "update:crtEnabled": [value: boolean];
   "update:debugOpen": [value: boolean];
   "trigger-key": [code: number];
-  "export-zip": [project: boolean, savedProgress: boolean];
+  "export-zip": [project: boolean];
   "start-over": [];
   "start-walkthrough": [target: string];
 }>();
@@ -87,8 +86,8 @@ function onStartWalkthrough(targetGame: string): void {
 }
 
 /** Live exports only; the shell owns the export path and the refusal banner. */
-function onExportAgiZip(_live: boolean, project = false, savedProgress = false): void {
-  emit("export-zip", project, savedProgress);
+function onExportAgiZip(_live: boolean, project = false): void {
+  emit("export-zip", project);
 }
 
 async function onEjectGame(abandonUnsaved = false): Promise<void> {
@@ -390,19 +389,6 @@ async function onRecordSave(): Promise<void> {
   </header>
   <div v-if="exportRefusal" class="export-refusal" data-testid="export-refusal" role="alert">
     <p>{{ exportRefusal }}</p>
-    <button
-      v-if="
-        exportSavedProgressKey !== undefined &&
-        exportSavedProgressKey === (currentGame()?.projectId ?? currentGame()?.hash)
-      "
-      type="button"
-      class="ui-button ui-button--secondary"
-      data-testid="export-saved-progress"
-      :disabled="exportBusy"
-      @click="onExportAgiZip(true, true, true)"
-    >
-      Download without current progress
-    </button>
   </div>
   <div v-if="ejectRefusal" class="export-refusal" data-testid="eject-refusal" role="alert">
     <p>{{ ejectRefusal }}</p>

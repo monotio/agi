@@ -675,9 +675,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     speedTitle: (speed) => `Set playback speed to ${speed}×`,
     readout: undefined,
     posTestid: undefined,
-    segments: undefined,
     dropped: 0,
-    leading: [],
     trailing: [],
     get storyPause() {
       return {

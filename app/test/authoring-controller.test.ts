@@ -403,3 +403,67 @@ test("handleRoomAuthoring rejects when roomGeneration is false", async (t) => {
 
   await clearCachedGame(projectId);
 });
+
+test("reference capacity refuses room and character attachments without discarding art", async (t) => {
+  installLocalStorageMock(t);
+  const projectId = testProjectId("reference-capacity");
+  const files = createTestFiles();
+  await saveAuthoredGame(projectId, {
+    title: "Art",
+    provider: "stub",
+    model: "offline-stub",
+    files,
+    words: [],
+  });
+  const game: BootedGame = {
+    installed: false,
+    projectId,
+    title: "Art",
+    revision: testRevision("rev-1"),
+    files,
+    words: [],
+  };
+  const controller = useAuthoringController({
+    state: {
+      phase: "running",
+      powerUp: createMockPowerUp(),
+      agentTask: null,
+      agentLog: [],
+      profile: "2.936",
+      worldTick: 0,
+      planDurableRev: "",
+    },
+    getWorker: () => null,
+    query: async <T>() => null as T,
+    logAgent: () => {},
+    readFrames: async () => [],
+    pauseEngine: () => {},
+    resumeEngine: () => {},
+    getBootedGame: () => game,
+    setBootedGame: () => {},
+    flushAutosave: async () => {},
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+  });
+  const decoded = {
+    width: 1,
+    height: 1,
+    rgba: Uint8Array.of(1, 2, 3, 255),
+    bytes: Uint8Array.of(1),
+    mime: "image/png" as const,
+  };
+  for (let i = 0; i < 16; i++) await controller.attachRoomReference(decoded, 1, `image ${i}`);
+  await assert.rejects(
+    controller.attachRoomReference(decoded, 1, "seventeenth"),
+    /16 references.*remove/i,
+  );
+  // Capacity is checked before attempting an invalid conversion.
+  await assert.rejects(
+    controller.attachCharacterReference([], { poses: 3 }, 0, "seventeenth"),
+    /16 references.*remove/i,
+  );
+  assert.equal((await controller.listReferences()).length, 16);
+  assert.equal((await controller.listReferences())[15]?.brief, "image 15");
+  controller.resetSession();
+  await clearCachedGame(projectId);
+});

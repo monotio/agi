@@ -564,7 +564,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
         // runs rather than re-parking itself).
         const pending = pendingOpenSeek;
         pendingOpenSeek = null;
-        if (pending !== null && v.active) void dispatchSeek(pending);
+        if (pending !== null && v.active) void dispatchSeek(pending.globalTick, pending.at);
       }
     }
   }
@@ -632,7 +632,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
    * the LIVE endpoint, not the last recorded tick.
    */
   /** The newest seek asked for while the tape was still opening. */
-  let pendingOpenSeek: number | null = null;
+  let pendingOpenSeek: { globalTick: number; at: ReturnType<typeof flatLocate> } | null = null;
 
   /**
    * The flat-axis seek the timeline dispatches. While the view is closed a
@@ -640,17 +640,16 @@ export function useHistoryView(deps: HistoryViewDeps) {
    * the same absolute position the gesture meant; the tape's end is always
    * the LIVE endpoint, not the last recorded tick.
    */
-  async function dispatchSeek(globalTick: number): Promise<void> {
+  async function dispatchSeek(globalTick: number, at = flatLocate(globalTick)): Promise<void> {
     const v = view();
     const mine = ++seekSerial;
     if (v.loading) {
       // The open is in flight: keep only the newest request — the gesture's
       // final position, not every drag sample.
-      pendingOpenSeek = globalTick;
+      pendingOpenSeek = { globalTick, at };
       return;
     }
     if (v.active) {
-      const at = flatLocate(globalTick);
       if (at === "live") goLive();
       else {
         const index = recordingIndex(at.segment);
@@ -658,7 +657,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       }
       return;
     }
-    const at = flatLocate(globalTick);
+    const emptyAxis = flatTotal() === 0;
     pauseAtLive();
     // "live" on a populated axis is the endpoint — park without opening. An
     // empty axis cannot tell LIVE from the tape: the click still opens,
@@ -667,7 +666,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     await openHistory();
     // A newer request consumed during the open already dispatched itself.
     if (seekSerial !== mine || !v.active) return;
-    const landed = flatLocate(globalTick);
+    const landed = emptyAxis ? flatLocate(globalTick) : at;
     if (landed === "live") goLive();
     else {
       const index = recordingIndex(landed.segment);
@@ -1101,7 +1100,12 @@ export function useHistoryView(deps: HistoryViewDeps) {
       view().scrubbing = active;
       // Freeze the gesture's axis: a landing batch must not move the target
       // under the pointer.
-      scrubAxis = active ? (view().active ? axisFromRecording() : [...outline]) : null;
+      scrubAxis = active
+        ? (view().active ? axisFromRecording() : outline).map((lane) => ({
+            ...lane,
+            marks: lane.marks.map((mark) => ({ ...mark })),
+          }))
+        : null;
     },
     step: (dir) => void stepMark(dir),
     clickMark: (mark) => {
@@ -1154,6 +1158,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       return {
         testid: "btn-transport-pause",
         icon: "pause" as const,
+        label: "Pause",
         title: "Pause the game (Space)",
         aria: "Pause",
         disabled: v.loading,
@@ -1189,11 +1194,9 @@ export function useHistoryView(deps: HistoryViewDeps) {
       return "LIVE";
     },
     posTestid: "history-pos",
-    segments: undefined,
     get dropped() {
       return view().dropped;
     },
-    leading: [],
     get trailing() {
       const v = view();
       const buttons: TransportButton[] = [];

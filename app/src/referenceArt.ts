@@ -181,15 +181,20 @@ export function roomReference(
 
 /** The reference as provider image blocks — the upload's own bytes per image. */
 export function referenceAgentImages(reference: StoredReference): AgentToolImage[] {
-  return reference.images.map((image) => ({
-    png: base64ToBytes(image.png),
-    caption:
-      `Player-supplied reference for ` +
-      (reference.kind === "room" ? `room ${reference.target}` : `view ${reference.target}`) +
-      (image.facing !== undefined ? `, ${image.facing}-facing pose row` : "") +
-      (reference.brief ? ` — ${reference.brief}` : "") +
-      ". Encode it into native resources with the authoring tools; the reference decides look and composition, never walkable space or exits.",
-  }));
+  return reference.images.map((image) => {
+    if (image.mime !== "image/png" && image.mime !== "image/jpeg" && image.mime !== "image/webp")
+      throw new Error("References must be PNG, JPEG or WebP images.");
+    return {
+      png: base64ToBytes(image.png),
+      mime: image.mime,
+      caption:
+        `Player-supplied reference for ` +
+        (reference.kind === "room" ? `room ${reference.target}` : `view ${reference.target}`) +
+        (image.facing !== undefined ? `, ${image.facing}-facing pose row` : "") +
+        (reference.brief ? ` — ${reference.brief}` : "") +
+        ". Encode it into native resources with the authoring tools; the reference decides look and composition, never walkable space or exits.",
+    };
+  });
 }
 
 /** Why a staged commit is refused, or null when the reference is current. */
@@ -233,7 +238,7 @@ export function normalizeReferences(raw: unknown): StoredReference[] {
       if (
         typeof i["png"] !== "string" ||
         i["png"].length > REFERENCE_BYTE_LIMIT * 2 ||
-        typeof i["mime"] !== "string" ||
+        (i["mime"] !== "image/png" && i["mime"] !== "image/jpeg" && i["mime"] !== "image/webp") ||
         typeof i["width"] !== "number" ||
         typeof i["height"] !== "number" ||
         i["width"] * i["height"] > REFERENCE_PIXEL_LIMIT

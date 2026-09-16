@@ -30,8 +30,8 @@ export interface TransportButton {
   title?: string;
   aria?: string;
   label?: string;
-  icon?: "back" | "bookmark";
-  variant?: "primary" | "secondary" | "danger";
+  icon?: "bookmark";
+  variant?: "primary" | "secondary";
   disabled?: boolean;
   run(): void;
 }
@@ -105,20 +105,8 @@ export interface TransportExtras {
   /** Position readout, e.g. "Room 4 · 62% · replaying…". */
   readonly readout: string | undefined;
   readonly posTestid: string | undefined;
-  readonly segments:
-    | {
-        prevTestid: string;
-        nextTestid: string;
-        labelTestid: string;
-        index: number;
-        count: number;
-        step(dir: 1 | -1): void;
-      }
-    | undefined;
   /** >0 shows the "earlier tape dropped" note. */
   readonly dropped: number;
-  /** Buttons before the play control (the tape's back-to-live). */
-  readonly leading: readonly TransportButton[];
   /** Buttons after the speed group (bookmark, resume cluster). */
   readonly trailing: readonly TransportButton[];
   readonly storyPause: { testid: string; on: boolean; toggle(): void } | undefined;
@@ -253,9 +241,10 @@ export function useTransport(source: TransportSource, extras: TransportExtras): 
     if (!ui.isScrubbing) return;
     const finalPct = ui.scrubPercent ?? pct;
     ui.isScrubbing = false;
+    // Resolve the final target while the source still owns its frozen axis.
+    if (hasDragged) source.seekTick(tickAt(finalPct));
     source.setScrubbing(false);
     ui.scrubPercent = undefined;
-    if (hasDragged) source.seekTick(tickAt(finalPct));
   }
 
   function hoverMove(pct: number): void {
@@ -355,14 +344,8 @@ export function useTransport(source: TransportSource, extras: TransportExtras): 
     get posTestid() {
       return extras.posTestid;
     },
-    get segments() {
-      return extras.segments;
-    },
     get dropped() {
       return extras.dropped;
-    },
-    get leading() {
-      return extras.leading;
     },
     get trailing() {
       return extras.trailing;

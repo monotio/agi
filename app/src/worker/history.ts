@@ -408,6 +408,10 @@ export function createHistory(ctx: WorkerContext) {
       const id = h.pendingEndReply;
       h.pendingEndReply = null;
       ctx.ports.control({ type: "historyEnded", id });
+    } else if (h.pendingEndReply !== null) {
+      // Exit is a durability barrier. Once storage recovers, drain the
+      // remaining refused batches now instead of one per backoff interval.
+      resend();
     }
   }
 
@@ -433,8 +437,12 @@ export function createHistory(ctx: WorkerContext) {
   function onHistoryEnd(msg: Inbound<"historyEnd">): void {
     historyEnd("eject");
     const h = ctx.history;
+    // A refused Exit resumes play; the next safe boundary starts a new segment.
+    h.resumePending = true;
+
     if (h.sent.length > 0 || h.queue.length > 0) {
       h.pendingEndReply = msg.id;
+      onHistoryRetry();
       return;
     }
     ctx.ports.control({ type: "historyEnded", id: msg.id });

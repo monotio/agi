@@ -124,7 +124,7 @@ const {
 
 const lib = createGameLibrary(engine, ai, shellBridge);
 provideGameLibrary(lib);
-const { exportBusy, exportRefusal, exportSavedProgressKey } = lib;
+const { exportBusy, exportRefusal } = lib;
 
 async function onStartWalkthrough(targetGame: string): Promise<void> {
   await resumeAudio();
@@ -551,12 +551,11 @@ watch(
       :debug-open="debugOpen"
       :export-busy="exportBusy"
       :export-refusal="exportRefusal"
-      :export-saved-progress-key="exportSavedProgressKey"
       @update:touch-controls="touchControls = $event"
       @update:crt-enabled="crtEnabled = $event"
       @update:debug-open="debugOpen = $event"
       @trigger-key="(code) => playArea?.triggerKey(code)"
-      @export-zip="(project, savedProgress) => lib.onExportAgiZip(true, project, savedProgress)"
+      @export-zip="(project) => lib.onExportAgiZip(true, project)"
       @start-over="lib.onStartOver"
       @start-walkthrough="onStartWalkthrough"
     >

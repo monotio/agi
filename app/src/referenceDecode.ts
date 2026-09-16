@@ -16,6 +16,8 @@ export async function decodeReferenceFile(file: Blob): Promise<DecodedImage> {
     throw new Error(
       `That image is ${(file.size / 1024 / 1024).toFixed(1)} MB — the reference limit is ${REFERENCE_BYTE_LIMIT / 1024 / 1024} MB.`,
     );
+  if (file.type !== "image/png" && file.type !== "image/jpeg" && file.type !== "image/webp")
+    throw new Error("Choose a PNG, JPEG or WebP reference image.");
   let bitmap: ImageBitmap;
   try {
     bitmap = await createImageBitmap(file);
@@ -38,7 +40,7 @@ export async function decodeReferenceFile(file: Blob): Promise<DecodedImage> {
       rgba: context.getImageData(0, 0, bitmap.width, bitmap.height).data,
       width: bitmap.width,
       height: bitmap.height,
-      mime: file.type || "image/png",
+      mime: file.type,
       bytes,
     };
   } finally {

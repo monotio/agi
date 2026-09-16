@@ -113,6 +113,9 @@ async function scrubToTape(page: Page, fraction: number): Promise<void> {
   const box = (await timeline.boundingBox())!;
   await timeline.click({ position: { x: box.width * fraction, y: box.height / 2 } });
   await expect.poll(async () => (await viewState(page))?.active, { timeout: 20_000 }).toBe(true);
+  const selected = (await timeline.boundingBox())!;
+  expect(selected.x, "seeking directly from LIVE keeps the timeline origin").toBe(box.x);
+  expect(selected.width, "seeking directly from LIVE keeps the timeline width").toBe(box.width);
 }
 
 test("the transport rides live play from boot; the timeline enters the tape and LIVE returns paused", async ({
@@ -424,4 +427,53 @@ test("a map visit jumps straight to its moment on the tape", async ({ page }) =>
   await expect(page.getByTestId("world-map")).toBeHidden();
   await expect.poll(async () => (await viewState(page))?.active).toBe(true);
   await expect.poll(async () => (await viewState(page))!.room, { timeout: 20_000 }).toBe(1);
+});
+
+test.describe("phone transport", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  test("seeking, Watch and Undo keep a usable timeline and every control on screen", async ({
+    page,
+  }) => {
+    await isolateStorage(page);
+    await bootTapeGame(page);
+    await waitForCycles(page, 6);
+    // Flush a recorded extent, then return to running LIVE before the gesture.
+    await page.getByTestId("btn-transport-pause").tap();
+    await page.getByTestId("btn-transport-resume").tap();
+    await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+    await scrubToTape(page, 0.5);
+    await expect(page.getByTestId("btn-history-resume")).toBeEnabled();
+
+    const assertGeometry = async () => {
+      const timeline = (await page.getByTestId("history-timeline").boundingBox())!;
+      expect(
+        timeline.width,
+        "the timeline remains useful after its label changes",
+      ).toBeGreaterThanOrEqual(96);
+      expect(timeline.height, "touch scrub target").toBeGreaterThanOrEqual(44);
+      const controls = await page
+        .getByTestId("history-transport")
+        .locator(":scope > div > button, .transport-speed-group > button")
+        .evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().toJSON()));
+      expect(controls.length).toBeGreaterThanOrEqual(2);
+      for (const box of controls) {
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(390);
+        expect(box.height).toBeGreaterThanOrEqual(44);
+      }
+    };
+    await assertGeometry();
+    await page.screenshot({ path: test.info().outputPath("phone-history-seek.png") });
+    await page.getByTestId("btn-history-watch").tap();
+    await assertGeometry();
+    await page.screenshot({ path: test.info().outputPath("phone-history-watch.png") });
+    await page.getByTestId("btn-history-resume").tap();
+    await expect(page.getByTestId("btn-undo-rewind")).toBeVisible();
+    await assertGeometry();
+    await page.getByTestId("btn-undo-rewind").tap();
+    await expect.poll(async () => (await textHook(page)).paused).toBe(false);
+    await assertGeometry();
+    await page.screenshot({ path: test.info().outputPath("phone-history-undo.png") });
+  });
 });

@@ -165,6 +165,8 @@ test("reference art uploads, rides the agent turn as an image, and stages a VIEW
   await expect(page.getByTestId("reference-attached")).toBeVisible();
   expect((await storedProject(page)).references?.some((r) => r.kind === "room")).toBe(true);
 
+  await expect(page.getByTestId("reference-send")).toHaveText("Use in edit");
+  await page.screenshot({ path: testInfo.outputPath("reference-edit-intent.png") });
   await page.getByTestId("reference-send").click();
   await expect(page.getByTestId("reference-upload")).toBeHidden();
   await expect.poll(() => requests.length, { timeout: 15_000 }).toBeGreaterThan(0);
@@ -266,4 +268,105 @@ test("oversized, corrupt and unusable uploads each fail with a reason", async ({
   await expect
     .poll(async () => (await textHook(page)).cycle, { timeout: 10_000 })
     .toBeGreaterThan(cycle);
+});
+
+test("JPEG and WebP attachments survive closing upload and ride only the next ordinary chat", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const requests: string[] = [];
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    requests.push(route.request().postData()!);
+    await route.fulfill(
+      providerReply("openai", {
+        id: `reference-chat-${requests.length}`,
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "I see the reference." }],
+          },
+        ],
+      }),
+    );
+  });
+  await bootAgentGame(page);
+  await configureAi(page, { provider: "openai", key: "test-placeholder" });
+  const encoded: Record<string, string> = {};
+  for (const mime of ["image/jpeg", "image/webp"]) {
+    await openBubbleAndUpload(page);
+    // A project-authored solid blue WebP fixture: WebKit decodes WebP but its canvas
+    // encoder may silently fall back to PNG.
+    encoded[mime] =
+      mime === "image/webp"
+        ? "UklGRkIAAABXRUJQVlA4IDYAAAAQAwCdASogABQAPm0ylkekIyIhKAgAgA2JZQB2AACQ7IgA/u4KZ//cGZ9XY4f/4tz9uuXwAAA="
+        : await page.evaluate((mime) => {
+            const canvas = document.createElement("canvas");
+            canvas.width = 32;
+            canvas.height = 20;
+            const context = canvas.getContext("2d")!;
+            context.fillStyle = "#336699";
+            context.fillRect(0, 0, 32, 20);
+            return canvas.toDataURL(mime).split(",")[1]!;
+          }, mime);
+    await page.getByTestId("reference-room-file").setInputFiles({
+      name: `harbour.${mime.split("/")[1]}`,
+      mimeType: mime,
+      buffer: Buffer.from(encoded[mime]!, "base64"),
+    });
+    await page.getByTestId("reference-attach").click();
+    await expect(page.getByTestId("reference-attached")).toBeVisible();
+    await page.getByTestId("reference-upload-close").click();
+    await expect(page.getByTestId("agent-pending-references")).toContainText("Room 1");
+    await page.screenshot({ path: testInfo.outputPath(`pending-${mime.split("/")[1]}.png`) });
+    if (mime === "image/webp") await page.getByTestId("agent-mode-ask").click();
+    // Submit through the ordinary composer, without the upload dialog's Send action.
+    const previous = requests.length;
+    await page.getByTestId("agent-bubble-input").fill("Use the attached room reference.");
+    await page.getByTestId("agent-bubble-input").press("Enter");
+    await expect.poll(() => requests.length).toBeGreaterThan(previous);
+    expect(requests[previous]).toContain(`data:${mime};base64,${encoded[mime]}`);
+    await expect(page.getByTestId("agent-pending-references")).toBeHidden();
+    if (mime === "image/webp") {
+      await expect(page.getByTestId("agent-mode-ask")).toHaveAttribute("aria-pressed", "true");
+      const body = JSON.parse(requests[previous]!);
+      expect(
+        body.tool_choice.tools.some((tool: { name: string }) => tool.name === "write_picture"),
+      ).toBe(false);
+      await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
+      const next = requests.length;
+      await page.getByTestId("agent-bubble-input").fill("Describe the room again.");
+      await page.getByTestId("agent-bubble-input").press("Enter");
+      await expect.poll(() => requests.length).toBeGreaterThan(next);
+      const nextBody = JSON.parse(requests[next]!);
+      const lastUser = nextBody.input
+        .filter((item: { role?: string }) => item.role === "user")
+        .at(-1);
+      expect(JSON.stringify(lastUser)).not.toContain("input_image");
+      await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
+      await page.getByTestId("agent-mode-remix").click();
+      await page.getByTestId("agent-bubble-close").click();
+    }
+    await expect(page.getByTestId("agent-bubble")).toBeHidden();
+  }
+  // Reaching the storage limit is an explicit refusal; the seventeenth cannot disappear.
+  await page.evaluate(async () => {
+    const { listCachedGames, loadAuthoredGame, updateAuthoredReferences } =
+      await import("/src/gameStorage.ts");
+    const id = listCachedGames()[0]!.projectId;
+    const data = await loadAuthoredGame(id);
+    const first = data!.references![0]!;
+    await updateAuthoredReferences(
+      id,
+      Array.from({ length: 16 }, (_, i) => ({ ...first, id: `capacity-${i}` })),
+    );
+  });
+  await openBubbleAndUpload(page);
+  await page
+    .getByTestId("reference-room-file")
+    .setInputFiles({ name: "extra.png", mimeType: "image/png", buffer: roomPng() });
+  await page.getByTestId("reference-attach").click();
+  await expect(page.getByTestId("reference-error")).toContainText("16 references");
+  expect((await storedProject(page)).references?.length).toBe(16);
 });

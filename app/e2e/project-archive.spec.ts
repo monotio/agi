@@ -63,9 +63,8 @@ test("Download project resumes private history in a fresh browser; Download game
   await page.getByTestId("btn-download-game").click();
   // This authoring-only fixture has no drawn room or resumable player state.
   await expect(page.getByTestId("export-refusal")).toContainText(
-    "Current progress could not be saved",
+    "Current progress could not be captured",
   );
-  await page.getByTestId("export-saved-progress").click();
   const saved = await projectDownload;
   expect(saved.suggestedFilename()).toMatch(/-project.zip$/);
   const data = await readGameZip(new Uint8Array(await readFile((await saved.path())!)));
@@ -148,9 +147,8 @@ test("Download project resumes private history in a fresh browser; Download game
     await openGameOptions(other, "game-menu");
     await other.getByTestId("btn-download-game").click();
     await expect(other.getByTestId("export-refusal")).toContainText(
-      "Current progress could not be saved",
+      "Current progress could not be captured",
     );
-    await other.getByTestId("export-saved-progress").click();
     const continued = await continuationDownload;
     const continuation = await readGameZip(
       new Uint8Array(await readFile((await continued.path())!)),

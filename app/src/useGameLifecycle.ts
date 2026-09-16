@@ -53,6 +53,7 @@ export interface GameLifecycleOptions {
   readonly abortWalkthrough: () => void;
   /** Eject waits out in-flight history commits before the worker dies. */
   readonly drainHistoryCommits: () => Promise<void>;
+  readonly stopHistoryWriter: () => void;
 }
 
 export function useGameLifecycle(options: GameLifecycleOptions) {
@@ -109,6 +110,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
    * deliberate-departure path and waits for storage before leaving.
    */
   function shutdownEngine(): void {
+    options.stopHistoryWriter();
     link.terminateWorker();
     audio.stop();
     options.releaseAgentAudioPreviews();
@@ -195,7 +197,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         const files = await link.query("exportFiles");
         if (!files)
           throw new Error(
-            "The current game could not be saved. Try Game actions → Project before leaving.",
+            "The current game could not be saved. Try Game → Download game… before leaving.",
           );
         await authoring.persistRemix(game, session, files);
       }
@@ -203,16 +205,16 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         const flushResult = await autosave.flushAutosaveDetailed(2000);
         if (flushResult.status === "storage_failure") {
           throw new Error(
-            "Browser storage could not save latest progress. Download a Project backup, or leave with previously saved progress.",
+            "Browser storage could not save latest progress. Use Game → Download game… for a development backup, or leave with previously saved progress.",
           );
         } else if (flushResult.status === "timeout") {
           throw new Error(
-            "Autosave timed out. Try again, download a Project backup, or leave with previously saved progress.",
+            "Autosave timed out. Try again, use Game → Download game… for a development backup, or leave with previously saved progress.",
           );
         } else if (flushResult.status === "not_checkpointable") {
           if (autosave.lastAutosaveRecord() !== null) {
             throw new Error(
-              `Current progress cannot be saved: ${flushResult.reason} Close any open game window and try again, download a Project backup, or leave with previously saved progress.`,
+              `Current progress cannot be saved: ${flushResult.reason} Close any open game window and try again, use Game → Download game… for a development backup, or leave with previously saved progress.`,
             );
           }
         }
@@ -222,22 +224,21 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       options.resumeEngine("eject");
       throw error;
     }
+    // A reply certifies that every queued history batch is durable. A
+    // timeout says nothing about worker health: preserve its recovery bytes.
+    try {
+      await link.query("historyEnd", {}, 10_000);
+      await options.drainHistoryCommits();
+    } catch {
+      state.leaving = false;
+      options.resumeEngine("eject");
+      throw new Error(
+        "Session history is not saved yet. The game is still open. Retry saving history or use Game → Download game… to keep a recovery backup before trying Exit again.",
+      );
+    }
     state.leaving = false;
     options.abortWalkthrough();
     options.promptCancel();
-    // Close the tape before the worker dies: the reply lands only once
-    // every posted and queued batch carries its ack, and the drain after
-    // waits out the matching commits — otherwise the queued tail and the
-    // "eject" end marker die with the worker. Ten seconds covers a resend
-    // backoff cycle so a transient storage refusal still lands. The walk-
-    // through session bump comes after: a replay reply is stamped with the
-    // session id, and bumping first would drop `historyEnded` as stale.
-    try {
-      await link.query("historyEnd", {}, 10_000);
-    } catch {
-      // A worker that cannot answer has already stopped recording.
-    }
-    await options.drainHistoryCommits();
     options.nextSessionId();
     link.drainPendingQueries();
     state.walkthrough.active = false;
@@ -245,6 +246,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     options.setActiveReplaySeed(null);
     // Keep the player's saved position available from the menu.
     autosave.reset();
+    options.stopHistoryWriter();
     link.terminateWorker();
     audio.stop();
     authoring.resetSession();
@@ -329,7 +331,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     if (!saved)
       logAgent(
         "error",
-        "Browser storage could not save this world. Use Game actions → Project to keep it.",
+        "Browser storage could not save this world. Use Game → Download game… to keep it.",
       );
     if (saved)
       logAgent(
@@ -523,7 +525,10 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     const files = await link.query("exportFiles");
     if (!files || booted !== game) throw new Error("The game changed during export. Try again.");
     await updateBootedResources(game, files);
-    if (!game.installed && !(await updateAuthoredGameFiles(game.projectId!, files))) {
+    if (
+      !game.installed &&
+      !(await updateAuthoredGameFiles(game.projectId!, files).catch(() => false))
+    ) {
       logAgent("error", "Browser storage could not save this world. Keep the downloaded ZIP.");
     }
     const assembled = authoring.assembleExportData(data, game, session, files);

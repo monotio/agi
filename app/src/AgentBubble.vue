@@ -6,7 +6,7 @@ import { useEngineApi } from "./engineContext.ts";
 import { usePresentation } from "./usePresentation.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { useAiSettings } from "./useAiSettings.ts";
-import { openReferenceUpload } from "./referenceUploadState.ts";
+import PendingReferences from "./PendingReferences.vue";
 
 const engine = useEngineApi();
 const { state, openPowerUp, closePowerUp, submitPowerUp, stopAgent, continueAgent, discardAgent } =
@@ -410,9 +410,16 @@ function onPowerUpKey(ev: KeyboardEvent): void {
       :audio="powerUpAudio"
       data-testid="agent-bubble-sound-preview"
     />
+    <PendingReferences
+      v-if="!creatingRoom && !state.powerUp.needsConfig"
+      :busy="state.powerUp.busy"
+      :room="state.powerUp.room"
+      :allow-attach="!asking"
+    />
     <form
       v-if="!creatingRoom && !state.powerUp.needsConfig"
       class="agent-bubble-form"
+      :class="{ 'agent-bubble-form--remix': !asking }"
       @submit.prevent="onPowerUpSubmit"
     >
       <textarea
@@ -427,17 +434,6 @@ function onPowerUpKey(ev: KeyboardEvent): void {
         :placeholder="asking ? 'Ask about this game…' : 'What would you like to change?'"
         @keydown="onPowerUpKey"
       ></textarea>
-      <button
-        v-if="!asking"
-        type="button"
-        class="ui-button ui-button--secondary"
-        data-testid="agent-attach-reference"
-        title="Attach reference art for the agent"
-        :disabled="state.powerUp.busy"
-        @click="openReferenceUpload(state.powerUp.room || undefined)"
-      >
-        Art
-      </button>
       <button
         v-if="!asking"
         type="button"
@@ -720,6 +716,9 @@ function onPowerUpKey(ev: KeyboardEvent): void {
 .agent-bubble button:disabled {
   opacity: 0.5;
   cursor: default;
+}
+.agent-bubble-form--remix textarea {
+  grid-column: 1 / -1;
 }
 .agent-bubble-form textarea {
   box-sizing: border-box;

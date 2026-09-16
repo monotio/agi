@@ -173,6 +173,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       },
       historyRetained: (msg) => workerQueries.resolveQuery(msg.id, msg),
       historyEnded: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      historyRecovery: (msg) => workerQueries.resolveQuery(msg.id, msg),
       historyTaken: (msg) => workerQueries.resolveQuery(msg.id, msg),
       historyViewRestored: (msg) => workerQueries.resolveQuery(msg.id, msg),
       // The worker's acknowledgement that the freeze landed — the hook reads

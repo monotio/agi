@@ -37,6 +37,7 @@ import type { LogAgentFn } from "./useInputController.ts";
 import type { WorkerInbound, WorkerQueryFn } from "./workerProtocol.ts";
 import type { HistoryBoot } from "../../src/agent/history.ts";
 import { base64ToBytes } from "./bytes.ts";
+import { pendingReferences, removePendingReference } from "./referenceUploadState.ts";
 
 /** Remix bubble state; the transcript slice is the live tool-call feed. */
 export interface PowerUpUiState {
@@ -249,6 +250,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   function resetSession(): void {
     session?.task.cancel();
     session = null;
+    pendingReferences.splice(0);
     remixNeedsSave = false;
   }
 
@@ -417,7 +419,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       writtenRev = planRevisionOf(author);
       if (!(await saveAuthoredGame(remixProjectId, data)))
         throw new Error(
-          "Browser storage could not save this remix. Use Game actions → Project to keep it.",
+          "Browser storage could not save this remix. Use Game → Download game… to keep it.",
         );
       // The checkpoint moves with the progress: the original card must never
       // offer a snapshot taken under resources its own container does not have.
@@ -448,7 +450,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         ))
       ) {
         throw new Error(
-          "Browser storage could not save this remix. Use Game actions → Project to keep it.",
+          "Browser storage could not save this remix. Use Game → Download game… to keep it.",
         );
       }
     }
@@ -480,11 +482,17 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       const booted = getBootedGame();
       // Attached references ride the turn as image blocks: the model sees
       // the player's own art, captioned with target and brief.
-      const images = referenceIds?.length
+      const selectedIds =
+        referenceIds ??
+        pendingReferences
+          .filter((reference) => reference.project === booted?.projectId)
+          .map((reference) => reference.id);
+      const images = selectedIds.length
         ? (await listReferences())
-            .filter((reference) => referenceIds.includes(reference.id))
+            .filter((reference) => selectedIds.includes(reference.id))
             .flatMap((reference) => referenceAgentImages(reference))
         : undefined;
+      for (const id of selectedIds) removePendingReference(id);
       if (state.powerUp.mode === "ask") {
         const text = await session.runAsk(instruction, room, images);
         state.powerUp.reply = text;
@@ -512,7 +520,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
             ))
           )
             throw new Error(
-              "Conversation could not be saved. Use Game actions → Project to keep it.",
+              "Conversation could not be saved. Use Game → Download game… to keep it.",
             );
           reportPlanSaved(writtenRev);
         }
@@ -858,12 +866,24 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   async function writeReferences(game: BootedGame, references: StoredReference[]): Promise<void> {
-    const trimmed = references.slice(0, REFERENCE_COUNT_LIMIT);
-    if (!(await updateAuthoredReferences(game.projectId!, trimmed)))
+    if (references.length > REFERENCE_COUNT_LIMIT)
       throw new Error(
-        "Browser storage could not save the reference. Use Game actions → Project to keep it.",
+        `This project already has ${REFERENCE_COUNT_LIMIT} references. Remove one before attaching another.`,
       );
-    if (game.authoredGame) game.authoredGame = { ...game.authoredGame, references: trimmed };
+    if (!(await updateAuthoredReferences(game.projectId!, references)))
+      throw new Error(
+        "Browser storage could not save the reference. Try again before closing this dialog.",
+      );
+    if (game.authoredGame) game.authoredGame = { ...game.authoredGame, references };
+  }
+
+  async function referencesWithCapacity(): Promise<StoredReference[]> {
+    const references = await listReferences();
+    if (references.length >= REFERENCE_COUNT_LIMIT)
+      throw new Error(
+        `This project already has ${REFERENCE_COUNT_LIMIT} references. Remove one before attaching another.`,
+      );
+    return references;
   }
 
   async function attachRoomReference(
@@ -872,6 +892,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     brief: string,
   ): Promise<StoredReference> {
     const game = requireAuthoredBoot();
+    const references = await referencesWithCapacity();
     const reference = roomReference(
       `ref-${crypto.randomUUID()}`,
       room,
@@ -879,7 +900,12 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       { project: game.projectId!, revision: game.revision },
       decoded,
     );
-    await writeReferences(game, [...(await listReferences()), reference]);
+    await writeReferences(game, [...references, reference]);
+    pendingReferences.push({
+      id: reference.id,
+      project: game.projectId!,
+      label: `${reference.kind === "room" ? "Room" : "View"} ${reference.target}${brief ? ` — ${brief}` : ""}`,
+    });
     return reference;
   }
 
@@ -890,6 +916,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     brief: string,
   ): Promise<StoredReference> {
     const game = requireAuthoredBoot();
+    const references = await referencesWithCapacity();
     const reference = stageCharacterView(
       `ref-${crypto.randomUUID()}`,
       view,
@@ -898,7 +925,12 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       sheets.map(({ decoded, facing }) => ({ decoded, facing })),
       spec,
     );
-    await writeReferences(game, [...(await listReferences()), reference]);
+    await writeReferences(game, [...references, reference]);
+    pendingReferences.push({
+      id: reference.id,
+      project: game.projectId!,
+      label: `${reference.kind === "room" ? "Room" : "View"} ${reference.target}${brief ? ` — ${brief}` : ""}`,
+    });
     return reference;
   }
 
@@ -908,6 +940,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       game,
       (await listReferences()).filter((reference) => reference.id !== id),
     );
+    removePendingReference(id);
   }
 
   /**
@@ -950,7 +983,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     } else {
       if (!(await updateAuthoredGameFiles(game.projectId!, files)))
         throw new Error(
-          "Browser storage could not save the kept view. Use Game actions → Project to keep it.",
+          "Browser storage could not save the kept view. Use Game → Download game… to keep it.",
         );
       await updateBootedResources(game, files);
     }

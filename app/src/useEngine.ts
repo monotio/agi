@@ -246,6 +246,10 @@ export function useEngine(
     state,
     getBootedGame: () => lifecycle.getBootedGame(),
     getProfile: () => state.profile,
+    scheduleRenewal: (callback, delay) => {
+      const timer = setTimeout(callback, delay);
+      return () => clearTimeout(timer);
+    },
     logAgent,
   });
 
@@ -299,6 +303,7 @@ export function useEngine(
     resumeEngine,
     resetPauseOwners,
     resetHistoryView: () => historyView.resetHistoryView(),
+    stopHistoryWriter: historyController.stopWriterRenewal,
     getSessionId: () => activeWalkthroughSession,
     nextSessionId: () => ++activeWalkthroughSession,
     getActiveReplaySeed: () => activeReplaySeed,
@@ -538,6 +543,7 @@ export function useEngine(
     isInstalledGame: lifecycle.isInstalledGame,
     currentGame: lifecycle.currentGame,
     exportCurrentGame: lifecycle.exportCurrentGame,
+    recoverHistory: () => link.query("historyRecover"),
     startTestRecording,
     stopTestRecording,
     cancelTestRecording,

@@ -1283,3 +1283,56 @@ test("a template session — menu save, death box, death restore — replays to 
     assert.equal(historySyncDigest(replayed.ctx.engine!), liveDigest);
   }
 });
+
+test("recovery export includes queued and unacknowledged history without waiting for storage", () => {
+  const h = historyHarness(historyGame(), undefined, { autoAck: false });
+  h.send({ type: "debugWrite", id: 0, flags: [[200, 1]] });
+  h.tick(8);
+  for (let i = 0; i < 8; i++) {
+    h.tick(2);
+    h.send({ type: "pause", paused: true });
+    h.send({ type: "pause", paused: false });
+  }
+  assert.ok(h.ctx.history.queue.length > 0);
+  h.send({ type: "historyRecover", id: 900 });
+  const result = h.control.find((m) => m.type === "historyRecovery");
+  assert.ok(result && result.type === "historyRecovery");
+  assert.ok(result.batches.length > HISTORY_INFLIGHT_MAX);
+  assert.deepEqual(result.batches, [
+    ...h.ctx.history.sent,
+    ...h.ctx.history.queue.map((e) => e.batch),
+  ]);
+  assert.ok(result.boot?.image, "current progress is captured without a storage write");
+  assert.ok(h.ctx.history.sent.length > 0, "export does not acknowledge or discard recovery bytes");
+});
+
+test("a refused Exit can resume recording while preserving the unacknowledged tail", () => {
+  const h = historyHarness(historyGame(), undefined, { autoAck: false });
+  h.send({ type: "debugWrite", id: 0, flags: [[200, 1]] });
+  h.tick(8);
+  h.send({ type: "pause", paused: true });
+  const original = h.ctx.history.segment;
+  h.send({ type: "historyEnd", id: 901 });
+  assert.equal(
+    h.control.some((m) => m.type === "historyEnded"),
+    false,
+  );
+  const pending = [...h.ctx.history.sent];
+  h.tick(2);
+  assert.equal(h.ctx.history.segment, null, "paused Exit cannot reopen a segment before teardown");
+  h.send({ type: "pause", paused: false });
+  h.tick(2);
+  assert.ok(h.ctx.history.segment);
+  assert.notEqual(h.ctx.history.segment, original);
+  assert.deepEqual(h.ctx.history.sent.slice(0, pending.length), pending);
+  h.send({ type: "key", code: 65 });
+  h.send({ type: "pause", paused: true });
+  h.send({ type: "historyRecover", id: 902 });
+  const recovery = h.control.find((m) => m.type === "historyRecovery");
+  assert.ok(recovery?.type === "historyRecovery");
+  assert.ok(
+    recovery.batches.some(
+      (batch) => batch.segment !== original && batch.events.some((e) => e.cause.kind === "key"),
+    ),
+  );
+});

@@ -851,3 +851,29 @@ test("a restore ack naming a different revision is an uncertain outcome — the 
   assert.equal(adoptions.length, 0, "nothing installed against an unverifiable revision");
   assert.ok(sessionState.hold !== null, "the hold survives — a retrying swap releases it");
 });
+
+test("a scrub keeps lane extents and the final target while a batch lands during opening", async () => {
+  await importGameHistory("view-test", { recording: RECORDING }, RECORDING.identity);
+  const { view, seeks, release, waitHeld } = makeHarness({ defer: ["state"] });
+  view.observeBatch(batch("sX.1", [4]));
+  view.observeBatch(batch("sX.2", [4]));
+  const model = view.transport;
+  model.scrubDown(25);
+  await waitHeld("state");
+  view.observeBatch(batch("sX.1", [8]));
+  assert.equal(model.totalTicks, 8, "a landing batch cannot stretch the gesture's axis");
+  model.scrubMove(62.5);
+  model.scrubUp(62.5);
+  release("state", {});
+  for (let i = 0; i < 100 && seeks.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(seeks, [{ segment: 1, tick: 1 }], "the final target stays in the second lane");
+});
+
+test("an opening seek keeps its lane when stored extents differ from the live outline", async () => {
+  await importGameHistory("view-test", { recording: RECORDING }, RECORDING.identity);
+  const { view, seeks } = makeHarness();
+  view.observeBatch(batch("sX.1", [4]));
+  view.observeBatch(batch("sX.2", [4]));
+  await view.dispatchSeek(6);
+  assert.deepEqual(seeks, [{ segment: 1, tick: 1 }]);
+});

@@ -4,6 +4,15 @@
  * `room` pre-fills the room target when the map raised it for a room.
  */
 import { reactive } from "vue";
+import type { ProjectId } from "../../src/gameIdentity.ts";
+
+/** Composer selection is transient; the art itself remains in project storage. */
+export const pendingReferences = reactive<{ id: string; project: ProjectId; label: string }[]>([]);
+
+export function removePendingReference(id: string): void {
+  const index = pendingReferences.findIndex((reference) => reference.id === id);
+  if (index !== -1) pendingReferences.splice(index, 1);
+}
 
 export const referenceUpload = reactive<{ open: boolean; room: number | undefined }>({
   open: false,

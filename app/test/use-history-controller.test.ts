@@ -13,7 +13,7 @@ import type { HistoryBatch, HistoryBoot } from "../../src/agent/history.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
 
-installIndexedDbFixture();
+const records = installIndexedDbFixture();
 
 const BOOT: HistoryBoot = {
   files: { "VOL.0": "eA==" },
@@ -161,4 +161,117 @@ test("a mid-session storage-key change migrates the tape instead of orphaning it
     true,
   );
   assert.equal((await loadGameHistory("hc-other"))?.segments.length, 1);
+});
+
+test("a paused writer renews its lease and stops renewing when the segment ends", async (t) => {
+  let now = 1000;
+  t.mock.method(Date, "now", () => now);
+  const booted = game("hc-lease");
+  const scheduled: { callback: () => void; cancelled: boolean }[] = [];
+  const state = {
+    historyPending: 0,
+    historyUnsaved: null as { batches: number; since: number } | null,
+  };
+  const controller = useHistoryController({
+    state,
+    getBootedGame: () => booted,
+    getProfile: () => "2.936",
+    logAgent: () => {},
+    scheduleRenewal: (callback, delay) => {
+      assert.equal(delay, 30_000);
+      const task = { callback, cancelled: false };
+      scheduled.push(task);
+      return () => {
+        task.cancelled = true;
+      };
+    },
+  });
+  const batch: HistoryBatch = {
+    segment: "sLease.s1",
+    batch: 0,
+    seqStart: 0,
+    seqEnd: 0,
+    boot: BOOT,
+    events: [],
+    marks: [],
+    sync: [],
+  };
+  assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch }), true);
+  assert.equal(scheduled.length, 1);
+  now += 30_000;
+  const read = t.mock.method(records, "get", () => {
+    throw new Error("transient lease read refusal");
+  });
+  scheduled[0]!.callback();
+  await controller.drainHistoryCommits();
+  assert.equal(scheduled.length, 2, "renewal rearms while play is paused and no batches arrive");
+  assert.notEqual(state.historyUnsaved, null);
+  read.mock.restore();
+  const { boot: _boot, ...tail } = batch;
+  assert.equal(
+    await controller.handleHistoryBatch({
+      epoch: 0,
+      batch: {
+        ...tail,
+        batch: 1,
+        end: { seq: 0, tick: 0, cycle: 0, reason: "eject" },
+      } as HistoryBatch,
+    }),
+    true,
+  );
+  assert.equal(scheduled[1]!.cancelled, true);
+  assert.equal(state.historyUnsaved, null, "a durable end clears transient lease warnings");
+});
+
+test("an old boot resend cannot steal renewal from the current paused segment", async () => {
+  const booted = game("hc-stale-boot");
+  const state = {
+    historyPending: 0,
+    historyUnsaved: null as { batches: number; since: number } | null,
+  };
+  let renew: (() => void) | undefined;
+  const controller = useHistoryController({
+    state,
+    getBootedGame: () => booted,
+    getProfile: () => "2.936",
+    logAgent: () => {},
+    scheduleRenewal: (callback) => {
+      renew = callback;
+      return () => {
+        renew = undefined;
+      };
+    },
+  });
+  const first: HistoryBatch = {
+    segment: "sStale.s1",
+    batch: 0,
+    seqStart: 0,
+    seqEnd: 0,
+    boot: BOOT,
+    events: [],
+    marks: [],
+    sync: [],
+  };
+  assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: first }), true);
+  const { boot: _boot, ...tail } = first;
+  assert.equal(
+    await controller.handleHistoryBatch({
+      epoch: 0,
+      batch: { ...tail, batch: 1, end: { seq: 0, tick: 0, cycle: 0, reason: "budget" } },
+    }),
+    true,
+  );
+  assert.equal(
+    await controller.handleHistoryBatch({
+      epoch: 0,
+      batch: { ...first, segment: "sStale.s2", batch: 2 },
+    }),
+    true,
+  );
+  assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: first }), true);
+  assert.ok(renew);
+  renew();
+  await controller.drainHistoryCommits();
+  assert.equal(state.historyUnsaved, null, "current open segment is renewed, not the ended resend");
+  controller.stopWriterRenewal();
 });
