@@ -12,6 +12,7 @@ import { prepareRoomPatch } from "../../src/agent/roomPatch.ts";
 import {
   getCachedGameMeta,
   loadAuthoredGame,
+  loadAuthoredGameWithHistoryLifetime,
   loadGameConversation,
   saveAuthoredGameWithLifetime,
   saveGameConversation,
@@ -977,8 +978,16 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     pauseEngine("keepView");
     try {
       await getAutosaveWrite();
-      const stored = await loadAuthoredGame(game.projectId!);
-      if (!stored) throw new Error("The project is no longer stored in this browser.");
+      const captured = await loadAuthoredGameWithHistoryLifetime(game.projectId!);
+      if (!captured) throw new Error("The project is no longer stored in this browser.");
+      const { data: stored, lifetime } = captured;
+      if (
+        lifetime === null ||
+        (game.historyLifetime !== undefined && game.historyLifetime !== lifetime)
+      )
+        throw new Error(
+          "The project was removed or changed elsewhere — reload it before keeping staged art.",
+        );
       if ((await gameRevision(stored.files)) !== game.revision)
         throw new Error(
           "The project changed elsewhere since this game booted — reload it before keeping staged art.",
@@ -1071,7 +1080,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       const historyLifetime = await saveAuthoredGameWithLifetime(
         targetId,
         data,
-        forkCatalog ? { requireNew: true } : { expectedGeneration: stored.generation ?? 0 },
+        forkCatalog
+          ? { requireNew: true }
+          : { expectedGeneration: stored.generation ?? 0, expectedLifetime: lifetime },
       );
       if (historyLifetime === null)
         throw new Error(

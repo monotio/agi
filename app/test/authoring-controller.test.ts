@@ -667,6 +667,33 @@ for (const withSession of [false, true]) {
     assert.equal(powerUp.busy, false);
 
     await updateAuthoredGameFiles(projectId, files);
+    const beforeRecreation = (await loadAuthoredGame(projectId))!;
+    game.historyLifetime = await readHistoryLifetime(projectId);
+    duringExport = async () => {
+      await clearCachedGame(projectId);
+      const replacement = {
+        ...beforeRecreation,
+        title: "Replacement project",
+        files: Object.fromEntries(moved.files),
+      };
+      for (let generation = 0; generation < beforeRecreation.generation!; generation++)
+        assert.equal(await saveAuthoredGame(projectId, replacement), true);
+      assert.equal((await loadAuthoredGame(projectId))!.generation, beforeRecreation.generation);
+      assert.notEqual(await readHistoryLifetime(projectId), game.historyLifetime);
+    };
+    await assert.rejects(controller.keepStagedView(reference.id), /changed|save/i);
+    const replacement = (await loadAuthoredGame(projectId))!;
+    assert.equal(replacement.title, "Replacement project");
+    assert.ok(openContainer(new Map(Object.entries(replacement.files))).getResource("logic", 2));
+    assert.ok(replacement.references?.[0]?.staged);
+    assert.equal(author.resourceSet(), before);
+    assert.equal(posts.length, 0);
+
+    // Even identical bytes in the replacement cannot revive the old boot's ownership.
+    await updateAuthoredGameFiles(projectId, files);
+    duringExport = async () => assert.fail("an obsolete boot must refuse before export");
+    await assert.rejects(controller.keepStagedView(reference.id), /changed|removed/i);
+    game.historyLifetime = await readHistoryLifetime(projectId);
     duringExport = async () => {
       assert.equal(powerUp.busy, true, "Keep reserves the controller before exporting");
       await assert.rejects(controller.keepStagedView(reference.id), /current agent turn/);

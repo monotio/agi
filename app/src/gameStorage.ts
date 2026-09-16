@@ -442,9 +442,15 @@ async function putVersionedRecord<T extends { format: string; version: number }>
   });
 }
 
+interface ProjectWriteOptions {
+  expectedGeneration?: number | undefined;
+  expectedLifetime?: string | null | undefined;
+  requireNew?: boolean | undefined;
+}
+
 async function writeCurrentBody(
   data: CachedGameData,
-  options?: { expectedGeneration?: number | undefined; requireNew?: boolean | undefined },
+  options?: ProjectWriteOptions,
 ): Promise<string> {
   const db = await openDatabase();
   return new Promise<string>((resolve, reject) => {
@@ -490,24 +496,39 @@ async function writeCurrentBody(
         }
       }
 
-      const prevGen = typeof value?.generation === "number" ? value.generation : 0;
-      committedGeneration =
-        (options?.expectedGeneration !== undefined ? options.expectedGeneration : prevGen) + 1;
-      data.generation = committedGeneration;
-      if (value === undefined) {
-        lifetime = crypto.randomUUID();
-        store.put({
-          projectId: `lifetime/${data.projectId}`,
-          epoch: lifetime,
-          deleted: false,
-        } satisfies HistoryLifetime);
-      } else {
-        const receipt = store.get(`lifetime/${data.projectId}`);
-        receipt.onsuccess = () => {
-          lifetime = (receipt.result as HistoryLifetime | undefined)?.epoch ?? "initial";
-        };
-      }
-      store.put(storedBody(data));
+      // Generation alone cannot distinguish a deleted-and-recreated project
+      // whose counter reached the same number. Check both identities in this
+      // transaction before writing either the body or its lifetime receipt.
+      const receipt = store.get(`lifetime/${data.projectId}`);
+      receipt.onsuccess = () => {
+        const previousLifetime = receipt.result as HistoryLifetime | undefined;
+        lifetime = previousLifetime?.epoch ?? "initial";
+        if (
+          options?.expectedLifetime !== undefined &&
+          (value === undefined ||
+            previousLifetime?.deleted ||
+            lifetime !== options.expectedLifetime)
+        ) {
+          contractError = new ProjectDeletedError(
+            `Project "${data.projectId}" was removed or replaced by another window.`,
+          );
+          transaction.abort();
+          return;
+        }
+        const prevGen = typeof value?.generation === "number" ? value.generation : 0;
+        committedGeneration =
+          (options?.expectedGeneration !== undefined ? options.expectedGeneration : prevGen) + 1;
+        data.generation = committedGeneration;
+        if (value === undefined) {
+          lifetime = crypto.randomUUID();
+          store.put({
+            projectId: `lifetime/${data.projectId}`,
+            epoch: lifetime,
+            deleted: false,
+          } satisfies HistoryLifetime);
+        }
+        store.put(storedBody(data));
+      };
     };
 
     transaction.oncomplete = () => resolve(lifetime);
@@ -631,10 +652,7 @@ async function stampLibraryMetadata(
   data.library = merged;
   return changed;
 }
-async function writeBody(
-  data: CachedGameData,
-  options?: { expectedGeneration?: number | undefined; requireNew?: boolean | undefined },
-): Promise<string> {
+async function writeBody(data: CachedGameData, options?: ProjectWriteOptions): Promise<string> {
   const existingIndex = localStorage.getItem(getStorageKey(data.projectId));
   if (existingIndex) {
     let index: Record<string, unknown>;
@@ -700,7 +718,7 @@ export function loadAuthoredGameWithHistoryLifetime(
 export async function saveAuthoredGame(
   projectId: ProjectId,
   data: Omit<CachedGameData, "projectId" | "authoredAt">,
-  options?: { expectedGeneration?: number | undefined; requireNew?: boolean | undefined },
+  options?: ProjectWriteOptions,
 ): Promise<boolean> {
   return (await saveAuthoredGameWithLifetime(projectId, data, options)) !== null;
 }
@@ -709,14 +727,18 @@ export async function saveAuthoredGame(
 export function saveAuthoredGameWithLifetime(
   projectId: ProjectId,
   data: Omit<CachedGameData, "projectId" | "authoredAt">,
-  options?: { expectedGeneration?: number | undefined; requireNew?: boolean | undefined },
+  options?: ProjectWriteOptions,
 ): Promise<string | null> {
   return serializeWrite(projectId, async () => {
     try {
       const gen = options?.expectedGeneration;
       return await writeBody(
         { ...data, projectId, authoredAt: new Date().toISOString() },
-        { expectedGeneration: gen, requireNew: options?.requireNew },
+        {
+          expectedGeneration: gen,
+          expectedLifetime: options?.expectedLifetime,
+          requireNew: options?.requireNew,
+        },
       );
     } catch (error) {
       console.error("Project storage failed:", error);
