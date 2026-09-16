@@ -1,6 +1,7 @@
 import { cacheGame, configureAi } from "./engineProbe.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "@playwright/test";
+import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
@@ -40,7 +41,7 @@ for (const fail of [false, true])
     await page.goto("/");
     await configureAi(page, { provider: "openai", key: "test-placeholder" });
     await cacheGame(page, {
-      projectId: "progress",
+      projectId: testProjectId("progress"),
       title: "A growing world",
       provider: "openai",
       model: "gpt-6-astra",

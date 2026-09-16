@@ -47,7 +47,7 @@ for (const phone of [false, true]) {
         const unavailable = fixtureSkip(route.hash, ["AGIDATA.OVL"]);
         test.skip(Boolean(unavailable), unavailable || "");
         test.skip(
-          recording !== null && recording.game !== route.alias,
+          recording !== null && recording.identity.project !== route.alias,
           "Another walkthrough was selected by AGI_SPEEDRUN_FILE.",
         );
         test.setTimeout(15 * 60_000);

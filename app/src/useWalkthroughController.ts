@@ -15,6 +15,7 @@ import { findInstalledFolder, type InstalledGameDescriptor } from "./gameTypes.t
 import type { AgentLogEntry } from "./agent/agentLog.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import { getCachedGameMeta, listCachedGames, type ProjectId } from "./gameStorage.ts";
+import { projectId } from "../../src/gameIdentity.ts";
 import type { BootedGame } from "./gameTypes.ts";
 import type { WorkerInbound } from "./workerProtocol.ts";
 import {
@@ -194,7 +195,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     const targetCp = target > 0 ? [...checkpoints].reverse().find((c) => c.tick <= target) : null;
 
     state.walkthrough.active = true;
-    state.walkthrough.alias = artifact.game;
+    state.walkthrough.alias = artifact.identity.project;
     state.walkthrough.speed = speed;
     state.walkthrough.status = keepPaused ? "paused" : "playing";
     state.walkthrough.error = "";
@@ -273,13 +274,14 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     } else if (ctx.isInstalledGame(targetGame)) {
       await ctx.bootGame(findInstalledFolder(ctx.state.installedGames, targetGame));
     } else {
-      // A walkthrough is addressed by alias or hash; saved library copies
-      // (catalog releases, imports, authored projects) resolve to their
-      // projectId before booting from the browser cache.
-      const norm = targetGame.toLowerCase();
+      // A walkthrough is addressed by alias, hash or revision; saved library
+      // copies (catalog releases, imports, authored projects) resolve to
+      // their projectId before booting from the browser cache. A saved copy
+      // of the tape's exact playable bytes is a match by revision.
+      const directId = projectId(targetGame);
       const saved =
-        getCachedGameMeta(targetGame) ??
-        listCachedGames().find((game) => game.library?.alias?.toLowerCase() === norm);
+        (directId !== null ? getCachedGameMeta(directId) : null) ??
+        listCachedGames().find((game) => game.library?.revision === artifact.identity.revision);
       if (saved) {
         await ctx.bootAuthoredGame(
           "",
@@ -312,11 +314,11 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
 
     // The artifact's binding names the build the tape was recorded on; refuse
     // a different edition up front instead of failing at a later checkpoint.
-    if (artifact.targetRevision || artifact.supportedRevisions?.length) {
+    {
       const revision = ctx.getBootedGame()?.revision;
       const supported = new Set(
-        [artifact.targetRevision, ...(artifact.supportedRevisions ?? [])].filter(
-          (h): h is string => typeof h === "string",
+        [artifact.identity.revision, ...(artifact.supportedRevisions ?? [])].map((h) =>
+          h.toLowerCase(),
         ),
       );
       if (!revision || !supported.has(revision.toLowerCase())) {
@@ -662,8 +664,11 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
               : "Pause (Space)",
         aria: status === "paused" ? "Play" : status === "completed" ? "Replay" : "Pause",
         disabled: false,
+        run: toggleWalkthroughPause,
       };
     },
+    speedGroup: true,
+    live: undefined,
     speedTestid: "walkthrough-speed-",
     speedActiveClass: "walkthrough-speed-btn--active",
     tooltipClass: "walkthrough-tooltip",

@@ -30,7 +30,13 @@
     --game-width: min(calc(100vw - 268px), calc((var(--visible-height, 100dvh) - 100px) * 1.6));
     flex-direction: row;
     align-items: flex-start;
+    flex-wrap: wrap;
     gap: 16px;
+  }
+  /* The transport stays under the game, not a third column beside the pad. */
+  .play-area.with-touch .transport {
+    flex-basis: 100%;
+    order: 3;
   }
   .app-container:has(.with-touch) {
     padding: 8px 0;

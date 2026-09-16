@@ -95,7 +95,7 @@ test("returning to the menu preserves the saved room and offers continue", async
   expect(await printWindowText(page)).toContain("generated room 2");
   await page.keyboard.press("Enter");
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   expect((await storedAutosave(page, "custom"))?.room).toBe(2);
   await savedGameCard(page, "custom").getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
@@ -120,8 +120,8 @@ test("in-game ZIP exports the live game after a patch and reload", async ({ page
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
   const downloadPromise = page.waitForEvent("download");
-  await openGameOptions(page, "game-actions-menu");
-  await page.getByTestId("btn-export-live-zip").click();
+  await openGameOptions(page, "game-menu");
+  await page.getByTestId("btn-export-game").click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("agi-custom-game.zip");
   const bytes = await readFile((await download.path())!);
@@ -162,8 +162,8 @@ test("in-game ZIP exports the live game after a patch and reload", async ({ page
   await expect(page.getByText("Resumed where you left off")).toBeVisible({ timeout: 15_000 });
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
-  await openGameOptions(page, "game-actions-menu");
-  await expect(page.getByTestId("btn-export-live-zip")).toBeVisible();
+  await openGameOptions(page, "game-menu");
+  await expect(page.getByTestId("btn-export-game")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
   // Re-entering room 2 runs its patched entry code: the sign is really there.
   await typeCommand(page, "west");
@@ -303,20 +303,22 @@ test("sound controls allow toggling mute and switching sound chip mode", async (
   await page.getByTestId("boot-agent").click();
   await openGameOptions(page, "settings-menu");
   const muteBtn = page.getByTestId("toggle-mute");
+  // Sound-chip emulation is an Advanced setting.
+  await page.getByTestId("settings-advanced").click();
   const modeBtn = page.getByTestId("toggle-sound-mode");
 
   await expect(muteBtn).toBeVisible();
   await expect(modeBtn).toBeVisible();
 
-  // Initial state: Sound On, Tandy 4-Voice
-  await expect(muteBtn).toContainText("Sound on");
+  // Initial state: Sound on, Tandy 4-Voice chip
+  await expect(muteBtn.locator(".setting-value")).toHaveText("On");
   await expect(modeBtn).toContainText("Tandy 4-Voice");
 
   // Toggle mute
   await muteBtn.click();
-  await expect(muteBtn).toContainText("Sound off");
+  await expect(muteBtn.locator(".setting-value")).toHaveText("Off");
   await muteBtn.click();
-  await expect(muteBtn).toContainText("Sound on");
+  await expect(muteBtn.locator(".setting-value")).toHaveText("On");
 
   // Toggle sound mode
   await modeBtn.click();

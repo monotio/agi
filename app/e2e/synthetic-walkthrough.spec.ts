@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { isolateStorage } from "./engineProbe.ts";
+import { isolateStorage, openCardMenu } from "./engineProbe.ts";
 
 test.describe("Synthetic Walkthrough", () => {
   test("runs synthetic walkthrough from game actions menu with speed, seek, and take-control", async ({
@@ -9,9 +9,7 @@ test.describe("Synthetic Walkthrough", () => {
     await page.goto("/");
 
     // Open ActionMenu next to Play for synthetic
-    const menuBtn = page.getByTestId("game-actions-synthetic");
-    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
-    await menuBtn.click();
+    await openCardMenu(page, "game-actions-synthetic");
 
     // Verify "Run walkthrough" item is visible
     const runBtn = page.getByTestId("run-walkthrough");

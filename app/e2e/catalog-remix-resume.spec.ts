@@ -78,7 +78,7 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   // Progress now belongs to the remix: the original card must not offer a checkpoint.
   expect(await storedAutosave(page, TUTORIAL_PROJECT_ID)).toBeNull();
 
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   await expect.poll(() => new URL(page.url()).hash).toBe("");
   const tutorialCard = savedGameCard(page, "Adventure Department");
   await expect(tutorialCard.getByRole("button", { name: "Play", exact: true })).toBeVisible();

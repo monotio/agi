@@ -39,8 +39,8 @@ test("a friend opens an exported world in a fresh browser without a key", async 
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("generated room 2");
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "game-actions-menu");
-  await page.getByTestId("btn-export-live-zip").click();
+  await openGameOptions(page, "game-menu");
+  await page.getByTestId("btn-export-game").click();
   const zip = await downloading;
   const context = await browser.newContext();
   try {
@@ -68,7 +68,7 @@ test("a friend opens an exported world in a fresh browser without a key", async 
     expect(providerCalls).toBe(0);
     expect(await friend.evaluate(() => localStorage.getItem("monotio_agi.aiSettings"))).toBeNull();
     await friend.screenshot({ path: "test-results/shared-zip-playing.png" });
-    await friend.getByTestId("btn-eject").click();
+    await friend.getByTestId("btn-exit").click();
     const before = await friend.evaluate(() =>
       Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.authored.imported-")),
     );
@@ -242,8 +242,8 @@ test("a v3 game can be imported, remixed, exported and opened in a fresh session
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("A remixed v3 adventure.");
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "game-actions-menu");
-  await page.getByTestId("btn-export-live-zip").click();
+  await openGameOptions(page, "game-menu");
+  await page.getByTestId("btn-export-game").click();
   const download = await downloading;
   const downloaded = await readFile((await download.path())!);
   const imported = await readGameZip(downloaded);
@@ -305,7 +305,7 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
   });
   await savedGameCard(page, "Custom Adventure").getByTestId("btn-resume-cached").click();
   await expect(page.getByTestId("input-line")).toBeVisible();
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   const before = await page.evaluate(() => {
     const key = Object.keys(localStorage).find((k) => k.startsWith("monotio_agi.authored."))!;
     return { key, data: JSON.parse(localStorage.getItem(key)!) };
@@ -339,7 +339,7 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
   await openSavedGameDetails(renamedCard);
   const downloading = page.waitForEvent("download");
   await openLibraryActions(page, renamedCard);
-  await page.getByTestId("btn-export-agi-zip").click();
+  await page.getByTestId("export-library-game").click();
   const exported = await downloading;
   const content = await readGameZip(new Uint8Array(await readFile((await exported.path())!)));
   expect(content.title).toBe("The Midnight Appointment");
@@ -351,7 +351,7 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
     const friendCard = savedGameCard(friend, "The Midnight Appointment");
     await friendCard.getByTestId("btn-resume-cached").click();
     await expect(friend.getByTestId("input-line")).toBeVisible();
-    await friend.getByTestId("btn-eject").click();
+    await friend.getByTestId("btn-exit").click();
     await expect(friendCard.getByTestId("saved-game-title")).toHaveText("The Midnight Appointment");
   } finally {
     await context.close();

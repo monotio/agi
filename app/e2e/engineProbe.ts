@@ -296,24 +296,72 @@ export async function openAiSettings(page: Page): Promise<void> {
   await expect(page.getByTestId("ai-settings-dialog")).toBeVisible();
 }
 
+/**
+ * Wait out the document scroll a card's scroll-into-view started: a late
+ * scroll event moves the trigger and closes an open menu mid-click.
+ */
+async function settleScroll(page: Page): Promise<void> {
+  await expect
+    .poll(async () => {
+      const a = await page.evaluate(() => window.scrollY);
+      await page.waitForTimeout(80);
+      return a === (await page.evaluate(() => window.scrollY));
+    })
+    .toBe(true);
+}
+
 /** Saved-game actions live in a popup outside the card's clipping boundary. */
 export async function openLibraryActions(page: Page, card: Locator): Promise<void> {
   const trigger = card.getByRole("button", { name: "Game actions", exact: true });
+  await trigger.scrollIntoViewIfNeeded();
+  await settleScroll(page);
   if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
   await expect(page.getByRole("menu", { name: "Game actions", exact: true })).toBeVisible();
 }
 
 /**
+ * Open a game card's action menu. Cards can sit deep in the library: the
+ * trigger's scroll-into-view plus scroll-anchored layout shifts can still be
+ * settling as the menu opens, and a late scroll event moves the trigger and
+ * closes the menu mid-click. Wait for the document scroll to go quiet first.
+ */
+export async function openCardMenu(page: Page, testId: string): Promise<void> {
+  const trigger = page.getByTestId(testId);
+  await trigger.scrollIntoViewIfNeeded();
+  await settleScroll(page);
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+}
+
+/**
  * Open a top-bar menu through its trigger without closing it on repeat calls.
- * `game-actions-menu` holds Start over and the exports while a game runs;
+ * `help-menu` holds Game controls, the map, hints and the walkthrough;
+ * `game-menu` holds creator and export actions plus Start over;
  * `settings-menu` holds the AI provider, input, sound and display settings.
  */
 export async function openGameOptions(
   page: Page,
-  menu: "game-actions-menu" | "settings-menu",
+  menu: "help-menu" | "settings-menu" | "game-menu",
 ): Promise<void> {
   const trigger = page.getByTestId(menu);
   if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+}
+
+/** Open the Game controls dialog through the Help menu. */
+export async function openGameControls(page: Page): Promise<void> {
+  await openGameOptions(page, "help-menu");
+  await page.getByTestId("btn-game-controls").click();
+  await expect(page.getByTestId("game-controls")).toBeVisible();
+}
+
+/** Open the world map through Help; pass "create" to land on the plan view. */
+export async function openWorldMap(
+  page: Page,
+  experience: "play" | "create" = "play",
+): Promise<void> {
+  await openGameOptions(page, "help-menu");
+  await page.getByTestId("btn-world-map").click();
+  await expect(page.getByTestId("world-map")).toBeVisible();
+  if (experience === "create") await page.getByTestId("btn-world-plan").click();
 }
 
 /** Seed through the production persistence boundary, so fixtures use the release contract. */

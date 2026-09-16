@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { getKnownGameByAlias } from "../../src/games/knownGames.ts";
-import { isolateStorage } from "./engineProbe.ts";
+import { isolateStorage, openCardMenu } from "./engineProbe.ts";
 
 const missing = fixtureSkip(KNOWN_GAME_HASH.KQ1, ["AGIDATA.OVL"]);
 
@@ -45,9 +45,7 @@ test.describe("Walkthrough UI", () => {
     await page.goto("/");
 
     // Open ActionMenu next to Play for KQ1
-    const menuBtn = page.getByTestId("game-actions-kq1");
-    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
-    await menuBtn.click();
+    await openCardMenu(page, "game-actions-kq1");
 
     // Verify "Run walkthrough" item is visible
     const runBtn = page.getByTestId("run-walkthrough");
@@ -154,8 +152,8 @@ test.describe("Walkthrough UI", () => {
       )
       .not.toBe(egoXBefore);
 
-    // Now test running walkthrough from in-game Game actions menu
-    const gameActions = page.getByTestId("game-actions-menu");
+    // Now test running walkthrough from the in-game Help menu
+    const gameActions = page.getByTestId("help-menu");
     await expect(gameActions).toBeVisible();
     await gameActions.click();
 
@@ -298,7 +296,7 @@ test.describe("Walkthrough UI", () => {
     expect(inputEntries.length).toBeGreaterThan(0);
 
     // Test returning to adventure picker via the header Menu button
-    const headerMenuBtn = page.getByTestId("btn-eject");
+    const headerMenuBtn = page.getByTestId("btn-exit");
     await expect(headerMenuBtn).toBeVisible();
     await headerMenuBtn.click();
 
@@ -315,9 +313,7 @@ test.describe("Walkthrough UI", () => {
     await isolateStorage(page);
     await page.goto("/");
 
-    const menuBtn = page.getByTestId("game-actions-kq1");
-    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
-    await menuBtn.click();
+    await openCardMenu(page, "game-actions-kq1");
 
     const runBtn = page.getByTestId("run-walkthrough");
     await expect(runBtn).toBeVisible();
@@ -383,8 +379,10 @@ test.describe("Walkthrough UI", () => {
 
     // The tutorial's opening beats are back-to-back print windows: the first
     // regression let a resume skip straight past the second one.
-    await page.getByTestId("game-actions-adventure-department").click();
-    await page.getByTestId("run-walkthrough").click();
+    await openCardMenu(page, "game-actions-adventure-department");
+    const runBtn = page.getByTestId("run-walkthrough");
+    await expect(runBtn).toBeVisible();
+    await runBtn.click();
     await expect(page.getByTestId("walkthrough-transport")).toBeVisible();
     await page.getByTestId("btn-walkthrough-pause-on-dialog").click();
 
@@ -422,9 +420,7 @@ test.describe("Walkthrough UI", () => {
     await isolateStorage(page);
     await page.goto("/");
 
-    const menuBtn = page.getByTestId("game-actions-kq1");
-    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
-    await menuBtn.click();
+    await openCardMenu(page, "game-actions-kq1");
 
     const runBtn = page.getByTestId("run-walkthrough");
     await expect(runBtn).toBeVisible();
@@ -481,9 +477,7 @@ test.describe("Walkthrough UI", () => {
     await isolateStorage(page);
     await page.goto("/");
 
-    const menuBtn = page.getByTestId("game-actions-kq1");
-    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
-    await menuBtn.click();
+    await openCardMenu(page, "game-actions-kq1");
 
     const runBtn = page.getByTestId("run-walkthrough");
     await expect(runBtn).toBeVisible();
@@ -518,9 +512,7 @@ test.describe("Walkthrough UI", () => {
     await isolateStorage(page);
     await page.goto("/");
 
-    const menuBtn = page.getByTestId("game-actions-mh1");
-    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
-    await menuBtn.click();
+    await openCardMenu(page, "game-actions-mh1");
 
     const runBtn = page.getByTestId("run-walkthrough");
     await expect(runBtn).toBeVisible();
@@ -552,9 +544,7 @@ test.describe("Walkthrough UI", () => {
     await isolateStorage(page);
     await page.goto("/");
 
-    const menuBtn = page.getByTestId("game-actions-sq1");
-    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
-    await menuBtn.click();
+    await openCardMenu(page, "game-actions-sq1");
 
     const runBtn = page.getByTestId("run-walkthrough");
     await expect(runBtn).toBeVisible();
@@ -579,9 +569,7 @@ test.describe("Walkthrough UI", () => {
     await isolateStorage(page);
     await page.goto("/");
 
-    const menuBtn = page.getByTestId("game-actions-mh1");
-    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
-    await menuBtn.click();
+    await openCardMenu(page, "game-actions-mh1");
 
     const runBtn = page.getByTestId("run-walkthrough");
     await expect(runBtn).toBeVisible();
@@ -606,9 +594,7 @@ test.describe("Walkthrough UI", () => {
     await isolateStorage(page);
     await page.goto("/");
 
-    const menuBtn = page.getByTestId("game-actions-mh1");
-    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
-    await menuBtn.click();
+    await openCardMenu(page, "game-actions-mh1");
 
     const runBtn = page.getByTestId("run-walkthrough");
     await expect(runBtn).toBeVisible();
@@ -647,9 +633,7 @@ test.describe("Walkthrough UI", () => {
     await isolateStorage(page);
     await page.goto("/");
 
-    const menuBtn = page.getByTestId("game-actions-mh1");
-    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
-    await menuBtn.click();
+    await openCardMenu(page, "game-actions-mh1");
 
     const runBtn = page.getByTestId("run-walkthrough");
     await expect(runBtn).toBeVisible();
@@ -727,9 +711,7 @@ test.describe("Walkthrough UI", () => {
     await isolateStorage(page);
     await page.goto("/");
 
-    const menuBtn = page.getByTestId("game-actions-kq1");
-    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
-    await menuBtn.click();
+    await openCardMenu(page, "game-actions-kq1");
 
     const runBtn = page.getByTestId("run-walkthrough");
     await expect(runBtn).toBeVisible();
@@ -802,9 +784,7 @@ test.describe("Walkthrough UI", () => {
     await expect(page.getByTestId("game-actions-kq1-remix")).toHaveCount(0);
 
     // The untouched edition still gets the offer under its own menu.
-    const menuBtn = page.getByTestId("game-actions-synthetic-copy");
-    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
-    await menuBtn.click();
+    await openCardMenu(page, "game-actions-synthetic-copy");
     await expect(page.getByTestId("run-walkthrough")).toBeVisible();
   });
 
@@ -815,9 +795,7 @@ test.describe("Walkthrough UI", () => {
     await isolateStorage(page);
     await page.goto("/");
 
-    const menuBtn = page.getByTestId("game-actions-kq1");
-    await expect(menuBtn).toBeVisible({ timeout: 10_000 });
-    await menuBtn.click();
+    await openCardMenu(page, "game-actions-kq1");
 
     const runBtn = page.getByTestId("run-walkthrough");
     await expect(runBtn).toBeVisible();

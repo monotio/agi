@@ -18,7 +18,7 @@ const ROOTS = ["src", "app/src"];
 
 const BASELINE: Record<string, { lines: number; boundary: string }> = {
   "src/runtime/engine.ts": {
-    lines: 5853,
+    lines: 5908,
     boundary: "the interpreter core: dispatch, object table, motion, text surface",
   },
   "src/agent/tools.ts": {
@@ -47,13 +47,14 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the world-map overlay: graph, room list, room details and plan editing",
   },
   "app/src/TransportBar.vue": {
-    lines: 656,
-    boundary: "the one transport bar: timeline, marks and mode extras for both sources",
+    lines: 748,
+    boundary:
+      "the one transport bar: timeline, marks, LIVE endpoint and mode extras for both sources",
   },
   "app/src/useHistoryView.ts": {
-    lines: 1004,
+    lines: 1284,
     boundary:
-      "the history-view controller: seek, watch, marks, bookmarks, the staged-swap lifecycle and its transport source",
+      "the history-view controller: the always-on live/parked axis, seek, watch, marks, bookmarks, the branch-swap lifecycle and its transport source",
   },
   "app/src/useWalkthroughController.ts": {
     lines: 703,
@@ -82,7 +83,7 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the play surface: stage, input and presentation wiring",
   },
   "app/src/GameHeader.vue": {
-    lines: 844,
+    lines: 901,
     boundary: "the header and game-action menus",
   },
   "app/src/AgentBubble.vue": {
@@ -90,27 +91,37 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the agent bubble surface",
   },
   "app/src/useRoomMap.ts": {
-    lines: 1260,
+    lines: 1344,
     boundary:
-      "the world-map composable: merge, pause ownership, thumbnails, persistence, plan editing, durable-revision tracking and map-driven builds",
+      "the world-map composable: merge, pause ownership, thumbnails, persistence, plan editing, durable-revision tracking, map-driven builds and background save retries",
   },
   "src/agent/gameTests.ts": {
     lines: 733,
     boundary: "the stored game-test runner",
   },
   "app/src/gameStorage.ts": {
-    lines: 716,
+    lines: 845,
     boundary: "the local persistence records layer",
   },
+  "app/src/historyStorage.ts": {
+    lines: 1111,
+    boundary:
+      "the append-oriented tape store: immutable batch records, content-keyed blobs, the transactional manifest and the retained-branch lists",
+  },
   "src/agent/roomMap.ts": {
-    lines: 765,
+    lines: 905,
     boundary:
       "the room-graph model: journal, plan and static-scan merge, plus the sidecar contract",
   },
   "app/src/useAuthoringController.ts": {
-    lines: 774,
+    lines: 990,
     boundary:
-      "the authoring controller: host-request turns, patches, map-driven room builds and session adoption",
+      "the authoring controller: host-request turns, patches, map-driven room builds, session adoption and reference-art keep/detach",
+  },
+  "app/src/ReferenceUpload.vue": {
+    lines: 649,
+    boundary:
+      "the reference-art dialog: room and character uploads, sheet manifest, staged preview, keep/revise and the attached list",
   },
   "app/src/agent/llmClient.ts": {
     lines: 705,
@@ -137,6 +148,10 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     lines: 835,
     boundary:
       "the one replay drive: the live-session drive and the scratch tape drive on the shared tick",
+  },
+  "app/src/App.vue": {
+    lines: 608,
+    boundary: "the shell root: engine boot, library/catalog routing and global key handling",
   },
 };
 

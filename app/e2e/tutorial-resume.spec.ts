@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import {
@@ -39,7 +40,7 @@ test("the tutorial shelf offers Resume and restores the checkpoint exactly", asy
   const checkpoint = await storedAutosave(page, TUTORIAL_PROJECT_ID);
   expect(checkpoint?.room).toBe(1);
 
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   expect(new URL(page.url()).hash, "the menu must not name a game in the URL").toBe("");
   const tutorial = page.getByTestId("tutorial-disclosure");
@@ -86,7 +87,7 @@ test("a caption drawn only on room entry survives a browser reload", async ({ pa
   await isolateStorage(page);
   await page.goto("/");
   await cacheGame(page, {
-    projectId: "caption-resume",
+    projectId: testProjectId("caption-resume"),
     title: "Caption resume",
     provider: "stub",
     model: "local-playback",
@@ -130,7 +131,7 @@ test("reloading from the menu stays on the menu and keeps offering Resume", asyn
   await isolateStorage(page);
   await page.goto("/");
   await cacheGame(page, {
-    projectId: "menu-reload",
+    projectId: testProjectId("menu-reload"),
     title: "Menu reload",
     provider: "stub",
     model: "local-playback",
@@ -147,7 +148,7 @@ test("reloading from the menu stays on the menu and keeps offering Resume", asyn
 
   // Eject into the menu with the checkpoint still stored: the URL must no
   // longer name a game, so a reload lands on the picker, not in the game.
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   await expect.poll(() => new URL(page.url()).hash).toBe("");
 

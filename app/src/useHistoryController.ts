@@ -21,6 +21,7 @@
  */
 import { appendHistoryBatch, migrateHistoryRecord } from "./historyStorage.ts";
 import { gameStorageKey, type BootedGame } from "./gameTypes.ts";
+import { projectId } from "../../src/gameIdentity.ts";
 import type { HistoryBatch } from "../../src/agent/history.ts";
 import type { AgentLogEntry } from "./agent/agentLog.ts";
 
@@ -96,9 +97,14 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
           syncUnsaved();
         }
       }
-      if (!storageKey) return false;
+      if (!storageKey || game === null) return false;
       activeSession = sessionOf(msg.batch.segment);
-      return appendHistoryBatch(storageKey, msg.batch, ctx.getProfile() ?? "");
+      const project = projectId(storageKey);
+      if (project === null) return false;
+      return appendHistoryBatch(storageKey, msg.batch, ctx.getProfile() ?? "", {
+        project,
+        revision: game.revision,
+      });
     })()
       .then((committed) => {
         if (committed) unsaved.delete(batchKey);

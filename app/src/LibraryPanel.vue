@@ -13,6 +13,8 @@ import UiIcon from "./UiIcon.vue";
 import { useGameLibrary } from "./useGameLibrary.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { hasWalkthrough } from "./walkthrough.ts";
+import { getKnownGameByRevision } from "../../src/games/knownGames.ts";
+import { computed } from "vue";
 
 const {
   savedGames,
@@ -56,6 +58,14 @@ const {
   refreshHostedCatalog,
 } = useGameLibrary();
 const bridge = useShellBridge();
+
+/** The leftover-autosave card's name: a known game's title, else its storage key. */
+const pendingAutosaveTitle = computed(
+  () =>
+    getKnownGameByRevision(pendingAutosave.value?.game.identity.revision ?? "")?.title ??
+    pendingAutosave.value?.game.identity.project ??
+    "Saved game",
+);
 </script>
 <template>
   <aside
@@ -183,7 +193,7 @@ const bridge = useShellBridge();
                 type="button"
                 role="menuitem"
                 data-testid="run-walkthrough"
-                @click="bridge.startWalkthrough(game.library?.alias ?? game.projectId)"
+                @click="bridge.startWalkthrough(game.library?.revision ?? game.projectId)"
               >
                 <span>Run walkthrough<small>Watch real-time playthrough</small></span>
               </button>
@@ -219,20 +229,29 @@ const bridge = useShellBridge();
               <button
                 type="button"
                 role="menuitem"
-                data-testid="btn-export-agi-zip"
+                data-testid="download-library-game"
                 :disabled="exportBusy"
-                @click="onExportLibraryGame(game)"
+                @click="onExportLibraryGame(game, true)"
               >
-                <span>Game export<small>Playable game</small></span>
+                <span
+                  >Download game…<small
+                    >For development: editing work, saved progress and history — a ZIP file</small
+                  ></span
+                >
               </button>
               <button
                 type="button"
                 role="menuitem"
-                data-testid="btn-save-project"
+                data-testid="export-library-game"
                 :disabled="exportBusy"
-                @click="onExportLibraryGame(game, true)"
+                @click="onExportLibraryGame(game)"
               >
-                <span>Project<small>Game and play history</small></span>
+                <span
+                  >Export game…<small
+                    >For publishing: playable game without private editing work or play history — a
+                    ZIP file</small
+                  ></span
+                >
               </button>
               <div role="separator"></div>
               <button
@@ -280,9 +299,9 @@ const bridge = useShellBridge();
     <div
       v-if="
         pendingAutosave &&
-        !savedGames.some((game) => game.projectId === pendingAutosave?.game.projectId) &&
+        !savedGames.some((game) => game.projectId === pendingAutosave?.game.identity.project) &&
         !localGames.some(
-          (g) => g.hash === pendingAutosave?.game.hash || g.alias === pendingAutosave?.game.alias,
+          (g) => (g.folder ?? g.hash ?? g.alias) === pendingAutosave?.game.identity.project,
         )
       "
       class="saved-world-card autosave-fallback"
@@ -294,14 +313,12 @@ const bridge = useShellBridge();
         data-testid="library-thumbnail"
         data-preview-kind="progress"
         :src="pendingAutosave.preview"
-        :alt="`${pendingAutosave.game.alias ?? pendingAutosave.game.projectId ?? 'Saved game'}, current progress in room ${pendingAutosave.room}`"
+        :alt="`${pendingAutosaveTitle}, current progress in room ${pendingAutosave.room}`"
       />
       <div class="saved-world-header">
         <div class="saved-world-tag">
           <span class="saved-world-badge">IN PROGRESS</span>
-          <span class="saved-world-title">{{
-            pendingAutosave.game.alias ?? pendingAutosave.game.projectId
-          }}</span>
+          <span class="saved-world-title">{{ pendingAutosaveTitle }}</span>
         </div>
         <span class="saved-world-time">
           Room {{ pendingAutosave.room }} · Saved

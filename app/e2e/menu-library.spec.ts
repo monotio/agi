@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { testProjectId } from "../test/identity.ts";
 import {
   cacheGame,
   openCreateAdventure,
@@ -128,7 +129,7 @@ test("Resume shows the same saved scene and position, including after reopening 
   await page.keyboard.press("ArrowRight");
   await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(spawnX + 12);
   await page.keyboard.press("ArrowRight");
-  await page.getByRole("button", { name: "Menu", exact: true }).click();
+  await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
 
   const saved = await page.evaluate(async () => {
@@ -203,7 +204,7 @@ test("Resume shows the same saved scene and position, including after reopening 
   await expect(page.getByTestId("resume-caption")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   expect((await textHook(page)).egoX).toBeGreaterThan(spawnX + 12);
-  await page.getByRole("button", { name: "Menu", exact: true }).click();
+  await page.getByTestId("btn-exit").click();
   await expect(card.getByTestId("library-thumbnail")).toHaveAttribute(
     "data-preview-kind",
     "progress",
@@ -306,7 +307,7 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await page.getByRole("button", { name: "Menu", exact: true }).click();
+  await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   const originalProjectId = await page.evaluate(() =>
     localStorage.getItem("monotio_agi.lastGame")!,
@@ -324,14 +325,14 @@ test("a checkpoint cannot resume against changed game resources and remains reco
     .getByRole("button", { name: "Resume", exact: true })
     .click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await page.getByRole("button", { name: "Menu", exact: true }).click();
+  await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   await page
     .getByTestId(`saved-game-card-${copy}`)
     .getByRole("button", { name: "Play", exact: true })
     .click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await page.getByRole("button", { name: "Menu", exact: true }).click();
+  await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   const checkpoint = await page.evaluate(async () => {
     const path = "/src/gameStorage.ts";
@@ -410,7 +411,7 @@ test("own games collapse the tutorial by default while an explicit choice takes 
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   const original = savedGameCard(page, "Adventure Department");
   await openSavedGameDetails(original);
   await openLibraryActions(page, original);
@@ -454,7 +455,7 @@ test("local folders and saved projects share one gallery and local progress resu
   });
   await page.goto("/");
   await cacheGame(page, {
-    projectId: "my-project",
+    projectId: testProjectId("my-project"),
     title: "My project",
     provider: "stub",
     model: "offline-stub",
@@ -471,7 +472,7 @@ test("local folders and saved projects share one gallery and local progress resu
   await expect(page.locator(".installed-picker")).toHaveCount(0);
   await local.getByRole("button", { name: "Play", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   await expect(local.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
   await expect(local.getByTestId("library-thumbnail")).toHaveAttribute(
     "src",

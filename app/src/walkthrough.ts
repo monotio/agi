@@ -8,6 +8,13 @@ import {
   getKnownGameByRevision,
   type KnownAgiGame,
 } from "../../src/games/knownGames.ts";
+import {
+  gameIdentity,
+  requireProjectId,
+  resourceRevision,
+  type GameIdentity,
+  type ResourceRevision,
+} from "../../src/gameIdentity.ts";
 
 /** Bundle revisions a recorded walkthrough supports beyond its catalog targetRevision. */
 const BY_WALKTHROUGH_REVISION = new Map<string, KnownAgiGame>();
@@ -18,10 +25,14 @@ for (const game of KNOWN_GAMES) {
 
 export interface WalkthroughArtifact {
   schema: "monotio.agi.walkthrough.v2";
-  game: string;
-  /** The full bundle revision (sorted-name SHA-256) the tape was recorded on. */
-  targetRevision: string;
-  supportedRevisions?: readonly string[] | undefined;
+  /**
+   * Which entry and which playable bytes the tape was recorded on: the
+   * catalog id as `project`, the full bundle revision (sorted-name SHA-256)
+   * as `revision`. The artifact file itself lives at `walkthroughs/<alias>.json`,
+   * so the name never doubles as a lookup key inside the record.
+   */
+  identity: GameIdentity;
+  supportedRevisions?: readonly ResourceRevision[] | undefined;
   coverage: "complete-game" | "chapter" | "partial";
   profile: string;
   seed: number;
@@ -59,8 +70,8 @@ export const KNOWN_WALKTHROUGHS: Record<string, WalkthroughMeta> = Object.fromEn
  * leaves vocabulary alone keeps it, and the replay would refuse at the
  * per-file check after offering.
  */
-function knownGameFor(idOrRevision: string): KnownAgiGame | null {
-  const normalized = idOrRevision.toLowerCase();
+function knownGameFor(query: string): KnownAgiGame | null {
+  const normalized = query.toLowerCase();
   return (
     getKnownGameByAlias(normalized) ??
     getKnownGameByRevision(normalized) ??
@@ -69,14 +80,14 @@ function knownGameFor(idOrRevision: string): KnownAgiGame | null {
   );
 }
 
-export function hasWalkthrough(hashOrAlias: string): boolean {
-  if (!hashOrAlias) return false;
-  return Boolean(knownGameFor(hashOrAlias)?.walkthroughLabel);
+export function hasWalkthrough(query: string): boolean {
+  if (!query) return false;
+  return Boolean(knownGameFor(query)?.walkthroughLabel);
 }
 
-export function resolveWalkthrough(hashOrAlias: string): string | null {
-  if (!hashOrAlias) return null;
-  const known = knownGameFor(hashOrAlias);
+export function resolveWalkthrough(query: string): string | null {
+  if (!query) return null;
+  const known = knownGameFor(query);
   return known?.walkthroughLabel ? known.alias : null;
 }
 
@@ -88,29 +99,50 @@ export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact 
   if (obj["schema"] !== "monotio.agi.walkthrough.v2") {
     throw new Error(`Unsupported walkthrough schema: ${String(obj["schema"])}`);
   }
-  if (typeof obj["game"] !== "string" || !KNOWN_WALKTHROUGHS[obj["game"].toLowerCase()]) {
-    throw new Error(`Unsupported game in walkthrough: ${String(obj["game"])}`);
+  const rawIdentity = obj["identity"];
+  const rawRevision =
+    rawIdentity && typeof rawIdentity === "object"
+      ? (rawIdentity as Record<string, unknown>)["revision"]
+      : undefined;
+  const parsedIdentity = gameIdentity(
+    rawIdentity && typeof rawIdentity === "object"
+      ? {
+          project: (rawIdentity as Record<string, unknown>)["project"],
+          revision: typeof rawRevision === "string" ? rawRevision.toLowerCase() : rawRevision,
+        }
+      : rawIdentity,
+  );
+  if (parsedIdentity === null) {
+    throw new Error(`Invalid walkthrough identity: ${JSON.stringify(obj["identity"])}`);
   }
-  const game = obj["game"].toLowerCase();
-  const HASH_REGEX = /^[0-9a-f]{64}$/i;
-
-  if (typeof obj["targetRevision"] !== "string" || !HASH_REGEX.test(obj["targetRevision"])) {
-    throw new Error(`Invalid walkthrough targetRevision: ${String(obj["targetRevision"])}`);
+  const known = KNOWN_WALKTHROUGHS[parsedIdentity.project.toLowerCase()];
+  if (known === undefined) {
+    throw new Error(`Unsupported game in walkthrough: ${parsedIdentity.project}`);
   }
-  const targetRevision = obj["targetRevision"].toLowerCase();
+  // The project id names the catalog entry; store its canonical spelling.
+  const identity: GameIdentity = {
+    project: requireProjectId(known.alias),
+    revision: parsedIdentity.revision,
+  };
 
-  let supportedRevisions: string[] | undefined;
+  let supportedRevisions: ResourceRevision[] | undefined;
   if (obj["supportedRevisions"] !== undefined) {
     if (!Array.isArray(obj["supportedRevisions"])) {
       throw new Error("Walkthrough supportedRevisions must be an array.");
     }
     supportedRevisions = [];
     for (let i = 0; i < obj["supportedRevisions"].length; i++) {
-      const h = obj["supportedRevisions"][i];
-      if (typeof h !== "string" || !HASH_REGEX.test(h)) {
-        throw new Error(`Invalid walkthrough supportedRevision at index ${i}: ${String(h)}`);
+      const h = resourceRevision(
+        typeof obj["supportedRevisions"][i] === "string"
+          ? obj["supportedRevisions"][i].toLowerCase()
+          : obj["supportedRevisions"][i],
+      );
+      if (h === null) {
+        throw new Error(
+          `Invalid walkthrough supportedRevision at index ${i}: ${String(obj["supportedRevisions"][i])}`,
+        );
       }
-      supportedRevisions.push(h.toLowerCase());
+      supportedRevisions.push(h);
     }
   }
 
@@ -215,8 +247,7 @@ export function validateWalkthroughArtifact(data: unknown): WalkthroughArtifact 
 
   return {
     schema: "monotio.agi.walkthrough.v2",
-    game,
-    targetRevision,
+    identity,
     ...(supportedRevisions !== undefined ? { supportedRevisions } : {}),
     coverage,
     profile: String(obj["profile"]),
@@ -234,8 +265,8 @@ export function clearWalkthroughCache(): void {
   artifactCache.clear();
 }
 
-export function loadWalkthrough(hashOrId: string): Promise<WalkthroughArtifact> {
-  const resolved = resolveWalkthrough(hashOrId) ?? hashOrId.toLowerCase();
+export function loadWalkthrough(query: string): Promise<WalkthroughArtifact> {
+  const resolved = resolveWalkthrough(query) ?? query.toLowerCase();
   const cached = artifactCache.get(resolved);
   if (cached) return cached;
 
@@ -247,7 +278,7 @@ export function loadWalkthrough(hashOrId: string): Promise<WalkthroughArtifact> 
     const url = `${base}walkthroughs/${resolved}.json`;
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`Walkthrough for "${hashOrId}" not found (HTTP ${response.status})`);
+      throw new Error(`Walkthrough for "${query}" not found (HTTP ${response.status})`);
     }
     const json = await response.json();
     return validateWalkthroughArtifact(json);

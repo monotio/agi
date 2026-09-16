@@ -47,6 +47,7 @@ import { useGameLifecycle } from "./useGameLifecycle.ts";
 import { useEngineDebug } from "./useEngineDebug.ts";
 import { useRoomMap } from "./useRoomMap.ts";
 import type { WorkerInbound } from "./workerProtocol.ts";
+import type { HistoryBatch } from "../../src/agent/history.ts";
 export type { PromptState };
 export type { ModalKind, TextHook, EngineState } from "./useEngineTypes.ts";
 import type { EngineState, TextHook } from "./useEngineTypes.ts";
@@ -317,7 +318,12 @@ export function useEngine(
     resetScreenState: lifecycle.resetScreenState,
     cancelPrompt: cancelPendingPrompts,
     handleAutosave: autosaveController.handleAutosave,
-    handleHistoryBatch: historyController.handleHistoryBatch,
+    // The transport's live axis tracks every posted batch — the timeline's
+    // LIVE endpoint moves with play whether or not the commit has landed.
+    handleHistoryBatch: (msg: { epoch: number; batch: HistoryBatch }) => {
+      historyView.observeBatch(msg.batch);
+      return historyController.handleHistoryBatch(msg);
+    },
     handleFlushed: autosaveController.handleFlushed,
     handleRestored: autosaveController.handleRestored,
     handleSaveSlotRequest: saveSlotController.handleSaveSlotRequest,
@@ -505,16 +511,13 @@ export function useEngine(
     historyView,
     /**
      * The transport bar's model — the walkthrough artifact's while one plays,
-     * else the live recording's when the tape is under view (or surfacing a
-     * load error / interrupted swap).
+     * else the live recording's: always on from boot, LIVE-pinned, recording
+     * and saving on its own.
      */
     get transport(): TransportModel | null {
       if (state.phase !== "running") return null;
       if (state.walkthrough.active) return walkthrough.transport;
-      const v = state.historyView;
-      return v.active || v.loading || v.error !== "" || v.pendingSwap
-        ? historyView.transport
-        : null;
+      return historyView.transport;
     },
     /** The "history not saved" banner's retry — nudge the worker's resend. */
     retryHistorySave: () =>
@@ -527,6 +530,11 @@ export function useEngine(
     openPowerUp,
     closePowerUp,
     submitPowerUp,
+    listReferences: authoringController.listReferences,
+    attachRoomReference: authoringController.attachRoomReference,
+    attachCharacterReference: authoringController.attachCharacterReference,
+    detachReference: authoringController.detachReference,
+    keepStagedView: authoringController.keepStagedView,
     isInstalledGame: lifecycle.isInstalledGame,
     currentGame: lifecycle.currentGame,
     exportCurrentGame: lifecycle.exportCurrentGame,

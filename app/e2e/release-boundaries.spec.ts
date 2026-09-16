@@ -95,8 +95,8 @@ for (const failure of ["unsafe", "timeout", "storage"] as const) {
     }
     let downloads = 0;
     page.on("download", () => downloads++);
-    await openGameOptions(page, "game-actions-menu");
-    await page.getByTestId("btn-save-live-project").click();
+    await openGameOptions(page, "game-menu");
+    await page.getByTestId("btn-download-game").click();
     await expect(page.getByTestId("export-refusal")).toContainText(
       "Current progress could not be saved",
     );

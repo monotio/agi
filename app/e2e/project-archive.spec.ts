@@ -54,13 +54,13 @@ test("Download project resumes private history in a fresh browser; Download game
     buffer: Buffer.from(archive),
   });
   await page.getByTestId("btn-resume-cached").click();
-  await openGameOptions(page, "game-actions-menu");
-  await expect(page.getByTestId("btn-save-live-project")).toBeVisible();
-  await openGameOptions(page, "game-actions-menu");
-  await expect(page.getByTestId("btn-save-live-project")).toBeEnabled();
+  await openGameOptions(page, "game-menu");
+  await expect(page.getByTestId("btn-download-game")).toBeVisible();
+  await openGameOptions(page, "game-menu");
+  await expect(page.getByTestId("btn-download-game")).toBeEnabled();
   const projectDownload = page.waitForEvent("download");
-  await openGameOptions(page, "game-actions-menu");
-  await page.getByTestId("btn-save-live-project").click();
+  await openGameOptions(page, "game-menu");
+  await page.getByTestId("btn-download-game").click();
   // This authoring-only fixture has no drawn room or resumable player state.
   await expect(page.getByTestId("export-refusal")).toContainText(
     "Current progress could not be saved",
@@ -73,8 +73,8 @@ test("Download project resumes private history in a fresh browser; Download game
   expect(data.files["OBJECT"]).toEqual(Uint8Array.of(65, 118, 150));
   expect(data.project?.authoringState).toEqual(context.authoringState);
   const publicDownload = page.waitForEvent("download");
-  await openGameOptions(page, "game-actions-menu");
-  await page.getByTestId("btn-export-live-zip").click();
+  await openGameOptions(page, "game-menu");
+  await page.getByTestId("btn-export-game").click();
   const published = await publicDownload;
   const publicBytes = new Uint8Array(await readFile((await published.path())!));
   expect(new TextDecoder().decode(publicBytes)).not.toContain("Private genesis idea");
@@ -92,8 +92,8 @@ test("Download project resumes private history in a fresh browser; Download game
     await other.goto(page.url());
     await other.getByTestId("game-zip-input").setInputFiles((await saved.path())!);
     await other.getByTestId("btn-resume-cached").click();
-    await openGameOptions(other, "game-actions-menu");
-    await expect(other.getByTestId("btn-save-live-project")).toBeVisible();
+    await openGameOptions(other, "game-menu");
+    await expect(other.getByTestId("btn-download-game")).toBeVisible();
     await other.reload();
     await expect(other.getByTestId("btn-resume-cached")).toBeVisible();
     const restored = await other.evaluate(async () => {
@@ -145,8 +145,8 @@ test("Download project resumes private history in a fresh browser; Download game
     expect(JSON.stringify(requests[0])).toContain("Continue our garden.");
     expect(requests[0]?.["model"]).toBe("gpt-6-astra");
     const continuationDownload = other.waitForEvent("download");
-    await openGameOptions(other, "game-actions-menu");
-    await other.getByTestId("btn-save-live-project").click();
+    await openGameOptions(other, "game-menu");
+    await other.getByTestId("btn-download-game").click();
     await expect(other.getByTestId("export-refusal")).toContainText(
       "Current progress could not be saved",
     );

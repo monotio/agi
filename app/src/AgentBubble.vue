@@ -6,6 +6,7 @@ import { useEngineApi } from "./engineContext.ts";
 import { usePresentation } from "./usePresentation.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { useAiSettings } from "./useAiSettings.ts";
+import { openReferenceUpload } from "./referenceUploadState.ts";
 
 const engine = useEngineApi();
 const { state, openPowerUp, closePowerUp, submitPowerUp, stopAgent, continueAgent, discardAgent } =
@@ -168,19 +169,25 @@ function onBubbleHeadUp(): void {
   bubbleDrag = null;
 }
 
-async function onPowerUp(): Promise<void> {
+async function onPowerUp(mode?: "ask" | "remix"): Promise<void> {
   if (state.powerUp.busy) return;
   if (state.powerUp.open) {
+    // An explicit mode from a menu switches the surface rather than closing.
+    if (mode !== undefined && state.powerUp.mode !== mode && !creatingRoom.value) {
+      state.powerUp.mode = mode;
+      return;
+    }
     closePowerUp();
     bridge.focusGameInput();
     return;
   }
   powerUpLine.value = "";
+  if (mode !== undefined) state.powerUp.mode = mode;
   await openPowerUp(llmConfig());
   await nextTick();
   powerUpEl.value?.focus({ preventScroll: true });
 }
-bridge.togglePowerUp = () => void onPowerUp();
+bridge.togglePowerUp = (mode) => void onPowerUp(mode);
 bridge.assistantInputEl = () => powerUpEl.value;
 
 async function onPowerUpSubmit(): Promise<void> {
@@ -194,6 +201,13 @@ async function onPowerUpSubmit(): Promise<void> {
     await nextTick();
     powerUpEl.value?.focus({ preventScroll: true });
   }
+}
+
+/** A playtest records live play — the bubble closes so the game unfreezes. */
+function onRecordPlaytest(): void {
+  closePowerUp();
+  bridge.focusGameInput();
+  bridge.startPlaytest();
 }
 
 function onPowerUpKey(ev: KeyboardEvent): void {
@@ -288,7 +302,7 @@ function onPowerUpKey(ev: KeyboardEvent): void {
           aria-label="Back to game"
           title="Back to game (Esc)"
           :disabled="state.powerUp.busy"
-          @click="onPowerUp"
+          @click="onPowerUp()"
         >
           ×
         </button>
@@ -414,6 +428,28 @@ function onPowerUpKey(ev: KeyboardEvent): void {
         @keydown="onPowerUpKey"
       ></textarea>
       <button
+        v-if="!asking"
+        type="button"
+        class="ui-button ui-button--secondary"
+        data-testid="agent-attach-reference"
+        title="Attach reference art for the agent"
+        :disabled="state.powerUp.busy"
+        @click="openReferenceUpload(state.powerUp.room || undefined)"
+      >
+        Art
+      </button>
+      <button
+        v-if="!asking"
+        type="button"
+        class="ui-button ui-button--secondary"
+        data-testid="btn-record-test"
+        title="Record a playtest — check that this part still works after changes"
+        :disabled="state.powerUp.busy || state.recording.active || state.recording.starting"
+        @click="onRecordPlaytest"
+      >
+        Playtest
+      </button>
+      <button
         type="submit"
         class="ui-button ui-button--primary"
         data-testid="agent-bubble-send"
@@ -422,6 +458,20 @@ function onPowerUpKey(ev: KeyboardEvent): void {
         {{ state.powerUp.busy ? "Working…" : asking ? "Ask" : "Remix" }}
       </button>
     </form>
+    <!-- Playtest recording is editing tooling but needs no AI connection —
+         it stays reachable while the provider prompt is all the bubble shows. -->
+    <div v-if="!asking && !creatingRoom && state.powerUp.needsConfig" class="agent-bubble-tools">
+      <button
+        type="button"
+        class="ui-button ui-button--secondary"
+        data-testid="btn-record-test"
+        title="Record a playtest — check that this part still works after changes"
+        :disabled="state.powerUp.busy || state.recording.active || state.recording.starting"
+        @click="onRecordPlaytest"
+      >
+        Playtest
+      </button>
+    </div>
     <p v-if="state.powerUp.error" class="agent-bubble-error" data-testid="agent-bubble-error">
       {{ state.powerUp.error }}
     </p>

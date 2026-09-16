@@ -13,6 +13,7 @@ export default defineConfig({
     "kq-phone.spec.ts",
     "ai-settings.spec.ts",
     "menu-flow.spec.ts",
+    "reference-art.spec.ts",
     "synthetic-walkthrough.spec.ts",
   ],
   projects: [

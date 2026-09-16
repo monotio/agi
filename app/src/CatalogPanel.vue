@@ -11,7 +11,7 @@ import { useAiSettings } from "./useAiSettings.ts";
 import { useGameLibrary } from "./useGameLibrary.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { hasWalkthrough } from "./walkthrough.ts";
-import type { InstalledGameDescriptor } from "./gameTypes.ts";
+import { gameStorageKey, type InstalledGameDescriptor } from "./gameTypes.ts";
 
 const { resumeAudio, startOver } = useEngineApi();
 const { llmConfig } = useAiSettings();
@@ -34,7 +34,7 @@ const bridge = useShellBridge();
 
 function onStartLocalGameOver(game: InstalledGameDescriptor): void {
   resumeAudio();
-  startOver(game.folder ?? game.hash, llmConfig());
+  startOver(gameStorageKey({ installed: true, ...game }), llmConfig());
 }
 </script>
 <template>

@@ -35,8 +35,12 @@ async function createAdventure(page: Page): Promise<void> {
 }
 
 async function openMap(page: Page): Promise<void> {
-  await openGameOptions(page, "game-actions-menu");
+  await openGameOptions(page, "help-menu");
+  // The plan surface is the creator entry — "World map" is the player's
+  // discovered-rooms view and shows no plan.
   await page.getByTestId("btn-world-map").click();
+  await expect(page.getByTestId("world-map")).toBeVisible();
+  await page.getByTestId("btn-world-plan").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
 }
@@ -63,6 +67,48 @@ test("a fresh create yields a playable room 1 and the planned map in one turn", 
   await page.getByTestId("map-room-2").click();
   await expect(page.getByTestId("map-detail")).toContainText("planned");
   await page.screenshot({ path: "test-results/plan-map-created.png" });
+});
+
+test("the player's world map shows walked rooms only — no plan, no controls", async ({ page }) => {
+  await createAdventure(page);
+  await expect(page.getByTestId("agent-panel")).toContainText("planned a three-room world", {
+    timeout: 30_000,
+  });
+
+  // The player entry is the discovered view: room 1 was walked; rooms 2 and
+  // 3 exist only in the creator's plan and must not appear — nor may any
+  // plan affordance.
+  await openGameOptions(page, "help-menu");
+  await page.getByTestId("btn-world-map").click();
+  const map = page.getByTestId("world-map");
+  await expect(map).toBeVisible();
+  // The plan entry is the in-dialog switch — the player menu carries no
+  // creator surface.
+  await expect(page.getByTestId("btn-world-plan")).toBeVisible();
+  await expect(map).toContainText("World map");
+  await expect(page.getByTestId("map-room-1")).toBeVisible();
+  await expect(page.getByTestId("map-room-2")).toHaveCount(0);
+  await expect(page.getByTestId("map-room-3")).toHaveCount(0);
+  await expect(map).not.toContainText("planned");
+  await expect(map).not.toContainText("named in logic");
+  await expect(page.getByTestId("map-add-room")).toHaveCount(0);
+  // Even the visited room's detail carries no plan editor.
+  await page.getByTestId("map-room-1").click();
+  await expect(page.getByTestId("plan-room-title")).toHaveCount(0);
+  await page.screenshot({ path: "test-results/world-map-player.png" });
+  await page.getByTestId("map-close").click();
+
+  // The creator entry on the same session shows the full plan.
+  await openGameOptions(page, "help-menu");
+  await page.getByTestId("btn-world-map").click();
+  await expect(page.getByTestId("world-map")).toBeVisible();
+  await page.getByTestId("btn-world-plan").click();
+  await expect(map).toBeVisible();
+  await expect(map).toContainText("World plan");
+  await expect(page.getByTestId("map-room-2")).toContainText("The Hall");
+  await expect(page.getByTestId("map-room-3")).toContainText("The Vault");
+  await expect(page.getByTestId("map-add-room")).toBeVisible();
+  await page.screenshot({ path: "test-results/world-map-creator.png" });
 });
 
 test("editing a planned node and walking into it builds the edited version", async ({ page }) => {

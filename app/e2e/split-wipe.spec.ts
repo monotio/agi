@@ -1,5 +1,6 @@
 import { cacheGame, waitForCycles } from "./engineProbe.ts";
 import { expect, test } from "@playwright/test";
+import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
@@ -37,7 +38,7 @@ test("split handle drag", async ({ page }) => {
   );
   await page.goto("/");
   await cacheGame(page, {
-    projectId: "split-probe",
+    projectId: testProjectId("split-probe"),
     title: "x",
     provider: "stub",
     model: "local-playback",

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 /**
- * The world map overlay: every known room — observed (journal fact), planned
- * (authoring intent) and static (a literal new.room in the logic) — as a list
- * beside a graph. Read-only with respect to the world: node positions and
- * notes are project UI data; plan editing is RC.11.
+ * The world map overlay: rooms as a list beside a graph. Which rooms depends
+ * on the experience the caller chose (docs/rc12-plan.md D3): "play" shows
+ * discovered places and observed crossings only; "create" adds the plan
+ * (authoring intent) and the static scan (a literal new.room in the logic).
+ * Node positions and notes are project UI data in either view; plan editing
+ * is a creator action.
  *
  * A native modal dialog: Escape closes only this shell overlay and returns
  * focus to its invoker, the game's own dialog and prompt state untouched.
@@ -21,9 +23,9 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useEngineApi } from "./engineContext.ts";
 import { EGA_RGB } from "../../src/picture/png.ts";
-import { mapArchiveData } from "./roomMapStore.ts";
 import { getOrExtractCheckpoints, loadWalkthrough, resolveWalkthrough } from "./walkthrough.ts";
 import MapPlanEditor from "./MapPlanEditor.vue";
+import { openReferenceUpload } from "./referenceUploadState.ts";
 import type { RoomGraphEdge, RoomGraphNode } from "../../src/agent/roomMap.ts";
 import type { MapThumbnail } from "./useRoomMap.ts";
 
@@ -679,18 +681,6 @@ const nodeBadges = computed(() => {
   }
   return map_;
 });
-
-// ---- sidecar export (unsaved-data escape hatch) ------------------------------------
-
-function downloadSidecar(): void {
-  const blob = new Blob([mapArchiveData(map.exportSidecar())], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "MAP.JSON";
-  a.click();
-  URL.revokeObjectURL(url);
-}
 </script>
 
 <template>
@@ -702,22 +692,27 @@ function downloadSidecar(): void {
     @close="onDialogClose"
   >
     <header class="map-header">
-      <h2 id="world-map-title">World map</h2>
+      <h2 id="world-map-title">
+        {{
+          map.experience.value === "create"
+            ? map.canPlan.value
+              ? "World plan"
+              : "Full map"
+            : "World map"
+        }}
+      </h2>
       <span v-if="state.paused" class="map-paused" data-testid="map-paused">Game paused</span>
       <span v-if="storageError" class="map-error" role="alert" data-testid="map-error">
         {{ storageError }}
       </span>
       <span v-if="unsaved" class="map-unsaved" data-testid="map-unsaved">
-        Map data is not saved.
+        Map data is not saved — retrying in the background.
         <button type="button" class="ui-button ui-button--secondary" @click="map.retrySave()">
-          Retry
-        </button>
-        <button type="button" class="ui-button ui-button--secondary" @click="downloadSidecar">
-          Download MAP.JSON
+          Retry now
         </button>
       </span>
       <span
-        v-if="map.planDirty.value || map.planSaveError.value"
+        v-if="map.canPlan.value && (map.planDirty.value || map.planSaveError.value)"
         class="map-unsaved"
         role="alert"
         data-testid="map-plan-unsaved"
@@ -733,6 +728,27 @@ function downloadSidecar(): void {
         </button>
       </span>
       <span class="map-header-actions">
+        <button
+          type="button"
+          class="ui-button ui-button--secondary"
+          data-testid="btn-world-plan"
+          :title="
+            map.experience.value === 'create'
+              ? 'Back to the discovered map'
+              : map.planAvailable.value
+                ? 'Edit rooms, exits and intent'
+                : 'Every room the logic names'
+          "
+          @click="map.experience.value = map.experience.value === 'create' ? 'play' : 'create'"
+        >
+          {{
+            map.experience.value === "create"
+              ? "World map"
+              : map.planAvailable.value
+                ? "World plan"
+                : "Full map"
+          }}
+        </button>
         <button
           type="button"
           class="ui-button ui-button--secondary"
@@ -948,9 +964,11 @@ function downloadSidecar(): void {
           </svg>
         </div>
         <p v-show="graphOpen" class="map-legend">
-          <span class="edge edge-observed">—</span> walked ·
-          <span class="edge edge-planned">- -</span> planned ·
-          <span class="edge edge-static">…</span> named in logic
+          <span class="edge edge-observed">—</span> walked
+          <template v-if="map.experience.value === 'create'">
+            · <span class="edge edge-planned">- -</span> planned ·
+            <span class="edge edge-static">…</span> named in logic
+          </template>
         </p>
       </section>
 
@@ -999,6 +1017,15 @@ function downloadSidecar(): void {
             · entered from a shared logic — source unknown</template
           >
         </p>
+        <button
+          v-if="map.canPlan.value"
+          type="button"
+          class="ui-button ui-button--secondary map-attach-reference"
+          data-testid="map-attach-reference"
+          @click="openReferenceUpload(selectedNode!.room)"
+        >
+          Attach reference art
+        </button>
         <div class="map-connections">
           <div>
             <h4>Exits</h4>
@@ -1007,7 +1034,7 @@ function downloadSidecar(): void {
               <li v-for="(e, i) in selectedEdges.out" :key="i">
                 → Room {{ e.to }} — {{ edgeWord(e) }}
                 <button
-                  v-if="e.provenance === 'planned'"
+                  v-if="map.canPlan.value && e.provenance === 'planned'"
                   type="button"
                   class="map-edge-remove"
                   aria-label="Remove planned exit"
@@ -1037,7 +1064,7 @@ function downloadSidecar(): void {
               <li v-for="(e, i) in selectedEdges.in" :key="i">
                 ← Room {{ e.from }} — {{ edgeWord(e) }}
                 <button
-                  v-if="e.provenance === 'planned'"
+                  v-if="map.canPlan.value && e.provenance === 'planned'"
                   type="button"
                   class="map-edge-remove"
                   aria-label="Remove planned exit"

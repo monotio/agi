@@ -56,6 +56,12 @@ function onTimelineKeydown(ev: KeyboardEvent): void {
     ev.preventDefault();
     ev.stopPropagation();
     props.model.stepKey(ev.key === "ArrowRight" ? 1 : -1);
+  } else if (ev.key === " ") {
+    // The transport owns Space only while its timeline holds focus — a live
+    // game's ordinary input never loses it.
+    ev.preventDefault();
+    ev.stopPropagation();
+    props.model.togglePlay();
   }
 }
 
@@ -115,12 +121,13 @@ onUnmounted(() => {
       <button
         type="button"
         class="transport-play-btn"
+        :class="{ 'transport-play-btn--labeled': model.play.label !== undefined }"
         :data-testid="model.play.testid"
         :title="model.play.title"
         :aria-label="model.play.aria"
         :disabled="model.play.disabled"
         @click="
-          model.togglePlay();
+          model.play.run();
           releaseFocus($event);
         "
       >
@@ -156,6 +163,7 @@ onUnmounted(() => {
         >
           <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
         </svg>
+        <span v-if="model.play.label" class="transport-play-label">{{ model.play.label }}</span>
       </button>
 
       <div
@@ -204,6 +212,7 @@ onUnmounted(() => {
             :data-testid="model.thumbTestid"
             :style="{ left: `${model.scrubPercent ?? model.percent}%` }"
           ></div>
+          <div v-if="model.live" class="transport-live-tick" aria-hidden="true"></div>
         </div>
         <div
           v-if="model.hover"
@@ -218,7 +227,32 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="transport-speed-group" role="group" aria-label="Playback speed">
+      <button
+        v-if="model.live"
+        type="button"
+        class="transport-btn transport-live-btn"
+        :class="{ 'transport-live-btn--here': model.live.here }"
+        :data-testid="model.live.testid"
+        :aria-pressed="model.live.here"
+        :title="
+          model.live.here
+            ? 'The current game'
+            : 'Back to the current game — it stays paused until you resume'
+        "
+        @click="
+          model.live!.run();
+          releaseFocus($event);
+        "
+      >
+        LIVE
+      </button>
+
+      <div
+        v-if="model.speedGroup"
+        class="transport-speed-group"
+        role="group"
+        aria-label="Playback speed"
+      >
         <button
           v-for="s in [1, 2, 4, 8]"
           :key="s"
@@ -324,8 +358,8 @@ onUnmounted(() => {
         :data-testid="model.storyPause.testid"
         :title="
           model.storyPause.on
-            ? 'Story pause: enabled (pauses on dialogue)'
-            : 'Story pause: disabled (auto-advances with reading dwell)'
+            ? 'Pause on dialogue: enabled (pauses on dialogue)'
+            : 'Pause on dialogue: disabled (auto-advances with reading dwell)'
         "
         :aria-label="model.storyPause.on ? 'Disable pause on dialogue' : 'Enable pause on dialogue'"
         @click="
@@ -345,7 +379,7 @@ onUnmounted(() => {
             d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 4h5v8l-2.5-1.5L6 12V4z"
           />
         </svg>
-        Story pause
+        Pause on dialogue
       </button>
     </template>
 
@@ -375,7 +409,7 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <p
+    <div
       v-for="err in model.errors"
       :key="err.testid"
       class="transport-error"
@@ -383,7 +417,11 @@ onUnmounted(() => {
       role="alert"
     >
       {{ err.text }}
-    </p>
+      <details v-if="err.details" class="transport-error-details">
+        <summary>Details</summary>
+        {{ err.details }}
+      </details>
+    </div>
   </div>
 </template>
 
@@ -471,6 +509,39 @@ onUnmounted(() => {
 }
 .transport-play-btn:active:not(:disabled) {
   transform: scale(0.95);
+}
+.transport-play-btn--labeled {
+  width: auto;
+  padding: 0 10px;
+  gap: 6px;
+}
+.transport-play-label {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.transport-live-tick {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 14px;
+  border-radius: 1px;
+  background: #5ce1e6;
+  z-index: 2;
+  pointer-events: none;
+}
+.transport-live-btn {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 0 10px;
+}
+.transport-live-btn--here {
+  background: #1a5259;
+  border-color: #5ce1e6;
+  color: #ffffff;
 }
 .transport-timeline {
   position: relative;
@@ -663,5 +734,15 @@ onUnmounted(() => {
   margin: 0;
   font-size: 12px;
   color: #ff9b9b;
+}
+.transport-error-details {
+  display: inline;
+  font-size: 11px;
+  color: #9aa7b8;
+}
+.transport-error-details summary {
+  display: inline;
+  cursor: pointer;
+  text-decoration: underline;
 }
 </style>

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { testProjectId, testRevision } from "../test/identity.ts";
 import { readFile } from "node:fs/promises";
 import { readGameZip } from "../src/gameZip.ts";
 import { buildProjectZip } from "../src/projectArchive.ts";
@@ -41,7 +42,7 @@ test("project import names each stored and refused progress entry", async ({ pag
   expect(image).not.toBeNull();
   const archive = await buildProjectZip(
     {
-      projectId: "storage-report",
+      projectId: testProjectId("storage-report"),
       title: "Storage report",
       authoredAt: new Date(0).toISOString(),
       provider: "stub",
@@ -58,7 +59,13 @@ test("project import names each stored and refused progress entry", async ({ pag
         cycle: 1,
         room: 1,
         savedAt: 1,
-        game: { projectId: "storage-report", installed: false, revision: "ab".repeat(32) },
+        game: {
+          installed: false,
+          identity: {
+            project: testProjectId("storage-report"),
+            revision: testRevision("storage-report"),
+          },
+        },
       },
     },
   );
@@ -128,19 +135,19 @@ test("the project archive moves the autosave to another browser; the game export
 
   // The project download from the running game carries the checkpoint.
   const projectDownload = page.waitForEvent("download");
-  await openGameOptions(page, "game-actions-menu");
-  await page.getByTestId("btn-save-live-project").click();
+  await openGameOptions(page, "game-menu");
+  await page.getByTestId("btn-download-game").click();
   const saved = await projectDownload;
   const savedPath = (await saved.path())!;
   const project = await readGameZip(new Uint8Array(await readFile(savedPath)));
   expect(project.progress?.autosave?.room).toBe(1);
-  expect(project.progress?.autosave?.game.projectId).toBe(TUTORIAL_PROJECT_ID);
+  expect(project.progress?.autosave?.game.identity.project).toBe(TUTORIAL_PROJECT_ID);
   expect(Object.keys(project.progress?.saves ?? {})).toEqual([]);
 
   // The game export is for publishing: no progress in it.
   const publicDownload = page.waitForEvent("download");
-  await openGameOptions(page, "game-actions-menu");
-  await page.getByTestId("btn-export-live-zip").click();
+  await openGameOptions(page, "game-menu");
+  await page.getByTestId("btn-export-game").click();
   const published = await publicDownload;
   const publicGame = await readGameZip(new Uint8Array(await readFile((await published.path())!)));
   // Publication safety: tests, saves and authoring context each excluded on their own.
