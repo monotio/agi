@@ -13,9 +13,8 @@ import {
   getCachedGameMeta,
   loadAuthoredGame,
   loadGameConversation,
-  saveAuthoredGame,
+  saveAuthoredGameWithLifetime,
   saveGameConversation,
-  updateAuthoredGameFiles,
   updateAuthoredReferences,
   updateGameConversation,
   type CachedGameData,
@@ -259,6 +258,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
    * the assistant bubble for the current room.
    */
   async function openPowerUp(config: LlmConfig): Promise<void> {
+    if (state.powerUp.busy) return;
     if (state.powerUp.open && state.powerUp.mode === "room") return;
     if (state.powerUp.mode === "room") state.powerUp.mode = "remix";
     pauseEngine("powerUp");
@@ -417,7 +417,8 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         roomGeneration: false,
       };
       writtenRev = planRevisionOf(author);
-      if (!(await saveAuthoredGame(remixProjectId, data)))
+      const historyLifetime = await saveAuthoredGameWithLifetime(remixProjectId, data);
+      if (historyLifetime === null)
         throw new Error(
           "Browser storage could not save this remix. Use Game → Download game… to keep it.",
         );
@@ -427,6 +428,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       const newBooted: BootedGame = {
         installed: false,
         projectId: remixProjectId,
+        historyLifetime,
         alias: game.alias,
         title: `${original?.title ?? game.title} Remix`,
         revision,
@@ -573,6 +575,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     agent: AgentHandler,
     sendDirection: (dir: number) => void,
   ): Promise<string> {
+    if (state.powerUp.busy) throw new Error("Wait for the current agent task to finish.");
     const game = getBootedGame();
     let author = getSession();
     if (!author && game && !game.installed && game.projectId) {
@@ -960,82 +963,154 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     removePendingReference(id);
   }
 
-  /**
-   * Commit a staged VIEW through the same channel a remix patch uses: the
-   * session's container and source spec when a session is live, a worker
-   * patch for the running engine, then the project snapshot. The keep is
-   * refused — by stagedRefusal — when the game's identity moved after the
-   * reference was attached, checked against BOTH the booted revision and the
-   * durable project a second writer may have moved. A running turn or a
-   * history adoption also refuses: both own the session and worker state
-   * this mutates. Everything that can fail happens before anything mutates,
-   * so a refused or failed keep leaves the staged offer in place.
-   */
+  /** Keep resources, source and the consumed offer in one conditional durable write. */
   async function keepStagedView(id: string): Promise<void> {
     const game = requireAuthoredBoot();
     if (state.powerUp.busy || state.powerUp.mode === "room")
       throw new Error("Wait for the current agent turn before keeping a staged view.");
     const author = session;
-    if (author) {
-      if (author.task.snapshot().status !== "idle")
-        throw new Error("Wait for the current agent turn before keeping a staged view.");
-      if (author.adoptionHeld !== null) throw new Error(author.adoptionHeld);
-    }
-    const references = await listReferences();
-    const reference = references.find((r) => r.id === id);
-    if (!reference) throw new Error("That reference is no longer attached to this project.");
-    // The live boot is only half the base: storage must still hold the same
-    // revision, or another writer (a second tab, a remap) moved the project.
-    const stored = await loadAuthoredGame(game.projectId!);
-    if (!stored) throw new Error("The project is no longer stored in this browser.");
-    if ((await gameRevision(stored.files)) !== game.revision)
-      throw new Error(
-        "The project changed elsewhere since this game booted — reload it before keeping staged art.",
-      );
-    const refusal = stagedRefusal(reference, {
-      project: game.projectId!,
-      revision: game.revision,
-    });
-    if (refusal) throw new Error(refusal);
-    const staged = reference.staged!;
-    const payload = new Uint8Array(base64ToBytes(staged.payload));
-
-    // Build the file set the keep produces before touching anything live:
-    // the worker's exported files plus the staged view, persisted first so a
-    // storage refusal cannot leave the running game ahead of the project.
-    const exported = await query("exportFiles");
-    if (!exported || getBootedGame() !== game)
-      throw new Error("The game changed while the staged view was being kept.");
-    const container = openContainer(new Map(Object.entries(exported)));
-    container.putResource("view", staged.num, new Uint8Array(payload));
-    const files = Object.fromEntries(container.files);
-
-    if (author) {
-      author.state.container.putResource("view", staged.num, payload);
-      author.state.sources.views.set(staged.num, staged.input);
-      remixNeedsSave = true;
-      // The session adopts before the persist so its snapshot carries the
-      // view's source; a failure leaves the durable project and the worker
-      // untouched and the staged offer intact for a retry.
-      await persistRemix(game, author, files);
-      postSessionSnapshot(author);
-    } else {
-      if (!(await updateAuthoredGameFiles(game.projectId!, files)))
+    const release = author?.reserveMutation(
+      "Finish keeping a staged view before starting another operation.",
+    );
+    const powerUp = state.powerUp;
+    powerUp.busy = true;
+    pauseEngine("keepView");
+    try {
+      await getAutosaveWrite();
+      const stored = await loadAuthoredGame(game.projectId!);
+      if (!stored) throw new Error("The project is no longer stored in this browser.");
+      if ((await gameRevision(stored.files)) !== game.revision)
         throw new Error(
-          "Browser storage could not save the kept view. Use Game → Download game… to keep it.",
+          "The project changed elsewhere since this game booted — reload it before keeping staged art.",
         );
-      await updateBootedResources(game, files);
+      const reference = stored.references?.find((r) => r.id === id);
+      if (!reference) throw new Error("That reference is no longer attached to this project.");
+      const refusal = stagedRefusal(reference, {
+        project: game.projectId!,
+        revision: game.revision,
+      });
+      if (refusal) throw new Error(refusal);
+      const staged = reference.staged!;
+      const payload = new Uint8Array(base64ToBytes(staged.payload));
+      const worker = getWorker();
+      if (!worker) throw new Error("The running game is no longer available.");
+      const exported = await query("exportFiles");
+      if (!exported || getBootedGame() !== game || session !== author || getWorker() !== worker)
+        throw new Error("The game changed while the staged view was being kept.");
+      if ((await gameRevision(exported)) !== game.revision)
+        throw new Error("The running game changed before the staged view could be kept.");
+      const container = openContainer(new Map(Object.entries(exported)));
+      container.putResource("view", staged.num, payload);
+      const files = Object.fromEntries(container.files);
+      const words = files["WORDS.TOK"]
+        ? parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id] as [string, number])
+        : game.words;
+      const revision = await gameRevision(files);
+      const sourceSession =
+        author ??
+        AgentSession.fromAuthoredData(
+          { provider: "stub", model: "offline-stub", apiKey: "" },
+          () => {},
+          exported,
+          words,
+          stored.transcript,
+          stored.sessionId,
+          stored.authoringState,
+        );
+      const candidate = sourceSession.prepareViewPatch(files, staged.num, staged.input);
+      const forkCatalog =
+        stored.library?.source === "catalog" && stored.library.revision !== revision;
+      const targetId = forkCatalog
+        ? requireProjectId(`remix-${crypto.randomUUID()}`)
+        : game.projectId!;
+      const references = stored.references!.map((r) =>
+        r.id === id ? { ...r, staged: undefined } : r,
+      );
+      const data = {
+        ...stored,
+        files,
+        words,
+        references,
+        authoringState: candidate.authoringState,
+        ...(forkCatalog
+          ? {
+              projectId: targetId,
+              title: `${stored.title} Remix`,
+              imported: true,
+              roomGeneration: false,
+              library: {
+                ...stored.library!,
+                source: "remix" as const,
+                catalog: undefined,
+                preview: undefined,
+                parent: { project: game.projectId!, revision: game.revision },
+                revision,
+                validation: {
+                  status: "unverified" as const,
+                  message: "Remixed resources. Check the opening to create a new preview.",
+                },
+              },
+              references: references.map((r) => ({
+                ...r,
+                origin: r.origin ?? r.attachedAt,
+                attachedAt: { ...r.attachedAt, project: targetId },
+              })),
+            }
+          : {}),
+        ...(author
+          ? {
+              ...author.getProviderContext(),
+              transcript: author.getTranscript(),
+              sessionId: author.getSessionId(),
+            }
+          : {}),
+      };
+      if (getBootedGame() !== game || session !== author || getWorker() !== worker)
+        throw new Error("The game changed while the staged view was being kept.");
+      // Catalog entries fork into a new project; the source remains untouched.
+      const historyLifetime = await saveAuthoredGameWithLifetime(
+        targetId,
+        data,
+        forkCatalog ? { requireNew: true } : { expectedGeneration: stored.generation ?? 0 },
+      );
+      if (historyLifetime === null)
+        throw new Error(
+          "Browser storage could not save the kept view. The project may have changed elsewhere; reload it before trying again.",
+        );
+
+      // Navigating away during the write keeps the durable result for the next
+      // boot; it must never patch a replacement worker or replace its game.
+      if (getBootedGame() !== game || session !== author || getWorker() !== worker) return;
+      // All validation and the conditional write finished before the live
+      // session changes. No await separates adoption, patch and checkpoint.
+      if (author) candidate.adopt();
+      const adoptedGame = forkCatalog
+        ? { ...game, projectId: targetId, title: data.title, historyLifetime }
+        : game;
+      adoptedGame.files = files;
+      adoptedGame.words = words;
+      adoptedGame.revision = revision;
+      adoptedGame.authoredGame = data;
+      if (forkCatalog) {
+        clearAutosave(gameStorageKey(game));
+        setBootedGame(adoptedGame);
+        onRemixCreated?.(targetId);
+      }
+      remixNeedsSave = false;
+      const transfer = new Uint8Array(payload);
+      worker.postMessage(
+        { type: "patch", kind: "view", num: staged.num, payload: transfer } satisfies WorkerInbound,
+        [transfer.buffer],
+      );
+      if (author) {
+        reportPlanSaved(planRevisionOf(author));
+        postSessionSnapshot(author);
+      }
+    } finally {
+      release?.();
+      powerUp.busy = false;
+      resumeEngine("keepView");
     }
-    const worker = getWorker();
-    const transfer = new Uint8Array(payload);
-    worker?.postMessage(
-      { type: "patch", kind: "view", num: staged.num, payload: transfer } satisfies WorkerInbound,
-      [transfer.buffer],
-    );
-    // The staged offer is spent — the reference stays as art provenance.
-    await writeReferences(game, (current) =>
-      current.map((r) => (r.id === id ? { ...r, staged: undefined } : r)),
-    );
   }
 
   return {

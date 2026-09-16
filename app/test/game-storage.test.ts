@@ -15,6 +15,7 @@ import {
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import {
   appendHistoryBatch,
+  importGameHistory,
   loadProjectHistory,
   stageRetainedOriginal,
 } from "../src/historyStorage.ts";
@@ -954,10 +955,33 @@ test("removing a library game deletes its history records and blobs too", async 
       (key) => typeof key === "string" && key.startsWith(`history/${projectId}`),
     );
   assert.ok(historyKeys().length > 2, "manifest, batch and blob records exist");
+  const history = (await loadProjectHistory(projectId))!;
 
   await removeLibraryGame(projectId);
   assert.deepEqual(historyKeys(), [], "every history record left with the project");
   assert.equal(await storage.loadAuthoredGame(projectId), null);
+  assert.equal(
+    await appendHistoryBatch(
+      projectId,
+      { segment: "s2", batch: 1, seqStart: 0, seqEnd: 0, events: [], marks: [], sync: [], boot },
+      "2.936",
+      identity,
+    ),
+    false,
+    "a late writer cannot open a new segment after deletion",
+  );
+  assert.deepEqual(historyKeys(), [], "late batches cannot resurrect any history records");
+  assert.equal(await importGameHistory(projectId, history, identity), false);
+  await assert.rejects(
+    stageRetainedOriginal(projectId, {
+      id: "late-stage",
+      boot,
+      from: { segment: "s1", seq: 0, tick: 0 },
+      retainedAt: 2,
+    }),
+    /removed game/,
+  );
+  assert.deepEqual(historyKeys(), [], "late imports and swaps cannot recreate removed history");
   // The neighbor's history is untouched — the prefix belongs to this project.
   const neighbor = testProjectId("gone-with-tape2");
   await storage.saveAuthoredGame(neighbor, {

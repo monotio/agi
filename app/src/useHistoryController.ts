@@ -79,7 +79,7 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
       const key = activeKey;
       const game = ctx.getBootedGame();
       if (!game || gameStorageKey(game) !== key) return;
-      const run = renewHistoryWriter(key, segment)
+      const run = renewHistoryWriter(key, segment, game.historyLifetime)
         .then((renewed) => {
           if (activeKey !== key || writerSegment !== segment) return;
           if (renewed) unsaved.delete(`lease:${segment}`);
@@ -130,7 +130,7 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
           // pending commits, ahead of this key's) rather than let the
           // continuing stream refuse against a record that never booted.
           const from = activeKey;
-          const run = moveHistoryRecord(from, storageKey).finally(() => {
+          const run = moveHistoryRecord(from, storageKey, game?.historyLifetime).finally(() => {
             if (relocating === run) relocating = null;
           });
           relocating = run;
@@ -162,10 +162,16 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
       armRenewal();
       const project = projectId(storageKey);
       if (project === null) return false;
-      return appendHistoryBatch(storageKey, msg.batch, ctx.getProfile() ?? "", {
-        project,
-        revision: game.revision,
-      });
+      return appendHistoryBatch(
+        storageKey,
+        msg.batch,
+        ctx.getProfile() ?? "",
+        {
+          project,
+          revision: game.revision,
+        },
+        game.historyLifetime,
+      );
     })()
       .then((committed) => {
         if (committed) unsaved.delete(batchKey);

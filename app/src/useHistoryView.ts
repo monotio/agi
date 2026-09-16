@@ -510,7 +510,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       // asking; only an unprovable one stays pending, preserved and quiet.
       // The batch stream's newest segment is the worker's live tail, which
       // settles candidates the tape alone cannot judge.
-      await resolveStagedSwap(key, recording, outline.at(-1)?.id ?? null);
+      await resolveStagedSwap(key, recording, outline.at(-1)?.id ?? null, game.historyLifetime);
       await refreshMeta(key);
       bookmarks = await loadHistoryBookmarks(key);
       if (mine !== openSerial) return;
@@ -824,121 +824,129 @@ export function useHistoryView(deps: HistoryViewDeps) {
     /** The branch this swap adopted — it leaves the undo list on commit. */
     dropBranch?: string,
   ): Promise<boolean> {
-    const v = view();
-    const game = deps.getBootedGame();
-    if (!game) return false;
-    const key = gameStorageKey(game);
-    // A user close mid-swap invalidates the swap's UI writes — the staged
-    // candidate stays durable and the next open's settle pass resurfaces it.
-    const mine = openSerial;
-    const stillMine = () => openSerial === mine;
-    // The adoption transaction holds authoring until the session carries the
-    // state belonging to the adopted bytes — an uncertain or failed install
-    // keeps the hold rather than let a turn run against a different revision.
-    const session = deps.getSession();
-    session?.holdAdoption(`${verb} is adopting a session — authoring resumes when it lands.`);
-    // A failure before the adoption is even asked is definite: the worker
-    // still runs the departing session, so the hold releases and the staged
-    // candidate — if the stage write landed before throwing — is left for
-    // the settle pass either way.
-    let departing;
+    if (deps.state.powerUp.busy)
+      throw new Error("Wait for the current authoring operation before changing sessions.");
+    const powerUp = deps.state.powerUp;
+    powerUp.busy = true;
     try {
-      departing = await deps.query("historyRetain", {}, 10_000);
-    } catch (error) {
-      session?.releaseAdoption();
-      throw error;
-    }
-    if (departing.boot === null) {
-      session?.releaseAdoption();
-      v.error = "The paused session can't be kept — a game prompt is still open.";
-      return false;
-    }
-    const candidate = {
-      id: crypto.randomUUID(),
-      boot: departing.boot,
-      from: departing.from,
-      retainedAt: Date.now(),
-      // The departing session's authoring state goes into the record — a
-      // later Undo rewind reinstalls exactly this.
-      ...(session ? { session: session.snapshotAuthoring() } : {}),
-    };
-    try {
-      await stageRetainedOriginal(key, candidate);
-    } catch (error) {
-      session?.releaseAdoption();
-      throw error;
-    }
-    let reply: {
-      ok: boolean;
-      message?: string | null;
-      boot?: HistoryBoot;
-      session?: unknown;
-    };
-    try {
-      reply = await adoptQuery();
-    } catch (error) {
-      // The outcome is uncertain: whichever session is live must be released
-      // even when the user already closed the transport. The authoring hold
-      // stays — a retry installs the adopted state and releases it.
-      closeHistory();
-      pauseAtLive();
-      await refreshMeta(key);
-      view().error = `${verb}'s outcome is uncertain (${String(error)}) — the kept session is held for recovery.`;
-      return false;
-    }
-    if (!reply.ok) {
-      session?.releaseAdoption();
+      const v = view();
+      const game = deps.getBootedGame();
+      if (!game) return false;
+      const key = gameStorageKey(game);
+      // A user close mid-swap invalidates the swap's UI writes — the staged
+      // candidate stays durable and the next open's settle pass resurfaces it.
+      const mine = openSerial;
+      const stillMine = () => openSerial === mine;
+      // The adoption transaction holds authoring until the session carries the
+      // state belonging to the adopted bytes — an uncertain or failed install
+      // keeps the hold rather than let a turn run against a different revision.
+      const session = deps.getSession();
+      session?.holdAdoption(`${verb} is adopting a session — authoring resumes when it lands.`);
+      // A failure before the adoption is even asked is definite: the worker
+      // still runs the departing session, so the hold releases and the staged
+      // candidate — if the stage write landed before throwing — is left for
+      // the settle pass either way.
+      let departing;
       try {
-        await clearStagedOriginal(key, candidate.id);
-      } catch {
-        await refreshMeta(key);
+        departing = await deps.query("historyRetain", {}, 10_000);
+      } catch (error) {
+        session?.releaseAdoption();
+        throw error;
       }
-      view().error = reply.message ?? `${verb} failed.`;
-      return false;
-    }
-    // The session leg of the transaction: the AgentSession installs the
-    // state belonging to the bytes the worker just adopted, and the stored
-    // project follows to the same revision. A failure — or an ack that
-    // names no adopted boot — keeps the adoption hold: recovery is a
-    // retrying swap, not a silent turn against a different revision.
-    if (reply.boot === undefined) {
-      closeHistory();
-      pauseAtLive();
+      if (departing.boot === null) {
+        session?.releaseAdoption();
+        v.error = "The paused session can't be kept — a game prompt is still open.";
+        return false;
+      }
+      const candidate = {
+        id: crypto.randomUUID(),
+        boot: departing.boot,
+        from: departing.from,
+        retainedAt: Date.now(),
+        // The departing session's authoring state goes into the record — a
+        // later Undo rewind reinstalls exactly this.
+        ...(session ? { session: session.snapshotAuthoring() } : {}),
+      };
+      try {
+        await stageRetainedOriginal(key, candidate, game.historyLifetime);
+      } catch (error) {
+        session?.releaseAdoption();
+        throw error;
+      }
+      let reply: {
+        ok: boolean;
+        message?: string | null;
+        boot?: HistoryBoot;
+        session?: unknown;
+      };
+      try {
+        reply = await adoptQuery();
+      } catch (error) {
+        // The outcome is uncertain: whichever session is live must be released
+        // even when the user already closed the transport. The authoring hold
+        // stays — a retry installs the adopted state and releases it.
+        closeHistory();
+        pauseAtLive();
+        await refreshMeta(key);
+        view().error = `${verb}'s outcome is uncertain (${String(error)}) — the kept session is held for recovery.`;
+        return false;
+      }
+      if (!reply.ok) {
+        session?.releaseAdoption();
+        try {
+          await clearStagedOriginal(key, candidate.id, game.historyLifetime);
+        } catch {
+          await refreshMeta(key);
+        }
+        view().error = reply.message ?? `${verb} failed.`;
+        return false;
+      }
+      // The session leg of the transaction: the AgentSession installs the
+      // state belonging to the bytes the worker just adopted, and the stored
+      // project follows to the same revision. A failure — or an ack that
+      // names no adopted boot — keeps the adoption hold: recovery is a
+      // retrying swap, not a silent turn against a different revision.
+      if (reply.boot === undefined) {
+        closeHistory();
+        pauseAtLive();
+        await refreshMeta(key);
+        view().error = `${verb}'s reply carried no adopted state — authoring is held until the next adoption.`;
+        return true;
+      }
+      try {
+        await deps.adoptSession(game, reply.boot, reply.session);
+      } catch (error) {
+        closeHistory();
+        pauseAtLive();
+        await refreshMeta(key);
+        view().error = `${verb} adopted the session, but its authoring state could not be installed (${String(error)}) — authoring is held until the next adoption.`;
+        return true;
+      }
+      try {
+        await commitStagedOriginal(key, candidate.id, dropBranch, game.historyLifetime);
+      } catch (error) {
+        closeHistory();
+        pauseAtLive();
+        await refreshMeta(key);
+        view().error = `The session was kept but its record could not be saved (${String(error)}) — the copy stays queued for recovery.`;
+        deps.logAgent("log", `history: ${verb} adopted; the kept session's promotion is pending`);
+        return true;
+      }
+      stopWatch();
+      if (stillMine()) {
+        v.active = false;
+        v.watching = false;
+        v.error = "";
+      }
+      v.parked = false;
+      recordingAxis = [];
+      deps.resumeEngine("history");
+      deps.resumeEngine("transport");
       await refreshMeta(key);
-      view().error = `${verb}'s reply carried no adopted state — authoring is held until the next adoption.`;
       return true;
+    } finally {
+      powerUp.busy = false;
     }
-    try {
-      await deps.adoptSession(game, reply.boot, reply.session);
-    } catch (error) {
-      closeHistory();
-      pauseAtLive();
-      await refreshMeta(key);
-      view().error = `${verb} adopted the session, but its authoring state could not be installed (${String(error)}) — authoring is held until the next adoption.`;
-      return true;
-    }
-    try {
-      await commitStagedOriginal(key, candidate.id, dropBranch);
-    } catch (error) {
-      closeHistory();
-      pauseAtLive();
-      await refreshMeta(key);
-      view().error = `The session was kept but its record could not be saved (${String(error)}) — the copy stays queued for recovery.`;
-      deps.logAgent("log", `history: ${verb} adopted; the kept session's promotion is pending`);
-      return true;
-    }
-    stopWatch();
-    if (stillMine()) {
-      v.active = false;
-      v.watching = false;
-      v.error = "";
-    }
-    v.parked = false;
-    recordingAxis = [];
-    deps.resumeEngine("history");
-    deps.resumeEngine("transport");
-    await refreshMeta(key);
-    return true;
   }
 
   /** The viewed moment becomes the live session; the departing one is kept. */
@@ -1039,7 +1047,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     bookmarks = [...bookmarks, bookmark];
     v.marks = buildMarks(recording!, bookmarks);
     recordingAxis = [];
-    await saveHistoryBookmark(gameStorageKey(game), bookmark);
+    await saveHistoryBookmark(gameStorageKey(game), bookmark, game.historyLifetime);
   }
 
   /** A map visit's jump target: open the transport if needed, then seek. */

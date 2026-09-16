@@ -39,7 +39,13 @@ import {
   type ProjectHistory,
   type RetainedOriginal,
 } from "./historyArchive.ts";
-import { readBodyRecords, serializeWrite, updateBodyRecords } from "./gameStorage.ts";
+import {
+  readBodyRecords,
+  serializeWrite,
+  updateBodyRecords as updateStoredBodyRecords,
+  readHistoryLifetime,
+  historyLifetimeGuard,
+} from "./gameStorage.ts";
 import { projectId, type GameIdentity } from "../../src/gameIdentity.ts";
 
 export type { HistoryBookmark, ProjectHistory, RetainedOriginal } from "./historyArchive.ts";
@@ -191,6 +197,19 @@ function readManifest(raw: unknown): HistoryManifest | null {
   )
     throw new Error("This history record layout is not supported by this app.");
   return raw as unknown as HistoryManifest;
+}
+
+/** Every history mutation checks deletion in its own write transaction. */
+function updateBodyRecords<T>(
+  key: string,
+  lifetime: string | null | undefined,
+  update: (stored: unknown) => { result: T; puts?: unknown[]; deletes?: string[] },
+): Promise<T> {
+  return updateStoredBodyRecords(
+    key,
+    update,
+    historyLifetimeGuard(key.slice("history/".length), lifetime),
+  );
 }
 
 const manifestKey = (storageKey: string): string => `history/${storageKey}`;
@@ -350,21 +369,27 @@ function freshManifest(
  * integrity: a late resend must never append its events after a younger
  * batch's, or replay applies them out of order.
  */
-export function appendHistoryBatch(
+export async function appendHistoryBatch(
   storageKey: string,
   batch: HistoryBatch,
   profile: string,
   identity: GameIdentity,
+  lifetime?: string | null,
 ): Promise<boolean> {
   const key = manifestKey(storageKey);
-  return serializeWrite(key, () => mergeHistoryBatch(key, batch, profile, identity));
+  const expected = lifetime === undefined ? await readHistoryLifetime(storageKey) : lifetime;
+  return serializeWrite(key, () => mergeHistoryBatch(key, batch, profile, identity, expected));
 }
 
 /** Renew the owning segment while its worker is alive, including while paused. */
-export function renewHistoryWriter(storageKey: string, segment: string): Promise<boolean> {
+export function renewHistoryWriter(
+  storageKey: string,
+  segment: string,
+  lifetime?: string | null,
+): Promise<boolean> {
   const key = manifestKey(storageKey);
   return serializeWrite(key, () =>
-    updateBodyRecords<boolean>(key, (raw) => {
+    updateBodyRecords<boolean>(key, lifetime, (raw) => {
       const manifest = readManifest(raw);
       if (manifest === null) return { result: false };
       const writer = manifest.segments.find((entry) => entry.id === segment);
@@ -389,12 +414,15 @@ export async function mergeHistoryBatch(
   batch: HistoryBatch,
   profile: string,
   identity: GameIdentity,
+  lifetime?: string | null,
 ): Promise<boolean> {
   try {
+    const expected =
+      lifetime === undefined ? await readHistoryLifetime(key.slice("history/".length)) : lifetime;
     // Content-key the boot's file set before the transaction opens — the
     // blob write is blind (same hash is the same bytes), so no read of it.
     const filesRef = batch.boot !== undefined ? await filesBlobHash(batch.boot.files) : undefined;
-    return await updateBodyRecords<boolean>(key, (raw) => {
+    return await updateBodyRecords<boolean>(key, expected, (raw) => {
       const stored = readManifest(raw);
       const w = emptyWrites();
       const manifest =
@@ -583,9 +611,14 @@ export async function loadGameHistory(storageKey: string): Promise<HistoryRecord
  * batch would land on a key that never saw its segment and every later
  * commit would refuse.
  */
-export function moveHistoryRecord(fromStorageKey: string, toStorageKey: string): Promise<void> {
+export async function moveHistoryRecord(
+  fromStorageKey: string,
+  toStorageKey: string,
+  lifetime?: string | null,
+): Promise<void> {
   const from = manifestKey(fromStorageKey);
   const to = manifestKey(toStorageKey);
+  const expected = lifetime === undefined ? await readHistoryLifetime(toStorageKey) : lifetime;
   return serializeWrite(from, async () => {
     const { head, records } = await readBodyRecords(from, (raw) => {
       const manifest = readManifest(raw);
@@ -596,7 +629,7 @@ export function moveHistoryRecord(fromStorageKey: string, toStorageKey: string):
     const fromManifest = source.manifest;
     const toProject = projectId(toStorageKey);
     await serializeWrite(to, () =>
-      updateBodyRecords<void>(to, (raw) => {
+      updateBodyRecords<void>(to, expected, (raw) => {
         const stored = readManifest(raw);
         const w = emptyWrites();
         // The moved tape is re-addressed to the project it now belongs to —
@@ -724,11 +757,13 @@ function promoteStaged(
 export async function stageRetainedOriginal(
   storageKey: string,
   staged: RetainedOriginal,
+  lifetime?: string | null,
 ): Promise<void> {
   const key = manifestKey(storageKey);
+  const expected = lifetime === undefined ? await readHistoryLifetime(storageKey) : lifetime;
   const filesRef = await filesBlobHash(staged.boot.files);
   return serializeWrite(key, () =>
-    updateBodyRecords<void>(key, (raw) => {
+    updateBodyRecords<void>(key, expected, (raw) => {
       const stored = readManifest(raw);
       if (stored === null) return { result: undefined }; // no record yet
       const w = emptyWrites();
@@ -758,10 +793,11 @@ export function commitStagedOriginal(
   storageKey: string,
   stagedId: string,
   dropBranch?: string,
+  lifetime?: string | null,
 ): Promise<void> {
   const key = manifestKey(storageKey);
   return serializeWrite(key, () =>
-    updateBodyRecords<void>(key, (raw) => {
+    updateBodyRecords<void>(key, lifetime, (raw) => {
       const stored = readManifest(raw);
       if (stored === null) return { result: undefined };
       const idx = (stored.staged ?? []).findIndex((s) => s.id === stagedId);
@@ -786,10 +822,14 @@ export function commitStagedOriginal(
 }
 
 /** The swap is settled and the staged copy is not needed — drop it. */
-export function clearStagedOriginal(storageKey: string, stagedId: string): Promise<void> {
+export function clearStagedOriginal(
+  storageKey: string,
+  stagedId: string,
+  lifetime?: string | null,
+): Promise<void> {
   const key = manifestKey(storageKey);
   return serializeWrite(key, () =>
-    updateBodyRecords<void>(key, (raw) => {
+    updateBodyRecords<void>(key, lifetime, (raw) => {
       const stored = readManifest(raw);
       if (stored === null) return { result: undefined };
       const idx = (stored.staged ?? []).findIndex((s) => s.id === stagedId);
@@ -828,10 +868,11 @@ export function resolveStagedSwap(
   storageKey: string,
   recording: HistoryRecording | null,
   liveSegment?: string | null,
+  lifetime?: string | null,
 ): Promise<StagedSwapResolution> {
   const key = manifestKey(storageKey);
   return serializeWrite(key, () =>
-    updateBodyRecords<StagedSwapResolution>(key, (raw) => {
+    updateBodyRecords<StagedSwapResolution>(key, lifetime, (raw) => {
       const stored = readManifest(raw);
       if (stored === null) return { result: "none" };
       const pending = stored.staged ?? [];
@@ -948,10 +989,14 @@ export async function loadTapeOutline(storageKey: string): Promise<{
 }
 
 /** Append a player bookmark; the record keeps them ordered by time placed. */
-export function saveHistoryBookmark(storageKey: string, bookmark: HistoryBookmark): Promise<void> {
+export function saveHistoryBookmark(
+  storageKey: string,
+  bookmark: HistoryBookmark,
+  lifetime?: string | null,
+): Promise<void> {
   const key = manifestKey(storageKey);
   return serializeWrite(key, () =>
-    updateBodyRecords<void>(key, (raw) => {
+    updateBodyRecords<void>(key, lifetime, (raw) => {
       const stored = readManifest(raw);
       if (stored === null) return { result: undefined };
       const bookmarks = [...(stored.bookmarks ?? []), bookmark];
@@ -1014,12 +1059,13 @@ export async function loadProjectHistory(storageKey: string): Promise<ProjectHis
  * Returns false when the write is refused; the caller reports it like a
  * failed save slot.
  */
-export function importGameHistory(
+export async function importGameHistory(
   storageKey: string,
   history: ProjectHistory,
   identity: GameIdentity,
 ): Promise<boolean> {
   const key = manifestKey(storageKey);
+  const lifetime = await readHistoryLifetime(storageKey);
   return serializeWrite(key, async () => {
     try {
       if (history.recording.version !== HISTORY_FORMAT_VERSION) return false;
@@ -1033,7 +1079,7 @@ export function importGameHistory(
         if (!blobHashes.has(text)) blobHashes.set(text, await filesBlobHash(boot.files));
       }
       const hashOf = (boot: HistoryBoot): string => blobHashes.get(JSON.stringify(boot.files))!;
-      await updateBodyRecords<void>(key, (raw) => {
+      await updateBodyRecords<void>(key, lifetime, (raw) => {
         const stored = readManifest(raw);
         const w = emptyWrites();
         if (stored !== null) {

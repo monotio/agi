@@ -653,15 +653,15 @@ Answer the player's question using evidence from inspection when needed. For hin
     return { provider: this.config.provider, model: this.config.model };
   }
 
-  getAuthoringState(): Record<string, unknown> {
+  getAuthoringState(state: AgentSessionState = this.state): Record<string, unknown> {
     return structuredClone({
       chat: this.messages,
-      authoring: this.state.authoring,
+      authoring: state.authoring,
       sources: {
-        logics: [...this.state.sources.logics],
-        pictures: [...this.state.sources.pictures],
-        views: [...this.state.sources.views],
-        sounds: [...this.state.sources.sounds],
+        logics: [...state.sources.logics],
+        pictures: [...state.sources.pictures],
+        views: [...state.sources.views],
+        sounds: [...state.sources.sounds],
       },
     });
   }
@@ -689,6 +689,40 @@ Answer the player's question using evidence from inspection when needed. For hin
    * installs state belonging to them.
    */
   private adoptionHold: string | null = null;
+  private mutationHold: string | null = null;
+
+  /** Reserve an idle session across a durable resource transaction. */
+  reserveMutation(reason: string): () => void {
+    this.assertAdoptable();
+    if (this.task.snapshot().status !== "idle")
+      throw new Error("Wait for the current agent turn before keeping a staged view.");
+    this.mutationHold = reason;
+    return () => {
+      this.mutationHold = null;
+    };
+  }
+
+  /** Validate a VIEW candidate without changing this session before storage succeeds. */
+  prepareViewPatch(
+    files: Record<string, Uint8Array>,
+    num: number,
+    input: BuildViewInput,
+  ): {
+    authoringState: Record<string, unknown>;
+    adopt: () => void;
+  } {
+    const candidate = forkAgentState(this.state);
+    candidate.sources.views.set(num, structuredClone(input));
+    const snapshot = this.getAuthoringState(candidate);
+    const next = stateFromAuthoredData(files, [...candidate.sources.words], snapshot);
+    next.genesisComplete = this.state.genesisComplete;
+    return {
+      authoringState: snapshot,
+      adopt: () => {
+        Object.assign(this.state, next);
+      },
+    };
+  }
 
   /** Non-null while a history adoption owns this session's state. */
   get adoptionHeld(): string | null {
@@ -696,6 +730,7 @@ Answer the player's question using evidence from inspection when needed. For hin
   }
 
   holdAdoption(reason: string): void {
+    if (this.mutationHold !== null) throw new Error(this.mutationHold);
     this.adoptionHold = reason;
   }
 
@@ -704,6 +739,7 @@ Answer the player's question using evidence from inspection when needed. For hin
   }
 
   private assertAdoptable(): void {
+    if (this.mutationHold !== null) throw new Error(this.mutationHold);
     if (this.adoptionHold !== null) throw new Error(this.adoptionHold);
   }
 
@@ -722,6 +758,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     snapshot?: unknown,
     expectedRevision?: string,
   ): void {
+    if (this.mutationHold !== null) throw new Error(this.mutationHold);
     const adoptedRevision = resourceSetHint({
       getFiles: () => new Map(Object.entries(files)),
     });
@@ -762,6 +799,7 @@ Answer the player's question using evidence from inspection when needed. For hin
    * the exact provider/model that produced them.
    */
   reconfigure(config: LlmConfig): AgentSession {
+    if (this.mutationHold !== null) throw new Error(this.mutationHold);
     if (this.task.snapshot().status !== "idle")
       throw new Error("Wait for the current agent task to finish before changing AI settings.");
     const context = this.getProviderContext();
@@ -836,6 +874,7 @@ Answer the player's question using evidence from inspection when needed. For hin
    * committed mid-turn would be silently overwritten.
    */
   commitPlanDraft(draft: WorldDraft): WorldCommit {
+    if (this.mutationHold !== null) return { status: "invalid", error: this.mutationHold };
     if (this.adoptionHold !== null) return { status: "invalid", error: this.adoptionHold };
     if (this.task.snapshot().status !== "idle") return { status: "busy" };
     const result = commitWorldDraft(this.state.authoring, draft);

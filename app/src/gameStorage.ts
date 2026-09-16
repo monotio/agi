@@ -247,6 +247,7 @@ export async function updateBodyRecord<T>(
 export async function updateBodyRecords<T>(
   key: string,
   update: (stored: unknown) => { result: T; puts?: unknown[]; deletes?: string[] },
+  guard?: { key: string; check: (stored: unknown) => void },
 ): Promise<T> {
   const db = await openDatabase();
   return new Promise<T>((resolve, reject) => {
@@ -256,15 +257,30 @@ export async function updateBodyRecords<T>(
     let outcome: { result: T; puts?: unknown[]; deletes?: string[] } | undefined;
     let contractError: Error | undefined;
     request.onsuccess = () => {
-      try {
-        outcome = update(request.result);
-        // Deletes first: a key that is replaced in the same transaction must
-        // come out before its new record goes in.
-        for (const key of outcome.deletes ?? []) store.delete(key);
-        for (const put of outcome.puts ?? []) store.put(put);
-      } catch (error) {
-        contractError = error instanceof Error ? error : new Error(String(error));
-        transaction.abort();
+      const apply = () => {
+        try {
+          outcome = update(request.result);
+          // Deletes first: a key that is replaced in the same transaction must
+          // come out before its new record goes in.
+          for (const key of outcome.deletes ?? []) store.delete(key);
+          for (const put of outcome.puts ?? []) store.put(put);
+        } catch (error) {
+          contractError = error instanceof Error ? error : new Error(String(error));
+          transaction.abort();
+        }
+      };
+      if (guard === undefined) apply();
+      else {
+        const guarded = store.get(guard.key);
+        guarded.onsuccess = () => {
+          try {
+            guard.check(guarded.result);
+            apply();
+          } catch (error) {
+            contractError = error instanceof Error ? error : new Error(String(error));
+            transaction.abort();
+          }
+        };
       }
     };
     transaction.oncomplete = () => {
@@ -277,6 +293,36 @@ export async function updateBodyRecords<T>(
         contractError ?? transaction.error ?? new Error("Project storage transaction aborted."),
       );
   });
+}
+
+interface HistoryLifetime {
+  projectId: string;
+  epoch: string;
+  deleted: boolean;
+}
+
+/** A boot captures this before its worker starts; deletion invalidates it permanently. */
+export async function readHistoryLifetime(storageKey: string): Promise<string | null> {
+  const stored = await bodyTransaction<HistoryLifetime | undefined>("readonly", (store) =>
+    store.get(`lifetime/${storageKey}`),
+  );
+  return stored?.deleted ? null : (stored?.epoch ?? "initial");
+}
+
+/** Checked inside the history write transaction, including for installed games without bodies. */
+export function historyLifetimeGuard(storageKey: string, expected?: string | null) {
+  return {
+    key: `lifetime/${storageKey}`,
+    check: (raw: unknown): void => {
+      const stored = raw as HistoryLifetime | undefined;
+      if (
+        stored?.deleted ||
+        expected === null ||
+        (expected !== undefined && expected !== (stored?.epoch ?? "initial"))
+      )
+        throw new ProjectDeletedError("This history writer belongs to a removed game.");
+    },
+  };
 }
 
 /**
@@ -399,14 +445,15 @@ async function putVersionedRecord<T extends { format: string; version: number }>
 async function writeCurrentBody(
   data: CachedGameData,
   options?: { expectedGeneration?: number | undefined; requireNew?: boolean | undefined },
-): Promise<number> {
+): Promise<string> {
   const db = await openDatabase();
-  return new Promise<number>((resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     const transaction = db.transaction("projects", "readwrite");
     const store = transaction.objectStore("projects");
     const existing = store.get(data.projectId);
     let contractError: Error | undefined;
     let committedGeneration = 1;
+    let lifetime = "initial";
 
     existing.onsuccess = () => {
       const value = existing.result as StoredGameBody | undefined;
@@ -447,10 +494,23 @@ async function writeCurrentBody(
       committedGeneration =
         (options?.expectedGeneration !== undefined ? options.expectedGeneration : prevGen) + 1;
       data.generation = committedGeneration;
+      if (value === undefined) {
+        lifetime = crypto.randomUUID();
+        store.put({
+          projectId: `lifetime/${data.projectId}`,
+          epoch: lifetime,
+          deleted: false,
+        } satisfies HistoryLifetime);
+      } else {
+        const receipt = store.get(`lifetime/${data.projectId}`);
+        receipt.onsuccess = () => {
+          lifetime = (receipt.result as HistoryLifetime | undefined)?.epoch ?? "initial";
+        };
+      }
       store.put(storedBody(data));
     };
 
-    transaction.oncomplete = () => resolve(committedGeneration);
+    transaction.oncomplete = () => resolve(lifetime);
     transaction.onerror = () => reject(contractError ?? transaction.error);
     transaction.onabort = () =>
       reject(
@@ -497,7 +557,10 @@ function readStoredBody(raw: StoredGameBody, projectId: ProjectId): CachedGameDa
     normalized.references = normalizeReferences(normalized.references);
   return normalized;
 }
-async function readBody(projectId: ProjectId): Promise<CachedGameData | null> {
+async function readBody(
+  projectId: ProjectId,
+  onLifetime?: (lifetime: string | null) => void,
+): Promise<CachedGameData | null> {
   const raw = localStorage.getItem(getStorageKey(projectId));
   if (!raw) return null;
   const index = JSON.parse(raw) as Record<string, unknown>;
@@ -507,9 +570,10 @@ async function readBody(projectId: ProjectId): Promise<CachedGameData | null> {
     index["storage"] !== "indexeddb"
   )
     throw new Error("This saved project version is not supported by this app.");
-  const stored = await bodyTransaction<StoredGameBody | undefined>("readonly", (store) =>
-    store.get(projectId),
-  );
+  const snapshot = await readBodyRecords(projectId, () => [`lifetime/${projectId}`]);
+  const stored = snapshot.head as StoredGameBody | undefined;
+  const lifetime = snapshot.records.get(`lifetime/${projectId}`) as HistoryLifetime | undefined;
+  onLifetime?.(lifetime?.deleted ? null : (lifetime?.epoch ?? "initial"));
   if (!stored)
     throw new Error(
       "The saved project data is unavailable. Open a downloaded project to recover it.",
@@ -570,7 +634,7 @@ async function stampLibraryMetadata(
 async function writeBody(
   data: CachedGameData,
   options?: { expectedGeneration?: number | undefined; requireNew?: boolean | undefined },
-): Promise<void> {
+): Promise<string> {
   const existingIndex = localStorage.getItem(getStorageKey(data.projectId));
   if (existingIndex) {
     let index: Record<string, unknown>;
@@ -587,8 +651,9 @@ async function writeBody(
       throw new Error("This saved project version is not supported by this app.");
   }
   await stampLibraryMetadata(data, true);
+  let lifetime: string;
   try {
-    await writeCurrentBody(data, options);
+    lifetime = await writeCurrentBody(data, options);
   } catch (err) {
     if (err instanceof ConcurrencyConflictError || err instanceof ProjectDeletedError) {
       stashedConflicts.set(data.projectId, {
@@ -603,6 +668,7 @@ async function writeBody(
     throw err;
   }
   localStorage.setItem(getStorageKey(data.projectId), JSON.stringify(storedIndex(data)));
+  return lifetime;
 }
 export function serializeWrite<T>(key: string, operation: () => Promise<T>): Promise<T> {
   const next = (writes.get(key) ?? Promise.resolve()).catch(() => {}).then(operation);
@@ -618,22 +684,43 @@ export async function loadAuthoredGame(projectId: ProjectId): Promise<CachedGame
   return serializeWrite(projectId, () => readBody(projectId));
 }
 
-export function saveAuthoredGame(
+/** Body and lifetime are read from one snapshot before a worker can start. */
+export function loadAuthoredGameWithHistoryLifetime(
+  projectId: ProjectId,
+): Promise<{ data: CachedGameData; lifetime: string | null } | null> {
+  return serializeWrite(projectId, async () => {
+    let lifetime: string | null = null;
+    const data = await readBody(projectId, (value) => {
+      lifetime = value;
+    });
+    return data === null ? null : { data, lifetime };
+  });
+}
+
+export async function saveAuthoredGame(
   projectId: ProjectId,
   data: Omit<CachedGameData, "projectId" | "authoredAt">,
   options?: { expectedGeneration?: number | undefined; requireNew?: boolean | undefined },
 ): Promise<boolean> {
+  return (await saveAuthoredGameWithLifetime(projectId, data, options)) !== null;
+}
+
+/** Save and return the exact committed lifetime, without a second read racing recreation. */
+export function saveAuthoredGameWithLifetime(
+  projectId: ProjectId,
+  data: Omit<CachedGameData, "projectId" | "authoredAt">,
+  options?: { expectedGeneration?: number | undefined; requireNew?: boolean | undefined },
+): Promise<string | null> {
   return serializeWrite(projectId, async () => {
     try {
       const gen = options?.expectedGeneration;
-      await writeBody(
+      return await writeBody(
         { ...data, projectId, authoredAt: new Date().toISOString() },
         { expectedGeneration: gen, requireNew: options?.requireNew },
       );
-      return true;
     } catch (error) {
       console.error("Project storage failed:", error);
-      return false;
+      return null;
     }
   });
 }
@@ -784,6 +871,13 @@ export function clearCachedGame(projectId: ProjectId): Promise<void> {
     // `history/${id}/`, so a plain manifest delete would orphan them all —
     // the cursor deletes every child key in the same transaction.
     await bodyTransaction("readwrite", (store) => {
+      // Keep a small deletion receipt outside the history prefix. A writer in
+      // another tab must not recreate a tape, even if its boot arrives late.
+      store.put({
+        projectId: `lifetime/${projectId}`,
+        epoch: crypto.randomUUID(),
+        deleted: true,
+      } satisfies HistoryLifetime);
       store.delete(`conversation/${projectId}`);
       store.delete(`history/${projectId}`);
       const children = store.openCursor(

@@ -840,3 +840,23 @@ test("adoptAuthoredData without a snapshot carries same-revision state, rebuilds
   session.adoptAuthoredData(Object.fromEntries(foreign.files), []);
   assert.notEqual(JSON.stringify(session.state.authoring), planned);
 });
+
+test("a reserved resource transaction refuses map commits and incoming adoptions", async () => {
+  const { createWorldDraft, draftRenameRoom } = await import("../../src/agent/worldPlan.ts");
+  const session = new AgentSession(
+    { provider: "stub", model: "offline-stub", apiKey: "" },
+    () => {},
+  );
+  await session.startGenesis("");
+  const draft = createWorldDraft(session.state.authoring.world);
+  assert.equal(draftRenameRoom(draft, 1, "Changed while keeping"), null);
+  const snapshot = session.snapshotAuthoring();
+  const files = Object.fromEntries(session.state.getFiles());
+  const release = session.reserveMutation("Keeping a staged view");
+  assert.equal(session.commitPlanDraft(draft).status, "invalid");
+  assert.throws(() => session.adoptAuthoredData(files, [], snapshot), /Keeping a staged view/);
+  assert.deepEqual(session.snapshotAuthoring(), snapshot);
+  release();
+  assert.equal(session.commitPlanDraft(draft).status, "committed");
+  assert.equal(session.state.authoring.world.rooms["1"]?.title, "Changed while keeping");
+});

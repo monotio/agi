@@ -97,6 +97,7 @@ const TAKEN_BOOT: HistoryBoot = { ...BOOT, rng: 55, resourceSet: "rev-taken" };
 
 function makeHarness(opts?: {
   takeOk?: () => boolean;
+  noSession?: boolean;
   /** The restore ack's revision — defaults to the sent boot's. */
   restoreRevision?: string;
   /** adoptSession throws this — the install leg of the swap failed. */
@@ -110,6 +111,7 @@ function makeHarness(opts?: {
 }) {
   const state = reactive({
     phase: "running",
+    powerUp: { busy: false },
     walkthrough: { active: false, status: "idle", tick: 0 },
     historyView: freshHistoryView(),
   }) as unknown as EngineState;
@@ -154,7 +156,7 @@ function makeHarness(opts?: {
     resumeEngine: (owner: string) => {
       resumes.push(owner);
     },
-    getSession: () => fakeSession as never,
+    getSession: () => (opts?.noSession ? null : (fakeSession as never)),
     adoptSession: async (_game: BootedGame, boot: HistoryBoot, snapshot: unknown) => {
       if (opts?.adoptError) throw new Error(opts.adoptError);
       adoptions.push({ boot, snapshot });
@@ -932,4 +934,34 @@ test("an opening seek keeps its lane when stored extents differ from the live ou
   view.observeBatch(batch("sX.2", [4]));
   await view.dispatchSeek(6);
   assert.deepEqual(seeks, [{ segment: 1, tick: 1 }]);
+});
+
+test("history adoption cannot overlap a staged Keep without an agent session", async () => {
+  await importGameHistory("view-test", { recording: RECORDING }, RECORDING.identity);
+  const { state, view, takes } = makeHarness({ noSession: true });
+  await view.openHistory({ segment: 0, tick: 3 });
+  state.powerUp.busy = true;
+  await view.resumeFromHere();
+  assert.match(state.historyView.error, /current authoring operation/);
+  assert.deepEqual(takes, []);
+  assert.equal(
+    state.powerUp.busy,
+    true,
+    "history must not release another operation's reservation",
+  );
+});
+
+test("history holds the authoring reservation through an awaited worker adoption", async () => {
+  await importGameHistory("view-test", { recording: RECORDING }, RECORDING.identity);
+  const { state, view, waitHeld, release } = makeHarness({
+    noSession: true,
+    defer: ["historyRetain"],
+  });
+  await view.openHistory({ segment: 0, tick: 3 });
+  const taking = view.resumeFromHere();
+  await waitHeld("historyRetain");
+  assert.equal(state.powerUp.busy, true);
+  release("historyRetain", { boot: null });
+  await taking;
+  assert.equal(state.powerUp.busy, false);
 });

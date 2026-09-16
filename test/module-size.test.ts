@@ -100,13 +100,14 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the stored game-test runner",
   },
   "app/src/gameStorage.ts": {
-    lines: 914,
-    boundary: "the local persistence records layer",
+    lines: 1008,
+    boundary:
+      "the local persistence records layer: conditional writes, coherent body/lifetime reads and transactional deletion receipts",
   },
   "app/src/historyStorage.ts": {
-    lines: 1111,
+    lines: 1192,
     boundary:
-      "the append-oriented tape store: immutable batch records, content-keyed blobs, the transactional manifest and the retained-branch lists",
+      "the append-oriented tape store: immutable batches, content-keyed blobs, manifest and retained branches, with lifetime checks inside each write transaction",
   },
   "src/agent/roomMap.ts": {
     lines: 905,
@@ -114,9 +115,9 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
       "the room-graph model: journal, plan and static-scan merge, plus the sidecar contract",
   },
   "app/src/useAuthoringController.ts": {
-    lines: 1067,
+    lines: 1142,
     boundary:
-      "the authoring controller: host-request turns, patches, map-driven room builds, session adoption and reference-art keep/detach",
+      "the authoring controller: host-request turns, patches, map-driven builds, session adoption and the reserved, conditional reference-art Keep transaction",
   },
   "app/src/ReferenceUpload.vue": {
     lines: 649,

@@ -13,7 +13,9 @@ import type { AgiAudio } from "./audio/AgiAudio.ts";
 import {
   getCachedGameMeta,
   loadAuthoredGame,
-  saveAuthoredGame,
+  loadAuthoredGameWithHistoryLifetime,
+  readHistoryLifetime,
+  saveAuthoredGameWithLifetime,
   updateAuthoredGameFiles,
 } from "./gameStorage.ts";
 import { gameStorageKey, type BootedGame, type CurrentGame, type ProjectId } from "./gameTypes.ts";
@@ -170,6 +172,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       };
       // A successful remix is saved as its own local game before playback resumes.
       const activeReplaySeed = options.getActiveReplaySeed();
+      booted.historyLifetime = await readHistoryLifetime(gameStorageKey(booted));
       w.postMessage({
         type: "boot",
         sessionId: options.getSessionId(),
@@ -316,7 +319,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     };
     authoring.attachSessionRuntime(session, booted);
 
-    const saved = await saveAuthoredGame(projectId, {
+    const historyLifetime = await saveAuthoredGameWithLifetime(projectId, {
       templateId,
       title,
       provider: config.provider,
@@ -328,18 +331,19 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       authoringState: session.getAuthoringState(),
       roomGeneration: true,
     });
-    if (!saved)
+    if (historyLifetime === null)
       logAgent(
         "error",
         "Browser storage could not save this world. Use Game → Download game… to keep it.",
       );
-    if (saved)
+    if (historyLifetime !== null)
       logAgent(
         "log",
         `Saved the world and its authoring conversation in this browser (${projectId}).`,
       );
 
     const activeReplaySeed = options.getActiveReplaySeed();
+    booted.historyLifetime = historyLifetime;
     w.postMessage({
       type: "boot",
       sessionId: options.getSessionId(),
@@ -380,7 +384,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
 
       if (bootOptions?.useCached) {
         const w = link.spawnWorker();
-        const cached = await loadAuthoredGame(projectId);
+        const loaded = await loadAuthoredGameWithHistoryLifetime(projectId);
+        const cached = loaded?.data;
+        const historyLifetime = loaded?.lifetime ?? null;
         if (cached) {
           logAgent(
             "log",
@@ -422,6 +428,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             authoring.attachSessionRuntime(cachedSession, booted);
           }
           const activeReplaySeed = options.getActiveReplaySeed();
+          booted.historyLifetime = historyLifetime;
           w.postMessage({
             type: "boot",
             sessionId: options.getSessionId(),

@@ -37,6 +37,8 @@ export interface CachedGameData extends CachedGameMeta {
 }
 
 export interface BootedGame {
+  /** Captured before worker boot; deletion invalidates this history writer. */
+  historyLifetime?: string | null;
   readonly installed: boolean;
   readonly title: string;
   revision: ResourceRevision;
