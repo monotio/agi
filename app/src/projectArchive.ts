@@ -1,14 +1,19 @@
 import { buildZip, type ZipFileInput } from "./zip.ts";
 import { sha256Hex } from "./crypto.ts";
 import { base64ToBytes, bytesToBase64 } from "./bytes.ts";
-import { publicGameMetadata, isPlayableFileName } from "./gameMetadata.ts";
+import { gameRevision, publicGameMetadata, isPlayableFileName } from "./gameMetadata.ts";
 import { validateAuthoringState } from "../../src/agent/authoringState.ts";
 import { buildView, type BuildViewInput } from "../../src/view/view.ts";
 import { buildObjectFile, buildSound, type SoundTrackInput } from "../../src/agent/tools.ts";
 import { compactContainer } from "../../src/container/container.ts";
 import { detectProfile } from "../../src/runtime/profile.ts";
 import type { CachedGameData } from "./gameTypes.ts";
-import { mimeExtension, normalizeReferences, type StoredReference } from "./referenceArt.ts";
+import {
+  mimeExtension,
+  normalizeReferences,
+  rebindStagedReferences,
+  type StoredReference,
+} from "./referenceArt.ts";
 import { progressEntries, type GameProgress } from "./gameProgress.ts";
 import { mapArchiveData } from "./roomMapStore.ts";
 import type { RoomMapSidecar } from "../../src/agent/roomMap.ts";
@@ -140,8 +145,28 @@ export async function buildProjectZip(
   const conversationHistory = await visit(data.conversationHistory ?? []);
   // Reference art is project data: metadata rides in PROJECT.JSON, the bytes
   // in REFERENCES/<id>.<ext> entries. A Game export never carries either.
-  const references = data.references?.length
-    ? data.references.map((reference) => ({
+  // Verify against the live input before rebinding to the exact exported bytes.
+  // Imported containers may contain unused bytes removed by gameEntries, and
+  // export may supply a missing OBJECT file. Neither should strand fresh staging.
+  let exportedReferences = data.references;
+  if (exportedReferences?.length) {
+    const exportedFiles = Object.fromEntries(
+      entries.flatMap((entry) =>
+        typeof entry.data === "string" ? [] : [[entry.name, entry.data]],
+      ),
+    );
+    const [sourceRevision, destinationRevision] = await Promise.all([
+      gameRevision(data.files),
+      gameRevision(exportedFiles),
+    ]);
+    exportedReferences = rebindStagedReferences(
+      exportedReferences,
+      { project: data.projectId, revision: destinationRevision },
+      { project: data.projectId, revision: sourceRevision },
+    );
+  }
+  const references = exportedReferences?.length
+    ? exportedReferences.map((reference) => ({
         ...reference,
         images: reference.images.map(({ png: _png, ...meta }) => meta),
       }))

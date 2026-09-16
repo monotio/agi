@@ -12,7 +12,7 @@ import { addLibraryGame, copyLibraryGame } from "../src/gameLibrary.ts";
 import { loadAuthoredGame, updateAuthoredGameFiles } from "../src/gameStorage.ts";
 import { inspectGame } from "../src/gameInspection.ts";
 import { stageCharacterView, stagedRefusal, type DecodedImage } from "../src/referenceArt.ts";
-import { buildPublicGameZip } from "../src/projectArchive.ts";
+import { buildProjectZip, buildPublicGameZip } from "../src/projectArchive.ts";
 import {
   readGameProgress,
   type AutosaveRecord,
@@ -20,6 +20,7 @@ import {
   type ImportStorageReport,
 } from "../src/gameProgress.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+import type { CachedGameData } from "../src/gameTypes.ts";
 
 function toBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -362,6 +363,73 @@ test("import and copy rebind a verified staged reference; a stale one keeps its 
     stagedRefusal(copy.references![1]!, { project: copyId, revision: copy.library!.revision }),
     null,
   );
+});
+
+test("project compaction preserves current staging and refuses stale staging through repeated imports and copies", async (t) => {
+  installLocalStorage(t);
+  const packed = (await readGameZip(buildPublicGameZip({ files: game(), title: "Port" }))).files;
+  const files = { ...packed, "VOL.0": Uint8Array.of(...packed["VOL.0"]!, 1, 2, 3, 4) };
+  const originalIdentity = {
+    project: testProjectId("unpacked"),
+    revision: await gameRevision(files),
+  };
+  // This old attachment already equals the future compacted revision. Export
+  // must preserve its refusal rather than accidentally reviving it on import.
+  const staleIdentity = { ...originalIdentity, revision: await gameRevision(packed) };
+  assert.notEqual(originalIdentity.revision, staleIdentity.revision);
+  const fresh = stageCharacterView(
+    "fresh",
+    0,
+    "hero",
+    originalIdentity,
+    [{ decoded: decodedSheet(), facing: "right" }],
+    { poses: 4 },
+  );
+  const stale = stageCharacterView(
+    "stale",
+    0,
+    "old hero",
+    staleIdentity,
+    [{ decoded: decodedSheet(), facing: "right" }],
+    { poses: 4 },
+  );
+  let project: CachedGameData = {
+    projectId: originalIdentity.project,
+    title: "Port",
+    provider: "stub",
+    model: "offline-stub",
+    authoredAt: "2026-09-16",
+    files,
+    words: [] as [string, number][],
+    transcript: [],
+    references: [fresh, stale],
+  };
+  for (let round = 0; round < 2; round++) {
+    const opened = await readGameZip(await buildProjectZip(project));
+    assert.deepEqual(opened.files, packed, "export compacts only unused container bytes");
+    const importedId = await addLibraryGame(opened, "Port", "zip", opening);
+    const imported = (await loadAuthoredGame(importedId))!;
+    for (const candidate of [
+      imported,
+      (await loadAuthoredGame(await copyLibraryGame(importedId)))!,
+    ]) {
+      const identity = {
+        project: candidate.projectId,
+        revision: await gameRevision(candidate.files),
+      };
+      assert.equal(stagedRefusal(candidate.references![0]!, identity), null);
+      assert.deepEqual(candidate.references![0]!.origin, originalIdentity);
+      assert.deepEqual(candidate.references![0]!.staged, fresh.staged);
+      assert.match(
+        stagedRefusal(candidate.references![1]!, identity)!,
+        /changed since this reference/,
+      );
+      assert.deepEqual(candidate.references![1]!.attachedAt, staleIdentity);
+    }
+    project = imported;
+  }
+  assert.deepEqual(fresh.attachedAt, originalIdentity, "export does not mutate live staging");
+  assert.equal(fresh.origin, undefined);
 });
 
 test("a remix copy gets independent identity and bytes while preserving its original", async (t) => {

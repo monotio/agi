@@ -78,6 +78,8 @@ export interface StoredReference {
   readonly attachedAt: GameIdentity;
   /** The original attachment identity when a copy/import rebound this reference. */
   readonly origin?: GameIdentity | undefined;
+  /** A copy/export verified this candidate was already stale; rebinding must not revive it. */
+  readonly stale?: true | undefined;
   /** The declared sheet manifest, character references only. */
   readonly sheet?: { poses: number; celHeight: number; symmetric: boolean } | undefined;
   readonly staged?: StagedView | undefined;
@@ -203,6 +205,7 @@ export function referenceAgentImages(reference: StoredReference): AgentToolImage
 export function stagedRefusal(reference: StoredReference, current: GameIdentity): string | null {
   if (reference.staged === undefined) return "Nothing is staged from this reference.";
   if (
+    reference.stale === true ||
     reference.attachedAt.project !== current.project ||
     reference.attachedAt.revision !== current.revision
   )
@@ -211,24 +214,27 @@ export function stagedRefusal(reference: StoredReference, current: GameIdentity)
 }
 
 /**
- * Rebind staged candidates to a copied or imported project's identity. A
- * candidate is rebound only when it still verifies — its attached revision
- * equals the destination's — so an already-stale staged view keeps its
- * identity and its refusal rather than being silently revived against
- * different bytes. The original attachment is kept in `origin` as
- * provenance. Export compaction is transparent to the check: containers
- * pack on every write, so both revisions ride the packed scale.
+ * Rebind candidates verified against source bytes to their destination. Export
+ * supplies the pre-compaction identity; import can verify the revision carried
+ * by the archive against its actual bytes. Once stale at a copy/export boundary,
+ * a candidate stays stale even if compaction recreates its old revision.
+ * Keep the first attachment identity as provenance through repeated transfers.
  */
 export function rebindStagedReferences(
   references: StoredReference[] | undefined,
   destination: GameIdentity,
+  source?: GameIdentity,
 ): StoredReference[] | undefined {
   if (!references?.length) return references;
   return references.map((reference) => {
+    if (reference.staged === undefined || reference.stale === true) return reference;
+    if (source !== undefined && stagedRefusal(reference, source) !== null)
+      return { ...reference, stale: true };
+    if (source === undefined && reference.attachedAt.revision !== destination.revision)
+      return reference;
     if (
-      reference.staged === undefined ||
-      reference.attachedAt.project === destination.project ||
-      reference.attachedAt.revision !== destination.revision
+      reference.attachedAt.project === destination.project &&
+      reference.attachedAt.revision === destination.revision
     )
       return reference;
     return {
@@ -300,6 +306,7 @@ export function normalizeReferences(raw: unknown): StoredReference[] {
       images,
       attachedAt,
       ...(origin !== null && origin !== undefined ? { origin } : {}),
+      ...(e["stale"] === true ? { stale: true } : {}),
       ...(sheet && Number.isInteger(sheet["poses"]) && Number.isInteger(sheet["celHeight"])
         ? {
             sheet: {

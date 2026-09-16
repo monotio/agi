@@ -148,7 +148,11 @@ export async function copyLibraryGame(projectId: ProjectId): Promise<ProjectId> 
       ...original,
       // The copy's bytes are identical, so every still-current staged
       // candidate verifies and rebinds; stale ones keep their refusal.
-      references: rebindStagedReferences(original.references, { project: id, revision }),
+      references: rebindStagedReferences(
+        original.references,
+        { project: id, revision },
+        { project: original.projectId, revision },
+      ),
       title: `${original.title} Remix`,
       library: {
         ...original.library,
