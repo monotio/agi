@@ -36,7 +36,7 @@ function tapeGame() {
     "logic",
     1,
     assembleLogic(
-      "if(!isset(f5)){set(f5);load.pic(v0);draw.pic(v0);show.pic();}if(isset(f6)){new.room(2);}return;",
+      "if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();}if(isset(f6)){new.room(2);}return;",
       { dictionary: new Map() },
     ).payload,
   );
@@ -44,7 +44,7 @@ function tapeGame() {
     "logic",
     2,
     assembleLogic(
-      "if(!isset(f5)){set(f5);load.pic(v0);draw.pic(v0);show.pic();}if(isset(f201)){reset(f201);new.room(1);}return;",
+      "if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();}if(isset(f201)){reset(f201);new.room(1);}return;",
       { dictionary: new Map() },
     ).payload,
   );
@@ -230,7 +230,8 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
   await bootTapeGame(page);
   await writeFlag(page, 6);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
-  await waitForCycles(page, 3);
+  // Record a periodic sync after the room-entry anchor (the cadence is 20 cycles).
+  await waitForCycles(page, 25);
 
   // Open and close the tape once: the open's drain commits the recorded tail
   // before the corruption lands. Keep LIVE paused so later anchors cannot
@@ -256,7 +257,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
       segment: string;
       batch: number;
       sync: { digest: string; tick: number }[];
-      anchor?: { tick: number };
+      anchors?: { tick: number }[];
     }
     const manifest = await new Promise<{ segments: { id: string }[] }>((resolve, reject) => {
       const req = db
@@ -293,7 +294,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
             markTicks.push(mark.tick);
             mark.digest = (mark.digest[0] === "0" ? "1" : "0") + mark.digest.slice(1);
           }
-          if (batch.anchor) anchorTicks.push(batch.anchor.tick);
+          for (const anchor of batch.anchors ?? []) anchorTicks.push(anchor.tick);
           store.put(batch);
         };
       }
@@ -304,13 +305,13 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
     for (const tick of markTicks.sort((a, b) => a - b)) {
       if (anchorTicks.every((a) => a < tick - 3 || a > tick + 6)) return tick;
     }
-    return markTicks[markTicks.length - 1] ?? 0;
+    throw new Error("The fixture did not record a sync mark between resume anchors.");
   });
 
   // The live worker replays its in-memory tape; reload so the stored —
   // corrupted — recording is the one under view.
+  await expect(page).toHaveURL(/#play\/history-transport-fixture$/);
   await page.reload();
-  await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBeGreaterThanOrEqual(1);
   await page.getByTestId("btn-transport-pause").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
@@ -389,8 +390,8 @@ test("a tape the app cannot read reports the failure and resumes the verified li
     });
   });
 
+  await expect(page).toHaveURL(/#play\/history-transport-fixture$/);
   await page.reload();
-  await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBeGreaterThanOrEqual(1);
 
   // A timeline click still pauses first even on an empty axis — the stored

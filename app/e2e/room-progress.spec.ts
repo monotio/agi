@@ -116,9 +116,10 @@ for (const fail of [false, true])
                 }))
               : [
                   {
-                    type: "message",
-                    role: "assistant",
-                    content: [{ type: "output_text", text: "Room ready." }],
+                    type: "function_call",
+                    call_id: "room-handover",
+                    name: "handover",
+                    arguments: JSON.stringify({ notes: null }),
                   },
                 ],
         }),
@@ -183,6 +184,7 @@ for (const fail of [false, true])
         finish();
         await expect(panel).toBeHidden();
         await expect.poll(async () => (await textHook(page)).room).toBe(2);
+        expect(requests, "the validated handover finishes without another provider turn").toBe(2);
         await page.keyboard.press("Tab");
         await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Letter");
         expect((await textHook(page)).rows.join(" ")).toContain("Old key");

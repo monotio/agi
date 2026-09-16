@@ -34,7 +34,7 @@ function mapGame() {
     "logic",
     1,
     assembleLogic(
-      "if(!isset(f5)){set(f5);load.pic(v0);draw.pic(v0);show.pic();}if(isset(f6)){new.room(2);}return;",
+      "if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();}if(isset(f6)){new.room(2);}return;",
       { dictionary: new Map() },
     ).payload,
   );

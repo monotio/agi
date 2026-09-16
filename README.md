@@ -106,6 +106,14 @@ and save descriptions.
 Ask leaves the game untouched; Remix applies the finished changes and resumes
 play. You can also open an existing AGI game ZIP and remix it.
 
+For an authored game, use the attachment button in the agent panel to add a
+PNG, JPEG or WebP reference and a brief. Room references guide the next edit.
+Character pose rows produce a VIEW preview you can inspect and **Keep** as the
+player sprite, or send with **Use in edit**. A character sheet needs four to six
+poses on a flat background or transparency, with the feet on one ground line.
+Stored references and staged previews travel with a project download; reopen
+one with **Staged — inspect** to continue later.
+
 Sound inspection gives the agent timed events and a visual timeline. Known music
 gets a piano roll; effects and unclassified sounds show frequency and noise activity.
 Ask for a sound preview to get a local WAV player and download. These clips use
