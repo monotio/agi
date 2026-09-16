@@ -103,6 +103,62 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
             return value === undefined ? undefined : structuredClone(value);
           }),
         getAll: () => request(transaction, () => structuredClone([...records.values()])),
+        getAllKeys: () => request(transaction, () => [...records.keys()].sort() as IDBValidKey[]),
+        openCursor: (range?: { lower?: IDBValidKey | null; upper?: IDBValidKey | null }) => {
+          // Cursor over a key snapshot, in key order — enough surface for
+          // prefix deletes (key + delete() + continue()).
+          const cursorRequest: Record<string, unknown> = {
+            result: null,
+            error: null,
+            onsuccess: null,
+            onerror: null,
+          };
+          transaction["pending"] = Number(transaction["pending"]) + 1;
+          let keys: IDBValidKey[] = [];
+          let index = -1;
+          const advance = () => {
+            index++;
+            const key = keys[index];
+            cursorRequest["result"] =
+              key === undefined
+                ? null
+                : {
+                    key,
+                    delete: () => {
+                      records.delete(key);
+                    },
+                    continue: () => advance(),
+                  };
+            (cursorRequest["onsuccess"] as (() => void) | null)?.();
+            if (key === undefined) {
+              transaction["pending"] = Number(transaction["pending"]) - 1;
+              queueMicrotask(() => {
+                if (!transaction["aborted"] && transaction["pending"] === 0) {
+                  transaction["settled"] = true;
+                  (transaction["oncomplete"] as (() => void) | null)?.();
+                  (transaction["release"] as (() => void) | undefined)?.();
+                }
+              });
+            }
+          };
+          queueMicrotask(() => {
+            const run = () => {
+              keys = [...records.keys()]
+                .filter(
+                  (key) =>
+                    typeof key === "string" &&
+                    (range?.lower == null || key >= range.lower) &&
+                    (range?.upper == null || key <= range.upper),
+                )
+                .sort();
+              advance();
+            };
+            const gate = transaction["gate"] as Promise<void> | undefined;
+            if (gate === undefined) run();
+            else void gate.then(run);
+          });
+          return cursorRequest as unknown as IDBRequest;
+        },
         put: (value: { projectId?: IDBValidKey }) =>
           request(transaction, () => {
             const key = value.projectId!;
@@ -118,6 +174,13 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
       return transaction;
     },
   };
+  // The prefix-delete surface needs a key-range value; only bound() is used.
+  Object.defineProperty(globalThis, "IDBKeyRange", {
+    configurable: true,
+    value: {
+      bound: (lower: IDBValidKey, upper: IDBValidKey) => ({ lower, upper }),
+    },
+  });
   Object.defineProperty(globalThis, "indexedDB", {
     configurable: true,
     value: {

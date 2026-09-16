@@ -13,6 +13,12 @@ import {
   type AutosaveRecord,
 } from "../src/useEngine.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+import {
+  appendHistoryBatch,
+  loadProjectHistory,
+  stageRetainedOriginal,
+} from "../src/historyStorage.ts";
+import { testRevision } from "./identity.ts";
 
 const indexedDbRecords = installIndexedDbFixture();
 
@@ -826,4 +832,214 @@ test("reference writes persist under the generation check and leave files untouc
   assert.deepEqual(detached.references, []);
   // A missing project refuses the write.
   assert.equal(await storage.updateAuthoredReferences(testProjectId("absent-refs"), []), false);
+});
+
+test("reference mutators merge concurrent attachments instead of losing one", async (t) => {
+  const values = new Map<string, string>();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+  const projectId = testProjectId("ref-race");
+  await storage.saveAuthoredGame(projectId, {
+    title: "Raced",
+    provider: "stub",
+    model: "stub",
+    files: { "VOL.0": Uint8Array.of(7, 8) },
+    words: [],
+  });
+  const identity = { project: projectId, revision: testRevision("r") };
+  const ref = (id: string) => ({
+    id,
+    kind: "room" as const,
+    target: 2,
+    brief: "",
+    attachedAt: identity,
+    images: [{ png: "AQID", mime: "image/png", width: 4, height: 4, facing: undefined }],
+  });
+  await storage.updateAuthoredReferences(projectId, [ref("ref-base")]);
+
+  // Two writers each read [ref-base] and append their own — the lost-update
+  // probe. With the mutator form each merge runs against the freshest read.
+  const [a, b] = await Promise.all([
+    storage.updateAuthoredReferences(projectId, (current) => [...current, ref("ref-a")]),
+    storage.updateAuthoredReferences(projectId, (current) => [...current, ref("ref-b")]),
+  ]);
+  assert.equal(a, true);
+  assert.equal(b, true);
+  const merged = (await storage.loadAuthoredGame(projectId))!;
+  assert.deepEqual(
+    merged.references?.map((r) => r.id).sort(),
+    ["ref-a", "ref-b", "ref-base"],
+    "both writers' attachments survived",
+  );
+
+  // Removal versus Keep's stage-clear: the clear must not resurrect the
+  // removed reference.
+  await storage.updateAuthoredReferences(projectId, (current) =>
+    current.filter((r) => r.id !== "ref-a"),
+  );
+  await storage.updateAuthoredReferences(projectId, (current) =>
+    current.map((r) => (r.id === "ref-b" ? { ...r, staged: undefined } : r)),
+  );
+  const after = (await storage.loadAuthoredGame(projectId))!;
+  assert.deepEqual(
+    after.references?.map((r) => r.id).sort(),
+    ["ref-b", "ref-base"],
+    "the removal held against the later mutator",
+  );
+});
+
+test("removing a library game deletes its history records and blobs too", async (t) => {
+  const values = new Map<string, string>();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+  const projectId = testProjectId("gone-with-tape");
+  await storage.saveAuthoredGame(projectId, {
+    title: "Gone",
+    provider: "stub",
+    model: "stub",
+    files: { "VOL.0": Uint8Array.of(1) },
+    words: [],
+  });
+  // A real tape: boot batch (segment + files blob) plus an unsettled staged
+  // candidate (second blob + staged manifest ref).
+  const boot = {
+    files: { "VOL.0": "AA==" },
+    dictionary: [],
+    authorRooms: false,
+    rng: 1,
+    soundDevice: 1,
+    resourceSet: "rev-1",
+    requestSerial: 0,
+  };
+  const identity = { project: projectId, revision: testRevision("tape") };
+  assert.equal(
+    await appendHistoryBatch(
+      projectId,
+      { segment: "s1", batch: 1, seqStart: 0, seqEnd: 0, events: [], marks: [], sync: [], boot },
+      "2.936",
+      identity,
+    ),
+    true,
+  );
+  await stageRetainedOriginal(projectId, {
+    id: "staged-1",
+    boot: { ...boot, files: { "VOL.0": "Ag==" } },
+    from: { segment: "s1", seq: 0, tick: 0 },
+    retainedAt: 1,
+  });
+  const historyKeys = () =>
+    [...indexedDbRecords.keys()].filter(
+      (key) => typeof key === "string" && key.startsWith(`history/${projectId}`),
+    );
+  assert.ok(historyKeys().length > 2, "manifest, batch and blob records exist");
+
+  await removeLibraryGame(projectId);
+  assert.deepEqual(historyKeys(), [], "every history record left with the project");
+  assert.equal(await storage.loadAuthoredGame(projectId), null);
+  // The neighbor's history is untouched — the prefix belongs to this project.
+  const neighbor = testProjectId("gone-with-tape2");
+  await storage.saveAuthoredGame(neighbor, {
+    title: "Neighbor",
+    provider: "stub",
+    model: "stub",
+    files: { "VOL.0": Uint8Array.of(2) },
+    words: [],
+  });
+  assert.equal(
+    await appendHistoryBatch(
+      neighbor,
+      { segment: "s1", batch: 1, seqStart: 0, seqEnd: 0, events: [], marks: [], sync: [], boot },
+      "2.936",
+      identity,
+    ),
+    true,
+  );
+  await removeLibraryGame(projectId);
+  assert.ok(
+    [...indexedDbRecords.keys()].some(
+      (key) => typeof key === "string" && key.startsWith(`history/${neighbor}`),
+    ),
+    "the neighbor project's tape survives",
+  );
+});
+
+test("reconciling the index with history records present reads only project bodies", async (t) => {
+  const values = new Map<string, string>();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+  const projectId = testProjectId("reconcile-taped");
+  await storage.saveAuthoredGame(projectId, {
+    title: "Taped",
+    provider: "stub",
+    model: "stub",
+    files: { "VOL.0": Uint8Array.of(3) },
+    words: [],
+  });
+  const boot = {
+    files: { "VOL.0": "AA==" },
+    dictionary: [],
+    authorRooms: false,
+    rng: 1,
+    soundDevice: 1,
+    resourceSet: "rev-1",
+    requestSerial: 0,
+  };
+  const identity = { project: projectId, revision: testRevision("tape") };
+  assert.equal(
+    await appendHistoryBatch(
+      projectId,
+      { segment: "s1", batch: 1, seqStart: 0, seqEnd: 0, events: [], marks: [], sync: [], boot },
+      "2.936",
+      identity,
+    ),
+    true,
+  );
+  // Drop the index entry — reconcile must rebuild it from the body alone,
+  // while the tape records stay exactly as they were.
+  const indexKey = storage.getStorageKey(projectId);
+  values.delete(indexKey);
+  assert.equal(storage.getCachedGameMeta(projectId), null);
+
+  await storage.reconcileGameIndex();
+  assert.equal(storage.getCachedGameMeta(projectId)?.projectId, projectId, "index rebuilt");
+  assert.ok(
+    [...indexedDbRecords.keys()].some(
+      (key) => typeof key === "string" && key.startsWith(`history/${projectId}/`),
+    ),
+    "the tape survived the reconcile",
+  );
+  assert.ok(await loadProjectHistory(projectId), "the tape still reads back");
 });

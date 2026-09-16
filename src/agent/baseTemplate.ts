@@ -14,6 +14,7 @@
  */
 
 import { assembleLogic } from "../logic/assembler.ts";
+import { decodeLogicActions } from "../logic/disassembler.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { buildSound, type SoundTrackInput } from "./soundBuilder.ts";
 import type { AgentSessionState } from "./tools.ts";
@@ -57,6 +58,165 @@ export function templateSlotError(
   return reserved
     ? `${kind} ${num} belongs to the harness base template (logics 0 and 250-255, sounds 250-255, flags 200-209, variables 248-255, controllers 200-219, string 11). The boot, menu and death rituals live there — choose another number.`
     : null;
+}
+
+/**
+ * The key pairs the template binds — ESC, F1, F5, F7, F9, Alt-Z, Tab. A room
+ * rebinding one intercepts the menu/help/save/restore/restart/quit/inventory
+ * surface, so compiled bytecode may not claim them.
+ */
+const TEMPLATE_KEYS: ReadonlySet<number> = new Set([
+  (27 << 8) | 0, // ESC
+  (0 << 8) | 59, // F1
+  (0 << 8) | 63, // F5
+  (0 << 8) | 65, // F7
+  (0 << 8) | 67, // F9
+  (0 << 8) | 44, // Alt-Z
+  (9 << 8) | 0, // Tab
+]);
+
+/** Action operand positions that write a flag — direct writes and done-flags. */
+const FLAG_WRITES: Readonly<Record<string, readonly number[]>> = {
+  set: [0],
+  reset: [0],
+  toggle: [0],
+  "end.of.loop": [1],
+  "reverse.loop": [1],
+  "move.obj": [4],
+  "move.obj.v": [4],
+  "follow.ego": [2],
+  sound: [1],
+};
+
+/** Action operand positions that write a variable directly. */
+const VAR_WRITES: Readonly<Record<string, readonly number[]>> = {
+  increment: [0],
+  decrement: [0],
+  assignn: [0],
+  assignv: [0],
+  addn: [0],
+  addv: [0],
+  subn: [0],
+  subv: [0],
+  muln: [0],
+  mulv: [0],
+  divn: [0],
+  divv: [0],
+  rindirect: [0],
+  random: [2],
+  "get.posn": [1, 2],
+  "last.cel": [1],
+  "current.cel": [1],
+  "current.loop": [1],
+  "current.view": [1],
+  "number.of.loops": [1],
+  "get.priority": [1],
+  "get.dir": [1],
+  "get.room.v": [1],
+  "get.num": [1],
+  distance: [2],
+};
+
+/** Actions whose operand 0 writes a string slot. */
+const STRING_WRITES: ReadonlySet<string> = new Set([
+  "set.string",
+  "get.string",
+  "word.to.string",
+  "parse",
+  "set.simple",
+]);
+
+/**
+ * Scan compiled room bytecode for writes into template-owned slots — the
+ * bindings guard only stops a *named* reservation; source can reach the same
+ * slots through raw numbers, and this check is the validator of last resort.
+ * Literal `assignn`/`assignv` bindings are tracked so indirect writes
+ * (set.v, lindirectn, call targets aside) are caught when the pointer var
+ * provably holds a reserved index; an unprovable pointer is not a violation
+ * on its own. call(255) and reads stay allowed — only writes are template
+ * ownership.
+ *
+ * Returns the violation's message, or null when the payload is clean. A
+ * payload that will not decode reports nothing — the assembler is the syntax
+ * gate, this scan only interprets what assembled.
+ */
+export function templateWriteError(
+  state: { authoring: { baseTemplate?: boolean } },
+  payload: Uint8Array,
+): string | null {
+  if (!hasBaseTemplate(state)) return null;
+  const reservedFlag = (n: number): boolean => n >= TEMPLATE_FLAG_BASE && n < TEMPLATE_FLAG_LIMIT;
+  const reservedVar = (n: number): boolean =>
+    n >= TEMPLATE_VARIABLE_BASE && n < TEMPLATE_VARIABLE_LIMIT;
+  const describe = (what: string, at: number): string =>
+    `${what} at bytecode offset ${at} belongs to the harness base template (flags 200-209, variables 248-255, controllers 200-219, string 11, its menu keys). The boot, menu and death rituals live there — choose another slot.`;
+  let actions: ReturnType<typeof decodeLogicActions>;
+  try {
+    actions = decodeLogicActions(payload);
+  } catch {
+    return null;
+  }
+  // Literal var bindings, maintained in stream order: assignn binds, assignv
+  // propagates, every other var-writing action clears. Indirect writes
+  // through a var with a surviving literal resolve statically.
+  const bound = new Map<number, number>();
+  for (const action of actions) {
+    for (const position of FLAG_WRITES[action.name] ?? []) {
+      const flag = action.args[position];
+      if (flag !== undefined && reservedFlag(flag))
+        return describe(`write to flag ${flag}`, action.at);
+    }
+    for (const position of VAR_WRITES[action.name] ?? []) {
+      const num = action.args[position];
+      if (num !== undefined && reservedVar(num))
+        return describe(`write to variable ${num}`, action.at);
+    }
+    if (STRING_WRITES.has(action.name)) {
+      if (action.args[0] === TEMPLATE_STRING_BASE)
+        return describe(`write to string ${TEMPLATE_STRING_BASE}`, action.at);
+    }
+    if (action.name === "set.key") {
+      const key = ((action.args[0] ?? 0) << 8) | (action.args[1] ?? 0);
+      const controller = action.args[2] ?? -1;
+      if (controller >= TEMPLATE_CONTROLLER_BASE && controller < TEMPLATE_CONTROLLER_LIMIT)
+        return describe(`key binding to controller ${controller}`, action.at);
+      if (TEMPLATE_KEYS.has(key))
+        return describe("key binding for a template-owned key", action.at);
+    }
+    // Indirect flag/var writes: the operand is a var holding the slot. A
+    // reserved pointer var, or a literal surviving in the reserved range, is
+    // a provable violation.
+    for (const name of ["set.v", "reset.v", "toggle.v", "lindirectn", "lindirectv"]) {
+      if (action.name !== name) continue;
+      const pointer = action.args[0];
+      if (pointer === undefined) continue;
+      if (reservedVar(pointer))
+        return describe(`${name} through reserved variable ${pointer}`, action.at);
+      const literal = bound.get(pointer);
+      const target = literal;
+      if (
+        target !== undefined &&
+        (name === "lindirectn" || name === "lindirectv"
+          ? reservedVar(target)
+          : reservedFlag(target))
+      )
+        return describe(`${name} into reserved slot ${target}`, action.at);
+    }
+    if (action.name === "assignn") bound.set(action.args[0]!, action.args[1]!);
+    else if (action.name === "assignv") {
+      const source = bound.get(action.args[1]!);
+      if (source !== undefined) bound.set(action.args[0]!, source);
+      else bound.delete(action.args[0]!);
+    } else {
+      // Any var-writing action clears the literal it overwrites — a pointer
+      // that survives is only a pointer the stream provably still holds.
+      for (const position of VAR_WRITES[action.name] ?? []) {
+        const overwritten = action.args[position];
+        if (overwritten !== undefined) bound.delete(overwritten);
+      }
+    }
+  }
+  return null;
 }
 
 /**

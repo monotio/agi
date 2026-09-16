@@ -193,6 +193,18 @@ test("reference art uploads, rides the agent turn as an image, and stages a VIEW
   await expect(page.getByTestId("reference-staged")).toContainText("mirror");
   await page.screenshot({ path: testInfo.outputPath("staged-view.png") });
 
+  // Closing and reopening the dialog restores the stored staged candidate:
+  // the stored list offers it, and selecting it brings the deterministic
+  // preview, Keep and Send back without re-uploading. The bubble stays open
+  // under the dialog, so the upload reopens straight from it.
+  await page.getByTestId("reference-upload-close").click();
+  await page.getByTestId("agent-attach-reference").click();
+  await expect(page.getByTestId("reference-upload")).toBeVisible();
+  await expect(page.getByTestId("reference-attached")).toBeHidden();
+  await page.locator("[data-testid^='reference-staged-']").click();
+  await expect(page.getByTestId("reference-preview")).toBeVisible();
+  await expect(page.getByTestId("reference-staged")).toContainText("mirror");
+
   await page.getByTestId("reference-keep").click();
   await expect(page.getByTestId("reference-attached")).toBeVisible();
   // The keep spent the staged offer but the art stays attached as provenance.

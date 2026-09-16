@@ -15,7 +15,7 @@ import { editableSource, executeAuthoringTool, sourceContextRevision } from "./a
 import { resourceCacheHint, validateAuthoringState, type BindingKind } from "./authoringState.ts";
 import { readInventoryObjects } from "./inventory.ts";
 import { normalizeAuthoredLogic } from "./logicText.ts";
-import { templateSlotError } from "./baseTemplate.ts";
+import { templateSlotError, templateWriteError } from "./baseTemplate.ts";
 
 const reference = {
   type: ["integer", "string"],
@@ -443,6 +443,9 @@ export function executeRoomTool(
     lines.push("return;");
     const normalized = normalizeAuthoredLogic(lines.join("\n"));
     const compiled = assembleLogic(normalized.source, { dictionary, profile: state.profile });
+    // Generated source can still name a reserved slot through a flag arg.
+    const templateWrite = templateWriteError(state, compiled.payload);
+    if (templateWrite) throw new Error(templateWrite);
     const wordsPayload = buildWordsTok([...dictionary].map(([word, id]) => ({ word, id })));
     staged.authoring.world.rooms[String(room)] = { title, description, exits: namedExits };
     const authoring = validateAuthoringState(staged.authoring);

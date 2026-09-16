@@ -686,16 +686,23 @@ export function updateAuthoredGameFiles(
  * Write the project's reference-art list under the same generation check the
  * other project writes share. Reference bytes are project data: they never
  * join `files`, so a reference write cannot move the playable revision.
+ *
+ * The callback form mutates against the freshest read inside the serialized
+ * write — an add, remove or stage-clear by reference id cannot lose a
+ * concurrent writer's attachment. Returning null aborts the write.
  */
 export function updateAuthoredReferences(
   projectId: ProjectId,
-  references: StoredReference[],
+  references: StoredReference[] | ((current: StoredReference[]) => StoredReference[] | null),
 ): Promise<boolean> {
   return serializeWrite(projectId, async () => {
     try {
       const data = await readBody(projectId);
       if (!data) return false;
-      data.references = references;
+      const next =
+        typeof references === "function" ? references(data.references ?? []) : references;
+      if (next === null) return false;
+      data.references = next;
       await writeBody(data, { expectedGeneration: data.generation });
       return true;
     } catch (error) {
@@ -773,10 +780,21 @@ export function clearCachedGame(projectId: ProjectId): Promise<void> {
   return serializeWrite(projectId, async () => {
     // The body, its conversation and its history leave together: projectIds are
     // deterministic, so a game added again must not inherit the removed one's
-    // history.
+    // history. The manifest's batch and blob records key under
+    // `history/${id}/`, so a plain manifest delete would orphan them all —
+    // the cursor deletes every child key in the same transaction.
     await bodyTransaction("readwrite", (store) => {
       store.delete(`conversation/${projectId}`);
       store.delete(`history/${projectId}`);
+      const children = store.openCursor(
+        IDBKeyRange.bound(`history/${projectId}/`, `history/${projectId}/￿`),
+      );
+      children.onsuccess = () => {
+        const cursor = children.result;
+        if (cursor === null) return;
+        cursor.delete();
+        cursor.continue();
+      };
       return store.delete(projectId);
     });
     localStorage.removeItem(getStorageKey(projectId));
@@ -812,18 +830,42 @@ export function updateGamePreview(
 
 /** Rebuild the disposable index from committed IndexedDB bodies after an interrupted write. */
 export async function reconcileGameIndex(): Promise<void> {
-  const bodies = await bodyTransaction<StoredGameBody[]>("readonly", (store) => store.getAll());
-  const projectIds = bodies
-    .filter(
-      (data) =>
-        data.format === "monotio.agi.project" &&
-        data.version === 1 &&
-        typeof data.projectId === "string" &&
-        !data.projectId.startsWith("conversation/") &&
-        data.files &&
-        typeof data.files === "object",
-    )
-    .map((data) => data.projectId);
+  // Keys first: the shared store also carries history batch/blob bodies, and
+  // getAll() would clone every tape into memory just to name the projects.
+  // Only the candidate project bodies are read — history keys all live under
+  // `history/` and `conversation/` prefixes.
+  const bodies = await (async (): Promise<StoredGameBody[]> => {
+    const db = await openDatabase();
+    return new Promise<StoredGameBody[]>((resolve, reject) => {
+      const transaction = db.transaction("projects", "readonly");
+      const store = transaction.objectStore("projects");
+      const found: StoredGameBody[] = [];
+      const keysRequest = store.getAllKeys();
+      keysRequest.onsuccess = () => {
+        for (const key of keysRequest.result) {
+          if (typeof key !== "string" || key.includes("/")) continue;
+          const each = store.get(key);
+          each.onsuccess = () => {
+            const data = each.result as StoredGameBody | undefined;
+            if (
+              data !== undefined &&
+              data.format === "monotio.agi.project" &&
+              data.version === 1 &&
+              data.projectId === key &&
+              data.files &&
+              typeof data.files === "object"
+            )
+              found.push(data);
+          };
+        }
+      };
+      transaction.oncomplete = () => resolve(found);
+      transaction.onerror = () => reject(transaction.error ?? keysRequest.error);
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error("Project storage transaction aborted."));
+    });
+  })();
+  const projectIds = bodies.map((data) => data.projectId);
   for (const projectId of projectIds) {
     await serializeWrite(projectId, async () => {
       const stored = await bodyTransaction<StoredGameBody | undefined>("readonly", (store) =>

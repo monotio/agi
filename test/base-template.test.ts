@@ -861,6 +861,56 @@ describe("template reserved slots", () => {
     assert.match(snd.error ?? "", /harness base template/);
   });
 
+  test("compiled room bytecode may not write the reserved slots", () => {
+    const state = createAgentSessionState();
+    installBaseTemplate(state, state.profile);
+    // Raw numbers reach the reserved slots without ever naming a binding —
+    // the assembled payload is the validator of last resort.
+    for (const [label, line] of [
+      ["flag write", "reset(f200);"],
+      ["death latch", "set(f202);"],
+      ["variable write", "assignn(v250, 42);"],
+      ["string write", 'set.string(s11, "hijacked");'],
+      ["done-flag write", "sound(255, f205);"],
+      ["key takeover", "set.key(27, 0, 50);"],
+      ["controller claim", "set.key(0, 100, 205);"],
+      ["indirect var write", "assignn(v50, 250); lindirectn(v50, 1);"],
+      ["indirect flag write", "assignn(v50, 202); set.v(v50);"],
+      ["reserved pointer", "lindirectn(v251, 1);"],
+    ] as const) {
+      const res = executeAgentTool(state, "write_logic_source", {
+        room: 5,
+        source: `${line}\nreturn;`,
+      });
+      assert.equal(res.success, false, label);
+      assert.match(res.error ?? "", /harness base template/, label);
+      assert.equal(state.container.getResource("logic", 5), null, `${label}: nothing installed`);
+    }
+    // Intended interactions stay legal: call(255) is the death ritual's
+    // front door, reads don't write, and unreserved slots are the room's own.
+    const legal = executeAgentTool(state, "write_logic_source", {
+      room: 5,
+      source: [
+        "if (isset(f202)) { call(255); }",
+        "set(f50);",
+        "assignn(v50, 7);",
+        'set.string(s5, "mine");',
+        "set.key(0, 100, 50);",
+        "assignn(v60, 199); set.v(v60);",
+        "return;",
+      ].join("\n"),
+    });
+    assert.equal(legal.success, true, legal.error ?? "");
+    assert.ok(state.container.getResource("logic", 5));
+    // And untemplated sessions keep their freedom entirely.
+    const plain = createAgentSessionState();
+    const free = executeAgentTool(plain, "write_logic_source", {
+      room: 5,
+      source: "reset(f200); assignn(v250, 42); return;",
+    });
+    assert.equal(free.success, true, free.error ?? "");
+  });
+
   test("the tools still write reserved-looking slots in untemplated sessions", () => {
     const state = createAgentSessionState();
     const res = executeAgentTool(state, "write_logic_source", {

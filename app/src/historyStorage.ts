@@ -986,15 +986,21 @@ export async function loadProjectHistory(storageKey: string): Promise<ProjectHis
     const blob = records.get(blobKey(assembled.manifest.projectId, hash)) as StoredBlob | undefined;
     if (blob !== undefined) blobs.set(hash, blob);
   }
-  const branches: RetainedOriginal[] = [];
-  for (const stored of assembled.manifest.branches ?? []) {
-    const hydrated = rehydrateRetained(stored, blobs);
-    const checked = hydrated === undefined ? null : validateRetained(hydrated);
-    if (checked !== null) branches.push(checked);
-  }
+  const retainedList = (storedList: StoredRetained[] | undefined): RetainedOriginal[] => {
+    const list: RetainedOriginal[] = [];
+    for (const stored of storedList ?? []) {
+      const hydrated = rehydrateRetained(stored, blobs);
+      const checked = hydrated === undefined ? null : validateRetained(hydrated);
+      if (checked !== null) list.push(checked);
+    }
+    return list;
+  };
+  const branches = retainedList(assembled.manifest.branches);
+  const staged = retainedList(assembled.manifest.staged);
   return {
     recording,
     ...(branches.length > 0 ? { branches } : {}),
+    ...(staged.length > 0 ? { staged } : {}),
     ...(assembled.manifest.bookmarks !== undefined
       ? { bookmarks: assembled.manifest.bookmarks }
       : {}),
@@ -1021,6 +1027,7 @@ export function importGameHistory(
       const blobHashes = new Map<string, string>();
       const boots = history.recording.segments.map((segment) => segment.boot);
       for (const branch of history.branches ?? []) boots.push(branch.boot);
+      for (const staged of history.staged ?? []) boots.push(staged.boot);
       for (const boot of boots) {
         const text = JSON.stringify(boot.files);
         if (!blobHashes.has(text)) blobHashes.set(text, await filesBlobHash(boot.files));
@@ -1105,6 +1112,24 @@ export function importGameHistory(
             w.puts.push({
               projectId: blobKey(key, filesRef),
               data: branch.boot.files,
+            } satisfies StoredBlob);
+          }
+        }
+        // Unsettled candidates land back in the staged slot — an imported
+        // tape cannot pretend the swap settled, so the settle pass on the
+        // next boot resolves them like an interrupted session's own.
+        for (const staged of history.staged ?? []) {
+          const filesRef = hashOf(staged.boot);
+          (manifest.staged ??= []).push({
+            ...staged,
+            boot: splitBoot(staged.boot, filesRef),
+          });
+          (manifest.blobs[filesRef] ??= []).push(`staged:${staged.id}`);
+          if (!seenBlobs.has(filesRef)) {
+            seenBlobs.add(filesRef);
+            w.puts.push({
+              projectId: blobKey(key, filesRef),
+              data: staged.boot.files,
             } satisfies StoredBlob);
           }
         }

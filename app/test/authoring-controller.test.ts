@@ -4,10 +4,18 @@ import { useAuthoringController, type PowerUpUiState } from "../src/useAuthoring
 import type { LlmConfig } from "../src/agent/llmClient.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
-import { saveAuthoredGame, clearCachedGame } from "../src/gameStorage.ts";
-import { createContainer } from "../../src/container/container.ts";
+import {
+  saveAuthoredGame,
+  clearCachedGame,
+  loadAuthoredGame,
+  updateAuthoredGameFiles,
+} from "../src/gameStorage.ts";
+import { createContainer, openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
+import { gameRevision } from "../src/gameMetadata.ts";
+import type { DecodedImage } from "../src/referenceArt.ts";
+import { base64ToBytes } from "../src/bytes.ts";
 import type { BootedGame } from "../src/gameTypes.ts";
 
 installIndexedDbFixture();
@@ -465,5 +473,115 @@ test("reference capacity refuses room and character attachments without discardi
   assert.equal((await controller.listReferences()).length, 16);
   assert.equal((await controller.listReferences())[15]?.brief, "image 15");
   controller.resetSession();
+  await clearCachedGame(projectId);
+});
+
+/** A decoded upload without DOM: 64x12, magenta key, one figure per cell. */
+function decodedSheet(): DecodedImage {
+  const width = 64;
+  const height = 12;
+  const rgba = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const cell = Math.floor(x / 16);
+      const lx = x - cell * 16;
+      const figure = lx >= 5 && lx < 11 && y >= 2;
+      rgba.set(figure ? [0xff, 0, 0, 0xff] : [0xff, 0, 0xff, 0xff], (y * width + x) * 4);
+    }
+  }
+  return { width, height, rgba, mime: "image/png", bytes: Uint8Array.of(1, 2, 3) };
+}
+
+test("keepStagedView refuses a busy turn and a moved durable base, then commits once", async (t) => {
+  installLocalStorageMock(t);
+  const projectId = testProjectId("keep-staged-view");
+  const files = createTestFiles();
+  await saveAuthoredGame(projectId, {
+    title: "Keep staged",
+    provider: "stub",
+    model: "offline-stub",
+    files,
+    words: [],
+  });
+  const revision = await gameRevision(files);
+  const game: BootedGame = {
+    installed: false,
+    projectId,
+    title: "Keep staged",
+    revision,
+    files,
+    words: [],
+  };
+  const powerUp = createMockPowerUp();
+  const patches: { kind?: string; num?: number }[] = [];
+  const controller = useAuthoringController({
+    state: {
+      phase: "running",
+      powerUp,
+      agentTask: null,
+      agentLog: [],
+      profile: "2.936",
+      worldTick: 0,
+      planDurableRev: "",
+    },
+    getWorker: () =>
+      ({
+        postMessage: (message: { kind?: string; num?: number }) => patches.push(message),
+      }) as unknown as Worker,
+    query: async <T>(type: string): Promise<T> => {
+      if (type === "exportFiles") return files as T;
+      return null as T;
+    },
+    logAgent: () => {},
+    readFrames: async () => [],
+    pauseEngine: () => {},
+    resumeEngine: () => {},
+    getBootedGame: () => game,
+    setBootedGame: () => {},
+    flushAutosave: async () => {},
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+  });
+
+  const reference = await controller.attachCharacterReference(
+    [{ decoded: decodedSheet(), facing: "right" }],
+    { poses: 4 },
+    0,
+    "hero",
+  );
+  const stagedPayload = base64ToBytes(reference.staged!.payload);
+
+  // A running turn owns the session — Keep refuses and the offer survives.
+  powerUp.busy = true;
+  await assert.rejects(controller.keepStagedView(reference.id), /current agent turn/);
+  assert.equal(patches.length, 0);
+  powerUp.busy = false;
+
+  // A second writer moved the durable project since boot — Keep refuses and
+  // the offer survives for a reloaded game to take.
+  const moved = createTestFiles();
+  const movedContainer = openContainer(new Map(Object.entries(moved)));
+  movedContainer.putResource(
+    "logic",
+    2,
+    assembleLogic("return;", { dictionary: new Map() }).payload,
+  );
+  const movedFiles = Object.fromEntries(movedContainer.files);
+  assert.equal(await updateAuthoredGameFiles(projectId, movedFiles), true);
+  await assert.rejects(controller.keepStagedView(reference.id), /changed elsewhere/);
+  assert.equal(patches.length, 0);
+  assert.ok((await controller.listReferences())[0]?.staged, "staged offer must survive");
+
+  // Restore the booted base and keep: the staged view lands in the project,
+  // the worker gets the patch, and the stored offer is spent.
+  assert.equal(await updateAuthoredGameFiles(projectId, files), true);
+  await controller.keepStagedView(reference.id);
+  const stored = await loadAuthoredGame(projectId);
+  const storedContainer = openContainer(new Map(Object.entries(stored!.files)));
+  assert.deepEqual(storedContainer.getResource("view", 0), stagedPayload);
+  assert.equal(stored!.references?.[0]?.staged, undefined);
+  assert.equal(patches.length, 1);
+  assert.equal(patches[0]?.kind, "view");
+  assert.equal(patches[0]?.num, 0);
   await clearCachedGame(projectId);
 });

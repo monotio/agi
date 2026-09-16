@@ -212,6 +212,18 @@ async function onDetachExisting(reference: StoredReference): Promise<void> {
   }
 }
 
+/**
+ * Reopen a stored staged candidate: the attach view's preview, Keep and
+ * Send controls work on `attached`, so reopening is selecting the stored
+ * record — its staged spec is validated storage, not a rebuild.
+ */
+function onReopenStaged(reference: StoredReference): void {
+  attached.value = reference;
+  kind.value = reference.kind;
+  target.value = reference.kind === "room" ? reference.target : target.value;
+  error.value = "";
+}
+
 function close(): void {
   referenceUpload.open = false;
 }
@@ -369,6 +381,15 @@ function close(): void {
               }}
               <template v-if="reference.brief"> — {{ reference.brief }}</template>
             </span>
+            <button
+              v-if="reference.staged"
+              type="button"
+              class="ui-button ui-button--secondary"
+              :data-testid="`reference-staged-${reference.id}`"
+              @click="onReopenStaged(reference)"
+            >
+              Staged — inspect
+            </button>
             <button
               type="button"
               class="ui-button ui-button--secondary"

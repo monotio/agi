@@ -56,6 +56,8 @@ import {
 } from "./llmClient.ts";
 import { GAME_DICTIONARY, StubAgent } from "./stubAgent.ts";
 import { projectToolResult } from "../../../src/agent/toolTransport.ts";
+import { runGameTests } from "../../../src/agent/gameTests.ts";
+import { verifyPlanConnections } from "../../../src/agent/roomMap.ts";
 import type { AgentEventSink, AgentHandler, LlmRequest } from "./hostRequests.ts";
 import { continuationTranscript } from "../projectArchive.ts";
 
@@ -103,6 +105,40 @@ The world is frozen at a cycle boundary in room ${room}, and the player has aske
 "${instruction.trim()}"
 
 Look before you write: read_room_context carries the room's live state, object table and resources — pass its 'frames' arg for the paused screen and 'state' for the full tables; read_logic / read_picture only when the request touches that resource. Patch the smallest thing that achieves what was asked — a color remap is patch_view_cels with 'recolor', no pixel rows needed — in the room the player is standing in unless they said otherwise. handover runs the full stored suite; playtest only when behavior is uncertain. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
+}
+
+/**
+ * The host verdict for a staged remix candidate — the executable half of
+ * handover. Every stored game test replays against the staged resources
+ * and every declared plan exit needs a reachable compiled transition. The
+ * genesis boot check is absent on purpose: the running game already proves
+ * it boots, and an imported game has no genesis to re-litigate. Returns the
+ * rejection text, or null when the candidate may commit.
+ */
+function remixVerdict(staged: AgentSessionState): string | null {
+  const testRun = runGameTests(staged, null);
+  if (!testRun.success) return `Stored game tests failed: ${testRun.error ?? "unknown failure"}`;
+  const logics = new Map<number, Uint8Array>();
+  for (let num = 0; num <= 255; num++) {
+    const payload = staged.container.getResource("logic", num);
+    if (payload) logics.set(num, payload);
+  }
+  const connections = verifyPlanConnections(logics, staged.authoring.world.rooms, staged.profile);
+  if (connections.missing.length || connections.mismatched.length) {
+    const first = connections.missing[0] ?? connections.mismatched[0]!;
+    const cause =
+      "compiled" in first
+        ? `its compiled transition leaves the ${first.compiled} edge instead`
+        : "no compiled new.room transition reaches it";
+    const extra = connections.missing.length + connections.mismatched.length - 1;
+    return (
+      `room ${first.from} declares exit ${JSON.stringify(first.name)} ` +
+      `to room ${first.to} but ${cause}. ` +
+      "Implement the exit in the room's logic or revise the plan with update_world." +
+      (extra > 0 ? ` ${extra} more declared exit(s) also fail validation.` : "")
+    );
+  }
+  return null;
 }
 
 /** A checkpoint off the tape is untrusted input: it must be an object before stateFromAuthoredData validates its fields. */
@@ -439,7 +475,38 @@ Answer the player's question using evidence from inspection when needed. For hin
     try {
       let turn = await this.observeTurn(this.conversation.sendUserMessage(prompt, images), "remix");
 
-      while (turn.toolCalls.length > 0) {
+      // Nothing staged may reach the game on the provider's word alone. A
+      // text turn closes the remix in one of two ways: no write succeeded,
+      // or the host's own verdict — every stored game test and every
+      // declared plan exit checked against this exact staged candidate —
+      // passes. The genesis leg of handover is skipped here: the running
+      // game already proves it boots, and imported games have no genesis
+      // to re-litigate. A failing verdict goes back to the model once for
+      // repair; a second plain-text reply discards the candidate rather
+      // than adopting it.
+      let stagedChanges = false;
+      let verdictSent = false;
+      for (;;) {
+        if (turn.toolCalls.length === 0) {
+          if (!stagedChanges) break;
+          const verdict = remixVerdict(staged);
+          if (verdict === null) break;
+          if (verdictSent) {
+            const text = `${turn.text ?? "Done."} The staged changes were not applied: ${verdict}`;
+            this.messages.push({ role: "assistant", text });
+            this.onEvent("response", `[Remix] ${text.slice(0, 300)}`, { text, patched: [] });
+            return { text, patched: [], files: {} };
+          }
+          verdictSent = true;
+          turn = await this.observeTurn(
+            this.conversation.sendUserMessage(
+              `The staged changes cannot be committed: ${verdict} ` +
+                "Repair them and call handover, or reply once more to abandon them.",
+            ),
+            "remix",
+          );
+          continue;
+        }
         let handedOver = false;
         const results: { toolCallId: string; result: AgentToolResult }[] = [];
         for (const tc of turn.toolCalls) {
@@ -466,12 +533,14 @@ Answer the player's question using evidence from inspection when needed. For hin
               res.details?.["writtenResources"] ||
               res.details?.["updatedFiles"] ||
               res.details?.["authoringChanged"]
-            )
+            ) {
+              stagedChanges = true;
               res = {
                 ...res,
                 message: `${res.message ?? "Change prepared."}\nStaged until this remix finishes; live state still describes the running game.`,
                 details: { ...res.details, application: "staged" },
               };
+            }
           }
           this.onEvent(
             res.success ? "response" : "error",
@@ -620,6 +689,11 @@ Answer the player's question using evidence from inspection when needed. For hin
    * installs state belonging to them.
    */
   private adoptionHold: string | null = null;
+
+  /** Non-null while a history adoption owns this session's state. */
+  get adoptionHeld(): string | null {
+    return this.adoptionHold;
+  }
 
   holdAdoption(reason: string): void {
     this.adoptionHold = reason;
@@ -955,13 +1029,12 @@ Answer the player's question using evidence from inspection when needed. For hin
       let completed = false;
       for (;;) {
         if (turn.toolCalls.length === 0) {
-          if (
-            staged.container.getResource("logic", room) &&
-            staged.container.getResource("picture", room)
-          ) {
-            completed = true;
-            break;
-          }
+          // Only a passing handover — the host's own validation of the exact
+          // staged candidate — completes the room; a text reply commits
+          // nothing, whether or not the resources merely exist.
+          const missing =
+            !staged.container.getResource("logic", room) ||
+            !staged.container.getResource("picture", room);
           this.task.recordTool(
             "unfinished_reply",
             {},
@@ -969,7 +1042,9 @@ Answer the player's question using evidence from inspection when needed. For hin
           );
           turn = await this.observeTurn(
             this.conversation.sendUserMessage(
-              `Room ${room} still needs both logic and picture. Author the missing resources.`,
+              missing
+                ? `Room ${room} still needs both logic and picture. Author the missing resources.`
+                : `Room ${room} is authored but not handed over. Call handover to validate and commit it; a text reply alone commits nothing.`,
             ),
             "room",
           );
@@ -1040,13 +1115,6 @@ Answer the player's question using evidence from inspection when needed. For hin
         if (completed) break;
         turn = await this.observeTurn(this.conversation.complete(), "room");
       }
-      if (
-        !completed &&
-        turn.toolCalls.length === 0 &&
-        staged.container.getResource("logic", room) &&
-        staged.container.getResource("picture", room)
-      )
-        completed = true;
       if (!completed) throw new Error(`Room ${room} authoring did not finish.`);
 
       const changed = changedResources(this.state, staged).map(({ kind, num, payload }) => ({

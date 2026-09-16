@@ -76,6 +76,8 @@ export interface StoredReference {
   readonly images: readonly ReferenceImage[];
   /** The game's identity when the reference was attached — staleness is judged on this. */
   readonly attachedAt: GameIdentity;
+  /** The original attachment identity when a copy/import rebound this reference. */
+  readonly origin?: GameIdentity | undefined;
   /** The declared sheet manifest, character references only. */
   readonly sheet?: { poses: number; celHeight: number; symmetric: boolean } | undefined;
   readonly staged?: StagedView | undefined;
@@ -209,6 +211,35 @@ export function stagedRefusal(reference: StoredReference, current: GameIdentity)
 }
 
 /**
+ * Rebind staged candidates to a copied or imported project's identity. A
+ * candidate is rebound only when it still verifies — its attached revision
+ * equals the destination's — so an already-stale staged view keeps its
+ * identity and its refusal rather than being silently revived against
+ * different bytes. The original attachment is kept in `origin` as
+ * provenance. Export compaction is transparent to the check: containers
+ * pack on every write, so both revisions ride the packed scale.
+ */
+export function rebindStagedReferences(
+  references: StoredReference[] | undefined,
+  destination: GameIdentity,
+): StoredReference[] | undefined {
+  if (!references?.length) return references;
+  return references.map((reference) => {
+    if (
+      reference.staged === undefined ||
+      reference.attachedAt.project === destination.project ||
+      reference.attachedAt.revision !== destination.revision
+    )
+      return reference;
+    return {
+      ...reference,
+      attachedAt: destination,
+      origin: reference.origin ?? reference.attachedAt,
+    };
+  });
+}
+
+/**
  * Normalize stored references on read: bounded count, bounded fields, and
  * only shapes this build understands — a corrupted entry is dropped, never
  * trusted. (Release contract: readers take normalized values.)
@@ -231,6 +262,8 @@ export function normalizeReferences(raw: unknown): StoredReference[] {
       attachedAt === null
     )
       continue;
+    const origin = e["origin"] !== undefined ? gameIdentity(e["origin"]) : undefined;
+    if (e["origin"] !== undefined && origin === null) continue;
     const images: ReferenceImage[] = [];
     for (const item of e["images"].slice(0, 4)) {
       if (!item || typeof item !== "object") continue;
@@ -266,6 +299,7 @@ export function normalizeReferences(raw: unknown): StoredReference[] {
       brief: e["brief"],
       images,
       attachedAt,
+      ...(origin !== null && origin !== undefined ? { origin } : {}),
       ...(sheet && Number.isInteger(sheet["poses"]) && Number.isInteger(sheet["celHeight"])
         ? {
             sheet: {

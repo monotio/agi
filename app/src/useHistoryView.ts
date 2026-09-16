@@ -837,7 +837,17 @@ export function useHistoryView(deps: HistoryViewDeps) {
     // keeps the hold rather than let a turn run against a different revision.
     const session = deps.getSession();
     session?.holdAdoption(`${verb} is adopting a session — authoring resumes when it lands.`);
-    const departing = await deps.query("historyRetain", {}, 10_000);
+    // A failure before the adoption is even asked is definite: the worker
+    // still runs the departing session, so the hold releases and the staged
+    // candidate — if the stage write landed before throwing — is left for
+    // the settle pass either way.
+    let departing;
+    try {
+      departing = await deps.query("historyRetain", {}, 10_000);
+    } catch (error) {
+      session?.releaseAdoption();
+      throw error;
+    }
     if (departing.boot === null) {
       session?.releaseAdoption();
       v.error = "The paused session can't be kept — a game prompt is still open.";
@@ -852,7 +862,12 @@ export function useHistoryView(deps: HistoryViewDeps) {
       // later Undo rewind reinstalls exactly this.
       ...(session ? { session: session.snapshotAuthoring() } : {}),
     };
-    await stageRetainedOriginal(key, candidate);
+    try {
+      await stageRetainedOriginal(key, candidate);
+    } catch (error) {
+      session?.releaseAdoption();
+      throw error;
+    }
     let reply: {
       ok: boolean;
       message?: string | null;

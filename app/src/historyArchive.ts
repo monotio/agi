@@ -50,6 +50,13 @@ export interface ProjectHistory {
   recording: HistoryRecording;
   /** Kept recovery branches, oldest first — the rewind undo list. */
   branches?: RetainedOriginal[];
+  /**
+   * Departing sessions whose swap the worker never settled — an uncertain
+   * adoption's recovery copy. Imported entries stay unsettled: the new
+   * browser cannot know whether the swap committed, so the staged slot is
+   * preserved for the settle-on-boot pass to resolve.
+   */
+  staged?: RetainedOriginal[];
   bookmarks?: HistoryBookmark[];
 }
 
@@ -95,18 +102,22 @@ export function readHistoryArchive(bytes: Uint8Array): ProjectHistory {
   if (!isObj(raw) || raw["format"] !== "monotio.agi.history" || raw["version"] !== 1)
     throw new Error("HISTORY.JSON is not a history record this app understands.");
   const recording = validateHistoryRecording(raw["recording"]);
-  const branches: RetainedOriginal[] = [];
   if ("retained" in raw) throw new Error("HISTORY.JSON contains an unsupported retained layout.");
-  const rawBranches = raw["branches"] ?? [];
-  if (!Array.isArray(rawBranches) || rawBranches.length > 16)
-    throw new Error("HISTORY.JSON branches are invalid.");
-  for (const value of rawBranches) {
-    if (!isObj(value) || !Number.isFinite(value["retainedAt"]))
-      throw new Error("HISTORY.JSON retained branch is invalid.");
-    const checked = validateRetained(value as unknown as RetainedOriginal);
-    if (checked === null) throw new Error("HISTORY.JSON retained branch is invalid.");
-    branches.push(checked);
-  }
+  const retainedList = (key: "branches" | "staged"): RetainedOriginal[] => {
+    const entry = key === "branches" ? "retained branch" : "staged candidate";
+    const rawList = raw[key] ?? [];
+    if (!Array.isArray(rawList) || rawList.length > 16)
+      throw new Error(`HISTORY.JSON ${key} are invalid.`);
+    return rawList.map((value) => {
+      if (!isObj(value) || !Number.isFinite(value["retainedAt"]))
+        throw new Error(`HISTORY.JSON ${entry} is invalid.`);
+      const checked = validateRetained(value as unknown as RetainedOriginal);
+      if (checked === null) throw new Error(`HISTORY.JSON ${entry} is invalid.`);
+      return checked;
+    });
+  };
+  const branches = retainedList("branches");
+  const staged = retainedList("staged");
   let bookmarks: HistoryBookmark[] | undefined;
   if (raw["bookmarks"] !== undefined) {
     const list = raw["bookmarks"];
@@ -137,6 +148,7 @@ export function readHistoryArchive(bytes: Uint8Array): ProjectHistory {
   return {
     recording,
     ...(branches.length > 0 ? { branches } : {}),
+    ...(staged.length > 0 ? { staged } : {}),
     ...(bookmarks !== undefined ? { bookmarks } : {}),
   };
 }

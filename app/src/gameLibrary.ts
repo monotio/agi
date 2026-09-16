@@ -14,6 +14,7 @@ import {
   type ProjectId,
 } from "./gameStorage.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
+import { rebindStagedReferences } from "./referenceArt.ts";
 import type { OpenedGame } from "./gameZip.ts";
 
 export interface CheckedOpening {
@@ -96,7 +97,12 @@ export async function addLibraryGame(
       sessionId: game.project?.sessionId,
       authoringState: game.project?.authoringState,
       conversationHistory: game.project?.conversationHistory,
-      references: game.project?.references,
+      // A staged candidate verified against these exact bytes rebinds to the
+      // imported project — an already-stale one keeps its refusal.
+      references: rebindStagedReferences(game.project?.references, {
+        project: targetProjectId,
+        revision,
+      }),
       roomGeneration,
       files: game.files,
       words: game.words,
@@ -140,6 +146,9 @@ export async function copyLibraryGame(projectId: ProjectId): Promise<ProjectId> 
   if (
     !(await saveAuthoredGame(id, {
       ...original,
+      // The copy's bytes are identical, so every still-current staged
+      // candidate verifies and rebinds; stale ones keep their refusal.
+      references: rebindStagedReferences(original.references, { project: id, revision }),
       title: `${original.title} Remix`,
       library: {
         ...original.library,

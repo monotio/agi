@@ -5,6 +5,7 @@ import { buildView } from "../src/view/view.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildWordsTok, parseWordsTok } from "../src/logic/words.ts";
 import { ROOM_TOOLS, executeRoomTool } from "../src/agent/roomTools.ts";
+import { installBaseTemplate } from "../src/agent/baseTemplate.ts";
 import { playtestRoom, validateGenesis } from "../src/agent/playtest.ts";
 
 function setup() {
@@ -101,6 +102,20 @@ test("write_room describes and compiles real room behavior with named references
   });
   assert.equal(played.success, true, played.error ?? "");
   assert.ok((played.details?.["messages"] as string[]).includes("Taken -- safely."));
+});
+
+test("write_room refuses a reserved template flag through the compiled payload", () => {
+  const state = setup();
+  installBaseTemplate(state, state.profile);
+  // A raw flag number slips past the binding guard — the assembled bytecode
+  // is where the template's ownership is enforced.
+  const result = executeRoomTool(state, "write_room", {
+    ...args(),
+    interactions: [{ commands: ["look"], response: "Nothing.", setFlag: 202 }],
+  })!;
+  assert.equal(result.success, false);
+  assert.match(result.error ?? "", /harness base template/);
+  assert.equal(state.container.getResource("logic", 1), null, "nothing installed");
 });
 
 test("write_room accepts the new-room revision advertised to the model", () => {

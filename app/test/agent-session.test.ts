@@ -157,6 +157,178 @@ test("a successful handover ends the turn with no provider request and rejects b
   assert.equal(result.patched.length >= 0, true);
 });
 
+test("a remix ending in text commits only after the host verdict passes", async (t) => {
+  // Offline bad case: the provider staged a write that broke a declared
+  // exit, handover rejected it, and the model answered "Done." anyway.
+  // The host must produce its own verdict on the exact staged candidate
+  // instead of adopting it on the provider's word.
+  const requests: Record<string, unknown>[] = [];
+  let liveLogicWhenTexted: Uint8Array | null | undefined;
+  t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+    requests.push(JSON.parse(String(init.body)));
+    const n = requests.length;
+    const output =
+      n === 1
+        ? [
+            {
+              type: "function_call",
+              call_id: "break",
+              name: "write_logic_source",
+              arguments: JSON.stringify({ room: 1, source: "return;" }),
+            },
+            {
+              type: "function_call",
+              call_id: "h",
+              name: "handover",
+              arguments: '{"notes":null}',
+            },
+          ]
+        : n === 3
+          ? [
+              {
+                type: "function_call",
+                call_id: "fix",
+                name: "write_logic_source",
+                arguments: JSON.stringify({
+                  room: 1,
+                  source:
+                    'if (isset(f5)) { assignn(v10,1); load.pic(v10); draw.pic(v10); show.pic(); load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); accept.input(); } if (said("east")) { new.room(2); } return;',
+                }),
+              },
+              {
+                type: "function_call",
+                call_id: "h2",
+                name: "handover",
+                arguments: '{"notes":null}',
+              },
+            ]
+          : [
+              {
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "Done." }],
+              },
+            ];
+    if (n === 2) liveLogicWhenTexted = state.container.getResource("logic", 1);
+    return new Response(providerSse("openai", { id: `r${n}`, output }), {
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  });
+  const state = createAgentSessionState();
+  state.wordsPayload = buildWordsTok([
+    { word: "look", id: 10 },
+    { word: "east", id: 20 },
+  ]);
+  state.sources.words.set("look", 10);
+  state.sources.words.set("east", 20);
+  state.container.putResource(
+    "view",
+    0,
+    buildView({ loops: [{ cels: [{ width: 1, height: 1, transparentColor: 0, pixels: [2] }] }] }),
+  );
+  state.container.putResource("picture", 1, compilePictureSource("vis 1\nfill 0,0\nend").bytes);
+  state.container.putResource(
+    "logic",
+    0,
+    assembleLogic("if (!isset(f200)) { set(f200); new.room(1); } call.v(v0); return;", {
+      dictionary: state.sources.words,
+    }).payload,
+  );
+  const originalRoom = assembleLogic(
+    'if (isset(f5)) { assignn(v10,1); load.pic(v10); draw.pic(v10); show.pic(); load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); accept.input(); } if (said("east")) { new.room(2); } return;',
+    { dictionary: state.sources.words },
+  ).payload;
+  state.container.putResource("logic", 1, originalRoom);
+  state.authoring.world.rooms["1"] = {
+    title: "Hall",
+    description: "",
+    exits: { east: 2 },
+  };
+  const session = new AgentSession(
+    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    () => {},
+    state,
+  );
+
+  const result = await session.runPowerUp("simplify room 1", 1);
+
+  // Failed handover followed by "Done.": the host re-checked the staged
+  // candidate itself, handed the verdict back for repair, and never
+  // adopted it — the live logic was still the original at that moment.
+  assert.equal(requests.length, 3);
+  assert.match(JSON.stringify(requests[1]!["input"]), /Handover rejected: room 1 declares exit/);
+  assert.deepEqual(liveLogicWhenTexted, originalRoom);
+  assert.match(JSON.stringify(requests[2]!["input"]), /cannot be committed.*declares exit/);
+  // The repaired candidate is what a passing handover commits.
+  const { disassembleLogic } = await import("../../src/logic/disassembler.ts");
+  assert.match(
+    disassembleLogic(state.container.getResource("logic", 1)!, {
+      dictionary: state.sources.words,
+    }),
+    /new\.room\(2\)/,
+  );
+  assert.equal(result.text, "Changes are ready.");
+});
+
+test("a staged change the model abandons in text is discarded, not adopted", async (t) => {
+  const requests: Record<string, unknown>[] = [];
+  t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+    requests.push(JSON.parse(String(init.body)));
+    const n = requests.length;
+    const output =
+      n === 1
+        ? [
+            {
+              type: "function_call",
+              call_id: "break",
+              name: "write_logic_source",
+              arguments: JSON.stringify({ room: 1, source: "return;" }),
+            },
+          ]
+        : [
+            {
+              type: "message",
+              role: "assistant",
+              content: [{ type: "output_text", text: "Done." }],
+            },
+          ];
+    return new Response(providerSse("openai", { id: `r${n}`, output }), {
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  });
+  const state = createAgentSessionState();
+  state.sources.words.set("east", 20);
+  state.container.putResource(
+    "logic",
+    0,
+    assembleLogic("if (!isset(f200)) { set(f200); new.room(1); } return;", {
+      dictionary: state.sources.words,
+    }).payload,
+  );
+  const originalRoom = assembleLogic('if (said("east")) { new.room(2); } return;', {
+    dictionary: state.sources.words,
+  }).payload;
+  state.container.putResource("logic", 1, originalRoom);
+  state.authoring.world.rooms["1"] = {
+    title: "Hall",
+    description: "",
+    exits: { east: 2 },
+  };
+  const session = new AgentSession(
+    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    () => {},
+    state,
+  );
+
+  const result = await session.runPowerUp("simplify room 1", 1);
+
+  // The verdict went out once; the second plain-text reply discards the
+  // unvalidated candidate and says so instead of claiming it landed.
+  assert.equal(requests.length, 3);
+  assert.deepEqual(state.container.getResource("logic", 1), originalRoom);
+  assert.match(result.text, /not applied/);
+});
+
 test("a provider power-up returns compiled vocabulary and inventory files with its resource patches", async (t) => {
   let requests = 0;
   t.mock.method(globalThis, "fetch", async () => {
@@ -257,7 +429,14 @@ test("room helper edits are transactional and may rewrite another room", async (
               }),
             },
           ]
-        : [];
+        : [
+            {
+              type: "function_call",
+              call_id: "done",
+              name: "handover",
+              arguments: '{"notes":null}',
+            },
+          ];
     return new Response(providerSse("openai", { id: String(count), output }), {
       headers: { "Content-Type": "text/event-stream" },
     });
@@ -305,7 +484,14 @@ test("pinned map notes reach the room turn's request body", async (t) => {
               arguments: JSON.stringify({ room: 2, source: "vis 1\nfill 0,0\nend" }),
             },
           ]
-        : [];
+        : [
+            {
+              type: "function_call",
+              call_id: "done",
+              name: "handover",
+              arguments: '{"notes":null}',
+            },
+          ];
     return new Response(providerSse("openai", { id: String(bodies.length), output }), {
       headers: { "Content-Type": "text/event-stream" },
     });

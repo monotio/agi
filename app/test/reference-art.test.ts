@@ -4,6 +4,7 @@ import { testProjectId, testRevision } from "./identity.ts";
 import {
   REFERENCE_COUNT_LIMIT,
   normalizeReferences,
+  rebindStagedReferences,
   referenceAgentImages,
   roomReference,
   stageCharacterView,
@@ -78,6 +79,45 @@ test("stagedRefusal names stale identity and keeps nothing-staged honest", () =>
   assert.match(stagedRefusal(staged, MOVED)!, /changed since this reference was attached/);
   const room = roomReference("ref-3", 7, "a cliff", IDENTITY, decodedSheet());
   assert.equal(stagedRefusal(room, IDENTITY), "Nothing is staged from this reference.");
+});
+
+test("rebindStagedReferences rebinds verified candidates and keeps stale refusals", () => {
+  const staged = stageCharacterView(
+    "ref-c1",
+    0,
+    "",
+    IDENTITY,
+    [{ decoded: decodedSheet(), facing: "right" }],
+    { poses: 4 },
+  );
+  const stale = stageCharacterView(
+    "ref-c2",
+    0,
+    "",
+    MOVED,
+    [{ decoded: decodedSheet(), facing: "right" }],
+    { poses: 4 },
+  );
+  const art = roomReference("ref-c3", 9, "just art", IDENTITY, decodedSheet());
+  const COPIED = { project: testProjectId("remix-copy"), revision: IDENTITY.revision };
+
+  const rebound = rebindStagedReferences([staged, stale, art], COPIED)!;
+  // The current candidate rebinds to the copy — stagedRefusal now passes —
+  // and the original attachment is kept as provenance.
+  assert.equal(stagedRefusal(rebound[0]!, COPIED), null);
+  assert.deepEqual(rebound[0]!.attachedAt, COPIED);
+  assert.deepEqual(rebound[0]!.origin, IDENTITY);
+  // The stale candidate keeps its old identity — the refusal survives.
+  assert.deepEqual(rebound[1]!.attachedAt, MOVED);
+  assert.equal(rebound[1]!.origin, undefined);
+  assert.match(stagedRefusal(rebound[1]!, COPIED)!, /changed since this reference/);
+  // Unstaged art is pure provenance — untouched.
+  assert.deepEqual(rebound[2], art);
+
+  // The rebound record survives storage normalization, origin included.
+  const normalized = normalizeReferences(rebound);
+  assert.deepEqual(normalized[0]!.origin, IDENTITY);
+  assert.equal(stagedRefusal(normalized[0]!, COPIED), null);
 });
 
 test("normalizeReferences drops malformed entries and keeps valid ones", () => {

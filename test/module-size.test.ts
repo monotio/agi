@@ -70,7 +70,7 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the logic compiler, the validator of last resort",
   },
   "app/src/agent/agentSession.ts": {
-    lines: 1065,
+    lines: 1152,
     boundary:
       "the agent session lifecycle: genesis, room and remix turns, and revision-checked adoption",
   },
@@ -100,7 +100,7 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the stored game-test runner",
   },
   "app/src/gameStorage.ts": {
-    lines: 845,
+    lines: 914,
     boundary: "the local persistence records layer",
   },
   "app/src/historyStorage.ts": {
@@ -114,7 +114,7 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
       "the room-graph model: journal, plan and static-scan merge, plus the sidecar contract",
   },
   "app/src/useAuthoringController.ts": {
-    lines: 990,
+    lines: 1067,
     boundary:
       "the authoring controller: host-request turns, patches, map-driven room builds, session adoption and reference-art keep/detach",
   },

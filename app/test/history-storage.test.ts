@@ -474,6 +474,28 @@ test("a branch restored by Undo rewind leaves the list", async () => {
   );
 });
 
+test("an unsettled staged candidate travels the backup and reimports unsettled", async () => {
+  const key = "tape-store-staged-export";
+  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
+  // A departing session staged for a swap the worker never settled — the
+  // only copy of that session. A backup that drops it loses the recovery
+  // route outright.
+  const staged = retainedOn("s-a.1", 6);
+  await stageRetainedOriginal(key, staged);
+  assert.deepEqual(await loadRetainedBranches(key), [], "unsettled: no branch yet");
+
+  const exported = await loadProjectHistory(key);
+  assert.deepEqual(exported?.staged, [staged], "the staged candidate joins the archive");
+
+  // Re-imported under a fresh key it stays unsettled — the new browser
+  // cannot pretend the swap committed, so it waits for the settle pass.
+  const importedKey = "tape-store-staged-imported";
+  assert.equal(await importGameHistory(importedKey, exported!, IDENTITY), true);
+  assert.deepEqual(await loadRetainedBranches(importedKey), [], "not promoted by import");
+  assert.equal((await loadTapeOutline(importedKey))?.pending, 1, "still queued for settling");
+  assert.deepEqual((await loadProjectHistory(importedKey))?.staged, [staged]);
+});
+
 test("an imported project's tape persists whole — recording, kept session, bookmarks", async () => {
   const key = "tape-store-imported";
   const recording = {

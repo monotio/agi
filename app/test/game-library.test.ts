@@ -11,6 +11,7 @@ import { gameRevision, normalizeLibraryMetadata, readPublicMetadata } from "../s
 import { addLibraryGame, copyLibraryGame } from "../src/gameLibrary.ts";
 import { loadAuthoredGame, updateAuthoredGameFiles } from "../src/gameStorage.ts";
 import { inspectGame } from "../src/gameInspection.ts";
+import { stageCharacterView, stagedRefusal, type DecodedImage } from "../src/referenceArt.ts";
 import { buildPublicGameZip } from "../src/projectArchive.ts";
 import {
   readGameProgress,
@@ -280,6 +281,87 @@ test("project imports with identical resources retain separate private histories
   assert.notEqual(second, first);
   assert.equal((await loadAuthoredGame(first))?.model, "one");
   assert.equal((await loadAuthoredGame(second))?.model, "two");
+});
+
+/** A decoded upload without DOM — the smallest sheet stageCharacterView accepts. */
+function decodedSheet(): DecodedImage {
+  const width = 64;
+  const height = 12;
+  const rgba = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const cell = Math.floor(x / 16);
+      const lx = x - cell * 16;
+      const figure = lx >= 5 && lx < 11 && y >= 2;
+      rgba.set(figure ? [0xff, 0, 0, 0xff] : [0xff, 0, 0xff, 0xff], (y * width + x) * 4);
+    }
+  }
+  return { width, height, rgba, mime: "image/png", bytes: Uint8Array.of(1, 2, 3) };
+}
+
+test("import and copy rebind a verified staged reference; a stale one keeps its refusal", async (t) => {
+  installLocalStorage(t);
+  const files = game();
+  const revision = await gameRevision(files);
+  // Attached to a different project, at this revision — the candidate is
+  // verified-current wherever these exact bytes land.
+  const staged = stageCharacterView(
+    "ref-move",
+    0,
+    "the hero",
+    { project: testProjectId("elsewhere"), revision },
+    [{ decoded: decodedSheet(), facing: "right" }],
+    { poses: 4 },
+  );
+  const stale = stageCharacterView(
+    "ref-stale",
+    0,
+    "an old draft",
+    { project: testProjectId("elsewhere"), revision: requireResourceRevision("0".repeat(64)) },
+    [{ decoded: decodedSheet(), facing: "right" }],
+    { poses: 4 },
+  );
+  const importedId = await addLibraryGame(
+    {
+      files,
+      words: [],
+      project: {
+        provider: "stub",
+        model: "stub",
+        transcript: [],
+        references: [staged, stale],
+      },
+    },
+    "Imported",
+    "zip",
+    opening,
+  );
+  const imported = (await loadAuthoredGame(importedId))!;
+  const [rebound, stillStale] = imported.references!;
+  // The import's fresh project id adopts the verified candidate — Keep can
+  // proceed — while the stale draft stays refused.
+  assert.equal(
+    stagedRefusal(rebound!, { project: importedId, revision: imported.library!.revision }),
+    null,
+  );
+  assert.equal(rebound!.origin?.project, testProjectId("elsewhere"));
+  assert.notEqual(stagedRefusal(stillStale!, { project: importedId, revision }), null);
+
+  // The same contract on copy: the remix's new identity takes the verified
+  // candidate.
+  const copyId = await copyLibraryGame(importedId);
+  const copy = (await loadAuthoredGame(copyId))!;
+  assert.equal(
+    stagedRefusal(copy.references![0]!, {
+      project: copyId,
+      revision: copy.library!.revision,
+    }),
+    null,
+  );
+  assert.notEqual(
+    stagedRefusal(copy.references![1]!, { project: copyId, revision: copy.library!.revision }),
+    null,
+  );
 });
 
 test("a remix copy gets independent identity and bytes while preserving its original", async (t) => {

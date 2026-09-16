@@ -101,6 +101,8 @@ function makeHarness(opts?: {
   restoreRevision?: string;
   /** adoptSession throws this — the install leg of the swap failed. */
   adoptError?: string;
+  /** historyRetain rejects with this — the retain leg of the swap failed. */
+  retainError?: string;
   seqAt?: (segment: number, tick: number) => number;
   /** Query types whose replies are held until `release(type, reply)` runs. */
   defer?: string[];
@@ -197,13 +199,19 @@ function makeHarness(opts?: {
           error: type === "historyViewStart" ? (opts?.startError ?? null) : null,
         };
       }
-      if (type === "historyRetain")
+      if (type === "historyRetain") {
+        if (opts?.retainError) {
+          const error = opts.retainError;
+          delete opts.retainError;
+          throw new Error(error);
+        }
         return {
           type: "historyRetained",
           id: 0,
           boot: { ...BOOT, rng: 42 },
           from: { segment: "sX.2", seq: 9, tick: 9 },
         };
+      }
       if (type === "historyViewTake") {
         takes.push(extra as Record<string, unknown>);
         const ok = opts?.takeOk?.() ?? true;
@@ -456,6 +464,54 @@ test("a take acknowledged but never promoted stays pending — no player vote", 
   assert.equal((await loadRetainedBranches(key)).length, 0, "nothing promoted yet");
   const outline = await loadTapeOutline(key);
   assert.equal(outline?.pending, 1, "the candidate stays preserved, unsettled");
+});
+
+test("a retain failure before adoption releases the authoring hold", async () => {
+  const key = "view-test";
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
+  const { state, view, takes, sessionState } = makeHarness({
+    retainError: "the worker's retain request timed out",
+  });
+  await view.openHistory({ segment: 0, tick: 8 });
+  const v = state.historyView;
+
+  await view.resumeFromHere();
+  // The adoption was never asked — the hold must not survive a definite
+  // pre-adoption failure, or every later turn stays blocked forever.
+  assert.equal(sessionState.hold, null, "the adoption hold released");
+  assert.match(v.error, /timed out/);
+  assert.deepEqual(takes, [], "no adoption was requested");
+  assert.equal(v.active, true, "the view stays open — the session never left it");
+
+  // The next attempt works normally: the hold is not wedged.
+  await view.resumeFromHere();
+  assert.equal(sessionState.hold, null);
+});
+
+test("a failed stage write releases the hold and asks the worker nothing", async () => {
+  const key = "view-test";
+  await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
+  const { state, view, takes, sessionState } = makeHarness();
+  await view.openHistory({ segment: 0, tick: 8 });
+  const v = state.historyView;
+
+  // Fail the staged candidate's first record write — a definite failure
+  // before any adoption, so the hold must release.
+  const put = RECORDS.set.bind(RECORDS);
+  let armed = true;
+  RECORDS.set = ((k: IDBValidKey, value: unknown) => {
+    if (armed) {
+      armed = false;
+      RECORDS.set = put;
+      throw new Error("injected stage failure");
+    }
+    return put(k, value);
+  }) as typeof RECORDS.set;
+
+  await view.resumeFromHere();
+  assert.equal(sessionState.hold, null, "the adoption hold released");
+  assert.match(v.error, /injected stage failure/);
+  assert.deepEqual(takes, [], "no adoption was requested");
 });
 
 test("a staged candidate the tape proves adopted settles into a branch on the next open", async () => {

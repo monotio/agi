@@ -865,16 +865,36 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     return game;
   }
 
-  async function writeReferences(game: BootedGame, references: StoredReference[]): Promise<void> {
-    if (references.length > REFERENCE_COUNT_LIMIT)
+  /**
+   * Mutate the stored reference list atomically: the callback runs inside the
+   * serialized write against the freshest read, so a concurrent attachment,
+   * removal or stage-clear in another surface or tab cannot be lost.
+   */
+  async function writeReferences(
+    game: BootedGame,
+    mutate: (current: StoredReference[]) => StoredReference[] | null,
+  ): Promise<void> {
+    let applied: StoredReference[] | undefined;
+    let overflow = false;
+    const saved = await updateAuthoredReferences(game.projectId!, (current) => {
+      const next = mutate(current);
+      if (next === null) return null;
+      if (next.length > REFERENCE_COUNT_LIMIT) {
+        overflow = true;
+        return null;
+      }
+      applied = next;
+      return next;
+    });
+    if (overflow)
       throw new Error(
         `This project already has ${REFERENCE_COUNT_LIMIT} references. Remove one before attaching another.`,
       );
-    if (!(await updateAuthoredReferences(game.projectId!, references)))
+    if (!saved || applied === undefined)
       throw new Error(
         "Browser storage could not save the reference. Try again before closing this dialog.",
       );
-    if (game.authoredGame) game.authoredGame = { ...game.authoredGame, references };
+    if (game.authoredGame) game.authoredGame = { ...game.authoredGame, references: applied };
   }
 
   async function referencesWithCapacity(): Promise<StoredReference[]> {
@@ -892,7 +912,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     brief: string,
   ): Promise<StoredReference> {
     const game = requireAuthoredBoot();
-    const references = await referencesWithCapacity();
+    await referencesWithCapacity();
     const reference = roomReference(
       `ref-${crypto.randomUUID()}`,
       room,
@@ -900,7 +920,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       { project: game.projectId!, revision: game.revision },
       decoded,
     );
-    await writeReferences(game, [...references, reference]);
+    await writeReferences(game, (current) => [...current, reference]);
     pendingReferences.push({
       id: reference.id,
       project: game.projectId!,
@@ -916,7 +936,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     brief: string,
   ): Promise<StoredReference> {
     const game = requireAuthoredBoot();
-    const references = await referencesWithCapacity();
+    await referencesWithCapacity();
     const reference = stageCharacterView(
       `ref-${crypto.randomUUID()}`,
       view,
@@ -925,7 +945,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       sheets.map(({ decoded, facing }) => ({ decoded, facing })),
       spec,
     );
-    await writeReferences(game, [...references, reference]);
+    await writeReferences(game, (current) => [...current, reference]);
     pendingReferences.push({
       id: reference.id,
       project: game.projectId!,
@@ -936,10 +956,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   async function detachReference(id: string): Promise<void> {
     const game = requireAuthoredBoot();
-    await writeReferences(
-      game,
-      (await listReferences()).filter((reference) => reference.id !== id),
-    );
+    await writeReferences(game, (current) => current.filter((reference) => reference.id !== id));
     removePendingReference(id);
   }
 
@@ -948,13 +965,33 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
    * session's container and source spec when a session is live, a worker
    * patch for the running engine, then the project snapshot. The keep is
    * refused — by stagedRefusal — when the game's identity moved after the
-   * reference was attached.
+   * reference was attached, checked against BOTH the booted revision and the
+   * durable project a second writer may have moved. A running turn or a
+   * history adoption also refuses: both own the session and worker state
+   * this mutates. Everything that can fail happens before anything mutates,
+   * so a refused or failed keep leaves the staged offer in place.
    */
   async function keepStagedView(id: string): Promise<void> {
     const game = requireAuthoredBoot();
+    if (state.powerUp.busy || state.powerUp.mode === "room")
+      throw new Error("Wait for the current agent turn before keeping a staged view.");
+    const author = session;
+    if (author) {
+      if (author.task.snapshot().status !== "idle")
+        throw new Error("Wait for the current agent turn before keeping a staged view.");
+      if (author.adoptionHeld !== null) throw new Error(author.adoptionHeld);
+    }
     const references = await listReferences();
     const reference = references.find((r) => r.id === id);
     if (!reference) throw new Error("That reference is no longer attached to this project.");
+    // The live boot is only half the base: storage must still hold the same
+    // revision, or another writer (a second tab, a remap) moved the project.
+    const stored = await loadAuthoredGame(game.projectId!);
+    if (!stored) throw new Error("The project is no longer stored in this browser.");
+    if ((await gameRevision(stored.files)) !== game.revision)
+      throw new Error(
+        "The project changed elsewhere since this game booted — reload it before keeping staged art.",
+      );
     const refusal = stagedRefusal(reference, {
       project: game.projectId!,
       revision: game.revision,
@@ -962,22 +999,24 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     if (refusal) throw new Error(refusal);
     const staged = reference.staged!;
     const payload = new Uint8Array(base64ToBytes(staged.payload));
-    if (session) {
-      session.state.container.putResource("view", staged.num, payload);
-      session.state.sources.views.set(staged.num, staged.input);
-    }
-    const worker = getWorker();
-    const transfer = new Uint8Array(payload);
-    worker?.postMessage(
-      { type: "patch", kind: "view", num: staged.num, payload: transfer } satisfies WorkerInbound,
-      [transfer.buffer],
-    );
-    const files = await query("exportFiles");
-    if (!files || getBootedGame() !== game)
+
+    // Build the file set the keep produces before touching anything live:
+    // the worker's exported files plus the staged view, persisted first so a
+    // storage refusal cannot leave the running game ahead of the project.
+    const exported = await query("exportFiles");
+    if (!exported || getBootedGame() !== game)
       throw new Error("The game changed while the staged view was being kept.");
-    const author = session;
+    const container = openContainer(new Map(Object.entries(exported)));
+    container.putResource("view", staged.num, new Uint8Array(payload));
+    const files = Object.fromEntries(container.files);
+
     if (author) {
+      author.state.container.putResource("view", staged.num, payload);
+      author.state.sources.views.set(staged.num, staged.input);
       remixNeedsSave = true;
+      // The session adopts before the persist so its snapshot carries the
+      // view's source; a failure leaves the durable project and the worker
+      // untouched and the staged offer intact for a retry.
       await persistRemix(game, author, files);
       postSessionSnapshot(author);
     } else {
@@ -987,10 +1026,15 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         );
       await updateBootedResources(game, files);
     }
+    const worker = getWorker();
+    const transfer = new Uint8Array(payload);
+    worker?.postMessage(
+      { type: "patch", kind: "view", num: staged.num, payload: transfer } satisfies WorkerInbound,
+      [transfer.buffer],
+    );
     // The staged offer is spent — the reference stays as art provenance.
-    await writeReferences(
-      game,
-      references.map((r) => (r.id === id ? { ...r, staged: undefined } : r)),
+    await writeReferences(game, (current) =>
+      current.map((r) => (r.id === id ? { ...r, staged: undefined } : r)),
     );
   }
 
