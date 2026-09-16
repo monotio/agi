@@ -21,7 +21,7 @@
  */
 import {
   appendHistoryBatch,
-  migrateHistoryRecord,
+  moveHistoryRecord,
   renewHistoryWriter,
   HISTORY_WRITER_RENEW_MS,
 } from "./historyStorage.ts";
@@ -56,8 +56,8 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
   let activeKey = "";
   /** The session nonce owning the tape under `activeKey`. */
   let activeSession = "";
-  /** A storage-key migration in flight; commits queue behind it. */
-  let migrating: Promise<void> | null = null;
+  /** A storage-key relocation in flight; commits queue behind it. */
+  let relocating: Promise<void> | null = null;
   let writerSegment = "";
   let writerSession = "";
   let latestBootBatch = -1;
@@ -116,7 +116,7 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
     const batchKey = `${msg.batch.segment}:${msg.batch.batch}`;
     ctx.state.historyPending++;
     const pending = (async () => {
-      if (migrating !== null) await migrating;
+      if (relocating !== null) await relocating;
       const game = ctx.getBootedGame();
       const storageKey = game ? gameStorageKey(game) : "";
       if (storageKey !== activeKey) {
@@ -130,10 +130,10 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
           // pending commits, ahead of this key's) rather than let the
           // continuing stream refuse against a record that never booted.
           const from = activeKey;
-          const run = migrateHistoryRecord(from, storageKey).finally(() => {
-            if (migrating === run) migrating = null;
+          const run = moveHistoryRecord(from, storageKey).finally(() => {
+            if (relocating === run) relocating = null;
           });
-          migrating = run;
+          relocating = run;
           await run;
           activeKey = storageKey;
         } else {

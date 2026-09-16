@@ -786,7 +786,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       throw new Error("Connect an API key in AI settings before creating a game.");
     // The harness owns the boot ritual for new games: logic 0's menu bar and
     // parser fallbacks, the shared death logic and its sound land before the
-    // first model turn (docs/rc12-plan.md Part 1).
+    // first model turn.
     installBaseTemplate(this.state, this.state.profile);
     this.conversation?.setAvailableTools(AUTHORING_SESSION_TOOLS);
     if (this.stubFallback) {

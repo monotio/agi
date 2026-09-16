@@ -91,7 +91,7 @@ export interface RoomGraph {
 }
 
 /**
- * The experience the graph is drawn for (docs/rc12-plan.md D3):
+ * The experience the graph is drawn for:
  * "create" is the authoring surface — plan intent and resource/coverage
  * status are shown beside the facts. "play" is the classic-play surface —
  * only discovered places and crossings the journal actually observed;
@@ -392,7 +392,7 @@ const DIRECTION_NAMES: Readonly<Record<string, EdgeSide>> = {
 };
 
 /**
- * Check declared plan exits against compiled bytecode (docs/rc12-plan.md D3):
+ * Check declared plan exits against compiled bytecode:
  * an exit is verified when a literal new.room to its destination is reachable
  * from the source room's logic — directly, or through the resolved call chain
  * (a shared door/portal logic legitimately carries the transition). A room

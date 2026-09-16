@@ -417,7 +417,7 @@ test("sidecar round-trips and rejects malformed or oversized data", () => {
   // A missing sidecar is an empty map — the caller checks before validating.
 });
 
-// ---- experience policy (docs/rc12-plan.md D3) --------------------------------
+// ---- experience policy --------------------------------
 //
 // Classic play shows discovered places and observed crossings only; the
 // creator view adds plan intent and technical status on top of the same

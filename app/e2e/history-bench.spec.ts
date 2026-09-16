@@ -1,5 +1,5 @@
 /**
- * D1's storage benchmark: the append-oriented commit path measured against
+ * Storage benchmark: the append-oriented commit path measured against
  * the whole-record layout it replaced, on one named phone-class profile —
  * Playwright's Moto G4 device under Chromium with a 4x CPU throttle.
  *

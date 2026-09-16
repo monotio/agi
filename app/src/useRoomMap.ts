@@ -164,7 +164,7 @@ export interface RoomMap {
   readonly journal: RoomObservation[];
   readonly graph: ComputedRef<RoomGraph>;
   /**
-   * Which experience the map is drawn for (docs/rc12-plan.md D3). "play"
+   * Which experience the map is drawn for. "play"
    * shows only discovered places and observed crossings; "create" adds plan
    * intent and technical status. The opening caller chooses; play surfaces
    * never get the plan.

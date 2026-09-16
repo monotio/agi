@@ -20,7 +20,6 @@ import {
   type HistoryBatch,
   type HistoryBoot,
 } from "../../src/agent/history.ts";
-import { updateBodyRecord } from "../src/gameStorage.ts";
 import {
   appendHistoryBatch,
   clearStagedOriginal,
@@ -36,7 +35,7 @@ import {
   loadRetainedBranches,
   loadTapeOutline,
   mergeHistoryBatch,
-  migrateHistoryRecord,
+  moveHistoryRecord,
   resolveStagedSwap,
   renewHistoryWriter,
   saveHistoryBookmark,
@@ -655,7 +654,7 @@ test("a mid-session key change carries the live tape to the new record", async (
     true,
   );
 
-  await migrateHistoryRecord(from, to);
+  await moveHistoryRecord(from, to);
 
   // The continuing session's next batch lands on the moved record — its
   // ledger carried, so batch 3 is simply next.
@@ -680,7 +679,7 @@ test("a mid-session key change carries the live tape to the new record", async (
 });
 
 test("migrating an absent record is a no-op", async () => {
-  await migrateHistoryRecord("tape-migrate-none", "tape-migrate-none-2");
+  await moveHistoryRecord("tape-migrate-none", "tape-migrate-none-2");
   assert.equal(await loadGameHistory("tape-migrate-none-2"), null);
 });
 
@@ -901,108 +900,32 @@ test("eviction deletes an evicted segment's batch records and its private blob",
   assert.equal(recording?.segments[0]?.boot.files["VOL.0"], "e2==");
 });
 
-test("a tape from an older format version is replaced, not extended", async () => {
-  const key = "tape-store-version";
-  // Seed the record a previous build left: the storage envelope is
-  // version 1 either way — the tape's own version moved under it.
-  await updateBodyRecord(`history/${key}`, () => ({
-    put: {
-      format: "monotio.agi.history",
-      version: 1,
-      projectId: `history/${key}`,
-      recording: {
-        version: HISTORY_FORMAT_VERSION - 1,
-        profile: "2.936",
-        resourceSet: "rev-old",
-        startedAt: 1,
-        segments: [{ id: "old.1", boot: BOOT, anchors: [], events: [], marks: [], sync: [] }],
-      },
-      committed: { "old.1": [1] },
-      bytes: { "old.1": 10 },
-      retained: retainedOn("old.1"),
-      bookmarks: [{ segment: "old.1", seq: 0, tick: 0, label: "old", at: 1 }],
-    },
-    result: undefined,
-  }));
-
-  // The new session's boot batch replaces the tape — appending a current
-  // segment under the old version label would make the whole record
-  // unreadable, and the old tape's extras point at segments that are gone.
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
-  const recording = await loadGameHistory(key);
-  assert.equal(recording?.version, HISTORY_FORMAT_VERSION);
-  assert.deepEqual(
-    recording?.segments.map((s) => s.id),
-    ["s-a.1"],
-  );
-  assert.deepEqual(await loadRetainedBranches(key), []);
-  assert.deepEqual(await loadHistoryBookmarks(key), []);
+test("history uses v1 and refuses unsupported or obsolete storage without rewriting", async () => {
+  assert.equal(HISTORY_FORMAT_VERSION, 1);
+  for (const kind of ["envelope", "recording", "singleton", "missing-directory"]) {
+    const key = `tape-store-refuse-${kind}`;
+    await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY);
+    const manifest = RECORDS.get(`history/${key}`) as Record<string, unknown>;
+    assert.equal(manifest["version"], 1);
+    if (kind === "envelope") manifest["version"] = 2;
+    if (kind === "recording") (manifest["recording"] as { version: number }).version = 2;
+    if (kind === "singleton") manifest["retained"] = retainedOn("s-a.1");
+    if (kind === "missing-directory") delete manifest["segments"];
+    const before = JSON.stringify([...RECORDS]);
+    await assert.rejects(loadGameHistory(key), /history record/i);
+    assert.equal(await appendHistoryBatch(key, batch(2), "2.936", IDENTITY), false);
+    assert.equal(JSON.stringify([...RECORDS]), before);
+  }
 });
 
-test("a same-layout tape under an older recording version drops its orphaned records", async () => {
-  const key = "tape-store-stale-v2";
-  // A manifest this build wrote, but naming a recording version it no longer
-  // reads: the fresh session's tape replaces it and its batch and blob
-  // records must not linger as unreachable orphans.
-  assert.equal(
-    await appendHistoryBatch(
-      key,
-      {
-        ...batch(1),
-        segment: "s-v.1",
-        boot: { ...BOOT, files: { "VOL.0": "b2xk" } },
-      },
-      "2.936",
-      IDENTITY,
-    ),
-    true,
-  );
-  const stale = RECORDS.get(`history/${key}`) as {
-    recording: { version: number };
-    blobs: Record<string, string[]>;
-  };
-  const staleBlob = Object.keys(stale.blobs)[0]!;
-  stale.recording.version = HISTORY_FORMAT_VERSION - 1;
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
-  // The stale segment's batch record and blob are gone; only the fresh
-  // segment's records remain.
-  assert.equal(RECORDS.has(`history/${key}/s/s-v.1/00000001`), false);
-  assert.equal(RECORDS.has(`history/${key}/blob/${staleBlob}`), false);
-  const kept = [...RECORDS.keys()].filter((k) => String(k).startsWith(`history/${key}/`));
-  assert.equal(kept.length, 2, "the replacement tape's own batch and blob");
-  const recording = await loadGameHistory(key);
-  assert.deepEqual(
-    recording?.segments.map((s) => s.id),
-    ["s-a.1"],
-  );
-});
-
-test("obsolete singleton layouts clear their batches and blobs without migrating branches", async () => {
-  const key = "tape-store-obsolete-singleton";
-  await appendHistoryBatch(
-    key,
-    {
-      ...batch(1),
-      segment: "old",
-      boot: {
-        ...BOOT,
-        files: { "VOL.0": "b2xk" },
-      },
-    },
-    "2.936",
-    IDENTITY,
-  );
-  const old = RECORDS.get(`history/${key}`) as { version: number; blobs: Record<string, string[]> };
-  old.version = 2;
-  const oldBlob = Object.keys(old.blobs)[0]!;
-  assert.equal(await loadGameHistory(key), null);
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
-  assert.equal(RECORDS.has(`history/${key}/s/old/00000001`), false);
-  assert.equal(RECORDS.has(`history/${key}/blob/${oldBlob}`), false);
-  assert.deepEqual(
-    (await loadGameHistory(key))?.segments.map((s) => s.id),
-    ["s-a.1"],
-  );
+test("import refuses an unsupported recording version without replacing stored history", async () => {
+  const key = "tape-store-import-version";
+  await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY);
+  const history = (await loadProjectHistory(key))!;
+  history.recording.version = 2;
+  const before = JSON.stringify([...RECORDS]);
+  assert.equal(await importGameHistory(key, history, IDENTITY), false);
+  assert.equal(JSON.stringify([...RECORDS]), before);
 });
 
 test("renewed paused writers survive pressure while crashed writers expire", async (t) => {

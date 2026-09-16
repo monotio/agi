@@ -543,10 +543,6 @@ async function onRecordSave(): Promise<void> {
         autocomplete="off"
         placeholder="what this playthrough proves"
       />
-      <p v-if="recordSnapshot?.usedGetnum" class="record-warning" data-testid="record-warning">
-        This recording answered a get.number prompt, which stored tests cannot replay yet; the saved
-        test will need editing.
-      </p>
       <fieldset v-if="recordSuggestions.length" class="record-assertions">
         <legend>Assertions from this playthrough</legend>
         <label
@@ -655,10 +651,6 @@ async function onRecordSave(): Promise<void> {
   display: block;
   font-size: 13px;
   margin: 4px 0;
-}
-.record-warning {
-  color: #ffd977;
-  font-size: 12px;
 }
 .dialog-error {
   color: #ff9b9b;

@@ -1,5 +1,5 @@
 {
-  "schema": "monotio.agi.walkthrough.v2",
+  "schema": "monotio.agi.walkthrough.v1",
   "identity": {
     "project": "mh1",
     "revision": "010d2c6c1edf1a27bedded58faad86cb50a9f6970050f27736dc84d41854216d"

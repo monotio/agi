@@ -649,7 +649,6 @@ export function createHistory(ctx: WorkerContext) {
       events: [],
       printed: [],
       tainted: null,
-      usedGetnum: false,
     };
     ctx.ports.control({
       type: "recordingStarted",
@@ -672,7 +671,6 @@ export function createHistory(ctx: WorkerContext) {
       events: taken?.events ?? [],
       printed: taken?.printed ?? [],
       tainted: taken?.tainted ?? taken?.tape.error ?? null,
-      usedGetnum: false,
       cycle: ctx.cycle.cycleCount,
       state: ctx.engine ? ctx.engine.readState() : null,
     });

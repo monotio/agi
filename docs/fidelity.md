@@ -594,7 +594,7 @@ The current audio backend accepts continuation data bytes for tone registers
 and ignores them for attenuation/noise latches. This is the current presentation
 policy; the broad claim that every SN76489/NCR 8496 variant ignores those bytes
 requires chip-specific evidence and is not established by interpreter execution.
-See the [sound audit](#original-sound-player-audit) and RC.13 hardware work.
+See the [sound audit](#original-sound-player-audit) for the remaining hardware evidence gaps.
 
 In multi-channel AGI sound resources (such as King's Quest II Sound 6, the two-voice church organ
 hymn in Room 71), unused channels or rest notes are encoded with `tone = 0` and attenuation 15
@@ -742,7 +742,7 @@ and returns cycle mode to normal. These final effects already match the engine.
 `cycle.time(v=7)` writes both interval and remaining counter to 7, also a match.
 Do not infer full scheduler tick counts from this isolated routine execution.
 
-RC.12 implementation contract: fix cycling/update/threshold effects; replace
+Implementation contract: fix cycling/update/threshold effects; replace
 independently writable motion/cycle fields with one authoritative four-byte
 bank and mode-dependent accessors; preserve bytes a handler does not write.
 Flag index zero is valid. Use the same bank for 43-byte save object records and
@@ -750,7 +750,7 @@ rewind snapshots. Current follow-retry, cycle-flag and wander-count packing is
 not the original layout; do not retain it as a compatibility layer. Test both
 opcode orderings before and after restore, plus one record→seek→resume sequence.
 Early profiles, full collision/footprint ordering and stochastic follow retries
-remain RC.13 investigations, not verified claims.
+remain open investigations, not verified claims.
 
 Reproduce after decoding the private KQ3 executable:
 
@@ -803,7 +803,7 @@ Confirmed matches in all three builds:
   Duration zero wraps: note load stores 0, the next tick stores 65535. The
   engine's logical 65536 duration is behaviorally consistent with that wrap.
 
-Two RC.12 mismatches are independently verified. First, current
+Two audited mismatches are independently verified. First, current
 `DEFAULT_ENVELOPE_TABLE` matches KQ1's 68-entry envelope, but the measured v3
 builds use 78 entries and decay more slowly. Exact `(delta, repetition count)`
 contracts, followed by hold sentinel 128:
@@ -845,8 +845,8 @@ Original tone-zero output is also established: the player emits two 0x00 port
 bytes before attenuation on device 1. The current suppression is therefore a
 command-stream divergence, not original-interpreter behavior. This does not
 prove audible harm or resolve chip data-byte latching. Retain silence pending
-RC.13 hardware/reference investigation; do not restore stray audible notes just
-to match port bytes. No new RC.11 blocker was demonstrated by this sound audit.
+hardware/reference investigation; do not restore stray audible notes just
+to match port bytes.
 
 ```sh
 python scripts/probe-interpreter-sound.py /tmp/agi-fixed-kq1.bin --data games/kq1/AGIDATA.OVL
@@ -911,7 +911,7 @@ without pairs. Restore rebuilds the set in record order so every recorded
 logic is resident at its saved scan-resume offset — a `call` back into a
 scan-parked logic resumes there, not at the bytecode entry.
 
-RC.12 acceptance contract: keep RNG and BIOS-reseed-input position out of
+Acceptance contract: keep RNG and BIOS-reseed-input position out of
 original `.SAV` blocks; preserve the current stream across authentic save,
 restore and accepted restart. History anchors intentionally restore stronger
 host state and must retain their explicit RNG/input position separately. Test
@@ -919,11 +919,10 @@ consume→save→consume→restore→consume against the current stream, and res
 at RNG zero followed by a random call: restart consumes no BIOS input; the
 subsequent call consumes exactly one. Protect f9/f6 and timing-word behavior
 through record→seek→resume. Original save block 2 copies raw object records;
-replace the parameter bank using the proven offsets above in RC.12. Complete
-object-flag mapping and full `.SAV` interoperability remain RC.13, alongside
+replace the parameter bank using the proven offsets above. Complete
+object-flag mapping and full `.SAV` interoperability remain unverified, alongside
 startup and post-restore resource reconstruction. The inspected engine already
-preserves host RNG on restart and excludes it from authentic saves; this audit
-adds no RC.11 blocker.
+preserves host RNG on restart and excludes it from authentic saves.
 
 ```sh
 python scripts/probe-interpreter-lifecycle.py /tmp/agi-fixed-sq2.bin
@@ -956,7 +955,7 @@ expectation for [100] failed. A separate current Engine execution reproduced
 the differing rows. This proves the GR unknown-word boundary, not all profiles,
 dictionary decompression cases or keyboard event timing.
 
-RC.12: add these regressions first. Preserve an explicit zero group for unknown
+Regression contract: preserve an explicit zero group for unknown
 slots, or read implicit zero within the parser's authoritative word count.
 `evalSaid` must test that count rather than only `parsedWords.length`; never
 permit a wildcard beyond it. Preserve exact matching, f2/f4 and tail matching.

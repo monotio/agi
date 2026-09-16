@@ -259,12 +259,12 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
   }): void {
     const cycle = Number(msg.cycle ?? lastSeenCycle);
     lastSeenCycle = cycle;
-    const legacyResolve = flushWaiters.get(Number(msg.id));
+    const simpleResolve = flushWaiters.get(Number(msg.id));
     const detailedResolve = flushDetailedWaiters.get(Number(msg.id));
 
     if (msg.taken) {
       void autosaveWrite.then((saved) => {
-        legacyResolve?.(saved);
+        simpleResolve?.(saved);
         if (saved) {
           detailedResolve?.({ status: "saved", cycle });
         } else {
@@ -279,7 +279,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     const isUnchanged = lastCycle !== undefined && cycle <= lastCycle;
 
     if (isCleanOpening || isUnchanged) {
-      legacyResolve?.(true);
+      simpleResolve?.(true);
       detailedResolve?.({ status: "already_durable", cycle });
       return;
     }
@@ -292,7 +292,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
           : msg.textMode
             ? "Game is in text mode."
             : "Interpreter is between transitions.";
-    legacyResolve?.(false);
+    simpleResolve?.(false);
     detailedResolve?.({ status: "not_checkpointable", reason });
   }
 

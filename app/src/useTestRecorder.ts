@@ -129,7 +129,6 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
       endState: reply.state,
       endCycle: reply.cycle,
       tainted: reply.tainted ?? null,
-      usedGetnum: Boolean(reply.usedGetnum),
     };
   }
 

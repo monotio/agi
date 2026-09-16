@@ -18,8 +18,7 @@
  * the oldest eligible segments first, protecting live writer leases, and counts loss in
  * `dropped` so the transport can say where the tape starts.
  *
- * Obsolete prerelease layouts are cleared, not migrated: a commit replaces
- * them with a fresh manifest and a read reports an empty tape.
+ * Unsupported versions and malformed layouts are refused without rewriting them.
  */
 import {
   HISTORY_FORMAT_VERSION,
@@ -96,7 +95,7 @@ interface ManifestSegment {
  */
 interface HistoryManifest {
   format: "monotio.agi.history";
-  version: 3;
+  version: 1;
   /** The object store's keyPath: `history/<gameStorageKey>` — a record locator, not an identity. */
   projectId: string;
   /** The tape header — HistoryRecording minus its segment bodies. */
@@ -171,17 +170,27 @@ interface StoredBlob {
   data: Record<string, string>;
 }
 
-/** Manifest read result: the append layout, a cleared legacy record, or none. */
-function readManifest(raw: unknown): HistoryManifest | "legacy" | null {
+/** Read only the current manifest; unsupported data remains untouched. */
+function readManifest(raw: unknown): HistoryManifest | null {
   if (raw === undefined) return null;
-  const value = raw as Record<string, unknown>;
-  if (value["format"] !== "monotio.agi.history")
+  const isObject = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+  if (!isObject(raw) || raw["format"] !== "monotio.agi.history" || raw["version"] !== 1)
     throw new Error("This history record version is not supported by this app.");
-  // Before the first public release, old layouts are replaced, never migrated.
-  if (value["version"] === 1 || value["version"] === 2) return "legacy";
-  if (value["version"] !== 3)
-    throw new Error("This history record version is not supported by this app.");
-  return value as unknown as HistoryManifest;
+  if (
+    typeof raw["projectId"] !== "string" ||
+    !isObject(raw["recording"]) ||
+    raw["recording"]["version"] !== HISTORY_FORMAT_VERSION ||
+    !Array.isArray(raw["segments"]) ||
+    !isObject(raw["committed"]) ||
+    !isObject(raw["bytes"]) ||
+    !isObject(raw["blobs"]) ||
+    "retained" in raw ||
+    (raw["branches"] !== undefined && !Array.isArray(raw["branches"])) ||
+    (raw["staged"] !== undefined && !Array.isArray(raw["staged"]))
+  )
+    throw new Error("This history record layout is not supported by this app.");
+  return raw as unknown as HistoryManifest;
 }
 
 const manifestKey = (storageKey: string): string => `history/${storageKey}`;
@@ -291,7 +300,7 @@ function evictSegments(
 function manifestPut(manifest: HistoryManifest): unknown {
   const put: Record<string, unknown> = {
     format: "monotio.agi.history",
-    version: 3,
+    version: 1,
     projectId: manifest.projectId,
     recording: manifest.recording,
     segments: manifest.segments,
@@ -316,7 +325,7 @@ function freshManifest(
 ): HistoryManifest {
   return {
     format: "monotio.agi.history",
-    version: 3,
+    version: 1,
     projectId: key,
     recording: {
       version: HISTORY_FORMAT_VERSION,
@@ -357,7 +366,7 @@ export function renewHistoryWriter(storageKey: string, segment: string): Promise
   return serializeWrite(key, () =>
     updateBodyRecords<boolean>(key, (raw) => {
       const manifest = readManifest(raw);
-      if (manifest === null || manifest === "legacy") return { result: false };
+      if (manifest === null) return { result: false };
       const writer = manifest.segments.find((entry) => entry.id === segment);
       if (writer === undefined || writer.end !== undefined) return { result: false };
       writer.writerExpiresAt = Date.now() + HISTORY_WRITER_LEASE_MS;
@@ -387,30 +396,9 @@ export async function mergeHistoryBatch(
     const filesRef = batch.boot !== undefined ? await filesBlobHash(batch.boot.files) : undefined;
     return await updateBodyRecords<boolean>(key, (raw) => {
       const stored = readManifest(raw);
-      // A tape from an older layout or recording version is unreadable to
-      // this build — the new session's batches must not extend it under its
-      // stale label. Pre-release tapes carry no migration: the fresh
-      // manifest replaces it, clearing its ledger and segment references.
-      const staleTape =
-        stored === "legacy" ||
-        (stored !== null && stored.recording.version !== HISTORY_FORMAT_VERSION);
       const w = emptyWrites();
-      if (stored === "legacy" && (raw as { version: number }).version === 2)
-        w.deletes.push(...manifestFollow(raw as HistoryManifest));
-      const manifest: HistoryManifest =
-        !staleTape && stored !== null
-          ? stored
-          : freshManifest(key, profile, identity, batch.boot?.resourceSet ?? "");
-      if (staleTape && stored !== null && stored !== "legacy") {
-        // A same-layout tape whose recording version moved: its batch and
-        // blob records are unreachable once the manifest clears, so drop
-        // them rather than leave orphans.
-        for (const segment of stored.segments) {
-          for (const n of stored.committed[segment.id] ?? [])
-            w.deletes.push(batchKey(key, segment.id, n));
-        }
-        for (const hash of Object.keys(stored.blobs)) w.deletes.push(blobKey(key, hash));
-      }
+      const manifest =
+        stored ?? freshManifest(key, profile, identity, batch.boot?.resourceSet ?? "");
       const ledger = (manifest.committed[batch.segment] ??= []);
       if (ledger.includes(batch.batch)) return { result: true }; // a resend of a committed batch
       let directory = manifest.segments.find((s) => s.id === batch.segment);
@@ -545,7 +533,7 @@ function assembleRecording(
   records: Map<string, unknown>,
 ): { manifest: HistoryManifest; recording: HistoryRecording } | null {
   const manifest = readManifest(head);
-  if (manifest === null || manifest === "legacy") return null;
+  if (manifest === null) return null;
   const blobs = new Map<string, StoredBlob>();
   for (const hash of Object.keys(manifest.blobs)) {
     const blob = records.get(blobKey(manifest.projectId, hash)) as StoredBlob | undefined;
@@ -578,7 +566,7 @@ function rehydrateRetained(
 export async function loadGameHistory(storageKey: string): Promise<HistoryRecording | null> {
   const { head, records } = await readBodyRecords(manifestKey(storageKey), (raw) => {
     const manifest = readManifest(raw);
-    return manifest === null || manifest === "legacy" ? [] : manifestFollow(manifest);
+    return manifest === null ? [] : manifestFollow(manifest);
   });
   const assembled = assembleRecording(head, records);
   if (assembled === null) return null;
@@ -595,13 +583,13 @@ export async function loadGameHistory(storageKey: string): Promise<HistoryRecord
  * batch would land on a key that never saw its segment and every later
  * commit would refuse.
  */
-export function migrateHistoryRecord(fromStorageKey: string, toStorageKey: string): Promise<void> {
+export function moveHistoryRecord(fromStorageKey: string, toStorageKey: string): Promise<void> {
   const from = manifestKey(fromStorageKey);
   const to = manifestKey(toStorageKey);
   return serializeWrite(from, async () => {
     const { head, records } = await readBodyRecords(from, (raw) => {
       const manifest = readManifest(raw);
-      return manifest === null || manifest === "legacy" ? [] : manifestFollow(manifest);
+      return manifest === null ? [] : manifestFollow(manifest);
     });
     const source = assembleRecording(head, records);
     if (source === null) return;
@@ -624,7 +612,7 @@ export function migrateHistoryRecord(fromStorageKey: string, toStorageKey: strin
               }
             : {}),
         };
-        if (stored === null || stored === "legacy") {
+        if (stored === null) {
           const manifest = freshManifest(
             to,
             movedHeader.profile,
@@ -742,7 +730,7 @@ export async function stageRetainedOriginal(
   return serializeWrite(key, () =>
     updateBodyRecords<void>(key, (raw) => {
       const stored = readManifest(raw);
-      if (stored === null || stored === "legacy") return { result: undefined }; // no record yet
+      if (stored === null) return { result: undefined }; // no record yet
       const w = emptyWrites();
       const pending = (stored.staged ??= []);
       pending.push({ ...staged, boot: splitBoot(staged.boot, filesRef) });
@@ -775,7 +763,7 @@ export function commitStagedOriginal(
   return serializeWrite(key, () =>
     updateBodyRecords<void>(key, (raw) => {
       const stored = readManifest(raw);
-      if (stored === null || stored === "legacy") return { result: undefined };
+      if (stored === null) return { result: undefined };
       const idx = (stored.staged ?? []).findIndex((s) => s.id === stagedId);
       const w = emptyWrites();
       if (idx >= 0) {
@@ -803,7 +791,7 @@ export function clearStagedOriginal(storageKey: string, stagedId: string): Promi
   return serializeWrite(key, () =>
     updateBodyRecords<void>(key, (raw) => {
       const stored = readManifest(raw);
-      if (stored === null || stored === "legacy") return { result: undefined };
+      if (stored === null) return { result: undefined };
       const idx = (stored.staged ?? []).findIndex((s) => s.id === stagedId);
       if (idx < 0) return { result: undefined };
       const w = emptyWrites();
@@ -845,7 +833,7 @@ export function resolveStagedSwap(
   return serializeWrite(key, () =>
     updateBodyRecords<StagedSwapResolution>(key, (raw) => {
       const stored = readManifest(raw);
-      if (stored === null || stored === "legacy") return { result: "none" };
+      if (stored === null) return { result: "none" };
       const pending = stored.staged ?? [];
       if (pending.length === 0) return { result: "none" };
       const w = emptyWrites();
@@ -915,11 +903,11 @@ export async function loadRetainedBranches(storageKey: string): Promise<Retained
   const key = manifestKey(storageKey);
   const { head, records } = await readBodyRecords(key, (raw) => {
     const manifest = readManifest(raw);
-    if (manifest === null || manifest === "legacy") return [];
+    if (manifest === null) return [];
     return (manifest.branches ?? []).map((b) => blobKey(key, b.boot.filesRef));
   });
   const manifest = readManifest(head);
-  if (manifest === null || manifest === "legacy") return [];
+  if (manifest === null) return [];
   const branches: RetainedOriginal[] = [];
   for (const stored of manifest.branches ?? []) {
     const blob = records.get(blobKey(key, stored.boot.filesRef)) as StoredBlob | undefined;
@@ -946,7 +934,7 @@ export async function loadTapeOutline(storageKey: string): Promise<{
 } | null> {
   const { head } = await readBodyRecords(manifestKey(storageKey), () => []);
   const manifest = readManifest(head);
-  if (manifest === null || manifest === "legacy") return null;
+  if (manifest === null) return null;
   return {
     segments: manifest.segments.map((s) => ({
       id: s.id,
@@ -965,7 +953,7 @@ export function saveHistoryBookmark(storageKey: string, bookmark: HistoryBookmar
   return serializeWrite(key, () =>
     updateBodyRecords<void>(key, (raw) => {
       const stored = readManifest(raw);
-      if (stored === null || stored === "legacy") return { result: undefined };
+      if (stored === null) return { result: undefined };
       const bookmarks = [...(stored.bookmarks ?? []), bookmark];
       if (bookmarks.length > 500) bookmarks.splice(0, bookmarks.length - 500);
       stored.bookmarks = bookmarks;
@@ -978,7 +966,7 @@ export function saveHistoryBookmark(storageKey: string, bookmark: HistoryBookmar
 export async function loadHistoryBookmarks(storageKey: string): Promise<HistoryBookmark[]> {
   const { head } = await readBodyRecords(manifestKey(storageKey), () => []);
   const manifest = readManifest(head);
-  if (manifest === null || manifest === "legacy") return [];
+  if (manifest === null) return [];
   return manifest.bookmarks ?? [];
 }
 
@@ -988,7 +976,7 @@ export async function loadHistoryBookmarks(storageKey: string): Promise<HistoryB
 export async function loadProjectHistory(storageKey: string): Promise<ProjectHistory | null> {
   const { head, records } = await readBodyRecords(manifestKey(storageKey), (raw) => {
     const manifest = readManifest(raw);
-    return manifest === null || manifest === "legacy" ? [] : manifestFollow(manifest);
+    return manifest === null ? [] : manifestFollow(manifest);
   });
   const assembled = assembleRecording(head, records);
   if (assembled === null) return null;
@@ -1028,6 +1016,7 @@ export function importGameHistory(
   const key = manifestKey(storageKey);
   return serializeWrite(key, async () => {
     try {
+      if (history.recording.version !== HISTORY_FORMAT_VERSION) return false;
       // Hash every file set the tape carries before the transaction opens.
       const blobHashes = new Map<string, string>();
       const boots = history.recording.segments.map((segment) => segment.boot);
@@ -1040,9 +1029,7 @@ export function importGameHistory(
       await updateBodyRecords<void>(key, (raw) => {
         const stored = readManifest(raw);
         const w = emptyWrites();
-        if (stored === "legacy" && (raw as { version: number }).version === 2)
-          w.deletes.push(...manifestFollow(raw as HistoryManifest));
-        if (stored !== null && stored !== "legacy") {
+        if (stored !== null) {
           // Replacing an existing append tape: its batch and blob records
           // go in the same transaction so none are orphaned.
           for (const segment of stored.segments)

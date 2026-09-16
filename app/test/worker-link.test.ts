@@ -304,7 +304,6 @@ test("every WorkerOutbound member reaches its handler once", async () => {
           events: [],
           printed: [],
           tainted: null,
-          usedGetnum: false,
           cycle: 0,
           state: null,
         });

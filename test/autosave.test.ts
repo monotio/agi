@@ -421,6 +421,7 @@ test("a bare save described with the envelope's words is still a save", () => {
   // Framing reaches beyond the description into the first block length.
   const envelope = encodeHostImage(image, [{ kind: 2, value: 1 }]);
   assert.deepEqual([...envelope.subarray(31, 33)], [0xff, 0xff]);
+  assert.equal(envelope[33], 1);
   assert.deepEqual(decodeHostImage(envelope), { image, screen: [{ kind: 2, value: 1 }] });
 });
 
@@ -503,16 +504,30 @@ test("bare save descriptions cannot collide with host autosave framing", () => {
   }
 });
 
-test("unknown host autosave versions are rejected without rewriting bytes or engine state", () => {
-  const engine = new Engine(buildGame(), new RecordingHost(), DICT);
-  engine.tick();
-  const image = engine.autosaveImage()!;
-  image[33] = 3;
-  const before = image.slice();
-  const state = engine.serialize();
-  assert.throws(() => engine.restoreImage(image), /unsupported host autosave version 3/);
-  assert.deepEqual(image, before);
-  assert.deepEqual(engine.serialize(), state);
+for (const version of [0, 2, 3, 255]) {
+  test(`host autosave version ${version} is rejected without rewriting bytes or engine state`, () => {
+    const engine = new Engine(buildGame(), new RecordingHost(), DICT);
+    engine.tick();
+    const image = engine.autosaveImage()!;
+    image[33] = version;
+    const before = image.slice();
+    const state = engine.serialize();
+    assert.throws(
+      () => engine.restoreImage(image),
+      new RegExp(`unsupported host autosave version ${version}`),
+    );
+    assert.deepEqual(image, before);
+    assert.deepEqual(engine.serialize(), state);
+  });
+}
+
+test("host autosaves require the current continuation framing", () => {
+  const envelope = encodeHostImage(new Uint8Array([1, 2]), []);
+  envelope[33] = 1;
+  assert.throws(
+    () => decodeHostImage(envelope.subarray(0, envelope.length - 4)),
+    /presentation length/,
+  );
 });
 
 test("host resume preserves captions and their ordering against stopped sprites", () => {

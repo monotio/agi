@@ -10,7 +10,7 @@ import type { Action } from "./runner.ts";
 import { walkthrough, type Walkthrough } from "./walkthroughs.ts";
 
 export interface WalkthroughArtifact {
-  schema: "monotio.agi.walkthrough.v2";
+  schema: "monotio.agi.walkthrough.v1";
   /** `{ project: catalog id, revision: recorded bundle revision }`. */
   identity: GameIdentity;
   supportedRevisions?: readonly ResourceRevision[] | undefined;
@@ -87,7 +87,7 @@ export function walkthroughFixtureHashes(target: string): Record<string, string>
 /** Read a completed replay; consumers also match its hashes to their fixture files. */
 export async function readWalkthroughArtifact(path: string): Promise<WalkthroughArtifact> {
   const recording = JSON.parse(readFileSync(path, "utf8")) as WalkthroughArtifact;
-  assert.equal(recording.schema, "monotio.agi.walkthrough.v2");
+  assert.equal(recording.schema, "monotio.agi.walkthrough.v1");
   const route = walkthrough(recording.identity.project);
   const served = await walkthroughServedRevisions(route.hash);
   assert.equal(

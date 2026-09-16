@@ -22,14 +22,8 @@ import { validateEngineReplayState, type EngineReplayState } from "../runtime/re
 import type { EngineMenuState } from "../runtime/engine.ts";
 import { gameIdentity, type GameIdentity } from "../gameIdentity.ts";
 
-/**
- * v1 → v2: the RNG became the original's 16-bit contract — a v1 tape's
- * recorded LCG stream cannot reproduce under it — and the `reseed` cause
- * joined the event vocabulary.
- * v2 → v3: the recording carries the game's `GameIdentity`; pre-v3 tapes
- * have none and are replaced at the next commit.
- */
-export const HISTORY_FORMAT_VERSION = 3;
+/** Current recording contract: game identity, original 16-bit RNG and reseed events. */
+export const HISTORY_FORMAT_VERSION = 1;
 
 /** Worker in-memory ring bounds: records and bytes pending the host's ack. */
 export const HISTORY_EVENT_LIMIT = 250_000;

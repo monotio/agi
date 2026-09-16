@@ -96,17 +96,14 @@ export function readHistoryArchive(bytes: Uint8Array): ProjectHistory {
     throw new Error("HISTORY.JSON is not a history record this app understands.");
   const recording = validateHistoryRecording(raw["recording"]);
   const branches: RetainedOriginal[] = [];
-  // rc.11 archives wrote a single `retained` slot; read it as a one-branch list.
-  const rawBranches = raw["branches"] ?? (raw["retained"] !== undefined ? [raw["retained"]] : []);
+  if ("retained" in raw) throw new Error("HISTORY.JSON contains an unsupported retained layout.");
+  const rawBranches = raw["branches"] ?? [];
   if (!Array.isArray(rawBranches) || rawBranches.length > 16)
     throw new Error("HISTORY.JSON branches are invalid.");
   for (const value of rawBranches) {
     if (!isObj(value) || !Number.isFinite(value["retainedAt"]))
       throw new Error("HISTORY.JSON retained branch is invalid.");
-    const checked = validateRetained({
-      id: `b${branches.length}`,
-      ...value,
-    } as unknown as RetainedOriginal);
+    const checked = validateRetained(value as unknown as RetainedOriginal);
     if (checked === null) throw new Error("HISTORY.JSON retained branch is invalid.");
     branches.push(checked);
   }

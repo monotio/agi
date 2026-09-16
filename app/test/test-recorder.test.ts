@@ -118,7 +118,6 @@ test("test recorder starts and stops successfully through worker queries", async
           events: [],
           printed: ["Welcome!"],
           tainted: null,
-          usedGetnum: false,
           cycle: 15,
           state: {
             room: 1,
@@ -258,7 +257,6 @@ test("saveRecordedTest rejects tainted recordings", async () => {
     },
     endCycle: 2,
     tainted: "Game state was modified externally",
-    usedGetnum: false,
   };
 
   const result = await recorder.saveRecordedTest(taintedSnapshot, "test", [], mockConfig);

@@ -899,8 +899,7 @@ export function decodeSave(bytes: Uint8Array, profile: AgiProfile): SaveState {
  * so even a description containing the marker cannot identify a bare save.
  */
 const HOST_IMAGE_MAGIC = "MONOTIO AUTOSAVE".padEnd(SAVE_DESCRIPTION_BYTES + 2, "\xff");
-/** Version 2 appends the parked-pass continuation as a length-prefixed JSON tail. */
-const HOST_IMAGE_VERSION = 2;
+const HOST_IMAGE_VERSION = 1;
 const HOST_IMAGE_HEADER = HOST_IMAGE_MAGIC.length + 1 + 4;
 
 const HOST_TEXT_CELLS = TEXT_COLS * TEXT_ROWS;
@@ -937,7 +936,7 @@ export interface HostImage {
   /**
    * The parked pass the snapshot was taken at — an open window or a have.key
    * wait — so the resume restores the identical instruction, not a fresh pass.
-   * Absent from version-1 images and non-parked snapshots.
+   * Absent from non-parked snapshots.
    */
   continuation?: ParkedContinuation | null;
 }
@@ -950,7 +949,7 @@ export interface HostImage {
  * Layout: the 33-byte marker, u8 version, u32le image length, the image, u16le pair
  * count, the pairs as block 4 encodes them, then a presence byte and optional
  * fixed-size presentation: f64 sequence, cells, u32 write stamps, and 256
- * draw records (f64 sequence and four i32 bounds). Version 2 ends with a u32le
+ * draw records (f64 sequence and four i32 bounds). The envelope ends with a u32le
  * length and the parked-pass continuation as UTF-8 JSON (length 0: none).
  * All numbers are little-endian.
  */
@@ -1028,7 +1027,7 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
   if (bytes.length < HOST_IMAGE_HEADER)
     throw new RangeError("host autosave ends before its image length");
   const version = bytes[HOST_IMAGE_MAGIC.length]!;
-  if (version < 1 || version > HOST_IMAGE_VERSION)
+  if (version !== HOST_IMAGE_VERSION)
     throw new RangeError(`unsupported host autosave version ${version}`);
   const imageLength = u32(bytes, HOST_IMAGE_MAGIC.length + 1);
   const countAt = HOST_IMAGE_HEADER + imageLength;
@@ -1040,7 +1039,7 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
   if (present !== 0 && present !== 1)
     throw new RangeError("host autosave presentation marker is invalid");
   const presentationEnd = pairEnd + 1 + (present ? HOST_PRESENTATION_BYTES : 0);
-  if (version === 1 ? bytes.length !== presentationEnd : bytes.length < presentationEnd + 4)
+  if (bytes.length < presentationEnd + 4)
     throw new RangeError("host autosave presentation length is invalid");
   const result: HostImage = {
     image: bytes.slice(HOST_IMAGE_HEADER, countAt),
@@ -1083,26 +1082,24 @@ export function decodeHostImage(bytes: Uint8Array): HostImage {
     }
     result.presentation = { cells, written, seq, draws };
   }
-  if (version === 2) {
-    const length = u32(bytes, presentationEnd);
-    if (presentationEnd + 4 + length !== bytes.length)
-      throw new RangeError("host autosave continuation length is invalid");
-    if (length > 0) {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(
-          new TextDecoder().decode(bytes.subarray(presentationEnd + 4, bytes.length)),
-        );
-      } catch {
-        throw new RangeError("host autosave continuation is not valid JSON");
-      }
-      try {
-        result.continuation = validateContinuation(parsed);
-      } catch (error) {
-        throw new RangeError(`host autosave continuation is invalid: ${(error as Error).message}`, {
-          cause: error,
-        });
-      }
+  const length = u32(bytes, presentationEnd);
+  if (presentationEnd + 4 + length !== bytes.length)
+    throw new RangeError("host autosave continuation length is invalid");
+  if (length > 0) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(
+        new TextDecoder().decode(bytes.subarray(presentationEnd + 4, bytes.length)),
+      );
+    } catch {
+      throw new RangeError("host autosave continuation is not valid JSON");
+    }
+    try {
+      result.continuation = validateContinuation(parsed);
+    } catch (error) {
+      throw new RangeError(`host autosave continuation is invalid: ${(error as Error).message}`, {
+        cause: error,
+      });
     }
   }
   return result;

@@ -55,10 +55,15 @@ npm run eval:replay                           # stored bad cases, offline
 
 ## Release contract
 
-Version 1.0 is the first public archive baseline. Pre-release formats and
-migrations may be dropped before it; after it, released saves and exports stay
-readable. Readers reject unknown versions without rewriting bytes. Add migrations
+Version 1.0 is the first public archive baseline. After it, released saves and
+exports stay readable. Readers reject unknown versions without rewriting bytes. Add migrations
 only for released formats and keep their original fixtures.
+
+During release-candidate development, project-owned schemas stay at v1 and evolve
+in place. Do not add schema bumps, old readers, compatibility paths or backfills.
+Rebuild fixtures and clear development storage explicitly when needed. Local
+release plans stay uncommitted and must not be referenced by committed code,
+comments or documentation.
 
 ## Authenticity
 

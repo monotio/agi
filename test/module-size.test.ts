@@ -31,7 +31,7 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
   },
   "app/src/DebugDock.vue": {
     lines: 1246,
-    boundary: "the inspector surface; size-only splits are out of scope for rc.10",
+    boundary: "the inspector surface: resource controls, runtime state and visual diagnostics",
   },
   "src/runtime/persistence.ts": {
     lines: 1132,

@@ -543,7 +543,7 @@ function executeValidatedAgentTool(
   session: AgentSessionState,
   name: string,
   args: Record<string, unknown>,
-  /** Ask-mode context: withhold creator intent (docs/rc12-plan.md D3). */
+  /** Ask-mode context: withhold creator intent. */
   readOnly = false,
 ): AgentToolResult {
   if (name === "read_command_reference") return readCommandReference(session.profile, args);
@@ -1641,7 +1641,7 @@ export interface AgentRuntimeDeps {
   /**
    * Ask mode: read-only tools only, and authored plan intent stays out of
    * every result — inspect_world_bible's intent filter is refused and
-   * read_room_context carries no plan entry (docs/rc12-plan.md D3).
+   * read_room_context carries no plan entry.
    */
   readonly readOnly?: boolean;
   /** Phase availability policy: names outside the list are denied before dispatch. */

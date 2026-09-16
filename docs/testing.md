@@ -346,7 +346,7 @@ it runs in both the desktop and phone configurations.
 request bodies using local stubs, including JPEG/WebP MIME types, pending
 composer attachments and explicit editing intent. It never calls paid providers.
 
-The 2026-09-16 rc.12 QA run measured `app/e2e/history-bench.spec.ts` using
+The 2026-09-16 QA run measured `app/e2e/history-bench.spec.ts` using
 Chromium's Moto G4 emulation with 4× CPU throttling on a desktop host:
 
 | Tape / layout                       | Commit p50 | Commit p95 | Bytes per commit | Reassembly |

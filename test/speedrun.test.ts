@@ -121,7 +121,7 @@ test("every shipped walkthrough is a v2 artifact bound to its bundle revision", 
   for (const file of files) {
     const path = join(dir, file);
     const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-    assert.equal(raw["schema"], "monotio.agi.walkthrough.v2", `${file} schema`);
+    assert.equal(raw["schema"], "monotio.agi.walkthrough.v1", `${file} schema`);
     const identity = raw["identity"] as Record<string, unknown> | undefined;
     assert.match(
       String(identity?.["revision"]),

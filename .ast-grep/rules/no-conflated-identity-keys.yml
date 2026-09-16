@@ -5,7 +5,7 @@ message: >-
   conflated identity key — resolve the alias/hash query at the edge and pass a
   typed GameIdentity (src/gameIdentity.ts) inward
 note: |
-  rc.12 Part 2: one identity record. A parameter or field named like
+  Use one identity record. A parameter or field named like
   `hashOrAlias`/`idOrRevision` accepts whatever a caller happened to hold and
   makes every callee re-resolve it; aliases resolve only at the two edges (the
   test/CLI argument parser and the hosted catalog route) and are named `query`

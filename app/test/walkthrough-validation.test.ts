@@ -17,7 +17,7 @@ const KQ1_IDENTITY = {
 
 test("validateWalkthroughArtifact accepts valid walkthrough structure", () => {
   const valid: WalkthroughArtifact = {
-    schema: "monotio.agi.walkthrough.v2",
+    schema: "monotio.agi.walkthrough.v1",
     identity: KQ1_IDENTITY,
     coverage: "complete-game",
     profile: "2.917",
@@ -46,7 +46,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "invalid.schema.v2",
+        schema: "monotio.agi.walkthrough.v2",
         identity: {
           project: "kq1",
           revision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
@@ -66,7 +66,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v2",
+        schema: "monotio.agi.walkthrough.v1",
         identity: {
           project: "unknown-game",
           revision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
@@ -86,7 +86,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v2",
+        schema: "monotio.agi.walkthrough.v1",
         identity: {
           project: "kq1",
           revision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
@@ -104,7 +104,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v2",
+        schema: "monotio.agi.walkthrough.v1",
         identity: {
           project: "kq1",
           revision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
@@ -122,7 +122,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v2",
+        schema: "monotio.agi.walkthrough.v1",
         identity: {
           project: "kq1",
           revision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
@@ -142,7 +142,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v2",
+        schema: "monotio.agi.walkthrough.v1",
         identity: {
           project: "kq1",
           revision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
@@ -160,7 +160,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v2",
+        schema: "monotio.agi.walkthrough.v1",
         identity: {
           project: "kq1",
           revision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
@@ -178,7 +178,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v2",
+        schema: "monotio.agi.walkthrough.v1",
         identity: {
           project: "kq1",
           revision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
@@ -196,7 +196,7 @@ test("validateWalkthroughArtifact rejects invalid structures and out-of-bound va
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v2",
+        schema: "monotio.agi.walkthrough.v1",
         identity: {
           project: "kq1",
           revision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
@@ -221,7 +221,7 @@ test("validateWalkthroughArtifact requires identity and validates supportedRevis
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v2",
+        schema: "monotio.agi.walkthrough.v1",
         game: "kq1",
         targetRevision: validHash,
         coverage: "complete-game",
@@ -237,7 +237,7 @@ test("validateWalkthroughArtifact requires identity and validates supportedRevis
 
   // Valid identity and supportedRevisions (normalized to lowercase)
   const result = validateWalkthroughArtifact({
-    schema: "monotio.agi.walkthrough.v2",
+    schema: "monotio.agi.walkthrough.v1",
     identity: { project: "kq1", revision: validUpper },
     supportedRevisions: [validUpper],
     coverage: "complete-game",
@@ -256,7 +256,7 @@ test("validateWalkthroughArtifact requires identity and validates supportedRevis
     assert.throws(
       () =>
         validateWalkthroughArtifact({
-          schema: "monotio.agi.walkthrough.v2",
+          schema: "monotio.agi.walkthrough.v1",
           identity: { project: "kq1", revision },
           coverage: "complete-game",
           profile: "2.917",
@@ -274,7 +274,7 @@ test("validateWalkthroughArtifact requires identity and validates supportedRevis
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v2",
+        schema: "monotio.agi.walkthrough.v1",
         identity: {
           project: "kq1",
           revision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
@@ -293,7 +293,7 @@ test("validateWalkthroughArtifact requires identity and validates supportedRevis
   assert.throws(
     () =>
       validateWalkthroughArtifact({
-        schema: "monotio.agi.walkthrough.v2",
+        schema: "monotio.agi.walkthrough.v1",
         identity: {
           project: "kq1",
           revision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",
@@ -331,7 +331,7 @@ test("loadWalkthrough memoizes results and evicts failed fetches", async () => {
       ok: true,
       status: 200,
       json: async () => ({
-        schema: "monotio.agi.walkthrough.v2",
+        schema: "monotio.agi.walkthrough.v1",
         identity: {
           project: "kq1",
           revision: "41d863172326c712c0aebadf12fc63b049ff5d892743f4ee990004c344eb3780",

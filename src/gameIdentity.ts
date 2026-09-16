@@ -1,5 +1,5 @@
 /**
- * One identity record for a library entry (docs/rc12-plan.md Part 2).
+ * One identity record for a library entry.
  *
  * `GameIdentity = { project, revision }` is the single shape every stored
  * record — save, history recording, walkthrough artifact, game test, export —

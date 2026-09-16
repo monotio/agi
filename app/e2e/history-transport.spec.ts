@@ -233,13 +233,11 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
   await waitForCycles(page, 3);
 
   // Open and close the tape once: the open's drain commits the recorded tail
-  // before the corruption lands.
+  // before the corruption lands. Keep LIVE paused so later anchors cannot
+  // invalidate the deliberately corrupted replay interval.
   await scrubToTape(page, 0.5);
   await page.getByTestId("history-live").click();
   await expect.poll(async () => (await viewState(page))?.active).toBe(false);
-  await page.getByTestId("btn-transport-resume").click();
-  await expect.poll(async () => (await textHook(page)).paused).toBe(false);
-
   // Corrupt the stored tape: flip every sync mark's expected digest in the
   // first segment's batch records, so any replay across one fails. A seek
   // replays only from the nearest anchor at-or-before its target — marks
@@ -314,6 +312,9 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
   await page.reload();
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBeGreaterThanOrEqual(1);
+  await page.getByTestId("btn-transport-pause").click();
+  await expect.poll(async () => (await textHook(page)).paused).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.historyPending)).toBe(0);
 
   // Click the fraction that lands a few ticks past the chosen mark: the
   // current total extent comes from the manifest's segment lanes.

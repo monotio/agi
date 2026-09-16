@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * The world map overlay: rooms as a list beside a graph. Which rooms depends
- * on the experience the caller chose (docs/rc12-plan.md D3): "play" shows
+ * on the experience the caller chose: "play" shows
  * discovered places and observed crossings only; "create" adds the plan
  * (authoring intent) and the static scan (a literal new.room in the logic).
  * Node positions and notes are project UI data in either view; plan editing
@@ -9,12 +9,11 @@
  *
  * A native modal dialog: Escape closes only this shell overlay and returns
  * focus to its invoker, the game's own dialog and prompt state untouched.
- * The graph is plain SVG — no graph library. The comparison on record
- * (RC.10, 3.3): against the maintained candidates (d3-force, Cytoscape.js,
+ * The graph is plain SVG — no graph library. Compared with the candidates (d3-force, Cytoscape.js,
  * vis-network, sigma.js), a library buys force layout and viewport culling
  * but costs 60–200 kB gzipped, carries its own input model (pan/zoom/keys
  * we'd have to cage so Space still types into the parser), and its editing
- * APIs assume node/edge ownership — while RC.11 needs drag, add-node,
+ * APIs assume node/edge ownership — while this editor needs drag, add-node,
  * add-edge and inline rename on OUR merge of three provenances. Hand-rolled
  * SVG keeps every node a real focusable element, pinch/drag free, the model
  * renderer-independent, and zero dependency surface. The room list does not

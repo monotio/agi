@@ -1,6 +1,5 @@
 /**
- * The fixed base template a newly authored game starts from (docs/rc12-plan.md
- * Part 1). The harness writes these resources at genesis, not the model: logic
+ * The fixed base template a newly authored game starts from. The harness writes these resources at genesis, not the model: logic
  * 0 owns the menu bar, the parser fallbacks and the room dispatch; logic 255
  * is the shared death logic a room calls the way Sierra rooms called theirs;
  * sound 255 is the one death sound.

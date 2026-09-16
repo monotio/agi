@@ -26,7 +26,6 @@ test("a parked have.key plus a key message delivers exactly one key", () => {
     events: [],
     printed: [],
     tainted: null,
-    usedGetnum: false,
   };
   ctx.fns.onKey({ type: "key", code: 0x62 });
 

@@ -18,7 +18,7 @@ import { openContainer } from "../src/container/container.ts";
 import { buildView } from "../src/view/view.ts";
 
 /**
- * The D3 generation-order proof (docs/rc12-plan.md): the same three-room
+ * The generation-order proof: the same three-room
  * world is authored two ways — rooms 1→3→8 in story order, and room 8 before
  * room 3 with the key and the sign clue written into the earlier room last.
  * Both builds must satisfy the agreed inventory identity (item 0), the locked

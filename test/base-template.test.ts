@@ -22,7 +22,7 @@ import { createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts
 import { compilePictureSource } from "../src/picture/source.ts";
 
 /**
- * The harness base template (docs/rc12-plan.md Part 1): a fixed logic 0 with
+ * The harness base template: a fixed logic 0 with
  * the Sierra menu bar, key bindings and parser fallbacks, plus the shared
  * death logic 255 and its sound. The expected code bytes below are derived by
  * hand from src/logic/opcodes.ts and the assembler's framing rules —
