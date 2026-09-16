@@ -1,5 +1,5 @@
 import type { AgentHandler, LlmRequest } from "./agent/hostRequests.ts";
-import { reactive } from "vue";
+import { reactive, shallowReactive } from "vue";
 import { createAgentLogger, type AgentLogEntry, type AgentLogAudio } from "./agent/agentLog.ts";
 import type { ReplayObservation } from "./replay.ts";
 import { createReplayDriver } from "./useReplayDriver.ts";
@@ -166,7 +166,9 @@ export function useEngine(
     promptController.cancelPrompt();
   }
 
-  const hook: TextHook = {
+  // The map subscribes to the live room across cycles, restores and replay.
+  // Keep the heartbeat fields reactive without proxying their payloads.
+  const hook = shallowReactive<TextHook>({
     rows: [],
     modal: null,
     textMode: false,
@@ -178,7 +180,7 @@ export function useEngine(
     room: 0,
     egoX: 0,
     egoY: 0,
-  };
+  });
 
   const link = useWorkerLink({
     state,

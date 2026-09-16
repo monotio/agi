@@ -5,9 +5,9 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import {
   cacheGame,
   isolateStorage,
-  observe,
   openWorldMap,
   textHook,
+  waitForAutosaveAfter,
   waitForCycles,
 } from "./engineProbe.ts";
 
@@ -156,6 +156,7 @@ test("the transport rides live play from boot; the timeline enters the tape and 
 
   // Watch is the secondary action: the tape advances on its own clock and
   // Space pauses it, while the primary button still means Resume from here.
+  const liveCycles = (await textHook(page)).cycle;
   const watchedFrom = (await viewState(page))!.tick;
   await page.getByTestId("btn-history-watch").click();
   await expect.poll(async () => (await viewState(page))!.tick).toBeGreaterThan(watchedFrom);
@@ -164,8 +165,6 @@ test("the transport rides live play from boot; the timeline enters the tape and 
   await expect(page.getByTestId("btn-history-resume")).toContainText("Resume from here");
 
   // The parked live session never moved while the tape played.
-  const liveCycles = (await textHook(page)).cycle;
-  await observe(page, 30);
   expect((await textHook(page)).cycle, "the live engine stays parked").toBe(liveCycles);
 
   // LIVE restores the parked surface — still paused under the transport's
@@ -232,6 +231,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   // Record a periodic sync after the room-entry anchor (the cadence is 20 cycles).
   await waitForCycles(page, 25);
+  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
 
   // Open and close the tape once: the open's drain commits the recorded tail
   // before the corruption lands. Keep LIVE paused so later anchors cannot
@@ -359,6 +359,7 @@ test("a tape the app cannot read reports the failure and resumes the verified li
   await writeFlag(page, 6);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await waitForCycles(page, 2);
+  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
 
   // Seal and commit the tail so a record exists to reject.
   await scrubToTape(page, 0.5);

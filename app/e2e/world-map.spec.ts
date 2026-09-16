@@ -169,6 +169,13 @@ test("the map records a live transition and matches it against plan and logic", 
   page,
 }) => {
   await bootMapGame(page);
+  // Read the live marker before the transition: reopening must update a
+  // previously evaluated current-room subscription, not retain its first room.
+  await openGameOptions(page, "help-menu");
+  await page.getByTestId("btn-world-map").click();
+  await expect(page.getByTestId("map-room-1")).toHaveClass(/current/);
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("world-map")).not.toBeVisible();
   // Visit room 2 through the inspector's flag write: logic 1's literal
   // new.room(2) fires, so the journal edge joins the planned and static ones.
   await page.getByTestId("power-up").click();
@@ -184,6 +191,9 @@ test("the map records a live transition and matches it against plan and logic", 
   await page.getByTestId("btn-world-plan").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await expect(page.getByTestId("map-room-2")).toContainText("visited");
+  await expect(page.getByTestId("map-room-2")).toHaveClass(/current/);
+  await expect(page.getByTestId("map-node-2")).toBeInViewport();
+  await page.screenshot({ path: "test-results/world-map-transition.png" });
   await page.getByTestId("map-room-2").click();
   const detail = page.getByTestId("map-detail");
   await expect(detail).toContainText("Visited 1×");
