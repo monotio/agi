@@ -5,11 +5,7 @@ import { defineConfig, type Plugin } from "vite";
 import { scanFixtures } from "../test/fixtures.ts";
 import { BUILTIN_GAME_BUILDERS } from "../test/game-fixture.ts";
 import { KNOWN_GAMES } from "../src/games/knownGames.ts";
-import { gameRevision } from "./src/gameMetadata.ts";
-
-/** The file set a client fetches when it boots a fixture — what the revision covers. */
-const SERVED_FILE_PATTERN =
-  /^([A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/i;
+import { gameRevision, isPlayableFileName } from "./src/gameMetadata.ts";
 
 export interface InstalledFixtureDescriptor {
   readonly folder: string;
@@ -38,7 +34,7 @@ function fixtureServer(): Plugin {
   ): Promise<string> => {
     const served: Record<string, Uint8Array> = {};
     for (const [name, bytes] of files instanceof Map ? [...files] : Object.entries(files))
-      if (SERVED_FILE_PATTERN.test(name)) served[name.toUpperCase()] = bytes;
+      if (isPlayableFileName(name)) served[name.toUpperCase()] = bytes;
     return gameRevision(served);
   };
   const installedGames = async (): Promise<InstalledFixtureDescriptor[]> => {
@@ -47,7 +43,7 @@ function fixtureServer(): Plugin {
         const known = fixture.known;
         const served: Record<string, Uint8Array> = {};
         for (const actual of fixture.files.values())
-          if (SERVED_FILE_PATTERN.test(actual))
+          if (isPlayableFileName(actual))
             served[actual.toUpperCase()] = new Uint8Array(readFileSync(join(fixture.dir, actual)));
         return {
           folder: fixture.folder,

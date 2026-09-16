@@ -73,7 +73,9 @@ export function createGenesisPrompt(templateText: string): string {
 
 First design a small connected world (3 to 6 rooms) and record the whole plan through update_world: each room's number, a short title, a one-line brief of what happens there, and its named exits to other room numbers. Room 1 is the opening room unless the brief says otherwise. Record the facts and quests the brief implies too — the plan tells every later room-authoring turn what to build. The player sees this plan on the world map as it lands and can edit it; keep the planned room numbers, titles and exits unless the map says otherwise. inspect_world_bible shows what is already recorded; read_authoring_guide has reference material if you need it.
 
-Then author ONLY the opening room (Logic 0 + the initial room, picture 1 and logic 1 unless the brief specifies an intro/cutscene) and its required views, actors and vocabulary. DO NOT author Room 2 or subsequent rooms during Genesis. When the player walks through an exit into an unbuilt room, the engine pauses gameplay and prompts you to author that specific room just-in-time.
+Then author ONLY the opening room (picture 1 and logic 1 unless the brief specifies an intro/cutscene) and its required views, actors and vocabulary. DO NOT author Room 2 or subsequent rooms during Genesis. When the player walks through an exit into an unbuilt room, the engine pauses gameplay and prompts you to author that specific room just-in-time.
+
+The harness owns the boot ritual: logic 0 already builds the menu bar, binds the classic keys, dispatches call.v(v0) to your room each cycle and answers unknown or unhandled input once. Logic 255 is the shared death handler — a room prints its death line then call(255); the Restore/Restart/Quit box, the death sound and the restore loop live there. Do not rewrite logic 0 or logics/sounds 250-255; flags 200-209, variables 248-255, controllers 200-219 and string 11 belong to the template. To handle a parsed line without a said() match printing the fallback, set f4 yourself after your own reply.
 
 The brief decides the shape. A plain start in room 1 is one shape; a title card, a text-screen intro paced by counters and skippable with have.key, an opening cutscene, a cursor-driven screen or something the brief invents are others. Consult read_authoring_guide only if you need reference patterns for cutscenes or interfaces.
 
@@ -81,22 +83,9 @@ Unless the brief specifically calls for a single-room game, design the opening r
 
 Deliver the opening room as a fully playable and solvable section. If the room contains puzzles or obstacles gating progress, make them completely solvable within this room and test them with write_game_tests.
 
-Two things the boot needs whatever its shape: logic 0 runs every cycle and must select a room, and handover is called only after the real boot has reached a screen the player can act on (it boots the world, dismisses windows and key waits like a player, runs every stored game test, and fails on a black screen, a missing resource or an ego placed off walkable ground; an opening without the parser or without a visible ego is fine). Inspect the picture and playtest a representative command and exit before finishing.
+Two things the boot needs whatever its shape: the template's logic 0 already runs every cycle and enters room 1, and handover is called only after the real boot has reached a screen the player can act on (it boots the world, dismisses windows and key waits like a player, runs every stored game test, and fails on a black screen, a missing resource or an ego placed off walkable ground; an opening without the parser or without a visible ego is fine). Inspect the picture and playtest a representative command and exit before finishing.
 
 Write clean, unmannered prose. Say what you mean directly; avoid manufactured aphorisms, mirrored clauses, or forced metaphors. Keep narration strictly diegetic: never break the fourth wall (do not mention "this opening", "chapters", "next part of the story", or "demo"). NEVER print score awards like "(+10)" in messages; award points to variable 3 (addn(v3, points)), which the engine status line displays.
-
-A minimal logic 0 that works, yours to adapt or replace:
-
-     \`\`\`agi
-     if (!isset(f200)) {
-       set(f200);
-       assignn(v10, 2);
-       assignn(v0, 1);
-       new.room.v(v0);
-     }
-     call.v(v0);
-     return;
-     \`\`\`
 
 A room logic usually initializes on isset(f5): draw and show the picture, position ego, set the horizon, enable input, describe the room; the rest of it handles actions and exits. For every puzzle you author, store at least one game test for it with write_game_tests and iterate with run_game_tests — handover runs every stored test before it may pass; a puzzle without a passing test is not done. Consult read_authoring_guide only if you need reference patterns for cutscenes or interfaces.
 

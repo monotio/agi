@@ -1,7 +1,9 @@
 {
   "schema": "monotio.agi.walkthrough.v2",
-  "game": "sq1",
-  "targetRevision": "4e25ac4490afba3c5d6bd49c0d1429d8d375f8bb557e284c7337c1f334ccbe1e",
+  "identity": {
+    "project": "sq1",
+    "revision": "4e25ac4490afba3c5d6bd49c0d1429d8d375f8bb557e284c7337c1f334ccbe1e"
+  },
   "supportedRevisions": [
     "4e25ac4490afba3c5d6bd49c0d1429d8d375f8bb557e284c7337c1f334ccbe1e"
   ],

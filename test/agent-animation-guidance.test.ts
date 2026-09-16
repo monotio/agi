@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts";
-import { AGI_SYSTEM_PROMPT, createGenesisPrompt } from "../src/agent/prompt.ts";
+import { AGI_SYSTEM_PROMPT } from "../src/agent/prompt.ts";
+import { BASE_TEMPLATE_LOGIC0_SOURCE } from "../src/agent/baseTemplate.ts";
 import { splitToolResult } from "../src/agent/toolTransport.ts";
 
 test("animated sprite feedback explains timing and baseline without silently changing logic", () => {
@@ -49,5 +50,5 @@ test("invented fix.priority is rejected with the authentic correction and no mut
 });
 
 test("generated boot chooses a deliberate global cycle pace", () => {
-  assert.match(createGenesisPrompt("A quiet courtyard"), /assignn\(v10, 2\)/);
+  assert.match(BASE_TEMPLATE_LOGIC0_SOURCE, /assignn\(v10, 2\)/);
 });

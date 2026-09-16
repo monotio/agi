@@ -16,11 +16,11 @@ import { OPENING_ROUTES, opening, openingRoute } from "./speedrun/openings.ts";
  */
 
 /** Cold boot through the shared driver, asserting the binary-selected profile. */
-function coldBoot(hashOrAlias: string, load?: { checkVolumes?: boolean }): Speedrun {
-  const run = new Speedrun(hashOrAlias, 1, load);
+function coldBoot(query: string, load?: { checkVolumes?: boolean }): Speedrun {
+  const run = new Speedrun(query, 1, load);
   assert.ok(
-    opening(hashOrAlias).profiles.includes(run.engine.profile.id),
-    `${hashOrAlias}: the installation selects the interpreter profile`,
+    opening(query).profiles.includes(run.engine.profile.id),
+    `${query}: the installation selects the interpreter profile`,
   );
   return run;
 }

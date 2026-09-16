@@ -91,6 +91,17 @@ export interface RoomGraph {
 }
 
 /**
+ * The experience the graph is drawn for (docs/rc12-plan.md D3):
+ * "create" is the authoring surface — plan intent and resource/coverage
+ * status are shown beside the facts. "play" is the classic-play surface —
+ * only discovered places and crossings the journal actually observed;
+ * planned rooms, declared-but-uncrossed exits and technical status stay
+ * in creator details. The filter only hides disclosures; it never rewrites
+ * the facts the graph was merged from.
+ */
+export type MapExperience = "play" | "create";
+
+/**
  * Bounded durable discovery, kept separately from the detailed journal: when
  * the journal is capped its oldest entries are evicted, but the aggregate
  * keeps every visited room and traversable transition ever observed. Jumps
@@ -338,6 +349,123 @@ export function scanContainerExits(
   return { scans, shared };
 }
 
+/** One exit the world plan declares: from --name--> to. */
+export interface PlanConnection {
+  readonly from: number;
+  readonly name: string;
+  readonly to: number;
+}
+
+export interface ConnectionReport {
+  /** A compiled new.room transition provably reaches the declared target. */
+  readonly verified: PlanConnection[];
+  /** The source room's logic exists but no reachable transition does. */
+  readonly missing: PlanConnection[];
+  /** The source room is not compiled yet; the exit is intent, not a defect. */
+  readonly pending: PlanConnection[];
+  /** A computed target or unresolved call leaves the claim undecidable. */
+  readonly unverifiable: (PlanConnection & { readonly reason: string })[];
+  /**
+   * The destination is reachable, but the declared direction word and every
+   * compiled edge guard for the transition disagree — the exit leaves
+   * through a different side than the plan promised.
+   */
+  readonly mismatched: (PlanConnection & {
+    readonly declared: EdgeSide;
+    readonly compiled: EdgeSide;
+  })[];
+}
+
+/** Direction words a plan exit name can pin to a screen edge. Only exact
+ * words canonicalize — "east door" is a name, not a direction claim. */
+const DIRECTION_NAMES: Readonly<Record<string, EdgeSide>> = {
+  top: "top",
+  up: "top",
+  north: "top",
+  bottom: "bottom",
+  down: "bottom",
+  south: "bottom",
+  right: "right",
+  east: "right",
+  left: "left",
+  west: "left",
+};
+
+/**
+ * Check declared plan exits against compiled bytecode (docs/rc12-plan.md D3):
+ * an exit is verified when a literal new.room to its destination is reachable
+ * from the source room's logic — directly, or through the resolved call chain
+ * (a shared door/portal logic legitimately carries the transition). A room
+ * with no logic is pending, not missing: the plan may lead the build.
+ * Variable targets and unresolved calls are reported, never guessed at.
+ * When the declared name is a direction word and the compiled transition's
+ * edge guard names a different side, the exit reports as mismatched.
+ */
+export function verifyPlanConnections(
+  logics: ReadonlyMap<number, Uint8Array>,
+  plan: Readonly<
+    Record<string, { title: string; description: string; exits: Record<string, number> }>
+  >,
+  profile?: AgiProfile,
+): ConnectionReport {
+  const scans = new Map<number, StaticRoomScan>();
+  for (const [num, payload] of logics) scans.set(num, scanStaticExits(payload, profile, num));
+
+  const verified: PlanConnection[] = [];
+  const missing: PlanConnection[] = [];
+  const pending: PlanConnection[] = [];
+  const unverifiable: (PlanConnection & { reason: string })[] = [];
+  const mismatched: (PlanConnection & { declared: EdgeSide; compiled: EdgeSide })[] = [];
+
+  for (const [num, room] of Object.entries(plan)) {
+    const from = Number(num);
+    const scan = scans.get(from);
+    for (const [name, to] of Object.entries(room.exits)) {
+      const connection = { from, name, to };
+      if (!scan) {
+        pending.push(connection);
+        continue;
+      }
+      // Literal targets reachable from this room's logic, following resolved
+      // calls — callees run in the caller's context, so their transitions
+      // belong to every room that can reach them.
+      const targets = new Set<number>();
+      const reachedEdges = new Set<EdgeSide>();
+      let undecidable = scan.variableTarget || scan.unresolvedCall;
+      const queue = [...scan.calls];
+      const seen = new Set<number>([from]);
+      for (const t of scan.targets) {
+        targets.add(t.to);
+        if (t.to === to && t.edge !== undefined) reachedEdges.add(t.edge);
+      }
+      while (queue.length) {
+        const callee = queue.shift()!;
+        if (seen.has(callee)) continue;
+        seen.add(callee);
+        const inner = scans.get(callee);
+        if (!inner) continue;
+        for (const t of inner.targets) {
+          targets.add(t.to);
+          if (t.to === to && t.edge !== undefined) reachedEdges.add(t.edge);
+        }
+        undecidable ||= inner.variableTarget || inner.unresolvedCall;
+        for (const next of inner.calls) queue.push(next);
+      }
+      const declared = DIRECTION_NAMES[name.toLowerCase()];
+      if (declared !== undefined && reachedEdges.size > 0 && !reachedEdges.has(declared)) {
+        mismatched.push({ ...connection, declared, compiled: [...reachedEdges][0]! });
+      } else if (targets.has(to)) verified.push(connection);
+      else if (undecidable)
+        unverifiable.push({
+          ...connection,
+          reason: "the room's logic reaches a computed target or unresolved call",
+        });
+      else missing.push(connection);
+    }
+  }
+  return { verified, missing, pending, unverifiable, mismatched };
+}
+
 /** Merge the three sources without collapsing distinct exits between a pair. */
 export function mergeRoomGraph(input: {
   readonly journal: readonly RoomObservation[];
@@ -364,7 +492,11 @@ export function mergeRoomGraph(input: {
     readonly logic: ReadonlySet<number>;
     readonly picture: ReadonlySet<number>;
   };
+  /** "create" adds plan intent and technical status. Omitting the option is
+   * the safe "play" view — a caller that does not ask never discloses. */
+  readonly experience?: MapExperience;
 }): RoomGraph {
+  const play = input.experience !== "create";
   const nodes = new Map<
     number,
     {
@@ -443,6 +575,14 @@ export function mergeRoomGraph(input: {
   const planned: RoomGraphEdge[] = [];
   for (const [num, room] of Object.entries(input.plan ?? {})) {
     const from = Number(num);
+    // In the play experience the plan names a discovered place but marks
+    // nothing: a visited room may carry its title while every plan claim
+    // (the node itself, its declared exits) stays out of the picture.
+    const n = nodes.get(from);
+    if (play) {
+      if (n?.observed) n.title = room.title;
+      continue;
+    }
     node(from).planned = true;
     node(from).title = room.title;
     for (const [label, to] of Object.entries(room.exits)) {
@@ -452,7 +592,7 @@ export function mergeRoomGraph(input: {
   }
 
   const staticEdges: RoomGraphEdge[] = [];
-  for (const [num, scan] of input.scans ?? []) {
+  for (const [num, scan] of play ? [] : (input.scans ?? new Map()).entries()) {
     if (input.shared?.has(num) === true) {
       // The logic runs under an unresolved caller: its targets exist but
       // attributing the exits to this logic's number would invent a route.
@@ -479,11 +619,11 @@ export function mergeRoomGraph(input: {
 
   // A resource is not room evidence: the flags annotate rooms the journal,
   // plan or static scan already established, and never invent nodes.
-  for (const num of input.resources?.logic ?? []) {
+  for (const num of play ? [] : (input.resources?.logic ?? [])) {
     const n = nodes.get(num);
     if (n) n.authored = true;
   }
-  for (const num of input.resources?.picture ?? []) {
+  for (const num of play ? [] : (input.resources?.picture ?? [])) {
     const n = nodes.get(num);
     if (n) n.picture = true;
   }
@@ -492,11 +632,11 @@ export function mergeRoomGraph(input: {
   // checkpoints a recorded run reached; `referenced` rooms are named by a
   // stored test definition. Nodes without other evidence stay absent, and no
   // edge is claimed — neither artifact records actual transitions.
-  for (const room of input.coverage?.playtested ?? []) {
+  for (const room of play ? [] : (input.coverage?.playtested ?? [])) {
     const n = nodes.get(room);
     if (n) n.playtested = true;
   }
-  for (const room of input.coverage?.referenced ?? []) {
+  for (const room of play ? [] : (input.coverage?.referenced ?? [])) {
     const n = nodes.get(room);
     if (n) n.referenced = true;
   }

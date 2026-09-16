@@ -167,9 +167,9 @@ export function scanFixtures(): {
  * Find an installed fixture by its content hash (WORDS.TOK SHA-256) or alias/folder key.
  * Resolves by exact folder first, then unique content hash.
  */
-export function findFixture(hashOrAlias: string): DiscoveredFixture | null {
+export function findFixture(query: string): DiscoveredFixture | null {
   const { byWordsHash, byDirName } = scanFixtures();
-  const norm = hashOrAlias.toLowerCase();
+  const norm = query.toLowerCase();
   const byDir = byDirName.get(norm);
   if (byDir) return byDir;
 
@@ -177,7 +177,7 @@ export function findFixture(hashOrAlias: string): DiscoveredFixture | null {
   if (matches) {
     if (matches.length === 1) return matches[0]!;
     throw new Error(
-      `Ambiguous fixture query "${hashOrAlias}" matches multiple editions (${matches.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
+      `Ambiguous fixture query "${query}" matches multiple editions (${matches.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
     );
   }
 
@@ -187,47 +187,47 @@ export function findFixture(hashOrAlias: string): DiscoveredFixture | null {
     if (matched) {
       if (matched.length === 1) return matched[0]!;
       throw new Error(
-        `Ambiguous fixture query "${hashOrAlias}" matches multiple editions (${matched.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
+        `Ambiguous fixture query "${query}" matches multiple editions (${matched.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
       );
     }
   }
 
   // If a directory was created dynamically at runtime (e.g. temp test fixture):
   const gamesRoot = fileURLToPath(new URL("../games/", import.meta.url));
-  const candidate = join(gamesRoot, hashOrAlias);
+  const candidate = join(gamesRoot, query);
   if (existsSync(candidate) && statSync(candidate).isDirectory()) {
     const fileList = readdirSync(candidate);
     const names = new Map<string, string>();
     for (const name of fileList) names.set(name.toLowerCase(), name);
     return {
-      folder: hashOrAlias,
-      hash: hashOrAlias,
+      folder: query,
+      hash: query,
       dir: candidate.endsWith("/") ? candidate : `${candidate}/`,
       files: names,
       combined: combinedDirectoryOf(names),
       known: null,
-      title: hashOrAlias,
+      title: query,
     };
   }
   return null;
 }
 
 /** Absolute path to an installed game's folder, ending with a slash. */
-export function fixtureDir(hashOrAlias: string): string {
+export function fixtureDir(query: string): string {
   try {
-    const fixture = findFixture(hashOrAlias);
+    const fixture = findFixture(query);
     if (fixture) return fixture.dir;
   } catch {
     // Ambiguous query
   }
   const gamesRoot = fileURLToPath(new URL("../games/", import.meta.url));
-  return join(gamesRoot, hashOrAlias) + "/";
+  return join(gamesRoot, query) + "/";
 }
 
 /** Case-normalized file map of an installation, or null if missing. */
-export function fixtureFiles(hashOrAlias: string): ReadonlyMap<string, string> | null {
+export function fixtureFiles(query: string): ReadonlyMap<string, string> | null {
   try {
-    const fixture = findFixture(hashOrAlias);
+    const fixture = findFixture(query);
     return fixture ? fixture.files : null;
   } catch {
     return null;
@@ -238,9 +238,9 @@ export function fixtureFiles(hashOrAlias: string): ReadonlyMap<string, string> |
  * The v3 combined directory of an installation (`<PREFIX>DIR`, e.g. GRDIR),
  * or null for a v2 split installation.
  */
-export function combinedDirectory(hashOrAlias: string): { name: string; prefix: string } | null {
+export function combinedDirectory(query: string): { name: string; prefix: string } | null {
   try {
-    const fixture = findFixture(hashOrAlias);
+    const fixture = findFixture(query);
     return fixture ? fixture.combined : null;
   } catch {
     return null;
@@ -268,31 +268,31 @@ function referencedVolumes(entries: Uint8Array, exactAbsence: boolean): Set<numb
 
 /** A Node test skip reason, resolved by content hash or key. */
 export function fixtureSkip(
-  hashOrKey: string,
+  query: string,
   requiredFiles: readonly string[] = [],
   options: FixtureRequirements = {},
 ): false | string {
   // Code-assembled games have no fixture directory; the loader builds them.
-  const known = getKnownGameByHash(hashOrKey) ?? getKnownGameByAlias(hashOrKey.toLowerCase());
+  const known = getKnownGameByHash(query) ?? getKnownGameByAlias(query.toLowerCase());
   if (known?.builtin) return false;
   let fixture: DiscoveredFixture | null;
   try {
-    fixture = findFixture(hashOrKey);
+    fixture = findFixture(query);
   } catch (err) {
     return (err as Error).message;
   }
-  const dir = fixture ? fixture.dir : fixtureDir(hashOrKey);
-  const onDisk = fixtureFiles(hashOrKey);
+  const dir = fixture ? fixture.dir : fixtureDir(query);
+  const onDisk = fixtureFiles(query);
   if (!existsSync(dir) || !onDisk) {
-    const known = getKnownGameByHash(hashOrKey) ?? getKnownGameByAlias(hashOrKey);
-    const label = known ? `${known.title} (${known.wordsSha256})` : `games/${hashOrKey}/`;
+    const known = getKnownGameByHash(query) ?? getKnownGameByAlias(query);
+    const label = known ? `${known.title} (${known.wordsSha256})` : `games/${query}/`;
     return `Place your own game files in ${label} to run this test.`;
   }
-  return fixtureReadiness(hashOrKey, dir, onDisk, requiredFiles, options);
+  return fixtureReadiness(query, dir, onDisk, requiredFiles, options);
 }
 
 export function fixtureReadiness(
-  hashOrKey: string,
+  query: string,
   dir: string,
   onDisk: ReadonlyMap<string, string> | null,
   requiredFiles: readonly string[] = [],
@@ -332,11 +332,11 @@ export function fixtureReadiness(
   }
   const missing = [...required].filter((name) => !onDisk?.has(name.toLowerCase()));
   if (!missing.length) return false;
-  const known = getKnownGameByHash(hashOrKey);
-  const targetDesc = known ? `${known.title}` : `games/${hashOrKey}/`;
+  const known = getKnownGameByHash(query);
+  const targetDesc = known ? `${known.title}` : `games/${query}/`;
   return `Place your own game files in ${targetDesc} to run this test (missing: ${missing.join(", ")}).`;
 }
 
-export function hasFixture(hashOrKey: string): boolean {
-  return fixtureSkip(hashOrKey) === false;
+export function hasFixture(query: string): boolean {
+  return fixtureSkip(query) === false;
 }

@@ -1,0 +1,34 @@
+id: no-conflated-identity-keys
+language: ts
+severity: error
+message: >-
+  conflated identity key — resolve the alias/hash query at the edge and pass a
+  typed GameIdentity (src/gameIdentity.ts) inward
+note: |
+  rc.12 Part 2: one identity record. A parameter or field named like
+  `hashOrAlias`/`idOrRevision` accepts whatever a caller happened to hold and
+  makes every callee re-resolve it; aliases resolve only at the two edges (the
+  test/CLI argument parser and the hosted catalog route) and are named `query`
+  there. An `identity`/`gameIdentity` field typed as bare `string` smuggles an
+  unparsed identity past the branded-type contract.
+  BAD:  function bootGame(hashOrAlias: string)
+  BAD:  interface Save { identity: string }
+  GOOD: function bootGame(identity: GameIdentity)
+  GOOD: function resolveFixtureTarget(installed: InstalledGame[], query: string)  // the edge
+files:
+  - src/**
+  - app/src/**
+  - app/e2e/**
+  - test/**
+  - scripts/**
+  - evals/**
+rule:
+  any:
+    - kind: identifier
+      regex: (?i)^(alias|hash|id|revision|folder|title|game|key)(or|and)(alias|hash|id|revision|folder|title|game|key)$
+    - kind: property_identifier
+      regex: (?i)^(alias|hash|id|revision|folder|title|game|key)(or|and)(alias|hash|id|revision|folder|title|game|key)$
+    - kind: shorthand_property_identifier
+      regex: (?i)^(alias|hash|id|revision|folder|title|game|key)(or|and)(alias|hash|id|revision|folder|title|game|key)$
+    - kind: property_signature
+      regex: (?i)(game)?identity\s*:\s*string

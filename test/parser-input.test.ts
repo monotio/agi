@@ -157,6 +157,134 @@ describe("parser state between explicit parses", () => {
 });
 
 /**
+ * The unknown-word slot (docs/fidelity.md, "Original parser unknown-word
+ * audit"). Executed on GR 3.002.149 with an empty WORDS dictionary and the
+ * input "xyzzy": the parse reports one word, the slot holds group zero,
+ * v9 = 1, f2 set — and said() matches against that authoritative count,
+ * not only the recognized identifiers.
+ */
+describe("parser unknown-word slot", () => {
+  const EMPTY = new Map<string, number>();
+
+  function unknownGame(body: string): { engine: Engine; host: Host } {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(`accept.input();\n${body}\nreturn;\n`, { dictionary: EMPTY }).payload,
+    );
+    const host = new Host();
+    const engine = new Engine(container, host, EMPTY, {
+      profile: PROFILES["3.002.149"],
+    });
+    engine.tick();
+    host.line = "xyzzy";
+    engine.tick();
+    return { engine, host };
+  }
+
+  test("the unknown token occupies a zero-group slot inside the count", () => {
+    const { engine } = unknownGame("");
+    assert.equal(engine.parserCount, 1);
+    assert.deepEqual(engine.parsedWords, [0]);
+    assert.deepEqual(engine.parsedWordTexts, ["xyzzy"]);
+    assert.equal(engine.vars[9], 1, "v9 holds the unknown word's position");
+    assert.equal(engine.flags[2], 1, "f2 set — the line parsed");
+  });
+
+  test("said() matches the zero slot: the executed GR vector", () => {
+    // Each check re-parses: a match consumes the input (f4) and a later said
+    // can never re-match it, so every row gets a fresh line.
+    const { engine } = unknownGame(`
+      set.string(s0, "xyzzy");
+      if (said(1)) { assignn(v100, 1); }
+      parse(s0);
+      if (said(0)) { assignn(v101, 1); }
+      parse(s0);
+      if (said("...")) { assignn(v102, 1); }
+      parse(s0);
+      if (said(100)) { assignn(v103, 1); }
+      parse(s0);
+      if (said(1, 1)) { assignn(v104, 1); }
+      parse(s0);
+    `);
+    assert.equal(engine.vars[100], 1, "said(1) — anyword matches the unknown slot");
+    assert.equal(engine.vars[101], 1, "said(0) — group zero matches group zero");
+    assert.equal(
+      engine.vars[102],
+      1,
+      'said(9999) — rest-of-line still matches (the "..." id is 0x270f)',
+    );
+    assert.equal(engine.vars[103], 0, "said(100) — a real group does not match");
+    assert.equal(engine.vars[104], 0, "said(1,1) — no second word exists");
+    // The trailing parse left the parser state intact for the next cycle.
+    assert.deepEqual(engine.parsedWords, [0]);
+    assert.equal(engine.parserCount, 1);
+  });
+
+  test("a match consumes the line; a failure leaves f4 clear", () => {
+    const { engine } = unknownGame(`
+      if (said(0)) { assignn(v100, 1); }
+      if (said(1)) { assignn(v101, 1); }
+      if (isset(f4)) { assignn(v102, 1); }
+    `);
+    assert.equal(engine.vars[100], 1);
+    assert.equal(engine.vars[101], 0, "consumed input cannot match again");
+    assert.equal(engine.vars[102], 1, "the match latched f4");
+
+    const failed = unknownGame(`if (said(100)) { assignn(v100, 1); }`);
+    assert.equal(failed.engine.vars[100], 0);
+    assert.equal(failed.engine.flags[4], 0, "a failed said leaves f4 clear");
+  });
+
+  test("the zero slot survives the serialized parser state", () => {
+    const container = createContainer();
+    container.putResource("picture", 1, Uint8Array.of(0xf0, 2, 0xf8, 0, 0, 0xff));
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `if (!isset(f200)) {
+           set(f200);
+           assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic();
+         }
+         set.string(s0, "xyzzy");
+         parse(s0);
+         if (said(100)) { assignn(v100, 1); }
+         return;`,
+        { dictionary: EMPTY },
+      ).payload,
+    );
+    container.putResource(
+      "logic",
+      1,
+      assembleLogic(`if (said(1)) { assignn(v101, 1); } return;`, {
+        dictionary: EMPTY,
+      }).payload,
+    );
+    const host = new Host();
+    const engine = new Engine(container, host, EMPTY, {
+      profile: PROFILES["3.002.149"],
+    });
+    engine.tick(); // the room draws, "xyzzy" parses, said(100) fails
+
+    // The serialized parser state carries the zero slot and count — the
+    // fields a history anchor snapshots and adopts.
+    const state = JSON.parse(JSON.stringify(engine.captureReplayState()));
+    assert.deepEqual(state.parsedWords, [0]);
+    assert.equal(state.parserCount, 1);
+    assert.equal(engine.vars[100], 0, "the failed match is not yet latched");
+
+    const restored = new Engine(container, new Host(), EMPTY, {
+      profile: PROFILES["3.002.149"],
+    });
+    restored.restoreReplayState(state);
+    restored.execute(1);
+    assert.equal(restored.vars[101], 1, "said(1) matches the restored zero slot");
+  });
+});
+
+/**
  * have.key (condition 0x0d): bytecode busy-loops on it inside one logic
  * invocation. A host that offers a blocking key wait must be used for that
  * loop in graphics mode too — the worker cannot receive key messages while

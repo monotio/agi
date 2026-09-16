@@ -1,10 +1,11 @@
 {
   "schema": "monotio.agi.walkthrough.v2",
-  "game": "adventure-department",
-  "targetRevision": "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b",
+  "identity": {
+    "project": "adventure-department",
+    "revision": "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b"
+  },
   "supportedRevisions": [
-    "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b",
-    "dcd6f07a28acda1ec6b2c1e4508fe3348080fc463b14f47afbb0e58214aa26ee"
+    "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b"
   ],
   "coverage": "complete-game",
   "profile": "2.936",

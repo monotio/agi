@@ -51,7 +51,7 @@
  * Zero dependencies; runs in browser, worker and Node.
  */
 
-import { buildView, type BuildCelInput, type BuildLoopInput } from "./view.ts";
+import { buildView, type BuildCelInput, type BuildLoopInput, type BuildViewInput } from "./view.ts";
 
 /** The authentic 16-colour EGA palette, RGB, indexed by colour nibble. */
 export const EGA_PALETTE: readonly (readonly [number, number, number])[] = [
@@ -353,17 +353,19 @@ export interface SheetViewLayout {
 }
 
 /**
- * Pack cut frames into a VIEW payload.
+ * Pack cut frames into the `BuildViewInput` a VIEW payload builds from — kept
+ * separate so a caller that keeps the input (the authoring session's
+ * `sources.views`) and the bytes stays byte-identical.
  *
  * Each cel's transparent colour is chosen per the spec's cel control byte (low
  * nibble): the preferred index if no opaque pixel in that cel uses it, else
  * the lowest index that is free. A cel using all 16 colours has no encodable
  * transparent colour and is rejected rather than silently recoloured.
  */
-export function buildViewFromSheet(
+export function sheetViewInput(
   frames: readonly SheetFrame[],
   layout: SheetViewLayout,
-): Uint8Array {
+): BuildViewInput {
   const loops: BuildLoopInput[] = [];
   for (let loopIndex = 0; loopIndex < layout.loops.length; loopIndex++) {
     const loop = layout.loops[loopIndex]!;
@@ -386,9 +388,18 @@ export function buildViewFromSheet(
     }
     loops.push({ cels });
   }
-  return buildView(
-    layout.description === undefined ? { loops } : { loops, description: layout.description },
-  );
+  return layout.description === undefined ? { loops } : { loops, description: layout.description };
+}
+
+/**
+ * Pack cut frames into a VIEW payload. See `sheetViewInput` for the packing
+ * contract — this is the input built and immediately encoded.
+ */
+export function buildViewFromSheet(
+  frames: readonly SheetFrame[],
+  layout: SheetViewLayout,
+): Uint8Array {
+  return buildView(sheetViewInput(frames, layout));
 }
 
 function celFromFrame(frame: SheetFrame, prefer: number | undefined): BuildCelInput {

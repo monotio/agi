@@ -159,15 +159,15 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
   },
 ];
 
-export function walkthrough(hashOrAlias: string): Walkthrough {
-  const norm = hashOrAlias.toLowerCase();
+export function walkthrough(query: string): Walkthrough {
+  const norm = query.toLowerCase();
   const resolved = resolveGameHash(norm) ?? norm;
   const entry = WALKTHROUGHS.find(
     (route) => route.hash.toLowerCase() === resolved || route.alias.toLowerCase() === norm,
   );
   assert.ok(
     entry,
-    `Unknown walkthrough ${hashOrAlias}; choose ${WALKTHROUGHS.map((route) => route.alias).join(", ")}`,
+    `Unknown walkthrough ${query}; choose ${WALKTHROUGHS.map((route) => route.alias).join(", ")}`,
   );
   return entry;
 }

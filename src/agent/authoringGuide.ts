@@ -160,7 +160,7 @@ return;
 - Fairness: every death should be foreshadowed by something the player can see or read; every essential item should be visible in the picture or named in a look description; every puzzle should have at least one in-world hint reachable by looking. The classics were unforgiving about walking dead states; avoid them or make the game warn.
 - Points: add score with the scoring variable v3 on first completion of each step (guard with a flag), and set the maximum in v7 so the status line reads well. Small awards for looking and finding, larger ones for solving. Never write score awards into dialogue or print messages (e.g. do not print "(+10)" or "You earned 10 points"); the status line reports the score.
 - Text economy: the parser reply that names the concrete object, action or consequence first reads best. Write the look description of a room as three to five sentences that mention every interactive object once.
-- State discipline: one flag per world fact, one variable per counter, variables 32 and above for authored state, f200 reserved for the boot logic. Record what each flag and variable means in the world bible as you introduce it.`,
+- State discipline: one flag per world fact, one variable per counter, variables 32 and above for authored state. The harness base template owns logic 0 and logics 250-255, sounds 250-255, flags 200-209, variables 248-255, controllers 200-219 and string 11 — never write or bind into those. Record what each flag and variable means in the world bible as you introduce it.`,
   },
   "sierra-craft": {
     title: "What made the Sierra games memorable",
@@ -177,12 +177,22 @@ return;
 - Pace the story. Intro captions, a first easy puzzle, then widening freedom; a mid-game hub with several open threads; a climb to a finale with a cutscene. Save the longest text for the ending.
 - Playtest as a stranger. Walk every exit, try the obvious wrong verbs, read every reply aloud. Fix the first thing that confuses before adding anything new.`,
   },
+  "base-template": {
+    title: "The base template: menus, death and fallbacks",
+    summary:
+      "What the harness-provided logic 0 and logic 255 already do for a new game, and how a room plugs into them.",
+    body: `Every game authored here starts with the same fixed ritual, written by the harness before the first room: you do not author it and cannot change it.
+
+- Logic 0 builds the menu bar once on boot (File: Save, Restore, Restart, Quit; Speed; Sound; Help), binds the classic keys (ESC opens the menu, F5/F7/F9 save, restore and restart, F1 shows help, TAB lists the inventory), turns the status line on, then runs call.v(v0) so your room logic runs first every cycle. After the room returns, logic 0 answers the menu controllers and, once per submitted line, prints the parser fallback: "I don't know the word" when the line carried an unknown word, "I don't understand that" when no said() matched. A room that answers a line without a said() match should set(f4) after its own reply so the template does not add the generic one.
+- Death is a shared handler: print your death line, then call(255). It stops input and movement, plays the death sound and offers the Restore, Restart or Quit box — SPACE steps the choice, ENTER confirms, 1-3 choose directly, F7/F9/Alt-Z answer directly. A cancelled or failed restore returns to the box; the player stays dead rather than walking in a broken control mode. Never hand the player back after death yourself.
+- Reserved slots the tools enforce: logic 0 and logics 250-255, sounds 250-255, flags 200-209, variables 248-255, controllers 200-219 and string 11. A fair death still needs a fair cause: the hazard belongs in your room's picture and priority plane.`,
+  },
 };
 
 export const AUTHORING_GUIDE_TOOL: ToolDefinition = {
   name: "read_authoring_guide",
   description:
-    "Design and engine notes distilled from the shipped Sierra games and interpreters: text and captions, timing, sprites, walking and water, cutscenes and interfaces, puzzles and inventory, and the craft that made the classics memorable. Null topic lists the topics; a topic name returns its notes. Read the relevant topic before designing a scene, an intro, a caption or a puzzle.",
+    "Design and engine notes distilled from the shipped Sierra games and interpreters: the base template's fixed menus, death and parser fallbacks, text and captions, timing, sprites, walking and water, cutscenes and interfaces, puzzles and inventory, and the craft that made the classics memorable. Null topic lists the topics; a topic name returns its notes. Read the relevant topic before designing a scene, an intro, a caption or a puzzle.",
   parameters: {
     type: "object",
     additionalProperties: false,

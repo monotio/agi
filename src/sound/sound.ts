@@ -45,13 +45,26 @@ export interface AgiSound {
 export const PIT_BASE_FREQ = 99431.67;
 
 /**
- * Default AGI 2.917+ decay envelope table from the agi-re behavioral specification.
- * Each tick, signed delta is applied to base attenuation until 0x80 hold.
+ * The decay envelope executed on KQ1 2.917 — 67 steps then the 0x80 hold
+ * sentinel (docs/fidelity.md, "Original sound player audit"). Each tick the
+ * signed delta is applied to the note's base attenuation until the hold.
  */
 export const DEFAULT_ENVELOPE_TABLE: readonly number[] = [
   -2, -3, -2, -1, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5,
   5, 5, 6, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11,
   12, 12, 12, 12, 12, 12, 13, 0x80,
+];
+
+/**
+ * The decay envelope executed on MH1 3.002.107 and GR1 3.002.149 — 77 steps,
+ * a slower decay, same 0x80 hold sentinel (docs/fidelity.md, sound audit).
+ * Selected through `AgiProfile.soundEnvelope`; unmeasured common-family
+ * profiles keep the 2.917 table.
+ */
+export const V3_ENVELOPE_TABLE: readonly number[] = [
+  -2, -3, -2, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3,
+  3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10,
+  10, 11, 11, 11, 11, 11, 11, 12, 12, 12, 12, 12, 12, 13, 0x80,
 ];
 
 /**
@@ -197,6 +210,8 @@ export class SoundPlayback {
   private readonly profile: AgiProfile;
   private readonly device: number;
   private readonly single: boolean;
+  /** The profile-selected decay table; its length also bounds snapshot restore. */
+  private readonly envelope: readonly number[];
   private readonly channels: PlaybackChannel[];
   /**
    * PC booter 2.001 row stream; the single pseudo-channel's cursor is the row
@@ -216,6 +231,7 @@ export class SoundPlayback {
   ) {
     this.profile = profile;
     this.device = device & 255;
+    this.envelope = profile.soundEnvelope === "3.002" ? V3_ENVELOPE_TABLE : DEFAULT_ENVELOPE_TABLE;
     // The booter payload is already raw chip writes; there is no speaker rendition.
     this.single =
       profile.sound === "booter-2.001"
@@ -277,7 +293,7 @@ export class SoundPlayback {
       const channel = state.channels[i]!;
       if (
         channel.cursor > this.channels[i]!.notes.length + 1 ||
-        channel.envelopeIndex >= DEFAULT_ENVELOPE_TABLE.length
+        channel.envelopeIndex >= this.envelope.length
       )
         throw new Error("Recorded sound position is outside the current resource.");
     }
@@ -355,7 +371,7 @@ export class SoundPlayback {
       let attenuation = channel.base;
       if (attenuation !== 15) {
         if (channel.envelopeIndex >= 0) {
-          const delta = DEFAULT_ENVELOPE_TABLE[channel.envelopeIndex++]!;
+          const delta = this.envelope[channel.envelopeIndex++]!;
           if (delta === 0x80) {
             channel.envelopeIndex = -1;
             channel.base = channel.envelopeValue;
@@ -363,9 +379,13 @@ export class SoundPlayback {
           } else {
             attenuation = Math.max(0, Math.min(15, channel.base + delta));
             channel.envelopeValue = attenuation;
+            // v23 attenuates only while the envelope actively advances: the
+            // hold transition, held ticks and the envelope-free noise channel
+            // all reuse the stored value without it (docs/fidelity.md,
+            // sound player audit).
+            attenuation = Math.min(15, attenuation + adjustment);
           }
         }
-        attenuation = Math.min(15, attenuation + adjustment);
         if (this.device === 2 && attenuation < 8) attenuation += 2;
       }
       outputs.push({ kind: "psg", bytes: [selector | attenuation] });

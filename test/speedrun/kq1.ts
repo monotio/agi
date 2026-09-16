@@ -382,7 +382,7 @@ export function secondHalf(run: Speedrun): void {
   const engine = run.engine;
   run.walkTo(60, 90);
   run.command("climb beanstalk");
-  run.wait(() => engine.screenObjects[0]!.moveTarget === null, "mount beanstalk");
+  run.wait(() => engine.screenObjects[0]!.motionMode !== 1, "mount beanstalk");
   run.exit("N", 70);
   run.walkTo(69, 110);
   run.walkTo(73, 106);
@@ -464,7 +464,7 @@ export function secondHalf(run: Speedrun): void {
   run.command("lower rope");
   run.waitForFlag(179, "lower well rope");
   run.command("climb rope");
-  run.wait(() => engine.screenObjects[0]!.moveTarget === null, "mount well rope");
+  run.wait(() => engine.screenObjects[0]!.motionMode !== 1, "mount well rope");
   run.walkDirection("S", () => run.state().room === 49, "descend well shaft");
   run.walkDirection("S", () => (engine.vars[94] ?? 0) > 0, "reach well water");
   run.command("dive");
@@ -483,7 +483,7 @@ export function secondHalf(run: Speedrun): void {
   run.exit("N", 49);
   run.command("climb rope");
   run.command("swim");
-  run.wait(() => engine.screenObjects[0]!.moveTarget === null, "mount return rope");
+  run.wait(() => engine.screenObjects[0]!.motionMode !== 1, "mount return rope");
   run.exit("N", 12);
   run.walkDirection("N", () => !engine.flags[180], "leave well");
   run.checkpoint("Return from the well", { room: 12, score: 129 });

@@ -8,6 +8,14 @@ import {
 } from "./tools.ts";
 
 import { sourceRevision, validateAuthoringState, type BindingKind } from "./authoringState.ts";
+import {
+  TEMPLATE_FLAG_BASE,
+  TEMPLATE_FLAG_LIMIT,
+  TEMPLATE_VARIABLE_BASE,
+  TEMPLATE_VARIABLE_LIMIT,
+  hasBaseTemplate,
+  templateSlotError,
+} from "./baseTemplate.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import { readPictureSource } from "../picture/source.ts";
 
@@ -209,6 +217,11 @@ function occupiedIds(state: AgentSessionState, kind: BindingKind): Set<number> {
       used.add(Number(match[1]));
   }
   if (kind === "flag") used.add(200);
+  if (hasBaseTemplate(state)) {
+    if (kind === "flag") for (let n = TEMPLATE_FLAG_BASE; n < TEMPLATE_FLAG_LIMIT; n++) used.add(n);
+    if (kind === "variable")
+      for (let n = TEMPLATE_VARIABLE_BASE; n < TEMPLATE_VARIABLE_LIMIT; n++) used.add(n);
+  }
   return used;
 }
 
@@ -267,6 +280,8 @@ export function executeAuthoringTool(
         }
         if (typeof num !== "number" || !Number.isInteger(num) || num < 0 || num > 255)
           throw new Error("id must be null or an integer in 0..255.");
+        const reservedSlot = templateSlotError(state, kind, num);
+        if (reservedSlot) throw new Error(reservedSlot);
         state.authoring.bindings[symbol] = { kind, num };
         reservedList.push({
           name: symbol,

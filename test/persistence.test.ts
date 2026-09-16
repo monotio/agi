@@ -16,6 +16,7 @@ import {
 } from "../src/runtime/persistence.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
+import { rngDraw } from "../src/runtime/rng.ts";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildView } from "../src/view/view.ts";
@@ -988,4 +989,237 @@ test("a configured replay buffer that is exactly full restores exactly full", ()
   restored.restoreImage(image);
   restored.flags[201] = 1;
   assert.throws(() => restored.tick(), /exceeded its 2-pair capacity/);
+});
+
+// ---------- original save/restart audit (docs/fidelity.md) ----------
+
+describe("the RNG stream stays outside the authentic save and restart", () => {
+  const RNG_DICT = new Map<string, number>([
+    ["save", 200],
+    ["restore", 201],
+    ["mutate", 202],
+    ["roll", 204],
+  ]);
+
+  /** The host RNG lane with an inspectable state and a counted clock read. */
+  class RngHost extends RecordingHost {
+    rng = { state: 0 };
+    reseeds = 0;
+    randomByte(): number {
+      const draw = rngDraw(this.rng.state, () => {
+        this.reseeds++;
+        return 0x1234;
+      });
+      this.rng.state = draw.state;
+      return draw.byte;
+    }
+  }
+
+  function lifecycleGame() {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `if (!isset(f200)) {
+           set(f200);
+           assignn(v50, 1);
+           load.pic(v50);
+           draw.pic(v50);
+           show.pic();
+           set(f16);
+           accept.input();
+         }
+         if (said("roll")) { random(0,255,v50); }
+         if (said("save")) { save.game(); }
+         if (said("restore")) { restore.game(); }
+         if (said("mutate")) { restart.game(); }
+         return;`,
+        { dictionary: RNG_DICT },
+      ).payload,
+    );
+    container.putResource("picture", 1, PICTURE);
+    const host = new RngHost();
+    const engine = new Engine(container, host, RNG_DICT);
+    host.engine = engine;
+    return { engine, host };
+  }
+
+  test("save and restore leave the live stream standing — the pinned vectors", () => {
+    // Executed on SQ2 2.936 and GR1 3.002.149 (docs/fidelity.md, save/restart
+    // audit): (RNG at save, RNG before restore, RNG after restore). The word
+    // is no save block — restore never resurrects it.
+    for (const [saved, current] of [
+      [0, 1],
+      [1, 0],
+      [0xbeef, 0x1234],
+      [0xffff, 0xbeef],
+    ] as const) {
+      const { engine, host } = lifecycleGame();
+      engine.tick(); // the room's init draws its picture
+      host.rng.state = saved;
+
+      host.inputQueue.push("roll");
+      engine.tick(); // consumes one draw of the stream
+      host.inputQueue.push("save");
+      engine.tick();
+      assert.ok(host.saved, "save.game handed a file image to the host");
+
+      host.inputQueue.push("roll");
+      engine.tick(); // the stream moved on between save and restore
+      host.rng.state = current;
+      host.inputQueue.push("restore");
+      engine.tick();
+      assert.equal(
+        host.rng.state,
+        current,
+        `saved ${saved}, current ${current}: restore left the stream untouched`,
+      );
+
+      host.inputQueue.push("roll");
+      engine.tick();
+      const want = rngDraw(current, () => 0x1234);
+      assert.equal(engine.vars[50], want.byte, "the next draw continues the live stream");
+      assert.equal(host.rng.state, want.state);
+    }
+  });
+
+  test("accepted restart clears both timing words, keeps f9 and the RNG word", () => {
+    // Executed for RNG [0,1,0xbeef,0xffff] with f9 clear and set: restart
+    // preserves both, zeroes the two DS timing words (started at 123 and
+    // 456) and sets f6. No clock read occurs in the reset path.
+    for (const rng0 of [0, 1, 0xbeef, 0xffff]) {
+      for (const f9 of [0, 1]) {
+        const { engine, host } = lifecycleGame();
+        host.rng.state = rng0;
+        for (let i = 0; i < 123; i++) engine.tick(); // one timer tick per pass
+        engine.advanceClock(456); // the millisecond-remainder word
+        engine.flags[9] = f9;
+
+        host.inputQueue.push("mutate");
+        engine.tick();
+
+        assert.equal(host.rng.state, rng0, `rng ${rng0} f9 ${f9}: stream untouched`);
+        assert.equal(host.reseeds, 0, "restart consumed no clock read");
+        assert.equal(engine.flags[9], f9, "f9 preserved");
+        assert.equal(engine.flags[6], 1, "f6 set");
+        assert.equal(
+          decodeSave(engine.serialize(), engine.profile).timerTicks,
+          0,
+          "the tick word cleared",
+        );
+
+        // The next pass re-runs the cleared init and draws the picture, so a
+        // resumable snapshot can witness the other accumulator.
+        engine.tick();
+        assert.equal(
+          engine.captureReplayState().clockRemainderMs,
+          0,
+          "the ms-remainder word cleared",
+        );
+      }
+    }
+  });
+
+  test("a zero-state RNG reads the clock on the next draw, never during restart", () => {
+    const { engine, host } = lifecycleGame();
+    host.rng.state = 0;
+    engine.tick();
+    host.inputQueue.push("mutate");
+    engine.tick();
+    assert.equal(host.rng.state, 0);
+    assert.equal(host.reseeds, 0, "restart never touched the clock");
+
+    engine.tick(); // the re-run init re-arms input before the roll lands
+    host.inputQueue.push("roll");
+    engine.tick();
+    assert.equal(host.reseeds, 1, "exactly one clock read on the draw");
+    const want = rngDraw(0, () => 0x1234);
+    assert.equal(engine.vars[50], want.byte);
+    assert.equal(host.rng.state, want.state);
+
+    host.inputQueue.push("roll");
+    engine.tick();
+    assert.equal(host.reseeds, 1, "the reseeded stream does not read again");
+  });
+});
+
+describe("the block-2 object record carries the shared parameter bank", () => {
+  // docs/fidelity.md, motion audit: record offsets 0x27..0x2a are one bank —
+  // move.obj's full four-byte write, end.of.loop's flag in byte 0,
+  // follow.ego's captured threshold / flag / retry-255 with byte 3 preserved,
+  // and wander's countdown in byte 0. Assertions are the executed bytes, not
+  // a self-roundtrip.
+  function bankedGame(): Engine {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(
+        `if (!isset(f200)) {
+           set(f200);
+           assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic();
+           load.view(3);
+           animate.obj(o1); set.view(o1, 3); ignore.objs(o1);
+           position(o1, 10, 80); draw(o1);
+           move.obj(o1, 30, 40, 0, f62);
+           follow.ego(o1, 5, f63);
+           animate.obj(o2); set.view(o2, 3); ignore.objs(o2);
+           position(o2, 60, 80); draw(o2);
+           move.obj(o2, 90, 80, 2, f64);
+           end.of.loop(o2, f65);
+           animate.obj(o3); set.view(o3, 3); ignore.objs(o3);
+           position(o3, 40, 120); draw(o3);
+           end.of.loop(o3, f66);
+           move.obj(o3, 90, 80, 2, f67);
+           animate.obj(o4); set.view(o4, 3); ignore.objs(o4);
+           position(o4, 20, 120); draw(o4);
+           move.obj(o4, 90, 80, 0, f68);
+           wander(o4);
+         }
+         return;`,
+        { dictionary: DICT },
+      ).payload,
+    );
+    container.putResource("picture", 1, PICTURE);
+    container.putResource("view", 3, VIEW_CEL);
+    const host = new RecordingHost();
+    const engine = new Engine(container, host, DICT);
+    host.engine = engine;
+    return engine;
+  }
+
+  test("the original opcode writes land at 0x27..0x2a in the 43-byte record", () => {
+    const engine = bankedGame();
+    engine.execute(0); // logic only — no object pass consumes the retry byte
+
+    const image = engine.serialize();
+    const b2at = DESC + 2 + 0x05e1;
+    const b2len = u16(image, b2at);
+    const b2 = image.subarray(b2at + 2, b2at + 2 + b2len);
+    assert.equal(b2.length % OBJECT_RECORD_BYTES, 0);
+    assert.equal(b2.length, 21 * OBJECT_RECORD_BYTES, "the profile's 21 records");
+    const bank = (n: number) =>
+      Array.from(b2.subarray(n * OBJECT_RECORD_BYTES + 0x27, n * OBJECT_RECORD_BYTES + 0x2b));
+
+    // follow.ego after move.obj: [max(5, step 1), flag, 255, preserved byte].
+    assert.deepEqual(bank(1), [5, 63, 255, 62]);
+    // move.obj then end.of.loop: the flag byte overwrote the destination.
+    assert.deepEqual(bank(2), [65, 80, 1, 64]);
+    // end.of.loop then move.obj: the motion's full write followed.
+    assert.deepEqual(bank(3), [90, 80, 1, 67]);
+    // wander over a move-filled bank: only the countdown byte 0 is cleared.
+    assert.deepEqual(bank(4), [0, 80, 1, 68]);
+  });
+
+  test("the bank bytes decode back through the record", () => {
+    const engine = bankedGame();
+    engine.execute(0);
+    const decoded = decodeSave(engine.serialize(), engine.profile);
+    assert.equal(decoded.objects.length, 21, "the profile's record count without OBJECT");
+    assert.deepEqual(decoded.objects[1]!.motionParams, [5, 63, 255, 62]);
+    assert.deepEqual(decoded.objects[2]!.motionParams, [65, 80, 1, 64]);
+    assert.deepEqual(decoded.objects[3]!.motionParams, [90, 80, 1, 67]);
+    assert.deepEqual(decoded.objects[4]!.motionParams, [0, 80, 1, 68]);
+  });
 });

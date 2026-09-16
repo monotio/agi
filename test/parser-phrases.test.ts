@@ -42,8 +42,12 @@ test("parser retains whole dictionary phrases, ignores zero-ID phrases and repor
   pending = "pickup key";
   engine.tick();
   assert.equal(engine.vars[9], 1);
+  // The unknown token still occupies a slot — group zero — inside the count
+  // (docs/fidelity.md, parser unknown-word audit).
+  assert.deepEqual(engine.readState().parsedWords, [0]);
+  assert.deepEqual(engine.readState().parsedWordTexts, ["pickup"]);
   pending = "pick up missing key";
   engine.tick();
   assert.equal(engine.vars[9], 2);
-  assert.deepEqual(engine.readState().parsedWords, [10]);
+  assert.deepEqual(engine.readState().parsedWords, [10, 0]);
 });

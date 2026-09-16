@@ -122,16 +122,18 @@ test("every shipped walkthrough is a v2 artifact bound to its bundle revision", 
     const path = join(dir, file);
     const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
     assert.equal(raw["schema"], "monotio.agi.walkthrough.v2", `${file} schema`);
+    const identity = raw["identity"] as Record<string, unknown> | undefined;
     assert.match(
-      String(raw["targetRevision"]),
+      String(identity?.["revision"]),
       /^[0-9a-f]{64}$/i,
       `${file} declares the bundle revision it was recorded on`,
     );
-    const hash = walkthrough(String(raw["game"])).hash;
-    if (BUILTIN_GAME_BUILDERS[hash] ?? BUILTIN_GAME_BUILDERS[String(raw["game"])]) {
+    const project = String(identity?.["project"]);
+    const hash = walkthrough(project).hash;
+    if (BUILTIN_GAME_BUILDERS[hash] ?? BUILTIN_GAME_BUILDERS[project]) {
       const artifact = await readWalkthroughArtifact(path);
       const served = await walkthroughServedRevisions(hash);
-      assert.equal(artifact.targetRevision, served[0], `${file} binds the served revision`);
+      assert.equal(artifact.identity.revision, served[0], `${file} binds the served revision`);
     }
   }
 });
@@ -141,19 +143,22 @@ test(
   { skip: fixtureSkip(KNOWN_GAME_HASH.KQ1, ["AGIDATA.OVL"]) },
   async () => {
     const kq1Artifact = await readWalkthroughArtifact("app/public/walkthroughs/kq1.json");
-    assert.equal(kq1Artifact.game, "kq1");
+    assert.equal(kq1Artifact.identity.project, "kq1");
     const served = await walkthroughServedRevisions(KNOWN_GAME_HASH.KQ1);
-    assert.equal(kq1Artifact.targetRevision, served[0]);
+    assert.equal(kq1Artifact.identity.revision, served[0]);
     assert.ok(kq1Artifact.supportedRevisions?.includes(served[0]!));
 
     const tempPath = join(tmpdir(), `agi-test-binding-${Date.now()}.json`);
     try {
-      // Mismatch targetRevision
-      const badTarget = { ...kq1Artifact, targetRevision: KNOWN_GAME_HASH.SQ1 };
+      // Mismatch identity revision
+      const badTarget = {
+        ...kq1Artifact,
+        identity: { ...kq1Artifact.identity, revision: KNOWN_GAME_HASH.SQ1 },
+      };
       writeFileSync(tempPath, JSON.stringify(badTarget));
       await assert.rejects(
         () => readWalkthroughArtifact(tempPath),
-        /target revision matches the served bundle/,
+        /identity revision matches the served bundle/,
       );
 
       // Mismatch supportedRevisions

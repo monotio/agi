@@ -3,7 +3,7 @@ import { test } from "node:test";
 import {
   createAuthoringState,
   validateAuthoringState,
-  resourceRevision,
+  resourceCacheHint,
 } from "../src/agent/authoringState.ts";
 
 test("project authoring state validates and detaches named bindings and world facts", () => {
@@ -39,11 +39,14 @@ test("project authoring state validates and detaches named bindings and world fa
 });
 
 test("resource revisions distinguish absent, empty, and byte changes", () => {
-  assert.equal(resourceRevision(null), "absent");
-  assert.equal(resourceRevision(new Uint8Array()), "0-811c9dc5");
+  assert.equal(resourceCacheHint(null), "absent");
+  assert.equal(resourceCacheHint(new Uint8Array()), "0-811c9dc5");
   assert.notEqual(
-    resourceRevision(new Uint8Array([1, 2])),
-    resourceRevision(new Uint8Array([2, 1])),
+    resourceCacheHint(new Uint8Array([1, 2])),
+    resourceCacheHint(new Uint8Array([2, 1])),
   );
-  assert.equal(resourceRevision(new Uint8Array([1, 2])), resourceRevision(new Uint8Array([1, 2])));
+  assert.equal(
+    resourceCacheHint(new Uint8Array([1, 2])),
+    resourceCacheHint(new Uint8Array([1, 2])),
+  );
 });

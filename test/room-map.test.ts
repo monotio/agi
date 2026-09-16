@@ -7,6 +7,7 @@ import {
   scanStaticExits,
   serializeMapSidecar,
   validateMapSidecar,
+  verifyPlanConnections,
   type RoomObservation,
 } from "../src/agent/roomMap.ts";
 
@@ -49,7 +50,11 @@ test("a v2 guard names the exit edge — KQ1's courtyard directions", () => {
     { to: 8, edge: "right" },
     { to: 16, edge: "top" },
   ]);
-  const graph = mergeRoomGraph({ journal: [], scans: new Map([[1, scan]]) });
+  const graph = mergeRoomGraph({
+    experience: "create",
+    journal: [],
+    scans: new Map([[1, scan]]),
+  });
   const edge = graph.edges.find((e) => e.from === 1 && e.to === 2);
   assert.equal(edge?.provenance, "static");
   assert.equal(edge?.label, "left");
@@ -72,6 +77,7 @@ test("a computed room target is a variable exit, never an asserted route", () =>
   assert.deepEqual(scan.targets, []);
   assert.equal(scan.variableTarget, true);
   const graph = mergeRoomGraph({
+    experience: "create",
     journal: [],
     scans: new Map([[2, scan]]),
   });
@@ -87,13 +93,23 @@ test("a shared logic's transitions are not attributed to its number", () => {
   ]);
   const { scans, shared } = scanContainerExits(logics);
   assert.ok(shared.has(9));
-  const graph = mergeRoomGraph({ journal: [], scans, shared });
+  const graph = mergeRoomGraph({
+    experience: "create",
+    journal: [],
+    scans,
+    shared,
+  });
   assert.deepEqual(graph.edges, []);
   const five = graph.nodes.find((n) => n.room === 5);
   assert.equal(five?.staticTarget, true);
   assert.equal(five?.unknownSource, true);
   // Without the call, the same logic attributes its exit to itself.
-  const direct = mergeRoomGraph({ journal: [], scans, shared: new Set() });
+  const direct = mergeRoomGraph({
+    experience: "create",
+    journal: [],
+    scans,
+    shared: new Set(),
+  });
   assert.deepEqual(direct.edges, [{ from: 9, to: 5, provenance: "static" }]);
 });
 
@@ -160,6 +176,7 @@ test("observed, planned and static exits between the same pair all survive", () 
     entry({ seq: 5, from: 2, to: 1, cause: "edge", edge: "left" }),
   ];
   const graph = mergeRoomGraph({
+    experience: "create",
     journal,
     plan: { "1": { title: "First", description: "", exits: { door: 2, back: 2 } } },
     scans: new Map([
@@ -200,6 +217,7 @@ test("observed, planned and static exits between the same pair all survive", () 
 
 test("a node exists with no observations, plan entry or resource", () => {
   const graph = mergeRoomGraph({
+    experience: "create",
     journal: [],
     plan: { "4": { title: "Empty", description: "", exits: {} } },
   });
@@ -212,6 +230,7 @@ test("a node exists with no observations, plan entry or resource", () => {
 
 test("a resource alone is not room evidence — it annotates established nodes", () => {
   const graph = mergeRoomGraph({
+    experience: "create",
     journal: [entry({ seq: 0, to: 1, cause: "boot" })],
     scans: new Map(),
     resources: { logic: new Set([1, 42]), picture: new Set([99]) },
@@ -235,6 +254,7 @@ test("a resource alone is not room evidence — it annotates established nodes",
 
 test("a debug jump is journal fact, never a traversable edge", () => {
   const graph = mergeRoomGraph({
+    experience: "create",
     journal: [
       entry({ seq: 0, to: 1, cause: "boot" }),
       entry({ seq: 1, from: 1, to: 8, cause: "jump" }),
@@ -262,7 +282,12 @@ test("call.v resolves through a literal binding; unresolved calls stay unknown",
   // The resolved call marks 42 as shared: its new.room runs in the caller's room.
   assert.ok(shared.has(42));
   assert.equal(scans.get(3)?.unresolvedCall, true);
-  const graph = mergeRoomGraph({ journal: [], scans, shared });
+  const graph = mergeRoomGraph({
+    experience: "create",
+    journal: [],
+    scans,
+    shared,
+  });
   assert.equal(graph.nodes.find((n) => n.room === 7)?.unknownSource, true);
   assert.equal(graph.nodes.find((n) => n.room === 3)?.unknownCalls, true);
   assert.deepEqual(graph.edges, []);
@@ -301,6 +326,7 @@ test("picture inference is conservative across calls, branches and loads", () =>
 
 test("the discovery aggregate preserves evicted journal facts", () => {
   const graph = mergeRoomGraph({
+    experience: "create",
     // The journal evicted everything — the aggregate still reports the facts.
     journal: [],
     discovered: {
@@ -314,6 +340,7 @@ test("the discovery aggregate preserves evicted journal facts", () => {
   ]);
   // Journal entries the aggregate already counts merge by max, never sum.
   const merged = mergeRoomGraph({
+    experience: "create",
     journal: [
       entry({ seq: 0, to: 1, cause: "boot" }),
       entry({ seq: 1, from: 1, to: 8, cause: "edge", edge: "right" }),
@@ -329,6 +356,7 @@ test("the discovery aggregate preserves evicted journal facts", () => {
 
 test("coverage marks the rooms its evidence names, never a transition", () => {
   const graph = mergeRoomGraph({
+    experience: "create",
     journal: [
       entry({ seq: 0, to: 1, cause: "boot" }),
       entry({ seq: 1, from: 1, to: 3, cause: "edge", edge: "right" }),
@@ -387,4 +415,162 @@ test("sidecar round-trips and rejects malformed or oversized data", () => {
     /version/,
   );
   // A missing sidecar is an empty map — the caller checks before validating.
+});
+
+// ---- experience policy (docs/rc12-plan.md D3) --------------------------------
+//
+// Classic play shows discovered places and observed crossings only; the
+// creator view adds plan intent and technical status on top of the same
+// facts. Nothing below rewrites the facts — the filter withholds disclosure.
+
+test("the play experience shows discovered places and observed crossings only", () => {
+  const journal = [
+    entry({ seq: 0, to: 1, cause: "boot" }),
+    entry({ seq: 1, from: 1, to: 2, cause: "edge", edge: "right" }),
+  ];
+  const input = {
+    journal,
+    plan: {
+      "1": { title: "The Clearing", description: "", exits: { east: 2 } },
+      "2": { title: "The Hall", description: "", exits: { north: 9 } },
+      "9": { title: "The Vault", description: "The prize waits inside.", exits: {} },
+    },
+    scans: new Map([
+      [
+        2,
+        {
+          targets: [{ to: 9 }],
+          variableTarget: false,
+          pictures: [],
+          calls: [],
+          unresolvedCall: false,
+        },
+      ],
+    ]),
+    shared: new Set<number>(),
+    resources: { logic: new Set([1, 2, 9]), picture: new Set([1, 2, 9]) },
+    coverage: { playtested: new Set([1, 9]), referenced: new Set([3]) },
+  };
+  // The creator map carries everything: the unvisited vault, its planned
+  // route and its compiled-but-uncrossed transition.
+  const create = mergeRoomGraph({ ...input, experience: "create" });
+  assert.ok(create.nodes.find((n) => n.room === 9)?.planned);
+  assert.ok(create.edges.some((e) => e.provenance === "planned" && e.to === 9));
+  assert.ok(create.edges.some((e) => e.provenance === "static" && e.to === 9));
+  assert.ok(create.nodes.find((n) => n.room === 9)?.playtested);
+
+  const play = mergeRoomGraph({ ...input, experience: "play" });
+  assert.deepEqual(
+    play.nodes.map((n) => n.room),
+    [1, 2],
+    "only visited rooms appear",
+  );
+  assert.deepEqual(play.edges, [
+    { from: 1, to: 2, provenance: "observed", label: "right", count: 1 },
+  ]);
+  const one = play.nodes.find((n) => n.room === 1)!;
+  assert.equal(one.title, "The Clearing", "a visited room keeps its plan title");
+  for (const flag of [
+    "planned",
+    "authored",
+    "picture",
+    "staticTarget",
+    "variableExit",
+    "unknownSource",
+    "unknownCalls",
+    "referenced",
+    "playtested",
+  ] as const)
+    assert.equal(one[flag], false, `play mode withholds the '${flag}' status`);
+  // A plan title for an unvisited room reveals nothing: room 9 is absent.
+  assert.equal(
+    play.nodes.find((n) => n.room === 9),
+    undefined,
+  );
+});
+
+test("the play experience keeps durable discovery without journal detail", () => {
+  const play = mergeRoomGraph({
+    journal: [],
+    discovered: {
+      rooms: { "1": 4, "8": 2 },
+      edges: [{ from: 1, to: 8, label: "right", count: 3 }],
+    },
+    plan: { "9": { title: "Hidden", description: "", exits: { in: 1 } } },
+    experience: "play",
+  });
+  assert.deepEqual(
+    play.nodes.map((n) => n.room),
+    [1, 8],
+  );
+  assert.equal(play.nodes.find((n) => n.room === 1)?.visits, 4);
+  assert.deepEqual(play.edges, [
+    { from: 1, to: 8, provenance: "observed", label: "right", count: 3 },
+  ]);
+});
+
+// ---- declared exits vs compiled transitions ---------------------------------
+
+test("verifyPlanConnections verifies reachable exits and reports the rest", () => {
+  const logics = new Map<number, Uint8Array>([
+    // Direct literal transition.
+    [1, logic("if (v2 == 2) { new.room(2); } return;")],
+    // Room 2 reaches its exit through a shared door logic.
+    [2, logic("if (v2 == 2) { call(40); } return;")],
+    // Room 3 declares an exit its logic never implements.
+    [3, logic("new.room(5); return;")],
+    // Room 5's transition is computed — undecidable, never guessed.
+    [5, logic("assignn(v9, 6); new.room.v(v9); return;")],
+    [40, logic("new.room(7); return;")],
+  ]);
+  const plan = {
+    "1": { title: "", description: "", exits: { east: 2 } },
+    "2": { title: "", description: "", exits: { portal: 7 } },
+    "3": { title: "", description: "", exits: { door: 6 } },
+    "5": { title: "", description: "", exits: { chute: 6 } },
+    // Room 8 is declared but not built — intent, not a defect.
+    "8": { title: "", description: "", exits: { out: 1 } },
+  };
+  const report = verifyPlanConnections(logics, plan);
+  assert.deepEqual(report.verified, [
+    { from: 1, name: "east", to: 2 },
+    { from: 2, name: "portal", to: 7 },
+  ]);
+  assert.deepEqual(report.missing, [{ from: 3, name: "door", to: 6 }]);
+  assert.deepEqual(report.pending, [{ from: 8, name: "out", to: 1 }]);
+  assert.equal(report.unverifiable.length, 1);
+  assert.equal(report.unverifiable[0]!.from, 5);
+});
+
+test("verifyPlanConnections checks a declared direction against the compiled edge", () => {
+  // Room 1's logic exits left to room 2 — the v2 guard names the edge.
+  const logics = new Map<number, Uint8Array>([
+    [1, logic("if(v2==4){new.room(2);} if(v2==2){new.room(3);} return;")],
+  ]);
+  const plan = {
+    // The compiled 1->2 transition leaves the left edge, not the declared east.
+    "1": { title: "", description: "", exits: { east: 2, right: 3, portal: 3 } },
+  };
+  const report = verifyPlanConnections(logics, plan);
+  assert.deepEqual(report.mismatched, [
+    { from: 1, name: "east", to: 2, declared: "right", compiled: "left" },
+  ]);
+  // "right" agrees with the compiled edge; "portal" is a name, not a
+  // direction claim, so its edge is unchecked — both verify.
+  assert.deepEqual(report.verified, [
+    { from: 1, name: "right", to: 3 },
+    { from: 1, name: "portal", to: 3 },
+  ]);
+  assert.deepEqual(report.missing, []);
+});
+
+test("verifyPlanConnections does not let a shared logic answer for its caller", () => {
+  // The door logic carries new.room(7); room 2 never calls it.
+  const logics = new Map<number, Uint8Array>([
+    [2, logic("return;")],
+    [40, logic("new.room(7); return;")],
+  ]);
+  const plan = { "2": { title: "", description: "", exits: { portal: 7 } } };
+  const report = verifyPlanConnections(logics, plan);
+  assert.deepEqual(report.missing, [{ from: 2, name: "portal", to: 7 }]);
 });

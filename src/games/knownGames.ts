@@ -3,6 +3,8 @@
  * Zero runtime dependencies, pure TypeScript for engine, harness, and app.
  */
 
+import { requireResourceRevision, type ResourceRevision } from "../gameIdentity.ts";
+
 export type GameHash = string;
 
 export interface KnownAgiGame {
@@ -13,7 +15,7 @@ export interface KnownAgiGame {
   readonly profile: string;
   readonly wordsSha256: GameHash;
   readonly objectSha256: string;
-  readonly targetRevision?: string | undefined;
+  readonly targetRevision?: ResourceRevision | undefined;
   readonly walkthroughLabel?: string | undefined;
   readonly walkthroughCoverage?: "complete-game" | "chapter" | "partial" | undefined;
   /**
@@ -21,7 +23,7 @@ export interface KnownAgiGame {
    * `targetRevision` — e.g. a builtin served through the dev fixture server
    * boots a filtered file set whose revision differs from the catalog's.
    */
-  readonly walkthroughRevisions?: readonly string[] | undefined;
+  readonly walkthroughRevisions?: readonly ResourceRevision[] | undefined;
   /**
    * The game's resources are assembled by project code, so no fixture files
    * need to exist on disk: the loader builds it from source. See the builder
@@ -59,7 +61,9 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "2.936",
     wordsSha256: KNOWN_GAME_HASH.SYNTHETIC,
     objectSha256: "f58e6871c43d8639afca350562544a1f040dc94475c545ca069f4e69635d6425",
-    targetRevision: "cee5199128b5bd05b609cb4b5d5941e1706010949c5177c19e4746fdddac0baf",
+    targetRevision: requireResourceRevision(
+      "cee5199128b5bd05b609cb4b5d5941e1706010949c5177c19e4746fdddac0baf",
+    ),
     walkthroughLabel: "Complete route (50 pts)",
     walkthroughCoverage: "complete-game",
     builtin: true,
@@ -72,12 +76,11 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "2.936",
     wordsSha256: KNOWN_GAME_HASH.ADVENTURE_DEPARTMENT,
     objectSha256: "1a3d0818f9664f9d92b8e1b4721bc2568419849067c44bf36fc1a4ed0e8d67a9",
-    targetRevision: "dcd6f07a28acda1ec6b2c1e4508fe3348080fc463b14f47afbb0e58214aa26ee",
-    walkthroughRevisions: [
-      // The dev fixture server serves the public file set — TESTS.JSON is not
-      // booted — so a fixture-served boot reports this revision.
+    // TESTS.JSON is not part of the canonical playable set, so the fixture
+    // server's public file set and the full project boot to one revision.
+    targetRevision: requireResourceRevision(
       "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b",
-    ],
+    ),
     walkthroughLabel: "Complete route (30 pts)",
     walkthroughCoverage: "complete-game",
     builtin: true,
@@ -90,7 +93,9 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "2.917",
     wordsSha256: KNOWN_GAME_HASH.KQ1,
     objectSha256: "2d1b7a75bb443b4a340cb8d9a2842ff5c834d7d597ea2a1365b6a7a2dfb57985",
-    targetRevision: "d1553b8b6ac8e69c6ced7da7450b88a8ff093e83c52dcb0ed9df550b5661931a",
+    targetRevision: requireResourceRevision(
+      "d1553b8b6ac8e69c6ced7da7450b88a8ff093e83c52dcb0ed9df550b5661931a",
+    ),
     walkthroughLabel: "Completed throne-room ending (159 pts)",
     walkthroughCoverage: "complete-game",
   },
@@ -102,7 +107,9 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "2.411",
     wordsSha256: KNOWN_GAME_HASH.KQ2,
     objectSha256: "14c85b6720fafd5e045416f65246e695bf4966c0ca52bf5f5e678b5c14a56e2a",
-    targetRevision: "16375e1aae7033480dc07715c8bb7a0a742e0ada34af7cd4e7acc0b8954cab42",
+    targetRevision: requireResourceRevision(
+      "16375e1aae7033480dc07715c8bb7a0a742e0ada34af7cd4e7acc0b8954cab42",
+    ),
     walkthroughLabel: "Completed wedding & credits (185 pts)",
     walkthroughCoverage: "complete-game",
   },
@@ -114,7 +121,9 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "2.936",
     wordsSha256: KNOWN_GAME_HASH.KQ3,
     objectSha256: "c6bd058fea81017391dc7d61ad20817b678c1c2702ff2d43df22992922233712",
-    targetRevision: "fcb5fc83e2b4844d38aa5c0fcfcc291b6e41a97df2015aacad85b7f42b73a399",
+    targetRevision: requireResourceRevision(
+      "fcb5fc83e2b4844d38aa5c0fcfcc291b6e41a97df2015aacad85b7f42b73a399",
+    ),
   },
   {
     alias: "kq4",
@@ -124,7 +133,9 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "3.002.086",
     wordsSha256: KNOWN_GAME_HASH.KQ4,
     objectSha256: "d1abca8f74c371555038ea7d5808507b76a4f7d0978eba250a1766c2737660bf",
-    targetRevision: "ad3bef3648923e5082ef5b5f318aa47e3afd47c5492b60d69705b441bbb074f9",
+    targetRevision: requireResourceRevision(
+      "ad3bef3648923e5082ef5b5f318aa47e3afd47c5492b60d69705b441bbb074f9",
+    ),
   },
   {
     alias: "sq1",
@@ -134,7 +145,9 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "2.917",
     wordsSha256: KNOWN_GAME_HASH.SQ1,
     objectSha256: "058d2fcfef8df6667e764b889a1c22d6b8746eac8c25321f707a64e4d712464c",
-    targetRevision: "4e25ac4490afba3c5d6bd49c0d1429d8d375f8bb557e284c7337c1f334ccbe1e",
+    targetRevision: requireResourceRevision(
+      "4e25ac4490afba3c5d6bd49c0d1429d8d375f8bb557e284c7337c1f334ccbe1e",
+    ),
     walkthroughLabel: "Completed ceremony & credits (202 pts)",
     walkthroughCoverage: "complete-game",
   },
@@ -146,7 +159,9 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "2.936",
     wordsSha256: KNOWN_GAME_HASH.SQ2,
     objectSha256: "3b887ff34eb1ec5b9f398e98ad6443b03cb3f7d32eeac01abc096c08a048a766",
-    targetRevision: "90b7a965bf889351bb79340ca710ce4abf1eae1777c8e10de409d40263df7cbb",
+    targetRevision: requireResourceRevision(
+      "90b7a965bf889351bb79340ca710ce4abf1eae1777c8e10de409d40263df7cbb",
+    ),
   },
   {
     alias: "mh1",
@@ -156,7 +171,9 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "3.002.102",
     wordsSha256: KNOWN_GAME_HASH.MH1,
     objectSha256: "1eb55220ec7e22ebb7cb181486d54eaddbf4ec0159193645cbf2876321b495a5",
-    targetRevision: "010d2c6c1edf1a27bedded58faad86cb50a9f6970050f27736dc84d41854216d",
+    targetRevision: requireResourceRevision(
+      "010d2c6c1edf1a27bedded58faad86cb50a9f6970050f27736dc84d41854216d",
+    ),
     walkthroughLabel: "Completed Day 1",
     walkthroughCoverage: "chapter",
   },
@@ -168,7 +185,9 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "3.002.149",
     wordsSha256: KNOWN_GAME_HASH.MH2,
     objectSha256: "6a4e3f3eaf1070e119a9667352c0d58e360843af1577767664a8719b4ecdae06",
-    targetRevision: "eea0ebc7f22ef50d2fc4f7c3557622f6331242ab1b8152a57badf855d761dd60",
+    targetRevision: requireResourceRevision(
+      "eea0ebc7f22ef50d2fc4f7c3557622f6331242ab1b8152a57badf855d761dd60",
+    ),
   },
   {
     alias: "pq1",
@@ -178,7 +197,9 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "2.903",
     wordsSha256: KNOWN_GAME_HASH.PQ1,
     objectSha256: "ed0e6e31fe8f714dcc10243f0b5cdff5f707375ee4b1d55f4b311da3b9803d47",
-    targetRevision: "cb643573c06cb9799fa2c08fcf4eec77db3a2102d07b199a6703a0d49c5164b3",
+    targetRevision: requireResourceRevision(
+      "cb643573c06cb9799fa2c08fcf4eec77db3a2102d07b199a6703a0d49c5164b3",
+    ),
   },
   {
     alias: "lsl1",
@@ -188,7 +209,9 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "2.440",
     wordsSha256: KNOWN_GAME_HASH.LSL1,
     objectSha256: "772c057edfd5ef994465580e3bb944f790e20661921d894f54b68920fa26647d",
-    targetRevision: "2e604e7968796317b407bd87708e75f985b43737f2677e09591191af100cd470",
+    targetRevision: requireResourceRevision(
+      "2e604e7968796317b407bd87708e75f985b43737f2677e09591191af100cd470",
+    ),
   },
   {
     alias: "bc",
@@ -198,7 +221,9 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "2.440",
     wordsSha256: KNOWN_GAME_HASH.BC,
     objectSha256: "44963ca0358f6aeb922456346275494b5f931c3c8e627f2764640b7d441acbd9",
-    targetRevision: "76a1c27b07d3c22cd336aaa69838fb3f35bce1bf6c7851e4f72c2b225bd051ef",
+    targetRevision: requireResourceRevision(
+      "76a1c27b07d3c22cd336aaa69838fb3f35bce1bf6c7851e4f72c2b225bd051ef",
+    ),
   },
   {
     alias: "gr1",
@@ -208,7 +233,9 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "3.002.149",
     wordsSha256: KNOWN_GAME_HASH.GR1,
     objectSha256: "2ff4ecbb1513d5951a9847fd5d283d2a7d1cbba211f2c763e34741ee5cb73766",
-    targetRevision: "0be9505e2a9582c5fe99347acc5713459bab81fb65063bcc46985fd5c49d8433",
+    targetRevision: requireResourceRevision(
+      "0be9505e2a9582c5fe99347acc5713459bab81fb65063bcc46985fd5c49d8433",
+    ),
   },
   {
     alias: "ddp",
@@ -218,7 +245,9 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "2.440",
     wordsSha256: KNOWN_GAME_HASH.DDP,
     objectSha256: "ef60a61d5c92943f073873ddc4daa983c545831d60a5826bbc210de5b0897d67",
-    targetRevision: "4ae970dd2e680033206d042b0fddf295ae91b29e6bd303d8c0cfc9635c766a15",
+    targetRevision: requireResourceRevision(
+      "4ae970dd2e680033206d042b0fddf295ae91b29e6bd303d8c0cfc9635c766a15",
+    ),
   },
   {
     alias: "mumg",
@@ -228,7 +257,9 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "2.917",
     wordsSha256: KNOWN_GAME_HASH.MUMG,
     objectSha256: "addd77de06fa96476cda9452e7e828e1b398aa73fbae5bc2a6dd133ffdf645b8",
-    targetRevision: "0c20e2c06cf48a1738b76f3dd82753967f50ec2f635dfe2f91b524857301cfba",
+    targetRevision: requireResourceRevision(
+      "0c20e2c06cf48a1738b76f3dd82753967f50ec2f635dfe2f91b524857301cfba",
+    ),
   },
   {
     alias: "demopac4",
@@ -238,7 +269,9 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     profile: "3.002.102",
     wordsSha256: KNOWN_GAME_HASH.DEMOPAC4,
     objectSha256: "e44f10db5325edfa883a5a1fc02646239ee4b628a82c94f5bb60937e40efa3f9",
-    targetRevision: "1e914a657dc2a7e0b9c9fda5f183c5d1ec9f52cab146a58d9ed1077b016d5df7",
+    targetRevision: requireResourceRevision(
+      "1e914a657dc2a7e0b9c9fda5f183c5d1ec9f52cab146a58d9ed1077b016d5df7",
+    ),
   },
 ];
 
@@ -247,7 +280,7 @@ const BY_WORDS_HASH = new Map<string, KnownAgiGame>(
   KNOWN_GAMES.map((g) => [g.wordsSha256.toLowerCase(), g]),
 );
 const BY_REVISION = new Map<string, KnownAgiGame>(
-  KNOWN_GAMES.filter((g): g is KnownAgiGame & { targetRevision: string } =>
+  KNOWN_GAMES.filter((g): g is KnownAgiGame & { targetRevision: ResourceRevision } =>
     Boolean(g.targetRevision),
   ).map((g) => [g.targetRevision.toLowerCase(), g]),
 );
@@ -285,9 +318,9 @@ export function detectKnownGameByHashes(
  * Resolve a user/script alias (e.g. "kq1", "KQ1") or raw content hash to a canonical GameHash.
  * Intended for CLI, script arguments, and UI entrypoints.
  */
-export function resolveGameHash(aliasOrHash: string): GameHash | null {
-  if (!aliasOrHash) return null;
-  const norm = aliasOrHash.toLowerCase().trim();
+export function resolveGameHash(query: string): GameHash | null {
+  if (!query) return null;
+  const norm = query.toLowerCase().trim();
   const byAlias = getKnownGameByAlias(norm);
   if (byAlias) return byAlias.wordsSha256;
   const byHash = getKnownGameByHash(norm);
