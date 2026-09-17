@@ -417,8 +417,27 @@ export class Speedrun {
         continue;
       }
       const current = this.engine.inputEdit;
-      assert.ok(text.startsWith(current), `Input row diverged from command: ${text}`);
       const before = this.cycles;
+      if (!text.startsWith(current)) {
+        // A window that opened mid-word swallowed a letter. Erase back to the
+        // common prefix with Backspace, the way a player corrects the line.
+        let keep = 0;
+        while (keep < current.length && current[keep] === text[keep]) keep++;
+        const erase = Math.min(current.length - keep, 12);
+        for (let n = 0; n < erase; n++) {
+          this.key(AGI_KEY.BACKSPACE);
+          this.advance(1);
+        }
+        for (let n = 0; (this.cycles === before || this.keys.length > 0) && n < 1000; n++) {
+          if (this.engine.modalKind !== null || this.engine.continuationPending) break;
+          this.advance();
+        }
+        assert.ok(
+          this.engine.inputEdit.length < current.length,
+          `Input row diverged from command and Backspace did not erase it: ${text}`,
+        );
+        continue;
+      }
       // The input queue holds nineteen events; burst in chunks below that.
       for (const ch of text.slice(current.length, current.length + 12)) {
         this.key(ch.charCodeAt(0));

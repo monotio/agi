@@ -410,6 +410,16 @@ must terminate: poll ceilings do not interrupt arbitrary synchronous code.
 The retained input tape still needs independent cold-boot replay before publication.
 These checkpoints are process memory, not a durable session format.
 
+A route runs under two hosts: the walkthrough test dismisses message windows at
+once, while `scripts/walkthrough.ts` dwells on them at reading pace to make the
+published tape. Second-based timers then interleave differently with cycle-based
+random draws, so the two runs sit at different positions in the random stream. A
+route tuned to fixed tick counts or to one seed's luck can pass one host and fail
+the other. Drive chance from observed state instead: read the dealt cards or the
+wheel, scout alternatives with `fork()` or `probe()`, and wait on game state
+rather than on ticks. `type()` backspaces and retypes when a timed window
+swallows a letter mid-word.
+
 Static candidates do not predict arbitrary script hazards or prove a game can
 be completed. A lake can be geometrically passable while room logic makes entry
 fatal; its route needs an explicit safe approach. Keep trigger policy and geometry

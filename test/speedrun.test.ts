@@ -112,6 +112,19 @@ test(
   },
 );
 
+test("type() backspaces a diverged input row and retypes it, as a player would", () => {
+  // A timed window can swallow a letter mid-word; stray keys stand in for that here.
+  const run = new Speedrun(KNOWN_GAME_HASH.ADVENTURE_DEPARTMENT, 1);
+  run.wait(() => run.state().room === 1 && run.engine.inputEnabled, "gallery", 300);
+  for (const ch of "pant") run.key(ch.charCodeAt(0));
+  run.advance(8);
+  assert.equal(run.engine.inputEdit, "pant");
+  run.type("paint mural");
+  assert.equal(run.engine.inputEdit, "paint mural");
+  const backspaces = run.actions.filter((a) => a.kind === "key" && a.code === 8).length;
+  assert.equal(backspaces, 2, "only the diverged tail is erased");
+});
+
 test("every shipped walkthrough is a v2 artifact bound to its bundle revision", async () => {
   // Runs without fixtures: builtin targets resolve their served revision from
   // the builder; fixture targets still prove schema, binding field, and shape.
