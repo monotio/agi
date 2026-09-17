@@ -1,6 +1,12 @@
 import { decodeSave } from "../runtime/persistence.ts";
 import type { Engine } from "../runtime/engine.ts";
 import { EGA_RGB, encodePngRgb } from "../picture/png.ts";
+import {
+  anchorClearance,
+  searchAnchors,
+  smoothAnchors,
+  type SearchOptions,
+} from "./navigationSearch.ts";
 
 export interface NavigationState {
   readonly engine: Engine;
@@ -28,11 +34,22 @@ export interface Plan {
   steps: number;
   waypoints: { x: number; y: number }[];
   assumptions: string[];
+  searchStatus?: "found" | "unreachable" | "budget_exhausted";
+  metrics?: { cost: number; minimumClearance: number; meanClearance: number };
 }
 
 export interface PlanOptions {
   avoidTriggers?: boolean;
   attempts?: number;
+  /** Widest cel is conservative; current geometry requires short execution/replanning. */
+  geometry?: "widest" | "current";
+  /** Chebyshev picture-coordinate distance to an illegal footprint anchor. */
+  desiredClearance?: number;
+  clearanceWeight?: number;
+  /** Additional cost for a change between two successive movement headings. */
+  turnCost?: number;
+  /** Maximum expanded search states, including heading when turnCost is nonzero. */
+  maxSearchNodes?: number;
 }
 
 export function validateTarget(target: Target): void {
@@ -47,17 +64,6 @@ export function validateTarget(target: Target): void {
   )
     throw new RangeError("Target must be an ordered integer rectangle within 160x168.");
 }
-
-const DIRS = [
-  [0, -1],
-  [1, -1],
-  [1, 0],
-  [1, 1],
-  [0, 1],
-  [-1, 1],
-  [-1, 0],
-  [-1, -1],
-] as const;
 
 export function canWalkDirect(
   x1: number,
@@ -79,13 +85,15 @@ export function canWalkDirect(
   inside: (x: number, y: number) => boolean,
   objects: { x: number; y: number; width: number; height: number }[],
 ): boolean {
+  if (!Number.isInteger(step) || step < 1 || (x2 - x1) % step !== 0 || (y2 - y1) % step !== 0)
+    return false;
   let cx = x1;
   let cy = y1;
   while (cx !== x2 || cy !== y2) {
     const dx = Math.sign(x2 - cx);
     const dy = Math.sign(y2 - cy);
-    const nx = Math.abs(x2 - cx) < step ? x2 : cx + dx * step;
-    const ny = Math.abs(y2 - cy) < step ? y2 : cy + dy * step;
+    const nx = cx + dx * step;
+    const ny = cy + dy * step;
     if (nx < 0 || nx > maxX || ny < minY || ny > 167) return false;
     if (!valid[ny * 160 + nx]) return false;
     if (ego.observeBlocks && Boolean(save.blockEnabled) && inside(cx, cy) !== inside(nx, ny))
@@ -106,9 +114,27 @@ export function canWalkDirect(
   return true;
 }
 
-/** Advisory static geometry only. This function reads state; it never moves or restores an engine. */
-export function planWalk(run: NavigationState, target: Target, options?: PlanOptions): Plan {
-  validateTarget(target);
+function navigationModel(run: NavigationState, options?: PlanOptions) {
+  const searchOptions: SearchOptions = {
+    desiredClearance: options?.desiredClearance ?? 4,
+    clearanceWeight: options?.clearanceWeight ?? 1,
+    turnCost: options?.turnCost ?? 0,
+    maxSearchNodes: options?.maxSearchNodes ?? 160 * 168,
+  };
+  if (
+    !Object.values(searchOptions).every((value) => Number.isFinite(value) && value >= 0) ||
+    searchOptions.desiredClearance > 160 ||
+    searchOptions.clearanceWeight > 1e6 ||
+    searchOptions.turnCost > 1e6 ||
+    !Number.isInteger(searchOptions.maxSearchNodes) ||
+    searchOptions.maxSearchNodes < 1 ||
+    searchOptions.maxSearchNodes > 160 * 168 * 9 ||
+    (options?.geometry !== undefined &&
+      options.geometry !== "widest" &&
+      options.geometry !== "current")
+  ) {
+    throw new RangeError("Invalid navigation search options.");
+  }
   const engine = run.engine;
   const ego = { ...engine.screenObjects[0]! };
   if (
@@ -131,7 +157,7 @@ export function planWalk(run: NavigationState, target: Target, options?: PlanOpt
     .map((o) => ({ ...o }));
   const view = engine.getView(ego.view);
   let egoWidth = ego.width;
-  if (view) {
+  if (view && options?.geometry !== "current") {
     for (const loop of view.loops) {
       for (const cel of loop.cels) {
         if (cel.width > egoWidth) egoWidth = cel.width;
@@ -141,7 +167,7 @@ export function planWalk(run: NavigationState, target: Target, options?: PlanOpt
   const control = engine.surface.priority.slice();
   const step = Math.max(1, ego.stepSize);
   const minY = Math.max(ego.height - 1, ego.observeHorizon ? engine.horizon + 1 : 0);
-  const maxX = Math.max(ego.x, 160 - egoWidth);
+  const maxX = 160 - egoWidth;
   const inside = (x: number, y: number) =>
     x > save.blockLeft && x < save.blockRight && y > save.blockTop && y < save.blockBottom;
   const valid = new Uint8Array(160 * 168);
@@ -165,103 +191,85 @@ export function planWalk(run: NavigationState, target: Target, options?: PlanOpt
         if (ego.waterGate === "on" && !water) accepted = false;
         if (ego.waterGate === "off" && water) accepted = false;
       }
-      if (accepted) valid[y * 160 + x] = 1;
-    }
-  const start = ego.y * 160 + ego.x;
-  const parent = new Int32Array(160 * 168).fill(-2);
-  const queue = new Int32Array(160 * 168);
-  parent[start] = -1;
-  queue[0] = start;
-  let head = 0;
-  let tail = 1;
-  let end = -1;
-  let best = start;
-  const distance = (x: number, y: number) =>
-    Math.max(target.x0 - x, 0, x - target.x1) + Math.max(target.y0 - y, 0, y - target.y1);
-  while (head < tail) {
-    const at = queue[head++]!;
-    const x = at % 160;
-    const y = Math.floor(at / 160);
-    if (distance(x, y) < distance(best % 160, Math.floor(best / 160))) best = at;
-    if (distance(x, y) === 0) {
-      end = at;
-      break;
-    }
-    for (const [dx, dy] of DIRS) {
-      const nx = x + dx * step;
-      const ny = y + dy * step;
-      if (nx < 0 || nx > maxX || ny < minY || ny > 167) continue;
-      const next = ny * 160 + nx;
-      if (parent[next] !== -2 || !valid[next]) continue;
-      if (ego.observeBlocks && save.blockEnabled && inside(x, y) !== inside(nx, ny)) continue;
       if (
+        accepted &&
         ego.observeObjects &&
         objects.some(
-          (o) =>
-            !(nx + egoWidth < o.x || nx > o.x + o.width) &&
-            (ny === o.y || (ny > o.y && y < o.y) || (ny < o.y && y > o.y)),
+          (other) => y === other.y && !(x + egoWidth < other.x || x > other.x + other.width),
         )
       )
-        continue;
-      parent[next] = at;
-      queue[tail++] = next;
+        accepted = false;
+      if (accepted) valid[y * 160 + x] = 1;
+    }
+  const canStep = (from: number, to: number): boolean => {
+    const x = from % 160,
+      y = Math.floor(from / 160);
+    const nx = to % 160,
+      ny = Math.floor(to / 160);
+    if (nx < 0 || nx > maxX || ny < minY || ny > 167 || !valid[to]) return false;
+    if (ego.observeBlocks && save.blockEnabled && inside(x, y) !== inside(nx, ny)) return false;
+    return (
+      !ego.observeObjects ||
+      !objects.some(
+        (other) =>
+          !(nx + egoWidth < other.x || nx > other.x + other.width) &&
+          (ny === other.y || (ny > other.y && y < other.y) || (ny < other.y && y > other.y)),
+      )
+    );
+  };
+  return { ego, step, valid, canStep, searchOptions };
+}
+
+/** Validate full-step ordinary-input traces in the same live geometry as search, without searching. */
+export function validateWalk(
+  run: NavigationState,
+  points: readonly { x: number; y: number }[],
+  options?: PlanOptions,
+): boolean {
+  const { ego, step, canStep } = navigationModel(run, options);
+  let x = ego.x,
+    y = ego.y;
+  for (const point of points) {
+    validateTarget({ x0: point.x, x1: point.x, y0: point.y, y1: point.y });
+    if ((point.x - x) % step !== 0 || (point.y - y) % step !== 0) return false;
+    while (x !== point.x || y !== point.y) {
+      const nx = x + Math.sign(point.x - x) * step;
+      const ny = y + Math.sign(point.y - y) * step;
+      if (!canStep(y * 160 + x, ny * 160 + nx)) return false;
+      x = nx;
+      y = ny;
     }
   }
-  const chain: number[] = [];
-  if (end >= 0) for (let n = end; n >= 0; n = parent[n]!) chain.push(n);
-  chain.reverse();
-  const waypoints: { x: number; y: number }[] = [];
-  if (chain.length > 1) {
-    let curr = 0;
-    while (curr < chain.length - 1) {
-      let furthest = curr + 1;
-      for (let next = chain.length - 1; next > curr; next--) {
-        const pCurr = chain[curr]!;
-        const pNext = chain[next]!;
-        const x1 = pCurr % 160;
-        const y1 = Math.floor(pCurr / 160);
-        const x2 = pNext % 160;
-        const y2 = Math.floor(pNext / 160);
-        if (
-          canWalkDirect(
-            x1,
-            y1,
-            x2,
-            y2,
-            step,
-            maxX,
-            minY,
-            valid,
-            {
-              width: egoWidth,
-              observeBlocks: ego.observeBlocks,
-              observeObjects: ego.observeObjects,
-            },
-            save,
-            inside,
-            objects,
-          )
-        ) {
-          furthest = next;
-          break;
-        }
-      }
-      const pt = chain[furthest]!;
-      waypoints.push({ x: pt % 160, y: Math.floor(pt / 160) });
-      curr = furthest;
-    }
-  }
-  const reached = end >= 0 ? end : best;
+  return true;
+}
+
+/** Advisory static geometry only. This function reads state; it never moves or restores an engine. */
+export function planWalk(run: NavigationState, target: Target, options?: PlanOptions): Plan {
+  validateTarget(target);
+  const { ego, step, valid, canStep, searchOptions } = navigationModel(run, options);
+  const start = ego.y * 160 + ego.x;
+  const clearance = anchorClearance(valid);
+  const search = searchAnchors(start, target, step, clearance, canStep, searchOptions);
+  const smoothed = smoothAnchors(search.chain, step, clearance, canStep, searchOptions);
+  const reached = search.reached;
   return {
-    found: end >= 0,
+    found: search.status === "found",
+    searchStatus: search.status,
     room: run.state().room,
     from: { x: ego.x, y: ego.y },
     target,
     reached: { x: reached % 160, y: Math.floor(reached / 160) },
-    cells: tail,
-    steps: Math.max(0, chain.length - 1),
-    waypoints,
+    cells: search.cells,
+    steps: smoothed.steps,
+    waypoints: smoothed.waypoints,
+    metrics: {
+      cost: smoothed.cost,
+      minimumClearance: smoothed.minimumClearance,
+      meanClearance: smoothed.meanClearance,
+    },
     assumptions: [
+      `Geometry: ${options?.geometry ?? "widest"} cel width. Clearance is Chebyshev distance in picture-coordinate anchor cells after footprint acceptance; narrow legal passages remain usable.`,
+      "Each full cardinal or diagonal step costs one movement update plus clearanceWeight * max(0, desiredClearance - clearance)^2 and optional turnCost. Search has an admissible Chebyshev/step lower bound; smoothing cannot increase this cost.",
       "Static live controls and stationary object baselines; animation, moving objects, automatic priority-table changes, script triggers and border clipping are not predicted. Replan after state changes.",
       "A candidate path is not proof. Execute normal inputs and assert the milestone.",
     ],
@@ -308,64 +316,25 @@ export function describePosition(run: NavigationState): unknown {
 
 /** Execute only a found candidate through the existing ordinary-input driver. Errors propagate. */
 export function walkPlanned(run: NavigationRun, target: Target, options?: PlanOptions): Plan {
-  const attempts = options?.attempts ?? 5;
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    const s = run.state();
-    if (s.x >= target.x0 && s.x <= target.x1 && s.y >= target.y0 && s.y <= target.y1) {
-      return {
-        found: true,
-        room: s.room,
-        from: { x: s.x, y: s.y },
-        target,
-        reached: { x: s.x, y: s.y },
-        cells: 0,
-        steps: 0,
-        waypoints: [],
-        assumptions: [],
-      };
-    }
-    const plan = planWalk(run, target, options);
-    if (!plan.found) {
-      if (attempt === attempts - 1) {
-        throw new Error(
-          "No static path: " + JSON.stringify({ plan, state: describePosition(run) }),
-        );
-      }
-      continue;
-    }
-    let blocked = false;
-    for (const point of plan.waypoints) {
-      try {
-        run.walkTo(point.x, point.y, Math.max(300, plan.steps * 12));
-      } catch (error) {
-        if (
-          attempt < attempts - 1 &&
-          error instanceof Error &&
-          error.message.startsWith("Walk blocked")
-        ) {
-          blocked = true;
-          break;
-        }
-        throw error;
-      }
-      if (run.state().room !== plan.room) {
-        throw new Error("Unexpected room transition during planned walk.");
-      }
-    }
-    if (!blocked) {
-      const state = run.state();
-      if (
-        state.room === plan.room &&
-        state.x >= target.x0 &&
-        state.x <= target.x1 &&
-        state.y >= target.y0 &&
-        state.y <= target.y1
-      ) {
-        return plan;
-      }
-    }
+  // The shared controller owns bounded state-driven replanning. A static failed
+  // snapshot yields no new information from repeating the same search here.
+  const plan = planWalk(run, target, options);
+  if (!plan.found)
+    throw new Error("No static path: " + JSON.stringify({ plan, state: describePosition(run) }));
+  for (const point of plan.waypoints) {
+    run.walkTo(point.x, point.y, Math.max(300, plan.steps * 12));
+    if (run.state().room !== plan.room)
+      throw new Error("Unexpected room transition during planned walk.");
   }
   const state = run.state();
+  if (
+    state.room === plan.room &&
+    state.x >= target.x0 &&
+    state.x <= target.x1 &&
+    state.y >= target.y0 &&
+    state.y <= target.y1
+  )
+    return plan;
   throw new Error("Planned walk did not reach target: " + JSON.stringify({ state, target }));
 }
 
