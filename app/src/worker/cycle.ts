@@ -104,6 +104,9 @@ export function createCycle(ctx: WorkerContext) {
         ctx.clocks.cycle.poll(now, engine.vars[10]!, true);
         return false;
       }
+      // pause freezes the original pacing counter; ordinary modal waits do not.
+      if (engine.timerPaused) ctx.clocks.cycle.freeze(now);
+      else ctx.clocks.cycle.advance(now);
       // The clock always advances — its carry stays honest across the tick —
       // but a recorded lane feeds its own count, never the re-derived one.
       const discharged = ctx.clocks.sound.advance(now, false);

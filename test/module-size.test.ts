@@ -18,8 +18,9 @@ const ROOTS = ["src", "app/src"];
 
 const BASELINE: Record<string, { lines: number; boundary: string }> = {
   "src/runtime/engine.ts": {
-    lines: 5908,
-    boundary: "the interpreter core: dispatch, object table, motion, text surface",
+    lines: 6043,
+    boundary:
+      "the interpreter core: dispatch, original movement phases, modal timing and restore re-entry",
   },
   "src/agent/tools.ts": {
     lines: 2004,

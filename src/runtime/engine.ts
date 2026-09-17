@@ -213,7 +213,7 @@ const F_RESTART = 6;
 const F_SOUND_ENABLED = 9;
 /** Recording gate: the replay sequence appends only while f7 is clear (spec). */
 const F_REPLAY_OFF = 7;
-const F_SCRIPT_0 = 12;
+const F_RESTORED = 12;
 const F_NO_PROMPT_RESTART = 16;
 
 /** Flag 20 gates direction loop selection for >4 loop views in the later v3 profiles. */
@@ -242,7 +242,7 @@ export interface EngineMenuState {
 }
 
 type Modal = { serial: number } & (
-  | { kind: "print"; saved: SavedRect; remainingMs: number | null }
+  | { kind: "print"; saved: SavedRect; remainingMs: number | null; pauseClock: boolean }
   | {
       kind: "inventory";
       saved: SavedRect;
@@ -333,10 +333,16 @@ class RoomChange {
 /**
  * Internal control-flow signal: restore and accepted restart abort the current
  * logic continuation (spec "Restore action outcomes", "Restart"). Unlike
- * RoomChange there is no destination to enter — the next top-level pass simply
- * starts logic 0 again against the state the action established.
+ * RoomChange there is no destination to enter. Successful restore/restart
+ * re-enter logic 0 inside the same cycle; quit and refused authoring stop it.
  */
-class ContinuationAbort {}
+class ContinuationAbort {
+  readonly resumeLogic: boolean;
+
+  constructor(resumeLogic = false) {
+    this.resumeLogic = resumeLogic;
+  }
+}
 
 /**
  * Internal control-flow signal: the host cannot answer an interaction
@@ -699,7 +705,11 @@ export class Engine {
     this.profile = detectProfile(container.files, options?.profile);
     this.strings = Array.from({ length: this.profile.stringSlots }, () => "");
     this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
+    this.vars[24] = 41;
     this.vars[26] = 3; // EGA presentation on the PC-compatible platform (v20 = 0).
+    // Original game-state startup defaults; hosts may apply sound preference.
+    // docs/fidelity.md: Original save and restart audit.
+    this.flags[F_SOUND_ENABLED] = 1;
     // On cold boot, f5 (F_NEW_ROOM) is set for the initial room 0;
     // f6 (F_RESTART) is only set on restart (options.restarted or restart.game).
     this.flags[F_NEW_ROOM] = 1;
@@ -872,6 +882,12 @@ export class Engine {
   /** Kind of the open modal, or null when the interpreter is running. */
   get modalKind(): Modal["kind"] | "save" | "restore" | null {
     return this.saveDialogMode ?? this.modal?.kind ?? null;
+  }
+
+  /** Explicit pause and save selectors freeze timer/pacing counters; ordinary modals do not. */
+  get timerPaused(): boolean {
+    const modal = this.modal;
+    return this.saveDialogMode !== null || (modal?.kind === "print" && modal.pauseClock);
   }
 
   /** Instance serial of the open modal: rises on every push, so back-to-back windows differ. */
@@ -1155,7 +1171,7 @@ export class Engine {
       this.terminated = true;
       this.host.quit?.();
     }
-    throw new ContinuationAbort();
+    throw new ContinuationAbort(pending.action === "restart");
   }
 
   /**
@@ -1513,6 +1529,7 @@ export class Engine {
     text: string,
     place?: { row?: number | undefined; col?: number | undefined; width?: number | undefined },
     forceAcknowledgement = false,
+    pauseClock = false,
   ): void {
     this.closeWindowOnTop();
     const width = place?.width ? place.width : 30;
@@ -1536,6 +1553,7 @@ export class Engine {
         kind: "print",
         saved,
         remainingMs: !forceAcknowledgement && this.vars[21] !== 0 ? this.vars[21]! * 500 : null,
+        pauseClock,
       });
     }
     this.host.print(text);
@@ -2107,6 +2125,7 @@ export class Engine {
               kind: "print",
               saved: serializeSavedRect(m.saved),
               remainingMs: m.remainingMs,
+              pauseClock: m.pauseClock,
             };
           case "inventory":
             return {
@@ -2185,6 +2204,7 @@ export class Engine {
             kind: "print",
             saved: deserializeSavedRect(m.saved),
             remainingMs: m.remainingMs,
+            pauseClock: m.pauseClock,
           });
           break;
         case "inventory":
@@ -2420,6 +2440,11 @@ export class Engine {
     for (let num = 0; num < this.objects.length; num++) {
       const o = this.objects[num]!;
       applyObjectRecord(o, s.objects[num]);
+      // Original restore rebuilds drawn followers with a fresh retry delay.
+      // Host history carries an exact saved boundary instead (fidelity.md,
+      // "Original save and restart audit").
+      if (screen === null && o.update && o.active && o.motionMode === MOTION_FOLLOW)
+        o.paramBank[2] = 255;
       // The rebuilt screen shows each object where the save left it, so that
       // is the rectangle its next erase restores, not where it stood before.
       this.stampDraw(o);
@@ -2450,10 +2475,11 @@ export class Engine {
     this.flags[F_SAID_MATCHED] = 0;
 
     // 2. Reset transient caches and replay the saved sequence.
-    this.replaySequence(s.logicResume, sequence);
+    this.replaySequence(s.logicResume, sequence, screen !== null);
+    if (screen === null) this.flags[F_RESTORED] = 1;
 
     // 3. Rebind object views and refresh picture, objects, status and input.
-    this.rebindObjectViews();
+    this.rebindObjectViews(screen !== null);
     this.presentationDirty = true;
     this.updateEgoVisibility();
     this.modals.length = 0;
@@ -2465,8 +2491,8 @@ export class Engine {
     }
     this.host.clearText?.();
 
-    // 4. Abort the current continuation.
-    throw new ContinuationAbort();
+    // 4. Abort the current continuation and re-enter logic in this cycle.
+    throw new ContinuationAbort(true);
   }
 
   /**
@@ -2476,17 +2502,30 @@ export class Engine {
    * duplicates. Kinds 6 and 7 use the ordinary ordered-discard rule, so a
    * later pair may load the same resource again and establish a new order.
    */
-  private replaySequence(resume: readonly LogicResumeRecord[], pairs: readonly ReplayPair[]): void {
+  private replaySequence(
+    resume: readonly LogicResumeRecord[],
+    pairs: readonly ReplayPair[],
+    history: boolean,
+  ): void {
     this.playingSound = null;
     this.soundDoneFlag = null;
     this.soundPlayback = null;
     this.sounds.clear();
+    const globalLogic = this.logics.get(0);
+    const globalScanStart = this.scanStart.get(0);
     this.logics.clear();
     this.pictures.clear();
     this.pictureOrder.length = 0;
     this.views.clear();
     this.viewOrder.length = 0;
     this.scanStart.clear();
+    // Original cache reset retains the global logic head. Resume records
+    // supply offsets only when a replay pair loads a logic (fidelity.md,
+    // "Original save and restart audit").
+    if (!history && globalLogic) {
+      this.logics.set(0, globalLogic);
+      if (globalScanStart !== undefined) this.scanStart.set(0, globalScanStart);
+    }
     this.surface.reset();
     this.pictureShown = false;
 
@@ -2544,11 +2583,9 @@ export class Engine {
             throw new RangeError(`unknown replay pair kind ${pair.kind}`);
         }
       }
-      // Block 5 is the authoritative loaded-logic set: the sequence's
-      // load-logic pairs cover only game-issued `load.logics`, while call
-      // dispatch and new.room load without pairs. Rebuild in record order so
-      // every recorded logic is resident at its saved resume offset.
-      if (this.profile.saveBlocks === 5) {
+      // Host history restores an exact loaded set; an authentic save's
+      // unmatched resume records do not issue extra resource loads.
+      if (history && this.profile.saveBlocks === 5) {
         this.logics.clear();
         this.scanStart.clear();
         for (const record of resume) {
@@ -2566,7 +2603,7 @@ export class Engine {
    * saved view, loop and cel numbers are kept, and the loop/cel counts and cel
    * dimensions come from the resource (spec, block 2).
    */
-  private rebindObjectViews(): void {
+  private rebindObjectViews(exactHistory: boolean): void {
     for (const o of this.objects) {
       if (!o.active && o.view === 0) continue;
       const view =
@@ -2576,7 +2613,7 @@ export class Engine {
       if (o.loop >= view.loops.length) o.loop = 0;
       const loop = view.loops[o.loop];
       if (loop && o.cel >= loop.cels.length) o.cel = 0;
-      this.updateCelSize(o);
+      this.updateCelSize(o, !exactHistory);
     }
   }
 
@@ -2641,32 +2678,37 @@ export class Engine {
   advanceClock(milliseconds: number): void {
     if (!Number.isFinite(milliseconds) || milliseconds < 0)
       throw new RangeError("Elapsed game time must be finite and nonnegative.");
-    if (this.terminated) return;
+    if (this.terminated || this.timerPaused) return;
     const modal = this.modal;
     if (modal !== null) {
       if (modal.kind === "print" && modal.remainingMs !== null) {
         modal.remainingMs -= milliseconds;
         if (modal.remainingMs <= 1e-7) this.closeModal();
       }
-      return;
+      // Modal presentation suspends scripts, not timer counters. Explicit
+      // pause and save selectors are handled by timerPaused above.
+      // docs/fidelity.md: original-scheduler-and-modal-timing
     }
     // A suspended host interaction is a genuine wait, not a clock busy-loop.
-    if (this.pendingLogic !== null && this.pendingInteraction === null)
+    if (modal === null && this.pendingLogic !== null && this.pendingInteraction === null)
       this.clockWaitMs += milliseconds;
     const elapsed = this.clockRemainderMs + milliseconds;
     let seconds = Math.floor((elapsed + 1e-7) / 1000);
     this.clockRemainderMs = Math.max(0, elapsed - seconds * 1000);
     while (seconds-- > 0) {
       this.vars[11] = this.vars[11]! + 1;
-      if (this.vars[11] !== 60) continue;
-      this.vars[11] = 0;
-      this.vars[12] = this.vars[12]! + 1;
-      if (this.vars[12] !== 60) continue;
-      this.vars[12] = 0;
-      this.vars[13] = this.vars[13]! + 1;
-      if (this.vars[13] !== 24) continue;
-      this.vars[13] = 0;
-      this.vars[14] = this.vars[14]! + 1;
+      if (this.vars[11]! >= 60) {
+        this.vars[11] = 0;
+        this.vars[12] = this.vars[12]! + 1;
+      }
+      if (this.vars[12]! >= 60) {
+        this.vars[12] = 0;
+        this.vars[13] = this.vars[13]! + 1;
+      }
+      if (this.vars[13]! >= 24) {
+        this.vars[13] = 0;
+        this.vars[14] = this.vars[14]! + 1;
+      }
     }
   }
 
@@ -2919,7 +2961,8 @@ export class Engine {
       // cycle's logic; they do not move the objects yet.
       for (const obj of this.objects) {
         if (!obj.active || !obj.update || obj.earlierPartition) continue;
-        if (obj.stepCount === 1) this.updateMotion(obj);
+        if (obj.stepCount !== 1) continue;
+        this.updateMotion(obj);
         if (obj.direction !== 0 && obj.observeBlocks && this.blockRect) {
           const [dx, dy] = directionDelta(obj.direction);
           const rect = this.blockRect;
@@ -2978,12 +3021,18 @@ export class Engine {
           this.vars[V_KEY] = 0;
           continue; // next top-level pass begins with logic 0
         }
-        // Restore and accepted restart abort the continuation without a
-        // destination. The rest of this cycle is abandoned too: the state the
-        // action established (f6 after restart, the replayed screen and
-        // refreshed presentation after restore) must survive into the next
-        // top-level pass rather than be cleared by this cycle's tail.
-        if (rc instanceof ContinuationAbort) return;
+        if (rc instanceof ContinuationAbort) {
+          if (!rc.resumeLogic) return;
+          // Original main-loop zero result resumes logic immediately without
+          // polling input or repeating pre-logic motion. Its normal tail then
+          // clears f6/f12 (fidelity.md, "Original save and restart audit").
+          this.vars[V_OBJ_HIT] = 0;
+          this.vars[V_OBJ_EDGE] = 0;
+          this.vars[V_WORDS] = 0;
+          this.flags[F_INPUT_READY] = 0;
+          this.cycleStatusScore = this.vars[V_SCORE]!;
+          continue;
+        }
         throw rc;
       }
     }
@@ -3004,7 +3053,7 @@ export class Engine {
     this.vars[V_OBJ_EDGE] = 0;
     this.flags[F_NEW_ROOM] = 0;
     this.flags[F_RESTART] = 0;
-    this.flags[F_SCRIPT_0] = 0;
+    this.flags[F_RESTORED] = 0;
     // 10. Post-logic object update (movement + cycling).
     if (!this.textMode) {
       // An open text window never suspends this update.
@@ -3052,8 +3101,11 @@ export class Engine {
   }
 
   private updateObjects(): void {
-    // The movement pass starts by clearing the border bytes v2, v4 and v5, so a
-    // border contact is visible to logic for exactly one cycle.
+    // The dispatcher skips movement entirely without an updating actor;
+    // border bytes and ego restrictions survive that case.
+    // docs/fidelity.md: Original complete movement and follow audit.
+    if (!this.objects.some((o) => o.active && o.update && !o.earlierPartition)) return;
+    // Each executed movement pass clears the border bytes v2, v4 and v5.
     // docs/fidelity.md: border-variables-cleared
     this.vars[V_EDGE] = 0;
     this.vars[V_OBJ_HIT] = 0;
@@ -3067,6 +3119,12 @@ export class Engine {
       if (this.profile.directionLoopTiming === "every-pass" || obj.stepCount === 1)
         this.selectLoop(obj);
       this.updateCycle(obj);
+    }
+    // All cels (and therefore collision dimensions) change before the
+    // movement dispatcher visits its first actor. docs/fidelity.md:
+    // Original complete movement and follow audit.
+    for (const obj of this.objects) {
+      if (!obj.active || !obj.update || obj.earlierPartition) continue;
       if (obj.stepCount === 0 || --obj.stepCount === 0) {
         obj.stepCount = obj.stepTime;
         const previousX = obj.x;
@@ -3077,8 +3135,14 @@ export class Engine {
         obj.stationary = obj.x === previousX && obj.y === previousY;
         obj.newlyPositioned = false;
       }
+    }
+    for (const obj of this.objects) {
+      if (!obj.active || !obj.update || obj.earlierPartition) continue;
       this.stampDraw(obj);
     }
+    // Ego's terrain restriction is a one-pass request, even when only
+    // another actor updated. Non-ego restrictions persist.
+    this.objects[0]!.waterGate = null;
   }
 
   private updateMotion(obj: ScreenObject): void {
@@ -3131,8 +3195,12 @@ export class Engine {
             } while (bank[2] < obj.stepSize);
           }
         } else if (bank[2] !== 0) {
-          const delay = (bank[2] - obj.stepSize) & 0xff;
-          bank[2] = delay < 0x80 ? delay : 0;
+          // Original SUB/JGE compares signed operands, including overflow;
+          // the wrapped result's sign alone is insufficient.
+          // docs/fidelity.md: Original complete movement and follow audit.
+          const signedDelay = (bank[2] << 24) >> 24;
+          const signedStep = (obj.stepSize << 24) >> 24;
+          bank[2] = signedDelay >= signedStep ? (bank[2] - obj.stepSize) & 0xff : 0;
         } else obj.direction = direct;
         if (obj === this.objects[0]) this.vars[V_EGO_DIR] = obj.direction;
         return;
@@ -3159,27 +3227,25 @@ export class Engine {
     let nx = obj.x + dx * step;
     let ny = obj.y + dy * step;
 
-    // Screen boundaries (spec: movement proposal), each with its code.
+    // Original passes clamp X before Y: a vertical border wins corner
+    // contact. docs/fidelity.md: Original complete movement and follow audit.
     let boundary = 0;
-    if (ny < obj.height - 1) {
-      ny = obj.height - 1;
-      boundary = 1;
-    }
-    if (obj.observeHorizon && ny <= this.horizon) {
-      ny = this.horizon + 1;
-      boundary = 1;
-    }
-    if (nx > 160 - obj.width) {
-      nx = 160 - obj.width;
-      boundary = 2;
-    }
-    if (ny > 167) {
-      ny = 167;
-      boundary = 3;
-    }
     if (nx < 0 || (nx === 0 && this.profile.clampExactZeroLeftBoundary)) {
       nx = 0;
       boundary = 4;
+    } else if (nx > 160 - obj.width) {
+      nx = 160 - obj.width;
+      boundary = 2;
+    }
+    if (ny < obj.height - 1) {
+      ny = obj.height - 1;
+      boundary = 1;
+    } else if (ny > 167) {
+      ny = 167;
+      boundary = 3;
+    } else if (obj.observeHorizon && ny <= this.horizon) {
+      ny = this.horizon + 1;
+      boundary = 1;
     }
 
     if (this.collides(obj, nx, ny) || !this.footprintAccepts(obj, nx, ny)) {
@@ -3203,7 +3269,8 @@ export class Engine {
         obj.stepSize = obj.paramBank[2];
         this.flags[obj.paramBank[3]] = 1;
         obj.motionMode = MOTION_NORMAL;
-        obj.direction = 0;
+        // Border completion preserves direction; object 0's v6 is cleared
+        // by the control hand-back and couples on the next cycle.
         this.releaseEgoMotion(obj);
       }
     }
@@ -3303,6 +3370,7 @@ export class Engine {
       if (v === 1 && obj.observeBlocks) return false;
       if (v === 2) flag3 = true;
     }
+    if (obj.waterGate === "both") return false;
     if (obj.waterGate === "on" && !flag0) return false; // obj.on.water: every cell is control 3
     if (obj.waterGate === "off" && flag0) return false; // obj.on.land: not every cell is control 3
     if (obj === this.objects[0]) {
@@ -3392,21 +3460,34 @@ export class Engine {
     }
   }
 
-  private updateCelSize(obj: ScreenObject): void {
+  private updateCelSize(obj: ScreenObject, clipPosition = true): void {
     const view = this.views.get(obj.view);
     const cel = view && selectViewCel(view, obj.loop, obj.cel);
     if (cel) {
       obj.width = cel.width;
       obj.height = cel.height;
+      // Binding a host checkpoint's dimensions is not a new cel selection.
+      if (!clipPosition) return;
+      // Original cel selection clips only right/top overflow and suppresses
+      // the next due move. Horizon applies only after top overflow, not to
+      // every selection. docs/fidelity.md: Original complete movement and follow audit.
+      if (obj.x + obj.width > SCREEN_WIDTH) {
+        obj.x = SCREEN_WIDTH - obj.width;
+        obj.newlyPositioned = true;
+      }
+      if (obj.y < obj.height - 1) {
+        obj.y = obj.height - 1;
+        if (obj.observeHorizon && obj.y <= this.horizon) obj.y = this.horizon + 1;
+        obj.newlyPositioned = true;
+      }
     }
   }
 
   private updateCycle(obj: ScreenObject): void {
-    if (!obj.cycling) return;
-    if (obj.cycleCount > 0) {
-      obj.cycleCount--;
-      if (obj.cycleCount !== 0) return;
-    }
+    // Unlike the movement countdown, animation zero is disabled.
+    // docs/fidelity.md: Original complete movement and follow audit.
+    if (!obj.cycling || obj.cycleCount === 0) return;
+    if (--obj.cycleCount !== 0) return;
     obj.cycleCount = obj.cycleTime;
     if (obj.cycleDelay) {
       obj.cycleDelay = false;
@@ -4700,11 +4781,14 @@ export class Engine {
         this.horizon = a(0);
         return next;
       case 0x40:
-        obj(0).waterGate = "on";
-        return next; // obj.on.water
-      case 0x41:
-        obj(0).waterGate = "off";
-        return next; // obj.on.land
+      case 0x41: {
+        // Independent restriction bits; only obj.on.anything clears them.
+        // docs/fidelity.md: Original complete movement and follow audit.
+        const o = obj(0);
+        const gate = op === 0x40 ? "on" : "off";
+        o.waterGate = o.waterGate === null || o.waterGate === gate ? gate : "both";
+        return next;
+      }
       case 0x42:
         obj(0).waterGate = null;
         return next; // obj.on.anything
@@ -4954,7 +5038,7 @@ export class Engine {
       case 0x88: {
         // pause: stop sound, fixed pause message, wait for acknowledgement.
         this.stopSound();
-        this.emitPrint("Game paused. Press ENTER to continue.", undefined, true);
+        this.emitPrint("Game paused. Press ENTER to continue.", undefined, true, true);
         return next;
       }
 
@@ -5202,7 +5286,7 @@ export class Engine {
         this.stopSound();
         if (this.profile.restartPromptBypassedByF16 && this.flags[F_NO_PROMPT_RESTART] !== 0) {
           this.restart();
-          throw new ContinuationAbort();
+          throw new ContinuationAbort(true);
         }
         // A suspended confirmation resolves through applyInteraction, which
         // restarts on acceptance and continues at `next` on decline.
@@ -5613,6 +5697,7 @@ export class Engine {
 
     this.vars.fill(0);
     this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
+    this.vars[24] = 41;
     this.vars[26] = 3;
     this.flags.fill(0);
     this.controllers.fill(0);

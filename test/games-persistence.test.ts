@@ -216,7 +216,8 @@ for (const game of GAMES) {
       assert.equal(engine.vars[0], game.firstRoom);
 
       const beforeVars = Array.from(engine.vars);
-      const beforeFlags = Array.from(engine.flags);
+      const expectedFlags = Array.from(engine.flags);
+      expectedFlags[12] = 1; // Successful original restore announces itself to logic.
       const beforeVisual = Array.from(engine.surface.visual);
       const beforePriority = Array.from(engine.surface.priority);
       const beforeObjects = engine.readObjects();
@@ -240,7 +241,7 @@ for (const game of GAMES) {
       assert.throws(() => fresh.applyRestore(image));
 
       assert.deepEqual(Array.from(fresh.vars), beforeVars, "v0..v255");
-      assert.deepEqual(Array.from(fresh.flags), beforeFlags, "f0..f255");
+      assert.deepEqual(Array.from(fresh.flags), expectedFlags, "f0..f255 including restored f12");
       assert.equal(fresh.vars[0], game.firstRoom, "the restored room");
       assert.equal(fresh.horizon, engine.horizon);
       const restoredEgo = fresh.readObjects().find((o) => o.num === 0);

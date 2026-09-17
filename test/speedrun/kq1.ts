@@ -670,27 +670,36 @@ export function finishFromCondor(run: Speedrun): void {
   run.exit("N", 45);
   run.walkTo(140, 150);
   run.exit("E", 46);
-  assert.throws(
-    () => run.walkTo(75, 100),
-    (error) => error instanceof NavigationError && error.outcome.status === "needs_input",
-  );
-  assert.match(run.messages.at(-1) ?? "", /ogre nearby/);
-  run.dismiss(); // Acknowledge the ogre warning on this return journey.
-  run.walkTo(75, 100);
-  assert.throws(
-    () => run.exit("N", 3),
-    (error) => error instanceof NavigationError && error.outcome.status === "needs_input",
-  );
-  assert.match(run.messages.at(-1) ?? "", /magic shield, no harm/);
-  run.dismiss(); // The acquired shield explicitly protects Graham from this ogre.
-  run.wait(() => !engine.flags[21], "protected ogre wanders offscreen");
-  run.exit("N", 3);
+  try {
+    run.walkTo(75, 100);
+  } catch (error) {
+    if (!(error instanceof NavigationError)) throw error;
+    assert.equal(error.outcome.status, "needs_input");
+    assert.match(run.messages.at(-1) ?? "", /ogre nearby/);
+    run.dismiss(); // Acknowledge the warning if the ogre appears on this return journey.
+    run.walkTo(75, 100);
+  }
+  try {
+    run.exit("N", 3);
+  } catch (error) {
+    if (!(error instanceof NavigationError)) throw error;
+    assert.equal(error.outcome.status, "needs_input");
+    assert.match(run.messages.at(-1) ?? "", /magic shield, no harm/);
+    run.dismiss(); // The acquired shield protects Graham if the ogre reaches him.
+    run.wait(() => !engine.flags[21], "protected ogre wanders offscreen");
+    run.exit("N", 3);
+  }
   run.walkTo(145, 137);
   run.exit("E", 2);
-  run.walkTo(45, 137);
-  run.walkTo(58, 150);
-  run.walkTo(110, 150);
-  run.walkTo(110, 124);
+  run.walkWaypoints(
+    [
+      [45, 137],
+      [58, 150],
+      [110, 150],
+      [110, 124],
+    ],
+    { continuous: true },
+  );
   run.command("open door");
   run.waitForRoom(55, "castle doors");
   run.exit("N", 54);

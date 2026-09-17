@@ -25,9 +25,9 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 4439,
-  "virtualTicks": 132506,
-  "cycles": 17630,
+  "elapsedMs": 4542,
+  "virtualTicks": 132518,
+  "cycles": 17632,
   "actions": [
     {
       "kind": "key",
@@ -18895,7 +18895,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1104
+      "ticks": 1116
     },
     {
       "kind": "key",
@@ -19493,8 +19493,8 @@
       0,
       0,
       2,
-      12,
-      29,
+      48,
+      36,
       0,
       0,
       3,
@@ -19506,7 +19506,7 @@
       0,
       3,
       0,
-      0,
+      41,
       0,
       3,
       0,

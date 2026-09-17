@@ -234,7 +234,7 @@ test("room transition clears loaded views, resets cadence/block and uses actual 
 test("2.411 restart accepts confirmation even though f16 never bypasses it", () => {
   let waits = 0;
   const engine = game(
-    "assignn(v100, 42); set(f16); restart.game(); assignn(v100, 99); return;",
+    "if (isset(f6)) { assignn(v101, 1); return; } assignn(v100, 42); set(f16); restart.game(); assignn(v100, 99); return;",
     "2.411",
     {
       ...host,
@@ -246,7 +246,8 @@ test("2.411 restart accepts confirmation even though f16 never bypasses it", () 
   );
   engine.tick();
   assert.equal(waits, 1);
-  assert.equal(engine.flags[6], 1);
+  assert.equal(engine.vars[101], 1, "resumed logic observes restart in the same cycle");
+  assert.equal(engine.flags[6], 0, "normal cycle tail clears restart");
   assert.equal(engine.vars[100], 0);
 });
 
@@ -302,7 +303,7 @@ test("follow completion uses strict per-axis bands rather than Manhattan distanc
   assert.equal(engine.screenObjects[1]!.motionMode, 0);
 });
 
-test("a stationary follower retries with a nonzero direction and a saved delay", () => {
+test("a stationary follower retries with a nonzero direction and restore resets its delay", () => {
   const words = [0, 1, 0, 2];
   let calls = 0;
   const engine = game(
@@ -326,7 +327,7 @@ test("a stationary follower retries with a nonzero direction and a saved delay",
   assert.equal(engine.screenObjects[1]!.direction, 1);
   assert.equal(engine.screenObjects[1]!.paramBank[2], 2);
   engine.restoreImage(engine.serialize());
-  assert.equal(engine.screenObjects[1]!.paramBank[2], 2);
+  assert.equal(engine.screenObjects[1]!.paramBank[2], 255);
 });
 
 for (const [profile, lines] of [

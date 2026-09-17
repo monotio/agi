@@ -52,11 +52,13 @@ function drive(
   goal = target,
   options: NavigationOptions = {},
   every = 1,
+  beforePoll?: () => void,
 ) {
   const controller: NavigationController = new NavigationController(run.engine, goal, options);
   let cycles = 0;
   const directions: number[] = [];
   for (let poll = 0; poll < 2000; poll++) {
+    beforePoll?.();
     const decision = controller.next({ hostPolls: poll, logicCycles: cycles });
     if (decision.direction !== null) {
       directions.push(decision.direction);
@@ -499,7 +501,11 @@ test("wide conservative exit approaches validate current-width water gates throu
     { width: 3, height: 1, pixels: [1, 1, 1] },
   ]);
   for (let y = 0; y < 168; y++) if (y !== 100) run.engine.surface.priority[y * 160 + 159] = 3;
-  const result = drive(run, { kind: "exit", direction: 3, room: 2 });
+  // Supply the declared restriction at each planning boundary. The original
+  // interpreter clears ego's one-pass water gate after an updating pass.
+  const result = drive(run, { kind: "exit", direction: 3, room: 2 }, {}, 1, () => {
+    run.engine.screenObjects[0]!.waterGate = "off";
+  });
   assert.equal(result.outcome.status, "reached");
   assert.equal(result.outcome.x, 159);
   assert.equal(result.outcome.y, 100);
@@ -522,11 +528,19 @@ test("changing water scan width retains safe traces without spending replans", (
     { width: 1, height: 1, pixels: [1] },
     { width: 3, height: 1, pixels: [1, 1, 1] },
   ]);
-  const result = drive(run, {
-    kind: "position",
-    planned: true,
-    target: { x0: 40, x1: 40, y0: 100, y1: 100 },
-  });
+  const result = drive(
+    run,
+    {
+      kind: "position",
+      planned: true,
+      target: { x0: 40, x1: 40, y0: 100, y1: 100 },
+    },
+    {},
+    1,
+    () => {
+      run.engine.screenObjects[0]!.waterGate = "off";
+    },
+  );
   assert.equal(result.outcome.status, "reached");
   assert.equal(result.outcome.counters.replans, 0);
 });
@@ -555,12 +569,14 @@ test("a changing water scan width invalidates a target that becomes entirely wat
     { width: 1, height: 1, pixels: [1] },
   ]);
   run.engine.surface.priority[100 * 160 + 16] = 3;
+  run.engine.screenObjects[0]!.waterGate = "off";
   const controller = new NavigationController(run.engine, { ...target, planned: true });
   const first = controller.next({ hostPolls: 0, logicCycles: 0 });
   assert.equal(first.outcome, null);
   run.keys.push(first.key!);
   run.engine.vars[51] = 1;
   run.engine.tick();
+  run.engine.screenObjects[0]!.waterGate = "off";
   const changed = controller.next({ hostPolls: 1, logicCycles: 1 });
   assert.equal(changed.outcome?.status, "unreachable_under_current_model");
   assert.equal(changed.outcome.counters.replans, 1);

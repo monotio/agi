@@ -504,6 +504,8 @@ function footprint(engine: Engine, x: number, y: number): string[] {
         break;
       }
     }
+    if (ego.waterGate === "both")
+      issues.push("Ego simultaneously requires water and land, so no baseline is acceptable.");
     if (ego.waterGate === "on" && !allWater)
       issues.push("Ego requires water across its entire baseline.");
     if (ego.waterGate === "off" && allWater)

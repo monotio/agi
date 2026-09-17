@@ -17,7 +17,7 @@ export interface SerializedSavedRect {
 
 /** A parked modal window; fresh serials are assigned on restore. */
 export type SerializedModal =
-  | { kind: "print"; saved: SerializedSavedRect; remainingMs: number | null }
+  | { kind: "print"; saved: SerializedSavedRect; remainingMs: number | null; pauseClock: boolean }
   | {
       kind: "inventory";
       saved: SerializedSavedRect;
@@ -162,10 +162,11 @@ function serializedModal(value: unknown): SerializedModal {
   const kind = (value as Record<string, unknown>)["kind"];
   switch (kind) {
     case "print": {
-      const m = record(value, ["kind", "saved", "remainingMs"]);
+      const m = record(value, ["kind", "saved", "remainingMs", "pauseClock"]);
       return {
         kind,
         saved: savedRect(m["saved"]),
+        pauseClock: bool(m["pauseClock"]),
         remainingMs:
           m["remainingMs"] === null ? null : number(m["remainingMs"], 0, 0xffffffff, false),
       };

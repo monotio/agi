@@ -278,7 +278,7 @@ test("reenterRoom suspends on prepareRoom and completes on a later poll", () => 
 test("restart confirmation suspends; Enter restarts", () => {
   const engine = new Engine(
     gameWith(
-      `increment(v60);\nif (equaln(v60, 1)) { restart.game(); }\nassignn(v100, 99);\nreturn;`,
+      `if (isset(f6)) { assignn(v101, 1); return; }\nincrement(v60);\nif (equaln(v60, 1)) { restart.game(); }\nassignn(v100, 99);\nreturn;`,
     ),
     new SuspendingHost(),
     new Map(),
@@ -290,6 +290,8 @@ test("restart confirmation suspends; Enter restarts", () => {
   engine.tick();
   assert.equal(engine.modalKind, null);
   assert.equal(engine.vars[100], 0, "restart cleared the run before the assign");
+  assert.equal(engine.vars[101], 1, "resumed logic sees restart in the answer cycle");
+  assert.equal(engine.flags[6], 0, "the same cycle tail clears restart");
 });
 
 test("suspended restore selector applies the image", () => {
@@ -315,9 +317,10 @@ test("suspended restore selector applies the image", () => {
   engine.tick();
   assert.equal(engine.hostInteractionPending, false);
   assert.equal(engine.modalKind, null);
-  assert.equal(engine.vars[60], 1, "the restored image's cycle state");
+  assert.equal(engine.vars[60], 2, "restored logic resumes in the answer cycle");
   engine.tick();
-  assert.equal(engine.vars[60], 2);
+  assert.equal(engine.vars[60], 3);
+  assert.equal(engine.hostInteraction?.kind, "saveDialog");
 });
 
 test("awaitingKey reports key needs only", () => {

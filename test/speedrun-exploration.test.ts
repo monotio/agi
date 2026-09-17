@@ -70,6 +70,60 @@ test("fork preserves parked print and the elapsed interval since the last schedu
   }
 });
 
+test("a paused walkthrough fork preserves pacing without accumulating the pause interval", () => {
+  const fixture = loadGame("synthetic");
+  fixture.container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      "if (!isset(f200)) {set(f200); assignn(v0,1); assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); assignn(v10,2); pause();} increment(v51); return;",
+      { dictionary: fixture.dict },
+    ).payload,
+  );
+  const source = new Speedrun("synthetic", 1, { fixture });
+  source.advance(6);
+  assert.equal(source.engine.timerPaused, true);
+  source.advance(60);
+  const branch = source.fork();
+  for (const run of [source, branch]) {
+    run.key(AGI_KEY.ENTER);
+    run.advance(1);
+    assert.equal(run.engine.vars[51], 1, "acknowledgement resumes the parked pass");
+    run.advance(1);
+    assert.equal(run.engine.vars[51], 1, "the pause must not create a due cycle");
+    run.advance(5);
+    assert.equal(run.engine.vars[51], 2, "the next complete pacing interval runs once");
+  }
+  compareRuns(branch, source);
+});
+
+test("walkthrough forks retain ordinary wait pacing through a following pause", () => {
+  const fixture = loadGame("synthetic");
+  fixture.container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      'if (!isset(f200)) {set(f200); assignn(v0,1); assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); assignn(v10,4); print("Wait."); pause();} increment(v51); return;',
+      { dictionary: fixture.dict },
+    ).payload,
+  );
+  const source = new Speedrun("synthetic", 1, { fixture });
+  source.advance(66);
+  source.key(AGI_KEY.ENTER);
+  source.advance();
+  assert.equal(source.engine.timerPaused, true);
+  source.advance(60);
+  const branch = source.fork();
+  for (const run of [source, branch]) {
+    run.key(AGI_KEY.ENTER);
+    run.advance();
+    assert.equal(run.engine.vars[51], 1);
+    run.advance();
+    assert.equal(run.engine.vars[51], 2, "ordinary wait pacing survived pause and fork");
+  }
+  compareRuns(branch, source);
+});
+
 test("fork keeps explicit prompt answers and container bytes independent", () => {
   const fixture = randomGame();
   const source = new Speedrun("synthetic", 1, { fixture });

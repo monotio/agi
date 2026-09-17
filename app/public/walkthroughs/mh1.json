@@ -29,9 +29,9 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 1089,
-  "virtualTicks": 40272,
-  "cycles": 9168,
+  "elapsedMs": 1107,
+  "virtualTicks": 40230,
+  "cycles": 9141,
   "actions": [
     {
       "kind": "advance",
@@ -59,7 +59,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 2044
+      "ticks": 2077
     },
     {
       "kind": "checkpoint",
@@ -83,7 +83,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 2475
+      "ticks": 2460
     },
     {
       "kind": "checkpoint",
@@ -95,7 +95,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 3303
+      "ticks": 3243
     },
     {
       "kind": "checkpoint",
@@ -423,7 +423,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 165
+      "ticks": 167
     },
     {
       "kind": "key",
@@ -431,7 +431,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 18
+      "ticks": 16
     },
     {
       "kind": "key",
@@ -1259,7 +1259,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1251
+      "ticks": 1242
     },
     {
       "kind": "key",
@@ -2335,7 +2335,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1116
+      "ticks": 1128
     },
     {
       "kind": "key",
@@ -3215,7 +3215,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1443
+      "ticks": 1440
     },
     {
       "kind": "checkpoint",
@@ -3223,7 +3223,7 @@
       "room": 128,
       "score": 0,
       "x": 149,
-      "y": 99
+      "y": 100
     },
     {
       "kind": "key",
@@ -5790,7 +5790,7 @@
       0,
       3,
       0,
-      0,
+      41,
       255,
       3,
       0,

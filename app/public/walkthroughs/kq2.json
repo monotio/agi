@@ -25,9 +25,9 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 5307,
-  "virtualTicks": 126645,
-  "cycles": 18000,
+  "elapsedMs": 7438,
+  "virtualTicks": 126363,
+  "cycles": 17953,
   "actions": [
     {
       "kind": "key",
@@ -7019,11 +7019,27 @@
     },
     {
       "kind": "key",
-      "code": 18688
+      "code": 19712
     },
     {
       "kind": "advance",
-      "ticks": 18
+      "ticks": 126
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 18176
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
     },
     {
       "kind": "key",
@@ -7031,19 +7047,11 @@
     },
     {
       "kind": "advance",
-      "ticks": 294
+      "ticks": 204
     },
     {
       "kind": "key",
-      "code": 18176
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 18176
+      "code": 18432
     },
     {
       "kind": "advance",
@@ -10839,7 +10847,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1350
+      "ticks": 936
     },
     {
       "kind": "key",
@@ -18225,8 +18233,8 @@
       0,
       0,
       2,
-      51,
-      29,
+      6,
+      35,
       0,
       0,
       3,
@@ -18238,7 +18246,7 @@
       0,
       3,
       3,
-      0,
+      41,
       0,
       3,
       0,
@@ -18269,7 +18277,7 @@
       248,
       0,
       125,
-      22,
+      69,
       7,
       16,
       49,

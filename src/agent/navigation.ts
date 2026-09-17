@@ -208,6 +208,7 @@ function navigationModel(run: NavigationState, options?: PlanOptions) {
           }
           if (dx < ego.width && c !== 3) water = false;
         }
+        if (ego.waterGate === "both") accepted = false;
         if (ego.waterGate === "on" && !water) accepted = false;
         if (ego.waterGate === "off" && water) accepted = false;
       }
@@ -271,7 +272,11 @@ function navigationModel(run: NavigationState, options?: PlanOptions) {
             return Infinity;
           if (color !== 3) water = false;
         }
-        if ((ego.waterGate === "on" && !water) || (ego.waterGate === "off" && water))
+        if (
+          ego.waterGate === "both" ||
+          (ego.waterGate === "on" && !water) ||
+          (ego.waterGate === "off" && water)
+        )
           return Infinity;
       }
       if (

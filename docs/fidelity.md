@@ -107,13 +107,13 @@ inference distinct when extending the existing hash/address-backed findings.
 Completed loader comparisons, exhaustive RNG and wander probes need not be
 rerun as new discoveries.
 
-| Investigation                          | Current evidence and remaining acceptance                                                                                                                                                                                                                                     |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Scheduler and modal timing             | Existing engine cadence tests are not original timing evidence. Obtain independently timed v2/v3 traces across timer interrupts, modal waits, sound completion, v10 changes and long host stalls; derive engine and worker regressions from those observations.               |
-| Startup and restore reconstruction     | [Save/restart cores](#original-save-and-restart-audit) are isolated routine evidence. Continue through resource replay and script resumption, independently probe startup seeding, and map every original 43-byte object-record flag before claiming `.SAV` interoperability. |
-| Complete movement and collision passes | [Motion handlers](#original-motion-and-animation-audit) establish command and animation behavior. Execute whole passes over synthetic controls, blocks, water and object baselines; record position, flags, parameter bytes, cadence and arrival/border order.                |
-| Follow retries and older profiles      | Existing handler thresholds do not establish every stationary retry path. Pin BIOS/RNG inputs and exact random-call counts at subtraction/threshold edges, then extend earlier decoded v2 builds. Add profile variants only for observed differences.                         |
-| Chip and device semantics              | [Sound software traces](#original-sound-player-audit) do not establish silicon behavior. Obtain authoritative chip evidence or controlled device emulation for zero tone, latch, attenuation/noise writes and hold behavior before changing zero-tone suppression.            |
+| Investigation                          | Current evidence and remaining acceptance                                                                                                                                                                                                                                                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scheduler and modal timing             | [Coupled original IRQ, pacing and modal execution](#original-scheduler-and-modal-timing) covers representative v2/v3 builds, delay changes, backlogs and wait classes. Full-machine interrupt arrival, physical clock accuracy and successful disk-transfer latency remain outside this evidence.                                                 |
+| Startup and restore reconstruction     | [Startup, reconstruction and main-loop control execution](#startup-and-reconstruction-execution) establishes cold defaults, lazy RNG seeding, resource replay, follower reset and same-cycle re-entry in two builds. Actual resource bodies, full DOS startup and object bit 0x8000 remain unverified; full `.SAV` interoperability is unclaimed. |
+| Complete movement and collision passes | [Original dispatcher and movement execution](#original-complete-movement-and-follow-audit) covers seven builds and synthetic terrain/object/cadence vectors. Dispatcher cases intercept graphics and cel binding; separate cases execute the actual cel setter. This does not prove rendered-pixel or full-machine gameplay fidelity.             |
+| Follow retries and older profiles      | The movement audit executes signed retry edges and stationary RNG rejection/call counts across the listed v2/v3 builds. Earlier profiles absent from that matrix remain unverified; no new profile distinction was inferred.                                                                                                                      |
+| Chip and device semantics              | [Original sound execution](#signed-adjustment-and-device-2-edges) covers byte arithmetic and device-2 edges in four builds. TI documentation establishes programming formats, but zero-divisor and undocumented continuation behavior across chip variants still require independent hardware evidence.                                           |
 
 The shared object parameter bank at `0x27..0x2a` is already evidenced; it does
 not prove the remaining flags or full save interoperability. Preserve existing
@@ -341,15 +341,17 @@ Tests: [ego-motion-control.test.ts](../test/ego-motion-control.test.ts).
 
 ### Border variables cleared
 
-The movement pass zeroes the border variables v2, v4 and v5 every cycle, so a border contact is
-visible to logic for exactly one cycle.
+Each executed movement pass zeroes the border variables v2, v4 and v5. When
+no actor belongs to the updating list, the original dispatcher skips that
+pass and leaves v2 intact; the top-level tail still clears v4/v5 separately.
+See the [complete movement audit](#original-complete-movement-and-follow-audit).
 
 Manhunter's v3 city map polls v2 for page turns.
 
 Specification: The spec clears v4 and v5 at the cycle start and v2 only on room entry.
 
-Evidence: The shipped 2.936 and 3.002.x interpreters zero all three in the movement pass, which
-opens with stores to variables 5, 4 and 2. (No load-module offsets recorded.)
+Evidence: the hash-pinned dispatcher and movement executions in that audit
+cover both the eligible-actor and empty-list branches, with entry offsets.
 
 Tests: [object-cadence.test.ts](../test/object-cadence.test.ts), [mh1.test.ts](../test/mh1.test.ts).
 
@@ -623,12 +625,82 @@ Disassembly evidence: load-module offset 0x7473..0x75B3:
 
 Tests: [sound-playback.test.ts](../test/sound-playback.test.ts).
 
+### Original scheduler and modal timing
+
+The [scheduler probe](../scripts/probe-interpreter-scheduler.py) executes
+original machine code with Unicorn 2.1.4. It applies the MZ relocation table,
+loads the matching data overlay and supplies controlled timer interrupts,
+keyboard events, synthetic resource descriptors and graphics/device boundaries.
+No original code bytes are included. This is **coupled routine and interrupt
+handler execution**, not a booted DOS machine, wall-clock benchmark or
+cycle-accurate PIT/BIOS/device model.
+
+| Build              | Executable SHA-256                                                 | Data overlay SHA-256                                               | IRQ8 / INT1Ch       | Timer / pacing      | Print / editor / menu          |
+| ------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------ | ------------------- | ------------------- | ------------------------------ |
+| KQ3 2.936, decoded | `4b50c681c224326e09933170823b846e7dbe340dafc76f07ee0af990ebb93400` | `b145061a2385d65060d944ad3a2e39a421037d11970f0dcddff4049909c04bf9` | `0x8521` / `0x854c` | `0x7efc` / `0x7f78` | `0x1ce8` / `0x0da9` / `0x93d1` |
+| MH1 3.002.107      | `ed8b58d354e10b069a1ce137c61bfa3536b2bb9c69cc7510bc864af29daf161e` | `bb22a87cd215ed52154d49754493e0eb2f6be5688411d8f3b7ac17c417ddae1f` | `0x8978` / `0x89a3` | `0x8353` / `0x83cf` | `0x1fb7` / `0x0ffe` / `0x988d` |
+
+Both builds produce these independently specified vectors:
+
+- Sixty IRQ8 invocations, with a controlled BIOS callback adapter, execute
+  twenty original INT1Ch timer services. The per-interrupt timer trace starts
+  `0,0,1,1,1,2`; twenty services advance v11 once. A synthetic two-duration
+  sound completes on the third hardware-handler invocation (`f40=false,false,true`).
+  This measures ordering and counts; it does not prove real PC wall-clock timing.
+- Pacing accepts v10 values 0, 1, 4 and 255 at the corresponding available
+  counter values, clears the counter after one admission, and consumes a
+  1,000-service backlog with one admission rather than a burst. Changing v10
+  from 4 to 2 after two accumulated services immediately admits a pass.
+- Ordinary print, text editor, menu, interactive inventory, show-object and
+  show-priority waits retain timer services while their calling script is
+  suspended. Twenty services advance v11 and pacing by one second and twenty
+  increments. Timed print with v21=1 expires after ten services. Sound completion
+  becomes visible before the ordinary wait is acknowledged.
+- Explicit pause and save/restore selector wrappers suppress script-clock and
+  pacing increments while the global timer continues. Cancelling either selector
+  clears the pause word. The save/restore probe substitutes the selector boundary
+  and exercises cancellation; it does not establish successful disk I/O timing.
+- Each elapsed script second independently normalizes seconds `>=60`, minutes
+  `>=60` and hours `>=24` after byte arithmetic. Initial `[80,80,30,7]` becomes
+  `[0,0,0,8]`; `[255,90,30,255]` becomes `[0,0,0,0]`; `[0,60,0,0]` becomes
+  `[1,0,1,0]`. Minute/hour checks are not conditional on a seconds carry.
+
+The pause word is DS `0x615` / `0x618`; pacing counters are DS `0x1784` /
+`0x1806`. Inventory waits execute at `0x3203` / `0x35b0`, show-object at
+`0x5edb` / `0x6323`, show-priority at `0x731b` / `0x7772`, restore selector
+wrappers at `0x2512` / `0x27f3` and save selector wrappers at `0x2753` /
+`0x2a46`. Show-object uses a synthetic loaded description with preview allocation
+unavailable; it establishes wait timing, not cel rendering. Graphics routines,
+keyboard devices and resource lookup boundaries are intercepted explicitly.
+
+The engine now lets ordinary modal time reach v11..v14, keeps explicit pause
+and save selectors frozen, and normalizes script-written clock fields as above.
+A mandatory host-checkpoint print field distinguishes pause from ordinary print;
+no authentic save layout changes. Worker and walkthrough pacing retain the
+pre-pause fraction/counter, including increments collected during a preceding
+ordinary modal, without accumulating suspended time. Host harness
+pause remains its separate reset policy. The host normalizes twenty pacing
+increments to 1,000ms and sixty sound increments to 1,000ms; this is not an
+assertion that every historical device had exact nominal frequency.
+
+Tests: [original-scheduler.test.ts](../test/original-scheduler.test.ts),
+[worker-original-scheduler.test.ts](../app/test/worker-original-scheduler.test.ts),
+[cycle-clock.test.ts](../test/cycle-clock.test.ts),
+[game-clock.test.ts](../test/game-clock.test.ts),
+[message-modes.test.ts](../test/message-modes.test.ts).
+The modal-clock, pause-pacing, selector-clock and out-of-range rollover
+regressions failed against the prior implementation and pass the correction.
+Full-machine boot, asynchronous interrupt arrival inside arbitrary instructions,
+BIOS/PIT wall-time accuracy and successful disk-transfer latency remain outside
+this probe's evidence.
+
 ### Timer-interrupt sound during blocking input
 
 Sound is never pumped by the main interpreter loop. The v2 (KQ1, descrambled AGI) and v3 (MH1,
 AGI 3.002.107) executables both service the sound player from a hardware timer interrupt handler,
 so music keeps playing while the interpreter is blocked inside the get.string/get.num keyboard
-editor: the game world (cycles, timers, movers) freezes, the tune does not.
+editor: script execution and movers wait, while sound and the script clock continue.
+The coupled execution evidence above verifies that distinction.
 
 Disassembly evidence (load-module offsets):
 
@@ -681,8 +753,9 @@ A host service that cannot answer synchronously — the worker, whose reply land
 later event-loop pass — throws `HostWait` out of the host method; the engine parks the
 live logic stack and returns to the event loop. While a pass is parked the application
 stays live: inspection, autosave, export, recording, editing and patching are all
-served normally, and the interpreter clock advances by wall time exactly as the
-original interpreters' timer interrupt did. A poll that lands while a pass is parked
+served normally, and the host services the interpreter clock using normalized
+timer increments. The [original scheduler audit](#original-scheduler-and-modal-timing)
+distinguishes waits that retain script time from explicit pause and save selectors. A poll that lands while a pass is parked
 may deliver the parked answer, feed the suspended save/restore dialog, dismiss an
 error window or record the observation — the suspended pass itself runs no cycle work
 until its answer arrives.
@@ -734,6 +807,91 @@ Tests: [worker-presentation.test.ts](../app/test/worker-presentation.test.ts)
 (mask publish and dismissal),
 [worker-journal.test.ts](../app/test/worker-journal.test.ts) (transition
 attribution and replay silence).
+
+### Original complete movement and follow audit
+
+`probe-interpreter-movement.py` executes original prelogic direction/rectangle
+and postlogic object dispatchers, movement, collision, footprint, placement,
+target and follow routines over independently supplied object records, cel
+dimensions, direction/priority tables and control pixels. Graphics refresh and
+the final cel-resource setter are intercepted; the latter records the selected
+cel and supplies the independently specified dimensions for that cel. Ten
+additional cases execute the original cel setter and dimension routine directly
+with synthetic valid loop/cel descriptors. This is **routine execution**, not
+full-machine execution or hardware measurement. No original instructions or game resources are published.
+
+Each of seven hash-pinned builds passed 66 independently specified scenarios
+(462 build/scenario results). Input hashes are the corresponding decoded or
+already-MZ hashes in the verified-input table above. Load-module entry offsets:
+
+| Build     | Prelogic objects | Postlogic objects | Movement | Collision | Footprint | Follow | Target | Cel setter |
+| --------- | ---------------- | ----------------- | -------- | --------- | --------- | ------ | ------ | ---------- |
+| 2.411     | 0x0611           | 0x0530            | 0x14b9   | 0x45e3    | 0x549f    | 0x0b03 | 0x1621 | 0x3bc9     |
+| 2.439     | 0x0611           | 0x0530            | 0x14c7   | 0x460d    | 0x54c9    | 0x0b03 | 0x162f | 0x3bf3     |
+| 2.917     | 0x0644           | 0x0563            | 0x150a   | 0x4719    | 0x55f0    | 0x0b36 | 0x1672 | 0x3ccb     |
+| 2.936     | 0x0644           | 0x0563            | 0x150a   | 0x4719    | 0x56b8    | 0x0b36 | 0x1672 | 0x3ccb     |
+| 3.002.086 | 0x0644           | 0x0563            | 0x1751   | 0x4b47    | 0x5ad3    | 0x0d75 | 0x18b9 | 0x4068     |
+| 3.002.107 | 0x065b           | 0x0563            | 0x1767   | 0x4b5d    | 0x5ae2    | 0x0d8b | 0x18cf | 0x407e     |
+| 3.002.149 | 0x0654           | 0x055c            | 0x1720   | 0x4974    | 0x58e5    | 0x0d84 | 0x1888 | 0x3f2f     |
+
+The executed matrix includes ordinary and corner movement, the preserved
+3.002.086 exact-zero-left variant, strict object-baseline crossing, collision
+membership/exemption, controls 0–4, water/land gates, priority-15 bypass, target
+arrival and boundary completion, movement and animation countdowns, configured
+rectangle timing, and stationary follow RNG rejection paths.
+
+Corrections established by these vectors:
+
+- Horizontal screen bounds are resolved before vertical bounds. Simultaneous
+  top/left or top/right reports border 1; bottom/left or bottom/right reports 3.
+- A non-ego target actor completing at a border restores its saved step, sets its
+  completion flag and clears target mode while preserving direction. Object 0
+  also retains its direction byte at that instant but clears v6 and hands back
+  player control; the following direction-coupling phase applies the zero.
+- Follow retry subtraction is byte `SUB` followed by signed `JGE`; the overflow
+  flag matters. Inputs `(retry,step)` `(128,1)`, `(127,255)` and `(1,128)` produce
+  `0`, `128` and `129`, respectively, without consuming random draws. Testing
+  only the wrapped result's sign is incorrect.
+- Rectangle transition enforcement shares the prelogic countdown-equals-1
+  condition with autonomous motion. Countdown 0 or 2 does not run that check.
+- Animation countdown zero disables advancement. Movement countdown zero is due.
+- Cel selection clips right overflow to `160-width` and top overflow to
+  `height-1`, applying the horizon only when that top correction occurs. It
+  preserves equal-edge, left and bottom coordinates, and suppresses the next
+  due movement after a correction.
+- Every eligible actor changes cel before any actor moves. A later actor growing
+  or shrinking can therefore change the first actor’s collision result in the
+  same pass.
+- Water and land restrictions are independent bits. Setting both rejects ordinary
+  footprints on water and land; priority 15 still bypasses the footprint test.
+  `obj.on.anything` clears both. Save packing and navigation retain the combined
+  constraint.
+- After an executed postlogic updating-object pass, ego's water/land restriction
+  bits are cleared. Non-ego restrictions persist. If no actor is eligible, the
+  dispatcher skips movement and preserves ego's restrictions and v2. The broader
+  top-level tail still separately clears v4/v5.
+
+Matching cases were preserved: stopped-update actors remain collision candidates
+(the original collision mask is drawn plus animated, 0x41; engine `update`
+represents animated membership and `earlierPartition` encodes stopped update),
+strict target bands, inclusive horizontal contact, strict baseline crossing,
+control-2 trigger latching, all-cells-water classification, priority-15 bypass,
+and movement countdown reload behavior.
+
+For stationary follow with center separation 60, equal baselines and step 4,
+seed 1 consumes two RNG draws and produces direction 5/delay 30/state 11127.
+Seed 2 rejects direction zero and consumes three draws, producing 5/6/16929.
+Seed 3 rejects two too-small distance remainders and consumes four draws,
+producing 3/15/62591. Starting at RNG zero with supplied BIOS DX 0x1234 consumes
+one BIOS read and two draws, producing 3/18/62114. This validates consumer call
+counts rather than repeating exhaustive generator arithmetic checks.
+
+Public synthetic regressions in `original-movement.test.ts` were observed
+failing before the corresponding corrections, then passing. The preserved
+stopped-update collision case was also checked against a deliberately incorrect
+partition-exclusion mutation. Object-cadence and ego-control regressions remain
+green. These probes do not establish real interrupt cadence, original rendered
+pixels, arbitrary malformed object records, or full-machine gameplay behavior.
 
 ### Original motion and animation audit
 
@@ -899,6 +1057,42 @@ snapshot restoration across ticks 67/68 and 77/78. Broader profile claims need
 additional evidence. The v3 expectation was observed failing on KQ1, exposing
 this real profile distinction; the final profile-specific probe passes all three.
 
+#### Signed adjustment and device-2 edges
+
+The expanded sound probe executes all 8,192 combinations of base attenuation
+0..15, v23 0..255 and device 1/2 in each of the three hash-pinned builds above
+and KQ3 2.936. Its corrected decoded executable hash is
+`4b50c681c224326e09933170823b846e7dbe340dafc76f07ee0af990ebb93400`,
+with overlay hash
+`b145061a2385d65060d944ad3a2e39a421037d11970f0dcddff4049909c04bf9`.
+The KQ3 probe enters sound at 0x51d3, substitutes lookup at 0x50d8,
+ticks at 0x801c and stops at 0x5234; it also passes the prior lifecycle,
+noise and 68-step envelope expectations.
+These are isolated player-routine executions with captured port writes, not
+audible chip measurements. KQ1's adjustment sequence at 0x80f3..0x8108 adds
+into an 8-bit register and uses signed comparisons; the corresponding v3
+execution produces the same boundary outputs. The engine now preserves those
+byte operations instead of applying an unsigned saturating sum.
+
+Representative first-tick `(device, base, v23) → port byte` vectors:
+`(1,0,128) → 0x90`, `(1,0,255) → 0xff`, `(1,7,127) → 0x94`,
+`(2,0,255) → 0x91`, `(2,14,128) → 0x9e`, `(2,8,250) → 0x92`.
+High adjustments can affect register-selector bits. Base 15 bypasses the
+adjustment; hold/noise cases retain the already-established bypass behavior.
+The synthetic [sound tests](../test/sound-playback.test.ts) failed against the
+unsigned clamp and pass with the byte-accurate calculation.
+
+#### Chip evidence boundary
+
+The [TI SN76489AN datasheet](https://ftp.whtech.com/datasheets%20and%20manuals/Datasheets%20-%20TI/SN76489.pdf),
+sections 4–6, documents two-byte tone programming, continued tone updates while
+the same register remains selected, and single-byte attenuation/noise writes.
+Those documented formats do not establish what every chip variant does with
+a continuation byte after an attenuation/noise latch, nor resolve divisor-zero
+behavior for PCjr/Tandy devices. No independent silicon measurement was made.
+The browser's analog/noise synthesis remains an approximation; software port
+traces establish command bytes and completion behavior only.
+
 Original tone-zero output is also established: the player emits two 0x00 port
 bytes before attenuation on device 1. The current suppression is therefore a
 command-stream divergence, not original-interpreter behavior. This does not
@@ -959,15 +1153,12 @@ RNG is zero. The two builds passed 24 combined save/restore and restart cases.
 
 Restart peripheral intercepts are SQ2 `0x5234,0x382e,0x3726,0x30d6,0x930e,0x37f7`
 and GR1 `0x5467,0x3b00,0x3ad9,0x3a29,0x341c,0x9648`; synthetic resource-loading
-intercepts are SQ2 0x3113 and GR1 0x3459. Do not extend the conclusion to
-unexecuted post-restore reconstruction, startup or other profiles.
+intercepts are SQ2 0x3113 and GR1 0x3459. The reconstruction and startup investigation below extends this boundary in
+these two builds; it does not establish other profiles or full-machine startup.
 
-Block 5's loaded-logic resume records are the restore's authoritative
-loaded-logic set: the replay sequence's load-logic pairs cover only
-game-issued `load.logics`, while `call`/`call.v` dispatch and `new.room` load
-without pairs. Restore rebuilds the set in record order so every recorded
-logic is resident at its saved scan-resume offset — a `call` back into a
-scan-parked logic resumes there, not at the bytecode entry.
+Block 5 supplies resume offsets for loaded logic; the reconstruction execution
+below establishes which resources actually load. Exact host history separately
+restores the complete captured cache boundary.
 
 Acceptance contract: keep RNG and BIOS-reseed-input position out of
 original `.SAV` blocks; preserve the current stream across authentic save,
@@ -977,15 +1168,127 @@ consume→save→consume→restore→consume against the current stream, and res
 at RNG zero followed by a random call: restart consumes no BIOS input; the
 subsequent call consumes exactly one. Protect f9/f6 and timing-word behavior
 through record→seek→resume. Original save block 2 copies raw object records;
-replace the parameter bank using the proven offsets above. Complete
-object-flag mapping and full `.SAV` interoperability remain unverified, alongside
-startup and post-restore resource reconstruction. The inspected engine already
-preserves host RNG on restart and excludes it from authentic saves.
+replace the parameter bank using the proven offsets above. Full `.SAV` interoperability remains unverified: the original flag mapping
+below is distinct from the engine’s private packing, and bit 0x8000 has no
+established operational meaning. The engine preserves host RNG on restart
+and excludes it from authentic saves.
 
 ```sh
 python scripts/probe-interpreter-lifecycle.py /tmp/agi-fixed-sq2.bin
 python scripts/probe-interpreter-lifecycle.py games/gr1/AGI
 ```
+
+#### Startup and reconstruction execution
+
+The lifecycle probe now executes game-state startup, restore reconstruction
+control flow, opcode return and object flag transitions in corrected decoded
+SQ2 2.936 and GR1 3.002.149. The executable hashes above remain authoritative.
+Matching AGIDATA.OVL hashes are
+`b145061a2385d65060d944ad3a2e39a421037d11970f0dcddff4049909c04bf9`
+(SQ2) and
+`914990f09b49109a34d511011c7764abb5575581fbc190c8cebc930b1027f804`
+(GR1). This is routine execution with controlled resource returns, not full
+DOS-machine execution. Hardware initialization, disk/resource bodies, drawing
+and presentation are explicitly intercepted; exact addresses are in the probe's
+profile tables and reports. Main-loop control is separately executed with
+controlled logic return values; game LOGIC bodies remain outside that probe.
+
+| Executed boundary                   | SQ2 2.936      | GR1 3.002.149  |
+| ----------------------------------- | -------------- | -------------- |
+| Game-state startup                  | 0x0f4e         | 0x115c         |
+| Main-loop control                   | 0x0150         | 0x0149         |
+| Reconstruction                      | 0x681c         | 0x6b94         |
+| Successful restore tail through RET | 0x2647..0x26af | 0x28c7..0x2941 |
+| Logic cache reset                   | 0x10f7         | 0x1305         |
+| Resume lookup                       | 0x13a5         | 0x15ba         |
+| animate.obj body                    | 0x04f5         | 0x04ee         |
+| draw body                           | 0x0a06         | 0x0c54         |
+| erase body                          | 0x0aab         | 0x0cf9         |
+| unanimate.all                       | 0x053d         | 0x0536         |
+| Stationary/previous-position update | 0x0488         | 0x0481         |
+
+Both hash-pinned overlays initialize the RNG word to zero. The executed
+startup core does not write that word or request BIOS time. After startup,
+the first random call consumes exactly one controlled BIOS DX input. Inputs
+`0, 1, 0x1234, 0xffff` produce RNG words `1, 0x7c4e, 0xa9a5, 0x83b4`.
+The authored encrypted OBJECT fixture produces two zeroed 43-byte records
+with table indices 0 and 1; startup sets f5 and f9 and assigns v24=41.
+This does not establish
+full executable-entry or hardware initialization behavior; those boundaries
+remain explicit gaps.
+
+Reconstruction executes all nine replay kinds, including the three additional
+pairs consumed by kind 5, with recording disabled, then re-enables recording.
+Resource loading and rendering are intercepted; actual cache reset, allocator
+reset, resume lookup, object bookkeeping and flag writes execute. It retains
+the existing global-logic cache head and truncates later cached nodes. With
+saved resume records for logic 21 at offset 0x33 and an unreplayed logic 99,
+only the kind-0 pair for 21 requests a load and receives offset 0x33; record
+99 issues no load. Block 5 is a resume lookup, **not an authoritative load
+list**. This corrects the previous stronger claim. Host history intentionally
+retains the stronger complete loaded-logic boundary separately.
+
+For drawn, animated followers, reconstruction resets record byte 0x29 (the
+follow retry byte) to 255. It preserves the other three parameter bytes,
+position and saved flags. Undrawn followers and other motion modes retain the
+saved retry byte. The matrix covers seven flag words and all four motion
+modes in each build. The successful restore tail sets f12 and returns zero,
+aborting the old bytecode continuation. The engine now applies these effects
+to authentic restores; exact host history retains its saved retry and f12.
+Public synthetic tests observe f12 in the first resumed script and its clearing
+at the normal cycle tail.
+
+The original main loops execute with controlled logic-call results `[0,1]`,
+representing the separately proven restore/restart zero return followed by an
+ordinary completed logic pass. Both execute one input phase and one pre-logic
+motion phase, call logic twice without an intervening scheduler wait, then
+execute one post-logic movement phase. The second logic observes f6 or f12;
+the same cycle tail clears that flag. The engine now resumes successful
+restore/restart inside its current logic loop. Quit and refused authoring
+retain their separate stop behavior. Direct host image restoration still
+returns without running game logic. New synthetic regressions fail when
+resumption is delayed to another tick and pass after this correction.
+
+Startup now initializes f9=1 and v24=41; accepted restart restores v24=41
+while preserving the pre-restart sound preference. Hosts can still apply a
+player-selected sound preference after construction.
+
+The opcode dispatch tables (SQ2 DS0x061d; GR1 DS0x0440) select the original
+handler addresses used by the flag probes. Each setter/clearer executes from
+both zero and all-set flag words. Draw, erase and animate transitions plus
+stationary updates supply additional flag evidence. The current mapping is:
+
+| Original bit | Meaning                                            | Evidence                                        |
+| ------------ | -------------------------------------------------- | ----------------------------------------------- |
+| 0x0001       | Drawn                                              | Draw sets; erase clears                         |
+| 0x0002       | Ignore configured block rectangle                  | ignore.blocks / observe.blocks                  |
+| 0x0004       | Fixed priority                                     | set.priority / release.priority                 |
+| 0x0008       | Ignore horizon                                     | ignore.horizon / observe.horizon                |
+| 0x0010       | Updating partition                                 | start.update / stop.update; draw sets           |
+| 0x0020       | Cycling                                            | start.cycling / stop.cycling                    |
+| 0x0040       | Animated membership                                | animate.obj; unanimate.all clears               |
+| 0x0080       | Configured-rectangle crossing blocked              | Complete movement probe                         |
+| 0x0100       | Water requirement                                  | obj.on.water; obj.on.anything clears            |
+| 0x0200       | Ignore other objects                               | ignore.objs / observe.objs                      |
+| 0x0400       | Pending reposition/cel-change movement suppression | Complete movement probe                         |
+| 0x0800       | Land requirement                                   | obj.on.land; obj.on.anything clears             |
+| 0x1000       | Initial animation delay                            | end.of.loop / reverse.loop set; draw clears     |
+| 0x2000       | Fixed loop                                         | fix.loop / release.loop                         |
+| 0x4000       | Stationary on the due movement cadence             | Original refresh-list pass                      |
+| 0x8000       | No operational meaning established                 | Preserved by tested handlers; not proven unused |
+
+Repeated animate.obj preserves already animated records even when their update
+partition is stopped. Erase preserves animation membership; unanimate.all clears
+only drawn/animated bits. The engine's `active` means drawn, `update` means
+animated membership, and `earlierPartition` is inverse update-partition selection.
+These names and the engine's packed save bits are distinct from the original
+bit assignments. Original raw save-bit interoperability remains unclaimed,
+particularly for 0x8000 and combinations not established by execution.
+
+Across the two builds the probe checks 204 controlled vectors: preserved I/O
+and restart cases, 56 reconstruction/return cases, 12 object lifecycle cases,
+24 stationary cases, eight startup cases, 76 opcode flag mutations and four
+main-loop continuation cases.
 
 ### Original parser unknown-word audit
 

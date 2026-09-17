@@ -383,10 +383,15 @@ export class SoundPlayback {
             // hold transition, held ticks and the envelope-free noise channel
             // all reuse the stored value without it (docs/fidelity.md,
             // sound player audit).
-            attenuation = Math.min(15, attenuation + adjustment);
+            // The original adds into AL and compares it as signed, so high
+            // v23 values can survive the clamp or wrap into another register
+            // selector (docs/fidelity.md, sound player audit).
+            attenuation = (attenuation + adjustment) & 255;
+            if (attenuation > 15 && attenuation < 128) attenuation = 15;
           }
         }
-        if (this.device === 2 && attenuation < 8) attenuation += 2;
+        if (this.device === 2 && (attenuation < 8 || attenuation >= 128))
+          attenuation = (attenuation + 2) & 255;
       }
       outputs.push({ kind: "psg", bytes: [selector | attenuation] });
     }

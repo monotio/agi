@@ -341,7 +341,7 @@ test("touch acknowledgements resume modal continuation without an ordinary logic
           vars: [
             { id: 40, value: 2 },
             { id: 41, value: 1 },
-            { id: 11, value: 0 },
+            { id: 11, value: 1 },
           ],
           printed: "Touch to continue",
         },

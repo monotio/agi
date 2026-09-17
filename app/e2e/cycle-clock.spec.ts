@@ -152,7 +152,8 @@ test("worker honors v10 pace while modal keys and pause remain responsive", asyn
   expect(observations.clockFast).toBeGreaterThanOrEqual(2);
   expect(Math.abs(observations.clockFast - observations.clockSlow)).toBeLessThanOrEqual(1);
   expect(observations.clockPausedEnd).toBe(observations.clockPausedAt);
-  expect(observations.clockDuringModal).toBe(0);
+  expect(observations.clockDuringModal).toBeGreaterThanOrEqual(1);
+  expect(Math.abs(observations.clockFast - observations.clockDuringModal!)).toBeLessThanOrEqual(1);
   expect(observations.elapsed).toBeGreaterThan(1700);
   expect(observations.elapsed).toBeLessThan(3000);
   expect(observations.fastDelta / observations.slowDelta).toBeGreaterThan(3.2);

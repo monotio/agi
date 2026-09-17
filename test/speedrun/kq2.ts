@@ -515,6 +515,7 @@ export function kq2Door1(run: Speedrun): void {
   run.walkDirection("E", () => run.engine.vars[95] === 0, "walking out of water in room 15");
 
   // 10. Room 15 -> North 3 times: 15 -> 8 -> 1 -> 43
+  run.walkDirection("E", () => run.state().x >= 100, "clear the curved shoreline");
   run.walkPath({ x0: 70, x1: 90, y0: 42, y1: 45 });
   run.exit("N", 8);
 

@@ -78,7 +78,7 @@ test("spawn checks the entire initialized ego baseline instead of one priority p
   assert.match(result.error ?? "", /82.*120|baseline/);
 });
 
-test("spawn water restrictions use every baseline cell, including mixed land and water", () => {
+test("spawn inspection uses the post-pass gate after water-constrained initialization", () => {
   for (const allWater of [false, true]) {
     for (const gate of ["land", "water"]) {
       const state = world(`obj.on.${gate}(0);`);
@@ -88,7 +88,10 @@ test("spawn water restrictions use every baseline cell, including mixed land and
         Uint8Array.of(0xf2, 3, 0xf6, allWater ? 80 : 82, 120, 82, 120, 0xff),
       );
       const result = playtestRoom(state, { room: 1, spawnX: 80, spawnY: 120 });
-      assert.equal(result.success, gate === "water" ? allWater : !allWater, result.error ?? "");
+      // A water-only initialization needs one complete legal baseline. Once
+      // initialized, the original post-pass clear expires the ego restriction,
+      // so spawn inspection must not retain an earlier land-only command.
+      assert.equal(result.success, gate === "land" || allWater, result.error ?? "");
     }
   }
 });

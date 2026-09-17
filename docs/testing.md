@@ -239,10 +239,10 @@ when they do not need a timeline marker. The narrated tapes have these costs:
 
 | Route                | Host polls | Logic cycles | Highlights |
 | -------------------- | ---------: | -----------: | ---------: |
-| KQ1                  |    110,029 |       15,846 |         37 |
-| KQ2                  |    126,645 |       18,000 |         34 |
-| SQ1                  |    132,506 |       17,630 |         55 |
-| MH1 Day 1            |     40,272 |        9,168 |         25 |
+| KQ1                  |    110,047 |       15,849 |         37 |
+| KQ2                  |    126,363 |       17,953 |         34 |
+| SQ1                  |    132,518 |       17,632 |         55 |
+| MH1 Day 1            |     40,230 |        9,141 |         25 |
 | Adventure Department |      1,367 |           82 |          4 |
 
 The inexpensive [artifact quality check](../app/test/walkthrough-quality.test.ts)

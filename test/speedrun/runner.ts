@@ -328,11 +328,13 @@ export class Speedrun {
       if (previous?.kind === "advance") previous.ticks++;
       else this.actions.push({ kind: "advance", ticks: 1 });
       this.ticks++;
+      this.clockPollTick = this.ticks;
+      if (this.engine.timerPaused) this.clock.freeze((this.ticks * 1000) / 60);
+      else this.clock.advance((this.ticks * 1000) / 60);
       this.engine.advanceClock(1000 / 60);
       this.engine.soundTick();
       if (this.engine.modalKind !== null || this.engine.continuationPending) this.engine.tick();
       else {
-        this.clockPollTick = this.ticks;
         if (this.clock.poll((this.ticks * 1000) / 60, this.engine.vars[10]!)) {
           this.engine.tick();
           this.cycles++;
