@@ -105,6 +105,34 @@ describe("sound playback clock and profiles", () => {
     // originals never re-apply it once the envelope holds (docs/fidelity.md).
     assert.deepEqual(bytes(held.tick(true, 1).outputs), [0x9d]);
   });
+  it("preserves original signed-byte adjustment and device-2 overflow writes", () => {
+    // Independently executed first-tick port bytes; see docs/fidelity.md,
+    // original sound player audit. High v23 values may select another register.
+    const vectors = [
+      [1, 0, 127, 0x9f],
+      [1, 0, 128, 0x90],
+      [1, 0, 250, 0xfa],
+      [1, 0, 255, 0xff],
+      [1, 7, 127, 0x94],
+      [1, 8, 250, 0x90],
+      [2, 0, 128, 0x92],
+      [2, 0, 250, 0xfc],
+      [2, 0, 255, 0x91],
+      [2, 14, 127, 0x9d],
+      [2, 14, 128, 0x9e],
+      [2, 8, 250, 0x92],
+      [2, 15, 255, 0x9f],
+    ] as const;
+    for (const profile of ["2.917", "2.936", "3.002.102", "3.002.149"] as const)
+      for (const [device, base, adjustment, expected] of vectors) {
+        const sound = player(profile, device, 120, 0x90 | base);
+        assert.equal(
+          bytes(sound.tick(true, adjustment).outputs)[2],
+          expected,
+          `${profile}: device ${device}, base ${base}, v23 ${adjustment}`,
+        );
+      }
+  });
   it("leaves noise envelopes disabled and silences each terminated channel", () => {
     const data = payload(2, 0xf4);
     data[0] = 15;

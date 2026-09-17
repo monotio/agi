@@ -6,6 +6,7 @@ import { getKnownGameByHash } from "../src/games/knownGames.ts";
 const TARGET_HASHES = [
   KNOWN_GAME_HASH.KQ1,
   KNOWN_GAME_HASH.KQ2,
+  KNOWN_GAME_HASH.KQ3,
   KNOWN_GAME_HASH.SQ1,
   KNOWN_GAME_HASH.MH1,
   KNOWN_GAME_HASH.SYNTHETIC,

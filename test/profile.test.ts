@@ -443,11 +443,13 @@ describe("engine selects behavior by profile field", () => {
     // 2.411 always displays the confirmation prompt; other profiles accept
     // restart while f16 is set (spec: action 0x80).
     const SOURCE = `
+      if (isset(f6)) { assignn(v211, 1); return; }
       if (!isset(f220)) { set(f220); set(f16); assignn(v210, 9); restart.game(); }
       return;
     `;
     const later = boot(SOURCE).engine;
     assert.equal(later.vars[210], 0, "2.936 restarted, clearing the variable");
+    assert.equal(later.vars[211], 1, "resumed logic sees restart before the cycle ends");
     const prompt = boot(SOURCE, "2.411").engine;
     assert.equal(prompt.vars[210], 9, "2.411 does not restart without confirmation");
   });

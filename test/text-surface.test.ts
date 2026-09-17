@@ -160,7 +160,7 @@ test("status line: score at column 1 and sound state at column 30, black on whit
     DICT,
   );
   engine.tick();
-  assert.equal(engine.textRow(0), " Score: 5 of 42" + spaces(15) + "Sound:off ");
+  assert.equal(engine.textRow(0), " Score: 5 of 42" + spaces(15) + "Sound:on  ");
   assert.ok(row(engine, 0).attrs.every((a) => a === BLACK_ON_WHITE));
   // Turning it off clears the row to transparent cells.
   engine.execute(0);
@@ -316,7 +316,7 @@ test("text.screen fills the surface with the text attribute; graphics restores s
   assert.equal(engine.textModeActive, false);
   assert.equal(engine.textRow(2), spaces(40));
   assert.equal(row(engine, 2).chars[4], 0, "transparent again");
-  assert.equal(engine.textRow(0), " Score: 0 of 0" + spaces(16) + "Sound:off ", "status redrawn");
+  assert.equal(engine.textRow(0), " Score: 0 of 0" + spaces(16) + "Sound:on  ", "status redrawn");
   assert.ok(
     row(engine, 22).chars.every((c) => c === 0x20),
     "input row redrawn",
@@ -476,6 +476,7 @@ test("status redraw preserves game text until score or sound changes", () => {
     new Host(),
     DICT,
   );
+  engine.setSoundEnabled(false);
   engine.tick();
   assert.equal(engine.textRow(0).slice(18, 22), "TIME");
   engine.tick();
@@ -544,6 +545,7 @@ test("room reentry retains the pre-logic sound comparison for the final status r
   `);
   container.putResource("logic", 1, assembleLogic("return;", { dictionary: DICT }).payload);
   const engine = new Engine(container, new Host(), DICT);
+  engine.setSoundEnabled(false);
   engine.tick();
   assert.equal(engine.vars[0], 1);
   assert.equal(engine.flags[9], 1);

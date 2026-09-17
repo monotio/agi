@@ -12,14 +12,19 @@ import { AGI_KEY } from "../runtime/keys.ts";
 import { frameToPng, framesToContactSheet, textRows, type AgentFrame } from "./frames.ts";
 import {
   DIRECTION_SYNONYMS,
-  directionForDelta,
+  DIRECTION_KEYS,
   randomSource,
   validateObjectAssertion,
   validateUntilPredicate,
   validateVarAssertion,
   type UntilPredicate,
 } from "./gameTestSteps.ts";
-import { planWalk, renderNavigationSnapshot, validateTarget, type Target } from "./navigation.ts";
+import { renderNavigationSnapshot, validateTarget, type Target } from "./navigation.ts";
+import {
+  NavigationController,
+  type NavigationGoal,
+  type NavigationOutcome,
+} from "./navigationController.ts";
 import { resourceSetHint } from "./authoringState.ts";
 import type { AgentSessionState, AgentToolResult } from "./tools.ts";
 
@@ -115,6 +120,19 @@ export class Simulation {
   keyPresses = 0;
   private recordedCalls: RecordedHostCall[] | null = null;
   navigationFailureTarget: Target | null = null;
+  private queuedDirection: number | null = null;
+
+  get pendingNavigationDirection(): number | null {
+    return this.queuedDirection;
+  }
+
+  /** Queue the same toggle key a player would press, including a pending stop. */
+  directionInput(direction: number): void {
+    const current = this.queuedDirection ?? this.engine.vars[6]!;
+    if (direction === current) return;
+    this.keys.push(DIRECTION_KEYS[direction || current]!);
+    this.queuedDirection = direction;
+  }
   /** Evidence origin of the run: boot, recorded replay, or a restored live checkpoint. */
   originKind: "boot" | "recorded" | "candidate" = "boot";
   /** Cache hint of the staged resource set this simulation ran against. */
@@ -294,6 +312,7 @@ export class Simulation {
       this.engine.soundTick();
     }
     this.engine.tick();
+    this.queuedDirection = null;
   }
   captureCheckpoint(stepIndex: number, tick: number): void {
     const raw = this.engine.getFrame();
@@ -387,6 +406,10 @@ export class Simulation {
         // Fall back gracefully if snapshot generation cannot run
       }
     }
+    const navigation = this.steps
+      .slice()
+      .reverse()
+      .find((step) => step["navigation"] != null)?.["navigation"] as NavigationOutcome | undefined;
     return {
       success,
       ...(error
@@ -408,6 +431,19 @@ export class Simulation {
           "Ticks are logic cycles. Timing begins at boot; playtest_room restarts the estimate at the action sequence after room setup. Positive v10 uses 50 ms increments; v10=0 is host-rate-dependent and has no elapsed-time claim.",
         missingRooms: this.missingRooms,
         steps: this.steps,
+        ...(navigation === undefined
+          ? {}
+          : {
+              navigation: {
+                status: navigation.status,
+                room: navigation.room,
+                x: navigation.x,
+                y: navigation.y,
+                inputEnabled: navigation.inputEnabled,
+                movementControlEnabled: navigation.movementControlEnabled,
+                counters: navigation.counters,
+              },
+            }),
         state: {
           profile: state.profile,
           room: state.room,
@@ -417,6 +453,7 @@ export class Simulation {
           modalKind: state.modalKind,
           inventory: state.inventory,
           inputEnabled: state.inputEnabled,
+          movementControlEnabled: engine.movementControlEnabled,
           pictureShown: state.pictureShown,
           activeFlags: state.flags.flatMap((value, id) => (value ? [id] : [])),
           nonzeroVariables: state.vars.flatMap((value, id) => (value ? [{ id, value }] : [])),
@@ -458,18 +495,21 @@ function footprint(engine: Engine, x: number, y: number): string[] {
   if (ego.observeHorizon && y <= engine.horizon)
     issues.push(`Baseline y=${y} must be below horizon ${engine.horizon}.`);
   if (!(ego.fixedPriority && ego.priority === 15)) {
+    let allWater = true;
     for (let dx = 0; dx < ego.width; dx++) {
       const priority = engine.surface.priority[y * 160 + x + dx];
+      if (priority !== 3) allWater = false;
       if (priority === 0 || (priority === 1 && ego.observeBlocks)) {
         issues.push(`Ego baseline intersects barrier priority ${priority} at (${x + dx},${y}).`);
         break;
       }
     }
-    const last = engine.surface.priority[y * 160 + x + ego.width - 1];
-    if (ego.waterGate === "on" && last !== 3)
-      issues.push("Ego requires water, but the final baseline cell is not water.");
-    if (ego.waterGate === "off" && last === 3)
-      issues.push("Ego requires land, but the final baseline cell is water.");
+    if (ego.waterGate === "both")
+      issues.push("Ego simultaneously requires water and land, so no baseline is acceptable.");
+    if (ego.waterGate === "on" && !allWater)
+      issues.push("Ego requires water across its entire baseline.");
+    if (ego.waterGate === "off" && allWater)
+      issues.push("Ego requires land, but its entire baseline is water.");
   }
   if (ego.observeObjects) {
     for (let i = 1; i < engine.screenObjects.length; i++) {
@@ -574,21 +614,11 @@ export function playtestRoom(
           );
         return 0;
       }
-      if (action["action"] === "walkWaypoints") {
-        const waypoints = action["waypoints"];
-        return action["ticks"] == null
-          ? Array.isArray(waypoints)
-            ? Math.max(600, waypoints.length * 300)
-            : 1200
-          : integer(action["ticks"], `steps[${index}].ticks`, 1, 60000);
-      }
-      if (action["action"] === "walkPath") {
-        return action["ticks"] == null
-          ? 1200
-          : integer(action["ticks"], `steps[${index}].ticks`, 1, 60000);
-      }
       return action["ticks"] == null
-        ? action["action"] === "walkTo" || (action["action"] === "wait" && action["until"] != null)
+        ? action["action"] === "walkTo" ||
+          action["action"] === "walkPath" ||
+          action["action"] === "walkWaypoints" ||
+          (action["action"] === "wait" && action["until"] != null)
           ? 600
           : 1
         : integer(action["ticks"], `steps[${index}].ticks`, 1, 60000);
@@ -698,13 +728,16 @@ export function playtestRoom(
       let walkTarget: { x: number; y: number } | null = null;
       let walkTargetRect: Target | null = null;
       let walkWaypointsList: { x: number; y: number }[] | null = null;
-      let currentWaypointIndex = 0;
+      let navigationGoal: NavigationGoal | null = null;
       let until: UntilPredicate | null = null;
       if (
         (engine.modalKind || engine.continuationPending) &&
         action !== "enter" &&
         action !== "key" &&
-        action !== "wait"
+        action !== "wait" &&
+        action !== "walkTo" &&
+        action !== "walkWaypoints" &&
+        action !== "walkPath"
       ) {
         while (engine.modalKind) engine.ackPrint();
         if (engine.continuationPending) simulation.tick();
@@ -739,7 +772,7 @@ export function playtestRoom(
           );
         }
         moveDirection = dir;
-        engine.vars[6] = dir;
+        simulation.directionInput(dir);
         simulation.recordAction(`direction(${dir})`);
       } else if (action === "walkTo") {
         walkTarget = {
@@ -747,21 +780,11 @@ export function playtestRoom(
           y: integer(step["y"], `steps[${index}].y`, 0, 167),
         };
         simulation.recordAction(`walkTo(${walkTarget.x},${walkTarget.y})`);
-        const navState = {
-          engine,
-          state: () => ({
-            room: engine.vars[0]!,
-            x: engine.screenObjects[0]!.x,
-            y: engine.screenObjects[0]!.y,
-          }),
+        navigationGoal = {
+          kind: "position",
+          target: { x0: walkTarget.x, x1: walkTarget.x, y0: walkTarget.y, y1: walkTarget.y },
+          planned: true,
         };
-        const plan = planWalk(navState, {
-          x0: walkTarget.x,
-          x1: walkTarget.x,
-          y0: walkTarget.y,
-          y1: walkTarget.y,
-        });
-        walkWaypointsList = plan.found ? plan.waypoints : [{ x: walkTarget.x, y: walkTarget.y }];
       } else if (action === "walkWaypoints") {
         const rawWps = step["waypoints"];
         if (!Array.isArray(rawWps) || !rawWps.length)
@@ -780,6 +803,7 @@ export function playtestRoom(
           };
         });
         simulation.recordAction(`walkWaypoints(${walkWaypointsList.length} pts)`);
+        navigationGoal = { kind: "waypoints", points: walkWaypointsList };
       } else if (action === "walkPath") {
         const rawTarget = object(step["target"], `steps[${index}].target`);
         walkTargetRect = {
@@ -792,23 +816,7 @@ export function playtestRoom(
         simulation.recordAction(
           `walkPath(${walkTargetRect.x0}..${walkTargetRect.x1},${walkTargetRect.y0}..${walkTargetRect.y1})`,
         );
-        const navState = {
-          engine,
-          state: () => ({
-            room: engine.vars[0]!,
-            x: engine.screenObjects[0]!.x,
-            y: engine.screenObjects[0]!.y,
-          }),
-        };
-        const plan = planWalk(navState, walkTargetRect);
-        if (!plan.found) {
-          simulation.navigationFailureTarget = walkTargetRect;
-          const walker = engine.screenObjects[0]!;
-          throw new Error(
-            `steps[${index}]: walkPath found no passable route to target (${walkTargetRect.x0}..${walkTargetRect.x1},${walkTargetRect.y0}..${walkTargetRect.y1}); ego is at (${walker.x},${walker.y}).`,
-          );
-        }
-        walkWaypointsList = plan.waypoints;
+        navigationGoal = { kind: "position", target: walkTargetRect, planned: true };
       } else if (action === "answer") {
         if (
           typeof step["answer"] !== "string" ||
@@ -870,7 +878,22 @@ export function playtestRoom(
       let positionChanges = 0;
       let previousEgoX = engine.screenObjects[0]!.x;
       let previousEgoY = engine.screenObjects[0]!.y;
-      let reachedTarget = false;
+      const navigation =
+        navigationGoal === null
+          ? null
+          : new NavigationController(engine, navigationGoal, {
+              now: () => Date.now(),
+              ...(simulation.pendingNavigationDirection === null
+                ? {}
+                : { pendingDirection: simulation.pendingNavigationDirection }),
+              budgets: {
+                hostPolls: Math.min(ticks, simulation.cycleBudget - simulation.cycles),
+                logicCycles: Math.min(ticks, simulation.cycleBudget - simulation.cycles),
+                movementUpdates: ticks,
+                wallMs: 5000,
+              },
+            });
+      let navigationOutcome: NavigationOutcome | null = null;
       for (let cycle = 0; cycle < ticks; cycle++) {
         if (action === "wait") {
           if (until !== null && untilMet(engine, until)) break;
@@ -880,47 +903,14 @@ export function playtestRoom(
               "needs_input",
             );
         }
-        if (walkTargetRect !== null) {
-          const walker = engine.screenObjects[0]!;
-          if (
-            walker.x >= walkTargetRect.x0 &&
-            walker.x <= walkTargetRect.x1 &&
-            walker.y >= walkTargetRect.y0 &&
-            walker.y <= walkTargetRect.y1
-          ) {
-            reachedTarget = true;
-            break;
-          }
-        }
-        if (walkWaypointsList !== null) {
-          const walker = engine.screenObjects[0]!;
-          while (
-            currentWaypointIndex < walkWaypointsList.length &&
-            walker.x === walkWaypointsList[currentWaypointIndex]!.x &&
-            walker.y === walkWaypointsList[currentWaypointIndex]!.y
-          ) {
-            currentWaypointIndex++;
-          }
-          if (currentWaypointIndex >= walkWaypointsList.length) {
-            if (walkTarget !== null) {
-              reachedTarget = walker.x === walkTarget.x && walker.y === walkTarget.y;
-            } else if (walkTargetRect !== null) {
-              reachedTarget =
-                walker.x >= walkTargetRect.x0 &&
-                walker.x <= walkTargetRect.x1 &&
-                walker.y >= walkTargetRect.y0 &&
-                walker.y <= walkTargetRect.y1;
-            } else {
-              reachedTarget = true;
-            }
-            if (reachedTarget) break;
-          } else {
-            const wp = walkWaypointsList[currentWaypointIndex]!;
-            engine.vars[6] = directionForDelta(
-              Math.sign(wp.x - walker.x),
-              Math.sign(wp.y - walker.y),
-            );
-          }
+        if (navigation) {
+          const decision = navigation.next({
+            hostPolls: simulation.cycles,
+            logicCycles: simulation.cycles,
+          });
+          if (decision.direction !== null) simulation.directionInput(decision.direction);
+          navigationOutcome = decision.outcome;
+          if (navigationOutcome !== null) break;
         }
         simulation.tick();
         observed["completedTicks"] = cycle + 1;
@@ -937,58 +927,41 @@ export function playtestRoom(
         }
         if (captureTicks.includes(cycle + 1)) simulation.captureCheckpoint(index, cycle + 1);
       }
-      if (walkWaypointsList !== null) {
-        engine.vars[6] = 0;
-        engine.screenObjects[0]!.direction = 0;
-        const walker = engine.screenObjects[0]!;
-        if (walkTarget !== null) {
-          reachedTarget ||= walker.x === walkTarget.x && walker.y === walkTarget.y;
-          observed["walkTo"] = { ...walkTarget, reached: reachedTarget };
-          if (!reachedTarget) {
-            simulation.navigationFailureTarget = {
-              x0: walkTarget.x,
-              y0: walkTarget.y,
-              x1: walkTarget.x,
-              y1: walkTarget.y,
-            };
-            throw new Error(
-              `steps[${index}]: walkTo did not reach (${walkTarget.x},${walkTarget.y}) within ${ticks} cycles; ego stopped at (${walker.x},${walker.y}).`,
-            );
-          }
-        } else if (walkTargetRect !== null) {
-          reachedTarget ||=
-            walker.x >= walkTargetRect.x0 &&
-            walker.x <= walkTargetRect.x1 &&
-            walker.y >= walkTargetRect.y0 &&
-            walker.y <= walkTargetRect.y1;
-          observed["walkPath"] = { target: walkTargetRect, reached: reachedTarget };
-          if (!reachedTarget) {
-            simulation.navigationFailureTarget = walkTargetRect;
-            throw new Error(
-              `steps[${index}]: walkPath did not reach target rectangle (${walkTargetRect.x0}..${walkTargetRect.x1},${walkTargetRect.y0}..${walkTargetRect.y1}) within ${ticks} cycles; ego stopped at (${walker.x},${walker.y}).`,
-            );
-          }
-        } else if (action === "walkWaypoints") {
-          reachedTarget ||= currentWaypointIndex >= walkWaypointsList.length;
+      if (navigation) {
+        if (navigationOutcome === null) {
+          const decision = navigation.next({
+            hostPolls: simulation.cycles,
+            logicCycles: simulation.cycles,
+          });
+          if (decision.direction !== null) simulation.directionInput(decision.direction);
+          navigationOutcome = decision.outcome;
+        }
+        observed["navigation"] = navigationOutcome;
+        const reached = navigationOutcome?.status === "reached";
+        if (walkTarget) observed["walkTo"] = { ...walkTarget, reached };
+        if (walkTargetRect) observed["walkPath"] = { target: walkTargetRect, reached };
+        if (walkWaypointsList)
           observed["walkWaypoints"] = {
             totalWaypoints: walkWaypointsList.length,
-            completedWaypoints: currentWaypointIndex,
-            reached: reachedTarget,
+            completedWaypoints: navigation.completedWaypoints,
+            reached,
           };
-          if (!reachedTarget) {
-            const currentWp =
-              walkWaypointsList[currentWaypointIndex] ??
-              walkWaypointsList[walkWaypointsList.length - 1]!;
-            simulation.navigationFailureTarget = {
-              x0: currentWp.x,
-              y0: currentWp.y,
-              x1: currentWp.x,
-              y1: currentWp.y,
-            };
-            throw new Error(
-              `steps[${index}]: walkWaypoints did not complete all ${walkWaypointsList.length} waypoints within ${ticks} cycles; stopped at (${walker.x},${walker.y}) on waypoint ${currentWaypointIndex + 1}.`,
-            );
-          }
+        if (!reached) {
+          const point = walkTarget ?? walkWaypointsList?.[navigation.completedWaypoints];
+          simulation.navigationFailureTarget =
+            walkTargetRect ??
+            (point
+              ? {
+                  x0: point.x,
+                  x1: point.x,
+                  y0: point.y,
+                  y1: point.y,
+                }
+              : null);
+          const message = `steps[${index}]: ${String(action)} did not reach its goal: ${navigationOutcome?.status ?? "budget_exhausted"} (${navigationOutcome?.reason ?? "action budget exhausted"}).`;
+          if (navigationOutcome?.status === "needs_input")
+            throw new SimulationStop(message, "needs_input");
+          throw new Error(message);
         }
       }
       if (action === "wait" && until !== null && !untilMet(engine, until))
@@ -1200,59 +1173,36 @@ export function playtestRoom(
         const target = assertions["reachable"] as Record<string, unknown>;
         const reachX = integer(target["x"], "expect.reachable.x", 0, 159);
         const reachY = integer(target["y"], "expect.reachable.y", 0, 167);
-        let reached = false;
-        const navState = {
+        const navigation = new NavigationController(
           engine,
-          state: () => ({
-            room: engine.vars[0]!,
-            x: engine.screenObjects[0]!.x,
-            y: engine.screenObjects[0]!.y,
-          }),
-        };
-        let waypoints: Array<{ x: number; y: number }> = [{ x: reachX, y: reachY }];
-        try {
-          const plan = planWalk(navState, { x0: reachX, y0: reachY, x1: reachX, y1: reachY });
-          if (plan.found && plan.waypoints.length > 0) {
-            waypoints = plan.waypoints;
-          }
-        } catch {
-          // If ego is uninitialized or planWalk cannot run, fall back to direct walk
+          {
+            kind: "position",
+            target: { x0: reachX, x1: reachX, y0: reachY, y1: reachY },
+            planned: true,
+          },
+          {
+            now: () => Date.now(),
+            ...(simulation.pendingNavigationDirection === null
+              ? {}
+              : { pendingDirection: simulation.pendingNavigationDirection }),
+            budgets: {
+              wallMs: 5000,
+              hostPolls: Math.min(600, simulation.cycleBudget - simulation.cycles),
+              logicCycles: Math.min(600, simulation.cycleBudget - simulation.cycles),
+            },
+          },
+        );
+        let outcome: NavigationOutcome | null = null;
+        while (outcome === null) {
+          const decision = navigation.next({
+            hostPolls: simulation.cycles,
+            logicCycles: simulation.cycles,
+          });
+          if (decision.direction !== null) simulation.directionInput(decision.direction);
+          outcome = decision.outcome;
+          if (outcome === null) simulation.tick();
         }
-        let currentWpIndex = 0;
-        for (let n = 0; n < 600 && !reached && simulation.cycles < simulation.cycleBudget; n++) {
-          const walker = engine.screenObjects[0]!;
-          if (walker.x === reachX && walker.y === reachY) {
-            reached = true;
-            break;
-          }
-          while (
-            currentWpIndex < waypoints.length &&
-            walker.x === waypoints[currentWpIndex]!.x &&
-            walker.y === waypoints[currentWpIndex]!.y
-          ) {
-            currentWpIndex++;
-          }
-          if (currentWpIndex < waypoints.length) {
-            const wp = waypoints[currentWpIndex]!;
-            engine.vars[6] = directionForDelta(
-              Math.sign(wp.x - walker.x),
-              Math.sign(wp.y - walker.y),
-            );
-          } else {
-            const dx = Math.sign(reachX - walker.x);
-            const dy = Math.sign(reachY - walker.y);
-            if (dx === 0 && dy === 0) {
-              reached = true;
-              break;
-            }
-            engine.vars[6] = directionForDelta(dx, dy);
-          }
-          simulation.tick();
-        }
-        engine.vars[6] = 0;
-        engine.screenObjects[0]!.direction = 0;
-        const finalWalker = engine.screenObjects[0]!;
-        reached ||= finalWalker.x === reachX && finalWalker.y === reachY;
+        const reached = outcome.status === "reached";
         if (!reached) {
           simulation.navigationFailureTarget = {
             x0: reachX,

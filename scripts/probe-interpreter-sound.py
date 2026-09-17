@@ -2,7 +2,7 @@
 """Execute isolated original Sierra sound routines; optional Unicorn 2.1.4.
 
 Usage: python scripts/probe-interpreter-sound.py games/mh1/AGI
-Supports hash-pinned decoded KQ1 2.917, MH1 3.002.107 and GR1 3.002.149
+Supports hash-pinned decoded KQ1 2.917, KQ3 2.936, MH1 3.002.107 and GR1 3.002.149
 executables plus AGIDATA.OVL (alongside them, or passed with --data). No original bytes are bundled. Resource lookup
 alone is substituted with a synthetic loaded-resource descriptor; opcode,
 flag, player, envelope and stop routines execute unchanged. I/O is captured,
@@ -21,6 +21,12 @@ from unicorn.x86_const import (
 )
 
 BUILDS = {
+    "4b50c681c224326e09933170823b846e7dbe340dafc76f07ee0af990ebb93400": {
+        "build": "2.936",
+        "data_hash": "b145061a2385d65060d944ad3a2e39a421037d11970f0dcddff4049909c04bf9",
+        "start": 0x51d3, "lookup": 0x50d8, "tick": 0x801c, "stop": 0x5234,
+        "device": 0x112e, "active": 0x1258, "count": 0x1790,
+    },
     "bf53a4f98e32a7feec127b153100b66678c48715fec1ae2e823b947c0b5aef04": {
         "build": "2.917",
         "data_hash": "f7ca256c1c0ab12509d695baabdd44a3c5e72a570b08118d3ead995a47f4c383",
@@ -178,7 +184,7 @@ for tick in range(1, 85):
 # Behavior at transition boundaries, independent of this repo's envelope table.
 expected = {1: 3, 7: 3, 9: 3, 10: 4, 15: 4, 16: 5, 25: 5, 26: 6,
             33: 6, 34: 7, 38: 7, 39: 8, 70: 14, 71: 15, 77: 15, 78: 13, 84: 13}
-if build["build"] == "2.917":
+if build["build"] in ("2.917", "2.936"):
     expected = {1: 3, 6: 3, 7: 4, 10: 4, 11: 5, 18: 5, 19: 6,
                 25: 6, 26: 7, 29: 7, 30: 8, 60: 14, 61: 15, 67: 15, 68: 13, 84: 13}
 assert all(envelope[tick - 1] == value for tick, value in expected.items()), envelope
@@ -190,5 +196,30 @@ u.mem_write(0x30020, b"\x03")
 begin()
 results["noise_base0_adjust3"] = run(build["tick"])
 assert [value for port, value in ports if port == 192 and value & 0xf0 == 0xf0] == [0xf0]
+# First-envelope-step arithmetic is independently derived from ADD AL / CMP
+# AL,15 / JLE, then device 2's CMP AL,8 / JGE / ADD AL,2. Preserve the entire
+# output byte: high adjustments can select a different PSG register.
+edge_cases = 0
+for device in (1, 2):
+    for base in range(16):
+        for adjustment in range(256):
+            setup(duration=120)
+            word(build["device"], device)
+            u.mem_write(0x33104, bytes([0x90 | base]))
+            u.mem_write(0x30020, bytes([adjustment]))
+            begin()
+            output = run(build["tick"])["ports"][2]
+            value = 15
+            if base != 15:
+                value = (max(0, base - 2) + adjustment) % 256
+                signed = value if value < 128 else value - 256
+                if signed > 15:
+                    value = 15
+                signed = value if value < 128 else value - 256
+                if device == 2 and signed < 8:
+                    value = (value + 2) % 256
+            assert output == [192, value | 0x90], (device, base, adjustment, output)
+            edge_cases += 1
+results["device_adjustment_cases"] = edge_cases
 print(json.dumps({"build": build["build"], "sha256": digest,
                   "data_sha256": build["data_hash"], "results": results}, indent=2))

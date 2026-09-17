@@ -77,8 +77,10 @@ function setup(
   container.putResource(
     "logic",
     0,
-    assembleLogic(`${action}.game(); assignn(v100, 99); return;`, { dictionary: new Map() })
-      .payload,
+    assembleLogic(
+      `if (isset(f12)) { assignn(v101, 1); return; } ${action}.game(); assignn(v100, 99); return;`,
+      { dictionary: new Map() },
+    ).payload,
   );
   const slots: { slot: number; bytes: Uint8Array }[] = [];
   const writes: { slot: number | undefined; bytes: Uint8Array }[] = [];
@@ -207,6 +209,8 @@ test("restore lists matching slots only and reads the selected slot after wrappi
   s.engine.tick();
   assert.deepEqual(s.reads, [9]);
   assert.equal(s.engine.vars[100], 0, "restore aborts current continuation");
+  assert.equal(s.engine.vars[101], 1, "restored logic resumes inside the same cycle");
+  assert.equal(s.engine.flags[12], 0, "normal cycle tail clears restore");
   assert.ok(!s.screens[0]?.includes(" 3."));
   assert.ok(s.kinds.every((k) => k === "restore"));
 });

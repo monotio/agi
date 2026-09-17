@@ -78,6 +78,24 @@ test("spawn checks the entire initialized ego baseline instead of one priority p
   assert.match(result.error ?? "", /82.*120|baseline/);
 });
 
+test("spawn inspection uses the post-pass gate after water-constrained initialization", () => {
+  for (const allWater of [false, true]) {
+    for (const gate of ["land", "water"]) {
+      const state = world(`obj.on.${gate}(0);`);
+      state.container.putResource(
+        "picture",
+        1,
+        Uint8Array.of(0xf2, 3, 0xf6, allWater ? 80 : 82, 120, 82, 120, 0xff),
+      );
+      const result = playtestRoom(state, { room: 1, spawnX: 80, spawnY: 120 });
+      // A water-only initialization needs one complete legal baseline. Once
+      // initialized, the original post-pass clear expires the ego restriction,
+      // so spawn inspection must not retain an earlier land-only command.
+      assert.equal(result.success, gate === "land" || allWater, result.error ?? "");
+    }
+  }
+});
+
 test("movement reaches authored rooms and reports future missing rooms separately", () => {
   const state = world("if (equaln(v2,2)) {new.room(2);}");
   const missing = playtestRoom(state, {
@@ -635,6 +653,29 @@ test("playtest can request longer sequences while retaining an execution budget"
   });
   assert.equal(limited.success, false);
   assert.match(limited.error!, /cycle limit/);
+});
+
+test("navigation leaves an open prompt for explicit input", () => {
+  const result = playtestRoom(world('if (!isset(f31)) {set(f31);print("Welcome");}'), {
+    room: 1,
+    steps: [{ action: "walkTo", x: 85, y: 120 }],
+  });
+  assert.equal(result.success, false);
+  assert.equal(result.details?.["simulation"], "needs_input");
+  assert.equal((result.details?.["state"] as { modalKind: string }).modalKind, "print");
+});
+
+test("navigation reports script movement control separately from parser input", () => {
+  const result = playtestRoom(world("program.control();"), {
+    room: 1,
+    steps: [{ action: "walkTo", x: 85, y: 120 }],
+  });
+  assert.equal(result.success, false);
+  const step = (result.details?.["steps"] as Record<string, unknown>[])[0]!;
+  const navigation = step["navigation"] as { status: string; inputEnabled: boolean };
+  assert.equal(navigation?.status, "movement_control_unavailable");
+  assert.equal(navigation.inputEnabled, true);
+  assert.equal(step["completedTicks"], 0);
 });
 
 test("playtest executes walkWaypoints across consecutive coordinates", () => {

@@ -72,6 +72,23 @@ test("reachable accepts arrival on the last available cycle", () => {
   }
 });
 
+test("consecutive one-cycle goals account for the preceding queued stop", () => {
+  const { state, engine } = world();
+  const result = playtestRoom(
+    state,
+    {
+      room: 1,
+      steps: [
+        { action: "walkTo", x: 81, y: 120, ticks: 1 },
+        { action: "walkTo", x: 82, y: 120, ticks: 1 },
+      ],
+    },
+    { setupImage: engine.serialize() },
+  );
+  assert.equal(result.success, true, result.error ?? "");
+  assert.equal((result.details?.["state"] as { egoX: number }).egoX, 82);
+});
+
 test("visible text assertions reject captions occluded in the presented surface", () => {
   const { state, engine } = world(true);
   assert.match(engine.textRow(12), /B/);

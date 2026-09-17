@@ -17,7 +17,7 @@ export interface SerializedSavedRect {
 
 /** A parked modal window; fresh serials are assigned on restore. */
 export type SerializedModal =
-  | { kind: "print"; saved: SerializedSavedRect; remainingMs: number | null }
+  | { kind: "print"; saved: SerializedSavedRect; remainingMs: number | null; pauseClock: boolean }
   | {
       kind: "inventory";
       saved: SerializedSavedRect;
@@ -92,6 +92,9 @@ export interface EngineReplayState {
   menuHeading: number;
   menuRequested: boolean;
   objectExtras: { priority: number }[];
+  /** Exact decoded-view residency and allocation order at a harness boundary. */
+  viewCache: { loaded: number[]; order: number[] };
+  gameSignature: string;
   sound: { num: number; doneFlag: number; playback: PlaybackState } | null;
   /** Live-patch counter — harness session state, not save-file state. */
   patchGeneration?: number;
@@ -159,10 +162,11 @@ function serializedModal(value: unknown): SerializedModal {
   const kind = (value as Record<string, unknown>)["kind"];
   switch (kind) {
     case "print": {
-      const m = record(value, ["kind", "saved", "remainingMs"]);
+      const m = record(value, ["kind", "saved", "remainingMs", "pauseClock"]);
       return {
         kind,
         saved: savedRect(m["saved"]),
+        pauseClock: bool(m["pauseClock"]),
         remainingMs:
           m["remainingMs"] === null ? null : number(m["remainingMs"], 0, 0xffffffff, false),
       };
@@ -283,6 +287,8 @@ export function validateEngineReplayState(value: unknown): EngineReplayState {
     "menuHeading",
     "menuRequested",
     "objectExtras",
+    "viewCache",
+    "gameSignature",
     "sound",
   ];
   // States captured before continuations or the patch counter existed carry
@@ -298,6 +304,18 @@ export function validateEngineReplayState(value: unknown): EngineReplayState {
   });
   if (controllers.length !== 256 || objectExtras.length !== 256)
     throw new Error("Replay state requires all controllers and objects.");
+  const cache = record(s["viewCache"], ["loaded", "order"]);
+  const loaded = array(cache["loaded"], 256, (v) => number(v, 0, 255));
+  const order = array(cache["order"], 256, (v) => number(v, 0, 255));
+  if (
+    new Set(loaded).size !== loaded.length ||
+    new Set(order).size !== order.length ||
+    loaded.some((id) => !order.includes(id))
+  )
+    throw new Error("Replay state view cache is inconsistent.");
+  const viewCache = { loaded, order };
+  const gameSignature = text(s["gameSignature"]);
+  if (gameSignature.length > 7) throw new Error("Replay state game signature is too long.");
   let sound: EngineReplayState["sound"] = null;
   if (s["sound"] !== null) {
     const a = record(s["sound"], ["num", "doneFlag", "playback"]);
@@ -361,6 +379,8 @@ export function validateEngineReplayState(value: unknown): EngineReplayState {
     menuHeading: number(s["menuHeading"], 0, 255),
     menuRequested: bool(s["menuRequested"]),
     objectExtras,
+    viewCache,
+    gameSignature,
     sound,
     patchGeneration:
       s["patchGeneration"] === undefined ? 0 : number(s["patchGeneration"], 0, 0xffffffff),

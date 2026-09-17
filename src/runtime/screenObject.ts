@@ -3,6 +3,7 @@ import type { SaveObjectRecord } from "./persistence.ts";
 
 export interface ScreenObject {
   active: boolean;
+  /** animate.obj membership; stop.update selects earlierPartition instead. */
   update: boolean;
   earlierPartition: boolean;
   newlyPositioned: boolean;
@@ -52,7 +53,7 @@ export interface ScreenObject {
   observeObjects: boolean;
   loopFixed: boolean;
   /** obj.on.water/obj.on.land footprint-scan gate (class-state flag 0). */
-  waterGate: "on" | "off" | null;
+  waterGate: "on" | "off" | "both" | null;
 }
 
 export function newScreenObject(): ScreenObject {
@@ -137,8 +138,8 @@ export function packObjectState(o: ScreenObject): number {
   if (o.observeBlocks) state |= OBJ_OBSERVE_BLOCKS;
   if (o.observeObjects) state |= OBJ_OBSERVE_OBJECTS;
   if (o.loopFixed) state |= OBJ_LOOP_FIXED;
-  if (o.waterGate === "on") state |= OBJ_WATER_GATE_ON;
-  if (o.waterGate === "off") state |= OBJ_WATER_GATE_OFF;
+  if (o.waterGate === "on" || o.waterGate === "both") state |= OBJ_WATER_GATE_ON;
+  if (o.waterGate === "off" || o.waterGate === "both") state |= OBJ_WATER_GATE_OFF;
   if (o.earlierPartition) state |= OBJ_EARLIER_PARTITION;
   if (o.newlyPositioned) state |= OBJ_NEWLY_POSITIONED;
   if (o.cycleDelay) state |= OBJ_CYCLE_DELAY;
@@ -194,7 +195,13 @@ export function applyObjectRecord(o: ScreenObject, record: SaveObjectRecord | un
   o.observeObjects = (state & OBJ_OBSERVE_OBJECTS) !== 0;
   o.loopFixed = (state & OBJ_LOOP_FIXED) !== 0;
   o.waterGate =
-    (state & OBJ_WATER_GATE_ON) !== 0 ? "on" : (state & OBJ_WATER_GATE_OFF) !== 0 ? "off" : null;
+    (state & (OBJ_WATER_GATE_ON | OBJ_WATER_GATE_OFF)) === (OBJ_WATER_GATE_ON | OBJ_WATER_GATE_OFF)
+      ? "both"
+      : (state & OBJ_WATER_GATE_ON) !== 0
+        ? "on"
+        : (state & OBJ_WATER_GATE_OFF) !== 0
+          ? "off"
+          : null;
   const [p0, p1, p2, p3] = record.motionParams;
   o.paramBank = [p0, p1, p2, p3];
 }

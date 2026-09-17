@@ -22,9 +22,9 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 41,
-  "virtualTicks": 1520,
-  "cycles": 133,
+  "elapsedMs": 42,
+  "virtualTicks": 1367,
+  "cycles": 82,
   "actions": [
     {
       "kind": "advance",
@@ -39,24 +39,24 @@
       "y": 151
     },
     {
-      "kind": "direction",
-      "dir": 2
+      "kind": "key",
+      "code": 18688
     },
     {
       "kind": "advance",
       "ticks": 50
     },
     {
-      "kind": "direction",
-      "dir": 3
+      "kind": "key",
+      "code": 19712
     },
     {
       "kind": "advance",
-      "ticks": 231
+      "ticks": 78
     },
     {
-      "kind": "direction",
-      "dir": 0
+      "kind": "key",
+      "code": 19712
     },
     {
       "kind": "advance",
@@ -171,7 +171,7 @@
       "label": "Mural painted",
       "room": 1,
       "score": 10,
-      "x": 77,
+      "x": 45,
       "y": 140
     },
     {
@@ -213,14 +213,6 @@
     {
       "kind": "advance",
       "ticks": 3
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Sprite Lab",
-      "room": 2,
-      "score": 10,
-      "x": 18,
-      "y": 151
     },
     {
       "kind": "key",
@@ -357,14 +349,6 @@
     {
       "kind": "advance",
       "ticks": 3
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Priority Archive",
-      "room": 3,
-      "score": 20,
-      "x": 18,
-      "y": 151
     },
     {
       "kind": "key",
@@ -634,7 +618,7 @@
       0,
       0,
       1,
-      6,
+      22,
       0,
       0,
       0,
@@ -647,7 +631,7 @@
       0,
       3,
       0,
-      0,
+      41,
       0,
       3,
       0,

@@ -21,7 +21,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 33,
+  "elapsedMs": 32,
   "virtualTicks": 348,
   "cycles": 211,
   "actions": [
@@ -38,8 +38,8 @@
       "y": 130
     },
     {
-      "kind": "direction",
-      "dir": 3
+      "kind": "key",
+      "code": 19712
     },
     {
       "kind": "advance",
@@ -66,8 +66,8 @@
       "y": 130
     },
     {
-      "kind": "direction",
-      "dir": 0
+      "kind": "key",
+      "code": 19712
     },
     {
       "kind": "advance",
@@ -154,8 +154,8 @@
       "y": 130
     },
     {
-      "kind": "direction",
-      "dir": 7
+      "kind": "key",
+      "code": 19200
     },
     {
       "kind": "advance",
@@ -170,8 +170,8 @@
       "y": 130
     },
     {
-      "kind": "direction",
-      "dir": 0
+      "kind": "key",
+      "code": 19200
     },
     {
       "kind": "advance",
@@ -197,7 +197,7 @@
       0,
       0,
       0,
-      3,
+      5,
       0,
       0,
       0,
@@ -210,7 +210,7 @@
       0,
       3,
       0,
-      0,
+      41,
       0,
       3,
       0,

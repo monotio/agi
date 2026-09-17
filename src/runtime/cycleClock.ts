@@ -25,6 +25,24 @@ export class CycleClock {
     this.paused = false;
   }
 
+  /** An interpreter pause freezes accumulated pacing without resetting its phase. */
+  freeze(now: number): void {
+    if (!Number.isFinite(now)) throw new Error("Cycle clock time must be finite.");
+    this.previous = Math.max(this.previous, now);
+  }
+
+  /** Accumulate timer increments during a script wait without admitting a logic cycle. */
+  advance(now: number): void {
+    if (!Number.isFinite(now)) throw new Error("Cycle clock time must be finite.");
+    const monotonic = Math.max(now, this.previous);
+    const elapsed = monotonic - this.previous;
+    this.previous = monotonic;
+    const elapsedMs = this.remainder + elapsed;
+    const whole = Math.floor((elapsedMs + 1e-7) / TIMER_INCREMENT_MS);
+    this.remainder = Math.max(0, elapsedMs - whole * TIMER_INCREMENT_MS);
+    this.increments += whole;
+  }
+
   /**
    * Accumulator state for a history anchor. `previous` is host-relative and
    * intentionally not captured: `restore` re-bases it onto the given clock.
@@ -51,19 +69,14 @@ export class CycleClock {
     if (!Number.isFinite(now)) throw new Error("Cycle clock time must be finite.");
     if (!Number.isInteger(delay) || delay < 0 || delay > 255)
       throw new Error("Cycle delay must be an integer from 0 to 255.");
-    const monotonic = Math.max(now, this.previous);
-    const elapsed = monotonic - this.previous;
-    this.previous = monotonic;
     if (paused || this.paused) {
+      this.freeze(now);
       this.remainder = 0;
       this.increments = 0;
       this.paused = paused;
       return false;
     }
-    const elapsedMs = this.remainder + elapsed;
-    const whole = Math.floor((elapsedMs + 1e-7) / TIMER_INCREMENT_MS);
-    this.remainder = Math.max(0, elapsedMs - whole * TIMER_INCREMENT_MS);
-    this.increments += whole;
+    this.advance(now);
     if (this.increments < delay) return false;
     this.increments = 0;
     return true;

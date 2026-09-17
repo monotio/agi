@@ -38,7 +38,7 @@ test("timed print closes after half-second units and resumes the same invocation
   assert.equal(e.modalKind, null);
   e.tick();
   assert.deepEqual(Array.from(e.vars.slice(200, 202)), [1, 1]);
-  assert.equal(e.vars[11], 0, "window waiting does not advance the game clock");
+  assert.equal(e.vars[11], 1, "timer services continue while the script waits");
   assert.ok(
     !Array.from({ length: 25 }, (_, row) => e.textRow(row))
       .join(" ")

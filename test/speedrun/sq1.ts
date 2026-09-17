@@ -1,6 +1,29 @@
 import assert from "node:assert/strict";
 import { AGI_KEY } from "../../src/runtime/keys.ts";
 import type { Speedrun } from "./runner.ts";
+import { NavigationError } from "../../src/agent/navigationController.ts";
+
+/** Resume a route only across the named, expected game narration. */
+function walkPastNarration(run: Speedrun, walk: () => void, expected: RegExp, limit = 1): void {
+  for (let prompts = 0; ; prompts++) {
+    try {
+      walk();
+      return;
+    } catch (error) {
+      if (!(error instanceof NavigationError) || error.outcome.status !== "needs_input")
+        throw error;
+      assert.ok(prompts < limit, "unexpected repeated navigation narration");
+      assert.match(run.messages.at(-1) ?? "", expected);
+      run.dismiss();
+    }
+  }
+}
+
+/** Keep route assertions even when nearby events share one timeline highlight. */
+function assertProgress(run: Speedrun, room: number, score: number, label: string): void {
+  assert.equal(run.engine.vars[0], room, `${label}: room`);
+  assert.equal(run.engine.vars[3], score, `${label}: score`);
+}
 
 function takeCartridge(run: Speedrun): void {
   run.answer("ROGER"); // boot name prompt (get.string)
@@ -13,8 +36,10 @@ function takeCartridge(run: Speedrun): void {
     "dismiss boot title",
     30,
   );
-  run.checkpoint("Hallway", { room: 2, score: 0 });
-  run.walkTo(10, 66);
+  run.wait(() => run.engine.movementControlEnabled, "hallway entry returns player control");
+  run.checkpoint("Aboard the Arcada", { room: 2, score: 0 });
+  // The ship-boarder announcement interrupts the first walk.
+  walkPastNarration(run, () => run.walkTo(10, 66), /sound of an alarm/);
   run.exit("W", 1);
   run.checkpoint("Data archive", { room: 1, score: 0 });
   run.direction("W"); // ego enters room 1 at (133,108); keep walking while typing
@@ -25,7 +50,7 @@ function takeCartridge(run: Speedrun): void {
   run.type("get cart"); // 001.agi:346 said("acquire", "cart"); buffered while the retrieval unit delivers
   run.waitForFlag(35, "retrieval unit delivers cartridge", 5000);
   run.submit("get cart");
-  run.checkpoint("Cartridge", { room: 1, score: 5 });
+  run.checkpoint("Retrieve the Astral Body cartridge", { room: 1, score: 5 });
   run.assertCarried(1, "Cartridge");
 }
 
@@ -42,7 +67,7 @@ export function sq1Opening(run: Speedrun): void {
   run.type("get card"); // 003.agi:172 said("acquire", "card") needs no prior search; typed during the walk west
   run.walkTo(140, 68);
   run.submit("get card");
-  run.checkpoint("Keycard", { room: 3, score: 6 });
+  run.checkpoint("Recover the keycard", { room: 3, score: 6 });
   run.assertCarried(5, "Keycard");
 }
 
@@ -57,7 +82,11 @@ export function sq1LowerLevel(run: Speedrun): void {
   run.walkTo(34, 64);
   run.wait(() => run.engine.flags[30] !== 0, "elevator door opens", 3000);
   run.walkTo(36, 54);
-  run.wait(() => run.state().y > 148, "elevator slide finishes", 5000); // y>100 alone fires mid-ride
+  run.wait(
+    () => run.state().y > 148 && run.engine.movementControlEnabled,
+    "elevator slide finishes",
+    5000,
+  ); // The landing animation must return player control.
   run.direction(0);
   // The ride leaves ego at (36,151). Walking north through the shaft base
   // re-triggers the elevator upward; the blasted-door alcove bottom is pri 1,
@@ -65,7 +94,7 @@ export function sq1LowerLevel(run: Speedrun): void {
   run.walkTo(114, 155);
   run.walkTo(114, 137); // base x114-120 must fit the x113-122 opening; x123 is pri 0
   run.exit("N", 11);
-  run.checkpoint("Star Generator lab", { room: 11, score: 6 });
+  run.checkpoint("Discover the Star Generator theft", { room: 11, score: 6 });
 }
 
 /**
@@ -76,7 +105,7 @@ export function sq1LowerLevel(run: Speedrun): void {
 export function sq1FlightPrep(run: Speedrun): void {
   sq1LowerLevel(run);
   run.exit("S", 4); // lab bottom edge, x=115 in (110,130)
-  run.checkpoint("Lower corridor", { room: 4, score: 6 });
+  assertProgress(run, 4, 6, "Lower corridor");
   // Stay at y150 walking east: the shaft base box and its trigger strip at
   // y143-144 re-ride the elevator upward.
   run.walkTo(114, 150);
@@ -88,8 +117,12 @@ export function sq1FlightPrep(run: Speedrun): void {
   run.walkTo(28, 142);
   run.wait(() => run.engine.vars[30] === 1, "room 2 elevator door open", 3000);
   run.walkTo(28, 135);
-  run.wait(() => run.state().room === 5, "elevator down to room 5", 3000);
-  run.checkpoint("Bottom level", { room: 5, score: 6 });
+  run.wait(
+    () => run.state().room === 5 && run.engine.movementControlEnabled,
+    "elevator down to room 5",
+    3000,
+  );
+  assertProgress(run, 5, 6, "Bottom level");
   // Straight south out of the elevator shaft, then east at y150: the
   // shaft's right B wall (x37, y132-144) snags any NE diagonal (ego width
   // 7). North at x60 afterwards is clear.
@@ -103,7 +136,7 @@ export function sq1FlightPrep(run: Speedrun): void {
   run.walkTo(110, 130);
   run.submit("press open");
   run.wait(() => run.engine.vars[52] === 1, "bay doors open", 3000);
-  run.checkpoint("Bay door open", { room: 6, score: 8 });
+  run.checkpoint("Open the escape bay", { room: 6, score: 8 });
   run.exit("E", 7);
   // Mid-level deck: keycard unit then the elevator down to Flight Prep.
   run.direction("E");
@@ -111,7 +144,7 @@ export function sq1FlightPrep(run: Speedrun): void {
   run.walkTo(85, 128);
   run.submit("use card");
   run.wait(() => run.engine.flags[35] !== 0, "keycard accepted", 3000);
-  run.checkpoint("Keycard slot", { room: 7, score: 10 });
+  assertProgress(run, 7, 10, "Keycard slot");
   run.walkTo(105, 133); // opener box (95,129)-(118,136); y132 is the B wall
   run.wait(() => run.engine.vars[30] === 1, "room 7 elevator door open", 3000);
   run.walkTo(106, 125); // shaft box (98,121)-(114,128); door closes -> room 9
@@ -120,6 +153,11 @@ export function sq1FlightPrep(run: Speedrun): void {
   // its B side walls force a south exit to y106 before going west.
   run.direction("S");
   run.type("press right"); // 009.agi:348 said("press", "right"); typed during the walk south
+  run.wait(
+    () => run.engine.movementControlEnabled,
+    "flight prep elevator returns player control",
+    3000,
+  );
   run.walkTo(106, 106);
   run.walkTo(70, 106); // west along y106: the shaft's B corner blocks diagonals
   run.walkTo(70, 100);
@@ -130,7 +168,7 @@ export function sq1FlightPrep(run: Speedrun): void {
   run.walkTo(85, 100);
   run.submit("get suit");
   run.wait(() => run.engine.vars[81] === 1, "flight suit worn", 3000);
-  run.checkpoint("Flight suit", { room: 9, score: 12 });
+  assertProgress(run, 9, 12, "Flight suit");
   run.direction("W");
   run.type("press left"); // 009.agi:367 said("press", "left"); typed during the walk west
   run.walkTo(70, 100);
@@ -140,7 +178,7 @@ export function sq1FlightPrep(run: Speedrun): void {
   run.type("get gadget"); // 009.agi:411 said("acquire", "dialect translator"); typed during the walk west
   run.walkTo(55, 100);
   run.submit("get gadget");
-  run.checkpoint("Equipment", { room: 9, score: 14 });
+  run.checkpoint("Collect the flight gear", { room: 9, score: 14 });
   run.assertCarried(3, "Dialect translator");
 }
 
@@ -163,7 +201,7 @@ export function sq1Escape(run: Speedrun): void {
   // The doorway strip grants ignore.blocks; walk in and west over the trigger.
   run.walkPath({ x0: 37, y0: 114, x1: 37, y1: 114 });
   run.exit("W", 8);
-  run.checkpoint("Vehicle bay", { room: 8, score: 14 });
+  assertProgress(run, 8, 14, "Vehicle bay");
   // Platform console, staying south of the cargo shaft trigger.
   run.direction("SW"); // ego enters room 8 at the east edge; bearing toward (115,146)
   run.type("press base"); // 008.agi:227 said("press", "base") raises platform; typed during the walk
@@ -171,11 +209,12 @@ export function sq1Escape(run: Speedrun): void {
   run.walkTo(115, 143);
   run.submit("press base");
   run.wait(() => run.engine.flags[54] !== 0, "pod platform raised", 3000);
-  run.checkpoint("Platform up", { room: 8, score: 15 });
+  run.checkpoint("Raise the escape pod", { room: 8, score: 15 });
   // West side, then north at x50 to the pod door.
   run.direction("W");
   run.type("board pod"); // 008.agi:255 said("board", "craft"); typed during the walk west
-  run.walkTo(50, 143);
+  // The raised platform announces the pod before boarding.
+  walkPastNarration(run, () => run.walkTo(50, 143), /escape pod here/);
   run.walkTo(52, 92);
   run.submit("board pod");
   run.wait(() => run.state().room === 10, "boarded escape pod", 3000);
@@ -205,7 +244,7 @@ export function sq1Landing(run: Speedrun): void {
   sq1Escape(run);
   run.wait(() => run.state().room === 30, "pod descending", 30000);
   run.wait(() => run.state().room === 14, "pod landed", 30000);
-  run.checkpoint("Pod interior", { room: 14, score: 32 });
+  assertProgress(run, 14, 32, "Pod interior");
   run.command("take survival kit");
   run.checkpoint("Survival kit", { room: 14, score: 34 });
   run.command("open kit");
@@ -236,13 +275,13 @@ export function sq1Boulder(run: Speedrun): void {
   run.exit("E", 22);
   run.walkPath({ x0: 140, y0: 140, x1: 153, y1: 160 });
   run.exit("E", 23);
-  run.checkpoint("Desert crossing done", { room: 23, score: 37 });
+  run.checkpoint("Cross the Kerona desert", { room: 23, score: 37 });
 
   // Ramp up: the box (23,130)-(49,132) sets f92.
   run.walkPath({ x0: 26, y0: 133, x1: 30, y1: 134 });
   run.walkTo(30, 131);
   assert.ok(eng.flags[92] !== 0, `f92 not set on ramp: ${JSON.stringify(run.state())}`);
-  run.checkpoint("Plateau trail (f92)", { room: 23, score: 37 });
+  assertProgress(run, 23, 37, "Plateau trail (f92)");
 
   // Room 23 upper maze to the bridge approach; f92 ignores blocks here.
   run.walkPath(44, 70);
@@ -258,56 +297,60 @@ export function sq1Boulder(run: Speedrun): void {
   run.exit("W", 16);
 
   // Room 16: snake between the fatal-fall trigger clusters to the west edge.
-  for (const [x, y] of [
-    [142, 66],
-    [140, 66],
-    [137, 63],
-    [136, 63],
-    [135, 62],
-    [133, 62],
-    [132, 61],
-    [125, 61],
-    [122, 64],
-    [114, 64],
-    [104, 74],
-    [93, 74],
-    [89, 70],
-    [81, 70],
-    [77, 74],
-    [74, 74],
-    [73, 73],
-    [67, 73],
-    [64, 70],
-    [53, 70],
-    [44, 79],
-    [22, 79],
-    [17, 79],
-    [16, 80],
-    [15, 80],
-    [13, 82],
-    [12, 82],
-  ] as const)
-    run.walkTo(x, y);
+  run.walkWaypoints(
+    [
+      [142, 66],
+      [140, 66],
+      [137, 63],
+      [136, 63],
+      [135, 62],
+      [133, 62],
+      [132, 61],
+      [125, 61],
+      [122, 64],
+      [114, 64],
+      [104, 74],
+      [93, 74],
+      [89, 70],
+      [81, 70],
+      [77, 74],
+      [74, 74],
+      [73, 73],
+      [67, 73],
+      [64, 70],
+      [53, 70],
+      [44, 79],
+      [22, 79],
+      [17, 79],
+      [16, 80],
+      [15, 80],
+      [13, 82],
+      [12, 82],
+    ],
+    { continuous: true },
+  );
   run.exit("W", 15);
 
   // Room 15: east channel south past the antenna guy-wire triggers.
-  for (const [x, y] of [
-    [153, 87],
-    [153, 100],
-    [142, 111],
-    [142, 113],
-    [141, 114],
-    [141, 119],
-    [140, 120],
-    [140, 125],
-    [139, 126],
-    [139, 128],
-    [151, 140],
-    [151, 147],
-    [153, 149],
-    [153, 160],
-  ] as const)
-    run.walkTo(x, y);
+  run.walkWaypoints(
+    [
+      [153, 87],
+      [153, 100],
+      [142, 111],
+      [142, 113],
+      [141, 114],
+      [141, 119],
+      [140, 120],
+      [140, 125],
+      [139, 126],
+      [139, 128],
+      [151, 140],
+      [151, 147],
+      [153, 149],
+      [153, 160],
+    ],
+    { continuous: true },
+  );
   run.exit("S", 18);
 
   // Room 18: mesa top east; stay above y36 or the horizon bounces back to 15.
@@ -360,65 +403,68 @@ export function sq1UlenceFlats(run: Speedrun): void {
   sq1Boulder(run);
 
   // Return west across mesa to Room 18
-  run.walkPath(1, 73);
+  // The droid-crushing success message appears after the score.
+  walkPastNarration(run, () => run.walkPath(1, 73), /master of the rock/);
   run.exit("W", 18);
 
   run.walkPath({ x0: 127, y0: 41, x1: 127, y1: 41 });
   run.exit("N", 15);
 
-  for (const [x, y] of [
-    [153, 160],
-    [153, 149],
-    [151, 147],
-    [151, 140],
-    [139, 128],
-    [139, 126],
-    [140, 125],
-    [140, 120],
-    [141, 119],
-    [141, 114],
-    [142, 113],
-    [142, 111],
-    [153, 100],
-    [153, 85],
-  ] as const) {
-    run.walkTo(x, y);
-  }
+  run.walkWaypoints(
+    [
+      [153, 160],
+      [153, 149],
+      [151, 147],
+      [151, 140],
+      [139, 128],
+      [139, 126],
+      [140, 125],
+      [140, 120],
+      [141, 119],
+      [141, 114],
+      [142, 113],
+      [142, 111],
+      [153, 100],
+      [153, 85],
+    ],
+    { continuous: true },
+  );
   run.exit("E", 16);
 
-  for (const [x, y] of [
-    [12, 82],
-    [13, 82],
-    [15, 80],
-    [16, 80],
-    [17, 79],
-    [22, 79],
-    [44, 79],
-    [53, 70],
-    [64, 70],
-    [67, 73],
-    [73, 73],
-    [74, 74],
-    [77, 74],
-    [81, 70],
-    [89, 70],
-    [93, 74],
-    [104, 74],
-    [114, 64],
-    [122, 64],
-    [125, 61],
-    [132, 61],
-    [133, 62],
-    [135, 62],
-    [136, 63],
-    [137, 63],
-    [140, 66],
-    [142, 66],
-    [142, 58],
-    [153, 58],
-  ] as const) {
-    run.walkTo(x, y);
-  }
+  run.walkWaypoints(
+    [
+      [12, 82],
+      [13, 82],
+      [15, 80],
+      [16, 80],
+      [17, 79],
+      [22, 79],
+      [44, 79],
+      [53, 70],
+      [64, 70],
+      [67, 73],
+      [73, 73],
+      [74, 74],
+      [77, 74],
+      [81, 70],
+      [89, 70],
+      [93, 74],
+      [104, 74],
+      [114, 64],
+      [122, 64],
+      [125, 61],
+      [132, 61],
+      [133, 62],
+      [135, 62],
+      [136, 63],
+      [137, 63],
+      [140, 66],
+      [142, 66],
+      [142, 58],
+      [153, 58],
+    ],
+    { continuous: true },
+  );
   run.exit("E", 17);
 
   // Room 17: step through arch columns to activate tube elevator (+2, f177)
@@ -427,7 +473,7 @@ export function sq1UlenceFlats(run: Speedrun): void {
     if (eng.flags[177] !== 0) break;
   }
   run.wait(
-    () => eng.vars[0] === 25 && eng.flags[64] !== 0 && run.state().control,
+    () => eng.vars[0] === 25 && eng.flags[64] !== 0 && run.state().inputEnabled,
     "land in room 25",
     15000,
   );
@@ -461,11 +507,16 @@ export function sq1UlenceFlats(run: Speedrun): void {
   // Room 28: reflect laser beams with glass (+5, f121)
   run.walkPath({ x0: 65, y0: 126, x1: 68, y1: 130 });
   run.command("use glass");
-  run.wait(() => eng.flags[121] !== 0 && run.state().control, "beams destroyed (f121)", 5000);
+  run.wait(() => eng.flags[121] !== 0 && run.state().inputEnabled, "beams destroyed (f121)", 5000);
   run.checkpoint("Laser beams destroyed", { room: 28, score: 53 });
 
   // Walk up ramp to upper ledge
-  run.walkPath({ x0: 145, y0: 40, x1: 155, y1: 45 });
+  // The laser success narration follows the awarded points.
+  walkPastNarration(
+    run,
+    () => run.walkPath({ x0: 145, y0: 40, x1: 155, y1: 45 }),
+    /turned the beam upon itself/,
+  );
   run.exit("E", 27);
 
   // Room 27 upper ledge: navigate 3 acid drops (+3, f178)
@@ -486,21 +537,24 @@ export function sq1UlenceFlats(run: Speedrun): void {
   run.exit("E", 29);
 
   // Room 29: hologram assigns quest and teleports ego to Room 15 on mesa top
-  run.wait(() => eng.vars[0] === 15 && run.state().control, "teleported to room 15", 30000);
+  run.wait(() => eng.vars[0] === 15 && run.state().inputEnabled, "teleported to room 15", 30000);
+  run.wait(() => eng.movementControlEnabled, "teleport arrival returns player control");
+  run.checkpoint("Accept the Orat hunt", { room: 15, score: 56 });
 
   // Room 15: walk south path to exit South into Room 18
-  for (const [x, y] of [
-    [140, 120],
-    [140, 125],
-    [139, 126],
-    [139, 128],
-    [151, 140],
-    [151, 147],
-    [153, 149],
-    [153, 160],
-  ] as const) {
-    run.walkTo(x, y);
-  }
+  run.walkWaypoints(
+    [
+      [140, 120],
+      [140, 125],
+      [139, 126],
+      [139, 128],
+      [151, 140],
+      [151, 147],
+      [153, 149],
+      [153, 160],
+    ],
+    { continuous: true },
+  );
   run.exit("S", 18);
 
   // Room 18: mesa top east to Room 19
@@ -511,23 +565,24 @@ export function sq1UlenceFlats(run: Speedrun): void {
   run.exit("E", 19);
 
   // Room 19: cross bridge deck east into Room 20
-  for (const [x, y] of [
-    [15, 59],
-    [16, 59],
-    [17, 58],
-    [19, 58],
-    [20, 57],
-    [21, 57],
-    [32, 46],
-    [38, 46],
-    [50, 58],
-    [70, 58],
-    [85, 58],
-    [110, 58],
-    [145, 61],
-  ] as const) {
-    run.walkTo(x, y);
-  }
+  run.walkWaypoints(
+    [
+      [15, 59],
+      [16, 59],
+      [17, 58],
+      [19, 58],
+      [20, 57],
+      [21, 57],
+      [32, 46],
+      [38, 46],
+      [50, 58],
+      [70, 58],
+      [85, 58],
+      [110, 58],
+      [145, 61],
+    ],
+    { continuous: true },
+  );
   run.exit("E", 20);
 
   // Room 20 ledge: walk along x=27 to exit South
@@ -537,36 +592,38 @@ export function sq1UlenceFlats(run: Speedrun): void {
   run.walkTo(27, 130);
   run.walkTo(27, 160);
   run.exit("S", 23);
+  run.wait(() => eng.movementControlEnabled, "plateau arrival returns player control");
 
   // Room 23: walk down the ramp to step on (28, 133) to reset f92
-  for (const [x, y] of [
-    [38, 76],
-    [38, 86],
-    [37, 87],
-    [37, 89],
-    [36, 89],
-    [36, 91],
-    [35, 91],
-    [35, 93],
-    [34, 93],
-    [34, 95],
-    [33, 95],
-    [39, 101],
-    [38, 102],
-    [38, 103],
-    [37, 104],
-    [37, 108],
-    [41, 112],
-    [41, 113],
-    [42, 114],
-    [42, 115],
-    [41, 116],
-    [41, 119],
-    [28, 132],
-    [28, 133],
-  ] as const) {
-    run.walkTo(x, y);
-  }
+  run.walkWaypoints(
+    [
+      [38, 76],
+      [38, 86],
+      [37, 87],
+      [37, 89],
+      [36, 89],
+      [36, 91],
+      [35, 91],
+      [35, 93],
+      [34, 93],
+      [34, 95],
+      [33, 95],
+      [39, 101],
+      [38, 102],
+      [38, 103],
+      [37, 104],
+      [37, 108],
+      [41, 112],
+      [41, 113],
+      [42, 114],
+      [42, 115],
+      [41, 116],
+      [41, 119],
+      [28, 132],
+      [28, 133],
+    ],
+    { continuous: true },
+  );
   assert.equal(eng.flags[92], 0, "f92 reset at base of ramp");
 
   // Walk into Room 20 ground level
@@ -574,22 +631,23 @@ export function sq1UlenceFlats(run: Speedrun): void {
   run.exit("N", 20);
 
   // Room 20 ground level: walk to cave entrance
-  for (const [x, y] of [
-    [110, 119],
-    [111, 119],
-    [113, 121],
-    [129, 121],
-    [132, 118],
-    [146, 118],
-    [148, 120],
-  ] as const) {
-    run.walkTo(x, y);
-  }
+  run.walkWaypoints(
+    [
+      [110, 119],
+      [111, 119],
+      [113, 121],
+      [129, 121],
+      [132, 118],
+      [146, 118],
+      [148, 120],
+    ],
+    { continuous: true },
+  );
   run.wait(() => eng.vars[0] === 24, "entered Orat cave (room 24)", 5000);
 
   // Room 24: throw water at Orat (+5, v82=2)
   run.command("throw water");
-  run.wait(() => eng.vars[82] === 2 && run.state().control, "Orat exploded (v82=2)", 10000);
+  run.wait(() => eng.vars[82] === 2 && run.state().inputEnabled, "Orat exploded (v82=2)", 10000);
   run.checkpoint("Orat defeated", { room: 24, score: 61 });
 
   // Take Orat part (+2, item 4)
@@ -627,81 +685,85 @@ export function sq1UlenceFlats(run: Speedrun): void {
   run.exit("W", 19);
 
   // Walk West across Room 19 mesa to Room 18
-  for (const [x, y] of [
-    [110, 58],
-    [85, 58],
-    [70, 58],
-    [50, 58],
-    [38, 46],
-    [32, 46],
-    [21, 57],
-    [20, 57],
-    [19, 58],
-    [17, 58],
-    [16, 59],
-    [15, 59],
-    [1, 73],
-  ] as const) {
-    run.walkTo(x, y);
-  }
+  run.walkWaypoints(
+    [
+      [110, 58],
+      [85, 58],
+      [70, 58],
+      [50, 58],
+      [38, 46],
+      [32, 46],
+      [21, 57],
+      [20, 57],
+      [19, 58],
+      [17, 58],
+      [16, 59],
+      [15, 59],
+      [1, 73],
+    ],
+    { continuous: true },
+  );
   run.exit("W", 18);
+  run.checkpoint("Return across the mesa", { room: 18, score: 63 });
 
   run.walkPath({ x0: 127, y0: 41, x1: 127, y1: 41 });
   run.exit("N", 15);
 
-  for (const [x, y] of [
-    [153, 160],
-    [153, 149],
-    [151, 147],
-    [151, 140],
-    [139, 128],
-    [139, 126],
-    [140, 125],
-    [140, 120],
-    [141, 119],
-    [141, 114],
-    [142, 113],
-    [142, 111],
-    [153, 100],
-    [153, 85],
-  ] as const) {
-    run.walkTo(x, y);
-  }
+  run.walkWaypoints(
+    [
+      [153, 160],
+      [153, 149],
+      [151, 147],
+      [151, 140],
+      [139, 128],
+      [139, 126],
+      [140, 125],
+      [140, 120],
+      [141, 119],
+      [141, 114],
+      [142, 113],
+      [142, 111],
+      [153, 100],
+      [153, 85],
+    ],
+    { continuous: true },
+  );
   run.exit("E", 16);
 
-  for (const [x, y] of [
-    [12, 82],
-    [13, 82],
-    [15, 80],
-    [16, 80],
-    [17, 79],
-    [22, 79],
-    [44, 79],
-    [53, 70],
-    [64, 70],
-    [67, 73],
-    [73, 73],
-    [74, 74],
-    [77, 74],
-    [81, 70],
-    [89, 70],
-    [93, 74],
-    [104, 74],
-    [114, 64],
-    [122, 64],
-    [125, 61],
-    [132, 61],
-    [133, 62],
-    [135, 62],
-    [136, 63],
-    [137, 63],
-    [140, 66],
-    [142, 66],
-    [142, 58],
-    [153, 58],
-  ] as const) {
-    run.walkTo(x, y);
-  }
+  run.walkWaypoints(
+    [
+      [12, 82],
+      [13, 82],
+      [15, 80],
+      [16, 80],
+      [17, 79],
+      [22, 79],
+      [44, 79],
+      [53, 70],
+      [64, 70],
+      [67, 73],
+      [73, 73],
+      [74, 74],
+      [77, 74],
+      [81, 70],
+      [89, 70],
+      [93, 74],
+      [104, 74],
+      [114, 64],
+      [122, 64],
+      [125, 61],
+      [132, 61],
+      [133, 62],
+      [135, 62],
+      [136, 63],
+      [137, 63],
+      [140, 66],
+      [142, 66],
+      [142, 58],
+      [153, 58],
+    ],
+    { continuous: true },
+  );
   run.exit("E", 17);
 
   // Step into arch to activate tube elevator
@@ -710,7 +772,7 @@ export function sq1UlenceFlats(run: Speedrun): void {
     if (eng.flags[92] === 0) break;
   }
   run.wait(
-    () => eng.vars[0] === 25 && eng.flags[64] !== 0 && run.state().control,
+    () => eng.vars[0] === 25 && eng.flags[64] !== 0 && run.state().inputEnabled,
     "land in room 25",
     15000,
   );
@@ -750,7 +812,11 @@ export function sq1UlenceFlats(run: Speedrun): void {
   run.exit("E", 29);
 
   // Room 29: alien chamber
-  run.wait(() => eng.flags[39] !== 0 && run.state().control, "alien asks for proof (f39)", 15000);
+  run.wait(
+    () => eng.flags[39] !== 0 && run.state().inputEnabled,
+    "alien asks for proof (f39)",
+    15000,
+  );
   run.command("drop orat part");
   run.wait(() => eng.vars[82] === 3, "doorway opened (v82=3)", 10000);
   run.dismiss();
@@ -759,10 +825,13 @@ export function sq1UlenceFlats(run: Speedrun): void {
   run.checkpoint("Alien chamber opened", { room: 29, score: 73 });
 
   // Walk into doorway to enter Room 31
-  run.walkTo(78, 114);
+  run.wait(() => eng.movementControlEnabled, "alien doorway animation returns player control");
+  walkPastNarration(run, () => run.walkTo(78, 114), /beckoning you to step forward/);
   run.wait(() => eng.vars[0] === 31, "entered Keronian base (room 31)", 5000);
 
   // Room 31: cartridge reader (+5, f179)
+  // The room's introduction owns movement until the Keronian finishes speaking.
+  run.wait(() => eng.movementControlEnabled, "Keronian introduction returns player control");
   run.walkPath({ x0: 78, y0: 118, x1: 85, y1: 124 });
   run.command("insert cartridge");
   run.wait(() => eng.flags[179] !== 0, "inserted cartridge (f179)", 5000);
@@ -772,7 +841,7 @@ export function sq1UlenceFlats(run: Speedrun): void {
     run.key(AGI_KEY.ENTER);
     run.advance(10);
   }
-  run.wait(() => run.state().control, "text screen dismissed", 5000);
+  run.wait(() => run.state().inputEnabled, "text screen dismissed", 5000);
 
   // Retrieve cartridge (+5, f180)
   run.command("take cartridge");
@@ -930,9 +999,17 @@ export function sq1DeltaurDeparture(run: Speedrun): void {
 
   // Wait for salesman
   run.wait(() => Boolean(run.engine.flags[38]), "salesman approached");
+  // LOGIC 71 then leads the salesman up the same stairs (v34 2 -> 3 -> 7 -> 5 -> 6).
+  // Let him finish before planning through his moving collision footprint.
+  run.wait(() => run.engine.vars[34] === 6, "salesman reaches the upstairs display");
 
   // Buy pilot droid
-  run.walkPath({ x0: 95, y0: 66, x1: 105, y1: 68 });
+  walkPastNarration(
+    run,
+    () => run.walkPath({ x0: 95, y0: 66, x1: 105, y1: 68 }),
+    /We call that one The Peacemaker|That one is a collector's item|That model is ideal for flight systems operations/,
+    3,
+  );
   run.command("buy droid");
   run.checkpoint("Pilot droid purchased", { room: 71, score: 126 });
   assert.equal(run.engine.flags[60], 1, "pilot droid acquired");
@@ -1015,7 +1092,11 @@ export function sq1Complete(run: Speedrun): void {
     () => run.engine.vars[32] === 1 && (run.engine.screenObjects[2]?.y ?? 0) > 105,
     "droid passed",
   );
-  run.walkTo(76, 115);
+  walkPastNarration(
+    run,
+    () => run.walkTo(76, 115),
+    /apologizes the strange robot as he pushes you aside/,
+  );
   run.walkTo(76, 105);
   run.wait(() => run.state().room === 57, "entered room 57");
   run.checkpoint("Deltaur airlock interior", { room: 57, score: 152 });
@@ -1028,7 +1109,7 @@ export function sq1Complete(run: Speedrun): void {
   run.checkpoint("Laundry trunk", { room: 53, score: 155 });
   run.key(AGI_KEY.ENTER);
   run.advance(5);
-  run.wait(() => run.state().control, "graphics restored");
+  run.wait(() => run.state().inputEnabled, "graphics restored");
 
   // Vent shaft exploration: Room 53 -> 52 -> 53 (+3 pts total)
   run.command("open trunk");
@@ -1037,9 +1118,10 @@ export function sq1Complete(run: Speedrun): void {
   run.command("open vent");
   run.command("enter vent");
   run.wait(() => run.state().room === 52, "in room 52");
-  run.checkpoint("Vent shaft explored", { room: 52, score: 157 });
+  run.checkpoint("Explore the laundry vent", { room: 52, score: 157 });
+  run.wait(() => run.engine.movementControlEnabled, "vent entry crawl finishes");
   run.exit("E", 53);
-  run.checkpoint("Laundry vent exit", { room: 53, score: 158 });
+  assertProgress(run, 53, 158, "Laundry vent exit");
   run.command("climb down");
 
   // Laundry wash cycle disguise (+5 pts)
@@ -1049,7 +1131,10 @@ export function sq1Complete(run: Speedrun): void {
   run.command("climb in washer");
   run.wait(() => run.engine.vars[72] === 5, "wash cycle completed", 15000);
   run.command("open washer");
-  run.wait(() => run.state().control, "emerged in disguise");
+  run.wait(
+    () => run.state().inputEnabled && run.engine.movementControlEnabled,
+    "emerged in disguise",
+  );
   run.checkpoint("Sarien disguise equipped", { room: 53, score: 163 });
 
   // Sarien ID card
@@ -1062,9 +1147,9 @@ export function sq1Complete(run: Speedrun): void {
   run.wait(() => run.state().room === 54, "entered room 54");
   run.walkTo(120, 115);
   run.command("kiss guard");
-  run.checkpoint("Guard kissed", { room: 54, score: 164 });
+  assertProgress(run, 54, 164, "Guard kissed");
   run.command("talk to guard");
-  run.checkpoint("Guard conversed", { room: 54, score: 165 });
+  assertProgress(run, 54, 165, "Guard conversed");
   run.repeatUntil(
     () => run.command("talk to guard"),
     () => run.engine.flags[218] !== 0,
@@ -1072,7 +1157,7 @@ export function sq1Complete(run: Speedrun): void {
     100,
   );
   run.command("yes");
-  run.checkpoint("KQ trivia answered", { room: 54, score: 170 });
+  run.checkpoint("Answer the guard's King's Quest trivia", { room: 54, score: 170 });
 
   // 4. Elevator 54 -> lower 49 -> lower 48 -> upper 48 -> upper 49 -> 50 -> 51 Armory
   run.walkTo(66, 115);
@@ -1080,7 +1165,10 @@ export function sq1Complete(run: Speedrun): void {
   run.wait(() => run.engine.vars[30] === 1 || run.engine.vars[30] === 3, "elevator door open");
   run.direction(1);
   run.wait(() => run.state().room === 49, "entered room 49");
-  run.wait(() => run.state().y >= 130 && run.state().control, "stepped out in 49");
+  run.wait(
+    () => run.state().y >= 130 && run.state().inputEnabled && run.engine.movementControlEnabled,
+    "stepped out in 49",
+  );
   run.walkTo(62, 153);
   run.walkTo(20, 153);
   run.exit("W", 48);
@@ -1089,7 +1177,10 @@ export function sq1Complete(run: Speedrun): void {
   run.wait(() => run.engine.vars[32] === 1, "elevator door opened in 48");
   run.direction(1);
   run.wait(() => run.state().y < 80, "elevator rode up to upper level");
-  run.wait(() => run.state().control, "stepped out on upper level");
+  run.wait(
+    () => run.state().inputEnabled && run.engine.movementControlEnabled,
+    "stepped out on upper level",
+  );
   run.walkTo(48, 60);
   run.exit("E", 49);
   run.exit("E", 50);
@@ -1097,7 +1188,7 @@ export function sq1Complete(run: Speedrun): void {
   run.checkpoint("Armory counter", { room: 51, score: 170 });
 
   // Armory: show ID, steal grenade, receive pulseray (+4 pts)
-  run.walkTo(100, 120);
+  walkPastNarration(run, () => run.walkTo(100, 120), /Welcome to the Weapons dispensary/);
   run.command("show id");
   run.walkTo(100, 140);
   run.walkTo(123, 140);
@@ -1121,16 +1212,32 @@ export function sq1Complete(run: Speedrun): void {
   run.checkpoint("Guard gassed", { room: 50, score: 179 });
 
   // 6. Blow disguise and shoot patrolling guard (+3 pts)
-  run.exit("W", 49);
+  walkPastNarration(
+    run,
+    () => run.exit("W", 49),
+    /grenade drops to the floor releasing its poisonous gas/,
+  );
   run.exit("W", 48);
+  assert.throws(
+    () => run.walkTo(100, 60),
+    (error) =>
+      error instanceof NavigationError && error.outcome.status === "movement_control_unavailable",
+  );
+  assert.equal(run.engine.vars[81], 4, "tripping animation removed the disguise helmet");
+  run.wait(
+    () => run.state().inputEnabled && run.engine.movementControlEnabled,
+    "tripping animation finished",
+  );
   run.walkTo(100, 60);
-  run.wait(() => run.state().control, "tripping animation finished");
-  run.walkTo(48, 60);
+  walkPastNarration(run, () => run.walkTo(48, 60), /your helmet is now riding the elevator/);
   run.walkTo(48, 50);
   run.wait(() => run.engine.vars[31] === 1, "elevator door open");
   run.direction(1);
   run.wait(() => run.state().y > 100, "elevator rode down");
-  run.wait(() => run.state().control, "stepped out on lower level");
+  run.wait(
+    () => run.state().inputEnabled && run.engine.movementControlEnabled,
+    "stepped out on lower level",
+  );
   run.walkTo(48, 148);
   run.exit("E", 49);
 
@@ -1145,7 +1252,7 @@ export function sq1Complete(run: Speedrun): void {
   run.exit("E", 50);
   run.walkPath({ x0: 72, x1: 84, y0: 156, y1: 160 });
   run.command("search guard");
-  run.checkpoint("Remote taken", { room: 50, score: 185 });
+  assertProgress(run, 50, 185, "Remote taken");
   run.assertCarried(16, "Remote Control");
 
   run.command("push button");
@@ -1184,12 +1291,16 @@ export function sq1Complete(run: Speedrun): void {
   // Eliminate corridor guard and take elevator to Room 54
   run.direction(7);
   run.press(AGI_KEY.F6, 20);
+  run.wait(() => run.engine.movementControlEnabled, "pulseray firing animation finishes");
   run.walkTo(62, 145);
   run.walkTo(62, 135);
   run.wait(() => run.engine.vars[30] === 1, "elevator door open in 49");
   run.direction(1);
   run.wait(() => run.state().room === 54, "entered room 54 from elevator");
-  run.wait(() => run.state().control && run.state().y >= 95, "stepped out in 54");
+  run.wait(
+    () => run.state().inputEnabled && run.state().y >= 95 && run.engine.movementControlEnabled,
+    "stepped out in 54",
+  );
 
   // Take right elevator to Room 62 (unlocked during self-destruct)
   run.walkTo(66, 115);
@@ -1202,7 +1313,10 @@ export function sq1Complete(run: Speedrun): void {
   run.direction(1);
   run.wait(() => run.state().room === 62, "entered shuttle bay (room 62)");
   run.checkpoint("Shuttle bay entered", { room: 62, score: 199 });
-  run.wait(() => run.state().control && run.state().y >= 75, "stepped out in 62");
+  run.wait(
+    () => run.state().inputEnabled && run.state().y >= 75 && run.engine.movementControlEnabled,
+    "stepped out in 62",
+  );
 
   // 10. Board shuttle and launch to victory (+3 pts, score 202)
   run.walkPath({ x0: 5, x1: 20, y0: 121, y1: 123 });

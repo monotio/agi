@@ -672,20 +672,25 @@ test("the extended step vocabulary runs in the simulation", () => {
     instructionBudget: null,
   });
   assert.equal(pathWalked.success, true, pathWalked.error ?? "");
-  // A barrier blocks both walkTo and reachable.
+  // A barrier blocks both walkTo and reachable. Allow enough movement for the
+  // unobstructed distance so this checks geometry, not a shorter route budget.
   const blocked = world();
   blocked.container.putResource("picture", 1, Uint8Array.of(0xf2, 0, 0xf6, 156, 0, 156, 167, 0xff));
   const walled = playtestRoom(blocked, {
     room: 1,
     spawnX: null,
     spawnY: null,
-    steps: [step("walkTo", { x: 158, y: 120, ticks: 60 })],
+    steps: [step("walkTo", { x: 158, y: 120, ticks: 120 })],
     expect: null,
     cycleBudget: null,
     instructionBudget: null,
   });
   assert.equal(walled.success, false);
-  assert.match(walled.error ?? "", /walkTo did not reach \(158,120\)/);
+  assert.match(walled.error ?? "", /walkTo did not reach its goal/);
+  assert.equal(
+    (walled.details?.["navigation"] as { status: string }).status,
+    "unreachable_under_current_model",
+  );
   const unreachable = playtestRoom(blocked, {
     room: 1,
     spawnX: null,

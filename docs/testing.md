@@ -35,7 +35,7 @@ resource readers still reject unavailable data if the scenario requests it.
 | ------------------------ | ----------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | King's Quest I           | `games/kq1/`      | 2.917                       | [Full-game completion proof](#kq1-completion-proof) (159 points; Node and browser), [resources](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)                     |
 | King's Quest II          | `games/kq2/`      | 2.411                       | [Full-game completion proof](#walkthrough-tests) (185 points; wedding and ending credits), [resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts) |
-| King's Quest III         | `games/kq3/`      | 2.936                       | [Resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)                                                                                            |
+| King's Quest III         | `games/kq3/`      | 2.936                       | [Full-game completion proof](#walkthrough-tests) (210 points; royal reunion), [resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)              |
 | King's Quest IV          | `games/kq4/`      | 3.002.086                   | [Resources](../test/kq4.test.ts), [regressions](../test/kq4-regressions.test.ts)                                                                                                                                                         |
 | The Black Cauldron       | `games/bc/`       | 2.439 / 2.440               | [Opening and movement](../test/openings.test.ts)                                                                                                                                                                                         |
 | Mixed-Up Mother Goose    | `games/mumg/`     | 2.917                       | [Introduction and movement](../test/openings.test.ts)                                                                                                                                                                                    |
@@ -208,7 +208,7 @@ and screen readers still require device testing.
 
 ### Walkthrough milestones
 
-After supplying the KQ2 2.411 or SQ1 2.917 fixture described above, run:
+After supplying the KQ2 2.411, KQ3 2.936 or SQ1 2.917 fixture described above, run:
 
 ```bash
 node --test --experimental-strip-types test/walkthroughs.test.ts
@@ -216,10 +216,12 @@ npm --prefix app run e2e -- e2e/walkthroughs.spec.ts
 ```
 
 Each route uses normal player inputs and a virtual clock, asserts score and
-inventory milestones, and repeats from a cold boot with seed 1. The KQ2 route
+inventory milestones, and repeats from a cold boot with its catalog's fixed seed. The KQ2 route
 completes the entire game to the maximum score of 185, solving all door riddles,
 navigating the enchantress island and clouds, defeating the lion, rescuing
-Princess Rosella, and reaching the wedding and ending credits. The SQ1 route
+Valanice, and reaching the wedding and ending credits. The KQ3 route earns all
+210 points, completes all seven spells, escapes Manannan and the pirate ship,
+rescues Rosella, and reaches the royal reunion. The SQ1 route
 completes the entire game to the maximum score of 202, evacuating the Arcada,
 surviving Kerona and defeating Orat, purchasing a spaceship and pilot droid in
 Ulence Flats, infiltrating the Sarien battlecruiser Deltaur in disguise, stealing
@@ -231,6 +233,27 @@ Each entry defines its coverage, route and observable endpoint once for Node, CL
 and browser checks. `scripts/walkthrough.ts` writes a replay for any catalog entry;
 for example, `npm run prove:walkthrough -- sq1`. Game-specific route modules contain
 player actions and intermediate milestones; `test/speedrun.test.ts` checks the driver.
+
+Routes carry continuous motion through verified waypoint chains and use observed
+game events in place of unnecessary fixed waits. Published checkpoints name story
+highlights; finer room, score and inventory assertions remain in the route even
+when they do not need a timeline marker. The narrated tapes have these costs:
+
+| Route                | Host polls | Logic cycles | Highlights |
+| -------------------- | ---------: | -----------: | ---------: |
+| KQ1                  |    110,047 |       15,849 |         37 |
+| KQ2                  |    126,363 |       17,953 |         34 |
+| KQ3                  |    259,402 |       34,084 |         46 |
+| SQ1                  |    132,518 |       17,632 |         55 |
+| MH1 Day 1            |     40,230 |        9,141 |         25 |
+| Adventure Department |      1,367 |           82 |          4 |
+
+The inexpensive [artifact quality check](../app/test/walkthrough-quality.test.ts)
+guards poll, cycle and action ceilings, duplicate/debug markers, and long gaps
+between highlights. It supplements cold replay and browser seek checks; it does
+not establish completion by counting inputs. KQ1 preserves its verified 159-point
+ending, while the game declares a display maximum of 158; no new maximum-score
+claim is inferred from that discrepancy. MH1 remains a chapter proof.
 
 ### Manhunter Day 1 proof
 
@@ -295,18 +318,90 @@ a runner exposing an engine, a room/position state reader, and a `walkTo` input
 driver, such as [Speedrun](../test/speedrun/runner.ts). Read-only planning and
 rendering need only the engine and state reader.
 
-`planWalk(run, { x0, y0, x1, y1 })` searches the current control surface with the
-player's whole baseline footprint. It returns candidate waypoints or the nearest
-reachable position. `walkPlanned` sends those waypoints through the runner's
-normal movement inputs and stops on errors or an unexpected room transition.
-`renderNavigationSnapshot(run, target)` returns `{ png, json }` containing the scene, control map, object bounds
-and path, with a JSON sidecar describing the current geometry.
+`planWalk(run, { x0, y0, x1, y1 })` uses deterministic A* over legal player
+baseline anchors. A cardinal or diagonal full step costs one movement update;
+clearance is Chebyshev distance in picture cells to an illegal anchor. The soft
+clearance penalty prefers room in corridors while retaining one-position
+passages. Heading is included in search state when turn cost is requested.
+Smoothing follows the actual full-step steering trace and preserves clearance
+and weighted cost without adding movement updates. Region goals prefer a reachable
+interior endpoint; an actor already inside the region has arrived. The executor
+finishes at the selected endpoint, rather than stopping at the first region edge.
+An off-lattice target is unreachable under this static model;
+the planner never assumes normal input can shorten a final step.
 
-This is an advisory static planner. Moving objects, animation, changing sprite
-width, script-triggered geometry and room transitions can invalidate a candidate.
-Use small goals, replan after state changes and assert the observed outcome. A
-missing static path is a routing question, not evidence of an interpreter defect.
-These are contributor tools; they do not add path planning to the in-app agent.
+The default `geometry: "widest"` mode accounts for every cel in the current view;
+`geometry: "current"` is an explicit less conservative option. `maxSearchNodes`
+bounds search work; `maxSteps` bounds movement during search, including the final
+clipped border crossing. `searchStatus` distinguishes search-work exhaustion,
+movement-allowance exhaustion and no static route. Returned `steps` and clearance
+statistics describe the smoothed approach; `terminalSteps` counts the remaining
+exit updates. `avoidRegions` excludes declared baseline-anchor rectangles from
+search, smoothing and live trace validation. These regions need game-specific
+evidence; they do not infer hazards from a picture.
+`renderNavigationSnapshot` returns a PNG and JSON sidecar with controls, object
+bounds, target and candidate route.
+
+[`NavigationController`](../src/agent/navigationController.ts) is the shared
+incremental executor used by detached playtests and `Speedrun.navigate`. It
+accepts position/region, explicit-waypoint and expected-room exit goals, emits
+ordinary player input and observes the real engine after each host poll. The
+host advances time and records inputs; frozen walkthrough playback never invokes
+the planner. Movement control is reported separately from parser availability.
+A terminal result and its counters describe the observed position. When ordinary
+movement input is available, the stop key is consumed by the next input phase,
+not a direct direction-variable write. The synchronous `Speedrun` movement
+helpers also wait for that stop input phase within their remaining action and
+scenario poll budgets; incremental `navigate` returns before that phase.
+
+Outcomes distinguish `reached`, `blocked`, `unreachable_under_current_model`,
+`needs_input`, `movement_control_unavailable`, `unexpected_transition`,
+`hazard_detected`, `budget_exhausted` and `cancelled`. Modals and suspended
+interactions require explicit input. Eligible movement updates drive stall and
+oscillation checks, so slow step cadence does not look like a blocked path.
+Host polls, logic cycles, movement updates, replans and injected wall time have
+separate budgets. Callers of the incremental API can yield or cancel between
+polls. Replacement searches use the remaining movement allowance. Detached
+`playtest_room` runs remain synchronous and retain their existing
+five-second overall deadline.
+
+`playtest_room` supports `walkTo`, `walkPath` and `walkWaypoints`; their `ticks`
+are logic-cycle ceilings (default 600), capped by the remaining `cycleBudget`
+(default 600 including setup). `steps[].navigation` reports the typed outcome
+and counters; `details.navigation` keeps the last navigation verdict compact
+when full step diagnostics move behind `read_diagnostic`. `Speedrun` instead polls
+at 60 Hz and applies `CycleClock` before logic execution; its poll counts are not
+interchangeable with playtest cycles.
+`expect.reachable` also executes normal inputs through the shared controller.
+
+`Speedrun.traverse` uses [`NavigationTraversal`](../src/agent/navigationTraversal.ts)
+for a declared approach, activation input, observed state change, passage and
+verified landing. An approach can finish on an explicit state predicate when a
+script takes over before the coordinate target. Each phase declares its geometry
+and trigger policy, while movement, polls, cycles, searches and replans share one
+allowance. Unknown prompts return `needs_input`; they are never acknowledged by
+the traversal. The optional [readiness tests](../test/navigation-readiness.test.ts)
+exercise KQ1's tree branch, KQ2's ladder and KQ3's staircase from ordinary inputs.
+Setup routes are separate from the single goal used for each tested crossing.
+
+`Speedrun.fork()` retains an in-process checkpoint for exploration. It copies the
+resource bytes, engine image and replay state, RNG, pending input and answers,
+scheduler state and recorded prefix. It rejects unsupported or inexact boundaries.
+`run.probe([{ label, run: branch => ... }], options)` tries synchronous candidates
+from that checkpoint under per-candidate and aggregate simulation-poll ceilings.
+It reports polls, cycles, movement updates, elapsed time and omitted candidates;
+the returned branch can be retained without replaying the prefix. Callback code
+must terminate: poll ceilings do not interrupt arbitrary synchronous code.
+The retained input tape still needs independent cold-boot replay before publication.
+These checkpoints are process memory, not a durable session format.
+
+Static candidates do not predict arbitrary script hazards or prove a game can
+be completed. A lake can be geometrically passable while room logic makes entry
+fatal; its route needs an explicit safe approach. Keep trigger policy and geometry
+assumptions explicit, use bounded goals, and assert milestones. The tested
+traversals establish their declared game-specific conditions; broader interaction
+understanding and library-wide proofs require additional evidence. A missing
+static path is not evidence of an interpreter defect.
 
 ## World map
 
@@ -346,8 +441,8 @@ it runs in both the desktop and phone configurations.
 request bodies using local stubs, including JPEG/WebP MIME types, pending
 composer attachments and explicit editing intent. It never calls paid providers.
 
-The 2026-09-16 QA run measured `app/e2e/history-bench.spec.ts` using
-Chromium's Moto G4 emulation with 4× CPU throttling on a desktop host:
+The `app/e2e/history-bench.spec.ts` benchmark uses Chromium's Moto G4 emulation
+with 4× CPU throttling. Representative measurements:
 
 | Tape / layout                       | Commit p50 | Commit p95 | Bytes per commit | Reassembly |
 | ----------------------------------- | ---------: | ---------: | ---------------: | ---------: |

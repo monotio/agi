@@ -4,6 +4,7 @@ import { Speedrun } from "./runner.ts";
 import { opening } from "./openings.ts";
 import { kq1Complete } from "./kq1.ts";
 import { kq2Complete } from "./kq2.ts";
+import { kq3Complete } from "./kq3.ts";
 import { sq1Complete } from "./sq1.ts";
 import { mh1Complete } from "./mh1.ts";
 
@@ -79,6 +80,23 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
     },
   },
   {
+    hash: KNOWN_GAME_HASH.KQ3,
+    alias: "kq3",
+    label: "completed royal reunion with maximum score",
+    coverage: "complete-game",
+    seed: 1,
+    route: kq3Complete,
+    expected: {
+      room: 74,
+      score: 210,
+      vars: { 7: 210, 220: 27 },
+      flags: { 151: 1, 152: 1, 153: 1, 154: 1, 155: 1, 156: 1, 157: 1, 182: 1, 183: 1, 198: 1 },
+      inputEnabled: false,
+      egoView: 77,
+    },
+    requiresAnswer: true,
+  },
+  {
     hash: KNOWN_GAME_HASH.SQ1,
     alias: "sq1",
     label: "completed ceremony and ending credits with maximum score",
@@ -101,12 +119,13 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
       run.wait(() => run.state().room === 1, "boot into the gallery", 300);
       // Picture Gallery: the frame's posn() box is x 45–110, y 112–167.
       run.checkpoint("Picture Gallery", { room: 1, score: 0 });
-      run.walkTo(77, 140);
+      run.walkTo(45, 140);
       run.command("paint mural");
       run.checkpoint("Mural painted", { room: 1, score: 10 });
       run.command("east");
       // Sprite Lab: the doorway drops ego inside the lever's box (x 8–52).
-      run.checkpoint("Sprite Lab", { room: 2, score: 10 });
+      assert.equal(run.state().room, 2);
+      assert.equal(run.state().score, 10);
       run.command("pull lever");
       // The lever's end.of.loop runs ~16 cycles, then f34 prints the result.
       run.advance(24);
@@ -114,7 +133,8 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
       run.checkpoint("Robot awake", { room: 2, score: 20 });
       run.command("east");
       // Priority Archive: show the depth numbers, then fix Felix's.
-      run.checkpoint("Priority Archive", { room: 3, score: 20 });
+      assert.equal(run.state().room, 3);
+      assert.equal(run.state().score, 20);
       run.command("show priority");
       run.command("fix priority");
       run.checkpoint("Graduated", { room: 3, score: 30 });

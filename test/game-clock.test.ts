@@ -57,8 +57,8 @@ test("clock values survive restore and timed logic finishes without depending on
   assert.equal(engine.flags[60], 1);
 });
 
-test("a modal pauses the game clock without losing its fractional second", () => {
-  const engine = clockGame('if(!isset(f200)){set(f200);print("Wait.");}return;');
+test("pause freezes the game clock without losing its fractional second", () => {
+  const engine = clockGame("if(!isset(f200)){set(f200);pause();}return;");
   engine.advanceClock(500);
   engine.tick();
   engine.advanceClock(5000);

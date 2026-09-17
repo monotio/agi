@@ -561,6 +561,31 @@ test.describe("Walkthrough UI", () => {
     await engineRoomIs(page, 1, 15_000);
   });
 
+  test("seeks kq3 story highlights forward and backward across spell answers", async ({ page }) => {
+    const kq3Missing = fixtureSkip(KNOWN_GAME_HASH.KQ3, ["AGIDATA.OVL"]);
+    test.skip(Boolean(kq3Missing), kq3Missing || "");
+    test.setTimeout(120_000);
+    await isolateStorage(page);
+    await page.goto("/");
+    await openCardMenu(page, "game-actions-kq3");
+    await page.getByTestId("run-walkthrough").click();
+    await expect(page.getByTestId("walkthrough-timeline")).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("btn-walkthrough-pause").click();
+
+    for (const milestone of [
+      { label: "All seven spells mastered", room: 10, score: 157 },
+      { label: "The wizard’s secrets", room: 2, score: 23 },
+      { label: "Gwydion is free of Manannan", room: 8, score: 169 },
+    ]) {
+      await page.locator(`.walkthrough-marker[title*="${milestone.label}"]`).click();
+      await engineRoomIs(page, milestone.room);
+      await expect
+        .poll(() => page.evaluate(() => window.__AGI_REPLAY__?.latest?.state.vars[3]))
+        .toBe(milestone.score);
+    }
+    await page.screenshot({ path: test.info().outputPath("kq3-story-highlights.png") });
+  });
+
   test("scrubs mh1 past MAD terminal answers to Trinity Church checkpoint cleanly", async ({
     page,
   }) => {
@@ -604,7 +629,7 @@ test.describe("Walkthrough UI", () => {
     await expect(timeline).toBeVisible({ timeout: 15_000 });
 
     const sewersPct = await checkpointPercent(page, "Sewers");
-    const mazePct = await checkpointPercent(page, "Maze");
+    const mazePct = await checkpointPercent(page, "Enter the maze challenge");
     const box = await timeline.boundingBox();
     const clickAt = (pct: number) =>
       page.mouse.click(box!.x + (box!.width * pct) / 100, box!.y + box!.height * 0.5);
@@ -617,6 +642,7 @@ test.describe("Walkthrough UI", () => {
     // Backward seek cleanly resets and reaches the Maze (room 126).
     await clickAt(mazePct);
     await engineRoomIs(page, 126, 30_000);
+    await page.screenshot({ path: test.info().outputPath("mh1-story-highlights.png") });
 
     // And again in both directions: no direction state leaks across sessions.
     await clickAt(sewersPct);

@@ -105,6 +105,7 @@ test("hasWalkthrough and resolveWalkthrough resolve by alias or content hashes",
   // Direct walkthrough alias
   assert.equal(hasWalkthrough("kq1"), true);
   assert.equal(hasWalkthrough("kq2"), true);
+  assert.equal(hasWalkthrough("kq3"), true);
   assert.equal(hasWalkthrough("sq1"), true);
   assert.equal(hasWalkthrough("mh1"), true);
   assert.equal(hasWalkthrough("unknown-game"), false);

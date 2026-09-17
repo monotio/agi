@@ -853,6 +853,11 @@ describe("restart", () => {
   }
 
   const RESTART_SOURCE = `
+    if (isset(f6)) {
+      assignn(v101, 1);
+      if (isset(f5)) { assignn(v102, 1); }
+      return;
+    }
     if (!isset(f200)) {
       set(f200);
       script.size(30);
@@ -884,8 +889,10 @@ describe("restart", () => {
     assert.equal(engine.vars[100], 0, "variables cleared");
     assert.equal(engine.flags[200], 0, "flags cleared");
     assert.equal(engine.flags[9], 1, "f9 is preserved across the reset");
-    assert.equal(engine.flags[6], 1, "f6 marks the restart");
-    assert.equal(engine.flags[5], 1, "f5 marks the new room");
+    assert.equal(engine.vars[101], 1, "resumed logic observed f6");
+    assert.equal(engine.vars[102], 1, "resumed logic observed f5");
+    assert.equal(engine.flags[6], 0, "the resumed cycle cleared f6");
+    assert.equal(engine.flags[5], 0, "the resumed cycle cleared f5");
     assert.equal(engine.horizon, 36, "horizon back to its startup value");
     const replay = (engine as unknown as { replay: unknown[] }).replay;
     assert.equal(replay.length, 0, "the replay sequence is cleared");
@@ -1102,16 +1109,15 @@ describe("the RNG stream stays outside the authentic save and restart", () => {
         assert.equal(host.rng.state, rng0, `rng ${rng0} f9 ${f9}: stream untouched`);
         assert.equal(host.reseeds, 0, "restart consumed no clock read");
         assert.equal(engine.flags[9], f9, "f9 preserved");
-        assert.equal(engine.flags[6], 1, "f6 set");
+        assert.equal(engine.flags[6], 0, "f6 was consumed by the immediate resumed cycle");
         assert.equal(
           decodeSave(engine.serialize(), engine.profile).timerTicks,
           0,
           "the tick word cleared",
         );
 
-        // The next pass re-runs the cleared init and draws the picture, so a
-        // resumable snapshot can witness the other accumulator.
-        engine.tick();
+        // The same cycle re-ran init and drew the picture, so the resumable
+        // snapshot already witnesses the other accumulator.
         assert.equal(
           engine.captureReplayState().clockRemainderMs,
           0,
@@ -1130,7 +1136,7 @@ describe("the RNG stream stays outside the authentic save and restart", () => {
     assert.equal(host.rng.state, 0);
     assert.equal(host.reseeds, 0, "restart never touched the clock");
 
-    engine.tick(); // the re-run init re-arms input before the roll lands
+    // The immediate re-run already re-armed input before the roll lands.
     host.inputQueue.push("roll");
     engine.tick();
     assert.equal(host.reseeds, 1, "exactly one clock read on the draw");

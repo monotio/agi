@@ -124,6 +124,8 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: requireResourceRevision(
       "fcb5fc83e2b4844d38aa5c0fcfcc291b6e41a97df2015aacad85b7f42b73a399",
     ),
+    walkthroughLabel: "Completed royal reunion (210 pts)",
+    walkthroughCoverage: "complete-game",
   },
   {
     alias: "kq4",

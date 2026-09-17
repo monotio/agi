@@ -83,11 +83,14 @@ test("random actions consume the injected random source, including inclusive end
 
 test("platform variables describe the EGA display and selected sound hardware at boot and restart", () => {
   for (const device of [0, 1]) {
-    const e = game("set(f16);restart.game();return;", { soundDevice: () => device });
+    const e = game("if(isset(f6)){assignn(v100,1);return;}set(f16);restart.game();return;", {
+      soundDevice: () => device,
+    });
     assert.equal(e.vars[20], 0);
     assert.equal(e.vars[22], device === 0 ? 1 : 3);
     assert.equal(e.vars[26], 3);
     e.tick();
+    assert.equal(e.vars[100], 1, "restarted logic resumes in the same cycle");
     assert.equal(e.vars[22], device === 0 ? 1 : 3);
     assert.equal(e.vars[26], 3);
   }
