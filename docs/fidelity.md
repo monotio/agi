@@ -1290,6 +1290,38 @@ and restart cases, 56 reconstruction/return cases, 12 object lifecycle cases,
 24 stationary cases, eight startup cases, 76 opcode flag mutations and four
 main-loop continuation cases.
 
+### Original string slot addressing
+
+Static disassembly of two descrambled v2 images: LSL1 2.440
+(`c70e2f327eaad8dbcb1d526e9fb3f933b342329b84c6a803f9062c245ccb7676`) and KQ3
+2.936 (`4b50c681c224326e09933170823b846e7dbe340dafc76f07ee0af990ebb93400`).
+Both address a string operand as `DS:0x020d + slot × 40`, the multiplier read
+from a code-segment word holding 40.
+
+| Build | Unchecked sites (load-module offsets)               | Checked site                  |
+| ----- | --------------------------------------------------- | ----------------------------- |
+| 2.440 | 0x0c35, 0x0d18, 0x0d51, 0x0ed8 (comparison), 0x1ff6 | 0x1944 `cmp ax,0xc` (`parse`) |
+| 2.936 | 0x0c68, 0x0d4b, 0x0d84, 0x0f0b, 0x2033, 0x273e      | 0x1981 `cmp ax,0xc` (`parse`) |
+
+Fact: only `parse` compares its slot with twelve; prompted input, `set.string`,
+`word.to.string`, the string comparison and `%s` formatting use the computed
+address unchecked. Fact: LSL1 logic 22 stores an alternative telephone spelling
+with `set.string(s12, …)` and tests `compare.strings(s1, s12)`; logic 0 does
+the same with s11 and s12. Inference: the twelve reserved 40-byte records the
+save layout places directly after the table are what s12..s23 address, so such
+a write is readable and is saved. Inference: the six-slot profiles behave the
+same way over their six reserved records, and 3.002.149, whose layout has no
+reserved bank, has nothing safe behind s11. No routine was executed and no
+early or v3 image was inspected for this entry.
+
+The engine keeps the table and its reserved records as one bank: every string
+operand except `parse` reaches it, `parse` stops at the profile's slot count,
+slots past the bank are ignored on write and read empty, and the save image
+carries the reserved records.
+
+Tests: [string-bank.test.ts](../test/string-bank.test.ts),
+[profile.test.ts](../test/profile.test.ts).
+
 ### Original parser unknown-word audit
 
 The [input probe](../scripts/probe-interpreter-input.py) executes GR 3.002.149's

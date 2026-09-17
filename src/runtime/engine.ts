@@ -67,6 +67,7 @@ import {
   encodeHostImage,
   encodeSave,
   newObjectRecord,
+  block1Layout,
   newSaveState,
   resumeOffsetFor,
   type LogicResumeRecord,
@@ -703,7 +704,10 @@ export class Engine {
     // wins, otherwise detection reads the version string from an interpreter
     // binary shipped in the same folder, otherwise the container shape decides.
     this.profile = detectProfile(container.files, options?.profile);
-    this.strings = Array.from({ length: this.profile.stringSlots }, () => "");
+    // The table and its reserved records are one contiguous bank; only parse()
+    // stops at the slot count (docs/fidelity.md, "Original string slot addressing").
+    const bank = block1Layout(this.profile);
+    this.strings = Array.from({ length: bank.stringSlots + bank.stringReserved }, () => "");
     this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
     this.vars[24] = 41;
     this.vars[26] = 3; // EGA presentation on the PC-compatible platform (v20 = 0).
@@ -1336,8 +1340,9 @@ export class Engine {
   }
 
   /**
-   * Slot writes outside the profile's string range are ignored
-   * (spec "String slots": six slots before 2.411, twelve afterwards).
+   * Writes reach the table and its reserved records; slots past that bank would
+   * overwrite unrelated interpreter state in the original and are ignored here
+   * (docs/fidelity.md, "Original string slot addressing").
    */
   private setString(slot: number, value: string): void {
     if (slot < this.strings.length) this.strings[slot] = value.slice(0, 39);
@@ -4348,8 +4353,8 @@ export class Engine {
         return { result: this.evalSaid(ids), next: pc + 2 + count * 2 };
       }
       case 0x0f: {
-        const a = this.normalizeString(this.strings[o(0)]!);
-        const b2 = this.normalizeString(this.strings[o(1)]!);
+        const a = this.normalizeString(this.strings[o(0)] ?? "");
+        const b2 = this.normalizeString(this.strings[o(1)] ?? "");
         return { result: a === b2, next: pc + 3 };
       }
       default:
@@ -5161,7 +5166,7 @@ export class Engine {
       }
       // parse: slot numbers outside the profile's range produce no parse (spec).
       case 0x75:
-        if (a(0) < this.strings.length) this.parseInput(this.strings[a(0)]!);
+        if (a(0) < this.profile.stringSlots) this.parseInput(this.strings[a(0)]!);
         return next;
       case 0x76: {
         // get.num: prompt on the input row; the accepted number's low 8 bits
