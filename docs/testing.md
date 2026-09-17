@@ -35,7 +35,7 @@ resource readers still reject unavailable data if the scenario requests it.
 | ------------------------ | ----------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | King's Quest I           | `games/kq1/`      | 2.917                       | [Full-game completion proof](#kq1-completion-proof) (159 points; Node and browser), [resources](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)                     |
 | King's Quest II          | `games/kq2/`      | 2.411                       | [Full-game completion proof](#walkthrough-tests) (185 points; wedding and ending credits), [resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts) |
-| King's Quest III         | `games/kq3/`      | 2.936                       | [Resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)                                                                                            |
+| King's Quest III         | `games/kq3/`      | 2.936                       | [Full-game completion proof](#walkthrough-tests) (210 points; royal reunion), [resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)              |
 | King's Quest IV          | `games/kq4/`      | 3.002.086                   | [Resources](../test/kq4.test.ts), [regressions](../test/kq4-regressions.test.ts)                                                                                                                                                         |
 | The Black Cauldron       | `games/bc/`       | 2.439 / 2.440               | [Opening and movement](../test/openings.test.ts)                                                                                                                                                                                         |
 | Mixed-Up Mother Goose    | `games/mumg/`     | 2.917                       | [Introduction and movement](../test/openings.test.ts)                                                                                                                                                                                    |
@@ -208,7 +208,7 @@ and screen readers still require device testing.
 
 ### Walkthrough milestones
 
-After supplying the KQ2 2.411 or SQ1 2.917 fixture described above, run:
+After supplying the KQ2 2.411, KQ3 2.936 or SQ1 2.917 fixture described above, run:
 
 ```bash
 node --test --experimental-strip-types test/walkthroughs.test.ts
@@ -219,7 +219,9 @@ Each route uses normal player inputs and a virtual clock, asserts score and
 inventory milestones, and repeats from a cold boot with its catalog's fixed seed. The KQ2 route
 completes the entire game to the maximum score of 185, solving all door riddles,
 navigating the enchantress island and clouds, defeating the lion, rescuing
-Valanice, and reaching the wedding and ending credits. The SQ1 route
+Valanice, and reaching the wedding and ending credits. The KQ3 route earns all
+210 points, completes all seven spells, escapes Manannan and the pirate ship,
+rescues Rosella, and reaches the royal reunion. The SQ1 route
 completes the entire game to the maximum score of 202, evacuating the Arcada,
 surviving Kerona and defeating Orat, purchasing a spaceship and pilot droid in
 Ulence Flats, infiltrating the Sarien battlecruiser Deltaur in disguise, stealing
@@ -241,6 +243,7 @@ when they do not need a timeline marker. The narrated tapes have these costs:
 | -------------------- | ---------: | -----------: | ---------: |
 | KQ1                  |    110,047 |       15,849 |         37 |
 | KQ2                  |    126,363 |       17,953 |         34 |
+| KQ3                  |    259,402 |       34,084 |         46 |
 | SQ1                  |    132,518 |       17,632 |         55 |
 | MH1 Day 1            |     40,230 |        9,141 |         25 |
 | Adventure Department |      1,367 |           82 |          4 |

@@ -4,6 +4,7 @@ import { Speedrun } from "./runner.ts";
 import { opening } from "./openings.ts";
 import { kq1Complete } from "./kq1.ts";
 import { kq2Complete } from "./kq2.ts";
+import { kq3Complete } from "./kq3.ts";
 import { sq1Complete } from "./sq1.ts";
 import { mh1Complete } from "./mh1.ts";
 
@@ -77,6 +78,23 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
       score: 185,
       carriedExactly: [50, 53, 54, 55, 56, 57, 58, 59, 60, 65, 68, 69, 73, 74, 75, 76, 78, 82, 83],
     },
+  },
+  {
+    hash: KNOWN_GAME_HASH.KQ3,
+    alias: "kq3",
+    label: "completed royal reunion with maximum score",
+    coverage: "complete-game",
+    seed: 1,
+    route: kq3Complete,
+    expected: {
+      room: 74,
+      score: 210,
+      vars: { 7: 210, 220: 27 },
+      flags: { 151: 1, 152: 1, 153: 1, 154: 1, 155: 1, 156: 1, 157: 1, 182: 1, 183: 1, 198: 1 },
+      inputEnabled: false,
+      egoView: 77,
+    },
+    requiresAnswer: true,
   },
   {
     hash: KNOWN_GAME_HASH.SQ1,

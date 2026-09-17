@@ -8,6 +8,7 @@ import { validateWalkthroughArtifact } from "../src/walkthrough.ts";
 const limits: Record<string, { polls: number; cycles: number; actions: number }> = {
   kq1: { polls: 110100, cycles: 15860, actions: 2750 },
   kq2: { polls: 127000, cycles: 18100, actions: 4600 },
+  kq3: { polls: 260000, cycles: 34200, actions: 10600 },
   sq1: { polls: 132600, cycles: 17650, actions: 4900 },
   mh1: { polls: 40500, cycles: 9200, actions: 1450 },
   "adventure-department": { polls: 1400, cycles: 90, actions: 145 },
