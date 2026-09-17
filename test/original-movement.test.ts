@@ -305,3 +305,39 @@ test("host history retains a parked out-of-bounds position while authentic resto
   engine.restoreImage(authentic);
   assert.equal(engine.screenObjects[0]!.x, 156, "authentic reconstruction invokes cel clipping");
 });
+
+test("the previous position is committed after the pass, so a corner pass is not a crossing", () => {
+  // docs/fidelity.md, "Original previous-position commit". Widths are 2, so
+  // spans touch inclusively when mover.x <= ego.x + 2.
+  const engine = game();
+  const ego = engine.screenObjects[0]!;
+  const actor = engine.screenObjects[1]!;
+  ego.x = ego.prevX = 90;
+  ego.y = ego.prevY = 143;
+  actor.x = actor.prevX = 95;
+  actor.y = actor.prevY = 141;
+  actor.direction = 6; // south-west, one pixel per pass
+  actor.newlyPositioned = false;
+  ego.newlyPositioned = false;
+  const trail: [number, number][] = [];
+  for (let pass = 0; pass < 4; pass++) {
+    engine.tick();
+    trail.push([actor.x, actor.y]);
+  }
+  // (92,144) touches ego's span with a lower baseline, but the mover's committed
+  // previous y is 143, not below ego's 143: no crossing, so it keeps going.
+  assert.deepEqual(trail, [
+    [94, 142],
+    [93, 143],
+    [92, 144],
+    [91, 145],
+  ]);
+
+  // Control: straight down onto the same baseline is still a collision.
+  actor.x = actor.prevX = 90;
+  actor.y = actor.prevY = 141;
+  actor.direction = 5;
+  engine.tick();
+  engine.tick();
+  assert.deepEqual([actor.x, actor.y], [90, 142], "equal baselines block");
+});

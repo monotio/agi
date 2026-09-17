@@ -3157,6 +3157,7 @@ export class Engine {
     // All cels (and therefore collision dimensions) change before the
     // movement dispatcher visits its first actor. docs/fidelity.md:
     // Original complete movement and follow audit.
+    const due: ScreenObject[] = [];
     for (const obj of this.objects) {
       if (!obj.active || !obj.update || obj.earlierPartition) continue;
       if (obj.stepCount === 0 || --obj.stepCount === 0) {
@@ -3168,7 +3169,17 @@ export class Engine {
         this.moveObject(obj, obj.newlyPositioned ? 0 : obj.stepSize);
         obj.stationary = obj.x === previousX && obj.y === previousY;
         obj.newlyPositioned = false;
+        due.push(obj);
       }
+    }
+    // The previous position is committed once the whole pass has moved, and
+    // only for actors whose step countdown reloaded: later actors in the same
+    // pass still test against the pre-move value, and the next pass's crossing
+    // test sees the mover's own current baseline (docs/fidelity.md, "Original
+    // previous-position commit").
+    for (const obj of due) {
+      obj.prevX = obj.x;
+      obj.prevY = obj.y;
     }
     for (const obj of this.objects) {
       if (!obj.active || !obj.update || obj.earlierPartition) continue;
@@ -3287,8 +3298,6 @@ export class Engine {
       return;
     }
 
-    obj.prevX = obj.x;
-    obj.prevY = obj.y;
     obj.x = nx;
     obj.y = ny;
     if (!obj.fixedPriority) obj.priority = this.priorityForY(ny);

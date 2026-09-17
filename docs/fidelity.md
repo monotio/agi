@@ -1290,6 +1290,29 @@ and restart cases, 56 reconstruction/return cases, 12 object lifecycle cases,
 24 stationary cases, eight startup cases, 76 opcode flag mutations and four
 main-loop continuation cases.
 
+### Original previous-position commit
+
+Static disassembly of the descrambled KQ3 2.936 image. The collision routine at
+0x4719 compares the mover's and the other actor's word at record offset 0x18
+with their baselines at 0x05. That word has four writers: `position` and
+`position.v` (0x7c1c, 0x7c5a), `draw` (0x0a5a) and the sprite-list commit at
+0x048c..0x04d8. For each listed actor whose step countdown equals its step
+time, the commit sets state bit 0x4000 when x and y equal the saved pair, and
+otherwise copies x and y into 0x16/0x18 and clears the bit. Fact: the movement
+routine does not write the saved pair. Inference from that placement: the pair
+changes once per pass after every actor has moved, so a later actor in the pass
+tests against an earlier actor's pre-move value, and on the next pass a mover's
+saved baseline equals its current one. No routine was executed for this entry;
+the executed movement vectors above used steps for which both readings agree.
+
+The engine wrote the pair inside the move, which left it one step stale. An
+actor stepping one pixel per pass past a standing actor's corner was then
+judged to have crossed its baseline a pass late and stopped for good. Police
+Quest logic 37 walks the bikers out past a scripted ego position this way.
+
+Tests: [original-movement.test.ts](../test/original-movement.test.ts). The
+KQ3 walkthrough's tape moved by 60 polls and keeps its 210-point ending.
+
 ### Original show.obj description formatting
 
 Static disassembly of the unscrambled Gold Rush 3.002.149 executable
