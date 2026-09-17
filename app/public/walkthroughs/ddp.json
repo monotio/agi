@@ -1,0 +1,2358 @@
+{
+  "schema": "monotio.agi.walkthrough.v1",
+  "identity": {
+    "project": "ddp",
+    "revision": "4ae970dd2e680033206d042b0fddf295ae91b29e6bd303d8c0cfc9635c766a15"
+  },
+  "supportedRevisions": [
+    "4ae970dd2e680033206d042b0fddf295ae91b29e6bd303d8c0cfc9635c766a15"
+  ],
+  "coverage": "chapter",
+  "profile": "2.440",
+  "seed": 1,
+  "fixtureHashes": {
+    "AGI": "03151ad77a3d3f4a4ab0c9b36584d278bcf9294fd0ad7f0af93311239a1262ad",
+    "AGIDATA.OVL": "5b696520d68d6b843711184a63c85cc313818e08cd0afc0452225a97939483a4",
+    "LOGDIR": "a6bdb4df2a01859d3168fa0f2dc69bb651c31a3d73bdb4f2cf49e735b71f891a",
+    "OBJECT": "ef60a61d5c92943f073873ddc4daa983c545831d60a5826bbc210de5b0897d67",
+    "PICDIR": "240eeb185ab9b3fa4d356aacf63c2342d9e4ba452cd56159eedb55734a47df18",
+    "SNDDIR": "aed0c45ead87e5f6c0c02480acad191fac5a8d99f99ebddd5ae7a4eca5329667",
+    "VIEWDIR": "4973519fe3dc06167d679dc62dd866bfaeb7784980fd6e1252bc55c10a798543",
+    "VOL.0": "6d9a592cc56c2736f3e101304211b773571c0eb06fd26d1072fcb122f769ade6",
+    "WORDS.TOK": "ea3856277ff2bca73bd85884d7b2f5d269a0be8f115c0b824c7f8e98da30d116"
+  },
+  "status": "completed",
+  "failure": null,
+  "elapsedMs": 586,
+  "virtualTicks": 10341,
+  "cycles": 2335,
+  "actions": [
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Title parade",
+      "room": 1,
+      "score": 0,
+      "x": 70,
+      "y": 140
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 205
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 18176
+    },
+    {
+      "kind": "advance",
+      "ticks": 37
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 198
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 402
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Chose the beginner arch",
+      "room": 7,
+      "score": 0,
+      "x": 60,
+      "y": 166
+    },
+    {
+      "kind": "key",
+      "code": 18688
+    },
+    {
+      "kind": "advance",
+      "ticks": 42
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 480
+    },
+    {
+      "kind": "key",
+      "code": 18688
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 42
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Clocked in at the produce market",
+      "room": 22,
+      "score": 0,
+      "x": 38,
+      "y": 100
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 72
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 132
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 107
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 78
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 114
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 24
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Sorted the fourth crate",
+      "room": 22,
+      "score": 0,
+      "x": 56,
+      "y": 100
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 36
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 66
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 66
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 35
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 72
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 132
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Sorted the eighth crate",
+      "room": 22,
+      "score": 0,
+      "x": 38,
+      "y": 100
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 42
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 36
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 66
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 66
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 35
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 24
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 78
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 144
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 24
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Sorted the twelfth crate",
+      "room": 22,
+      "score": 0,
+      "x": 23,
+      "y": 100
+    },
+    {
+      "kind": "advance",
+      "ticks": 96
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 7
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 120
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 66
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 288
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Shift whistle blew",
+      "room": 22,
+      "score": 0,
+      "x": 38,
+      "y": 100
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 471
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Collected fourteen cents of pay",
+      "room": 25,
+      "score": 0,
+      "x": 97,
+      "y": 166
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 431
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Crossed over to the toy stores",
+      "room": 6,
+      "score": 0,
+      "x": 151,
+      "y": 73
+    },
+    {
+      "kind": "key",
+      "code": 18176
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 330
+    },
+    {
+      "kind": "key",
+      "code": 18176
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 42
+    },
+    {
+      "kind": "key",
+      "code": 18176
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 66
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 18176
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 366
+    },
+    {
+      "kind": "key",
+      "code": 18176
+    },
+    {
+      "kind": "advance",
+      "ticks": 126
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 42
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Picked the Old Box off Goofy's shelf",
+      "room": 11,
+      "score": 0,
+      "x": 46,
+      "y": 104
+    },
+    {
+      "kind": "key",
+      "code": 20736
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 222
+    },
+    {
+      "kind": "key",
+      "code": 20736
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
+    },
+    {
+      "kind": "key",
+      "code": 20736
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Stepped up to the cash register",
+      "room": 14,
+      "score": 0,
+      "x": 76,
+      "y": 86
+    },
+    {
+      "kind": "advance",
+      "ticks": 156
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 20736
+    },
+    {
+      "kind": "advance",
+      "ticks": 68
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 180
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 381
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 18688
+    },
+    {
+      "kind": "advance",
+      "ticks": 2
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 219
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 167
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Paid Goofy one penny for the Old Box",
+      "room": 14,
+      "score": 0,
+      "x": 139,
+      "y": 66
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
+    },
+    {
+      "kind": "key",
+      "code": 20736
+    },
+    {
+      "kind": "advance",
+      "ticks": 2
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "key",
+      "code": 20736
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 24
+    },
+    {
+      "kind": "key",
+      "code": 18688
+    },
+    {
+      "kind": "advance",
+      "ticks": 54
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "key",
+      "code": 18176
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "key",
+      "code": 18176
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 18176
+    },
+    {
+      "kind": "advance",
+      "ticks": 42
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 195
+    },
+    {
+      "kind": "key",
+      "code": 18176
+    },
+    {
+      "kind": "advance",
+      "ticks": 15
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 201
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Crossed the park railway",
+      "room": 19,
+      "score": 0,
+      "x": 66,
+      "y": 89
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 204
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Found the delivered box by the fort",
+      "room": 16,
+      "score": 0,
+      "x": 149,
+      "y": 166
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 111
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 162
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 111
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 122
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 111
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 114
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 122
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Set the box down in the open corner",
+      "room": 16,
+      "score": 0,
+      "x": 112,
+      "y": 150
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 51
+    },
+    {
+      "kind": "key",
+      "code": 120
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "checkpoint",
+      "label": "Played on the Old Box",
+      "room": 16,
+      "score": 0,
+      "x": 106,
+      "y": 155
+    }
+  ],
+  "finalState": {
+    "profile": "2.440",
+    "room": 16,
+    "previousRoom": 17,
+    "egoX": 106,
+    "egoY": 155,
+    "egoDirection": 0,
+    "vars": [
+      16,
+      17,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      52,
+      2,
+      0,
+      0,
+      0,
+      16,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0,
+      41,
+      0,
+      3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      13,
+      0,
+      41,
+      1,
+      4,
+      0,
+      0,
+      106,
+      155,
+      106,
+      155,
+      97,
+      166,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      14,
+      1,
+      0,
+      13,
+      0,
+      0,
+      19,
+      0,
+      1,
+      0,
+      111,
+      151,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      4,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      0,
+      0,
+      1,
+      1,
+      5,
+      5,
+      5,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      3,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      2,
+      4,
+      13,
+      52,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "flags": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "strings": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "parsedWords": [],
+    "parsedWordTexts": [],
+    "parserCount": 0,
+    "lastInputLine": "",
+    "horizon": 47,
+    "priorityBase": 48,
+    "patchGeneration": 0,
+    "modalKind": null,
+    "modalSerial": 0,
+    "inputEnabled": false,
+    "pictureShown": true,
+    "terminated": false,
+    "controls": [
+      {
+        "key": 25088,
+        "controller": 2,
+        "menuItems": [
+          {
+            "heading": "Sierra ",
+            "text": "Help    <F1>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 15104,
+        "controller": 2,
+        "menuItems": [
+          {
+            "heading": "Sierra ",
+            "text": "Help    <F1>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 15360,
+        "controller": 16,
+        "menuItems": [
+          {
+            "heading": "Special ",
+            "text": "Sound On/Off       <F2>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 15616,
+        "controller": 7,
+        "menuItems": [
+          {
+            "heading": "File ",
+            "text": "Restart  <F3>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 15872,
+        "controller": 18,
+        "menuItems": []
+      },
+      {
+        "key": 16128,
+        "controller": 5,
+        "menuItems": [
+          {
+            "heading": "Action ",
+            "text": "To Main Street <F5>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 16384,
+        "controller": 13,
+        "menuItems": []
+      },
+      {
+        "key": 16640,
+        "controller": 20,
+        "menuItems": []
+      },
+      {
+        "key": 17152,
+        "controller": 4,
+        "menuItems": [
+          {
+            "heading": "Action ",
+            "text": "Use Something   <Z>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 17408,
+        "controller": 6,
+        "menuItems": [
+          {
+            "heading": "Action ",
+            "text": "Do Something    <X>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 3,
+        "controller": 17,
+        "menuItems": []
+      },
+      {
+        "key": 5,
+        "controller": 18,
+        "menuItems": []
+      },
+      {
+        "key": 10,
+        "controller": 15,
+        "menuItems": [
+          {
+            "heading": "Special ",
+            "text": "Joystick       <Ctrl-J>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 18,
+        "controller": 12,
+        "menuItems": []
+      },
+      {
+        "key": 19,
+        "controller": 16,
+        "menuItems": [
+          {
+            "heading": "Special ",
+            "text": "Sound On/Off       <F2>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 22,
+        "controller": 21,
+        "menuItems": []
+      },
+      {
+        "key": 8192,
+        "controller": 14,
+        "menuItems": []
+      },
+      {
+        "key": 4608,
+        "controller": 22,
+        "menuItems": []
+      },
+      {
+        "key": 11264,
+        "controller": 1,
+        "menuItems": [
+          {
+            "heading": "File ",
+            "text": "Quit  <Alt-Z>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 5888,
+        "controller": 9,
+        "menuItems": []
+      },
+      {
+        "key": 12800,
+        "controller": 13,
+        "menuItems": []
+      },
+      {
+        "key": 88,
+        "controller": 6,
+        "menuItems": [
+          {
+            "heading": "Action ",
+            "text": "Do Something    <X>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 90,
+        "controller": 4,
+        "menuItems": [
+          {
+            "heading": "Action ",
+            "text": "Use Something   <Z>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 120,
+        "controller": 6,
+        "menuItems": [
+          {
+            "heading": "Action ",
+            "text": "Do Something    <X>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 122,
+        "controller": 4,
+        "menuItems": [
+          {
+            "heading": "Action ",
+            "text": "Use Something   <Z>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 27,
+        "controller": 26,
+        "menuItems": []
+      },
+      {
+        "key": 257,
+        "controller": 6,
+        "menuItems": [
+          {
+            "heading": "Action ",
+            "text": "Do Something    <X>",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 513,
+        "controller": 26,
+        "menuItems": []
+      }
+    ],
+    "inventory": [
+      {
+        "num": 0,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 1,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 2,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 3,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 4,
+        "name": "?",
+        "room": 255
+      },
+      {
+        "num": 5,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 6,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 7,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 8,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 9,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 10,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 11,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 12,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 13,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 14,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 15,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 16,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 17,
+        "name": "?",
+        "room": 0
+      },
+      {
+        "num": 18,
+        "name": "?",
+        "room": 0
+      }
+    ]
+  }
+}
