@@ -127,6 +127,48 @@ test("add.to.pic paints the cel into the persistent surface with margin control"
   }
 });
 
+/** 1 loop, 1 cel: a solid width x height block of color 5 (width at most 15). */
+function solidView(width: number, height: number): Uint8Array {
+  const rows = Array.from({ length: height }, () => [0x50 | width, 0]).flat();
+  return new Uint8Array([0, 0, 1, 0, 0, 7, 0, 1, 3, 0, width, height, 0, ...rows]);
+}
+
+test("add.to.pic outlines a control box as tall as the baseline's priority band", () => {
+  // docs/fidelity.md, "Original add.to.pic control box". With the default
+  // priority base of 48, band 9 is rows 96..107 (5 + floor((y - 48) * 10 / 120)).
+  const container = gameWith(`
+    load.view(0);
+    load.view(1);
+    add.to.pic(0, 0, 0, 40, 100, 15, 1);
+    add.to.pic(1, 0, 0, 80, 107, 15, 3);
+    return;
+  `);
+  container.putResource("view", 0, solidView(5, 20));
+  container.putResource("view", 1, solidView(6, 3));
+  const engine = new Engine(container, new TestHost(), DICT);
+  engine.tick();
+  const at = (x: number, y: number): number => engine.surface.priority[y * SCREEN_WIDTH + x]!;
+
+  // Rows 100..96 lie in the baseline's band: five rows, fewer than the cel's twenty.
+  for (let x = 40; x <= 44; x++) assert.equal(at(x, 100), 1, `bottom row x=${x}`);
+  for (let y = 96; y <= 99; y++) {
+    assert.equal(at(40, y), 1, `left column y=${y}`);
+    assert.equal(at(44, y), 1, `right column y=${y}`);
+  }
+  for (let x = 41; x <= 43; x++) assert.equal(at(x, 96), 1, `top row x=${x}`);
+  assert.equal(at(42, 98), 15, "the interior keeps the cel's priority");
+  assert.equal(at(40, 95), 15, "the box stops at the band's top row");
+  assert.equal(at(39, 98), 4, "nothing is stamped outside the cel");
+
+  // Twelve band rows above y=107, but the cel is three rows tall.
+  for (let x = 80; x <= 85; x++) assert.equal(at(x, 107), 3, `short bottom row x=${x}`);
+  assert.equal(at(80, 106), 3);
+  assert.equal(at(85, 106), 3);
+  for (let x = 80; x <= 85; x++) assert.equal(at(x, 105), 3, `short top row x=${x}`);
+  assert.equal(at(82, 106), 15, "short interior");
+  assert.equal(at(80, 104), 4, "nothing above a three-row cel");
+});
+
 test("add.to.pic.v draws through variable-selected operands", () => {
   const container = gameWith(`
     load.view(0);

@@ -25,9 +25,9 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 4542,
-  "virtualTicks": 132518,
-  "cycles": 17632,
+  "elapsedMs": 6403,
+  "virtualTicks": 132398,
+  "cycles": 17612,
   "actions": [
     {
       "kind": "key",
@@ -447,14 +447,6 @@
     },
     {
       "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
       "code": 103
     },
     {
@@ -519,30 +511,6 @@
     },
     {
       "kind": "key",
-      "code": 18176
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 42
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
       "code": 13
     },
     {
@@ -562,8 +530,8 @@
       "label": "Recover the keycard",
       "room": 3,
       "score": 6,
-      "x": 140,
-      "y": 68
+      "x": 152,
+      "y": 70
     },
     {
       "kind": "key",
@@ -571,7 +539,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 85
+      "ticks": 13
     },
     {
       "kind": "key",
@@ -587,7 +555,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 24
+      "ticks": 36
     },
     {
       "kind": "key",
@@ -595,7 +563,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 174
+      "ticks": 162
     },
     {
       "kind": "key",
@@ -18895,7 +18863,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1116
+      "ticks": 1134
     },
     {
       "kind": "key",
@@ -19493,7 +19461,7 @@
       0,
       0,
       2,
-      48,
+      46,
       36,
       0,
       0,
@@ -19556,9 +19524,9 @@
       0,
       3,
       6,
-      0,
-      9,
-      2,
+      1,
+      1,
+      7,
       1,
       0,
       4,
@@ -20003,6 +19971,18 @@
       "astral body",
       "",
       "Version 2.2",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
       "",
       "",
       "",

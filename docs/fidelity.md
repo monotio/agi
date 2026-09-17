@@ -1290,6 +1290,38 @@ and restart cases, 56 reconstruction/return cases, 12 object lifecycle cases,
 24 stationary cases, eight startup cases, 76 opcode flag mutations and four
 main-loop continuation cases.
 
+### Original add.to.pic control box
+
+Static disassembly of the descrambled LSL1 2.440 and KQ3 2.936 images (hashes
+under [Original string slot addressing](#original-string-slot-addressing)).
+The `add.to.pic` handlers at 0x2c7a/0x2cca (2.936) pack the margin operand into
+the high nibble of the priority byte and call the shared core at 0x2d52, which
+stamps the cel through the routine at 0x57cf (2.936) / 0x55f0 (2.440). The two
+routines are instruction-for-instruction identical apart from data addresses.
+
+Fact: after the cel is drawn, the routine returns if the packed byte exceeds
+0x3f, which is a margin of four or more. Otherwise it counts rows upward from
+the baseline while the y-to-priority table gives the baseline's band, caps that
+count at the cel height, and writes the margin into the priority nibble of: the
+whole baseline row across the cel width; the first and last column of each
+higher row; and the columns strictly between them on the top row. A box one row
+tall is the baseline row alone. Fact: a priority operand whose low nibble is
+zero takes the baseline's band. Not modelled: the top-row loop counts
+`width - 2` in an eight-bit register without a zero test, so a cel narrower
+than three pixels overruns in the original. No routine was executed; 2.903 and
+the v3 builds were not inspected, and the engine applies the same box to every
+profile by inference.
+
+Behavioral witness: Police Quest logic 26 places Dooley's car with margin 0 and
+then positions an officer beside it; with a baseline-only line the placement
+search accepts a spot from which his scripted walk jams on that line. Space
+Quest logic 3 places the dead crewman with margin 0; the box x126..149,
+y63..71 makes the body solid, and the keycard remains reachable because the
+room's `posn` test covers the doorway.
+
+Tests: [opcodes.test.ts](../test/opcodes.test.ts); the SQ1 walkthrough crosses
+room 3.
+
 ### Original string slot addressing
 
 Static disassembly of two descrambled v2 images: LSL1 2.440

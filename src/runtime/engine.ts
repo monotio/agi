@@ -2778,12 +2778,39 @@ export class Engine {
       },
     });
     this.text.dropCells(covered);
-    if (margin < 4 && y >= 0 && y < SCREEN_HEIGHT) {
-      const from = Math.max(0, x);
-      const to = Math.min(SCREEN_WIDTH, x + c.width);
-      for (let dx = from; dx < to; dx++) this.surface.priority[y * SCREEN_WIDTH + dx] = margin;
-    }
+    if (margin < 4 && y >= 0 && y < SCREEN_HEIGHT) this.stampControlBox(x, y, c, margin);
     this.presentationDirty = true;
+  }
+
+  /**
+   * A margin below four outlines a control box in the priority screen: the
+   * baseline row, both side columns and a top row. The box is as tall as the
+   * run of rows sharing the baseline's priority band, capped at the cel height
+   * (docs/fidelity.md, "Original add.to.pic control box"). The original's
+   * unbounded top-row loop for cels narrower than three pixels is not modelled.
+   */
+  private stampControlBox(
+    x: number,
+    y: number,
+    cel: { width: number; height: number },
+    margin: number,
+  ): void {
+    const band = this.priorityForY(y);
+    let rows = 1;
+    while (rows <= y && this.priorityForY(y - rows) === band) rows++;
+    rows = Math.min(rows, cel.height);
+    const left = x;
+    const right = x + cel.width - 1;
+    const stamp = (px: number, py: number): void => {
+      if (px >= 0 && px < SCREEN_WIDTH && py >= 0)
+        this.surface.priority[py * SCREEN_WIDTH + px] = margin;
+    };
+    for (let px = left; px <= right; px++) stamp(px, y);
+    for (let up = 1; up < rows; up++) {
+      stamp(left, y - up);
+      stamp(right, y - up);
+    }
+    if (rows > 1) for (let px = left + 1; px < right; px++) stamp(px, y - rows + 1);
   }
 
   /**

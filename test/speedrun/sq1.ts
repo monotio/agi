@@ -65,10 +65,10 @@ export function sq1Opening(run: Speedrun): void {
   run.walkTo(140, 63); // straight west first: the door frame object at x=152 blocks diagonals
   run.walkTo(20, 70); // shallow diagonal: the y=80 divider spans the room; stay in the y64-79 band
   run.exit("W", 3);
-  run.direction("W"); // ego enters room 3 at the east edge; keep walking while typing
-  run.type("get card"); // 003.agi:172 said("acquire", "card") needs no prior search; typed during the walk west
-  run.walkTo(140, 68);
-  run.submit("get card");
+  // Ego enters room 3 at the east edge, already inside the card's posn box
+  // (117,57)-(159,79). The crewman is an add.to.pic with margin 0: its control
+  // box spans x126..149, y63..71, so the body itself cannot be walked over.
+  run.command("get card"); // said("acquire", "card") needs no prior search
   run.checkpoint("Recover the keycard", { room: 3, score: 6 });
   run.assertCarried(5, "Keycard");
 }
