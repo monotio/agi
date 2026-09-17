@@ -21,10 +21,48 @@ room numbers; the explicit mapping is covered by [profile.test.ts](../test/profi
 
 Offsets in the compatibility notes are load-module offsets.
 
-v3 `AGI` executables disassemble directly:
+First inventory private fixtures without executing code or exporting binary data:
 
 ```bash
-ndisasm -b 16 -e 0x200 games/<folder>/AGI > /tmp/<folder>.asm
+node --experimental-strip-types scripts/interpreter-inventory.ts games > /tmp/interpreter-inventory.json
+```
+
+The metadata-only report pins raw `AGI`, all candidate COM loaders, `AGIDATA.OVL`
+and the corrected decoded image separately by SHA-256. `WORDS.TOK` content,
+not the local directory name, identifies known games. It records Node and tool
+hashes, build-string sources, exact or documented-equivalent profile selection,
+MZ header/load sizes and relative CS:IP/SS:SP. Unknown builds receive no profile
+fallback. The report is **static inventory**, not disassembly or original
+execution; BIOS, timer and device inputs are absent. Its `inventoried` status
+means an image passed structural/banner checks, not that a game is compatible.
+
+Loader candidates must produce the same structurally valid interpreter image
+with the corrected decoder. This identifies a usable decoding key, not executed
+loader behavior. The overlay is explicitly **co-located, unverified**: its hash
+and build string do not prove that an installation's executable/overlay pair is
+authentic. Existing hash-pinned probes provide stronger evidence only for the
+pairs they execute. Missing interpreters, disk-image-only installations,
+ambiguous file names/keys, conflicting builds and size discrepancies remain
+explicit in the report. Tests use independently authored synthetic headers and
+one-block XOR inputs; no private binaries are required.
+
+The 2026-09-17 local inventory found 13 supported images among 14 fixture
+directories; PQ1 has no `AGI` executable. Existing ten decoded/MZ identities
+match the hashes documented below. This adds inventory identities for LSL1
+2.440 (`c70e2f327eaad8dbcb1d526e9fb3f933b342329b84c6a803f9062c245ccb7676`),
+SQ1 2.917 (`97dbc528ff4588b424d8c4e43035d619588c0c6b4376cc1ddea1fb83cea67656`)
+and MH2 3.002.149
+(`3a2a02fd4effd2c045137d232441dd29adb3f8dc79088add2b5acefd43cf41d8`),
+without claiming new behavioral evidence. Several shipped images are 1 or 14
+bytes shorter than their MZ-declared length; others have trailing padding.
+The inventory preserves actual and declared extents separately. It does not
+infer DOS loading behavior or silently pad/trim the hashed image.
+
+v3 `AGI` executables disassemble directly. Set `HEADER_BYTES` from that image's
+`decoded.mz.headerBytes` in the inventory (512 in the inputs investigated below):
+
+```bash
+ndisasm -b 16 -e "$HEADER_BYTES" games/<folder>/AGI > /tmp/<folder>.asm
 ```
 
 v2 `AGI` executables are scrambled by the loader; undo it first with `scripts/descramble-agi.ts`,
@@ -32,7 +70,7 @@ then disassemble the same way:
 
 ```bash
 node --experimental-strip-types scripts/descramble-agi.ts games/<folder> /tmp/<folder>-agi.bin
-ndisasm -b 16 -e 0x200 /tmp/<folder>-agi.bin > /tmp/<folder>.asm
+ndisasm -b 16 -e "$HEADER_BYTES" /tmp/<folder>-agi.bin > /tmp/<folder>.asm
 ```
 
 The v2 scrambling XORs each 128-byte block with the evolving 128-byte key at
@@ -62,6 +100,28 @@ with `python scripts/probe-interpreter-loader.py games/kq1 --loader KQ1.COM --en
 using optional Unicorn 2.1.4; substitute the table's directory/loader/entry.
 Already-MZ inputs are copied unchanged. Decoded binaries and disassemblies are
 Sierra data: keep them with local fixtures or in scratch storage, never committed.
+
+### Remaining original-behavior evidence
+
+Static inventory does not close the following gaps. Keep static disassembly,
+isolated routine execution, full-machine execution, hardware evidence and
+inference distinct when extending the existing hash/address-backed findings.
+Completed loader comparisons, exhaustive RNG and wander probes need not be
+rerun as new discoveries.
+
+| Investigation                          | Current evidence and remaining acceptance                                                                                                                                                                                                                                     |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scheduler and modal timing             | Existing engine cadence tests are not original timing evidence. Obtain independently timed v2/v3 traces across timer interrupts, modal waits, sound completion, v10 changes and long host stalls; derive engine and worker regressions from those observations.               |
+| Startup and restore reconstruction     | [Save/restart cores](#original-save-and-restart-audit) are isolated routine evidence. Continue through resource replay and script resumption, independently probe startup seeding, and map every original 43-byte object-record flag before claiming `.SAV` interoperability. |
+| Complete movement and collision passes | [Motion handlers](#original-motion-and-animation-audit) establish command and animation behavior. Execute whole passes over synthetic controls, blocks, water and object baselines; record position, flags, parameter bytes, cadence and arrival/border order.                |
+| Follow retries and older profiles      | Existing handler thresholds do not establish every stationary retry path. Pin BIOS/RNG inputs and exact random-call counts at subtraction/threshold edges, then extend earlier decoded v2 builds. Add profile variants only for observed differences.                         |
+| Chip and device semantics              | [Sound software traces](#original-sound-player-audit) do not establish silicon behavior. Obtain authoritative chip evidence or controlled device emulation for zero tone, latch, attenuation/noise writes and hold behavior before changing zero-tone suppression.            |
+
+The shared object parameter bank at `0x27..0x2a` is already evidenced; it does
+not prove the remaining flags or full save interoperability. Preserve existing
+lifecycle and cadence assertions while widening each investigation. Store probe
+commands, tool versions and controlled inputs alongside private outputs; publish
+only concise findings and independently authored expected vectors.
 
 ## Compatibility notes
 
