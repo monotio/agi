@@ -21,7 +21,7 @@ room numbers; the explicit mapping is covered by [profile.test.ts](../test/profi
 
 Offsets in the compatibility notes are load-module offsets.
 
-First inventory private fixtures without executing code or exporting binary data:
+Inventory contributor-supplied fixtures without executing code or exporting binary data:
 
 ```bash
 node --experimental-strip-types scripts/interpreter-inventory.ts games > /tmp/interpreter-inventory.json
@@ -29,7 +29,7 @@ node --experimental-strip-types scripts/interpreter-inventory.ts games > /tmp/in
 
 The metadata-only report pins raw `AGI`, all candidate COM loaders, `AGIDATA.OVL`
 and the corrected decoded image separately by SHA-256. `WORDS.TOK` content,
-not the local directory name, identifies known games. It records Node and tool
+not the directory name, identifies known games. It records Node and tool
 hashes, build-string sources, exact or documented-equivalent profile selection,
 MZ header/load sizes and relative CS:IP/SS:SP. Unknown builds receive no profile
 fallback. The report is **static inventory**, not disassembly or original
@@ -46,9 +46,7 @@ ambiguous file names/keys, conflicting builds and size discrepancies remain
 explicit in the report. Tests use independently authored synthetic headers and
 one-block XOR inputs; no private binaries are required.
 
-The 2026-09-17 local inventory found 13 supported images among 14 fixture
-directories; PQ1 has no `AGI` executable. Existing ten decoded/MZ identities
-match the hashes documented below. This adds inventory identities for LSL1
+Additional static image identities are LSL1
 2.440 (`c70e2f327eaad8dbcb1d526e9fb3f933b342329b84c6a803f9062c245ccb7676`),
 SQ1 2.917 (`97dbc528ff4588b424d8c4e43035d619588c0c6b4376cc1ddea1fb83cea67656`)
 and MH2 3.002.149
@@ -79,7 +77,7 @@ key byte through carry, from byte 0 through byte 127; OR the final carry into
 byte 0's high bit. The loader's saved flags also retain that final carry for
 rotation of the next block. This is not a simple circular rotation.
 
-**Descrambler repaired on 2026-09-14:** the old tool incorrectly initialized
+**Descrambler correction:** the old tool incorrectly initialized
 carry from byte 0 each block and omitted the final wrap. That produced corrupt
 instructions in otherwise plausible images. Synthetic carry regressions failed
 against that implementation and pass the repair. No original instruction was
@@ -125,10 +123,10 @@ only concise findings and independently authored expected vectors.
 
 ## Compatibility notes
 
-### Original RNG and wander countdown — binary investigation, 2026-09-14
+### Original RNG and wander countdown — binary investigation
 
 These are new implementation requirements, not claims that the engine already
-matches. Investigation used local original interpreter machine code, NDISASM
+matches. Investigation used original interpreter machine code, NDISASM
 3.02 and Unicorn 2.1.4 in 16-bit mode. No other interpreter implementation was
 used. The executable's MZ header size is read from its paragraph count (0x200
 for these inputs); addresses below are relative to the load module. DS addresses
@@ -138,18 +136,18 @@ these results, not a text search alone.
 
 #### Verified inputs
 
-| Local input                  | Build from AGIDATA.OVL | RNG entry | State DS offset | Executed states |
-| ---------------------------- | ---------------------- | --------- | --------------- | --------------- |
-| `games/kq1/AGI`, descrambled | 2.917                  | 0x70f9    | 0x1707          | all 65,536      |
-| `games/kq2/AGI`, descrambled | 2.411                  | 0x6dfe    | 0x15e0          | all 65,536      |
-| `games/kq3/AGI`, descrambled | 2.936                  | 0x71c0    | 0x1711          | all 65,536      |
-| `games/bc/AGI`, descrambled  | 2.439                  | 0x6f1b    | 0x168d          | all 65,536      |
-| `games/sq2/AGI`, descrambled | 2.936                  | 0x71c0    | 0x1711          | all 65,536      |
-| `games/mumg/agi`, already MZ | 2.915                  | 0x70e5    | 0x1707          | all 65,536      |
-| `games/kq4/AGI`              | 3.002.086              | 0x75ff    | 0x1781          | all 65,536      |
-| `games/demopac4/AGI`         | 3.002.102              | 0x7617    | 0x1793          | all 65,536      |
-| `games/mh1/AGI`              | 3.002.107              | 0x7617    | 0x1793          | all 65,536      |
-| `games/gr1/AGI`              | 3.002.149              | 0x753e    | 0x1548          | all 65,536      |
+| Game / executable form | Build from AGIDATA.OVL | RNG entry | State DS offset | Executed states |
+| ---------------------- | ---------------------- | --------- | --------------- | --------------- |
+| KQ1, decoded           | 2.917                  | 0x70f9    | 0x1707          | all 65,536      |
+| KQ2, decoded           | 2.411                  | 0x6dfe    | 0x15e0          | all 65,536      |
+| KQ3, decoded           | 2.936                  | 0x71c0    | 0x1711          | all 65,536      |
+| BC, decoded            | 2.439                  | 0x6f1b    | 0x168d          | all 65,536      |
+| SQ2, decoded           | 2.936                  | 0x71c0    | 0x1711          | all 65,536      |
+| MUMG, already MZ       | 2.915                  | 0x70e5    | 0x1707          | all 65,536      |
+| KQ4, already MZ        | 3.002.086              | 0x75ff    | 0x1781          | all 65,536      |
+| DEMOPAC4, already MZ   | 3.002.102              | 0x7617    | 0x1793          | all 65,536      |
+| MH1, already MZ        | 3.002.107              | 0x7617    | 0x1793          | all 65,536      |
+| GR1, already MZ        | 3.002.149              | 0x753e    | 0x1548          | all 65,536      |
 
 SHA-256 of each executed input (decoded executable where indicated):
 
@@ -739,7 +737,7 @@ attribution and replay silence).
 
 ### Original motion and animation audit
 
-Executed original interpreter machine code on 2026-09-14 using
+Executed original interpreter machine code using
 [scripts/probe-interpreter-motion.py](../scripts/probe-interpreter-motion.py)
 and optional Unicorn 2.1.4. This establishes handler and animation state
 transitions, not graphics, collision scanning or whole-loop cadence: the final
@@ -748,11 +746,11 @@ instructions or game assets are bundled with the probe.
 
 Inputs and SHA-256 (v2 inputs are decoded with the corrected loader procedure):
 
-| Input/build                | SHA-256                                                            |
-| -------------------------- | ------------------------------------------------------------------ |
-| KQ3 decoded, 2.936         | `4b50c681c224326e09933170823b846e7dbe340dafc76f07ee0af990ebb93400` |
-| `games/mh1/AGI`, 3.002.107 | `ed8b58d354e10b069a1ce137c61bfa3536b2bb9c69cc7510bc864af29daf161e` |
-| `games/gr1/AGI`, 3.002.149 | `12a52b728b1b1f8d27b21e85cab022a30ef359bca200ba9ed4d6e78a50979f41` |
+| Input/build        | SHA-256                                                            |
+| ------------------ | ------------------------------------------------------------------ |
+| KQ3 decoded, 2.936 | `4b50c681c224326e09933170823b846e7dbe340dafc76f07ee0af990ebb93400` |
+| MH1, 3.002.107     | `ed8b58d354e10b069a1ce137c61bfa3536b2bb9c69cc7510bc864af29daf161e` |
+| GR1, 3.002.149     | `12a52b728b1b1f8d27b21e85cab022a30ef359bca200ba9ed4d6e78a50979f41` |
 
 All routine addresses below are load-module offsets; the final row is a DS offset.
 
@@ -822,7 +820,7 @@ python scripts/probe-interpreter-motion.py games/gr1/AGI --profile 3.002.149
 
 ### Original sound player audit
 
-Executed on 2026-09-14 with
+Executed original interpreter machine code with
 [scripts/probe-interpreter-sound.py](../scripts/probe-interpreter-sound.py),
 Unicorn 2.1.4 and each binary's matching original AGIDATA.OVL. Only resource
 lookup is substituted with a synthetic loaded-resource descriptor; opcode,

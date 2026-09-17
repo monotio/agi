@@ -13,7 +13,7 @@ agi-re specification (https://peterkelly.github.io/agi-re/spec/) and behavioral
 evidence from original Sierra interpreter binaries. Read the common contract
 and selected profile's variants before implementing an opcode. For exact or
 uncertain authenticity behavior, inspect/disassemble the original interpreter
-in local `games/*` fixtures; record build, binary hash, addresses and conclusions
+in contributor-supplied `games/*` fixtures; record build, binary hash, addresses and conclusions
 in `docs/fidelity.md`. Distinguish interpreter machine code from game LOGIC
 bytecode and facts from inference. Do not substitute another interpreter's
 implementation or self-replay agreement for original-behavior evidence.
@@ -93,6 +93,15 @@ comments or documentation.
   semantics need their own assertions.
 - Interpreter findings go in `docs/fidelity.md`; code comments cite the entry
   rather than repeating offsets and build lists.
+
+## Public provenance
+
+- Publish game/build identities, hashes, addresses, controlled inputs and behavioral
+  findings. Keep personal computer details, personal paths, collection inventories,
+  investigation dates and private planning material out of tracked files, commit
+  messages, issues and pull requests. Use portable fixture placeholders in examples.
+- Preserve public attribution, historical software release dates and synthetic test
+  data; these are distinct from an investigator's personal provenance.
 
 ## Architecture rules
 
