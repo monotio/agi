@@ -1290,6 +1290,21 @@ and restart cases, 56 reconstruction/return cases, 12 object lifecycle cases,
 24 stationary cases, eight startup cases, 76 opcode flag mutations and four
 main-loop continuation cases.
 
+### Original show.obj description formatting
+
+Static disassembly of the unscrambled Gold Rush 3.002.149 executable
+(`12a52b728b1b1f8d27b21e85cab022a30ef359bca200ba9ed4d6e78a50979f41`). The
+preview routine ending at 0x63a5 draws the cel, takes the view resource pointer
+`di`, pushes `di + word [di+3]` (the embedded description) and calls the message
+box at 0x1f70. The `print` handler at 0x1e8e calls the same routine with a
+looked-up message, and that routine's window builder at 0x201e runs its text
+through the formatter at 0x21c9. Fact: a view description receives the same
+`%` expansion as a printed message. Gold Rush's bank statement relies on it to
+show the account number held in a variable. v2 images were not inspected; the
+engine applies the formatting to every profile by inference.
+
+Tests: [opcodes.test.ts](../test/opcodes.test.ts).
+
 ### Original add.to.pic control box
 
 Static disassembly of the descrambled LSL1 2.440 and KQ3 2.936 images (hashes

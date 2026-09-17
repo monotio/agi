@@ -1578,7 +1578,9 @@ export class Engine {
     } finally {
       this.replayRecording = recording;
     }
-    const lines = wrapLines(view.description ?? "", 30);
+    // The description goes through the same message box as print, so %v, %s
+    // and %m expand (docs/fidelity.md, "Original show.obj description formatting").
+    const lines = wrapLines(this.expandMessage(view.description ?? ""), 30);
     const box = placeWindow(lines, this.displayBaseRow, { row: this.displayBaseRow + 1 });
     const saved = this.text.save(
       box.top,

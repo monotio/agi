@@ -169,6 +169,24 @@ test("add.to.pic outlines a control box as tall as the baseline's priority band"
   assert.equal(at(80, 104), 4, "nothing above a three-row cel");
 });
 
+test("show.obj formats the view description like any printed message", () => {
+  // docs/fidelity.md, "Original show.obj description formatting". The
+  // description follows the cel data; header bytes 3..4 hold its offset.
+  const description = [..."account number %v48"].map((ch) => ch.charCodeAt(0));
+  const view = new Uint8Array([0, 0, 1, 15, 0, 7, 0, 1, 3, 0, 3, 1, 0, 0x53, 0, ...description, 0]);
+  const container = gameWith(`
+    assignn(v48, 137);
+    show.obj(0);
+    return;
+  `);
+  container.putResource("view", 0, view);
+  const engine = new Engine(container, new TestHost(), DICT);
+  engine.tick();
+  const screen = Array.from({ length: 25 }, (_, row) => engine.textRow(row)).join("\n");
+  assert.match(screen, /account number 137/);
+  assert.doesNotMatch(screen, /%v48/);
+});
+
 test("add.to.pic.v draws through variable-selected operands", () => {
   const container = gameWith(`
     load.view(0);
