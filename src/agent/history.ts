@@ -20,13 +20,10 @@
  */
 import { validateEngineReplayState, type EngineReplayState } from "../runtime/replayState.ts";
 import type { EngineMenuState } from "../runtime/engine.ts";
+import { gameIdentity, type GameIdentity } from "../gameIdentity.ts";
 
-/**
- * v1 → v2: the RNG became the original's 16-bit contract — a v1 tape's
- * recorded LCG stream cannot reproduce under it — and the `reseed` cause
- * joined the event vocabulary.
- */
-export const HISTORY_FORMAT_VERSION = 2;
+/** Current recording contract: game identity, original 16-bit RNG and reseed events. */
+export const HISTORY_FORMAT_VERSION = 1;
 
 /** Worker in-memory ring bounds: records and bytes pending the host's ack. */
 export const HISTORY_EVENT_LIMIT = 250_000;
@@ -225,7 +222,7 @@ export interface HistoryAnchor {
   /** Sound-clock fractional carry (ms·60 units) at this boundary. */
   soundRemainder?: number;
   soundDevice: number;
-  /** resourceSetRevision of the container at this anchor. */
+  /** resourceSetHint of the container at this anchor — a cache hint, not identity. */
   resourceSet: string;
   patchGeneration: number;
   /** Recorded semantic fingerprint — replay must re-derive it after restore. */
@@ -258,7 +255,7 @@ export interface HistoryBoot {
   /** Sound-clock fractional carry (ms·60 units) at this resume point. */
   soundRemainder?: number;
   soundDevice: number;
-  /** resourceSetRevision of `files`. */
+  /** resourceSetHint of `files` — a cache hint, not identity. */
   resourceSet: string;
   requestSerial: number;
   /** Recorded semantic fingerprint — replay must re-derive it after restore. */
@@ -285,9 +282,11 @@ export interface HistorySegment {
 
 export interface HistoryRecording {
   version: number;
+  /** The library entry and playable-bytes revision this tape belongs to. */
+  identity: GameIdentity;
   /** Interpreter profile id the first segment booted under. */
   profile: string;
-  /** resourceSetRevision at the first segment's start. */
+  /** resourceSetHint at the first segment's start — a cache hint, not identity. */
   resourceSet: string;
   startedAt: number;
   segments: HistorySegment[];
@@ -927,8 +926,20 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
     fail(`unsupported version ${String(value["version"])}.`);
   const segments = value["segments"];
   if (!Array.isArray(segments) || segments.length > 4096) fail("segments must be a bounded list.");
+  const rawIdentity = value["identity"];
+  const rawRevision =
+    isObj(rawIdentity) && typeof rawIdentity["revision"] === "string"
+      ? rawIdentity["revision"].toLowerCase()
+      : undefined;
+  const identity = gameIdentity(
+    isObj(rawIdentity) && rawRevision !== undefined
+      ? { project: rawIdentity["project"], revision: rawRevision }
+      : rawIdentity,
+  );
+  if (identity === null) fail("recording identity is invalid.");
   return {
     version: HISTORY_FORMAT_VERSION,
+    identity,
     profile: text(value["profile"], "profile", 64),
     resourceSet: text(value["resourceSet"], "resourceSet", MAX_HISTORY_STRING),
     startedAt: int(value["startedAt"], "startedAt"),

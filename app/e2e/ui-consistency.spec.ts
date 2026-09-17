@@ -30,13 +30,13 @@ test("Play, Resume and Save settings share one primary action style", async ({ p
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   const secondary = await page.getByTestId("settings-menu").evaluate(appearance);
-  expect(await page.getByTestId("btn-eject").evaluate(appearance)).toEqual(secondary);
+  expect(await page.getByTestId("btn-exit").evaluate(appearance)).toEqual(secondary);
   for (const action of await page
     .locator(".game-nav > button, .game-nav summary, .game-nav .action-menu > button")
     .all()) {
     expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   }
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   const card = savedGameCard(page, "Adventure Department");
   const resume = card.getByRole("button", { name: "Resume", exact: true });
   await expect(resume).toBeVisible();
@@ -109,7 +109,7 @@ test("library details stay concise and Add game is a secondary action", async ({
   );
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   const card = savedGameCard(page, "Adventure Department");
   await openSavedGameDetails(card);
   await expect(card).not.toContainText(
@@ -177,9 +177,9 @@ test("keyboard focus draws one ring on page buttons and dialog buttons alike", a
   await page.keyboard.press("Escape");
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await page.getByTestId("game-actions-menu").focus();
+  await page.getByTestId("game-menu").focus();
   await page.keyboard.press("Tab");
-  const eject = page.getByTestId("btn-eject");
+  const eject = page.getByTestId("btn-exit");
   await expect(eject).toBeFocused();
   expect(await eject.evaluate(ring), "a game header button").toEqual(expected);
 });

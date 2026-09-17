@@ -62,13 +62,13 @@ export const OPENINGS: readonly Opening[] = Object.entries(OPENING_DETAILS).map(
 );
 
 /** Catalog entry for one fixture, resolved by content hash or alias. */
-export function opening(hashOrAlias: string): Opening {
-  const norm = hashOrAlias.toLowerCase();
+export function opening(query: string): Opening {
+  const norm = query.toLowerCase();
   const resolved = resolveGameHash(norm) ?? norm;
   const entry = OPENINGS.find(
     (game) => game.hash.toLowerCase() === resolved || game.alias.toLowerCase() === norm,
   );
-  assert.ok(entry, `unknown opening fixture ${hashOrAlias}`);
+  assert.ok(entry, `unknown opening fixture ${query}`);
   return entry;
 }
 
@@ -77,8 +77,8 @@ export const TITLE_SCREENS = OPENINGS.filter((game) => game.openingRoom === unde
 export const OPENING_ROUTES = OPENINGS.filter((game) => game.openingRoom !== undefined);
 
 /** Cold-boot routes through the introductions, followed by a player-controlled step. */
-export function openingRoute(hashOrAlias: string): Speedrun {
-  const entry = opening(hashOrAlias);
+export function openingRoute(query: string): Speedrun {
+  const entry = opening(query);
   const { hash, alias, profiles, titleRoom, openingRoom } = entry;
   assert.ok(openingRoom !== undefined, `${alias}: no opening movement route`);
   const run = new Speedrun(hash, 1);

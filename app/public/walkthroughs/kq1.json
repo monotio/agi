@@ -1,7 +1,9 @@
 {
-  "schema": "monotio.agi.walkthrough.v2",
-  "game": "kq1",
-  "targetRevision": "d1553b8b6ac8e69c6ced7da7450b88a8ff093e83c52dcb0ed9df550b5661931a",
+  "schema": "monotio.agi.walkthrough.v1",
+  "identity": {
+    "project": "kq1",
+    "revision": "d1553b8b6ac8e69c6ced7da7450b88a8ff093e83c52dcb0ed9df550b5661931a"
+  },
   "supportedRevisions": [
     "d1553b8b6ac8e69c6ced7da7450b88a8ff093e83c52dcb0ed9df550b5661931a"
   ],

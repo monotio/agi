@@ -59,6 +59,17 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.fns.onHistoryRetain(msg);
       return;
     }
+    if (msg.type === "historyRecover") {
+      control({
+        type: "historyRecovery",
+        id: msg.id,
+        batches: [...ctx.history.sent, ...ctx.history.queue.map((entry) => entry.batch)],
+        boot: ctx.fns.historySnapshot(),
+        cycle: ctx.cycle.cycleCount,
+        room: ctx.engine?.vars[0] ?? 0,
+      });
+      return;
+    }
     if (msg.type === "historyEnd") {
       // The end marker posts now, but the reply holds until every batch is
       // acked — the host destroys the worker when the query settles, so a

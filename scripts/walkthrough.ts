@@ -8,6 +8,7 @@ import {
   walkthroughServedRevisions,
   type WalkthroughArtifact,
 } from "../test/speedrun/artifact.ts";
+import { requireProjectId } from "../src/gameIdentity.ts";
 
 const route = walkthrough(process.argv[2] ?? "");
 const missing = fixtureSkip(route.hash, ["AGIDATA.OVL"]);
@@ -28,9 +29,8 @@ if (missing) {
   }
   const elapsedMs = Math.round(performance.now() - started);
   const artifact: WalkthroughArtifact = {
-    schema: "monotio.agi.walkthrough.v2",
-    game: route.alias,
-    targetRevision: servedRevisions[0]!,
+    schema: "monotio.agi.walkthrough.v1",
+    identity: { project: requireProjectId(route.alias), revision: servedRevisions[0]! },
     supportedRevisions: servedRevisions,
     coverage: route.coverage,
     profile: run.engine.profile.id,

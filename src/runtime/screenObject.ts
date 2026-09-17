@@ -8,7 +8,6 @@ export interface ScreenObject {
   newlyPositioned: boolean;
   cycleDelay: boolean;
   stationary: boolean;
-  wanderCount: number;
   view: number;
   loop: number;
   cel: number;
@@ -30,12 +29,17 @@ export interface ScreenObject {
   stepTime: number;
   stepCount: number;
   direction: number;
-  /** move.obj target/params (motionMode 1). */
-  moveTarget: { x: number; y: number; savedStep: number; flag: number } | null;
-  /** follow.ego params (motionMode 2). */
-  follow: { threshold: number; flag: number; retryDelay: number } | null;
-  /** end.of.loop / reverse.loop completion flag. */
-  cycleFlag: number | null;
+  /**
+   * The object record's shared parameter bank, bytes 0x27..0x2a: whichever
+   * handler wrote it last owns its meaning (docs/fidelity.md, "Original
+   * motion and animation audit"). move.obj writes [targetX, targetY,
+   * savedStep, completionFlag]; follow.ego writes [effectiveThreshold,
+   * completionFlag, 255] and leaves the fourth byte — its retry delay lives
+   * in the third; end.of.loop and reverse.loop write their completion flag
+   * into the first byte, which the wander countdown also occupies. Handlers
+   * preserve the bytes they do not write, including across mode changes.
+   */
+  paramBank: [number, number, number, number];
   priority: number;
   fixedPriority: boolean;
   cycling: boolean;
@@ -59,7 +63,6 @@ export function newScreenObject(): ScreenObject {
     newlyPositioned: false,
     cycleDelay: false,
     stationary: false,
-    wanderCount: 0,
     view: 0,
     loop: 0,
     cel: 0,
@@ -78,9 +81,7 @@ export function newScreenObject(): ScreenObject {
     stepTime: 1,
     stepCount: 1,
     direction: 0,
-    moveTarget: null,
-    follow: null,
-    cycleFlag: null,
+    paramBank: [0, 0, 0, 0],
     priority: 0,
     fixedPriority: false,
     cycling: true,
@@ -146,33 +147,13 @@ export function packObjectState(o: ScreenObject): number {
 }
 
 /**
- * The record's four mode-dependent motion parameter bytes. Their meaning is
- * selected by the record's autonomous-motion mode, as the spec specifies:
- *
- * - target motion: target X, target Y, saved step size, completion flag;
- * - approach motion: near threshold, completion flag, cel-cycling completion
- *   flag, retry delay;
- * - normal and random motion: cel-cycling completion flag, wander countdown,
- *   then zeros.
- *
- * A pending cel-cycling completion flag therefore has no byte of its own while
- * target motion is running; that is the only state this packing cannot carry.
+ * The record's four motion parameter bytes are the live bank verbatim — the
+ * mode-dependent interpretations above are views over the same storage, not
+ * fields of their own (docs/fidelity.md, "Original motion and animation
+ * audit").
  */
 export function motionParams(o: ScreenObject): [number, number, number, number] {
-  const cycleFlag = o.cycleFlag ?? 0;
-  if (o.motionMode === MOTION_MOVE_OBJ && o.moveTarget) {
-    const t = o.moveTarget;
-    return [t.x & 0xff, t.y & 0xff, t.savedStep & 0xff, t.flag & 0xff];
-  }
-  if (o.motionMode === MOTION_FOLLOW && o.follow) {
-    return [
-      o.follow.threshold & 0xff,
-      o.follow.flag & 0xff,
-      cycleFlag & 0xff,
-      o.follow.retryDelay & 0xff,
-    ];
-  }
-  return [cycleFlag & 0xff, o.wanderCount & 0xff, 0, 0];
+  return [...o.paramBank];
 }
 
 /** Apply one block-2 record to a live object; a missing record resets it. */
@@ -215,12 +196,5 @@ export function applyObjectRecord(o: ScreenObject, record: SaveObjectRecord | un
   o.waterGate =
     (state & OBJ_WATER_GATE_ON) !== 0 ? "on" : (state & OBJ_WATER_GATE_OFF) !== 0 ? "off" : null;
   const [p0, p1, p2, p3] = record.motionParams;
-  o.moveTarget =
-    record.motionMode === MOTION_MOVE_OBJ ? { x: p0, y: p1, savedStep: p2, flag: p3 } : null;
-  o.follow =
-    record.motionMode === MOTION_FOLLOW ? { threshold: p0, flag: p1, retryDelay: p3 } : null;
-  o.wanderCount = record.motionMode === MOTION_WANDER ? p1 : 0;
-  const cycleFlag =
-    record.motionMode === MOTION_FOLLOW ? p2 : record.motionMode === MOTION_MOVE_OBJ ? 0 : p0;
-  o.cycleFlag = cycleFlag === 0 ? null : cycleFlag;
+  o.paramBank = [p0, p1, p2, p3];
 }

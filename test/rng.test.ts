@@ -179,7 +179,7 @@ test("wander decrements first and rerolls the count only while below six", () =>
     );
     engine.tick();
     const o = engine.screenObjects[0]!;
-    o.wanderCount = oldCount;
+    o.paramBank[0] = oldCount; // the wander countdown is the bank's first byte
     o.stationary = stationary;
     o.direction = 0;
     rng.state = 1; // each executed row started at RNG state 1
@@ -189,7 +189,7 @@ test("wander decrements first and rerolls the count only while below six", () =>
       wantDir,
       `old ${oldCount} stationary ${stationary}: direction ${o.direction} ≠ ${wantDir}`,
     );
-    assert.equal(o.wanderCount, wantCount, `old ${oldCount}: count`);
+    assert.equal(o.paramBank[0], wantCount, `old ${oldCount}: count`);
     assert.equal(rng.state, wantState, `old ${oldCount}: rng state (draw count)`);
     assert.equal(engine.vars[6], o.direction, "ego direction mirrors to v6");
   }

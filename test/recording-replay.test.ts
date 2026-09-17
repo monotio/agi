@@ -359,7 +359,6 @@ test("long recordings derive their budget from actual engine tick calls", () => 
       endState: snapshotState,
       endCycle: 702,
       tainted: null,
-      usedGetnum: false,
     },
     [],
   );
@@ -458,7 +457,6 @@ test("recording payload roundtrips through tool validation, TESTS.JSON and execu
       endState: data,
       endCycle: 1,
       tainted: null,
-      usedGetnum: false,
     },
     [],
   );

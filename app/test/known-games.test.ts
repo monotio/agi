@@ -125,9 +125,11 @@ test("hasWalkthrough and resolveWalkthrough resolve by alias or content hashes",
     assert.equal(resolveWalkthrough(mh1.targetRevision), "mh1");
   }
 
-  // By a non-target walkthrough revision — the dev-served bundle of a builtin
-  // whose catalog revision covers the full builder file set.
+  // Every revision a recorded walkthrough declares support for resolves to
+  // its catalog entry — TESTS.JSON is not part of the canonical set, so the
+  // builtin tutorial's public file set and full project share one revision.
   const ad = KNOWN_GAMES.find((g) => g.alias === "adventure-department")!;
+  assert.equal(ad.walkthroughRevisions?.length ?? 0, 0);
   for (const revision of ad.walkthroughRevisions ?? []) {
     assert.equal(hasWalkthrough(revision), true);
     assert.equal(resolveWalkthrough(revision), "adventure-department");
@@ -217,8 +219,9 @@ test(
 
     const loaded = await loadAuthoredGame(projectId);
     assert.ok(loaded);
-    assert.equal(loaded.library?.alias, "mh1");
-    assert.equal(hasWalkthrough(loaded.library?.alias ?? ""), true);
+    // The stored record carries no alias — the walkthrough resolves by revision.
+    assert.equal("alias" in (loaded.library ?? {}), false);
+    assert.equal(hasWalkthrough(loaded.library?.revision ?? ""), true);
     assert.equal(loaded.title, "Manhunter: New York");
     assert.equal(loaded.library?.validation.profile, "3.002.102");
   },

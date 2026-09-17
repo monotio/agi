@@ -310,7 +310,7 @@ These are contributor tools; they do not add path planning to the in-app agent.
 
 ## World map
 
-The world map (Game actions → World map) merges three provenances that must
+The world map (Help → Map) merges three provenances that must
 stay distinct: **observed** transitions the live worker reported, **planned**
 rooms and exits from the authoring world, and **static** literal `new.room`
 targets found in logic resources. Restore, restart, re-entry and debug jumps
@@ -332,6 +332,38 @@ imported static graphs, Watch from here, no provider request, phone layout,
 and measured open/select timings on a 256-room synthetic map. The sidecar
 (`MAP.JSON` in project archives, `monotio_agi.map.<key>` in storage) is
 validated by `app/src/roomMapStore.ts`; unknown versions read as empty.
+
+## History and reference recovery
+
+`app/e2e/history-recovery.spec.ts` injects browser-storage failures and inspects
+downloaded ZIP bytes, current checkpoints and completeness notices.
+`app/test/history-storage.test.ts` covers concurrent writer leases, retention
+and exact deduplication of committed batches after eviction. The history
+transport browser spec checks seeking, Watch and Undo layouts on phones;
+it runs in both the desktop and phone configurations.
+
+`app/e2e/reference-art.spec.ts` checks reference uploads through actual provider
+request bodies using local stubs, including JPEG/WebP MIME types, pending
+composer attachments and explicit editing intent. It never calls paid providers.
+
+The 2026-09-16 QA run measured `app/e2e/history-bench.spec.ts` using
+Chromium's Moto G4 emulation with 4× CPU throttling on a desktop host:
+
+| Tape / layout                       | Commit p50 | Commit p95 | Bytes per commit | Reassembly |
+| ----------------------------------- | ---------: | ---------: | ---------------: | ---------: |
+| Small / append                      |     1.2 ms |     2.5 ms |         19.3 KiB |    13.6 ms |
+| Small / whole record                |     5.6 ms |     9.6 ms |        703.9 KiB |     2.9 ms |
+| Large / append                      |     4.4 ms |     7.9 ms |         48.5 KiB |    76.7 ms |
+| Large / whole record                |    25.2 ms |    35.9 ms |       2047.4 KiB |    11.4 ms |
+| Near retention limit / append       |     0.9 ms |     1.3 ms |         12.6 KiB |   214.1 ms |
+| Near retention limit / whole record |   262.8 ms |   262.8 ms |      64405.5 KiB |          — |
+
+This is an emulation proxy, not physical-phone evidence. Reassembly measures
+`loadGameHistory`, not replay seeking. The near-limit whole-record comparison
+contains one representative commit; the append case contains 150. Heap delta
+was reported as zero and does not establish peak memory usage. All declared
+commit, write-size and reassembly budgets passed; seek latency and peak memory
+remain separate measurements.
 
 ## Documentation captures
 

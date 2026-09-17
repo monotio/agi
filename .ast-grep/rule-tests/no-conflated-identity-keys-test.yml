@@ -1,0 +1,12 @@
+id: no-conflated-identity-keys
+valid:
+  - "function bootGame(identity: GameIdentity): void {}"
+  - "function resolveFixtureTarget(installed: InstalledGame[], query: string): void {}"
+  - "interface StoredSave { identity: GameIdentity; at: string }"
+  - "const ordering = compare(left, right);"
+invalid:
+  - "function bootGame(hashOrAlias: string): void {}"
+  - "function findInstalledFolder(installed: string[], aliasOrHash: string): void {}"
+  - "export function loadWalkthrough(hashOrId: string): void {}"
+  - "interface StoredSave { identity: string }"
+  - "interface Record { gameIdentity: string }"

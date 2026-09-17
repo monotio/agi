@@ -92,7 +92,7 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
       },
     });
   });
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   const card = savedGameCard(page, "SAMPLE Remix");
   await expect(card.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
   const record = await page.evaluate(() => {
@@ -100,27 +100,27 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
     return JSON.parse(localStorage.getItem("monotio_agi.autosave." + key)!);
   });
   expect(record.game.installed).toBe(false);
-  expect(record.game.projectId).not.toBe("sample");
+  expect(record.game.identity.project).not.toBe("sample");
   expect(new URL(page.url()).hash, "the menu must not name a game in the URL").toBe("");
   const reads = fixtureReads;
   await card.getByRole("button", { name: "Resume", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
   expect(fixtureReads).toBe(reads);
   expect(await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"))).toBe(
-    record.game.projectId,
+    record.game.identity.project,
   );
   expect(new URL(page.url()).hash, "a running game must be named in the URL").toBe(
-    `#play/${record.game.projectId}`,
+    `#play/${record.game.identity.project}`,
   );
   await page.reload();
   expect(new URL(page.url()).hash, "a running game must be named in the URL").toBe(
-    `#play/${record.game.projectId}`,
+    `#play/${record.game.identity.project}`,
   );
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
   expect(fixtureReads).toBe(reads);
   const pending = page.waitForEvent("download");
-  await openGameOptions(page, "game-actions-menu");
-  await page.getByTestId("btn-save-live-project").click();
+  await openGameOptions(page, "game-menu");
+  await page.getByTestId("btn-download-game").click();
   const download = await pending;
   const archive = await readGameZip(new Uint8Array(await readFile((await download.path())!)));
   expect(openContainer(new Map(Object.entries(archive.files))).getResource("view", 11)).toEqual(

@@ -11,6 +11,7 @@ import {
   configureAi,
   isolateStorage,
   openCreateAdventure,
+  openGameControls,
   openSavedGameDetails,
   openLibraryActions,
   observe,
@@ -48,9 +49,8 @@ async function expectModal(page: Page, kind: string | null, timeout = 10_000): P
 }
 
 async function clickGameKey(page: Page, key: number): Promise<void> {
-  const controls = page.getByTestId("game-controls");
-  await controls.locator("summary").click();
-  await controls.locator(`button[data-key="${key}"]`).click();
+  await openGameControls(page);
+  await page.getByTestId("game-controls").locator(`button[data-key="${key}"]`).click();
 }
 
 /** Boot KQ1 and wait for the title screen (room 83) to be up and drawn. */
@@ -444,7 +444,7 @@ test("Start over discards the autosave and boots the game from the top", async (
   await expect(page.getByTestId("resume-caption")).toBeVisible({ timeout: 20_000 });
 
   // Start over throws the snapshot away and boots KQ1 from its title screen.
-  await openGameOptions(page, "game-actions-menu");
+  await openGameOptions(page, "game-menu");
   await page.getByTestId("btn-start-over").click();
   await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId("resume-caption")).toBeHidden();
@@ -485,7 +485,7 @@ test("typing after Start over while the input is unfocused does not double the f
   await bootKq1(page);
   await advanceToCourtyard(page);
 
-  await openGameOptions(page, "game-actions-menu");
+  await openGameOptions(page, "game-menu");
   await page.getByTestId("btn-start-over").click();
   await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 20_000 });
   await advanceToCourtyard(page);
@@ -561,7 +561,7 @@ test("returning to the menu preserves the installed game autosave", async ({ pag
   await waitForAutosaveAfter(page, walked.cycle);
   expect(await storedAutosave(page, "kq1")).not.toBeNull();
 
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   await expect(page.locator(".setup-panel")).toBeVisible();
   expect((await storedAutosave(page, "kq1"))?.room).toBe(1);
   await page
@@ -629,7 +629,7 @@ test("game frame is hidden until game is running, clicking screen advances title
   await expect(page.getByTestId("title-prompt-hint")).toBeHidden();
 
   // 6. Clicking Menu button returns to setup panel and hides screen
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   await expect(page.locator(".setup-panel")).toBeVisible();
   await expect(page.locator(".screen")).toBeHidden();
 });
@@ -712,11 +712,11 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
   await page.getByTestId("agent-bubble-input").fill("put up a sign by the road");
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
-  await openGameOptions(page, "game-actions-menu");
-  await expect(page.getByTestId("btn-export-live-zip")).toBeVisible();
+  await openGameOptions(page, "game-menu");
+  await expect(page.getByTestId("btn-export-game")).toBeVisible();
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "game-actions-menu");
-  await page.getByTestId("btn-export-live-zip").click();
+  await openGameOptions(page, "game-menu");
+  await page.getByTestId("btn-export-game").click();
   const download = await downloading;
   expect(download.suggestedFilename()).toMatch(/^agi-remix-[a-f0-9-]+-game\.zip$/);
   expect(await download.failure()).toBeNull();
@@ -731,7 +731,7 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
     .getByTestId("saved-game-gallery")
     .locator("[data-testid^='saved-game-card-']");
   const leaveAnyway = page.getByTestId("eject-leave-anyway");
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   await expect
     .poll(async () => (await leaveAnyway.isVisible()) || (await savedCard.count()) > 0)
     .toBe(true);
@@ -747,5 +747,5 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
   await expect(savedCard).toHaveCount(1);
   await openSavedGameDetails(savedCard);
   await openLibraryActions(page, savedCard);
-  await expect(page.getByTestId("btn-export-agi-zip")).toBeVisible();
+  await expect(page.getByTestId("export-library-game")).toBeVisible();
 });

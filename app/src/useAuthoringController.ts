@@ -12,18 +12,32 @@ import { prepareRoomPatch } from "../../src/agent/roomPatch.ts";
 import {
   getCachedGameMeta,
   loadAuthoredGame,
+  loadAuthoredGameWithHistoryLifetime,
   loadGameConversation,
-  saveAuthoredGame,
+  saveAuthoredGameWithLifetime,
   saveGameConversation,
+  updateAuthoredReferences,
   updateGameConversation,
   type CachedGameData,
 } from "./gameStorage.ts";
+import {
+  REFERENCE_COUNT_LIMIT,
+  referenceAgentImages,
+  roomReference,
+  stageCharacterView,
+  stagedRefusal,
+  type DecodedImage,
+  type StoredReference,
+} from "./referenceArt.ts";
+import type { CharacterSheetSpec, SheetFacing } from "../../src/view/characterSheet.ts";
 import { worldRevision } from "../../src/agent/worldPlan.ts";
 import { gameStorageKey, type BootedGame } from "./gameTypes.ts";
+import { projectId, requireProjectId, type ProjectId } from "../../src/gameIdentity.ts";
 import type { LogAgentFn } from "./useInputController.ts";
 import type { WorkerInbound, WorkerQueryFn } from "./workerProtocol.ts";
 import type { HistoryBoot } from "../../src/agent/history.ts";
 import { base64ToBytes } from "./bytes.ts";
+import { pendingReferences, removePendingReference } from "./referenceUploadState.ts";
 
 /** Remix bubble state; the transcript slice is the live tool-call feed. */
 export interface PowerUpUiState {
@@ -67,8 +81,8 @@ export interface AuthoringControllerOptions {
   readonly flushAutosave: (timeoutMs?: number) => Promise<unknown>;
   readonly getAutosaveWrite: () => Promise<boolean>;
   readonly clearAutosave: (targetKey: string) => void;
-  readonly onRemixCreated?: ((remixProjectId: string) => void) | undefined;
-  readonly configForGame?: ((projectId: string, fallback: LlmConfig) => LlmConfig) | undefined;
+  readonly onRemixCreated?: ((remixProjectId: ProjectId) => void) | undefined;
+  readonly configForGame?: ((projectId: ProjectId, fallback: LlmConfig) => LlmConfig) | undefined;
   readonly getLlmConfig?: (() => LlmConfig) | undefined;
   /** Player intent pinned on the map for a room — attached to room requests. */
   readonly getRoomNotes?: ((room: number) => string[]) | undefined;
@@ -77,7 +91,7 @@ export interface AuthoringControllerOptions {
 export interface AuthoringController {
   openPowerUp(config: LlmConfig): Promise<void>;
   closePowerUp(): void;
-  submitPowerUp(instruction: string): Promise<void>;
+  submitPowerUp(instruction: string, referenceIds?: readonly string[]): Promise<void>;
   updateAiConfig(config: LlmConfig): Promise<void>;
   persistRemix(
     game: BootedGame,
@@ -116,6 +130,28 @@ export interface AuthoringController {
     session: AgentSession | null,
     files: Record<string, Uint8Array>,
   ): CachedGameData;
+  /** Reference art stored with the booted project (empty for installed games). */
+  listReferences(): Promise<StoredReference[]>;
+  /** Store a decoded image as a room reference under the current identity. */
+  attachRoomReference(decoded: DecodedImage, room: number, brief: string): Promise<StoredReference>;
+  /**
+   * Convert declared pose rows into the staged VIEW and store the reference.
+   * Throws the converter's named constraint on unusable input — nothing is
+   * stored when conversion fails.
+   */
+  attachCharacterReference(
+    sheets: readonly { decoded: DecodedImage; facing: SheetFacing }[],
+    spec: CharacterSheetSpec,
+    view: number,
+    brief: string,
+  ): Promise<StoredReference>;
+  /** Remove a stored reference; its bytes leave the project record. */
+  detachReference(id: string): Promise<void>;
+  /**
+   * Commit a staged VIEW to the running game and the project record. Refuses
+   * when the game's identity moved since the reference was attached.
+   */
+  keepStagedView(id: string): Promise<void>;
 }
 
 export function useAuthoringController(options: AuthoringControllerOptions): AuthoringController {
@@ -214,6 +250,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   function resetSession(): void {
     session?.task.cancel();
     session = null;
+    pendingReferences.splice(0);
     remixNeedsSave = false;
   }
 
@@ -222,6 +259,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
    * the assistant bubble for the current room.
    */
   async function openPowerUp(config: LlmConfig): Promise<void> {
+    if (state.powerUp.busy) return;
     if (state.powerUp.open && state.powerUp.mode === "room") return;
     if (state.powerUp.mode === "room") state.powerUp.mode = "remix";
     pauseEngine("powerUp");
@@ -344,23 +382,27 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       original?.library?.source === "catalog" && original.library.revision !== revision;
     let writtenRev: string;
     if (game.installed || catalogChanged) {
-      const remixProjectId = `remix-${crypto.randomUUID()}`;
-      const parentProjectId = original?.projectId ?? game.projectId;
+      const remixProjectId = requireProjectId(`remix-${crypto.randomUUID()}`);
+      // The parent's project is its own storage key: an authored entry's id,
+      // an installed edition's folder/hash. When none resolves there is no
+      // parent identity to record.
+      const parentProject =
+        original?.projectId ?? game.projectId ?? projectId(gameStorageKey(game)) ?? undefined;
       const data: Omit<CachedGameData, "projectId" | "authoredAt"> = {
         title: `${original?.title ?? game.title} Remix`,
         library: {
           ...original?.library,
           version: 1,
-          alias: undefined,
           revision,
           source: "remix",
           catalog: undefined,
           preview: undefined,
-          parent: {
-            ...(parentProjectId ? { projectId: parentProjectId } : {}),
-            ...(game.alias ? { alias: game.alias } : {}),
-            revision: original?.library?.revision ?? (await gameRevision(game.files)),
-          },
+          parent: parentProject
+            ? {
+                project: parentProject,
+                revision: original?.library?.revision ?? (await gameRevision(game.files)),
+              }
+            : undefined,
           validation: {
             status: "unverified",
             message: "Remixed resources. Check the opening to create a new preview.",
@@ -376,19 +418,19 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         roomGeneration: false,
       };
       writtenRev = planRevisionOf(author);
-      if (!(await saveAuthoredGame(remixProjectId, data)))
+      const historyLifetime = await saveAuthoredGameWithLifetime(remixProjectId, data);
+      if (historyLifetime === null)
         throw new Error(
-          "Browser storage could not save this remix. Use Game actions → Project to keep it.",
+          "Browser storage could not save this remix. Use Game → Download game… to keep it.",
         );
       // The checkpoint moves with the progress: the original card must never
       // offer a snapshot taken under resources its own container does not have.
       clearAutosave(gameStorageKey(game));
-      if (game.installed && game.hash) clearAutosave(game.hash);
-      if (game.installed && game.alias) clearAutosave(game.alias);
       const newBooted: BootedGame = {
         installed: false,
         projectId: remixProjectId,
-        alias: original?.library?.alias ?? game.alias,
+        historyLifetime,
+        alias: game.alias,
         title: `${original?.title ?? game.title} Remix`,
         revision,
         files,
@@ -411,7 +453,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         ))
       ) {
         throw new Error(
-          "Browser storage could not save this remix. Use Game actions → Project to keep it.",
+          "Browser storage could not save this remix. Use Game → Download game… to keep it.",
         );
       }
     }
@@ -426,7 +468,10 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
    * container, the room re-enters if the current room changed underneath the
    * player, and the interpreter resumes on exactly the cycle it parked on.
    */
-  async function submitPowerUp(instruction: string): Promise<void> {
+  async function submitPowerUp(
+    instruction: string,
+    referenceIds?: readonly string[],
+  ): Promise<void> {
     if (!session || state.powerUp.busy || state.powerUp.mode === "room") return;
     if (!session.isConfigured()) {
       state.powerUp.needsConfig = true;
@@ -438,8 +483,21 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     try {
       const room = state.powerUp.room;
       const booted = getBootedGame();
+      // Attached references ride the turn as image blocks: the model sees
+      // the player's own art, captioned with target and brief.
+      const selectedIds =
+        referenceIds ??
+        pendingReferences
+          .filter((reference) => reference.project === booted?.projectId)
+          .map((reference) => reference.id);
+      const images = selectedIds.length
+        ? (await listReferences())
+            .filter((reference) => selectedIds.includes(reference.id))
+            .flatMap((reference) => referenceAgentImages(reference))
+        : undefined;
+      for (const id of selectedIds) removePendingReference(id);
       if (state.powerUp.mode === "ask") {
-        const text = await session.runAsk(instruction, room);
+        const text = await session.runAsk(instruction, room, images);
         state.powerUp.reply = text;
         state.powerUp.messages.push({ role: "assistant", text });
         if (booted?.installed) {
@@ -465,13 +523,13 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
             ))
           )
             throw new Error(
-              "Conversation could not be saved. Use Game actions → Project to keep it.",
+              "Conversation could not be saved. Use Game → Download game… to keep it.",
             );
           reportPlanSaved(writtenRev);
         }
         return;
       }
-      const { text, patched, files } = await session.runPowerUp(instruction, room);
+      const { text, patched, files } = await session.runPowerUp(instruction, room, images);
       state.powerUp.reply = text;
       state.powerUp.messages.push({ role: "assistant", text });
       remixNeedsSave = true;
@@ -518,6 +576,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     agent: AgentHandler,
     sendDirection: (dir: number) => void,
   ): Promise<string> {
+    if (state.powerUp.busy) throw new Error("Wait for the current agent task to finish.");
     const game = getBootedGame();
     let author = getSession();
     if (!author && game && !game.installed && game.projectId) {
@@ -792,6 +851,279 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     };
   }
 
+  /**
+   * The project's stored references, freshest copy — the booted game's
+   * authoredGame snapshot predates any attach in this session.
+   */
+  async function listReferences(): Promise<StoredReference[]> {
+    const game = getBootedGame();
+    if (!game || game.installed || !game.projectId) return [];
+    const data = await loadAuthoredGame(game.projectId);
+    return data?.references ?? game.authoredGame?.references ?? [];
+  }
+
+  function requireAuthoredBoot(): BootedGame {
+    const game = getBootedGame();
+    if (!game || game.installed || !game.projectId)
+      throw new Error("Reference art attaches to a game authored in this browser.");
+    return game;
+  }
+
+  /**
+   * Mutate the stored reference list atomically: the callback runs inside the
+   * serialized write against the freshest read, so a concurrent attachment,
+   * removal or stage-clear in another surface or tab cannot be lost.
+   */
+  async function writeReferences(
+    game: BootedGame,
+    mutate: (current: StoredReference[]) => StoredReference[] | null,
+  ): Promise<void> {
+    let applied: StoredReference[] | undefined;
+    let overflow = false;
+    const saved = await updateAuthoredReferences(game.projectId!, (current) => {
+      const next = mutate(current);
+      if (next === null) return null;
+      if (next.length > REFERENCE_COUNT_LIMIT) {
+        overflow = true;
+        return null;
+      }
+      applied = next;
+      return next;
+    });
+    if (overflow)
+      throw new Error(
+        `This project already has ${REFERENCE_COUNT_LIMIT} references. Remove one before attaching another.`,
+      );
+    if (!saved || applied === undefined)
+      throw new Error(
+        "Browser storage could not save the reference. Try again before closing this dialog.",
+      );
+    if (game.authoredGame) game.authoredGame = { ...game.authoredGame, references: applied };
+  }
+
+  async function referencesWithCapacity(): Promise<StoredReference[]> {
+    const references = await listReferences();
+    if (references.length >= REFERENCE_COUNT_LIMIT)
+      throw new Error(
+        `This project already has ${REFERENCE_COUNT_LIMIT} references. Remove one before attaching another.`,
+      );
+    return references;
+  }
+
+  async function attachRoomReference(
+    decoded: DecodedImage,
+    room: number,
+    brief: string,
+  ): Promise<StoredReference> {
+    const game = requireAuthoredBoot();
+    await referencesWithCapacity();
+    const reference = roomReference(
+      `ref-${crypto.randomUUID()}`,
+      room,
+      brief,
+      { project: game.projectId!, revision: game.revision },
+      decoded,
+    );
+    await writeReferences(game, (current) => [...current, reference]);
+    pendingReferences.push({
+      id: reference.id,
+      project: game.projectId!,
+      label: `${reference.kind === "room" ? "Room" : "View"} ${reference.target}${brief ? ` — ${brief}` : ""}`,
+    });
+    return reference;
+  }
+
+  async function attachCharacterReference(
+    sheets: readonly { decoded: DecodedImage; facing: SheetFacing }[],
+    spec: CharacterSheetSpec,
+    view: number,
+    brief: string,
+  ): Promise<StoredReference> {
+    const game = requireAuthoredBoot();
+    await referencesWithCapacity();
+    const reference = stageCharacterView(
+      `ref-${crypto.randomUUID()}`,
+      view,
+      brief,
+      { project: game.projectId!, revision: game.revision },
+      sheets.map(({ decoded, facing }) => ({ decoded, facing })),
+      spec,
+    );
+    await writeReferences(game, (current) => [...current, reference]);
+    pendingReferences.push({
+      id: reference.id,
+      project: game.projectId!,
+      label: `${reference.kind === "room" ? "Room" : "View"} ${reference.target}${brief ? ` — ${brief}` : ""}`,
+    });
+    return reference;
+  }
+
+  async function detachReference(id: string): Promise<void> {
+    const game = requireAuthoredBoot();
+    await writeReferences(game, (current) => current.filter((reference) => reference.id !== id));
+    removePendingReference(id);
+  }
+
+  /** Keep resources, source and the consumed offer in one conditional durable write. */
+  async function keepStagedView(id: string): Promise<void> {
+    const game = requireAuthoredBoot();
+    if (state.powerUp.busy || state.powerUp.mode === "room")
+      throw new Error("Wait for the current agent turn before keeping a staged view.");
+    const author = session;
+    const release = author?.reserveMutation(
+      "Finish keeping a staged view before starting another operation.",
+    );
+    const powerUp = state.powerUp;
+    powerUp.busy = true;
+    pauseEngine("keepView");
+    try {
+      await getAutosaveWrite();
+      const captured = await loadAuthoredGameWithHistoryLifetime(game.projectId!);
+      if (!captured) throw new Error("The project is no longer stored in this browser.");
+      const { data: stored, lifetime } = captured;
+      if (
+        lifetime === null ||
+        (game.historyLifetime !== undefined && game.historyLifetime !== lifetime)
+      )
+        throw new Error(
+          "The project was removed or changed elsewhere — reload it before keeping staged art.",
+        );
+      if ((await gameRevision(stored.files)) !== game.revision)
+        throw new Error(
+          "The project changed elsewhere since this game booted — reload it before keeping staged art.",
+        );
+      const reference = stored.references?.find((r) => r.id === id);
+      if (!reference) throw new Error("That reference is no longer attached to this project.");
+      const refusal = stagedRefusal(reference, {
+        project: game.projectId!,
+        revision: game.revision,
+      });
+      if (refusal) throw new Error(refusal);
+      const staged = reference.staged!;
+      const payload = new Uint8Array(base64ToBytes(staged.payload));
+      const worker = getWorker();
+      if (!worker) throw new Error("The running game is no longer available.");
+      const exported = await query("exportFiles");
+      if (!exported || getBootedGame() !== game || session !== author || getWorker() !== worker)
+        throw new Error("The game changed while the staged view was being kept.");
+      if ((await gameRevision(exported)) !== game.revision)
+        throw new Error("The running game changed before the staged view could be kept.");
+      const container = openContainer(new Map(Object.entries(exported)));
+      container.putResource("view", staged.num, payload);
+      const files = Object.fromEntries(container.files);
+      const words = files["WORDS.TOK"]
+        ? parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id] as [string, number])
+        : game.words;
+      const revision = await gameRevision(files);
+      const sourceSession =
+        author ??
+        AgentSession.fromAuthoredData(
+          { provider: "stub", model: "offline-stub", apiKey: "" },
+          () => {},
+          exported,
+          words,
+          stored.transcript,
+          stored.sessionId,
+          stored.authoringState,
+        );
+      const candidate = sourceSession.prepareViewPatch(files, staged.num, staged.input);
+      const forkCatalog =
+        stored.library?.source === "catalog" && stored.library.revision !== revision;
+      const targetId = forkCatalog
+        ? requireProjectId(`remix-${crypto.randomUUID()}`)
+        : game.projectId!;
+      const references = stored.references!.map((r) =>
+        r.id === id ? { ...r, staged: undefined } : r,
+      );
+      const data = {
+        ...stored,
+        files,
+        words,
+        references,
+        authoringState: candidate.authoringState,
+        ...(forkCatalog
+          ? {
+              projectId: targetId,
+              title: `${stored.title} Remix`,
+              imported: true,
+              roomGeneration: false,
+              library: {
+                ...stored.library!,
+                source: "remix" as const,
+                catalog: undefined,
+                preview: undefined,
+                parent: { project: game.projectId!, revision: game.revision },
+                revision,
+                validation: {
+                  status: "unverified" as const,
+                  message: "Remixed resources. Check the opening to create a new preview.",
+                },
+              },
+              references: references.map((r) => ({
+                ...r,
+                origin: r.origin ?? r.attachedAt,
+                attachedAt: { ...r.attachedAt, project: targetId },
+              })),
+            }
+          : {}),
+        ...(author
+          ? {
+              ...author.getProviderContext(),
+              transcript: author.getTranscript(),
+              sessionId: author.getSessionId(),
+            }
+          : {}),
+      };
+      if (getBootedGame() !== game || session !== author || getWorker() !== worker)
+        throw new Error("The game changed while the staged view was being kept.");
+      // Catalog entries fork into a new project; the source remains untouched.
+      const historyLifetime = await saveAuthoredGameWithLifetime(
+        targetId,
+        data,
+        forkCatalog
+          ? { requireNew: true }
+          : { expectedGeneration: stored.generation ?? 0, expectedLifetime: lifetime },
+      );
+      if (historyLifetime === null)
+        throw new Error(
+          "Browser storage could not save the kept view. The project may have changed elsewhere; reload it before trying again.",
+        );
+
+      // Navigating away during the write keeps the durable result for the next
+      // boot; it must never patch a replacement worker or replace its game.
+      if (getBootedGame() !== game || session !== author || getWorker() !== worker) return;
+      // All validation and the conditional write finished before the live
+      // session changes. No await separates adoption, patch and checkpoint.
+      if (author) candidate.adopt();
+      const adoptedGame = forkCatalog
+        ? { ...game, projectId: targetId, title: data.title, historyLifetime }
+        : game;
+      adoptedGame.files = files;
+      adoptedGame.words = words;
+      adoptedGame.revision = revision;
+      adoptedGame.authoredGame = data;
+      if (forkCatalog) {
+        clearAutosave(gameStorageKey(game));
+        setBootedGame(adoptedGame);
+        onRemixCreated?.(targetId);
+      }
+      remixNeedsSave = false;
+      const transfer = new Uint8Array(payload);
+      worker.postMessage(
+        { type: "patch", kind: "view", num: staged.num, payload: transfer } satisfies WorkerInbound,
+        [transfer.buffer],
+      );
+      if (author) {
+        reportPlanSaved(planRevisionOf(author));
+        postSessionSnapshot(author);
+      }
+    } finally {
+      release?.();
+      powerUp.busy = false;
+      resumeEngine("keepView");
+    }
+  }
+
   return {
     openPowerUp,
     closePowerUp,
@@ -812,5 +1144,10 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     postSessionSnapshot,
     adoptSessionState,
     assembleExportData,
+    listReferences,
+    attachRoomReference,
+    attachCharacterReference,
+    detachReference,
+    keepStagedView,
   };
 }

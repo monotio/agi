@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * AGI Inspector — the rc.9 debug surface. Three tabs inside one panel:
+ * AGI Inspector — the debug surface. Three tabs inside one panel:
  *
  *   Screen   — view modes (visual / Sierra priority / blend / split / GPU
  *              exploded layers), the object overlay, and point-select.

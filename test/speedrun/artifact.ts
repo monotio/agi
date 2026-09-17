@@ -4,15 +4,16 @@ import { readdirSync, readFileSync } from "node:fs";
 import { fixtureDir, fixtureFiles } from "../fixtures.ts";
 import { BUILTIN_GAME_BUILDERS, loadGame } from "../game-fixture.ts";
 import { resolveGameHash } from "../../src/games/knownGames.ts";
+import type { GameIdentity, ResourceRevision } from "../../src/gameIdentity.ts";
 import { gameRevision } from "../../app/src/gameMetadata.ts";
 import type { Action } from "./runner.ts";
 import { walkthrough, type Walkthrough } from "./walkthroughs.ts";
 
 export interface WalkthroughArtifact {
-  schema: "monotio.agi.walkthrough.v2";
-  game: string;
-  targetRevision: string;
-  supportedRevisions?: readonly string[] | undefined;
+  schema: "monotio.agi.walkthrough.v1";
+  /** `{ project: catalog id, revision: recorded bundle revision }`. */
+  identity: GameIdentity;
+  supportedRevisions?: readonly ResourceRevision[] | undefined;
   coverage: Walkthrough["coverage"];
   profile: string;
   seed: number;
@@ -39,7 +40,7 @@ const SERVED_FILE_PATTERN =
  * set first, then — for builtins also reachable through the catalog — the
  * full builder set.
  */
-export async function walkthroughServedRevisions(target: string): Promise<string[]> {
+export async function walkthroughServedRevisions(target: string): Promise<ResourceRevision[]> {
   const builder =
     BUILTIN_GAME_BUILDERS[target.toLowerCase()] ??
     BUILTIN_GAME_BUILDERS[resolveGameHash(target.toLowerCase()) ?? ""];
@@ -86,18 +87,13 @@ export function walkthroughFixtureHashes(target: string): Record<string, string>
 /** Read a completed replay; consumers also match its hashes to their fixture files. */
 export async function readWalkthroughArtifact(path: string): Promise<WalkthroughArtifact> {
   const recording = JSON.parse(readFileSync(path, "utf8")) as WalkthroughArtifact;
-  assert.equal(recording.schema, "monotio.agi.walkthrough.v2");
-  const route = walkthrough(recording.game);
+  assert.equal(recording.schema, "monotio.agi.walkthrough.v1");
+  const route = walkthrough(recording.identity.project);
   const served = await walkthroughServedRevisions(route.hash);
-  assert.ok(
-    typeof recording.targetRevision === "string" &&
-      /^[0-9a-f]{64}$/i.test(recording.targetRevision),
-    "the tape declares the bundle revision it was recorded on",
-  );
   assert.equal(
-    recording.targetRevision.toLowerCase(),
+    recording.identity.revision.toLowerCase(),
     served[0]!.toLowerCase(),
-    "target revision matches the served bundle",
+    "identity revision matches the served bundle",
   );
   if (recording.supportedRevisions) {
     assert.ok(

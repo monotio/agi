@@ -30,8 +30,8 @@ export interface TransportButton {
   title?: string;
   aria?: string;
   label?: string;
-  icon?: "back" | "bookmark";
-  variant?: "primary" | "secondary" | "danger";
+  icon?: "bookmark";
+  variant?: "primary" | "secondary";
   disabled?: boolean;
   run(): void;
 }
@@ -81,8 +81,22 @@ export interface TransportExtras {
     icon: "play" | "pause" | "replay";
     title: string;
     aria: string;
+    /** A labeled primary action (e.g. "Resume from here") beside the icon. */
+    label?: string;
     disabled: boolean;
+    /** The primary control's action — the source's agreed meaning per state. */
+    run(): void;
   };
+  /**
+   * The speed group renders. Walkthroughs always show it; the tape shows it
+   * only inside the explicit Watch action.
+   */
+  readonly speedGroup: boolean;
+  /**
+   * The timeline's right-hand endpoint: the parked live session. `here` is
+   * true while the surface already IS live (running or parked at LIVE).
+   */
+  readonly live: { testid: string; here: boolean; run(): void } | undefined;
   /** Speed-group testid prefix, e.g. "walkthrough-speed-" → `…-4`. */
   readonly speedTestid: string;
   /** Source-scoped class on the active speed/story-pause button. */
@@ -91,27 +105,16 @@ export interface TransportExtras {
   /** Position readout, e.g. "Room 4 · 62% · replaying…". */
   readonly readout: string | undefined;
   readonly posTestid: string | undefined;
-  readonly segments:
-    | {
-        prevTestid: string;
-        nextTestid: string;
-        labelTestid: string;
-        index: number;
-        count: number;
-        step(dir: 1 | -1): void;
-      }
-    | undefined;
   /** >0 shows the "earlier tape dropped" note. */
   readonly dropped: number;
-  /** Buttons before the play control (the tape's back-to-live). */
-  readonly leading: readonly TransportButton[];
   /** Buttons after the speed group (bookmark, resume cluster). */
   readonly trailing: readonly TransportButton[];
   readonly storyPause: { testid: string; on: boolean; toggle(): void } | undefined;
-  /** An interrupted kept-session row with its keep/release buttons. */
+  /** A quiet status row for unsettled recovery work — never a player vote. */
   readonly pending:
     { testid: string; text: string; buttons: readonly TransportButton[] } | undefined;
-  readonly errors: readonly { testid: string; text: string }[];
+  /** Status rows; `details` keeps technical diagnostics collapsed. */
+  readonly errors: readonly { testid: string; text: string; details?: string }[];
 }
 
 /** Everything TransportBar binds: the source, the extras, and the shared
@@ -212,7 +215,10 @@ export function useTransport(source: TransportSource, extras: TransportExtras): 
   }
 
   function scrubDown(pct: number): void {
-    if (source.totalTicks <= 0 || source.seeking) return;
+    // An empty axis still dispatches: the click pauses live play and the
+    // source reports whether a tape exists to open or refuses an unreadable
+    // one — swallowing the gesture would hide exactly those answers.
+    if (source.seeking) return;
     hasDragged = false;
     ui.isScrubbing = true;
     source.setScrubbing(true);
@@ -235,9 +241,10 @@ export function useTransport(source: TransportSource, extras: TransportExtras): 
     if (!ui.isScrubbing) return;
     const finalPct = ui.scrubPercent ?? pct;
     ui.isScrubbing = false;
+    // Resolve the final target while the source still owns its frozen axis.
+    if (hasDragged) source.seekTick(tickAt(finalPct));
     source.setScrubbing(false);
     ui.scrubPercent = undefined;
-    if (hasDragged) source.seekTick(tickAt(finalPct));
   }
 
   function hoverMove(pct: number): void {
@@ -319,6 +326,12 @@ export function useTransport(source: TransportSource, extras: TransportExtras): 
     get play() {
       return extras.play;
     },
+    get speedGroup() {
+      return extras.speedGroup;
+    },
+    get live() {
+      return extras.live;
+    },
     get speedTestid() {
       return extras.speedTestid;
     },
@@ -331,14 +344,8 @@ export function useTransport(source: TransportSource, extras: TransportExtras): 
     get posTestid() {
       return extras.posTestid;
     },
-    get segments() {
-      return extras.segments;
-    },
     get dropped() {
       return extras.dropped;
-    },
-    get leading() {
-      return extras.leading;
     },
     get trailing() {
       return extras.trailing;

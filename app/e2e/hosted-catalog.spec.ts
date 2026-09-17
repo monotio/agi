@@ -48,7 +48,7 @@ test("hosted games preview, play and resume in the same library without a provid
   expect(requests.sort()).toEqual(Object.keys(game.files).sort());
   await card.getByRole("button", { name: "Play", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   const saved = page.getByTestId("saved-game-card-catalog-constructor-1.0.0");
   await expect(saved.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
   await expect(card).toHaveCount(0);
@@ -62,7 +62,7 @@ test("hosted games preview, play and resume in the same library without a provid
   await expect(saved).toBeVisible();
   await saved.getByRole("button", { name: "Resume", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   await expect(saved).toBeVisible();
   await expect(card).toHaveCount(0);
   expect(requests.length).toBe(Object.keys(game.files).length);

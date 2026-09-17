@@ -65,13 +65,15 @@ test("the tool is catalogued for Ask turns and validates its topic argument", ()
   assert.ok(createGenesisPrompt("A brief").includes("read_authoring_guide"));
 });
 
-test("the genesis prompt offers a boot skeleton without prescribing the opening's shape", () => {
+test("the genesis prompt names the template boot without prescribing the opening's shape", () => {
   const prompt = createGenesisPrompt("# Night Train\nA sleeper car mystery.");
   assert.ok(prompt.startsWith("### GENESIS:"));
-  assert.match(prompt, /yours to adapt or replace/);
+  assert.match(prompt, /recommended starting point/);
+  assert.match(prompt, /call\(255\)/);
   assert.match(prompt, /text-screen intro/);
   assert.ok(!/Use this logic 0 boot script/.test(prompt));
-  assert.match(prompt, /assignn\(v10, 2\)/);
+  assert.match(prompt, /extend or replace any of it/);
+  assert.match(AUTHORING_GUIDE["base-template"]!.body, /ordinary game resources/);
 });
 
 test("every code sketch in the guide assembles for the default profile", () => {

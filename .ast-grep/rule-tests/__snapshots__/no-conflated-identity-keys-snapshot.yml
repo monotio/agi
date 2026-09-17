@@ -1,0 +1,32 @@
+id: no-conflated-identity-keys
+snapshots:
+  "export function loadWalkthrough(hashOrId: string): void {}":
+    labels:
+      - source: hashOrId
+        style: primary
+        start: 32
+        end: 40
+  "function bootGame(hashOrAlias: string): void {}":
+    labels:
+      - source: hashOrAlias
+        style: primary
+        start: 18
+        end: 29
+  "function findInstalledFolder(installed: string[], aliasOrHash: string): void {}":
+    labels:
+      - source: aliasOrHash
+        style: primary
+        start: 50
+        end: 61
+  "interface Record { gameIdentity: string }":
+    labels:
+      - source: "gameIdentity: string"
+        style: primary
+        start: 19
+        end: 39
+  "interface StoredSave { identity: string }":
+    labels:
+      - source: "identity: string"
+        style: primary
+        start: 23
+        end: 39

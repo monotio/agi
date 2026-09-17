@@ -48,18 +48,18 @@ export const BUILTIN_GAME_BUILDERS: Record<
   "adventure-department": buildTutorial,
 };
 
-export function loadGame(hashOrAlias: GameHash, options: LoadGameOptions = {}): GameFixture {
-  const missing = fixtureSkip(hashOrAlias, [], options);
+export function loadGame(query: GameHash, options: LoadGameOptions = {}): GameFixture {
+  const missing = fixtureSkip(query, [], options);
   if (missing) throw new Error(missing);
   const builtin =
-    BUILTIN_GAME_BUILDERS[hashOrAlias.toLowerCase()] ??
-    BUILTIN_GAME_BUILDERS[resolveGameHash(hashOrAlias.toLowerCase()) ?? ""];
+    BUILTIN_GAME_BUILDERS[query.toLowerCase()] ??
+    BUILTIN_GAME_BUILDERS[resolveGameHash(query.toLowerCase()) ?? ""];
   if (builtin) {
     const game = builtin();
     const files = new Map(Object.entries(game.files));
     return { container: openContainer(files), dict: new Map(game.words), files };
   }
-  const fixture = findFixture(hashOrAlias)!;
+  const fixture = findFixture(query)!;
   const dir = fixture.dir;
   const onDisk = fixture.files;
   const combined = fixture.combined;

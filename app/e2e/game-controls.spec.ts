@@ -3,7 +3,13 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { buildZip } from "../src/zip.ts";
-import { isolateStorage, savedGameCard, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
+import {
+  isolateStorage,
+  openGameControls,
+  savedGameCard,
+  textHook,
+  waitForAutosaveAfter,
+} from "./engineProbe.ts";
 
 function makeGameZip(shortcuts: boolean, scrollLock = false) {
   const game = createContainer();
@@ -50,30 +56,28 @@ test("game controls discover bindings and menu labels, track disabled items, and
     buffer: makeGameZip(true),
   });
   await savedGameCard(page, "courtyard").getByTestId("btn-resume-cached").click();
-  const controls = page.getByTestId("game-controls");
-  await expect(controls).toBeVisible();
   await expect(page.getByTestId("game-toolbar")).toHaveCount(0);
   await page.getByTestId("input-line").fill("look");
   await page.getByTestId("input-line").press("Enter");
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Look count 1");
-  await controls.locator("summary").click();
-  await expect(controls.getByRole("button")).toHaveCount(4);
+  await openGameControls(page);
+  const controls = page.getByTestId("game-controls");
+  await expect(controls.locator("[data-key]")).toHaveCount(4);
   await expect(controls.getByRole("button", { name: "Inspect F3", exact: true })).toBeEnabled();
   await expect(controls.getByRole("button", { name: "F8", exact: true })).toBeVisible();
   await expect(controls).not.toContainText("Save");
   await controls.getByRole("button", { name: "Inspect F3", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("INSPECTED");
   await expect(page.getByTestId("input-line")).toHaveValue("");
-  await controls.locator("summary").click();
+  await openGameControls(page);
   await expect(controls.getByRole("button", { name: "Inspect F3", exact: true })).toBeDisabled();
   await controls.getByRole("button", { name: "F4", exact: true }).click();
-  await controls.locator("summary").click();
+  await openGameControls(page);
   await expect(controls.getByRole("button", { name: "Inspect F3", exact: true })).toBeEnabled();
   await page.screenshot({ path: "test-results/game-controls-desktop.png" });
   await page.keyboard.press("Escape");
-  await expect(controls).not.toHaveAttribute("open");
-  await expect(controls.locator("summary")).toBeFocused();
-  await page.keyboard.press("Enter");
+  await expect(controls).toBeHidden();
+  await openGameControls(page);
   await page.keyboard.press("Tab");
   await expect(controls.getByRole("button", { name: "Inspect F3", exact: true })).toBeFocused();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -83,15 +87,15 @@ test("game controls discover bindings and menu labels, track disabled items, and
   await expect(page.getByTestId("input-line")).toHaveValue("look");
   await page.getByTestId("input-line").press("Enter");
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Look count 2");
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   await page
     .getByTestId("game-zip-input")
     .setInputFiles({ name: "quiet.zip", mimeType: "application/zip", buffer: makeGameZip(false) });
   await savedGameCard(page, "quiet").getByTestId("btn-resume-cached").click();
-  await controls.locator("summary").click();
-  await expect(controls.getByRole("button")).toHaveCount(0);
+  await openGameControls(page);
+  await expect(controls.locator("[data-key]")).toHaveCount(0);
   await expect(controls).toContainText("Shortcuts appear here");
-  await controls.locator("summary").click();
+  await page.keyboard.press("Escape");
   await page.getByTestId("input-line").focus();
   await page.keyboard.press("Tab");
   await expect(page.getByTestId("input-line")).not.toBeFocused();
@@ -112,8 +116,8 @@ test("mapped Scroll Lock controls advertise and invoke the script controller", a
     [2, { width: 390, height: 844 }],
   ] as const) {
     await page.setViewportSize(viewport);
-    await controls.locator("summary").click();
-    await expect(controls.getByRole("button")).toHaveCount(1);
+    await openGameControls(page);
+    await expect(controls.locator("[data-key]")).toHaveCount(1);
     await expect(controls).not.toContainText("Show trace");
     await controls.getByRole("button", { name: "Scroll Lock", exact: true }).click();
     await expect
@@ -133,21 +137,21 @@ test("browser reload restores shortcut labels and live menu enable state", async
   });
   await savedGameCard(page, "courtyard").getByTestId("btn-resume-cached").click();
   const controls = page.getByTestId("game-controls");
-  await controls.locator("summary").click();
+  await openGameControls(page);
   await controls.getByRole("button", { name: "Inspect F3", exact: true }).click();
-  await controls.locator("summary").click();
+  await openGameControls(page);
   await expect(controls.getByRole("button", { name: "Inspect F3", exact: true })).toBeDisabled();
   await page.keyboard.press("Escape");
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await page.reload();
   await expect(page.getByTestId("resume-caption")).toBeVisible();
-  await controls.locator("summary").click();
+  await openGameControls(page);
   await expect(controls.getByRole("button", { name: "Inspect F3", exact: true })).toBeDisabled();
   await expect(
     controls.getByRole("button", { name: "Repeat command F10", exact: true }),
   ).toBeEnabled();
   await controls.getByRole("button", { name: "F4", exact: true }).click();
-  await controls.locator("summary").click();
+  await openGameControls(page);
   await expect(controls.getByRole("button", { name: "Inspect F3", exact: true })).toBeEnabled();
   await page.screenshot({ path: test.info().outputPath("restored-game-controls.png") });
 });

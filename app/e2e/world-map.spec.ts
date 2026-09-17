@@ -1,8 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
+import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
-import { cacheGame, observe, openGameOptions, textHook, waitForCycles } from "./engineProbe.ts";
+import {
+  cacheGame,
+  observe,
+  openCardMenu,
+  openGameOptions,
+  textHook,
+  waitForCycles,
+} from "./engineProbe.ts";
 
 test.use({ headless: process.platform !== "darwin" });
 
@@ -26,7 +34,7 @@ function mapGame() {
     "logic",
     1,
     assembleLogic(
-      "if(!isset(f5)){set(f5);load.pic(v0);draw.pic(v0);show.pic();}if(isset(f6)){new.room(2);}return;",
+      "if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();}if(isset(f6)){new.room(2);}return;",
       { dictionary: new Map() },
     ).payload,
   );
@@ -41,7 +49,7 @@ function mapGame() {
 }
 
 const MAP_GAME = {
-  projectId: "world-map-fixture",
+  projectId: testProjectId("world-map-fixture"),
   title: "Map fixture",
   provider: "stub",
   model: "stub",
@@ -93,8 +101,10 @@ test("world map lists observed, planned and logic-named rooms; closing preserves
   const input = page.getByTestId("input-line");
   await input.fill("lo");
 
-  await openGameOptions(page, "game-actions-menu");
+  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
+  await expect(page.getByTestId("world-map")).toBeVisible();
+  await page.getByTestId("btn-world-plan").click();
   const mapDialog = page.getByTestId("world-map");
   await expect(mapDialog).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
@@ -134,9 +144,11 @@ test("world map lists observed, planned and logic-named rooms; closing preserves
 test("phone layout puts the room list first and the graph one tap away", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await bootMapGame(page);
-  await openGameOptions(page, "game-actions-menu");
+  await openGameOptions(page, "help-menu");
   const openedAt = Date.now();
   await page.getByTestId("btn-world-map").click();
+  await expect(page.getByTestId("world-map")).toBeVisible();
+  await page.getByTestId("btn-world-plan").click();
   const mapDialog = page.getByTestId("world-map");
   await expect(mapDialog).toBeVisible();
   const openMs = Date.now() - openedAt;
@@ -157,6 +169,13 @@ test("the map records a live transition and matches it against plan and logic", 
   page,
 }) => {
   await bootMapGame(page);
+  // Read the live marker before the transition: reopening must update a
+  // previously evaluated current-room subscription, not retain its first room.
+  await openGameOptions(page, "help-menu");
+  await page.getByTestId("btn-world-map").click();
+  await expect(page.getByTestId("map-room-1")).toHaveClass(/current/);
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("world-map")).not.toBeVisible();
   // Visit room 2 through the inspector's flag write: logic 1's literal
   // new.room(2) fires, so the journal edge joins the planned and static ones.
   await page.getByTestId("power-up").click();
@@ -166,10 +185,15 @@ test("the map records a live transition and matches it against plan and logic", 
   await page.getByTestId("dbg-flags").locator("button").nth(6).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
 
-  await openGameOptions(page, "game-actions-menu");
+  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
+  await page.getByTestId("btn-world-plan").click();
+  await expect(page.getByTestId("world-map")).toBeVisible();
   await expect(page.getByTestId("map-room-2")).toContainText("visited");
+  await expect(page.getByTestId("map-room-2")).toHaveClass(/current/);
+  await expect(page.getByTestId("map-node-2")).toBeInViewport();
+  await page.screenshot({ path: "test-results/world-map-transition.png" });
   await page.getByTestId("map-room-2").click();
   const detail = page.getByTestId("map-detail");
   await expect(detail).toContainText("Visited 1×");
@@ -190,8 +214,10 @@ test("an imported game shows its static graph before any visit", async ({ page }
     .click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
 
-  await openGameOptions(page, "game-actions-menu");
+  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
+  await expect(page.getByTestId("world-map")).toBeVisible();
+  await page.getByTestId("btn-world-plan").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   // The scroll canvas opens on the live room, not the world's empty corner.
   await expect(page.getByTestId("map-node-83")).toBeInViewport();
@@ -241,7 +267,7 @@ test("an imported game shows its static graph before any visit", async ({ page }
 test("opening the map during a walkthrough stops the replay ticks", async ({ page }) => {
   test.skip(Boolean(kq1Missing), kq1Missing || "");
   await page.goto("/");
-  await page.getByTestId("game-actions-kq1").click();
+  await openCardMenu(page, "game-actions-kq1");
   await page.getByTestId("run-walkthrough").click();
   await expect(page.getByTestId("walkthrough-transport")).toBeVisible();
   await expect
@@ -250,7 +276,7 @@ test("opening the map during a walkthrough stops the replay ticks", async ({ pag
     })
     .toBeGreaterThan(0);
 
-  await openGameOptions(page, "game-actions-menu");
+  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await expect
@@ -281,7 +307,7 @@ test("Watch from here seeks the walkthrough to the room's checkpoint", async ({ 
     .click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
 
-  await openGameOptions(page, "game-actions-menu");
+  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
 
@@ -305,7 +331,7 @@ test("closing the map restores only the pause it owns", async ({ page }) => {
   await page.getByTestId("power-up").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
 
-  await openGameOptions(page, "game-actions-menu");
+  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
@@ -338,8 +364,10 @@ test("opening and using the map makes no provider request", async ({ page }) => 
     );
   const before = await traceCount();
 
-  await openGameOptions(page, "game-actions-menu");
+  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
+  await expect(page.getByTestId("world-map")).toBeVisible();
+  await page.getByTestId("btn-world-plan").click();
   const mapDialog = page.getByTestId("world-map");
   await expect(mapDialog).toBeVisible();
 
@@ -368,7 +396,7 @@ test("opening and using the map makes no provider request", async ({ page }) => 
 /** A planned world with a long title and a denser exit web. */
 const DENSE_GAME = {
   ...MAP_GAME,
-  projectId: "world-map-dense",
+  projectId: testProjectId("world-map-dense"),
   title: "Dense map fixture",
   authoringState: {
     authoring: {
@@ -415,8 +443,10 @@ test("long labels and a dense planned graph stay navigable", async ({ page }) =>
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 
-  await openGameOptions(page, "game-actions-menu");
+  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
+  await expect(page.getByTestId("world-map")).toBeVisible();
+  await page.getByTestId("btn-world-plan").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await expect(page.getByTestId("map-room-4")).toContainText("northern gallery");
   await page.getByTestId("map-room-4").click();
@@ -435,7 +465,7 @@ test("an unexplored game lists only the observed room", async ({ page }) => {
   );
   await page.goto("/");
   await cacheGame(page, {
-    projectId: "world-map-empty",
+    projectId: testProjectId("world-map-empty"),
     title: "Empty map fixture",
     provider: "stub",
     model: "stub",
@@ -448,7 +478,7 @@ test("an unexplored game lists only the observed room", async ({ page }) => {
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(0);
 
-  await openGameOptions(page, "game-actions-menu");
+  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   const items = page.locator(".map-list-item");
@@ -460,7 +490,7 @@ test("an unexplored game lists only the observed room", async ({ page }) => {
 test("reduced motion renders the same map without animation", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await bootMapGame(page);
-  await openGameOptions(page, "game-actions-menu");
+  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await expect(page.getByTestId("map-room-1")).toContainText("visited");
@@ -489,8 +519,10 @@ test("the graph pans in both axes, zooms, and the detail pane dismisses", async 
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 
-  await openGameOptions(page, "game-actions-menu");
+  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
+  await expect(page.getByTestId("world-map")).toBeVisible();
+  await page.getByTestId("btn-world-plan").click();
   const scroll = page.getByTestId("map-graph-scroll");
   await expect(scroll).toBeVisible();
 
@@ -625,7 +657,7 @@ test("cold open, warm open and select stay fast on the largest synthetic map", a
   }
   await page.goto("/");
   await cacheGame(page, {
-    projectId: "world-map-perf",
+    projectId: testProjectId("world-map-perf"),
     title: "Map perf fixture",
     provider: "stub",
     model: "stub",
@@ -644,8 +676,10 @@ test("cold open, warm open and select stay fast on the largest synthetic map", a
     return Date.now() - t0;
   };
   const openMap = async () => {
-    await openGameOptions(page, "game-actions-menu");
+    await openGameOptions(page, "help-menu");
     await page.getByTestId("btn-world-map").click();
+    await expect(page.getByTestId("world-map")).toBeVisible();
+    await page.getByTestId("btn-world-plan").click();
     await expect(page.getByTestId("world-map")).toBeVisible();
     await expect(page.locator(".map-list-item").nth(200)).toBeVisible();
   };
@@ -703,7 +737,7 @@ test("a pictured map past the old static cache stays responsive", async ({ page 
   }
   await page.goto("/");
   await cacheGame(page, {
-    projectId: "world-map-pictured",
+    projectId: testProjectId("world-map-pictured"),
     title: "Pictured map fixture",
     provider: "stub",
     model: "stub",
@@ -723,8 +757,10 @@ test("a pictured map past the old static cache stays responsive", async ({ page 
   };
   const thumbs = page.locator(".map-node .node-thumb");
   const openMap = async () => {
-    await openGameOptions(page, "game-actions-menu");
+    await openGameOptions(page, "help-menu");
     await page.getByTestId("btn-world-map").click();
+    await expect(page.getByTestId("world-map")).toBeVisible();
+    await page.getByTestId("btn-world-plan").click();
     await expect(page.getByTestId("world-map")).toBeVisible();
     await expect(thumbs).toHaveCount(ROOMS, { timeout: 5000 });
   };

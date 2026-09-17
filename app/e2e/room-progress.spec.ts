@@ -1,6 +1,7 @@
 import { cacheGame, configureAi } from "./engineProbe.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "@playwright/test";
+import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
@@ -40,7 +41,7 @@ for (const fail of [false, true])
     await page.goto("/");
     await configureAi(page, { provider: "openai", key: "test-placeholder" });
     await cacheGame(page, {
-      projectId: "progress",
+      projectId: testProjectId("progress"),
       title: "A growing world",
       provider: "openai",
       model: "gpt-6-astra",
@@ -115,9 +116,10 @@ for (const fail of [false, true])
                 }))
               : [
                   {
-                    type: "message",
-                    role: "assistant",
-                    content: [{ type: "output_text", text: "Room ready." }],
+                    type: "function_call",
+                    call_id: "room-handover",
+                    name: "handover",
+                    arguments: JSON.stringify({ notes: null }),
                   },
                 ],
         }),
@@ -182,6 +184,7 @@ for (const fail of [false, true])
         finish();
         await expect(panel).toBeHidden();
         await expect.poll(async () => (await textHook(page)).room).toBe(2);
+        expect(requests, "the validated handover finishes without another provider turn").toBe(2);
         await page.keyboard.press("Tab");
         await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Letter");
         expect((await textHook(page)).rows.join(" ")).toContain("Old key");

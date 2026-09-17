@@ -19,18 +19,8 @@ export const GAME_DICTIONARY = new Map<string, number>([
   ["south", 104],
   ["take", 105],
   ["open", 106],
+  ["die", 107],
 ]);
-
-/** logic 0: boot pattern, dispatches to the current room logic. */
-const LOGIC_0_SOURCE = `
-if (!isset(f200)) {
-  set(f200);
-  assignn(v0, 1);
-  new.room.v(v0);
-}
-call.v(v0);
-return;
-`;
 
 /** Minimal valid view: 1 loop, 1 cel, 1x1 pixel of color 5, built with buildView. */
 export const EGO_VIEW = buildView({
@@ -76,7 +66,8 @@ ${extraExit ?? ""}
 ${westExit}
 ${n < 255 ? `if (said("east") || equaln(v2, 2)) { new.room(${n + 1}); }` : ""}
 if (said("look")) { print(m1); }
-if (isset(f2) && !isset(f4)) { print(m2); }
+if (said("die")) { call(255); }
+if (isset(f2) && !isset(f4)) { set(f4); print(m2); }
 return;
 `;
 }
@@ -203,16 +194,15 @@ export class StubAgent implements AgentHandler {
     );
   }
 
-  /** Resources for the base game (logic 0 + ego view + room 1). */
+  /**
+   * Resources for the base game (ego view + room 1). Logic 0, the shared death
+   * logic and the death sound come from the harness base template installed at
+   * genesis — the stub exercises the same fixed ritual a model-built game does.
+   */
   initialResources(): { kind: "logic" | "view" | "picture"; num: number; payload: Uint8Array }[] {
     const room1 = assembleLogic(roomSource(1, null), { dictionary: GAME_DICTIONARY });
     this.onEvent("response", "assembled room 1 logic");
     return [
-      {
-        kind: "logic",
-        num: 0,
-        payload: assembleLogic(LOGIC_0_SOURCE, { dictionary: GAME_DICTIONARY }).payload,
-      },
       { kind: "logic", num: 1, payload: room1.payload },
       { kind: "picture", num: 1, payload: roomPicture(1) },
       { kind: "view", num: 0, payload: EGO_VIEW },

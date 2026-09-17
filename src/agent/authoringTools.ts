@@ -208,7 +208,6 @@ function occupiedIds(state: AgentSessionState, kind: BindingKind): Set<number> {
     for (const match of code.matchAll(kind === "flag" ? /\bf(\d+)\b/g : /\bv(\d+)\b/g))
       used.add(Number(match[1]));
   }
-  if (kind === "flag") used.add(200);
   return used;
 }
 

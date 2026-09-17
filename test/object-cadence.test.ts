@@ -321,9 +321,9 @@ test("a stationary follower retries with a nonzero direction and a saved delay",
   engine.tick();
   assert.equal(calls, 4);
   assert.equal(engine.screenObjects[1]!.direction, 1);
-  assert.equal(engine.screenObjects[1]!.follow?.retryDelay, 2);
+  assert.equal(engine.screenObjects[1]!.paramBank[2], 2);
   engine.restoreImage(engine.serialize());
-  assert.equal(engine.screenObjects[1]!.follow?.retryDelay, 2);
+  assert.equal(engine.screenObjects[1]!.paramBank[2], 2);
 });
 
 for (const [profile, lines] of [
@@ -564,6 +564,40 @@ test("loop and view selection keep an index the new loop or view has, else fall 
   engine.patchResource("view", 3, twoCels);
   engine.tick();
   assert.deepEqual(indices(engine), [1, 0]);
+});
+
+test("a patched view repaints drawn objects; a shrunken view re-clamps their indexes", () => {
+  // The keep-a-staged-VIEW path patches a view the room already draws — the
+  // object must show the new pixels without a fresh load.view or set.view.
+  const engine = game(setup);
+  engine.execute(0);
+  assert.equal(engine.getFrame().visual[100 * 160 + 20], 1);
+  const repainted = buildView({
+    loops: [
+      {
+        cels: [
+          { width: 2, height: 1, pixels: [9, 9] },
+          { width: 2, height: 1, pixels: [10, 10] },
+          { width: 2, height: 1, pixels: [11, 11] },
+        ],
+      },
+      { cels: [{ width: 2, height: 1, pixels: [12, 12] }] },
+    ],
+  });
+  engine.patchResource("view", 1, repainted);
+  assert.equal(engine.getFrame().visual[100 * 160 + 20], 9);
+
+  // An object parked on loop 1 survives a patch to a single-loop view by
+  // falling back to loop 0 — the same clamp set.view applies.
+  const selected = game(`${setup} set.loop(o0, 1); return;`);
+  selected.execute(0);
+  assert.equal(selected.screenObjects[0]!.loop, 1);
+  const single = buildView({
+    loops: [{ cels: [{ width: 2, height: 1, pixels: [13, 13] }] }],
+  });
+  selected.patchResource("view", 1, single);
+  assert.equal(selected.screenObjects[0]!.loop, 0);
+  assert.equal(selected.getFrame().visual[100 * 160 + 20], 13);
 });
 
 // Text and graphics share one screen in the interpreters: a cel painted into
@@ -812,3 +846,196 @@ for (const action of ["end.of.loop", "reverse.loop"]) {
     assert.equal(engine.screenObjects[0]!.cycling, false);
   });
 }
+
+// Object-record bytes 0x27..0x2a are one shared parameter bank: move.obj
+// writes [targetX, targetY, savedStep, flag], follow.ego writes [threshold,
+// flag, 255] leaving the last byte, and end.of.loop/reverse.loop write their
+// completion flag into the first byte, which the wander countdown also
+// occupies (docs/fidelity.md, "Original motion and animation audit").
+
+test("normal.cycle and reverse.cycle resume cycling with cadence and partition untouched", () => {
+  // The countdown frozen at one by stop.cycling resumes there: the cel
+  // advances on the first update after normal.cycle, not a fresh interval.
+  const engine = game(`if (!isset(f200)) {
+    set(f200); ${setup} assignn(v60, 3); cycle.time(o0, v60); start.cycling(o0);
+  }
+  if (isset(f201)) { reset(f201); stop.cycling(o0); }
+  if (isset(f202)) { reset(f202); normal.cycle(o0); }
+  if (isset(f203)) { reset(f203); reverse.cycle(o0); }
+  return;`);
+  engine.tick(); // setup runs; cadence 3 -> 2
+  engine.tick(); // cadence 2 -> 1
+  engine.flags[201] = 1;
+  engine.tick(); // stop.cycling freezes the count at 1, cel 0
+  engine.tick();
+  assert.equal(engine.screenObjects[0]!.cel, 0);
+  engine.flags[202] = 1;
+  engine.tick(); // normal.cycle re-enables; count 1 -> 0 advances the cel
+  const o = engine.screenObjects[0]!;
+  assert.equal(o.cycling, true, "normal.cycle resumes a stopped cycle");
+  assert.equal(o.cycleMode, 0);
+  assert.equal(o.cel, 1, "the frozen cadence counter resumed, not reset");
+  engine.flags[201] = 1;
+  engine.tick(); // freeze again at a full count of 3, cel 1
+  engine.flags[203] = 1;
+  engine.tick();
+  assert.equal(o.cycling, true, "reverse.cycle resumes a stopped cycle");
+  assert.equal(o.cycleMode, 1);
+  engine.tick();
+  engine.tick();
+  assert.equal(o.cel, 0, "reverse walks the cels back");
+});
+
+test("normal.cycle after stop.update keeps the stopped partition", () => {
+  const engine = game(`${setup} stop.update(o0); normal.cycle(o0); return;`);
+  engine.execute(0);
+  const o = engine.screenObjects[0]!;
+  assert.equal(o.cycling, true);
+  assert.equal(o.cycleMode, 0);
+  assert.equal(o.earlierPartition, true, "normal.cycle does not reselect updating");
+});
+
+for (const [request, expected] of [
+  [0, 4],
+  [1, 4],
+  [4, 4],
+  [5, 5],
+  [255, 255],
+] as const) {
+  test(`follow.ego captures max(request ${request}, step 4) = ${expected} and closes a 3-pixel gap`, () => {
+    // Ego three pixels right of the follower on the same baseline: the
+    // captured threshold must complete on the next eligible follow update.
+    // stop.update first — follow.ego itself selects the updating partition.
+    const engine = game(`if (!isset(f200)) { set(f200); ${setup}
+      animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 20, 100); draw(o1);
+      assignn(v60, 4); step.size(o1, v60); position(o0, 23, 100);
+      stop.update(o1); follow.ego(o1, ${request}, f60);
+    } return;`);
+    engine.tick();
+    const o = engine.screenObjects[1]!;
+    assert.equal(o.earlierPartition, false, "follow.ego selects updating");
+    assert.deepEqual(
+      [...o.paramBank],
+      [expected, 60, 255, 0],
+      "the bank holds threshold, flag and a 255 retry",
+    );
+    engine.tick();
+    assert.equal(engine.flags[60], 1, "the next eligible follow update completes");
+  });
+}
+
+test("move.obj and move.obj.v select the updating partition", () => {
+  const engine = game(`if (!isset(f200)) { set(f200);
+    load.view(1); animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 10, 100); draw(o1);
+    stop.update(o1); move.obj(o1, 30, 100, 2, f62);
+  } return;`);
+  engine.tick();
+  assert.equal(engine.screenObjects[1]!.earlierPartition, false);
+  for (let i = 0; i < 20 && engine.flags[62] === 0; i++) engine.tick();
+  assert.equal(engine.flags[62], 1, "a reselected object actually travels");
+  assert.equal(engine.screenObjects[1]!.x, 30);
+
+  const indirect = game(`if (!isset(f200)) { set(f200);
+    load.view(1); animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 10, 100); draw(o1);
+    assignn(v60, 30); assignn(v61, 100); assignn(v62, 2);
+    stop.update(o1); move.obj.v(o1, v60, v61, v62, f62);
+  } return;`);
+  indirect.tick();
+  assert.equal(indirect.screenObjects[1]!.earlierPartition, false);
+  for (let i = 0; i < 20 && indirect.flags[62] === 0; i++) indirect.tick();
+  assert.equal(indirect.flags[62], 1);
+});
+
+const bankActor = `load.view(1); animate.obj(o1); set.view(o1, 1); ignore.objs(o1);
+  position(o1, 10, 80); draw(o1); assignn(v60, 4); step.size(o1, v60);`;
+
+test("move.obj then end.of.loop: the flag byte overwrites the destination", () => {
+  const engine = game(`if (!isset(f200)) { set(f200); ${bankActor}
+    move.obj(o1, 90, 80, 2, f62); end.of.loop(o1, f61);
+  } return;`);
+  engine.tick();
+  const o = engine.screenObjects[1]!;
+  assert.deepEqual([...o.paramBank], [61, 80, 4, 62], "the shared bank's four bytes");
+  for (let i = 0; i < 60 && engine.flags[62] === 0; i++) engine.tick();
+  assert.equal(o.x, 60, "the destination became 61, inside the step-2 band");
+  assert.equal(engine.flags[62], 1);
+  assert.equal(engine.flags[61], 1, "loop completion read the same first byte");
+});
+
+test("end.of.loop then move.obj: completion reports the motion's target byte", () => {
+  const engine = game(`if (!isset(f200)) { set(f200); ${bankActor} set.cel(o1, 1);
+    end.of.loop(o1, f61); move.obj(o1, 90, 80, 2, f62);
+  } return;`);
+  engine.tick();
+  const o = engine.screenObjects[1]!;
+  assert.deepEqual([...o.paramBank], [90, 80, 4, 62]);
+  for (let i = 0; i < 60 && engine.flags[62] === 0; i++) engine.tick();
+  assert.equal(o.x, 90);
+  assert.equal(engine.flags[62], 1);
+  assert.equal(engine.flags[90], 1, "cel-2 completion set the byte now holding 90");
+  assert.equal(engine.flags[61], 0, "f61 was overwritten before completion read it");
+});
+
+for (const order of ["move-then-loop", "loop-then-move"] as const) {
+  test(`reverse.loop shares the bank (${order}) and completes at cel 0`, () => {
+    const engine = game(`if (!isset(f200)) { set(f200); ${bankActor} set.cel(o1, 2);
+      ${
+        order === "move-then-loop"
+          ? "move.obj(o1, 90, 80, 2, f62); reverse.loop(o1, f61);"
+          : "reverse.loop(o1, f61); move.obj(o1, 90, 80, 2, f62);"
+      }
+    } return;`);
+    engine.tick();
+    const o = engine.screenObjects[1]!;
+    assert.deepEqual(
+      [...o.paramBank],
+      order === "move-then-loop" ? [61, 80, 4, 62] : [90, 80, 4, 62],
+    );
+    for (let i = 0; i < 60 && engine.flags[62] === 0; i++) engine.tick();
+    assert.equal(o.cel, 0, "reverse.loop completes at cel 0");
+    if (order === "move-then-loop") {
+      assert.equal(o.x, 60);
+      assert.equal(engine.flags[61], 1);
+    } else {
+      assert.equal(o.x, 90);
+      assert.equal(engine.flags[90], 1);
+      assert.equal(engine.flags[61], 0);
+    }
+  });
+}
+
+test("flag index zero survives a save and still completes", () => {
+  // o1, not ego: the footprint scan rewrites f0/f3 on object 0 only. The
+  // record's zero byte must restore as the armed flag, not an absent one.
+  const engine = game(`if (!isset(f200)) { set(f200); ${bankActor} end.of.loop(o1, f0); } return;`);
+  engine.tick();
+  engine.restoreImage(engine.serialize());
+  for (let i = 0; i < 6 && engine.flags[0] === 0; i++) engine.tick();
+  assert.equal(engine.flags[0], 1, "f0 latched at the terminal cel after restore");
+});
+
+test("the shared bank serializes into record bytes 0x27..0x2a and resumes both orderings", () => {
+  const build = (sequence: string) =>
+    game(`if (!isset(f200)) { set(f200); ${bankActor} set.cel(o1, 1); ${sequence} } return;`);
+  for (const [sequence, bank, arriveX, loopFlag, deadFlag] of [
+    ["move.obj(o1, 90, 80, 2, f62); end.of.loop(o1, f61);", [61, 80, 4, 62], 60, 61, 90],
+    ["end.of.loop(o1, f61); move.obj(o1, 90, 80, 2, f62);", [90, 80, 4, 62], 90, 90, 61],
+  ] as const) {
+    const engine = build(sequence);
+    engine.tick();
+    engine.tick();
+    const image = engine.serialize();
+    const record = decodeSave(image, PROFILES["2.936"]).objects[1]!;
+    assert.deepEqual(record.motionParams, bank, `record bytes after ${sequence}`);
+    engine.restoreImage(image);
+    assert.deepEqual(
+      [...engine.screenObjects[1]!.paramBank],
+      bank,
+      "the restore returns the same four bytes",
+    );
+    for (let i = 0; i < 60 && engine.flags[62] === 0; i++) engine.tick();
+    assert.equal(engine.screenObjects[1]!.x, arriveX);
+    assert.equal(engine.flags[loopFlag], 1, `f${loopFlag} is the flag the byte names`);
+    assert.equal(engine.flags[deadFlag], 0);
+  }
+});

@@ -1,8 +1,16 @@
 import type { LibraryMetadata } from "./gameMetadata.ts";
+import type { StoredReference } from "./referenceArt.ts";
 import type { ScreenObjectState } from "../../src/runtime/engine.ts";
+import { projectId } from "../../src/gameIdentity.ts";
+import type { GameIdentity, ProjectId, ResourceRevision } from "../../src/gameIdentity.ts";
 
-/** Canonical identifier for an authored browser workspace / mutable user project. */
-export type ProjectId = string;
+/**
+ * One library entry's stable id (an imported game, a created adventure, a
+ * copy, a remix) and the digest of its playable bytes — the branded identity
+ * contract lives in src/gameIdentity.ts; these re-exports keep the app's
+ * existing import sites.
+ */
+export type { GameIdentity, ProjectId, ResourceRevision };
 
 export interface CachedGameMeta {
   library?: LibraryMetadata | undefined;
@@ -24,12 +32,16 @@ export interface CachedGameData extends CachedGameMeta {
   transcript?: unknown[] | undefined;
   authoringState?: Record<string, unknown> | undefined;
   conversationHistory?: { provider: string; model: string; transcript: unknown[] }[] | undefined;
+  /** Player-supplied reference art; project data, never playable bytes. */
+  references?: StoredReference[] | undefined;
 }
 
 export interface BootedGame {
+  /** Captured before worker boot; deletion invalidates this history writer. */
+  historyLifetime?: string | null;
   readonly installed: boolean;
   readonly title: string;
-  revision: string;
+  revision: ResourceRevision;
   files: Record<string, Uint8Array>;
   words: [string, number][];
   readonly hash?: string | undefined;
@@ -48,14 +60,14 @@ export interface InstalledGameDescriptor {
   readonly wordsSha256?: string | undefined;
   readonly objectSha256?: string | undefined;
   /** Full bundle revision of the served file set — walkthrough offers key on it. */
-  readonly revision?: string | undefined;
+  readonly revision?: ResourceRevision | undefined;
   readonly folder?: string | undefined;
 }
 
 export interface CurrentGame {
   readonly installed: boolean;
   readonly title: string;
-  readonly revision: string;
+  readonly revision: ResourceRevision;
   readonly hash?: string | undefined;
   readonly alias?: string | undefined;
   readonly projectId?: ProjectId | undefined;
@@ -65,6 +77,8 @@ export interface CurrentGame {
 /**
  * One storage identity for a game's progress: installed editions scope by
  * folder (two folders can share a WORDS.TOK hash), authored projects by id.
+ * The key doubles as a `ProjectId` in stored records, so a folder name
+ * outside the project-id alphabet falls back to the edition's content hash.
  * Save slots, autosaves and the last-game pointer must all resolve to this.
  */
 export function gameStorageKey(game: {
@@ -74,14 +88,17 @@ export function gameStorageKey(game: {
   alias?: string | null | undefined;
   projectId?: string | null | undefined;
 }): string {
-  return game.installed ? (game.folder ?? game.hash ?? game.alias ?? "") : (game.projectId ?? "");
+  if (!game.installed) return game.projectId ?? "";
+  const folder = game.folder ?? "";
+  if (projectId(folder) !== null) return folder;
+  return game.hash ?? game.alias ?? "";
 }
 
 export function findInstalledFolder(
   installedGames: readonly (string | InstalledGameDescriptor)[] | null | undefined,
-  aliasOrHash: string,
+  query: string,
 ): string {
-  const norm = aliasOrHash.toLowerCase();
+  const norm = query.toLowerCase();
   const match = (installedGames ?? []).find((g) => {
     if (typeof g === "string") return g.toLowerCase() === norm;
     return (
@@ -91,7 +108,7 @@ export function findInstalledFolder(
       g.wordsSha256?.toLowerCase() === norm
     );
   });
-  return typeof match === "string" ? match : (match?.folder ?? aliasOrHash);
+  return typeof match === "string" ? match : (match?.folder ?? query);
 }
 
 export interface Frame {

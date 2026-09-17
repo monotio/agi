@@ -465,7 +465,7 @@ export class Engine {
   readonly controllers = new Uint8Array(256);
   readonly surface: PictureSurface = createPictureSurface();
 
-  /** Parsed word ids of the current input line (max 10). */
+  /** Parsed word ids of the current input line (max 10); an unknown token holds group 0. */
   parsedWords: number[] = [];
   /** Normalized token text per parsed slot (incl. the unknown token); %w/word.to.string source. */
   parsedWordTexts: string[] = [];
@@ -725,7 +725,26 @@ export class Engine {
       this.pictures.delete(num);
       this.presentationDirty = true;
     } else if (kind === "view") {
-      this.views.delete(num);
+      // Objects read parsed views straight from `views` every composite — a
+      // loaded view left evicted renders nothing until a load.view. Re-parse
+      // it in place and re-clamp its objects' loop/cel to the new geometry,
+      // the same bounds set.view enforces.
+      if (this.views.delete(num)) {
+        // putResource validates size, not structure — a view that no longer
+        // parses stays evicted, the same failure an unload produces.
+        try {
+          const view = this.loadView(num);
+          for (const o of this.objects) {
+            if (o.view !== num) continue;
+            if (o.loop >= view.loops.length) o.loop = 0;
+            const loop = view.loops[o.loop];
+            if (loop && o.cel >= loop.cels.length) o.cel = 0;
+            this.updateCelSize(o);
+          }
+        } catch {
+          // Corrupt replacement: objects referencing it draw nothing.
+        }
+      }
       this.presentationDirty = true;
     } else this.sounds.delete(num);
     this.patchGen++;
@@ -1959,11 +1978,9 @@ export class Engine {
       menuFinalized: this.menuFinalized,
       menuHeading: this.menuHeading,
       menuRequested: this.menuRequested,
-      objectExtras: this.objects.map(({ priority, cycleFlag, wanderCount }) => ({
-        priority,
-        cycleFlag,
-        wanderCount,
-      })),
+      // The shared parameter bank already rides the image's object records;
+      // only the automatic-band priority lives outside them.
+      objectExtras: this.objects.map(({ priority }) => ({ priority })),
       sound:
         this.soundPlayback && this.playingSound !== null && this.soundDoneFlag !== null
           ? {
@@ -2982,9 +2999,14 @@ export class Engine {
    */
   private startMoveObj(o: ScreenObject, x: number, y: number, step: number, flag: number): void {
     o.motionMode = MOTION_MOVE_OBJ;
-    o.moveTarget = { x, y, savedStep: o.stepSize, flag };
+    // The shared parameter bank takes the full four-byte write — a pending
+    // cel-completion flag in the first byte is gone (docs/fidelity.md,
+    // "Original motion and animation audit").
+    o.paramBank = [x & 0xff, y & 0xff, o.stepSize & 0xff, flag & 0xff];
     if (step !== 0) o.stepSize = step;
     this.flags[flag] = 0;
+    // move.obj selects the updating partition without start.update's redraw.
+    o.earlierPartition = false;
     if (o === this.objects[0]) this.directionCoupling = 0;
     if (!this.profile.targetMotionDeferred) this.updateMotion(o);
     if (o === this.objects[0]) this.vars[V_EGO_DIR] = o.direction;
@@ -3034,17 +3056,16 @@ export class Engine {
   private updateMotion(obj: ScreenObject): void {
     switch (obj.motionMode) {
       case MOTION_MOVE_OBJ: {
-        const t = obj.moveTarget!;
+        const bank = obj.paramBank;
         const step = obj.stepSize;
-        const dx = t.x - obj.x;
-        const dy = t.y - obj.y;
+        const dx = bank[0] - obj.x;
+        const dy = bank[1] - obj.y;
         // Completion: both signed deltas strictly within (-step, +step).
         if (dx > -step && dx < step && dy > -step && dy < step) {
           obj.motionMode = MOTION_NORMAL;
-          obj.moveTarget = null;
           obj.direction = 0;
-          obj.stepSize = t.savedStep;
-          this.flags[t.flag] = 1;
+          obj.stepSize = bank[2];
+          this.flags[bank[3]] = 1;
           this.releaseEgoMotion(obj);
           return;
         }
@@ -3053,20 +3074,19 @@ export class Engine {
         return;
       }
       case MOTION_FOLLOW: {
-        const f = obj.follow!;
+        const bank = obj.paramBank;
         const ego = this.objects[0]!;
         const dx = ego.x + Math.floor(ego.width / 2) - obj.x - Math.floor(obj.width / 2);
         const dy = ego.y - obj.y;
-        const direct = directionToward(dx, dy, f.threshold);
+        const direct = directionToward(dx, dy, bank[0]);
         if (direct === 0) {
           obj.motionMode = MOTION_NORMAL;
-          obj.follow = null;
           obj.direction = 0;
-          this.flags[f.flag] = 1;
+          this.flags[bank[1]] = 1;
           return;
         }
-        if (f.retryDelay === 255) {
-          f.retryDelay = 0;
+        if (bank[2] === 255) {
+          bank[2] = 0;
           obj.direction = direct;
         } else if (obj.stationary) {
           // The blocked follow path retries the direction draw until
@@ -3076,15 +3096,15 @@ export class Engine {
             obj.direction = this.randomByte() % 9;
           } while (obj.direction === 0);
           const distance = Math.floor((Math.abs(dx) + Math.abs(dy)) / 2) + 1;
-          if (distance <= obj.stepSize) f.retryDelay = obj.stepSize;
+          if (distance <= obj.stepSize) bank[2] = obj.stepSize;
           else {
             do {
-              f.retryDelay = this.randomByte() % distance;
-            } while (f.retryDelay < obj.stepSize);
+              bank[2] = this.randomByte() % distance;
+            } while (bank[2] < obj.stepSize);
           }
-        } else if (f.retryDelay !== 0) {
-          const delay = (f.retryDelay - obj.stepSize) & 0xff;
-          f.retryDelay = delay < 0x80 ? delay : 0;
+        } else if (bank[2] !== 0) {
+          const delay = (bank[2] - obj.stepSize) & 0xff;
+          bank[2] = delay < 0x80 ? delay : 0;
         } else obj.direction = direct;
         if (obj === this.objects[0]) this.vars[V_EGO_DIR] = obj.direction;
         return;
@@ -3094,11 +3114,11 @@ export class Engine {
         // wraps to 255 and is kept) or a stationary object draws a new
         // direction, and the reroll keeps an already-valid count — a
         // `while`, not a do/while (docs/fidelity.md, wander countdown).
-        const previousCount = obj.wanderCount;
-        obj.wanderCount = (previousCount - 1) & 0xff;
+        const previousCount = obj.paramBank[0];
+        obj.paramBank[0] = (previousCount - 1) & 0xff;
         if (previousCount === 0 || obj.stationary) {
           obj.direction = this.randomByte() % 9;
-          while (obj.wanderCount < 6) obj.wanderCount = this.randomByte() % 51;
+          while (obj.paramBank[0] < 6) obj.paramBank[0] = this.randomByte() % 51;
         }
         if (obj === this.objects[0]) this.vars[V_EGO_DIR] = obj.direction;
         return;
@@ -3151,10 +3171,9 @@ export class Engine {
         this.vars[V_OBJ_HIT] = this.objects.indexOf(obj);
         this.vars[V_OBJ_EDGE] = boundary;
       }
-      if (obj.motionMode === MOTION_MOVE_OBJ && obj.moveTarget) {
-        obj.stepSize = obj.moveTarget.savedStep;
-        this.flags[obj.moveTarget.flag] = 1;
-        obj.moveTarget = null;
+      if (obj.motionMode === MOTION_MOVE_OBJ) {
+        obj.stepSize = obj.paramBank[2];
+        this.flags[obj.paramBank[3]] = 1;
         obj.motionMode = MOTION_NORMAL;
         obj.direction = 0;
         this.releaseEgoMotion(obj);
@@ -3386,8 +3405,10 @@ export class Engine {
   }
 
   private completeLoop(obj: ScreenObject): void {
-    if (obj.cycleFlag !== null) this.flags[obj.cycleFlag] = 1;
-    obj.cycleFlag = null;
+    // The completion flag is the shared bank's first byte — whatever handler
+    // wrote it last, including a later move.obj (docs/fidelity.md, motion
+    // and animation audit). Reached only from the two completion modes.
+    this.flags[obj.paramBank[0]] = 1;
     obj.cycling = false;
     obj.direction = 0;
     obj.cycleMode = CYCLE_FORWARD;
@@ -3637,10 +3658,13 @@ export class Engine {
         index += length;
         if (id === undefined) {
           // First unknown token: v9 and the parser count take its one-based
-          // position; later tokens are not parsed.
+          // position; later tokens are not parsed. The token still occupies
+          // a parsed slot — group zero — so said(1) and said(0) match it
+          // (docs/fidelity.md, parser unknown-word audit).
           texts.push(token);
           this.parserCount = words.length + 1;
           this.vars[V_WORDS] = this.parserCount;
+          if (words.length < 10) words.push(0);
           unknown = true;
           break;
         }
@@ -4669,27 +4693,31 @@ export class Engine {
         obj(0).cycling = true;
         return next;
       case 0x48:
+        // normal.cycle also re-enables cycling; the cadence counters and the
+        // update partition are untouched (docs/fidelity.md, motion audit).
         obj(0).cycleMode = CYCLE_FORWARD;
+        obj(0).cycling = true;
         return next;
       case 0x49: {
         const o = obj(0);
         o.cycleMode = CYCLE_END_OF_LOOP;
         o.earlierPartition = false; // docs/fidelity.md: completion-animation-updates
         o.cycleDelay = true;
-        o.cycleFlag = a(1);
+        o.paramBank[0] = a(1); // the completion flag shares the bank's first byte
         this.flags[a(1)] = 0;
         o.cycling = true;
         return next;
       }
       case 0x4a:
         obj(0).cycleMode = CYCLE_REVERSE;
+        obj(0).cycling = true;
         return next;
       case 0x4b: {
         const o = obj(0);
         o.cycleMode = CYCLE_REVERSE_LOOP;
         o.earlierPartition = false;
         o.cycleDelay = true;
-        o.cycleFlag = a(1);
+        o.paramBank[0] = a(1);
         this.flags[a(1)] = 0;
         o.cycling = true;
         return next;
@@ -4703,14 +4731,20 @@ export class Engine {
       case 0x53: {
         const o = obj(0);
         o.motionMode = MOTION_FOLLOW;
-        o.follow = { threshold: a(1), flag: a(2), retryDelay: 255 };
+        // The threshold captures max(request, current step size) at command
+        // time; the retry byte starts at 255 and the fourth byte keeps
+        // whatever was there (docs/fidelity.md, motion audit).
+        o.paramBank[0] = Math.max(a(1), o.stepSize) & 0xff;
+        o.paramBank[1] = a(2);
+        o.paramBank[2] = 255;
+        o.earlierPartition = false; // selects updating, like move.obj
         this.flags[a(2)] = 0;
         return next;
       }
       case 0x54: {
         const o = obj(0);
         o.motionMode = MOTION_WANDER;
-        o.wanderCount = 0;
+        o.paramBank[0] = 0; // the wander countdown is the bank's first byte
         if (o === this.objects[0]) this.directionCoupling = 0;
         return next;
       }
@@ -4743,11 +4777,7 @@ export class Engine {
       case 0x4d: {
         const o = obj(0);
         o.direction = 0;
-        if (this.profile.movementClear === "later") {
-          o.motionMode = MOTION_NORMAL;
-          o.moveTarget = null;
-          o.follow = null;
-        }
+        if (this.profile.movementClear === "later") o.motionMode = MOTION_NORMAL;
         if (o === this.objects[0]) {
           this.vars[V_EGO_DIR] = 0;
           this.directionCoupling = 0;
@@ -4756,11 +4786,7 @@ export class Engine {
       }
       case 0x4e: {
         const o = obj(0);
-        if (this.profile.movementClear === "later") {
-          o.motionMode = MOTION_NORMAL;
-          o.moveTarget = null;
-          o.follow = null;
-        }
+        if (this.profile.movementClear === "later") o.motionMode = MOTION_NORMAL;
         if (o === this.objects[0]) {
           this.vars[V_EGO_DIR] = 0;
           this.directionCoupling = 1;
@@ -5654,8 +5680,9 @@ export class Engine {
         cycleTime: o.cycleTime,
         motionMode: o.motionMode,
         update: o.update,
-        moveTarget: o.moveTarget ? { x: o.moveTarget.x, y: o.moveTarget.y } : null,
-        follow: o.follow ? { threshold: o.follow.threshold } : null,
+        moveTarget:
+          o.motionMode === MOTION_MOVE_OBJ ? { x: o.paramBank[0], y: o.paramBank[1] } : null,
+        follow: o.motionMode === MOTION_FOLLOW ? { threshold: o.paramBank[0] } : null,
         stepCount: o.stepCount,
       });
     }

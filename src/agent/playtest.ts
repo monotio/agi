@@ -20,7 +20,7 @@ import {
   type UntilPredicate,
 } from "./gameTestSteps.ts";
 import { planWalk, renderNavigationSnapshot, validateTarget, type Target } from "./navigation.ts";
-import { resourceSetRevision } from "./authoringState.ts";
+import { resourceSetHint } from "./authoringState.ts";
 import type { AgentSessionState, AgentToolResult } from "./tools.ts";
 
 const DEFAULT_CYCLES = 600;
@@ -117,7 +117,7 @@ export class Simulation {
   navigationFailureTarget: Target | null = null;
   /** Evidence origin of the run: boot, recorded replay, or a restored live checkpoint. */
   originKind: "boot" | "recorded" | "candidate" = "boot";
-  /** Content identity of the staged resource set this simulation ran against. */
+  /** Cache hint of the staged resource set this simulation ran against. */
   readonly resourceSet: string;
 
   recordAction(actionStr: string): void {
@@ -131,7 +131,7 @@ export class Simulation {
     options: { pressKeys?: boolean } = {},
   ) {
     this.cycleBudget = cycleBudget;
-    this.resourceSet = resourceSetRevision(state);
+    this.resourceSet = resourceSetHint(state);
     const container = openContainer(state.getFiles(), { kind: state.profile.container });
     const words = container.files.get("WORDS.TOK");
     const dictionary = new Map(words ? parseWordsTok(words).map(({ word, id }) => [word, id]) : []);

@@ -25,7 +25,7 @@ import {
   type HistoryBoot,
   type HistorySegment,
 } from "../../../src/agent/history.ts";
-import { resourceSetRevision } from "../../../src/agent/authoringState.ts";
+import { resourceSetHint } from "../../../src/agent/authoringState.ts";
 import { openHistoryDrive, type HistoryDrive } from "./replay.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 
@@ -433,7 +433,7 @@ export function createHistoryView(ctx: WorkerContext) {
       soundRemainder: scratch.clocks.sound.snapshot(),
       rng: scratch.replay.replay?.random ?? ctx.history.rng,
       soundDevice: scratch.boot.selectedSoundDevice,
-      resourceSet: resourceSetRevision({ getFiles: () => files }),
+      resourceSet: resourceSetHint({ getFiles: () => files }),
       requestSerial: scratch.hostRequests.hostRequestSerial,
     };
     // The adopted position's semantic fingerprint rides the boot so the

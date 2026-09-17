@@ -7,8 +7,14 @@
 import { inject, provide, type InjectionKey } from "vue";
 
 export interface ShellBridge {
-  /** Toggle the assistant bubble (registered by AgentBubble). */
-  togglePowerUp(): void;
+  /**
+   * Toggle the assistant bubble (registered by AgentBubble). `mode` selects
+   * the surface the bubble opens on — "ask" for read-only help, "remix" for
+   * the creator tools.
+   */
+  togglePowerUp(mode?: "ask" | "remix"): void;
+  /** Start a playtest recording (registered by GameHeader). */
+  startPlaytest(): void;
   /** Open the create-adventure section (registered by CreatePanel). */
   openCreateSection(updateHash?: boolean): void;
   /** Close the header's open nav menus (registered by GameHeader). */
@@ -28,6 +34,7 @@ export const shellBridgeKey: InjectionKey<ShellBridge> = Symbol("agi-shell-bridg
 export function createShellBridge(): ShellBridge {
   return {
     togglePowerUp: () => {},
+    startPlaytest: () => {},
     openCreateSection: () => {},
     closeNavMenus: () => {},
     startWalkthrough: () => {},

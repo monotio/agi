@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { testProjectId } from "./identity.ts";
+import { requireResourceRevision } from "../../src/gameIdentity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
@@ -9,7 +11,8 @@ import { gameRevision, normalizeLibraryMetadata, readPublicMetadata } from "../s
 import { addLibraryGame, copyLibraryGame } from "../src/gameLibrary.ts";
 import { loadAuthoredGame, updateAuthoredGameFiles } from "../src/gameStorage.ts";
 import { inspectGame } from "../src/gameInspection.ts";
-import { buildPublicGameZip } from "../src/projectArchive.ts";
+import { stageCharacterView, stagedRefusal, type DecodedImage } from "../src/referenceArt.ts";
+import { buildProjectZip, buildPublicGameZip } from "../src/projectArchive.ts";
 import {
   readGameProgress,
   type AutosaveRecord,
@@ -17,6 +20,7 @@ import {
   type ImportStorageReport,
 } from "../src/gameProgress.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+import type { CachedGameData } from "../src/gameTypes.ts";
 
 function toBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -89,6 +93,34 @@ test("folder and ZIP resource identity is independent of path, case and entry or
   );
   const changed = game('display(5, 2, "Different game"); return;');
   assert.notEqual(await gameRevision(changed), await gameRevision(files));
+
+  // Authoring records never move the revision: tests, notes, and the map are
+  // not part of the canonical playable file set.
+  const base = await gameRevision(files);
+  for (const extra of ["TESTS.JSON", "NOTES.TXT", "MAP.JSON"]) {
+    assert.equal(await gameRevision({ ...files, [extra]: new Uint8Array([1, 2, 3]) }), base);
+  }
+
+  // Archive timestamps are irrelevant: the same zip with different mod-time
+  // fields reads back to the same revision.
+  const zip = buildPublicGameZip({ title: "T", roomGeneration: false, files });
+  const stamped = zip.slice();
+  const view = new DataView(stamped.buffer, stamped.byteOffset, stamped.byteLength);
+  for (let i = 0; i + 4 <= stamped.length; i++) {
+    const sig = view.getUint32(i, true);
+    if (sig === 0x04034b50) {
+      view.setUint16(i + 10, 0xbeef, true); // local header mod time
+      view.setUint16(i + 12, 0x7c21, true); // local header mod date
+    } else if (sig === 0x02014b50) {
+      view.setUint16(i + 12, 0xbeef, true); // central header mod time
+      view.setUint16(i + 14, 0x7c21, true); // central header mod date
+    }
+  }
+  assert.notDeepEqual([...stamped], [...zip]);
+  assert.equal(
+    await gameRevision((await readGameZip(stamped)).files),
+    await gameRevision((await readGameZip(zip)).files),
+  );
   assert.throws(
     () => readGameFiles(new Map([...Object.entries(files), ["other/LOGDIR", files["LOGDIR"]!]])),
     /one AGI game/,
@@ -157,7 +189,7 @@ test("public metadata is versioned, bounded and cannot carry private history or 
   assert.equal(
     normalizeLibraryMetadata(
       { version: 1, source: "toString" },
-      { revision: "1".repeat(64), source: "zip" },
+      { revision: requireResourceRevision("1".repeat(64)), source: "zip" },
     ).source,
     "zip",
   );
@@ -252,6 +284,154 @@ test("project imports with identical resources retain separate private histories
   assert.equal((await loadAuthoredGame(second))?.model, "two");
 });
 
+/** A decoded upload without DOM — the smallest sheet stageCharacterView accepts. */
+function decodedSheet(): DecodedImage {
+  const width = 64;
+  const height = 12;
+  const rgba = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const cell = Math.floor(x / 16);
+      const lx = x - cell * 16;
+      const figure = lx >= 5 && lx < 11 && y >= 2;
+      rgba.set(figure ? [0xff, 0, 0, 0xff] : [0xff, 0, 0xff, 0xff], (y * width + x) * 4);
+    }
+  }
+  return { width, height, rgba, mime: "image/png", bytes: Uint8Array.of(1, 2, 3) };
+}
+
+test("import and copy rebind a verified staged reference; a stale one keeps its refusal", async (t) => {
+  installLocalStorage(t);
+  const files = game();
+  const revision = await gameRevision(files);
+  // Attached to a different project, at this revision — the candidate is
+  // verified-current wherever these exact bytes land.
+  const staged = stageCharacterView(
+    "ref-move",
+    0,
+    "the hero",
+    { project: testProjectId("elsewhere"), revision },
+    [{ decoded: decodedSheet(), facing: "right" }],
+    { poses: 4 },
+  );
+  const stale = stageCharacterView(
+    "ref-stale",
+    0,
+    "an old draft",
+    { project: testProjectId("elsewhere"), revision: requireResourceRevision("0".repeat(64)) },
+    [{ decoded: decodedSheet(), facing: "right" }],
+    { poses: 4 },
+  );
+  const importedId = await addLibraryGame(
+    {
+      files,
+      words: [],
+      project: {
+        provider: "stub",
+        model: "stub",
+        transcript: [],
+        references: [staged, stale],
+      },
+    },
+    "Imported",
+    "zip",
+    opening,
+  );
+  const imported = (await loadAuthoredGame(importedId))!;
+  const [rebound, stillStale] = imported.references!;
+  // The import's fresh project id adopts the verified candidate — Keep can
+  // proceed — while the stale draft stays refused.
+  assert.equal(
+    stagedRefusal(rebound!, { project: importedId, revision: imported.library!.revision }),
+    null,
+  );
+  assert.equal(rebound!.origin?.project, testProjectId("elsewhere"));
+  assert.notEqual(stagedRefusal(stillStale!, { project: importedId, revision }), null);
+
+  // The same contract on copy: the remix's new identity takes the verified
+  // candidate.
+  const copyId = await copyLibraryGame(importedId);
+  const copy = (await loadAuthoredGame(copyId))!;
+  assert.equal(
+    stagedRefusal(copy.references![0]!, {
+      project: copyId,
+      revision: copy.library!.revision,
+    }),
+    null,
+  );
+  assert.notEqual(
+    stagedRefusal(copy.references![1]!, { project: copyId, revision: copy.library!.revision }),
+    null,
+  );
+});
+
+test("project compaction preserves current staging and refuses stale staging through repeated imports and copies", async (t) => {
+  installLocalStorage(t);
+  const packed = (await readGameZip(buildPublicGameZip({ files: game(), title: "Port" }))).files;
+  const files = { ...packed, "VOL.0": Uint8Array.of(...packed["VOL.0"]!, 1, 2, 3, 4) };
+  const originalIdentity = {
+    project: testProjectId("unpacked"),
+    revision: await gameRevision(files),
+  };
+  // This old attachment already equals the future compacted revision. Export
+  // must preserve its refusal rather than accidentally reviving it on import.
+  const staleIdentity = { ...originalIdentity, revision: await gameRevision(packed) };
+  assert.notEqual(originalIdentity.revision, staleIdentity.revision);
+  const fresh = stageCharacterView(
+    "fresh",
+    0,
+    "hero",
+    originalIdentity,
+    [{ decoded: decodedSheet(), facing: "right" }],
+    { poses: 4 },
+  );
+  const stale = stageCharacterView(
+    "stale",
+    0,
+    "old hero",
+    staleIdentity,
+    [{ decoded: decodedSheet(), facing: "right" }],
+    { poses: 4 },
+  );
+  let project: CachedGameData = {
+    projectId: originalIdentity.project,
+    title: "Port",
+    provider: "stub",
+    model: "offline-stub",
+    authoredAt: "2026-09-16",
+    files,
+    words: [] as [string, number][],
+    transcript: [],
+    references: [fresh, stale],
+  };
+  for (let round = 0; round < 2; round++) {
+    const opened = await readGameZip(await buildProjectZip(project));
+    assert.deepEqual(opened.files, packed, "export compacts only unused container bytes");
+    const importedId = await addLibraryGame(opened, "Port", "zip", opening);
+    const imported = (await loadAuthoredGame(importedId))!;
+    for (const candidate of [
+      imported,
+      (await loadAuthoredGame(await copyLibraryGame(importedId)))!,
+    ]) {
+      const identity = {
+        project: candidate.projectId,
+        revision: await gameRevision(candidate.files),
+      };
+      assert.equal(stagedRefusal(candidate.references![0]!, identity), null);
+      assert.deepEqual(candidate.references![0]!.origin, originalIdentity);
+      assert.deepEqual(candidate.references![0]!.staged, fresh.staged);
+      assert.match(
+        stagedRefusal(candidate.references![1]!, identity)!,
+        /changed since this reference/,
+      );
+      assert.deepEqual(candidate.references![1]!.attachedAt, staleIdentity);
+    }
+    project = imported;
+  }
+  assert.deepEqual(fresh.attachedAt, originalIdentity, "export does not mutate live staging");
+  assert.equal(fresh.origin, undefined);
+});
+
 test("a remix copy gets independent identity and bytes while preserving its original", async (t) => {
   installLocalStorage(t);
   const originalProjectId = await addLibraryGame(
@@ -265,7 +445,7 @@ test("a remix copy gets independent identity and bytes while preserving its orig
   const copy = (await loadAuthoredGame(copyProjectId))!;
   assert.notEqual(copy.projectId, before.projectId);
   assert.deepEqual(copy.library?.parent, {
-    projectId: before.projectId,
+    project: before.projectId,
     revision: before.library?.revision,
   });
   assert.equal(
@@ -384,7 +564,13 @@ test("import stores saves and autosave without a progress observer", async (t) =
       cycle: 1,
       room: 0,
       savedAt: 1757000000000,
-      game: { projectId: "source", installed: false, revision: "ab".repeat(32) },
+      game: {
+        installed: false,
+        identity: {
+          project: testProjectId("source"),
+          revision: requireResourceRevision("ab".repeat(32)),
+        },
+      },
     },
   };
   const projectId = await addLibraryGame(
@@ -396,8 +582,8 @@ test("import stores saves and autosave without a progress observer", async (t) =
   const stored = readGameProgress(localStorage, projectId);
   assert.deepEqual(stored.saves["3"], slot);
   assert.equal(stored.autosave?.image, progress.autosave?.image);
-  assert.equal(stored.autosave?.game.projectId, projectId);
-  assert.equal(stored.autosave?.game.revision, await gameRevision(files));
+  assert.equal(stored.autosave?.game.identity.project, projectId);
+  assert.equal(stored.autosave?.game.identity.revision, await gameRevision(files));
 });
 
 test("import reports which progress entries browser storage refused", async (t) => {
@@ -437,7 +623,13 @@ test("import reports which progress entries browser storage refused", async (t) 
     cycle: 1,
     room: 1,
     savedAt: 1_757_000_000_000,
-    game: { projectId: "refused", installed: false, revision: "ab".repeat(32) },
+    game: {
+      installed: false,
+      identity: {
+        project: testProjectId("refused"),
+        revision: requireResourceRevision("ab".repeat(32)),
+      },
+    },
   };
   const progress: GameProgress = { saves: { "1": slot, "7": slot }, autosave };
   // Browser storage refuses every progress write after the first. Install a

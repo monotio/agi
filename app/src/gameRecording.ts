@@ -80,8 +80,6 @@ export interface RecordingSnapshot {
   endCycle: number;
   /** Set when the recording can no longer describe the live game. */
   tainted: string | null;
-  /** Retained UI compatibility field; numeric prompts now replay through the operation tape. */
-  usedGetnum: boolean;
 }
 
 /** One checkbox in the stop dialog: a state diff worth asserting, preselected when meaningful. */

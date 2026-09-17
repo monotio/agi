@@ -1,5 +1,5 @@
 /** Bounded, row-oriented helpers for mechanical AGI sprite authoring. */
-import { resourceRevision } from "./authoringState.ts";
+import { resourceCacheHint } from "./authoringState.ts";
 import type { AgentSessionState, AgentToolResult, ToolDefinition } from "./tools.ts";
 import { viewFeedback } from "./viewFeedback.ts";
 
@@ -410,7 +410,7 @@ export function executeSpriteTool(
       const original = state.container.getResource("view", num);
       if (!original)
         return { success: false, error: `View ${num} is not present in the container.` };
-      const actualRevision = resourceRevision(original);
+      const actualRevision = resourceCacheHint(original);
       if (args["expectedRevision"] !== actualRevision) {
         return {
           success: false,
@@ -484,7 +484,7 @@ export function executeSpriteTool(
       const after = parseView(payload, state.profile);
       state.container.putResource("view", num, payload);
       state.sources.views.set(num, spec);
-      const revision = resourceRevision(payload);
+      const revision = resourceCacheHint(payload);
       const geometry = [...targets.entries()].flatMap(([loop, cels]) =>
         [...cels.keys()].map((cel) => {
           const selected = selectViewCel(after, loop, cel)!;

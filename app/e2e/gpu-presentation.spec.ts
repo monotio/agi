@@ -1,5 +1,6 @@
 import { cacheGame } from "./engineProbe.ts";
 import { expect, test } from "@playwright/test";
+import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
@@ -47,7 +48,7 @@ test("saved game keeps its message visible through resize, then changes rooms an
   );
   await page.goto("/");
   await cacheGame(page, {
-    projectId: "presentation",
+    projectId: testProjectId("presentation"),
     title: "Saved adventure",
     provider: "stub",
     model: "local-playback",

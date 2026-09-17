@@ -91,7 +91,7 @@ export interface EngineReplayState {
   menuFinalized: boolean;
   menuHeading: number;
   menuRequested: boolean;
-  objectExtras: { priority: number; cycleFlag: number | null; wanderCount: number }[];
+  objectExtras: { priority: number }[];
   sound: { num: number; doneFlag: number; playback: PlaybackState } | null;
   /** Live-patch counter — harness session state, not save-file state. */
   patchGeneration?: number;
@@ -293,12 +293,8 @@ export function validateEngineReplayState(value: unknown): EngineReplayState {
   const s = record(value, [...fields, ...optional]);
   const controllers = array(s["controllers"], 256, (v) => number(v, 0, 1));
   const objectExtras = array(s["objectExtras"], 256, (v) => {
-    const o = record(v, ["priority", "cycleFlag", "wanderCount"]);
-    return {
-      priority: number(o["priority"], 0, 255),
-      cycleFlag: nullable(o["cycleFlag"]),
-      wanderCount: number(o["wanderCount"], 0, 255),
-    };
+    const o = record(v, ["priority"]);
+    return { priority: number(o["priority"], 0, 255) };
   });
   if (controllers.length !== 256 || objectExtras.length !== 256)
     throw new Error("Replay state requires all controllers and objects.");

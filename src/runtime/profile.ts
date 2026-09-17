@@ -61,6 +61,15 @@ export type MovementClearRule = "early" | "later";
 export type SoundProfile =
   "booter-2.001" | "early-2.089" | "early-2.272" | "early-2.411" | "early-2.440" | "common";
 
+/**
+ * The measured decay-envelope shape for the "common" sound family
+ * (docs/fidelity.md, "Original sound player audit"): the 68-entry table
+ * executed on KQ1 2.917, or the 78-entry table executed on MH1 3.002.107 and
+ * GR1 3.002.149. Unmeasured common-family profiles keep the 2.917 table —
+ * the audit does not license extending the v3 shape to them.
+ */
+export type SoundEnvelope = "2.917" | "3.002";
+
 export interface AgiProfile {
   /** Promoted profile identifier, e.g. "2.936". */
   readonly id: ProfileId;
@@ -216,6 +225,8 @@ export interface AgiProfile {
   // ---- sound ----
   /** Sound scheduling/output family. */
   readonly sound: SoundProfile;
+  /** Decay-envelope selection for the "common" family (unused by early/booter sound). */
+  readonly soundEnvelope: SoundEnvelope;
 }
 /** Shared defaults: the 2.936 contracts every field falls back to. */
 const BASE_2936: AgiProfile = {
@@ -260,6 +271,7 @@ const BASE_2936: AgiProfile = {
   saveBlocks: 5,
   saveBlock3Xor: false,
   sound: "common",
+  soundEnvelope: "2.917",
 };
 
 /** Early split-container shape shared by 2.089, 2.230 and 2.272. */
@@ -381,6 +393,9 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     releaseGateAction: "set",
     releaseGateClearAction: true,
     directionLoops: "four-or-more-f20",
+    // MH1 3.002.107's measured envelope; the conformance matrix promotes that
+    // build to this profile (docs/fidelity.md, sound player audit).
+    soundEnvelope: "3.002",
   },
   // version_profiles.md "AGI 3.002.149 profile"; conformance matrix two-column tables.
   "3.002.149": {
@@ -398,6 +413,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     timedPrintClearsV21: true,
     directionLoops: "four-or-more-f20",
     roomAliases: null,
+    // GR1 3.002.149's measured envelope (docs/fidelity.md, sound player audit).
+    soundEnvelope: "3.002",
   },
 };
 

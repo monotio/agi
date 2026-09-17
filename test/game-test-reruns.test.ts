@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resourceRevision } from "../src/agent/authoringState.ts";
+import { resourceCacheHint } from "../src/agent/authoringState.ts";
 import {
   parseGameTests,
   serializeGameTests,
@@ -274,7 +274,7 @@ test("a composite write's dictionary update reruns tests in rooms it did not wri
     egoView: 0,
     title: "Lagoon",
     description: "A quiet lagoon.",
-    expectedRevision: resourceRevision(null),
+    expectedRevision: resourceCacheHint(null),
     spawn: { x: 80, y: 120, horizon: 36 },
     exits: [],
     interactions: [

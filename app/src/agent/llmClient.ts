@@ -5,12 +5,18 @@ import type { AgentRun } from "./agentRun.ts";
  */
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import { AGENT_TOOLS, type AgentToolResult } from "../../../src/agent/tools.ts";
+import {
+  AGENT_TOOLS,
+  type AgentToolImage,
+  type AgentToolResult,
+} from "../../../src/agent/tools.ts";
 import {
   splitToolResult,
   openAiToolContent,
+  anthropicToolContent,
   anthropicToolDefinitions,
   anthropicToolResult,
+  type OpenAiToolBlock,
 } from "../../../src/agent/toolTransport.ts";
 import { AGI_SYSTEM_PROMPT } from "../../../src/agent/prompt.ts";
 import { resolveModelEffort, type ModelEffort } from "../../../src/agent/modelEffort.ts";
@@ -188,7 +194,12 @@ export interface UnifiedConversation {
    * deny-by-default authority. Omit names to make the full catalog available.
    */
   setAvailableTools(names?: readonly string[]): void;
-  sendUserMessage(text: string): Promise<LlmTurnResult>;
+  /**
+   * Send one player turn. `images` travel as provider image blocks on the
+   * same message — the upload path's reference art reaches the model the way
+   * rendered tool previews do.
+   */
+  sendUserMessage(text: string, images?: readonly AgentToolImage[]): Promise<LlmTurnResult>;
   /**
    * Record tool results into the transcript without a provider request —
    * every call produced beside a terminal handover must land here too, even
@@ -402,9 +413,15 @@ export function createAnthropicConversation(
       // Anthropic has no allowed-tools request field; the advertised catalog
       // stays stable and the host dispatcher denies unavailable tools.
     },
-    async sendUserMessage(text: string): Promise<LlmTurnResult> {
+    async sendUserMessage(
+      text: string,
+      images?: readonly AgentToolImage[],
+    ): Promise<LlmTurnResult> {
       closePending("the previous turn ended before the harness executed it.");
-      messages.push({ role: "user", content: text });
+      messages.push({
+        role: "user",
+        content: images?.length ? anthropicToolContent({ text, images }) : text,
+      });
       return step();
     },
     appendToolResults(results): void {
@@ -640,18 +657,16 @@ export function createOpenAiConversation(
         ? [...names].filter((name) => AGENT_TOOLS.some((tool) => tool.name === name))
         : undefined;
     },
-    async sendUserMessage(text: string): Promise<LlmTurnResult> {
+    async sendUserMessage(
+      text: string,
+      images?: readonly AgentToolImage[],
+    ): Promise<LlmTurnResult> {
       closePending("the previous turn ended before the harness executed it.");
-      input.push({
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text,
-            prompt_cache_breakpoint: { mode: "explicit" },
-          },
-        ],
-      });
+      const content: (OpenAiToolBlock & {
+        prompt_cache_breakpoint?: { mode: "explicit" };
+      })[] = openAiToolContent({ text, images: images ?? [] });
+      content[content.length - 1]!.prompt_cache_breakpoint = { mode: "explicit" };
+      input.push({ role: "user", content });
       return step();
     },
     appendToolResults(results): void {

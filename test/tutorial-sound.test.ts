@@ -4,7 +4,7 @@ import { buildTutorial } from "../games/adventure-department/game.ts";
 import { openContainer } from "../src/container/container.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { parseSound, type SoundOutput } from "../src/sound/sound.ts";
-import { resourceRevision, validateAuthoringState } from "../src/agent/authoringState.ts";
+import { resourceCacheHint, validateAuthoringState } from "../src/agent/authoringState.ts";
 
 function boot(soundEnabled = true) {
   const game = buildTutorial();
@@ -59,7 +59,7 @@ test("tutorial ships a short melodic opening and compact point/lever effects wit
 
   const saved = game.project!.authoringState!;
   const authoring = validateAuthoringState(saved["authoring"]);
-  assert.equal(authoring.music?.["1"]?.revision, resourceRevision(introBytes));
+  assert.equal(authoring.music?.["1"]?.revision, resourceCacheHint(introBytes));
   assert.ok(authoring.music!["1"]!.tempo > 0);
   assert.equal(authoring.music?.["2"], undefined, "confirmation effects are not inferred music");
   assert.equal(authoring.music?.["3"], undefined);

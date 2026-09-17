@@ -1,7 +1,9 @@
 {
-  "schema": "monotio.agi.walkthrough.v2",
-  "game": "synthetic",
-  "targetRevision": "cee5199128b5bd05b609cb4b5d5941e1706010949c5177c19e4746fdddac0baf",
+  "schema": "monotio.agi.walkthrough.v1",
+  "identity": {
+    "project": "synthetic",
+    "revision": "cee5199128b5bd05b609cb4b5d5941e1706010949c5177c19e4746fdddac0baf"
+  },
   "supportedRevisions": [
     "cee5199128b5bd05b609cb4b5d5941e1706010949c5177c19e4746fdddac0baf"
   ],

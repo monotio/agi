@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { testProjectId } from "./identity.ts";
+import { requireResourceRevision } from "../../src/gameIdentity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildProjectZip, buildPublicGameZip, readProjectContext } from "../src/projectArchive.ts";
@@ -27,7 +29,7 @@ test("project round trip retains private history and deduplicates images; public
   container.putResource("logic", 0, assembleLogic("return;", { dictionary: new Map() }).payload);
   const image = "data:image/png;base64,iVBORw0KGgo=";
   const data = {
-    projectId: "demo",
+    projectId: testProjectId("demo"),
     title: "Garden",
     provider: "openai",
     model: "gpt-5.6-sol",
@@ -55,12 +57,15 @@ test("project round trip retains private history and deduplicates images; public
     roomGeneration: true,
     library: {
       version: 1 as const,
-      revision: "1".repeat(64),
+      revision: requireResourceRevision("1".repeat(64)),
       source: "authored" as const,
       description: "A public garden adventure.",
       author: "Example Author",
       license: "unknown",
-      parent: { projectId: "seed", revision: "2".repeat(64) },
+      parent: {
+        project: testProjectId("seed"),
+        revision: requireResourceRevision("2".repeat(64)),
+      },
       preview: image,
       validation: { status: "ready" as const, message: "Private local status." },
     },
@@ -79,7 +84,7 @@ test("project round trip retains private history and deduplicates images; public
     description: "A public garden adventure.",
     author: "Example Author",
     license: "unknown",
-    parent: { projectId: "seed", revision: "2".repeat(64) },
+    parent: { project: testProjectId("seed"), revision: requireResourceRevision("2".repeat(64)) },
   });
   assert.equal(JSON.stringify(publicGame).includes("Private local status."), false);
 });
@@ -282,7 +287,7 @@ test("project archives carry the world map; published games never do", async () 
   const container = createContainer();
   container.putResource("logic", 0, assembleLogic("return;", { dictionary: new Map() }).payload);
   const data = {
-    projectId: "mapped",
+    projectId: testProjectId("mapped"),
     title: "Mapped",
     authoredAt: "2026-01-01",
     provider: "stub",

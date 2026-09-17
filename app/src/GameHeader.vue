@@ -1,13 +1,12 @@
 <script setup lang="ts">
 /**
- * The top chrome: title block, the game-nav menus (Controls, Settings, Game
- * actions, Menu), the export/eject refusal banners, the test-recording bar
+ * The top chrome: title block, the game-nav menus (Help, Settings, Game,
+ * Exit), the export/eject refusal banners, the test-recording bar
  * and its save dialog. The default slot sits where the walkthrough bar
  * renders. The engine API is injected, never passed as a prop.
  */
 import ActionMenu from "./ActionMenu.vue";
-import UiIcon from "./UiIcon.vue";
-import { computed, onMounted, onUnmounted, ref, useTemplateRef } from "vue";
+import { computed, ref, useTemplateRef } from "vue";
 import { useEngineApi } from "./engineContext.ts";
 import { useAiSettings } from "./useAiSettings.ts";
 import { useShellBridge } from "./shellBridge.ts";
@@ -26,7 +25,6 @@ defineProps<{
   debugOpen: boolean;
   exportBusy: boolean;
   exportRefusal: string;
-  exportSavedProgressKey: string | undefined;
 }>();
 
 const emit = defineEmits<{
@@ -34,7 +32,7 @@ const emit = defineEmits<{
   "update:crtEnabled": [value: boolean];
   "update:debugOpen": [value: boolean];
   "trigger-key": [code: number];
-  "export-zip": [project: boolean, savedProgress: boolean];
+  "export-zip": [project: boolean];
   "start-over": [];
   "start-walkthrough": [target: string];
 }>();
@@ -51,40 +49,23 @@ const {
   cancelTestRecording,
   saveRecordedTest,
   roomMap,
-  historyView,
   retryHistorySave,
 } = useEngineApi();
 const { aiModelLabel, aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
 const bridge = useShellBridge();
 
-const controlsEl = useTemplateRef("controlsEl");
+const controlsDialog = useTemplateRef("controlsDialog");
 
 function closeNavMenus(restoreFocus = false): void {
-  for (const menu of [controlsEl.value]) {
-    if (!menu?.open) continue;
-    menu.open = false;
-    if (restoreFocus) menu.querySelector("summary")?.focus();
-  }
+  void restoreFocus;
+  if (controlsDialog.value?.open) controlsDialog.value.close();
 }
 bridge.closeNavMenus = closeNavMenus;
 
-function onNavToggle(event: Event): void {
-  const current = event.target as HTMLDetailsElement;
-  if (!current.open) return;
-  for (const menu of [controlsEl.value]) {
-    if (menu && menu !== current) menu.open = false;
-  }
-}
 const shortcuts = computed(() => gameShortcuts(state.controls));
 const shortcutsBlocked = computed(
   () => state.paused || state.modal !== null || state.prompt !== null || state.textMode,
 );
-
-function onOutsideControls(event: PointerEvent): void {
-  for (const menu of [controlsEl.value]) {
-    if (event.target instanceof Node && menu && !menu.contains(event.target)) menu.open = false;
-  }
-}
 
 function triggerKey(code: number): void {
   closeNavMenus();
@@ -92,8 +73,8 @@ function triggerKey(code: number): void {
 }
 
 /** The power-up toggle lives in AgentBubble; the shell bridge routes to it. */
-function onPowerUp(): void {
-  bridge.togglePowerUp();
+function onPowerUp(mode?: "ask" | "remix"): void {
+  bridge.togglePowerUp(mode);
 }
 
 function onStartOver(): void {
@@ -105,8 +86,8 @@ function onStartWalkthrough(targetGame: string): void {
 }
 
 /** Live exports only; the shell owns the export path and the refusal banner. */
-function onExportAgiZip(_live: boolean, project = false, savedProgress = false): void {
-  emit("export-zip", project, savedProgress);
+function onExportAgiZip(_live: boolean, project = false): void {
+  emit("export-zip", project);
 }
 
 async function onEjectGame(abandonUnsaved = false): Promise<void> {
@@ -119,6 +100,9 @@ async function onEjectGame(abandonUnsaved = false): Promise<void> {
   }
 }
 const ejectRefusal = ref<string>("");
+
+/** Settings' Advanced disclosure: sound-chip and diagnostics live under it. */
+const settingsAdvanced = ref(false);
 
 /** Game-test recording: the worker captures; this dialog names and saves. */
 const recordDialog = useTemplateRef("recordDialog");
@@ -134,6 +118,7 @@ async function onRecordStart(): Promise<void> {
   resumeAudio();
   await startTestRecording();
 }
+bridge.startPlaytest = () => void onRecordStart();
 
 async function onRecordStop(): Promise<void> {
   const snapshot = await stopTestRecording();
@@ -181,13 +166,6 @@ async function onRecordSave(): Promise<void> {
     recordSaving.value = false;
   }
 }
-
-onMounted(() => {
-  document.addEventListener("pointerdown", onOutsideControls);
-});
-onUnmounted(() => {
-  document.removeEventListener("pointerdown", onOutsideControls);
-});
 </script>
 <template>
   <header class="header">
@@ -206,48 +184,46 @@ onUnmounted(() => {
       class="game-nav"
       aria-label="App options"
     >
-      <details
-        v-if="state.phase === 'running'"
-        ref="controlsEl"
-        class="game-controls nav-menu"
-        data-testid="game-controls"
-        @keydown.esc.prevent.stop="closeNavMenus(true)"
-        @toggle="onNavToggle"
-      >
-        <summary class="ui-button ui-button--secondary audio-btn">
-          Controls <UiIcon name="chevron" />
-        </summary>
-        <div class="game-controls-panel">
-          <p v-if="!shortcuts.length" class="controls-hint">
-            Shortcuts appear here when the game registers them.
-          </p>
-          <template v-else>
-            <p class="controls-hint">
-              Shortcuts from this game. Actions can depend on the current scene.
-            </p>
-            <p v-if="shortcutsBlocked" class="controls-hint">
-              Return to the game to use shortcuts.
-            </p>
-            <div class="shortcut-list">
-              <button
-                v-for="shortcut in shortcuts"
-                :key="shortcut.key"
-                :data-key="shortcut.key"
-                type="button"
-                class="game-shortcut"
-                :disabled="shortcut.disabled || shortcutsBlocked"
-                :title="
-                  shortcut.disabled ? 'Disabled in the game menu' : shortcut.heading || undefined
-                "
-                @click="triggerKey(shortcut.key)"
-              >
-                <span>{{ shortcut.label }}</span>
-                <kbd v-if="shortcut.hasLabel && shortcut.keyLabel">{{ shortcut.keyLabel }}</kbd>
-              </button>
-            </div>
-          </template>
-        </div>
-      </details>
+      <ActionMenu v-if="state.phase === 'running'" label="Help" test-id="help-menu">
+        <button
+          type="button"
+          role="menuitem"
+          data-testid="btn-game-controls"
+          @click="controlsDialog?.showModal()"
+        >
+          <span>Game controls<small>Movement, input and this game's keys</small></span>
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          data-testid="btn-world-map"
+          @click="roomMap.openMap({ experience: 'play' })"
+        >
+          <span>Map<small>Rooms you have walked</small></span>
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          data-testid="menu-assistant"
+          :disabled="state.powerUp.busy || state.historyView.active"
+          @click="onPowerUp('ask')"
+        >
+          <span>Ask for a hint…<small>Answers without changing the game</small></span>
+        </button>
+        <button
+          v-if="hasWalkthrough(currentGame()?.revision ?? '') && !state.walkthrough.active"
+          type="button"
+          role="menuitem"
+          data-testid="btn-run-walkthrough"
+          @click="onStartWalkthrough(currentGame()!.alias!)"
+        >
+          <span
+            >Watch walkthrough<small
+              >A recorded playthrough — it shows puzzle solutions</small
+            ></span
+          >
+        </button>
+      </ActionMenu>
       <a
         v-if="state.phase === 'idle' || state.phase === 'error'"
         class="ui-button ui-button--secondary repo-link"
@@ -267,28 +243,6 @@ onUnmounted(() => {
       </a>
       <ActionMenu label="Settings" test-id="settings-menu">
         <button
-          type="button"
-          role="menuitem"
-          data-testid="open-ai-settings"
-          :disabled="aiSettingsUnavailable"
-          @click="openAiSettings($event, 'header')"
-        >
-          <span
-            >AI provider<small>{{ aiModelLabel }}</small></span
-          >
-          <span class="setting-value">Change</span>
-        </button>
-        <button
-          type="button"
-          role="menuitemcheckbox"
-          :aria-checked="touchControls"
-          data-testid="toggle-touch-controls"
-          @click="$emit('update:touchControls', !touchControls)"
-        >
-          <span>Touch controls<small>Directions, keyboard and game keys</small></span>
-          <span class="setting-value">{{ touchControls ? "On" : "Off" }}</span>
-        </button>
-        <button
           role="menuitemcheckbox"
           data-testid="toggle-mute"
           :aria-checked="!state.soundMuted"
@@ -298,26 +252,11 @@ onUnmounted(() => {
           "
         >
           <span
-            >Sound {{ state.soundMuted ? "off" : "on"
-            }}<small>Linked to the game’s sound setting</small></span
+            >Sound<small
+              >{{ state.soundMuted ? "Off" : "On" }} — linked to the game’s sound setting</small
+            ></span
           >
           <span class="setting-value">{{ state.soundMuted ? "Off" : "On" }}</span>
-        </button>
-        <button
-          role="menuitem"
-          data-testid="toggle-sound-mode"
-          data-keep-open
-          @click="
-            resumeAudio();
-            setAudioMode(state.soundMode === 'tandy' ? 'pc-speaker' : 'tandy');
-          "
-        >
-          <span
-            >Sound chip<small>{{
-              state.soundMode === "tandy" ? "Tandy 4-Voice" : "PC Speaker"
-            }}</small></span
-          >
-          <span class="setting-value">Change</span>
         </button>
         <button
           v-if="gpuBackend"
@@ -327,134 +266,129 @@ onUnmounted(() => {
           data-testid="toggle-crt"
           @click="$emit('update:crtEnabled', !crtEnabled)"
         >
-          <span>CRT display<small>Scanlines, glow and curved glass</small></span>
+          <span>Display<small>CRT scanlines, glow and curved glass</small></span>
           <span class="setting-value">{{ crtEnabled ? "On" : "Off" }}</span>
         </button>
         <button
-          v-if="state.phase === 'running'"
           type="button"
           role="menuitemcheckbox"
-          :aria-checked="debugOpen"
-          data-testid="settings-inspect"
-          @click="$emit('update:debugOpen', !debugOpen)"
+          :aria-checked="touchControls"
+          data-testid="toggle-touch-controls"
+          @click="$emit('update:touchControls', !touchControls)"
         >
-          <span>Inspector<small>Priority layers, state and trace</small></span>
-          <span class="setting-value">{{ debugOpen ? "On" : "Off" }}</span>
-        </button>
-      </ActionMenu>
-      <ActionMenu
-        v-if="state.phase === 'running'"
-        label="Game actions"
-        icon="more"
-        icon-only
-        test-id="game-actions-menu"
-      >
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="menu-assistant"
-          :disabled="state.powerUp.busy || state.historyView.active"
-          @click="onPowerUp"
-        >
-          <span>Assistant<small>Ask about or remix this game</small></span>
-          <span class="setting-value">✦</span>
-        </button>
-        <button
-          v-if="hasWalkthrough(currentGame()?.revision ?? '') && !state.walkthrough.active"
-          type="button"
-          role="menuitem"
-          data-testid="btn-run-walkthrough"
-          @click="onStartWalkthrough(currentGame()!.alias!)"
-        >
-          <span>Run walkthrough<small>Watch real-time playthrough</small></span>
+          <span>On-screen controls<small>Directions, keyboard and game keys</small></span>
+          <span class="setting-value">{{ touchControls ? "On" : "Off" }}</span>
         </button>
         <button
           type="button"
           role="menuitem"
-          data-testid="btn-world-map"
-          @click="
-            closeNavMenus();
-            roomMap.openMap();
-          "
+          data-testid="open-ai-settings"
+          :disabled="aiSettingsUnavailable"
+          @click="openAiSettings($event, 'header')"
         >
-          <span>World map<small>Rooms you have seen, planned and found in logic</small></span>
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="btn-look-back"
-          :disabled="state.walkthrough.active || state.recording.active || state.historyView.active"
-          @click="
-            closeNavMenus();
-            void historyView.openHistory();
-          "
-        >
-          <span>Look back<small>Pause and travel through this session</small></span>
-        </button>
-        <button type="button" role="menuitem" data-testid="btn-start-over" @click="onStartOver">
-          Start over
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="btn-record-test"
-          :disabled="
-            state.recording.active ||
-            state.recording.starting ||
-            state.powerUp.busy ||
-            state.historyView.active
-          "
-          @click="onRecordStart"
-        >
-          <span>Record as game test<small>Replayable project regression test</small></span>
+          <span
+            >AI settings…<small>{{ aiModelLabel }}</small></span
+          >
+          <span class="setting-value">Change</span>
         </button>
         <div role="separator"></div>
         <button
           type="button"
           role="menuitem"
-          data-testid="btn-export-live-zip"
-          :disabled="exportBusy || state.powerUp.busy"
-          @click="onExportAgiZip(true)"
+          data-testid="settings-advanced"
+          data-keep-open
+          :aria-expanded="settingsAdvanced"
+          @click="settingsAdvanced = !settingsAdvanced"
         >
-          <span>Game export<small>Playable game</small></span>
+          <span>Advanced…<small>Sound chip emulation and diagnostics</small></span>
+        </button>
+        <template v-if="settingsAdvanced">
+          <button
+            role="menuitem"
+            data-testid="toggle-sound-mode"
+            data-keep-open
+            @click="
+              resumeAudio();
+              setAudioMode(state.soundMode === 'tandy' ? 'pc-speaker' : 'tandy');
+            "
+          >
+            <span
+              >Sound chip<small>{{
+                state.soundMode === "tandy" ? "Tandy 4-Voice" : "PC Speaker"
+              }}</small></span
+            >
+            <span class="setting-value">Change</span>
+          </button>
+          <button
+            v-if="state.phase === 'running'"
+            type="button"
+            role="menuitemcheckbox"
+            :aria-checked="debugOpen"
+            data-testid="settings-inspect"
+            @click="$emit('update:debugOpen', !debugOpen)"
+          >
+            <span>Inspector<small>Priority layers, state and trace</small></span>
+            <span class="setting-value">{{ debugOpen ? "On" : "Off" }}</span>
+          </button>
+        </template>
+      </ActionMenu>
+      <ActionMenu v-if="state.phase === 'running'" label="Game" test-id="game-menu">
+        <button
+          type="button"
+          role="menuitem"
+          data-testid="btn-edit-game"
+          :disabled="state.powerUp.busy || state.historyView.active"
+          @click="onPowerUp('remix')"
+        >
+          <span>Edit game…<small>Rooms, art and playtests</small></span>
         </button>
         <button
           type="button"
           role="menuitem"
-          data-testid="btn-save-live-project"
+          data-testid="btn-download-game"
           :disabled="exportBusy || state.powerUp.busy"
           @click="onExportAgiZip(true, true)"
         >
-          <span>Project<small>Game, play history and world map</small></span>
+          <span
+            >Download game…<small
+              >For development: editing work, saved progress and history — a ZIP file</small
+            ></span
+          >
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          data-testid="btn-export-game"
+          :disabled="exportBusy || state.powerUp.busy"
+          @click="onExportAgiZip(true)"
+        >
+          <span
+            >Export game…<small
+              >For publishing: playable game without private editing work or play history — a ZIP
+              file</small
+            ></span
+          >
+        </button>
+        <div role="separator"></div>
+        <button type="button" role="menuitem" data-testid="btn-start-over" @click="onStartOver">
+          Start over
         </button>
       </ActionMenu>
       <button
         v-if="state.phase === 'running'"
         class="ui-button ui-button--secondary audio-btn"
-        data-testid="btn-eject"
+        data-testid="btn-exit"
         :disabled="state.powerUp.busy || state.leaving"
-        title="Return to adventure selection menu"
+        title="Exit to game selection"
+        aria-label="Exit to game selection"
         @click="onEjectGame(false)"
       >
-        {{ state.leaving ? "Saving…" : "Menu" }}
+        {{ state.leaving ? "Saving…" : "Exit" }}
       </button>
     </nav>
   </header>
   <div v-if="exportRefusal" class="export-refusal" data-testid="export-refusal" role="alert">
     <p>{{ exportRefusal }}</p>
-    <button
-      v-if="
-        exportSavedProgressKey !== undefined &&
-        exportSavedProgressKey === (currentGame()?.projectId ?? currentGame()?.hash)
-      "
-      type="button"
-      class="ui-button ui-button--secondary"
-      data-testid="export-saved-progress"
-      :disabled="exportBusy"
-      @click="onExportAgiZip(true, true, true)"
-    >
-      Download without current progress
-    </button>
   </div>
   <div v-if="ejectRefusal" class="export-refusal" data-testid="eject-refusal" role="alert">
     <p>{{ ejectRefusal }}</p>
@@ -498,19 +432,16 @@ onUnmounted(() => {
   </div>
   <div
     v-if="state.historyUnsaved"
-    class="export-refusal"
+    class="history-unsaved"
     data-testid="history-unsaved"
-    role="alert"
+    role="status"
   >
-    <p>
-      Recording hasn't saved since
-      {{ new Date(state.historyUnsaved.since).toLocaleTimeString() }} — the tape keeps recording and
-      retries on its own.
-    </p>
+    <p>Play keeps recording; saving is retrying in the background.</p>
     <button
       type="button"
       class="ui-button ui-button--secondary"
       data-testid="history-retry"
+      :title="`Not saved since ${new Date(state.historyUnsaved.since).toLocaleTimeString()}`"
       @click="retryHistorySave()"
     >
       Try now
@@ -549,6 +480,51 @@ onUnmounted(() => {
     {{ recordResult }}
   </p>
   <dialog
+    ref="controlsDialog"
+    class="controls-dialog"
+    aria-labelledby="controls-dialog-title"
+    data-testid="game-controls"
+  >
+    <header>
+      <h2 id="controls-dialog-title">Game controls</h2>
+      <button
+        type="button"
+        class="ui-button ui-button--secondary"
+        data-testid="controls-close"
+        @click="controlsDialog?.close()"
+      >
+        Close
+      </button>
+    </header>
+    <p class="controls-hint">
+      Arrow keys move. Type a command and press Enter. Escape opens the game's own menu.
+    </p>
+    <p v-if="!shortcuts.length" class="controls-hint">
+      Shortcuts appear here when the game registers them.
+    </p>
+    <template v-else>
+      <p class="controls-hint">
+        Shortcuts from this game. Actions can depend on the current scene.
+      </p>
+      <p v-if="shortcutsBlocked" class="controls-hint">Return to the game to use shortcuts.</p>
+      <div class="shortcut-list">
+        <button
+          v-for="shortcut in shortcuts"
+          :key="shortcut.key"
+          :data-key="shortcut.key"
+          type="button"
+          class="game-shortcut"
+          :disabled="shortcut.disabled || shortcutsBlocked"
+          :title="shortcut.disabled ? 'Disabled in the game menu' : shortcut.heading || undefined"
+          @click="triggerKey(shortcut.key)"
+        >
+          <span>{{ shortcut.label }}</span>
+          <kbd v-if="shortcut.hasLabel && shortcut.keyLabel">{{ shortcut.keyLabel }}</kbd>
+        </button>
+      </div>
+    </template>
+  </dialog>
+  <dialog
     ref="recordDialog"
     class="record-dialog"
     aria-labelledby="record-dialog-title"
@@ -567,10 +543,6 @@ onUnmounted(() => {
         autocomplete="off"
         placeholder="what this playthrough proves"
       />
-      <p v-if="recordSnapshot?.usedGetnum" class="record-warning" data-testid="record-warning">
-        This recording answered a get.number prompt, which stored tests cannot replay yet; the saved
-        test will need editing.
-      </p>
       <fieldset v-if="recordSuggestions.length" class="record-assertions">
         <legend>Assertions from this playthrough</legend>
         <label
@@ -680,10 +652,6 @@ onUnmounted(() => {
   font-size: 13px;
   margin: 4px 0;
 }
-.record-warning {
-  color: #ffd977;
-  font-size: 12px;
-}
 .dialog-error {
   color: #ff9b9b;
   font-size: 13px;
@@ -735,21 +703,13 @@ onUnmounted(() => {
   font-size: 12px;
   white-space: nowrap;
 }
-.nav-menu[open] > summary {
-  border-color: #7fe8ee;
-  color: #e5f2f2;
-}
 @media (max-width: 600px) {
   .game-nav {
     width: 100%;
     justify-content: space-between;
     gap: 0.25rem;
   }
-  .game-nav .nav-menu {
-    position: static;
-  }
-  .game-nav :deep(.ui-button),
-  .game-nav .nav-menu summary {
+  .game-nav :deep(.ui-button) {
     padding-inline: 6px;
     gap: 4px;
   }
@@ -766,12 +726,6 @@ onUnmounted(() => {
   }
   .at-menu .repo-link span {
     display: none;
-  }
-  .game-nav .game-controls-panel {
-    left: 0;
-    right: auto;
-    width: 100%;
-    max-height: min(60vh, 28rem);
   }
 }
 
@@ -801,37 +755,31 @@ h1 {
   flex: none;
 }
 
-.nav-menu {
-  position: static;
-  color: #dce8e9;
-}
-.nav-menu summary {
-  min-height: 44px;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  list-style: none;
-}
-.nav-menu summary::-webkit-details-marker {
-  display: none;
-}
-.game-controls-panel {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 0.6rem);
-  right: 0;
-  width: min(24rem, calc(100vw - 2rem));
-  max-height: min(60vh, 28rem);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 0.75rem;
-  box-sizing: border-box;
+.controls-dialog {
+  background: #0b171d;
+  color: #e3ecee;
   border: 1px solid #6bafb5;
   border-radius: 10px;
-  background: #0b171df5;
   box-shadow: 0 12px 36px #000a;
-  text-align: left;
+  padding: 0.75rem 1rem;
+  width: min(24rem, calc(100vw - 2rem));
+  max-height: min(70vh, 32rem);
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+.controls-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+.controls-dialog header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+.controls-dialog h2 {
+  margin: 0;
+  font-size: 16px;
 }
 .controls-hint {
   margin: 0.2rem 0.25rem 0.75rem;

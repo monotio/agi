@@ -36,17 +36,36 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   });
   await page.getByTestId("btn-resume-cached").click();
   const nav = page.getByRole("navigation", { name: "App options" });
-  const controls = nav.getByTestId("game-controls");
+  const help = nav.getByTestId("help-menu");
   const settings = nav.getByTestId("settings-menu");
-  const actions = nav.getByTestId("game-actions-menu");
+  const gameMenu = nav.getByTestId("game-menu");
+  const exit = nav.getByTestId("btn-exit");
   await expect(nav).toBeVisible();
-  await controls.locator("summary").click();
-  await controls.getByRole("button", { name: /Sound On\/Off/ }).click();
+  await expect(exit).toHaveAccessibleName("Exit to game selection");
+
+  // Help owns movement/input help, the map, read-only assistance and the
+  // walkthrough; the ordinary Game menu has no Look back or record toggle.
+  await help.click();
+  const helpItems = page.getByTestId("help-menu-menu");
+  await expect(helpItems.getByTestId("btn-game-controls")).toBeVisible();
+  await expect(helpItems.getByTestId("btn-world-map")).toBeVisible();
+  await expect(helpItems.getByTestId("menu-assistant")).toBeVisible();
+  await expect(helpItems.getByTestId("btn-look-back")).toBeHidden();
+  await expect(helpItems.getByTestId("btn-record-test")).toBeHidden();
+
+  // Game controls opens the shortcut dialog; the game's own key still works.
+  await helpItems.getByTestId("btn-game-controls").click();
+  const controlsDialog = page.getByTestId("game-controls");
+  await expect(controlsDialog).toBeVisible();
+  await controlsDialog.getByRole("button", { name: /Sound On\/Off/ }).click();
+  await expect(controlsDialog).toBeHidden();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("GAME SOUND OFF");
+
   await settings.click();
   const sound = page.getByTestId("toggle-mute");
+  const soundValue = sound.locator(".setting-value");
   await expect(sound).toHaveAttribute("aria-checked", "false");
-  await expect(sound).toContainText("Sound off");
+  await expect(soundValue).toHaveText("Off");
   await sound.click();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("GAME SOUND ON");
   await expect(sound).toHaveAttribute("aria-checked", "true");
@@ -55,31 +74,35 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await page.getByTestId("input-line").focus();
   await page.keyboard.press("F2");
   await settings.click();
-  await expect(sound).toContainText("Sound off");
+  await expect(soundValue).toHaveText("Off");
   await page.keyboard.press("Escape");
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await page.reload();
   await expect(page.getByTestId("resume-caption")).toBeVisible();
   await settings.click();
-  await expect(sound).toContainText("Sound off");
+  await expect(soundValue).toHaveText("Off");
   await expect(page.getByTestId("btn-start-over")).toBeHidden();
-  await actions.click();
+  await page.keyboard.press("Escape");
+
+  // The Game menu is creator/export actions plus Start over — no history or
+  // recording entries.
+  await gameMenu.click();
+  const gameItems = page.getByTestId("game-menu-menu");
+  await expect(gameItems.getByTestId("btn-edit-game")).toBeVisible();
+  await expect(gameItems.getByTestId("btn-download-game")).toBeVisible();
+  await expect(gameItems.getByTestId("btn-export-game")).toBeVisible();
+  await expect(gameItems.getByTestId("btn-start-over")).toBeVisible();
+  await expect(gameItems.getByTestId("btn-look-back")).toBeHidden();
+  await expect(gameItems.getByTestId("btn-record-test")).toBeHidden();
+  await expect(gameItems.getByRole("menuitem")).toHaveCount(4);
+  await page.keyboard.press("Escape");
   await expect(settings).toHaveAttribute("aria-expanded", "false");
-  const gameActions = page.getByTestId("game-actions-menu-menu");
-  await expect(gameActions.getByTestId("btn-world-map")).toBeVisible();
-  await expect(gameActions.getByTestId("btn-look-back")).toBeVisible();
-  await expect(gameActions.getByTestId("btn-start-over")).toBeVisible();
-  await expect(gameActions.getByTestId("btn-record-test")).toBeVisible();
-  await expect(gameActions.getByTestId("btn-export-live-zip")).toBeVisible();
-  await expect(gameActions.getByTestId("btn-save-live-project")).toBeVisible();
-  await expect(gameActions.getByTestId("menu-assistant")).toBeVisible();
-  await expect(gameActions.getByRole("menuitem")).toHaveCount(7);
   await page.screenshot({ path: test.info().outputPath("navigation-desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });
   for (const [trigger, popup] of [
-    [controls.locator("summary"), controls.locator(".game-controls-panel")],
+    [help, page.getByTestId("help-menu-menu")],
     [settings, page.getByTestId("settings-menu-menu")],
-    [actions, gameActions],
+    [gameMenu, page.getByTestId("game-menu-menu")],
   ]) {
     await trigger!.click();
     await expect(popup!).toBeInViewport();
@@ -89,6 +112,14 @@ test("top navigation groups controls and follows game sound through shortcuts, a
     await page.keyboard.press("Escape");
     await expect(trigger!).toBeFocused();
   }
+  await help.click();
+  await page.getByTestId("help-menu-menu").getByTestId("btn-game-controls").click();
+  await expect(page.getByTestId("game-controls")).toBeInViewport();
+  const dialogBox = (await page.getByTestId("game-controls").boundingBox())!;
+  expect(dialogBox.x).toBeGreaterThanOrEqual(0);
+  expect(dialogBox.x + dialogBox.width).toBeLessThanOrEqual(390);
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("game-controls")).toBeHidden();
   await settings.click();
   await page.screenshot({ path: test.info().outputPath("navigation-mobile.png") });
   await page.getByRole("heading", { name: "AGI IS HERE", exact: true }).click();

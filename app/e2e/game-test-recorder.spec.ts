@@ -79,8 +79,10 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 
   // Record: walk to the frame, paint the mural, dismiss the payoff window.
-  await openGameOptions(page, "game-actions-menu");
+  // Playtest recording lives in the editing tools — the remix bubble.
+  await page.getByTestId("power-up").click();
   await page.getByTestId("btn-record-test").click();
+  await expect(page.getByTestId("agent-bubble")).toBeHidden();
   await expect(page.getByTestId("recording-bar")).toBeVisible();
   await page.getByTestId("input-line").focus();
   await page.keyboard.down("ArrowRight");
@@ -130,8 +132,8 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
 
   // Export the project; the recorded test travels only in the project archive.
   const download = page.waitForEvent("download");
-  await openGameOptions(page, "game-actions-menu");
-  await page.getByTestId("btn-save-live-project").click();
+  await openGameOptions(page, "game-menu");
+  await page.getByTestId("btn-download-game").click();
   const projectPath = await (await download).path();
   const project = await readGameZip(new Uint8Array(await readFile(projectPath!)));
   const testsJson = new TextDecoder().decode(project.files["TESTS.JSON"]);

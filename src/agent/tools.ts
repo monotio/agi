@@ -34,8 +34,8 @@ import { readInventoryObjects } from "./inventory.ts";
 import { decodeInventoryFile } from "../runtime/inventoryFile.ts";
 import {
   createAuthoringState,
-  resourceRevision,
-  resourceSetRevision,
+  resourceCacheHint,
+  resourceSetHint,
   type AuthoringState,
 } from "./authoringState.ts";
 import {
@@ -53,6 +53,8 @@ import {
   relatedCommands,
 } from "./commandReference.ts";
 import { ROOM_TOOLS, executeRoomTool } from "./roomTools.ts";
+import { verifyPlanConnections } from "./roomMap.ts";
+import { buildSound, type SoundNoteInput, type SoundTrackInput } from "./soundBuilder.ts";
 import { AUTHORING_GUIDE_TOOL, readAuthoringGuide } from "./authoringGuide.ts";
 import {
   GAME_TEST_TOOLS,
@@ -111,8 +113,9 @@ export interface ToolDefinition {
  * blocks or OpenAI Responses items; the app's llmClient adapts.
  */
 export interface AgentToolImage {
-  /** PNG bytes, with pixel art scaled by nearest neighbour. */
+  /** Encoded image bytes; rendered tool images default to PNG. */
   readonly png: Uint8Array;
+  readonly mime?: "image/png" | "image/jpeg" | "image/webp";
   /** What the picture shows, for the accompanying text. */
   readonly caption: string;
 }
@@ -135,71 +138,8 @@ export interface AgentToolAudio {
   readonly caption: string;
 }
 
-export interface SoundNoteInput {
-  note?: number | string | null | undefined;
-  duration: number;
-  freqDivisor?: number | null | undefined;
-  attenuation?: number | null | undefined;
-}
-
-export interface SoundTrackInput {
-  notes: SoundNoteInput[];
-}
-
-const NOTE_SEMITONES: Record<string, number> = {
-  c: 0,
-  "c#": 1,
-  db: 1,
-  d: 2,
-  "d#": 3,
-  eb: 3,
-  e: 4,
-  f: 5,
-  "f#": 6,
-  gb: 6,
-  g: 7,
-  "g#": 8,
-  ab: 8,
-  a: 9,
-  "a#": 10,
-  bb: 10,
-  b: 11,
-};
-
-/**
- * Parses a note representation (MIDI number 1..127 or string e.g. "C4", "A4", "F#5") into a MIDI note number.
- * Returns null for rests, silence, or invalid notes.
- */
-export function parseNoteToMidi(input: string | number | null | undefined): number | null {
-  if (input === null || input === undefined) return null;
-  if (typeof input === "number") {
-    return input > 0 && input <= 127 ? Math.round(input) : null;
-  }
-  const str = input.trim().toLowerCase();
-  if (str === "" || str === "rest" || str === "r" || str === "silence" || str === "none") {
-    return null;
-  }
-  const match = /^([a-g][#b]?)(-?\d+)$/.exec(str);
-  if (!match) {
-    const num = parseInt(str, 10);
-    return !isNaN(num) && num > 0 && num <= 127 ? num : null;
-  }
-  const name = match[1]!;
-  const octave = parseInt(match[2]!, 10);
-  const semi = NOTE_SEMITONES[name];
-  if (semi === undefined) return null;
-  const midi = (octave + 1) * 12 + semi;
-  return midi >= 0 && midi <= 127 ? midi : null;
-}
-
-/**
- * Converts a MIDI note number (60 = C4, 69 = A440) to an authentic AGI 10-bit tone frequency divisor.
- */
-export function midiToAgiDivisor(midi: number | null): number {
-  if (midi === null || midi <= 0 || midi > 127) return 0;
-  const freq = 440 * Math.pow(2, (midi - 69) / 12);
-  return Math.max(1, Math.min(1023, Math.round(99431.67 / freq)));
-}
+export type { SoundNoteInput, SoundTrackInput } from "./soundBuilder.ts";
+export { buildSound, midiToAgiDivisor, parseNoteToMidi } from "./soundBuilder.ts";
 
 export interface AgentSourceStore {
   logics: Map<number, string>;
@@ -238,77 +178,6 @@ export interface AgentSessionState {
    */
   readonly pictureRounds: Map<number, number>;
   getFiles(): Map<string, Uint8Array>;
-}
-
-/**
- * Builds authentic AGI sound binary payload (4 channels: 3 tone voices + 1 noise voice).
- * Supports MIDI note numbers (e.g. 60 for C4, 69 for A440) or note names ('C4', 'G4', 'rest'),
- * as well as raw frequency divisors. Each channel terminates with 0xffff.
- */
-export function buildSound(tracks: readonly SoundTrackInput[]): Uint8Array {
-  const channelData: number[][] = [];
-  for (let ch = 0; ch < 4; ch++) {
-    const track = tracks[ch];
-    const bytes: number[] = [];
-    if (track && Array.isArray(track.notes)) {
-      for (const note of track.notes) {
-        const dur = Math.max(1, Math.min(65534, note.duration || 1));
-        bytes.push(dur & 0xff, (dur >> 8) & 0xff);
-
-        let div = 0;
-        let isRest = false;
-
-        if (typeof note.freqDivisor === "number" && note.freqDivisor > 0) {
-          div = Math.max(0, Math.min(1023, note.freqDivisor));
-        } else if (note.note !== undefined && note.note !== null) {
-          const midi = parseNoteToMidi(note.note);
-          if (midi !== null) {
-            div = midiToAgiDivisor(midi);
-          } else {
-            isRest = true;
-          }
-        } else if (typeof note.freqDivisor === "number") {
-          div = Math.max(0, Math.min(1023, note.freqDivisor));
-        } else {
-          isRest = true;
-        }
-
-        // Store the device command word, including its latch and channel bits.
-        // Noise uses the raw control nibble; repeat it in the unused second
-        // byte so early profiles that emit both bytes preserve the selection.
-        const byte0 = ch === 3 ? div & 0x0f : (div >> 4) & 0x3f;
-        const byte1 = 0x80 | (ch << 5) | (div & 0x0f);
-        bytes.push(byte0, byte1);
-
-        let att = 0;
-        if (isRest || (ch < 3 && div === 0)) {
-          att = 15; // 0x0f = silence in AGI
-        } else if (typeof note.attenuation === "number") {
-          att = Math.max(0, Math.min(15, note.attenuation));
-        }
-        bytes.push((0x90 + ch * 0x20) | att);
-      }
-    }
-    // Channel terminator (0xffff)
-    bytes.push(0xff, 0xff);
-    channelData.push(bytes);
-  }
-
-  let offset = 8;
-  const offsets: number[] = [];
-  for (let ch = 0; ch < 4; ch++) {
-    offsets.push(offset);
-    offset += channelData[ch]!.length;
-  }
-
-  const result = new Uint8Array(offset);
-  for (let ch = 0; ch < 4; ch++) {
-    const off = offsets[ch]!;
-    result[ch * 2] = off & 0xff;
-    result[ch * 2 + 1] = (off >> 8) & 0xff;
-    result.set(channelData[ch]!, off);
-  }
-  return result;
 }
 
 const MESSAGE_KEY = "Avis Durgan";
@@ -452,6 +321,16 @@ function formatNumberRanges(nums: readonly number[]): string {
   return out.join(", ");
 }
 
+/** Every logic resource in the container, for whole-world checks. */
+function collectLogics(container: GameContainer): Map<number, Uint8Array> {
+  const logics = new Map<number, Uint8Array>();
+  for (let num = 0; num <= 255; num++) {
+    const payload = container.getResource("logic", num);
+    if (payload) logics.set(num, payload);
+  }
+  return logics;
+}
+
 /**
  * Execute an agent tool call against the session state.
  * Returns { success, error, details } for direct inclusion in the model transcript.
@@ -542,7 +421,7 @@ function withEvidenceOrigin(
       // checkpoint already stamps a more specific origin; keep it.
       origin: result.details?.["origin"] ?? {
         kind: BOOT_ORIGIN_TOOLS.has(name) ? "boot" : "staged",
-        resourceSet: resourceSetRevision(session),
+        resourceSet: resourceSetHint(session),
       },
     },
   };
@@ -663,6 +542,8 @@ function executeValidatedAgentTool(
   session: AgentSessionState,
   name: string,
   args: Record<string, unknown>,
+  /** Ask-mode context: withhold creator intent. */
+  readOnly = false,
 ): AgentToolResult {
   if (name === "read_command_reference") return readCommandReference(session.profile, args);
   if (name === "read_authoring_guide") return readAuthoringGuide(args);
@@ -692,7 +573,7 @@ function executeValidatedAgentTool(
       executeSoundTool(session, name, args) ??
       executePictureTool(session, name, args) ??
       executeRoomTool(session, name, args) ??
-      executeLegacyTool(session, name, args);
+      executeLegacyTool(session, name, args, readOnly);
   } catch (error) {
     result = { success: false, error: String(error) };
   }
@@ -726,7 +607,7 @@ function executeValidatedAgentTool(
                 ),
               }
             : {
-                revision: resourceRevision(session.container.getResource(legacyKind, num)),
+                revision: resourceCacheHint(session.container.getResource(legacyKind, num)),
               }),
         },
       };
@@ -802,6 +683,7 @@ function executeLegacyTool(
   session: AgentSessionState,
   name: string,
   args: Record<string, unknown>,
+  readOnly = false,
 ): AgentToolResult {
   switch (name) {
     case "write_words": {
@@ -917,15 +799,35 @@ function executeLegacyTool(
         });
         session.container.putResource("logic", room, assembled.payload);
         session.sources.logics.set(room, normalized.source);
+        // A rewrite that drops a declared plan exit still commits — the plan
+        // may be about to change — but the write reports the broken contract
+        // instead of letting handover be the first to notice.
+        const planExits = session.authoring.world.rooms[String(room)]?.exits;
+        const roomCheck = planExits
+          ? verifyPlanConnections(
+              collectLogics(session.container),
+              { [String(room)]: { title: "", description: "", exits: planExits } },
+              session.profile,
+            )
+          : undefined;
+        const dropped = roomCheck?.missing ?? [];
+        const moved = roomCheck?.mismatched ?? [];
+        const droppedNote = dropped.length
+          ? ` Note: the plan still declares exit(s) ${dropped.map((c) => `'${c.name}' to room ${c.to}`).join(", ")} from this room, but the new logic no longer reaches ${dropped.length === 1 ? "that destination" : "those destinations"} — implement it or update the plan.`
+          : moved.length
+            ? ` Note: the plan declares exit '${moved[0]!.name}' toward the ${moved[0]!.declared} but the compiled transition leaves the ${moved[0]!.compiled} edge — check the direction or update the plan.`
+            : "";
         return {
           success: true,
-          message: `Logic ${room} compiled successfully (${assembled.code.length} bytes bytecode, ${assembled.messages.length} messages, ${assembled.payload.length} bytes total payload).`,
+          message: `Logic ${room} compiled successfully (${assembled.code.length} bytes bytecode, ${assembled.messages.length} messages, ${assembled.payload.length} bytes total payload).${droppedNote}`,
           ...(normalized.adjustments.length ? { adjustments: normalized.adjustments } : {}),
           details: {
             room,
             bytecodeLength: assembled.code.length,
             payloadLength: assembled.payload.length,
             messagesCount: assembled.messages.length,
+            ...(dropped.length ? { droppedPlanExits: dropped } : {}),
+            ...(moved.length ? { mismatchedPlanExits: moved } : {}),
           },
         };
       } catch (err) {
@@ -1207,7 +1109,7 @@ function executeLegacyTool(
             loopCount: view.loops.length,
             celsPerLoop: view.loops.map((loop) => loop.cels.length),
             cels,
-            revision: resourceRevision(payload),
+            revision: resourceCacheHint(payload),
             ...(rowCels.length ? { rows: rowCels } : {}),
             preview: {
               width: preview.width,
@@ -1412,8 +1314,9 @@ function executeLegacyTool(
     case "handover": {
       // Handover is the validation gate, not the agent's word that it tested:
       // every stored game test runs against the current resources (unchanged
-      // verdicts come from the evidence cache), and the first handover of a
-      // session also boots the world to a shown, interactive scene.
+      // verdicts come from the evidence cache), every declared plan exit must
+      // be backed by a reachable compiled transition, and the first handover
+      // of a session also boots the world to a shown, interactive scene.
       const testRun = runGameTests(session, null);
       const gameTests = testRun.details?.["gameTests"];
       if (!testRun.success)
@@ -1423,23 +1326,55 @@ function executeLegacyTool(
           details: { ...testRun.details, genesisComplete: session.genesisComplete },
           ...(testRun.images ? { images: testRun.images.slice(0, 1) } : {}),
         };
+      const connections = verifyPlanConnections(
+        collectLogics(session.container),
+        session.authoring.world.rooms,
+        session.profile,
+      );
+      if (connections.missing.length || connections.mismatched.length) {
+        const first = connections.missing[0] ?? connections.mismatched[0]!;
+        const cause =
+          "compiled" in first
+            ? `its compiled transition leaves the ${first.compiled} edge instead`
+            : "no compiled new.room transition reaches it";
+        const extra = connections.missing.length + connections.mismatched.length - 1;
+        return {
+          success: false,
+          error:
+            `Handover rejected: room ${first.from} declares exit ${JSON.stringify(first.name)} ` +
+            `to room ${first.to} but ${cause}. ` +
+            `Implement the exit in room ${first.from}'s logic or revise the plan with update_world.` +
+            (extra > 0 ? ` ${extra} more declared exit(s) also fail validation.` : ""),
+          details: { connections, genesisComplete: session.genesisComplete, gameTests },
+        };
+      }
       if (!session.genesisComplete) {
         const result = validateGenesis(session);
         if (!result.success)
           return {
             ...result,
-            details: { ...result.details, genesisComplete: false, gameTests },
+            details: { ...result.details, genesisComplete: false, gameTests, connections },
           };
         session.genesisComplete = true;
         return {
           ...result,
-          details: { ...result.details, genesisComplete: true, gameTests },
+          details: { ...result.details, genesisComplete: true, gameTests, connections },
         };
       }
       return {
         success: true,
-        message: "Handover validated: stored game tests pass. Resuming gameplay.",
-        details: { genesisComplete: true, notes: args["notes"] ?? null, gameTests },
+        message:
+          "Handover validated: stored game tests pass" +
+          (connections.verified.length
+            ? ` and ${connections.verified.length} declared exit(s) reach a compiled transition`
+            : "") +
+          ". Resuming gameplay.",
+        details: {
+          genesisComplete: true,
+          notes: args["notes"] ?? null,
+          gameTests,
+          connections,
+        },
       };
     }
 
@@ -1600,16 +1535,28 @@ function executeLegacyTool(
           success: false,
           error: "Use filter all, rooms, objects, words, intent, slots, or null.",
         };
+      // Ask is the player's read-only surface: the authored plan — rooms and
+      // facts not yet built — is creator context and stays out of it.
+      if (readOnly && filter === "intent")
+        return {
+          success: false,
+          error:
+            "The authoring plan is not available in Ask. Inspect the compiled resources — read_logic, read_picture, inspect_world_bible with filter 'rooms' — for what the game currently implements.",
+        };
       if (filter === "slots") return listResources(session, args["kind"]);
       try {
         const details: Record<string, unknown> = {
           genesisComplete: session.genesisComplete,
-          authoredIntent: Object.fromEntries(
-            Object.entries(session.authoring.world).map(([section, entries]) => [
-              section,
-              { count: Object.keys(entries).length, keys: Object.keys(entries).slice(0, 16) },
-            ]),
-          ),
+          ...(readOnly
+            ? {}
+            : {
+                authoredIntent: Object.fromEntries(
+                  Object.entries(session.authoring.world).map(([section, entries]) => [
+                    section,
+                    { count: Object.keys(entries).length, keys: Object.keys(entries).slice(0, 16) },
+                  ]),
+                ),
+              }),
           bindings: Object.fromEntries(Object.entries(session.authoring.bindings).slice(0, 32)),
           bindingCount: Object.keys(session.authoring.bindings).length,
         };
@@ -1686,6 +1633,11 @@ function executeLegacyTool(
  * message. The host selects the tools available during each phase.
  */
 export interface AgentRuntimeDeps {
+  /**
+   * Ask mode: read-only tools only, and authored plan intent stays out of
+   * every result — inspect_world_bible's intent filter is refused and
+   * read_room_context carries no plan entry.
+   */
   readonly readOnly?: boolean;
   /** Phase availability policy: names outside the list are denied before dispatch. */
   readonly allowedTools?: readonly string[];
@@ -1871,7 +1823,7 @@ async function executeReadFrames(
       origin: {
         kind: "live",
         checkpoint: frames[frames.length - 1]!.cycle,
-        resourceSet: resourceSetRevision(session),
+        resourceSet: resourceSetHint(session),
       },
     },
     images,
@@ -1926,9 +1878,11 @@ export async function executeAgentToolAsync(
       room,
       logic: logic.success ? logic.details : { error: logic.error },
       resources: index.details,
-      origin: { kind: "staged", resourceSet: resourceSetRevision(session) },
+      origin: { kind: "staged", resourceSet: resourceSetHint(session) },
       wordCount: session.sources.words.size,
-      intent: session.authoring.world.rooms[String(room)] ?? null,
+      // Ask mode is the player's surface: the room's plan entry — its brief
+      // and exits to rooms not yet built — is creator intent, withheld here.
+      ...(deps?.readOnly ? {} : { intent: session.authoring.world.rooms[String(room)] ?? null }),
       bindings: Object.fromEntries(Object.entries(session.authoring.bindings).slice(0, 32)),
       bindingCount: Object.keys(session.authoring.bindings).length,
       inventoryDefinitions: readInventoryObjects(session.getFiles().get("OBJECT"), session.profile),
@@ -1955,7 +1909,7 @@ export async function executeAgentToolAsync(
         stateDetails["origin"] = {
           kind: "live",
           ...(typeof live["cycle"] === "number" ? { checkpoint: live["cycle"] } : {}),
-          resourceSet: resourceSetRevision(session),
+          resourceSet: resourceSetHint(session),
         };
         for (const [field, parameter] of [
           ["vars", "variables"],
@@ -2008,5 +1962,9 @@ export async function executeAgentToolAsync(
       };
     return withEvidenceOrigin(session, name, playtestRoom(session, args, { setupImage: image }));
   }
-  return withEvidenceOrigin(session, name, executeValidatedAgentTool(session, name, args));
+  return withEvidenceOrigin(
+    session,
+    name,
+    executeValidatedAgentTool(session, name, args, deps?.readOnly === true),
+  );
 }

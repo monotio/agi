@@ -55,10 +55,15 @@ npm run eval:replay                           # stored bad cases, offline
 
 ## Release contract
 
-Version 1.0 is the first public archive baseline. Pre-release formats and
-migrations may be dropped before it; after it, released saves and exports stay
-readable. Readers reject unknown versions without rewriting bytes. Add migrations
+Version 1.0 is the first public archive baseline. After it, released saves and
+exports stay readable. Readers reject unknown versions without rewriting bytes. Add migrations
 only for released formats and keep their original fixtures.
+
+During release-candidate development, project-owned schemas stay at v1 and evolve
+in place. Do not add schema bumps, old readers, compatibility paths or backfills.
+Rebuild fixtures and clear development storage explicitly when needed. Local
+release plans stay uncommitted and must not be referenced by committed code,
+comments or documentation.
 
 ## Authenticity
 
@@ -75,6 +80,10 @@ only for released formats and keep their original fixtures.
   existing IDs while referenced; coordinated rewrites must update all affected
   references. Apply changes at a safe continuation boundary. Preserve real AGI
   formats and interpreter behavior; repack superseded resources transactionally.
+- The supplied base template is editable boilerplate, not a protected runtime
+  layer. The agent may use, extend or replace its boot, menus, death handling,
+  sounds and state conventions. Validate coordinated changes and their behavior;
+  do not reserve template ownership in tools or schemas.
 - Keep local original interpreter binaries and bulk disassembly outside public
   builds and archives. Publish behavioral findings and independently authored
   tests, with explicit skips for tests requiring privately held binaries.

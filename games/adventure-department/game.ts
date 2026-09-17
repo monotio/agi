@@ -1,7 +1,7 @@
 import type { OpenedGame } from "../../app/src/gameZip.ts";
 import { serializeGameTests } from "../../src/agent/gameTests.ts";
 import { TUTORIAL_GAME_TESTS } from "./tests.ts";
-import { createAuthoringState, resourceRevision } from "../../src/agent/authoringState.ts";
+import { createAuthoringState, resourceCacheHint } from "../../src/agent/authoringState.ts";
 import { buildSound } from "../../src/agent/tools.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -568,7 +568,7 @@ export function buildTutorial(): TutorialGame {
   }
   authoring.music = {
     [String(TUTORIAL_SOUND_IDS.intro)]: {
-      revision: resourceRevision(introPayload),
+      revision: resourceCacheHint(introPayload),
       tempo: introTempo,
     },
   };

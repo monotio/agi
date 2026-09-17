@@ -1,5 +1,5 @@
 /** Accessible, bounded shape authoring compiled to authentic AGI picture commands. */
-import { resourceRevision } from "./authoringState.ts";
+import { resourceCacheHint } from "./authoringState.ts";
 import {
   colourGrid,
   formatPriorityDiagnostics,
@@ -348,7 +348,7 @@ export function executePictureTool(
     const png = pictureComparisonPng(surface.visual, surface.priority);
     state.container.putResource("picture", room, compiled.bytes);
     state.sources.pictures.set(room, source);
-    const revision = resourceRevision(compiled.bytes);
+    const revision = resourceCacheHint(compiled.bytes);
     return {
       success: true,
       message: `Picture ${room} compiled from ${shapes.length} ordered shapes (${compiled.bytes.length} bytes, ${compiled.commandCount} commands), revision ${revision}.\nDominant colour per cell, 8x7:\n${colourGrid(surface.visual)}\n${formatPriorityDiagnostics(surface.priority)}`,

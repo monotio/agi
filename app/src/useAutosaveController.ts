@@ -22,6 +22,7 @@ import {
   type ProjectId,
 } from "./gameTypes.ts";
 import { resolveGameHash } from "../../src/games/knownGames.ts";
+import { projectId } from "../../src/gameIdentity.ts";
 import type { EngineMenuState } from "../../src/runtime/engine.ts";
 import { isProgressPreview } from "./progressPreview.ts";
 import type { WorkerInbound } from "./workerProtocol.ts";
@@ -33,18 +34,9 @@ export { autosaveKey, writeAutosave };
 export type { AutosaveRecord, AutosaveGame };
 
 export function autosaveMatches(game: AutosaveGame, targetKey: string): boolean {
-  if (game.installed) {
-    const norm = targetKey.toLowerCase();
-    // Folder-scoped records belong to that one edition: two fixture folders can
-    // share a WORDS.TOK hash, and progress on one must not mark the other.
-    if (game.folder) return game.folder.toLowerCase() === norm;
-    return (
-      game.hash?.toLowerCase() === norm ||
-      game.alias?.toLowerCase() === norm ||
-      resolveGameHash(targetKey) === game.hash
-    );
-  }
-  return game.projectId === targetKey;
+  // The record's project is the storage key it was written under: a record
+  // found at another key — a shared-hash alias lookup — does not apply.
+  return game.identity.project === targetKey;
 }
 
 /** Every storage read is a maybe: a blocked, full or corrupt store is normal. */
@@ -55,7 +47,7 @@ export function readAutosave(targetKey: string): AutosaveRecord | null {
     const resolved = resolveGameHash(targetKey);
     if (resolved && resolved !== targetKey) {
       const byHash = parseAutosaveRecord(localStorage.getItem(autosaveKey(resolved)));
-      if (byHash && autosaveMatches(byHash.game, targetKey)) return byHash;
+      if (byHash && autosaveMatches(byHash.game, resolved)) return byHash;
     }
     return null;
   } catch {
@@ -199,6 +191,12 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         if (ctx.getBootedGame() !== game) return false;
         await updateBootedResources(game, msg.files);
       }
+      const storageKey = gameStorageKey(game);
+      const project = projectId(storageKey);
+      if (!project) {
+        ctx.logAgent("log", "autosave skipped: the game has no resolvable storage identity");
+        return false;
+      }
       const record: AutosaveRecord = {
         format: "monotio.agi.autosave",
         version: 1,
@@ -210,14 +208,10 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         savedAt: Date.now(),
         game: {
           installed: game.installed,
-          revision: game.revision,
-          ...(game.installed
-            ? {
-                ...(game.hash ? { hash: game.hash } : {}),
-                ...(game.alias ? { alias: game.alias } : {}),
-                ...(game.folder ? { folder: game.folder } : {}),
-              }
-            : { projectId: game.projectId! }),
+          identity: {
+            project,
+            revision: game.revision,
+          },
         },
       };
       if (ctx.getBootedGame() !== game) return false;
@@ -227,8 +221,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         return false;
       }
       try {
-        const resumePointer = gameStorageKey(game);
-        localStorage.setItem(LAST_GAME_KEY, resumePointer);
+        localStorage.setItem(LAST_GAME_KEY, storageKey);
       } catch (e) {
         ctx.logAgent("log", `autosave resume pointer failed: ${String(e)}`);
       }
@@ -266,12 +259,12 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
   }): void {
     const cycle = Number(msg.cycle ?? lastSeenCycle);
     lastSeenCycle = cycle;
-    const legacyResolve = flushWaiters.get(Number(msg.id));
+    const simpleResolve = flushWaiters.get(Number(msg.id));
     const detailedResolve = flushDetailedWaiters.get(Number(msg.id));
 
     if (msg.taken) {
       void autosaveWrite.then((saved) => {
-        legacyResolve?.(saved);
+        simpleResolve?.(saved);
         if (saved) {
           detailedResolve?.({ status: "saved", cycle });
         } else {
@@ -286,7 +279,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     const isUnchanged = lastCycle !== undefined && cycle <= lastCycle;
 
     if (isCleanOpening || isUnchanged) {
-      legacyResolve?.(true);
+      simpleResolve?.(true);
       detailedResolve?.({ status: "already_durable", cycle });
       return;
     }
@@ -299,7 +292,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
           : msg.textMode
             ? "Game is in text mode."
             : "Interpreter is between transitions.";
-    legacyResolve?.(false);
+    simpleResolve?.(false);
     detailedResolve?.({ status: "not_checkpointable", reason });
   }
 
@@ -328,7 +321,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
   ): Promise<{ restoreImage: string; restoreMenus?: EngineMenuState }> {
     const record = pendingResumeRecord;
     pendingResumeRecord = null;
-    if (record && record.game.revision !== (await gameRevision(files))) {
+    if (record && record.game.identity.revision !== (await gameRevision(files))) {
       throw new Error(
         "This checkpoint belongs to a different revision of the game. Restore its matching project, or choose Start over to begin with the current game. Your checkpoint has been kept.",
       );
@@ -380,8 +373,8 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     const record = readAutosave(key);
     if (!record) return false;
     const available = record.game.installed
-      ? ctx.isInstalledGame(gameStorageKey(record.game) || key)
-      : Boolean(record.game.projectId && getCachedGameMeta(record.game.projectId));
+      ? ctx.isInstalledGame(record.game.identity.project)
+      : Boolean(getCachedGameMeta(record.game.identity.project));
     if (!available) {
       ctx.logAgent("log", `Autosave for "${key}" has no game to boot; starting fresh.`);
       clearAutosave(key);
@@ -392,7 +385,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
 
   async function resumeFromRecord(record: AutosaveRecord, config: LlmConfig): Promise<boolean> {
     if (record.game.installed) {
-      const target = gameStorageKey(record.game);
+      const target = record.game.identity.project;
       if (!ctx.isInstalledGame(target)) return false;
       pendingResumeRecord = record;
       try {
@@ -402,8 +395,8 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         pendingResumeRecord = null;
       }
     }
-    const projectId = record.game.projectId;
-    if (!projectId || !getCachedGameMeta(projectId)) return false;
+    const projectId = record.game.identity.project;
+    if (!getCachedGameMeta(projectId)) return false;
     pendingResumeRecord = record;
     try {
       await ctx.bootAuthoredGame("", ctx.configForGame(projectId, config), {
@@ -430,11 +423,16 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     }
     if (record?.game.installed ?? ctx.isInstalledGame(targetKey)) {
       await ctx.bootGame(findInstalledFolder(ctx.state.installedGames, targetKey));
-    } else if (getCachedGameMeta(targetKey)) {
-      await ctx.bootAuthoredGame("", ctx.configForGame(targetKey, config), {
-        projectId: targetKey,
-        useCached: true,
-      });
+    } else {
+      // targetKey is a mixed storage key: an authored project's id, or an
+      // installed edition's folder/hash — only the former resolves here.
+      const id = projectId(targetKey);
+      if (id !== null && getCachedGameMeta(id)) {
+        await ctx.bootAuthoredGame("", ctx.configForGame(id, config), {
+          projectId: id,
+          useCached: true,
+        });
+      }
     }
   }
 

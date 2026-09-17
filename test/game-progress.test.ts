@@ -27,6 +27,7 @@ import { buildZip, type ZipFileInput } from "../app/src/zip.ts";
 import type { CachedGameData } from "../app/src/gameTypes.ts";
 import type { ProjectHistory } from "../app/src/historyArchive.ts";
 import { HISTORY_FORMAT_VERSION } from "../src/agent/history.ts";
+import { requireProjectId, requireResourceRevision } from "../src/gameIdentity.ts";
 
 /**
  * A player's progress travels with the project archive only: the numbered
@@ -41,8 +42,8 @@ const host: EngineHost = {
   takeKeys: () => [],
 };
 const DICT = new Map([["look", 10]]);
-const REVISION_A = "ab".repeat(32);
-const REVISION_B = "cd".repeat(32);
+const REVISION_A = requireResourceRevision("ab".repeat(32));
+const REVISION_B = requireResourceRevision("cd".repeat(32));
 
 function game() {
   const container = createContainer();
@@ -116,7 +117,10 @@ function played(): { files: Record<string, Uint8Array>; progress: GameProgress }
     cycle: 1,
     room: 1,
     savedAt: 1_757_000_000_000,
-    game: { projectId: "on-the-laptop", installed: false, revision: REVISION_A },
+    game: {
+      installed: false,
+      identity: { project: requireProjectId("on-the-laptop"), revision: REVISION_A },
+    },
   };
   return {
     files: Object.fromEntries(container.files),
@@ -126,7 +130,7 @@ function played(): { files: Record<string, Uint8Array>; progress: GameProgress }
 
 function cachedGame(files: Record<string, Uint8Array>): CachedGameData {
   return {
-    projectId: "on-the-laptop",
+    projectId: requireProjectId("on-the-laptop"),
     title: "Laptop",
     authoredAt: "2026-09-07T00:00:00.000Z",
     provider: "stub",
@@ -213,6 +217,7 @@ test("the project archive round-trips the recorded tape; a corrupt one rejects",
   const history: ProjectHistory = {
     recording: {
       version: HISTORY_FORMAT_VERSION,
+      identity: { project: requireProjectId("on-the-laptop"), revision: REVISION_A },
       profile: "2.936",
       resourceSet: "rev-a",
       startedAt: 1_757_000_000_000,
@@ -236,19 +241,22 @@ test("the project archive round-trips the recorded tape; a corrupt one rejects",
         },
       ],
     },
-    retained: {
-      boot: {
-        files: { "VOL.0": toBase64(Uint8Array.of(1, 2)) },
-        dictionary: [["look", 10]],
-        authorRooms: false,
-        rng: 31074,
-        soundDevice: 1,
-        resourceSet: "rev-a",
-        requestSerial: 3,
+    branches: [
+      {
+        id: "b0",
+        boot: {
+          files: { "VOL.0": toBase64(Uint8Array.of(1, 2)) },
+          dictionary: [["look", 10]],
+          authorRooms: false,
+          rng: 31074,
+          soundDevice: 1,
+          resourceSet: "rev-a",
+          requestSerial: 3,
+        },
+        from: { segment: "sess1.s1", seq: 0, tick: 3 },
+        retainedAt: 1_757_000_500_000,
       },
-      from: { segment: "sess1.s1", seq: 0, tick: 3 },
-      retainedAt: 1_757_000_500_000,
-    },
+    ],
     bookmarks: [{ segment: "sess1.s1", seq: 0, tick: 3, label: "Here", at: 1_757_000_700_000 }],
   };
   const projectBytes = await buildProjectZip(cachedGame(files), progress, undefined, history);
@@ -301,15 +309,19 @@ test("imported progress is stored under the library game ID and re-addressed to 
       backing.set(key, value);
     },
   };
-  const report = storeImportedProgress(storage, "imported-1234", REVISION_B, progress);
+  const report = storeImportedProgress(
+    storage,
+    requireProjectId("imported-1234"),
+    REVISION_B,
+    progress,
+  );
   assert.deepEqual(report.slots, [1, 7]);
   assert.deepEqual(report.failedSlots, []);
   assert.deepEqual(Object.keys(readGameSaves(storage, "imported-1234")), ["1", "7"]);
   const stored = parseAutosaveRecord(storage.getItem("monotio_agi.autosave.imported-1234"));
   assert.deepEqual(stored?.game, {
-    projectId: "imported-1234",
     installed: false,
-    revision: REVISION_B,
+    identity: { project: "imported-1234", revision: REVISION_B },
   });
   assert.equal(stored?.image, progress.autosave!.image);
   assert.deepEqual(report.autosave, stored, "the report carries the record as stored");
@@ -322,7 +334,10 @@ test("imported progress is stored under the library game ID and re-addressed to 
     "monotio_agi.autosave.imported-1234",
     JSON.stringify({
       ...progress.autosave,
-      game: { ...progress.autosave!.game, projectId: "other" },
+      game: {
+        installed: false,
+        identity: { project: "other", revision: progress.autosave!.game.identity.revision },
+      },
     }),
   );
   assert.equal(readGameProgress(storage, "imported-1234").autosave, null);
@@ -382,7 +397,12 @@ test("a store that fails mid-import is reported entry by entry; nothing claims t
       backing.set(key, value);
     },
   };
-  const report = storeImportedProgress(storage, "imported-1234", REVISION_B, progress);
+  const report = storeImportedProgress(
+    storage,
+    requireProjectId("imported-1234"),
+    REVISION_B,
+    progress,
+  );
   assert.deepEqual(report, { slots: [1], failedSlots: [7], autosave: null });
   // Storage holds exactly what the report says landed: slot 1, no autosave.
   assert.deepEqual(Object.keys(readGameSaves(storage, "imported-1234")), ["1"]);
@@ -439,12 +459,15 @@ test("re-addressing is the revision contract: export compaction makes equality i
     cycle: 1,
     room: 1,
     savedAt: 1_757_000_000_000,
-    game: { projectId: "on-the-laptop", installed: false, revision: preExportRevision },
+    game: {
+      installed: false,
+      identity: { project: requireProjectId("on-the-laptop"), revision: preExportRevision },
+    },
   };
   const progress: GameProgress = { saves: { "1": engine.serialize() }, autosave };
   const imported = await readGameZip(await buildProjectZip(cachedGame(files), progress));
   // The record crosses the archive still naming the pre-compaction revision…
-  assert.equal(imported.progress?.autosave?.game.revision, preExportRevision);
+  assert.equal(imported.progress?.autosave?.game.identity.revision, preExportRevision);
   // …but the export compacted the container, so the imported files hash to a
   // different revision: enforcing equality would reject every such project.
   const importedRevision = await gameRevision(imported.files);
@@ -460,11 +483,11 @@ test("re-addressing is the revision contract: export compaction makes equality i
   };
   const report = storeImportedProgress(
     storage,
-    "imported-xyz",
+    requireProjectId("imported-xyz"),
     importedRevision,
     imported.progress!,
   );
-  assert.equal(report.autosave?.game.revision, importedRevision);
+  assert.equal(report.autosave?.game.identity.revision, importedRevision);
   assert.equal(report.autosave?.image, autosave.image);
 });
 

@@ -12,7 +12,7 @@ import {
   type ToolDefinition,
 } from "./tools.ts";
 import { editableSource, executeAuthoringTool, sourceContextRevision } from "./authoringTools.ts";
-import { resourceRevision, validateAuthoringState, type BindingKind } from "./authoringState.ts";
+import { resourceCacheHint, validateAuthoringState, type BindingKind } from "./authoringState.ts";
 import { readInventoryObjects } from "./inventory.ts";
 import { normalizeAuthoredLogic } from "./logicText.ts";
 
@@ -28,7 +28,7 @@ const EDGES: Readonly<Record<string, number>> = { top: 1, right: 2, bottom: 3, l
 export const ROOM_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_room",
-    description: `Compile a complete room scaffold with picture, ego, spawn, edge exits and command interactions; title and description record the room intent. Resource references are integer IDs or reserved binding names, not quoted numbers. Registers needed words while preserving IDs. Use expectedRevision "${resourceRevision(null)}" for a new room; otherwise match its revision. Picture, ego view and inventory items must exist; exit rooms can be authored later. Leaves boot logic intact and returns revision, bindings, commands and intent updates.`,
+    description: `Compile a complete room scaffold with picture, ego, spawn, edge exits and command interactions; title and description record the room intent. Resource references are integer IDs or reserved binding names, not quoted numbers. Registers needed words while preserving IDs. Use expectedRevision "${resourceCacheHint(null)}" for a new room; otherwise match its revision. Picture, ego view and inventory items must exist; exit rooms can be authored later. Leaves boot logic intact and returns revision, bindings, commands and intent updates.`,
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -237,7 +237,7 @@ export function executeRoomTool(
     const revision =
       previous && previousSource
         ? sourceContextRevision(state, "logic", room, previousSource)
-        : resourceRevision(null);
+        : resourceCacheHint(null);
     if (args["expectedRevision"] !== revision)
       throw new Error(
         `Room ${room} revision is '${revision}'. Read its current logic and use that expectedRevision before replacing it.`,

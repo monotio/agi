@@ -101,7 +101,9 @@ describe("sound playback clock and profiles", () => {
     let current: number[] = [];
     for (let tick = 0; tick < 68; tick++) current = bytes(held.tick(true, 0).outputs);
     assert.deepEqual(current, [0x9d]);
-    assert.deepEqual(bytes(held.tick(true, 1).outputs), [0x9e]);
+    // Held ticks reuse the stored envelope value without v23 — the executed
+    // originals never re-apply it once the envelope holds (docs/fidelity.md).
+    assert.deepEqual(bytes(held.tick(true, 1).outputs), [0x9d]);
   });
   it("leaves noise envelopes disabled and silences each terminated channel", () => {
     const data = payload(2, 0xf4);
@@ -109,7 +111,9 @@ describe("sound playback clock and profiles", () => {
     data[6] = 8;
     const sound = new SoundPlayback(detectProfile(new Map(), "2.936"), data, 2);
     assert.deepEqual(bytes(sound.tick(true, 0).outputs), [0x9f, 0xbf, 0xdf, 1, 0x23, 0xf6]);
-    assert.deepEqual(bytes(sound.tick(true, 1).outputs), [0xf7]);
+    // The noise channel has no active envelope, so v23 never reaches it;
+    // the device-2 gain stage still applies (docs/fidelity.md, sound audit).
+    assert.deepEqual(bytes(sound.tick(true, 1).outputs), [0xf6]);
     assert.deepEqual(bytes(sound.tick(true, 0).outputs), [0xff, 0x9f, 0xbf, 0xdf, 0xff]);
   });
   it("suppresses the second noise byte only in the later command profiles", () => {
@@ -156,6 +160,109 @@ describe("sound playback clock and profiles", () => {
     data[11] = 0;
     const sound = new SoundPlayback(detectProfile(new Map(), "2.936"), data, 1);
     assert.deepEqual(bytes(sound.tick(true, 0).outputs), [0x9f, 0xbf, 0xdf, 0xff]);
+  });
+});
+
+describe("the measured envelope tables (docs/fidelity.md, sound player audit)", () => {
+  /**
+   * The executed attenuation column for device 1, base attenuation 0, a
+   * 120-tick note and v23=3 — tick → attenuation, per build.
+   */
+  const EXPECTED: Record<string, [number, number][]> = {
+    "2.917": [
+      [7, 4],
+      [11, 5],
+      [30, 8],
+      [60, 14],
+      [67, 15],
+      [68, 13],
+      [77, 13],
+      [78, 13],
+    ],
+    "3.002": [
+      [7, 3],
+      [11, 4],
+      [30, 6],
+      [60, 12],
+      [67, 14],
+      [68, 14],
+      [77, 15],
+      [78, 13],
+    ],
+  };
+
+  it("2.917-family profiles follow KQ1's 68-entry envelope", () => {
+    for (const id of ["2.917", "2.936"] as const) {
+      const sound = player(id, 1, 120, 0x90);
+      const at = new Map(EXPECTED["2.917"]!);
+      for (let tick = 1; tick <= 78; tick++) {
+        const out = bytes(sound.tick(true, 3).outputs);
+        const want = at.get(tick);
+        if (want !== undefined) assert.equal(out.at(-1), 0x90 | want, `${id} tick ${tick}`);
+      }
+    }
+  });
+
+  it("3.002.102 and 3.002.149 follow the measured 78-entry v3 envelope", () => {
+    for (const id of ["3.002.102", "3.002.149"] as const) {
+      const sound = player(id, 1, 120, 0x90);
+      const at = new Map(EXPECTED["3.002"]!);
+      for (let tick = 1; tick <= 78; tick++) {
+        const out = bytes(sound.tick(true, 3).outputs);
+        const want = at.get(tick);
+        if (want !== undefined) assert.equal(out.at(-1), 0x90 | want, `${id} tick ${tick}`);
+      }
+    }
+  });
+
+  it("the envelope-free noise channel emits its byte without v23", () => {
+    // Executed on all three originals: duration 2, tone 0xe001, control 0xf0,
+    // v23=3 emits attenuation 0xf0 — never 0xf3.
+    const data = payload(2, 0xf0);
+    data[0] = 15; // channels 0..2 point at the terminator
+    data[6] = 8; // channel 3 (noise) holds the note
+    data[10] = 0x01;
+    data[11] = 0xe0;
+    for (const id of ["2.917", "3.002.102", "3.002.149"] as const) {
+      const sound = new SoundPlayback(detectProfile(new Map(), id), data, 1);
+      assert.deepEqual(bytes(sound.tick(true, 3).outputs), [0x9f, 0xbf, 0xdf, 0xe0, 0xf0], id);
+    }
+  });
+
+  it("snapshot/restore crosses the hold boundaries and emits the resumed stream", () => {
+    for (const id of ["2.917", "3.002.149"] as const) {
+      const continuous = player(id, 1, 120, 0x90);
+      const out: number[][] = [];
+      for (let t = 0; t < 80; t++) out.push(bytes(continuous.tick(true, 3).outputs));
+      for (const atTick of [67, 68, 77, 78]) {
+        const snapshotAt = player(id, 1, 120, 0x90);
+        for (let t = 0; t < atTick - 1; t++) snapshotAt.tick(true, 3);
+        const resumed = player(id, 1, 120, 0x90);
+        resumed.restore(snapshotAt.snapshot());
+        for (let t = atTick; t <= 80; t++) {
+          assert.deepEqual(
+            bytes(resumed.tick(true, 3).outputs),
+            out[t - 1]!,
+            `${id} resumed at ${atTick}, tick ${t}`,
+          );
+        }
+      }
+    }
+  });
+
+  it("snapshot bounds follow the selected table, not a shared constant", () => {
+    // A v3 envelope index past the 2.917 hold (>= 68) is valid state under a
+    // v3 profile and out of range under 2.917.
+    const v3 = player("3.002.149", 1, 120, 0x90);
+    for (let t = 0; t < 72; t++) v3.tick(true, 3);
+    const snap = v3.snapshot();
+    const index = snap.channels[0]!.envelopeIndex;
+    assert.ok(index >= 68 && index < 78, `index ${index} sits in v3-only range`);
+    player("3.002.149", 1, 120, 0x90).restore(snap);
+    assert.throws(
+      () => player("2.917", 1, 120, 0x90).restore(snap),
+      /outside the current resource/,
+    );
   });
 });
 

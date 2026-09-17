@@ -102,3 +102,18 @@
   margin: 6px 0 16px;
   line-height: 1.5;
 }
+
+/* Quiet status for background retries — a note, not an alarm. */
+.history-unsaved {
+  color: #8fa7a9;
+  font-size: 12px;
+  width: var(--shell-width);
+  margin: 6px 0 16px;
+  line-height: 1.5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.history-unsaved p {
+  margin: 0;
+}

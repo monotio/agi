@@ -104,7 +104,7 @@ test("the menu accommodates a large library and gives custom adventures room to 
   await configureAi(page, { provider: "stub" });
   await page.getByTestId("boot-game").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toContainText("Midnight at the Museum");
   await openCreateAdventure(page);
   await page.getByTestId("template-mop-jockey").click();

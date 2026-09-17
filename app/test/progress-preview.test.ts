@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { requireProjectId, requireResourceRevision } from "../../src/gameIdentity.ts";
 import { inflateSync } from "node:zlib";
 import { autosaveKey, readAutosave, writeAutosave, type AutosaveRecord } from "../src/useEngine.ts";
 import {
@@ -80,7 +81,13 @@ test("version-1 autosaves allow optional previews and reject other formats", () 
       cycle: 12,
       room: 3,
       savedAt: 100,
-      game: { alias: "checkpoint", installed: true, revision: "0".repeat(64) },
+      game: {
+        installed: true,
+        identity: {
+          project: requireProjectId("checkpoint"),
+          revision: requireResourceRevision("0".repeat(64)),
+        },
+      },
     };
     values.set(autosaveKey("checkpoint"), JSON.stringify(checkpoint));
     assert.deepEqual(readAutosave("checkpoint"), checkpoint);
@@ -137,7 +144,13 @@ test("format-less and corrupt checkpoints are replaceable; future versions are n
     cycle: 12,
     room: 3,
     savedAt: 100,
-    game: { alias: "kq1", installed: true, revision: "0".repeat(64) },
+    game: {
+      installed: true,
+      identity: {
+        project: requireProjectId("kq1"),
+        revision: requireResourceRevision("0".repeat(64)),
+      },
+    },
   };
   const key = autosaveKey("kq1");
   values.set(
@@ -147,7 +160,13 @@ test("format-less and corrupt checkpoints are replaceable; future versions are n
       cycle: 1,
       room: 1,
       savedAt: 1,
-      game: { alias: "kq1", installed: true, revision: "0".repeat(64) },
+      game: {
+        installed: true,
+        identity: {
+          project: requireProjectId("kq1"),
+          revision: requireResourceRevision("0".repeat(64)),
+        },
+      },
     }),
   );
   assert.deepEqual(writeAutosave(storage, checkpoint), checkpoint, "pre-release record");

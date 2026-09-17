@@ -13,10 +13,13 @@ import type { AgiAudio } from "./audio/AgiAudio.ts";
 import {
   getCachedGameMeta,
   loadAuthoredGame,
-  saveAuthoredGame,
+  loadAuthoredGameWithHistoryLifetime,
+  readHistoryLifetime,
+  saveAuthoredGameWithLifetime,
   updateAuthoredGameFiles,
 } from "./gameStorage.ts";
-import type { BootedGame, CurrentGame, ProjectId } from "./gameTypes.ts";
+import { gameStorageKey, type BootedGame, type CurrentGame, type ProjectId } from "./gameTypes.ts";
+import { projectId, requireProjectId } from "../../src/gameIdentity.ts";
 import { fetchFixtureFiles, resolveFixtureTarget } from "./gameDiscovery.ts";
 import type { useAuthoringController } from "./useAuthoringController.ts";
 import type { useAutosaveController } from "./useAutosaveController.ts";
@@ -52,6 +55,7 @@ export interface GameLifecycleOptions {
   readonly abortWalkthrough: () => void;
   /** Eject waits out in-flight history commits before the worker dies. */
   readonly drainHistoryCommits: () => Promise<void>;
+  readonly stopHistoryWriter: () => void;
 }
 
 export function useGameLifecycle(options: GameLifecycleOptions) {
@@ -108,6 +112,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
    * deliberate-departure path and waits for storage before leaving.
    */
   function shutdownEngine(): void {
+    options.stopHistoryWriter();
     link.terminateWorker();
     audio.stop();
     options.releaseAgentAudioPreviews();
@@ -135,12 +140,12 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       : config;
   }
 
-  async function bootGame(hashOrAlias: string): Promise<void> {
+  async function bootGame(query: string): Promise<void> {
     if (!import.meta.env?.DEV) throw new Error("Installed fixtures are development-only");
     state.phase = "loading";
     state.error = "";
     try {
-      const { target, match } = resolveFixtureTarget(state.installedGames, hashOrAlias);
+      const { target, match } = resolveFixtureTarget(state.installedGames, query);
       const files = await fetchFixtureFiles(target);
       // Parse the dictionary on the main thread; ship entries to the worker.
       const words = parseWordsTok(files["WORDS.TOK"]!).map(
@@ -148,8 +153,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       );
       const known = await detectKnownGame(files);
       const revision = await gameRevision(files);
-      const folder = match?.folder ?? hashOrAlias;
-      const alias = known?.alias ?? match?.alias ?? hashOrAlias;
+      const folder = match?.folder ?? query;
+      const alias = known?.alias ?? match?.alias ?? query;
       const title = known?.title ?? match?.title ?? folder.toUpperCase();
       const hash = match?.hash ?? target;
 
@@ -167,6 +172,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       };
       // A successful remix is saved as its own local game before playback resumes.
       const activeReplaySeed = options.getActiveReplaySeed();
+      booted.historyLifetime = await readHistoryLifetime(gameStorageKey(booted));
       w.postMessage({
         type: "boot",
         sessionId: options.getSessionId(),
@@ -194,7 +200,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         const files = await link.query("exportFiles");
         if (!files)
           throw new Error(
-            "The current game could not be saved. Try Game actions → Project before leaving.",
+            "The current game could not be saved. Try Game → Download game… before leaving.",
           );
         await authoring.persistRemix(game, session, files);
       }
@@ -202,16 +208,16 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         const flushResult = await autosave.flushAutosaveDetailed(2000);
         if (flushResult.status === "storage_failure") {
           throw new Error(
-            "Browser storage could not save latest progress. Download a Project backup, or leave with previously saved progress.",
+            "Browser storage could not save latest progress. Use Game → Download game… for a development backup, or leave with previously saved progress.",
           );
         } else if (flushResult.status === "timeout") {
           throw new Error(
-            "Autosave timed out. Try again, download a Project backup, or leave with previously saved progress.",
+            "Autosave timed out. Try again, use Game → Download game… for a development backup, or leave with previously saved progress.",
           );
         } else if (flushResult.status === "not_checkpointable") {
           if (autosave.lastAutosaveRecord() !== null) {
             throw new Error(
-              `Current progress cannot be saved: ${flushResult.reason} Close any open game window and try again, download a Project backup, or leave with previously saved progress.`,
+              `Current progress cannot be saved: ${flushResult.reason} Close any open game window and try again, use Game → Download game… for a development backup, or leave with previously saved progress.`,
             );
           }
         }
@@ -221,22 +227,21 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       options.resumeEngine("eject");
       throw error;
     }
+    // A reply certifies that every queued history batch is durable. A
+    // timeout says nothing about worker health: preserve its recovery bytes.
+    try {
+      await link.query("historyEnd", {}, 10_000);
+      await options.drainHistoryCommits();
+    } catch {
+      state.leaving = false;
+      options.resumeEngine("eject");
+      throw new Error(
+        "Session history is not saved yet. The game is still open. Retry saving history or use Game → Download game… to keep a recovery backup before trying Exit again.",
+      );
+    }
     state.leaving = false;
     options.abortWalkthrough();
     options.promptCancel();
-    // Close the tape before the worker dies: the reply lands only once
-    // every posted and queued batch carries its ack, and the drain after
-    // waits out the matching commits — otherwise the queued tail and the
-    // "eject" end marker die with the worker. Ten seconds covers a resend
-    // backoff cycle so a transient storage refusal still lands. The walk-
-    // through session bump comes after: a replay reply is stamped with the
-    // session id, and bumping first would drop `historyEnded` as stale.
-    try {
-      await link.query("historyEnd", {}, 10_000);
-    } catch {
-      // A worker that cannot answer has already stopped recording.
-    }
-    await options.drainHistoryCommits();
     options.nextSessionId();
     link.drainPendingQueries();
     state.walkthrough.active = false;
@@ -244,6 +249,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     options.setActiveReplaySeed(null);
     // Keep the player's saved position available from the menu.
     autosave.reset();
+    options.stopHistoryWriter();
     link.terminateWorker();
     audio.stop();
     authoring.resetSession();
@@ -313,7 +319,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     };
     authoring.attachSessionRuntime(session, booted);
 
-    const saved = await saveAuthoredGame(projectId, {
+    const historyLifetime = await saveAuthoredGameWithLifetime(projectId, {
       templateId,
       title,
       provider: config.provider,
@@ -325,18 +331,19 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       authoringState: session.getAuthoringState(),
       roomGeneration: true,
     });
-    if (!saved)
+    if (historyLifetime === null)
       logAgent(
         "error",
-        "Browser storage could not save this world. Use Game actions → Project to keep it.",
+        "Browser storage could not save this world. Use Game → Download game… to keep it.",
       );
-    if (saved)
+    if (historyLifetime !== null)
       logAgent(
         "log",
         `Saved the world and its authoring conversation in this browser (${projectId}).`,
       );
 
     const activeReplaySeed = options.getActiveReplaySeed();
+    booted.historyLifetime = historyLifetime;
     w.postMessage({
       type: "boot",
       sessionId: options.getSessionId(),
@@ -371,13 +378,15 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     state.phase = "loading";
     state.error = "";
     try {
-      let projectId = bootOptions?.projectId || "custom";
+      let projectId = bootOptions?.projectId || requireProjectId("custom");
       const title = bootOptions?.title || projectId;
       const templateId = bootOptions?.templateId;
 
       if (bootOptions?.useCached) {
         const w = link.spawnWorker();
-        const cached = await loadAuthoredGame(projectId);
+        const loaded = await loadAuthoredGameWithHistoryLifetime(projectId);
+        const cached = loaded?.data;
+        const historyLifetime = loaded?.lifetime ?? null;
         if (cached) {
           logAgent(
             "log",
@@ -408,7 +417,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           booted = {
             installed: false,
             projectId,
-            alias: cached.library?.alias ?? known?.alias,
+            alias: known?.alias,
             title: cached.title ?? known?.title ?? title,
             revision,
             files: cached.files,
@@ -419,6 +428,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             authoring.attachSessionRuntime(cachedSession, booted);
           }
           const activeReplaySeed = options.getActiveReplaySeed();
+          booted.historyLifetime = historyLifetime;
           w.postMessage({
             type: "boot",
             sessionId: options.getSessionId(),
@@ -441,7 +451,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
 
       if (!bootOptions?.overwrite && (await loadAuthoredGame(projectId))) {
         let safeId = projectId;
-        do safeId = `${projectId}-${crypto.randomUUID().slice(0, 8)}`;
+        do safeId = requireProjectId(`${projectId}-${crypto.randomUUID().slice(0, 8)}`);
         while (await loadAuthoredGame(safeId));
         projectId = safeId;
       }
@@ -475,8 +485,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
   }
 
   /** Whether this development environment offers the original game files. */
-  function isInstalledGame(aliasOrHash: string): boolean {
-    const norm = aliasOrHash.toLowerCase();
+  function isInstalledGame(query: string): boolean {
+    const norm = query.toLowerCase();
     return (state.installedGames ?? []).some(
       (entry) =>
         entry.hash.toLowerCase() === norm ||
@@ -509,7 +519,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     const session = authoring.getSession();
     const data: CachedGameData | null = game.installed
       ? {
-          projectId: game.alias ?? game.hash ?? "installed",
+          projectId: projectId(game.alias) ?? projectId(game.hash) ?? requireProjectId("installed"),
           title: game.title,
           provider: "stub",
           model: state.profile ?? "unknown",
@@ -522,11 +532,14 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     const files = await link.query("exportFiles");
     if (!files || booted !== game) throw new Error("The game changed during export. Try again.");
     await updateBootedResources(game, files);
-    if (!game.installed && !(await updateAuthoredGameFiles(game.projectId!, files))) {
+    if (
+      !game.installed &&
+      !(await updateAuthoredGameFiles(game.projectId!, files).catch(() => false))
+    ) {
       logAgent("error", "Browser storage could not save this world. Keep the downloaded ZIP.");
     }
     const assembled = authoring.assembleExportData(data, game, session, files);
-    const progressKey = game.installed ? (game.hash ?? game.alias ?? "installed") : game.projectId!;
+    const progressKey = gameStorageKey(game);
     return { data: assembled, progressKey };
   }
 

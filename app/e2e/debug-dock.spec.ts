@@ -1,5 +1,6 @@
 import { cacheGame, textHook, waitForCycles } from "./engineProbe.ts";
 import { expect, test } from "@playwright/test";
+import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
@@ -48,7 +49,7 @@ test("inspector shows live priority view, picks the drawn object, and lists stat
   );
   await page.goto("/");
   await cacheGame(page, {
-    projectId: "debug-dock",
+    projectId: testProjectId("debug-dock"),
     title: "Inspector fixture",
     provider: "stub",
     model: "local-playback",
@@ -237,7 +238,7 @@ test("show.obj renders as its own layer in flat and exploded views, then restore
   );
   await page.goto("/");
   await cacheGame(page, {
-    projectId: "debug-showobj",
+    projectId: testProjectId("debug-showobj"),
     title: "ShowObj fixture",
     provider: "stub",
     model: "local-playback",

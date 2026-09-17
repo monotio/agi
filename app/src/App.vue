@@ -19,6 +19,8 @@ import {
 import { useEngine, type AutosaveRecord, type ModalKind } from "./useEngine.ts";
 import { MODEL_OPTIONS } from "./agent/llmClient.ts";
 import { reconcileGameIndex } from "./gameStorage.ts";
+import { resolveGameHash } from "../../src/games/knownGames.ts";
+import { findInstalledFolder, gameStorageKey } from "./gameTypes.ts";
 import { FUNCTION_KEYS, registeredKey, pcKey } from "./gameControls.ts";
 
 import { provideEngine } from "./engineContext.ts";
@@ -27,6 +29,7 @@ import { createAiSettings, provideAiSettings } from "./useAiSettings.ts";
 import { createGameLibrary, provideGameLibrary } from "./useGameLibrary.ts";
 import { createPresentation, providePresentation } from "./usePresentation.ts";
 import SetupPanel from "./SetupPanel.vue";
+import ReferenceUpload from "./ReferenceUpload.vue";
 
 const testMode = import.meta.env.MODE === "test";
 const touchControls = ref(
@@ -121,7 +124,7 @@ const {
 
 const lib = createGameLibrary(engine, ai, shellBridge);
 provideGameLibrary(lib);
-const { exportBusy, exportRefusal, exportSavedProgressKey } = lib;
+const { exportBusy, exportRefusal } = lib;
 
 async function onStartWalkthrough(targetGame: string): Promise<void> {
   await resumeAudio();
@@ -244,13 +247,12 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
     // engine gets nothing while the recording is under view.
     if (ev.key === " ") {
       ev.preventDefault();
-      if (state.historyView.playing) historyView.pauseHistory();
-      else historyView.playHistory();
+      historyView.transportToggle();
       return;
     }
     if (ev.key === "Escape") {
       ev.preventDefault();
-      historyView.closeHistory();
+      historyView.exitHistory();
       return;
     }
     if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
@@ -259,6 +261,16 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
       return;
     }
     return;
+  }
+  if (state.historyView.parked) {
+    // The transport holds a live pause: Space/Escape resume where the game
+    // froze; every other key queues into the paused engine exactly as it
+    // does under a map or bubble pause.
+    if (ev.key === " " || ev.key === "Escape") {
+      ev.preventDefault();
+      historyView.resumeLive();
+      return;
+    }
   }
   if (ev.key === "ScrollLock") {
     ev.preventDefault();
@@ -458,11 +470,21 @@ onMounted(async () => {
     });
   else if (
     playKey &&
-    (playKey === lib.pendingAutosave.value?.game.projectId ||
-      (lib.pendingAutosave.value?.game.installed &&
-        (playKey === lib.pendingAutosave.value?.game.folder ||
-          playKey === lib.pendingAutosave.value?.game.hash ||
-          playKey === lib.pendingAutosave.value?.game.alias)))
+    (() => {
+      const pending = lib.pendingAutosave.value?.game;
+      if (!pending) return false;
+      if (playKey === pending.identity.project) return true;
+      // The URL names an installed edition by any of its query spellings
+      // (alias, folder, hash); the record keys on its storage key.
+      return (
+        pending.installed &&
+        gameStorageKey({
+          installed: true,
+          folder: findInstalledFolder(state.installedGames, playKey),
+          hash: resolveGameHash(playKey) ?? undefined,
+        }) === pending.identity.project
+      );
+    })()
   )
     await resumeLastGame(llmConfig());
   if (state.phase === "idle") clearPlayHash();
@@ -529,12 +551,11 @@ watch(
       :debug-open="debugOpen"
       :export-busy="exportBusy"
       :export-refusal="exportRefusal"
-      :export-saved-progress-key="exportSavedProgressKey"
       @update:touch-controls="touchControls = $event"
       @update:crt-enabled="crtEnabled = $event"
       @update:debug-open="debugOpen = $event"
       @trigger-key="(code) => playArea?.triggerKey(code)"
-      @export-zip="(project, savedProgress) => lib.onExportAgiZip(true, project, savedProgress)"
+      @export-zip="(project) => lib.onExportAgiZip(true, project)"
       @start-over="lib.onStartOver"
       @start-walkthrough="onStartWalkthrough"
     >
@@ -578,6 +599,8 @@ watch(
     />
 
     <AgentLogPanel />
+
+    <ReferenceUpload v-if="state.phase === 'running'" />
 
     <WorldMap v-if="mapOpen" />
   </div>

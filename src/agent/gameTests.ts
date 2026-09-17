@@ -17,7 +17,7 @@ import {
   type GameTestSetup,
 } from "./gameTestSteps.ts";
 import { playtestRoom } from "./playtest.ts";
-import { resourceSetRevision } from "./authoringState.ts";
+import { resourceSetHint } from "./authoringState.ts";
 import type { AgentSessionState, AgentToolResult, ToolDefinition } from "./tools.ts";
 import { createContainer } from "../container/container.ts";
 import { assembleLogic } from "../logic/assembler.ts";
@@ -327,7 +327,7 @@ interface GameTestOutcome {
 }
 
 /**
- * Content identity of one test verdict: the whole resource tree, the test's
+ * Cache key of one test verdict: the whole resource tree, the test's
  * serialized definition and setup, the interpreter profile, and the fixed
  * simulation seed. A verdict is reusable only when all of them match — a
  * byte-identical room number says nothing.
@@ -339,7 +339,7 @@ function testEvidenceKey(session: AgentSessionState, test: GameTest): string {
       hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0;
     hash = Math.imul(hash ^ 0xff, 0x01000193) >>> 0;
   };
-  feed(resourceSetRevision(session));
+  feed(resourceSetHint(session));
   feed(JSON.stringify(test));
   feed(session.profile.id);
   feed("seed:123456789");

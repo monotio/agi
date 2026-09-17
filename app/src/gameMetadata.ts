@@ -1,5 +1,11 @@
 import { detectKnownGameByHashes, type KnownAgiGame } from "../../src/games/knownGames.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
+import {
+  gameIdentity,
+  resourceRevision,
+  type GameIdentity,
+  type ResourceRevision,
+} from "../../src/gameIdentity.ts";
 import { sha256Hex } from "./crypto.ts";
 import type { BootedGame } from "./gameTypes.ts";
 
@@ -8,14 +14,13 @@ export interface PublicGameMetadata {
   description?: string | undefined;
   author?: string | undefined;
   license?: string | undefined;
-  parent?:
-    { projectId?: string | undefined; alias?: string | undefined; revision: string } | undefined;
+  /** A remix's parent — the same GameIdentity record every store carries. */
+  parent?: GameIdentity | undefined;
 }
 
 export interface LibraryMetadata extends PublicGameMetadata {
   version: 1;
-  alias?: string | undefined;
-  revision: string;
+  revision: ResourceRevision;
   source: "catalog" | "zip" | "folder" | "authored" | "remix";
   catalog?: { id: string; version: string } | undefined;
   /** A browser-generated PNG, never an imported remote URL. */
@@ -27,7 +32,6 @@ export interface LibraryMetadata extends PublicGameMetadata {
   };
 }
 
-const SHA256 = /^[a-f0-9]{64}$/;
 const LIBRARY_SOURCES: Record<LibraryMetadata["source"], true> = {
   catalog: true,
   zip: true,
@@ -57,36 +61,35 @@ export function publicGameMetadata(value?: PublicGameMetadata): PublicGameMetada
     const text = boundedText(value?.[key], key === "description" ? 600 : 160);
     if (text) result[key] = text;
   }
-  const revision = value?.parent?.revision;
-  if (revision && SHA256.test(revision)) {
-    const projectId = boundedText(value?.parent?.projectId, 160);
-    const alias = boundedText(value?.parent?.alias, 80);
-    if (projectId || alias) {
-      result.parent = {
-        revision,
-        ...(projectId ? { projectId } : {}),
-        ...(alias ? { alias } : {}),
-      };
-    }
-  }
+  const rawParent: unknown = value?.parent;
+  const rawRecord = (rawParent && typeof rawParent === "object" ? rawParent : {}) as Record<
+    string,
+    unknown
+  >;
+  const rawRevision = rawRecord["revision"];
+  const parent = gameIdentity(
+    rawParent && typeof rawParent === "object"
+      ? {
+          project: rawRecord["project"],
+          revision: typeof rawRevision === "string" ? rawRevision.toLowerCase() : rawRevision,
+        }
+      : rawParent,
+  );
+  if (parent) result.parent = parent;
   return result;
 }
 
 /** Validate the released version-1 library record, or create one for a new project. */
 export function normalizeLibraryMetadata(
   raw: unknown,
-  defaults: Pick<LibraryMetadata, "revision" | "source"> & { alias?: string },
+  defaults: Pick<LibraryMetadata, "revision" | "source">,
 ): LibraryMetadata {
   if (raw !== undefined && (!raw || typeof raw !== "object"))
     throw new Error("Invalid library metadata.");
   const value = (raw as Record<string, unknown> | undefined) ?? {};
   if (raw !== undefined && value["version"] !== 1)
     throw new Error("This library metadata version is not supported by this app.");
-  const alias = boundedText(value["alias"], 80) ?? defaults.alias;
-  const revision =
-    typeof value["revision"] === "string" && SHA256.test(value["revision"])
-      ? value["revision"]
-      : defaults.revision;
+  const revision = resourceRevision(value["revision"]) ?? defaults.revision;
   const source = Object.hasOwn(LIBRARY_SOURCES, value["source"] as PropertyKey)
     ? (value["source"] as LibraryMetadata["source"])
     : defaults.source;
@@ -100,7 +103,6 @@ export function normalizeLibraryMetadata(
   return {
     ...publicGameMetadata(value as PublicGameMetadata),
     version: 1,
-    ...(alias ? { alias } : {}),
     revision,
     source,
     ...(source === "catalog" && catalogId && catalogVersion
@@ -138,11 +140,30 @@ export function readPublicMetadata(raw: unknown): {
   };
 }
 
-/** SHA-256 of sorted, length-delimited names and bytes; ZIP headers and timestamps are irrelevant. */
-export async function gameRevision(files: Record<string, Uint8Array>): Promise<string> {
+/**
+ * The canonical playable file set — the names a Game export ships: AGI
+ * directory and volume files, the vocabulary and object tables, the loader
+ * overlay and interpreter executables. Tests, notes, maps and history are
+ * authoring records: they travel in a Project archive, never in a Game
+ * bundle, and never move the ResourceRevision.
+ */
+export function isPlayableFileName(name: string): boolean {
+  return /^([A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/i.test(
+    name,
+  );
+}
+
+/**
+ * SHA-256 of the canonical playable file set (`isPlayableFileName`), sorted
+ * by uppercased name and length-delimited; ZIP headers, timestamps, and
+ * non-playable records (TESTS.JSON and the like) are irrelevant — the same
+ * playable bytes give the same revision.
+ */
+export async function gameRevision(files: Record<string, Uint8Array>): Promise<ResourceRevision> {
   const encoder = new TextEncoder();
   const normalized = new Map<string, Uint8Array>();
   for (const [name, bytes] of Object.entries(files)) {
+    if (!isPlayableFileName(name)) continue;
     const key = name.toUpperCase();
     if (normalized.has(key)) throw new Error(`Duplicate game resource name: ${name}.`);
     normalized.set(key, bytes);
@@ -164,7 +185,9 @@ export async function gameRevision(files: Record<string, Uint8Array>): Promise<s
     packed.set(bytes, offset + 8 + name.length);
     offset += 8 + name.length + bytes.length;
   }
-  return sha256Hex(packed);
+  // The packed digest is a ResourceRevision by construction; validate it the
+  // same way a serialized one is, so the brand is never an unchecked cast.
+  return resourceRevision(await sha256Hex(packed))!;
 }
 
 /** Identify a collection of game files by hashing WORDS.TOK. */

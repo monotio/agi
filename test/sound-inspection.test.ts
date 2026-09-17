@@ -5,7 +5,7 @@ import {
   executeAgentTool,
   executeAgentToolAsync,
 } from "../src/agent/tools.ts";
-import { resourceRevision, validateAuthoringState } from "../src/agent/authoringState.ts";
+import { resourceCacheHint, validateAuthoringState } from "../src/agent/authoringState.ts";
 import {
   splitToolResult,
   openAiToolContent,
@@ -40,7 +40,7 @@ test("music intent survives validation and is trusted only for the matching comp
   const authoring = validateAuthoringState(JSON.parse(JSON.stringify(state.authoring)));
   assert.deepEqual(authoring.music?.["5"], {
     tempo: 120,
-    revision: resourceRevision(state.container.getResource("sound", 5)),
+    revision: resourceCacheHint(state.container.getResource("sound", 5)),
   });
   state.authoring = authoring;
   const read = executeAgentTool(state, "read_sound", { num: 5, channel: 0, offset: 0, limit: 1 });

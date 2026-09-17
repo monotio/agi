@@ -16,8 +16,8 @@ export function createAuthoringState(): AuthoringState {
   return { version: 1, bindings: {}, world: { rooms: {}, facts: {}, quests: {} } };
 }
 
-/** Small content revision for optimistic edits, not a cryptographic signature. */
-export function resourceRevision(payload: Uint8Array | null): string {
+/** Cheap FNV-1a cache hint for optimistic edits — never an identity. */
+export function resourceCacheHint(payload: Uint8Array | null): string {
   if (payload === null) return "absent";
   let hash = 0x811c9dc5;
   for (const byte of payload) hash = Math.imul(hash ^ byte, 0x01000193) >>> 0;
@@ -25,11 +25,11 @@ export function resourceRevision(payload: Uint8Array | null): string {
 }
 
 /**
- * Content hash over the whole file set — the evidence identity reported as
- * `origin.resourceSet` so a result records exactly which staged resources it
- * describes.
+ * Cheap FNV-1a cache hint over the whole file set — reported as
+ * `origin.resourceSet` so a result records which staged resources it
+ * describes. A hint, never an identity: `ResourceRevision` names the bytes.
  */
-export function resourceSetRevision(state: { getFiles(): Map<string, Uint8Array> }): string {
+export function resourceSetHint(state: { getFiles(): Map<string, Uint8Array> }): string {
   let hash = 0x811c9dc5;
   let total = 0;
   for (const [name, bytes] of [...state.getFiles()].sort(([a], [b]) => a.localeCompare(b))) {
@@ -59,7 +59,7 @@ export function sourceRevision(
       hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0;
     hash = Math.imul(hash ^ 0xff, 0x01000193) >>> 0;
   };
-  feed(resourceRevision(payload));
+  feed(resourceCacheHint(payload));
   feed(source);
   feed(context.profile);
   for (const word of context.words) feed(word);

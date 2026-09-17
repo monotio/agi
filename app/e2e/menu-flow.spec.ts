@@ -73,7 +73,7 @@ test("one Settings menu owns AI and budget while Remix stays compact", async ({ 
 test("library puts rename inline and secondary actions into menus", async ({ page }) => {
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   const card = savedGameCard(page, "Adventure Department");
   const rename = card.getByTestId("rename-game");
   await expect(rename).toBeVisible();
@@ -88,7 +88,7 @@ test("library puts rename inline and secondary actions into menus", async ({ pag
   const renamed = savedGameCard(page, "My tutorial");
   await expect(renamed).toBeVisible();
   await expect(page.getByTestId("start-library-game-over")).toBeHidden();
-  await expect(page.getByTestId("btn-save-project")).toBeHidden();
+  await expect(page.getByTestId("download-library-game")).toBeHidden();
   await renamed.getByRole("button", { name: "Game actions", exact: true }).click();
   const menu = page.getByRole("menu", { name: "Game actions", exact: true });
   await expect(menu.getByRole("menuitem", { name: "Start over", exact: true })).toBeVisible();
@@ -98,15 +98,15 @@ test("library puts rename inline and secondary actions into menus", async ({ pag
   await expect(renamed.getByRole("button", { name: "Game actions", exact: true })).toBeFocused();
   await expect(renamed.getByRole("button", { name: "Download", exact: true })).toHaveCount(0);
   await renamed.getByRole("button", { name: "Game actions", exact: true }).click();
-  await expect(menu.getByTestId("btn-export-agi-zip")).toBeVisible();
-  await expect(menu.getByTestId("btn-save-project")).toBeVisible();
+  await expect(menu.getByTestId("export-library-game")).toBeVisible();
+  await expect(menu.getByTestId("download-library-game")).toBeVisible();
   await expect(menu.getByRole("separator")).toHaveCount(2);
   const items = await menu.getByRole("menuitem").allInnerTexts();
   // A saved copy of the tutorial keeps its walkthrough action at the top.
   expect(items[0]).toMatch(/^Run walkthrough/);
   expect(items).toContain("Start over");
   expect(items.at(-1)).toBe("Remove game");
-  expect(items.indexOf("Make a copy")).toBeLessThan(items.findIndex((t) => /Game export/.test(t)));
+  expect(items.indexOf("Make a copy")).toBeLessThan(items.findIndex((t) => /Export game/.test(t)));
   for (const width of [1440, 390]) {
     await page.keyboard.press("Escape");
     await page.setViewportSize({ width, height: 900 });

@@ -130,7 +130,6 @@ export function createHostRequests(ctx: WorkerContext) {
       case "getnum": {
         const n = Number.parseInt(response, 10);
         const value = Number.isFinite(n) ? n : 0;
-        if (ctx.recording.recording) ctx.recording.recording.usedGetnum = true;
         ctx.recording.recording?.tape.host(["number", value]);
         ctx.engine.deliverHostAnswer(value);
         return;

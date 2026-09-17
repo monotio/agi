@@ -1,7 +1,5 @@
 import type { InstalledGameDescriptor } from "./gameTypes.ts";
-
-const FIXTURE_FILE_PATTERN =
-  /^([A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/i;
+import { isPlayableFileName } from "./gameMetadata.ts";
 
 /**
  * Discover games installed in the local fixtures directory (Vite dev server).
@@ -40,15 +38,15 @@ export async function discoverInstalledGames(): Promise<InstalledGameDescriptor[
  */
 export function resolveFixtureTarget(
   installedGames: readonly InstalledGameDescriptor[] | null,
-  hashOrAlias: string,
+  query: string,
 ): { target: string; match?: InstalledGameDescriptor | undefined } {
-  const norm = hashOrAlias.toLowerCase();
+  const norm = query.toLowerCase();
   const games = installedGames ?? [];
 
   // Match folder first for unambiguous exact instance selection
   const byFolder = games.find((g) => g.folder?.toLowerCase() === norm);
   if (byFolder) {
-    return { target: byFolder.folder ?? hashOrAlias, match: byFolder };
+    return { target: byFolder.folder ?? query, match: byFolder };
   }
 
   // Match by exact hash
@@ -58,7 +56,7 @@ export function resolveFixtureTarget(
     return { target: match.folder ?? match.hash, match };
   } else if (byHash.length > 1) {
     throw new Error(
-      `Ambiguous fixture query "${hashOrAlias}" matches multiple editions (${byHash.map((g) => g.folder).join(", ")}); specify the fixture folder.`,
+      `Ambiguous fixture query "${query}" matches multiple editions (${byHash.map((g) => g.folder).join(", ")}); specify the fixture folder.`,
     );
   }
 
@@ -69,7 +67,7 @@ export function resolveFixtureTarget(
     return { target: match.folder ?? match.wordsSha256 ?? match.hash, match };
   } else if (byWords.length > 1) {
     throw new Error(
-      `Ambiguous fixture query "${hashOrAlias}" matches multiple editions (${byWords.map((g) => g.folder).join(", ")}); specify the fixture folder.`,
+      `Ambiguous fixture query "${query}" matches multiple editions (${byWords.map((g) => g.folder).join(", ")}); specify the fixture folder.`,
     );
   }
 
@@ -80,11 +78,11 @@ export function resolveFixtureTarget(
     return { target: match.folder ?? match.alias, match };
   } else if (byAlias.length > 1) {
     throw new Error(
-      `Ambiguous fixture query "${hashOrAlias}" matches multiple editions (${byAlias.map((g) => g.folder).join(", ")}); specify the fixture folder.`,
+      `Ambiguous fixture query "${query}" matches multiple editions (${byAlias.map((g) => g.folder).join(", ")}); specify the fixture folder.`,
     );
   }
 
-  return { target: hashOrAlias };
+  return { target: query };
 }
 
 /**
@@ -94,7 +92,7 @@ export async function fetchFixtureFiles(target: string): Promise<Record<string, 
   const manifestRes = await fetch(`/fixtures/${target}/`);
   if (!manifestRes.ok) throw new Error(`Fixture manifest fetch failed for ${target}`);
   const manifest: string[] = await manifestRes.json();
-  const names = manifest.filter((name) => FIXTURE_FILE_PATTERN.test(name));
+  const names = manifest.filter(isPlayableFileName);
   const files: Record<string, Uint8Array> = {};
   for (const name of names) {
     const res = await fetch(`/fixtures/${target}/${name}`);

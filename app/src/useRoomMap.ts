@@ -17,6 +17,7 @@ import { computed, reactive, ref, watch, type ComputedRef, type Ref } from "vue"
 import {
   mergeRoomGraph,
   scanContainerExits,
+  type MapExperience,
   type RoomGraph,
   type RoomMapSidecar,
   type RoomObservation,
@@ -162,6 +163,13 @@ export interface RoomMap {
   readonly selected: Ref<number | undefined>;
   readonly journal: RoomObservation[];
   readonly graph: ComputedRef<RoomGraph>;
+  /**
+   * Which experience the map is drawn for. "play"
+   * shows only discovered places and observed crossings; "create" adds plan
+   * intent and technical status. The opening caller chooses; play surfaces
+   * never get the plan.
+   */
+  readonly experience: Ref<MapExperience>;
   readonly currentRoom: ComputedRef<number | null>;
   readonly unsaved: Ref<boolean>;
   /** Load-failure explanation; the map opens empty rather than blocking play. */
@@ -170,7 +178,7 @@ export interface RoomMap {
   readonly thumbVersion: Ref<number>;
   /** Bumped whenever a node position changes (drag, nudge, reset). */
   readonly layoutVersion: Ref<number>;
-  openMap(): void;
+  openMap(options?: { experience?: MapExperience }): void;
   closeMap(): void;
   select(room: number | undefined): void;
   positionFor(room: number): { x: number; y: number };
@@ -204,7 +212,9 @@ export interface RoomMap {
   setBuilding(room: number | undefined): void;
   /** Author one planned room's resources just-in-time from the map. */
   buildPlannedRoom(room: number): Promise<void>;
-  /** The live session's world plan exists to edit. */
+  /** The session carries an editable world plan, whatever the map's experience. */
+  readonly planAvailable: ComputedRef<boolean>;
+  /** The live session's world plan exists to edit — and this is a creator map. */
   readonly canPlan: ComputedRef<boolean>;
   /** The plan entry for a room in the session world, or null. */
   plannedEntry(room: number): WorldPlan["rooms"][string] | null;
@@ -243,6 +253,9 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
 
   const open = ref(false);
   const selected = ref<number>();
+  // The safe default: a caller that names no experience gets the discovered
+  // view — creator intent is always an explicit ask.
+  const experience = ref<MapExperience>("play");
   const unsaved = ref(false);
   const storageError = ref("");
   const thumbVersion = ref(0);
@@ -329,7 +342,9 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   async function retryPlanSave(): Promise<void> {
     await persistPlan();
   }
-  const canPlan = computed(() => plannedRooms() !== undefined);
+  /** The live session carries an editable world plan (authored games only). */
+  const planAvailable = computed(() => plannedRooms() !== undefined);
+  const canPlan = computed(() => experience.value === "create" && planAvailable.value);
 
   /** The durable journal — survives reboots and reloads of the same game. */
   const journal = reactive<RoomObservation[]>([]);
@@ -507,14 +522,41 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     };
   }
 
+  /**
+   * A refused map write retries quietly in the background a bounded number
+   * of times — the unsaved note is a status, not a player task (R10).
+   */
+  let unsavedRetries = 0;
+  let unsavedTimer: ReturnType<typeof setTimeout> | undefined;
+
   function persist(): void {
     if (!loadedKey || !storage) return;
-    if (!writeMapSidecar(storage, loadedKey, exportSidecar())) unsaved.value = true;
+    if (writeMapSidecar(storage, loadedKey, exportSidecar())) {
+      unsaved.value = false;
+      unsavedRetries = 0;
+      return;
+    }
+    unsaved.value = true;
+    scheduleSaveRetry();
   }
 
   function retrySave(): void {
     if (!loadedKey || !storage) return;
-    if (writeMapSidecar(storage, loadedKey, exportSidecar())) unsaved.value = false;
+    if (writeMapSidecar(storage, loadedKey, exportSidecar())) {
+      unsaved.value = false;
+      unsavedRetries = 0;
+    }
+  }
+
+  function scheduleSaveRetry(): void {
+    if (unsavedTimer !== undefined || unsavedRetries >= 3) return;
+    unsavedTimer = setTimeout(() => {
+      unsavedTimer = undefined;
+      if (!unsaved.value) return;
+      unsavedRetries++;
+      retrySave();
+      if (unsaved.value) scheduleSaveRetry();
+    }, 4000);
   }
 
   function storedSidecar(target: string): RoomMapSidecar {
@@ -569,6 +611,11 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     planError.value = "";
     planSaveError.value = "";
     unsaved.value = false;
+    unsavedRetries = 0;
+    if (unsavedTimer !== undefined) {
+      clearTimeout(unsavedTimer);
+      unsavedTimer = undefined;
+    }
     storageError.value = "";
   }
 
@@ -656,6 +703,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       scans: scan.scans,
       shared: scan.shared,
       resources: { logic: scan.logic, picture: scan.picture },
+      experience: experience.value,
     });
   });
 
@@ -907,8 +955,9 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     }
   }
 
-  function openMap(): void {
+  function openMap(options?: { experience?: MapExperience }): void {
     if (open.value || state.phase !== "running") return;
+    experience.value = options?.experience ?? "play";
     drainJournal();
     // The map holds a pause over the active execution mode: the live cycle
     // timer and, during a walkthrough, the replay driver that keeps it moving.
@@ -919,21 +968,38 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     open.value = true;
   }
 
+  /** First agentLog index of the in-flight map build's turn. */
+  let buildFeedStart = 0;
+  /** Set when a mid-build close surfaced the build through the bubble. */
+  let buildBubble = false;
+
   function closeMap(): void {
     if (!open.value) return;
-    if (buildingRoom.value !== undefined) {
-      // A room build in flight holds its own pause — but closing now would
-      // leave the player at a frozen screen with the build invisible. The
-      // map stays up until the turn finishes.
-      planError.value = `Room ${buildingRoom.value} is still being built — the map stays open until it finishes.`;
-      return;
-    }
     open.value = false;
     // Release the map's hold — the pause lifts only when no other owner
-    // (the remix bubble, the history transport) is still holding one.
+    // (the remix bubble, the history transport) is still holding one. A room
+    // build in flight keeps its own "mapBuild" hold, so closing the map
+    // mid-build cannot resume play into a half-authored room; its progress
+    // moves to the assistant bubble so the work stays visible.
     deps.resumeEngine("map");
     if (walkthroughPauseOwned && state.walkthrough.status === "paused") deps.resumeWalkthrough();
     walkthroughPauseOwned = false;
+    if (buildingRoom.value !== undefined) {
+      buildBubble = true;
+      const feedStartSeq = state.agentLog[buildFeedStart]?.seq;
+      state.powerUp = {
+        mode: "room",
+        messages: deps.getSession()?.getMessages() ?? [],
+        open: true,
+        needsConfig: false,
+        busy: true,
+        feedStart: buildFeedStart,
+        ...(feedStartSeq !== undefined ? { feedStartSeq } : {}),
+        reply: "",
+        room: buildingRoom.value,
+        error: "",
+      };
+    }
   }
 
   function select(room: number | undefined): void {
@@ -957,7 +1023,8 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
    * the patch lands on the paused live game.
    */
   async function buildPlannedRoom(room: number): Promise<void> {
-    if (buildingRoom.value !== undefined || !deps.buildRoomFromMap) return;
+    if (experience.value !== "create" || buildingRoom.value !== undefined || !deps.buildRoomFromMap)
+      return;
     const entry = plannedEntry(room);
     if (!entry) {
       planError.value = `Room ${room} is not in the plan.`;
@@ -976,6 +1043,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     }
     from ??= currentRoom.value ?? 1;
     buildingRoom.value = room;
+    buildFeedStart = state.agentLog.length;
     planError.value = "";
     try {
       await deps.buildRoomFromMap(room, from, noteIntentFor(room), exitName);
@@ -983,6 +1051,14 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       planError.value = String(error);
     } finally {
       buildingRoom.value = undefined;
+      if (buildBubble && state.powerUp.mode === "room" && state.powerUp.room === room) {
+        // The bubble stood in for the closed map's progress: settle it —
+        // a landed build hands control back; a failed one keeps its error.
+        state.powerUp.busy = false;
+        if (planError.value) state.powerUp.error = planError.value;
+        else state.powerUp.open = false;
+      }
+      buildBubble = false;
     }
   }
 
@@ -993,6 +1069,8 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
    * mutation leaves the target untouched.
    */
   function editWorld(mutate: (draft: WorldDraft) => string | null): string | null {
+    if (experience.value !== "create")
+      return "Plan editing is a creator action — open the map's plan surface.";
     const session = deps.getSession();
     if (!session) return "This game has no authoring plan to edit.";
     const draft = createWorldDraft(session.state.authoring.world);
@@ -1017,6 +1095,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   }
 
   function plannedEntry(room: number): WorldPlan["rooms"][string] | null {
+    if (experience.value !== "create") return null;
     return plannedRooms()?.[String(room)] ?? null;
   }
 
@@ -1216,6 +1295,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     selected,
     journal,
     graph,
+    experience,
     currentRoom,
     unsaved,
     storageError,
@@ -1243,6 +1323,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     planSaveError,
     retryPlanSave,
     buildingRoom,
+    planAvailable,
     canPlan,
     setBuilding,
     buildPlannedRoom,

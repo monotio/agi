@@ -51,23 +51,33 @@ export interface TextHook {
   egoY: number;
 }
 
-/** The transport's UI state while viewing the recorded session. */
+/** The transport's UI state: the always-on bar plus the recorded-session view. */
 export interface HistoryViewUiState {
   /** A view session is open — the transport shows recorded history. */
   active: boolean;
   /** Opening: the tape is loading / the first drive is warming up. */
   loading: boolean;
+  /**
+   * The transport holds the live session parked at LIVE without the tape
+   * open — the paused-at-the-present state a timeline touch produces.
+   */
+  parked: boolean;
   /** A seek is in flight. */
   seeking: boolean;
   /** Watch mode: paced advance is running. */
   playing: boolean;
+  /**
+   * The explicit Watch action inside the view — keeps the speed and
+   * pause-on-dialogue controls visible while it is on.
+   */
+  watching: boolean;
   /** The user is dragging the thumb. */
   scrubbing: boolean;
   /** Watch speed multiplier (1/2/4/8). */
   speed: number;
   /** Which segment of the recording is under view (index). */
   segment: number;
-  /** The worker's view-session serial — echoed back on Resume here. */
+  /** The worker's view-session serial — echoed back on Resume from here. */
   generation: number;
   segmentCount: number;
   /** Viewed position within the current segment. */
@@ -76,24 +86,18 @@ export interface HistoryViewUiState {
   /** The viewed moment's room and score, for the transport readout. */
   room: number;
   score: number;
-  /** The viewed segment's recorded extent. */
-  totalTicks: number;
   marks: HistoryViewMark[];
-  /** The viewed moment can become the live session (Resume here). */
+  /** The viewed moment can become the live session (Resume from here). */
   canResume: boolean;
-  /** A retained original exists — Back to before is offered. */
-  retained: boolean;
+  /** Kept recovery branches — Undo rewind is offered while >0. */
+  branches: number;
   /**
-   * Resume here would replace the kept session: the transport asked and is
-   * waiting for the second, confirming press. Any seek or close resets it.
+   * Staged swap candidates whose outcomes were never settled — the worker
+   * may have adopted while the promotion write failed or its reply was
+   * lost. They stay durable and settle themselves from tape evidence; the
+   * bar shows a quiet status, never a keep/release vote.
    */
-  confirmReplace: boolean;
-  /**
-   * A staged swap's outcome was never settled — the worker may have adopted
-   * while the promotion write failed or its reply was lost. The departing
-   * session's copy stays durable until the player keeps or releases it.
-   */
-  pendingSwap: boolean;
+  pendingSwaps: number;
   /** Segments the retention bound evicted before this tape was opened. */
   dropped: number;
   diverged: { tick: number; detail: string } | null;

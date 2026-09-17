@@ -28,6 +28,8 @@ export interface OpenedGame {
   /** The recorded session tape with its kept original and bookmarks; project archives only. */
   history?: ProjectHistory;
   metadata?: PublicGameMetadata;
+  /** Recovery payloads remain in the original ZIP; they are not replay imports. */
+  backupWarning?: string;
 }
 
 export async function readGameZip(bytes: Uint8Array): Promise<OpenedGame> {
@@ -260,6 +262,31 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
       );
     }
   }
+  let backupWarning: string | undefined;
+  const backupBytes = project ? entries.get(`${root}BACKUP.JSON`) : undefined;
+  if (backupBytes) {
+    try {
+      if (backupBytes.length > 16_384) throw new Error("oversize report");
+      const report: unknown = JSON.parse(decoder.decode(backupBytes));
+      if (
+        typeof report !== "object" ||
+        report === null ||
+        !("format" in report) ||
+        report.format !== "monotio.agi.backup" ||
+        !("version" in report) ||
+        report.version !== 1 ||
+        !("complete" in report) ||
+        report.complete !== true
+      )
+        backupWarning =
+          "This is an incomplete recovery backup. Keep the original ZIP and consult BACKUP.JSON for missing portions.";
+    } catch {
+      backupWarning = "The backup completeness report could not be read. Keep the original ZIP.";
+    }
+  }
+  if (project && entries.has(`${root}HISTORY-RECOVERY.JSON`))
+    backupWarning =
+      "This backup includes raw history recovery data that is not restored or included in later downloads. Keep the original ZIP for recovery.";
   return {
     files,
     words,
@@ -268,5 +295,6 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
     ...(progress ? { progress } : {}),
     ...(map ? { map } : {}),
     ...(history ? { history } : {}),
+    ...(backupWarning ? { backupWarning } : {}),
   };
 }

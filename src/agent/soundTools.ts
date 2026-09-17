@@ -1,5 +1,5 @@
 /** Compact, bounded authoring and inspection helpers for authentic AGI sounds. */
-import { resourceRevision } from "./authoringState.ts";
+import { resourceCacheHint } from "./authoringState.ts";
 import {
   buildSound,
   midiToAgiDivisor,
@@ -352,7 +352,7 @@ export function executeSoundTool(
         message: `Sound ${num} listening preview is ready for the player. Audio is not sent to the model; use read_sound to inspect the data and timeline.`,
         details: {
           resource: { kind: "sound", num },
-          revision: resourceRevision(payload),
+          revision: resourceCacheHint(payload),
           device,
           profile: state.profile.id,
           ...preview,
@@ -370,7 +370,7 @@ export function executeSoundTool(
       const sound = parseSound(payload);
       state.container.putResource("sound", compiled.num, payload);
       state.sources.sounds.set(compiled.num, compiled.tracks);
-      const revision = resourceRevision(payload);
+      const revision = resourceCacheHint(payload);
       state.authoring.music ??= {};
       state.authoring.music[String(compiled.num)] = { revision, tempo: compiled.tempo };
       return {
@@ -410,7 +410,7 @@ export function executeSoundTool(
       if (!payload)
         return { success: false, error: `Sound ${num} is not present in the container.` };
       const sound = parseSound(payload);
-      const revision = resourceRevision(payload);
+      const revision = resourceCacheHint(payload);
       const intent = state.authoring.music?.[String(num)];
       const tempo = intent?.revision === revision ? intent.tempo : undefined;
       const requested = args["representation"] ?? "auto";

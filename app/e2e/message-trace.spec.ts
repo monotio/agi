@@ -1,5 +1,6 @@
-import { cacheGame } from "./engineProbe.ts";
+import { cacheGame, openGameControls } from "./engineProbe.ts";
 import { expect, test } from "@playwright/test";
+import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildLogicResource } from "../../src/logic/resource.ts";
@@ -34,7 +35,7 @@ test("timed messages resume promptly, persistent windows allow play, and Scroll 
   game.putResource("logic", 10, buildLogicResource(Uint8Array.of(0), names));
   await page.goto("/");
   await cacheGame(page, {
-    projectId: "message-trace",
+    projectId: testProjectId("message-trace"),
     title: "Window and trace test",
     provider: "stub",
     model: "local-playback",
@@ -61,10 +62,10 @@ test("timed messages resume promptly, persistent windows allow play, and Scroll 
   await page.keyboard.press("ScrollLock");
   await expect.poll(() => screenText(page)).toContain("Trace");
   const controls = page.getByTestId("game-controls");
-  await controls.locator("summary").click();
+  await openGameControls(page);
   await controls.getByRole("button", { name: "Hide trace Scroll Lock", exact: true }).click();
   await expect.poll(() => screenText(page)).not.toContain("Trace");
-  await controls.locator("summary").click();
+  await openGameControls(page);
   await controls.getByRole("button", { name: "Show trace Scroll Lock", exact: true }).click();
   await expect.poll(() => screenText(page)).toContain("Trace");
 });

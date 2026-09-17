@@ -31,7 +31,7 @@ Open `http://localhost:5199/` and click **Play now** for **Adventure Department*
 an original MIT-licensed tutorial with three rooms. Repair a picture, wake a
 sprite and fix a clerk's priority to learn how AGI adventures work. It runs
 locally without a provider key or original Sierra game files. **Make a copy**
-keeps the catalog original intact; **Game actions → Project** includes the tutorial's
+keeps the catalog original intact; **Game → Download game…** includes the tutorial's
 editable logic, picture, view and sound sources. The exported AGI game can also run
 offline in a compatible interpreter. Loading this website itself still needs
 a connection; it is not yet an installable offline app.
@@ -82,7 +82,9 @@ and game logic — in one turn, and the world map already shows the planned
 rooms: rename them, extend them, annotate them while you play. When you enter
 an unwritten room — or pick **Build this room** on its map node — play pauses
 while the agent creates it; you can follow its progress in the activity panel.
-Rooms you return to run from their saved resources.
+Rooms you return to run from their saved resources. New games start with AGI
+boilerplate for boot, menus and death handling; the agent can use, extend or
+replace it to suit the adventure.
 
 Click the game to type, press **Enter** to submit, and use the arrow keys to walk.
 **Home**, **Page Up**, **End** and **Page Down** walk diagonally.
@@ -103,6 +105,14 @@ and save descriptions.
 **✦** opens **Ask** for hints and investigation, or **Remix** to change the game.
 Ask leaves the game untouched; Remix applies the finished changes and resumes
 play. You can also open an existing AGI game ZIP and remix it.
+
+For an authored game, use the attachment button in the agent panel to add a
+PNG, JPEG or WebP reference and a brief. Room references guide the next edit.
+Character pose rows produce a VIEW preview you can inspect and **Keep** as the
+player sprite, or send with **Use in edit**. A character sheet needs four to six
+poses on a flat background or transparency, with the feet on one ground line.
+Stored references and staged previews travel with a project download; reopen
+one with **Staged — inspect** to continue later.
 
 Sound inspection gives the agent timed events and a visual timeline. Known music
 gets a piano roll; effects and unclassified sounds show frequency and noise activity.
@@ -151,21 +161,22 @@ entries; the folder picker is the fallback. Files are read locally into your
 library, so playing does not require keeping the source folder connected.
 
 Completed remixes save in your browser. While playing, the header offers
-**Settings**, a three-dot **Game actions** menu (Start over, World map, Look
-back, Game export, Project) and **Menu**. **Menu** saves before leaving, and
-**Resume** restores your game and position.
+**Help**, **Settings**, **Game** and **Exit**. Help contains game controls,
+the map, hints and walkthroughs; Game contains editing, downloads and Start over.
+**Exit** saves before returning to game selection, and **Resume** restores
+your game and position.
 
-Every session is recorded as you play. **Look back** pauses the game and opens
-a transport under the screen: scrub the timeline to any recorded moment, watch
-it replay, then return to live. **Resume here** continues playing from the
-viewed moment and keeps the session you left as **Back to before**, so trying
-an earlier branch never destroys the original. One earlier session is kept —
-taking control again replaces it. The map's room visits link to their moments
-on the tape.
+Every session records automatically. The transport stays below the screen:
+**Pause** holds the current game, and scrubbing selects an earlier recorded
+moment. **LIVE** returns to the current game and leaves it paused until you
+press **Resume**. **Resume from here** gives you control at a historical moment;
+**Undo rewind** restores the session you left. Recovery branches and history
+are retained within storage limits. **Watch from here** plays recorded actions
+without taking control. The map's room visits link to their recorded moments.
 
-**World map** pauses the game and shows every room it is known to contain:
-rooms you have visited, rooms the agent has planned, and rooms and exits found
-in the game's logic, each labeled by how it is known. Selecting a room shows
+**Help → Map** pauses the game and initially shows discovered rooms.
+**Full map** reveals rooms and exits found in the game's logic; the creator's
+plan also includes rooms the agent intends to build. Selecting a room shows
 its connections, visits and a thumbnail. The map is also where the world is
 planned: rename planned rooms, edit their briefs, add or remove rooms and
 exits, and pin notes to rooms and edges — the agent sees those notes when it
@@ -180,10 +191,15 @@ These saves preserve the AGI binary format and are separate from autosave.
 Browser storage supplies the save directory; DOS drive and path dialogs are not
 emulated. Clearing browser data removes these local saves.
 
-| Export                         | What travels with it                                                                                                                                                                                                  |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Game actions → Game export** | Playable resources and public game metadata.                                                                                                                                                                          |
-| **Game actions → Project**     | The game plus its authoring conversation, images, source descriptions, world notes, stored game tests, world-map discoveries, layout and notes, the recorded session history, and your saved games and last autosave. |
+| Export                    | What travels with it                                                                                                                                                                                                  |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Game → Export game…**   | Playable resources and public game metadata.                                                                                                                                                                          |
+| **Game → Download game…** | The game plus its authoring conversation, images, source descriptions, world notes, stored game tests, world-map discoveries, layout and notes, the recorded session history, and your saved games and last autosave. |
+
+Development downloads report any missing history or progress in `BACKUP.JSON`
+and in the app. If browser storage fails, the download captures available
+live progress and preserves pending history in `HISTORY-RECOVERY.JSON`.
+That raw history is not automatically restored; keep the original ZIP.
 
 Both downloads are ZIPs you can reopen with **Add game → ZIP file**. Public game
 exports can include a description, author, license and remix provenance in

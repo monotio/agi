@@ -350,7 +350,6 @@ export interface RecordingState {
     events: RecordedEvent[];
     printed: string[];
     tainted: string | null;
-    usedGetnum: boolean;
   } | null;
 }
 

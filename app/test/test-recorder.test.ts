@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { testRevision } from "./identity.ts";
 import assert from "node:assert/strict";
 import { useTestRecorder, type TestRecorderState } from "../src/useTestRecorder.ts";
 import type { BootedGame } from "../src/useEngine.ts";
@@ -117,7 +118,6 @@ test("test recorder starts and stops successfully through worker queries", async
           events: [],
           printed: ["Welcome!"],
           tainted: null,
-          usedGetnum: false,
           cycle: 15,
           state: {
             room: 1,
@@ -218,7 +218,7 @@ test("saveRecordedTest rejects tainted recordings", async () => {
   const booted: BootedGame = {
     installed: true,
     title: "Test Game",
-    revision: "abc",
+    revision: testRevision("abc"),
     files: {},
     words: [],
   };
@@ -257,7 +257,6 @@ test("saveRecordedTest rejects tainted recordings", async () => {
     },
     endCycle: 2,
     tainted: "Game state was modified externally",
-    usedGetnum: false,
   };
 
   const result = await recorder.saveRecordedTest(taintedSnapshot, "test", [], mockConfig);

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { testProjectId } from "../test/identity.ts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -134,7 +135,7 @@ test("index recovery preserves a game saved while another entry is being reconci
   await isolateStorage(page);
   await page.goto("/");
   const retained = await page.evaluate(
-    async (entries) => {
+    async ({ entries, firstId, secondId }) => {
       const storage = await import("/src/gameStorage.ts");
       const files = Object.fromEntries(
         entries.map(({ name, bytes }) => [name, new Uint8Array(bytes)]),
@@ -146,8 +147,7 @@ test("index recovery preserves a game saved while another entry is being reconci
         files,
         words: [],
       };
-      if (!(await storage.saveAuthoredGame("before-recovery", data)))
-        throw new Error("Initial save failed");
+      if (!(await storage.saveAuthoredGame(firstId, data))) throw new Error("Initial save failed");
       const completion = Object.getOwnPropertyDescriptor(IDBTransaction.prototype, "oncomplete")!;
       let enter!: () => void;
       let release!: () => void;
@@ -176,7 +176,7 @@ test("index recovery preserves a game saved while another entry is being reconci
         const recovery = storage.reconcileGameIndex();
         await entered;
         if (
-          !(await storage.saveAuthoredGame("during-recovery", {
+          !(await storage.saveAuthoredGame(secondId, {
             ...data,
             title: "New arrival",
           }))
@@ -193,7 +193,11 @@ test("index recovery preserves a game saved while another entry is being reconci
         Object.defineProperty(IDBTransaction.prototype, "oncomplete", completion);
       }
     },
-    tinyGame().files.map(({ name, data }) => ({ name, bytes: [...data] })),
+    {
+      entries: tinyGame().files.map(({ name, data }) => ({ name, bytes: [...data] })),
+      firstId: testProjectId("before-recovery"),
+      secondId: testProjectId("during-recovery"),
+    },
   );
   expect(retained).toEqual(["before-recovery", "during-recovery"]);
 });
@@ -322,8 +326,7 @@ test("the first catalog edit forks a remix and preserves the original", async ({
   expect(after.originalActualRevision).toBe(before.actualRevision);
   expect(after.remixSource).toBe("remix");
   expect(after.parent).toEqual({
-    alias: "adventure-department",
-    projectId: before.projectId,
+    project: before.projectId,
     revision: before.revision,
   });
   expect(after.currentProjectId).toBe(after.remixProjectId);
@@ -343,7 +346,7 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await waitForCycles(page, 4);
   // Leaving flushes a checkpoint; the card must offer it before the game is removed.
-  await page.getByTestId("btn-eject").click();
+  await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   await expect.poll(() => storedAutosave(page, projectId)).not.toBeNull();
   await expect(card.getByTestId("btn-resume-cached")).toHaveText("Resume");

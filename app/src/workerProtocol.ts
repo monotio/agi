@@ -224,6 +224,7 @@ export type WorkerInbound =
    * stopped instead of dropping the queued tail.
    */
   | { type: "historyEnd"; id: number }
+  | { type: "historyRecover"; id: number }
   /** Swap the live session back to a retained original. */
   | {
       type: "historyViewRestore";
@@ -284,7 +285,6 @@ export type WorkerControl =
       events: RecordedEvent[];
       printed: string[];
       tainted: string | null;
-      usedGetnum: boolean;
       cycle: number;
       state: EngineStateReport | null;
     }
@@ -363,6 +363,14 @@ export type WorkerControl =
     }
   /** The segment's end batch was posted; it commits before the worker dies. */
   | { type: "historyEnded"; id: number }
+  | {
+      type: "historyRecovery";
+      id: number;
+      batches: HistoryBatch[];
+      boot: HistoryBoot | null;
+      cycle: number;
+      room: number;
+    }
   | {
       type: "historyViewRestored";
       id: number;
@@ -500,6 +508,7 @@ export interface WorkerQueryReplies {
   historyViewTake: Extract<WorkerControl, { type: "historyTaken" }>;
   historyRetain: Extract<WorkerControl, { type: "historyRetained" }>;
   historyEnd: Extract<WorkerControl, { type: "historyEnded" }>;
+  historyRecover: Extract<WorkerControl, { type: "historyRecovery" }>;
   historyViewRestore: Extract<WorkerControl, { type: "historyViewRestored" }>;
   debugWrite: Extract<WorkerControl, { type: "debugWritten" }>;
   debugTrace: Extract<WorkerControl, { type: "debugTrace" }>;
@@ -524,6 +533,7 @@ export interface WorkerQueryPayload {
   historyViewTake: WorkerQueryReplies["historyViewTake"];
   historyRetain: WorkerQueryReplies["historyRetain"];
   historyEnd: WorkerQueryReplies["historyEnd"];
+  historyRecover: WorkerQueryReplies["historyRecover"];
   historyViewRestore: WorkerQueryReplies["historyViewRestore"];
   debugWrite: WorkerQueryReplies["debugWrite"];
   debugTrace: WorkerQueryReplies["debugTrace"];

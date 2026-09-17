@@ -19,8 +19,14 @@
  * serialized behind pending old-key commits — so the continuing stream
  * never lands on a record that never saw its boot.
  */
-import { appendHistoryBatch, migrateHistoryRecord } from "./historyStorage.ts";
+import {
+  appendHistoryBatch,
+  moveHistoryRecord,
+  renewHistoryWriter,
+  HISTORY_WRITER_RENEW_MS,
+} from "./historyStorage.ts";
 import { gameStorageKey, type BootedGame } from "./gameTypes.ts";
+import { projectId } from "../../src/gameIdentity.ts";
 import type { HistoryBatch } from "../../src/agent/history.ts";
 import type { AgentLogEntry } from "./agent/agentLog.ts";
 
@@ -30,6 +36,7 @@ export interface HistoryControllerContext {
     historyUnsaved: { batches: number; since: number } | null;
   };
   readonly getBootedGame: () => BootedGame | null;
+  readonly scheduleRenewal?: (callback: () => void, delay: number) => () => void;
   readonly getProfile: () => string | null;
   readonly logAgent: (kind: AgentLogEntry["kind"], message: string) => void;
 }
@@ -39,6 +46,7 @@ export interface HistoryController {
   handleHistoryBatch(msg: { epoch: number; batch: HistoryBatch }): Promise<boolean>;
   /** Resolves when every commit posted so far has finished (ok or not). */
   drainHistoryCommits(): Promise<void>;
+  stopWriterRenewal(): void;
 }
 
 export function useHistoryController(ctx: HistoryControllerContext): HistoryController {
@@ -48,8 +56,49 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
   let activeKey = "";
   /** The session nonce owning the tape under `activeKey`. */
   let activeSession = "";
-  /** A storage-key migration in flight; commits queue behind it. */
-  let migrating: Promise<void> | null = null;
+  /** A storage-key relocation in flight; commits queue behind it. */
+  let relocating: Promise<void> | null = null;
+  let writerSegment = "";
+  let writerSession = "";
+  let latestBootBatch = -1;
+  let cancelRenewal: (() => void) | null = null;
+
+  function stopWriterRenewal(): void {
+    cancelRenewal?.();
+    cancelRenewal = null;
+    unsaved.delete(`lease:${writerSegment}`);
+    writerSegment = "";
+    syncUnsaved();
+  }
+
+  function armRenewal(): void {
+    if (cancelRenewal || !writerSegment || !ctx.scheduleRenewal) return;
+    cancelRenewal = ctx.scheduleRenewal(() => {
+      cancelRenewal = null;
+      const segment = writerSegment;
+      const key = activeKey;
+      const game = ctx.getBootedGame();
+      if (!game || gameStorageKey(game) !== key) return;
+      const run = renewHistoryWriter(key, segment, game.historyLifetime)
+        .then((renewed) => {
+          if (activeKey !== key || writerSegment !== segment) return;
+          if (renewed) unsaved.delete(`lease:${segment}`);
+          else unsaved.set(`lease:${segment}`, unsaved.get(`lease:${segment}`) ?? Date.now());
+          syncUnsaved();
+        })
+        .catch(() => {
+          if (activeKey === key && writerSegment === segment) {
+            unsaved.set(`lease:${segment}`, unsaved.get(`lease:${segment}`) ?? Date.now());
+            syncUnsaved();
+          }
+        })
+        .finally(() => {
+          commits.delete(run);
+          armRenewal();
+        });
+      commits.add(run);
+    }, HISTORY_WRITER_RENEW_MS);
+  }
 
   function syncUnsaved(): void {
     ctx.state.historyUnsaved = unsaved.size
@@ -67,7 +116,7 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
     const batchKey = `${msg.batch.segment}:${msg.batch.batch}`;
     ctx.state.historyPending++;
     const pending = (async () => {
-      if (migrating !== null) await migrating;
+      if (relocating !== null) await relocating;
       const game = ctx.getBootedGame();
       const storageKey = game ? gameStorageKey(game) : "";
       if (storageKey !== activeKey) {
@@ -81,24 +130,48 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
           // pending commits, ahead of this key's) rather than let the
           // continuing stream refuse against a record that never booted.
           const from = activeKey;
-          const run = migrateHistoryRecord(from, storageKey).finally(() => {
-            if (migrating === run) migrating = null;
+          const run = moveHistoryRecord(from, storageKey, game?.historyLifetime).finally(() => {
+            if (relocating === run) relocating = null;
           });
-          migrating = run;
+          relocating = run;
           await run;
           activeKey = storageKey;
         } else {
           // A replaced worker's un-acked batches can never resend — the
           // ledger they left behind belongs to the previous session, not
           // this tape.
+          stopWriterRenewal();
           unsaved.clear();
           activeKey = storageKey;
           syncUnsaved();
         }
       }
-      if (!storageKey) return false;
+      if (!storageKey || game === null) return false;
       activeSession = sessionOf(msg.batch.segment);
-      return appendHistoryBatch(storageKey, msg.batch, ctx.getProfile() ?? "");
+      if (writerSession !== activeSession) {
+        stopWriterRenewal();
+        writerSession = activeSession;
+        latestBootBatch = -1;
+      }
+      if (msg.batch.boot && msg.batch.batch > latestBootBatch) {
+        stopWriterRenewal();
+        latestBootBatch = msg.batch.batch;
+        writerSegment = msg.batch.segment;
+      }
+      if (msg.batch.end && writerSegment === msg.batch.segment) stopWriterRenewal();
+      armRenewal();
+      const project = projectId(storageKey);
+      if (project === null) return false;
+      return appendHistoryBatch(
+        storageKey,
+        msg.batch,
+        ctx.getProfile() ?? "",
+        {
+          project,
+          revision: game.revision,
+        },
+        game.historyLifetime,
+      );
     })()
       .then((committed) => {
         if (committed) unsaved.delete(batchKey);
@@ -133,5 +206,5 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
     while (commits.size > 0) await Promise.allSettled([...commits]);
   }
 
-  return { handleHistoryBatch, drainHistoryCommits };
+  return { handleHistoryBatch, drainHistoryCommits, stopWriterRenewal };
 }

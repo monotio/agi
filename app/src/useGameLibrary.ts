@@ -21,6 +21,7 @@ import {
   type CachedGameMeta,
 } from "./gameStorage.ts";
 import { loadProjectHistory } from "./historyStorage.ts";
+import { collectHistoryBackup } from "./historyBackup.ts";
 import { buildProjectZip, buildPublicGameZip } from "./projectArchive.ts";
 import { MAX_GAME_ZIP_BYTES, readGameFiles, readGameZip, type OpenedGame } from "./gameZip.ts";
 import { readGameProgress, type ImportStorageReport } from "./gameProgress.ts";
@@ -31,8 +32,9 @@ import { resolveWalkthrough } from "./walkthrough.ts";
 import { previewGame } from "./gamePreview.ts";
 import { addLibraryGame, copyLibraryGame, type CheckedOpening } from "./gameLibrary.ts";
 import { gameRevision } from "./gameMetadata.ts";
-import { getKnownGameByAlias } from "../../src/games/knownGames.ts";
+import { getKnownGameByRevision } from "../../src/games/knownGames.ts";
 import type { InstalledGameDescriptor, ProjectId } from "./gameTypes.ts";
+import { projectId, requireProjectId } from "../../src/gameIdentity.ts";
 
 export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: ShellBridge) {
   const {
@@ -52,9 +54,13 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
 
   // Game and LLM state
   const initialGames = listCachedGames();
-  const initialProjectId = lastGameKey() ?? initialGames[0]?.projectId ?? "knights-trial";
+  // lastGameKey is the resume pointer at the storage edge — an installed
+  // game's hash or an authored project's id — so it is validated here, not
+  // trusted.
+  const initialProjectId =
+    projectId(lastGameKey()) ?? initialGames[0]?.projectId ?? requireProjectId("knights-trial");
   const savedGames = ref<CachedGameMeta[]>(initialGames);
-  const selectedProjectId = ref<string>(initialProjectId);
+  const selectedProjectId = ref<ProjectId | "">(initialProjectId);
   const zipInput = ref<HTMLInputElement>();
   const folderInput = ref<HTMLInputElement>();
   const importBusy = ref(false);
@@ -127,13 +133,9 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     Object.fromEntries(
       [
         ...savedGames.value.map((game) => game.projectId),
-        ...(state.installedGames ?? []).flatMap((item) => [
-          item.hash,
-          item.alias,
-          ...(item.folder ? [item.folder] : []),
-        ]),
+        ...(state.installedGames ?? []).map((item) => gameStorageKey({ installed: true, ...item })),
       ].flatMap((key) => {
-        const autosave = readAutosave(key);
+        const autosave = key ? readAutosave(key) : null;
         return autosave ? [[key, autosave]] : [];
       }),
     ),
@@ -168,11 +170,12 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
   }
 
   async function saveGameTitle(): Promise<void> {
-    if (!(await renameAuthoredGame(selectedProjectId.value, gameTitle.value))) {
+    const id = selectedProjectId.value;
+    if (!id || !(await renameAuthoredGame(id, gameTitle.value))) {
       renameError.value = "Could not save the name. Use 1–100 characters and try again.";
       return;
     }
-    cachedMeta.value = getCachedGameMeta(selectedProjectId.value);
+    cachedMeta.value = getCachedGameMeta(id);
     savedGames.value = listCachedGames();
     renaming.value = false;
   }
@@ -189,8 +192,8 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     }
   }
 
-  watch(selectedProjectId, (projectId) => {
-    cachedMeta.value = getCachedGameMeta(projectId);
+  watch(selectedProjectId, (selected) => {
+    cachedMeta.value = selected ? getCachedGameMeta(selected) : null;
     renaming.value = false;
   });
 
@@ -229,7 +232,6 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
   /** Download failures are visible in both the picker and the game. */
   const exportRefusal = ref<string>("");
   const exportBusy = ref(false);
-  const exportSavedProgressKey = ref<string>();
 
   /**
    * Autosave the picker can offer. The app
@@ -252,9 +254,8 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       (item) =>
         !savedGames.value.some(
           (game) =>
-            game.projectId === item.hash ||
-            game.projectId === item.alias ||
-            (item.folder && game.projectId === item.folder),
+            game.projectId === gameStorageKey({ installed: true, ...item }) ||
+            game.projectId === item.alias,
         ),
     );
   });
@@ -263,10 +264,8 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
 
   function localAutosave(game: InstalledGameDescriptor): AutosaveRecord | undefined {
     // Folder-keyed progress keeps same-hash editions separate; descriptors
-    // without a folder (hosted installs) still match by hash or alias.
-    return game.folder
-      ? libraryAutosaves.value[game.folder]
-      : (libraryAutosaves.value[game.hash] ?? libraryAutosaves.value[game.alias]);
+    // without a folder (hosted installs) key by hash or alias.
+    return libraryAutosaves.value[gameStorageKey({ installed: true, ...game })];
   }
   const TUTORIAL_SECTION_KEY = "monotio_agi.tutorial";
   const tutorialPreference = ref<"open" | "closed">();
@@ -302,11 +301,11 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     { immediate: true },
   );
 
-  async function onPlayLocalGame(aliasOrHash: string): Promise<void> {
+  async function onPlayLocalGame(query: string): Promise<void> {
     await resumeAudio();
-    const checkpoint = readAutosave(aliasOrHash);
+    const checkpoint = readAutosave(query);
     if (checkpoint) await resumeFromRecord(checkpoint, llmConfig());
-    else await bootGame(aliasOrHash);
+    else await bootGame(query);
   }
 
   /** Short provenance line for a saved card: remixes name their parent, imports say so. */
@@ -315,12 +314,14 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     if (!lib) return null;
     if (lib.source === "remix") {
       const parent = lib.parent;
-      const parentTitle =
-        (parent?.projectId
-          ? savedGames.value.find((g) => g.projectId === parent.projectId)?.title
-          : undefined) ??
-        (parent?.alias ? getKnownGameByAlias(parent.alias)?.title : undefined) ??
-        parent?.alias;
+      const parentTitle = parent
+        ? (savedGames.value.find((g) => g.projectId === parent.project)?.title ??
+          (state.installedGames ?? []).find(
+            (g) => gameStorageKey({ installed: true, ...g }) === parent.project,
+          )?.title ??
+          getKnownGameByRevision(parent.revision)?.title ??
+          parent.project)
+        : undefined;
       return parentTitle ? `Remix of ${parentTitle}` : "Remix";
     }
     if (lib.source === "zip" || lib.source === "folder") return "Imported copy";
@@ -338,7 +339,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     const pending = pendingAutosave.value?.game;
     const target =
       (current ? gameStorageKey(current) : "") ||
-      (pending ? gameStorageKey(pending) : "") ||
+      (pending ? pending.identity.project : "") ||
       lastGameKey();
     if (!target) return;
     await resumeAudio();
@@ -352,14 +353,16 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     refreshPendingAutosave();
   }
 
-  const currentCreationProjectId = ref<string>();
+  const currentCreationProjectId = ref<ProjectId>();
 
-  function getOrCreateCreationProjectId(templateId: string): string {
+  function getOrCreateCreationProjectId(templateId: string): ProjectId {
     if (
       !currentCreationProjectId.value ||
       !currentCreationProjectId.value.startsWith(`${templateId}-`)
     ) {
-      currentCreationProjectId.value = `${templateId}-${crypto.randomUUID().slice(0, 8)}`;
+      currentCreationProjectId.value = requireProjectId(
+        `${templateId}-${crypto.randomUUID().slice(0, 8)}`,
+      );
     }
     return currentCreationProjectId.value;
   }
@@ -381,18 +384,20 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     currentCreationProjectId.value = undefined;
     const game = currentGame();
     if (game && !game.installed && game.projectId) selectedProjectId.value = game.projectId;
-    cachedMeta.value = getCachedGameMeta(selectedProjectId.value);
+    cachedMeta.value = selectedProjectId.value ? getCachedGameMeta(selectedProjectId.value) : null;
   }
 
   async function onBootSavedGame(alreadyBusy = false): Promise<void> {
     if (libraryActionBusy.value && !alreadyBusy) return;
+    const id = selectedProjectId.value;
+    if (!id) return;
     if (!alreadyBusy) libraryActionBusy.value = true;
     libraryActionError.value = "";
     try {
       await resumeAudio();
       await bootAuthoredGame(activeTemplate.value.rawMarkdown, llmConfig(), {
-        projectId: selectedProjectId.value,
-        title: cachedMeta.value?.title ?? selectedProjectId.value,
+        projectId: id,
+        title: cachedMeta.value?.title ?? id,
         useCached: true,
       });
     } catch (error) {
@@ -403,7 +408,9 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
   }
 
   async function onClearSavedGame(): Promise<void> {
-    await removeLibraryGame(selectedProjectId.value);
+    const id = selectedProjectId.value;
+    if (!id) return;
+    await removeLibraryGame(id);
     refreshLibrary();
     refreshPendingAutosave();
   }
@@ -421,7 +428,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
   function syncMenuPhase(): void {
     refreshPendingAutosave();
     savedGames.value = listCachedGames();
-    cachedMeta.value = getCachedGameMeta(selectedProjectId.value);
+    cachedMeta.value = selectedProjectId.value ? getCachedGameMeta(selectedProjectId.value) : null;
   }
 
   async function onPlayLibraryGame(game: CachedGameMeta): Promise<void> {
@@ -494,10 +501,11 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     const mapNote = game.map
       ? ` (world map ${stored?.map ? "stored" : "could not be stored"})`
       : "";
+    const recoveryNote = game.backupWarning ? ` (${game.backupWarning})` : "";
     const historyNote = game.history
       ? ` (session tape ${stored?.history ? "stored" : "could not be stored"})`
       : "";
-    if (!game.progress) return mapNote + historyNote;
+    if (!game.progress) return mapNote + historyNote + recoveryNote;
     const parts = Object.keys(game.progress.saves).map((slot) => {
       const status = stored?.slots.includes(Number(slot))
         ? "stored"
@@ -514,7 +522,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
           : "storage unconfirmed";
       parts.push(`autosave ${status}`);
     }
-    return (parts.length ? ` (${parts.join("; ")})` : "") + mapNote + historyNote;
+    return (parts.length ? ` (${parts.join("; ")})` : "") + mapNote + historyNote + recoveryNote;
   }
 
   async function onGameZip(file?: File): Promise<void> {
@@ -676,6 +684,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
   async function checkSelectedOpening(): Promise<void> {
     if (libraryActionBusy.value) return;
     const selected = selectedProjectId.value;
+    if (!selected) return;
     libraryActionError.value = "";
     libraryActionBusy.value = true;
     try {
@@ -696,6 +705,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
   async function copySelectedGame(): Promise<void> {
     if (libraryActionBusy.value) return;
     const selected = selectedProjectId.value;
+    if (!selected) return;
     libraryActionError.value = "";
     libraryActionBusy.value = true;
     try {
@@ -707,80 +717,104 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     }
   }
 
-  async function onExportAgiZip(
-    live = false,
-    project = false,
-    savedProgress = false,
-  ): Promise<void> {
+  async function onExportAgiZip(live = false, project = false): Promise<void> {
     const game = live ? currentGame() : null;
-    const gameKey = game
-      ? game.installed
-        ? (game.hash ?? game.alias)
-        : game.projectId
-      : undefined;
-    const useSavedProgress =
-      savedProgress && project && live && gameKey === exportSavedProgressKey.value;
-    exportSavedProgressKey.value = undefined;
+    const gameKey = game ? gameStorageKey(game) : undefined;
     exportRefusal.value = "";
     exportBusy.value = true;
+    if (live && project) engine.pauseEngine("backup");
     try {
-      // A project is for continuing elsewhere: the live game checkpoints first,
-      // and the archive carries the player's save slots and latest autosave.
-      if (live && project && !useSavedProgress && !(await flushAutosave(2000))) {
-        const current = currentGame();
-        const currentKey = current
-          ? current.installed
-            ? (current.hash ?? current.alias)
-            : current.projectId
-          : undefined;
-        if (currentKey === gameKey) exportSavedProgressKey.value = gameKey;
-        throw new Error(
-          "Current progress could not be saved. Close any open game window and try again, or download with only the progress already saved in this browser.",
+      const notes: string[] = [];
+      if (live && project && !(await flushAutosave(2000)))
+        notes.push(
+          "Browser storage did not save the latest progress; this backup uses a direct worker checkpoint when available.",
         );
-      }
       const current = currentGame();
-      const currentKey = current
-        ? current.installed
-          ? (current.hash ?? current.alias)
-          : current.projectId
-        : undefined;
+      const currentKey = current ? gameStorageKey(current) : undefined;
       if (live && currentKey !== gameKey)
         throw new Error("The game changed during download. Try again.");
       const exportResult = live ? await exportCurrentGame() : null;
       const data = exportResult
         ? exportResult.data
-        : await loadAuthoredGame(selectedProjectId.value);
+        : selectedProjectId.value
+          ? await loadAuthoredGame(selectedProjectId.value)
+          : null;
       if (!data) throw new Error("No saved game is available.");
       const progressKey = exportResult ? exportResult.progressKey : data.projectId;
       // The map's storage identity is the game's storage key — for a live
       // export that is the in-memory map; for a stored project, the sidecar.
       const mapTarget = game ? gameStorageKey(game) : data.projectId;
-      let history: Awaited<ReturnType<typeof loadProjectHistory>> = null;
-      if (project) {
-        // Commits are async: wait out the in-flight set so the archive's
-        // tape ends where the session actually did, then refuse outright if
-        // storage refused a batch — a partial tape inside a project archive
-        // claims a recording that isn't there.
-        if (live) await engine.drainHistoryCommits();
-        const unsaved = state.historyUnsaved;
-        if (live && unsaved)
-          throw new Error(
-            `${unsaved.batches} history ${unsaved.batches === 1 ? "batch is" : "batches are"} ` +
-              "not saved yet — fix browser storage or wait, then download again.",
-          );
-        try {
-          history = await loadProjectHistory(mapTarget);
-        } catch {
-          // A stored recording that fails validation is left out of the
-          // archive rather than blocking the project's download.
-        }
+      if (live && project) await engine.drainHistoryCommits();
+      let recovery: Awaited<ReturnType<EngineApi["recoverHistory"]>> | null = null;
+      const backup = project
+        ? await collectHistoryBackup(
+            () => loadProjectHistory(mapTarget),
+            live
+              ? async () => {
+                  recovery = await engine.recoverHistory();
+                  return recovery.batches;
+                }
+              : null,
+          )
+        : null;
+      let progressReadFailed = false;
+      const progress = project
+        ? readGameProgress(
+            {
+              getItem: (key) => {
+                try {
+                  return localStorage.getItem(key);
+                } catch (error) {
+                  progressReadFailed = true;
+                  throw error;
+                }
+              },
+              setItem: (key, value) => localStorage.setItem(key, value),
+            },
+            progressKey,
+          )
+        : undefined;
+      if (progressReadFailed)
+        notes.push(
+          "Some previously saved progress could not be read and may be missing from this backup.",
+        );
+      // The reply owns a current checkpoint independently of browser storage.
+      const snapshot = recovery as Awaited<ReturnType<EngineApi["recoverHistory"]>> | null;
+      if (live && project && progress && snapshot?.boot?.image) {
+        const identityProject = projectId(progressKey);
+        if (identityProject)
+          progress.autosave = {
+            format: "monotio.agi.autosave",
+            version: 1,
+            image: snapshot.boot.image,
+            ...(snapshot.boot.menus ? { menus: snapshot.boot.menus } : {}),
+            cycle: snapshot.cycle,
+            room: snapshot.room,
+            savedAt: Date.now(),
+            game: {
+              installed: game?.installed ?? false,
+              identity: {
+                project: identityProject,
+                revision: data.library?.revision ?? (await gameRevision(data.files)),
+              },
+            },
+          };
+      } else if (live && project) {
+        notes.push(
+          "Current progress could not be captured; only previously saved progress is included.",
+        );
+      }
+      if (backup) {
+        backup.report.notes.push(...notes);
+        backup.report.complete = backup.report.notes.length === 0;
       }
       const zipBytes = project
         ? await buildProjectZip(
             data,
-            readGameProgress(localStorage, progressKey),
+            progress,
             roomMap.storedSidecar(mapTarget),
-            history ?? undefined,
+            backup?.history ?? undefined,
+            backup?.report,
           )
         : buildPublicGameZip(data);
       const url = URL.createObjectURL(new Blob([zipBytes], { type: "application/zip" }));
@@ -789,9 +823,12 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       a.download = `agi-${data.projectId}-${project ? "project" : "game"}.zip`;
       a.click();
       URL.revokeObjectURL(url);
+      if (backup && !backup.report.complete)
+        exportRefusal.value = `Backup downloaded with limitations: ${backup.report.notes.join(" ")}`;
     } catch (error) {
       exportRefusal.value = `Download failed: ${String(error).replace(/^Error: /, "")}`;
     } finally {
+      if (live && project) engine.resumeEngine("backup");
       exportBusy.value = false;
     }
   }
@@ -853,7 +890,6 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     activeTemplate,
     exportBusy,
     exportRefusal,
-    exportSavedProgressKey,
     catalogHasProgress,
     selectLibraryGame,
     beginRename,

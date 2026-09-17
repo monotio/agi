@@ -39,7 +39,7 @@ import {
   type HistoryEndReason,
   type HistoryEventCause,
 } from "../../../src/agent/history.ts";
-import { resourceSetRevision } from "../../../src/agent/authoringState.ts";
+import { resourceSetHint } from "../../../src/agent/authoringState.ts";
 import type { EdgeSide } from "../../../src/agent/roomMap.ts";
 import type { BootMessage } from "../workerProtocol.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
@@ -68,11 +68,11 @@ export function createHistory(ctx: WorkerContext) {
   const tick = () => ctx.cycle.tickCount - ctx.history.tickBase;
   const cycle = () => ctx.cycle.cycleCount - ctx.history.cycleBase;
 
-  /** resourceSetRevision of the live container — patches included. */
+  /** resourceSetHint of the live container — patches included. */
   function currentResourceSet(): string {
     const files = new Map(ctx.engine!.containerFiles);
     if (ctx.boot.authoredWords) files.set("WORDS.TOK", ctx.boot.authoredWords);
-    return resourceSetRevision({ getFiles: () => files });
+    return resourceSetHint({ getFiles: () => files });
   }
 
   function bootFiles(): Record<string, string> {
@@ -408,6 +408,10 @@ export function createHistory(ctx: WorkerContext) {
       const id = h.pendingEndReply;
       h.pendingEndReply = null;
       ctx.ports.control({ type: "historyEnded", id });
+    } else if (h.pendingEndReply !== null) {
+      // Exit is a durability barrier. Once storage recovers, drain the
+      // remaining refused batches now instead of one per backoff interval.
+      resend();
     }
   }
 
@@ -433,8 +437,12 @@ export function createHistory(ctx: WorkerContext) {
   function onHistoryEnd(msg: Inbound<"historyEnd">): void {
     historyEnd("eject");
     const h = ctx.history;
+    // A refused Exit resumes play; the next safe boundary starts a new segment.
+    h.resumePending = true;
+
     if (h.sent.length > 0 || h.queue.length > 0) {
       h.pendingEndReply = msg.id;
+      onHistoryRetry();
       return;
     }
     ctx.ports.control({ type: "historyEnded", id: msg.id });
@@ -641,7 +649,6 @@ export function createHistory(ctx: WorkerContext) {
       events: [],
       printed: [],
       tainted: null,
-      usedGetnum: false,
     };
     ctx.ports.control({
       type: "recordingStarted",
@@ -664,7 +671,6 @@ export function createHistory(ctx: WorkerContext) {
       events: taken?.events ?? [],
       printed: taken?.printed ?? [],
       tainted: taken?.tainted ?? taken?.tape.error ?? null,
-      usedGetnum: false,
       cycle: ctx.cycle.cycleCount,
       state: ctx.engine ? ctx.engine.readState() : null,
     });

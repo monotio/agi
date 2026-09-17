@@ -26,7 +26,7 @@ test("malformed play hashes recover to the picker without a startup exception", 
 });
 
 for (const failure of ["unsafe", "timeout", "storage"] as const) {
-  test(`project export discloses ${failure} checkpoint failure before downloading saved progress`, async ({
+  test(`project export discloses ${failure} checkpoint failure while downloading available progress`, async ({
     page,
   }, testInfo) => {
     await isolateStorage(page);
@@ -95,22 +95,22 @@ for (const failure of ["unsafe", "timeout", "storage"] as const) {
     }
     let downloads = 0;
     page.on("download", () => downloads++);
-    await openGameOptions(page, "game-actions-menu");
-    await page.getByTestId("btn-save-live-project").click();
-    await expect(page.getByTestId("export-refusal")).toContainText(
-      "Current progress could not be saved",
-    );
-    expect(downloads).toBe(0);
-    if (failure === "unsafe")
-      await page.screenshot({ path: testInfo.outputPath("checkpoint-refusal.png") });
     const download = page.waitForEvent("download");
-    await page.getByTestId("export-saved-progress").click();
+    await openGameOptions(page, "game-menu");
+    await page.getByTestId("btn-download-game").click();
+    await expect(page.getByTestId("export-refusal")).toContainText(
+      "Backup downloaded with limitations",
+    );
+    if (failure === "unsafe")
+      await page.screenshot({ path: testInfo.outputPath("checkpoint-limitations.png") });
     const path = (await (await download).path())!;
     const archive = await readGameZip(new Uint8Array(await readFile(path)));
-    // A periodic checkpoint may succeed while the explicit flush times out.
-    if (failure === "timeout")
+    // A live worker checkpoint bypasses the failed persistence path. A host
+    // prompt still needs the player's answer and preserves the saved image.
+    if (failure !== "unsafe")
       expect(archive.progress?.autosave?.cycle).toBeGreaterThanOrEqual(savedCycle!);
     else expect(archive.progress?.autosave?.cycle).toBe(savedCycle);
+    expect(archive.backupWarning).toBeDefined();
     expect(downloads).toBe(1);
   });
 }
