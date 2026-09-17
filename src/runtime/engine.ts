@@ -1993,6 +1993,8 @@ export class Engine {
       // The shared parameter bank already rides the image's object records;
       // only the automatic-band priority lives outside them.
       objectExtras: this.objects.map(({ priority }) => ({ priority })),
+      viewCache: { loaded: [...this.views.keys()], order: [...this.viewOrder] },
+      gameSignature: this.signature,
       sound:
         this.soundPlayback && this.playingSound !== null && this.soundDoneFlag !== null
           ? {
@@ -2009,6 +2011,12 @@ export class Engine {
   /** Restore host-only recording state after restoreImage; authentic save semantics stay unchanged. */
   restoreReplayState(value: unknown): void {
     const state = validateEngineReplayState(value);
+    const views = new Map<number, AgiView>();
+    for (const num of state.viewCache.loaded) {
+      const payload = this.container.getResource("view", num);
+      if (!payload) throw new Error("Recorded view resource is missing.");
+      views.set(num, parseView(payload, this.profile));
+    }
     let sound: SoundPlayback | null = null;
     if (state.sound) {
       const payload = this.container.getResource("sound", state.sound.num);
@@ -2046,6 +2054,12 @@ export class Engine {
     this.menuRequested = state.menuRequested;
     for (let i = 0; i < this.objects.length; i++)
       Object.assign(this.objects[i]!, state.objectExtras[i]!);
+    // Authentic restore rebinds object references and may load a discarded view.
+    // Harness restoration retains the recorded cache, including its discard order.
+    this.views.clear();
+    for (const [num, view] of views) this.views.set(num, view);
+    this.viewOrder.splice(0, this.viewOrder.length, ...state.viewCache.order);
+    this.signature = state.gameSignature;
     this.soundPlayback = sound;
     this.playingSound = state.sound?.num ?? null;
     this.soundDoneFlag = state.sound?.doneFlag ?? null;

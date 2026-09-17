@@ -11,7 +11,15 @@ import {
   getKnownGameByAlias,
   type GameHash,
 } from "../../src/games/knownGames.ts";
-import { loadGame } from "../game-fixture.ts";
+import { loadGame, type GameFixture } from "../game-fixture.ts";
+import { openContainer } from "../../src/container/container.ts";
+import { rngDraw } from "../../src/runtime/rng.ts";
+import {
+  NavigationTraversal,
+  type TraversalRequest,
+  type TraversalOptions,
+  type TraversalOutcome,
+} from "../../src/agent/navigationTraversal.ts";
 import { type Plan, type PlanOptions, type Target } from "../../src/agent/navigation.ts";
 
 import {
@@ -54,7 +62,29 @@ export type Action =
   | { kind: "advance"; ticks: number }
   | { kind: "answer"; text: string }
   | { kind: "checkpoint"; label: string; room: number; score: number; x: number; y: number };
-/** Local-only input driver. No writes to game variables, objects, flags or resources. */
+export interface ProbeOptions {
+  maxCandidates?: number;
+  maxTicksPerCandidate?: number;
+  maxTotalTicks?: number;
+}
+export interface ProbeCandidate<T> {
+  label: string;
+  run: (branch: Speedrun) => T;
+}
+export interface ProbeResult<T> {
+  label: string;
+  status: "completed" | "budget_exhausted" | "failed";
+  hostPolls: number;
+  logicCycles: number;
+  movementUpdates: number;
+  wallMs: number;
+  value?: T;
+  error?: string;
+  /** Retain a useful branch; its action prefix remains a cold-boot proof. */
+  branch: Speedrun;
+}
+
+/** Input driver. No writes to game variables, objects, flags or resources. */
 export class Speedrun {
   readonly engine: Engine;
   readonly actions: Action[] = [];
@@ -75,23 +105,37 @@ export class Speedrun {
   private readonly answers: string[] = [];
   private readonly numAnswers: number[] = [];
   private navigationHeading: number | null = null;
+  private clockPollTick = 0;
+  private rngState: number;
+  private readonly fixture: GameFixture;
 
   constructor(
     game: string = KNOWN_GAME_HASH.KQ1,
     seed = 1,
-    load: { checkVolumes?: boolean; maxTicks?: number; dwellModals?: boolean } = {},
+    load: {
+      checkVolumes?: boolean;
+      maxTicks?: number;
+      dwellModals?: boolean;
+      /** Explicit assembled fixture, also used for independent retained branches. */
+      fixture?: GameFixture;
+      profile?: Engine["profile"];
+    } = {},
   ) {
     this.seed = seed;
+    this.rngState = seed & 0xffff;
     const resolved = resolveGameHash(game);
     const known = resolved ? getKnownGameByHash(resolved) : getKnownGameByAlias(game);
     this.hash = resolved ?? (known ? known.wordsSha256 : game);
     this.alias = known?.alias;
     this.dwellModals = load.dwellModals ?? false;
     this.maxTicks = load.maxTicks ?? 500_000;
-    const { container, dict, files } = loadGame(game, {
-      interpreterFiles: true,
-      ...(load.checkVolumes === undefined ? {} : { checkVolumes: load.checkVolumes }),
-    });
+    this.fixture =
+      load.fixture ??
+      loadGame(game, {
+        interpreterFiles: true,
+        ...(load.checkVolumes === undefined ? {} : { checkVolumes: load.checkVolumes }),
+      });
+    const { container, dict, files } = this.fixture;
     const host: EngineHost = {
       print: (text) => this.messages.push(text),
       displayAt() {},
@@ -127,14 +171,122 @@ export class Speedrun {
         this.actions.push({ kind: "answer", text: String(answer!) });
         return answer!;
       },
-      randomByte: randomSource(seed),
+      randomByte: () => {
+        const draw = rngDraw(this.rngState, () => this.seed & 0xffff);
+        this.rngState = draw.state;
+        return draw.byte;
+      },
     };
     this.engine = new Engine(container, host, dict, {
-      profile: detectProfile(files),
+      profile: load.profile ?? detectProfile(files),
       instructionBudget: 1_000_000,
     });
     // Match the app's initial user sound preference before executing game logic.
     this.engine.setSoundEnabled(true);
+  }
+
+  /** In-process checkpoint fork; retains a cold-replay tape, never a durable session format. */
+  fork(options: { maxAdditionalTicks?: number } = {}): Speedrun {
+    const remaining = options.maxAdditionalTicks ?? this.maxTicks - this.ticks;
+    if (!Number.isInteger(remaining) || remaining < 0)
+      throw new RangeError("Fork tick allowance must be a nonnegative integer.");
+    const image = this.engine.recordingImage();
+    if (image === null) throw new Error("Exploration requires a resumable room boundary.");
+    const replay = this.engine.captureReplayState();
+    // Container edits replace its file map; use its current bytes while retaining
+    // interpreter identity files needed to select the same behavior profile.
+    const files = new Map(
+      [...this.fixture.files, ...this.fixture.container.files].map(([name, bytes]) => [
+        name,
+        bytes.slice(),
+      ]),
+    );
+    const branch = new Speedrun(this.hash, this.seed, {
+      maxTicks: Math.min(this.maxTicks, this.ticks + remaining),
+      dwellModals: this.dwellModals,
+      profile: this.engine.profile,
+      fixture: { files, container: openContainer(files), dict: new Map(this.fixture.dict) },
+    });
+    branch.engine.restoreImage(image, { preservePresentation: true });
+    branch.engine.restoreReplayState(replay);
+    // Refuse an incomplete reconstruction before it can be mistaken for a probe.
+    assert.deepEqual(branch.engine.recordingImage(), image, "Fork image differs from its boundary");
+    assert.deepEqual(
+      branch.engine.captureReplayState(),
+      replay,
+      "Fork replay state differs from its boundary",
+    );
+    branch.rngState = this.rngState;
+    branch.ticks = this.ticks;
+    branch.cycles = this.cycles;
+    branch.clockPollTick = this.clockPollTick;
+    branch.clock.restore(this.clock.snapshot(), (this.clockPollTick * 1000) / 60);
+    branch.keys.push(...this.keys);
+    branch.answers.push(...this.answers);
+    branch.numAnswers.push(...this.numAnswers);
+    branch.navigationHeading = this.navigationHeading;
+    branch.actions.push(...structuredClone(this.actions));
+    branch.messages.push(...this.messages);
+    branch.textPrompts.push(...this.textPrompts);
+    branch.numPrompts.push(...structuredClone(this.numPrompts));
+    return branch;
+  }
+
+  /** Bound simulation polls across synchronous candidate callbacks; never replay the prefix. */
+  probe<T>(
+    candidates: readonly ProbeCandidate<T>[],
+    options: ProbeOptions = {},
+  ): {
+    candidates: ProbeResult<T>[];
+    hostPolls: number;
+    prefixTicksReused: number;
+    unattempted: number;
+  } {
+    const maxCandidates = options.maxCandidates ?? 8;
+    const perCandidate = options.maxTicksPerCandidate ?? 600;
+    const total = options.maxTotalTicks ?? 2400;
+    for (const limit of [maxCandidates, perCandidate, total])
+      if (!Number.isInteger(limit) || limit < 0)
+        throw new RangeError("Probe limits must be nonnegative integers.");
+    if (candidates.length > maxCandidates) throw new RangeError("Probe candidate limit exceeded.");
+    const results: ProbeResult<T>[] = [];
+    let hostPolls = 0;
+    for (const candidate of candidates) {
+      if (hostPolls >= total) break;
+      const started = performance.now();
+      const branch = this.fork({ maxAdditionalTicks: Math.min(perCandidate, total - hostPolls) });
+      const movement = branch.engine.movementUpdateCount;
+      let value: T | undefined;
+      let error: string | undefined;
+      let status: ProbeResult<T>["status"] = "completed";
+      try {
+        value = candidate.run(branch);
+        if (value !== null && typeof value === "object" && "then" in value)
+          throw new TypeError("Probe callbacks must be synchronous.");
+      } catch (cause) {
+        error = cause instanceof Error ? cause.message : String(cause);
+        status = error.startsWith("Speedrun tick ceiling exceeded") ? "budget_exhausted" : "failed";
+      }
+      const polls = branch.ticks - this.ticks;
+      hostPolls += polls;
+      results.push({
+        label: candidate.label,
+        status,
+        hostPolls: polls,
+        logicCycles: branch.cycles - this.cycles,
+        movementUpdates: branch.engine.movementUpdateCount - movement,
+        wallMs: performance.now() - started,
+        ...(value === undefined ? {} : { value }),
+        ...(error === undefined ? {} : { error }),
+        branch,
+      });
+    }
+    return {
+      candidates: results,
+      hostPolls,
+      prefixTicksReused: results.length * this.ticks,
+      unattempted: candidates.length - results.length,
+    };
   }
 
   state() {
@@ -179,10 +331,13 @@ export class Speedrun {
       this.engine.advanceClock(1000 / 60);
       this.engine.soundTick();
       if (this.engine.modalKind !== null || this.engine.continuationPending) this.engine.tick();
-      else if (this.clock.poll((this.ticks * 1000) / 60, this.engine.vars[10]!)) {
-        this.engine.tick();
-        this.cycles++;
-        this.navigationHeading = null;
+      else {
+        this.clockPollTick = this.ticks;
+        if (this.clock.poll((this.ticks * 1000) / 60, this.engine.vars[10]!)) {
+          this.engine.tick();
+          this.cycles++;
+          this.navigationHeading = null;
+        }
       }
       if (this.hash === KNOWN_GAME_HASH.KQ1 && this.engine.flags[63] !== 0)
         assert.fail(`Graham died: ${JSON.stringify(this.state())}`);
@@ -466,6 +621,26 @@ export class Speedrun {
         }
       }
       if (decision.outcome) return { outcome: decision.outcome, plan: controller.lastPlan };
+      this.advance();
+    }
+  }
+
+  /** Execute declared approach, activation, passage and landing as ordinary inputs. */
+  traverse(request: TraversalRequest, options: TraversalOptions = {}): TraversalOutcome {
+    const traversal = new NavigationTraversal(this.engine, request, {
+      ...options,
+      ...(this.navigationHeading === null ? {} : { pendingDirection: this.navigationHeading }),
+      now: options.now ?? (() => performance.now()),
+      budgets: {
+        ...options.budgets,
+        hostPolls: Math.min(options.budgets?.hostPolls ?? 3000, this.maxTicks - this.ticks),
+      },
+    });
+    for (;;) {
+      const decision = traversal.next({ hostPolls: this.ticks, logicCycles: this.cycles });
+      if (decision.key !== null) this.key(decision.key);
+      if (decision.direction !== null) this.navigationHeading = decision.direction;
+      if (decision.outcome) return decision.outcome;
       this.advance();
     }
   }

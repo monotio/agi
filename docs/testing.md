@@ -301,13 +301,21 @@ clearance is Chebyshev distance in picture cells to an illegal anchor. The soft
 clearance penalty prefers room in corridors while retaining one-position
 passages. Heading is included in search state when turn cost is requested.
 Smoothing follows the actual full-step steering trace and preserves clearance
-and weighted cost. An off-lattice target is unreachable under this static model;
+and weighted cost without adding movement updates. Region goals prefer a reachable
+interior endpoint; an actor already inside the region has arrived. The executor
+finishes at the selected endpoint, rather than stopping at the first region edge.
+An off-lattice target is unreachable under this static model;
 the planner never assumes normal input can shorten a final step.
 
 The default `geometry: "widest"` mode accounts for every cel in the current view;
 `geometry: "current"` is an explicit less conservative option. `maxSearchNodes`
-bounds search work; `searchStatus` distinguishes exhausted search from no static
-route. Returned steps and clearance statistics describe the smoothed trace.
+bounds search work; `maxSteps` bounds movement during search, including the final
+clipped border crossing. `searchStatus` distinguishes search-work exhaustion,
+movement-allowance exhaustion and no static route. Returned `steps` and clearance
+statistics describe the smoothed approach; `terminalSteps` counts the remaining
+exit updates. `avoidRegions` excludes declared baseline-anchor rectangles from
+search, smoothing and live trace validation. These regions need game-specific
+evidence; they do not infer hazards from a picture.
 `renderNavigationSnapshot` returns a PNG and JSON sidecar with controls, object
 bounds, target and candidate route.
 
@@ -330,7 +338,8 @@ interactions require explicit input. Eligible movement updates drive stall and
 oscillation checks, so slow step cadence does not look like a blocked path.
 Host polls, logic cycles, movement updates, replans and injected wall time have
 separate budgets. Callers of the incremental API can yield or cancel between
-polls. Detached `playtest_room` runs remain synchronous and retain their existing
+polls. Replacement searches use the remaining movement allowance. Detached
+`playtest_room` runs remain synchronous and retain their existing
 five-second overall deadline.
 
 `playtest_room` supports `walkTo`, `walkPath` and `walkWaypoints`; their `ticks`
@@ -342,13 +351,34 @@ at 60 Hz and applies `CycleClock` before logic execution; its poll counts are no
 interchangeable with playtest cycles.
 `expect.reachable` also executes normal inputs through the shared controller.
 
+`Speedrun.traverse` uses [`NavigationTraversal`](../src/agent/navigationTraversal.ts)
+for a declared approach, activation input, observed state change, passage and
+verified landing. An approach can finish on an explicit state predicate when a
+script takes over before the coordinate target. Each phase declares its geometry
+and trigger policy, while movement, polls, cycles, searches and replans share one
+allowance. Unknown prompts return `needs_input`; they are never acknowledged by
+the traversal. The optional [readiness tests](../test/navigation-readiness.test.ts)
+exercise KQ1's tree branch, KQ2's ladder and KQ3's staircase from ordinary inputs.
+Setup routes are separate from the single goal used for each tested crossing.
+
+`Speedrun.fork()` retains an in-process checkpoint for exploration. It copies the
+resource bytes, engine image and replay state, RNG, pending input and answers,
+scheduler state and recorded prefix. It rejects unsupported or inexact boundaries.
+`run.probe([{ label, run: branch => ... }], options)` tries synchronous candidates
+from that checkpoint under per-candidate and aggregate simulation-poll ceilings.
+It reports polls, cycles, movement updates, elapsed time and omitted candidates;
+the returned branch can be retained without replaying the prefix. Callback code
+must terminate: poll ceilings do not interrupt arbitrary synchronous code.
+The retained input tape still needs independent cold-boot replay before publication.
+These checkpoints are process memory, not a durable session format.
+
 Static candidates do not predict arbitrary script hazards or prove a game can
 be completed. A lake can be geometrically passable while room logic makes entry
 fatal; its route needs an explicit safe approach. Keep trigger policy and geometry
-assumptions explicit, use bounded goals, and assert milestones. Full traversal
-phases, interaction preconditions and library-wide goal-only proofs require
-additional evidence. A missing static path is not evidence of an interpreter
-defect.
+assumptions explicit, use bounded goals, and assert milestones. The tested
+traversals establish their declared game-specific conditions; broader interaction
+understanding and library-wide proofs require additional evidence. A missing
+static path is not evidence of an interpreter defect.
 
 ## World map
 

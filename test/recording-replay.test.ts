@@ -5,6 +5,55 @@ import { createAgentSessionState } from "../src/agent/tools.ts";
 import { openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { playtestRoom } from "../src/agent/playtest.ts";
+test("recording restoration preserves discarded view caches instead of reviving object references", () => {
+  const state = createAgentSessionState();
+  state.container.putResource(
+    "view",
+    1,
+    buildView({
+      loops: [
+        {
+          cels: [
+            { width: 1, height: 1, pixels: [1] },
+            { width: 1, height: 1, pixels: [2] },
+          ],
+        },
+      ],
+    }),
+  );
+  state.container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `
+    if (!isset(f200)) {
+      set(f200); set.game.id("DEMO"); load.view(1); animate.obj(1); set.view(1,1); discard.view(1);
+    }
+    last.cel(1,v40); return;
+  `,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  const host = {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  };
+  const source = new Engine(openContainer(state.getFiles()), host);
+  source.tick();
+  const image = source.recordingImage()!;
+  const replay = source.captureReplayState();
+  const restored = new Engine(openContainer(state.getFiles()), host);
+  restored.restoreImage(image, { preservePresentation: true });
+  restored.restoreReplayState(replay);
+  assert.deepEqual(restored.recordingImage(), image);
+  source.tick();
+  restored.tick();
+  assert.equal(restored.vars[40], source.vars[40]);
+  assert.equal(source.vars[40], 0);
+});
 
 function world() {
   const state = createAgentSessionState();

@@ -662,7 +662,9 @@ export function kq2Door2(run: Speedrun): void {
     [84, 45],
   ]);
   exitNorthSafe(run, 26, { x0: 84, x1: 84, y0: 45, y1: 45 });
-  exitNorthSafe(run, 19);
+  // Room 26 also calls the poisoned-lake logic. Keep the northward approach
+  // on the dry eastern shore instead of centering toward the water.
+  exitNorthSafe(run, 19, { x0: 84, x1: 84, y0: 45, y1: 45 });
 
   run.walkPath({ x0: 150, x1: 155, y0: 110, y1: 130 });
   run.exit("E", 20);
@@ -778,8 +780,9 @@ export function kq2Door2(run: Speedrun): void {
   run.walkTo(0, 85);
   run.exit("W", 19);
 
-  exitSouthSafe(run, 26);
-  exitSouthSafe(run, 33);
+  // Stay east of the poisoned water on the return through rooms 19 and 26.
+  exitSouthSafe(run, 26, { x0: 90, x1: 90, y0: 165, y1: 165 });
+  exitSouthSafe(run, 33, { x0: 90, x1: 90, y0: 165, y1: 165 });
   // The return follows the same demonstrated shore, outside the lake.
   run.walkWaypoints([
     [90, 38],
