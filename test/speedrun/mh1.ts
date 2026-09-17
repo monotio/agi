@@ -75,13 +75,21 @@ export class Manhunter {
     this.waitFor(() => this.engine.vars[0] === room, label ?? `room ${room}`, max);
   }
 
-  /** Let a scene finish: the cursor returns once the room hands control back. */
+  /** Consume a queued sewer passage and observe its new scene before steering again. */
   settle(max = 400): void {
-    for (let t = 0; t < max; t++) {
-      this.step(1);
-      if (t > 40 && this.cursor.active) break;
-    }
-    this.step(10);
+    const picture = this.engine.vars[250];
+    const scene = this.engine.vars[50];
+    this.waitFor(
+      () => this.engine.vars[250] !== picture || this.engine.vars[50] !== scene,
+      "the sewer passage changes its picture or scene",
+      max,
+    );
+    this.waitFor(
+      () => this.cursor.active && !this.engine.continuationPending,
+      "the passage returns cursor control",
+      max,
+    );
+    this.cycle();
   }
 
   /** One interpreter cycle, so a direction key is never doubled before it is read. */
@@ -262,14 +270,21 @@ export function opening(mh: Manhunter): void {
   // timed segments alternating rooms 125 and 124; each finished segment sets
   // one of flags 65, 38, 68 and 69. C closes the MAD onto the city map.
   mh.waitFor(() => mh.hint().includes("Press <ENTER>"), "the tracker prompt");
+  run.checkpoint("Tracker replay begins", { room: 101 });
   run.key(AGI_KEY.ENTER);
+  mh.waitFor(
+    () => Boolean(engine.flags[38] && engine.flags[65]),
+    "the tracker's first two segments",
+    9000,
+  );
+  run.checkpoint("Tracking the suspect", {});
   mh.waitFor(
     () => Boolean(engine.flags[69] && engine.flags[68] && engine.flags[38] && engine.flags[65]),
     "the tracker's four segments",
     9000,
   );
   assert.ok([124, 125].includes(engine.vars[0]!), `tracker rooms; ${mh.describe()}`);
-  run.checkpoint("Tracker", {});
+  run.checkpoint("Tracker replay complete", {});
   mh.key(KEY_C, 120);
   run.checkpoint("City map", { room: ROOM_MAP });
 }
@@ -308,7 +323,7 @@ export function bellevue(mh: Manhunter): void {
   mh.key(KEY_C, 30);
   mh.waitForRoom(101, "the MAD");
   mh.step(60);
-  run.checkpoint("MAD", { room: 101 });
+  run.checkpoint("Consult the MAD", { room: 101 });
   mh.cursorTo(30, 40);
   run.answer("Reno Davis");
   mh.enter(120);
@@ -597,7 +612,7 @@ export function flatbush(mh: Manhunter): void {
   );
   run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[50] === 1 && mh.cursor.active, "the maze started", 300);
-  run.checkpoint("Maze", { room: 126 });
+  run.checkpoint("Enter the maze challenge", { room: 126 });
   maze(mh);
   // The machine's ending returns to the bar through two Enter prompts.
   mh.waitFor(
@@ -630,6 +645,7 @@ export function flatbush(mh: Manhunter): void {
  */
 function maze(mh: Manhunter): void {
   const { run, engine } = mh;
+  let nextHighlight = 4;
   for (const leg of MAZE_ROUTE) {
     if (engine.flags[leg.flag]) continue; // crossed en passant on an earlier leg
     const start = mh.cursor;
@@ -666,11 +682,27 @@ function maze(mh: Manhunter): void {
     }
     while (engine.vars[92] !== 0) mh.cycle();
     assert.ok(engine.flags[leg.flag], `maze square ${leg.name}; ${mh.describe()}`);
+    const collected =
+      MAZE_ROUTE.filter((square) => engine.flags[square.flag]).length +
+      Number(Boolean(engine.flags[151])) +
+      Number(Boolean(engine.flags[152]));
+    if (collected >= nextHighlight && nextHighlight < 12) {
+      run.checkpoint(
+        nextHighlight === 4
+          ? "Maze: four squares collected"
+          : nextHighlight === 8
+            ? "Maze: eight squares collected"
+            : "Maze: ten squares collected",
+        { room: 126 },
+      );
+      nextHighlight = nextHighlight === 4 ? 8 : nextHighlight === 8 ? 10 : 12;
+    }
   }
   const squares = [151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162].filter(
     (f) => engine.flags[f],
   ).length;
   assert.equal(squares, 12, "all twelve maze squares were collected");
+  run.checkpoint("Maze challenge completed", { room: 126 });
 }
 
 /** Prospect Park: the women's toilets, stall three, sit, and three flushes drop Mick into the sewers. */
@@ -729,8 +761,12 @@ export function sewers(mh: Manhunter): void {
     const selector = Number(SEWER_SELECTORS[i]);
     if (move === "C") {
       mh.selectExit(selector, `keycard ${cards + 1}`);
-      mh.enter(90);
+      const previousCards = engine.vars[61]!;
+      run.key(AGI_KEY.ENTER);
+      mh.waitFor(() => engine.vars[61] === previousCards + 1, "the keycard is collected", 300);
+      mh.cycle();
       cards++;
+      if (cards % 4 === 0) run.checkpoint(`${cards} sewer keycards collected`, { room: 128 });
       continue;
     }
     mh.selectExit(selector, `sewer move ${i} (${move})`);
@@ -749,6 +785,7 @@ export function sewers(mh: Manhunter): void {
   assert.match(mh.hint(), /take the medallion/);
   mh.enter(120);
   run.assertCarried(13, "the medallion");
+  run.checkpoint("Recover the medallion", { room: 128 });
   // Back on the dock, straight down off the bottom edge returns to the sewers.
   mh.glide(5, () => engine.vars[51] === 0, "the dock's lower edge");
   run.key(AGI_KEY.ENTER);
@@ -830,7 +867,7 @@ export function coneyIsland(mh: Manhunter): void {
  */
 export function orbs(mh: Manhunter): void {
   const { run, engine } = mh;
-  run.checkpoint("Orbs", { room: 131 });
+  run.checkpoint("Deliver the Data Card to the Orbs", { room: 131 });
   run.answer("Reno Davis");
   let acknowledged = "";
   for (let t = 0; t < 12000 && engine.vars[0] === 131; t++) {

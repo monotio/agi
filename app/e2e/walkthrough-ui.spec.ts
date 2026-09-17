@@ -604,7 +604,7 @@ test.describe("Walkthrough UI", () => {
     await expect(timeline).toBeVisible({ timeout: 15_000 });
 
     const sewersPct = await checkpointPercent(page, "Sewers");
-    const mazePct = await checkpointPercent(page, "Maze");
+    const mazePct = await checkpointPercent(page, "Enter the maze challenge");
     const box = await timeline.boundingBox();
     const clickAt = (pct: number) =>
       page.mouse.click(box!.x + (box!.width * pct) / 100, box!.y + box!.height * 0.5);
@@ -617,6 +617,7 @@ test.describe("Walkthrough UI", () => {
     // Backward seek cleanly resets and reaches the Maze (room 126).
     await clickAt(mazePct);
     await engineRoomIs(page, 126, 30_000);
+    await page.screenshot({ path: test.info().outputPath("mh1-story-highlights.png") });
 
     // And again in both directions: no direction state leaks across sessions.
     await clickAt(sewersPct);

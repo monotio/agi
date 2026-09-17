@@ -216,10 +216,10 @@ npm --prefix app run e2e -- e2e/walkthroughs.spec.ts
 ```
 
 Each route uses normal player inputs and a virtual clock, asserts score and
-inventory milestones, and repeats from a cold boot with seed 1. The KQ2 route
+inventory milestones, and repeats from a cold boot with its catalog's fixed seed. The KQ2 route
 completes the entire game to the maximum score of 185, solving all door riddles,
 navigating the enchantress island and clouds, defeating the lion, rescuing
-Princess Rosella, and reaching the wedding and ending credits. The SQ1 route
+Valanice, and reaching the wedding and ending credits. The SQ1 route
 completes the entire game to the maximum score of 202, evacuating the Arcada,
 surviving Kerona and defeating Orat, purchasing a spaceship and pilot droid in
 Ulence Flats, infiltrating the Sarien battlecruiser Deltaur in disguise, stealing
@@ -231,6 +231,26 @@ Each entry defines its coverage, route and observable endpoint once for Node, CL
 and browser checks. `scripts/walkthrough.ts` writes a replay for any catalog entry;
 for example, `npm run prove:walkthrough -- sq1`. Game-specific route modules contain
 player actions and intermediate milestones; `test/speedrun.test.ts` checks the driver.
+
+Routes carry continuous motion through verified waypoint chains and use observed
+game events in place of unnecessary fixed waits. Published checkpoints name story
+highlights; finer room, score and inventory assertions remain in the route even
+when they do not need a timeline marker. The narrated tapes have these costs:
+
+| Route                | Host polls | Logic cycles | Highlights |
+| -------------------- | ---------: | -----------: | ---------: |
+| KQ1                  |    110,029 |       15,846 |         37 |
+| KQ2                  |    126,645 |       18,000 |         34 |
+| SQ1                  |    132,506 |       17,630 |         55 |
+| MH1 Day 1            |     40,272 |        9,168 |         25 |
+| Adventure Department |      1,367 |           82 |          4 |
+
+The inexpensive [artifact quality check](../app/test/walkthrough-quality.test.ts)
+guards poll, cycle and action ceilings, duplicate/debug markers, and long gaps
+between highlights. It supplements cold replay and browser seek checks; it does
+not establish completion by counting inputs. KQ1 preserves its verified 159-point
+ending, while the game declares a display maximum of 158; no new maximum-score
+claim is inferred from that discrepancy. MH1 remains a chapter proof.
 
 ### Manhunter Day 1 proof
 

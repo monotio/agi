@@ -540,10 +540,21 @@ export class Speedrun {
     }
   }
 
-  walkWaypoints(points: readonly (readonly [number, number])[]): void {
+  walkWaypoints(
+    points: readonly (readonly [number, number])[],
+    options: { continuous?: boolean } = {},
+  ): void {
     // This contributor convenience preserves the established stop between
     // explicit points. navigate({kind:"waypoints",...}) bounds one continuous goal.
-    for (const [x, y] of points) this.walkTo(x, y);
+    if (!options.continuous) {
+      for (const [x, y] of points) this.walkTo(x, y);
+      return;
+    }
+    const { outcome } = this.navigate({
+      kind: "waypoints",
+      points: points.map(([x, y]) => ({ x, y })),
+    });
+    this.finishNavigation(outcome, 3000);
   }
 
   repeatUntil(action: () => void, until: () => boolean, label: string, maxAttempts = 100): void {
