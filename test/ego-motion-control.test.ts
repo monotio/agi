@@ -34,6 +34,18 @@ class Host implements EngineHost {
 
 const setup = `load.view(1); animate.obj(o0); set.view(o0, 1); ignore.horizon(o0); ignore.blocks(o0); ignore.objs(o0); position(o0, 20, 100); draw(o0); stop.cycling(o0);`;
 
+test("movement authority is observable independently of parser availability", () => {
+  for (const [command, parser, movement] of [
+    ["accept.input(); program.control();", true, false],
+    ["prevent.input(); player.control();", false, true],
+  ] as const) {
+    const { engine } = game(`${setup} ${command} return;`);
+    engine.tick();
+    assert.equal(engine.inputEnabled, parser);
+    assert.equal(engine.movementControlEnabled, movement);
+  }
+});
+
 function game(source: string): { engine: Engine; host: Host } {
   const container = createContainer();
   container.putResource("logic", 0, assembleLogic(source, { dictionary: new Map() }).payload);

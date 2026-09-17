@@ -685,7 +685,11 @@ test("the extended step vocabulary runs in the simulation", () => {
     instructionBudget: null,
   });
   assert.equal(walled.success, false);
-  assert.match(walled.error ?? "", /walkTo did not reach \(158,120\)/);
+  assert.match(walled.error ?? "", /walkTo did not reach its goal/);
+  assert.equal(
+    (walled.details?.["navigation"] as { status: string }).status,
+    "unreachable_under_current_model",
+  );
   const unreachable = playtestRoom(blocked, {
     room: 1,
     spawnX: null,

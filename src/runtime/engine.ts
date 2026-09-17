@@ -646,6 +646,8 @@ export class Engine {
    * couples object 0 to the global direction byte, program.control decouples it.
    */
   private directionCoupling = 1;
+  /** Host diagnostic only: monotonic eligible ego movement updates, never saved. */
+  private egoMovementUpdates = 0;
   /** Decoded OBJECT metadata: block-3 payload, entry count and block-2 record count. */
   private inventoryMetaCache: {
     payload: Uint8Array;
@@ -1251,6 +1253,16 @@ export class Engine {
   /** Whether the host should offer parser editing rather than raw key input. */
   get inputEnabled(): boolean {
     return this.inputAccepted;
+  }
+
+  /** Whether player direction input controls ego, independently of parser editing. */
+  get movementControlEnabled(): boolean {
+    return this.directionCoupling !== 0;
+  }
+
+  /** Due ego movement passes, excluding positioning suppression and zero step size. */
+  get movementUpdateCount(): number {
+    return this.egoMovementUpdates;
   }
 
   /** The text row for a text-surface read-back (debug/test helper). */
@@ -3045,6 +3057,8 @@ export class Engine {
         obj.stepCount = obj.stepTime;
         const previousX = obj.x;
         const previousY = obj.y;
+        if (obj === this.objects[0] && !obj.newlyPositioned && obj.stepSize > 0)
+          this.egoMovementUpdates++;
         this.moveObject(obj, obj.newlyPositioned ? 0 : obj.stepSize);
         obj.stationary = obj.x === previousX && obj.y === previousY;
         obj.newlyPositioned = false;

@@ -24,6 +24,10 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
 
     it(`replays bad case: ${content.name} (${file})`, async () => {
       const session = createAgentSessionState();
+      for (const setup of content.setup ?? []) {
+        const result = executeAgentTool(session, setup.tool, setup.args);
+        assert.equal(result.success, true, `${file}: setup ${setup.tool}: ${result.error ?? ""}`);
+      }
       // A literal `result` replays a transport-level failure (no tool call).
       const res =
         content.result ??
@@ -32,6 +36,15 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
           content.tool,
           content.args,
         ));
+
+      for (const [path, expected] of Object.entries(content.expectedFields ?? {})) {
+        let actual: unknown = res;
+        for (const key of path.split(".")) {
+          assert.ok(actual !== null && typeof actual === "object", `${file}: missing ${path}`);
+          actual = (actual as Record<string, unknown>)[key];
+        }
+        assert.deepEqual(actual, expected, `${file}: ${path}`);
+      }
 
       if (content.projected) {
         const store = new Map<string, typeof res>();

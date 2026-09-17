@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import type { Speedrun } from "./runner.ts";
 import { AGI_KEY } from "../../src/runtime/keys.ts";
 import { planWalk, type Target } from "../../src/agent/navigation.ts";
+import { NavigationError } from "../../src/agent/navigationController.ts";
+import { DIRECTION_KEYS, directionForDelta } from "../../src/agent/gameTestSteps.ts";
 
 function skipIntro(run: Speedrun): void {
   run.repeatUntil(
@@ -9,11 +11,11 @@ function skipIntro(run: Speedrun): void {
       run.key(AGI_KEY.ENTER);
       run.advance(30);
     },
-    () => run.state().control && run.state().room === 1,
+    () => run.state().inputEnabled && run.state().room === 1,
     "intro yielded control",
     200,
   );
-  assert.ok(run.state().control, "intro never yielded control");
+  assert.ok(run.state().inputEnabled, "intro never yielded control");
 }
 
 /** Opening errands through the cloak and ring; later puzzles are outside this route. */
@@ -51,15 +53,23 @@ export function kq2Opening(run: Speedrun): void {
   assert.equal(run.engine.flags[31], 0, "dismounted at ladder foot");
   run.exit("E", 74);
   // Dwarf: f33 means he is home; leave west and re-enter until he is gone.
+  run.dismiss(); // Acknowledge the known dwarf-home arrival message.
   run.repeatUntil(
     () => {
       run.exit("W", 73);
       run.exit("E", 74);
+      run.dismiss();
     },
     () => run.engine.flags[33] === 0,
     "dwarf never left",
     12,
   );
+  assert.throws(
+    () => run.walkTo(50, 120),
+    (error) => error instanceof NavigationError && error.outcome.status === "needs_input",
+  );
+  assert.match(run.state().text, /fire is HOT/);
+  run.dismiss(); // Known fireplace warning while approaching the soup.
   run.walkTo(50, 120);
   run.command("get soup");
   run.assertCarried(67, "soup");
@@ -150,14 +160,25 @@ function monasteryApproach(run: Speedrun): void {
     () => {
       if (run.engine.inputEdit === "") run.type("give basket girl");
       const girl = run.engine.screenObjects[2]!;
-      try {
-        run.walkTo(
-          Math.max(2, Math.min(157, girl.x - 6)),
-          Math.max(40, Math.min(165, girl.y)),
-          300,
-        );
-      } catch (error) {
-        if (!(error instanceof Error) || !error.message.startsWith("Walk blocked")) throw error;
+      const x = Math.max(2, Math.min(157, girl.x - 6));
+      const y = Math.max(40, Math.min(165, girl.y));
+      const ego = run.engine.screenObjects[0]!;
+      // Pursue each sampled position for the existing 300-poll attempt, then
+      // hold the last heading for another 60 polls before resampling.
+      // Consume the initial gesture before starting that attempt's poll budget.
+      run.direction(directionForDelta(Math.sign(x - ego.x), Math.sign(y - ego.y)));
+      const pursuit = run.navigate(
+        { kind: "position", target: { x0: x, x1: x, y0: y, y1: y } },
+        { budgets: { hostPolls: 300 }, stallUpdates: 300 },
+      );
+      if (pursuit.outcome.status === "reached") run.direction(0);
+      else {
+        if (!["blocked", "budget_exhausted"].includes(pursuit.outcome.status))
+          throw new NavigationError(pursuit.outcome);
+        // The controller queued a stop. Reissue the held heading as a raw key
+        // in that same input phase, keeping this explicit continuation moving.
+        const heading = run.engine.vars[6]!;
+        if (heading !== 0) run.key(DIRECTION_KEYS[heading]!);
         run.advance(60);
       }
       if (girlGap() <= 20) run.submit("give basket girl");
@@ -208,6 +229,17 @@ export function exitSouthSafe(
 function monasteryCross(run: Speedrun): void {
   monasteryApproach(run);
   run.checkpoint("Monastery approach", { room: 6, score: 25 });
+  for (const message of [/beautiful fairy floats/, /protective spell/]) {
+    try {
+      run.walkPath({ x0: 70, x1: 70, y0: 150, y1: 150 });
+      break;
+    } catch (error) {
+      if (!(error instanceof NavigationError)) throw error;
+      assert.equal(error.outcome.status, "needs_input");
+      assert.match(run.messages.at(-1) ?? "", message);
+      run.dismiss(); // Known fairy arrival and protection messages, in order.
+    }
+  }
   run.walkPath({ x0: 70, x1: 70, y0: 150, y1: 150 });
   run.command("open door");
   run.waitForRoom(71, "monastery door opens", 1200);
@@ -467,7 +499,11 @@ export function kq2Door1(run: Speedrun): void {
 
   // Exit East from 51 -> transit 52 -> 53 -> 54 -> Room 15
   run.exit("E", 52);
-  run.wait(() => run.engine.vars[0] === 15 && run.state().control, "returned to Room 15", 30000);
+  run.wait(
+    () => run.engine.vars[0] === 15 && run.state().inputEnabled,
+    "returned to Room 15",
+    30000,
+  );
 
   // Walk east out of water onto land in Room 15
   run.walkDirection("E", () => run.engine.vars[95] === 0, "walking out of water in room 15");
@@ -503,6 +539,8 @@ export function kq2Door1(run: Speedrun): void {
   // Leave cave back to Room 44 (cloth 73 is automatically retrieved on exit)
   run.walkPath({ x0: 5, x1: 15, y0: 115, y1: 125 });
   run.exit("W", 44);
+  assert.match(run.messages.at(-1) ?? "", /remove the cloth from the cage/);
+  run.dismiss(); // The cave-exit narration confirms the cloth is retrieved.
 
   // 11. Go east 4 times: 44 -> 45 -> 46 -> 47 -> 48
   for (const [, toR] of [
@@ -615,7 +653,15 @@ export function kq2Door2(run: Speedrun): void {
   // 2. North through 47 -> 40 -> 33 -> 26 -> 19 -> 20 (antique shop)
   exitNorthSafe(run, 40);
   exitNorthSafe(run, 33);
-  exitNorthSafe(run, 26);
+  // Room 33's water is geometrically legal but LOGIC 101 starts drowning.
+  // Retain the demonstrated dry eastern shore from the original input route;
+  // centering in the whole-room target region does not establish hazard safety.
+  run.walkWaypoints([
+    [90, 166],
+    [86, 69],
+    [84, 45],
+  ]);
+  exitNorthSafe(run, 26, { x0: 84, x1: 84, y0: 45, y1: 45 });
   exitNorthSafe(run, 19);
 
   run.walkPath({ x0: 150, x1: 155, y0: 110, y1: 130 });
@@ -636,28 +682,46 @@ export function kq2Door2(run: Speedrun): void {
   // 4. Rub lamp for magic carpet (+2, score 98, item 76)
   run.command("rub lamp");
   run.wait(() => (run.engine.vars[88] ?? 0) > 0, "genie animation started", 3000);
-  run.wait(() => run.engine.vars[88] === 0 && run.state().control, "rub lamp 1 finished", 5000);
+  run.wait(
+    () => run.engine.vars[88] === 0 && run.state().inputEnabled,
+    "rub lamp 1 finished",
+    5000,
+  );
   run.checkpoint("Magic carpet", { room: 20, score: 98 });
 
   // 5. Ride carpet to mountaintop Room 55 (+4, score 102)
   run.command("ride carpet");
   run.wait(() => run.state().room === 55, "entered room 55", 15000);
-  run.wait(() => run.engine.flags[107] === 0 && run.state().control, "landed on mountaintop", 5000);
+  run.wait(
+    () => run.engine.flags[107] === 0 && run.state().inputEnabled,
+    "landed on mountaintop",
+    5000,
+  );
   run.checkpoint("Mountaintop", { room: 55, score: 102 });
 
   // 6. Rub lamp for sword (+2, score 104, item 50) and bridle (+2, score 106, item 77)
   run.command("rub lamp");
   run.wait(() => (run.engine.vars[88] ?? 0) > 0, "genie animation 2 started", 3000);
-  run.wait(() => run.engine.vars[88] === 0 && run.state().control, "rub lamp 2 finished", 5000);
+  run.wait(
+    () => run.engine.vars[88] === 0 && run.state().inputEnabled,
+    "rub lamp 2 finished",
+    5000,
+  );
   run.checkpoint("Sword", { room: 55, score: 104 });
 
   run.command("rub lamp");
   run.wait(() => (run.engine.vars[88] ?? 0) > 0, "genie animation 3 started", 3000);
-  run.wait(() => run.engine.vars[88] === 0 && run.state().control, "rub lamp 3 finished", 5000);
+  run.wait(
+    () => run.engine.vars[88] === 0 && run.state().inputEnabled,
+    "rub lamp 3 finished",
+    5000,
+  );
   run.checkpoint("Bridle", { room: 55, score: 106 });
 
   // 7. Room 55 -> East -> 56: bridle snake into Pegasus (+5, score 111, f109) and talk to horse (+2, score 113, sugar cube 79)
   run.exit("E", 56);
+  assert.match(run.messages.at(-1) ?? "", /poisonous viper blocking your path/);
+  run.dismiss(); // The snake introduction precedes the planned bridle interaction.
   run.walkTo(80, 80);
   run.command("put bridle snake");
   run.wait(() => run.engine.flags[109] !== 0, "bridled winged horse", 3000);
@@ -703,7 +767,7 @@ export function kq2Door2(run: Speedrun): void {
   // 10. Ride carpet back to antique shop exterior Room 20
   run.command("ride carpet");
   run.wait(
-    () => run.state().room === 20 && run.engine.flags[148] === 0 && run.state().control,
+    () => run.state().room === 20 && run.engine.flags[148] === 0 && run.state().inputEnabled,
     "returned to room 20",
     30000,
   );
@@ -716,7 +780,15 @@ export function kq2Door2(run: Speedrun): void {
 
   exitSouthSafe(run, 26);
   exitSouthSafe(run, 33);
-  exitSouthSafe(run, 40);
+  // The return follows the same demonstrated shore, outside the lake.
+  run.walkWaypoints([
+    [90, 38],
+    [84, 66],
+    [85, 68],
+    [89, 73],
+    [90, 165],
+  ]);
+  exitSouthSafe(run, 40, { x0: 90, x1: 90, y0: 165, y1: 165 });
   exitSouthSafe(run, 47, { x0: 78, x1: 82, y0: 165, y1: 167 });
 
   run.walkTo(80, 131);
@@ -846,8 +918,16 @@ export function kq2Castle(run: Speedrun): void {
   // 7. North into 18 (castle exterior)
   run.walkPath({ x0: 65, x1: 75, y0: 51, y1: 53 });
   run.exit("N", 18);
+  assert.match(run.messages.at(-1) ?? "", /two spooky ghosts guarding/);
+  run.dismiss(); // The sugar-protected approach observes the castle guards.
 
   // 8. Castle door in 18
+  assert.throws(
+    () => run.walkTo(70, 146),
+    (error) => error instanceof NavigationError && error.outcome.status === "needs_input",
+  );
+  assert.match(run.messages.at(-1) ?? "", /spirits are fooled by the black cloak/);
+  run.dismiss(); // The worn disguise is confirmed before the guards depart.
   run.walkTo(70, 146);
   run.command("open door");
   run.wait(() => run.state().room === 61, "entered castle", 15000);
@@ -1160,12 +1240,15 @@ export function kq2Complete(run: Speedrun): void {
 
   run.command("ride fish");
   run.checkpoint("Fish ridden", { room: 75, score: 170 });
-  run.wait(() => run.state().room === 77 && run.state().control, "arrived on island", 30000);
+  run.wait(() => run.state().room === 77 && run.state().inputEnabled, "arrived on island", 30000);
+  run.wait(() => run.engine.movementControlEnabled, "fish landing returns player control");
   run.checkpoint("Island arrived", { room: 77, score: 170 });
 
   // Island: 77 -> 78
   run.exit("E", 78);
   run.checkpoint("Amulet room", { room: 78, score: 170 });
+  assert.match(run.messages.at(-1) ?? "", /amulet lying on the ground/);
+  run.dismiss(); // The room introduction reveals the item before approaching it.
 
   run.walkPath(16, 88);
   run.command("take amulet");

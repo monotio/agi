@@ -295,18 +295,60 @@ a runner exposing an engine, a room/position state reader, and a `walkTo` input
 driver, such as [Speedrun](../test/speedrun/runner.ts). Read-only planning and
 rendering need only the engine and state reader.
 
-`planWalk(run, { x0, y0, x1, y1 })` searches the current control surface with the
-player's whole baseline footprint. It returns candidate waypoints or the nearest
-reachable position. `walkPlanned` sends those waypoints through the runner's
-normal movement inputs and stops on errors or an unexpected room transition.
-`renderNavigationSnapshot(run, target)` returns `{ png, json }` containing the scene, control map, object bounds
-and path, with a JSON sidecar describing the current geometry.
+`planWalk(run, { x0, y0, x1, y1 })` uses deterministic A* over legal player
+baseline anchors. A cardinal or diagonal full step costs one movement update;
+clearance is Chebyshev distance in picture cells to an illegal anchor. The soft
+clearance penalty prefers room in corridors while retaining one-position
+passages. Heading is included in search state when turn cost is requested.
+Smoothing follows the actual full-step steering trace and preserves clearance
+and weighted cost. An off-lattice target is unreachable under this static model;
+the planner never assumes normal input can shorten a final step.
 
-This is an advisory static planner. Moving objects, animation, changing sprite
-width, script-triggered geometry and room transitions can invalidate a candidate.
-Use small goals, replan after state changes and assert the observed outcome. A
-missing static path is a routing question, not evidence of an interpreter defect.
-These are contributor tools; they do not add path planning to the in-app agent.
+The default `geometry: "widest"` mode accounts for every cel in the current view;
+`geometry: "current"` is an explicit less conservative option. `maxSearchNodes`
+bounds search work; `searchStatus` distinguishes exhausted search from no static
+route. Returned steps and clearance statistics describe the smoothed trace.
+`renderNavigationSnapshot` returns a PNG and JSON sidecar with controls, object
+bounds, target and candidate route.
+
+[`NavigationController`](../src/agent/navigationController.ts) is the shared
+incremental executor used by detached playtests and `Speedrun.navigate`. It
+accepts position/region, explicit-waypoint and expected-room exit goals, emits
+ordinary player input and observes the real engine after each host poll. The
+host advances time and records inputs; frozen walkthrough playback never invokes
+the planner. Movement control is reported separately from parser availability.
+A terminal result and its counters describe the observed position. When ordinary
+movement input is available, the stop key is consumed by the next input phase,
+not a direct direction-variable write. The synchronous `Speedrun` movement
+helpers also wait for that stop input phase within their remaining action and
+scenario poll budgets; incremental `navigate` returns before that phase.
+
+Outcomes distinguish `reached`, `blocked`, `unreachable_under_current_model`,
+`needs_input`, `movement_control_unavailable`, `unexpected_transition`,
+`hazard_detected`, `budget_exhausted` and `cancelled`. Modals and suspended
+interactions require explicit input. Eligible movement updates drive stall and
+oscillation checks, so slow step cadence does not look like a blocked path.
+Host polls, logic cycles, movement updates, replans and injected wall time have
+separate budgets. Callers of the incremental API can yield or cancel between
+polls. Detached `playtest_room` runs remain synchronous and retain their existing
+five-second overall deadline.
+
+`playtest_room` supports `walkTo`, `walkPath` and `walkWaypoints`; their `ticks`
+are logic-cycle ceilings (default 600), capped by the remaining `cycleBudget`
+(default 600 including setup). `steps[].navigation` reports the typed outcome
+and counters; `details.navigation` keeps the last navigation verdict compact
+when full step diagnostics move behind `read_diagnostic`. `Speedrun` instead polls
+at 60 Hz and applies `CycleClock` before logic execution; its poll counts are not
+interchangeable with playtest cycles.
+`expect.reachable` also executes normal inputs through the shared controller.
+
+Static candidates do not predict arbitrary script hazards or prove a game can
+be completed. A lake can be geometrically passable while room logic makes entry
+fatal; its route needs an explicit safe approach. Keep trigger policy and geometry
+assumptions explicit, use bounded goals, and assert milestones. Full traversal
+phases, interaction preconditions and library-wide goal-only proofs require
+additional evidence. A missing static path is not evidence of an interpreter
+defect.
 
 ## World map
 

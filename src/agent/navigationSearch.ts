@@ -129,6 +129,7 @@ export function searchAnchors(
   clearance: Uint16Array,
   canStep: (from: number, to: number) => boolean,
   options: SearchOptions,
+  acceptsTarget?: (at: number) => boolean,
 ): SearchResult {
   const sx = start % WIDTH,
     sy = Math.floor(start / WIDTH);
@@ -173,7 +174,7 @@ export function searchAnchors(
     cells++;
     const at = Math.floor(entry.state / headings);
     if (distance(at) < distance(best)) best = at;
-    if (distance(at) === 0) {
+    if (distance(at) === 0 && (acceptsTarget?.(at) ?? true)) {
       const chain: number[] = [];
       for (let state = entry.state; state >= 0; state = parents[state]!)
         chain.push(Math.floor(state / headings));

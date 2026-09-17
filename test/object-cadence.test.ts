@@ -111,11 +111,14 @@ test("step.time restarts cadence and positioning suppresses exactly one due step
     `if (!isset(f200)) { set(f200); ${setup} assignn(v60, 3); step.time(o0, v60); set.dir(o0, v60); } return;`,
   );
   const positions: number[] = [];
+  const movementUpdates: number[] = [];
   for (let i = 0; i < 9; i++) {
     engine.tick();
     positions.push(engine.screenObjects[0]!.x);
+    movementUpdates.push(engine.movementUpdateCount);
   }
   assert.deepEqual(positions, [20, 20, 20, 20, 20, 21, 21, 21, 22]);
+  assert.deepEqual(movementUpdates, [0, 0, 0, 0, 0, 1, 1, 1, 2]);
 });
 
 for (const [profile, expected] of [

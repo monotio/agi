@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { AGI_KEY } from "../../src/runtime/keys.ts";
 import type { Speedrun } from "./runner.ts";
+import { NavigationError } from "../../src/agent/navigationController.ts";
 
 /** Player inputs for the opening Daventry circuit; no game-state writes. */
 export function firstHalf(run: Speedrun): void {
@@ -62,7 +63,15 @@ export function firstHalf(run: Speedrun): void {
   run.checkpoint("Carrot", { room: 15, score: 21 });
   run.exit("E", 16);
   run.exit("E", 9);
-  run.exit("N", 24);
+  try {
+    run.exit("N", 24);
+  } catch (error) {
+    if (!(error instanceof NavigationError)) throw error;
+    assert.equal(error.outcome.status, "needs_input");
+    assert.match(run.messages.at(-1) ?? "", /I am your fairy godmother/);
+    run.dismiss(); // The fairy can arrive during the longer narrated route.
+    run.exit("N", 24);
+  }
   run.walkTo(53, 140);
   run.command("get clover");
   run.checkpoint("Clover", { room: 24, score: 23 });
@@ -357,10 +366,20 @@ export function beans(run: Speedrun): void {
   run.walkTo(145, 65);
   run.walkTo(145, 80);
   run.walkTo(85, 75);
+  // The bridge introduction interrupts this approach; acknowledge that known
+  // story message explicitly before continuing toward the troll.
+  assert.throws(
+    () => run.walkTo(60, 70),
+    (error) => error instanceof NavigationError && error.outcome.status === "needs_input",
+  );
+  assert.match(run.state().text, /troll appears/);
+  run.dismiss();
   run.walkTo(60, 70);
   run.waitForFlag(150, "goat removes troll");
   run.checkpoint("Troll", { room: 39, score: 76 });
   run.exit("W", 40);
+  assert.match(run.state().text, /old gnome/);
+  run.dismiss(); // Gnome introduction on entering the clearing.
   run.walkTo(45, 110);
   run.walkTo(40, 130);
   run.command("talk gnome"); // said("speak", "dwarf") starts the name game (logic 040)
@@ -380,6 +399,20 @@ export function beans(run: Speedrun): void {
 /** Player inputs from the planted beans through the return to King Edward. */
 export function secondHalf(run: Speedrun): void {
   const engine = run.engine;
+  const walkCondorMeadow = (x: number, y: number): void => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        run.walkTo(x, y);
+        return;
+      } catch (error) {
+        if (!(error instanceof NavigationError)) throw error;
+        assert.equal(error.outcome.status, "needs_input");
+      }
+      assert.match(run.messages.at(-1) ?? "", /large, friendly bird/);
+      run.dismiss(); // The timed condor announcement can interrupt any meadow leg.
+    }
+    assert.fail("Condor meadow movement did not settle after its announcement");
+  };
   run.walkTo(60, 90);
   run.command("climb beanstalk");
   run.wait(() => engine.screenObjects[0]!.motionMode !== 1, "mount beanstalk");
@@ -441,15 +474,16 @@ export function secondHalf(run: Speedrun): void {
   run.walkTo(68, 119);
   run.exit("S", 38);
   run.walkDirection("S", () => !engine.flags[157], "step off beanstalk at ground");
+  run.wait(() => engine.movementControlEnabled, "beanstalk dismount returns player control");
   run.exit("S", 27);
   run.walkTo(90, 60);
   run.walkTo(90, 64);
   run.walkTo(100, 64);
   run.exit("S", 22);
-  run.walkTo(96, run.state().y);
-  run.walkTo(96, 81);
-  run.walkTo(94, 83);
-  run.walkTo(94, 125);
+  walkCondorMeadow(96, run.state().y);
+  walkCondorMeadow(96, 81);
+  walkCondorMeadow(94, 83);
+  walkCondorMeadow(94, 125);
   run.exit("S", 11);
   run.walkTo(94, 80);
   run.walkTo(105, 80);
@@ -499,9 +533,9 @@ export function secondHalf(run: Speedrun): void {
   run.walkTo(103, 80);
   run.walkTo(94, 80);
   run.exit("N", 22);
-  run.walkTo(80, 125);
-  run.walkTo(80, 95);
-  run.walkTo(100, 75);
+  walkCondorMeadow(80, 125);
+  walkCondorMeadow(80, 95);
+  walkCondorMeadow(100, 75);
   run.repeatUntil(
     () => {
       for (let tick = 0; tick < 8000 && !engine.flags[209]; tick++) {
@@ -517,13 +551,13 @@ export function secondHalf(run: Speedrun): void {
         run.advance();
       }
       if (!engine.flags[209]) {
-        run.walkTo(80, 95);
-        run.walkTo(80, 125);
+        walkCondorMeadow(80, 95);
+        walkCondorMeadow(80, 125);
         run.exit("S", 11);
         run.exit("N", 22);
-        run.walkTo(80, 125);
-        run.walkTo(80, 95);
-        run.walkTo(100, 75);
+        walkCondorMeadow(80, 125);
+        walkCondorMeadow(80, 95);
+        walkCondorMeadow(100, 75);
       }
     },
     () => Boolean(engine.flags[209]),
@@ -572,6 +606,7 @@ export function finishFromCondor(run: Speedrun): void {
   run.checkpoint("Dwarf treasures", { room: 77, score: 152 });
   run.walkTo(10, 95);
   run.exit("W", 78);
+  run.wait(() => engine.movementControlEnabled, "cavern entry returns player control");
   run.walkTo(30, 81);
   run.command("eat mushroom");
   run.exit("W", 36);
@@ -586,7 +621,20 @@ export function finishFromCondor(run: Speedrun): void {
   run.exit("N", 45);
   run.walkTo(140, 150);
   run.exit("E", 46);
+  assert.throws(
+    () => run.walkTo(75, 100),
+    (error) => error instanceof NavigationError && error.outcome.status === "needs_input",
+  );
+  assert.match(run.messages.at(-1) ?? "", /ogre nearby/);
+  run.dismiss(); // Acknowledge the ogre warning on this return journey.
   run.walkTo(75, 100);
+  assert.throws(
+    () => run.exit("N", 3),
+    (error) => error instanceof NavigationError && error.outcome.status === "needs_input",
+  );
+  assert.match(run.messages.at(-1) ?? "", /magic shield, no harm/);
+  run.dismiss(); // The acquired shield explicitly protects Graham from this ogre.
+  run.wait(() => !engine.flags[21], "protected ogre wanders offscreen");
   run.exit("N", 3);
   run.walkTo(145, 137);
   run.exit("E", 2);

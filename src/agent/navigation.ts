@@ -50,6 +50,8 @@ export interface PlanOptions {
   turnCost?: number;
   /** Maximum expanded search states, including heading when turnCost is nonzero. */
   maxSearchNodes?: number;
+  /** Controller-only terminal constraint: validate a complete cardinal border crossing. */
+  exitDirection?: number;
 }
 
 export function validateTarget(target: Target): void {
@@ -129,6 +131,7 @@ function navigationModel(run: NavigationState, options?: PlanOptions) {
     !Number.isInteger(searchOptions.maxSearchNodes) ||
     searchOptions.maxSearchNodes < 1 ||
     searchOptions.maxSearchNodes > 160 * 168 * 9 ||
+    (options?.exitDirection !== undefined && ![1, 3, 5, 7].includes(options.exitDirection)) ||
     (options?.geometry !== undefined &&
       options.geometry !== "widest" &&
       options.geometry !== "current")
@@ -217,7 +220,57 @@ function navigationModel(run: NavigationState, options?: PlanOptions) {
       )
     );
   };
-  return { ego, step, valid, canStep, searchOptions };
+  const acceptsExit = (at: number): boolean => {
+    if (options?.exitDirection === undefined) return true;
+    const direction = options.exitDirection;
+    const dx = direction === 3 ? 1 : direction === 7 ? -1 : 0;
+    const dy = direction === 5 ? 1 : direction === 1 ? -1 : 0;
+    let x = at % 160,
+      y = Math.floor(at / 160);
+    // The conservative approach can end before the current cel's real edge.
+    // Validate every full proposal and its final clipped footprint using the
+    // current cel, including water classification and pre-clipping block tests.
+    for (let count = 0; count <= 168; count++) {
+      const proposedX = x + dx * step,
+        proposedY = y + dy * step;
+      if (ego.observeBlocks && save.blockEnabled && inside(x, y) !== inside(proposedX, proposedY))
+        return false;
+      const nx = Math.max(0, Math.min(160 - ego.width, proposedX));
+      const ny = Math.max(minY, Math.min(167, proposedY));
+      const border =
+        nx !== proposedX ||
+        ny !== proposedY ||
+        (direction === 7 && proposedX === 0 && engine.profile.clampExactZeroLeftBoundary);
+      if (!(ego.fixedPriority && ego.priority === 15)) {
+        let water = true;
+        for (let offset = 0; offset < ego.width; offset++) {
+          const color = control[ny * 160 + nx + offset]!;
+          if (
+            color === 0 ||
+            (color === 1 && ego.observeBlocks) ||
+            (color === 2 && options.avoidTriggers)
+          )
+            return false;
+          if (color !== 3) water = false;
+        }
+        if ((ego.waterGate === "on" && !water) || (ego.waterGate === "off" && water)) return false;
+      }
+      if (
+        ego.observeObjects &&
+        objects.some(
+          (other) =>
+            !(nx + ego.width < other.x || nx > other.x + other.width) &&
+            (ny === other.y || (ny > other.y && y < other.y) || (ny < other.y && y > other.y)),
+        )
+      )
+        return false;
+      if (border) return true;
+      x = nx;
+      y = ny;
+    }
+    return false;
+  };
+  return { ego, step, valid, canStep, searchOptions, acceptsExit };
 }
 
 /** Validate full-step ordinary-input traces in the same live geometry as search, without searching. */
@@ -226,7 +279,7 @@ export function validateWalk(
   points: readonly { x: number; y: number }[],
   options?: PlanOptions,
 ): boolean {
-  const { ego, step, canStep } = navigationModel(run, options);
+  const { ego, step, canStep, acceptsExit } = navigationModel(run, options);
   let x = ego.x,
     y = ego.y;
   for (const point of points) {
@@ -240,16 +293,16 @@ export function validateWalk(
       y = ny;
     }
   }
-  return true;
+  return acceptsExit(y * 160 + x);
 }
 
 /** Advisory static geometry only. This function reads state; it never moves or restores an engine. */
 export function planWalk(run: NavigationState, target: Target, options?: PlanOptions): Plan {
   validateTarget(target);
-  const { ego, step, valid, canStep, searchOptions } = navigationModel(run, options);
+  const { ego, step, valid, canStep, searchOptions, acceptsExit } = navigationModel(run, options);
   const start = ego.y * 160 + ego.x;
   const clearance = anchorClearance(valid);
-  const search = searchAnchors(start, target, step, clearance, canStep, searchOptions);
+  const search = searchAnchors(start, target, step, clearance, canStep, searchOptions, acceptsExit);
   const smoothed = smoothAnchors(search.chain, step, clearance, canStep, searchOptions);
   const reached = search.reached;
   return {
@@ -270,7 +323,9 @@ export function planWalk(run: NavigationState, target: Target, options?: PlanOpt
     assumptions: [
       `Geometry: ${options?.geometry ?? "widest"} cel width. Clearance is Chebyshev distance in picture-coordinate anchor cells after footprint acceptance; narrow legal passages remain usable.`,
       "Each full cardinal or diagonal step costs one movement update plus clearanceWeight * max(0, desiredClearance - clearance)^2 and optional turnCost. Search has an admissible Chebyshev/step lower bound; smoothing cannot increase this cost.",
-      "Static live controls and stationary object baselines; animation, moving objects, automatic priority-table changes, script triggers and border clipping are not predicted. Replan after state changes.",
+      options?.exitDirection === undefined
+        ? "Static live controls and stationary object baselines; animation, moving objects, automatic priority-table changes, script triggers and border clipping are not predicted. Replan after state changes."
+        : "Cardinal terminal crossing checks each full proposal and clipped endpoint with the current cel; future animation, moving objects and script transitions remain unpredicted. Revalidate after state changes.",
       "A candidate path is not proof. Execute normal inputs and assert the milestone.",
     ],
   };

@@ -12,12 +12,15 @@ import {
   type GameHash,
 } from "../../src/games/knownGames.ts";
 import { loadGame } from "../game-fixture.ts";
+import { type Plan, type PlanOptions, type Target } from "../../src/agent/navigation.ts";
+
 import {
-  walkPlanned,
-  type Plan,
-  type PlanOptions,
-  type Target,
-} from "../../src/agent/navigation.ts";
+  NavigationController,
+  NavigationError,
+  type NavigationGoal,
+  type NavigationOptions,
+  type NavigationOutcome,
+} from "../../src/agent/navigationController.ts";
 
 // The step vocabulary is shared with stored game tests (src/agent/gameTestSteps.ts)
 // so speedrun proofs and TESTS.JSON can never disagree; re-export the pieces
@@ -71,6 +74,7 @@ export class Speedrun {
   private readonly keys: number[] = [];
   private readonly answers: string[] = [];
   private readonly numAnswers: number[] = [];
+  private navigationHeading: number | null = null;
 
   constructor(
     game: string = KNOWN_GAME_HASH.KQ1,
@@ -142,7 +146,8 @@ export class Speedrun {
       y: ego.y,
       direction: this.engine.vars[6]!,
       modal: this.engine.modalKind,
-      control: this.engine.inputEnabled,
+      control: this.engine.movementControlEnabled,
+      inputEnabled: this.engine.inputEnabled,
       text: Array.from({ length: 25 }, (_, row) => this.engine.textRow(row)).join("\n"),
     };
   }
@@ -177,6 +182,7 @@ export class Speedrun {
       else if (this.clock.poll((this.ticks * 1000) / 60, this.engine.vars[10]!)) {
         this.engine.tick();
         this.cycles++;
+        this.navigationHeading = null;
       }
       if (this.hash === KNOWN_GAME_HASH.KQ1 && this.engine.flags[63] !== 0)
         assert.fail(`Graham died: ${JSON.stringify(this.state())}`);
@@ -305,12 +311,18 @@ export class Speedrun {
 
   direction(dir: DirectionInput): void {
     const d = parseDirection(dir);
-    const current = this.engine.screenObjects[0]?.direction ?? 0;
-    if (current === d) return;
-    // The tape records the semantic gesture; the engine still sees the raw
-    // navigation word, whose toggle semantics stop ego on a repeated heading.
-    this.actions.push({ kind: "direction", dir: d });
-    this.keys.push(DIRECTION_KEYS[d || current]!);
+    const current = this.navigationHeading ?? this.engine.vars[6]!;
+    if (current === d && this.navigationHeading === null) return;
+    if (current !== d) {
+      // Record the actual toggle key: a prior navigation stop may still be
+      // queued, so the observed direction alone cannot reconstruct this input.
+      const key = DIRECTION_KEYS[d || current]!;
+      this.actions.push({ kind: "key", code: key });
+      this.keys.push(key);
+      this.navigationHeading = d;
+    }
+    // A matching queued heading still has to reach an input phase before this
+    // synchronous contributor helper returns. Do not enqueue the same toggle twice.
     const from = this.cycles;
     for (let n = 0; this.cycles === from; n++) {
       assert.ok(n < 1000, "Direction input did not reach a cycle");
@@ -374,9 +386,9 @@ export class Speedrun {
   }
 
   walkWaypoints(points: readonly (readonly [number, number])[]): void {
-    for (const [x, y] of points) {
-      this.walkTo(x, y);
-    }
+    // This contributor convenience preserves the established stop between
+    // explicit points. navigate({kind:"waypoints",...}) bounds one continuous goal.
+    for (const [x, y] of points) this.walkTo(x, y);
   }
 
   repeatUntil(action: () => void, until: () => boolean, label: string, maxAttempts = 100): void {
@@ -425,22 +437,77 @@ export class Speedrun {
     throw new Error(this.diagnostics(label));
   }
 
-  walkTo(x: number, y: number, max = 3000): void {
-    const room = this.engine.vars[0]!;
-    const ego = this.engine.screenObjects[0]!;
-    for (let n = 0; n < max; n++) {
-      if (this.engine.modalKind !== null || this.engine.continuationPending) this.dismiss();
-      assert.equal(this.engine.vars[0]!, room, `Unexpected room while walking to ${x},${y}`);
-      const dx = Math.sign(x - ego.x);
-      const dy = Math.sign(y - ego.y);
-      if (!dx && !dy) {
-        this.direction(0);
-        return;
+  /** Poll the shared controller, recording ordinary direction gestures only. */
+  navigate(
+    goal: NavigationGoal,
+    options: NavigationOptions = {},
+  ): {
+    outcome: NavigationOutcome;
+    plan: Plan | null;
+  } {
+    const controller = new NavigationController(this.engine, goal, {
+      ...options,
+      ...(this.navigationHeading === null ? {} : { pendingDirection: this.navigationHeading }),
+      now: options.now ?? (() => performance.now()),
+      budgets: {
+        ...options.budgets,
+        hostPolls: Math.min(options.budgets?.hostPolls ?? 3000, this.maxTicks - this.ticks),
+      },
+    });
+    for (;;) {
+      const decision = controller.next({ hostPolls: this.ticks, logicCycles: this.cycles });
+      if (decision.direction !== null && decision.direction !== this.navigationHeading) {
+        const effective = this.navigationHeading ?? this.engine.vars[6]!;
+        const key = DIRECTION_KEYS[decision.direction || effective];
+        if (key !== undefined) {
+          this.actions.push({ kind: "key", code: key });
+          this.keys.push(key);
+          this.navigationHeading = decision.direction;
+        }
       }
-      this.direction(directionForDelta(dx, dy));
+      if (decision.outcome) return { outcome: decision.outcome, plan: controller.lastPlan };
       this.advance();
     }
-    throw new Error(`Walk blocked at ${JSON.stringify(this.state())}, target ${x},${y}`);
+  }
+
+  /** Acknowledge the already-recorded stop within the synchronous helper's poll allowance. */
+  private finishNavigation(outcome: NavigationOutcome, maxPolls: number): void {
+    if (outcome.status !== "reached") throw new NavigationError(outcome);
+    const startPolls = this.ticks;
+    const startCycles = this.cycles;
+    const startMovement = this.engine.movementUpdateCount;
+    const startWall = performance.now();
+    while (
+      this.navigationHeading !== null &&
+      this.engine.modalKind === null &&
+      !this.engine.continuationPending
+    ) {
+      const hostPolls = outcome.counters.hostPolls + this.ticks - startPolls;
+      if (hostPolls >= maxPolls || this.ticks >= this.maxTicks) {
+        throw new NavigationError({
+          ...outcome,
+          status: "budget_exhausted",
+          reason: "hostPolls budget exhausted before the queued stop reached an input phase.",
+          counters: {
+            ...outcome.counters,
+            hostPolls,
+            logicCycles: outcome.counters.logicCycles + this.cycles - startCycles,
+            movementUpdates:
+              outcome.counters.movementUpdates + this.engine.movementUpdateCount - startMovement,
+            wallMs: outcome.counters.wallMs + performance.now() - startWall,
+          },
+        });
+      }
+      this.advance();
+    }
+  }
+
+  walkTo(x: number, y: number, max = 3000): void {
+    const result = this.navigate(
+      { kind: "position", target: { x0: x, x1: x, y0: y, y1: y } },
+      { budgets: { hostPolls: max } },
+    );
+    this.finishNavigation(result.outcome, max);
   }
 
   walkPath(
@@ -466,20 +533,32 @@ export class Speedrun {
       target = targetOrX;
       if (typeof yOrOptions === "object") opts = yOrOptions;
     }
-    return walkPlanned(this, target, opts);
+    const result = this.navigate(
+      { kind: "position", target, planned: true },
+      opts === undefined ? {} : { planOptions: opts },
+    );
+    this.finishNavigation(result.outcome, 3000);
+    return (
+      result.plan ?? {
+        found: true,
+        room: result.outcome.room,
+        from: { x: result.outcome.x, y: result.outcome.y },
+        target,
+        reached: { x: result.outcome.x, y: result.outcome.y },
+        cells: 0,
+        steps: 0,
+        waypoints: [],
+        assumptions: [],
+      }
+    );
   }
 
   exit(dir: DirectionInput, room: number, max = 10000): void {
-    const from = this.state().room;
-    const d = parseDirection(dir);
-    for (let n = 0; n < max && this.state().room === from; n++) {
-      this.dismiss();
-      this.direction(d);
-      this.advance();
-    }
-    assert.equal(this.state().room, room, `Exit ${dir} from ${from}`);
-    this.direction(0);
-    this.dismiss();
+    const result = this.navigate(
+      { kind: "exit", direction: parseDirection(dir), room, planned: false },
+      { budgets: { hostPolls: max } },
+    );
+    this.finishNavigation(result.outcome, max);
   }
 
   checkpoint(label: string, expected: { room?: number; score?: number }): void {
