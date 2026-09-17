@@ -7,7 +7,7 @@ for (const route of WALKTHROUGHS) {
   test(
     `${route.alias}: ${route.label} from two cold boots`,
     {
-      skip: fixtureSkip(route.hash, ["AGIDATA.OVL"]),
+      skip: fixtureSkip(route.hash, ["AGIDATA.OVL"], { checkVolumes: "shipped" }),
       timeout: 30_000,
     },
     () => {

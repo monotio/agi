@@ -5,7 +5,7 @@ import { WALKTHROUGHS } from "../test/speedrun/walkthroughs.ts";
 
 // Every catalog entry ships its tape; a missing fixture is an explicit skip.
 for (const route of WALKTHROUGHS) {
-  const missing = fixtureSkip(route.hash, ["AGIDATA.OVL"]);
+  const missing = fixtureSkip(route.hash, ["AGIDATA.OVL"], { checkVolumes: "shipped" });
   if (missing) {
     process.stdout.write(`SKIP ${route.alias}: ${missing}\n`);
     continue;

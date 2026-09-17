@@ -113,7 +113,8 @@ export class Speedrun {
     game: string = KNOWN_GAME_HASH.KQ1,
     seed = 1,
     load: {
-      checkVolumes?: boolean;
+      /** Defaults to "shipped": a route can rely on what the edition shipped. */
+      checkVolumes?: boolean | "shipped";
       maxTicks?: number;
       dwellModals?: boolean;
       /** Explicit assembled fixture, also used for independent retained branches. */
@@ -133,7 +134,7 @@ export class Speedrun {
       load.fixture ??
       loadGame(game, {
         interpreterFiles: true,
-        ...(load.checkVolumes === undefined ? {} : { checkVolumes: load.checkVolumes }),
+        checkVolumes: load.checkVolumes ?? "shipped",
       });
     const { container, dict, files } = this.fixture;
     const host: EngineHost = {

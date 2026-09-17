@@ -63,6 +63,21 @@ identifies a 1.0C download containing Amiga resources packaged with a DOS
 interpreter. A title screen loading from that mixture does not establish DOS
 compatibility; the static audit reports its format and opcode inconsistencies.
 
+The local KQ4, MH2 and Gold Rush directory files match the
+[ScummVM detection fingerprints](https://github.com/scummvm/scummvm/blob/master/engines/agi/detection_tables.h)
+(MD5 of the first 5,000 bytes of the combined directory) for KQ4 2.0 1988-07-27
+3.5", Manhunter 2 3.02 1989-07-26 3.5" and Gold Rush 2.01 1988-12-22 3.5". The
+KQ4 directory indexes pictures 150–151 in a `KQ4VOL.6` and views 198–199 in a
+`KQ4VOL.7`; the MH2 directory indexes sounds 215–216 in an `MH2VOL.6`. Those
+volumes are absent from these releases' volume sets, so the entries are a
+property of the matched directories rather than evidence of a damaged copy. The
+strict volume check still reports them. Walkthrough tooling uses
+`checkVolumes: "shipped"`, which exempts exactly those volumes for exactly those
+directory hashes ([test/fixtures.ts](../test/fixtures.ts)); a route that requests
+one of the six resources still fails at the load. A fingerprint identifies the
+directory, not every volume byte, and does not show which resources a
+playthrough requests.
+
 The handler comparison in `test/mh2-profile.test.ts` requires both 3.002.149
 fixtures (`gr1` and `mh2`); its logic-reference test requires only `mh2`.
 

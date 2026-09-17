@@ -44,7 +44,7 @@ for (const phone of [false, true]) {
 
     for (const route of WALKTHROUGHS) {
       test(`${route.alias}: ${route.label} through actual controls`, async ({ page }) => {
-        const unavailable = fixtureSkip(route.hash, ["AGIDATA.OVL"]);
+        const unavailable = fixtureSkip(route.hash, ["AGIDATA.OVL"], { checkVolumes: "shipped" });
         test.skip(Boolean(unavailable), unavailable || "");
         test.skip(
           recording !== null && recording.identity.project !== route.alias,

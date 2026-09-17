@@ -65,7 +65,7 @@ export async function walkthroughServedRevisions(target: string): Promise<Resour
 
 /** Hash the same canonical resource/interpreter files the fixture loader consumes. */
 export function walkthroughFixtureHashes(target: string): Record<string, string> {
-  const { files } = loadGame(target, { interpreterFiles: true });
+  const { files } = loadGame(target, { interpreterFiles: true, checkVolumes: "shipped" });
   const fFiles = fixtureFiles(target);
   if (!fFiles) {
     return Object.fromEntries(
