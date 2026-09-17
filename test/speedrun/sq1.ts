@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { AGI_KEY } from "../../src/runtime/keys.ts";
 import type { Speedrun } from "./runner.ts";
+import { KNOWN_GAME_HASH } from "../../src/games/knownGames.ts";
+import type { Walkthrough } from "./route.ts";
 import { NavigationError } from "../../src/agent/navigationController.ts";
 
 /** Resume a route only across the named, expected game narration. */
@@ -1330,3 +1332,18 @@ export function sq1Complete(run: Speedrun): void {
   run.wait(() => run.state().room === 64, "ending ceremony (room 64)", 40000);
   run.checkpoint("Ending ceremony", { room: 64, score: 202 });
 }
+
+export const sq1Walkthrough: Walkthrough = {
+  hash: KNOWN_GAME_HASH.SQ1,
+  alias: "sq1",
+  label: "completed ceremony and ending credits with maximum score",
+  coverage: "complete-game",
+  seed: 12,
+  route: sq1Complete,
+  expected: {
+    room: 64,
+    score: 202,
+    carriedExactly: [1, 3, 5, 6, 13, 14, 16, 19, 22],
+  },
+  requiresAnswer: true,
+};

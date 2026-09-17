@@ -1,115 +1,41 @@
 import assert from "node:assert/strict";
-import type { EngineStateReport } from "../../src/runtime/engine.ts";
 import { Speedrun } from "./runner.ts";
 import { opening } from "./openings.ts";
-import { kq1Complete } from "./kq1.ts";
-import { kq2Complete } from "./kq2.ts";
-import { kq3Complete } from "./kq3.ts";
-import { sq1Complete } from "./sq1.ts";
-import { mh1Complete } from "./mh1.ts";
+import type { Walkthrough, WalkthroughOutcome } from "./route.ts";
+import { kq1Walkthrough } from "./kq1.ts";
+import { kq2Walkthrough } from "./kq2.ts";
+import { kq3Walkthrough } from "./kq3.ts";
+import { sq1Walkthrough } from "./sq1.ts";
+import { mh1Walkthrough } from "./mh1.ts";
+import { sq2Walkthrough } from "./sq2.ts";
+import { pq1Walkthrough } from "./pq1.ts";
+import { lsl1Walkthrough } from "./lsl1.ts";
+import { bcWalkthrough } from "./bc.ts";
+import { mumgWalkthrough } from "./mumg.ts";
+import { ddpWalkthrough } from "./ddp.ts";
+import { kq4Walkthrough } from "./kq4.ts";
+import { mh2Walkthrough } from "./mh2.ts";
+import { gr1Walkthrough } from "./gr1.ts";
 
 import { KNOWN_GAME_HASH, resolveGameHash } from "../../src/games/knownGames.ts";
 
-/** Observable endpoint shared by the Node, CLI and browser walkthrough runners. */
-export interface WalkthroughOutcome {
-  state: EngineStateReport;
-  egoView: number;
-}
-export interface Walkthrough {
-  hash: string;
-  alias: string;
-  label: string;
-  coverage: "complete-game" | "chapter" | "partial";
-  /**
-   * The host RNG seed the route is tuned to — the interpreter's 16-bit
-   * stream makes each seed a different roll of every timed and wandering
-   * event. Defaults to 1.
-   */
-  seed?: number;
-  route(run: Speedrun): void;
-  expected: {
-    room: number;
-    score?: number;
-    vars?: Readonly<Record<number, number>>;
-    flags?: Readonly<Record<number, number>>;
-    carried?: readonly number[];
-    carriedExactly?: readonly number[];
-    inputEnabled?: boolean;
-    egoView?: number;
-  };
-  requiresAnswer?: boolean;
-}
+export type { Walkthrough, WalkthroughOutcome };
 
 export const WALKTHROUGHS: readonly Walkthrough[] = [
-  {
-    hash: KNOWN_GAME_HASH.KQ1,
-    alias: "kq1",
-    label: "completed throne-room ending",
-    coverage: "complete-game",
-    seed: 32,
-    route: kq1Complete,
-    expected: {
-      room: 53,
-      score: 159,
-      vars: { 74: 3 },
-      flags: { 195: 1 },
-      inputEnabled: false,
-      egoView: 142,
-    },
-  },
-  {
-    hash: KNOWN_GAME_HASH.MH1,
-    alias: "mh1",
-    label: "Day 1 completed",
-    coverage: "chapter",
-    route: mh1Complete,
-    expected: { room: 104, vars: { 60: 2 }, carriedExactly: [11, 13, 14, 15] },
-    requiresAnswer: true,
-  },
-  {
-    hash: KNOWN_GAME_HASH.KQ2,
-    alias: "kq2",
-    label: "completed wedding and ending credits with maximum score",
-    coverage: "complete-game",
-    seed: 123,
-    route: kq2Complete,
-    expected: {
-      room: 106,
-      score: 185,
-      carriedExactly: [50, 53, 54, 55, 56, 57, 58, 59, 60, 65, 68, 69, 73, 74, 75, 76, 78, 82, 83],
-    },
-  },
-  {
-    hash: KNOWN_GAME_HASH.KQ3,
-    alias: "kq3",
-    label: "completed royal reunion with maximum score",
-    coverage: "complete-game",
-    seed: 1,
-    route: kq3Complete,
-    expected: {
-      room: 74,
-      score: 210,
-      vars: { 7: 210, 220: 27 },
-      flags: { 151: 1, 152: 1, 153: 1, 154: 1, 155: 1, 156: 1, 157: 1, 182: 1, 183: 1, 198: 1 },
-      inputEnabled: false,
-      egoView: 77,
-    },
-    requiresAnswer: true,
-  },
-  {
-    hash: KNOWN_GAME_HASH.SQ1,
-    alias: "sq1",
-    label: "completed ceremony and ending credits with maximum score",
-    coverage: "complete-game",
-    seed: 12,
-    route: sq1Complete,
-    expected: {
-      room: 64,
-      score: 202,
-      carriedExactly: [1, 3, 5, 6, 13, 14, 16, 19, 22],
-    },
-    requiresAnswer: true,
-  },
+  kq1Walkthrough,
+  mh1Walkthrough,
+  kq2Walkthrough,
+  kq3Walkthrough,
+  sq1Walkthrough,
+  sq2Walkthrough,
+  pq1Walkthrough,
+  lsl1Walkthrough,
+  bcWalkthrough,
+  mumgWalkthrough,
+  ddpWalkthrough,
+  kq4Walkthrough,
+  mh2Walkthrough,
+  gr1Walkthrough,
   {
     hash: KNOWN_GAME_HASH.ADVENTURE_DEPARTMENT,
     alias: "adventure-department",

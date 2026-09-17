@@ -195,3 +195,27 @@ test("duplicate vocabulary editions remain separately resolvable by folder, whil
     /Ambiguous fixture query.*specify the fixture folder/,
   );
 });
+
+test("a plain edition outranks project exports that share its vocabulary hash", (t) => {
+  const edition = mkdtempSync(fixtureDir("edition-plain-").slice(0, -1));
+  const exported = mkdtempSync(fixtureDir("edition-export-").slice(0, -1));
+  const exportedAgain = mkdtempSync(fixtureDir("edition-export2-").slice(0, -1));
+  t.after(() => {
+    for (const dir of [edition, exported, exportedAgain])
+      rmSync(dir, { recursive: true, force: true });
+    clearFixtureCache();
+  });
+  const wordsBytes = new Uint8Array(56);
+  wordsBytes[0] = 0xcc;
+  for (const dir of [edition, exported, exportedAgain])
+    writeFileSync(join(dir, "WORDS.TOK"), wordsBytes);
+  writeFileSync(join(exported, "PROJECT.JSON"), "{}");
+  writeFileSync(join(exportedAgain, "GAME.JSON"), JSON.stringify({ title: "Remix" }));
+  const sharedHash = createHash("sha256").update(wordsBytes).digest("hex");
+  clearFixtureCache();
+  assert.equal(findFixture(sharedHash)?.folder, basename(edition));
+  // Two exports without a plain edition remain ambiguous.
+  rmSync(edition, { recursive: true, force: true });
+  clearFixtureCache();
+  assert.throws(() => findFixture(sharedHash), /Ambiguous fixture query/);
+});

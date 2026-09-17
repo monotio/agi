@@ -3,6 +3,8 @@ import { directionForDelta } from "../../src/agent/gameTestSteps.ts";
 import { AGI_KEY } from "../../src/runtime/keys.ts";
 import type { ScreenObject } from "../../src/runtime/screenObject.ts";
 import { type DirectionInput, type Speedrun } from "./runner.ts";
+import { KNOWN_GAME_HASH } from "../../src/games/knownGames.ts";
+import type { Walkthrough } from "./route.ts";
 
 /**
  * Manhunter: New York (3.002.107) is played through a cursor, screen object 0,
@@ -883,3 +885,13 @@ export function orbs(mh: Manhunter): void {
   assert.equal(engine.vars[60], 2, "Day 2 begins");
   run.checkpoint("Home, Day 2", { room: 104 });
 }
+
+export const mh1Walkthrough: Walkthrough = {
+  hash: KNOWN_GAME_HASH.MH1,
+  alias: "mh1",
+  label: "Day 1 completed",
+  coverage: "chapter",
+  route: mh1Complete,
+  expected: { room: 104, vars: { 60: 2 }, carriedExactly: [11, 13, 14, 15] },
+  requiresAnswer: true,
+};

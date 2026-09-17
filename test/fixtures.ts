@@ -164,8 +164,24 @@ export function scanFixtures(): {
 }
 
 /**
+ * A project export placed under `games/` (a `PROJECT.JSON` or `GAME.JSON`
+ * beside the resources) is an authored copy, not an edition fixture. When a
+ * hash matches one plain edition plus such exports, the edition is the fixture;
+ * several plain editions or several exports stay ambiguous.
+ */
+function uniqueEdition(query: string, matches: readonly DiscoveredFixture[]): DiscoveredFixture {
+  if (matches.length === 1) return matches[0]!;
+  const editions = matches.filter((m) => !m.files.has("project.json") && !m.files.has("game.json"));
+  if (editions.length === 1) return editions[0]!;
+  throw new Error(
+    `Ambiguous fixture query "${query}" matches multiple editions (${matches.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
+  );
+}
+
+/**
  * Find an installed fixture by its content hash (WORDS.TOK SHA-256) or alias/folder key.
- * Resolves by exact folder first, then unique content hash.
+ * Resolves by exact folder first, then unique content hash; a plain edition
+ * wins over project exports that share its vocabulary.
  */
 export function findFixture(query: string): DiscoveredFixture | null {
   const { byWordsHash, byDirName } = scanFixtures();
@@ -174,22 +190,12 @@ export function findFixture(query: string): DiscoveredFixture | null {
   if (byDir) return byDir;
 
   const matches = byWordsHash.get(norm);
-  if (matches) {
-    if (matches.length === 1) return matches[0]!;
-    throw new Error(
-      `Ambiguous fixture query "${query}" matches multiple editions (${matches.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
-    );
-  }
+  if (matches) return uniqueEdition(query, matches);
 
   const resolved = resolveGameHash(norm);
   if (resolved) {
     const matched = byWordsHash.get(resolved.toLowerCase());
-    if (matched) {
-      if (matched.length === 1) return matched[0]!;
-      throw new Error(
-        `Ambiguous fixture query "${query}" matches multiple editions (${matched.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
-      );
-    }
+    if (matched) return uniqueEdition(query, matched);
   }
 
   // If a directory was created dynamically at runtime (e.g. temp test fixture):

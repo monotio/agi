@@ -1,31 +1,20 @@
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
-import { fixtureSkip, KNOWN_GAME_HASH } from "../test/fixtures.ts";
-import { getKnownGameByHash } from "../src/games/knownGames.ts";
+import { fixtureSkip } from "../test/fixtures.ts";
+import { WALKTHROUGHS } from "../test/speedrun/walkthroughs.ts";
 
-const TARGET_HASHES = [
-  KNOWN_GAME_HASH.KQ1,
-  KNOWN_GAME_HASH.KQ2,
-  KNOWN_GAME_HASH.KQ3,
-  KNOWN_GAME_HASH.SQ1,
-  KNOWN_GAME_HASH.MH1,
-  KNOWN_GAME_HASH.SYNTHETIC,
-  KNOWN_GAME_HASH.ADVENTURE_DEPARTMENT,
-];
-
-for (const hash of TARGET_HASHES) {
-  const missing = fixtureSkip(hash, ["AGIDATA.OVL"]);
-  const known = getKnownGameByHash(hash);
-  const alias = known?.alias ?? hash.slice(0, 8);
+// Every catalog entry ships its tape; a missing fixture is an explicit skip.
+for (const route of WALKTHROUGHS) {
+  const missing = fixtureSkip(route.hash, ["AGIDATA.OVL"]);
   if (missing) {
-    process.stdout.write(`SKIP ${alias}: ${missing}\n`);
+    process.stdout.write(`SKIP ${route.alias}: ${missing}\n`);
     continue;
   }
-  const target = resolve(`app/public/walkthroughs/${alias}.json`);
-  process.stdout.write(`Generating walkthrough artifact for ${alias} -> ${target}...\n`);
+  const target = resolve(`app/public/walkthroughs/${route.alias}.json`);
+  process.stdout.write(`Generating walkthrough artifact for ${route.alias} -> ${target}...\n`);
   execFileSync(
     process.execPath,
-    ["--experimental-strip-types", "scripts/walkthrough.ts", hash, target],
+    ["--experimental-strip-types", "scripts/walkthrough.ts", route.hash, target],
     { stdio: "inherit" },
   );
 }
