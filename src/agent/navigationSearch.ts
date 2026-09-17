@@ -19,10 +19,11 @@ export interface SearchOptions {
   clearanceWeight: number;
   turnCost: number;
   maxSearchNodes: number;
+  maxSteps?: number;
 }
 
 export interface SearchResult {
-  status: "found" | "unreachable" | "budget_exhausted";
+  status: "found" | "unreachable" | "budget_exhausted" | "movement_budget_exhausted";
   chain: number[];
   reached: number;
   cells: number;
@@ -130,6 +131,7 @@ export function searchAnchors(
   canStep: (from: number, to: number) => boolean,
   options: SearchOptions,
   acceptsTarget?: (at: number) => boolean,
+  terminalSteps: (at: number) => number = () => 0,
 ): SearchResult {
   const sx = start % WIDTH,
     sy = Math.floor(start / WIDTH);
@@ -147,38 +149,99 @@ export function searchAnchors(
       Math.max(target.x0 - x, 0, x - target.x1, target.y0 - y, y - target.y1) / step,
     );
   };
-  // Heading is part of identity only when future cost depends on it.
+  const limit = options.maxSteps ?? Infinity;
+  if (distance(start) > limit)
+    return { status: "movement_budget_exhausted", chain: [], reached: start, cells: 0 };
+  // Being inside the requested region is already success; centering never moves
+  // an actor whose goal has already been satisfied.
+  if (distance(start) === 0 && (acceptsTarget?.(start) ?? true) && terminalSteps(start) <= limit)
+    return { status: "found", chain: [start], reached: start, cells: 0 };
+  let spent = 0;
+  // With ample movement slack, the ordinary optimum usually already fits.
+  // If so it is also the constrained optimum and needs no Pareto labels.
+  // An overlong optimum falls through to bounded search with the work left.
+  if (Number.isFinite(limit) && limit - distance(start) >= 32) {
+    const relaxed = searchAnchors(
+      start,
+      target,
+      step,
+      clearance,
+      canStep,
+      {
+        desiredClearance: options.desiredClearance,
+        clearanceWeight: options.clearanceWeight,
+        turnCost: options.turnCost,
+        maxSearchNodes: options.maxSearchNodes,
+      },
+      acceptsTarget,
+      terminalSteps,
+    );
+    if (
+      relaxed.status !== "found" ||
+      relaxed.chain.length - 1 + terminalSteps(relaxed.reached) <= limit
+    )
+      return relaxed;
+    spent = relaxed.cells;
+    if (spent >= options.maxSearchNodes)
+      return { status: "budget_exhausted", chain: [], reached: relaxed.reached, cells: spent };
+  }
+  const centerX = (target.x0 + target.x1) / 2;
+  const centerY = (target.y0 + target.y1) / 2;
+  const terminalCost = (at: number): number =>
+    2 *
+    Math.min(
+      8,
+      Math.max(Math.abs((at % WIDTH) - centerX), Math.abs(Math.floor(at / WIDTH) - centerY)) / step,
+    );
+  // Heading matters for turn costs. With a movement constraint, two arrivals
+  // can both matter: a cheaper detour must not erase a shorter costly arrival.
   const headings = options.turnCost > 0 ? 9 : 1;
-  const initial = start * headings + headings - 1;
-  const costs = new Float64Array(SIZE * headings).fill(Infinity);
-  const parents = new Int32Array(SIZE * headings).fill(-1);
-  const closed = new Uint8Array(SIZE * headings);
-  costs[initial] = 0;
+  interface Label {
+    state: number;
+    cost: number;
+    steps: number;
+    parent: number;
+    active: boolean;
+  }
+  const labels: Label[] = [];
+  const arrivals = new Map<number, number[]>();
   const open = new OpenSet();
-  let order = 0,
-    cells = 0,
-    best = start;
-  open.push({
-    state: initial,
-    cost: 0,
-    estimate: distance(start),
-    remaining: distance(start),
-    order: order++,
-  });
+  const labelLimit = Math.min(262144, (options.maxSearchNodes - spent) * 8 + 1);
+  let cells = spent,
+    best = start,
+    winner = -1,
+    winnerCost = Infinity,
+    movementPruned = false;
+  const initial = start * headings + headings - 1;
+  labels.push({ state: initial, cost: 0, steps: 0, parent: -1, active: true });
+  arrivals.set(initial, [0]);
+  open.push({ state: 0, cost: 0, estimate: distance(start), remaining: distance(start), order: 0 });
+  const finish = (): SearchResult => {
+    const chain: number[] = [];
+    for (let id = winner; id >= 0; id = labels[id]!.parent)
+      chain.push(Math.floor(labels[id]!.state / headings));
+    chain.reverse();
+    return { status: "found", chain, reached: chain[chain.length - 1]!, cells };
+  };
   while (open.size > 0) {
     const entry = open.pop();
-    if (closed[entry.state] || entry.cost !== costs[entry.state]) continue;
+    const label = labels[entry.state]!;
+    if (!label.active) continue;
+    if (winner >= 0 && entry.estimate >= winnerCost) return finish();
     if (cells >= options.maxSearchNodes)
       return { status: "budget_exhausted", chain: [], reached: best, cells };
-    closed[entry.state] = 1;
     cells++;
-    const at = Math.floor(entry.state / headings);
+    const at = Math.floor(label.state / headings);
     if (distance(at) < distance(best)) best = at;
     if (distance(at) === 0 && (acceptsTarget?.(at) ?? true)) {
-      const chain: number[] = [];
-      for (let state = entry.state; state >= 0; state = parents[state]!)
-        chain.push(Math.floor(state / headings));
-      return { status: "found", chain: chain.reverse(), reached: at, cells };
+      const crossingSteps = terminalSteps(at);
+      const total = label.cost + terminalCost(at) + crossingSteps;
+      if (label.steps + crossingSteps > limit) {
+        movementPruned = true;
+      } else if (total < winnerCost) {
+        winner = entry.state;
+        winnerCost = total;
+      }
     }
     const x = at % WIDTH,
       y = Math.floor(at / WIDTH);
@@ -189,19 +252,48 @@ export function searchAnchors(
       if (nx < 0 || nx >= WIDTH || ny < 0 || ny >= HEIGHT) continue;
       const next = ny * WIDTH + nx;
       if (!canStep(at, next)) continue;
-      const nextState = next * headings + (headings === 1 ? 0 : direction);
-      if (closed[nextState]) continue;
-      const heading = entry.state % headings;
-      const turn = headings > 1 && heading !== 8 && heading !== direction ? options.turnCost : 0;
-      const cost = entry.cost + movementCost(clearance[next]!, options) + turn;
-      if (cost >= costs[nextState]!) continue;
-      costs[nextState] = cost;
-      parents[nextState] = entry.state;
       const remaining = distance(next);
-      open.push({ state: nextState, cost, estimate: cost + remaining, remaining, order: order++ });
+      const steps = label.steps + 1;
+      if (steps + remaining > limit) {
+        movementPruned = true;
+        continue;
+      }
+      const nextState = next * headings + (headings === 1 ? 0 : direction);
+      const heading = label.state % headings;
+      const turn = headings > 1 && heading !== 8 && heading !== direction ? options.turnCost : 0;
+      const cost = label.cost + movementCost(clearance[next]!, options) + turn;
+      if (cost + remaining >= winnerCost) continue;
+      const previous = arrivals.get(nextState) ?? [];
+      if (
+        previous.some(
+          (id) => labels[id]!.cost <= cost && (limit === Infinity || labels[id]!.steps <= steps),
+        )
+      )
+        continue;
+      if (labels.length >= labelLimit)
+        return { status: "budget_exhausted", chain: [], reached: best, cells };
+      const kept = previous.filter((id) => {
+        const other = labels[id]!;
+        if (cost <= other.cost && (limit === Infinity || steps <= other.steps)) {
+          other.active = false;
+          return false;
+        }
+        return true;
+      });
+      const id = labels.length;
+      labels.push({ state: nextState, cost, steps, parent: entry.state, active: true });
+      kept.push(id);
+      arrivals.set(nextState, kept);
+      open.push({ state: id, cost, estimate: cost + remaining, remaining, order: id });
     }
   }
-  return { status: "unreachable", chain: [], reached: best, cells };
+  if (winner >= 0) return finish();
+  return {
+    status: movementPruned ? "movement_budget_exhausted" : "unreachable",
+    chain: [],
+    reached: best,
+    cells,
+  };
 }
 
 export function smoothAnchors(
@@ -217,6 +309,8 @@ export function smoothAnchors(
   minimumClearance: number;
   meanClearance: number;
 } {
+  if (chain.length > 0 && chain.length - 1 > (options.maxSteps ?? Infinity))
+    throw new RangeError("Navigation trace exceeds its movement limit.");
   const prefixCost = [0];
   for (let i = 1; i < chain.length; i++)
     prefixCost.push(prefixCost[i - 1]! + movementCost(clearance[chain[i]!]!, options));
@@ -245,6 +339,7 @@ export function smoothAnchors(
         ex = end % WIDTH,
         ey = Math.floor(end / WIDTH);
       let candidateCost = 0,
+        candidateSteps = 0,
         legal = true;
       let requiredClearance = Infinity;
       for (let i = current; i <= next; i++) {
@@ -265,6 +360,11 @@ export function smoothAnchors(
           ny = y + Math.sign(ey - y) * step;
         const proposed = ny * WIDTH + nx;
         if (!canStep(at, proposed) || clearance[proposed]! < requiredClearance) {
+          legal = false;
+          break;
+        }
+        candidateSteps++;
+        if (candidateSteps > next - current) {
           legal = false;
           break;
         }

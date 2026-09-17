@@ -32,14 +32,18 @@ export interface Plan {
   reached: { x: number; y: number };
   cells: number;
   steps: number;
+  /** Additional updates through the accepted clipped exit, beyond the approach. */
+  terminalSteps?: number;
   waypoints: { x: number; y: number }[];
   assumptions: string[];
-  searchStatus?: "found" | "unreachable" | "budget_exhausted";
+  searchStatus?: "found" | "unreachable" | "budget_exhausted" | "movement_budget_exhausted";
   metrics?: { cost: number; minimumClearance: number; meanClearance: number };
 }
 
 export interface PlanOptions {
   avoidTriggers?: boolean;
+  /** At most 64 forbidden destination-anchor rectangles; the initial anchor may leave. */
+  avoidRegions?: readonly Target[];
   attempts?: number;
   /** Widest cel is conservative; current geometry requires short execution/replanning. */
   geometry?: "widest" | "current";
@@ -50,6 +54,8 @@ export interface PlanOptions {
   turnCost?: number;
   /** Maximum expanded search states, including heading when turnCost is nonzero. */
   maxSearchNodes?: number;
+  /** Hard allowance of full movement updates; zero admits an already reached goal. */
+  maxSteps?: number;
   /** Controller-only terminal constraint: validate a complete cardinal border crossing. */
   exitDirection?: number;
 }
@@ -122,6 +128,7 @@ function navigationModel(run: NavigationState, options?: PlanOptions) {
     clearanceWeight: options?.clearanceWeight ?? 1,
     turnCost: options?.turnCost ?? 0,
     maxSearchNodes: options?.maxSearchNodes ?? 160 * 168,
+    ...(options?.maxSteps === undefined ? {} : { maxSteps: options.maxSteps }),
   };
   if (
     !Object.values(searchOptions).every((value) => Number.isFinite(value) && value >= 0) ||
@@ -131,12 +138,21 @@ function navigationModel(run: NavigationState, options?: PlanOptions) {
     !Number.isInteger(searchOptions.maxSearchNodes) ||
     searchOptions.maxSearchNodes < 1 ||
     searchOptions.maxSearchNodes > 160 * 168 * 9 ||
+    (options?.maxSteps !== undefined && !Number.isSafeInteger(options.maxSteps)) ||
+    (options?.avoidRegions !== undefined &&
+      (!Array.isArray(options.avoidRegions) || options.avoidRegions.length > 64)) ||
     (options?.exitDirection !== undefined && ![1, 3, 5, 7].includes(options.exitDirection)) ||
     (options?.geometry !== undefined &&
       options.geometry !== "widest" &&
       options.geometry !== "current")
   ) {
     throw new RangeError("Invalid navigation search options.");
+  }
+  const excluded = new Uint8Array(160 * 168);
+  for (const region of options?.avoidRegions ?? []) {
+    validateTarget(region);
+    for (let y = region.y0; y <= region.y1; y++)
+      excluded.fill(1, y * 160 + region.x0, y * 160 + region.x1 + 1);
   }
   const engine = run.engine;
   const ego = { ...engine.screenObjects[0]! };
@@ -176,6 +192,7 @@ function navigationModel(run: NavigationState, options?: PlanOptions) {
   const valid = new Uint8Array(160 * 168);
   for (let y = minY; y < 168; y++)
     for (let x = 0; x <= maxX; x++) {
+      if (excluded[y * 160 + x]) continue;
       let accepted = true;
       let water = true;
       if (!(ego.fixedPriority && ego.priority === 15)) {
@@ -220,8 +237,8 @@ function navigationModel(run: NavigationState, options?: PlanOptions) {
       )
     );
   };
-  const acceptsExit = (at: number): boolean => {
-    if (options?.exitDirection === undefined) return true;
+  const exitSteps = (at: number): number => {
+    if (options?.exitDirection === undefined) return 0;
     const direction = options.exitDirection;
     const dx = direction === 3 ? 1 : direction === 7 ? -1 : 0;
     const dy = direction === 5 ? 1 : direction === 1 ? -1 : 0;
@@ -234,9 +251,10 @@ function navigationModel(run: NavigationState, options?: PlanOptions) {
       const proposedX = x + dx * step,
         proposedY = y + dy * step;
       if (ego.observeBlocks && save.blockEnabled && inside(x, y) !== inside(proposedX, proposedY))
-        return false;
+        return Infinity;
       const nx = Math.max(0, Math.min(160 - ego.width, proposedX));
       const ny = Math.max(minY, Math.min(167, proposedY));
+      if (excluded[ny * 160 + nx]) return Infinity;
       const border =
         nx !== proposedX ||
         ny !== proposedY ||
@@ -250,10 +268,11 @@ function navigationModel(run: NavigationState, options?: PlanOptions) {
             (color === 1 && ego.observeBlocks) ||
             (color === 2 && options.avoidTriggers)
           )
-            return false;
+            return Infinity;
           if (color !== 3) water = false;
         }
-        if ((ego.waterGate === "on" && !water) || (ego.waterGate === "off" && water)) return false;
+        if ((ego.waterGate === "on" && !water) || (ego.waterGate === "off" && water))
+          return Infinity;
       }
       if (
         ego.observeObjects &&
@@ -263,14 +282,14 @@ function navigationModel(run: NavigationState, options?: PlanOptions) {
             (ny === other.y || (ny > other.y && y < other.y) || (ny < other.y && y > other.y)),
         )
       )
-        return false;
-      if (border) return true;
+        return Infinity;
+      if (border) return count + 1;
       x = nx;
       y = ny;
     }
-    return false;
+    return Infinity;
   };
-  return { ego, step, valid, canStep, searchOptions, acceptsExit };
+  return { ego, step, valid, canStep, searchOptions, exitSteps };
 }
 
 /** Validate full-step ordinary-input traces in the same live geometry as search, without searching. */
@@ -279,9 +298,10 @@ export function validateWalk(
   points: readonly { x: number; y: number }[],
   options?: PlanOptions,
 ): boolean {
-  const { ego, step, canStep, acceptsExit } = navigationModel(run, options);
+  const { ego, step, canStep, exitSteps } = navigationModel(run, options);
   let x = ego.x,
-    y = ego.y;
+    y = ego.y,
+    steps = 0;
   for (const point of points) {
     validateTarget({ x0: point.x, x1: point.x, y0: point.y, y1: point.y });
     if ((point.x - x) % step !== 0 || (point.y - y) % step !== 0) return false;
@@ -289,20 +309,31 @@ export function validateWalk(
       const nx = x + Math.sign(point.x - x) * step;
       const ny = y + Math.sign(point.y - y) * step;
       if (!canStep(y * 160 + x, ny * 160 + nx)) return false;
+      if (++steps > (options?.maxSteps ?? Infinity)) return false;
       x = nx;
       y = ny;
     }
   }
-  return acceptsExit(y * 160 + x);
+  const terminal = exitSteps(y * 160 + x);
+  return Number.isFinite(terminal) && steps + terminal <= (options?.maxSteps ?? Infinity);
 }
 
 /** Advisory static geometry only. This function reads state; it never moves or restores an engine. */
 export function planWalk(run: NavigationState, target: Target, options?: PlanOptions): Plan {
   validateTarget(target);
-  const { ego, step, valid, canStep, searchOptions, acceptsExit } = navigationModel(run, options);
+  const { ego, step, valid, canStep, searchOptions, exitSteps } = navigationModel(run, options);
   const start = ego.y * 160 + ego.x;
   const clearance = anchorClearance(valid);
-  const search = searchAnchors(start, target, step, clearance, canStep, searchOptions, acceptsExit);
+  const search = searchAnchors(
+    start,
+    target,
+    step,
+    clearance,
+    canStep,
+    searchOptions,
+    (at) => Number.isFinite(exitSteps(at)),
+    exitSteps,
+  );
   const smoothed = smoothAnchors(search.chain, step, clearance, canStep, searchOptions);
   const reached = search.reached;
   return {
@@ -314,6 +345,7 @@ export function planWalk(run: NavigationState, target: Target, options?: PlanOpt
     reached: { x: reached % 160, y: Math.floor(reached / 160) },
     cells: search.cells,
     steps: smoothed.steps,
+    ...(search.status === "found" ? { terminalSteps: exitSteps(reached) } : {}),
     waypoints: smoothed.waypoints,
     metrics: {
       cost: smoothed.cost,
@@ -322,6 +354,9 @@ export function planWalk(run: NavigationState, target: Target, options?: PlanOpt
     },
     assumptions: [
       `Geometry: ${options?.geometry ?? "widest"} cel width. Clearance is Chebyshev distance in picture-coordinate anchor cells after footprint acceptance; narrow legal passages remain usable.`,
+      "Declared exclusions reject every destination anchor, including clipped exit anchors. The initial anchor may leave; no swept pixels between native movement updates are implied.",
+      "Region endpoints add a bounded center preference: twice the Chebyshev distance to the region center in movement steps, capped at 16 cost units. An already satisfied region needs no movement. The selected endpoint is plan.reached.",
+      "The movement allowance includes the approach and any terminal clipped exit updates; it bounds search labels and smoothing; cheaper longer arrivals cannot discard a shorter feasible route. Search retains at most 262144 labels and reports work exhaustion instead of proving no route when capped.",
       "Each full cardinal or diagonal step costs one movement update plus clearanceWeight * max(0, desiredClearance - clearance)^2 and optional turnCost. Search has an admissible Chebyshev/step lower bound; smoothing cannot increase this cost.",
       options?.exitDirection === undefined
         ? "Static live controls and stationary object baselines; animation, moving objects, automatic priority-table changes, script triggers and border clipping are not predicted. Replan after state changes."

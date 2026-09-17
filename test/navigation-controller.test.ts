@@ -85,6 +85,36 @@ test("navigation permits movement when parser input is disabled", () => {
   assert.equal(result.outcome.inputEnabled, false);
   assert.equal(result.outcome.movementControlEnabled, true);
 });
+
+test("planned region goals reach the selected interior endpoint instead of the first edge", () => {
+  const result = drive(world(), {
+    kind: "position",
+    planned: true,
+    target: { x0: 16, x1: 24, y0: 100, y1: 100 },
+  });
+  assert.equal(result.outcome.status, "reached");
+  assert.equal(result.outcome.x, 20);
+  assert.equal(result.outcome.counters.movementUpdates, 10);
+});
+
+test("planning checks the remaining movement allowance before issuing more input", () => {
+  const run = world();
+  const controller = new NavigationController(
+    run.engine,
+    { kind: "position", planned: true, target: { x0: 20, x1: 20, y0: 100, y1: 100 } },
+    { budgets: { movementUpdates: 10 } },
+  );
+  for (let cycle = 0; cycle < 2; cycle++) {
+    const decision = controller.next({ hostPolls: cycle, logicCycles: cycle });
+    if (decision.key !== null) run.keys.push(decision.key);
+    run.engine.tick();
+  }
+  for (let y = 94; y <= 106; y++) run.engine.surface.priority[y * 160 + 15] = 0;
+  const decision = controller.next({ hostPolls: 2, logicCycles: 2 });
+  assert.equal(decision.outcome?.status, "budget_exhausted");
+  assert.equal(decision.outcome.counters.movementUpdates, 2);
+  assert.equal(decision.outcome.x, 12);
+});
 test("navigation reports script ownership separately from parser availability", () => {
   const result = drive(world("program.control();"));
   assert.equal(result.outcome.status, "movement_control_unavailable");
@@ -216,7 +246,7 @@ test("a cardinal exit plans around obstacles, crosses the boundary, and verifies
   const run = world("", "if (equaln(v2,2)) { assignn(v0,2); }");
   for (let y = 95; y <= 105; y++) run.engine.surface.priority[y * 160 + 14] = 0;
   const result = drive(run, { kind: "exit", direction: 3, room: 2 });
-  assert.equal(result.outcome.status, "reached");
+  assert.equal(result.outcome.status, "reached", JSON.stringify(result.outcome));
   assert.equal(result.outcome.room, 2);
   assert.ok(result.directions.some((direction) => direction !== 3 && direction !== 0));
   assert.equal(result.controller.lastPlan?.found, true);
@@ -499,6 +529,24 @@ test("changing water scan width retains safe traces without spending replans", (
   });
   assert.equal(result.outcome.status, "reached");
   assert.equal(result.outcome.counters.replans, 0);
+});
+
+test("an exit inside the approach band rejects an insufficient terminal allowance before input", () => {
+  for (const options of [{ budgets: { movementUpdates: 1 } }, { planOptions: { maxSteps: 0 } }]) {
+    const run = world("position(0,153,100); stop.cycling(0);", "", [
+      { width: 1, height: 1, pixels: [1] },
+      { width: 7, height: 1, pixels: [1, 1, 1, 1, 1, 1, 1] },
+    ]);
+    const controller = new NavigationController(
+      run.engine,
+      { kind: "exit", direction: 3, room: 2 },
+      options,
+    );
+    const result = controller.next({ hostPolls: 0, logicCycles: 0 });
+    assert.equal(result.outcome?.status, "budget_exhausted");
+    assert.equal(result.key, null);
+    assert.equal(result.outcome?.counters.movementUpdates, 0);
+  }
 });
 
 test("a changing water scan width invalidates a target that becomes entirely water", () => {

@@ -8,6 +8,7 @@ import { DIRECTION_KEYS, directionForDelta } from "../src/agent/gameTestSteps.ts
 import { searchAnchors, smoothAnchors } from "../src/agent/navigationSearch.ts";
 import {
   planWalk,
+  validateWalk,
   walkPlanned,
   renderNavigationSnapshot,
   canWalkDirect,
@@ -302,4 +303,200 @@ test("turn costs keep distinct arrivals at the same anchor and smoothing preserv
     { x: 12, y: 102 },
     { x: 16, y: 102 },
   ]);
+});
+
+test("region arrival prefers its reachable center without requiring an exact center", () => {
+  const run = world("", [1]);
+  const region = { x0: 30, x1: 38, y0: 100, y1: 108 };
+  const centered = planWalk(run, region);
+  assert.deepEqual(centered.reached, { x: 34, y: 104 });
+  assert.equal(centered.steps, 24);
+  run.engine.surface.priority[104 * 160 + 34] = 0;
+  const obstructed = planWalk(run, region, { clearanceWeight: 0 });
+  assert.equal(obstructed.found, true);
+  assert.equal(
+    Math.max(Math.abs(obstructed.reached.x - 34), Math.abs(obstructed.reached.y - 104)),
+    1,
+  );
+});
+
+test("movement bounds preserve a costly short arrival when a cheaper detour exhausts the allowance", () => {
+  const at = (x: number, y: number) => y * 160 + x;
+  const short = [
+    at(10, 100),
+    at(11, 100),
+    at(12, 100),
+    at(13, 100),
+    at(14, 100),
+    at(14, 99),
+    at(15, 98),
+    at(16, 99),
+    at(16, 100),
+  ];
+  const long = [
+    at(10, 100),
+    at(10, 101),
+    at(11, 102),
+    at(12, 102),
+    at(13, 102),
+    at(14, 101),
+    at(14, 100),
+    at(14, 99),
+    at(15, 98),
+    at(16, 99),
+    at(16, 100),
+  ];
+  // At the shared (14,100) anchor, both arrivals fit the two-step lower
+  // bound. The actual final bend needs four moves, so only the costly
+  // four-move arrival can finish within eight moves.
+  const edges = new Map<number, Set<number>>();
+  for (const path of [short, long])
+    for (let i = 1; i < path.length; i++) {
+      const next = edges.get(path[i - 1]!) ?? new Set<number>();
+      next.add(path[i]!);
+      edges.set(path[i - 1]!, next);
+    }
+  const clearance = new Uint16Array(160 * 168).fill(4);
+  for (const anchor of short.slice(1, 4)) clearance[anchor] = 1;
+  const canStep = (from: number, to: number) => edges.get(from)?.has(to) ?? false;
+  const options = { desiredClearance: 4, clearanceWeight: 1, turnCost: 0, maxSearchNodes: 100 };
+  const goal = { x0: 16, x1: 16, y0: 100, y1: 100 };
+  assert.deepEqual(searchAnchors(short[0]!, goal, 1, clearance, canStep, options).chain, long);
+  const bounded = searchAnchors(short[0]!, goal, 1, clearance, canStep, {
+    ...options,
+    maxSteps: 8,
+  });
+  assert.equal(bounded.status, "found");
+  assert.deepEqual(bounded.chain, short);
+  assert.equal(
+    smoothAnchors(bounded.chain, 1, clearance, canStep, { ...options, maxSteps: 8 }).steps,
+    8,
+  );
+  assert.equal(
+    searchAnchors(short[0]!, goal, 1, clearance, canStep, { ...options, maxSteps: 7 }).status,
+    "movement_budget_exhausted",
+  );
+});
+
+test("movement limits use full steps, admit zero-step success, and constrain region selection", () => {
+  const run = world("assignn(v20,2); step.size(0,v20);", [1]);
+  const goal = { x0: 16, x1: 16, y0: 100, y1: 100 };
+  assert.equal(planWalk(run, goal, { maxSteps: 2 }).searchStatus, "movement_budget_exhausted");
+  assert.equal(planWalk(run, goal, { maxSteps: 3 }).steps, 3);
+  assert.equal(planWalk(run, { x0: 10, x1: 14, y0: 100, y1: 104 }, { maxSteps: 0 }).steps, 0);
+  const bounded = planWalk(run, { x0: 30, x1: 38, y0: 100, y1: 108 }, { maxSteps: 10 });
+  assert.equal(bounded.found, true);
+  assert.equal(bounded.steps, 10);
+  assert.equal(bounded.reached.x, 30);
+  assert.equal(
+    planWalk(run, goal, { maxSteps: 3, maxSearchNodes: 1 }).searchStatus,
+    "budget_exhausted",
+  );
+  for (const maxSteps of [-1, 0.5, Infinity])
+    assert.throws(() => planWalk(run, goal, { maxSteps }), /options/);
+});
+
+test("exit allowance includes every conservative-width approach and clipped crossing update", () => {
+  const run = world("stop.cycling(0); assignn(v20,2); step.size(0,v20);", [1, 7]);
+  const approach = { x0: 152, x1: 153, y0: 100, y1: 100 };
+  // 71 full moves reach x152. Current width one then needs x154,x156,x158,
+  // followed by the clipped x159 proposal that sets the east border flag.
+  const enough = planWalk(run, approach, { exitDirection: 3, maxSteps: 75 });
+  assert.equal(enough.found, true);
+  assert.equal(enough.steps, 71);
+  assert.equal(enough.terminalSteps, 4);
+  assert.equal(
+    planWalk(run, approach, { exitDirection: 3, maxSteps: 74 }).searchStatus,
+    "movement_budget_exhausted",
+  );
+});
+
+test("declared anchor exclusions survive smoothing and live trace validation", () => {
+  const run = world("", [1]);
+  const avoidRegions = [{ x0: 19, x1: 21, y0: 95, y1: 105 }];
+  const plan = planWalk(run, target, { avoidRegions, clearanceWeight: 0 });
+  assert.equal(plan.found, true);
+  assert.ok(plan.waypoints.some((point) => point.y < 95 || point.y > 105));
+  assert.equal(validateWalk(run, [{ x: 30, y: 100 }], { avoidRegions }), false);
+  assert.equal(validateWalk(run, plan.waypoints, { avoidRegions }), true);
+  assert.equal(
+    planWalk(run, target, { avoidRegions: [{ x0: 20, x1: 20, y0: 0, y1: 167 }] }).searchStatus,
+    "unreachable",
+  );
+});
+
+test("anchor exclusions reject malformed or excessive rectangles", () => {
+  const run = world();
+  assert.throws(() => planWalk(run, target, { avoidRegions: [{ ...target, x1: 160 }] }), /target/i);
+  assert.throws(
+    () => planWalk(run, target, { avoidRegions: new Array(65).fill(target) }),
+    /options/i,
+  );
+});
+
+test("anchor exclusions check each full native update and the clipped exit endpoint", () => {
+  const run = world("assignn(v20,2); step.size(0,v20);", [1]);
+  const points = [{ x: 14, y: 100 }];
+  assert.equal(
+    validateWalk(run, points, { avoidRegions: [{ x0: 12, x1: 12, y0: 100, y1: 100 }] }),
+    false,
+  );
+  assert.equal(
+    validateWalk(run, points, { avoidRegions: [{ x0: 11, x1: 11, y0: 100, y1: 100 }] }),
+    true,
+  );
+  assert.equal(
+    validateWalk(run, points, { avoidRegions: [{ x0: 10, x1: 10, y0: 100, y1: 100 }] }),
+    true,
+  );
+  assert.equal(
+    validateWalk(run, [...points, { x: 10, y: 100 }], {
+      avoidRegions: [{ x0: 10, x1: 10, y0: 100, y1: 100 }],
+    }),
+    false,
+  );
+  const east = { x0: 158, x1: 159, y0: 100, y1: 100 };
+  assert.equal(
+    planWalk(run, east, {
+      exitDirection: 3,
+      avoidRegions: [{ x0: 159, x1: 159, y0: 100, y1: 100 }],
+    }).found,
+    false,
+  );
+});
+
+test("a relaxed optimum that exceeds the movement allowance falls back within the same search budget", () => {
+  const at = (x: number, y: number) => y * 160 + x;
+  const short = [at(10, 100), at(11, 100), at(12, 100), at(13, 100), at(14, 100)];
+  const long = [at(10, 100)];
+  for (let y = 99; y >= 65; y--) long.push(at(10, y));
+  for (let x = 11; x <= 14; x++) long.push(at(x, 65));
+  for (let y = 66; y <= 100; y++) long.push(at(14, y));
+  const edges = new Map<number, Set<number>>();
+  for (const path of [short, long])
+    for (let i = 1; i < path.length; i++) {
+      const next = edges.get(path[i - 1]!) ?? new Set<number>();
+      next.add(path[i]!);
+      edges.set(path[i - 1]!, next);
+    }
+  const canStep = (from: number, to: number) => edges.get(from)?.has(to) ?? false;
+  const clearance = new Uint16Array(160 * 168).fill(4);
+  for (const point of short.slice(1, 4)) clearance[point] = 1;
+  const options = { desiredClearance: 4, clearanceWeight: 100, turnCost: 0, maxSearchNodes: 1000 };
+  const goal = { x0: 14, x1: 14, y0: 100, y1: 100 };
+  const relaxed = searchAnchors(short[0]!, goal, 1, clearance, canStep, options);
+  assert.deepEqual(relaxed.chain, long);
+  const bounded = searchAnchors(short[0]!, goal, 1, clearance, canStep, {
+    ...options,
+    maxSteps: 40,
+  });
+  assert.deepEqual(bounded.chain, short);
+  const cap = relaxed.cells + 1;
+  const exhausted = searchAnchors(short[0]!, goal, 1, clearance, canStep, {
+    ...options,
+    maxSteps: 40,
+    maxSearchNodes: cap,
+  });
+  assert.equal(exhausted.status, "budget_exhausted");
+  assert.equal(exhausted.cells, cap);
 });

@@ -166,6 +166,10 @@ export class NavigationController {
     }
   }
 
+  get progress(): Readonly<NavigationBudgets> {
+    return { ...this.counters };
+  }
+
   next(progress: { hostPolls: number; logicCycles: number }): NavigationDecision {
     if (this.result) return { direction: null, key: null, outcome: this.result };
     const engine = this.engine;
@@ -207,7 +211,13 @@ export class NavigationController {
         "needs_input",
         "A modal or suspended interaction needs explicit host input.",
       );
-    if (this.goal.kind === "position" && this.inTarget(this.goal.target))
+    if (
+      this.goal.kind === "position" &&
+      this.inTarget(this.goal.target) &&
+      (!this.goal.planned ||
+        this.lastPlan === null ||
+        (ego.x === this.lastPlan.reached?.x && ego.y === this.lastPlan.reached?.y))
+    )
       return this.finish("reached", "Ego entered the target region.");
     while (
       this.pointIndex < this.points.length &&
@@ -234,10 +244,17 @@ export class NavigationController {
       if (this.counters[metric] >= this.budgets[metric])
         return this.finish("budget_exhausted", `${metric} budget exhausted.`);
     }
+    const boundedOptions = {
+      ...this.options.planOptions,
+      maxSteps: Math.min(
+        this.options.planOptions?.maxSteps ?? Infinity,
+        this.budgets.movementUpdates - this.counters.movementUpdates,
+      ),
+    };
     const planningOptions =
       this.goal.kind === "exit" && [1, 3, 5, 7].includes(this.goal.direction)
-        ? { ...this.options.planOptions, exitDirection: this.goal.direction }
-        : this.options.planOptions;
+        ? { ...boundedOptions, exitDirection: this.goal.direction }
+        : boundedOptions;
     let crossingInvalidated = false;
     if (
       this.exitCrossing &&
@@ -310,11 +327,22 @@ export class NavigationController {
         this.positions = [];
         if (!this.lastPlan.found)
           return this.finish(
-            this.lastPlan.searchStatus === "budget_exhausted"
+            this.lastPlan.searchStatus === "budget_exhausted" ||
+              this.lastPlan.searchStatus === "movement_budget_exhausted"
               ? "budget_exhausted"
               : "unreachable_under_current_model",
-            "No route in the current static model.",
+            this.lastPlan.searchStatus === "movement_budget_exhausted"
+              ? "No route fits the remaining movement allowance."
+              : this.lastPlan.searchStatus === "budget_exhausted"
+                ? "Search work budget exhausted before a route was established."
+                : "No route in the current static model.",
           );
+        if (
+          this.goal.kind === "position" &&
+          ego.x === this.lastPlan.reached?.x &&
+          ego.y === this.lastPlan.reached?.y
+        )
+          return this.finish("reached", "Ego reached the selected target endpoint.");
       }
     }
     if (this.stall >= this.stallLimit)
