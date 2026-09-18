@@ -1,3 +1,4 @@
+import { getKnownGameByHash } from "../../src/games/knownGames.ts";
 import { expect, type Page } from "@playwright/test";
 import { AGI_KEY, NAV_KEYS } from "../../src/runtime/keys.ts";
 import type { Action } from "../../test/speedrun/runner.ts";
@@ -46,11 +47,17 @@ export class BrowserReplay {
   async boot(target: string, seed: number): Promise<void> {
     await isolateStorage(this.page);
     await this.page.goto(`/?replaySeed=${seed}`);
-    const boot = this.page
-      .locator(
-        `[data-hash="${target}"], [data-project-id="${target}"], [data-alias="${target}"], [data-testid="boot-${target}"]`,
-      )
-      .first();
+    // A catalog alias names one edition; a hash can also match a project
+    // export of the same game, so the alias is tried first.
+    const alias = getKnownGameByHash(target)?.alias ?? target;
+    const byAlias = this.page.locator(`[data-alias="${alias}"]`);
+    const boot = (
+      (await byAlias.count()) > 0
+        ? byAlias
+        : this.page.locator(
+            `[data-hash="${target}"], [data-project-id="${target}"], [data-alias="${target}"], [data-testid="boot-${target}"]`,
+          )
+    ).first();
     if (this.phone) await boot.tap();
     else await boot.press("Enter");
     await expect
