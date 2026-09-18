@@ -1372,6 +1372,31 @@ engine applies the formatting to every profile by inference.
 
 Tests: [opcodes.test.ts](../test/opcodes.test.ts).
 
+### Original position handlers
+
+Static disassembly of the KQ4 3.002.086 executable
+(`b9b27b403015bb18f6562ba1b8b04c2829e0c3b53c042196bee7924d1df7be65`) and the
+descrambled KQ3 2.936 image. `position` (0x805a in 3.002.086, 0x7c1c in 2.936)
+and `position.v` (0x8096, 0x7c5a) store the two operands into the record's x
+and y and into the saved pair at 0x16/0x18, and nothing else. `reposition`
+(0x8126) ORs state bit 0x400 into the record before applying its deltas, and
+`reposition.to` and `reposition.to.v` do the same. Fact: only the reposition
+family and cel clipping mark an object newly positioned (the five `or 0x400`
+sites in each image), and the spec's `position` entry says the same. The
+engine marked `position` too, which scheduled a zero-step placement pass that
+suppresses the first real step; under 3.002.086 that pass reports an exact
+zero left edge as border 4, so King's Quest IV's room 28, which positions ego
+at x=0 and starts the unicorn ride, bounced between rooms 27 and 28 for good.
+
+Adoption is partial: 3.002.086 follows the originals. Every other profile keeps
+the extra pass as a recorded deviation (`positionMarksNewlyPositioned`),
+because the shipped walkthroughs of eight games were verified against it and
+diverge one step after every scripted `position` without it. Closing that
+deviation means re-verifying those routes on the faithful behavior; it is the
+first open fidelity item.
+
+Tests: [original-movement.test.ts](../test/original-movement.test.ts).
+
 ### Original cel blit over control pixels
 
 Static disassembly of the Gold Rush 3.002.149 executable. The cel blit at

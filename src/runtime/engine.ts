@@ -4748,18 +4748,21 @@ export class Engine {
         this.updateEgoVisibility();
         return next;
       }
+      // position and position.v write the coordinates and their saved pair;
+      // the originals leave the newly-positioned bit to the reposition family
+      // (docs/fidelity.md, "Original position handlers").
       case 0x25: {
         const o = obj(0);
         o.x = o.prevX = a(1);
         o.y = o.prevY = a(2);
-        o.newlyPositioned = true;
+        if (this.profile.positionMarksNewlyPositioned) o.newlyPositioned = true;
         return next;
       }
       case 0x26: {
         const o = obj(0);
         o.x = o.prevX = this.vars[a(1)]!;
         o.y = o.prevY = this.vars[a(2)]!;
-        o.newlyPositioned = true;
+        if (this.profile.positionMarksNewlyPositioned) o.newlyPositioned = true;
         return next;
       }
       case 0x27: {

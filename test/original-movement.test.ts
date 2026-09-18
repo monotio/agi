@@ -6,6 +6,7 @@ import { Engine } from "../src/runtime/engine.ts";
 import { buildView } from "../src/view/view.ts";
 import { MOTION_FOLLOW, MOTION_MOVE_OBJ } from "../src/runtime/screenObject.ts";
 import { planWalk } from "../src/agent/navigation.ts";
+import { PROFILES } from "../src/runtime/profile.ts";
 
 // Independently authored vectors from executed original routines; see
 // docs/fidelity.md, "Original complete movement and follow audit".
@@ -340,4 +341,51 @@ test("the previous position is committed after the pass, so a corner pass is not
   engine.tick();
   engine.tick();
   assert.deepEqual([actor.x, actor.y], [90, 142], "equal baselines block");
+});
+
+test("position leaves the newly-positioned bit alone; reposition sets it", () => {
+  // docs/fidelity.md, "Original position handlers". Under 3.002.086 the
+  // movement routine reports border 4 whenever the proposed x is zero. A
+  // placement pass proposes the current position, so an object placed at x=0
+  // and sent east reports the border only if that pass ran: reposition
+  // schedules one, position does not. Other profiles still schedule it as a
+  // recorded deviation, so this vector is 3.002.086-only.
+  const source = (place: string) =>
+    `if (!isset(f200)) { set(f200); load.view(1); animate.obj(o0); set.view(o0, 1); ignore.horizon(o0);
+      position(o0, 40, 100); draw(o0); stop.cycling(o0); }
+     if (equaln(v100, 1)) { assignn(v100, 2); ${place} move.obj(o0, 20, 100, 1, f50); }
+     return;`;
+  for (const [place, edge, x] of [
+    ["position(o0, 0, 100);", 0, 1],
+    ["reposition.to(o0, 0, 100);", 4, 0],
+  ] as const) {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(source(place), { dictionary: new Map() }).payload,
+    );
+    container.putResource(
+      "view",
+      1,
+      buildView({ loops: [{ cels: [{ width: 2, height: 1, pixels: [1, 1] }] }] }),
+    );
+    const engine = new Engine(
+      container,
+      {
+        print() {},
+        displayAt() {},
+        statusLine() {},
+        takeInputLine: () => null,
+        takeKeys: () => [],
+      },
+      undefined,
+      { profile: PROFILES["3.002.086"] },
+    );
+    engine.tick();
+    engine.vars[100] = 1;
+    engine.tick();
+    assert.equal(engine.vars[2], edge, `${place} border report`);
+    assert.equal(engine.screenObjects[0]!.x, x, `${place} first step`);
+  }
 });
