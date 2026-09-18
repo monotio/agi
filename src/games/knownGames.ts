@@ -164,6 +164,8 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: requireResourceRevision(
       "90b7a965bf889351bb79340ca710ce4abf1eae1777c8e10de409d40263df7cbb",
     ),
+    walkthroughLabel: "Completed Vohaul's defeat & escape (250 pts)",
+    walkthroughCoverage: "complete-game",
   },
   {
     alias: "mh1",
@@ -176,8 +178,8 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: requireResourceRevision(
       "010d2c6c1edf1a27bedded58faad86cb50a9f6970050f27736dc84d41854216d",
     ),
-    walkthroughLabel: "Completed Day 1",
-    walkthroughCoverage: "chapter",
+    walkthroughLabel: "Completed all four days",
+    walkthroughCoverage: "complete-game",
   },
   {
     alias: "mh2",
@@ -190,6 +192,8 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: requireResourceRevision(
       "eea0ebc7f22ef50d2fc4f7c3557622f6331242ab1b8152a57badf855d761dd60",
     ),
+    walkthroughLabel: "Freed San Francisco & reached the closing card",
+    walkthroughCoverage: "complete-game",
   },
   {
     alias: "pq1",
@@ -202,6 +206,8 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: requireResourceRevision(
       "cb643573c06cb9799fa2c08fcf4eec77db3a2102d07b199a6703a0d49c5164b3",
     ),
+    walkthroughLabel: "Arrested Jessie Bains & key to the city (254 pts)",
+    walkthroughCoverage: "complete-game",
   },
   {
     alias: "lsl1",
@@ -214,6 +220,8 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: requireResourceRevision(
       "2e604e7968796317b407bd87708e75f985b43737f2677e09591191af100cd470",
     ),
+    walkthroughLabel: "Spent the night with Eve (222 pts)",
+    walkthroughCoverage: "complete-game",
   },
   {
     alias: "bc",
@@ -226,6 +234,8 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: requireResourceRevision(
       "76a1c27b07d3c22cd336aaa69838fb3f35bce1bf6c7851e4f72c2b225bd051ef",
     ),
+    walkthroughLabel: "Destroyed the Black Cauldron (230 pts)",
+    walkthroughCoverage: "complete-game",
   },
   {
     alias: "gr1",
@@ -250,6 +260,8 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: requireResourceRevision(
       "4ae970dd2e680033206d042b0fddf295ae91b29e6bd303d8c0cfc9635c766a15",
     ),
+    walkthroughLabel: "Beginner shift, bought & placed the Old Box",
+    walkthroughCoverage: "chapter",
   },
   {
     alias: "mumg",
@@ -262,6 +274,8 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: requireResourceRevision(
       "0c20e2c06cf48a1738b76f3dd82753967f50ec2f635dfe2f91b524857301cfba",
     ),
+    walkthroughLabel: "Fixed all 18 rhymes & woke up at home (18 pts)",
+    walkthroughCoverage: "complete-game",
   },
   {
     alias: "demopac4",

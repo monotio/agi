@@ -8,7 +8,8 @@ for (const route of WALKTHROUGHS) {
     `${route.alias}: ${route.label} from two cold boots`,
     {
       skip: fixtureSkip(route.hash, ["AGIDATA.OVL"], { checkVolumes: "shipped" }),
-      timeout: 30_000,
+      // Police Quest's two cold boots take about seventy seconds.
+      timeout: 180_000,
     },
     () => {
       const first = runWalkthrough(route);
