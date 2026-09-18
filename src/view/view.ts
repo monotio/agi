@@ -494,7 +494,9 @@ export function drawCel(
   const p = opts?.priority ?? 15;
   forEachPaintedPixel(surface, cel, x, yBaseline, p, (cell, color) => {
     surface.visual[cell] = color;
-    surface.priority[cell] = p;
+    // A control pixel keeps its control value under a painted cel; only its
+    // colour changes (docs/fidelity.md, "Original cel blit over control pixels").
+    if (surface.priority[cell]! > 2) surface.priority[cell] = p;
     opts?.onPixel?.(cell);
   });
 }

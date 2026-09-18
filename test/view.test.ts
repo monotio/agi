@@ -325,14 +325,16 @@ describe("drawCel", () => {
     // Comparison value is the 4 found at row 13: p=3 is hidden, p=4 draws.
     drawCel(surface, cel, 8, 10, { priority: 3 });
     assert.deepEqual(cell(surface, 8, 10), { visual: 15, priority: 0 });
+    // The colour lands, but the control value stays (docs/fidelity.md,
+    // "Original cel blit over control pixels").
     drawCel(surface, cel, 8, 10, { priority: 4 });
-    assert.deepEqual(cell(surface, 8, 10), { visual: 6, priority: 4 });
+    assert.deepEqual(cell(surface, 8, 10), { visual: 6, priority: 0 });
 
     // Column 9 below row 20 is all control value 1: the scan reaches the
     // bottom, comparison 0, so even priority 0 draws.
     for (let y = 20; y < 168; y++) surface.priority[y * SCREEN_WIDTH + 9] = 1;
     drawCel(surface, cel, 9, 20, { priority: 0 });
-    assert.deepEqual(cell(surface, 9, 20), { visual: 6, priority: 0 });
+    assert.deepEqual(cell(surface, 9, 20), { visual: 6, priority: 1 });
   });
 
   it("shifts left to fit the right edge and clips rows below the bottom", () => {

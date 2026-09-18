@@ -11,13 +11,14 @@ const limits: Record<string, { polls: number; cycles: number; actions: number }>
   kq3: { polls: 260000, cycles: 34200, actions: 10600 },
   sq1: { polls: 132600, cycles: 17650, actions: 4900 },
   sq2: { polls: 144400, cycles: 18900, actions: 4600 },
-  pq1: { polls: 401000, cycles: 39200, actions: 13400 },
+  pq1: { polls: 401500, cycles: 39300, actions: 13400 },
   lsl1: { polls: 143200, cycles: 15750, actions: 5500 },
   bc: { polls: 104700, cycles: 12250, actions: 2350 },
   mumg: { polls: 59100, cycles: 21800, actions: 1550 },
   ddp: { polls: 10400, cycles: 2350, actions: 350 },
   mh1: { polls: 142500, cycles: 30000, actions: 6700 },
   mh2: { polls: 149100, cycles: 27900, actions: 5600 },
+  gr1: { polls: 105800, cycles: 43400, actions: 8600 },
   "adventure-department": { polls: 1400, cycles: 90, actions: 145 },
 };
 

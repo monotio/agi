@@ -2028,8 +2028,10 @@ function arriveAtHotel(run: Speedrun): void {
   run.waitForRoom(63, "Hotel Delphoria");
   score(run, 220, "arrived at the Hotel Delphoria");
   exitCar(run);
-  // The doorman holds you on the carpet while he swings the door open.
-  go(run, { x0: 76, x1: 84, y0: 142, y1: 146 });
+  // The doorman holds you on the carpet while he swings the door open. The
+  // doorway is the open span x68..80 of the y120 wall line; the closed-door
+  // prop painted over the line to its right keeps that line's block value.
+  go(run, { x0: 70, x1: 73, y0: 142, y1: 146 });
   push(run, "N", 64);
 }
 

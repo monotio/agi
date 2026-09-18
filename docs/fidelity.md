@@ -1372,6 +1372,26 @@ engine applies the formatting to every profile by inference.
 
 Tests: [opcodes.test.ts](../test/opcodes.test.ts).
 
+### Original cel blit over control pixels
+
+Static disassembly of the Gold Rush 3.002.149 executable. The cel blit at
+0x5be3, which `add.to.pic` reaches through 0x5a1e, tests each opaque pixel's
+destination priority nibble. A value of 0x20 or below (control 0..2) sends it
+to 0x5c74, which scans down the column to the first pixel above 0x20; if that
+priority is not above the cel's, it jumps to 0x5c5f, which ORs the colour into
+the register still holding the destination's control nibble and stores that.
+Ordinary pixels go through 0x5c5d, which loads the cel priority first. Fact: a
+painted cel changes a control pixel's colour and keeps its control value.
+Gold Rush's post office relies on it: logic 9 places the closed door panel
+over the trigger column at x=53 that its door script needs to stay set until
+ego is nearly through, and the door can be entered only while that column
+survives. The engine had written the cel priority over control pixels, which
+made the door impassable. The 2.440 and 2.936 blits live in their object
+overlays and were not inspected; the engine applies the rule to every profile
+by inference.
+
+Tests: [view.test.ts](../test/view.test.ts), [opcodes.test.ts](../test/opcodes.test.ts).
+
 ### Original add.to.pic control box
 
 Static disassembly of the descrambled LSL1 2.440 and KQ3 2.936 images (hashes

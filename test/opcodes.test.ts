@@ -239,6 +239,27 @@ test("v8 reports ample free memory from boot on and after a script overwrites it
   assert.equal(engine.vars[8], 255, "refreshed each cycle like the original's heap measure");
 });
 
+test("add.to.pic paints its colour over control pixels but keeps their control value", () => {
+  // docs/fidelity.md, "Original cel blit over control pixels". PICTURE_1 has no
+  // control pixels; the test seeds a control-2 trigger column under the cel.
+  const container = gameWith(`
+    load.view(0);
+    add.to.pic(0, 0, 0, 40, 100, 7, 4);
+    return;
+  `);
+  container.putResource("view", 0, solidView(3, 4));
+  const engine = new Engine(container, new TestHost(), DICT);
+  // Seed before the first tick: the engine's surface persists across ticks.
+  for (let y = 97; y <= 100; y++) engine.surface.priority[y * SCREEN_WIDTH + 41] = 2;
+  engine.tick();
+  const at = (x: number, y: number): number => engine.surface.priority[y * SCREEN_WIDTH + x]!;
+  for (let y = 97; y <= 100; y++) {
+    assert.equal(at(41, y), 2, `trigger survives at y=${y}`);
+    assert.equal(engine.surface.visual[y * SCREEN_WIDTH + 41], 5, `colour painted at y=${y}`);
+    assert.equal(at(40, y), 7, `plain pixel takes the cel priority at y=${y}`);
+  }
+});
+
 test("add.to.pic.v draws through variable-selected operands", () => {
   const container = gameWith(`
     load.view(0);

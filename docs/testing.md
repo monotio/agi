@@ -44,7 +44,7 @@ resource readers still reject unavailable data if the scenario requests it.
 | Space Quest I            | `games/sq1/`      | 2.917                       | [Full-game completion proof](#walkthrough-tests) (202 points; ceremony and ending credits), [opening](../test/openings.test.ts)                                                                                                          |
 | Police Quest I           | `games/pq1/`      | 2.903 / 2.936 fallback      | [Full-game completion proof](#walkthrough-tests) (254 points; key to the city), [opening](../test/openings.test.ts)                                                                                                                      |
 | Leisure Suit Larry I     | `games/lsl1/`     | 2.440                       | [Full-game completion proof](#walkthrough-tests) (222 points; penthouse ending), [opening](../test/openings.test.ts)                                                                                                                     |
-| Gold Rush                | `games/gr1/`      | 3.002.149                   | [Opening](../test/openings.test.ts), [binary profile](../test/mh2-profile.test.ts)                                                                                                                                                       |
+| Gold Rush                | `games/gr1/`      | 3.002.149                   | [Full-game completion proof](#walkthrough-tests) (255 points; Panama route), [opening](../test/openings.test.ts), [binary profile](../test/mh2-profile.test.ts)                                                                          |
 | Manhunter: New York      | `games/mh1/`      | 3.002.107 / 3.002.102       | [Full-game completion proof](#walkthrough-tests) (all four days), [resources and Day 1](../test/mh1.test.ts)                                                                                                                             |
 | Manhunter 2              | `games/mh2/`      | 3.002.149                   | [Full-game completion proof](#walkthrough-tests) (closing card), [profile and logic references](../test/mh2-profile.test.ts)                                                                                                             |
 | Sierra demo pack         | `games/demopac4/` | 3.002.102                   | [Resources and six demos](../test/demopac4.test.ts)                                                                                                                                                                                      |
@@ -248,7 +248,9 @@ the dealt state. Police Quest arrests Jessie Bains and receives the key to the c
 with 254 points: the status line promises 245, the logic awards more on this path,
 and the claim is the observed ending state. The Black Cauldron destroys the cauldron
 with all 230 points from function keys alone. Mixed-Up Mother Goose fixes all
-eighteen rhymes with keys only and selects the game's own fastest speed. Both
+eighteen rhymes with keys only and selects the game's own fastest speed. Gold Rush takes the Panama route to the mother lode with the
+maximum 255 points, its clock-bound Brooklyn opening answered from observed
+state. Both
 Manhunter games play to their closing cards through the cursor interface: New
 York across all four days, San Francisco to the digger's surfacing. Donald Duck's
 Playground, which has no story ending, ships a chapter: the beginner arch, a
@@ -272,13 +274,14 @@ when they do not need a timeline marker. The narrated tapes have these costs:
 | KQ3                  |    259,462 |       34,094 |         46 |
 | SQ1                  |    132,398 |       17,612 |         55 |
 | SQ2                  |    144,312 |       18,854 |         48 |
-| PQ1                  |    400,880 |       39,138 |         35 |
+| PQ1                  |    401,420 |       39,228 |         35 |
 | LSL1                 |    143,148 |       15,692 |         31 |
 | Black Cauldron       |    104,637 |       12,202 |         26 |
 | Mother Goose         |     58,993 |       21,760 |         24 |
 | Donald Duck          |     10,341 |        2,335 |         16 |
 | MH1                  |    142,440 |       29,969 |         59 |
 | MH2                  |    149,082 |       27,852 |         53 |
+| Gold Rush            |    105,687 |       43,379 |         48 |
 | Adventure Department |      1,367 |           82 |          4 |
 
 The inexpensive [artifact quality check](../app/test/walkthrough-quality.test.ts)
@@ -388,7 +391,8 @@ scenario poll budgets; incremental `navigate` returns before that phase.
 
 Outcomes distinguish `reached`, `blocked`, `unreachable_under_current_model`,
 `needs_input`, `movement_control_unavailable`, `unexpected_transition`,
-`hazard_detected`, `budget_exhausted` and `cancelled`. Modals and suspended
+`hazard_detected`, `budget_exhausted`, `cancelled` and `satisfied` (an `until`
+condition the caller observes, such as a door opening, ended the walk early). Modals and suspended
 interactions require explicit input. Eligible movement updates drive stall and
 oscillation checks, so slow step cadence does not look like a blocked path.
 Host polls, logic cycles, movement updates, replans and injected wall time have

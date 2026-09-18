@@ -248,6 +248,8 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: requireResourceRevision(
       "0be9505e2a9582c5fe99347acc5713459bab81fb65063bcc46985fd5c49d8433",
     ),
+    walkthroughLabel: "Struck the mother lode via Panama (255 pts)",
+    walkthroughCoverage: "complete-game",
   },
   {
     alias: "ddp",
