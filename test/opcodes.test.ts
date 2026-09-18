@@ -187,6 +187,43 @@ test("show.obj formats the view description like any printed message", () => {
   assert.doesNotMatch(screen, /%v48/);
 });
 
+test("message codes expand in one pass with recursive inserts, as the original formatter does", () => {
+  // docs/fidelity.md, "Original message formatter". The %v value 142 must not
+  // complete the preceding %m1 into %m142; %m and %s contents are formatted;
+  // an unknown letter is dropped; %g reads logic 0's messages.
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `
+      #message 1 "zero-%v48"
+      #message 2 "unused"
+      if (!isset(f200)) { set(f200); assignn(v48, 142); set.string(s1, "in %v48"); call(1); }
+      return;
+      `,
+      { dictionary: DICT },
+    ).payload,
+  );
+  container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      `
+      #message 1 "one"
+      #message 2 "%m1%v48 <%s1> %q %g1"
+      print(m2);
+      return;
+      `,
+      { dictionary: DICT },
+    ).payload,
+  );
+  const host = new TestHost();
+  const engine = new Engine(container, host, DICT);
+  engine.tick();
+  assert.deepEqual(host.prints, ["one142 <in 142>  zero-142"]);
+});
+
 test("add.to.pic.v draws through variable-selected operands", () => {
   const container = gameWith(`
     load.view(0);

@@ -431,6 +431,8 @@ type ClockConditionTerm =
 
 interface ClockBranch {
   alternate: number;
+  /** Where this pass actually went; the alternative counts as an exit only before rejoining it. */
+  taken: number;
   result: boolean;
   clock: number[];
   clauses: ClockConditionTerm[][];
@@ -3882,7 +3884,7 @@ export class Engine {
                 condition >= target &&
                 condition < pc &&
                 this.clockCanSelectAlternate(frame, condition, branch, writes) &&
-                this.clockBranchExitsLoop(code, branch.alternate, target, pc),
+                this.clockBranchExitsLoop(code, branch, target, pc),
             );
           // A skipped condition on the next iteration must not inherit an
           // earlier clock guard. Keep enclosing guards for nested loops.
@@ -3918,6 +3920,7 @@ export class Engine {
             frame.clockBranches ??= new Map();
             frame.clockBranches.set(pc, {
               alternate: result ? end : body,
+              taken: result ? body : end,
               result,
               clock: Array.from(this.vars.subarray(11, 15)),
               clauses: this.clockCondition(code, pc + 1),
@@ -4115,53 +4118,67 @@ export class Engine {
   }
 
   /**
-   * Does every path from an untaken clock branch leave this loop? Following
-   * the alternative distinguishes a controlling condition from an incidental
-   * display/counter branch. Never execute conditions here: said/have.key have
-   * side effects. A cycle in the alternative is conservatively not an exit.
+   * Can the untaken side of a clock branch leave this loop before it rejoins
+   * the side that ran? Following the alternative distinguishes a controlling
+   * condition from an incidental display/counter branch: a counted wait
+   * (Police Quest logic 81 leaves only once enough clock changes were seen)
+   * exits from inside its own body, while an incidental read merges back into
+   * the common flow, whose later exits belong to the loop, not the clock.
+   * Never execute conditions here: said/have.key have side effects.
    */
   private clockBranchExitsLoop(
+    code: Uint8Array,
+    branch: ClockBranch,
+    start: number,
+    backEdge: number,
+  ): boolean {
+    const common = this.loopFlow(code, branch.taken, start, backEdge);
+    if (common === null) return false;
+    const reached = this.loopFlow(code, branch.alternate, start, backEdge, common);
+    return reached !== null && reached.has(-1);
+  }
+
+  /**
+   * The instruction addresses reachable from `from` inside the loop without
+   * crossing `stop`; -1 marks an exit from the loop. Null when the bytecode
+   * cannot be followed.
+   */
+  private loopFlow(
     code: Uint8Array,
     from: number,
     start: number,
     backEdge: number,
-  ): boolean {
-    const pending: { pc: number; finish: boolean }[] = [{ pc: from, finish: false }];
-    const visiting = new Set<number>();
-    const exited = new Set<number>();
+    stop?: ReadonlySet<number>,
+  ): Set<number> | null {
+    const seen = new Set<number>();
+    const pending = [from];
     while (pending.length > 0) {
-      const { pc, finish } = pending.pop()!;
-      if (finish) {
-        visiting.delete(pc);
-        exited.add(pc);
+      const pc = pending.pop()!;
+      if (pc < start || pc > backEdge || code[pc] === 0x00) {
+        seen.add(-1);
         continue;
       }
-      if (pc < start || pc > backEdge || code[pc] === 0x00 || exited.has(pc)) continue;
-      if (pc === backEdge || visiting.has(pc)) return false;
-      visiting.add(pc);
-      pending.push({ pc, finish: true });
+      if (pc === backEdge || seen.has(pc) || stop?.has(pc)) continue;
+      seen.add(pc);
       const op = code[pc]!;
       if (op === GOTO) {
-        pending.push({ pc: pc + 3 + readS16(code, pc + 1), finish: false });
+        pending.push(pc + 3 + readS16(code, pc + 1));
       } else if (op === IF) {
         let next = pc + 1;
         while (code[next] !== IF) {
-          if (next >= code.length) return false;
+          if (next >= code.length) return null;
           next =
             code[next] === NOT || code[next] === OR ? next + 1 : this.skipCondition(code, next);
         }
         const body = next + 3;
-        pending.push(
-          { pc: body, finish: false },
-          { pc: body + readS16(code, next + 1), finish: false },
-        );
+        pending.push(body, body + readS16(code, next + 1));
       } else {
         const spec = actionSpec(op, this.profile);
-        if (!spec) return false;
-        pending.push({ pc: pc + 1 + spec.operands.length, finish: false });
+        if (!spec) return null;
+        pending.push(pc + 1 + spec.operands.length);
       }
     }
-    return true;
+    return seen;
   }
 
   /** Evaluate a condition list starting at `from` (just after opening 0xff). */
@@ -4465,29 +4482,57 @@ export class Engine {
   // ---------- messages ----------
 
   private message(num: number): string {
-    const messages = this.activation?.messages;
-    if (!messages || num < 1 || num >= messages.length + 1) {
-      throw new Error(`message ${num} out of range for current logic`);
-    }
-    return this.expandMessage(messages[num - 1] ?? "");
+    return this.expandMessage(this.rawMessage(num));
   }
 
-  private expandMessage(text: string): string {
-    return (
-      text
-        // AGI specs §4.2 print: %vN|width retains leading zeroes.
-        // https://www.agidev.com/articles/agispec/agispecs-4.html
-        .replace(/%v(\d+)(?:\|(\d+))?/g, (_, n, width: string | undefined) => {
-          const value = String(this.vars[Number(n)] ?? 0);
-          // Bound requested padding to one text row before allocating it.
-          return width === undefined
-            ? value
-            : value.padStart(Math.min(TEXT_COLS, Number(width)), "0");
-        })
-        .replace(/%s(\d+)/g, (_, n) => this.strings[Number(n)] ?? "")
-        .replace(/%m(\d+)/g, (_, n) => this.message(Number(n)))
-        .replace(/%w(\d+)/g, (_, n) => this.parsedWordTexts[Number(n) - 1] ?? "")
+  /**
+   * One left-to-right pass over the source; inserted text is formatted
+   * recursively and never rescanned in place, so a number written by %v
+   * cannot extend a code before it. Letters the original does not handle
+   * are dropped with their percent sign (docs/fidelity.md, "Original message
+   * formatter"). The original bounds recursion at nineteen levels.
+   */
+  private expandMessage(text: string, depth = 0): string {
+    if (depth > 19) return "";
+    return text.replace(
+      /%([a-z])(\d*)(?:\|(\d+))?/g,
+      (whole, letter: string, digits: string, width: string | undefined) => {
+        const n = Number(digits);
+        switch (letter) {
+          case "v": {
+            const value = String(this.vars[n] ?? 0);
+            // Bound requested padding to one text row before allocating it.
+            return width === undefined
+              ? value
+              : value.padStart(Math.min(TEXT_COLS, Number(width)), "0");
+          }
+          case "s":
+            return this.expandMessage(this.strings[n] ?? "", depth + 1);
+          case "m":
+            return this.expandMessage(this.rawMessage(n), depth + 1);
+          case "g":
+            return this.expandMessage(this.rawMessage(n, 0), depth + 1);
+          case "o":
+            return this.expandMessage(this.itemNames()[this.vars[n] ?? 0] ?? "", depth + 1);
+          case "w":
+            return this.expandMessage(this.parsedWordTexts[n - 1] ?? "", depth + 1);
+          default:
+            return whole.slice(2);
+        }
+      },
     );
+  }
+
+  /** A logic's stored message text before formatting; logic 0 for %g. */
+  private rawMessage(num: number, logic?: number): string {
+    const messages =
+      logic === undefined ? this.activation?.messages : this.loadLogic(logic).messages;
+    if (!messages || num < 1 || num >= messages.length + 1) {
+      throw new Error(
+        `message ${num} out of range for ${logic === undefined ? "current logic" : `logic ${logic}`}`,
+      );
+    }
+    return messages[num - 1] ?? "";
   }
 
   // ---------- action dispatch ----------
@@ -5356,7 +5401,11 @@ export class Engine {
         this.directionCoupling = 0;
         return next;
       case 0x84:
+        // Player coupling and the end of object 0's autonomous motion; the
+        // direction byte is left alone (docs/fidelity.md, "Original
+        // player.control handler").
         this.directionCoupling = 1;
+        this.objects[0]!.motionMode = MOTION_NORMAL;
         return next;
       case 0x86:
         if (this.profile.exitAlwaysImmediate || a(0) === 1) {

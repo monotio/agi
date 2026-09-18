@@ -1290,6 +1290,35 @@ and restart cases, 56 reconstruction/return cases, 12 object lifecycle cases,
 24 stationary cases, eight startup cases, 76 opcode flag mutations and four
 main-loop continuation cases.
 
+### Original player.control handler
+
+Static disassembly of the descrambled KQ3 2.936 image. The handler at 0x7041
+stores 1 in the direction-coupling word at DS:0x0139 and clears object 0's
+motion-type byte (record offset 0x22); `program.control` at 0x7034 stores 0 and
+touches nothing else. Fact: `player.control` ends a running `move.obj`,
+`wander` or `follow.ego` on object 0 without changing its direction byte. The
+engine only switched the coupling, so a scripted ego walk continued after the
+script had handed control back; Police Quest depends on the stop.
+
+Tests: [ego-motion-control.test.ts](../test/ego-motion-control.test.ts).
+
+### Original message formatter
+
+Static disassembly of the unscrambled Gold Rush 3.002.149 executable. The
+formatter at 0x2208 walks the source once. On `%` it reads one letter and
+dispatches through the table at 0x23a4: `g` (a message of logic 0, formatted
+by a recursive call), `m` (a message of the current logic, recursive), `o` (the
+inventory item named by the variable, recursive), `s` (a string slot,
+recursive), `v` (the variable as decimal, with `|` width zero-padded) and `w`
+(a parsed word, recursive). Any other letter is skipped with its percent sign.
+Output is appended, never rescanned, and recursion stops at nineteen levels.
+Fact: a `%v` value cannot extend a code before it. Police Quest prints
+`%m1%v…`, which the engine's earlier `%v`-first pass turned into a different
+message number. `%g` and `%o` were missing altogether. v2 images were not
+inspected; the engine applies the table to every profile by inference.
+
+Tests: [opcodes.test.ts](../test/opcodes.test.ts).
+
 ### Original previous-position commit
 
 Static disassembly of the descrambled KQ3 2.936 image. The collision routine at

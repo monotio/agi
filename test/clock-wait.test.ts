@@ -53,6 +53,36 @@ test("a clock busy-wait parks the logic stack until the host clock advances", ()
   assert.equal(engine.flags[201], 1, "the loop exits once the second elapses");
 });
 
+test("a counted clock wait whose exit is one path of the clock branch still parks", () => {
+  // Police Quest logic 81 counts clock changes: only the count-reached path
+  // leaves the loop, so an every-path test would call it a runaway loop.
+  const engine = game(
+    `
+    if (!isset(f200)) {
+      set(f200); assignn(v168, 2); assignv(v169, v11);
+      loop:
+      if (!equalv(v11, v169)) {
+        assignv(v169, v11); decrement(v168);
+        if (equaln(v168, 0)) { goto done; }
+      }
+      goto loop;
+      done:
+      set(f201);
+    }
+    return;
+  `,
+    50_000,
+  );
+  engine.tick();
+  assert.equal(engine.continuationPending, true, "parked at the loop head");
+  for (let second = 0; second < 2; second++) {
+    engine.advanceClock(1000);
+    engine.tick();
+  }
+  assert.equal(engine.continuationPending, false);
+  assert.equal(engine.flags[201], 1, "two clock changes end the wait");
+});
+
 test("a bounded loop that reads the clock completes within one pass", () => {
   const engine = game(`
     assignn(v60, 200); assignn(v49, 5); assignn(v11, 0);
