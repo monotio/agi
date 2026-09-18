@@ -224,6 +224,21 @@ test("message codes expand in one pass with recursive inserts, as the original f
   assert.deepEqual(host.prints, ["one142 <in 142>  zero-142"]);
 });
 
+test("v8 reports ample free memory from boot on and after a script overwrites it", () => {
+  // docs/fidelity.md, "Free memory in v8": Gold Rush refuses the bible and
+  // the help menu below eight pages.
+  const container = gameWith(`
+    if (!isset(f200)) { set(f200); assignv(v100, v8); assignn(v8, 1); }
+    return;
+  `);
+  const engine = new Engine(container, new TestHost(), DICT);
+  assert.equal(engine.vars[8], 255, "set before the first logic runs");
+  engine.tick();
+  assert.equal(engine.vars[100], 255);
+  engine.tick();
+  assert.equal(engine.vars[8], 255, "refreshed each cycle like the original's heap measure");
+});
+
 test("add.to.pic.v draws through variable-selected operands", () => {
   const container = gameWith(`
     load.view(0);

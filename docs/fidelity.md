@@ -1290,6 +1290,21 @@ and restart cases, 56 reconstruction/return cases, 12 object lifecycle cases,
 24 stationary cases, eight startup cases, 76 opcode flag mutations and four
 main-loop continuation cases.
 
+### Free memory in v8
+
+Static disassembly of the Gold Rush 3.002.149 executable. The routine at 0x16b6
+stores `(heap end − heap pointer) >> 8`, the free heap in 256-byte pages, into
+v8; it runs on heap reset and after every resource allocation and release, and
+KQ3 2.936 has the same store at 0x14a2. Fact: v8 is the low byte of the free
+page count, so a machine with 256 or more free pages reports a small number.
+Gold Rush logic 0 refuses the help menu below six pages and the bible and
+psalm below eight. Engine decision: there is no heap ceiling here, so v8
+reports 255 at boot, at restart and at the start of every cycle, which is the
+ample-memory behavior of a well-configured original installation; the value a
+particular original machine showed is not reproduced.
+
+Tests: [opcodes.test.ts](../test/opcodes.test.ts).
+
 ### Original player.control handler
 
 Static disassembly of the descrambled KQ3 2.936 image. The handler at 0x7041

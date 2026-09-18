@@ -201,6 +201,9 @@ const V_SCORE = 3;
 const V_OBJ_HIT = 4;
 const V_OBJ_EDGE = 5;
 const V_EGO_DIR = 6;
+/** Free heap in 256-byte pages; the engine has no heap ceiling (docs/fidelity.md, "Free memory in v8"). */
+const V_FREE_PAGES = 8;
+const AMPLE_FREE_PAGES = 255;
 const V_WORDS = 9;
 const V_EGO_VIEW = 16;
 const V_KEY = 19;
@@ -712,6 +715,7 @@ export class Engine {
     this.strings = Array.from({ length: bank.stringSlots + bank.stringReserved }, () => "");
     this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
     this.vars[24] = 41;
+    this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
     this.vars[26] = 3; // EGA presentation on the PC-compatible platform (v20 = 0).
     // Original game-state startup defaults; hosts may apply sound preference.
     // docs/fidelity.md: Original save and restart audit.
@@ -2970,6 +2974,7 @@ export class Engine {
       // requested modal menu interaction.
       this.vars[V_KEY] = 0;
       this.vars[V_WORDS] = 0;
+      this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
       this.haveKeyPolls = 0;
       if (this.pendingController !== null) {
         this.inputQueue.enqueue({ type: 3, value: this.pendingController });
@@ -5790,6 +5795,7 @@ export class Engine {
     this.vars.fill(0);
     this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
     this.vars[24] = 41;
+    this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
     this.vars[26] = 3;
     this.flags.fill(0);
     this.controllers.fill(0);
