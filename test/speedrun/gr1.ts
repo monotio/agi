@@ -344,7 +344,7 @@ function panForGold(run: Speedrun, finds: number): void {
   }
 }
 
-/** Route under construction: gr1 (3.002.149 profile). */
+/** Gold Rush complete-game route: Brooklyn, the Panama crossing and the mother lode. */
 export function gr1Complete(run: Speedrun): void {
   boot(run);
   // The bridge planks are trigger lines that slide Jerrod diagonally; hold east.
