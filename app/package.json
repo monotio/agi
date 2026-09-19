@@ -17,17 +17,17 @@
     "e2e:ui": "playwright test --ui"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.124.0",
-    "openai": "^7.10.0",
-    "three": "^0.185.1",
-    "vue": "^3.5.0"
+    "@anthropic-ai/sdk": "^0.127.0",
+    "openai": "^7.19.0",
+    "three": "^0.186.0",
+    "vue": "^3.5.43"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
-    "@types/three": "^0.185.4",
-    "@vitejs/plugin-vue": "^6.0.0",
+    "@types/three": "^0.186.0",
+    "@vitejs/plugin-vue": "^6.0.9",
     "typescript": "~6.0.3",
-    "vite": "^8.2.2",
+    "vite": "^8.3.0",
     "vue-tsc": "^3.3.11"
   }
 }
