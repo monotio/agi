@@ -36,17 +36,17 @@ resource readers still reject unavailable data if the scenario requests it.
 | King's Quest I           | `games/kq1/`      | 2.917                       | [Full-game completion proof](#kq1-completion-proof) (159 points; Node and browser), [resources](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)                     |
 | King's Quest II          | `games/kq2/`      | 2.411                       | [Full-game completion proof](#walkthrough-tests) (185 points; wedding and ending credits), [resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts) |
 | King's Quest III         | `games/kq3/`      | 2.936                       | [Full-game completion proof](#walkthrough-tests) (210 points; royal reunion), [resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)              |
-| King's Quest IV          | `games/kq4/`      | 3.002.086                   | [Resources](../test/kq4.test.ts), [regressions](../test/kq4-regressions.test.ts)                                                                                                                                                         |
-| The Black Cauldron       | `games/bc/`       | 2.439 / 2.440               | [Opening and movement](../test/openings.test.ts)                                                                                                                                                                                         |
-| Mixed-Up Mother Goose    | `games/mumg/`     | 2.917                       | [Introduction and movement](../test/openings.test.ts)                                                                                                                                                                                    |
-| Donald Duck's Playground | `games/ddp/`      | DOS 1.50; 2.272 / 2.440     | [Difficulty selection and movement](../test/openings.test.ts), replayed in the browser                                                                                                                                                   |
-| Space Quest II           | `games/sq2/`      | 2.936                       | [Opening and movement](../test/openings.test.ts)                                                                                                                                                                                         |
+| King's Quest IV          | `games/kq4/`      | 3.002.086                   | [Full-game completion proof](#walkthrough-tests) (230 points; King Graham healed), [resources](../test/kq4.test.ts), [regressions](../test/kq4-regressions.test.ts)                                                                      |
+| The Black Cauldron       | `games/bc/`       | 2.439 / 2.440               | [Full-game completion proof](#walkthrough-tests) (230 points; cauldron destroyed), [opening and movement](../test/openings.test.ts)                                                                                                      |
+| Mixed-Up Mother Goose    | `games/mumg/`     | 2.917                       | [Full-game completion proof](#walkthrough-tests) (18 rhymes; wake-up ending), [introduction and movement](../test/openings.test.ts)                                                                                                      |
+| Donald Duck's Playground | `games/ddp/`      | DOS 1.50; 2.272 / 2.440     | [Chapter proof](#walkthrough-tests) (beginner shift, purchase and playground placement), [difficulty selection and movement](../test/openings.test.ts), replayed in the browser                                                          |
+| Space Quest II           | `games/sq2/`      | 2.936                       | [Full-game completion proof](#walkthrough-tests) (250 points; Vohaul defeated), [opening and movement](../test/openings.test.ts)                                                                                                         |
 | Space Quest I            | `games/sq1/`      | 2.917                       | [Full-game completion proof](#walkthrough-tests) (202 points; ceremony and ending credits), [opening](../test/openings.test.ts)                                                                                                          |
-| Police Quest I           | `games/pq1/`      | 2.903 / 2.936 fallback      | [Opening](../test/openings.test.ts)                                                                                                                                                                                                      |
-| Leisure Suit Larry I     | `games/lsl1/`     | 2.440                       | [Opening](../test/openings.test.ts)                                                                                                                                                                                                      |
-| Gold Rush                | `games/gr1/`      | 3.002.149                   | [Opening](../test/openings.test.ts), [binary profile](../test/mh2-profile.test.ts)                                                                                                                                                       |
-| Manhunter: New York      | `games/mh1/`      | 3.002.107 / 3.002.102       | [Resources and Day 1](../test/mh1.test.ts)                                                                                                                                                                                               |
-| Manhunter 2              | `games/mh2/`      | 3.002.149                   | [Profile and logic references](../test/mh2-profile.test.ts)                                                                                                                                                                              |
+| Police Quest I           | `games/pq1/`      | 2.903 / 2.936 fallback      | [Full-game completion proof](#walkthrough-tests) (254 points; key to the city), [opening](../test/openings.test.ts)                                                                                                                      |
+| Leisure Suit Larry I     | `games/lsl1/`     | 2.440                       | [Full-game completion proof](#walkthrough-tests) (222 points; penthouse ending), [opening](../test/openings.test.ts)                                                                                                                     |
+| Gold Rush                | `games/gr1/`      | 3.002.149                   | [Full-game completion proof](#walkthrough-tests) (255 points; Panama route), [opening](../test/openings.test.ts), [binary profile](../test/mh2-profile.test.ts)                                                                          |
+| Manhunter: New York      | `games/mh1/`      | 3.002.107 / 3.002.102       | [Full-game completion proof](#walkthrough-tests) (all four days), [resources and Day 1](../test/mh1.test.ts)                                                                                                                             |
+| Manhunter 2              | `games/mh2/`      | 3.002.149                   | [Full-game completion proof](#walkthrough-tests) (closing card), [profile and logic references](../test/mh2-profile.test.ts)                                                                                                             |
 | Sierra demo pack         | `games/demopac4/` | 3.002.102                   | [Resources and six demos](../test/demopac4.test.ts)                                                                                                                                                                                      |
 
 `test/demopac4.test.ts` runs all six demonstrations in the Sierra demo pack to
@@ -62,6 +62,21 @@ checks difficulty selection and movement, not whole-game conformance.
 identifies a 1.0C download containing Amiga resources packaged with a DOS
 interpreter. A title screen loading from that mixture does not establish DOS
 compatibility; the static audit reports its format and opcode inconsistencies.
+
+The local KQ4, MH2 and Gold Rush directory files match the
+[ScummVM detection fingerprints](https://github.com/scummvm/scummvm/blob/master/engines/agi/detection_tables.h)
+(MD5 of the first 5,000 bytes of the combined directory) for KQ4 2.0 1988-07-27
+3.5", Manhunter 2 3.02 1989-07-26 3.5" and Gold Rush 2.01 1988-12-22 3.5". The
+KQ4 directory indexes pictures 150–151 in a `KQ4VOL.6` and views 198–199 in a
+`KQ4VOL.7`; the MH2 directory indexes sounds 215–216 in an `MH2VOL.6`. Those
+volumes are absent from these releases' volume sets, so the entries are a
+property of the matched directories rather than evidence of a damaged copy. The
+strict volume check still reports them. Walkthrough tooling uses
+`checkVolumes: "shipped"`, which exempts exactly those volumes for exactly those
+directory hashes ([test/fixtures.ts](../test/fixtures.ts)); a route that requests
+one of the six resources still fails at the load. A fingerprint identifies the
+directory, not every volume byte, and does not show which resources a
+playthrough requests.
 
 The handler comparison in `test/mh2-profile.test.ts` requires both 3.002.149
 fixtures (`gr1` and `mh2`); its logic-reference test requires only `mh2`.
@@ -208,7 +223,7 @@ and screen readers still require device testing.
 
 ### Walkthrough milestones
 
-After supplying the KQ2 2.411, KQ3 2.936 or SQ1 2.917 fixture described above, run:
+After supplying any of the fixtures below, run:
 
 ```bash
 node --test --experimental-strip-types test/walkthroughs.test.ts
@@ -216,23 +231,45 @@ npm --prefix app run e2e -- e2e/walkthroughs.spec.ts
 ```
 
 Each route uses normal player inputs and a virtual clock, asserts score and
-inventory milestones, and repeats from a cold boot with its catalog's fixed seed. The KQ2 route
-completes the entire game to the maximum score of 185, solving all door riddles,
-navigating the enchantress island and clouds, defeating the lion, rescuing
-Valanice, and reaching the wedding and ending credits. The KQ3 route earns all
-210 points, completes all seven spells, escapes Manannan and the pirate ship,
-rescues Rosella, and reaches the royal reunion. The SQ1 route
-completes the entire game to the maximum score of 202, evacuating the Arcada,
-surviving Kerona and defeating Orat, purchasing a spaceship and pilot droid in
-Ulence Flats, infiltrating the Sarien battlecruiser Deltaur in disguise, stealing
-the gas grenade and pulseray from the armory, eliminating guards, deactivating the
-force field, arming the Star Generator self-destruct with code 6858, escaping via
-shuttle, and celebrating at the Xenon ceremony. Browser tests replay the same routes
-through the app's controls. The same catalog includes KQ1 completion and MH1 Day 1.
-Each entry defines its coverage, route and observable endpoint once for Node, CLI
-and browser checks. `scripts/walkthrough.ts` writes a replay for any catalog entry;
-for example, `npm run prove:walkthrough -- sq1`. Game-specific route modules contain
-player actions and intermediate milestones; `test/speedrun.test.ts` checks the driver.
+inventory milestones, and repeats from a cold boot with its catalog's fixed seed.
+Every game module under `test/speedrun/` owns its catalog entry; the catalog in
+`test/speedrun/walkthroughs.ts` only lists them, and `scripts/generate-walkthroughs.ts`
+ships one tape per entry. The KQ2 route completes the entire game to the maximum
+score of 185, solving all door riddles, navigating the enchantress island and clouds,
+defeating the lion, rescuing Valanice, and reaching the wedding and ending credits.
+The KQ3 route earns all 210 points, completes all seven spells, escapes Manannan
+and the pirate ship, rescues Rosella, and reaches the royal reunion. King's Quest IV returns Genesta's talisman
+and heals King Graham with all 230 points; its copy-protection question is
+answered through the parser line, and its fixture's directory indexes four
+resources in volumes the release never shipped, none of which the route loads.
+The SQ1 route
+completes the entire game to the maximum score of 202, from the Arcada evacuation
+through Kerona, Ulence Flats and the Deltaur to the Xenon ceremony. SQ2 defeats
+Vohaul with all 250 points; its timed hazards are waited out or countered from
+observed state. Leisure Suit Larry reaches the penthouse with all 222 points,
+answering the seeded age quiz from the logic's tables and playing the casino from
+the dealt state. Police Quest arrests Jessie Bains and receives the key to the city
+with 254 points: the status line promises 245, the logic awards more on this path,
+and the claim is the observed ending state. The Black Cauldron destroys the cauldron
+with all 230 points from function keys alone. Mixed-Up Mother Goose fixes all
+eighteen rhymes with keys only and selects the game's own fastest speed. Gold Rush takes the Panama route to the mother lode with the
+maximum 255 points, its clock-bound Brooklyn opening answered from observed
+state. Both
+Manhunter games play to their closing cards through the cursor interface: New
+York across all four days, San Francisco to the digger's surfacing. Donald Duck's
+Playground, which has no story ending, ships a chapter: the beginner arch, a
+produce-market shift, a purchase and the item placed in the playground. Browser
+tests replay the committed `app/public/walkthroughs/*.json` tapes through the app's
+controls, checking their exact fixture hashes, interpreter profile, ending state
+and duration. They do not regenerate routes: the Node cold-boot tests cover route
+generation separately, so a stale or broken shipped tape fails the browser gate.
+`AGI_SPEEDRUN_FILE` selects a separately generated tape when validating a route
+before replacing its committed artifact. The same catalog includes
+KQ1's completion proof. Each entry defines its coverage, route and observable
+endpoint once for Node, CLI and browser checks. `scripts/walkthrough.ts` writes
+a replay for any catalog entry; for example, `npm run prove:walkthrough -- sq1`.
+Game-specific route modules contain player actions and intermediate milestones;
+`test/speedrun.test.ts` checks the driver.
 
 Routes carry continuous motion through verified waypoint chains and use observed
 game events in place of unnecessary fixed waits. Published checkpoints name story
@@ -243,9 +280,18 @@ when they do not need a timeline marker. The narrated tapes have these costs:
 | -------------------- | ---------: | -----------: | ---------: |
 | KQ1                  |    110,047 |       15,849 |         37 |
 | KQ2                  |    126,363 |       17,953 |         34 |
-| KQ3                  |    259,402 |       34,084 |         46 |
-| SQ1                  |    132,518 |       17,632 |         55 |
-| MH1 Day 1            |     40,230 |        9,141 |         25 |
+| KQ3                  |    259,462 |       34,094 |         46 |
+| SQ1                  |    132,398 |       17,612 |         55 |
+| SQ2                  |    144,312 |       18,854 |         48 |
+| PQ1                  |    401,420 |       39,228 |         35 |
+| LSL1                 |    143,148 |       15,692 |         31 |
+| Black Cauldron       |    104,637 |       12,202 |         26 |
+| Mother Goose         |     58,993 |       21,760 |         24 |
+| Donald Duck          |     10,341 |        2,335 |         16 |
+| MH1                  |    142,440 |       29,969 |         59 |
+| MH2                  |    149,082 |       27,852 |         53 |
+| Gold Rush            |    105,687 |       43,379 |         48 |
+| KQ4                  |    151,260 |       70,674 |         56 |
 | Adventure Department |      1,367 |           82 |          4 |
 
 The inexpensive [artifact quality check](../app/test/walkthrough-quality.test.ts)
@@ -253,9 +299,9 @@ guards poll, cycle and action ceilings, duplicate/debug markers, and long gaps
 between highlights. It supplements cold replay and browser seek checks; it does
 not establish completion by counting inputs. KQ1 preserves its verified 159-point
 ending, while the game declares a display maximum of 158; no new maximum-score
-claim is inferred from that discrepancy. MH1 remains a chapter proof.
+claim is inferred from that discrepancy.
 
-### Manhunter Day 1 proof
+### Manhunter proofs
 
 After supplying the Manhunter: New York 3.002.107 fixture, run:
 
@@ -263,16 +309,15 @@ After supplying the Manhunter: New York 3.002.107 fixture, run:
 npm run prove:walkthrough -- mh1
 ```
 
-The route in `test/speedrun/mh1.ts` plays the first day from the title
-screen to the return home that starts Day 2, using only the game's own inputs:
-arrow keys steer the cursor onto hotspots, Enter performs them, F3, C and Tab
-open the map, the MAD and the inventory, and the Orbs' name prompt is typed.
-The maze machine and the sewer network are driven by fixed move lists recorded
+The route in `test/speedrun/mh1.ts` plays all four days from the title screen
+to the closing card, using only the game's own inputs: arrow keys steer the
+cursor onto hotspots, Enter performs them, F3, C and Tab open the map, the MAD
+and the inventory, and name prompts are typed. The maze machine, the sewer
+network and the later arcade sequences are driven by fixed move lists recorded
 from the engine's own runs, so a changed engine behavior fails the replay
-instead of being routed around. The same route runs as a fixture-gated test in
-`test/walkthroughs.test.ts`, and the JSON report defaults to
-`/tmp/agi-mh1-speedrun.json`. Coverage ends at the start of Day 2; later days
-need their own walkthroughs.
+instead of being routed around. `test/speedrun/mh2.ts` does the same for
+Manhunter 2's four days; its fixture's directory indexes two sounds in a volume
+the release never shipped, and no logic on the route loads them.
 
 ## Recorded game tests
 
@@ -356,7 +401,8 @@ scenario poll budgets; incremental `navigate` returns before that phase.
 
 Outcomes distinguish `reached`, `blocked`, `unreachable_under_current_model`,
 `needs_input`, `movement_control_unavailable`, `unexpected_transition`,
-`hazard_detected`, `budget_exhausted` and `cancelled`. Modals and suspended
+`hazard_detected`, `budget_exhausted`, `cancelled` and `satisfied` (an `until`
+condition the caller observes, such as a door opening, ended the walk early). Modals and suspended
 interactions require explicit input. Eligible movement updates drive stall and
 oscillation checks, so slow step cadence does not look like a blocked path.
 Host polls, logic cycles, movement updates, replans and injected wall time have
@@ -394,6 +440,16 @@ the returned branch can be retained without replaying the prefix. Callback code
 must terminate: poll ceilings do not interrupt arbitrary synchronous code.
 The retained input tape still needs independent cold-boot replay before publication.
 These checkpoints are process memory, not a durable session format.
+
+A route runs under two hosts: the walkthrough test dismisses message windows at
+once, while `scripts/walkthrough.ts` dwells on them at reading pace to make the
+published tape. Second-based timers then interleave differently with cycle-based
+random draws, so the two runs sit at different positions in the random stream. A
+route tuned to fixed tick counts or to one seed's luck can pass one host and fail
+the other. Drive chance from observed state instead: read the dealt cards or the
+wheel, scout alternatives with `fork()` or `probe()`, and wait on game state
+rather than on ticks. `type()` backspaces and retypes when a timed window
+swallows a letter mid-word.
 
 Static candidates do not predict arbitrary script hazards or prove a game can
 be completed. A lake can be geometrically passable while room logic makes entry

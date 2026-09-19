@@ -482,7 +482,8 @@ export interface DrawCelOptions {
  * channel: a destination value above 2 is the comparison value; values 0..2
  * scan downward in the same column for the first value above 2 (0 if none).
  * The pixel draws when the comparison value is <= the drawing priority p,
- * replacing the visual color and the priority value with p.
+ * replacing the visual color. Control values 0..2 survive the paint; other
+ * destination priority values become p.
  */
 export function drawCel(
   surface: PictureSurface,
@@ -494,7 +495,9 @@ export function drawCel(
   const p = opts?.priority ?? 15;
   forEachPaintedPixel(surface, cel, x, yBaseline, p, (cell, color) => {
     surface.visual[cell] = color;
-    surface.priority[cell] = p;
+    // A control pixel keeps its control value under a painted cel; only its
+    // colour changes (docs/fidelity.md, "Original cel blit over control pixels").
+    if (surface.priority[cell]! > 2) surface.priority[cell] = p;
     opts?.onPixel?.(cell);
   });
 }

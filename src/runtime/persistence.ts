@@ -56,7 +56,7 @@ export interface Block1Layout {
   readonly keyMapReserved: number;
   /** Addressable 40-byte script string slots (6 or 12). */
   readonly stringSlots: number;
-  /** Reserved 40-byte records after them; canonical contents zero. */
+  /** 40-byte records after them: outside parse()'s range, addressable by every other string operand. */
   readonly stringReserved: number;
   /** The trailing replay-checkpoint word exists (absent in 2.411/2.440 and the early profiles). */
   readonly checkpoint: boolean;
@@ -468,7 +468,7 @@ export function newSaveState(profile: AgiProfile): SaveState {
     replayActive: 0,
     replayCheckpoint: 0,
     keyMap: Array.from({ length: layout.keyMapEntries }, () => ({ rawKey: 0, status: 0 })),
-    strings: Array.from({ length: layout.stringSlots }, () => ""),
+    strings: Array.from({ length: layout.stringSlots + layout.stringReserved }, () => ""),
     textFg: 15,
     textBg: 0,
     textAttr: 0,
@@ -552,7 +552,9 @@ function encodeBlock1(state: SaveState, layout: Block1Layout): Uint8Array {
     putU16(block, off.keyMap + i * 4, entry.rawKey);
     putU16(block, off.keyMap + i * 4 + 2, entry.status);
   }
-  for (let i = 0; i < layout.stringSlots; i++) {
+  // The reserved records follow the table contiguously and scripts reach them
+  // as s12 and up (docs/fidelity.md, "Original string slot addressing").
+  for (let i = 0; i < layout.stringSlots + layout.stringReserved; i++) {
     writeZString(block, off.strings + i * 40, 40, state.strings[i] ?? "");
   }
 
@@ -625,7 +627,7 @@ function decodeBlock1(block: Uint8Array, layout: Block1Layout, into: SaveState):
     });
   }
   into.strings = [];
-  for (let i = 0; i < layout.stringSlots; i++) {
+  for (let i = 0; i < layout.stringSlots + layout.stringReserved; i++) {
     into.strings.push(readZString(block, off.strings + i * 40, 40));
   }
 

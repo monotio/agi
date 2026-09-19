@@ -38,9 +38,22 @@ function fixtureServer(): Plugin {
     return gameRevision(served);
   };
   const installedGames = async (): Promise<InstalledFixtureDescriptor[]> => {
+    const fixtures = scanFixtures().all;
+    // A project export beside a plain edition of the same game keeps its
+    // folder as alias, so the edition alone answers to the catalog alias.
+    const shadowed = (fixture: (typeof fixtures)[number]): boolean =>
+      (fixture.files.has("project.json") || fixture.files.has("game.json")) &&
+      fixtures.some(
+        (other) =>
+          other !== fixture &&
+          other.wordsSha256 !== undefined &&
+          other.wordsSha256 === fixture.wordsSha256 &&
+          !other.files.has("project.json") &&
+          !other.files.has("game.json"),
+      );
     const list: InstalledFixtureDescriptor[] = await Promise.all(
-      scanFixtures().all.map(async (fixture) => {
-        const known = fixture.known;
+      fixtures.map(async (fixture) => {
+        const known = shadowed(fixture) ? null : fixture.known;
         const served: Record<string, Uint8Array> = {};
         for (const actual of fixture.files.values())
           if (isPlayableFileName(actual))

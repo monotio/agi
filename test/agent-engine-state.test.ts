@@ -174,8 +174,9 @@ test("readState reports room, ego, the full var/flag arrays and parser state", (
   assert.equal(state.parserCount, 1);
   assert.deepEqual(host.prints, ["You are in room one.", "A plain wall."]);
 
-  // String slots come from the profile (twelve at 2.936).
-  assert.equal(state.strings.length, 12);
+  // The report covers the whole string bank: twelve slots and the twelve
+  // reserved records behind them at 2.936.
+  assert.equal(state.strings.length, 24);
   assert.equal(state.profile, engine.profile.id);
 });
 

@@ -88,9 +88,12 @@ test("catalog and opening failures explain the problem before play and allow ret
   });
   await page.goto("/");
   await expect(page.getByTestId("hosted-catalog-error")).toContainText("not supported");
+  const retryCatalog = page.getByRole("button", { name: "Retry game list", exact: true });
+  await retryCatalog.scrollIntoViewIfNeeded();
+  await expect(retryCatalog).toBeInViewport();
   valid = true;
   const catalogResponse = page.waitForResponse("**/catalog.json");
-  await page.getByRole("button", { name: "Retry game list", exact: true }).click();
+  await retryCatalog.click();
   expect(await (await catalogResponse).json()).toEqual(manifest);
   await expect(page.getByTestId("hosted-catalog-error")).toBeHidden();
   const card = page.getByTestId("hosted-game-card-constructor");

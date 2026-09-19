@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { AGI_KEY } from "../../src/runtime/keys.ts";
 import type { Speedrun } from "./runner.ts";
+import { KNOWN_GAME_HASH } from "../../src/games/knownGames.ts";
+import type { Walkthrough } from "./route.ts";
 import { NavigationError } from "../../src/agent/navigationController.ts";
 
 /** Player inputs for the opening Daventry circuit; no game-state writes. */
@@ -725,3 +727,20 @@ export function kq1Complete(run: Speedrun): void {
   beans(run);
   secondHalf(run);
 }
+
+export const kq1Walkthrough: Walkthrough = {
+  hash: KNOWN_GAME_HASH.KQ1,
+  alias: "kq1",
+  label: "completed throne-room ending",
+  coverage: "complete-game",
+  seed: 32,
+  route: kq1Complete,
+  expected: {
+    room: 53,
+    score: 159,
+    vars: { 74: 3 },
+    flags: { 195: 1 },
+    inputEnabled: false,
+    egoView: 142,
+  },
+};

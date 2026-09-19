@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import type { Speedrun } from "./runner.ts";
+import { KNOWN_GAME_HASH } from "../../src/games/knownGames.ts";
+import type { Walkthrough } from "./route.ts";
 import { AGI_KEY } from "../../src/runtime/keys.ts";
 import { planWalk, type Target } from "../../src/agent/navigation.ts";
 import { NavigationError } from "../../src/agent/navigationController.ts";
@@ -1316,3 +1318,17 @@ export function kq2Complete(run: Speedrun): void {
   run.wait(() => run.state().room === 106, "ending credits", 30000);
   run.checkpoint("KQ2 completed with maximum score", { room: 106, score: 185 });
 }
+
+export const kq2Walkthrough: Walkthrough = {
+  hash: KNOWN_GAME_HASH.KQ2,
+  alias: "kq2",
+  label: "completed wedding and ending credits with maximum score",
+  coverage: "complete-game",
+  seed: 123,
+  route: kq2Complete,
+  expected: {
+    room: 106,
+    score: 185,
+    carriedExactly: [50, 53, 54, 55, 56, 57, 58, 59, 60, 65, 68, 69, 73, 74, 75, 76, 78, 82, 83],
+  },
+};

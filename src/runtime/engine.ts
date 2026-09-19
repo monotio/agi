@@ -67,6 +67,7 @@ import {
   encodeHostImage,
   encodeSave,
   newObjectRecord,
+  block1Layout,
   newSaveState,
   resumeOffsetFor,
   type LogicResumeRecord,
@@ -200,6 +201,9 @@ const V_SCORE = 3;
 const V_OBJ_HIT = 4;
 const V_OBJ_EDGE = 5;
 const V_EGO_DIR = 6;
+/** Free heap in 256-byte pages; the engine has no heap ceiling (docs/fidelity.md, "Free memory in v8"). */
+const V_FREE_PAGES = 8;
+const AMPLE_FREE_PAGES = 255;
 const V_WORDS = 9;
 const V_EGO_VIEW = 16;
 const V_KEY = 19;
@@ -430,6 +434,8 @@ type ClockConditionTerm =
 
 interface ClockBranch {
   alternate: number;
+  /** Where this pass actually went; the alternative counts as an exit only before rejoining it. */
+  taken: number;
   result: boolean;
   clock: number[];
   clauses: ClockConditionTerm[][];
@@ -703,9 +709,13 @@ export class Engine {
     // wins, otherwise detection reads the version string from an interpreter
     // binary shipped in the same folder, otherwise the container shape decides.
     this.profile = detectProfile(container.files, options?.profile);
-    this.strings = Array.from({ length: this.profile.stringSlots }, () => "");
+    // The table and its reserved records are one contiguous bank; only parse()
+    // stops at the slot count (docs/fidelity.md, "Original string slot addressing").
+    const bank = block1Layout(this.profile);
+    this.strings = Array.from({ length: bank.stringSlots + bank.stringReserved }, () => "");
     this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
     this.vars[24] = 41;
+    this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
     this.vars[26] = 3; // EGA presentation on the PC-compatible platform (v20 = 0).
     // Original game-state startup defaults; hosts may apply sound preference.
     // docs/fidelity.md: Original save and restart audit.
@@ -1336,8 +1346,9 @@ export class Engine {
   }
 
   /**
-   * Slot writes outside the profile's string range are ignored
-   * (spec "String slots": six slots before 2.411, twelve afterwards).
+   * Writes reach the table and its reserved records; slots past that bank would
+   * overwrite unrelated interpreter state in the original and are ignored here
+   * (docs/fidelity.md, "Original string slot addressing").
    */
   private setString(slot: number, value: string): void {
     if (slot < this.strings.length) this.strings[slot] = value.slice(0, 39);
@@ -1573,7 +1584,9 @@ export class Engine {
     } finally {
       this.replayRecording = recording;
     }
-    const lines = wrapLines(view.description ?? "", 30);
+    // The description goes through the same message box as print, so %v, %s
+    // and %m expand (docs/fidelity.md, "Original show.obj description formatting").
+    const lines = wrapLines(this.expandMessage(view.description ?? ""), 30);
     const box = placeWindow(lines, this.displayBaseRow, { row: this.displayBaseRow + 1 });
     const saved = this.text.save(
       box.top,
@@ -2744,9 +2757,9 @@ export class Engine {
   /**
    * add.to.pic: draw the selected loaded cel into the persistent picture
    * surface at (x, baseline y) with the given priority, then — classic
-   * control/margin semantics — stamp control color `margin` along the cel's
-   * baseline row when margin is 0..3. The bytecode entry points record a
-   * four-pair transient-cel packet so restore can reproduce the draw; replay
+   * control/margin semantics — outline a control box in color `margin` when
+   * margin is 0..3, bounded by the cel and baseline's priority band. The entry
+   * points record a four-pair transient-cel packet so restore can reproduce the draw; replay
    * calls this one directly, with recording already disabled.
    */
   private addToPic(
@@ -2773,12 +2786,39 @@ export class Engine {
       },
     });
     this.text.dropCells(covered);
-    if (margin < 4 && y >= 0 && y < SCREEN_HEIGHT) {
-      const from = Math.max(0, x);
-      const to = Math.min(SCREEN_WIDTH, x + c.width);
-      for (let dx = from; dx < to; dx++) this.surface.priority[y * SCREEN_WIDTH + dx] = margin;
-    }
+    if (margin < 4 && y >= 0 && y < SCREEN_HEIGHT) this.stampControlBox(x, y, c, margin);
     this.presentationDirty = true;
+  }
+
+  /**
+   * A margin below four outlines a control box in the priority screen: the
+   * baseline row, both side columns and a top row. The box is as tall as the
+   * run of rows sharing the baseline's priority band, capped at the cel height
+   * (docs/fidelity.md, "Original add.to.pic control box"). The original's
+   * unbounded top-row loop for cels narrower than three pixels is not modelled.
+   */
+  private stampControlBox(
+    x: number,
+    y: number,
+    cel: { width: number; height: number },
+    margin: number,
+  ): void {
+    const band = this.priorityForY(y);
+    let rows = 1;
+    while (rows <= y && this.priorityForY(y - rows) === band) rows++;
+    rows = Math.min(rows, cel.height);
+    const left = x;
+    const right = x + cel.width - 1;
+    const stamp = (px: number, py: number): void => {
+      if (px >= 0 && px < SCREEN_WIDTH && py >= 0)
+        this.surface.priority[py * SCREEN_WIDTH + px] = margin;
+    };
+    for (let px = left; px <= right; px++) stamp(px, y);
+    for (let up = 1; up < rows; up++) {
+      stamp(left, y - up);
+      stamp(right, y - up);
+    }
+    if (rows > 1) for (let px = left + 1; px < right; px++) stamp(px, y - rows + 1);
   }
 
   /**
@@ -2934,6 +2974,7 @@ export class Engine {
       // requested modal menu interaction.
       this.vars[V_KEY] = 0;
       this.vars[V_WORDS] = 0;
+      this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
       this.haveKeyPolls = 0;
       if (this.pendingController !== null) {
         this.inputQueue.enqueue({ type: 3, value: this.pendingController });
@@ -3123,6 +3164,7 @@ export class Engine {
     // All cels (and therefore collision dimensions) change before the
     // movement dispatcher visits its first actor. docs/fidelity.md:
     // Original complete movement and follow audit.
+    const due: ScreenObject[] = [];
     for (const obj of this.objects) {
       if (!obj.active || !obj.update || obj.earlierPartition) continue;
       if (obj.stepCount === 0 || --obj.stepCount === 0) {
@@ -3134,7 +3176,17 @@ export class Engine {
         this.moveObject(obj, obj.newlyPositioned ? 0 : obj.stepSize);
         obj.stationary = obj.x === previousX && obj.y === previousY;
         obj.newlyPositioned = false;
+        due.push(obj);
       }
+    }
+    // The previous position is committed once the whole pass has moved, and
+    // only for actors whose step countdown reloaded: later actors in the same
+    // pass still test against the pre-move value, and the next pass's crossing
+    // test sees the mover's own current baseline (docs/fidelity.md, "Original
+    // previous-position commit").
+    for (const obj of due) {
+      obj.prevX = obj.x;
+      obj.prevY = obj.y;
     }
     for (const obj of this.objects) {
       if (!obj.active || !obj.update || obj.earlierPartition) continue;
@@ -3253,8 +3305,6 @@ export class Engine {
       return;
     }
 
-    obj.prevX = obj.x;
-    obj.prevY = obj.y;
     obj.x = nx;
     obj.y = ny;
     if (!obj.fixedPriority) obj.priority = this.priorityForY(ny);
@@ -3839,7 +3889,7 @@ export class Engine {
                 condition >= target &&
                 condition < pc &&
                 this.clockCanSelectAlternate(frame, condition, branch, writes) &&
-                this.clockBranchExitsLoop(code, branch.alternate, target, pc),
+                this.clockBranchExitsLoop(code, branch, target, pc),
             );
           // A skipped condition on the next iteration must not inherit an
           // earlier clock guard. Keep enclosing guards for nested loops.
@@ -3875,6 +3925,7 @@ export class Engine {
             frame.clockBranches ??= new Map();
             frame.clockBranches.set(pc, {
               alternate: result ? end : body,
+              taken: result ? body : end,
               result,
               clock: Array.from(this.vars.subarray(11, 15)),
               clauses: this.clockCondition(code, pc + 1),
@@ -4072,53 +4123,67 @@ export class Engine {
   }
 
   /**
-   * Does every path from an untaken clock branch leave this loop? Following
-   * the alternative distinguishes a controlling condition from an incidental
-   * display/counter branch. Never execute conditions here: said/have.key have
-   * side effects. A cycle in the alternative is conservatively not an exit.
+   * Can the untaken side of a clock branch leave this loop before it rejoins
+   * the side that ran? Following the alternative distinguishes a controlling
+   * condition from an incidental display/counter branch: a counted wait
+   * (Police Quest logic 81 leaves only once enough clock changes were seen)
+   * exits from inside its own body, while an incidental read merges back into
+   * the common flow, whose later exits belong to the loop, not the clock.
+   * Never execute conditions here: said/have.key have side effects.
    */
   private clockBranchExitsLoop(
+    code: Uint8Array,
+    branch: ClockBranch,
+    start: number,
+    backEdge: number,
+  ): boolean {
+    const common = this.loopFlow(code, branch.taken, start, backEdge);
+    if (common === null) return false;
+    const reached = this.loopFlow(code, branch.alternate, start, backEdge, common);
+    return reached !== null && reached.has(-1);
+  }
+
+  /**
+   * The instruction addresses reachable from `from` inside the loop without
+   * crossing `stop`; -1 marks an exit from the loop. Null when the bytecode
+   * cannot be followed.
+   */
+  private loopFlow(
     code: Uint8Array,
     from: number,
     start: number,
     backEdge: number,
-  ): boolean {
-    const pending: { pc: number; finish: boolean }[] = [{ pc: from, finish: false }];
-    const visiting = new Set<number>();
-    const exited = new Set<number>();
+    stop?: ReadonlySet<number>,
+  ): Set<number> | null {
+    const seen = new Set<number>();
+    const pending = [from];
     while (pending.length > 0) {
-      const { pc, finish } = pending.pop()!;
-      if (finish) {
-        visiting.delete(pc);
-        exited.add(pc);
+      const pc = pending.pop()!;
+      if (pc < start || pc > backEdge || code[pc] === 0x00) {
+        seen.add(-1);
         continue;
       }
-      if (pc < start || pc > backEdge || code[pc] === 0x00 || exited.has(pc)) continue;
-      if (pc === backEdge || visiting.has(pc)) return false;
-      visiting.add(pc);
-      pending.push({ pc, finish: true });
+      if (pc === backEdge || seen.has(pc) || stop?.has(pc)) continue;
+      seen.add(pc);
       const op = code[pc]!;
       if (op === GOTO) {
-        pending.push({ pc: pc + 3 + readS16(code, pc + 1), finish: false });
+        pending.push(pc + 3 + readS16(code, pc + 1));
       } else if (op === IF) {
         let next = pc + 1;
         while (code[next] !== IF) {
-          if (next >= code.length) return false;
+          if (next >= code.length) return null;
           next =
             code[next] === NOT || code[next] === OR ? next + 1 : this.skipCondition(code, next);
         }
         const body = next + 3;
-        pending.push(
-          { pc: body, finish: false },
-          { pc: body + readS16(code, next + 1), finish: false },
-        );
+        pending.push(body, body + readS16(code, next + 1));
       } else {
         const spec = actionSpec(op, this.profile);
-        if (!spec) return false;
-        pending.push({ pc: pc + 1 + spec.operands.length, finish: false });
+        if (!spec) return null;
+        pending.push(pc + 1 + spec.operands.length);
       }
     }
-    return true;
+    return seen;
   }
 
   /** Evaluate a condition list starting at `from` (just after opening 0xff). */
@@ -4348,8 +4413,8 @@ export class Engine {
         return { result: this.evalSaid(ids), next: pc + 2 + count * 2 };
       }
       case 0x0f: {
-        const a = this.normalizeString(this.strings[o(0)]!);
-        const b2 = this.normalizeString(this.strings[o(1)]!);
+        const a = this.normalizeString(this.strings[o(0)] ?? "");
+        const b2 = this.normalizeString(this.strings[o(1)] ?? "");
         return { result: a === b2, next: pc + 3 };
       }
       default:
@@ -4422,29 +4487,92 @@ export class Engine {
   // ---------- messages ----------
 
   private message(num: number): string {
-    const messages = this.activation?.messages;
-    if (!messages || num < 1 || num >= messages.length + 1) {
-      throw new Error(`message ${num} out of range for current logic`);
-    }
-    return this.expandMessage(messages[num - 1] ?? "");
+    return this.expandMessage(this.rawMessage(num));
   }
 
+  /**
+   * Left-to-right formatting with a stack of inserts and their message contexts.
+   * Shared output/work limits protect the host, including non-emitting cycles;
+   * they are not the original's line-layout bound. Window wrapping stays separate.
+   * See docs/fidelity.md, "Original message formatter".
+   */
   private expandMessage(text: string): string {
-    return (
-      text
-        // AGI specs §4.2 print: %vN|width retains leading zeroes.
-        // https://www.agidev.com/articles/agispec/agispecs-4.html
-        .replace(/%v(\d+)(?:\|(\d+))?/g, (_, n, width: string | undefined) => {
-          const value = String(this.vars[Number(n)] ?? 0);
-          // Bound requested padding to one text row before allocating it.
-          return width === undefined
-            ? value
-            : value.padStart(Math.min(TEXT_COLS, Number(width)), "0");
-        })
-        .replace(/%s(\d+)/g, (_, n) => this.strings[Number(n)] ?? "")
-        .replace(/%m(\d+)/g, (_, n) => this.message(Number(n)))
-        .replace(/%w(\d+)/g, (_, n) => this.parsedWordTexts[Number(n) - 1] ?? "")
-    );
+    const frames = [{ text, offset: 0, logic: undefined as number | undefined }];
+    const capacity = 20 * TEXT_COLS;
+    let work = 16_384;
+    let output = "";
+    while (frames.length > 0 && output.length < capacity && work-- > 0) {
+      const frame = frames[frames.length - 1]!;
+      if (frame.offset >= frame.text.length) {
+        frames.pop();
+        continue;
+      }
+      const ch = frame.text.charAt(frame.offset++);
+      if (ch !== "%") {
+        output += ch;
+        continue;
+      }
+      const letter = frame.text.charAt(frame.offset++);
+      // Unknown codes consume exactly one character after %, leaving digits literal.
+      if (!"vsmgow".includes(letter) || letter === "") continue;
+      const readNumber = (): number => {
+        let value = 0;
+        while (work > 0) {
+          const digit = frame.text.charCodeAt(frame.offset) - 48;
+          if (!(digit >= 0 && digit <= 9)) break;
+          value = value * 10 + digit;
+          frame.offset++;
+          work--;
+        }
+        return value;
+      };
+      const n = readNumber();
+      if (work <= 0) break;
+      let inserted: string;
+      let logic = frame.logic;
+      switch (letter) {
+        case "v": {
+          let value = String(this.vars[n] ?? 0);
+          if (frame.text.charAt(frame.offset) === "|") {
+            frame.offset++;
+            const width = readNumber();
+            if (work <= 0) return output;
+            value = value.padStart(Math.min(TEXT_COLS, width), "0");
+          }
+          output += value.slice(0, capacity - output.length);
+          continue;
+        }
+        case "s":
+          inserted = this.strings[n] ?? "";
+          break;
+        case "g":
+          logic = 0;
+          inserted = this.rawMessage(n, logic);
+          break;
+        case "m":
+          inserted = this.rawMessage(n, logic);
+          break;
+        case "o":
+          inserted = this.itemNames()[this.vars[n] ?? 0] ?? "";
+          break;
+        default: // w
+          inserted = this.parsedWordTexts[n - 1] ?? "";
+      }
+      frames.push({ text: inserted, offset: 0, logic });
+    }
+    return output;
+  }
+
+  /** A logic's stored message text before formatting; logic 0 for %g. */
+  private rawMessage(num: number, logic?: number): string {
+    const messages =
+      logic === undefined ? this.activation?.messages : this.loadLogic(logic).messages;
+    if (!messages || num < 1 || num >= messages.length + 1) {
+      throw new Error(
+        `message ${num} out of range for ${logic === undefined ? "current logic" : `logic ${logic}`}`,
+      );
+    }
+    return messages[num - 1] ?? "";
   }
 
   // ---------- action dispatch ----------
@@ -4655,18 +4783,21 @@ export class Engine {
         this.updateEgoVisibility();
         return next;
       }
+      // position and position.v write the coordinates and their saved pair;
+      // the originals leave the newly-positioned bit to the reposition family
+      // (docs/fidelity.md, "Original position handlers").
       case 0x25: {
         const o = obj(0);
         o.x = o.prevX = a(1);
         o.y = o.prevY = a(2);
-        o.newlyPositioned = true;
+        if (this.profile.positionMarksNewlyPositioned) o.newlyPositioned = true;
         return next;
       }
       case 0x26: {
         const o = obj(0);
         o.x = o.prevX = this.vars[a(1)]!;
         o.y = o.prevY = this.vars[a(2)]!;
-        o.newlyPositioned = true;
+        if (this.profile.positionMarksNewlyPositioned) o.newlyPositioned = true;
         return next;
       }
       case 0x27: {
@@ -5161,7 +5292,7 @@ export class Engine {
       }
       // parse: slot numbers outside the profile's range produce no parse (spec).
       case 0x75:
-        if (a(0) < this.strings.length) this.parseInput(this.strings[a(0)]!);
+        if (a(0) < this.profile.stringSlots) this.parseInput(this.strings[a(0)]!);
         return next;
       case 0x76: {
         // get.num: prompt on the input row; the accepted number's low 8 bits
@@ -5313,7 +5444,11 @@ export class Engine {
         this.directionCoupling = 0;
         return next;
       case 0x84:
+        // Player coupling and the end of object 0's autonomous motion; the
+        // direction byte is left alone (docs/fidelity.md, "Original
+        // player.control handler").
         this.directionCoupling = 1;
+        this.objects[0]!.motionMode = MOTION_NORMAL;
         return next;
       case 0x86:
         if (this.profile.exitAlwaysImmediate || a(0) === 1) {
@@ -5698,6 +5833,7 @@ export class Engine {
     this.vars.fill(0);
     this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
     this.vars[24] = 41;
+    this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
     this.vars[26] = 3;
     this.flags.fill(0);
     this.controllers.fill(0);

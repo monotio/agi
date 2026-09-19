@@ -1290,6 +1290,236 @@ and restart cases, 56 reconstruction/return cases, 12 object lifecycle cases,
 24 stationary cases, eight startup cases, 76 opcode flag mutations and four
 main-loop continuation cases.
 
+### Free memory in v8
+
+Static disassembly of the Gold Rush 3.002.149 executable. The routine at 0x16b6
+stores `(heap end − heap pointer) >> 8`, the free heap in 256-byte pages, into
+v8; it runs on heap reset and after every resource allocation and release, and
+KQ3 2.936 has the same store at 0x14a2. Fact: v8 is the low byte of the free
+page count, so a machine with 256 or more free pages reports a small number.
+Gold Rush logic 0 refuses the help menu below six pages and the bible and
+psalm below eight. Engine decision: there is no heap ceiling here, so v8
+reports 255 at boot, at restart and at the start of every cycle, which is the
+ample-memory behavior of a well-configured original installation; the value a
+particular original machine showed is not reproduced.
+
+Tests: [opcodes.test.ts](../test/opcodes.test.ts).
+
+### Original player.control handler
+
+Static disassembly of the descrambled KQ3 2.936 image. The handler at 0x7041
+stores 1 in the direction-coupling word at DS:0x0139 and clears object 0's
+motion-type byte (record offset 0x22); `program.control` at 0x7034 stores 0 and
+touches nothing else. Fact: `player.control` ends a running `move.obj`,
+`wander` or `follow.ego` on object 0 without changing its direction byte. The
+engine only switched the coupling, so a scripted ego walk continued after the
+script had handed control back; Police Quest depends on the stop.
+
+Tests: [ego-motion-control.test.ts](../test/ego-motion-control.test.ts).
+
+### Original message formatter
+
+Static disassembly of the unscrambled Gold Rush 3.002.149 executable. The
+formatter at 0x2208 walks the source once. On `%` it reads one letter and
+dispatches through the table at 0x23a4: `g` (a message of logic 0, formatted
+by a recursive call), `m` (a message of the current logic, recursive), `o` (the
+inventory item named by the variable, recursive), `s` (a string slot,
+recursive), `v` (the variable as decimal, with `|` width zero-padded) and `w`
+(a parsed word, recursive). Any other letter is skipped with its percent sign.
+Output is appended, never rescanned. The comparison with nineteen at 0x2221
+bounds the output line counter at DS:0x0b26, not recursion depth: 0x25bc
+increments that counter at a line boundary. A recursion-depth limit does not
+implement that contract and still permits exponential expansion.
+Fact: a `%v` value cannot extend a code before it. Police Quest prints
+`%m1%v…`, which the engine's earlier `%v`-first pass turned into a different
+message number. `%g` and `%o` were missing altogether. v2 images were not
+inspected; the engine applies the table to every profile by inference.
+
+Independent execution of the same Gold Rush 3.002.149 load module
+(`12a52b728b1b1f8d27b21e85cab022a30ef359bca200ba9ed4d6e78a50979f41`), with
+AGIDATA.OVL
+(`914990f09b49109a34d511011c7764abb5575581fbc190c8cebc930b1027f804`), confirms
+three additional contracts. A synthetic call to 0x21c9 uses a shared stack
+and data segment, width 40, and synthetic strings and logic message tables;
+only the logic-resource lookup at 0x131d is intercepted to return the
+synthetic logic 0 record. The formatter and message lookup execute unchanged.
+
+- `%g1`, with global message 1 `%m2`, global message 2 `GLOBAL` and the
+  caller's message 2 `LOCAL`, produces `GLOBAL`. The code at 0x22d7..0x2306
+  temporarily selects logic 0 for the recursive expansion, then restores
+  the caller's message context.
+- `%s1|5`, with s1 `hello`, produces `hello|5`; only `%v` consumes the width
+  suffix (0x2331..0x2352). `100%% done` produces `100 done`, and `%Q42`
+  produces `42`, confirming dispatch consumes any next character, not just
+  lowercase letters. A separate `tail%` probe produces `tail` and returns,
+  confirming a final percent sign is discarded.
+- `%s1`, with s1 `x%s1%s1%s1`, returns 820 bytes at width 40: twenty lines
+  of forty `x` characters, each followed by a newline. This witnesses the
+  shared output-line bound across recursive inserts. It does not establish
+  safe behavior for a recursion cycle that never emits a character.
+
+The engine uses an explicit insert stack that carries the message context,
+without a depth cutoff. Shared limits of 800 emitted characters (twenty
+40-column rows) and 16,384 scan steps terminate productive expansion and
+non-emitting cycles within one opcode. Exhausting either returns the prefix
+already emitted. These are host safeguards, not a claim of identical original
+line layout: newlines count toward the character capacity, and window wrapping
+remains a separate step at the requested width. The original's exact line-bound
+geometry is not reproduced by this character-capacity guard. Only `%v` consumes
+a width suffix; unknown codes consume `%` and its following character.
+
+Tests: [message-format.test.ts](../test/message-format.test.ts),
+[opcodes.test.ts](../test/opcodes.test.ts). The prompt-to-print regression runs
+in a subprocess with a timeout so a monopolized formatter fails the test instead
+of hanging the test runner.
+
+### Original previous-position commit
+
+Static disassembly of the descrambled KQ3 2.936 image. The collision routine at
+0x4719 compares the mover's and the other actor's word at record offset 0x18
+with their baselines at 0x05. That word has four writers: `position` and
+`position.v` (0x7c1c, 0x7c5a), `draw` (0x0a5a) and the sprite-list commit at
+0x048c..0x04d8. For each listed actor whose step countdown equals its step
+time, the commit sets state bit 0x4000 when x and y equal the saved pair, and
+otherwise copies x and y into 0x16/0x18 and clears the bit. Fact: the movement
+routine does not write the saved pair. Inference from that placement: the pair
+changes once per pass after every actor has moved, so a later actor in the pass
+tests against an earlier actor's pre-move value, and on the next pass a mover's
+saved baseline equals its current one. No routine was executed for this entry;
+the executed movement vectors above used steps for which both readings agree.
+
+The engine wrote the pair inside the move, which left it one step stale. An
+actor stepping one pixel per pass past a standing actor's corner was then
+judged to have crossed its baseline a pass late and stopped for good. Police
+Quest logic 37 walks the bikers out past a scripted ego position this way.
+
+Tests: [original-movement.test.ts](../test/original-movement.test.ts). The
+KQ3 walkthrough's tape moved by 60 polls and keeps its 210-point ending.
+
+### Original show.obj description formatting
+
+Static disassembly of the unscrambled Gold Rush 3.002.149 executable
+(`12a52b728b1b1f8d27b21e85cab022a30ef359bca200ba9ed4d6e78a50979f41`). The
+preview routine ending at 0x63a5 draws the cel, takes the view resource pointer
+`di`, pushes `di + word [di+3]` (the embedded description) and calls the message
+box at 0x1f70. The `print` handler at 0x1e8e calls the same routine with a
+looked-up message, and that routine's window builder at 0x201e runs its text
+through the formatter at 0x21c9. Fact: a view description receives the same
+`%` expansion as a printed message. Gold Rush's bank statement relies on it to
+show the account number held in a variable. v2 images were not inspected; the
+engine applies the formatting to every profile by inference.
+
+Tests: [opcodes.test.ts](../test/opcodes.test.ts).
+
+### Original position handlers
+
+Static disassembly of the KQ4 3.002.086 executable
+(`b9b27b403015bb18f6562ba1b8b04c2829e0c3b53c042196bee7924d1df7be65`) and the
+descrambled KQ3 2.936 image. `position` (0x805a in 3.002.086, 0x7c1c in 2.936)
+and `position.v` (0x8096, 0x7c5a) store the two operands into the record's x
+and y and into the saved pair at 0x16/0x18, and nothing else. `reposition`
+(0x8126) ORs state bit 0x400 into the record before applying its deltas, and
+`reposition.to` and `reposition.to.v` do the same. Fact: only the reposition
+family and cel clipping mark an object newly positioned (the five `or 0x400`
+sites in each image), and the spec's `position` entry says the same. The
+engine marked `position` too, which scheduled a zero-step placement pass that
+suppresses the first real step; under 3.002.086 that pass reports an exact
+zero left edge as border 4, so King's Quest IV's room 28, which positions ego
+at x=0 and starts the unicorn ride, bounced between rooms 27 and 28 for good.
+
+Adoption is partial: 3.002.086 follows the originals. Every other profile keeps
+the extra pass as a recorded deviation (`positionMarksNewlyPositioned`),
+because the shipped walkthroughs of eight games were verified against it and
+diverge one step after every scripted `position` without it. Closing that
+deviation means re-verifying those routes on the faithful behavior; it is the
+first open fidelity item.
+
+Tests: [original-movement.test.ts](../test/original-movement.test.ts).
+
+### Original cel blit over control pixels
+
+Static disassembly of the Gold Rush 3.002.149 executable. The cel blit at
+0x5be3, which `add.to.pic` reaches through 0x5a1e, tests each opaque pixel's
+destination priority nibble. A value of 0x20 or below (control 0..2) sends it
+to 0x5c74, which scans down the column to the first pixel above 0x20; if that
+priority is not above the cel's, it jumps to 0x5c5f, which ORs the colour into
+the register still holding the destination's control nibble and stores that.
+Ordinary pixels go through 0x5c5d, which loads the cel priority first. Fact: a
+painted cel changes a control pixel's colour and keeps its control value.
+Gold Rush's post office relies on it: logic 9 places the closed door panel
+over the trigger column at x=53 that its door script needs to stay set until
+ego is nearly through, and the door can be entered only while that column
+survives. The engine had written the cel priority over control pixels, which
+made the door impassable. The 2.440 and 2.936 blits live in their object
+overlays and were not inspected; the engine applies the rule to every profile
+by inference.
+
+Tests: [view.test.ts](../test/view.test.ts), [opcodes.test.ts](../test/opcodes.test.ts).
+
+### Original add.to.pic control box
+
+Static disassembly of the descrambled LSL1 2.440 and KQ3 2.936 images (hashes
+under [Original string slot addressing](#original-string-slot-addressing)).
+The `add.to.pic` handlers at 0x2c7a/0x2cca (2.936) pack the margin operand into
+the high nibble of the priority byte and call the shared core at 0x2d52, which
+stamps the cel through the routine at 0x57cf (2.936) / 0x55f0 (2.440). The two
+routines are instruction-for-instruction identical apart from data addresses.
+
+Fact: after the cel is drawn, the routine returns if the packed byte exceeds
+0x3f, which is a margin of four or more. Otherwise it counts rows upward from
+the baseline while the y-to-priority table gives the baseline's band, caps that
+count at the cel height, and writes the margin into the priority nibble of: the
+whole baseline row across the cel width; the first and last column of each
+higher row; and the columns strictly between them on the top row. A box one row
+tall is the baseline row alone. Fact: a priority operand whose low nibble is
+zero takes the baseline's band. Not modelled: the top-row loop counts
+`width - 2` in an eight-bit register without a zero test, so a cel narrower
+than three pixels overruns in the original. No routine was executed; 2.903 and
+the v3 builds were not inspected, and the engine applies the same box to every
+profile by inference.
+
+Behavioral witness: Police Quest logic 26 places Dooley's car with margin 0 and
+then positions an officer beside it; with a baseline-only line the placement
+search accepts a spot from which his scripted walk jams on that line. Space
+Quest logic 3 places the dead crewman with margin 0; the box x126..149,
+y63..71 makes the body solid, and the keycard remains reachable because the
+room's `posn` test covers the doorway.
+
+Tests: [opcodes.test.ts](../test/opcodes.test.ts); the SQ1 walkthrough crosses
+room 3.
+
+### Original string slot addressing
+
+Static disassembly of two descrambled v2 images: LSL1 2.440
+(`c70e2f327eaad8dbcb1d526e9fb3f933b342329b84c6a803f9062c245ccb7676`) and KQ3
+2.936 (`4b50c681c224326e09933170823b846e7dbe340dafc76f07ee0af990ebb93400`).
+Both address a string operand as `DS:0x020d + slot × 40`, the multiplier read
+from a code-segment word holding 40.
+
+| Build | Unchecked sites (load-module offsets)               | Checked site                  |
+| ----- | --------------------------------------------------- | ----------------------------- |
+| 2.440 | 0x0c35, 0x0d18, 0x0d51, 0x0ed8 (comparison), 0x1ff6 | 0x1944 `cmp ax,0xc` (`parse`) |
+| 2.936 | 0x0c68, 0x0d4b, 0x0d84, 0x0f0b, 0x2033, 0x273e      | 0x1981 `cmp ax,0xc` (`parse`) |
+
+Fact: only `parse` compares its slot with twelve; prompted input, `set.string`,
+`word.to.string`, the string comparison and `%s` formatting use the computed
+address unchecked. Fact: LSL1 logic 22 stores an alternative telephone spelling
+with `set.string(s12, …)` and tests `compare.strings(s1, s12)`; logic 0 does
+the same with s11 and s12. Inference: the twelve reserved 40-byte records the
+save layout places directly after the table are what s12..s23 address, so such
+a write is readable and is saved. Inference: the six-slot profiles behave the
+same way over their six reserved records, and 3.002.149, whose layout has no
+reserved bank, has nothing safe behind s11. No routine was executed and no
+early or v3 image was inspected for this entry.
+
+The engine keeps the table and its reserved records as one bank: every string
+operand except `parse` reaches it, `parse` stops at the profile's slot count,
+slots past the bank are ignored on write and read empty, and the save image
+carries the reserved records.
+
+Tests: [string-bank.test.ts](../test/string-bank.test.ts),
+[profile.test.ts](../test/profile.test.ts).
+
 ### Original parser unknown-word audit
 
 The [input probe](../scripts/probe-interpreter-input.py) executes GR 3.002.149's

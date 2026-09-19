@@ -140,13 +140,14 @@ export async function runReplayBatch(
   let lastProgressAt = 0;
   let lastProgressActionIndex = -1;
 
-  async function resumed(before: ReplayObservation): Promise<void> {
+  async function resumed(before: ReplayObservation, answered = false): Promise<void> {
     if (!before.blocked) return;
     // A key delivered to a waitkey-blocked engine can land it on the next
-    // blocking wait — e.g. the save dialog chains waitkey steps. A fresh
-    // blocked observation still proves the key was consumed; only a fresh
-    // prompt kind (getnum/getstring/saveDescription) needs an answer.
-    const stillBlockedOk = before.blocked === "waitkey";
+    // blocking wait — e.g. the save dialog chains waitkey steps — and an
+    // answer can land it on the next prompt (Manhunter asks two names in one
+    // pass). A fresh blocked observation still proves the input was consumed;
+    // the next recorded action answers a fresh prompt.
+    const stillBlockedOk = before.blocked === "waitkey" || answered;
     if (driver.waitForRevision) {
       await driver.waitForRevision(before.revision, {
         unblocked: !stillBlockedOk,
@@ -358,7 +359,7 @@ export async function runReplayBatch(
     checkAborted();
     driver.answer(text);
     checkAborted();
-    await resumed(before);
+    await resumed(before, true);
     checkAborted();
   }
 

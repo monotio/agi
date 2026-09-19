@@ -205,6 +205,15 @@ export interface AgiProfile {
    * code 4 (3.002.086 only; version_profiles.md "screen-boundary variant").
    */
   readonly clampExactZeroLeftBoundary: boolean;
+  /**
+   * Whether `position`/`position.v` schedule a zero-step placement pass. The
+   * originals never do (only the reposition family and cel clipping mark an
+   * object newly positioned), but the shipped walkthroughs of every other
+   * profile were verified against that pass; it is dropped for 3.002.086,
+   * where King's Quest IV's unicorn ride cannot finish with it, and stays a
+   * recorded deviation elsewhere (docs/fidelity.md, "Original position handlers").
+   */
+  readonly positionMarksNewlyPositioned: boolean;
 
   // ---- pictures ----
   /** Highest dispatched picture command byte: 0xf8 in the early profiles, 0xfa later. */
@@ -264,6 +273,7 @@ const BASE_2936: AgiProfile = {
   printConsumesF15: true,
   timedPrintClearsV21: true,
   clampExactZeroLeftBoundary: false,
+  positionMarksNewlyPositioned: true,
   pictureMaxCommand: 0xfa,
   patternProfile: "shaped-v2",
   restartPromptBypassedByF16: true,
@@ -383,6 +393,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0xb1,
     extraActions: "v3-086",
     clampExactZeroLeftBoundary: true,
+    positionMarksNewlyPositioned: false,
   },
   // version_profiles.md "AGI 3.002.102 profile"; conformance matrix "3.002.102 variant selection".
   "3.002.102": {

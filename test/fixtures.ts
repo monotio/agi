@@ -164,8 +164,24 @@ export function scanFixtures(): {
 }
 
 /**
+ * A project export placed under `games/` (a `PROJECT.JSON` or `GAME.JSON`
+ * beside the resources) is an authored copy, not an edition fixture. When a
+ * hash matches one plain edition plus such exports, the edition is the fixture;
+ * several plain editions or several exports stay ambiguous.
+ */
+function uniqueEdition(query: string, matches: readonly DiscoveredFixture[]): DiscoveredFixture {
+  if (matches.length === 1) return matches[0]!;
+  const editions = matches.filter((m) => !m.files.has("project.json") && !m.files.has("game.json"));
+  if (editions.length === 1) return editions[0]!;
+  throw new Error(
+    `Ambiguous fixture query "${query}" matches multiple editions (${matches.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
+  );
+}
+
+/**
  * Find an installed fixture by its content hash (WORDS.TOK SHA-256) or alias/folder key.
- * Resolves by exact folder first, then unique content hash.
+ * Resolves by exact folder first, then unique content hash; a plain edition
+ * wins over project exports that share its vocabulary.
  */
 export function findFixture(query: string): DiscoveredFixture | null {
   const { byWordsHash, byDirName } = scanFixtures();
@@ -174,22 +190,12 @@ export function findFixture(query: string): DiscoveredFixture | null {
   if (byDir) return byDir;
 
   const matches = byWordsHash.get(norm);
-  if (matches) {
-    if (matches.length === 1) return matches[0]!;
-    throw new Error(
-      `Ambiguous fixture query "${query}" matches multiple editions (${matches.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
-    );
-  }
+  if (matches) return uniqueEdition(query, matches);
 
   const resolved = resolveGameHash(norm);
   if (resolved) {
     const matched = byWordsHash.get(resolved.toLowerCase());
-    if (matched) {
-      if (matched.length === 1) return matched[0]!;
-      throw new Error(
-        `Ambiguous fixture query "${query}" matches multiple editions (${matched.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
-      );
-    }
+    if (matched) return uniqueEdition(query, matched);
   }
 
   // If a directory was created dynamically at runtime (e.g. temp test fixture):
@@ -249,8 +255,27 @@ export function combinedDirectory(query: string): { name: string; prefix: string
 
 export interface FixtureRequirements {
   readonly resourceFiles?: boolean;
-  readonly checkVolumes?: boolean;
+  /**
+   * `true` (default) requires every volume the directories reference, `false`
+   * only VOL.0. `"shipped"` requires every referenced volume except those a
+   * fingerprinted original edition never shipped (see UNSHIPPED_VOLUMES), which
+   * is what a play route through that edition can rely on.
+   */
+  readonly checkVolumes?: boolean | "shipped";
 }
+
+/**
+ * Original releases whose combined directory references volumes absent from
+ * the release itself, keyed by the directory file's SHA-256 so only that exact
+ * edition gets the allowance. Both directories match the ScummVM detection
+ * fingerprints for these releases; docs/testing.md records the evidence.
+ */
+const UNSHIPPED_VOLUMES: Record<string, readonly number[]> = {
+  // King's Quest IV 2.0 (1988-07-27, 3.5"): pictures 150-151, views 198-199.
+  "3ceb755dc98398f3369038d21528763c05aac926238681ad88efac74c60d4d2d": [6, 7],
+  // Manhunter 2 3.02 (1989-07-26, 3.5"): sounds 215-216.
+  f646929faac4b905c4ed9fe3d8661cb33c97e4ae3168c38fa097cf3e1dbd8948: [6],
+};
 
 function referencedVolumes(entries: Uint8Array, exactAbsence: boolean): Set<number> {
   const volumes = new Set<number>();
@@ -318,9 +343,13 @@ export function fixtureReadiness(
     const bytes = readFileSync(dir + onDisk.get(combined.name.toLowerCase())!);
     const offsets = [0, 1, 2, 3].map((i) => bytes[i * 2]! | (bytes[i * 2 + 1]! << 8));
     offsets.push(bytes.length);
+    const unshipped =
+      options.checkVolumes === "shipped"
+        ? (UNSHIPPED_VOLUMES[createHash("sha256").update(bytes).digest("hex")] ?? [])
+        : [];
     for (let i = 0; i < 4; i++) {
       for (const volume of referencedVolumes(bytes.subarray(offsets[i], offsets[i + 1]), true))
-        required.add(`${prefix}VOL.${volume}`);
+        if (!unshipped.includes(volume)) required.add(`${prefix}VOL.${volume}`);
     }
   } else if (resources && options.checkVolumes !== false) {
     for (const name of SPLIT_DIRECTORIES) {

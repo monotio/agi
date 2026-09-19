@@ -60,6 +60,33 @@ test("a v3 combined installation is checked through its prefixed directory and v
   assert.equal(fixtureSkip(target), false);
 });
 
+test("the shipped-volume allowance belongs to fingerprinted editions only", (t) => {
+  // An unknown directory gets no allowance: "shipped" equals the strict check.
+  const dir = mkdtempSync(fixtureDir("fixture-v3-shipped-").slice(0, -1));
+  const target = basename(dir);
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(
+    join(dir, "DMDIR"),
+    Uint8Array.of(8, 0, 11, 0, 14, 0, 17, 0, 0, 0, 0, 255, 255, 255, 0x60, 0, 0, 255, 255, 255),
+  );
+  for (const name of ["OBJECT", "WORDS.TOK", "DMVOL.0"])
+    writeFileSync(join(dir, name), new Uint8Array());
+  assert.match(String(fixtureSkip(target, [], { checkVolumes: "shipped" })), /DMVOL\.6/);
+
+  // The fingerprinted KQ4 and MH2 releases reference volumes they never shipped.
+  for (const [alias, volumes] of [
+    ["kq4", /KQ4VOL\.6, KQ4VOL\.7/],
+    ["mh2", /MH2VOL\.6/],
+  ] as const) {
+    if (fixtureSkip(alias, [], { checkVolumes: false })) {
+      t.diagnostic(`${alias}: fixture absent, edition allowance not exercised`);
+      continue;
+    }
+    assert.match(String(fixtureSkip(alias)), volumes, `${alias}: strict check still reports them`);
+    assert.equal(fixtureSkip(alias, [], { checkVolumes: "shipped" }), false);
+  }
+});
+
 test("partial fixture checks require metadata and explicit files while deferring volume checks", (t) => {
   const dir = mkdtempSync(fixtureDir("fixture-partial-").slice(0, -1));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -194,4 +221,28 @@ test("duplicate vocabulary editions remain separately resolvable by folder, whil
     () => findFixture(sharedHash),
     /Ambiguous fixture query.*specify the fixture folder/,
   );
+});
+
+test("a plain edition outranks project exports that share its vocabulary hash", (t) => {
+  const edition = mkdtempSync(fixtureDir("edition-plain-").slice(0, -1));
+  const exported = mkdtempSync(fixtureDir("edition-export-").slice(0, -1));
+  const exportedAgain = mkdtempSync(fixtureDir("edition-export2-").slice(0, -1));
+  t.after(() => {
+    for (const dir of [edition, exported, exportedAgain])
+      rmSync(dir, { recursive: true, force: true });
+    clearFixtureCache();
+  });
+  const wordsBytes = new Uint8Array(56);
+  wordsBytes[0] = 0xcc;
+  for (const dir of [edition, exported, exportedAgain])
+    writeFileSync(join(dir, "WORDS.TOK"), wordsBytes);
+  writeFileSync(join(exported, "PROJECT.JSON"), "{}");
+  writeFileSync(join(exportedAgain, "GAME.JSON"), JSON.stringify({ title: "Remix" }));
+  const sharedHash = createHash("sha256").update(wordsBytes).digest("hex");
+  clearFixtureCache();
+  assert.equal(findFixture(sharedHash)?.folder, basename(edition));
+  // Two exports without a plain edition remain ambiguous.
+  rmSync(edition, { recursive: true, force: true });
+  clearFixtureCache();
+  assert.throws(() => findFixture(sharedHash), /Ambiguous fixture query/);
 });

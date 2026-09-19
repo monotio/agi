@@ -127,6 +127,139 @@ test("add.to.pic paints the cel into the persistent surface with margin control"
   }
 });
 
+/** 1 loop, 1 cel: a solid width x height block of color 5 (width at most 15). */
+function solidView(width: number, height: number): Uint8Array {
+  const rows = Array.from({ length: height }, () => [0x50 | width, 0]).flat();
+  return new Uint8Array([0, 0, 1, 0, 0, 7, 0, 1, 3, 0, width, height, 0, ...rows]);
+}
+
+test("add.to.pic outlines a control box as tall as the baseline's priority band", () => {
+  // docs/fidelity.md, "Original add.to.pic control box". With the default
+  // priority base of 48, band 9 is rows 96..107 (5 + floor((y - 48) * 10 / 120)).
+  const container = gameWith(`
+    load.view(0);
+    load.view(1);
+    add.to.pic(0, 0, 0, 40, 100, 15, 1);
+    add.to.pic(1, 0, 0, 80, 107, 15, 3);
+    return;
+  `);
+  container.putResource("view", 0, solidView(5, 20));
+  container.putResource("view", 1, solidView(6, 3));
+  const engine = new Engine(container, new TestHost(), DICT);
+  engine.tick();
+  const at = (x: number, y: number): number => engine.surface.priority[y * SCREEN_WIDTH + x]!;
+
+  // Rows 100..96 lie in the baseline's band: five rows, fewer than the cel's twenty.
+  for (let x = 40; x <= 44; x++) assert.equal(at(x, 100), 1, `bottom row x=${x}`);
+  for (let y = 96; y <= 99; y++) {
+    assert.equal(at(40, y), 1, `left column y=${y}`);
+    assert.equal(at(44, y), 1, `right column y=${y}`);
+  }
+  for (let x = 41; x <= 43; x++) assert.equal(at(x, 96), 1, `top row x=${x}`);
+  assert.equal(at(42, 98), 15, "the interior keeps the cel's priority");
+  assert.equal(at(40, 95), 15, "the box stops at the band's top row");
+  assert.equal(at(39, 98), 4, "nothing is stamped outside the cel");
+
+  // Twelve band rows above y=107, but the cel is three rows tall.
+  for (let x = 80; x <= 85; x++) assert.equal(at(x, 107), 3, `short bottom row x=${x}`);
+  assert.equal(at(80, 106), 3);
+  assert.equal(at(85, 106), 3);
+  for (let x = 80; x <= 85; x++) assert.equal(at(x, 105), 3, `short top row x=${x}`);
+  assert.equal(at(82, 106), 15, "short interior");
+  assert.equal(at(80, 104), 4, "nothing above a three-row cel");
+});
+
+test("show.obj formats the view description like any printed message", () => {
+  // docs/fidelity.md, "Original show.obj description formatting". The
+  // description follows the cel data; header bytes 3..4 hold its offset.
+  const description = [..."account number %v48"].map((ch) => ch.charCodeAt(0));
+  const view = new Uint8Array([0, 0, 1, 15, 0, 7, 0, 1, 3, 0, 3, 1, 0, 0x53, 0, ...description, 0]);
+  const container = gameWith(`
+    assignn(v48, 137);
+    show.obj(0);
+    return;
+  `);
+  container.putResource("view", 0, view);
+  const engine = new Engine(container, new TestHost(), DICT);
+  engine.tick();
+  const screen = Array.from({ length: 25 }, (_, row) => engine.textRow(row)).join("\n");
+  assert.match(screen, /account number 137/);
+  assert.doesNotMatch(screen, /%v48/);
+});
+
+test("message codes expand in one pass with recursive inserts, as the original formatter does", () => {
+  // docs/fidelity.md, "Original message formatter". The %v value 142 must not
+  // complete the preceding %m1 into %m142; %m and %s contents are formatted;
+  // an unknown letter is dropped; %g reads logic 0's messages.
+  const container = createContainer();
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `
+      #message 1 "zero-%v48"
+      #message 2 "unused"
+      if (!isset(f200)) { set(f200); assignn(v48, 142); set.string(s1, "in %v48"); call(1); }
+      return;
+      `,
+      { dictionary: DICT },
+    ).payload,
+  );
+  container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      `
+      #message 1 "one"
+      #message 2 "%m1%v48 <%s1> %q %g1"
+      print(m2);
+      return;
+      `,
+      { dictionary: DICT },
+    ).payload,
+  );
+  const host = new TestHost();
+  const engine = new Engine(container, host, DICT);
+  engine.tick();
+  assert.deepEqual(host.prints, ["one142 <in 142>  zero-142"]);
+});
+
+test("v8 reports ample free memory from boot on and after a script overwrites it", () => {
+  // docs/fidelity.md, "Free memory in v8": Gold Rush refuses the bible and
+  // the help menu below eight pages.
+  const container = gameWith(`
+    if (!isset(f200)) { set(f200); assignv(v100, v8); assignn(v8, 1); }
+    return;
+  `);
+  const engine = new Engine(container, new TestHost(), DICT);
+  assert.equal(engine.vars[8], 255, "set before the first logic runs");
+  engine.tick();
+  assert.equal(engine.vars[100], 255);
+  engine.tick();
+  assert.equal(engine.vars[8], 255, "refreshed each cycle like the original's heap measure");
+});
+
+test("add.to.pic paints its colour over control pixels but keeps their control value", () => {
+  // docs/fidelity.md, "Original cel blit over control pixels". PICTURE_1 has no
+  // control pixels; the test seeds a control-2 trigger column under the cel.
+  const container = gameWith(`
+    load.view(0);
+    add.to.pic(0, 0, 0, 40, 100, 7, 4);
+    return;
+  `);
+  container.putResource("view", 0, solidView(3, 4));
+  const engine = new Engine(container, new TestHost(), DICT);
+  // Seed before the first tick: the engine's surface persists across ticks.
+  for (let y = 97; y <= 100; y++) engine.surface.priority[y * SCREEN_WIDTH + 41] = 2;
+  engine.tick();
+  const at = (x: number, y: number): number => engine.surface.priority[y * SCREEN_WIDTH + x]!;
+  for (let y = 97; y <= 100; y++) {
+    assert.equal(at(41, y), 2, `trigger survives at y=${y}`);
+    assert.equal(engine.surface.visual[y * SCREEN_WIDTH + 41], 5, `colour painted at y=${y}`);
+    assert.equal(at(40, y), 7, `plain pixel takes the cel priority at y=${y}`);
+  }
+});
+
 test("add.to.pic.v draws through variable-selected operands", () => {
   const container = gameWith(`
     load.view(0);

@@ -172,6 +172,12 @@ test("navigation exposes host poll, logic cycle, movement and wall budget exhaus
   now = 10;
   assert.match(controller.next({ hostPolls: 0, logicCycles: 0 }).outcome?.reason ?? "", /wallMs/);
 });
+test("a walk finishes as satisfied once the caller's own condition holds", () => {
+  let polls = 0;
+  const result = drive(world(), target, { until: () => ++polls > 3 });
+  assert.equal(result.outcome.status, "satisfied");
+  assert.ok(result.outcome.x < target.target.x0, "stopped short of the position target");
+});
 test("navigation honors cancellation and hazard predicates before another movement input", () => {
   assert.equal(drive(world(), target, { cancelled: () => true }).outcome.status, "cancelled");
   assert.equal(

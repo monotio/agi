@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { AGI_KEY } from "../../src/runtime/keys.ts";
 import type { Speedrun } from "./runner.ts";
+import { KNOWN_GAME_HASH } from "../../src/games/knownGames.ts";
+import type { Walkthrough } from "./route.ts";
 import { NavigationError } from "../../src/agent/navigationController.ts";
 
 /** Resume a route only across the named, expected game narration. */
@@ -63,10 +65,10 @@ export function sq1Opening(run: Speedrun): void {
   run.walkTo(140, 63); // straight west first: the door frame object at x=152 blocks diagonals
   run.walkTo(20, 70); // shallow diagonal: the y=80 divider spans the room; stay in the y64-79 band
   run.exit("W", 3);
-  run.direction("W"); // ego enters room 3 at the east edge; keep walking while typing
-  run.type("get card"); // 003.agi:172 said("acquire", "card") needs no prior search; typed during the walk west
-  run.walkTo(140, 68);
-  run.submit("get card");
+  // Ego enters room 3 at the east edge, already inside the card's posn box
+  // (117,57)-(159,79). The crewman is an add.to.pic with margin 0: its control
+  // box spans x126..149, y63..71, so the body itself cannot be walked over.
+  run.command("get card"); // said("acquire", "card") needs no prior search
   run.checkpoint("Recover the keycard", { room: 3, score: 6 });
   run.assertCarried(5, "Keycard");
 }
@@ -1330,3 +1332,18 @@ export function sq1Complete(run: Speedrun): void {
   run.wait(() => run.state().room === 64, "ending ceremony (room 64)", 40000);
   run.checkpoint("Ending ceremony", { room: 64, score: 202 });
 }
+
+export const sq1Walkthrough: Walkthrough = {
+  hash: KNOWN_GAME_HASH.SQ1,
+  alias: "sq1",
+  label: "completed ceremony and ending credits with maximum score",
+  coverage: "complete-game",
+  seed: 12,
+  route: sq1Complete,
+  expected: {
+    room: 64,
+    score: 202,
+    carriedExactly: [1, 3, 5, 6, 13, 14, 16, 19, 22],
+  },
+  requiresAnswer: true,
+};

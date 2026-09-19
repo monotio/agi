@@ -11,7 +11,7 @@ import {
 import { requireProjectId } from "../src/gameIdentity.ts";
 
 const route = walkthrough(process.argv[2] ?? "");
-const missing = fixtureSkip(route.hash, ["AGIDATA.OVL"]);
+const missing = fixtureSkip(route.hash, ["AGIDATA.OVL"], { checkVolumes: "shipped" });
 if (missing) {
   process.stdout.write(`SKIP: ${missing}\n`);
 } else {

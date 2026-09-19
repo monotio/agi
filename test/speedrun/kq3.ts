@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import type { Speedrun } from "./runner.ts";
+import { KNOWN_GAME_HASH } from "../../src/games/knownGames.ts";
+import type { Walkthrough } from "./route.ts";
 import { AGI_KEY } from "../../src/runtime/keys.ts";
 
 function enter(run: Speedrun, x: number, y: number, room: number): void {
@@ -1236,3 +1238,21 @@ export function kq3Complete(run: Speedrun): void {
   assert.equal(run.engine.flags[44], 0);
   run.checkpoint("The royal family reunited", { room: 74, score: 210 });
 }
+
+export const kq3Walkthrough: Walkthrough = {
+  hash: KNOWN_GAME_HASH.KQ3,
+  alias: "kq3",
+  label: "completed royal reunion with maximum score",
+  coverage: "complete-game",
+  seed: 1,
+  route: kq3Complete,
+  expected: {
+    room: 74,
+    score: 210,
+    vars: { 7: 210, 220: 27 },
+    flags: { 151: 1, 152: 1, 153: 1, 154: 1, 155: 1, 156: 1, 157: 1, 182: 1, 183: 1, 198: 1 },
+    inputEnabled: false,
+    egoView: 77,
+  },
+  requiresAnswer: true,
+};

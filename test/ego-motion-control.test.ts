@@ -5,6 +5,7 @@ import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { AGI_KEY } from "../src/runtime/keys.ts";
 import { buildView } from "../src/view/view.ts";
+import { MOTION_MOVE_OBJ, MOTION_NORMAL } from "../src/runtime/screenObject.ts";
 import { decodeSave } from "../src/runtime/persistence.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
 
@@ -126,4 +127,25 @@ test("wander on ego selects program control", () => {
     "v6 follows the wandering object",
   );
   assert.equal(coupling(engine), 0, "wander on ego selects program control");
+});
+
+test("player.control stops object 0's targeted motion and keeps its direction", () => {
+  // The 2.936 handler at 0x7041 selects player coupling and clears object 0's
+  // motion type only (docs/fidelity.md, "Original player.control handler").
+  const { engine } = game(
+    `${setup} if (!isset(f200)) { set(f200); move.obj(o0, 60, 100, 1, f20); } if (isset(f201)) { player.control(); } return;`,
+  );
+  engine.tick();
+  engine.tick();
+  const ego = engine.screenObjects[0]!;
+  assert.equal(ego.motionMode, MOTION_MOVE_OBJ);
+  assert.equal(coupling(engine), 0, "move.obj takes program control");
+  engine.flags[201] = 1;
+  engine.tick();
+  assert.equal(ego.motionMode, MOTION_NORMAL, "player.control ends the targeted motion");
+  assert.equal(ego.direction, 3, "the direction byte is untouched");
+  assert.equal(coupling(engine), 1);
+  const x = ego.x;
+  engine.tick();
+  assert.equal(ego.x, x, "no further steps toward the abandoned target");
 });

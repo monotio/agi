@@ -6,6 +6,7 @@ import { Engine } from "../src/runtime/engine.ts";
 import { buildView } from "../src/view/view.ts";
 import { MOTION_FOLLOW, MOTION_MOVE_OBJ } from "../src/runtime/screenObject.ts";
 import { planWalk } from "../src/agent/navigation.ts";
+import { PROFILES } from "../src/runtime/profile.ts";
 
 // Independently authored vectors from executed original routines; see
 // docs/fidelity.md, "Original complete movement and follow audit".
@@ -304,4 +305,87 @@ test("host history retains a parked out-of-bounds position while authentic resto
   assert.equal(engine.modalKind, "print");
   engine.restoreImage(authentic);
   assert.equal(engine.screenObjects[0]!.x, 156, "authentic reconstruction invokes cel clipping");
+});
+
+test("the previous position is committed after the pass, so a corner pass is not a crossing", () => {
+  // docs/fidelity.md, "Original previous-position commit". Widths are 2, so
+  // spans touch inclusively when mover.x <= ego.x + 2.
+  const engine = game();
+  const ego = engine.screenObjects[0]!;
+  const actor = engine.screenObjects[1]!;
+  ego.x = ego.prevX = 90;
+  ego.y = ego.prevY = 143;
+  actor.x = actor.prevX = 95;
+  actor.y = actor.prevY = 141;
+  actor.direction = 6; // south-west, one pixel per pass
+  actor.newlyPositioned = false;
+  ego.newlyPositioned = false;
+  const trail: [number, number][] = [];
+  for (let pass = 0; pass < 4; pass++) {
+    engine.tick();
+    trail.push([actor.x, actor.y]);
+  }
+  // (92,144) touches ego's span with a lower baseline, but the mover's committed
+  // previous y is 143, not below ego's 143: no crossing, so it keeps going.
+  assert.deepEqual(trail, [
+    [94, 142],
+    [93, 143],
+    [92, 144],
+    [91, 145],
+  ]);
+
+  // Control: straight down onto the same baseline is still a collision.
+  actor.x = actor.prevX = 90;
+  actor.y = actor.prevY = 141;
+  actor.direction = 5;
+  engine.tick();
+  engine.tick();
+  assert.deepEqual([actor.x, actor.y], [90, 142], "equal baselines block");
+});
+
+test("position leaves the newly-positioned bit alone; reposition sets it", () => {
+  // docs/fidelity.md, "Original position handlers". Under 3.002.086 the
+  // movement routine reports border 4 whenever the proposed x is zero. A
+  // placement pass proposes the current position, so an object placed at x=0
+  // and sent east reports the border only if that pass ran: reposition
+  // schedules one, position does not. Other profiles still schedule it as a
+  // recorded deviation, so this vector is 3.002.086-only.
+  const source = (place: string) =>
+    `if (!isset(f200)) { set(f200); load.view(1); animate.obj(o0); set.view(o0, 1); ignore.horizon(o0);
+      position(o0, 40, 100); draw(o0); stop.cycling(o0); }
+     if (equaln(v100, 1)) { assignn(v100, 2); ${place} move.obj(o0, 20, 100, 1, f50); }
+     return;`;
+  for (const [place, edge, x] of [
+    ["position(o0, 0, 100);", 0, 1],
+    ["reposition.to(o0, 0, 100);", 4, 0],
+  ] as const) {
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(source(place), { dictionary: new Map() }).payload,
+    );
+    container.putResource(
+      "view",
+      1,
+      buildView({ loops: [{ cels: [{ width: 2, height: 1, pixels: [1, 1] }] }] }),
+    );
+    const engine = new Engine(
+      container,
+      {
+        print() {},
+        displayAt() {},
+        statusLine() {},
+        takeInputLine: () => null,
+        takeKeys: () => [],
+      },
+      undefined,
+      { profile: PROFILES["3.002.086"] },
+    );
+    engine.tick();
+    engine.vars[100] = 1;
+    engine.tick();
+    assert.equal(engine.vars[2], edge, `${place} border report`);
+    assert.equal(engine.screenObjects[0]!.x, x, `${place} first step`);
+  }
 });

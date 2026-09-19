@@ -24,7 +24,8 @@ export type NavigationStatus =
   | "unexpected_transition"
   | "hazard_detected"
   | "budget_exhausted"
-  | "cancelled";
+  | "cancelled"
+  | "satisfied";
 export interface NavigationBudgets {
   hostPolls: number;
   logicCycles: number;
@@ -41,6 +42,12 @@ export interface NavigationOptions {
   /** Monotonic host clock. Without a clock wall time is not measured. */
   now?: () => number;
   cancelled?: () => boolean;
+  /**
+   * A goal the caller can observe directly ("the door has opened", "the item
+   * is carried"): once it holds, the walk finishes as `satisfied` even if the
+   * position target is not reached.
+   */
+  until?: () => boolean;
   hazard?: () => string | null;
   stallUpdates?: number;
 }
@@ -196,6 +203,7 @@ export class NavigationController {
     }
     this.previousPosition = position;
     if (this.options.cancelled?.()) return this.finish("cancelled", "Cancelled by the host.");
+    if (this.options.until?.()) return this.finish("satisfied", "The caller's condition holds.");
     const hazard = this.options.hazard?.();
     if (hazard) return this.finish("hazard_detected", hazard);
     if (engine.vars[0] !== this.startRoom) {

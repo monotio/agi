@@ -64,7 +64,7 @@ describe("fixture interpreter profiles", () => {
         });
         assert.equal(engine.profile.id, game.profile);
         engine.tick();
-        assert.equal(engine.strings.length, 12, "every detected profile is post-2.411");
+        assert.equal(engine.profile.stringSlots, 12, "every detected profile is post-2.411");
       },
     );
   }

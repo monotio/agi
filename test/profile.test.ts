@@ -349,14 +349,17 @@ describe("engine selects behavior by profile field", () => {
     assert.equal(full.modalKind, "menu", "2.936 builds and opens the menu");
   });
 
-  test("string slots outside the profile range are ignored", () => {
-    const SET = 'set.string(s6, "hi");\nreturn;\n';
+  test("string operands reach the reserved records; slots past the bank are ignored", () => {
+    // docs/fidelity.md, "Original string slot addressing".
+    const SET = 'set.string(s6, "hi");\nset.string(s24, "out");\nreturn;\n';
     const later = boot(SET).engine;
-    assert.equal(later.strings.length, 12);
+    assert.equal(later.strings.length, 24, "twelve slots plus twelve reserved records");
     assert.equal(later.strings[6], "hi");
-    const early = boot(SET, "2.272").engine;
-    assert.equal(early.strings.length, 6, "2.089/2.230/2.272 expose s0..s5");
-    assert.deepEqual([...early.strings], ["", "", "", "", "", ""]);
+    assert.ok(!later.strings.includes("out"), "s24 is outside the bank");
+    const early = boot('set.string(s6, "hi");\nset.string(s12, "out");\nreturn;\n', "2.272").engine;
+    assert.equal(early.strings.length, 12, "six slots plus six reserved records");
+    assert.equal(early.strings[6], "hi", "s6 is the first reserved record");
+    assert.ok(!early.strings.includes("out"), "s12 is outside the early bank");
   });
 
   test("0xa3/0xa4 fix the input width in 2.936 and do nothing in 3.002.149", () => {
