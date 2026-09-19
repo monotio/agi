@@ -2757,9 +2757,9 @@ export class Engine {
   /**
    * add.to.pic: draw the selected loaded cel into the persistent picture
    * surface at (x, baseline y) with the given priority, then — classic
-   * control/margin semantics — stamp control color `margin` along the cel's
-   * baseline row when margin is 0..3. The bytecode entry points record a
-   * four-pair transient-cel packet so restore can reproduce the draw; replay
+   * control/margin semantics — outline a control box in color `margin` when
+   * margin is 0..3, bounded by the cel and baseline's priority band. The entry
+   * points record a four-pair transient-cel packet so restore can reproduce the draw; replay
    * calls this one directly, with recording already disabled.
    */
   private addToPic(
@@ -4491,41 +4491,76 @@ export class Engine {
   }
 
   /**
-   * One left-to-right pass over the source; inserted text is formatted
-   * recursively and never rescanned in place, so a number written by %v
-   * cannot extend a code before it. Letters the original does not handle
-   * are dropped with their percent sign (docs/fidelity.md, "Original message
-   * formatter"). The original bounds recursion at nineteen levels.
+   * Left-to-right formatting with a stack of inserts and their message contexts.
+   * Shared output/work limits protect the host, including non-emitting cycles;
+   * they are not the original's line-layout bound. Window wrapping stays separate.
+   * See docs/fidelity.md, "Original message formatter".
    */
-  private expandMessage(text: string, depth = 0): string {
-    if (depth > 19) return "";
-    return text.replace(
-      /%([a-z])(\d*)(?:\|(\d+))?/g,
-      (whole, letter: string, digits: string, width: string | undefined) => {
-        const n = Number(digits);
-        switch (letter) {
-          case "v": {
-            const value = String(this.vars[n] ?? 0);
-            // Bound requested padding to one text row before allocating it.
-            return width === undefined
-              ? value
-              : value.padStart(Math.min(TEXT_COLS, Number(width)), "0");
-          }
-          case "s":
-            return this.expandMessage(this.strings[n] ?? "", depth + 1);
-          case "m":
-            return this.expandMessage(this.rawMessage(n), depth + 1);
-          case "g":
-            return this.expandMessage(this.rawMessage(n, 0), depth + 1);
-          case "o":
-            return this.expandMessage(this.itemNames()[this.vars[n] ?? 0] ?? "", depth + 1);
-          case "w":
-            return this.expandMessage(this.parsedWordTexts[n - 1] ?? "", depth + 1);
-          default:
-            return whole.slice(2);
+  private expandMessage(text: string): string {
+    const frames = [{ text, offset: 0, logic: undefined as number | undefined }];
+    const capacity = 20 * TEXT_COLS;
+    let work = 16_384;
+    let output = "";
+    while (frames.length > 0 && output.length < capacity && work-- > 0) {
+      const frame = frames[frames.length - 1]!;
+      if (frame.offset >= frame.text.length) {
+        frames.pop();
+        continue;
+      }
+      const ch = frame.text.charAt(frame.offset++);
+      if (ch !== "%") {
+        output += ch;
+        continue;
+      }
+      const letter = frame.text.charAt(frame.offset++);
+      // Unknown codes consume exactly one character after %, leaving digits literal.
+      if (!"vsmgow".includes(letter) || letter === "") continue;
+      const readNumber = (): number => {
+        let value = 0;
+        while (work > 0) {
+          const digit = frame.text.charCodeAt(frame.offset) - 48;
+          if (!(digit >= 0 && digit <= 9)) break;
+          value = value * 10 + digit;
+          frame.offset++;
+          work--;
         }
-      },
-    );
+        return value;
+      };
+      const n = readNumber();
+      if (work <= 0) break;
+      let inserted: string;
+      let logic = frame.logic;
+      switch (letter) {
+        case "v": {
+          let value = String(this.vars[n] ?? 0);
+          if (frame.text.charAt(frame.offset) === "|") {
+            frame.offset++;
+            const width = readNumber();
+            if (work <= 0) return output;
+            value = value.padStart(Math.min(TEXT_COLS, width), "0");
+          }
+          output += value.slice(0, capacity - output.length);
+          continue;
+        }
+        case "s":
+          inserted = this.strings[n] ?? "";
+          break;
+        case "g":
+          logic = 0;
+          inserted = this.rawMessage(n, logic);
+          break;
+        case "m":
+          inserted = this.rawMessage(n, logic);
+          break;
+        case "o":
+          inserted = this.itemNames()[this.vars[n] ?? 0] ?? "";
+          break;
+        default: // w
+          inserted = this.parsedWordTexts[n - 1] ?? "";
+      }
+      frames.push({ text: inserted, offset: 0, logic });
+    }
+    return output;
   }
 
   /** A logic's stored message text before formatting; logic 0 for %g. */

@@ -259,7 +259,12 @@ Manhunter games play to their closing cards through the cursor interface: New
 York across all four days, San Francisco to the digger's surfacing. Donald Duck's
 Playground, which has no story ending, ships a chapter: the beginner arch, a
 produce-market shift, a purchase and the item placed in the playground. Browser
-tests replay the same routes through the app's controls. The same catalog includes
+tests replay the committed `app/public/walkthroughs/*.json` tapes through the app's
+controls, checking their exact fixture hashes, interpreter profile, ending state
+and duration. They do not regenerate routes: the Node cold-boot tests cover route
+generation separately, so a stale or broken shipped tape fails the browser gate.
+`AGI_SPEEDRUN_FILE` selects a separately generated tape when validating a route
+before replacing its committed artifact. The same catalog includes
 KQ1's completion proof. Each entry defines its coverage, route and observable
 endpoint once for Node, CLI and browser checks. `scripts/walkthrough.ts` writes
 a replay for any catalog entry; for example, `npm run prove:walkthrough -- sq1`.

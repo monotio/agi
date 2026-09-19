@@ -1,12 +1,9 @@
 import { expect, test } from "@playwright/test";
+import { fileURLToPath } from "node:url";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { Speedrun } from "../../test/speedrun/runner.ts";
 import { AGI_KEY } from "../../src/runtime/keys.ts";
-import {
-  WALKTHROUGHS,
-  runWalkthrough,
-  verifyWalkthrough,
-} from "../../test/speedrun/walkthroughs.ts";
+import { WALKTHROUGHS, verifyWalkthrough } from "../../test/speedrun/walkthroughs.ts";
 import { readWalkthroughArtifact, walkthroughFixtureHashes } from "../../test/speedrun/artifact.ts";
 import { BrowserReplay } from "./speedrunReplay.ts";
 import { settled } from "./engineProbe.ts";
@@ -53,21 +50,23 @@ for (const phone of [false, true]) {
         test.setTimeout(15 * 60_000);
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
-        const run = recording ? null : runWalkthrough(route);
-        if (recording)
-          expect(recording.fixtureHashes, "exact fixture resources").toEqual(
-            walkthroughFixtureHashes(route.hash),
-          );
-        const seed = recording?.seed ?? run!.seed;
-        const actions = recording?.actions ?? run!.actions;
-        const ticks = recording?.virtualTicks ?? run!.ticks;
+        // Node tests generate routes from cold boots; browser tests verify
+        // the committed tapes users receive, including their modal dwell.
+        const tape =
+          recording ??
+          (await readWalkthroughArtifact(
+            fileURLToPath(new URL(`../public/walkthroughs/${route.alias}.json`, import.meta.url)),
+          ));
+        expect(tape.fixtureHashes, "exact fixture resources").toEqual(
+          walkthroughFixtureHashes(route.hash),
+        );
         const replay = new BrowserReplay(page, phone);
-        await replay.boot(route.hash, seed);
-        if (recording) expect((await replay.read()).state.profile).toBe(recording.profile);
-        await replay.play(actions);
+        await replay.boot(route.hash, tape.seed);
+        expect((await replay.read()).state.profile).toBe(tape.profile);
+        await replay.play(tape.actions);
         const outcome = await replay.read();
         verifyWalkthrough(route, outcome);
-        expect(outcome.tick).toBe(ticks);
+        expect(outcome.tick).toBe(tape.virtualTicks);
         expect(errors).toEqual([]);
         await settled(page);
         // Capture the composed engine frame separately from the GPU screenshot:

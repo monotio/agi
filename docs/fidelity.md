@@ -1326,13 +1326,52 @@ by a recursive call), `m` (a message of the current logic, recursive), `o` (the
 inventory item named by the variable, recursive), `s` (a string slot,
 recursive), `v` (the variable as decimal, with `|` width zero-padded) and `w`
 (a parsed word, recursive). Any other letter is skipped with its percent sign.
-Output is appended, never rescanned, and recursion stops at nineteen levels.
+Output is appended, never rescanned. The comparison with nineteen at 0x2221
+bounds the output line counter at DS:0x0b26, not recursion depth: 0x25bc
+increments that counter at a line boundary. A recursion-depth limit does not
+implement that contract and still permits exponential expansion.
 Fact: a `%v` value cannot extend a code before it. Police Quest prints
 `%m1%v…`, which the engine's earlier `%v`-first pass turned into a different
 message number. `%g` and `%o` were missing altogether. v2 images were not
 inspected; the engine applies the table to every profile by inference.
 
-Tests: [opcodes.test.ts](../test/opcodes.test.ts).
+Independent execution of the same Gold Rush 3.002.149 load module
+(`12a52b728b1b1f8d27b21e85cab022a30ef359bca200ba9ed4d6e78a50979f41`), with
+AGIDATA.OVL
+(`914990f09b49109a34d511011c7764abb5575581fbc190c8cebc930b1027f804`), confirms
+three additional contracts. A synthetic call to 0x21c9 uses a shared stack
+and data segment, width 40, and synthetic strings and logic message tables;
+only the logic-resource lookup at 0x131d is intercepted to return the
+synthetic logic 0 record. The formatter and message lookup execute unchanged.
+
+- `%g1`, with global message 1 `%m2`, global message 2 `GLOBAL` and the
+  caller's message 2 `LOCAL`, produces `GLOBAL`. The code at 0x22d7..0x2306
+  temporarily selects logic 0 for the recursive expansion, then restores
+  the caller's message context.
+- `%s1|5`, with s1 `hello`, produces `hello|5`; only `%v` consumes the width
+  suffix (0x2331..0x2352). `100%% done` produces `100 done`, and `%Q42`
+  produces `42`, confirming dispatch consumes any next character, not just
+  lowercase letters. A separate `tail%` probe produces `tail` and returns,
+  confirming a final percent sign is discarded.
+- `%s1`, with s1 `x%s1%s1%s1`, returns 820 bytes at width 40: twenty lines
+  of forty `x` characters, each followed by a newline. This witnesses the
+  shared output-line bound across recursive inserts. It does not establish
+  safe behavior for a recursion cycle that never emits a character.
+
+The engine uses an explicit insert stack that carries the message context,
+without a depth cutoff. Shared limits of 800 emitted characters (twenty
+40-column rows) and 16,384 scan steps terminate productive expansion and
+non-emitting cycles within one opcode. Exhausting either returns the prefix
+already emitted. These are host safeguards, not a claim of identical original
+line layout: newlines count toward the character capacity, and window wrapping
+remains a separate step at the requested width. The original's exact line-bound
+geometry is not reproduced by this character-capacity guard. Only `%v` consumes
+a width suffix; unknown codes consume `%` and its following character.
+
+Tests: [message-format.test.ts](../test/message-format.test.ts),
+[opcodes.test.ts](../test/opcodes.test.ts). The prompt-to-print regression runs
+in a subprocess with a timeout so a monopolized formatter fails the test instead
+of hanging the test runner.
 
 ### Original previous-position commit
 

@@ -482,7 +482,8 @@ export interface DrawCelOptions {
  * channel: a destination value above 2 is the comparison value; values 0..2
  * scan downward in the same column for the first value above 2 (0 if none).
  * The pixel draws when the comparison value is <= the drawing priority p,
- * replacing the visual color and the priority value with p.
+ * replacing the visual color. Control values 0..2 survive the paint; other
+ * destination priority values become p.
  */
 export function drawCel(
   surface: PictureSurface,
