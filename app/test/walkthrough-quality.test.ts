@@ -19,6 +19,7 @@ const limits: Record<string, { polls: number; cycles: number; actions: number }>
   mh1: { polls: 142500, cycles: 30000, actions: 6700 },
   mh2: { polls: 149100, cycles: 27900, actions: 5600 },
   gr1: { polls: 105800, cycles: 43400, actions: 8600 },
+  kq4: { polls: 151400, cycles: 70800, actions: 8600 },
   "adventure-department": { polls: 1400, cycles: 90, actions: 145 },
 };
 

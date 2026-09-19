@@ -36,7 +36,7 @@ resource readers still reject unavailable data if the scenario requests it.
 | King's Quest I           | `games/kq1/`      | 2.917                       | [Full-game completion proof](#kq1-completion-proof) (159 points; Node and browser), [resources](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)                     |
 | King's Quest II          | `games/kq2/`      | 2.411                       | [Full-game completion proof](#walkthrough-tests) (185 points; wedding and ending credits), [resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts) |
 | King's Quest III         | `games/kq3/`      | 2.936                       | [Full-game completion proof](#walkthrough-tests) (210 points; royal reunion), [resources and movement](../test/games.test.ts), [profiles](../test/games-profile.test.ts), [save/restore](../test/games-persistence.test.ts)              |
-| King's Quest IV          | `games/kq4/`      | 3.002.086                   | [Resources](../test/kq4.test.ts), [regressions](../test/kq4-regressions.test.ts)                                                                                                                                                         |
+| King's Quest IV          | `games/kq4/`      | 3.002.086                   | [Full-game completion proof](#walkthrough-tests) (230 points; King Graham healed), [resources](../test/kq4.test.ts), [regressions](../test/kq4-regressions.test.ts)                                                                      |
 | The Black Cauldron       | `games/bc/`       | 2.439 / 2.440               | [Full-game completion proof](#walkthrough-tests) (230 points; cauldron destroyed), [opening and movement](../test/openings.test.ts)                                                                                                      |
 | Mixed-Up Mother Goose    | `games/mumg/`     | 2.917                       | [Full-game completion proof](#walkthrough-tests) (18 rhymes; wake-up ending), [introduction and movement](../test/openings.test.ts)                                                                                                      |
 | Donald Duck's Playground | `games/ddp/`      | DOS 1.50; 2.272 / 2.440     | [Chapter proof](#walkthrough-tests) (beginner shift, purchase and playground placement), [difficulty selection and movement](../test/openings.test.ts), replayed in the browser                                                          |
@@ -238,7 +238,11 @@ ships one tape per entry. The KQ2 route completes the entire game to the maximum
 score of 185, solving all door riddles, navigating the enchantress island and clouds,
 defeating the lion, rescuing Valanice, and reaching the wedding and ending credits.
 The KQ3 route earns all 210 points, completes all seven spells, escapes Manannan
-and the pirate ship, rescues Rosella, and reaches the royal reunion. The SQ1 route
+and the pirate ship, rescues Rosella, and reaches the royal reunion. King's Quest IV returns Genesta's talisman
+and heals King Graham with all 230 points; its copy-protection question is
+answered through the parser line, and its fixture's directory indexes four
+resources in volumes the release never shipped, none of which the route loads.
+The SQ1 route
 completes the entire game to the maximum score of 202, from the Arcada evacuation
 through Kerona, Ulence Flats and the Deltaur to the Xenon ceremony. SQ2 defeats
 Vohaul with all 250 points; its timed hazards are waited out or countered from
@@ -282,6 +286,7 @@ when they do not need a timeline marker. The narrated tapes have these costs:
 | MH1                  |    142,440 |       29,969 |         59 |
 | MH2                  |    149,082 |       27,852 |         53 |
 | Gold Rush            |    105,687 |       43,379 |         48 |
+| KQ4                  |    151,260 |       70,674 |         56 |
 | Adventure Department |      1,367 |           82 |          4 |
 
 The inexpensive [artifact quality check](../app/test/walkthrough-quality.test.ts)

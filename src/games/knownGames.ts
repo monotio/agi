@@ -138,6 +138,8 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     targetRevision: requireResourceRevision(
       "ad3bef3648923e5082ef5b5f318aa47e3afd47c5492b60d69705b441bbb074f9",
     ),
+    walkthroughLabel: "Returned the talisman & healed King Graham (230 pts)",
+    walkthroughCoverage: "complete-game",
   },
   {
     alias: "sq1",
