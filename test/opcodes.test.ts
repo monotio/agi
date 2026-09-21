@@ -133,6 +133,26 @@ function solidView(width: number, height: number): Uint8Array {
   return new Uint8Array([0, 0, 1, 0, 0, 7, 0, 1, 3, 0, width, height, 0, ...rows]);
 }
 
+test("add.to.pic substitutes the baseline band for a zero priority operand", () => {
+  // docs/fidelity.md, "Original add.to.pic control box": a priority operand
+  // whose low nibble is zero takes the baseline's band. At y=100 with the
+  // default base of 48 the band is 9, so the cel wins over a destination
+  // priority of 8 that a literal zero would lose to.
+  const container = gameWith(`
+    load.view(0);
+    add.to.pic(0, 0, 0, 40, 100, 0, 4);
+    return;
+  `);
+  container.putResource("view", 0, VIEW_3PX);
+  const engine = new Engine(container, new TestHost(), DICT);
+  for (const x of [40, 41, 42]) engine.surface.priority[100 * SCREEN_WIDTH + x] = 8;
+  engine.tick();
+  for (const x of [40, 41, 42]) {
+    assert.equal(engine.surface.visual[100 * SCREEN_WIDTH + x], 5, `visual at x=${x}`);
+    assert.equal(engine.surface.priority[100 * SCREEN_WIDTH + x], 9, `priority at x=${x}`);
+  }
+});
+
 test("add.to.pic outlines a control box as tall as the baseline's priority band", () => {
   // docs/fidelity.md, "Original add.to.pic control box". With the default
   // priority base of 48, band 9 is rows 96..107 (5 + floor((y - 48) * 10 / 120)).

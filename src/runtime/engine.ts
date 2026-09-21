@@ -2777,9 +2777,11 @@ export class Engine {
     // The cel paints into the picture for good, text included, but only where
     // its opaque pixels land and the priority screen lets them (the demo
     // pack's menu paints rows 0..9 black, then add.to.pic's its cards on top).
+    // A priority operand whose low nibble is zero takes the baseline's band
+    // (docs/fidelity.md, "Original add.to.pic control box").
     const covered = new Set<number>();
     drawCel(this.surface, c, x, y, {
-      priority,
+      priority: (priority & 0x0f) === 0 ? this.priorityForY(y) : priority,
       onPixel: (pixel) => {
         const cell = this.textCellUnder(pixel);
         if (cell >= 0) covered.add(cell);
