@@ -52,7 +52,10 @@ export function createInput(ctx: WorkerContext) {
       ctx.engine.deliverHostAnswer(queued);
       if (ctx.engine.hostInteractionReady) ctx.fns.tickEngine();
     }
-    if (ctx.replay.replay && !ctx.engine.awaitingHostAnswer) ctx.fns.postReplay(null, true);
+    // A seek only needs the revision bump and blocking flag — skip the
+    // full state serialization until playback is live again.
+    if (ctx.replay.replay && !ctx.engine.awaitingHostAnswer)
+      ctx.fns.postReplay(null, !ctx.replay.isSeeking);
   }
 
   function onKey(msg: Inbound<"key">): void {

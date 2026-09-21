@@ -55,6 +55,12 @@ export interface ReplayProgressEvent {
 export interface ReplayBatchOptions {
   sessionId?: number;
   isCurrentSession?: () => boolean;
+  /**
+   * Resume mid-tape: skip the first `startIndex` actions — a restored
+   * snapshot already covered them. Indices in progress and error reports
+   * stay absolute against `actions`.
+   */
+  startIndex?: number;
   /** Speed multiplier for real-time watching: 1 = 1x real time, 2 = 2x, etc. 0 = unthrottled fast-forward (default) */
   speed?: number | (() => number);
   /** Callback to check if playback is currently paused */
@@ -107,6 +113,14 @@ export interface ReplayDriver {
     minRevision: number,
     options?: { unblocked?: boolean; signal?: AbortSignal | undefined },
   ): Promise<ReplayObservation>;
+  /** Record a restore point at the replay's current position (a checkpoint crossing). */
+  snapshot?(sessionId?: number): void;
+  /**
+   * Rebuild the replay at the nearest recorded snapshot at or before `tick`
+   * — a fresh boot when none covers it — and resolve with the restored
+   * head's observation.
+   */
+  restore?(tick: number, sessionId?: number): Promise<ReplayObservation>;
   playBatch(
     actions: readonly ReplayAction[],
     options?: ReplayBatchOptions,

@@ -128,6 +128,17 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
   let seekTargetTick: number | null = null;
   const resumeWaiters = new Set<() => void>();
   let skipDialogDwell: (() => void) | null = null;
+  /** The artifact under play — a backward seek replays its suffix. */
+  let activeArtifact: WalkthroughArtifact | null = null;
+  /**
+   * Worker-side snapshot tick → tape index to resume at (the action after
+   * the checkpoint that captured it). Built from the action stream: a
+   * checkpoint's tick is the sum of the `advance` durations before it.
+   */
+  let snapshotResume = new Map<number, number>();
+  /** True while a `playBatch` call is in flight — a seek retarget can only
+   * retune a live runner. */
+  let batchActive = false;
 
   function advanceDialog(): boolean {
     if (skipDialogDwell) {
@@ -152,10 +163,202 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
 
   function abort(): void {
     transport.dispose();
+    batchActive = false;
     if (walkthroughAbortController) {
       walkthroughAbortController.abort();
       walkthroughAbortController = null;
     }
+  }
+
+  /**
+   * The replay loop for the artifact under play: paces the tape, feeds the
+   * transport and checkpoint labels, and lands the walkthrough in
+   * completed / stopped / error when it ends. `startIndex` resumes mid-tape
+   * after a snapshot restore.
+   */
+  async function runBatch(
+    artifact: WalkthroughArtifact,
+    sessionId: number,
+    abortController: AbortController,
+    startIndex = 0,
+  ): Promise<void> {
+    batchActive = true;
+    try {
+      await replayDriver.playBatch(artifact.actions, {
+        sessionId,
+        startIndex,
+        isCurrentSession: () => ctx.getActiveSessionId() === sessionId,
+        speed: () => state.walkthrough.speed,
+        isPaused: () => state.walkthrough.scrubbing || state.walkthrough.status === "paused",
+        waitForResume: () =>
+          new Promise<void>((resolve) => {
+            if (!state.walkthrough.scrubbing && state.walkthrough.status !== "paused") {
+              resolve();
+              return;
+            }
+            const onResume = () => {
+              cleanup();
+              resolve();
+            };
+            const onAbort = () => {
+              cleanup();
+              resolve();
+            };
+            const cleanup = () => {
+              resumeWaiters.delete(onResume);
+              abortController.signal.removeEventListener("abort", onAbort);
+            };
+            resumeWaiters.add(onResume);
+            abortController.signal.addEventListener("abort", onAbort, { once: true });
+          }),
+        getSeekTarget: () => seekTargetTick,
+        onSeekComplete: () => {
+          if (ctx.getActiveSessionId() !== sessionId || abortController.signal.aborted) return;
+          seekTargetTick = null;
+          state.walkthrough.seeking = false;
+          if (replayDriver.latest) {
+            state.walkthrough.tick = replayDriver.latest.tick;
+            state.walkthrough.requestedTick = replayDriver.latest.tick;
+            state.walkthrough.room = replayDriver.latest.state.room;
+            state.walkthrough.score = replayDriver.latest.state.vars[3] ?? 0;
+            if (artifact.virtualTicks > 0) {
+              state.walkthrough.percent = Math.min(
+                100,
+                Math.round((replayDriver.latest.tick / artifact.virtualTicks) * 100),
+              );
+            }
+            const cp = [...state.walkthrough.checkpoints]
+              .reverse()
+              .find((c) => c.tick <= replayDriver.latest!.tick);
+            if (cp) {
+              state.walkthrough.label = cp.label;
+              state.walkthrough.checkpointIndex = cp.index;
+            }
+          }
+          if (state.walkthrough.status === "playing" && !state.walkthrough.scrubbing) {
+            audio.setPaused(false);
+          } else {
+            state.soundPlaying = false;
+            audio.stop();
+            audio.setPaused(true);
+          }
+          ctx.getWorker()?.postMessage({ type: "renderFrame" } satisfies WorkerInbound);
+        },
+        signal: abortController.signal,
+        pauseOnDialog: () => state.walkthrough.pauseOnDialog,
+        onDialogPause: () => {
+          pauseWalkthrough();
+        },
+        dwellOnDialog: (ms: number) =>
+          new Promise<void>((resolve) => {
+            if (
+              abortController.signal.aborted ||
+              ctx.getActiveSessionId() !== sessionId ||
+              state.walkthrough.seeking ||
+              state.walkthrough.speed <= 0
+            ) {
+              resolve();
+              return;
+            }
+            let timer: number | null = null;
+            const finish = () => {
+              if (timer !== null) {
+                clearTimeout(timer);
+                timer = null;
+              }
+              if (skipDialogDwell === finish) {
+                skipDialogDwell = null;
+              }
+              abortController.signal.removeEventListener("abort", finish);
+              resolve();
+            };
+            skipDialogDwell = finish;
+            timer = window.setTimeout(finish, ms);
+            abortController.signal.addEventListener("abort", finish, { once: true });
+          }),
+        onCheckpoint: (cp: ReplayCheckpointEvent) => {
+          if (ctx.getActiveSessionId() !== sessionId || abortController.signal.aborted) return;
+          if (state.walkthrough.seeking) return;
+          state.walkthrough.checkpointIndex++;
+          state.walkthrough.label = cp.label;
+          state.walkthrough.room = cp.room;
+          state.walkthrough.score = cp.score;
+        },
+        onAcceptedInput: (text: string) => {
+          if (!state.walkthrough.seeking) ctx.logAgent("input", text);
+        },
+        onProgress: (prog: ReplayProgressEvent) => {
+          if (ctx.getActiveSessionId() !== sessionId || abortController.signal.aborted) return;
+          if (state.walkthrough.seeking) return;
+          state.walkthrough.tick = prog.tick;
+          state.walkthrough.requestedTick = prog.tick;
+          state.walkthrough.room = prog.room;
+          state.walkthrough.score = prog.score;
+          if (artifact.virtualTicks > 0) {
+            state.walkthrough.percent = Math.min(
+              100,
+              Math.round((prog.tick / artifact.virtualTicks) * 100),
+            );
+          }
+        },
+      });
+      if (ctx.getActiveSessionId() === sessionId && !abortController.signal.aborted) {
+        state.walkthrough.status = "completed";
+        state.walkthrough.percent = 100;
+        state.soundPlaying = false;
+        audio.stop();
+      }
+    } catch (err) {
+      if (ctx.getActiveSessionId() !== sessionId) {
+        return;
+      }
+      if (
+        abortController.signal.aborted ||
+        (err instanceof DOMException && err.name === "AbortError")
+      ) {
+        state.walkthrough.status = "stopped";
+      } else {
+        state.walkthrough.status = "error";
+        state.walkthrough.error = String(err);
+      }
+      state.soundPlaying = false;
+      audio.stop();
+    } finally {
+      // A superseded batch leaves the flag to the run that replaced it.
+      if (walkthroughAbortController === abortController) batchActive = false;
+    }
+  }
+
+  /**
+   * A backward (or post-completion) seek restarts the tape — but at the
+   * nearest checkpoint snapshot the worker recorded, not at tick 0. The
+   * restore resolves with the rebuilt head's tick; its snapshot's tape
+   * index is where the suffix replay begins.
+   */
+  async function seekRestart(target: number, wasPaused: boolean): Promise<void> {
+    const artifact = activeArtifact;
+    if (!artifact || !replayDriver.restore) return;
+    abort();
+    ctx.cancelPendingPrompts();
+    ctx.drainPendingQueries(new DOMException("Walkthrough seek", "AbortError"));
+    const sessionId = ctx.nextSessionId();
+    const abortController = new AbortController();
+    walkthroughAbortController = abortController;
+    state.walkthrough.status = wasPaused ? "paused" : "playing";
+
+    let startIndex: number;
+    try {
+      const obs = await replayDriver.restore(target, sessionId);
+      if (ctx.getActiveSessionId() !== sessionId || abortController.signal.aborted) return;
+      state.walkthrough.tick = obs.tick;
+      startIndex = snapshotResume.get(obs.tick) ?? 0;
+    } catch (e) {
+      if (ctx.getActiveSessionId() !== sessionId || abortController.signal.aborted) return;
+      state.walkthrough.status = "error";
+      state.walkthrough.error = e instanceof Error ? e.message : String(e);
+      return;
+    }
+    await runBatch(artifact, sessionId, abortController, startIndex);
   }
 
   async function startWalkthrough(
@@ -182,6 +385,16 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
       return;
     }
     if (ctx.getActiveSessionId() !== sessionId) return;
+
+    activeArtifact = artifact;
+    // A checkpoint's replay tick is the sum of the advance durations before
+    // it — the snapshot the runner records there resumes at the next action.
+    snapshotResume = new Map();
+    let tickAcc = 0;
+    artifact.actions.forEach((action, index) => {
+      if (action.kind === "checkpoint") snapshotResume.set(tickAcc, index + 1);
+      else if (action.kind === "advance") tickAcc += action.ticks;
+    });
 
     const abortController = new AbortController();
     walkthroughAbortController = abortController;
@@ -343,146 +556,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     if (ctx.getActiveSessionId() !== sessionId || abortController.signal.aborted) return;
 
     // Run the batch!
-    try {
-      await replayDriver.playBatch(artifact.actions, {
-        sessionId,
-        isCurrentSession: () => ctx.getActiveSessionId() === sessionId,
-        speed: () => state.walkthrough.speed,
-        isPaused: () => state.walkthrough.scrubbing || state.walkthrough.status === "paused",
-        waitForResume: () =>
-          new Promise<void>((resolve) => {
-            if (!state.walkthrough.scrubbing && state.walkthrough.status !== "paused") {
-              resolve();
-              return;
-            }
-            const onResume = () => {
-              cleanup();
-              resolve();
-            };
-            const onAbort = () => {
-              cleanup();
-              resolve();
-            };
-            const cleanup = () => {
-              resumeWaiters.delete(onResume);
-              abortController.signal.removeEventListener("abort", onAbort);
-            };
-            resumeWaiters.add(onResume);
-            abortController.signal.addEventListener("abort", onAbort, { once: true });
-          }),
-        getSeekTarget: () => seekTargetTick,
-        onSeekComplete: () => {
-          if (ctx.getActiveSessionId() !== sessionId || abortController.signal.aborted) return;
-          seekTargetTick = null;
-          state.walkthrough.seeking = false;
-          if (replayDriver.latest) {
-            state.walkthrough.tick = replayDriver.latest.tick;
-            state.walkthrough.requestedTick = replayDriver.latest.tick;
-            state.walkthrough.room = replayDriver.latest.state.room;
-            state.walkthrough.score = replayDriver.latest.state.vars[3] ?? 0;
-            if (artifact.virtualTicks > 0) {
-              state.walkthrough.percent = Math.min(
-                100,
-                Math.round((replayDriver.latest.tick / artifact.virtualTicks) * 100),
-              );
-            }
-            const cp = [...state.walkthrough.checkpoints]
-              .reverse()
-              .find((c) => c.tick <= replayDriver.latest!.tick);
-            if (cp) {
-              state.walkthrough.label = cp.label;
-              state.walkthrough.checkpointIndex = cp.index;
-            }
-          }
-          if (state.walkthrough.status === "playing" && !state.walkthrough.scrubbing) {
-            audio.setPaused(false);
-          } else {
-            state.soundPlaying = false;
-            audio.stop();
-            audio.setPaused(true);
-          }
-          ctx.getWorker()?.postMessage({ type: "renderFrame" } satisfies WorkerInbound);
-        },
-        signal: abortController.signal,
-        pauseOnDialog: () => state.walkthrough.pauseOnDialog,
-        onDialogPause: () => {
-          pauseWalkthrough();
-        },
-        dwellOnDialog: (ms: number) =>
-          new Promise<void>((resolve) => {
-            if (
-              abortController.signal.aborted ||
-              ctx.getActiveSessionId() !== sessionId ||
-              state.walkthrough.seeking ||
-              state.walkthrough.speed <= 0
-            ) {
-              resolve();
-              return;
-            }
-            let timer: number | null = null;
-            const finish = () => {
-              if (timer !== null) {
-                clearTimeout(timer);
-                timer = null;
-              }
-              if (skipDialogDwell === finish) {
-                skipDialogDwell = null;
-              }
-              abortController.signal.removeEventListener("abort", finish);
-              resolve();
-            };
-            skipDialogDwell = finish;
-            timer = window.setTimeout(finish, ms);
-            abortController.signal.addEventListener("abort", finish, { once: true });
-          }),
-        onCheckpoint: (cp: ReplayCheckpointEvent) => {
-          if (ctx.getActiveSessionId() !== sessionId || abortController.signal.aborted) return;
-          if (state.walkthrough.seeking) return;
-          state.walkthrough.checkpointIndex++;
-          state.walkthrough.label = cp.label;
-          state.walkthrough.room = cp.room;
-          state.walkthrough.score = cp.score;
-        },
-        onAcceptedInput: (text: string) => {
-          if (!state.walkthrough.seeking) ctx.logAgent("input", text);
-        },
-        onProgress: (prog: ReplayProgressEvent) => {
-          if (ctx.getActiveSessionId() !== sessionId || abortController.signal.aborted) return;
-          if (state.walkthrough.seeking) return;
-          state.walkthrough.tick = prog.tick;
-          state.walkthrough.requestedTick = prog.tick;
-          state.walkthrough.room = prog.room;
-          state.walkthrough.score = prog.score;
-          if (artifact.virtualTicks > 0) {
-            state.walkthrough.percent = Math.min(
-              100,
-              Math.round((prog.tick / artifact.virtualTicks) * 100),
-            );
-          }
-        },
-      });
-      if (ctx.getActiveSessionId() === sessionId && !abortController.signal.aborted) {
-        state.walkthrough.status = "completed";
-        state.walkthrough.percent = 100;
-        state.soundPlaying = false;
-        audio.stop();
-      }
-    } catch (err) {
-      if (ctx.getActiveSessionId() !== sessionId) {
-        return;
-      }
-      if (
-        abortController.signal.aborted ||
-        (err instanceof DOMException && err.name === "AbortError")
-      ) {
-        state.walkthrough.status = "stopped";
-      } else {
-        state.walkthrough.status = "error";
-        state.walkthrough.error = String(err);
-      }
-      state.soundPlaying = false;
-      audio.stop();
-    }
+    await runBatch(artifact, sessionId, abortController);
   }
 
   async function stopWalkthrough(takeControl = false): Promise<void> {
@@ -510,8 +584,15 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
 
   async function seekToTick(targetTick: number, options?: { keepPaused?: boolean }): Promise<void> {
     const clamped = Math.max(0, Math.min(state.walkthrough.totalTicks, Math.round(targetTick)));
+    // During a seek the UI tick stays where it left from — the driver's
+    // latest observation is the live replay head. A retarget ahead of that
+    // head retunes the in-flight seek; only one genuinely behind it
+    // (or a finished run) restarts the tape.
     const engineTick = replayDriver.latest?.tick ?? state.walkthrough.tick;
-    const currentTick = Math.max(state.walkthrough.tick, engineTick);
+    const currentTick =
+      state.walkthrough.seeking && batchActive
+        ? engineTick
+        : Math.max(state.walkthrough.tick, engineTick);
     const currentAlias = state.walkthrough.alias;
     if (!currentAlias || !state.walkthrough.active) return;
     const wasPaused = options?.keepPaused ?? state.walkthrough.status === "paused";
@@ -537,12 +618,24 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     audio.stop();
     audio.setPaused(true);
 
-    if (clamped < currentTick || state.walkthrough.status === "completed") {
-      void startWalkthrough(currentAlias, {
-        speed: state.walkthrough.speed,
-        initialTick: clamped,
-        keepPaused: wasPaused,
-      });
+    if (
+      clamped < currentTick ||
+      state.walkthrough.status === "completed" ||
+      // A dead batch (error/stop mid-seek) cannot retune — restart it.
+      (state.walkthrough.seeking && !batchActive)
+    ) {
+      // The worker's checkpoint snapshots cover the position — a restore
+      // plus the tape suffix. Without a live replay (never booted, or the
+      // driver hook absent) fall back to a cold restart.
+      if (replayDriver.restore && activeArtifact && replayDriver.latest) {
+        void seekRestart(clamped, wasPaused);
+      } else {
+        void startWalkthrough(currentAlias, {
+          speed: state.walkthrough.speed,
+          initialTick: clamped,
+          keepPaused: wasPaused,
+        });
+      }
     }
   }
 

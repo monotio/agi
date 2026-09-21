@@ -38,6 +38,7 @@ import {
   createWorkerContext,
   resetSession,
   type Inbound,
+  type ReplaySnapshot,
   type WorkerContext,
   type WorkerPorts,
 } from "./context.ts";
@@ -66,6 +67,14 @@ interface ReplayAdvanceOptions {
   renderFinal: boolean;
   fullState: boolean;
 }
+
+/**
+ * Checkpoint snapshots a live replay holds for backward seeks. Past the cap
+ * the set halves its density rather than evicting the early tape outright —
+ * walkthroughs carry at most ~60 checkpoints, so this only binds on a
+ * pathological artifact.
+ */
+const REPLAY_SNAPSHOT_LIMIT = 128;
 
 export function createReplay(ctx: WorkerContext) {
   function postReplay(blocked: string | null, fullState = false): void {
@@ -162,10 +171,115 @@ export function createReplay(ctx: WorkerContext) {
     });
   }
 
+  /**
+   * Store the current replay position as a seek target. Only resumable
+   * boundaries snapshot — a live host request owns the answer and a text
+   * screen owns the surface — so a refused image just skips this point.
+   */
+  function onReplaySnapshot(msg: Inbound<"replaySnapshot">): void {
+    const replay = ctx.replay.replay;
+    const engine = ctx.engine;
+    if (!replay || !engine || ctx.replay.historyReplay) return;
+    if (
+      typeof msg.sessionId === "number" &&
+      msg.sessionId !== 0 &&
+      msg.sessionId !== ctx.replay.currentSessionId
+    )
+      return;
+    // A prompt-parked boundary is not replayable: the continuation would
+    // restore the parked interaction, but the host-request pairing that a
+    // tape `answer` resolves against lives outside the snapshot.
+    if (engine.awaitingHostAnswer || ctx.hostRequests.hostRequestOutstanding !== null) return;
+    const image = engine.recordingImage();
+    if (!image) return;
+    const snapshots = ctx.replay.snapshots;
+    snapshots.set(replay.tick, {
+      tick: replay.tick,
+      cycle: ctx.cycle.cycleCount,
+      image,
+      replay: engine.captureReplayState(),
+      rng: replay.random,
+      keyQueue: [...ctx.input.keyQueue],
+      deferredMovement: [...ctx.input.deferredMovement],
+      inputBuffer: [...ctx.input.inputBuffer],
+      requestSerial: ctx.hostRequests.hostRequestSerial,
+      clock: ctx.cycle.pendingClock ?? ctx.clocks.cycle.snapshot(),
+      soundRemainder: ctx.clocks.sound.snapshot(),
+    });
+    if (snapshots.size <= REPLAY_SNAPSHOT_LIMIT) return;
+    const ticks = [...snapshots.keys()].sort((a, b) => a - b);
+    for (let i = 1; i < ticks.length; i += 2) snapshots.delete(ticks[i]!);
+  }
+
+  /**
+   * Rebuild the replay session at the nearest snapshot at or before the
+   * requested tick — a fresh boot when none covers it. The runner follows
+   * with the tape suffix, so only the gap replays. The restored position's
+   * observation answers the request.
+   */
+  function onReplayRestore(msg: Inbound<"replayRestore">): void {
+    if (!ctx.boot.currentBootFiles || !ctx.boot.currentDictionary) return;
+    if (!ctx.replay.replay || ctx.replay.historyReplay || ctx.view.recording !== null) return;
+    if (typeof msg.sessionId === "number") ctx.replay.currentSessionId = msg.sessionId;
+    ctx.replay.isSeeking = true;
+    // Supersede any advance still self-scheduling; the reply posts on this id.
+    ctx.replay.replayRequest = Number(msg.id);
+
+    let snap: ReplaySnapshot | null = null;
+    for (const candidate of ctx.replay.snapshots.values()) {
+      if (candidate.tick <= msg.tick && (snap === null || candidate.tick > snap.tick))
+        snap = candidate;
+    }
+
+    if (ctx.engine) ctx.engine.stopSoundPlayback();
+    // The live segment ends here, exactly as a reset's does.
+    ctx.fns.historyEnd("walkthrough");
+    ctx.fns.abandonHostRequest();
+    ctx.fns.setKeyWaiting(false);
+
+    const tick = snap?.tick ?? 0;
+    ctx.replay.replay = {
+      tick,
+      revision: 0,
+      random: (snap?.rng ?? ctx.replay.lastReplaySeed ?? 0) & 0xffff,
+    };
+    ctx.replay.reseeds = [];
+    ctx.replay.reseedCursor = 0;
+    ctx.replay.historyReplay = false;
+    ctx.engine = new Engine(
+      openContainer(ctx.boot.currentBootFiles),
+      ctx.host,
+      ctx.boot.currentDictionary,
+    );
+    ctx.fns.armJournal();
+    ctx.engine.flags[9] = 1;
+    resetSession(ctx);
+    if (snap !== null) {
+      // The image carries the recorded presentation — re-stamping status and
+      // input rows would rewrite the text ages the snapshot holds.
+      ctx.engine.restoreImage(snap.image, { preservePresentation: true });
+      ctx.engine.restoreReplayState(snap.replay);
+      ctx.input.keyQueue = [...snap.keyQueue];
+      ctx.input.deferredMovement = [...snap.deferredMovement];
+      ctx.input.inputBuffer = [...snap.inputBuffer];
+      ctx.hostRequests.hostRequestSerial = snap.requestSerial;
+      // The replay tick axis is virtual time; both clocks re-base onto it.
+      const virtualNow = (tick * 1000) / 60;
+      ctx.clocks.cycle.restore(snap.clock, virtualNow);
+      ctx.clocks.sound.restore(virtualNow, snap.soundRemainder);
+      ctx.cycle.paused = snap.clock.paused;
+      ctx.cycle.tickCount = tick;
+      ctx.cycle.cycleCount = snap.cycle;
+      if (ctx.engine.awaitingKey) ctx.fns.setKeyWaiting(true);
+    }
+    postReplay(null);
+  }
+
   function onResetReplay(msg: Inbound<"resetReplay">): void {
     if (!ctx.boot.currentBootFiles || !ctx.boot.currentDictionary) return;
     if (typeof msg.sessionId === "number") ctx.replay.currentSessionId = msg.sessionId;
     ctx.replay.isSeeking = Boolean(msg.seeking);
+    ctx.replay.snapshots.clear();
     if (ctx.engine) ctx.engine.stopSoundPlayback();
     const seed =
       typeof msg.seed === "number"
@@ -208,6 +322,7 @@ export function createReplay(ctx: WorkerContext) {
     ctx.replay.historyReplay = false;
     ctx.replay.currentSessionId = 0;
     ctx.replay.isSeeking = false;
+    ctx.replay.snapshots.clear();
     ctx.fns.rebaselineJournal();
     ctx.cycle.paused = false;
     ctx.presentation.recentRing.reset();
@@ -223,7 +338,14 @@ export function createReplay(ctx: WorkerContext) {
     ctx.fns.postFrame();
   }
 
-  return { postReplay, onReplayAdvance, onResetReplay, onExitReplay };
+  return {
+    postReplay,
+    onReplayAdvance,
+    onReplaySnapshot,
+    onReplayRestore,
+    onResetReplay,
+    onExitReplay,
+  };
 }
 
 export type ReplayModule = ReturnType<typeof createReplay>;

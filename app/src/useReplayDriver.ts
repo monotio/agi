@@ -1,10 +1,12 @@
 import type { Frame } from "./gameTypes.ts";
 import type { ReplayDriver, ReplayObservation } from "./replay.ts";
 import { runReplayBatch } from "./replayRunner.ts";
-import type { WorkerQueryFn } from "./workerProtocol.ts";
+import type { WorkerInbound, WorkerQueryFn } from "./workerProtocol.ts";
 
 export interface ReplayDriverContext {
   readonly query: WorkerQueryFn;
+  /** Fire-and-forget post for driver traffic that carries no reply. */
+  readonly post?: (msg: WorkerInbound) => void;
   readonly sendKey: (code: number, sessionId?: number) => void;
   readonly sendDirection: (dir: number, sessionId?: number) => void;
   readonly submitPrompt: (text: string) => void;
@@ -87,6 +89,20 @@ export function createReplayDriver(ctx: ReplayDriverContext): ReplayDriver {
         ctx.observationListeners.add(listener);
       });
     },
+    snapshot: (sessionId) =>
+      ctx.post?.({
+        type: "replaySnapshot",
+        ...(sessionId !== undefined ? { sessionId } : {}),
+      }),
+    restore: (tick, sessionId) =>
+      ctx.query("replayRestore", {
+        tick,
+        ...(sessionId !== undefined
+          ? { sessionId }
+          : ctx.getActiveWalkthroughSession() > 0
+            ? { sessionId: ctx.getActiveWalkthroughSession() }
+            : {}),
+      }),
     playBatch: (actions, options) =>
       runReplayBatch(driver, actions, {
         sessionId: options?.sessionId ?? ctx.getActiveWalkthroughSession(),

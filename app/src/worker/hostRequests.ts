@@ -292,7 +292,9 @@ export function createHostRequests(ctx: WorkerContext) {
     ctx.fns.noteTransition();
     // The runner holds the blocked observation postReplay(op) sent when
     // the request fired; the resumed state is its unblocked follow-up.
-    if (ctx.replay.replay && !ctx.engine.awaitingHostAnswer) ctx.fns.postReplay(null, true);
+    // A seek needs only its revision and blocking flag, not the full state.
+    if (ctx.replay.replay && !ctx.engine.awaitingHostAnswer)
+      ctx.fns.postReplay(null, !ctx.replay.isSeeking);
   }
 
   function onReenter(msg: Inbound<"reenter">): void {

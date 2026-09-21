@@ -59,9 +59,9 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
       "the history-view controller: the always-on live/parked axis, seek, watch, marks, bookmarks, the branch-swap lifecycle and its transport source",
   },
   "app/src/useWalkthroughController.ts": {
-    lines: 703,
+    lines: 800,
     boundary:
-      "the walkthrough session: artifact load, replay runner, seek restarts and its transport source",
+      "the walkthrough session: artifact load, replay runner, snapshot-backed seek restarts and its transport source",
   },
   "src/picture/source.ts": {
     lines: 1085,
@@ -139,8 +139,9 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the GPU stage: layers, picking and presentation",
   },
   "app/src/worker/context.ts": {
-    lines: 671,
-    boundary: "the worker session state: ports, cycle, input, replay and history fields",
+    lines: 728,
+    boundary:
+      "the worker session state: ports, cycle, input, replay incl. checkpoint snapshots, and history fields",
   },
   "app/src/worker/history.ts": {
     lines: 683,
@@ -148,9 +149,9 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
       "the one recorder: always-on tape, stored game-test recording lifecycle, anchors and batches",
   },
   "app/src/worker/replay.ts": {
-    lines: 835,
+    lines: 956,
     boundary:
-      "the one replay drive: the live-session drive and the scratch tape drive on the shared tick",
+      "the one replay drive: the live-session drive with checkpoint snapshots and the scratch tape drive on the shared tick",
   },
   "app/src/App.vue": {
     lines: 608,
