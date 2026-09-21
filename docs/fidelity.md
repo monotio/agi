@@ -1330,6 +1330,47 @@ script had handed control back; Police Quest depends on the stop.
 
 Tests: [ego-motion-control.test.ts](../test/ego-motion-control.test.ts).
 
+### Original new.room sequence
+
+Static disassembly of the descrambled KQ3 2.936 image (`new.room` wrapper
+0x175c → core 0x1792); Gold Rush 3.002.149 is identical except it skips the
+VOL-handle close and, when ego's motion-type byte is 4, also clears it and
+zeroes v6 (0x1c62). The ordered effects: stop sound and set its done flag;
+free heap and recompute v8; drain the BIOS buffer and event queues; journal
+reset; an object loop writing `flags &= ~0x41; flags |= 0x10` and reloading
+the cadence scalars to 1 for every record; truncate the resource lists;
+direction coupling = 1, unblock, horizon = 36; v1 = v0, v0 = room, v4 = v5 = 0;
+v16 = ego view; load the room logic; reposition ego from v2 and clear it;
+set f5; clear the mapped controller array; redraw status and input line.
+
+Facts the engine now matches that it previously did not:
+
+- The object loop **selects** the updating partition (0x10) while clearing
+  drawn (0x01) and animated membership (0x40). A stopped-update actor
+  rejoins the updating partition across a room change.
+- The transition tail memsets the 50-byte mapped controller array (core
+  0x189d, the same routine the loop top calls before the input phase). The
+  handler then returns the zero continuation result, taking the main loop's
+  shared re-entry path (0x1c7): v9, v4, v5 and f2 clear and logic 0
+  re-invokes in the same pass without an input phase. Only v19 and f4 set
+  by the old room's last pass remain visible to the new room's first logic
+  pass; the next cycle's ordinary input phase clears them.
+- Ego's motion-type byte is untouched by the transition, so a
+  `move.obj`/`wander`/`follow.ego` in progress at a room boundary survives
+  as latent state — but it can never steer again: the object loop cleared
+  the animated-membership bit (0x40), only `animate.obj` sets it, and its
+  write path clears the motion type (0x52d). The byte ends either on the
+  new room's first `animate.obj(ego)` or on a direction event: the
+  direction-event case (0x3616, reached only from the type-2 entry in the
+  event jump table at 0x3648) writes v6, then forces ego's motion type to
+  0 while coupling is 1.
+
+Engine decision: v8 reports the ample-memory constant 255 (see "Free memory
+in v8"), so the new.room recompute writes the same value the cycle start
+already refreshes.
+
+Tests: [object-cadence.test.ts](../test/object-cadence.test.ts).
+
 ### Original message formatter
 
 Static disassembly of the unscrambled Gold Rush 3.002.149 executable. The

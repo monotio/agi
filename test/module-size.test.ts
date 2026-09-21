@@ -18,8 +18,9 @@ const ROOTS = ["src", "app/src"];
 
 const BASELINE: Record<string, { lines: number; boundary: string }> = {
   "src/runtime/engine.ts": {
-    // rc.15: deferred reposition placement, dispatch/condition bounds, input fidelity.
-    lines: 6199,
+    // rc.15: deferred reposition placement, dispatch/condition bounds, input
+    // fidelity and the new.room transition corrections.
+    lines: 6218,
     boundary:
       "the interpreter core: dispatch, original movement phases, modal timing and restore re-entry",
   },

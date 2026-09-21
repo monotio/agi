@@ -234,6 +234,118 @@ test("room transition clears loaded views, resets cadence/block and uses actual 
   assert.throws(() => engine.tick(), /draw requires a selected cel/);
 });
 
+test("room transition returns the stopped partition selection, like the original flag write", () => {
+  // The original new.room object loop writes flags &= ~0x41; flags |= 0x10:
+  // drawn and animated membership clear, but the updating partition is
+  // selected. Engine's earlierPartition is the inverse selection.
+  const engine = game(`
+    if (!isset(f200)) {
+      set(f200); load.view(1); animate.obj(o1); set.view(o1, 1);
+      position(o1, 50, 100); draw(o1); stop.update(o1); new.room(1);
+    }
+    return;
+  `);
+  engine.tick();
+  const o = engine.screenObjects[1]!;
+  assert.equal(o.active, false);
+  assert.equal(o.update, false);
+  assert.equal(o.earlierPartition, false, "new.room selects the updating partition");
+});
+
+test("room transition leaves ego's motion byte latent until re-animation", () => {
+  // The original's new.room object loop does not touch the motion-type byte,
+  // but it clears the animated membership bit and only animate.obj can set
+  // it again — and animate.obj clears the motion type on that path. The
+  // carried mode is therefore dead state: it never drives motion, and the
+  // new room's first animate.obj(ego) ends it (docs/fidelity.md, "Original
+  // new.room sequence").
+  const engine = game(`
+    if (!isset(f200)) {
+      set(f200); ${setup} ignore.horizon(o0); ignore.blocks(o0);
+      move.obj(o0, 26, 100, 1, f62); new.room(1);
+    }
+    if (isset(f63)) { animate.obj(o0); }
+    return;
+  `);
+  for (let i = 0; i < 4; i++) engine.tick();
+  const ego = engine.screenObjects[0]!;
+  assert.equal(ego.motionMode, 1, "the transition leaves the motion byte alone");
+  assert.equal(engine.flags[62], 0, "latent motion cannot complete");
+  engine.flags[63] = 1;
+  engine.tick();
+  assert.equal(ego.motionMode, 0, "the new room's animate.obj ends the carried mode");
+});
+
+test("a direction event ends ego's scripted motion under player control", () => {
+  // The original's direction-event case forces ego's motion type to normal
+  // while the player controls movement (0x3616, unconditional on the
+  // animated state), so a carried move.obj ends on the next direction
+  // input — not on the room boundary itself.
+  let polls = 0;
+  const engine = game(
+    `
+    if (!isset(f200)) {
+      set(f200); ${setup} ignore.horizon(o0); ignore.blocks(o0);
+      move.obj(o0, 100, 100, 1, f62); new.room(1);
+    }
+    return;
+  `,
+    "2.936",
+    { ...host, takeKeys: () => (polls++ === 3 ? [0x4b00] : []) },
+  );
+  engine.tick();
+  engine.tick();
+  const ego = engine.screenObjects[0]!;
+  assert.equal(ego.motionMode, 1, "the carried mode survives until input");
+  for (let i = 0; i < 4; i++) engine.tick();
+  assert.equal(ego.motionMode, 0, "the direction event restored normal motion");
+  assert.equal(engine.flags[62], 0, "the interrupted move never completes");
+});
+
+test("room transition flushes queued input and re-entry input state", () => {
+  // new.room's core clears the mapped controller array, then its zero
+  // continuation result takes the original's shared re-entry path: v9, v4,
+  // v5 and f2 clear before logic 0 re-invokes in the same pass. Only v19 and
+  // f4 set by the old room's last pass stay visible (docs/fidelity.md,
+  // "Original new.room sequence").
+  let polls = 0;
+  const engine = game(
+    `
+    if (!isset(f200)) { set(f200); set.key(120, 0, 3); return; }
+    if (!isset(f201)) {
+      set(f201); assignn(v19, 65); assignn(v4, 1); assignn(v5, 1);
+      assignn(v9, 3); set(f2); set(f4); new.room(1);
+    }
+    call(1);
+    return;
+  `,
+    "2.936",
+    { ...host, takeKeys: () => (polls++ === 0 ? [] : [120]) },
+  );
+  engine.patchResource(
+    "logic",
+    1,
+    assembleLogic(
+      `if (isset(f2)) { assignn(v101, 1); }
+       if (isset(f4)) { assignn(v102, 1); }
+       assignv(v103, v19);
+       if (controller(3)) { assignn(v104, 1); }
+       assignv(v105, v4); assignv(v106, v5); assignv(v107, v9);
+       return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  engine.tick();
+  engine.tick();
+  assert.equal(engine.vars[101], 0, "f2 clears on the re-entry path");
+  assert.equal(engine.vars[102], 1, "f4 survives the room boundary");
+  assert.equal(engine.vars[103], 65, "v19 survives the room boundary");
+  assert.equal(engine.vars[104], 0, "controller bits clear inside the transition core");
+  assert.equal(engine.vars[105], 0, "v4 clears on the re-entry path");
+  assert.equal(engine.vars[106], 0, "v5 clears on the re-entry path");
+  assert.equal(engine.vars[107], 0, "v9 clears on the re-entry path");
+});
+
 test("2.411 restart accepts confirmation even though f16 never bypasses it", () => {
   let waits = 0;
   const engine = game(

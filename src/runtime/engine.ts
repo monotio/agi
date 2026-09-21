@@ -2984,9 +2984,14 @@ export class Engine {
       }
       for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
       for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
-        if (event.type === 2)
+        if (event.type === 2) {
           this.vars[V_EGO_DIR] = this.vars[V_EGO_DIR] === event.value ? 0 : event.value;
-        else if (event.type === 3) this.controllers[event.value] = 1;
+          // The original's direction-event case forces ego's motion mode to
+          // normal while the player controls movement, so scripted motion
+          // carried across new.room ends on the next direction input
+          // (docs/fidelity.md, "Original new.room sequence").
+          if (this.directionCoupling !== 0) this.objects[0]!.motionMode = MOTION_NORMAL;
+        } else if (event.type === 3) this.controllers[event.value] = 1;
         else {
           const mapped = event.mapOnConsume ? this.keymap.get(event.value) : undefined;
           if (mapped !== undefined) this.controllers[mapped] = 1;
@@ -3057,11 +3062,18 @@ export class Engine {
       } catch (rc) {
         if (rc instanceof RoomChange) {
           this.finishRoomChange(rc.room);
+          // new.room's handler returns the zero continuation result, taking
+          // the original's shared re-entry path: v9, v4, v5 and f2 clear, then
+          // logic 0 re-invokes in the same pass — only v19 and f4 set by the
+          // old room's last pass stay visible (docs/fidelity.md,
+          // "Original new.room sequence").
+          this.vars[V_OBJ_HIT] = 0;
+          this.vars[V_OBJ_EDGE] = 0;
+          this.vars[V_WORDS] = 0;
+          this.flags[F_INPUT_READY] = 0;
           // agi-re "Top-level cycle order" refreshes remembered v3 only on reentry;
           // retain the pre-logic f9 comparison so sound changes still redraw at the tail.
           this.cycleStatusScore = this.vars[V_SCORE]!;
-          this.controllers.fill(0);
-          this.vars[V_KEY] = 0;
           continue; // next top-level pass begins with logic 0
         }
         if (rc instanceof ContinuationAbort) {
@@ -3598,10 +3610,11 @@ export class Engine {
     }
     this.vars[V_EDGE] = 0;
     this.flags[F_NEW_ROOM] = 1;
+    // The transition's tail clears the mapped controller array (core 0x189d);
+    // the re-entry path then clears v9, v4, v5 and f2 — only v19 and f4 set
+    // by the old room's last pass stay visible to the new room's first logic
+    // pass (docs/fidelity.md, "Original new.room sequence").
     this.controllers.fill(0);
-    this.vars[V_KEY] = 0;
-    this.flags[F_INPUT_READY] = 0;
-    this.flags[F_SAID_MATCHED] = 0;
     // Spec room switch: refresh normal status/input display state.
     if (!this.textMode) {
       this.text.clear();
@@ -5671,12 +5684,18 @@ export class Engine {
     this.sounds.clear();
     for (const num of this.logics.keys()) if (num !== 0) this.logics.delete(num);
     for (const num of this.scanStart.keys()) if (num !== 0) this.scanStart.delete(num);
+    // The original object loop writes flags &= ~0x41; flags |= 0x10: drawn and
+    // animated membership clear, but every record rejoins the updating
+    // partition (docs/fidelity.md: Original complete movement audit, C3).
     for (const o of this.objects) {
       o.stepSize = o.stepTime = o.stepCount = o.cycleTime = o.cycleCount = 1;
       o.newlyPositioned = false;
       o.cycleDelay = false;
+      o.earlierPartition = false;
     }
     this.unanimateAll();
+    // The original's input-flush step drains the BIOS buffer and event queues.
+    this.inputQueue.clear();
     this.loadLogic(room);
     throw new RoomChange(room);
   }

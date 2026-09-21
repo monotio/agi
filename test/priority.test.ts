@@ -44,9 +44,7 @@ function game(source: string, profile: ProfileId = "2.936"): Engine {
 function sample(rows: readonly number[]): string {
   return `if (!isset(f210) || isset(f5)) { set(f210); load.view(1); animate.obj(o0); set.view(o0, 1); position(o0, 80, 80); draw(o0); ignore.horizon(o0); }
 ${rows
-  .map(
-    (y, i) => `  position(o0, 80, ${y}); erase(o0); draw(o0); get.priority(o0, v${60 + i});`,
-  )
+  .map((y, i) => `  position(o0, 80, ${y}); erase(o0); draw(o0); get.priority(o0, v${60 + i});`)
   .join("\n")}`;
 }
 
