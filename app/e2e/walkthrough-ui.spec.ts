@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { getKnownGameByAlias } from "../../src/games/knownGames.ts";
-import { isolateStorage, openCardMenu } from "./engineProbe.ts";
+import { clickTimelineMark, isolateStorage, openCardMenu } from "./engineProbe.ts";
 
 const missing = fixtureSkip(KNOWN_GAME_HASH.KQ1, ["AGIDATA.OVL"]);
 
@@ -212,7 +212,7 @@ test.describe("Walkthrough UI", () => {
     // Test seeking via timeline marker click
     const marker3 = page.getByTestId("walkthrough-marker-3");
     await expect(marker3).toBeVisible();
-    await marker3.click();
+    await clickTimelineMark(page, marker3);
     // Verify seek jumps forward
     await expect
       .poll(
@@ -228,7 +228,7 @@ test.describe("Walkthrough UI", () => {
     const marker1Early = page.getByTestId("walkthrough-marker-1");
     await expect(marker1Early).toBeVisible();
     const tickBeforeRewind = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
-    await marker1Early.click({ force: true });
+    await clickTimelineMark(page, marker1Early);
     await expect
       .poll(
         async () => {
@@ -523,7 +523,9 @@ test.describe("Walkthrough UI", () => {
 
     const box = await timeline.boundingBox();
     const bellevue = await checkpointPercent(page, "Bellevue Hospital");
-    const at = (pct: number) => box!.x + (box!.width * pct) / 100;
+    // Clamp inside the lane: percent offsets can leave the timeline (Bellevue
+    // sits at ~7%), and a pointerdown off it never starts a scrub.
+    const at = (pct: number) => box!.x + (box!.width * Math.min(99, Math.max(0.5, pct))) / 100;
     const midY = box!.y + box!.height * 0.5;
     // Rapid scrubbing back and forth across multiple checkpoints, landing
     // just before Bellevue Hospital so playback crosses it.
@@ -555,7 +557,7 @@ test.describe("Walkthrough UI", () => {
 
     const cpMarker = page.getByTestId("walkthrough-marker-1");
     await expect(cpMarker).toBeVisible({ timeout: 10_000 });
-    await cpMarker.click();
+    await clickTimelineMark(page, cpMarker);
 
     // Verify seeking past prompt (Action 43 "ROGER") reaches room 1 without prompt-hint timeout
     await engineRoomIs(page, 1, 15_000);
@@ -577,7 +579,10 @@ test.describe("Walkthrough UI", () => {
       { label: "The wizard’s secrets", room: 2, score: 23 },
       { label: "Gwydion is free of Manannan", room: 8, score: 169 },
     ]) {
-      await page.locator(`.walkthrough-marker[title*="${milestone.label}"]`).click();
+      await clickTimelineMark(
+        page,
+        page.locator(`.walkthrough-marker[title*="${milestone.label}"]`),
+      );
       await engineRoomIs(page, milestone.room);
       await expect
         .poll(() => page.evaluate(() => window.__AGI_REPLAY__?.latest?.state.vars[3]))
@@ -605,7 +610,7 @@ test.describe("Walkthrough UI", () => {
 
     const cpMarker = page.locator('.walkthrough-marker[title*="Trinity Church"]');
     await expect(cpMarker).toBeVisible({ timeout: 10_000 });
-    await cpMarker.click();
+    await clickTimelineMark(page, cpMarker);
 
     // Verify seeking past MAD terminal answers (actions 166 and 170) reaches room 111 cleanly
     await engineRoomIs(page, 111);
@@ -678,7 +683,7 @@ test.describe("Walkthrough UI", () => {
     // Bellevue hotspot and the replay stays in room 114.
     const kewpie = page.locator('.walkthrough-marker[title*="Kewpie"]');
     await expect(kewpie).toBeVisible({ timeout: 10_000 });
-    await kewpie.click();
+    await clickTimelineMark(page, kewpie);
     await roomIs(129);
     // holdToMove mirrors the engine's release gate through frame messages —
     // wait until a posted frame actually reports the cleared gate.
@@ -692,7 +697,7 @@ test.describe("Walkthrough UI", () => {
     // hold-to-move presses and releases all replay inside the fast-forward,
     // under the stale mirror. The checkpoint then verifies in the seek.
     const bellevue = page.locator('.walkthrough-marker[title*="Bellevue"]');
-    await bellevue.click();
+    await clickTimelineMark(page, bellevue);
     await roomIs(130);
   });
 
