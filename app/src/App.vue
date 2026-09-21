@@ -168,14 +168,47 @@ function watchHashTarget(): { alias: string; tick: number } | null {
   }
 }
 
-/** While a walkthrough runs the URL names it, so a reload re-enters playback. */
-function markWatchHash(alias: string, tick = 0): void {
+/**
+ * While a walkthrough runs the URL names it, so a reload re-enters playback.
+ * The runner reports progress per tape action and the watcher below forwards
+ * each one; at high speed that is one history navigation apiece, which trips
+ * the browser's IPC flooding protection (crbug.com/1038223). The URL tick is
+ * resume precision only — pagehide stamps the exact position — so in-flight
+ * writes are throttled and the trailing write reads live state.
+ */
+const WATCH_HASH_INTERVAL_MS = 1_000;
+let watchHashLastWrite = -WATCH_HASH_INTERVAL_MS;
+let watchHashTimer: number | null = null;
+
+function writeWatchHash(alias: string, tick: number): void {
+  watchHashLastWrite = performance.now();
   const target = `${WATCH_HASH_PREFIX}${encodeURIComponent(alias)}${tick > 0 ? `/${tick}` : ""}`;
   if (location.hash !== target) history.replaceState(null, "", target);
 }
 
+function cancelWatchHash(): void {
+  if (watchHashTimer !== null) {
+    clearTimeout(watchHashTimer);
+    watchHashTimer = null;
+  }
+}
+
+/** The armed write or a teardown stamp: the live tick, never a queued one. */
+function flushWatchHash(): void {
+  cancelWatchHash();
+  if (state.walkthrough.active && state.walkthrough.alias)
+    writeWatchHash(state.walkthrough.alias, state.walkthrough.tick);
+}
+
+function updateWatchHash(): void {
+  const remaining = WATCH_HASH_INTERVAL_MS - (performance.now() - watchHashLastWrite);
+  if (remaining <= 0) flushWatchHash();
+  else if (watchHashTimer === null) watchHashTimer = window.setTimeout(flushWatchHash, remaining);
+}
+
 /** Back at the picker the URL must not name a game any more. */
 function clearPlayHash(): void {
+  cancelWatchHash();
   if (location.hash.startsWith(PLAY_HASH_PREFIX) || location.hash.startsWith(WATCH_HASH_PREFIX))
     history.replaceState(null, "", `${location.pathname}${location.search}`);
 }
@@ -386,15 +419,13 @@ function resizeViewport(): void {
 function onPageHidden(): void {
   if (document.visibilityState === "hidden") {
     releaseMovement();
-    if (state.walkthrough.active && state.walkthrough.alias)
-      markWatchHash(state.walkthrough.alias, state.walkthrough.tick);
+    flushWatchHash();
     void flushAutosave();
   }
 }
 
 function onPageHide(): void {
-  if (state.walkthrough.active && state.walkthrough.alias)
-    markWatchHash(state.walkthrough.alias, state.walkthrough.tick);
+  flushWatchHash();
   void flushAutosave();
 }
 
@@ -492,6 +523,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   lib.unmountCatalog();
+  cancelWatchHash();
   releaseMovement();
   window.removeEventListener("blur", releaseMovement);
   window.visualViewport?.removeEventListener("resize", resizeViewport);
@@ -518,8 +550,8 @@ watch(
   ([phase, paused, watching]) => {
     if (phase === "running") {
       if (!paused) {
-        if (watching && state.walkthrough.alias) {
-          markWatchHash(state.walkthrough.alias, state.walkthrough.tick);
+        if (watching) {
+          updateWatchHash();
         } else {
           const game = currentGame();
           const playIdentifier = game?.installed
