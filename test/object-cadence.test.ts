@@ -327,6 +327,18 @@ test("stationary reads the committed pair, so a repositioned wanderer counts as 
   assert.equal(calls, 1, "the mover still counts as moved, so wander must not reroll yet");
 });
 
+test("draw clears a pending completion-animation delay", () => {
+  // docs/fidelity.md flag table: the originals' draw clears the 0x1000
+  // delay bit set by end.of.loop/reverse.loop, so an erased and redrawn
+  // object starts its completion animation without the extra cycle.
+  const engine = game(`if (!isset(f200)) { set(f200); ${setup}
+    animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 40, 100); draw(o1);
+    end.of.loop(o1, f60); erase(o1); draw(o1);
+  } return;`);
+  engine.tick();
+  assert.equal(engine.screenObjects[1]!.cycleDelay, false);
+});
+
 test("follow completion uses strict per-axis bands rather than Manhattan distance", () => {
   const engine = game(`if (!isset(f200)) { set(f200); ${setup}
     animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 18, 98); draw(o1); stop.cycling(o1); follow.ego(o1, 3, f60);

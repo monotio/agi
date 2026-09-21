@@ -4769,6 +4769,9 @@ export class Engine {
         o.prevY = o.y;
         o.active = true;
         o.earlierPartition = false;
+        // draw clears the pending end.of.loop/reverse.loop delay bit
+        // (docs/fidelity.md flag table: "draw clears").
+        o.cycleDelay = false;
         // The cel now covers whatever text lies under it (hideTextUnderSprites);
         // text written from here on lies on top of it.
         this.stampDraw(o);
