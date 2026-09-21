@@ -20,7 +20,7 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
   "src/runtime/engine.ts": {
     // rc.15: deferred reposition placement, dispatch/condition bounds, input
     // fidelity and the new.room transition corrections.
-    lines: 6218,
+    lines: 6219,
     boundary:
       "the interpreter core: dispatch, original movement phases, modal timing and restore re-entry",
   },

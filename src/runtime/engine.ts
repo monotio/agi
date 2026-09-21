@@ -166,7 +166,7 @@ export interface EngineHost {
    * player cancelled or no save exists.
    */
   restoreGame?(slot?: number): Uint8Array | null;
-  /** log / obj.status.v / show.mem: diagnostic text sink (LOGFILE semantics). */
+  /** log / show.mem: diagnostic text sink (LOGFILE semantics). */
   logText?(text: string): void;
   /** version: interpreter name/version, stored into string slot 0. */
   versionString?(): string;
@@ -5174,12 +5174,13 @@ export class Engine {
         return next;
       }
       case 0x85: {
-        // obj.status.v: modal diagnostic of the variable-selected object.
+        // obj.status.v formats the record fields through the original's
+        // shared message box — a modal that suspends the pass until a key
+        // acknowledges it (docs/fidelity.md, "Original obj.status.v modal").
         const num = this.vars[a(0)]!;
         const o = this.objects[num]!;
-        this.host.logText?.call(
-          this.host,
-          `obj ${num}: x=${o.x} y=${o.y} w=${o.width} h=${o.height} pri=${o.priority} step=${o.stepSize}`,
+        this.emitPrint(
+          `Object ${num}:\nx: ${o.x}  xsize: ${o.width}\ny: ${o.y}  ysize: ${o.height}\npri: ${o.priority}\nstepsize: ${o.stepSize}`,
         );
         return next;
       }

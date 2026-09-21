@@ -4,6 +4,7 @@ import { createContainer, openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { MESSAGE_KEY } from "../src/logic/resource.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
+import { AGI_KEY } from "../src/runtime/keys.ts";
 import { SCREEN_WIDTH } from "../src/types.ts";
 
 const DICT = new Map([
@@ -471,17 +472,24 @@ test("log, obj.status.v, show.mem and pause route to the host", () => {
   );
   const host = new TestHost();
   const engine = new Engine(container, host, DICT);
-  host.engine = engine;
   engine.tick();
 
   assert.deepEqual(host.logs[0], "note", "log expands and routes the message");
-  assert.match(host.logs[1]!, /^obj 3: x=\d+ y=\d+ w=\d+ h=\d+ pri=\d+ step=\d+$/);
+  // obj.status.v opens the original's message box: the pass suspends until a
+  // key acknowledges it (docs/fidelity.md, "Original obj.status.v modal").
+  assert.equal(engine.modalKind, "print");
+  assert.deepEqual(
+    host.prints[0],
+    "Object 3:\nx: 0  xsize: 0\ny: 0  ysize: 0\npri: 0\nstepsize: 0",
+  );
+  engine.modalKey(AGI_KEY.ENTER);
+  engine.tick();
   assert.match(
-    host.logs[2]!,
+    host.logs[1]!,
     /^heap size: \d+\ncurrent\/max use: \d+\/\d+\nmaximum script use: \d+\nrm\.0, etc\.: \d+$/,
   );
   assert.deepEqual(
-    host.prints,
+    host.prints.slice(1),
     ["Game paused. Press ENTER to continue."],
     "pause shows the fixed message",
   );

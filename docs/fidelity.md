@@ -1465,6 +1465,25 @@ engine applies the formatting to every profile by inference.
 
 Tests: [opcodes.test.ts](../test/opcodes.test.ts).
 
+### Original obj.status.v modal
+
+Static disassembly of the descrambled KQ3 2.936 image. The handler at 0x72b5
+resolves the operand variable, indexes the object table, and sprintf-formats
+seven values — the object number and record fields x (+0x3), width (+0x1a),
+y (+0x5), height (+0x1c), priority (+0x24), step size (+0x1e) — through the
+format string at DS:0x1713 (`Object %d:\nx: %d  xsize: %d\ny: %d  ysize:
+%d\npri: %d\nstepsize: %d`, recovered from AGIDATA.OVL file offset 0x1713,
+SHA-256 `b145061a2385d65060d944ad3a2e39a421037d11970f0dcddff4049909c04bf9`).
+It then calls the shared message box at 0x1ce8 — the same routine print uses,
+with its f15 non-blocking path and v21-timed wait — and returns the following
+stream pointer, so the pass suspends inside the call until a key or the
+timeout closes the window. Fact: `obj.status.v` is a real modal diagnostic,
+not a log. In the shipped games it sits only in debug-gated logic (KQ3 logic
+99 behind controller 21/36 and debug `said` phrases), unreachable in normal
+play.
+
+Tests: [opcodes.test.ts](../test/opcodes.test.ts).
+
 ### Original position handlers
 
 Static disassembly of the KQ4 3.002.086 executable
