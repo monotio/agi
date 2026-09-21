@@ -18,8 +18,8 @@ const ROOTS = ["src", "app/src"];
 
 const BASELINE: Record<string, { lines: number; boundary: string }> = {
   "src/runtime/engine.ts": {
-    // rc.14: add.to.pic control box, string bank, one-pass formatter, clock-wait flow.
-    lines: 6135,
+    // rc.15: deferred reposition placement, dispatch/condition bounds, input fidelity.
+    lines: 6199,
     boundary:
       "the interpreter core: dispatch, original movement phases, modal timing and restore re-entry",
   },

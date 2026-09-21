@@ -1167,19 +1167,19 @@ describe("the block-2 object record carries the shared parameter bank", () => {
            assignn(v50, 1); load.pic(v50); draw.pic(v50); show.pic();
            load.view(3);
            animate.obj(o1); set.view(o1, 3); ignore.objs(o1);
-           position(o1, 10, 80); draw(o1);
+           position(o1, 10, 80); draw(o1); step.size(o1, v50); step.time(o1, v50);
            move.obj(o1, 30, 40, 0, f62);
            follow.ego(o1, 5, f63);
            animate.obj(o2); set.view(o2, 3); ignore.objs(o2);
-           position(o2, 60, 80); draw(o2);
+           position(o2, 60, 80); draw(o2); step.size(o2, v50); step.time(o2, v50);
            move.obj(o2, 90, 80, 2, f64);
            end.of.loop(o2, f65);
            animate.obj(o3); set.view(o3, 3); ignore.objs(o3);
-           position(o3, 40, 120); draw(o3);
+           position(o3, 40, 120); draw(o3); step.size(o3, v50); step.time(o3, v50);
            end.of.loop(o3, f66);
            move.obj(o3, 90, 80, 2, f67);
            animate.obj(o4); set.view(o4, 3); ignore.objs(o4);
-           position(o4, 20, 120); draw(o4);
+           position(o4, 20, 120); draw(o4); step.size(o4, v50); step.time(o4, v50);
            move.obj(o4, 90, 80, 0, f68);
            wander(o4);
          }

@@ -54,7 +54,7 @@ test("room changes restore player control after a scripted stop", () => {
 
 test("alternate text mode skips post-logic movement and animation until graphics resumes", () => {
   const e = game(
-    "if(!isset(f200)){set(f200);load.view(0);animate.obj(o0);set.view(o0,0);position(o0,80,120);draw(o0);assignn(v6,3);text.screen();}return;",
+    "if(!isset(f200)){set(f200);load.view(0);animate.obj(o0);set.view(o0,0);position(o0,80,120);draw(o0);assignn(v60,1);step.size(o0,v60);cycle.time(o0,v60);assignn(v6,3);text.screen();}return;",
   );
   e.tick();
   const o = e.screenObjects[0]!;

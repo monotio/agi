@@ -15,7 +15,10 @@ const host: EngineHost = {
   takeInputLine: () => null,
   takeKeys: () => [],
 };
-const setup = `load.view(1); animate.obj(o0); set.view(o0, 1); position(o0, 20, 100); draw(o0); stop.cycling(o0); ignore.objs(o0);`;
+// Fresh records are zeroed, so the shared preamble sets a one-cell cadence the
+// way a real room script does before animating an actor.
+const setup = `load.view(1); animate.obj(o0); set.view(o0, 1); position(o0, 20, 100); draw(o0); stop.cycling(o0); ignore.objs(o0); assignn(v60, 1); step.size(o0, v60); step.time(o0, v60); cycle.time(o0, v60);`;
+const setupZeroed = `load.view(1); animate.obj(o0); set.view(o0, 1); position(o0, 20, 100); draw(o0); stop.cycling(o0); ignore.objs(o0);`;
 
 function game(source: string, profile: ProfileId = "2.936", engineHost: EngineHost = host): Engine {
   const container = createContainer();
@@ -274,6 +277,27 @@ test("immediate quit notifies the host once and stops execution", () => {
   assert.equal(engine.vars[100], 0);
 });
 
+test("a drawn object without step.size or step.time keeps the zeroed record's cadence", () => {
+  // Cold-boot object records are zeroed 43-byte slots; animate.obj writes only
+  // the flags word (0x70) and three bytes, so a game that never calls
+  // set.step/step.time leaves stepSize = stepTime = stepCount = 0. The
+  // countdown-zero record is due every pass but moves zero cells, and the
+  // countdown-equals-1 pre-logic gate never runs its direction update.
+  // docs/fidelity.md: Startup and reconstruction; Original complete movement
+  // and follow audit.
+  const engine = game(`if (!isset(f200)) { set(f200); ${setupZeroed} wander(o0); } return;`);
+  const ego = engine.screenObjects[0]!;
+  assert.deepEqual(
+    [ego.stepSize, ego.stepTime, ego.stepCount, ego.cycleTime, ego.cycleCount],
+    [0, 0, 0, 0, 0],
+    "fresh records carry the zeroed cadence fields",
+  );
+  for (let i = 0; i < 4; i++) engine.tick();
+  assert.deepEqual([ego.x, ego.y], [20, 100], "the zero-step object never leaves its cell");
+  assert.equal(ego.direction, 0, "no direction update without a countdown of 1");
+  assert.equal(engine.movementUpdateCount, 0);
+});
+
 test("wander's first update draws only a direction; the wrapped count counts down", () => {
   // Binary contract (docs/fidelity.md, wander countdown): a zero old count
   // wraps to 255 and is kept — the below-six reroll is a `while`, not a
@@ -303,7 +327,8 @@ test("stationary reads the committed pair, so a repositioned wanderer counts as 
   const engine = game(
     `if (!isset(f200)) { set(f200); ${setup}
       animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 10, 100);
-      draw(o1); stop.cycling(o1); wander(o1);
+      draw(o1); stop.cycling(o1); assignn(v60, 1); step.size(o1, v60); step.time(o1, v60);
+      wander(o1);
     } return;`,
     "2.936",
     {
@@ -341,7 +366,8 @@ test("draw clears a pending completion-animation delay", () => {
 
 test("follow completion uses strict per-axis bands rather than Manhattan distance", () => {
   const engine = game(`if (!isset(f200)) { set(f200); ${setup}
-    animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 18, 98); draw(o1); stop.cycling(o1); follow.ego(o1, 3, f60);
+    animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 18, 98); draw(o1); stop.cycling(o1);
+    assignn(v60, 1); step.size(o1, v60); step.time(o1, v60); follow.ego(o1, 3, f60);
   } return;`);
   engine.tick();
   engine.tick();
@@ -354,7 +380,8 @@ test("a stationary follower retries with a nonzero direction and restore resets 
   let calls = 0;
   const engine = game(
     `if (!isset(f200)) { set(f200); ${setup}
-    animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 10, 100); draw(o1); stop.cycling(o1); follow.ego(o1, 1, f60);
+    animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 10, 100); draw(o1); stop.cycling(o1);
+    assignn(v60, 1); step.size(o1, v60); step.time(o1, v60); follow.ego(o1, 1, f60);
   } return;`,
     "2.936",
     {
@@ -630,7 +657,7 @@ test("loop and view selection keep an index the new loop or view has, else fall 
   });
   engine = game(
     `load.view(3); animate.obj(o0); set.view(o0, 3); position(o0, 20, 100); draw(o0);
-     stop.cycling(o0); ignore.blocks(o0); set.cel(o0, 2); assignn(v6, 7); return;`,
+     stop.cycling(o0); ignore.blocks(o0); set.cel(o0, 2); assignn(v60, 1); step.time(o0, v60); assignn(v6, 7); return;`,
   );
   engine.patchResource("view", 3, twoCels);
   engine.tick();
@@ -749,7 +776,7 @@ test("graphics drawn after text cover, hide or drop the cells under their pixels
   assert.deepEqual(chars(engine, 12).slice(5, 7), [0, 0x42], "an updating sprite repaints it");
   engine = game(
     `configure.screen(0, 23, 24); load.view(1);
-     if (isset(f5)) { display(12, 6, "XY"); animate.obj(o0); set.view(o0, 1); position(o0, 20, 100); ignore.blocks(o0); draw(o0); }
+     if (isset(f5)) { display(12, 6, "XY"); animate.obj(o0); set.view(o0, 1); position(o0, 20, 100); ignore.blocks(o0); draw(o0); assignn(v60, 1); step.size(o0, v60); }
      if (equaln(v50, 0)) { assignn(v50, 1); assignn(v6, 3); }
      return;`,
   );
@@ -979,7 +1006,7 @@ for (const [request, expected] of [
     // stop.update first — follow.ego itself selects the updating partition.
     const engine = game(`if (!isset(f200)) { set(f200); ${setup}
       animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 20, 100); draw(o1);
-      assignn(v60, 4); step.size(o1, v60); position(o0, 23, 100);
+      assignn(v60, 4); step.size(o1, v60); assignn(v61, 1); step.time(o1, v61); position(o0, 23, 100);
       stop.update(o1); follow.ego(o1, ${request}, f60);
     } return;`);
     engine.tick();
@@ -998,7 +1025,7 @@ for (const [request, expected] of [
 test("move.obj and move.obj.v select the updating partition", () => {
   const engine = game(`if (!isset(f200)) { set(f200);
     load.view(1); animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 10, 100); draw(o1);
-    stop.update(o1); move.obj(o1, 30, 100, 2, f62);
+    assignn(v60, 1); step.time(o1, v60); stop.update(o1); move.obj(o1, 30, 100, 2, f62);
   } return;`);
   engine.tick();
   assert.equal(engine.screenObjects[1]!.earlierPartition, false);
@@ -1008,7 +1035,7 @@ test("move.obj and move.obj.v select the updating partition", () => {
 
   const indirect = game(`if (!isset(f200)) { set(f200);
     load.view(1); animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 10, 100); draw(o1);
-    assignn(v60, 30); assignn(v61, 100); assignn(v62, 2);
+    assignn(v60, 30); assignn(v61, 100); assignn(v62, 2); assignn(v63, 1); step.time(o1, v63);
     stop.update(o1); move.obj.v(o1, v60, v61, v62, f62);
   } return;`);
   indirect.tick();
@@ -1018,7 +1045,7 @@ test("move.obj and move.obj.v select the updating partition", () => {
 });
 
 const bankActor = `load.view(1); animate.obj(o1); set.view(o1, 1); ignore.objs(o1);
-  position(o1, 10, 80); draw(o1); assignn(v60, 4); step.size(o1, v60);`;
+  position(o1, 10, 80); draw(o1); assignn(v60, 4); step.size(o1, v60); assignn(v61, 1); step.time(o1, v61); cycle.time(o1, v61);`;
 
 test("move.obj then end.of.loop: the flag byte overwrites the destination", () => {
   const engine = game(`if (!isset(f200)) { set(f200); ${bankActor}

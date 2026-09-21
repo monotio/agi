@@ -1285,6 +1285,19 @@ These names and the engine's packed save bits are distinct from the original
 bit assignments. Original raw save-bit interoperability remains unclaimed,
 particularly for 0x8000 and combinations not established by execution.
 
+`animate.obj` writes only the flag word (0x70: update|cycling|animated, wiping
+the other tested bits) and zeroes record bytes 0x21..0x23; it touches no cadence
+or dimension scalar (KQ3 2.936 handler at 0x4d9, body 0x6f5; the same narrow
+write set in the SQ2/GR1 bodies above). Because the state initializer produces
+zeroed records, an animated-but-unconfigured object keeps step interval,
+countdown, step size, cycle interval/countdown, width and height all zero: a
+zero movement countdown is due every pass but step size 0 moves no pixels, a
+zero animation countdown never advances the cel, and the pre-logic direction
+pass (countdown == 1) never runs. Games get usable cadence from step.size,
+step.time and cycle.time, and `new.room` separately resets the cadence fields
+to 1. Engine decision: fresh records are zeroed rather than prefilled; synthetic
+tests configure cadence explicitly where they model ordinary script setup.
+
 Across the two builds the probe checks 204 controlled vectors: preserved I/O
 and restart cases, 56 reconstruction/return cases, 12 object lifecycle cases,
 24 stationary cases, eight startup cases, 76 opcode flag mutations and four

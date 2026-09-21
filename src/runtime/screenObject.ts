@@ -76,19 +76,24 @@ export function newScreenObject(): ScreenObject {
     drawnWidth: 0,
     drawnHeight: 0,
     prevY: 0,
-    width: 8,
-    height: 8,
-    stepSize: 1,
-    stepTime: 1,
-    stepCount: 1,
+    // Cold-boot records are zeroed 43-byte slots: animate.obj writes only the
+    // flags word (0x70) and bytes 0x21..0x23, so cadence scalars and cel
+    // dimensions stay zero until the game sets them. A zero movement countdown
+    // is due every pass (moving stepSize 0); a zero animation countdown is
+    // disabled. docs/fidelity.md: Startup and reconstruction.
+    width: 0,
+    height: 0,
+    stepSize: 0,
+    stepTime: 0,
+    stepCount: 0,
     direction: 0,
     paramBank: [0, 0, 0, 0],
     priority: 0,
     fixedPriority: false,
-    cycling: true,
+    cycling: false,
     cycleMode: CYCLE_FORWARD,
-    cycleTime: 1,
-    cycleCount: 1,
+    cycleTime: 0,
+    cycleCount: 0,
     motionMode: 0,
     observeHorizon: true,
     observeBlocks: true,
