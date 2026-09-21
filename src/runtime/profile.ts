@@ -326,6 +326,9 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   "2.001": {
     ...BASE_EARLY,
     id: "2.001",
+    // The booter dispatch is bounded at 0x90, below the later 2.089 bound.
+    // docs/fidelity.md: PC booter action 0x8f (max.drawn.objects).
+    maxAction: 0x90,
     inventoryHeaderBytes: 2,
     action0x8f: "max-drawn-objects",
     sound: "booter-2.001",
