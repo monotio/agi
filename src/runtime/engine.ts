@@ -4205,7 +4205,10 @@ export class Engine {
         continue;
       }
       if (b === OR) {
-        // OR group: terms until closing 0xfc; first true term satisfies it.
+        // OR group: terms until closing 0xfc; first true term satisfies it,
+        // and the original skips the remaining members' handlers entirely —
+        // their bytes are stepped over without side effects (a skipped said
+        // or have.key never runs).
         pc++;
         let satisfied = false;
         for (;;) {
@@ -4220,9 +4223,13 @@ export class Engine {
             neg = true;
             pc++;
           }
+          if (satisfied) {
+            pc = this.skipCondition(code, pc);
+            continue;
+          }
           const { result, next } = this.evalOneCondition(code, pc);
           pc = next;
-          if (!satisfied && result !== neg) satisfied = true;
+          if (result !== neg) satisfied = true;
         }
         if (!satisfied) return this.failList(code, pc);
         continue;

@@ -85,6 +85,30 @@ test("have.key discards mapped status events and retains unread raw events", () 
   assert.equal(engine.controllers[7], 0, "have.key discards status events");
 });
 
+test("a satisfied OR group skips the remaining members' handlers", () => {
+  // The original steps over a satisfied OR group's leftover conditions
+  // without executing them: a skipped have.key must not consume the pending
+  // key, which the following condition still sees. The key is delivered by
+  // the handler's own takeKeys call so it is never parked in v19.
+  class LateHost extends Host {
+    polls = 0;
+    override takeKeys(): number[] {
+      return ++this.polls === 2 ? [0x62] : [];
+    }
+  }
+  const engine = game(
+    `set(f60);
+    if (isset(f60) || have.key()) { set(f61); }
+    assignn(v19, 0);
+    if (have.key()) { assignv(v100, v19); }
+    return;`,
+    new LateHost(),
+  );
+  engine.tick();
+  assert.equal(engine.flags[61], 1);
+  assert.equal(engine.vars[100], 0x62, "the skipped have.key leaves the key for the next poll");
+});
+
 test("have.key succeeds for an unmapped extended key even though its low byte is zero", () => {
   class LateHost extends Host {
     polls = 0;
