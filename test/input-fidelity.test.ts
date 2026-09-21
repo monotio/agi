@@ -109,17 +109,25 @@ test("a satisfied OR group skips the remaining members' handlers", () => {
   assert.equal(engine.vars[100], 0x62, "the skipped have.key leaves the key for the next poll");
 });
 
-test("have.key succeeds for an unmapped extended key even though its low byte is zero", () => {
+test("have.key consumes an extended key but reports false and keeps v19 at zero", () => {
+  // The original handler writes v19's low byte only when nonzero; F-keys and
+  // navigation codes are consumed yet never satisfy have.key.
   class LateHost extends Host {
     polls = 0;
     override takeKeys(): number[] {
-      return ++this.polls === 2 ? [0x3b00] : [];
+      return ++this.polls === 2 ? [0x3b00, 0x62] : [];
     }
   }
-  const engine = game("if (have.key()) { assignn(v100,1); } return;", new LateHost());
+  const engine = game(
+    `if (have.key()) { assignn(v100, 1); }
+    assignn(v19, 0);
+    if (have.key()) { assignv(v101, v19); }
+    return;`,
+    new LateHost(),
+  );
   engine.tick();
-  assert.equal(engine.vars[100], 1);
-  assert.equal(engine.vars[19], 0);
+  assert.equal(engine.vars[100], 0, "the F-key does not satisfy have.key");
+  assert.equal(engine.vars[101], 0x62, "the following ASCII key is still polled");
 });
 
 test("a zero raw event makes have.key false without swallowing the following key", () => {

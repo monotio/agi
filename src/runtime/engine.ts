@@ -4414,7 +4414,14 @@ export class Engine {
             pressed = AGI_KEY.ENTER;
           }
         }
-        if (pressed !== undefined) this.vars[V_KEY] = pressed & 0xff;
+        // The original writes v19's low byte only when nonzero and reports
+        // false for extended (word) keycodes — F-keys and navigation codes
+        // are consumed but never satisfy have.key.
+        if (pressed !== undefined) {
+          const low = pressed & 0xff;
+          if (low !== 0) this.vars[V_KEY] = low;
+          else pressed = 0;
+        }
         return { result: pressed !== undefined && pressed !== 0, next: pc + 1 };
       }
       case 0x0e: {
