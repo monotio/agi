@@ -21,6 +21,16 @@ the app out of the box. Development discovery recognizes AGI v2 split directorie
 v3 combined directories; play them from the same **Your games** gallery as saved projects.
 Installed game folders are gitignored and excluded from production builds.
 
+Editions of the same game on different platforms (DOS, Amiga, IIgs) share the
+`WORDS.TOK` vocabulary hash but ship their own `OBJECT`. The game catalog
+fingerprints a release by the pair, so a bare hash or alias query resolves to
+the single catalogued edition — the release the tests and walkthroughs were
+verified against — while ports stay reachable by folder name and appear as
+separate gallery entries under their folder title, without the catalogued
+edition's profile. Two installations of the same edition, or several
+non-catalogued ports, still report an ambiguous query that asks for the
+fixture folder.
+
 ### Optional fixtures
 
 To enable a game's compatibility tests, supply the edition below in its fixture

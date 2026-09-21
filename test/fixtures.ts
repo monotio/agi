@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import {
   KNOWN_GAME_HASH,
+  detectKnownGameByHashes,
   getKnownGameByHash,
   getKnownGameByAlias,
   resolveGameHash,
@@ -105,7 +106,10 @@ export function scanFixtures(): {
         }
       }
 
-      const known = wordsSha256 ? getKnownGameByHash(wordsSha256) : null;
+      // The catalog fingerprints an edition by its WORDS.TOK + OBJECT pair; a
+      // port or fan edition sharing only the vocabulary is not the catalogued
+      // release and must not inherit its title or profile.
+      const known = wordsSha256 ? detectKnownGameByHashes(wordsSha256, objectSha256) : null;
       let title: string | undefined = known?.title;
       let author: string | undefined = known?.author;
 
@@ -166,13 +170,18 @@ export function scanFixtures(): {
 /**
  * A project export placed under `games/` (a `PROJECT.JSON` or `GAME.JSON`
  * beside the resources) is an authored copy, not an edition fixture. When a
- * hash matches one plain edition plus such exports, the edition is the fixture;
- * several plain editions or several exports stay ambiguous.
+ * hash matches one plain edition plus such exports, the edition is the fixture.
+ * Platform ports of the same game share the WORDS.TOK vocabulary hash but not
+ * the OBJECT fingerprint; the single catalogued edition wins a bare hash query
+ * so tests and walkthroughs keep running the verified release, and the ports
+ * stay reachable by folder name. Anything else ambiguous still asks.
  */
 function uniqueEdition(query: string, matches: readonly DiscoveredFixture[]): DiscoveredFixture {
   if (matches.length === 1) return matches[0]!;
   const editions = matches.filter((m) => !m.files.has("project.json") && !m.files.has("game.json"));
   if (editions.length === 1) return editions[0]!;
+  const cataloged = editions.filter((m) => m.known !== null);
+  if (cataloged.length === 1) return cataloged[0]!;
   throw new Error(
     `Ambiguous fixture query "${query}" matches multiple editions (${matches.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
   );
