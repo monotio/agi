@@ -3169,12 +3169,15 @@ export class Engine {
       if (!obj.active || !obj.update || obj.earlierPartition) continue;
       if (obj.stepCount === 0 || --obj.stepCount === 0) {
         obj.stepCount = obj.stepTime;
-        const previousX = obj.x;
-        const previousY = obj.y;
         if (obj === this.objects[0] && !obj.newlyPositioned && obj.stepSize > 0)
           this.egoMovementUpdates++;
         this.moveObject(obj, obj.newlyPositioned ? 0 : obj.stepSize);
-        obj.stationary = obj.x === previousX && obj.y === previousY;
+        // Stationary compares against the committed saved pair, not the
+        // pass-start position: reposition and cel clipping move x/y without
+        // touching the pair, so such an object reads "moved" even when this
+        // step lands back on its feet. docs/fidelity.md: Original
+        // previous-position commit.
+        obj.stationary = obj.x === obj.prevX && obj.y === obj.prevY;
         obj.newlyPositioned = false;
         due.push(obj);
       }

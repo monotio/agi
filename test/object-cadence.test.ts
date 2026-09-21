@@ -293,6 +293,40 @@ test("wander's first update draws only a direction; the wrapped count counts dow
   assert.equal(engine.screenObjects[0]!.direction, 0);
 });
 
+test("stationary reads the committed pair, so a repositioned wanderer counts as moved", () => {
+  // docs/fidelity.md "Original previous-position commit": the stationary bit
+  // compares post-move x/y with the record's saved pair, which reposition
+  // and cel clipping leave untouched. A wanderer nudged to the border
+  // mid-logic and then blocked reads "moved", so it rerolls its direction
+  // instead of just decrementing the count.
+  let calls = 0;
+  const engine = game(
+    `if (!isset(f200)) { set(f200); ${setup}
+      animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 10, 100);
+      draw(o1); stop.cycling(o1); wander(o1);
+    } return;`,
+    "2.936",
+    {
+      ...host,
+      randomByte: () => {
+        calls++;
+        return 7; // direction 7 (left); the wrapped count stays ≥6
+      },
+    },
+  );
+  const o1 = engine.screenObjects[1]!;
+  engine.tick(); // setup logic; direction still 0, no wander draw yet
+  engine.tick(); // updateMotion draws direction 7; the move commits the pair
+  engine.tick(); // second step left; pair = the new cell
+  assert.equal(calls, 1);
+  o1.x = 0; // mid-logic reposition moves x/y without touching the pair
+  engine.tick(); // the leftward step clamps at the border: post == start ≠ pair
+  assert.equal(o1.stationary, false);
+  engine.tick(); // updateMotion consults the stationary bit set last pass
+  assert.equal(o1.direction, 7);
+  assert.equal(calls, 1, "the mover still counts as moved, so wander must not reroll yet");
+});
+
 test("follow completion uses strict per-axis bands rather than Manhattan distance", () => {
   const engine = game(`if (!isset(f200)) { set(f200); ${setup}
     animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 18, 98); draw(o1); stop.cycling(o1); follow.ego(o1, 3, f60);
