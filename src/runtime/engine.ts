@@ -4830,16 +4830,16 @@ export class Engine {
       }
       case 0x28: {
         // reposition: signed 8-bit deltas from variables; negative underflow
-        // clamps to zero; the object is newly positioned and placement runs,
-        // which also refreshes f0/f3 for ego (spec, action 0x28). Like
-        // reposition.to, the previous-position snapshot is left alone.
+        // clamps to zero; the object is marked newly positioned and
+        // placement is deferred to its next due movement pass (spec, action
+        // 0x28). Like reposition.to, the previous-position snapshot is left
+        // alone.
         const o = obj(0);
         const dx = (this.vars[a(1)]! << 24) >> 24;
         const dy = (this.vars[a(2)]! << 24) >> 24;
         o.x = Math.max(0, o.x + dx);
         o.y = Math.max(0, o.y + dy);
         o.newlyPositioned = true;
-        this.placeObject(o);
         return next;
       }
       case 0x29:
@@ -5393,7 +5393,6 @@ export class Engine {
         o.x = a(1);
         o.y = a(2);
         o.newlyPositioned = true;
-        this.placeObject(o);
         return next;
       }
       case 0x94: {
@@ -5401,7 +5400,6 @@ export class Engine {
         o.x = this.vars[a(1)]!;
         o.y = this.vars[a(2)]!;
         o.newlyPositioned = true;
-        this.placeObject(o);
         return next;
       }
       case 0x99:
