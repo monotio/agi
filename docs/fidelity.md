@@ -1106,6 +1106,30 @@ python scripts/probe-interpreter-sound.py games/mh1/AGI
 python scripts/probe-interpreter-sound.py games/gr1/AGI
 ```
 
+#### Original stop-sound call sites
+
+Static KQ3 2.936 evidence (decoded hash above). The shared stop helper at
+0x5234 tests the playback word DS:0x1258 and, when nonzero, clears it, calls
+the flag setter with the stored done-flag index DS:0x126a and silences the
+driver through 0x80af — the same routine new.room calls first (0x1797). Its
+call sites establish where a playing sound's done flag is written:
+
+- `stop.sound` wrapper 0x5225 and the `sound` action 0x51d8 (before the new
+  flag index replaces DS:0x126a).
+- Pause 0x257 (after input drain, before the pause message box).
+- `quit.game` 0x27f: the stop runs before the operand is read, so both the
+  immediate form and a **declined** prompt complete the flag.
+- `restart.game` 0x2472: the stop runs before the f16 bypass test and the
+  confirmation box — a declined restart likewise completes the flag.
+- The shared save/restore selector 0x85e8 at 0x85fc, before the file-list UI:
+  opening the selector completes the flag.
+- The error path 0x3fe8 and the restore/reset path 0x681c.
+
+Engine: `selectSavedGame`, `restart.game` and pause already called `stopSound`
+at the matching points; `quit.game` now stops before the operand branch rather
+than only on the immediate/accepted paths. SQ2 2.936's restart intercept list
+(above) contains the same 0x5234 helper, consistent with the shared 2.936 core.
+
 ### Original save and restart audit
 
 [scripts/probe-interpreter-lifecycle.py](../scripts/probe-interpreter-lifecycle.py)
@@ -1500,12 +1524,10 @@ suppresses the first real step; under 3.002.086 that pass reports an exact
 zero left edge as border 4, so King's Quest IV's room 28, which positions ego
 at x=0 and starts the unicorn ride, bounced between rooms 27 and 28 for good.
 
-Adoption is partial: 3.002.086 follows the originals. Every other profile keeps
-the extra pass as a recorded deviation (`positionMarksNewlyPositioned`),
-because the shipped walkthroughs of eight games were verified against it and
-diverge one step after every scripted `position` without it. Closing that
-deviation means re-verifying those routes on the faithful behavior; it is the
-first open fidelity item.
+The engine follows the originals in every profile: `position` and `position.v`
+no longer schedule the placement pass, so the first real step is never
+suppressed. Walkthrough tapes recorded against the deviation were re-verified
+against the faithful behavior (see the rc.15 audit's A2 entry).
 
 Tests: [original-movement.test.ts](../test/original-movement.test.ts).
 

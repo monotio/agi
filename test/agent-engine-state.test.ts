@@ -129,9 +129,9 @@ test("readObjects reports only active objects, with their game-visible state", (
   assert.equal(ego.update, true);
 
   const npc = objects[1]!;
-  // Object Behavior: positioning suppresses the first due movement delta.
-  // It remains at (40,60) this cycle despite facing east with step size3.
-  assert.equal(npc.x, 40);
+  // The originals do not mark position() newly-positioned, so the first due
+  // movement pass steps east in full: (40,60) -> (43,60) with step size 3.
+  assert.equal(npc.x, 43);
   assert.equal(npc.y, 60);
   assert.equal(npc.stepSize, 3, "step.size(o1, v60) with v60 = 3");
   assert.equal(npc.direction, 3, "set.dir(o1, v60) is east");

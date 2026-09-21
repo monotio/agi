@@ -4825,14 +4825,12 @@ export class Engine {
         const o = obj(0);
         o.x = o.prevX = a(1);
         o.y = o.prevY = a(2);
-        if (this.profile.positionMarksNewlyPositioned) o.newlyPositioned = true;
         return next;
       }
       case 0x26: {
         const o = obj(0);
         o.x = o.prevX = this.vars[a(1)]!;
         o.y = o.prevY = this.vars[a(2)]!;
-        if (this.profile.positionMarksNewlyPositioned) o.newlyPositioned = true;
         return next;
       }
       case 0x27: {
@@ -5485,8 +5483,11 @@ export class Engine {
         this.objects[0]!.motionMode = MOTION_NORMAL;
         return next;
       case 0x86:
+        // The original stops sound before reading the operand, so a declined
+        // quit prompt still completes the playing sound's done flag
+        // (docs/fidelity.md, "Original stop-sound call sites").
+        this.stopSound();
         if (this.profile.exitAlwaysImmediate || a(0) === 1) {
-          this.stopSound();
           this.terminated = true;
           this.host.quit?.();
           throw new ContinuationAbort();

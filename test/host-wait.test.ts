@@ -209,6 +209,27 @@ test("a quit confirmed through the suspended wait terminates the game", () => {
   assert.equal(host.quitCalls, 1);
 });
 
+test("a declined quit prompt still completed the playing sound's done flag", () => {
+  const container = gameWith(
+    `set(f9);\nload.sound(1);\nsound(1, f60);\nquit(0);\nassignn(v100, 99);\nreturn;`,
+  );
+  container.putResource(
+    "sound",
+    1,
+    new Uint8Array([
+      8, 0, 15, 0, 15, 0, 15, 0, 2, 0, 0x23, 0x81, 0x94, 0xff, 0xff, 0xff, 0xff,
+    ]),
+  );
+  const engine = new Engine(container, new SuspendingHost(), new Map());
+  engine.tick();
+  assert.equal(engine.hostInteraction?.kind, "confirm");
+  assert.equal(engine.flags[60], 1, "the original stops sound before the quit prompt");
+
+  engine.deliverHostAnswer(27); // Escape: declined
+  engine.tick();
+  assert.equal(engine.vars[100], 99);
+});
+
 test("new.room suspends on prepareRoom and enters the room on delivery", () => {
   const host = new SuspendingHost();
   const engine = new Engine(

@@ -109,7 +109,7 @@ test("reanimating an object clears prior drawing and movement flags but preserve
   assert.equal(kept.cycling, false);
 });
 
-test("step.time restarts cadence and positioning suppresses exactly one due step", () => {
+test("step.time restarts cadence and a positioned actor steps on the first due pass", () => {
   const engine = game(
     `if (!isset(f200)) { set(f200); ${setup} assignn(v60, 3); step.time(o0, v60); set.dir(o0, v60); } return;`,
   );
@@ -120,8 +120,10 @@ test("step.time restarts cadence and positioning suppresses exactly one due step
     positions.push(engine.screenObjects[0]!.x);
     movementUpdates.push(engine.movementUpdateCount);
   }
-  assert.deepEqual(positions, [20, 20, 20, 20, 20, 21, 21, 21, 22]);
-  assert.deepEqual(movementUpdates, [0, 0, 0, 0, 0, 1, 1, 1, 2]);
+  // position no longer schedules a suppressing zero-step pass (the originals
+  // never mark it), so the first real step lands on the first due pass.
+  assert.deepEqual(positions, [20, 20, 21, 21, 21, 22, 22, 22, 23]);
+  assert.deepEqual(movementUpdates, [0, 0, 1, 1, 1, 2, 2, 2, 3]);
 });
 
 for (const [profile, expected] of [
@@ -194,9 +196,14 @@ test("end.of.loop delays once, then completes as the last cel is reached", () =>
 });
 
 test("movement rectangles stop a crossing before logic using strict membership", () => {
+  // A direction set during logic gets its first move before the next
+  // transition check, so the block must already exist and the actor must not
+  // be due until a later pass — step.time 3 defers the first step past the
+  // pre-logic check that sees direction 3 already set.
   const engine = game(
-    `if (!isset(f200)) { set(f200); ${setup} block(20, 50, 30, 150); assignn(v60, 3); set.dir(o0, v60); return; } get.dir(o0, v61); return;`,
+    `if (!isset(f200)) { set(f200); ${setup} block(20, 50, 30, 150); assignn(v60, 3); step.time(o0, v60); set.dir(o0, v60); return; } get.dir(o0, v61); return;`,
   );
+  engine.tick();
   engine.tick();
   engine.tick();
   assert.equal(engine.vars[61], 0);
