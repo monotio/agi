@@ -4477,10 +4477,13 @@ export class Engine {
         // ego's motion mode against the click-move mode. No host interaction
         // selects that mode yet, so this reads false — a current host
         // limitation, not established original behavior. The IIgs 1.014
-        // dispatcher reaches the same slot with unverified semantics; the
-        // profile reads it false pending handler disassembly (docs/fidelity.md).
+        // evaluator's bound admits 0x13 but its 19-entry handler table ends
+        // at 0x12: the slot reads into the code that follows the table and
+        // lands mid-instruction (docs/fidelity.md "Apple IIgs interpreter").
         if (this.profile.maxCondition < 0x13)
           throw new Error(`invalid condition byte 0x${b.toString(16)}`);
+        if (this.profile.condition0x13 === "wild-dispatch")
+          throw new Error("condition 0x13 has no handler entry on iigs-1.014");
         if (this.profile.condition0x13 === "constant-false") return { result: false, next: pc + 1 };
         return { result: this.objects[0]!.motionMode === MOTION_CLICK_MOVE, next: pc + 1 };
       default:
@@ -5650,8 +5653,16 @@ export class Engine {
         if (this.profile.priorityBaseAction === "effect") this.priorityBase = a(0);
         return next;
       case 0xaf:
-        return next; // Spec: no runtime effect and no operand byte.
+        // On the IIgs this slot is fade.sound: it arms the heartbeat
+        // volume-fade watchdog on the playing sound (docs/fidelity.md
+        // "Apple IIgs sound fade"). Elsewhere the slot has no effect.
+        if (this.profile.extraActions === "iigs") this.soundPlayback?.armFade(a(0));
+        return next;
       case 0xb0:
+        // The IIgs slot is fade.sound.v — same watchdog, paced from
+        // vars[operand] (docs/fidelity.md). The PC/Amiga slots are no-ops.
+        if (this.profile.extraActions === "iigs") this.soundPlayback?.armFade(this.vars[a(0)]!);
+        return next;
       case 0xb2:
       case 0xb3:
         return next; // Full-EGA profile no-ops, with profile-specific widths.
@@ -5665,7 +5676,17 @@ export class Engine {
         }
         return next;
       case 0xb1:
-        // allow.menu: the Amiga 2.31x slot is the one-operand skip stub.
+        // allow.menu: the Amiga 2.31x slot is the one-operand skip stub. On
+        // the IIgs the dispatcher bound admits 0xb1 but the action table ends
+        // at 0xb0: the slot reads the operand-count bytes that follow it,
+        // which resolve to the middle of the interpreter's GS/OS quit
+        // routine — executing the action terminates the interpreter
+        // (docs/fidelity.md "Apple IIgs interpreter").
+        if (this.profile.extraActions === "iigs") {
+          this.terminated = true;
+          this.host.quit?.();
+          throw new ContinuationAbort();
+        }
         if (this.profile.menuInteractionGate) this.menuInteractionGate = a(0);
         return next;
       case 0xb5:

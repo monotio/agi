@@ -38,6 +38,10 @@ const ROOM_ALIAS_PROFILE: AgiProfile = {
 class Host implements EngineHost {
   keys: number[] = [];
   printed: string[] = [];
+  quits = 0;
+  quit(): void {
+    this.quits++;
+  }
   print(text: string): void {
     this.printed.push(text);
   }
@@ -663,8 +667,8 @@ describe("amiga interpreter profiles", () => {
 });
 
 describe("apple iigs profile (docs/fidelity.md, SQ2.SYS16 1.014)", () => {
-  // The dispatch bounds are read off the executable's jump tables; actions
-  // 0xb0/0xb1 and condition 0x13 are host decisions pending handler
+  // The dispatch bounds are read off the executable's jump tables; the last
+  // action slots and condition 0x13 are table overruns verified by handler
   // disassembly. Everything else inherits the 2.936 contract.
   test("iigs-1.014 inherits the 2.936 container and widens dispatch to 0xb1/0x13", () => {
     const p = PROFILES["iigs-1.014"];
@@ -673,7 +677,7 @@ describe("apple iigs profile (docs/fidelity.md, SQ2.SYS16 1.014)", () => {
     assert.equal(p.maxAction, 0xb1);
     assert.equal(p.maxCondition, 0x13);
     assert.equal(p.extraActions, "iigs");
-    assert.equal(p.condition0x13, "constant-false");
+    assert.equal(p.condition0x13, "wild-dispatch");
     assert.equal(p.sound, "iigs");
     assert.equal(p.menuInteractionGate, false);
     assert.equal(p.releaseGateAction, "increment");
@@ -707,23 +711,66 @@ describe("apple iigs profile (docs/fidelity.md, SQ2.SYS16 1.014)", () => {
     assert.equal(detectProfile(files).id, "2.936");
   });
 
-  test("0xb0 and 0xb1 dispatch with one operand only under the IIgs profile", () => {
-    // The IIgs logics emit `b0 <imm>`; the executable's dispatchers bound
-    // actions at 0xb1 (docs/fidelity.md). Both slots are host no-ops pending
-    // handler disassembly, so only the flow observable — reaching the flag
-    // set — is asserted.
-    const SOURCE = "hide.mouse(3);\nallow.menu(1);\nset(f221);\nreturn;\n";
-    const { engine } = bootAs(SOURCE, "iigs-1.014");
-    assert.equal(engine.flags[221], 1, "dispatch passed both extension slots");
-    // The shared 2.936 bound rejects slot 0xb0 entirely; the v3 extension
-    // profiles carry the same one-operand shape the IIgs logics use.
-    assert.throws(() => bootAs(SOURCE, "2.936"), undefined);
+  // A type-2 stream that cannot self-terminate before the watchdog: five
+  // 255-tick deltas in delta position, a one-tick delta, then the
+  // terminator command — roughly 1280 heartbeats of stream.
+  const IIGS_LONG_SOUND = Uint8Array.of(0x02, 0x00, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0x01, 0xfc);
+  const withSound = (c: ReturnType<typeof createContainer>) =>
+    c.putResource("sound", 1, IIGS_LONG_SOUND);
+
+  test("0xaf/0xb0 arm the heartbeat volume-fade watchdog on the playing sound", () => {
+    // The last two relocated entries of the action table are an
+    // immediate/variable pair into a pacing routine: GetSoundVolume is
+    // latched once, then the heartbeat steps the volume down by 0x10 every
+    // `pace` beats and completes the sound when the budget falls below 0x10
+    // (docs/fidelity.md "Apple IIgs sound fade"). The host has no GS system
+    // volume, so the observable half — the scheduled completion — is asserted.
+    const { engine } = bootAs(
+      "set(f9); load.sound(1); sound(1, f10); fade.sound(2); return;",
+      "iigs-1.014",
+      withSound,
+    );
+    assert.equal(engine.flags[10], 0);
+    // A fresh 0xff budget completes at the sixteenth pace expiry: 16 * 2.
+    for (let beat = 1; beat < 32; beat++) {
+      engine.soundTick();
+      assert.equal(engine.flags[10], 0, `still playing at heartbeat ${beat}`);
+    }
+    engine.soundTick();
+    assert.equal(engine.flags[10], 1, "the watchdog completed the sound");
+  });
+
+  test("0xb0 reads the fade pacing from a variable", () => {
+    // vars[53] = 0 arms pace zero: the watchdog completes the sound on the
+    // next heartbeat. This is the shape logic 1 uses (`b0 0x35` after
+    // assigning v53), with zero standing in for its beat count.
+    const { engine } = bootAs(
+      "set(f9); load.sound(1); sound(1, f10); assignn(v53, 0); fade.sound.v(v53); return;",
+      "iigs-1.014",
+      withSound,
+    );
+    engine.soundTick();
+    assert.equal(engine.flags[10], 1, "pace zero completes on the next heartbeat");
+  });
+
+  test("0xb1 reads no operand byte and terminates the interpreter", () => {
+    // The dispatcher bound admits 0xb1 but the action table ends at 0xb0:
+    // the slot's bytes resolve to the middle of the interpreter's GS/OS quit
+    // routine, so executing the action terminates the session like quit.
+    const { engine, host } = bootAs("terminate(); assignn(v50, 7); return;", "iigs-1.014");
+    assert.equal(host.quits, 1, "the wild dispatch reaches the quit path");
+    assert.equal(engine.vars[50], 0, "the pass aborted before the next action");
+    // The terminate name is not PC v3 vocabulary: 2.936 has no 0xb1 at all.
+    assert.throws(() => bootAs("terminate(); return;", "2.936"), /not available/);
     // The same bytecode is not an action at all under the PC bound.
     const container = createContainer();
     container.putResource(
       "logic",
       0,
-      assembleLogic(SOURCE, { dictionary: DICT, profile: PROFILES["iigs-1.014"] }).payload,
+      assembleLogic("terminate(); return;", {
+        dictionary: DICT,
+        profile: PROFILES["iigs-1.014"],
+      }).payload,
     );
     assert.throws(
       () => new Engine(container, new Host(), DICT, { profile: "2.936" }).tick(),
@@ -731,14 +778,15 @@ describe("apple iigs profile (docs/fidelity.md, SQ2.SYS16 1.014)", () => {
     );
   });
 
-  test("condition 0x13 reads false under the IIgs profile, not the Amiga rule", () => {
-    const SOURCE = "if (click.move.pending()) { set(f221); }\nreturn;\n";
-    const { engine } = bootAs(SOURCE, "iigs-1.014");
-    assert.equal(engine.flags[221], 0, "the IIgs slot reads false");
-    // Even with ego's motion mode forced to the Amiga value, the host
-    // decision holds — the semantics are not click-move.
-    engine.screenObjects[0]!.motionMode = 4;
-    engine.tick();
-    assert.equal(engine.flags[221], 0);
+  test("condition 0x13 is a handler-table overrun the host cannot define", () => {
+    // The evaluator bound admits 0x13 but the 19-entry table ends at 0x12:
+    // the slot reads the first bytes of the code that follows the table and
+    // jumps mid-instruction (docs/fidelity.md). The host models the wild
+    // dispatch as an error rather than guessing a result; the game itself
+    // contains no genuine 0x13 condition.
+    assert.throws(
+      () => bootAs("if (click.move.pending()) { set(f221); }\nreturn;", "iigs-1.014"),
+      /condition 0x13/,
+    );
   });
 });

@@ -237,7 +237,9 @@ export const CONDITIONS: readonly ConditionSpec[] = [
   { code: 0x11, name: "center.posn", operands: ["object", "imm", "imm", "imm", "imm"] },
   { code: 0x12, name: "right.posn", operands: ["object", "imm", "imm", "imm", "imm"] },
   // Amiga 2.31x only (docs/fidelity.md "Amiga interpreter profiles"): true
-  // while ego runs the click-move motion mode. PC dispatch tables end at 0x12.
+  // while ego runs the click-move motion mode. PC dispatch tables end at
+  // 0x12; the IIgs evaluator's bound admits 0x13 but its 19-entry handler
+  // table ends at 0x12, so the slot is a table overrun there.
   { code: 0x13, name: "click.move.pending", operands: [] },
 ] as const;
 
@@ -281,6 +283,24 @@ const V3_BY_NAME: Record<string, ActionSpec> = Object.fromEntries(
 );
 
 /**
+ * Apple IIgs 1.014 tail slots (docs/fidelity.md "Apple IIgs interpreter").
+ * The executable's 177-entry action table covers 0x00..0xb0; its last two
+ * relocated entries are a volume-fade pair in seg3, not the PC mouse/menu
+ * actions. The dispatcher bound admits 0xb1, but the slot reads past the
+ * table into the operand-count bytes, which resolve to the middle of the
+ * interpreter's GS/OS quit routine — executing it terminates the session.
+ */
+export const IIGS_ACTIONS: readonly ActionSpec[] = [
+  { code: 0xaf, name: "fade.sound", operands: ["imm"] },
+  { code: 0xb0, name: "fade.sound.v", operands: ["var"] },
+  { code: 0xb1, name: "terminate", operands: [] },
+];
+const IIGS_BY_CODE = new Map(IIGS_ACTIONS.map((action) => [action.code, action]));
+const IIGS_BY_NAME: Record<string, ActionSpec> = Object.fromEntries(
+  IIGS_ACTIONS.map((action) => [action.name, action]),
+);
+
+/**
  * Amiga 2.31x tail action (docs/fidelity.md "Amiga interpreter profiles"):
  * slot 0xb6 in the 183-entry table of the 2.310/2.316/2.333 executables,
  * above every PC dispatch bound.
@@ -298,6 +318,11 @@ export function actionSpec(
   opcode: number | string,
   profile: AgiProfile = DEFAULT_V2_PROFILE,
 ): ActionSpec | undefined {
+  // The IIgs tail slots carry their own actions, not the PC v3 names.
+  if (profile.extraActions === "iigs") {
+    const iigs = typeof opcode === "number" ? IIGS_BY_CODE.get(opcode) : IIGS_BY_NAME[opcode];
+    if (iigs) return iigs;
+  }
   const spec =
     typeof opcode === "number"
       ? (ACTION_BY_CODE.get(opcode) ?? V3_BY_CODE.get(opcode) ?? AMIGA_BY_CODE.get(opcode))
@@ -305,9 +330,12 @@ export function actionSpec(
   if (!spec || spec.code > profile.maxAction) return undefined;
   if (spec.code === 0x86 && profile.exitOperandBytes === 0) return { ...spec, operands: [] };
   if (spec.code >= 0xb0 && profile.extraActions === "none") return undefined;
-  // Both the 3.002.086 build and the IIgs 1.014 executable take one operand
-  // byte in slot 0xb0 — the IIgs logics emit `b0 <imm>` (docs/fidelity.md).
-  if (spec.code === 0xb0 && (profile.extraActions === "v3-086" || profile.extraActions === "iigs"))
+  // Under the IIgs profile the 0xaf..0xb5 slots resolve only through
+  // IIGS_ACTIONS — the PC v3 names are not this interpreter's vocabulary.
+  if (spec.code >= 0xaf && profile.extraActions === "iigs") return undefined;
+  // The 3.002.086 build takes one ignored operand byte in slot 0xb0
+  // (docs/fidelity.md).
+  if (spec.code === 0xb0 && profile.extraActions === "v3-086")
     return { ...spec, operands: ["imm"] };
   // The 0xb6 slot exists only in the Amiga 2.31x dispatch table.
   if (spec.code === 0xb6 && profile.extraActions !== "amiga-2.31x") return undefined;

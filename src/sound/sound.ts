@@ -501,6 +501,13 @@ export class SoundPlayback {
   private readonly iigsEvents: readonly (readonly IigsEvent[])[] | null;
   /** Last state emitted per IIgs channel, for stop() releases. */
   private readonly iigsLast: (IigsOutput | undefined)[] = [];
+  /**
+   * IIgs volume-fade watchdog (docs/fidelity.md "Apple IIgs sound fade"):
+   * the original's ~globals $df/$e1/$e3 — the pace in heartbeats, its
+   * countdown, and the stepped volume budget latched from GetSoundVolume.
+   * Null while disarmed (the original's $df = 0xffff sentinel).
+   */
+  private iigsFade: { pace: number; countdown: number; budget: number } | null = null;
   /** Longest voice this device plays, in sound ticks; a zero duration counts as 65536 without being ticked through. */
   readonly durationTicks: number;
   private active = true;
@@ -593,10 +600,26 @@ export class SoundPlayback {
     }));
   }
 
+  /**
+   * Arm the IIgs volume-fade watchdog on the playing sound (docs/fidelity.md
+   * "Apple IIgs sound fade"): the heartbeat steps the latched volume budget
+   * down by 0x10 every `pace` beats and completes the sound once the budget
+   * falls below 0x10. A pace of zero completes it on the next beat. The
+   * original latches the budget from GetSoundVolume only while the watchdog
+   * is disarmed; re-arming updates pace and countdown without re-latching.
+   * The host has no GS system volume, so the latch substitutes the maximum.
+   */
+  armFade(pace: number): void {
+    this.iigsFade ??= { pace: 0, countdown: 0, budget: 0xff };
+    this.iigsFade.pace = pace;
+    this.iigsFade.countdown = pace;
+  }
+
   snapshot(): PlaybackState {
     return {
       device: this.device,
       active: this.active,
+      fade: this.iigsFade === null ? null : { ...this.iigsFade },
       channels: this.channels.map(({ notes: _notes, ...channel }) => ({ ...channel })),
     };
   }
@@ -614,6 +637,7 @@ export class SoundPlayback {
         throw new Error("Recorded sound position is outside the current resource.");
     }
     this.active = state.active;
+    this.iigsFade = state.fade;
     for (let i = 0; i < state.channels.length; i++)
       Object.assign(this.channels[i]!, state.channels[i]!);
   }
@@ -621,6 +645,19 @@ export class SoundPlayback {
   tick(enabled: boolean, adjustment: number): { outputs: SoundOutput[]; complete: boolean } {
     if (!this.active) return { outputs: [], complete: true };
     if (!enabled) return { outputs: this.stop(), complete: true };
+    // The IIgs fade watchdog runs before the per-family stream work in the
+    // original's heartbeat: pace zero completes the armed sound immediately;
+    // each pace expiry checks the stepped budget before decrementing it, so
+    // a fresh 0xff budget completes on the sixteenth expiry.
+    const fade = this.iigsFade;
+    if (fade !== null) {
+      if (fade.pace === 0) return { outputs: this.stop(), complete: true };
+      if (--fade.countdown <= 0) {
+        fade.countdown = fade.pace;
+        if (fade.budget < 0x10) return { outputs: this.stop(), complete: true };
+        fade.budget -= 0x10;
+      }
+    }
     const outputs: SoundOutput[] = [];
     adjustment &= 255;
     if (this.rows) {
@@ -803,6 +840,9 @@ export class SoundPlayback {
   stop(): SoundOutput[] {
     if (!this.active) return [];
     this.active = false;
+    // The original's completion path also disarms the watchdog ($df = 0xffff)
+    // and restores the latched volume; the volume side is a native GS call.
+    this.iigsFade = null;
     if (this.iigsEvents)
       return this.channels.flatMap((channel, index) => {
         if (channel.base !== 1) return [];

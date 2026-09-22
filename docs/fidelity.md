@@ -1924,28 +1924,58 @@ statement loop at main+0x191e. A `$15be` global gates trace calls to
 seg2 (`jsl $1344b3` / `jsl $1345cc`) around each action and condition —
 the interpreter's trace hook.
 
-Compared to PC 2.936 (`maxAction 0xaf`, `maxCondition 0x12`): the IIgs
-accepts two more action slots (`0xb0`, `0xb1`) and one more condition
-(`0x13`). The extra slots line up with the v3-family tail
-(`hide.mouse` 0xb0, `allow.menu` 0xb1) and the Amiga 2.31x-only condition
-0x13 (`click.move.pending` there) — consistent with a mouse-driven port,
-but the IIgs names/semantics were not confirmed from a name table.
+#### Tail handlers (fact, except where marked)
 
-In-game usage: `games/sq2-iigs` logic 1 ends `... b0 35 00`. The engine's
-structured decoder fails on logic 1 ("logic bytecode ends mid-instruction
-at 894"); reading `0xb0` as a one-operand action makes the tail parse
-cleanly (`action 0xb0 (arg 0x35); return`), so the IIgs logics do carry a
-non-PC action. Executing it under the 2.936 profile raises
-`unimplemented opcode 0xb0`. (The `0xb0` bytes a linear walker reports in
-logic 23 are inside `said()` word data — engine decode of logic 23 shows
-no 0xb0 action.) Semantics of IIgs 0xb0/0xb1 and condition 0x13 are
-unverified — inference only that they follow the v3/mouse-family pattern.
+The 177-entry action table in ~arrays+0x03fe is zero in the file and
+patched at load by `f6` cINTERSEG records (fixed 8-byte records:
+`f6 numbytes shift | offset u16 | segnum u8 | offinseg u16`, each writing
+one far pointer `segnum<<16 | offinseg`). Decoding them resolves every
+slot `0x00..0xb0`; the tail entries are not the PC v3 mouse/menu actions:
 
-The `iigs-1.014` profile therefore dispatches 0xb0 and 0xb1 as one-operand
-actions without effect and reads condition 0x13 as constant false. Those
-are host decisions pending disassembly of the handlers (the action table
-in ~arrays+0x03fe is OMF-relocated, so the file carries no target
-addresses), not verified original behaviour.
+- `0x86` (quit) → `main`+0x02d0 — calls the sound-completion routine
+  (seg3+0x1c2b), reads a one-byte selector through `[$fd]`, optionally
+  confirms via seg2+0x2239, then `jsl` main+0x33c, the shutdown path that
+  ends in GS/OS call `$29` (Quit).
+- `0xaf` → seg3+0x1d1b: reads one operand byte through `[$fd]` and calls
+  the pacing subroutine seg3+0x1d87 with that immediate — `fade.sound`.
+- `0xb0` → seg3+0x1d4d: reads one operand byte, indexes the interpreter's
+  variable array at ~arrays+0x02de with it and calls the same subroutine
+  with `vars[operand]` — `fade.sound.v`, an immediate/variable pair.
+- `0xb1` has no entry: `0x03fe + 177*4 = 0x06c2` is the first byte of the
+  structure that follows the table (the operand-count table the seg2
+  trace hook consumes — see below). The slot's four bytes `00 01 01 02`
+  resolve through the far-call helper to bank `$01` offset `$0100` — the
+  middle of the routine at main+0xe8, whose tail reaches main+0x3222, a
+  wrapper around GS/OS call `$29` (Quit). Executing action `0xb1` on
+  hardware therefore terminates the interpreter rather than running any
+  handler — a wild dispatch, not `allow.menu`.
+
+The condition evaluator's `cmp #$0013` bound admits `0x13` (`beq` and
+`bcc` both reach `jsr ($1b0c,X)`), but the near-pointer table holds 19
+entries — `0x00..0x12` — ending at main+0x1b57. The `0x13` slot at
+main+0x1b58 reads `0b 3b`, the first two bytes of the code that follows
+the table, so the `jsr` lands at main+0x3b0b — mid-instruction, no
+defined result. It is not the Amiga `click.move.pending`.
+
+The structure at ~arrays+0x06c2 is a 177-entry operand-count table the
+seg2 trace routine consumes (its address pair `0x06c2`/`0x0773` is pushed
+to seg2+0x465b). It is trace metadata, not the interpreter's bytecode
+arity table — its `print.at` count is stale — so handlers' `[$fd]` reads
+are the authority on operand widths.
+
+In-game usage (fact): under widths `0xaf=1`, `0xb0=1`, `0xb1=0` all 256
+logics walk cleanly, while a zero-operand `0xb0` leaves logic 1 ending
+mid-instruction — the logics confirm the handler widths. The fade pair
+appears under the same guard each time — e.g. logic 1 ends
+`if (v20 != 0) { v53 = 0x32; 0xb0(v53); }` (pace `0x32` = 50 heartbeats).
+No logic emits action `0xb1`, and none tests condition `0x13`; the hits a
+linear scanner reports are jump-offset bytes (`fe 13 00` / `ff 13 00`)
+after desynchronisation — the engine's own decoder finds none.
+
+Host model: `0xaf`/`0xb0` arm the fade watchdog described under "Apple
+IIgs sound fade" below; `0xb1` terminates the session through the normal
+quit path; condition `0x13` raises an error rather than guessing a
+result — the host cannot reproduce a mid-instruction wild jump.
 
 #### Sound format (fact, except where marked)
 
@@ -2012,6 +2042,32 @@ semantics are a gap; `src/sound/sound.ts` computes a finite duration from
 the wave byte count at offset 8 played at `freqOffset × 1645/32` Hz (the
 rate word in the tagged wave record at offset 44), emits silence, and
 completes the sound-done flag on schedule.
+
+#### Apple IIgs sound fade (fact + host limitation)
+
+Actions `0xaf`/`0xb0` arm a volume-fade watchdog on the playing sound.
+The shared pacing subroutine (seg3+0x1d87) gates on `$d3` (sound armed)
+and `$df` (watchdog state, `0xffff` = disarmed): while disarmed it calls
+`GetSoundVolume` (`$0c08`) and latches the system volume into global
+`$e3`; it always stores the operand as the new pace in `$df` and the
+countdown in `$e1` — re-arming updates the pace without re-latching the
+volume.
+
+The heartbeat tick (seg3+0x1dcd) checks `$df` before the per-stream work:
+`$df` negative skips the watchdog, zero completes the sound through
+seg3+0x1c2b, and otherwise `$e1` counts beats until each pace expiry
+reloads it and calls the step routine (seg3+0x2120). The step compares
+`$e3` to `$10`: below `0x10` it reports done — the tick then completes
+the sound — otherwise it calls `SetSoundVolume` (`$0d08`) with
+`$e3 - 0x10` and stores the remainder. The completion routine restores
+the latched volume and disarms the watchdog. With a full `0xff` latch a
+fade therefore completes on the sixteenth pace expiry.
+
+Host limitation: there is no GS system volume, so the engine's
+`SoundPlayback.armFade` latches a synthetic `0xff` budget and keeps only
+the observable half — the countdown/expiry schedule and the sound
+completion (with its done flag) — while the per-step `SetSoundVolume`
+attenuation is modelled nowhere.
 
 #### Boot behaviour under the engine (fact)
 

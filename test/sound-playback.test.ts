@@ -769,4 +769,52 @@ describe("apple iigs stream family (docs/fidelity.md, seg3 sound scheduler)", ()
     const empty = iigs(new Uint8Array(0));
     assert.equal(empty.tick(true, 0).complete, true);
   });
+
+  it("the fade watchdog completes an armed sound on the pacing schedule", () => {
+    // fade.sound/fade.sound.v arm the heartbeat watchdog (docs/fidelity.md
+    // "Apple IIgs sound fade"): a latched 0xff budget steps down 0x10 at each
+    // pace expiry, checked before the decrement, so pace 2 completes on the
+    // sixteenth expiry — heartbeat 32 — well before the stream's deltas end.
+    // The stream below holds four 255-tick waits in delta position.
+    const sound = iigs(Uint8Array.of(0x02, 0x00, 0xf8, 0xf8, 0xf8, 0xf8, 0x01, 0xfc));
+    sound.armFade(2);
+    for (let beat = 1; beat < 32; beat++)
+      assert.equal(sound.tick(true, 0).complete, false, `heartbeat ${beat}`);
+    assert.equal(sound.tick(true, 0).complete, true);
+  });
+
+  it("a zero fade pace completes on the next heartbeat and disarms on stop", () => {
+    const sound = iigs(Uint8Array.of(0x02, 0x00, 0xf8, 0xf8, 0xf8, 0xf8, 0x01, 0xfc));
+    sound.armFade(0);
+    assert.equal(sound.tick(true, 0).complete, true);
+    // Completion restores the disarmed state (the original's $df = 0xffff),
+    // so a snapshot carries no watchdog.
+    assert.equal(sound.snapshot().fade, null);
+  });
+
+  it("re-arming updates the pace without relatching the volume budget", () => {
+    const sound = iigs(Uint8Array.of(0x02, 0x00, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0x01, 0xfc));
+    sound.armFade(1);
+    // Ten heartbeats at pace 1: ten expiries, budget 0xff -> 0x5f.
+    for (let t = 0; t < 10; t++) assert.equal(sound.tick(true, 0).complete, false);
+    // Re-arming preserves the stepped budget: five more expiries reach 0x0f,
+    // the sixth finds it below 0x10 — six beats, not sixteen.
+    sound.armFade(1);
+    for (let t = 0; t < 5; t++) assert.equal(sound.tick(true, 0).complete, false);
+    assert.equal(sound.tick(true, 0).complete, true);
+  });
+
+  it("snapshot and restore preserve the fade watchdog", () => {
+    const payload = Uint8Array.of(0x02, 0x00, 0xf8, 0xf8, 0xf8, 0xf8, 0x01, 0xfc);
+    const sound = iigs(payload);
+    sound.armFade(2);
+    sound.tick(true, 0);
+    const saved = iigs(payload);
+    saved.restore(sound.snapshot());
+    // The restored countdown and budget finish the same schedule: 31 more
+    // heartbeats then completion on the 32nd.
+    for (let beat = 2; beat < 32; beat++)
+      assert.equal(saved.tick(true, 0).complete, false, `heartbeat ${beat}`);
+    assert.equal(saved.tick(true, 0).complete, true);
+  });
 });

@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ACTIONS, V3_ACTIONS, CONDITIONS, actionSpec } from "../src/logic/opcodes.ts";
+import {
+  ACTIONS,
+  V3_ACTIONS,
+  IIGS_ACTIONS,
+  AMIGA_ACTIONS,
+  CONDITIONS,
+  actionSpec,
+} from "../src/logic/opcodes.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
 import { commandReference, formatCommandCatalog } from "../src/agent/commandReference.ts";
 import { createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts";
@@ -9,8 +16,10 @@ import { createOrientationPrompt, AGI_SYSTEM_PROMPT } from "../src/agent/prompt.
 test("command reference exactly follows every promoted profile and its operand variants", () => {
   for (const profile of Object.values(PROFILES)) {
     const refs = commandReference(profile);
-    for (const candidate of [...ACTIONS, ...V3_ACTIONS]) {
-      const real = actionSpec(candidate.code, profile);
+    for (const candidate of [...ACTIONS, ...V3_ACTIONS, ...IIGS_ACTIONS, ...AMIGA_ACTIONS]) {
+      // Names, not codes: the IIgs profile reassigns the shared tail codes to
+      // its own actions, so code resolution cannot stand in for vocabulary.
+      const real = actionSpec(candidate.name, profile);
       const entry = refs.find((item) => item.kind === "action" && item.name === candidate.name);
       assert.equal(Boolean(entry), Boolean(real), `${profile.id} ${candidate.name}`);
       if (real) assert.deepEqual(entry?.operands, real.operands);

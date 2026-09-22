@@ -2,6 +2,7 @@
 import {
   ACTIONS,
   V3_ACTIONS,
+  IIGS_ACTIONS,
   AMIGA_ACTIONS,
   CONDITIONS,
   actionSpec,
@@ -55,6 +56,11 @@ const HELP: Record<string, string> = {
   said: "Matches registered parser word groups; operands are quoted vocabulary or word IDs, including wildcard 1 and tail 9999 where the profile supports it.",
   sound:
     "Starts a SOUND resource and sets the completion flag when it ends; sound has an independent 60 Hz clock.",
+  "fade.sound":
+    "Apple IIgs only: arm the heartbeat volume fade on the playing sound, stepping the latched volume down every pace beats until it completes.",
+  "fade.sound.v": "Apple IIgs only: same as fade.sound with the pace taken from the variable.",
+  terminate:
+    "Apple IIgs only: the dispatcher reads past the action table into the quit routine; the action ends the interpreter session.",
 };
 
 export interface CommandReference {
@@ -68,14 +74,24 @@ export interface CommandReference {
 
 export function commandReference(profile: AgiProfile): CommandReference[] {
   const result: CommandReference[] = [];
-  for (const candidate of [...ACTIONS, ...V3_ACTIONS, ...AMIGA_ACTIONS]) {
+  const seen = new Set<number>();
+  for (const candidate of [...ACTIONS, ...V3_ACTIONS, ...IIGS_ACTIONS, ...AMIGA_ACTIONS]) {
     const spec = actionSpec(candidate.code, profile);
-    if (!spec) continue;
+    if (!spec || seen.has(spec.code)) continue;
+    seen.add(spec.code);
     result.push({
       ...spec,
       kind: "action",
       signature: `${spec.name}(${spec.operands.join(", ")})`,
-      help: [ACTION_HELP[spec.code], HELP[spec.name]].filter(Boolean).join(" "),
+      // Code-keyed help describes the shared/PC meaning of a slot; the IIgs
+      // tail carries different actions at the same codes, so only the
+      // name-keyed help applies there.
+      help: (profile.extraActions === "iigs" && spec.code >= 0xaf
+        ? [HELP[spec.name]]
+        : [ACTION_HELP[spec.code], HELP[spec.name]]
+      )
+        .filter(Boolean)
+        .join(" "),
     });
   }
   for (const spec of CONDITIONS.filter((spec) => spec.code <= profile.maxCondition))

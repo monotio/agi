@@ -78,4 +78,34 @@ describe("profile-selected logic bytecode", () => {
     );
     assert.notDeepEqual(disassembleLogicWarnings(payload, opts), []);
   });
+
+  it("iigs-1.014 reads the sound-fade pair and a zero-operand terminate slot", () => {
+    const opts = { dictionary, profile: PROFILES["iigs-1.014"] };
+    const code = new Uint8Array([0xaf, 40, 0xb0, 53, 0xb1, 0]);
+    const source = "fade.sound(40); fade.sound.v(v53); terminate(); return;";
+    assert.deepEqual(assembleLogic(source, opts).code, code);
+    const payload = buildLogicResource(code, []);
+    assert.deepEqual(disassembleLogicWarnings(payload, opts), []);
+    assert.deepEqual(assembleLogic(disassembleLogic(payload, opts), opts).code, code);
+  });
+
+  it("iigs-1.014 does not resolve the PC v3 tail names", () => {
+    const opts = { dictionary, profile: PROFILES["iigs-1.014"] };
+    // Slots 0xad/0xae stay shared — they are inside the IIgs table's
+    // 0x00..0xb0 range. The 0xaf..0xb6 tail is IIgs-specific: none of the PC
+    // v3 or Amiga names at those slots are this interpreter's vocabulary.
+    for (const source of [
+      "slow.mouse();",
+      "hide.mouse(3);",
+      "allow.menu(1);",
+      "mouse.posn(v1, v2);",
+      "discard.sound();",
+      "adj.ego.move.to.x.y(1, 2);",
+    ])
+      assert.throws(() => assembleLogic(source, opts), /not available.*iigs-1\.014/, source);
+    assert.notDeepEqual(
+      disassembleLogicWarnings(buildLogicResource(new Uint8Array([0xb4, 0]), []), opts),
+      [],
+    );
+  });
 });

@@ -61,11 +61,13 @@ export type MousePosnAction = "noop" | "write-pointer";
 
 /**
  * Condition 0x13 semantics for profiles whose dispatchers reach it. The
- * Amiga 2.31x handler tests ego's motion mode against the click-move value;
- * the Apple IIgs handler's semantics are unverified, so the host reads it
- * false (docs/fidelity.md "Apple IIgs interpreter").
+ * Amiga 2.31x handler tests ego's motion mode against the click-move value.
+ * The Apple IIgs evaluator's bound admits 0x13 but its 19-entry handler
+ * table ends at 0x12 — the slot reads into the code that follows the table
+ * and lands mid-instruction, so evaluating it has no defined behavior
+ * (docs/fidelity.md "Apple IIgs interpreter").
  */
-export type Condition0x13 = "click-move" | "constant-false";
+export type Condition0x13 = "click-move" | "constant-false" | "wild-dispatch";
 
 /** Action 0xad semantics (input_text_and_menus "Tracked key release"). */
 export type ReleaseGateAction = "unavailable" | "increment" | "set" | "noop";
@@ -148,9 +150,9 @@ export interface AgiProfile {
   /** Highest valid condition opcode; 0x12 everywhere except the Amiga 2.31x generation and the Apple IIgs build (0x13). */
   readonly maxCondition: number;
   /**
-   * Semantics of condition 0x13 where it dispatches (Amiga click-move; IIgs
-   * reads false pending handler disassembly). Profiles bounded at 0x12 never
-   * consult this field.
+   * Semantics of condition 0x13 where it dispatches (Amiga click-move; the
+   * IIgs slot reads past its handler table — a wild dispatch). Profiles
+   * bounded at 0x12 never consult this field.
    */
   readonly condition0x13: Condition0x13;
   /** Extra action slots 0xb0.. (logic_bytecode "Version 3 extension actions"; Amiga 2.31x tail). */
@@ -591,10 +593,13 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   "amiga-2.333": { ...BASE_AMIGA_31X, id: "amiga-2.333" },
   // Apple IIgs "SQ2.SYS16" 1.014 (SQ2 IIgs; docs/fidelity.md "Apple IIgs
   // interpreter"). The executable's action and condition dispatchers bound at
-  // 0xb1 and 0x13. Actions 0xb0/0xb1 and condition 0x13 have no verified
-  // semantics: they dispatch without effect and the condition reads false —
-  // host decisions pending disassembly of the handlers, not original
-  // behavior. Sound resources use the IIgs stream formats decoded by the
+  // 0xb1 and 0x13. The relocated action table ends at 0xb0: its 0xaf/0xb0
+  // entries are the sound-fade pair (immediate/variable pace operand), and
+  // slot 0xb1 reads past the table into the operand-count bytes, resolving
+  // to the middle of the GS/OS quit routine — executing it terminates the
+  // interpreter. Condition 0x13's slot likewise reads past the 19-entry
+  // condition table into the code that follows it, so it has no defined
+  // result. Sound resources use the IIgs stream formats decoded by the
   // "iigs" family. Everything else inherits the 2.936 contract and is marked
   // inherited, not verified, in docs/fidelity.md.
   "iigs-1.014": {
@@ -602,7 +607,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     id: "iigs-1.014",
     maxAction: 0xb1,
     maxCondition: 0x13,
-    condition0x13: "constant-false",
+    condition0x13: "wild-dispatch",
     extraActions: "iigs",
     sound: "iigs",
   },
