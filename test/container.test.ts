@@ -4,6 +4,7 @@ import {
   containerFromResources,
   compactContainer,
   createContainer,
+  detectContainerFormat,
   DIRECTORY_FILES,
   ENTRY_BYTES,
   INITIAL_DIRECTORY_ENTRIES,
@@ -148,6 +149,34 @@ describe("volume rollover", () => {
     const entry = 254 * ENTRY_BYTES;
     const dir = c.files.get("LOGDIR")!;
     assert.equal(dir[entry]! >> 4, 1, "entry must name volume 1");
+  });
+});
+
+describe("platform port spellings", () => {
+  it("opens a v2 installation with lowercase resource names", () => {
+    const files = new Map<string, Uint8Array>([
+      ["logdir", Uint8Array.of(0, 0, 0)],
+      ["picdir", new Uint8Array(0)],
+      ["viewdir", new Uint8Array(0)],
+      ["snddir", new Uint8Array(0)],
+      ["vol.0", Uint8Array.of(0x12, 0x34, 0, 3, 0, 1, 2, 3)],
+      ["object", Uint8Array.of(9)],
+      ["words.tok", Uint8Array.of(1, 2)],
+      ["Sierra", Uint8Array.of(0x4d, 0x5a)],
+    ]);
+    assert.deepEqual(detectContainerFormat(files), { kind: "v2-split", prefix: "" });
+    const c = openContainer(files);
+    assert.deepEqual(c.getResource("logic", 0), Uint8Array.of(1, 2, 3));
+    assert.equal(c.files.has("LOGDIR"), true);
+    assert.equal(c.files.has("logdir"), false);
+    assert.equal(c.files.has("VOL.0"), true);
+    assert.equal(c.files.has("vol.0"), false);
+    assert.equal(c.files.has("WORDS.TOK"), true);
+    assert.equal(c.files.has("OBJECT"), true);
+    // Non-resource files keep their own spelling.
+    assert.deepEqual(c.files.get("Sierra"), Uint8Array.of(0x4d, 0x5a));
+    c.putResource("view", 1, Uint8Array.of(7));
+    assert.deepEqual(c.getResource("view", 1), Uint8Array.of(7));
   });
 });
 

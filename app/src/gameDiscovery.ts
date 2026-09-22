@@ -1,21 +1,22 @@
 import type { InstalledGameDescriptor } from "./gameTypes.ts";
 import { isPlayableFileName } from "./gameMetadata.ts";
+import { canonicalResourceName } from "../../src/types.ts";
 import { detectKnownGameByHashes } from "../../src/games/knownGames.ts";
 
 /**
  * Ports of the same game share the WORDS.TOK vocabulary hash but not the
- * OBJECT fingerprint. A bare hash or alias query resolves to the catalogued
- * edition — the release walkthroughs and profiles were verified against —
- * while ports stay selectable by folder.
+ * OBJECT fingerprint. A bare hash or alias query resolves to the vocabulary's
+ * catalogued edition — the release walkthroughs and profiles were verified
+ * against — while ports stay selectable by folder.
  */
 function preferCataloged(
   matches: readonly InstalledGameDescriptor[],
 ): InstalledGameDescriptor | null {
-  const cataloged = matches.filter(
-    (m) =>
-      m.wordsSha256 !== undefined &&
-      detectKnownGameByHashes(m.wordsSha256, m.objectSha256) !== null,
-  );
+  const cataloged = matches.filter((m) => {
+    if (m.wordsSha256 === undefined) return false;
+    const detected = detectKnownGameByHashes(m.wordsSha256, m.objectSha256);
+    return detected !== null && detected === detectKnownGameByHashes(m.wordsSha256);
+  });
   return cataloged.length === 1 ? cataloged[0]! : null;
 }
 
@@ -123,7 +124,7 @@ export async function fetchFixtureFiles(target: string): Promise<Record<string, 
   for (const name of names) {
     const res = await fetch(`/fixtures/${target}/${name}`);
     if (!res.ok) throw new Error(`fixture fetch failed: ${name}`);
-    files[name.toUpperCase()] = new Uint8Array(await res.arrayBuffer());
+    files[canonicalResourceName(name)] = new Uint8Array(await res.arrayBuffer());
   }
   return files;
 }

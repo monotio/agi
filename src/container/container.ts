@@ -9,7 +9,12 @@
  * obsolete records are removed during authoring.
  */
 
-import { RESOURCE_KINDS, type GameContainer, type ResourceKind } from "../types.ts";
+import {
+  canonicalResourceName,
+  RESOURCE_KINDS,
+  type GameContainer,
+  type ResourceKind,
+} from "../types.ts";
 import { detectProfile } from "../runtime/profile.ts";
 import { toggleMessageEncryption } from "../logic/resource.ts";
 
@@ -49,14 +54,13 @@ export function detectContainerFormat(files: ReadonlyMap<string, Uint8Array>): {
   prefix: string;
 } {
   const splitNames = new Set(Object.values(DIRECTORY_FILES));
-  const combined = [...files.keys()].filter(
-    (name) => name.endsWith("DIR") && !splitNames.has(name),
-  );
+  const names = [...files.keys()].map(canonicalResourceName);
+  const combined = names.filter((name) => name.endsWith("DIR") && !splitNames.has(name));
   if (combined.length > 1)
     throw new Error("Multiple AGI combined directories; select a game prefix.");
   if (combined.length === 1) return { kind: "v3-combined", prefix: combined[0]!.slice(0, -3) };
   const prefixes = new Set(
-    [...files.keys()].flatMap((name) => {
+    names.flatMap((name) => {
       const match = /^(.+)VOL\.\d+$/.exec(name);
       return match ? [match[1]!] : [];
     }),
@@ -160,31 +164,41 @@ class ResourceContainer implements GameContainer {
 
   /** Takes ownership of `files` (already private copies). */
   constructor(files: Map<string, Uint8Array>, options: ContainerOptions = {}) {
-    this.#files = files;
+    // Resource names normalize once, here: platform ports ship the same
+    // containers under lowercase names and the Amiga v3 combined directory as
+    // `dirs`, while the rest of the engine sees only LOGDIR/VOL.n/WORDS.TOK/
+    // OBJECT spellings. Other files keep their names.
+    const owned = new Map<string, Uint8Array>();
+    for (const [name, bytes] of files) {
+      const canonical = canonicalResourceName(name);
+      if (owned.has(canonical)) throw new Error(`Duplicate container file: ${name}`);
+      owned.set(canonical, bytes);
+    }
+    this.#files = owned;
     const inferred =
-      options.kind && options.prefix !== undefined ? options : detectContainerFormat(files);
+      options.kind && options.prefix !== undefined ? options : detectContainerFormat(owned);
     this.#v3 = (options.kind ?? inferred.kind) === "v3-combined";
     this.#prefix = this.#v3 ? (options.prefix ?? inferred.prefix ?? "") : "";
-    this.#combinedName = this.#v3 && files.has(`${this.#prefix}DIR`) ? `${this.#prefix}DIR` : null;
+    this.#combinedName = this.#v3 && owned.has(`${this.#prefix}DIR`) ? `${this.#prefix}DIR` : null;
     this.#headerBytes = this.#v3 ? 7 : RECORD_HEADER_BYTES;
     this.#maxVolume = this.#v3 ? 15 : VOLUME_MAX_NUMBER;
     if (this.#combinedName) this.#sections();
     // Normalize: every family has a directory; at least VOL.0 exists.
     for (const kind of RESOURCE_KINDS) {
       const name = DIRECTORY_FILES[kind];
-      if (!this.#combinedName && !files.has(name)) {
-        files.set(name, new Uint8Array(INITIAL_DIRECTORY_ENTRIES * ENTRY_BYTES).fill(0xff));
+      if (!this.#combinedName && !owned.has(name)) {
+        owned.set(name, new Uint8Array(INITIAL_DIRECTORY_ENTRIES * ENTRY_BYTES).fill(0xff));
       }
     }
     let current = -1;
-    for (const name of files.keys()) {
+    for (const name of owned.keys()) {
       const m = name.startsWith(this.#prefix)
         ? /^VOL\.(\d+)$/.exec(name.slice(this.#prefix.length))
         : null;
       if (m) current = Math.max(current, Number(m[1]));
     }
     if (current < 0) {
-      files.set(volumeFileName(0, this.#prefix), new Uint8Array(0));
+      owned.set(volumeFileName(0, this.#prefix), new Uint8Array(0));
     }
   }
 

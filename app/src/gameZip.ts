@@ -6,6 +6,7 @@ import type { RoomMapSidecar } from "../../src/agent/roomMap.ts";
 import { crc32 } from "./zip.ts";
 import { readPublicMetadata, type PublicGameMetadata } from "./gameMetadata.ts";
 import { openContainer, DIRECTORY_FILES } from "../../src/container/container.ts";
+import { canonicalResourceName } from "../../src/types.ts";
 import { decodeBooter, isBooterImage } from "../../src/container/booter.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import { parseLogicResource } from "../../src/logic/resource.ts";
@@ -167,7 +168,9 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
   const entries = new Map<string, Uint8Array>();
   let expanded = 0;
   for (const [path, bytes] of input) {
-    const name = path.replace(/\\/g, "/").toUpperCase();
+    const upper = path.replace(/\\/g, "/").toUpperCase();
+    const slash = upper.lastIndexOf("/");
+    const name = upper.slice(0, slash + 1) + canonicalResourceName(upper.slice(slash + 1));
     if (
       !name ||
       name.startsWith("/") ||

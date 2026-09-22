@@ -5,7 +5,7 @@ const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_GAME_BYTES = 256 * 1024 * 1024;
 const PUBLIC_GAME_FILE =
-  /^(?:[A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM|GAME\.JSON)$/;
+  /^(?:[A-Z0-9_]*DIR|DIRS|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM|GAME\.JSON)$/;
 
 export interface HostedCatalogRecord {
   id: string;

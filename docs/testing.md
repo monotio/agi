@@ -23,13 +23,25 @@ Installed game folders are gitignored and excluded from production builds.
 
 Editions of the same game on different platforms (DOS, Amiga, IIgs) share the
 `WORDS.TOK` vocabulary hash but ship their own `OBJECT`. The game catalog
-fingerprints a release by the pair, so a bare hash or alias query resolves to
-the single catalogued edition — the release the tests and walkthroughs were
-verified against — while ports stay reachable by folder name and appear as
-separate gallery entries under their folder title, without the catalogued
-edition's profile. Two installations of the same edition, or several
-non-catalogued ports, still report an ambiguous query that asks for the
-fixture folder.
+fingerprints a release by the `(WORDS.TOK, OBJECT)` pair, so a bare hash or
+alias query resolves to the catalogued PC edition — the release the tests and
+walkthroughs were verified against — while a port resolves to its own catalog
+entry through its own pair and stays reachable by folder name. Two
+installations of the same edition, or editions outside the catalog, still
+report an ambiguous query that asks for the fixture folder.
+
+Platform ports ship the same containers under their own file names: Amiga v2
+releases use lowercase `logdir`, `vol.n`, `object` and `words.tok`, Amiga v3
+releases a lowercase `dirs` combined directory with an empty prefix, and the
+IIgs release keeps the DOS spellings beside its own system files. Resource
+names are canonicalized when the container takes ownership, so the engine
+always sees `LOGDIR`, `VOL.n`, `WORDS.TOK` and `OBJECT` while unrelated files
+keep their spelling. The catalogued ports are `games/sq1-amiga/` (2.411),
+`games/kq2-amiga/` (2.411), `games/sq2-amiga/` (2.936), `games/pq1-amiga/`
+(3.002.149), `games/goldrush-amiga/` (3.002.149), `games/mh2-amiga/`
+(3.002.149) and `games/sq2-iigs/` (2.936); [test/ports.test.ts](../test/ports.test.ts)
+opens each under its on-disk names, counts its logics and boots into its first
+room.
 
 ### Optional fixtures
 
@@ -78,7 +90,8 @@ The local KQ4, MH2 and Gold Rush directory files match the
 (MD5 of the first 5,000 bytes of the combined directory) for KQ4 2.0 1988-07-27
 3.5", Manhunter 2 3.02 1989-07-26 3.5" and Gold Rush 2.01 1988-12-22 3.5". The
 KQ4 directory indexes pictures 150–151 in a `KQ4VOL.6` and views 198–199 in a
-`KQ4VOL.7`; the MH2 directory indexes sounds 215–216 in an `MH2VOL.6`. Those
+`KQ4VOL.7`; the MH2 directory indexes sounds 215–216 in an `MH2VOL.6`; the
+mh2-amiga `dirs` indexes picture 106 in a `VOL.15`. Those
 volumes are absent from these releases' volume sets, so the entries are a
 property of the matched directories rather than evidence of a damaged copy. The
 strict volume check still reports them. Walkthrough tooling uses

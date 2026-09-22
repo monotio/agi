@@ -10,6 +10,8 @@
  * or a container-family fallback when the version is missing or unrecognized.
  */
 
+import { canonicalResourceName } from "../types.ts";
+
 /** Identifier of a promoted profile. */
 export type ProfileId =
   | "2.001"
@@ -494,9 +496,14 @@ export function findVersionString(bytes: Uint8Array): string | null {
 
 /** Interpreter version string found in a game folder's binaries, if any. */
 export function detectVersionString(files: ReadonlyMap<string, Uint8Array>): string | null {
-  const loaders = [...files.keys()].filter((name) => /^[A-Z0-9_-]+\.COM$/i.test(name)).sort();
+  const byCanonical = new Map<string, string>();
+  for (const name of files.keys()) {
+    const canonical = canonicalResourceName(name);
+    if (!byCanonical.has(canonical)) byCanonical.set(canonical, name);
+  }
+  const loaders = [...byCanonical.keys()].filter((name) => /^[A-Z0-9_-]+\.COM$/i.test(name)).sort();
   for (const name of [...INTERPRETER_FILES, ...loaders]) {
-    const bytes = files.get(name);
+    const bytes = files.get(byCanonical.get(name) ?? name);
     if (!bytes) continue;
     const found = findVersionString(bytes);
     if (found !== null) return found;
@@ -506,12 +513,13 @@ export function detectVersionString(files: ReadonlyMap<string, Uint8Array>): str
 
 /** True when the file map looks like a combined v3 container (`<PREFIX>DIR` + `<PREFIX>VOL.n`). */
 export function hasCombinedDirectory(files: ReadonlyMap<string, Uint8Array>): boolean {
-  for (const name of files.keys()) {
+  const names = [...files.keys()].map(canonicalResourceName);
+  for (const name of names) {
     const m = /^(.*)DIR$/.exec(name);
     if (!m) continue;
     const prefix = m[1]!;
     if (prefix === "LOG" || prefix === "PIC" || prefix === "VIEW" || prefix === "SND") continue;
-    for (const other of files.keys()) {
+    for (const other of names) {
       if (other.startsWith(`${prefix}VOL.`)) return true;
     }
   }

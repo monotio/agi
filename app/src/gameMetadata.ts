@@ -7,6 +7,7 @@ import {
   type ResourceRevision,
 } from "../../src/gameIdentity.ts";
 import { sha256Hex } from "./crypto.ts";
+import { canonicalResourceName } from "../../src/types.ts";
 import type { BootedGame } from "./gameTypes.ts";
 
 /** Versioned library metadata. Resource revisions and local project IDs have separate jobs. */
@@ -148,7 +149,7 @@ export function readPublicMetadata(raw: unknown): {
  * bundle, and never move the ResourceRevision.
  */
 export function isPlayableFileName(name: string): boolean {
-  return /^([A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/i.test(
+  return /^([A-Z0-9_]*DIR|DIRS|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/i.test(
     name,
   );
 }
@@ -164,13 +165,13 @@ export async function gameRevision(files: Record<string, Uint8Array>): Promise<R
   const normalized = new Map<string, Uint8Array>();
   for (const [name, bytes] of Object.entries(files)) {
     if (!isPlayableFileName(name)) continue;
-    const key = name.toUpperCase();
+    const key = canonicalResourceName(name);
     if (normalized.has(key)) throw new Error(`Duplicate game resource name: ${name}.`);
     normalized.set(key, bytes);
   }
   const entries = [...normalized].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   const parts = entries.map(([name, bytes]) => ({
-    name: encoder.encode(name.toUpperCase()),
+    name: encoder.encode(name),
     bytes,
   }));
   const packed = new Uint8Array(
@@ -194,10 +195,12 @@ export async function gameRevision(files: Record<string, Uint8Array>): Promise<R
 export async function detectKnownGame(
   files: Record<string, Uint8Array>,
 ): Promise<KnownAgiGame | null> {
-  const words = files["WORDS.TOK"] ?? files["words.tok"];
+  const named = (canonical: string): Uint8Array | undefined =>
+    Object.entries(files).find(([name]) => canonicalResourceName(name) === canonical)?.[1];
+  const words = named("WORDS.TOK");
   if (!words) return null;
   const wordsSha = await sha256Hex(words);
-  const obj = files["OBJECT"] ?? files["object"];
+  const obj = named("OBJECT");
   const objSha = obj ? await sha256Hex(obj) : undefined;
   return detectKnownGameByHashes(wordsSha, objSha);
 }

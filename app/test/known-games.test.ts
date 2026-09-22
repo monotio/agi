@@ -19,17 +19,25 @@ installIndexedDbFixture();
 test("known games catalog is internally consistent and collision-free", () => {
   const hex64 = /^[0-9a-f]{64}$/;
   const aliases = new Set<string>();
-  const wordsHashes = new Set<string>();
+  const pairs = new Set<string>();
 
   for (const game of KNOWN_GAMES) {
     assert.ok(!aliases.has(game.alias), `Duplicate known game alias: ${game.alias}`);
     aliases.add(game.alias);
 
-    assert.ok(
-      !wordsHashes.has(game.wordsSha256),
-      `Collision on WORDS.TOK hash for ${game.alias}: ${game.wordsSha256}`,
+    // Platform ports may share a WORDS.TOK hash with their PC release; the
+    // (WORDS.TOK, OBJECT) pair fingerprints the edition and must stay unique.
+    const pair = `${game.wordsSha256}/${game.objectSha256}`;
+    assert.ok(!pairs.has(pair), `Collision on (WORDS.TOK, OBJECT) pair for ${game.alias}`);
+    pairs.add(pair);
+    assert.equal(
+      detectKnownGameByHashes(game.wordsSha256, game.objectSha256)?.alias,
+      game.alias,
+      `${game.alias} must resolve through its own (WORDS.TOK, OBJECT) pair`,
     );
-    wordsHashes.add(game.wordsSha256);
+    // A bare vocabulary hash resolves to the first catalogued edition of it.
+    const first = KNOWN_GAMES.find((g) => g.wordsSha256 === game.wordsSha256)!;
+    assert.equal(detectKnownGameByHashes(game.wordsSha256)?.alias, first.alias);
 
     assert.match(game.wordsSha256, hex64, `${game.alias} wordsSha256 must be a 64-char hex string`);
     assert.match(

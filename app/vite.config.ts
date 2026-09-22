@@ -5,6 +5,7 @@ import { defineConfig, type Plugin } from "vite";
 import { scanFixtures } from "../test/fixtures.ts";
 import { BUILTIN_GAME_BUILDERS } from "../test/game-fixture.ts";
 import { KNOWN_GAMES, detectKnownGameByHashes } from "../src/games/knownGames.ts";
+import { canonicalResourceName } from "../src/types.ts";
 import { gameRevision, isPlayableFileName } from "./src/gameMetadata.ts";
 
 export interface InstalledFixtureDescriptor {
@@ -34,7 +35,7 @@ function fixtureServer(): Plugin {
   ): Promise<string> => {
     const served: Record<string, Uint8Array> = {};
     for (const [name, bytes] of files instanceof Map ? [...files] : Object.entries(files))
-      if (isPlayableFileName(name)) served[name.toUpperCase()] = bytes;
+      if (isPlayableFileName(name)) served[canonicalResourceName(name)] = bytes;
     return gameRevision(served);
   };
   const installedGames = async (): Promise<InstalledFixtureDescriptor[]> => {
@@ -57,7 +58,9 @@ function fixtureServer(): Plugin {
         const served: Record<string, Uint8Array> = {};
         for (const actual of fixture.files.values())
           if (isPlayableFileName(actual))
-            served[actual.toUpperCase()] = new Uint8Array(readFileSync(join(fixture.dir, actual)));
+            served[canonicalResourceName(actual)] = new Uint8Array(
+              readFileSync(join(fixture.dir, actual)),
+            );
         return {
           folder: fixture.folder,
           hash: fixture.hash,
@@ -146,13 +149,13 @@ function fixtureServer(): Plugin {
                 g.alias?.toLowerCase() === segment0!.toLowerCase(),
             );
             if (matches.length > 1) {
-              // Ports share the WORDS.TOK vocabulary hash; the catalogued
-              // (WORDS.TOK + OBJECT) fingerprint names the verified edition.
-              const cataloged = matches.filter(
-                (m) =>
-                  m.wordsSha256 !== undefined &&
-                  detectKnownGameByHashes(m.wordsSha256, m.objectSha256) !== null,
-              );
+              // Ports share the WORDS.TOK vocabulary hash; the vocabulary's
+              // catalogued (WORDS.TOK + OBJECT) pair names the verified edition.
+              const cataloged = matches.filter((m) => {
+                if (m.wordsSha256 === undefined) return false;
+                const detected = detectKnownGameByHashes(m.wordsSha256, m.objectSha256);
+                return detected !== null && detected === detectKnownGameByHashes(m.wordsSha256);
+              });
               if (cataloged.length === 1) {
                 resolvedFolder = cataloged[0]!.folder;
               } else {

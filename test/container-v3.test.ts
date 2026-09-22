@@ -248,6 +248,31 @@ it("leaves all files unchanged when a combined directory cannot grow", () => {
   assert.deepEqual(c.files, before);
 });
 
+it("opens an Amiga v3 installation whose combined directory is named dirs", () => {
+  const original = record([5, 6]);
+  const sections = RESOURCE_KINDS.flatMap((k) => (k === "logic" ? [0, 0, 0] : [255, 255, 255]));
+  const files = new Map<string, Uint8Array>([
+    ["dirs", Uint8Array.from([8, 0, 11, 0, 14, 0, 17, 0, ...sections])],
+    ["vol.0", original],
+    ["object", Uint8Array.of(9)],
+    ["words.tok", Uint8Array.of(1)],
+    ["GR", Uint8Array.of(0x4d, 0x5a)],
+  ]);
+  assert.deepEqual(detectContainerFormat(files), { kind: "v3-combined", prefix: "" });
+  const profile = detectProfile(files);
+  assert.equal(profile.container, "v3-combined");
+  assert.equal(profile.id, "3.002.149");
+  const c = openContainer(files);
+  assert.deepEqual(c.getResource("logic", 0), Uint8Array.of(5, 6));
+  // The canonical empty-prefix names are DIR and VOL.n; other files pass through.
+  assert.equal(c.files.has("DIR"), true);
+  assert.equal(c.files.has("dirs"), false);
+  assert.equal(c.files.has("VOL.0"), true);
+  assert.deepEqual(c.files.get("GR"), Uint8Array.of(0x4d, 0x5a));
+  c.putResource("logic", 0, Uint8Array.of(99));
+  assert.deepEqual(openContainer(c.files).getResource("logic", 0), Uint8Array.of(99));
+});
+
 it("unifies detection and profile for empty-prefix v3 container (DIR and VOL.0)", () => {
   const original = record([5, 6]);
   const sections = RESOURCE_KINDS.flatMap((k) => (k === "logic" ? [0, 0, 0] : [255, 255, 255]));

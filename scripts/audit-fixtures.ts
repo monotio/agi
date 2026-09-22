@@ -29,7 +29,12 @@ import {
   type ProfileId,
 } from "../src/runtime/profile.ts";
 import { parseSound } from "../src/sound/sound.ts";
-import { createPictureSurface, RESOURCE_KINDS, type ResourceKind } from "../src/types.ts";
+import {
+  canonicalResourceName,
+  createPictureSurface,
+  RESOURCE_KINDS,
+  type ResourceKind,
+} from "../src/types.ts";
 import { parseView } from "../src/view/view.ts";
 
 export interface FixtureIssue {
@@ -55,7 +60,7 @@ export interface LibraryAudit {
 }
 
 const RESOURCE_FILE = /^(?:[A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.\d+|WORDS\.TOK|OBJECT)$/;
-const RESOURCE_DIRECTORY = /^[A-Z0-9_]*DIR$/i;
+const RESOURCE_DIRECTORY = /^(?:[A-Z0-9_]*DIR|DIRS)$/i;
 const DISK_IMAGE = /\.(?:img|ima)$/i;
 function gameDirectories(library: string): string[] {
   return readdirSync(library, { withFileTypes: true })
@@ -136,7 +141,7 @@ function auditGame(library: string, name: string): FixtureAudit {
     }
     const files = new Map<string, Uint8Array>();
     for (const entry of entries) {
-      const canonical = entry.name.toUpperCase();
+      const canonical = canonicalResourceName(entry.name.toUpperCase());
       if (
         !RESOURCE_FILE.test(canonical) &&
         !INTERPRETER_FILES.includes(canonical) &&
