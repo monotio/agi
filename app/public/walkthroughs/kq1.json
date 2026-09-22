@@ -25,21 +25,13 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 913,
-  "virtualTicks": 110047,
-  "cycles": 15849,
+  "elapsedMs": 1155,
+  "virtualTicks": 109408,
+  "cycles": 15811,
   "actions": [
     {
       "kind": "advance",
       "ticks": 30
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Title",
-      "room": 83,
-      "score": 0,
-      "x": 0,
-      "y": 37
     },
     {
       "kind": "key",
@@ -234,14 +226,6 @@
       "ticks": 12
     },
     {
-      "kind": "checkpoint",
-      "label": "Castle door",
-      "room": 55,
-      "score": 1,
-      "x": 75,
-      "y": 164
-    },
-    {
       "kind": "key",
       "code": 18432
     },
@@ -263,7 +247,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 270
+      "ticks": 264
     },
     {
       "kind": "key",
@@ -303,7 +287,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 414
+      "ticks": 408
     },
     {
       "kind": "key",
@@ -507,7 +491,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 402
+      "ticks": 396
     },
     {
       "kind": "key",
@@ -539,7 +523,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 576
+      "ticks": 570
     },
     {
       "kind": "key",
@@ -555,7 +539,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 168
+      "ticks": 162
     },
     {
       "kind": "key",
@@ -982,14 +966,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Tree",
-      "room": 63,
-      "score": 13,
-      "x": 35,
-      "y": 164
-    },
-    {
       "kind": "key",
       "code": 18688
     },
@@ -1110,14 +1086,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Golden egg",
-      "room": 63,
-      "score": 19,
-      "x": 68,
-      "y": 97
-    },
-    {
       "kind": "key",
       "code": 20224
     },
@@ -1195,7 +1163,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 12
+      "ticks": 18
     },
     {
       "kind": "key",
@@ -2190,14 +2158,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Elf ring",
-      "room": 18,
-      "score": 29,
-      "x": 35,
-      "y": 48
-    },
-    {
       "kind": "key",
       "code": 20480
     },
@@ -3171,7 +3131,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 294
+      "ticks": 288
     },
     {
       "kind": "key",
@@ -3243,7 +3203,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 294
+      "ticks": 288
     },
     {
       "kind": "key",
@@ -3315,7 +3275,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 294
+      "ticks": 288
     },
     {
       "kind": "key",
@@ -3387,7 +3347,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 294
+      "ticks": 288
     },
     {
       "kind": "key",
@@ -3755,19 +3715,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Witch's note",
-      "room": 65,
-      "score": 41,
-      "x": 135,
-      "y": 150
-    },
-    {
-      "kind": "advance",
-      "ticks": 402
+      "ticks": 403
     },
     {
       "kind": "key",
@@ -3980,14 +3928,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Witch defeated",
-      "room": 65,
-      "score": 48,
-      "x": 40,
-      "y": 120
     },
     {
       "kind": "key",
@@ -4206,14 +4146,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Cheese",
-      "room": 65,
-      "score": 52,
-      "x": 40,
-      "y": 98
-    },
-    {
       "kind": "key",
       "code": 20736
     },
@@ -4271,11 +4203,19 @@
     },
     {
       "kind": "key",
+      "code": 18688
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
       "code": 19712
     },
     {
       "kind": "advance",
-      "ticks": 42
+      "ticks": 36
     },
     {
       "kind": "key",
@@ -4463,11 +4403,19 @@
     },
     {
       "kind": "key",
+      "code": 20736
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
       "code": 19712
     },
     {
       "kind": "advance",
-      "ticks": 54
+      "ticks": 48
     },
     {
       "kind": "key",
@@ -4739,7 +4687,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 354
+      "ticks": 348
     },
     {
       "kind": "key",
@@ -4947,7 +4895,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 270
+      "ticks": 264
     },
     {
       "kind": "key",
@@ -5734,14 +5682,6 @@
       "ticks": 6
     },
     {
-      "kind": "checkpoint",
-      "label": "Goat",
-      "room": 11,
-      "score": 72,
-      "x": 20,
-      "y": 162
-    },
-    {
       "kind": "key",
       "code": 19200
     },
@@ -5795,7 +5735,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 18
+      "ticks": 12
     },
     {
       "kind": "key",
@@ -5803,7 +5743,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 588
+      "ticks": 594
     },
     {
       "kind": "key",
@@ -5875,7 +5815,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 228
+      "ticks": 222
     },
     {
       "kind": "key",
@@ -6468,14 +6408,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Beans",
-      "room": 40,
-      "score": 85,
-      "x": 40,
-      "y": 120
     },
     {
       "kind": "key",
@@ -7579,7 +7511,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 342
+      "ticks": 336
     },
     {
       "kind": "key",
@@ -7731,7 +7663,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 295
+      "ticks": 289
     },
     {
       "kind": "key",
@@ -7739,7 +7671,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 146
+      "ticks": 140
     },
     {
       "kind": "checkpoint",
@@ -8331,7 +8263,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 18
+      "ticks": 12
     },
     {
       "kind": "key",
@@ -8355,7 +8287,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 510
+      "ticks": 504
     },
     {
       "kind": "key",
@@ -8574,14 +8506,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Dragon defeated",
-      "room": 51,
-      "score": 117,
-      "x": 100,
-      "y": 140
-    },
-    {
       "kind": "key",
       "code": 18176
     },
@@ -8702,14 +8626,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Magic mirror",
-      "room": 51,
-      "score": 125,
-      "x": 40,
-      "y": 120
-    },
-    {
       "kind": "key",
       "code": 20736
     },
@@ -8755,7 +8671,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 222
+      "ticks": 216
     },
     {
       "kind": "key",
@@ -8938,7 +8854,7 @@
       "label": "Return from the well",
       "room": 12,
       "score": 129,
-      "x": 49,
+      "x": 48,
       "y": 110
     },
     {
@@ -8947,7 +8863,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 126
+      "ticks": 132
     },
     {
       "kind": "key",
@@ -9243,7 +9159,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 156
+      "ticks": 798
     },
     {
       "kind": "key",
@@ -9283,39 +9199,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 420
-    },
-    {
-      "kind": "key",
-      "code": 106
-    },
-    {
-      "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 117
-    },
-    {
-      "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 109
-    },
-    {
-      "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 112
-    },
-    {
-      "kind": "advance",
-      "ticks": 3
+      "ticks": 230
     },
     {
       "kind": "key",
@@ -9323,135 +9207,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 108
-    },
-    {
-      "kind": "key",
-      "code": 106
-    },
-    {
-      "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 117
-    },
-    {
-      "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 109
-    },
-    {
-      "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 112
-    },
-    {
-      "kind": "advance",
-      "ticks": 3
-    },
-    {
-      "kind": "key",
-      "code": 13
-    },
-    {
-      "kind": "advance",
-      "ticks": 78
-    },
-    {
-      "kind": "key",
-      "code": 106
-    },
-    {
-      "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 117
-    },
-    {
-      "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 109
-    },
-    {
-      "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 112
-    },
-    {
-      "kind": "advance",
-      "ticks": 3
-    },
-    {
-      "kind": "key",
-      "code": 13
-    },
-    {
-      "kind": "advance",
-      "ticks": 150
-    },
-    {
-      "kind": "key",
-      "code": 106
-    },
-    {
-      "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 117
-    },
-    {
-      "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 109
-    },
-    {
-      "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "key",
-      "code": 112
-    },
-    {
-      "kind": "advance",
-      "ticks": 3
-    },
-    {
-      "kind": "key",
-      "code": 13
-    },
-    {
-      "kind": "advance",
-      "ticks": 224
-    },
-    {
-      "kind": "key",
-      "code": 13
-    },
-    {
-      "kind": "advance",
-      "ticks": 1598
+      "ticks": 1580
     },
     {
       "kind": "key",
@@ -9646,14 +9402,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Mushroom",
-      "room": 47,
-      "score": 133,
-      "x": 90,
-      "y": 85
-    },
-    {
       "kind": "key",
       "code": 20736
     },
@@ -9763,7 +9511,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 234
+      "ticks": 228
     },
     {
       "kind": "key",
@@ -9795,7 +9543,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 330
+      "ticks": 324
     },
     {
       "kind": "key",
@@ -9827,7 +9575,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 426
+      "ticks": 420
     },
     {
       "kind": "key",
@@ -9835,7 +9583,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 6
+      "ticks": 36
     },
     {
       "kind": "key",
@@ -9939,7 +9687,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 219
+      "ticks": 261
     },
     {
       "kind": "key",
@@ -10211,7 +9959,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 666
+      "ticks": 660
     },
     {
       "kind": "key",
@@ -10227,7 +9975,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 396
+      "ticks": 390
     },
     {
       "kind": "key",
@@ -10491,7 +10239,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 72
+      "ticks": 66
     },
     {
       "kind": "key",
@@ -10635,7 +10383,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 497
+      "ticks": 491
     },
     {
       "kind": "key",
@@ -10771,15 +10519,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 373
-    },
-    {
-      "kind": "key",
-      "code": 13
-    },
-    {
-      "kind": "advance",
-      "ticks": 8
+      "ticks": 144
     },
     {
       "kind": "key",
@@ -10795,15 +10535,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 262
-    },
-    {
-      "kind": "key",
-      "code": 13
-    },
-    {
-      "kind": "advance",
-      "ticks": 266
+      "ticks": 354
     },
     {
       "kind": "key",
@@ -11003,7 +10735,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 270
+      "ticks": 264
     },
     {
       "kind": "key",
@@ -11043,7 +10775,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 414
+      "ticks": 408
     },
     {
       "kind": "key",
@@ -11174,10 +10906,10 @@
       0,
       0,
       158,
-      0,
+      255,
       0,
       2,
-      34,
+      23,
       30,
       0,
       0,
@@ -11234,7 +10966,7 @@
       0,
       0,
       0,
-      225,
+      247,
       2,
       0,
       0,
@@ -11270,7 +11002,7 @@
       90,
       2,
       1,
-      94,
+      92,
       42,
       1,
       1,
@@ -11559,7 +11291,7 @@
       1,
       0,
       0,
-      0,
+      1,
       0,
       1,
       1,
@@ -11683,6 +11415,18 @@
     ],
     "strings": [
       ">",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
       "",
       "",
       "",

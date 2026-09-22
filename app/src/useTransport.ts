@@ -144,7 +144,7 @@ export type TransportModel = TransportSource &
 const SCRUB_FORWARD_MS = 150;
 const SCRUB_BACKWARD_MS = 350;
 /** A mark grabs the hover when the pointer sits within this lane percent. */
-const MARK_SNAP_PERCENT = 4;
+const MARK_SNAP_PERCENT = 1.5;
 
 export function useTransport(source: TransportSource, extras: TransportExtras): TransportModel {
   const ui = reactive({
@@ -223,9 +223,14 @@ export function useTransport(source: TransportSource, extras: TransportExtras): 
     ui.isScrubbing = true;
     source.setScrubbing(true);
     cancelPendingSeek();
-    ui.scrubPercent = pct;
+    // Markers are visual-only: dense checkpoint clusters overlap beyond DOM
+    // hit-testing's reach, so the pointer resolves the nearest mark itself —
+    // the same mark the hover tooltip already named.
+    const mark = markNear(pct);
+    ui.scrubPercent = mark ? mark.percent : pct;
     showHover(pct);
-    source.seekTick(tickAt(pct));
+    if (mark) source.clickMark(mark);
+    else source.seekTick(tickAt(pct));
   }
 
   function scrubMove(pct: number): void {

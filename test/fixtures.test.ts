@@ -12,7 +12,9 @@ import {
   fixtureReadiness,
   fixtureSkip,
   hasFixture,
+  KNOWN_GAME_HASH,
 } from "./fixtures.ts";
+import { buildSyntheticGame } from "../src/games/syntheticGame.ts";
 
 test("missing fixtures report the installation folder instead of passing silently", () => {
   const target = "missing-fixture-test";
@@ -221,6 +223,34 @@ test("duplicate vocabulary editions remain separately resolvable by folder, whil
     () => findFixture(sharedHash),
     /Ambiguous fixture query.*specify the fixture folder/,
   );
+});
+
+test("the catalogued OBJECT fingerprint wins a hash query shared with a port edition", (t) => {
+  const cataloged = mkdtempSync(fixtureDir("edition-cataloged-").slice(0, -1));
+  const port = mkdtempSync(fixtureDir("edition-port-").slice(0, -1));
+  t.after(() => {
+    for (const dir of [cataloged, port]) rmSync(dir, { recursive: true, force: true });
+    clearFixtureCache();
+  });
+  // Platform ports share the WORDS.TOK vocabulary but ship their own OBJECT.
+  const built = buildSyntheticGame();
+  writeFileSync(join(cataloged, "WORDS.TOK"), built.files["WORDS.TOK"]!);
+  writeFileSync(join(cataloged, "OBJECT"), built.files["OBJECT"]!);
+  writeFileSync(join(port, "WORDS.TOK"), built.files["WORDS.TOK"]!);
+  writeFileSync(join(port, "OBJECT"), new Uint8Array([1, 2, 3]));
+  clearFixtureCache();
+  const wordsHash = createHash("sha256").update(built.files["WORDS.TOK"]!).digest("hex");
+  assert.equal(wordsHash, KNOWN_GAME_HASH.SYNTHETIC, "fixture bytes carry the catalog fingerprint");
+  assert.equal(
+    findFixture(wordsHash)?.folder,
+    basename(cataloged),
+    "bare hash picks the cataloged edition",
+  );
+  const portFixture = findFixture(basename(port));
+  assert.equal(portFixture?.known, null, "the port does not inherit the catalog entry");
+  assert.equal(portFixture?.title, basename(port));
+  const catalogedFixture = findFixture(basename(cataloged));
+  assert.equal(catalogedFixture?.known?.alias, "synthetic");
 });
 
 test("a plain edition outranks project exports that share its vocabulary hash", (t) => {

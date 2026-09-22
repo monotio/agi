@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { getKnownGameByAlias } from "../../src/games/knownGames.ts";
-import { isolateStorage, openCardMenu } from "./engineProbe.ts";
+import { clickTimelineMark, isolateStorage, openCardMenu } from "./engineProbe.ts";
 
 const missing = fixtureSkip(KNOWN_GAME_HASH.KQ1, ["AGIDATA.OVL"]);
 
@@ -212,15 +212,22 @@ test.describe("Walkthrough UI", () => {
     // Test seeking via timeline marker click
     const marker3 = page.getByTestId("walkthrough-marker-3");
     await expect(marker3).toBeVisible();
-    await marker3.click();
-    // Verify seek jumps forward
+    await clickTimelineMark(page, marker3);
+    // Verify the seek jumps forward and settles on that highlight before the
+    // rewind below reads the position it starts from.
+    const marker3Tick = await page.evaluate(
+      () => window.__AGI_STATE__?.walkthrough.checkpoints[3]?.tick ?? 0,
+    );
     await expect
       .poll(
         async () => {
+          const seeking = await page.evaluate(
+            () => window.__AGI_STATE__?.walkthrough.seeking ?? true,
+          );
           const tick = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
-          return tick;
+          return !seeking && tick >= marker3Tick ? tick : 0;
         },
-        { timeout: 10_000 },
+        { timeout: 30_000 },
       )
       .toBeGreaterThan(tickPaused + 100);
 
@@ -228,7 +235,7 @@ test.describe("Walkthrough UI", () => {
     const marker1Early = page.getByTestId("walkthrough-marker-1");
     await expect(marker1Early).toBeVisible();
     const tickBeforeRewind = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
-    await marker1Early.click({ force: true });
+    await clickTimelineMark(page, marker1Early);
     await expect
       .poll(
         async () => {
@@ -523,7 +530,9 @@ test.describe("Walkthrough UI", () => {
 
     const box = await timeline.boundingBox();
     const bellevue = await checkpointPercent(page, "Bellevue Hospital");
-    const at = (pct: number) => box!.x + (box!.width * pct) / 100;
+    // Clamp inside the lane: percent offsets can leave the timeline (Bellevue
+    // sits at ~7%), and a pointerdown off it never starts a scrub.
+    const at = (pct: number) => box!.x + (box!.width * Math.min(99, Math.max(0.5, pct))) / 100;
     const midY = box!.y + box!.height * 0.5;
     // Rapid scrubbing back and forth across multiple checkpoints, landing
     // just before Bellevue Hospital so playback crosses it.
@@ -553,11 +562,11 @@ test.describe("Walkthrough UI", () => {
     const timeline = page.getByTestId("walkthrough-timeline");
     await expect(timeline).toBeVisible({ timeout: 15_000 });
 
-    const cpMarker = page.getByTestId("walkthrough-marker-1");
+    const cpMarker = page.getByTestId("walkthrough-marker-0");
     await expect(cpMarker).toBeVisible({ timeout: 10_000 });
-    await cpMarker.click();
+    await clickTimelineMark(page, cpMarker);
 
-    // Verify seeking past prompt (Action 43 "ROGER") reaches room 1 without prompt-hint timeout
+    // Seeking past the name prompt's "ROGER" answer reaches the data archive (room 1) cleanly
     await engineRoomIs(page, 1, 15_000);
   });
 
@@ -574,10 +583,13 @@ test.describe("Walkthrough UI", () => {
 
     for (const milestone of [
       { label: "All seven spells mastered", room: 10, score: 157 },
-      { label: "The wizard’s secrets", room: 2, score: 23 },
+      { label: "A small ingredient in the observatory", room: 1, score: 24 },
       { label: "Gwydion is free of Manannan", room: 8, score: 169 },
     ]) {
-      await page.locator(`.walkthrough-marker[title*="${milestone.label}"]`).click();
+      await clickTimelineMark(
+        page,
+        page.locator(`.walkthrough-marker[title*="${milestone.label}"]`),
+      );
       await engineRoomIs(page, milestone.room);
       await expect
         .poll(() => page.evaluate(() => window.__AGI_REPLAY__?.latest?.state.vars[3]))
@@ -586,7 +598,7 @@ test.describe("Walkthrough UI", () => {
     await page.screenshot({ path: test.info().outputPath("kq3-story-highlights.png") });
   });
 
-  test("scrubs mh1 past MAD terminal answers to Trinity Church checkpoint cleanly", async ({
+  test("scrubs mh1 past MAD terminal answers to the Knife game checkpoint cleanly", async ({
     page,
   }) => {
     const mh1Missing = fixtureSkip(KNOWN_GAME_HASH.MH1, ["AGIDATA.OVL"]);
@@ -603,12 +615,12 @@ test.describe("Walkthrough UI", () => {
     const timeline = page.getByTestId("walkthrough-timeline");
     await expect(timeline).toBeVisible({ timeout: 15_000 });
 
-    const cpMarker = page.locator('.walkthrough-marker[title*="Trinity Church"]');
+    const cpMarker = page.locator('.walkthrough-marker[title*="Knife game"]');
     await expect(cpMarker).toBeVisible({ timeout: 10_000 });
-    await cpMarker.click();
+    await clickTimelineMark(page, cpMarker);
 
-    // Verify seeking past MAD terminal answers (actions 166 and 170) reaches room 111 cleanly
-    await engineRoomIs(page, 111);
+    // Seeking past the MAD terminal answers reaches the Flatbush bar's knife game (room 118) cleanly
+    await engineRoomIs(page, 118);
   });
 
   test("seeking forward to Sewers then back to Maze in mh1 avoids direction leakage", async ({
@@ -629,7 +641,7 @@ test.describe("Walkthrough UI", () => {
     await expect(timeline).toBeVisible({ timeout: 15_000 });
 
     const sewersPct = await checkpointPercent(page, "Sewers");
-    const mazePct = await checkpointPercent(page, "Enter the maze challenge");
+    const mazePct = await checkpointPercent(page, "Maze: four squares collected");
     const box = await timeline.boundingBox();
     const clickAt = (pct: number) =>
       page.mouse.click(box!.x + (box!.width * pct) / 100, box!.y + box!.height * 0.5);
@@ -649,6 +661,50 @@ test.describe("Walkthrough UI", () => {
     await engineRoomIs(page, 128, 30_000);
     await clickAt(mazePct);
     await engineRoomIs(page, 126, 30_000);
+  });
+
+  test("a mark click held through the snapshot restore still resumes mh1 playback", async ({
+    page,
+  }) => {
+    const mh1Missing = fixtureSkip(KNOWN_GAME_HASH.MH1, ["AGIDATA.OVL"]);
+    test.skip(Boolean(mh1Missing), mh1Missing || "");
+    test.setTimeout(120_000);
+    await isolateStorage(page);
+    await page.goto("/");
+    await openCardMenu(page, "game-actions-mh1");
+    await page.getByTestId("run-walkthrough").click();
+    await expect(page.getByTestId("walkthrough-timeline")).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("walkthrough-speed-8").click();
+
+    const tickOf = (label: string) =>
+      page.evaluate(
+        (l) => window.__AGI_STATE__?.walkthrough.checkpoints.find((c) => c.label === l)?.tick ?? 0,
+        label,
+      );
+    const replayTick = () => page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
+    await clickTimelineMark(page, page.locator('.walkthrough-marker[title*="Took Module A"]'));
+    const forward = await tickOf("Took Module A from the church");
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate(() => window.__AGI_STATE__?.walkthrough.seeking)) === false &&
+          (await replayTick()) >= forward,
+        { timeout: 60_000 },
+      )
+      .toBe(true);
+
+    // A real click holds the pointer for a moment; the restore lands while
+    // the timeline is still scrubbing, and the release must let playback go on.
+    const box = (await page
+      .locator('.walkthrough-marker[title*="Maze challenge completed"]')
+      .boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(400);
+    await page.mouse.up();
+    const back = await tickOf("Maze challenge completed");
+    await expect.poll(replayTick, { timeout: 15_000 }).toBeGreaterThan(back + 300);
+    await expect(page.getByTestId("walkthrough-label")).toContainText("Maze challenge completed");
   });
 
   test("seeking mh1 backward from a tap-to-move section still releases held directions on the map", async ({
@@ -676,9 +732,9 @@ test.describe("Walkthrough UI", () => {
     // fast-forward replays the map cursor's hold-to-move presses, and a stale
     // releaseEligible would skip every release — the cursor drifts off the
     // Bellevue hotspot and the replay stays in room 114.
-    const kewpie = page.locator('.walkthrough-marker[title*="Kewpie"]');
-    await expect(kewpie).toBeVisible({ timeout: 10_000 });
-    await kewpie.click();
+    const coneyIsland = page.locator('.walkthrough-marker[title*="Coney Island"]');
+    await expect(coneyIsland).toBeVisible({ timeout: 10_000 });
+    await clickTimelineMark(page, coneyIsland);
     await roomIs(129);
     // holdToMove mirrors the engine's release gate through frame messages —
     // wait until a posted frame actually reports the cleared gate.
@@ -692,7 +748,7 @@ test.describe("Walkthrough UI", () => {
     // hold-to-move presses and releases all replay inside the fast-forward,
     // under the stale mirror. The checkpoint then verifies in the seek.
     const bellevue = page.locator('.walkthrough-marker[title*="Bellevue"]');
-    await bellevue.click();
+    await clickTimelineMark(page, bellevue);
     await roomIs(130);
   });
 

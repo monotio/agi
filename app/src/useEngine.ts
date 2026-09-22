@@ -206,6 +206,7 @@ export function useEngine(
 
   const replayDriver = createReplayDriver({
     query: link.query,
+    post: (msg) => link.getWorker()?.postMessage(msg),
     sendKey: (code, sessionId) => sendKey(code, sessionId),
     sendDirection: (dir, sessionId) => sendDirection(dir, sessionId),
     submitPrompt: (text) => promptController.submitPrompt(text),

@@ -23,7 +23,7 @@ for (const hold of [false, true]) {
         `
       if(!isset(f200)) {
         set(f200);assignn(v10,1);assignn(v60,0);load.pic(v60);draw.pic(v60);show.pic();
-        load.view(0);animate.obj(0);set.view(0,0);position(0,80,120);draw(0);accept.input();
+        load.view(0);animate.obj(0);set.view(0,0);position(0,80,120);draw(0);assignn(v99,1);step.size(0,v99);accept.input();
         set.key(0,59,1);
         ${hold ? "hold.key();" : ""}
       }
@@ -151,7 +151,7 @@ for (const hold of [false, true]) {
         `
       if(!isset(f200)) {
         set(f200);assignn(v10,1);assignn(v60,0);load.pic(v60);draw.pic(v60);show.pic();
-        load.view(0);animate.obj(0);set.view(0,0);position(0,60,120);draw(0);accept.input();
+        load.view(0);animate.obj(0);set.view(0,0);position(0,60,120);draw(0);assignn(v99,1);step.size(0,v99);accept.input();
         ${hold ? "hold.key();" : ""}
       } return;`,
         { dictionary: new Map() },
@@ -210,7 +210,7 @@ test("keyboard release during a game-triggered print stops hold.key motion after
       `
     if(!isset(f200)) {
       set(f200);assignn(v10,1);assignn(v60,0);load.pic(v60);draw.pic(v60);show.pic();
-      load.view(0);animate.obj(0);set.view(0,0);position(0,60,120);draw(0);accept.input();hold.key();
+      load.view(0);animate.obj(0);set.view(0,0);position(0,60,120);draw(0);assignn(v99,1);step.size(0,v99);accept.input();hold.key();
     }
     get.posn(0,v63,v64);
     if(!isset(f201) && greatern(v63,64)) {set(f201);print("Movement interruption");}

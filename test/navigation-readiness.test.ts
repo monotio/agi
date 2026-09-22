@@ -11,7 +11,9 @@ function boot(game: string, room: number): Speedrun {
   for (let attempt = 0; attempt < 200; attempt++) {
     if (run.state().room === room && run.engine.inputEnabled && run.engine.movementControlEnabled)
       return run;
-    run.key(AGI_KEY.ENTER);
+    // Keys queued before the boot's new.room now survive the transition and
+    // skip the title a cycle early; press Enter only once a room is showing.
+    if (run.state().room !== 0 && run.state().room !== room) run.key(AGI_KEY.ENTER);
     run.advance(30);
   }
   assert.fail("Title did not yield the expected starting room");

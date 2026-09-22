@@ -22,9 +22,11 @@ function game(
     assembleLogic(
       `
       if (!isset(f200)) {
-        set(f200); load.view(1);
+        set(f200); load.view(1); assignn(v60, 1);
         animate.obj(o0); set.view(o0, 1); position(o0, 20, 80); draw(o0); stop.cycling(o0);
+        step.size(o0, v60); step.time(o0, v60); cycle.time(o0, v60);
         animate.obj(o1); set.view(o1, 1); position(o1, 80, 80); draw(o1); stop.cycling(o1);
+        step.size(o1, v60); step.time(o1, v60); cycle.time(o1, v60);
         ${extra}
       }
       return;

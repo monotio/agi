@@ -96,6 +96,14 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.fns.onReplayAdvance(msg);
       return;
     }
+    if (msg.type === "replaySnapshot") {
+      ctx.fns.onReplaySnapshot(msg);
+      return;
+    }
+    if (msg.type === "replayRestore") {
+      ctx.fns.onReplayRestore(msg);
+      return;
+    }
     if (msg.type === "renderFrame") {
       ctx.fns.onRenderFrame();
       return;
@@ -187,6 +195,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.replay.reseeds = [];
       ctx.replay.reseedCursor = 0;
       ctx.replay.historyReplay = false;
+      ctx.replay.snapshots.clear();
       const files = new Map<string, Uint8Array>(Object.entries(boot.files));
       ctx.boot.liveDictionary = new Map<string, number>(boot.words);
       ctx.boot.currentBootFiles = files;

@@ -1,5 +1,23 @@
 import type { InstalledGameDescriptor } from "./gameTypes.ts";
 import { isPlayableFileName } from "./gameMetadata.ts";
+import { detectKnownGameByHashes } from "../../src/games/knownGames.ts";
+
+/**
+ * Ports of the same game share the WORDS.TOK vocabulary hash but not the
+ * OBJECT fingerprint. A bare hash or alias query resolves to the catalogued
+ * edition — the release walkthroughs and profiles were verified against —
+ * while ports stay selectable by folder.
+ */
+function preferCataloged(
+  matches: readonly InstalledGameDescriptor[],
+): InstalledGameDescriptor | null {
+  const cataloged = matches.filter(
+    (m) =>
+      m.wordsSha256 !== undefined &&
+      detectKnownGameByHashes(m.wordsSha256, m.objectSha256) !== null,
+  );
+  return cataloged.length === 1 ? cataloged[0]! : null;
+}
 
 /**
  * Discover games installed in the local fixtures directory (Vite dev server).
@@ -55,6 +73,8 @@ export function resolveFixtureTarget(
     const match = byHash[0]!;
     return { target: match.folder ?? match.hash, match };
   } else if (byHash.length > 1) {
+    const cataloged = preferCataloged(byHash);
+    if (cataloged) return { target: cataloged.folder ?? cataloged.hash, match: cataloged };
     throw new Error(
       `Ambiguous fixture query "${query}" matches multiple editions (${byHash.map((g) => g.folder).join(", ")}); specify the fixture folder.`,
     );
@@ -66,6 +86,12 @@ export function resolveFixtureTarget(
     const match = byWords[0]!;
     return { target: match.folder ?? match.wordsSha256 ?? match.hash, match };
   } else if (byWords.length > 1) {
+    const cataloged = preferCataloged(byWords);
+    if (cataloged)
+      return {
+        target: cataloged.folder ?? cataloged.wordsSha256 ?? cataloged.hash,
+        match: cataloged,
+      };
     throw new Error(
       `Ambiguous fixture query "${query}" matches multiple editions (${byWords.map((g) => g.folder).join(", ")}); specify the fixture folder.`,
     );

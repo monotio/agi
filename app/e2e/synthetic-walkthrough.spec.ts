@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { isolateStorage, openCardMenu } from "./engineProbe.ts";
+import { clickTimelineMark, isolateStorage, openCardMenu } from "./engineProbe.ts";
 
 test.describe("Synthetic Walkthrough", () => {
   test("runs synthetic walkthrough from game actions menu with speed, seek, and take-control", async ({
@@ -66,7 +66,7 @@ test.describe("Synthetic Walkthrough", () => {
     // Test marker click seek back to Start (marker 0)
     const marker0 = page.getByTestId("walkthrough-marker-0");
     await expect(marker0).toBeVisible();
-    await marker0.click();
+    await clickTimelineMark(page, marker0);
 
     await expect
       .poll(

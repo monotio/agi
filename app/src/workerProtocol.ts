@@ -157,6 +157,19 @@ export type WorkerInbound =
       fullState?: boolean;
     }
   | { type: "resetReplay"; seed?: number; seeking?: boolean; sessionId?: number }
+  /**
+   * Record a restore point at the replay's current position — sent by the
+   * runner at each walkthrough checkpoint so a backward seek replays only
+   * the gap instead of the whole tape. Fire-and-forget: a boundary the
+   * engine refuses to snapshot simply stores nothing.
+   */
+  | { type: "replaySnapshot"; sessionId?: number }
+  /**
+   * Rebuild the replay session at the nearest snapshot at or before `tick`
+   * (a fresh boot when none covers it). The reply is the restored head's
+   * `replay` observation — the runner resumes the tape from there.
+   */
+  | { type: "replayRestore"; id: number; tick: number; sessionId?: number }
   | { type: "exitReplay" }
   | { type: "renderFrame" }
   | { type: "soundEnabled"; enabled: boolean }
@@ -502,6 +515,7 @@ export interface WorkerQueryReplies {
   startRecording: Extract<WorkerControl, { type: "recordingStarted" }>;
   stopRecording: Extract<WorkerControl, { type: "recordingStopped" }>;
   replayAdvance: Extract<WorkerControl, { type: "replay" }>;
+  replayRestore: Extract<WorkerControl, { type: "replay" }>;
   historyViewStart: Extract<WorkerControl, { type: "historyView" }>;
   historyViewSeek: Extract<WorkerControl, { type: "historyView" }>;
   historyViewAdvance: Extract<WorkerControl, { type: "historyView" }>;
@@ -527,6 +541,7 @@ export interface WorkerQueryPayload {
   startRecording: WorkerQueryReplies["startRecording"];
   stopRecording: WorkerQueryReplies["stopRecording"];
   replayAdvance: WorkerQueryReplies["replayAdvance"]["observation"];
+  replayRestore: WorkerQueryReplies["replayRestore"]["observation"];
   historyViewStart: WorkerQueryReplies["historyViewStart"];
   historyViewSeek: WorkerQueryReplies["historyViewSeek"];
   historyViewAdvance: WorkerQueryReplies["historyViewAdvance"];

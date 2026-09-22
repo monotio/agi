@@ -174,7 +174,8 @@ test("wander decrements first and rerolls the count only while below six", () =>
     const { host, rng } = rngHost(1);
     const engine = game(
       `if (!isset(f200)) { set(f200); load.view(1); animate.obj(o0); set.view(o0, 1);
-       position(o0, 20, 100); draw(o0); stop.cycling(o0); ignore.objs(o0); wander(o0); } return;`,
+       position(o0, 20, 100); draw(o0); stop.cycling(o0); ignore.objs(o0);
+       assignn(v60, 1); step.size(o0, v60); step.time(o0, v60); wander(o0); } return;`,
       host,
     );
     engine.tick();

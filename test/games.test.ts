@@ -315,7 +315,7 @@ for (const game of GAMES) {
       const engine = new Engine(container, host, dict);
       const visited: number[] = [];
       for (let i = 0; i < 400 && visited.at(-1) !== game.firstRoom; i++) {
-        if (i % 40 === 0) host.pendingKeys.push(13);
+        if (engine.vars[0] === game.introRoom) host.pendingKeys.push(13);
         tickAck(engine, host);
         if (visited.at(-1) !== engine.vars[0]) visited.push(engine.vars[0]!);
       }

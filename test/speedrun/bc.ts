@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { AGI_KEY } from "../../src/runtime/keys.ts";
 import { KNOWN_GAME_HASH } from "../../src/games/knownGames.ts";
 import { parseDirection, type DirectionInput, type Speedrun } from "./runner.ts";
+import { NavigationError } from "../../src/agent/navigationController.ts";
+import type { PlanOptions } from "../../src/agent/navigation.ts";
 import type { Walkthrough } from "./route.ts";
 import type { TraversalRequest } from "../../src/agent/navigationTraversal.ts";
 
@@ -155,6 +157,29 @@ export class Cauldron {
     const { vars } = this.engine;
     assert.ok(vars[59] === 0 && vars[102] !== 13, `Taran died (v59=${vars[59]})`);
   }
+
+  /** Run a walk, acknowledging the timed narration windows that interrupt it. */
+  private through(walk: () => void): void {
+    for (let prompts = 0; ; prompts++) {
+      try {
+        walk();
+        return;
+      } catch (error) {
+        if (!(error instanceof NavigationError) || error.outcome.status !== "needs_input")
+          throw error;
+        assert.ok(prompts < 4, "unexpected repeated narration during a walk");
+        this.run.dismiss();
+      }
+    }
+  }
+
+  walkTo(x: number, y: number): void {
+    this.through(() => this.run.walkTo(x, y));
+  }
+
+  walkPath(x: number, y: number, options?: PlanOptions): void {
+    this.through(() => this.run.walkPath(x, y, options));
+  }
 }
 
 /** Cold boot: the title (room 67) leaves on any key for Caer Dallben. */
@@ -176,14 +201,14 @@ export function boot(bc: Cauldron): void {
  */
 export function feedHenWen(bc: Cauldron): void {
   const { run } = bc;
-  run.walkPath(140, 124);
+  bc.walkPath(140, 124);
   bc.doIt();
   run.waitForRoom(61, "inside the cottage");
   run.wait(() => run.state().control, "Taran steps inside");
-  run.walkPath(60, 124);
+  bc.walkPath(60, 124);
   bc.doIt();
   run.assertCarried(ITEM.gruel, "gruel");
-  run.walkPath(86, 112);
+  bc.walkPath(86, 112);
   for (let n = 0; n < 5; n++) bc.doIt();
   for (const item of [ITEM.knapsack, ITEM.apple, ITEM.bread, ITEM.flask]) run.assertCarried(item);
   bc.enter(150, 126, 8);
@@ -191,11 +216,11 @@ export function feedHenWen(bc: Cauldron): void {
   bc.use(ITEM.flask);
   run.assertCarried(ITEM.water, "water");
   bc.leave("E", 9);
-  run.walkPath(90, 158, { geometry: "current" });
+  bc.walkPath(90, 158, { geometry: "current" });
   bc.doIt();
   run.waitForFlag(164, "gate open");
-  run.walkTo(90, 146);
-  run.walkTo(104, 140);
+  bc.walkTo(90, 146);
+  bc.walkTo(104, 140);
   bc.use(ITEM.gruel);
   run.checkpoint("Fed Hen Wen", { room: 9, score: 5 });
 }
@@ -210,10 +235,10 @@ export function feedHenWen(bc: Cauldron): void {
  */
 export function deliverHenWen(bc: Cauldron): void {
   const { run, engine } = bc;
-  run.walkTo(90, 146);
-  run.walkTo(90, 158);
+  bc.walkTo(90, 146);
+  bc.walkTo(90, 158);
   bc.leave("W", 8);
-  run.walkPath(140, 124);
+  bc.walkPath(140, 124);
   bc.doIt();
   run.waitForRoom(61, "inside the cottage");
   run.waitForFlag(108, "Hen Wen follows");
@@ -225,21 +250,21 @@ export function deliverHenWen(bc: Cauldron): void {
   bc.leave("N", 3);
   bc.leave("N", 23);
   // The pool's west bank is four pixels wide; straight legs keep both on land.
-  run.walkTo(0, 158);
-  run.walkTo(0, 112);
-  run.walkTo(22, 90);
-  run.walkTo(22, 78);
+  bc.walkTo(0, 158);
+  bc.walkTo(0, 112);
+  bc.walkTo(22, 90);
+  bc.walkTo(22, 78);
   bc.leave("N", 18);
   bc.leave("W", 17);
   bc.enter(88, 97, 65);
   assert.equal(engine.flags[108], 1, "Hen Wen came through the briars");
   run.checkpoint("Threaded the briar patch", { room: 65, score: 9 });
   run.wait(() => run.state().control, "Taran steps into the clearing");
-  run.walkPath(68, 124);
+  bc.walkPath(68, 124);
   bc.doIt();
   run.waitForRoom(66, "Gwystyl's way station");
   // Gwystyl speaks after 99 cycles; the cupboard fills the wait with cookies.
-  run.walkPath(84, 122);
+  bc.walkPath(84, 122);
   bc.doIt();
   run.waitForFlag(204, "cupboard open");
   bc.doIt();
@@ -280,7 +305,7 @@ export function luteAndGurgi(bc: Cauldron): void {
   bc.leave("S", 17);
   bc.leave("S", 22);
   bc.leave("S", 2);
-  run.walkPath(86, 160);
+  bc.walkPath(86, 160);
   bc.doIt();
   bc.doIt();
   run.assertCarried(ITEM.lute, "lute");
@@ -309,12 +334,12 @@ const CAVE_STEPS = [
 export function fairFolk(bc: Cauldron): void {
   const { run } = bc;
   bc.leave("E", 23);
-  run.walkPath(120, 160);
+  bc.walkPath(120, 160);
   bc.leave("E", 24);
-  run.walkPath(92, 160);
+  bc.walkPath(92, 160);
   bc.use(ITEM.word);
   run.waitForFlag(200, "rock sinks");
-  for (const [x, y] of CAVE_STEPS) run.walkTo(x, y);
+  for (const [x, y] of CAVE_STEPS) bc.walkTo(x, y);
   run.walkDirection("E", () => bc.room() === 62, "into the cave");
   run.waitForFlag(202, "Eiddileg lands");
   run.checkpoint("Fell into the Fair Folk kingdom", { room: 62, score: 52 });
@@ -331,8 +356,8 @@ export function fairFolk(bc: Cauldron): void {
   run.wait(() => run.state().control, "Taran steps out of the cave");
   bc.use(ITEM.word);
   run.waitForFlag(200, "rock sinks again");
-  for (const [x, y] of [...CAVE_STEPS].reverse().slice(1)) run.walkTo(x, y);
-  run.walkTo(92, 160);
+  for (const [x, y] of [...CAVE_STEPS].reverse().slice(1)) bc.walkTo(x, y);
+  bc.walkTo(92, 160);
   bc.alive();
 }
 
@@ -346,9 +371,9 @@ export function fairFolk(bc: Cauldron): void {
 export function toEagleMountains(bc: Cauldron): void {
   const { run } = bc;
   // Wade west of the f132 box below the falls; the rocks in the pool need a plan.
-  run.walkTo(40, 156);
-  run.walkPath(40, 78, { geometry: "current" });
-  run.walkTo(40, 64);
+  bc.walkTo(40, 156);
+  bc.walkPath(40, 78, { geometry: "current" });
+  bc.walkTo(40, 64);
   for (const [direction, room] of [
     ["N", 19],
     ["W", 18],
@@ -451,7 +476,7 @@ export function climbEagleMountains(bc: Cauldron): void {
 /** Rope, holds and ledges from the foot of the wall to the summit path. */
 function upTheCliff(bc: Cauldron): void {
   const { run, engine } = bc;
-  run.walkPath(70, 140, { geometry: "current" });
+  bc.walkPath(70, 140, { geometry: "current" });
   bc.doIt();
   assert.equal(engine.vars[65], 4, "on the rope");
   run.walkDirection("NW", () => bc.room() === 26, "up the rope");
@@ -470,7 +495,7 @@ export function toTheCastle(bc: Cauldron): void {
   run.wait(() => run.state().control, "Taran steps onto the summit");
   bc.leave("N", 30);
   bc.leave("N", 34, true);
-  run.checkpoint("Stood before the Horned King's castle", { room: 34, score: 83 });
+  run.verify("Stood before the Horned King's castle", { room: 34, score: 83 });
 }
 
 /**
@@ -485,14 +510,14 @@ export function rideTheWagon(bc: Cauldron): void {
   const { run, engine } = bc;
   for (let tries = 0; ; tries++) {
     assert.ok(tries < 12, "the wagon turns up");
-    run.walkTo(run.state().x, 160);
+    bc.walkTo(run.state().x, 160);
     bc.edge("W", 33);
     if (engine.flags[212] !== 0) break;
     bc.edge("E", 34);
   }
-  run.walkTo(30, 160);
-  run.walkTo(30, 98);
-  run.walkTo(24, 93);
+  bc.walkTo(30, 160);
+  bc.walkTo(30, 98);
+  bc.walkTo(24, 93);
   assert.ok(engine.vars[210]! > 10, "the wagon is still waiting");
   bc.doIt();
   assert.equal(engine.flags[86], 1, "hidden in the wagon");
@@ -514,11 +539,11 @@ export function downTheChute(bc: Cauldron): void {
   run.wait(() => engine.flags[96] === 0, "the henchman leaves");
   bc.doIt();
   bc.enter(82, 84, 46);
-  run.walkPath(106, 129, { geometry: "current" });
+  bc.walkPath(106, 129, { geometry: "current" });
   run.walkDirection("E", () => bc.room() !== 46, "into the chute", 600);
   run.wait(() => bc.room() === 56 && run.state().control, "landed in the dungeon", 3000);
   bc.alive();
-  run.checkpoint("Slid down the garbage chute", { room: 56, score: 117 });
+  run.verify("Slid down the garbage chute", { room: 56, score: 117 });
 }
 
 /**
@@ -532,13 +557,13 @@ export function burialChamber(bc: Cauldron): void {
   const { run, engine } = bc;
   bc.edge("W", 55);
   bc.enter(6, 132, 54);
-  run.walkPath(56, 108, { geometry: "current" });
+  bc.walkPath(56, 108, { geometry: "current" });
   for (let n = 0; n < 5; n++) bc.doIt();
   assert.equal(engine.vars[37], 4, "four blocks pushed in");
   run.walkToUntil(58, 104, () => bc.room() === 53, "through the gap");
   run.dismiss();
   assert.equal(run.state().score, 127);
-  run.walkPath(84, 152, { geometry: "current" });
+  bc.walkPath(84, 152, { geometry: "current" });
   bc.doIt();
   run.assertCarried(ITEM.sword, "Dyrnwyn");
   run.checkpoint("Drew the magic sword Dyrnwyn", { room: 53, score: 135 });
@@ -617,25 +642,25 @@ export function freeFflewddur(bc: Cauldron): void {
   const { run, engine } = bc;
   bc.leave("S", 57);
   bc.leave("E", 58);
-  run.walkTo(58, 124);
+  bc.walkTo(58, 124);
   bc.doIt();
   run.wait(() => engine.flags[166] === 1 && engine.flags[201] === 0, "trapdoor opens");
   bc.select(ITEM.sword);
-  run.walkTo(77, 124);
+  bc.walkTo(77, 124);
   run.walkToUntil(77, 121, () => engine.flags[200] !== 0, "onto the ladder");
   bc.edge("N", 51);
   bc.edge("N", 50);
   stunHenchman(bc);
-  run.walkTo(117, 156);
+  bc.walkTo(117, 156);
   bc.doIt();
   run.assertCarried(ITEM.keys, "key ring");
-  run.walkTo(94, 157);
-  run.walkTo(94, 145);
-  run.walkTo(78, 122);
+  bc.walkTo(94, 157);
+  bc.walkTo(94, 145);
+  bc.walkTo(78, 122);
   bc.use(ITEM.keys);
   run.waitForRoom(48, "the cell opens");
   bc.alive();
-  run.walkPath(76, 100, { geometry: "current" });
+  bc.walkPath(76, 100, { geometry: "current" });
   bc.doIt();
   run.waitForItem(ITEM.harp, "Fflewddur's harp");
   run.checkpoint("Freed Fflewddur Fflam", { room: 48, score: 144 });
@@ -663,7 +688,7 @@ export function cutTheDrawbridge(bc: Cauldron): void {
   castleExit(bc, "S", 46);
   castleLeg(bc, 75, 140);
   castleExit(bc, "S", 47);
-  run.walkPath(38, 136, { geometry: "current" });
+  bc.walkPath(38, 136, { geometry: "current" });
   bc.use(ITEM.sword);
   run.wait(() => engine.flags[33] === 1 && engine.flags[204] === 1, "drawbridge falls");
   castleLeg(bc, 46, 122);
@@ -680,11 +705,11 @@ export function cutTheDrawbridge(bc: Cauldron): void {
  */
 export function downTheMountain(bc: Cauldron): void {
   const { run, engine } = bc;
-  run.walkTo(36, 90);
-  run.walkTo(30, 98);
-  run.walkTo(30, 160);
+  bc.walkTo(36, 90);
+  bc.walkTo(30, 98);
+  bc.walkTo(30, 160);
   bc.edge("E", 34);
-  run.walkTo(60, 160);
+  bc.walkTo(60, 160);
   bc.edge("S", 30);
   bc.leave("S", 29, true);
   run.wait(() => run.state().control, "Taran steps onto the summit");
@@ -720,10 +745,10 @@ export function witchesOfMorva(bc: Cauldron): void {
   bc.use(ITEM.dust);
   run.wait(() => engine.flags[103] === 0 && run.state().control, "landed by the house");
   run.checkpoint("Flew over Morva Marsh", { room: 20, score: 172 });
-  run.walkPath(44, 119, { geometry: "current" });
+  bc.walkPath(44, 119, { geometry: "current" });
   bc.doIt();
   run.wait(() => bc.room() === 64 && run.state().control, "inside the witches' house");
-  run.walkPath(96, 108, { geometry: "current" });
+  bc.walkPath(96, 108, { geometry: "current" });
   bc.doIt();
   run.wait(() => engine.flags[217] === 1, "the witches arrive", 6000);
   bc.doIt();
@@ -738,7 +763,7 @@ export function witchesOfMorva(bc: Cauldron): void {
   assert.equal(engine.flags[79], 1, "cauldron carried to the castle");
   run.checkpoint("Lost the cauldron to a gwythaint", { room: 20, score: 190 });
   // The path off the island is a trigger box north-east of the witches.
-  run.walkPath(131, 99, { geometry: "current" });
+  bc.walkPath(131, 99, { geometry: "current" });
   run.walkToUntil(131, 94, () => bc.room() === 15, "off the witches' island");
   bc.use(ITEM.dust);
   run.wait(() => engine.flags[103] === 1 && run.state().control, "airborne again");
@@ -765,7 +790,7 @@ export function backToTheCastle(bc: Cauldron): void {
   run.wait(() => run.state().control, "Taran steps onto the summit");
   bc.leave("N", 30);
   bc.leave("N", 34, true);
-  run.walkTo(run.state().x, 160);
+  bc.walkTo(run.state().x, 160);
   bc.edge("W", 33);
   assert.equal(engine.flags[33], 1, "drawbridge is down");
 }
@@ -780,13 +805,13 @@ export function backToTheCastle(bc: Cauldron): void {
  */
 export function mirrorTheHornedKing(bc: Cauldron): void {
   const { run, engine } = bc;
-  run.walkTo(30, 160);
-  run.walkTo(30, 98);
-  run.walkTo(36, 90);
+  bc.walkTo(30, 160);
+  bc.walkTo(30, 98);
+  bc.walkTo(36, 90);
   run.walkToUntil(128, 90, () => bc.room() === 47, "across the drawbridge");
   run.checkpoint("Crossed the lowered drawbridge", { room: 47, score: 190 });
   bc.enter(82, 84, 46);
-  run.walkPath(106, 129, { geometry: "current" });
+  bc.walkPath(106, 129, { geometry: "current" });
   run.walkDirection("E", () => bc.room() !== 46, "into the chute", 600);
   run.wait(() => bc.room() === 56 && run.state().control, "landed in the dungeon", 3000);
   bc.select(ITEM.mirror);

@@ -140,6 +140,21 @@ test("2.001 action 0x8f configures max animated objects without touching signatu
   );
 });
 
+test("2.001 dispatch is bounded at 0x90, below the 2.089 range", () => {
+  // docs/fidelity.md pc-booter-action-0x8f: the booter dispatches actions
+  // 0x01..0x90 (`cmp al,0x90; jna`), so set.scan.start (0x91) is outside its
+  // range but inside the 2.089 range (bound 0x9a).
+  const container = createContainer();
+  container.putResource("logic", 0, buildLogicResource(new Uint8Array([0x91, 0x00]), []));
+  assert.throws(
+    () => new Engine(container, new QuietHost(), undefined, { profile: "2.001" }).tick(),
+    /unimplemented opcode 0x91/,
+  );
+  const wider = createContainer();
+  wider.putResource("logic", 0, buildLogicResource(new Uint8Array([0x91, 0x00]), []));
+  new Engine(wider, new QuietHost(), undefined, { profile: "2.089" }).tick();
+});
+
 test("rejects unknown disk geometry, boot signatures, and interpreter versions", () => {
   assert.throws(() => decodeBooter(new Uint8Array(512)), /disk image size/i);
   const signature = disk();

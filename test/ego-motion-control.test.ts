@@ -33,7 +33,7 @@ class Host implements EngineHost {
   }
 }
 
-const setup = `load.view(1); animate.obj(o0); set.view(o0, 1); ignore.horizon(o0); ignore.blocks(o0); ignore.objs(o0); position(o0, 20, 100); draw(o0); stop.cycling(o0);`;
+const setup = `load.view(1); animate.obj(o0); set.view(o0, 1); ignore.horizon(o0); ignore.blocks(o0); ignore.objs(o0); position(o0, 20, 100); draw(o0); stop.cycling(o0); assignn(v60, 1); step.size(o0, v60); step.time(o0, v60);`;
 
 test("movement authority is observable independently of parser availability", () => {
   for (const [command, parser, movement] of [

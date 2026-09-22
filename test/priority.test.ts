@@ -35,14 +35,17 @@ function game(source: string, profile: ProfileId = "2.936"): Engine {
   return new Engine(container, host, undefined, { profile });
 }
 
+/**
+ * Each row is positioned, then redrawn so the same-script draw placement runs
+ * the footprint scan that assigns the band priority before get.priority reads
+ * it. An undrawn object's placement is deferred to its update pass, so the
+ * preamble keeps ego drawn, re-running on every room entry (f5).
+ */
 function sample(rows: readonly number[]): string {
-  return rows
-    .map(
-      (y, i) => `position(o0, 80, ${y});
-      reposition(o0, v254, v255);
-      get.priority(o0, v${60 + i});`,
-    )
-    .join("\n");
+  return `if (!isset(f210) || isset(f5)) { set(f210); load.view(1); animate.obj(o0); set.view(o0, 1); position(o0, 80, 80); draw(o0); ignore.horizon(o0); }
+${rows
+  .map((y, i) => `  position(o0, 80, ${y}); erase(o0); draw(o0); get.priority(o0, v${60 + i});`)
+  .join("\n")}`;
 }
 
 // Peter Kelly's agi-re specification, Objects: "Priority and horizon".
@@ -120,6 +123,7 @@ const objects = `
   position(o0, 20, 100); position(o1, 19, 100);
   draw(o0); draw(o1);
   stop.cycling(o0); stop.cycling(o1);
+  assignn(v60, 1); step.size(o0, v60); step.time(o0, v60); step.size(o1, v60); step.time(o1, v60);
 `;
 
 test("equal drawing keys use object number, not horizontal position", () => {

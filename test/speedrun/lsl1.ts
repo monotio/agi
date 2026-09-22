@@ -94,7 +94,7 @@ const QUIZ: Record<string, string> = {
 
 function ageQuiz(run: Speedrun): void {
   run.advance(60);
-  run.checkpoint("Title screen", { room: 1, score: 0 });
+  run.verify("Title screen", { room: 1, score: 0 });
   run.answerNumber(30);
   run.key(AGI_KEY.ENTER);
   run.until(() => run.state().room === 6, 600, "age check begins");
@@ -216,7 +216,7 @@ function leftysBar(run: Speedrun): void {
   score(run, 1, "first whiskey");
   say(run, "stand");
   assert.equal(run.engine.vars[30], 0, "off the stool");
-  run.checkpoint("Bought a whiskey at Lefty's", { room: 15, score: 1 });
+  run.verify("Bought a whiskey at Lefty's", { room: 15, score: 1 });
 }
 
 function backHallway(run: Speedrun): void {
@@ -252,7 +252,7 @@ function backHallway(run: Speedrun): void {
   goTo(run, 91, 131, 108, 150);
   run.take("take ring", ITEM.ring);
   score(run, 10, "diamond ring");
-  run.checkpoint("Found a diamond ring in the sink", { room: 13, score: 10 });
+  run.verify("Found a diamond ring in the sink", { room: 13, score: 10 });
   goTo(run, 52, 133, 58, 139);
   say(run, "open door");
   run.waitForRoom(14, "hallway again");
@@ -291,7 +291,7 @@ function pimpAndHooker(run: Speedrun): void {
   run.waitForFlag(64, "window open", 1000);
   say(run, "climb out window");
   run.waitForRoom(12, "fire escape");
-  run.checkpoint("Climbed out onto the fire escape", { room: 12, score: 23 });
+  run.verify("Climbed out onto the fire escape", { room: 12, score: 23 });
 }
 
 function dumpster(run: Speedrun): void {
@@ -486,7 +486,7 @@ function lobbyAndCabaret(run: Speedrun): void {
   say(run, "sit");
   run.waitForFlag(117, "seated for the show", 1000);
   score(run, 29, "cabaret seat");
-  run.checkpoint("Took a seat in the cabaret", { room: 36 });
+  run.verify("Took a seat in the cabaret", { room: 36 });
   say(run, "stand");
   assert.equal(run.engine.vars[30], 0, "up from the table");
   leave(run, "S", 35);
@@ -524,7 +524,7 @@ function storeAndPhone(run: Speedrun): void {
   run.waitForFlag(78, "survey finished", 6000);
   run.wait(() => run.engine.vars[65] === 0 && run.engine.movementControlEnabled, "hung up");
   score(run, 33, "survey");
-  run.checkpoint("Answered a telephone survey", { room: 22 });
+  run.verify("Answered a telephone survey", { room: 22 });
 
   // The door is the north edge right of x 30.
   leave(run, "N", 21);
@@ -579,7 +579,7 @@ function bumAndCalls(run: Speedrun): void {
   run.waitForFlag(121, "Sierra's answering machine", 6000);
   run.wait(() => run.engine.vars[65] === 0 && run.engine.movementControlEnabled, "hung up");
   score(run, 55, "Sierra call");
-  run.checkpoint("Phoned Sierra On-Line", { room: 22 });
+  run.verify("Phoned Sierra On-Line", { room: 22 });
 }
 
 /**
@@ -658,7 +658,7 @@ function disco(run: Speedrun): void {
   score(run, 90, "loan");
   run.waitForRoom(24, "Fawn walks out");
   run.wait(() => run.engine.inputEnabled && run.engine.modalKind === null, "alone at the table");
-  run.checkpoint("Lent Fawn a hundred dollars for the wedding", { room: 24 });
+  run.verify("Lent Fawn a hundred dollars for the wedding", { room: 24 });
   say(run, "stand");
   leave(run, "S", 23);
   // Back out through the same narrow doorway, around the bouncer.
@@ -844,7 +844,7 @@ function pills(run: Speedrun): void {
   assert.equal(run.engine.vars[30], 0, "back on the landing");
   say(run, "untie rope");
   assert.deepEqual([flag(run, 208), flag(run, 209)], [false, false], "untied");
-  run.checkpoint("Smashed a window for the bottle of pills", { room: 12 });
+  run.verify("Smashed a window for the bottle of pills", { room: 12 });
   run.walkToUntil(53, 64, () => run.engine.vars[30] !== 0, "step off the fire escape");
   run.wait(() => run.engine.vars[30] === 14 && run.engine.inputEnabled, "sitting in the garbage");
   say(run, "climb out");
@@ -920,7 +920,7 @@ function penthouse(run: Speedrun): void {
   assert.equal(run.engine.flags[204], 1, "Eve's close-up");
   say(run, "give apple to girl");
   run.wait(() => run.state().score === 197, "Eve accepts the apple", 600);
-  run.checkpoint("Tempted Eve with the apple", { room: 43, score: 197 });
+  run.verify("Tempted Eve with the apple", { room: 43, score: 197 });
   run.waitForRoom(45, "Eve leads Larry to the bedroom", 12000);
   run.wait(() => run.state().score === 222, "fireworks", 3000);
   run.checkpoint("Spent the night with Eve", { room: 45, score: 222 });

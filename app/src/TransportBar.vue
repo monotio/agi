@@ -540,6 +540,9 @@ onUnmounted(() => {
   border-radius: 1px;
   background: #ffd700;
   z-index: 2;
+  /* Dense checkpoint clusters overlap: pointer resolution happens on the
+     timeline (nearest mark wins); the button stays for keyboard activation. */
+  pointer-events: none;
   cursor: pointer;
   transition:
     transform 0.15s ease,
@@ -556,11 +559,6 @@ onUnmounted(() => {
 }
 .transport-marker--bookmark {
   background: #7affb0;
-}
-.transport-marker:hover {
-  transform: translate(-50%, -50%) scale(1.6);
-  background: #ffffff;
-  z-index: 4;
 }
 .transport-marker--passed {
   background: #fff080;

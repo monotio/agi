@@ -26,14 +26,10 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 18473,
+  "elapsedMs": 18360,
   "virtualTicks": 259462,
-  "cycles": 34094,
+  "cycles": 34074,
   "actions": [
-    {
-      "kind": "key",
-      "code": 13
-    },
     {
       "kind": "advance",
       "ticks": 30
@@ -53,14 +49,6 @@
     {
       "kind": "advance",
       "ticks": 409
-    },
-    {
-      "kind": "checkpoint",
-      "label": "A servant in the wizard’s house",
-      "room": 7,
-      "score": 0,
-      "x": 95,
-      "y": 165
     },
     {
       "kind": "key",
@@ -100,7 +88,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 66
+      "ticks": 60
     },
     {
       "kind": "key",
@@ -492,7 +480,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1542
+      "ticks": 1548
     },
     {
       "kind": "key",
@@ -788,7 +776,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 12
+      "ticks": 6
     },
     {
       "kind": "key",
@@ -1020,7 +1008,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 252
+      "ticks": 246
     },
     {
       "kind": "key",
@@ -1396,7 +1384,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 432
+      "ticks": 426
     },
     {
       "kind": "key",
@@ -1484,7 +1472,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 9745
+      "ticks": 9703
     },
     {
       "kind": "key",
@@ -1568,7 +1556,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 432
+      "ticks": 426
     },
     {
       "kind": "key",
@@ -1752,7 +1740,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 42
+      "ticks": 36
     },
     {
       "kind": "key",
@@ -2595,14 +2583,6 @@
       "ticks": 168
     },
     {
-      "kind": "checkpoint",
-      "label": "The wizard’s secrets",
-      "room": 2,
-      "score": 23,
-      "x": 103,
-      "y": 137
-    },
-    {
       "kind": "key",
       "code": 20224
     },
@@ -2664,7 +2644,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 24
+      "ticks": 18
     },
     {
       "kind": "key",
@@ -2672,7 +2652,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 156
+      "ticks": 162
     },
     {
       "kind": "key",
@@ -3044,7 +3024,7 @@
     },
     {
       "kind": "key",
-      "code": 19200
+      "code": 18176
     },
     {
       "kind": "advance",
@@ -3296,23 +3276,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 20224
-    },
-    {
-      "kind": "advance",
-      "ticks": 42
+      "ticks": 54
     },
     {
       "kind": "key",
@@ -4336,7 +4300,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 282
+      "ticks": 276
     },
     {
       "kind": "key",
@@ -5999,14 +5963,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "The secret of flight",
-      "room": 10,
-      "score": 49,
-      "x": 104,
-      "y": 133
-    },
-    {
       "kind": "key",
       "code": 20224
     },
@@ -6116,7 +6072,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 84
+      "ticks": 78
     },
     {
       "kind": "key",
@@ -6644,7 +6600,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 258
+      "ticks": 252
     },
     {
       "kind": "key",
@@ -8956,7 +8912,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 30
+      "ticks": 24
     },
     {
       "kind": "key",
@@ -9829,14 +9785,6 @@
     {
       "kind": "advance",
       "ticks": 12
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Down the mountain to Llewdor",
-      "room": 18,
-      "score": 50,
-      "x": 14,
-      "y": 44
     },
     {
       "kind": "key",
@@ -10560,14 +10508,6 @@
     },
     {
       "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
       "code": 18688
     },
     {
@@ -10780,7 +10720,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 12
+      "ticks": 6
     },
     {
       "kind": "key",
@@ -10820,7 +10760,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 906
+      "ticks": 900
     },
     {
       "kind": "key",
@@ -10860,7 +10800,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 774
+      "ticks": 768
     },
     {
       "kind": "key",
@@ -10916,7 +10856,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 353
+      "ticks": 359
     },
     {
       "kind": "key",
@@ -11356,7 +11296,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 24
+      "ticks": 18
     },
     {
       "kind": "key",
@@ -11511,14 +11451,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Desert ingredients",
-      "room": 21,
-      "score": 57,
-      "x": 54,
-      "y": 86
-    },
-    {
       "kind": "key",
       "code": 20224
     },
@@ -11652,7 +11584,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 516
+      "ticks": 510
     },
     {
       "kind": "key",
@@ -11804,7 +11736,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 528
+      "ticks": 522
     },
     {
       "kind": "key",
@@ -11944,31 +11876,7 @@
     },
     {
       "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 19200
+      "code": 20736
     },
     {
       "kind": "advance",
@@ -11992,6 +11900,14 @@
     },
     {
       "kind": "key",
+      "code": 18176
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
       "code": 19200
     },
     {
@@ -12005,22 +11921,6 @@
     {
       "kind": "advance",
       "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 552
     },
     {
       "kind": "key",
@@ -12029,6 +11929,70 @@
     {
       "kind": "advance",
       "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 18176
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 20736
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 528
     },
     {
       "kind": "key",
@@ -12300,7 +12264,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 420
+      "ticks": 414
     },
     {
       "kind": "key",
@@ -12356,7 +12320,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 450
+      "ticks": 444
     },
     {
       "kind": "key",
@@ -12524,7 +12488,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 330
+      "ticks": 324
     },
     {
       "kind": "key",
@@ -12532,7 +12496,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 216
+      "ticks": 222
     },
     {
       "kind": "key",
@@ -12679,14 +12643,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Sea water and mistletoe",
-      "room": 29,
-      "score": 62,
-      "x": 23,
-      "y": 113
-    },
-    {
       "kind": "key",
       "code": 18432
     },
@@ -12708,7 +12664,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 48
+      "ticks": 42
     },
     {
       "kind": "key",
@@ -12716,7 +12672,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 108
+      "ticks": 114
     },
     {
       "kind": "key",
@@ -12884,7 +12840,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 168
+      "ticks": 162
     },
     {
       "kind": "key",
@@ -13012,7 +12968,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 249
+      "ticks": 225
     },
     {
       "kind": "key",
@@ -13020,7 +12976,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 30
+      "ticks": 54
     },
     {
       "kind": "key",
@@ -13060,7 +13016,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 42
+      "ticks": 36
     },
     {
       "kind": "key",
@@ -13068,7 +13024,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 54
+      "ticks": 60
     },
     {
       "kind": "key",
@@ -13104,19 +13060,11 @@
     },
     {
       "kind": "key",
-      "code": 20736
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
       "code": 19712
     },
     {
       "kind": "advance",
-      "ticks": 60
+      "ticks": 66
     },
     {
       "kind": "key",
@@ -13160,31 +13108,7 @@
     },
     {
       "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 19200
+      "code": 18688
     },
     {
       "kind": "advance",
@@ -13208,31 +13132,7 @@
     },
     {
       "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 19712
+      "code": 20224
     },
     {
       "kind": "advance",
@@ -13256,6 +13156,14 @@
     },
     {
       "kind": "key",
+      "code": 18688
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
       "code": 19712
     },
     {
@@ -13265,6 +13173,14 @@
     {
       "kind": "key",
       "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 20224
     },
     {
       "kind": "advance",
@@ -13288,6 +13204,14 @@
     },
     {
       "kind": "key",
+      "code": 18688
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
       "code": 19712
     },
     {
@@ -13297,6 +13221,110 @@
     {
       "kind": "key",
       "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 20224
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 18688
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 20224
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 18688
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 20224
     },
     {
       "kind": "advance",
@@ -13340,11 +13368,19 @@
     },
     {
       "kind": "advance",
-      "ticks": 12
+      "ticks": 18
     },
     {
       "kind": "key",
       "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 18688
     },
     {
       "kind": "advance",
@@ -13361,6 +13397,14 @@
     {
       "kind": "key",
       "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 20224
     },
     {
       "kind": "advance",
@@ -13396,7 +13440,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 300
+      "ticks": 294
     },
     {
       "kind": "key",
@@ -14652,7 +14696,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 6
+      "ticks": 12
     },
     {
       "kind": "key",
@@ -14980,7 +15024,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 162
+      "ticks": 156
     },
     {
       "kind": "key",
@@ -14988,7 +15032,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 36
+      "ticks": 42
     },
     {
       "kind": "key",
@@ -15071,14 +15115,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Dew gathered in a thimble",
-      "room": 28,
-      "score": 67,
-      "x": 40,
-      "y": 145
-    },
-    {
       "kind": "key",
       "code": 18176
     },
@@ -15108,7 +15144,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 18
+      "ticks": 12
     },
     {
       "kind": "key",
@@ -15116,7 +15152,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 324
+      "ticks": 330
     },
     {
       "kind": "key",
@@ -15132,7 +15168,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 96
+      "ticks": 90
     },
     {
       "kind": "key",
@@ -15140,7 +15176,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 18
+      "ticks": 24
     },
     {
       "kind": "key",
@@ -15404,7 +15440,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 552
+      "ticks": 510
     },
     {
       "kind": "key",
@@ -15444,7 +15480,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 24
+      "ticks": 30
     },
     {
       "kind": "key",
@@ -15460,55 +15496,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 378
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 24
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 516
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 24
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 378
+      "ticks": 372
     },
     {
       "kind": "key",
@@ -15540,7 +15528,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 24
+      "ticks": 30
     },
     {
       "kind": "key",
@@ -15556,55 +15544,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 378
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 24
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 516
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 24
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 378
+      "ticks": 372
     },
     {
       "kind": "key",
@@ -15636,7 +15576,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 24
+      "ticks": 30
     },
     {
       "kind": "key",
@@ -15652,7 +15592,103 @@
     },
     {
       "kind": "advance",
-      "ticks": 378
+      "ticks": 372
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 24
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 516
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 372
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 24
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 516
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 30
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 372
     },
     {
       "kind": "key",
@@ -15684,7 +15720,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 312
+      "ticks": 306
     },
     {
       "kind": "key",
@@ -15772,7 +15808,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 47
+      "ticks": 41
     },
     {
       "kind": "key",
@@ -16096,55 +16132,15 @@
     },
     {
       "kind": "key",
-      "code": 20736
+      "code": 20224
     },
     {
       "kind": "advance",
-      "ticks": 6
+      "ticks": 60
     },
     {
       "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 24
-    },
-    {
-      "kind": "key",
-      "code": 20736
-    },
-    {
-      "kind": "advance",
-      "ticks": 18
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 102
-    },
-    {
-      "kind": "key",
-      "code": 18688
-    },
-    {
-      "kind": "advance",
-      "ticks": 66
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 18
-    },
-    {
-      "kind": "key",
-      "code": 18688
+      "code": 19200
     },
     {
       "kind": "advance",
@@ -16152,19 +16148,35 @@
     },
     {
       "kind": "key",
-      "code": 19712
+      "code": 20224
     },
     {
       "kind": "advance",
-      "ticks": 6
+      "ticks": 48
     },
     {
       "kind": "key",
-      "code": 18688
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
+    },
+    {
+      "kind": "key",
+      "code": 20224
     },
     {
       "kind": "advance",
       "ticks": 66
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
     },
     {
       "kind": "key",
@@ -16292,7 +16304,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 168
+      "ticks": 162
     },
     {
       "kind": "key",
@@ -16444,7 +16456,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 956
+      "ticks": 902
     },
     {
       "kind": "key",
@@ -16580,7 +16592,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 328
+      "ticks": 987
     },
     {
       "kind": "key",
@@ -16644,7 +16656,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
+      "ticks": 2
     },
     {
       "kind": "key",
@@ -16724,7 +16736,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 307
+      "ticks": 668
     },
     {
       "kind": "key",
@@ -16764,7 +16776,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 4
+      "ticks": 3
     },
     {
       "kind": "key",
@@ -16772,19 +16784,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Magic ingredients from the merchant",
-      "room": 39,
-      "score": 81,
-      "x": 89,
-      "y": 133
-    },
-    {
-      "kind": "advance",
-      "ticks": 723
+      "ticks": 524
     },
     {
       "kind": "key",
@@ -16808,7 +16808,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 102
+      "ticks": 103
     },
     {
       "kind": "key",
@@ -16861,14 +16861,6 @@
     {
       "kind": "key",
       "code": 20736
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 19712
     },
     {
       "kind": "advance",
@@ -17017,6 +17009,22 @@
     {
       "kind": "advance",
       "ticks": 5
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
     },
     {
       "kind": "key",
@@ -17344,7 +17352,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 90
+      "ticks": 84
     },
     {
       "kind": "key",
@@ -17352,7 +17360,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 516
+      "ticks": 546
     },
     {
       "kind": "key",
@@ -17408,7 +17416,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 90
+      "ticks": 84
     },
     {
       "kind": "key",
@@ -17416,7 +17424,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 636
+      "ticks": 642
     },
     {
       "kind": "key",
@@ -17696,15 +17704,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 672
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Inside the hollow oak",
-      "room": 22,
-      "score": 89,
-      "x": 27,
-      "y": 70
+      "ticks": 480
     },
     {
       "kind": "key",
@@ -18176,7 +18176,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 3186
+      "ticks": 3198
     },
     {
       "kind": "key",
@@ -18184,7 +18184,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 450
+      "ticks": 438
     },
     {
       "kind": "checkpoint",
@@ -18240,7 +18240,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1075
+      "ticks": 1027
     },
     {
       "kind": "key",
@@ -18281,14 +18281,6 @@
     {
       "kind": "advance",
       "ticks": 24
-    },
-    {
-      "kind": "checkpoint",
-      "label": "The Oracle reveals Gwydion’s identity",
-      "room": 36,
-      "score": 96,
-      "x": 72,
-      "y": 160
     },
     {
       "kind": "key",
@@ -19572,19 +19564,11 @@
     },
     {
       "kind": "key",
-      "code": 18176
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
       "code": 19200
     },
     {
       "kind": "advance",
-      "ticks": 6
+      "ticks": 12
     },
     {
       "kind": "key",
@@ -19744,127 +19728,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 18688
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
       "ticks": 18
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 18688
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 18
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 18688
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 18
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
     },
     {
       "kind": "key",
@@ -19888,7 +19752,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 180
+      "ticks": 174
     },
     {
       "kind": "key",
@@ -20816,7 +20680,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 282
+      "ticks": 276
     },
     {
       "kind": "key",
@@ -31192,7 +31056,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 84
+      "ticks": 78
     },
     {
       "kind": "key",
@@ -31720,7 +31584,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 18
+      "ticks": 12
     },
     {
       "kind": "key",
@@ -32112,7 +31976,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 432
+      "ticks": 426
     },
     {
       "kind": "key",
@@ -32352,7 +32216,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 908
+      "ticks": 896
     },
     {
       "kind": "key",
@@ -32361,14 +32225,6 @@
     {
       "kind": "advance",
       "ticks": 157
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Manannan returns for supper",
-      "room": 3,
-      "score": 157,
-      "x": 133,
-      "y": 145
     },
     {
       "kind": "key",
@@ -32440,23 +32296,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 20224
-    },
-    {
-      "kind": "advance",
-      "ticks": 42
+      "ticks": 54
     },
     {
       "kind": "key",
@@ -32832,7 +32672,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 24
+      "ticks": 18
     },
     {
       "kind": "key",
@@ -33104,7 +32944,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1457
+      "ticks": 1409
     },
     {
       "kind": "key",
@@ -33600,7 +33440,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 432
+      "ticks": 426
     },
     {
       "kind": "key",
@@ -34315,12 +34155,12 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Passage to Daventry",
-      "room": 40,
-      "score": 172,
-      "x": 72,
-      "y": 165
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 1
     },
     {
       "kind": "key",
@@ -34328,7 +34168,15 @@
     },
     {
       "kind": "advance",
-      "ticks": 17
+      "ticks": 4
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 24
     },
     {
       "kind": "key",
@@ -34352,7 +34200,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 18
+      "ticks": 12
     },
     {
       "kind": "key",
@@ -34380,11 +34228,19 @@
     },
     {
       "kind": "key",
+      "code": 18176
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
       "code": 18432
     },
     {
       "kind": "advance",
-      "ticks": 42
+      "ticks": 36
     },
     {
       "kind": "key",
@@ -34480,7 +34336,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 12
+      "ticks": 6
     },
     {
       "kind": "key",
@@ -34544,7 +34400,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 205
+      "ticks": 201
     },
     {
       "kind": "key",
@@ -34552,7 +34408,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 845
+      "ticks": 843
     },
     {
       "kind": "key",
@@ -34568,7 +34424,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 895
+      "ticks": 883
     },
     {
       "kind": "checkpoint",
@@ -34680,7 +34536,15 @@
     },
     {
       "kind": "advance",
-      "ticks": 192
+      "ticks": 84
+    },
+    {
+      "kind": "key",
+      "code": 18688
+    },
+    {
+      "kind": "advance",
+      "ticks": 12
     },
     {
       "kind": "key",
@@ -34689,6 +34553,38 @@
     {
       "kind": "advance",
       "ticks": 12
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 42
+    },
+    {
+      "kind": "key",
+      "code": 20736
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 36
+    },
+    {
+      "kind": "key",
+      "code": 20736
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
     },
     {
       "kind": "key",
@@ -34792,7 +34688,31 @@
     },
     {
       "kind": "advance",
-      "ticks": 168
+      "ticks": 350
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 179
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 301
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 61
     },
     {
       "kind": "key",
@@ -35203,20 +35123,12 @@
       "ticks": 6
     },
     {
-      "kind": "checkpoint",
-      "label": "Escape from the cargo hold",
-      "room": 83,
-      "score": 176,
-      "x": 142,
-      "y": 133
-    },
-    {
       "kind": "key",
       "code": 20480
     },
     {
       "kind": "advance",
-      "ticks": 72
+      "ticks": 78
     },
     {
       "kind": "key",
@@ -35328,159 +35240,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 20736
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 36
-    },
-    {
-      "kind": "key",
-      "code": 20224
-    },
-    {
-      "kind": "advance",
-      "ticks": 18
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 18
-    },
-    {
-      "kind": "key",
-      "code": 20224
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 18
-    },
-    {
-      "kind": "key",
-      "code": 20224
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 36
-    },
-    {
-      "kind": "key",
-      "code": 18688
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 638
-    },
-    {
-      "kind": "key",
-      "code": 13
-    },
-    {
-      "kind": "advance",
-      "ticks": 179
-    },
-    {
-      "kind": "key",
-      "code": 13
-    },
-    {
-      "kind": "advance",
-      "ticks": 301
-    },
-    {
-      "kind": "key",
-      "code": 13
-    },
-    {
-      "kind": "advance",
-      "ticks": 8170
-    },
-    {
-      "kind": "key",
-      "code": 13
-    },
-    {
-      "kind": "advance",
-      "ticks": 270
-    },
-    {
-      "kind": "key",
-      "code": 13
-    },
-    {
-      "kind": "advance",
-      "ticks": 301
-    },
-    {
-      "kind": "key",
-      "code": 13
-    },
-    {
-      "kind": "advance",
-      "ticks": 8038
+      "ticks": 890
     },
     {
       "kind": "key",
@@ -35512,7 +35272,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 7858
+      "ticks": 8980
     },
     {
       "kind": "key",
@@ -35551,12 +35311,36 @@
       "label": "The mice reveal a buried treasure",
       "room": 86,
       "score": 176,
-      "x": 10,
-      "y": 144
+      "x": 11,
+      "y": 136
     },
     {
       "kind": "advance",
-      "ticks": 22018
+      "ticks": 9675
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 270
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 301
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 27156
     },
     {
       "kind": "key",
@@ -35571,8 +35355,8 @@
       "label": "Land ho: Daventry ahead",
       "room": 86,
       "score": 176,
-      "x": 10,
-      "y": 144
+      "x": 11,
+      "y": 136
     },
     {
       "kind": "advance",
@@ -35591,8 +35375,8 @@
       "label": "The pirates go ashore",
       "room": 86,
       "score": 176,
-      "x": 10,
-      "y": 144
+      "x": 11,
+      "y": 136
     },
     {
       "kind": "key",
@@ -35604,11 +35388,19 @@
     },
     {
       "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 42
+    },
+    {
+      "kind": "key",
       "code": 20224
     },
     {
       "kind": "advance",
-      "ticks": 12
+      "ticks": 18
     },
     {
       "kind": "key",
@@ -35672,7 +35464,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 30
+      "ticks": 24
     },
     {
       "kind": "key",
@@ -36195,14 +35987,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Magic recovered from the captain’s chest",
-      "room": 83,
-      "score": 179,
-      "x": 43,
-      "y": 150
-    },
-    {
       "kind": "key",
       "code": 18688
     },
@@ -36420,19 +36204,11 @@
     },
     {
       "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 7
-    },
-    {
-      "kind": "key",
       "code": 20480
     },
     {
       "kind": "advance",
-      "ticks": 71
+      "ticks": 72
     },
     {
       "kind": "key",
@@ -36835,14 +36611,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "The sleeping ship",
-      "room": 85,
-      "score": 180,
-      "x": 110,
-      "y": 119
-    },
-    {
       "kind": "key",
       "code": 106
     },
@@ -36904,7 +36672,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 510
+      "ticks": 504
     },
     {
       "kind": "key",
@@ -36920,7 +36688,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 96
+      "ticks": 90
     },
     {
       "kind": "key",
@@ -37048,23 +36816,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 36
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 18688
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
+      "ticks": 48
     },
     {
       "kind": "key",
@@ -37379,14 +37131,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Treasure beneath the lone palm",
-      "room": 49,
-      "score": 192,
-      "x": 55,
-      "y": 84
-    },
-    {
       "kind": "key",
       "code": 18688
     },
@@ -37648,7 +37392,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 102
+      "ticks": 96
     },
     {
       "kind": "key",
@@ -37737,14 +37481,6 @@
     {
       "kind": "advance",
       "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "A fly above the waterfall",
-      "room": 54,
-      "score": 192,
-      "x": 46,
-      "y": 165
     },
     {
       "kind": "key",
@@ -38288,7 +38024,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 235
+      "ticks": 223
     },
     {
       "kind": "key",
@@ -39507,20 +39243,12 @@
       "ticks": 6
     },
     {
-      "kind": "checkpoint",
-      "label": "Across the cliff’s hidden passages",
-      "room": 58,
-      "score": 196,
-      "x": 0,
-      "y": 138
-    },
-    {
       "kind": "key",
       "code": 19712
     },
     {
       "kind": "advance",
-      "ticks": 78
+      "ticks": 72
     },
     {
       "kind": "key",
@@ -39768,7 +39496,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 18
+      "ticks": 12
     },
     {
       "kind": "key",
@@ -40184,7 +39912,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 243
+      "ticks": 237
     },
     {
       "kind": "key",
@@ -40192,7 +39920,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 198
+      "ticks": 216
     },
     {
       "kind": "key",
@@ -40200,7 +39928,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 30
+      "ticks": 42
     },
     {
       "kind": "key",
@@ -40208,7 +39936,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 66
+      "ticks": 54
     },
     {
       "kind": "key",
@@ -40216,7 +39944,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 66
+      "ticks": 54
     },
     {
       "kind": "key",
@@ -40376,7 +40104,23 @@
     },
     {
       "kind": "advance",
-      "ticks": 162
+      "ticks": 12
+    },
+    {
+      "kind": "key",
+      "code": 19200
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 18176
+    },
+    {
+      "kind": "advance",
+      "ticks": 144
     },
     {
       "kind": "key",
@@ -40640,7 +40384,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 690
+      "ticks": 684
     },
     {
       "kind": "key",
@@ -41096,7 +40840,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 749
+      "ticks": 767
     },
     {
       "kind": "key",
@@ -41111,7 +40855,7 @@
       "label": "The storm defeats the dragon",
       "room": 66,
       "score": 203,
-      "x": 152,
+      "x": 151,
       "y": 106
     },
     {
@@ -41140,7 +40884,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 456
+      "ticks": 450
     },
     {
       "kind": "key",
@@ -41295,14 +41039,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Alexander frees his sister",
-      "room": 66,
-      "score": 206,
-      "x": 14,
-      "y": 112
-    },
-    {
       "kind": "key",
       "code": 20736
     },
@@ -41404,7 +41140,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 870
+      "ticks": 864
     },
     {
       "kind": "key",
@@ -41540,7 +41276,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 18
+      "ticks": 12
     },
     {
       "kind": "key",
@@ -41668,7 +41404,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 12
+      "ticks": 6
     },
     {
       "kind": "key",
@@ -41804,7 +41540,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 30
+      "ticks": 36
     },
     {
       "kind": "key",
@@ -42132,19 +41868,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "The castle gates stand open",
-      "room": 71,
-      "score": 206,
-      "x": 89,
-      "y": 164
-    },
-    {
-      "kind": "advance",
-      "ticks": 1138
+      "ticks": 1157
     },
     {
       "kind": "key",
@@ -42160,7 +41884,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 786
+      "ticks": 750
     },
     {
       "kind": "key",
@@ -42168,7 +41892,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 633
+      "ticks": 609
     },
     {
       "kind": "key",
@@ -42208,7 +41932,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 426
+      "ticks": 420
     },
     {
       "kind": "key",
@@ -42216,7 +41940,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 248
+      "ticks": 254
     },
     {
       "kind": "key",
@@ -42267,7 +41991,7 @@
       0,
       0,
       210,
-      0,
+      255,
       0,
       2,
       4,
@@ -42306,7 +42030,7 @@
       0,
       0,
       0,
-      61,
+      60,
       0,
       0,
       0,
@@ -42323,7 +42047,7 @@
       1,
       5,
       0,
-      1,
+      0,
       7,
       0,
       28,
@@ -42374,7 +42098,7 @@
       0,
       0,
       0,
-      12,
+      9,
       59,
       0,
       0,

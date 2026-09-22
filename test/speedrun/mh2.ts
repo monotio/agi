@@ -5,6 +5,7 @@ import type { ScreenObject } from "../../src/runtime/screenObject.ts";
 import { KNOWN_GAME_HASH } from "../../src/games/knownGames.ts";
 import type { Speedrun } from "./runner.ts";
 import type { Walkthrough } from "./route.ts";
+import { walkDodging } from "./mh2-warehouse.ts";
 
 /**
  * Manhunter 2: San Francisco (3.002.149) is played through a cursor, screen
@@ -356,7 +357,7 @@ export function backUp(mh: Mh2, room: number): void {
 export function opening(mh: Mh2): void {
   const { run, engine } = mh;
   mh.waitFor(() => mh.room === 153 && engine.flags[21] === 0, "the title", 600);
-  run.checkpoint("Title", { room: 153 });
+  run.verify("Title", { room: 153 });
   mh.enter(() => mh.room === 124, "the crash site", 9000);
 }
 
@@ -467,7 +468,7 @@ export function bank(mh: Mh2): void {
   mh.enter(() => mh.scene === 0, "the newspaper is pocketed");
   run.assertCarried(1, "the dragon note");
   run.assertCarried(3, "the newspaper");
-  run.checkpoint("Searched the robbed Bank of Canton", { room: 112 });
+  run.verify("Searched the robbed Bank of Canton", { room: 112 });
 }
 
 /** The Ferry Building (room 107): arriving is what the day's report needs (f88). */
@@ -577,7 +578,7 @@ export function den(mh: Mh2): void {
   mh.enter(() => mh.scene === 2, "the flask is pocketed");
   run.assertCarried(12, "the driver's license");
   run.assertCarried(13, "the flask");
-  run.checkpoint("Found the creature's flask and a torn license", { room: 115 });
+  run.verify("Found the creature's flask and a torn license", { room: 115 });
   mh.enter(() => mh.scene === 1, "back from the body");
   mh.steer(140, 60, () => mh.spot === 0, "clear of the den's hotspots");
   mh.enter(() => mh.room === 135, "the tunnel back");
@@ -599,7 +600,7 @@ export function den(mh: Mh2): void {
  */
 const robotsAlive = (mh: Mh2) => () => mh.scene !== 20 && mh.room !== 156;
 
-/** Found by searching the engine's runs from this exact state; see Leg. */
+/** The aisles and column corridors the crossing threads through. */
 const WAREHOUSE_IN: readonly Leg[] = [
   [137, 44, 0],
   [113, 44, 0],
@@ -619,11 +620,6 @@ const WAREHOUSE_OUT: readonly Leg[] = [
   [87, 66, 0],
   [87, 44, 0],
   [113, 44, 0],
-  [113, 32, 0],
-  [113, 23, 6],
-  [113, 32, 0],
-  [113, 23, 0],
-  [113, 44, 0],
   [137, 44, 0],
   [137, 32, 0],
   [151, 32, 0],
@@ -642,18 +638,18 @@ export function warehouseEnter(mh: Mh2): void {
 
 export function warehouseOffice(mh: Mh2): void {
   const { run, engine } = mh;
-  assert.ok(walkLegs(mh, WAREHOUSE_IN, robotsAlive(mh)), `crossed the floor; ${mh.describe()}`);
+  assert.ok(walkDodging(mh, WAREHOUSE_IN, robotsAlive(mh)), `crossed the floor; ${mh.describe()}`);
   mh.waitFor(() => mh.room === 109 && engine.flags[21] === 0, "the warehouse office", 600);
   mh.press(2, 105, 130, /take the mallet/, 2);
   mh.enter(() => mh.scene === 0 && engine.flags[21] === 0, "the mallet is pocketed");
   run.assertCarried(11, "the mallet");
-  run.checkpoint("Took the mallet from the warehouse office", { room: 109 });
+  run.verify("Took the mallet from the warehouse office", { room: 109 });
   mh.steer(140, 60, () => mh.spot === 0, "clear of the office hotspots");
   mh.enter(() => mh.room === 103 && mh.scene === 0, "the warehouse floor again", 900);
 }
 
 export function warehouseLeave(mh: Mh2): void {
-  assert.ok(walkLegs(mh, WAREHOUSE_OUT, robotsAlive(mh)), `crossed back; ${mh.describe()}`);
+  assert.ok(walkDodging(mh, WAREHOUSE_OUT, robotsAlive(mh)), `crossed back; ${mh.describe()}`);
   mh.waitFor(() => mh.room === 108, "the street outside the warehouse", 600);
 }
 
@@ -701,7 +697,7 @@ export function homeDay1(mh: Mh2): void {
   mh.enter(() => mh.room === 155, "the cloth close-up");
   mh.enter(() => mh.room === 125 && engine.flags[21] === 0, "back in the apartment");
   run.assertCarried(15, "the cloth");
-  run.checkpoint("Found the cloth in the dead Manhunter's drawer", { room: 125 });
+  run.verify("Found the cloth in the dead Manhunter's drawer", { room: 125 });
 }
 
 /**
@@ -780,7 +776,7 @@ export function pier5(mh: Mh2): void {
   mh.hotspot(1, 110, 100, /muzzle/);
   mh.enter(() => engine.vars[42] === 1, "the muzzle is taken");
   run.assertCarried(6, "the muzzle");
-  run.checkpoint("Took the muzzle from the body on Pier 5", { room: 127 });
+  run.verify("Took the muzzle from the body on Pier 5", { room: 127 });
 }
 
 /**
@@ -804,7 +800,7 @@ export function timovDay2(mh: Mh2): void {
   mh.enter(() => mh.room === 118 && engine.flags[21] === 0, "back in the apartment");
   run.assertCarried(17, "the camera");
   assert.equal(engine.flags[95], 1, "the camera still has its flash");
-  run.checkpoint("Muzzled the guard dog and took the camera", { room: 118 });
+  run.verify("Muzzled the guard dog and took the camera", { room: 118 });
   mh.enter(() => mh.scene === 0 && engine.flags[29] === 1, "back on the street");
 }
 
@@ -857,7 +853,7 @@ export function temple(mh: Mh2): void {
   run.checkpoint("Picked up the shield as four ninja appeared", { room: 102 });
   ninjaStars(mh);
   mh.waitForRoom(116, "the stairway behind the Buddha", 3000);
-  run.checkpoint("Blocked every throwing star", { room: 116 });
+  run.verify("Blocked every throwing star", { room: 116 });
 }
 
 /**
@@ -914,7 +910,7 @@ export function brandingChamber(mh: Mh2): void {
   );
   mh.enter(() => mh.stage === 2, "the scroll is pocketed");
   run.assertCarried(4, "the scroll");
-  run.checkpoint("Escaped the Temple with a scroll", { room: 122 });
+  run.verify("Escaped the Temple with a scroll", { room: 122 });
   mh.hotspot(2, 155, mh.cursor.y, /direction of the arrow/);
   mh.enter(() => mh.room === 128, "the smoke house door", 1200);
 }
@@ -938,7 +934,7 @@ export function smokeHouse(mh: Mh2): void {
   assert.equal(engine.vars[73], 4, "all four pinches came from the second bowl");
   mh.hotspot(6, 76, 123, /smoke the pipe/);
   mh.enter(() => mh.scene === 4, "smoking");
-  run.checkpoint("Smoked the vision of Ming", { room: 128 });
+  run.verify("Smoked the vision of Ming", { room: 128 });
   mh.waitFor(() => run.carried(16), "the statue is offered", 9000);
   mh.waitFor(() => mh.stage === 8 && engine.flags[21] === 0, "the statue in hand", 600);
   mh.enter(() => mh.room === 155, "the statue close-up");
@@ -974,20 +970,31 @@ export function pyramid(mh: Mh2): void {
   mh.waitFor(() => engine.flags[21] === 0, "the dig");
   mh.hotspot(2, 100, 120);
   mh.enter(() => mh.room === 104 && mh.scene === 0, "facing the shepherd robot", 3000);
-  run.checkpoint("Confronted the shepherd robot", { room: 104 });
+  run.verify("Confronted the shepherd robot", { room: 104 });
+  // The robot only aims at the Manhunter's station (with a v95-cycle delay)
+  // or the one station ahead of him, so decrementing — which always lands on
+  // a station no aim can be on — is the safe direction. A step onto a station
+  // the aim is already locked on is the only real threat, so the only wait is
+  // a step back (v6=7) when the aim sits on the next station down. The
+  // captive's run (f153) does not hold the Manhunter: keep dodging while it
+  // plays out, then return to station 1 and press Down to leave the circle.
   for (let c = 0; c < 3000 && mh.room === 104 && mh.scene === 0; c++) {
     assert.notEqual(engine.vars[64], 1, `the robot never hit; ${mh.describe()}`);
     const station = engine.vars[91]!;
-    const next = station === 1 ? 16 : station - 1;
     const aimed = engine.vars[93] === 1 || engine.vars[93] === 2 ? engine.vars[92]! : 0;
-    if (engine.vars[94] !== 0 || engine.flags[21] !== 0 || engine.flags[153] !== 0) mh.cycle();
-    else if (next !== aimed) run.direction(3);
-    else if (station === aimed) run.direction(7);
-    else mh.cycle();
+    if (engine.vars[94] !== 0 || engine.flags[21] !== 0) {
+      mh.cycle();
+    } else if (engine.flags[81] !== 0 && station === 1) {
+      run.direction(5);
+    } else if (aimed === (station === 1 ? 16 : station - 1) && aimed !== station) {
+      run.direction(7);
+    } else {
+      run.direction(3);
+    }
   }
   assert.equal(engine.flags[81], 1, "the captive escaped");
   mh.waitForRoom(148, "out of the Pyramid", 3000);
-  run.checkpoint("Freed the robot's captive", { room: 148 });
+  run.verify("Freed the robot's captive", { room: 148 });
   mh.waitFor(() => mh.room === 137 && engine.flags[21] === 0, "the street outside", 6000);
 }
 
@@ -1070,7 +1077,7 @@ export function cableCarBarnSwitch(mh: Mh2): void {
   mh.waitFor(() => mh.scene === 4 && engine.flags[21] === 0, "the transformer's switch");
   mh.hotspot(1, 55, 100, /flip the switch/);
   mh.enter(() => mh.scene === 0 && engine.flags[158] === 1, "the grid opens", 3000);
-  run.checkpoint("Threw the transformer switch", { room: 141 });
+  run.verify("Threw the transformer switch", { room: 141 });
 }
 
 export function cableCarBarnGap(mh: Mh2): void {
@@ -1108,7 +1115,7 @@ export function cableCarBarnLeave(mh: Mh2): void {
   assert.ok(walkLegs(mh, BARN_TO_CAR, barnAlive(mh)), `met the car; ${mh.describe()}`);
   mh.waitFor(() => engine.flags[154] === 1, "aboard the car", 120);
   mh.waitFor(() => mh.room === 140 && engine.flags[21] === 0, "the street outside the barn", 6000);
-  run.checkpoint("Rode the cable car back out of the barn", { room: 140 });
+  run.verify("Rode the cable car back out of the barn", { room: 140 });
 }
 
 /**
@@ -1127,7 +1134,7 @@ export function scientistsHouse(mh: Mh2): void {
   mh.enter(() => mh.room === 155, "the matchbook close-up");
   mh.enter(() => mh.room === 138 && engine.flags[21] === 0, "back at the table");
   run.assertCarried(19, "the matchbook");
-  run.checkpoint("Took the matchbook from Goring's table", { room: 138 });
+  run.verify("Took the matchbook from Goring's table", { room: 138 });
 }
 
 /**
@@ -1152,7 +1159,7 @@ export function waxMuseumDay2(mh: Mh2): void {
   mh.hotspot(3, 57, 104);
   mh.enter(() => engine.flags[92] === 1, "up the chimney");
   mh.waitFor(() => mh.scene === 1 && engine.flags[21] === 0, "Zac's room", 3000);
-  run.checkpoint("Climbed the chimney to Zac's room", { room: 149 });
+  run.verify("Climbed the chimney to Zac's room", { room: 149 });
   mh.enter(
     () => mh.room === 149 && mh.scene === 0 && engine.flags[21] === 0,
     "back down the chimney",
@@ -1240,7 +1247,7 @@ export function squareToSign(mh: Mh2): void {
   mh.hotspot(2, 110, 100);
   mh.enter(() => mh.room === 132, "onto the sign", 3000);
   mh.waitFor(() => mh.scene === 1, "hanging from the sign's wires", 3000);
-  run.checkpoint("Climbed onto the Ghirardelli sign", { room: 132 });
+  run.verify("Climbed onto the Ghirardelli sign", { room: 132 });
 }
 
 /**
@@ -1434,7 +1441,7 @@ export function shopGame(mh: Mh2): void {
   mh.waitFor(() => mh.room === 158 && engine.flags[21] === 0, "the owner takes the paw", 6000);
   mh.hotspot(1, 75, 140);
   mh.enter(() => mh.room === 123, "the card table", 3000);
-  run.checkpoint("Staked the rat's paw on the shopkeeper's card game", { room: 123 });
+  run.verify("Staked the rat's paw on the shopkeeper's card game", { room: 123 });
   findTheAce(mh, 1);
   assert.equal(mh.spot, 0, "no first-round prize is selected");
   mh.enter(() => mh.room === 123 && mh.scene === 0, "playing on", 3000);
@@ -1463,7 +1470,7 @@ export function club(mh: Mh2): void {
   mh.waitFor(() => engine.flags[84] === 0, "the mask is on", 600);
   mh.hotspot(1, 75, 70, /Knock/i);
   mh.enter(() => mh.room === 164, "let into the Club", 6000);
-  run.checkpoint("Knocked at the Club in the rat mask", { room: 164 });
+  run.verify("Knocked at the Club in the rat mask", { room: 164 });
   mh.waitFor(() => mh.stage === 44, "unmasked by the rat-men", 30000);
   mh.use(18);
   mh.waitFor(
@@ -1505,7 +1512,7 @@ export function waxMuseumDay3(mh: Mh2): void {
   mh.enter(() => mh.room === 155, "the access card close-up");
   mh.enter(() => mh.room === 147 && engine.flags[21] === 0, "back at the exhibit");
   run.assertCarried(26, "the Orb access card");
-  run.checkpoint("Cut the Orb access card out of Goring's tie", { room: 147 });
+  run.verify("Cut the Orb access card out of Goring's tie", { room: 147 });
   if (mh.scene !== 0)
     mh.enter(() => mh.scene === 0 && engine.flags[21] === 0, "back from the body", 1200);
   leaveWaxMuseum(mh, [146, 143]);
@@ -1546,7 +1553,7 @@ export function lair(mh: Mh2): void {
   mh.use(17);
   mh.waitFor(() => engine.flags[95] === 0, "the flash goes off", 600);
   mh.waitFor(() => mh.room === 110 && engine.flags[21] === 0, "out of the pipe at the pier", 20000);
-  run.checkpoint("Blinded the rat-men and escaped to the pier", { room: 110 });
+  run.verify("Blinded the rat-men and escaped to the pier", { room: 110 });
 }
 
 /**
@@ -1608,7 +1615,7 @@ export function alcatraz(mh: Mh2): void {
   mh.waitFor(() => mh.scene === 4, "the machine takes the card", 3000);
   mh.use(25);
   mh.waitFor(() => mh.room !== 176, "the cells open", 30000);
-  run.checkpoint("Fooled the scanner with the Orb-on-a-stick", {});
+  run.verify("Fooled the scanner with the Orb-on-a-stick", {});
 }
 
 /**
@@ -1652,7 +1659,7 @@ export function balloonFlight(mh: Mh2): void {
     mh.cycle();
   }
   mh.waitForRoom(184, "through the castle's skylight", 600);
-  run.checkpoint("Landed the balloon on Julius Castle", { room: 184 });
+  run.verify("Landed the balloon on Julius Castle", { room: 184 });
 }
 
 /**
@@ -1824,7 +1831,7 @@ export function diggerPassword(mh: Mh2): void {
   });
   mh.hotspot(5, 77, 80);
   mh.enter(() => mh.scene === 2 && engine.flags[21] === 0, "the password is accepted", 3000);
-  run.checkpoint("Entered the Orb password into the digging machine", { room: 186 });
+  run.verify("Entered the Orb password into the digging machine", { room: 186 });
   mh.hotspot(1, 75, 130);
   mh.enter(() => mh.room === 183, "driving the digger", 3000);
 }
@@ -1876,7 +1883,7 @@ export function lavaMaze(mh: Mh2): void {
     run.direction(dir);
   }
   mh.waitForRoom(187, "the digger breaks the surface", 3000);
-  run.checkpoint("Drove the digging machine through the lava to the surface", { room: 187 });
+  run.verify("Drove the digging machine through the lava to the surface", { room: 187 });
 }
 
 /**
@@ -1889,7 +1896,7 @@ export function lavaMaze(mh: Mh2): void {
 export function ending(mh: Mh2): void {
   const { run, engine } = mh;
   mh.waitFor(() => mh.scene === 5 && engine.flags[21] === 0, "the flight to London", 60000);
-  run.checkpoint("Carried off on Phil's ship toward London", { room: 187 });
+  run.verify("Carried off on Phil's ship toward London", { room: 187 });
   mh.enter(() => mh.scene === 6 && engine.flags[21] === 0, "the distant shape");
   mh.hotspot(1, 77, 93, /closer look/);
   mh.enter(() => mh.scene === 7, "the closing card");

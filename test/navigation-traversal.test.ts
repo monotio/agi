@@ -25,7 +25,7 @@ function world(ongoing = "") {
       `
 if (!isset(f100)) {
  set(f100); assignn(v0,1); assignn(v10,1); load.pic(v10); draw.pic(v10); show.pic();
- load.view(0); animate.obj(0); set.view(0,0); position(0,10,100); draw(0); accept.input();
+ load.view(0); animate.obj(0); set.view(0,0); position(0,10,100); draw(0); assignn(v200,1); step.size(0,v200); step.time(0,v200); cycle.time(0,v200); accept.input();
  set.key(120,0,1);
 }
 if (controller(1)) { set(f110); }

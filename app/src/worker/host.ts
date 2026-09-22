@@ -145,7 +145,7 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
     restoreGame(slot = 1) {
       return ctx.fns.postHostRequest("restore", { slot });
     },
-    /** 0x90 log / 0x85 obj.status.v / 0x87 show.mem: debug log stream. */
+    /** 0x90 log / 0x87 show.mem: debug log stream. */
     logText(text) {
       ctx.ports.presentation({ type: "log", text });
     },

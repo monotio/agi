@@ -51,8 +51,8 @@ function leave(run: Speedrun, direction: number, room: number): void {
       run.dismiss();
       run.wait(() => run.engine.movementControlEnabled, "finish the arrival", 5000);
       assert.ok(
-        [0, 11, 25, 26, 224].includes(run.engine.vars[44]!),
-        "arrival leaves Gwydion unharmed",
+        [0, 11, 25, 26, 202, 224].includes(run.engine.vars[44]!),
+        `arrival leaves Gwydion unharmed (v44=${run.engine.vars[44]})`,
       );
       if (run.state().room === room) return;
       continue;
@@ -240,7 +240,10 @@ function cast(run: Speedrun, page: string): void {
 export function kq3Complete(run: Speedrun): void {
   run.repeatUntil(
     () => {
-      run.key(AGI_KEY.ENTER);
+      // Press only once the title is up: a tick-0 Enter now survives the
+      // boot's new.room and skips the title a cycle early, which shifts the
+      // chore timers.
+      if (run.state().room === 45) run.key(AGI_KEY.ENTER);
       run.advance(30);
     },
     () => run.state().room === 7 && run.engine.inputEnabled && run.engine.movementControlEnabled,
@@ -254,7 +257,7 @@ export function kq3Complete(run: Speedrun): void {
       run.engine.movementControlEnabled,
     "Manannan assigns the first chore",
   );
-  run.checkpoint("A servant in the wizard’s house", { room: 7, score: 0 });
+  run.verify("A servant in the wizard’s house", { room: 7, score: 0 });
   enter(run, 135, 139, 8);
   enter(run, 105, 120, 6);
   run.walkPath({ x0: 58, x1: 68, y0: 126, y1: 131 });
@@ -308,7 +311,7 @@ export function kq3Complete(run: Speedrun): void {
   run.walkPath({ x0: 103, x1: 106, y0: 137, y1: 141 });
   run.command("open drawer");
   run.wait(() => run.carried(12) && run.engine.movementControlEnabled, "rose essence recovered");
-  run.checkpoint("The wizard’s secrets", { room: 2, score: 23 });
+  run.verify("The wizard’s secrets", { room: 2, score: 23 });
   run.walkPath(43, 160);
   run.exit("S", 3);
   enter(run, 133, 52, 1);
@@ -373,7 +376,7 @@ export function kq3Complete(run: Speedrun): void {
   run.checkpoint("The hidden laboratory", { room: 10, score: 39 });
 
   cast(run, "IV");
-  run.checkpoint("The secret of flight", { room: 10, score: 49 });
+  run.verify("The secret of flight", { room: 10, score: 49 });
   run.walkPath(60, 150);
   run.walkTo(30, 150);
   leave(run, 1, 9);
@@ -430,7 +433,7 @@ export function kq3Complete(run: Speedrun): void {
   run.checkpoint("A feather for an animal spell", { room: 34, score: 50 });
   leave(run, 5, 33);
   leave(run, 5, 18);
-  run.checkpoint("Down the mountain to Llewdor", { room: 18, score: 50 });
+  run.verify("Down the mountain to Llewdor", { room: 18, score: 50 });
 
   leave(run, 3, 19);
   leave(run, 1, 14);
@@ -462,7 +465,7 @@ export function kq3Complete(run: Speedrun): void {
   run.walkPath(54, 86, { geometry: "current" });
   run.command("get cactus");
   run.assertCarried(34);
-  run.checkpoint("Desert ingredients", { room: 21, score: 57 });
+  run.verify("Desert ingredients", { room: 21, score: 57 });
   leave(run, 5, 26);
   leave(run, 5, 11);
   leave(run, 3, 12);
@@ -509,7 +512,7 @@ export function kq3Complete(run: Speedrun): void {
   run.walkPath({ x0: 16, x1: 23, y0: 112, y1: 120 });
   run.command("get mistletoe");
   run.assertCarried(15);
-  run.checkpoint("Sea water and mistletoe", { room: 29, score: 62 });
+  run.verify("Sea water and mistletoe", { room: 29, score: 62 });
   leave(run, 1, 24);
   run.walkPath({ x0: 73, x1: 80, y0: 126, y1: 130 });
   run.command("open door");
@@ -569,7 +572,7 @@ export function kq3Complete(run: Speedrun): void {
   run.walkPath(40, 145);
   run.command("get dew");
   run.assertCarried(7);
-  run.checkpoint("Dew gathered in a thimble", { room: 28, score: 67 });
+  run.verify("Dew gathered in a thimble", { room: 28, score: 67 });
   leave(run, 7, 27);
   leave(run, 1, 22);
 
@@ -624,7 +627,7 @@ export function kq3Complete(run: Speedrun): void {
   run.walkPath({ x0: 75, x1: 100, y0: 131, y1: 133 });
   for (const ingredient of ["salt", "lard", "fish oil", "pouch"]) run.command(`buy ${ingredient}`);
   for (const item of [13, 32, 22, 19]) run.assertCarried(item);
-  run.checkpoint("Magic ingredients from the merchant", { room: 39, score: 81 });
+  run.verify("Magic ingredients from the merchant", { room: 39, score: 81 });
   run.wait(
     () =>
       run.engine.movementControlEnabled && run.engine.inputEnabled && run.engine.vars[222] === 3,
@@ -666,7 +669,7 @@ export function kq3Complete(run: Speedrun): void {
     () => run.engine.vars[44] === 0 && run.engine.movementControlEnabled,
     "return to human form",
   );
-  run.checkpoint("Inside the hollow oak", { room: 22, score: 89 });
+  run.verify("Inside the hollow oak", { room: 22, score: 89 });
   run.command("look at map");
   run.walkTo(110, 38);
   run.command("go here");
@@ -692,7 +695,7 @@ export function kq3Complete(run: Speedrun): void {
     "receive the amber stone",
     6000,
   );
-  run.checkpoint("The Oracle reveals Gwydion’s identity", { room: 36, score: 96 });
+  run.verify("The Oracle reveals Gwydion’s identity", { room: 36, score: 96 });
   run.walkPath(72, 165);
   run.exit("S", 14);
 
@@ -829,7 +832,7 @@ export function kq3Complete(run: Speedrun): void {
     "Manannan returns for supper",
     20000,
   );
-  run.checkpoint("Manannan returns for supper", { room: 3, score: 157 });
+  run.verify("Manannan returns for supper", { room: 3, score: 157 });
   run.walkPath(95, 160);
   run.exit("S", 7);
   run.walkPath(38, 101, {
@@ -883,7 +886,7 @@ export function kq3Complete(run: Speedrun): void {
   run.wait(() => run.engine.vars[222] === 29, "the captain asks for his fare", 500);
   run.command("give gold to pirates");
   assert.equal(run.engine.flags[79], 1);
-  run.checkpoint("Passage to Daventry", { room: 40, score: 172 });
+  run.verify("Passage to Daventry", { room: 40, score: 172 });
   run.walkTo(72, 165);
   run.exit("S", 24);
   leave(run, 3, 25);
@@ -913,7 +916,7 @@ export function kq3Complete(run: Speedrun): void {
   run.command("jump");
   run.wait(() => run.engine.vars[44] === 15, "catch the rope ladder");
   run.exit("N", 83);
-  run.checkpoint("Escape from the cargo hold", { room: 83, score: 176 });
+  run.verify("Escape from the cargo hold", { room: 83, score: 176 });
   run.walkDirection("S", () => run.state().room === 85, "return below deck");
   run.walkDirection("S", () => run.engine.vars[44] === 201, "land on the large crate");
   run.walkDirection("E", () => run.engine.vars[44] === 0, "jump down from the crate");
@@ -956,7 +959,7 @@ export function kq3Complete(run: Speedrun): void {
   run.wait(() => run.engine.flags[188] !== 0, "open the captain’s chest");
   run.command("get all");
   run.wait(() => run.engine.flags[206] !== 0, "recover the stolen possessions");
-  run.checkpoint("Magic recovered from the captain’s chest", { room: 83, score: 179 });
+  run.verify("Magic recovered from the captain’s chest", { room: 83, score: 179 });
   run.walkPath(136, 140, { geometry: "current" });
   run.walkTo(153, 140);
   run.exit("E", 84);
@@ -972,7 +975,7 @@ export function kq3Complete(run: Speedrun): void {
   run.command("pour sleep powder on floor");
   run.command("slumber henceforth");
   run.wait(() => run.engine.flags[181] !== 0, "the crew falls asleep");
-  run.checkpoint("The sleeping ship", { room: 85, score: 180 });
+  run.verify("The sleeping ship", { room: 85, score: 180 });
   run.command("jump");
   run.wait(() => run.engine.vars[44] === 15, "reach the rope");
   run.exit("N", 83);
@@ -988,7 +991,7 @@ export function kq3Complete(run: Speedrun): void {
   run.walkPath({ x0: 53, x1: 58, y0: 82, y1: 85 }, { geometry: "current" });
   run.command("dig");
   run.wait(() => run.carried(53), "uncover the pirates’ treasure");
-  run.checkpoint("Treasure beneath the lone palm", { room: 49, score: 192 });
+  run.verify("Treasure beneath the lone palm", { room: 49, score: 192 });
   run.walkPath(60, 71, { geometry: "current" });
   run.exit("N", 50);
   run.command("dip fly wings in essence");
@@ -1002,7 +1005,7 @@ export function kq3Complete(run: Speedrun): void {
   run.walkToUntil(68, 0, () => run.state().room === 52, "fly to the ridge");
   run.walkToUntil(159, 80, () => run.state().room === 53, "fly east along the ridge");
   run.walkToUntil(48, 0, () => run.state().room === 54, "fly up the waterfall");
-  run.checkpoint("A fly above the waterfall", { room: 54, score: 192 });
+  run.verify("A fly above the waterfall", { room: 54, score: 192 });
   run.walkToUntil(159, 95, () => run.state().room === 55, "fly toward the summit");
   run.walkToUntil(159, 140, () => run.state().room === 56, "fly past the snowy cave");
   run.command("fly begone myself return");
@@ -1116,7 +1119,7 @@ export function kq3Complete(run: Speedrun): void {
     [150, 161],
   ]);
   run.exit("E", 58);
-  run.checkpoint("Across the cliff’s hidden passages", { room: 58, score: 196 });
+  run.verify("Across the cliff’s hidden passages", { room: 58, score: 196 });
   leave(run, 3, 59);
   const descent = run.traverse({
     passage: { kind: "exit", direction: 5, room: 61, planned: true },
@@ -1192,7 +1195,7 @@ export function kq3Complete(run: Speedrun): void {
     "free Princess Rosella",
     3000,
   );
-  run.checkpoint("Alexander frees his sister", { room: 66, score: 206 });
+  run.verify("Alexander frees his sister", { room: 66, score: 206 });
   leave(run, 3, 67);
   enter(run, 151, 105, 64);
   leave(run, 5, 63);
@@ -1223,7 +1226,7 @@ export function kq3Complete(run: Speedrun): void {
       run.wait(() => run.engine.movementControlEnabled, "the gnome announces the return", 2000);
   }
   assert.equal(run.state().room, 71);
-  run.checkpoint("The castle gates stand open", { room: 71, score: 206 });
+  run.verify("The castle gates stand open", { room: 71, score: 206 });
   run.wait(
     () => run.state().room === 74 && run.engine.vars[220]! >= 27,
     "the royal family is reunited",

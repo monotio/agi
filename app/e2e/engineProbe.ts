@@ -333,6 +333,18 @@ export async function openCardMenu(page: Page, testId: string): Promise<void> {
 }
 
 /**
+ * Click a transport timeline marker. Markers are visual-only (dense checkpoint
+ * clusters overlap beyond DOM hit-testing), so the pointer clicks the marker's
+ * position on the timeline and the transport resolves the nearest mark — the
+ * same path a user's click takes.
+ */
+export async function clickTimelineMark(page: Page, marker: Locator): Promise<void> {
+  const box = await marker.boundingBox();
+  if (!box) throw new Error("Timeline marker is not visible");
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
+
+/**
  * Open a top-bar menu through its trigger without closing it on repeat calls.
  * `help-menu` holds Game controls, the map, hints and the walkthrough;
  * `game-menu` holds creator and export actions plus Start over;

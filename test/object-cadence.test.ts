@@ -15,7 +15,10 @@ const host: EngineHost = {
   takeInputLine: () => null,
   takeKeys: () => [],
 };
-const setup = `load.view(1); animate.obj(o0); set.view(o0, 1); position(o0, 20, 100); draw(o0); stop.cycling(o0); ignore.objs(o0);`;
+// Fresh records are zeroed, so the shared preamble sets a one-cell cadence the
+// way a real room script does before animating an actor.
+const setup = `load.view(1); animate.obj(o0); set.view(o0, 1); position(o0, 20, 100); draw(o0); stop.cycling(o0); ignore.objs(o0); assignn(v60, 1); step.size(o0, v60); step.time(o0, v60); cycle.time(o0, v60);`;
+const setupZeroed = `load.view(1); animate.obj(o0); set.view(o0, 1); position(o0, 20, 100); draw(o0); stop.cycling(o0); ignore.objs(o0);`;
 
 function game(source: string, profile: ProfileId = "2.936", engineHost: EngineHost = host): Engine {
   const container = createContainer();
@@ -106,7 +109,7 @@ test("reanimating an object clears prior drawing and movement flags but preserve
   assert.equal(kept.cycling, false);
 });
 
-test("step.time restarts cadence and positioning suppresses exactly one due step", () => {
+test("step.time restarts cadence and a positioned actor steps on the first due pass", () => {
   const engine = game(
     `if (!isset(f200)) { set(f200); ${setup} assignn(v60, 3); step.time(o0, v60); set.dir(o0, v60); } return;`,
   );
@@ -117,8 +120,10 @@ test("step.time restarts cadence and positioning suppresses exactly one due step
     positions.push(engine.screenObjects[0]!.x);
     movementUpdates.push(engine.movementUpdateCount);
   }
-  assert.deepEqual(positions, [20, 20, 20, 20, 20, 21, 21, 21, 22]);
-  assert.deepEqual(movementUpdates, [0, 0, 0, 0, 0, 1, 1, 1, 2]);
+  // position no longer schedules a suppressing zero-step pass (the originals
+  // never mark it), so the first real step lands on the first due pass.
+  assert.deepEqual(positions, [20, 20, 21, 21, 21, 22, 22, 22, 23]);
+  assert.deepEqual(movementUpdates, [0, 0, 1, 1, 1, 2, 2, 2, 3]);
 });
 
 for (const [profile, expected] of [
@@ -191,9 +196,14 @@ test("end.of.loop delays once, then completes as the last cel is reached", () =>
 });
 
 test("movement rectangles stop a crossing before logic using strict membership", () => {
+  // A direction set during logic gets its first move before the next
+  // transition check, so the block must already exist and the actor must not
+  // be due until a later pass — step.time 3 defers the first step past the
+  // pre-logic check that sees direction 3 already set.
   const engine = game(
-    `if (!isset(f200)) { set(f200); ${setup} block(20, 50, 30, 150); assignn(v60, 3); set.dir(o0, v60); return; } get.dir(o0, v61); return;`,
+    `if (!isset(f200)) { set(f200); ${setup} block(20, 50, 30, 150); assignn(v60, 3); step.time(o0, v60); set.dir(o0, v60); return; } get.dir(o0, v61); return;`,
   );
+  engine.tick();
   engine.tick();
   engine.tick();
   assert.equal(engine.vars[61], 0);
@@ -229,6 +239,118 @@ test("room transition clears loaded views, resets cadence/block and uses actual 
     assembleLogic("draw(o0); return;", { dictionary: new Map() }).payload,
   );
   assert.throws(() => engine.tick(), /draw requires a selected cel/);
+});
+
+test("room transition returns the stopped partition selection, like the original flag write", () => {
+  // The original new.room object loop writes flags &= ~0x41; flags |= 0x10:
+  // drawn and animated membership clear, but the updating partition is
+  // selected. Engine's earlierPartition is the inverse selection.
+  const engine = game(`
+    if (!isset(f200)) {
+      set(f200); load.view(1); animate.obj(o1); set.view(o1, 1);
+      position(o1, 50, 100); draw(o1); stop.update(o1); new.room(1);
+    }
+    return;
+  `);
+  engine.tick();
+  const o = engine.screenObjects[1]!;
+  assert.equal(o.active, false);
+  assert.equal(o.update, false);
+  assert.equal(o.earlierPartition, false, "new.room selects the updating partition");
+});
+
+test("room transition leaves ego's motion byte latent until re-animation", () => {
+  // The original's new.room object loop does not touch the motion-type byte,
+  // but it clears the animated membership bit and only animate.obj can set
+  // it again — and animate.obj clears the motion type on that path. The
+  // carried mode is therefore dead state: it never drives motion, and the
+  // new room's first animate.obj(ego) ends it (docs/fidelity.md, "Original
+  // new.room sequence").
+  const engine = game(`
+    if (!isset(f200)) {
+      set(f200); ${setup} ignore.horizon(o0); ignore.blocks(o0);
+      move.obj(o0, 26, 100, 1, f62); new.room(1);
+    }
+    if (isset(f63)) { animate.obj(o0); }
+    return;
+  `);
+  for (let i = 0; i < 4; i++) engine.tick();
+  const ego = engine.screenObjects[0]!;
+  assert.equal(ego.motionMode, 1, "the transition leaves the motion byte alone");
+  assert.equal(engine.flags[62], 0, "latent motion cannot complete");
+  engine.flags[63] = 1;
+  engine.tick();
+  assert.equal(ego.motionMode, 0, "the new room's animate.obj ends the carried mode");
+});
+
+test("a direction event ends ego's scripted motion under player control", () => {
+  // The original's direction-event case forces ego's motion type to normal
+  // while the player controls movement (0x3616, unconditional on the
+  // animated state), so a carried move.obj ends on the next direction
+  // input — not on the room boundary itself.
+  let polls = 0;
+  const engine = game(
+    `
+    if (!isset(f200)) {
+      set(f200); ${setup} ignore.horizon(o0); ignore.blocks(o0);
+      move.obj(o0, 100, 100, 1, f62); new.room(1);
+    }
+    return;
+  `,
+    "2.936",
+    { ...host, takeKeys: () => (polls++ === 3 ? [0x4b00] : []) },
+  );
+  engine.tick();
+  engine.tick();
+  const ego = engine.screenObjects[0]!;
+  assert.equal(ego.motionMode, 1, "the carried mode survives until input");
+  for (let i = 0; i < 4; i++) engine.tick();
+  assert.equal(ego.motionMode, 0, "the direction event restored normal motion");
+  assert.equal(engine.flags[62], 0, "the interrupted move never completes");
+});
+
+test("room transition flushes queued input and re-entry input state", () => {
+  // new.room's core clears the mapped controller array, then its zero
+  // continuation result takes the original's shared re-entry path: v9, v4,
+  // v5 and f2 clear before logic 0 re-invokes in the same pass. Only v19 and
+  // f4 set by the old room's last pass stay visible (docs/fidelity.md,
+  // "Original new.room sequence").
+  let polls = 0;
+  const engine = game(
+    `
+    if (!isset(f200)) { set(f200); set.key(120, 0, 3); return; }
+    if (!isset(f201)) {
+      set(f201); assignn(v19, 65); assignn(v4, 1); assignn(v5, 1);
+      assignn(v9, 3); set(f2); set(f4); new.room(1);
+    }
+    call(1);
+    return;
+  `,
+    "2.936",
+    { ...host, takeKeys: () => (polls++ === 0 ? [] : [120]) },
+  );
+  engine.patchResource(
+    "logic",
+    1,
+    assembleLogic(
+      `if (isset(f2)) { assignn(v101, 1); }
+       if (isset(f4)) { assignn(v102, 1); }
+       assignv(v103, v19);
+       if (controller(3)) { assignn(v104, 1); }
+       assignv(v105, v4); assignv(v106, v5); assignv(v107, v9);
+       return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  engine.tick();
+  engine.tick();
+  assert.equal(engine.vars[101], 0, "f2 clears on the re-entry path");
+  assert.equal(engine.vars[102], 1, "f4 survives the room boundary");
+  assert.equal(engine.vars[103], 65, "v19 survives the room boundary");
+  assert.equal(engine.vars[104], 0, "controller bits clear inside the transition core");
+  assert.equal(engine.vars[105], 0, "v4 clears on the re-entry path");
+  assert.equal(engine.vars[106], 0, "v5 clears on the re-entry path");
+  assert.equal(engine.vars[107], 0, "v9 clears on the re-entry path");
 });
 
 test("2.411 restart accepts confirmation even though f16 never bypasses it", () => {
@@ -274,6 +396,27 @@ test("immediate quit notifies the host once and stops execution", () => {
   assert.equal(engine.vars[100], 0);
 });
 
+test("a drawn object without step.size or step.time keeps the zeroed record's cadence", () => {
+  // Cold-boot object records are zeroed 43-byte slots; animate.obj writes only
+  // the flags word (0x70) and three bytes, so a game that never calls
+  // set.step/step.time leaves stepSize = stepTime = stepCount = 0. The
+  // countdown-zero record is due every pass but moves zero cells, and the
+  // countdown-equals-1 pre-logic gate never runs its direction update.
+  // docs/fidelity.md: Startup and reconstruction; Original complete movement
+  // and follow audit.
+  const engine = game(`if (!isset(f200)) { set(f200); ${setupZeroed} wander(o0); } return;`);
+  const ego = engine.screenObjects[0]!;
+  assert.deepEqual(
+    [ego.stepSize, ego.stepTime, ego.stepCount, ego.cycleTime, ego.cycleCount],
+    [0, 0, 0, 0, 0],
+    "fresh records carry the zeroed cadence fields",
+  );
+  for (let i = 0; i < 4; i++) engine.tick();
+  assert.deepEqual([ego.x, ego.y], [20, 100], "the zero-step object never leaves its cell");
+  assert.equal(ego.direction, 0, "no direction update without a countdown of 1");
+  assert.equal(engine.movementUpdateCount, 0);
+});
+
 test("wander's first update draws only a direction; the wrapped count counts down", () => {
   // Binary contract (docs/fidelity.md, wander countdown): a zero old count
   // wraps to 255 and is kept — the below-six reroll is a `while`, not a
@@ -293,9 +436,57 @@ test("wander's first update draws only a direction; the wrapped count counts dow
   assert.equal(engine.screenObjects[0]!.direction, 0);
 });
 
+test("stationary reads the committed pair, so a repositioned wanderer counts as moved", () => {
+  // docs/fidelity.md "Original previous-position commit": the stationary bit
+  // compares post-move x/y with the record's saved pair, which reposition
+  // and cel clipping leave untouched. A wanderer nudged to the border
+  // mid-logic and then blocked reads "moved", so it rerolls its direction
+  // instead of just decrementing the count.
+  let calls = 0;
+  const engine = game(
+    `if (!isset(f200)) { set(f200); ${setup}
+      animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 10, 100);
+      draw(o1); stop.cycling(o1); assignn(v60, 1); step.size(o1, v60); step.time(o1, v60);
+      wander(o1);
+    } return;`,
+    "2.936",
+    {
+      ...host,
+      randomByte: () => {
+        calls++;
+        return 7; // direction 7 (left); the wrapped count stays ≥6
+      },
+    },
+  );
+  const o1 = engine.screenObjects[1]!;
+  engine.tick(); // setup logic; direction still 0, no wander draw yet
+  engine.tick(); // updateMotion draws direction 7; the move commits the pair
+  engine.tick(); // second step left; pair = the new cell
+  assert.equal(calls, 1);
+  o1.x = 0; // mid-logic reposition moves x/y without touching the pair
+  engine.tick(); // the leftward step clamps at the border: post == start ≠ pair
+  assert.equal(o1.stationary, false);
+  engine.tick(); // updateMotion consults the stationary bit set last pass
+  assert.equal(o1.direction, 7);
+  assert.equal(calls, 1, "the mover still counts as moved, so wander must not reroll yet");
+});
+
+test("draw clears a pending completion-animation delay", () => {
+  // docs/fidelity.md flag table: the originals' draw clears the 0x1000
+  // delay bit set by end.of.loop/reverse.loop, so an erased and redrawn
+  // object starts its completion animation without the extra cycle.
+  const engine = game(`if (!isset(f200)) { set(f200); ${setup}
+    animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 40, 100); draw(o1);
+    end.of.loop(o1, f60); erase(o1); draw(o1);
+  } return;`);
+  engine.tick();
+  assert.equal(engine.screenObjects[1]!.cycleDelay, false);
+});
+
 test("follow completion uses strict per-axis bands rather than Manhattan distance", () => {
   const engine = game(`if (!isset(f200)) { set(f200); ${setup}
-    animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 18, 98); draw(o1); stop.cycling(o1); follow.ego(o1, 3, f60);
+    animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 18, 98); draw(o1); stop.cycling(o1);
+    assignn(v60, 1); step.size(o1, v60); step.time(o1, v60); follow.ego(o1, 3, f60);
   } return;`);
   engine.tick();
   engine.tick();
@@ -308,7 +499,8 @@ test("a stationary follower retries with a nonzero direction and restore resets 
   let calls = 0;
   const engine = game(
     `if (!isset(f200)) { set(f200); ${setup}
-    animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 10, 100); draw(o1); stop.cycling(o1); follow.ego(o1, 1, f60);
+    animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 10, 100); draw(o1); stop.cycling(o1);
+    assignn(v60, 1); step.size(o1, v60); step.time(o1, v60); follow.ego(o1, 1, f60);
   } return;`,
     "2.936",
     {
@@ -563,7 +755,7 @@ test("loop and view selection keep an index the new loop or view has, else fall 
   });
   engine = game(
     `load.view(3); animate.obj(o0); set.view(o0, 3); position(o0, 20, 100); draw(o0);
-     stop.cycling(o0); ignore.blocks(o0); set.cel(o0, 2); assignn(v6, 7); return;`,
+     stop.cycling(o0); ignore.blocks(o0); set.cel(o0, 2); assignn(v60, 1); step.time(o0, v60); assignn(v6, 7); return;`,
   );
   engine.patchResource("view", 3, twoCels);
   engine.tick();
@@ -682,7 +874,7 @@ test("graphics drawn after text cover, hide or drop the cells under their pixels
   assert.deepEqual(chars(engine, 12).slice(5, 7), [0, 0x42], "an updating sprite repaints it");
   engine = game(
     `configure.screen(0, 23, 24); load.view(1);
-     if (isset(f5)) { display(12, 6, "XY"); animate.obj(o0); set.view(o0, 1); position(o0, 20, 100); ignore.blocks(o0); draw(o0); }
+     if (isset(f5)) { display(12, 6, "XY"); animate.obj(o0); set.view(o0, 1); position(o0, 20, 100); ignore.blocks(o0); draw(o0); assignn(v60, 1); step.size(o0, v60); }
      if (equaln(v50, 0)) { assignn(v50, 1); assignn(v6, 3); }
      return;`,
   );
@@ -912,7 +1104,7 @@ for (const [request, expected] of [
     // stop.update first — follow.ego itself selects the updating partition.
     const engine = game(`if (!isset(f200)) { set(f200); ${setup}
       animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 20, 100); draw(o1);
-      assignn(v60, 4); step.size(o1, v60); position(o0, 23, 100);
+      assignn(v60, 4); step.size(o1, v60); assignn(v61, 1); step.time(o1, v61); position(o0, 23, 100);
       stop.update(o1); follow.ego(o1, ${request}, f60);
     } return;`);
     engine.tick();
@@ -931,7 +1123,7 @@ for (const [request, expected] of [
 test("move.obj and move.obj.v select the updating partition", () => {
   const engine = game(`if (!isset(f200)) { set(f200);
     load.view(1); animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 10, 100); draw(o1);
-    stop.update(o1); move.obj(o1, 30, 100, 2, f62);
+    assignn(v60, 1); step.time(o1, v60); stop.update(o1); move.obj(o1, 30, 100, 2, f62);
   } return;`);
   engine.tick();
   assert.equal(engine.screenObjects[1]!.earlierPartition, false);
@@ -941,7 +1133,7 @@ test("move.obj and move.obj.v select the updating partition", () => {
 
   const indirect = game(`if (!isset(f200)) { set(f200);
     load.view(1); animate.obj(o1); set.view(o1, 1); ignore.objs(o1); position(o1, 10, 100); draw(o1);
-    assignn(v60, 30); assignn(v61, 100); assignn(v62, 2);
+    assignn(v60, 30); assignn(v61, 100); assignn(v62, 2); assignn(v63, 1); step.time(o1, v63);
     stop.update(o1); move.obj.v(o1, v60, v61, v62, f62);
   } return;`);
   indirect.tick();
@@ -951,7 +1143,7 @@ test("move.obj and move.obj.v select the updating partition", () => {
 });
 
 const bankActor = `load.view(1); animate.obj(o1); set.view(o1, 1); ignore.objs(o1);
-  position(o1, 10, 80); draw(o1); assignn(v60, 4); step.size(o1, v60);`;
+  position(o1, 10, 80); draw(o1); assignn(v60, 4); step.size(o1, v60); assignn(v61, 1); step.time(o1, v61); cycle.time(o1, v61);`;
 
 test("move.obj then end.of.loop: the flag byte overwrites the destination", () => {
   const engine = game(`if (!isset(f200)) { set(f200); ${bankActor}

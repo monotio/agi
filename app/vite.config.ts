@@ -4,7 +4,7 @@ import vue from "@vitejs/plugin-vue";
 import { defineConfig, type Plugin } from "vite";
 import { scanFixtures } from "../test/fixtures.ts";
 import { BUILTIN_GAME_BUILDERS } from "../test/game-fixture.ts";
-import { KNOWN_GAMES } from "../src/games/knownGames.ts";
+import { KNOWN_GAMES, detectKnownGameByHashes } from "../src/games/knownGames.ts";
 import { gameRevision, isPlayableFileName } from "./src/gameMetadata.ts";
 
 export interface InstalledFixtureDescriptor {
@@ -146,16 +146,27 @@ function fixtureServer(): Plugin {
                 g.alias?.toLowerCase() === segment0!.toLowerCase(),
             );
             if (matches.length > 1) {
-              res.statusCode = 400;
-              res.setHeader("content-type", "application/json");
-              res.end(
-                JSON.stringify({
-                  error: `Ambiguous fixture query "${segment0}" matches multiple editions (${matches.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
-                }),
+              // Ports share the WORDS.TOK vocabulary hash; the catalogued
+              // (WORDS.TOK + OBJECT) fingerprint names the verified edition.
+              const cataloged = matches.filter(
+                (m) =>
+                  m.wordsSha256 !== undefined &&
+                  detectKnownGameByHashes(m.wordsSha256, m.objectSha256) !== null,
               );
-              return;
+              if (cataloged.length === 1) {
+                resolvedFolder = cataloged[0]!.folder;
+              } else {
+                res.statusCode = 400;
+                res.setHeader("content-type", "application/json");
+                res.end(
+                  JSON.stringify({
+                    error: `Ambiguous fixture query "${segment0}" matches multiple editions (${matches.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
+                  }),
+                );
+                return;
+              }
             }
-            if (matches.length === 1) {
+            if (!resolvedFolder && matches.length === 1) {
               resolvedFolder = matches[0]!.folder;
             }
           }

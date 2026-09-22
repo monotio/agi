@@ -155,7 +155,14 @@ function alive(run: Speedrun, label: string): void {
  * leg presses its own heading, exactly as a driver steers through a corner.
  * Radio traffic opens message windows mid-drive; they are read and dismissed.
  */
-function steer(run: Speedrun, dir: Heading, until: () => boolean, label: string, max = 4000): void {
+function steer(
+  run: Speedrun,
+  dir: Heading,
+  until: () => boolean,
+  label: string,
+  max = 4000,
+  hold?: () => boolean,
+): void {
   const from = run.cycles;
   for (let n = 0; n < max; n++) {
     // Once a cycle has run, the queued speed key has landed in v55.
@@ -164,7 +171,7 @@ function steer(run: Speedrun, dir: Heading, until: () => boolean, label: string,
     alive(run, label);
     assert.equal(run.engine.vars[227], 0, `${label}: collision`);
     if (until()) return;
-    run.direction(dir);
+    run.direction(hold?.() === true ? 0 : dir);
     run.advance();
   }
   assert.fail(`${label}: not reached from ${JSON.stringify(run.state())}`);
@@ -219,12 +226,13 @@ function driveWithin(
   lo: number,
   hi: number,
   fast: 1 | 2 | 3 = 3,
+  hold?: () => boolean,
 ): void {
   const ego = run.engine.screenObjects[0]!;
   const at = (): number => (dir === "N" || dir === "S" ? ego.y : ego.x);
   assert.ok(hi - lo + 1 >= fast, "window narrower than one step");
   code(run, fast);
-  steer(run, dir, () => at() >= lo && at() <= hi, `drive ${dir} into ${lo}..${hi}`);
+  steer(run, dir, () => at() >= lo && at() <= hi, `drive ${dir} into ${lo}..${hi}`, 4000, hold);
 }
 
 /** Drive off the edge of one map square into the next. */
@@ -298,7 +306,7 @@ function inspectPatrolCar(run: Speedrun): void {
   run.command("enter car");
   run.wait(() => run.engine.flags[39] !== 0, "seated in the patrol car", 200);
   run.command("close door");
-  run.checkpoint("Inspected the patrol car", { room: 7, score: 27 });
+  run.verify("Inspected the patrol car", { room: 7, score: 27 });
   run.command("drive");
   run.waitForRoom(20, "pulling out of the station lot");
 }
@@ -534,7 +542,7 @@ function citeHelenHots(run: Speedrun): void {
   run.command("give ticket");
   run.waitForRoom(30, "back at the roadside");
   score(run, 61, "citation issued");
-  run.checkpoint("Ticketed the red sports car", { room: 30, score: 61 });
+  run.verify("Ticketed the red sports car", { room: 30, score: 61 });
   boardCar(run, 11);
 }
 
@@ -731,6 +739,26 @@ function planStreets(run: Speedrun, goal: Junction): Junction[] {
 }
 
 /**
+ * A car already inside a junction turns across whatever arrives beside it.
+ * True while a driven car (motionMode set) sits in the junction box and ego is
+ * approaching its mouth — hold there rather than share the turn. Once inside
+ * the box, or still well clear of it, drive on.
+ */
+function junctionBusy(run: Speedrun, x: number, y: number): boolean {
+  const ego = run.engine.screenObjects[0]!;
+  const dx = Math.abs(ego.x - x);
+  const dy = Math.abs(ego.y - y);
+  if (dx <= 12 && dy <= 10) return false;
+  if (dx > 30 || dy > 26) return false;
+  return run.engine
+    .readObjects()
+    .some(
+      (o) =>
+        o.num !== 0 && o.motionMode !== 0 && Math.abs(o.x - x) <= 12 && Math.abs(o.y - y) <= 10,
+    );
+}
+
+/**
  * Drive junction to junction along street centre lines. The centre windows
  * are three pixels wide, so Code 3 always lands inside one without easing,
  * and they stay two pixels clear of every traffic lane.
@@ -752,6 +780,7 @@ function driveToJunction(run: Speedrun, goal: Junction): void {
     const room = run.state().room;
     const x = AVENUE_X[hop.avenue]!;
     const y = hop.street === 0 ? 32 : 124;
+    const yieldToTraffic = (): boolean => junctionBusy(run, x, y);
     const vertical =
       inAvenue(ego.x) === hop.avenue &&
       (hop.room !== room ? Math.abs(hop.room - room) === 4 : inStreet(ego.y) !== hop.street);
@@ -760,9 +789,10 @@ function driveToJunction(run: Speedrun, goal: Junction): void {
       driveOut(run, delta === -4 ? "N" : delta === 4 ? "S" : delta === 1 ? "E" : "W", hop.room);
     }
     if (vertical) {
-      if (ego.y < y - 1 || ego.y > y + 1) driveWithin(run, ego.y > y ? "N" : "S", y - 1, y + 1);
+      if (ego.y < y - 1 || ego.y > y + 1)
+        driveWithin(run, ego.y > y ? "N" : "S", y - 1, y + 1, 3, yieldToTraffic);
     } else if (ego.x < x - 1 || ego.x > x + 1)
-      driveWithin(run, ego.x > x ? "W" : "E", x - 1, x + 1);
+      driveWithin(run, ego.x > x ? "W" : "E", x - 1, x + 1, 3, yieldToTraffic);
   }
 }
 
@@ -1104,7 +1134,7 @@ function transferMemoAndInvitation(run: Speedrun): void {
   // The officers hang back a few steps; walk up to them to be spoken to.
   const officer = e.screenObjects[3]!;
   run.walkToUntil(officer.x, officer.y, () => e.vars[98] === 1, "invited to the Blue Room", 600);
-  run.checkpoint("Invited to Jack's birthday party", { room: 6, score: 91 });
+  run.verify("Invited to Jack's birthday party", { room: 6, score: 91 });
 }
 
 /** Hang the patrol keys and extender back: neither may leave in plain clothes. */
@@ -1430,7 +1460,7 @@ function transferToNarcotics(run: Speedrun): void {
   run.command("read memo");
   assert.equal(e.vars[31], 4, "transferred to Narcotics");
   score(run, 136, "read the transfer memo");
-  run.checkpoint("Transferred to Narcotics", { room: 42, score: 136 });
+  run.verify("Transferred to Narcotics", { room: 42, score: 136 });
 }
 
 /** Into the back hall from the main one, then through a side door. */
@@ -1629,7 +1659,7 @@ function serveWarrant(run: Speedrun): void {
   assert.equal(e.vars[96], 4, "warrant served");
   score(run, 157, "Taselli held without bail");
   run.wait(() => e.flags[228] !== 0 && e.movementControlEnabled, "jailer returns laughing", 8000);
-  run.checkpoint("Served the warrant in the nick of time", { room: 40, score: 157 });
+  run.verify("Served the warrant in the nick of time", { room: 40, score: 157 });
   leaveJail(run);
   boardCar(run, 24);
   leaveJailYard(run);
@@ -1945,7 +1975,7 @@ function identifyTaselli(run: Speedrun): void {
   run.command("radio");
   assert.equal(e.vars[91], 20, "identification called in");
   score(run, 208, "identification called in");
-  run.checkpoint("Identified Taselli's body at Cotton Cove", { room: 60, score: 208 });
+  run.verify("Identified Taselli's body at Cotton Cove", { room: 60, score: 208 });
   boardCar(run, 25);
   drive(run, [["N", 123, 125]]);
 }
@@ -2046,7 +2076,7 @@ function checkIn(run: Speedrun): void {
   run.command("pay clerk");
   run.assertCarried(ITEM.roomKey);
   score(run, 223, "checked in to room 204");
-  run.checkpoint("Checked in as Jimmy Lee Banksten", { room: 64, score: 223 });
+  run.verify("Checked in as Jimmy Lee Banksten", { room: 64, score: 223 });
 }
 
 /**
@@ -2120,7 +2150,7 @@ function phoneFromRoom(run: Speedrun): void {
   run.command("hotel delphoria");
   run.wait(() => e.vars[31] === 104 && e.inputEnabled, "Marie leaves for her cab", 6000);
   score(run, 233, "Marie sent to safety");
-  run.checkpoint("Sent Marie away in a cab", { room: 67, score: 233 });
+  run.verify("Sent Marie away in a cab", { room: 67, score: 233 });
 }
 
 /** Five-card draw hand class (0 nothing .. 8 straight flush), its ranking key and the cards worth keeping. */
@@ -2317,7 +2347,7 @@ function collectTransmitter(run: Speedrun): void {
   go(run, { x0: detective.x + 8, x1: detective.x + 12, y0: detective.y - 2, y1: detective.y + 2 });
   run.take("get transmitter", ITEM.transmitter);
   score(run, 242, "wired for sound");
-  run.checkpoint("Collected the pen transmitter from the backup team", { room: 67, score: 242 });
+  run.verify("Collected the pen transmitter from the backup team", { room: 67, score: 242 });
 }
 
 /** The password gets Whitey into the private game, where Frank turns out to be Jessie Bains. */
@@ -2420,7 +2450,7 @@ function takeDownBains(run: Speedrun): void {
   run.checkpoint("Took down the Death Angel", { room: 103, score: 250 });
   run.waitForRoom(104, "the trial of Jessie Bains", 30000);
   score(run, 254, "Bains convicted");
-  run.checkpoint("Saw Jessie Bains convicted", { room: 104, score: 254 });
+  run.verify("Saw Jessie Bains convicted", { room: 104, score: 254 });
   run.wait(() => e.vars[139] === 18 && e.inputEnabled, "key to the city", 12000);
   run.checkpoint("Received the key to the City of Lytton", { room: 104, score: 254 });
 }

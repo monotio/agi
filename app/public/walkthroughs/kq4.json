@@ -23,9 +23,9 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 8298,
+  "elapsedMs": 9118,
   "virtualTicks": 151260,
-  "cycles": 70674,
+  "cycles": 70672,
   "actions": [
     {
       "kind": "advance",
@@ -1816,14 +1816,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Inside the seven dwarfs' untidy house",
-      "room": 54,
-      "score": 9,
-      "x": 72,
-      "y": 155
-    },
-    {
       "kind": "key",
       "code": 99
     },
@@ -2648,14 +2640,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "An honest return earns a lantern",
-      "room": 56,
-      "score": 19,
-      "x": 99,
-      "y": 108
-    },
-    {
       "kind": "key",
       "code": 18176
     },
@@ -3136,14 +3120,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "The early bird loses its worm",
-      "room": 29,
-      "score": 21,
-      "x": 61,
-      "y": 132
-    },
-    {
       "kind": "key",
       "code": 18688
     },
@@ -3325,7 +3301,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 295
+      "ticks": 293
     },
     {
       "kind": "key",
@@ -3646,14 +3622,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "A board and a bone from the troll's cave",
-      "room": 71,
-      "score": 30,
-      "x": 51,
-      "y": 99
     },
     {
       "kind": "key",
@@ -5205,7 +5173,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 7925
+      "ticks": 7927
     },
     {
       "kind": "key",
@@ -5806,14 +5774,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Cupid's arrow tames the unicorn",
-      "room": 27,
-      "score": 42,
-      "x": 1,
-      "y": 119
     },
     {
       "kind": "key",
@@ -6742,14 +6702,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Shakespeare for a lute",
-      "room": 14,
-      "score": 45,
-      "x": 74,
-      "y": 121
     },
     {
       "kind": "key",
@@ -8816,14 +8768,6 @@
       "ticks": 11
     },
     {
-      "kind": "checkpoint",
-      "label": "A peacock feather on Genesta's island",
-      "room": 41,
-      "score": 57,
-      "x": 35,
-      "y": 95
-    },
-    {
       "kind": "key",
       "code": 20736
     },
@@ -9301,19 +9245,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Tickled out of the whale",
-      "room": 31,
-      "score": 62,
-      "x": 71,
-      "y": 72
-    },
-    {
-      "kind": "advance",
-      "ticks": 184
+      "ticks": 185
     },
     {
       "kind": "key",
@@ -11044,14 +10976,6 @@
       "ticks": 8
     },
     {
-      "kind": "checkpoint",
-      "label": "A bone for the ogres' bulldog",
-      "room": 49,
-      "score": 89,
-      "x": 27,
-      "y": 119
-    },
-    {
       "kind": "key",
       "code": 18688
     },
@@ -11266,14 +11190,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "The ogre's axe from the bedroom",
-      "room": 48,
-      "score": 91,
-      "x": 112,
-      "y": 117
     },
     {
       "kind": "key",
@@ -12228,14 +12144,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "The trees learn to fear the axe",
-      "room": 5,
-      "score": 99,
-      "x": 1,
-      "y": 137
-    },
-    {
       "kind": "key",
       "code": 18688
     },
@@ -13164,14 +13072,6 @@
       "ticks": 97
     },
     {
-      "kind": "checkpoint",
-      "label": "The witches' only eye",
-      "room": 57,
-      "score": 109,
-      "x": 66,
-      "y": 125
-    },
-    {
       "kind": "key",
       "code": 20224
     },
@@ -13540,14 +13440,6 @@
       "ticks": 14
     },
     {
-      "kind": "checkpoint",
-      "label": "A scarab for the witches' eye",
-      "room": 57,
-      "score": 114,
-      "x": 52,
-      "y": 150
-    },
-    {
       "kind": "key",
       "code": 20736
     },
@@ -13897,7 +13789,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 316
+      "ticks": 314
     },
     {
       "kind": "key",
@@ -15492,14 +15384,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "The magic fruit from the swamp island",
-      "room": 78,
-      "score": 132,
-      "x": 100,
-      "y": 143
-    },
-    {
       "kind": "key",
       "code": 18176
     },
@@ -16628,14 +16512,6 @@
       "ticks": 3
     },
     {
-      "kind": "checkpoint",
-      "label": "Back through the caves with the fruit",
-      "room": 71,
-      "score": 134,
-      "x": 100,
-      "y": 161
-    },
-    {
       "kind": "key",
       "code": 18176
     },
@@ -17005,7 +16881,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 2112
+      "ticks": 2114
     },
     {
       "kind": "key",
@@ -17374,14 +17250,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "A rattle from the baby's grave",
-      "room": 16,
-      "score": 137,
-      "x": 51,
-      "y": 85
     },
     {
       "kind": "key",
@@ -18070,14 +17938,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "The baby ghost sleeps",
-      "room": 59,
-      "score": 139,
-      "x": 81,
-      "y": 109
     },
     {
       "kind": "key",
@@ -19902,14 +19762,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "A locket for the lady who waited",
-      "room": 60,
-      "score": 149,
-      "x": 32,
-      "y": 127
     },
     {
       "kind": "key",
@@ -21958,14 +21810,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Sheet music from the attic chest",
-      "room": 63,
-      "score": 161,
-      "x": 76,
-      "y": 115
     },
     {
       "kind": "key",
@@ -25224,14 +25068,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Pandora's box from the crypt",
-      "room": 69,
-      "score": 176,
-      "x": 114,
-      "y": 150
-    },
-    {
       "kind": "key",
       "code": 18176
     },
@@ -26034,14 +25870,6 @@
     {
       "kind": "advance",
       "ticks": 5
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Edgar's rose and its gold key",
-      "room": 81,
-      "score": 187,
-      "x": 31,
-      "y": 132
     },
     {
       "kind": "key",
@@ -29004,14 +28832,6 @@
       "ticks": 3
     },
     {
-      "kind": "checkpoint",
-      "label": "Up the east tower to Lolotte's door",
-      "room": 82,
-      "score": 191,
-      "x": 102,
-      "y": 159
-    },
-    {
       "kind": "key",
       "code": 18688
     },
@@ -29346,14 +29166,6 @@
     {
       "kind": "advance",
       "ticks": 5
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Into Lolotte's bed chamber",
-      "room": 82,
-      "score": 193,
-      "x": 114,
-      "y": 143
     },
     {
       "kind": "key",
@@ -29818,14 +29630,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Genesta's talisman recovered",
-      "room": 82,
-      "score": 206,
-      "x": 50,
-      "y": 110
     },
     {
       "kind": "key",
@@ -30740,14 +30544,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "The hen and the box from Lolotte's storeroom",
-      "room": 84,
-      "score": 210,
-      "x": 42,
-      "y": 121
-    },
-    {
       "kind": "key",
       "code": 20736
     },
@@ -31362,14 +31158,6 @@
     {
       "kind": "advance",
       "ticks": 32
-    },
-    {
-      "kind": "checkpoint",
-      "label": "The unicorn set free",
-      "room": 94,
-      "score": 214,
-      "x": 74,
-      "y": 133
     },
     {
       "kind": "key",
@@ -32164,14 +31952,6 @@
       "ticks": 5
     },
     {
-      "kind": "checkpoint",
-      "label": "Down the mountain from Lolotte's castle",
-      "room": 30,
-      "score": 214,
-      "x": 151,
-      "y": 84
-    },
-    {
       "kind": "key",
       "code": 20224
     },
@@ -32724,14 +32504,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Pandora's box back in its tomb",
-      "room": 69,
-      "score": 216,
-      "x": 82,
-      "y": 140
-    },
-    {
       "kind": "key",
       "code": 20224
     },
@@ -33002,14 +32774,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "The crypt locked, its key slipped under the door",
-      "room": 18,
-      "score": 218,
-      "x": 123,
-      "y": 135
     },
     {
       "kind": "key",
@@ -33828,14 +33592,6 @@
       "ticks": 41
     },
     {
-      "kind": "checkpoint",
-      "label": "Up the palace stairs to Genesta's bedside",
-      "room": 45,
-      "score": 218,
-      "x": 107,
-      "y": 156
-    },
-    {
       "kind": "key",
       "code": 18688
     },
@@ -34193,19 +33949,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Genesta's talisman returned",
-      "room": 134,
-      "score": 228,
-      "x": 100,
-      "y": 105
-    },
-    {
-      "kind": "advance",
-      "ticks": 2466
+      "ticks": 2467
     },
     {
       "kind": "checkpoint",
@@ -34217,31 +33961,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 2964
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Edgar, no longer Lolotte's son, offers his heart",
-      "room": 139,
-      "score": 230,
-      "x": 100,
-      "y": 105
-    },
-    {
-      "kind": "advance",
-      "ticks": 3054
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Rosella returns to Daventry",
-      "room": 138,
-      "score": 230,
-      "x": 100,
-      "y": 105
-    },
-    {
-      "kind": "advance",
-      "ticks": 2958
+      "ticks": 8976
     },
     {
       "kind": "checkpoint",
@@ -34414,7 +34134,7 @@
       4,
       204,
       206,
-      12,
+      5,
       16,
       22,
       2,

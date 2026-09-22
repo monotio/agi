@@ -428,6 +428,8 @@ describe("engine selects behavior by profile field", () => {
       draw(o0);
       assignn(v200, 5);
       set.dir(o0, v200);
+      assignn(v201, 1);
+      step.time(o0, v201);
       return;
     `;
     const loopOf = (profileId?: Parameters<typeof detectProfile>[1], f20 = false): number => {

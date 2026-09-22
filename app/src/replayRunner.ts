@@ -138,7 +138,22 @@ export async function runReplayBatch(
   // and Enter submits it. Reconstruct typed commands for the activity log.
   let typedLine = "";
   let lastProgressAt = 0;
-  let lastProgressActionIndex = -1;
+
+  // Progress feeds reactive transport state; at high speed an action-boundary
+  // trigger alone could fire hundreds of times a second. Rate-limit it.
+  function emitProgress(actionIndex: number, obs: ReplayObservation): void {
+    if (!options?.onProgress || isSeeking()) return;
+    const now = performance.now();
+    if (now - lastProgressAt < 100) return;
+    lastProgressAt = now;
+    options.onProgress({
+      actionIndex,
+      totalActions: actions.length,
+      tick: obs.tick,
+      room: obs.state.room,
+      score: obs.state.vars[3] ?? 0,
+    });
+  }
 
   async function resumed(before: ReplayObservation, answered = false): Promise<void> {
     if (!before.blocked) return;
@@ -234,7 +249,9 @@ export async function runReplayBatch(
         updateStatus("running", currentRequestId);
       } else {
         const currentSpeed = Math.max(0.1, speed);
-        const chunk = Math.min(remaining, Math.max(1, Math.round(currentSpeed)));
+        // ~66 ms of virtual time per query: a quarter of the worker
+        // round-trips a per-frame chunk makes, with no visible pacing change.
+        const chunk = Math.min(remaining, Math.max(1, Math.round(currentSpeed * 4)));
         const delayMs = Math.max(1, (chunk * (1000 / 60)) / currentSpeed);
         const t0 = performance.now();
         currentRequestId++;
@@ -264,20 +281,7 @@ export async function runReplayBatch(
       } else {
         skipDialogueTail = null;
       }
-      if (options?.onProgress && actionIndex !== undefined && !isSeeking()) {
-        const now = performance.now();
-        if (now - lastProgressAt >= 100 || actionIndex !== lastProgressActionIndex) {
-          lastProgressAt = now;
-          lastProgressActionIndex = actionIndex;
-          options.onProgress({
-            actionIndex,
-            totalActions: actions.length,
-            tick: observation.tick,
-            room: observation.state.room,
-            score: observation.state.vars[3] ?? 0,
-          });
-        }
-      }
+      if (actionIndex !== undefined) emitProgress(actionIndex, observation);
       if (observation.blocked) {
         if (observation.tick !== target) {
           throw new Error(
@@ -363,19 +367,13 @@ export async function runReplayBatch(
     checkAborted();
   }
 
-  for (const [index, action] of actions.entries()) {
+  const startIndex = Math.max(0, Math.min(actions.length, options?.startIndex ?? 0));
+  for (let index = startIndex; index < actions.length; index++) {
+    const action = actions[index]!;
     checkAborted();
     await checkPaused();
     checkAborted();
-    if (driver.latest && options?.onProgress && !isSeeking()) {
-      options.onProgress({
-        actionIndex: index,
-        totalActions: actions.length,
-        tick: driver.latest.tick,
-        room: driver.latest.state.room,
-        score: driver.latest.state.vars[3] ?? 0,
-      });
-    }
+    if (driver.latest) emitProgress(index, driver.latest);
     try {
       switch (action.kind) {
         case "key": {
@@ -443,6 +441,9 @@ export async function runReplayBatch(
             );
           }
           checkAborted();
+          // The engine sits exactly on the checkpoint — record a restore
+          // point so a later backward seek replays only the gap.
+          driver.snapshot?.(currentSessionId);
           if (!isSeeking()) {
             options?.onCheckpoint?.({
               label: action.label,

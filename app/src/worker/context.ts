@@ -5,6 +5,7 @@
  * under Node — no `self`, `postMessage`, `window` or `document` here.
  */
 import type { Engine, EngineHost } from "../../../src/runtime/engine.ts";
+import type { EngineReplayState } from "../../../src/runtime/replayState.ts";
 import { CycleClock } from "../../../src/runtime/cycleClock.ts";
 import { SoundClock } from "../soundClock.ts";
 import { FrameRing } from "../frameRing.ts";
@@ -122,6 +123,29 @@ export interface ReplayState {
    * a walkthrough replay drives the engine's own dialogs with recorded keys.
    */
   historyReplay: boolean;
+  /**
+   * Restore points the runner asked for at walkthrough checkpoints — the
+   * same payload a history anchor carries, held in memory for backward
+   * seeks. Keyed by replay tick; a new tape (`resetReplay`) or session
+   * (`boot`, `exitReplay`) clears the set so a stale snapshot can never
+   * land on a different trajectory.
+   */
+  snapshots: Map<number, ReplaySnapshot>;
+}
+
+/** A complete resumable replay position — the `historyAnchor` recipe. */
+export interface ReplaySnapshot {
+  tick: number;
+  cycle: number;
+  image: Uint8Array;
+  replay: EngineReplayState;
+  rng: number;
+  keyQueue: number[];
+  deferredMovement: number[];
+  inputBuffer: string[];
+  requestSerial: number;
+  clock: ReturnType<CycleClock["snapshot"]>;
+  soundRemainder: number;
 }
 
 /** worker/cycle.ts */
@@ -384,6 +408,8 @@ export interface WorkerFns {
   // replay.ts
   postReplay(blocked: string | null, fullState?: boolean): void;
   onReplayAdvance(msg: Inbound<"replayAdvance">): void;
+  onReplaySnapshot(msg: Inbound<"replaySnapshot">): void;
+  onReplayRestore(msg: Inbound<"replayRestore">): void;
   onResetReplay(msg: Inbound<"resetReplay">): void;
   onExitReplay(): void;
   // cycle.ts
@@ -517,6 +543,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       replayRequest: null,
       lastReplaySeed: null,
       isSeeking: false,
+      snapshots: new Map(),
       currentSessionId: 0,
       historyReplay: false,
     },
