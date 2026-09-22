@@ -25,7 +25,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 5221,
+  "elapsedMs": 8327,
   "virtualTicks": 126171,
   "cycles": 17921,
   "actions": [
@@ -36,14 +36,6 @@
     {
       "kind": "advance",
       "ticks": 30
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Arrival in Kolyma",
-      "room": 1,
-      "score": 0,
-      "x": 100,
-      "y": 100
     },
     {
       "kind": "key",
@@ -556,14 +548,6 @@
     {
       "kind": "advance",
       "ticks": 132
-    },
-    {
-      "kind": "checkpoint",
-      "label": "The dwarf’s tree house",
-      "room": 72,
-      "score": 3,
-      "x": 31,
-      "y": 113
     },
     {
       "kind": "key",
@@ -3510,14 +3494,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Treasure among the rocks",
-      "room": 13,
-      "score": 39,
-      "x": 45,
-      "y": 60
-    },
-    {
       "kind": "key",
       "code": 18432
     },
@@ -6094,14 +6070,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Neptune’s lost trident",
-      "room": 36,
-      "score": 62,
-      "x": 125,
-      "y": 140
-    },
-    {
       "kind": "key",
       "code": 19200
     },
@@ -6984,14 +6952,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Neptune’s key and the bottle",
-      "room": 51,
-      "score": 77,
-      "x": 18,
-      "y": 126
     },
     {
       "kind": "key",
@@ -14658,14 +14618,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "The final golden key",
-      "room": 67,
-      "score": 147,
-      "x": 76,
-      "y": 107
-    },
-    {
       "kind": "key",
       "code": 20736
     },
@@ -17178,14 +17130,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Sparing the enchanted fish",
-      "room": 75,
-      "score": 169,
-      "x": 88,
-      "y": 108
-    },
-    {
       "kind": "key",
       "code": 114
     },
@@ -17424,14 +17368,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "The island’s magic amulet",
-      "room": 78,
-      "score": 173,
-      "x": 16,
-      "y": 88
     },
     {
       "kind": "key",
@@ -17728,14 +17664,6 @@
     {
       "kind": "advance",
       "ticks": 54
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Inside the quartz tower",
-      "room": 93,
-      "score": 173,
-      "x": 105,
-      "y": 166
     },
     {
       "kind": "key",
@@ -18138,14 +18066,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Finding Valanice",
-      "room": 90,
-      "score": 182,
-      "x": 99,
-      "y": 156
-    },
-    {
       "kind": "key",
       "code": 104
     },
@@ -18199,19 +18119,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Graham and Valanice’s wedding",
-      "room": 107,
-      "score": 185,
-      "x": 80,
-      "y": 90
-    },
-    {
-      "kind": "advance",
-      "ticks": 1699
+      "ticks": 1700
     },
     {
       "kind": "key",

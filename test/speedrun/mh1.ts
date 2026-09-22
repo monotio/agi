@@ -284,16 +284,16 @@ export function opening(mh: Manhunter): void {
     "the tracker's first two segments",
     9000,
   );
-  run.checkpoint("Tracking the suspect", {});
+  run.verify("Tracking the suspect", {});
   mh.waitFor(
     () => Boolean(engine.flags[69] && engine.flags[68] && engine.flags[38] && engine.flags[65]),
     "the tracker's four segments",
     9000,
   );
   assert.ok([124, 125].includes(engine.vars[0]!), `tracker rooms; ${mh.describe()}`);
-  run.checkpoint("Tracker replay complete", {});
+  run.verify("Tracker replay complete", {});
   mh.key(KEY_C, 120);
-  run.checkpoint("City map", { room: ROOM_MAP });
+  run.verify("City map", { room: ROOM_MAP });
 }
 
 /** Bellevue Hospital: through the ward to the body, a close look at its foot, then the MAD lookup. */
@@ -330,7 +330,7 @@ export function bellevue(mh: Manhunter): void {
   mh.key(KEY_C, 30);
   mh.waitForRoom(101, "the MAD");
   mh.step(60);
-  run.checkpoint("Consult the MAD", { room: 101 });
+  run.verify("Consult the MAD", { room: 101 });
   mh.cursorTo(30, 40);
   run.answer("Reno Davis");
   mh.enter(120);
@@ -347,7 +347,7 @@ export function trinity(mh: Manhunter): void {
   const { run, engine } = mh;
   mh.travel(13, 3, 73, 152, 111);
   mh.step(120);
-  run.checkpoint("Trinity Church", { room: 111 });
+  run.verify("Trinity Church", { room: 111 });
   mh.cursorTo(72, 150);
   run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[66] === 1, "inside the church");
@@ -580,7 +580,7 @@ export function flatbush(mh: Manhunter): void {
   mh.travel(8, 5, 51, 36, 122);
   mh.waitFor(() => engine.vars[47] === 1, "the bar ready");
   mh.step(5);
-  run.checkpoint("Flatbush bar", { room: 122 });
+  run.verify("Flatbush bar", { room: 122 });
   mh.cursorTo(75, 100);
   run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[66] === 1 && engine.vars[0] === 122, "inside the bar");
@@ -619,7 +619,7 @@ export function flatbush(mh: Manhunter): void {
   );
   run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[50] === 1 && mh.cursor.active, "the maze started", 300);
-  run.checkpoint("Enter the maze challenge", { room: 126 });
+  run.verify("Enter the maze challenge", { room: 126 });
   maze(mh);
   // The machine's ending returns to the bar through two Enter prompts.
   mh.waitFor(
@@ -695,14 +695,10 @@ function maze(mh: Manhunter): void {
       Number(Boolean(engine.flags[152]));
     if (collected >= nextHighlight && nextHighlight < 12) {
       run.checkpoint(
-        nextHighlight === 4
-          ? "Maze: four squares collected"
-          : nextHighlight === 8
-            ? "Maze: eight squares collected"
-            : "Maze: ten squares collected",
+        nextHighlight === 4 ? "Maze: four squares collected" : "Maze: eight squares collected",
         { room: 126 },
       );
-      nextHighlight = nextHighlight === 4 ? 8 : nextHighlight === 8 ? 10 : 12;
+      nextHighlight = nextHighlight === 4 ? 8 : 12;
     }
   }
   const squares = [151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162].filter(
@@ -717,7 +713,7 @@ export function prospectPark(mh: Manhunter): void {
   const { run, engine } = mh;
   mh.travel(9, 5, 65, 50, 119);
   mh.step(180);
-  run.checkpoint("Prospect Park", { room: 119 });
+  run.verify("Prospect Park", { room: 119 });
   const use = (x: number, y: number, id: number, action: RegExp, ticks: number): void => {
     mh.cursorTo(x, y);
     assert.equal(engine.vars[48], id, `park hotspot ${id}; ${mh.describe()}`);
@@ -773,7 +769,7 @@ export function sewers(mh: Manhunter): void {
       mh.waitFor(() => engine.vars[61] === previousCards + 1, "the keycard is collected", 300);
       mh.cycle();
       cards++;
-      if (cards % 4 === 0) run.checkpoint(`${cards} sewer keycards collected`, { room: 128 });
+      if (cards % 4 === 0) run.verify(`${cards} sewer keycards collected`, { room: 128 });
       continue;
     }
     mh.selectExit(selector, `sewer move ${i} (${move})`);
@@ -792,7 +788,7 @@ export function sewers(mh: Manhunter): void {
   assert.match(mh.hint(), /take the medallion/);
   mh.enter(120);
   run.assertCarried(13, "the medallion");
-  run.checkpoint("Recover the medallion", { room: 128 });
+  run.verify("Recover the medallion", { room: 128 });
   // Back on the dock, straight down off the bottom edge returns to the sewers.
   mh.glide(5, () => engine.vars[51] === 0, "the dock's lower edge");
   run.key(AGI_KEY.ENTER);
@@ -841,7 +837,7 @@ export function coneyIsland(mh: Manhunter): void {
   mh.waitFor(() => engine.vars[50] === 2, "the booth", 300);
   mh.waitFor(() => mh.hint().includes("throw"), "the first ball", 300);
   assert.equal(engine.vars[62], 2, "the Kewpie Doll booth");
-  run.checkpoint("Kewpie Doll Baseball", { room: 129 });
+  run.verify("Kewpie Doll Baseball", { room: 129 });
   pitch(mh, 77, 105, [2]);
   assert.equal(engine.vars[90], 10, "the first pitch hit the third top doll");
   pitch(mh, 65, 135, [1, 4]);
@@ -873,7 +869,7 @@ export function coneyIsland(mh: Manhunter): void {
  * sets v60 = 2 before new.room(104).
  */
 export function orbs(mh: Manhunter): void {
-  mh.run.checkpoint("Deliver the Data Card to the Orbs", { room: 131 });
+  mh.run.verify("Deliver the Data Card to the Orbs", { room: 131 });
   reportToOrbs(mh, ["Reno Davis"], 2);
   mh.run.checkpoint("Home, Day 2", { room: 104 });
 }
@@ -1107,7 +1103,7 @@ export function nightclubKeycard(mh: Manhunter): void {
   run.key(AGI_KEY.ENTER);
   mh.waitFor(() => run.carried(12), "the thirteenth keycard", 600);
   assert.equal(engine.vars[61], 13, "thirteen keycards");
-  run.checkpoint("Snatched the thirteenth keycard", { room: 140 });
+  run.verify("Snatched the thirteenth keycard", { room: 140 });
   mh.waitForRoom(141, "thrown out by the bouncer", 3000);
   mh.step(60);
   mh.map();
@@ -1160,7 +1156,7 @@ export function centralPark(mh: Manhunter): void {
   assert.match(mh.hint(), /take the crowbar/);
   run.key(AGI_KEY.ENTER);
   mh.waitFor(() => run.carried(18), "the crowbar", 300);
-  run.checkpoint("Pried the crowbar from the park", { room: 136 });
+  run.verify("Pried the crowbar from the park", { room: 136 });
   // Back to view 5 and on to the body: its papers, then its face.
   mh.waitFor(() => engine.vars[50] === 0 && !engine.flags[22], "the clearing again", 600);
   walk(50, 5);
@@ -1251,7 +1247,7 @@ export function osborneHouse(mh: Manhunter): void {
   assert.match(mh.hint(), /take the key/);
   run.key(AGI_KEY.ENTER);
   mh.waitFor(() => run.carried(20), "the museum key", 300);
-  run.checkpoint("Took the key from the shopping bag", { room: 106 });
+  run.verify("Took the key from the shopping bag", { room: 106 });
   for (const next of [2, 1, 0]) {
     mh.waitFor(() => !engine.flags[22], "free to back out", 600);
     // The hall's door arrow covers x 21-118, so the cursor steps aside first.
@@ -1282,7 +1278,7 @@ export function museumDoors(mh: Manhunter): void {
   mh.hotspot(9, 58, 104);
   run.key(AGI_KEY.ENTER);
   mh.waitForRoom(127, "inside the museum", 900);
-  run.checkpoint("Unlocked the museum's side doors", { room: 127 });
+  run.verify("Unlocked the museum's side doors", { room: 127 });
 }
 
 /**
@@ -1388,7 +1384,7 @@ export function museumGuardian(mh: Manhunter): void {
     "the way is clear",
     3000,
   );
-  run.checkpoint("Showed the guardian the medallion", { room: 135 });
+  run.verify("Showed the guardian the medallion", { room: 135 });
   // Three views lead on (v50 0, 4, 6) to the laboratory (v50 = 8); entering
   // it sets f77, the flag the city map reads to end the day.
   for (const next of [4, 6, 8]) {
@@ -1408,7 +1404,7 @@ export function museumGuardian(mh: Manhunter): void {
   assert.match(mh.hint(), /take Module B/);
   run.key(AGI_KEY.ENTER);
   mh.waitFor(() => run.carried(16), "Module B", 300);
-  run.checkpoint("Took Module B", { room: 135 });
+  run.verify("Took Module B", { room: 135 });
   mh.step(30);
   run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[50] === 8, "back in the laboratory", 600);
@@ -1552,7 +1548,7 @@ export function pawnShop(mh: Manhunter): void {
     mh.waitFor(() => engine.flags[flag] === 1, `badge ${badge} bought`, 120);
   }
   assert.ok(run.carried(25) || run.carried(27), "badges in the inventory");
-  run.checkpoint("Bought the three badges", { room: 145 });
+  run.verify("Bought the three badges", { room: 145 });
   mh.waitForRoom(147, "dropped through the trap door", 3000);
   assert.equal(mh.engine.vars[0], 147, "Fell into the rooms under the shop");
 }
@@ -1659,7 +1655,7 @@ export function manholeFight(mh: Manhunter): void {
   run.key(AGI_KEY.ENTER);
   mh.waitFor(() => engine.vars[50] === 7 && !engine.flags[22], "the note", 900);
   assert.equal(engine.flags[121], 1, "the note is in the MAD");
-  run.checkpoint("Took the knifeman's note", { room: 148 });
+  run.verify("Took the knifeman's note", { room: 148 });
   mh.step(60);
   run.key(AGI_KEY.ENTER);
   mh.waitFor(
@@ -1780,7 +1776,7 @@ export function jonesHouse(mh: Manhunter): void {
   assert.match(mh.hint(), /take Module C/);
   run.key(AGI_KEY.ENTER);
   mh.waitFor(() => run.carried(23), "Module C", 300);
-  run.checkpoint("Pried Module C out of the radio", { room: 113 });
+  run.verify("Pried Module C out of the radio", { room: 113 });
   for (const next of [2, 1, 0]) {
     mh.waitFor(() => !engine.flags[22], "free to back out", 600);
     if (engine.vars[48] !== 0) mh.glide(3, () => engine.vars[48] === 0, "clear of the arrows");
@@ -1847,7 +1843,7 @@ export function allianceComputer(mh: Manhunter): void {
   // Room 164 shows the robot leaving its post, then the menu returns.
   mh.waitForRoom(164, "the robot's new orders", 300);
   mh.waitForRoom(149, "back at the menu", 2400);
-  run.checkpoint("Sent the guard robot on hall patrol", { room: 149 });
+  run.verify("Sent the guard robot on hall patrol", { room: 149 });
   pick(5, 5, 118, "Alpha security return");
   pick(4, 5, 118, "site Alpha return");
   pick(3, 5, 118, "site selector quit");
@@ -1944,7 +1940,7 @@ export function processingRoom(mh: Manhunter): void {
   assert.match(mh.hint(), /take Module D/);
   run.key(AGI_KEY.ENTER);
   mh.waitFor(() => run.carried(24), "Module D", 300);
-  run.checkpoint("Took Module D", { room: 150 });
+  run.verify("Took Module D", { room: 150 });
   mh.hotspot(2, 63, 129);
   assert.match(mh.hint(), /handle up or down/);
   run.direction(1);
@@ -2170,7 +2166,7 @@ export function grandCentral(mh: Manhunter): void {
   mh.hotspot(1, 80, 121);
   run.key(AGI_KEY.ENTER);
   mh.waitForRoom(152, "the hangar under the station", 900);
-  run.checkpoint("Found the Orb ship under Grand Central", { room: 152 });
+  run.verify("Found the Orb ship under Grand Central", { room: 152 });
   mh.waitFor(
     () => engine.vars[50] === 0 && !engine.flags[22] && mh.cursor.active,
     "the hangar settles",
@@ -2216,7 +2212,7 @@ export function cockpit(mh: Manhunter): void {
     mh.waitFor(() => engine.flags[flag] === 1, `${name} seated`, 600);
     mh.waitFor(ready, `${name} socket closes`, 1800);
   }
-  run.checkpoint("Seated the four modules", { room: 154 });
+  run.verify("Seated the four modules", { room: 154 });
   for (const button of [4, 2, 6, 5, 3, 1]) {
     mh.waitFor(ready, `the panel before button ${button}`, 6000);
     const [x, y] = COCKPIT_BUTTONS[button]!;
@@ -2616,7 +2612,7 @@ export function bombingRun(mh: Manhunter): void {
 export function ending(mh: Manhunter): void {
   const { run, engine } = mh;
   mh.waitFor(() => engine.vars[47] === 17 || engine.vars[47]! >= 26, "Mick lands the ship", 9000);
-  run.checkpoint("Landed after the last explosion", { room: 162 });
+  run.verify("Landed after the last explosion", { room: 162 });
   mh.waitFor(() => engine.vars[47] === 29, "the closing card", 9000);
   assert.match(engine.textRow(11), /To be continued/);
   run.checkpoint("To be continued", { room: 162 });

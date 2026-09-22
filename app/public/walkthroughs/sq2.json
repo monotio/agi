@@ -25,21 +25,13 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 10845,
+  "elapsedMs": 15252,
   "virtualTicks": 143943,
   "cycles": 18801,
   "actions": [
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Title screen",
-      "room": 140,
-      "score": 0,
-      "x": 37,
-      "y": 137
     },
     {
       "kind": "key",
@@ -360,14 +352,6 @@
     {
       "kind": "advance",
       "ticks": 206
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Inside the airlock",
-      "room": 3,
-      "score": 2,
-      "x": 76,
-      "y": 118
     },
     {
       "kind": "key",
@@ -1207,19 +1191,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 4
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Heard Vohaul's plan",
-      "room": 7,
-      "score": 10,
-      "x": 75,
-      "y": 109
-    },
-    {
-      "kind": "advance",
-      "ticks": 1258
+      "ticks": 1262
     },
     {
       "kind": "key",
@@ -1540,14 +1512,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Took the keycard and silenced the beacon",
-      "room": 10,
-      "score": 14,
-      "x": 75,
-      "y": 142
     },
     {
       "kind": "key",
@@ -2172,14 +2136,6 @@
     {
       "kind": "advance",
       "ticks": 144
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Freed the snared native",
-      "room": 12,
-      "score": 24,
-      "x": 32,
-      "y": 131
     },
     {
       "kind": "key",
@@ -3076,14 +3032,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Picked a spore",
-      "room": 20,
-      "score": 32,
-      "x": 30,
-      "y": 136
     },
     {
       "kind": "key",
@@ -4780,14 +4728,6 @@
     {
       "kind": "advance",
       "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Threaded the root maze both ways",
-      "room": 21,
-      "score": 40,
-      "x": 80,
-      "y": 150
     },
     {
       "kind": "key",
@@ -6510,14 +6450,6 @@
       "ticks": 78
     },
     {
-      "kind": "checkpoint",
-      "label": "Swam back to the swamp",
-      "room": 14,
-      "score": 52,
-      "x": 99,
-      "y": 94
-    },
-    {
       "kind": "key",
       "code": 20736
     },
@@ -7486,14 +7418,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Stunned the hunter and took his key",
-      "room": 19,
-      "score": 62,
-      "x": 109,
-      "y": 121
-    },
-    {
       "kind": "key",
       "code": 111
     },
@@ -7780,14 +7704,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Escaped the cage with the hunter's rope",
-      "room": 19,
-      "score": 64,
-      "x": 75,
-      "y": 105
     },
     {
       "kind": "key",
@@ -8412,14 +8328,6 @@
     {
       "kind": "advance",
       "ticks": 84
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Swung across to the chasm ledge",
-      "room": 22,
-      "score": 73,
-      "x": 41,
-      "y": 98
     },
     {
       "kind": "key",
@@ -9084,14 +8992,6 @@
     {
       "kind": "advance",
       "ticks": 66
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Said the word to the canyon dwellers",
-      "room": 29,
-      "score": 79,
-      "x": 81,
-      "y": 100
     },
     {
       "kind": "key",
@@ -10640,14 +10540,6 @@
     {
       "kind": "advance",
       "ticks": 78
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Slung the rock at the platform guard",
-      "room": 45,
-      "score": 141,
-      "x": 74,
-      "y": 166
     },
     {
       "kind": "key",
@@ -15390,14 +15282,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Set off the sprinklers with a paper fire",
-      "room": 66,
-      "score": 203,
-      "x": 63,
-      "y": 102
-    },
-    {
       "kind": "key",
       "code": 18688
     },
@@ -16028,14 +15912,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Shut down Vohaul's life support",
-      "room": 88,
-      "score": 218,
-      "x": 90,
-      "y": 100
     },
     {
       "kind": "key",
@@ -16860,14 +16736,6 @@
     {
       "kind": "advance",
       "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Aborted the clone launch with Vohaul's code",
-      "room": 86,
-      "score": 228,
-      "x": 66,
-      "y": 63
     },
     {
       "kind": "key",
@@ -17948,14 +17816,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Escaped the doomed asteroid",
-      "room": 93,
-      "score": 240,
-      "x": 75,
-      "y": 99
     },
     {
       "kind": "key",

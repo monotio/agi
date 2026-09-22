@@ -186,6 +186,11 @@ export class Speedrun {
     this.engine.setSoundEnabled(true);
   }
 
+  /** The seeded random source's current state, for routes that predict a draw. */
+  get rng(): number {
+    return this.rngState;
+  }
+
   /** In-process checkpoint fork; retains a cold-replay tape, never a durable session format. */
   fork(options: { maxAdditionalTicks?: number } = {}): Speedrun {
     const remaining = options.maxAdditionalTicks ?? this.maxTicks - this.ticks;
@@ -769,10 +774,17 @@ export class Speedrun {
     this.finishNavigation(result.outcome, max);
   }
 
-  checkpoint(label: string, expected: { room?: number; score?: number }): void {
+  /** Assert progress without adding a timeline highlight. */
+  verify(label: string, expected: { room?: number; score?: number }): void {
     const state = this.state();
     if (expected.room !== undefined) assert.equal(state.room, expected.room, label);
     if (expected.score !== undefined) assert.equal(state.score, expected.score, label);
+  }
+
+  /** Assert progress and record a story highlight for the tape's timeline. */
+  checkpoint(label: string, expected: { room?: number; score?: number }): void {
+    this.verify(label, expected);
+    const state = this.state();
     this.actions.push({
       kind: "checkpoint",
       label,

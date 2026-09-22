@@ -23,7 +23,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 622,
+  "elapsedMs": 615,
   "virtualTicks": 10269,
   "cycles": 2319,
   "actions": [
@@ -1466,14 +1466,6 @@
     {
       "kind": "advance",
       "ticks": 3
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Set the box down in the open corner",
-      "room": 16,
-      "score": 0,
-      "x": 112,
-      "y": 150
     },
     {
       "kind": "key",

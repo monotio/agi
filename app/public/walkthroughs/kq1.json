@@ -25,21 +25,13 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 1156,
+  "elapsedMs": 1155,
   "virtualTicks": 109408,
   "cycles": 15811,
   "actions": [
     {
       "kind": "advance",
       "ticks": 30
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Title",
-      "room": 83,
-      "score": 0,
-      "x": 0,
-      "y": 37
     },
     {
       "kind": "key",
@@ -232,14 +224,6 @@
     {
       "kind": "advance",
       "ticks": 12
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Castle door",
-      "room": 55,
-      "score": 1,
-      "x": 75,
-      "y": 164
     },
     {
       "kind": "key",
@@ -982,14 +966,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Tree",
-      "room": 63,
-      "score": 13,
-      "x": 35,
-      "y": 164
-    },
-    {
       "kind": "key",
       "code": 18688
     },
@@ -1108,14 +1084,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Golden egg",
-      "room": 63,
-      "score": 19,
-      "x": 68,
-      "y": 97
     },
     {
       "kind": "key",
@@ -2188,14 +2156,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Elf ring",
-      "room": 18,
-      "score": 29,
-      "x": 35,
-      "y": 48
     },
     {
       "kind": "key",
@@ -3755,19 +3715,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Witch's note",
-      "room": 65,
-      "score": 41,
-      "x": 135,
-      "y": 150
-    },
-    {
-      "kind": "advance",
-      "ticks": 402
+      "ticks": 403
     },
     {
       "kind": "key",
@@ -3980,14 +3928,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Witch defeated",
-      "room": 65,
-      "score": 48,
-      "x": 40,
-      "y": 120
     },
     {
       "kind": "key",
@@ -4204,14 +4144,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Cheese",
-      "room": 65,
-      "score": 52,
-      "x": 40,
-      "y": 98
     },
     {
       "kind": "key",
@@ -5750,14 +5682,6 @@
       "ticks": 6
     },
     {
-      "kind": "checkpoint",
-      "label": "Goat",
-      "room": 11,
-      "score": 72,
-      "x": 20,
-      "y": 162
-    },
-    {
       "kind": "key",
       "code": 19200
     },
@@ -6484,14 +6408,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Beans",
-      "room": 40,
-      "score": 85,
-      "x": 40,
-      "y": 120
     },
     {
       "kind": "key",
@@ -8590,14 +8506,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Dragon defeated",
-      "room": 51,
-      "score": 117,
-      "x": 100,
-      "y": 140
-    },
-    {
       "kind": "key",
       "code": 18176
     },
@@ -8716,14 +8624,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Magic mirror",
-      "room": 51,
-      "score": 125,
-      "x": 40,
-      "y": 120
     },
     {
       "kind": "key",
@@ -9500,14 +9400,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Mushroom",
-      "room": 47,
-      "score": 133,
-      "x": 90,
-      "y": 85
     },
     {
       "kind": "key",

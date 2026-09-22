@@ -30,7 +30,7 @@ async function boot(
       `
     if(!isset(f200)) {
       set(f200);assignn(v10,1);assignn(v60,0);load.pic(v60);draw.pic(v60);show.pic();
-      load.view(0);animate.obj(0);set.view(0,0);position(0,60,120);draw(0);accept.input();
+      load.view(0);animate.obj(0);set.view(0,0);position(0,60,120);draw(0);assignn(v99,1);step.size(0,v99);accept.input();
       set.key(0,59,1);set.key(0,60,2);set.key(0,61,3);set.key(0,62,4);
       set.key(0,63,5);set.key(1,0,6);set.key(0,30,7);
       set.key(0,64,8);set.key(0,65,9);set.key(0,66,10);set.key(0,67,11);

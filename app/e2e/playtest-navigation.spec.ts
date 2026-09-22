@@ -25,7 +25,7 @@ test("agent playtest reports bounded navigation through the browser without movi
     if (!isset(f200)) {
       set(f200); assignn(v0,1); assignn(v10,1);
       load.pic(v0); draw.pic(v0); show.pic();
-      load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); accept.input();
+      load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); assignn(v99,1); step.size(0,v99); accept.input();
     }
     return;
   `,

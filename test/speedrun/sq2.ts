@@ -107,7 +107,7 @@ function boot(run: Speedrun): void {
   // Logic 98 asks for a name with get.string before the opening room.
   run.answer("Roger Wilco");
   run.wait(() => run.state().room === 140, "title screen", 600);
-  run.checkpoint("Title screen", { room: 140, score: 0 });
+  run.verify("Title screen", { room: 140, score: 0 });
   run.key(AGI_KEY.ENTER);
   run.wait(() => run.state().room === 1, "story introduction", 600);
   run.advance(30);
@@ -136,7 +136,7 @@ function station(run: Speedrun): void {
   run.walkToUntil(50, 90, () => e.flags[32] !== 0, "airlock takes Roger in");
   run.waitForRoom(3, "airlock chamber", 3000);
   run.wait(() => e.movementControlEnabled, "decontamination finishes", 3000);
-  run.checkpoint("Inside the airlock", { room: 3, score: 2 });
+  run.verify("Inside the airlock", { room: 3, score: 2 });
   run.direction("W");
   run.type("change clothes"); // 003.agi: uniform rack box (52-65, 106-110), +1
   run.walkTo(60, 108);
@@ -187,7 +187,7 @@ function kidnapped(run: Speedrun): void {
     run.key(AGI_KEY.ENTER);
     run.advance(4);
   }
-  run.checkpoint("Heard Vohaul's plan", { room: 7, score: 10 });
+  run.verify("Heard Vohaul's plan", { room: 7, score: 10 });
 }
 
 /** Labion crash site: the dead guard's keycard and the pod's homing beacon. */
@@ -204,7 +204,7 @@ function crashSite(run: Speedrun): void {
   run.walkPath(75, 142);
   run.submit("press button");
   assert.ok(e.flags[84] !== 0, "beacon silenced");
-  run.checkpoint("Took the keycard and silenced the beacon", { room: 10, score: 14 });
+  run.verify("Took the keycard and silenced the beacon", { room: 10, score: 14 });
   leave(run, "N", 11);
 }
 
@@ -232,7 +232,7 @@ function freeNative(run: Speedrun): void {
   path(run, 33, 130);
   run.submit("untie alien");
   run.wait(() => e.flags[80] !== 0 && e.movementControlEnabled, "native cut loose", 3000);
-  run.checkpoint("Freed the snared native", { room: 12, score: 24 });
+  run.verify("Freed the snared native", { room: 12, score: 24 });
   leave(run, "W", 11);
 }
 
@@ -269,7 +269,7 @@ function mailOrder(run: Speedrun): void {
   run.submit("get spore");
   run.assertCarried(23, "Spore");
   assert.equal(e.vars[96], 0, "not paralysed");
-  run.checkpoint("Picked a spore", { room: 20, score: 32 });
+  run.verify("Picked a spore", { room: 20, score: 32 });
   path(run, 20, 84);
   run.walkToUntil(20, 78, () => run.state().room === 21, "north-west trail");
 }
@@ -291,7 +291,7 @@ function berryMaze(run: Speedrun): void {
   go(run, 40, 99);
   path(run, 80, 150); // back at (72-86, 150) with f34 set: +4 for surviving the maze
   assert.ok(e.flags[204] !== 0, "maze round trip scored");
-  run.checkpoint("Threaded the root maze both ways", { room: 21, score: 40 });
+  run.verify("Threaded the root maze both ways", { room: 21, score: 40 });
   leave(run, "S", 20);
 }
 
@@ -341,7 +341,7 @@ function gemCave(run: Speedrun): void {
   run.walkToUntil(88, 20, () => e.flags[30] !== 0, "break the surface");
   run.waitForRoom(14, "swamp surface", 1000);
   alive(run, "return swim");
-  run.checkpoint("Swam back to the swamp", { room: 14, score: 52 });
+  run.verify("Swam back to the swamp", { room: 14, score: 52 });
 }
 
 /** Out of the swamp, over the chasm on a felled snag, and into the hunter's snare. */
@@ -381,7 +381,7 @@ function cageBreak(run: Speedrun): void {
   run.assertCarried(34, "Cage Key");
   run.command("unlock cage");
   assert.ok(e.flags[37] !== 0, "cage unlocked");
-  run.checkpoint("Stunned the hunter and took his key", { room: 19, score: 62 });
+  run.verify("Stunned the hunter and took his key", { room: 19, score: 62 });
 }
 
 /** Out of the cage with the rope, back to the log bridge, and down into the chasm. */
@@ -394,7 +394,7 @@ function ropeDescent(run: Speedrun): void {
   path(run, 75, 105, { avoidTriggers: false });
   run.submit("get rope");
   run.assertCarried(25, "Rope");
-  run.checkpoint("Escaped the cage with the hunter's rope", { room: 19, score: 64 });
+  run.verify("Escaped the cage with the hunter's rope", { room: 19, score: 64 });
   // 018.agi: the landing pad box (45-117, 80-130) summons a gunship; skirt it along the south.
   leave(run, "N", 18, { avoidTriggers: false });
   leave(run, "W", 17);
@@ -429,7 +429,7 @@ function ropeSwing(run: Speedrun): void {
   run.key(AGI_KEY.F6); // controller 6: the game's own "let go" key
   run.wait(() => e.flags[37] !== 0 || e.vars[67] !== 0, "land on the ledge", 2000);
   assert.equal(e.vars[67], 0, "survived the jump");
-  run.checkpoint("Swung across to the chasm ledge", { room: 22, score: 73 });
+  run.verify("Swung across to the chasm ledge", { room: 22, score: 73 });
   leave(run, "W", 25);
 }
 
@@ -471,7 +471,7 @@ function canyon(run: Speedrun): void {
   assert.ok(e.flags[98] !== 0, "thanked for saving the snared native");
   run.command("say the word"); // +3; the assistants roll the boulder off the exit hole
   run.wait(() => e.flags[94] !== 0, "boulder rolled aside", 3000);
-  run.checkpoint("Said the word to the canyon dwellers", { room: 29, score: 79 });
+  run.verify("Said the word to the canyon dwellers", { room: 29, score: 79 });
   run.walkToUntil(86, 133, () => e.flags[36] !== 0, "climb into the hole (80-93, 131-136)");
   run.waitForRoom(38, "ladder shaft", 2000);
 }
@@ -598,7 +598,7 @@ function landingPlatform(run: Speedrun): void {
   run.dismiss();
   alive(run, "platform guard");
   assert.equal(e.vars[67], 0, "not shot by the guard");
-  run.checkpoint("Slung the rock at the platform guard", { room: 45, score: 141 });
+  run.verify("Slung the rock at the platform guard", { room: 45, score: 141 });
   // The card slot box is (124-141, 95-104); the open doorway only admits x124-128.
   run.type("insert keycard"); // +5
   path(run, 126, 102);
@@ -821,7 +821,7 @@ function acidTrap(run: Speedrun): void {
   run.wait(() => e.vars[240] === 4, "sprinklers douse the tube", 3000);
   run.dismiss();
   assert.equal(e.vars[135], 6, "patrol robot shorted out");
-  run.checkpoint("Set off the sprinklers with a paper fire", { room: 66, score: 203 });
+  run.verify("Set off the sprinklers with a paper fire", { room: 66, score: 203 });
   leave(run, "E", 68, { avoidTriggers: false });
 }
 
@@ -861,7 +861,7 @@ function lifeSupport(run: Speedrun): void {
   run.wait(() => e.vars[3] === 218, "the pump stops", 1000);
   run.dismiss();
   assert.ok(e.flags[112] !== 0, "Vohaul's life support is off");
-  run.checkpoint("Shut down Vohaul's life support", { room: 88, score: 218 });
+  run.verify("Shut down Vohaul's life support", { room: 88, score: 218 });
   run.type("climb out"); // vent box (108-117, 100-116)
   through(run, () => run.walkPath({ x0: 109, x1: 116, y0: 101, y1: 115 }, { geometry: "current" }));
   run.submit("climb out");
@@ -911,7 +911,7 @@ function abortLaunch(run: Speedrun): void {
   run.advance(60);
   run.key(AGI_KEY.F6); // controller 6 leaves the terminal
   run.wait(() => e.flags[36] === 0 && e.inputEnabled, "terminal closed", 200);
-  run.checkpoint("Aborted the clone launch with Vohaul's code", { room: 86, score: 228 });
+  run.verify("Aborted the clone launch with Vohaul's code", { room: 86, score: 228 });
   path(run, 146, 36);
   run.walkToUntil(150, 34, () => run.state().room === 90, "up the east stairs");
 }
@@ -967,7 +967,7 @@ function podBay(run: Speedrun): void {
     20000,
   );
   run.dismiss();
-  run.checkpoint("Escaped the doomed asteroid", { room: 93, score: 240 });
+  run.verify("Escaped the doomed asteroid", { room: 93, score: 240 });
 }
 
 /** 093.agi: four minutes of air in the pod; the sleep chamber is the only way to last (+10). */

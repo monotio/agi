@@ -26,21 +26,13 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 2168,
+  "elapsedMs": 2436,
   "virtualTicks": 148362,
   "cycles": 27590,
   "actions": [
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Title",
-      "room": 153,
-      "score": 0,
-      "x": 77,
-      "y": 168
     },
     {
       "kind": "key",
@@ -913,14 +905,6 @@
     {
       "kind": "advance",
       "ticks": 3
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Searched the robbed Bank of Canton",
-      "room": 112,
-      "score": 0,
-      "x": 78,
-      "y": 167
     },
     {
       "kind": "key",
@@ -1851,14 +1835,6 @@
       "ticks": 3
     },
     {
-      "kind": "checkpoint",
-      "label": "Found the creature's flask and a torn license",
-      "room": 115,
-      "score": 0,
-      "x": 10,
-      "y": 167
-    },
-    {
       "kind": "key",
       "code": 13
     },
@@ -2304,19 +2280,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Took the mallet from the warehouse office",
-      "room": 109,
-      "score": 0,
-      "x": 78,
-      "y": 167
-    },
-    {
-      "kind": "advance",
-      "ticks": 3
+      "ticks": 9
     },
     {
       "kind": "key",
@@ -3435,14 +3399,6 @@
       "ticks": 3
     },
     {
-      "kind": "checkpoint",
-      "label": "Found the cloth in the dead Manhunter's drawer",
-      "room": 125,
-      "score": 0,
-      "x": 77,
-      "y": 166
-    },
-    {
       "kind": "key",
       "code": 15616
     },
@@ -4419,14 +4375,6 @@
       "ticks": 6
     },
     {
-      "kind": "checkpoint",
-      "label": "Took the muzzle from the body on Pier 5",
-      "room": 127,
-      "score": 0,
-      "x": 77,
-      "y": 166
-    },
-    {
       "kind": "key",
       "code": 15616
     },
@@ -4793,14 +4741,6 @@
     {
       "kind": "advance",
       "ticks": 3
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Muzzled the guard dog and took the camera",
-      "room": 118,
-      "score": 0,
-      "x": 77,
-      "y": 166
     },
     {
       "kind": "key",
@@ -5524,19 +5464,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 834
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Blocked every throwing star",
-      "room": 116,
-      "score": 0,
-      "x": 110,
-      "y": 150
-    },
-    {
-      "kind": "advance",
-      "ticks": 240
+      "ticks": 1074
     },
     {
       "kind": "key",
@@ -7547,14 +7475,6 @@
       "ticks": 3
     },
     {
-      "kind": "checkpoint",
-      "label": "Escaped the Temple with a scroll",
-      "room": 122,
-      "score": 0,
-      "x": 80,
-      "y": 167
-    },
-    {
       "kind": "key",
       "code": 19712
     },
@@ -7800,19 +7720,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Smoked the vision of Ming",
-      "room": 128,
-      "score": 0,
-      "x": 72,
-      "y": 129
-    },
-    {
-      "kind": "advance",
-      "ticks": 1722
+      "ticks": 1728
     },
     {
       "kind": "key",
@@ -8239,14 +8147,6 @@
       "ticks": 192
     },
     {
-      "kind": "checkpoint",
-      "label": "Confronted the shepherd robot",
-      "room": 104,
-      "score": 0,
-      "x": 78,
-      "y": 146
-    },
-    {
       "kind": "key",
       "code": 19712
     },
@@ -8516,19 +8416,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 126
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Freed the robot's captive",
-      "room": 148,
-      "score": 0,
-      "x": 100,
-      "y": 165
-    },
-    {
-      "kind": "advance",
-      "ticks": 1044
+      "ticks": 1170
     },
     {
       "kind": "key",
@@ -12251,14 +12139,6 @@
       "ticks": 177
     },
     {
-      "kind": "checkpoint",
-      "label": "Threw the transformer switch",
-      "room": 141,
-      "score": 0,
-      "x": 90,
-      "y": 47
-    },
-    {
       "kind": "key",
       "code": 20736
     },
@@ -13027,14 +12907,6 @@
       "ticks": 492
     },
     {
-      "kind": "checkpoint",
-      "label": "Rode the cable car back out of the barn",
-      "room": 140,
-      "score": 0,
-      "x": 77,
-      "y": 166
-    },
-    {
       "kind": "key",
       "code": 99
     },
@@ -13475,14 +13347,6 @@
       "ticks": 3
     },
     {
-      "kind": "checkpoint",
-      "label": "Took the matchbook from Goring's table",
-      "room": 138,
-      "score": 0,
-      "x": 77,
-      "y": 166
-    },
-    {
       "kind": "key",
       "code": 15616
     },
@@ -13729,14 +13593,6 @@
     {
       "kind": "advance",
       "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Climbed the chimney to Zac's room",
-      "room": 149,
-      "score": 0,
-      "x": 78,
-      "y": 167
     },
     {
       "kind": "key",
@@ -14417,14 +14273,6 @@
     {
       "kind": "advance",
       "ticks": 456
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Climbed onto the Ghirardelli sign",
-      "room": 132,
-      "score": 0,
-      "x": 149,
-      "y": 164
     },
     {
       "kind": "key",
@@ -15240,19 +15088,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 18
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Staked the rat's paw on the shopkeeper's card game",
-      "room": 123,
-      "score": 0,
-      "x": 77,
-      "y": 151
-    },
-    {
-      "kind": "advance",
-      "ticks": 687
+      "ticks": 705
     },
     {
       "kind": "key",
@@ -15788,19 +15624,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 714
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Knocked at the Club in the rat mask",
-      "room": 164,
-      "score": 0,
-      "x": 100,
-      "y": 165
-    },
-    {
-      "kind": "advance",
-      "ticks": 4788
+      "ticks": 5502
     },
     {
       "kind": "key",
@@ -16523,14 +16347,6 @@
       "ticks": 3
     },
     {
-      "kind": "checkpoint",
-      "label": "Cut the Orb access card out of Goring's tie",
-      "room": 147,
-      "score": 0,
-      "x": 58,
-      "y": 167
-    },
-    {
       "kind": "key",
       "code": 13
     },
@@ -17196,19 +17012,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1004
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Blinded the rat-men and escaped to the pier",
-      "room": 110,
-      "score": 0,
-      "x": 78,
-      "y": 167
-    },
-    {
-      "kind": "advance",
-      "ticks": 264
+      "ticks": 1268
     },
     {
       "kind": "key",
@@ -17780,19 +17584,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1304
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Fooled the scanner with the Orb-on-a-stick",
-      "room": 179,
-      "score": 0,
-      "x": 77,
-      "y": 165
-    },
-    {
-      "kind": "advance",
-      "ticks": 2817
+      "ticks": 4121
     },
     {
       "kind": "key",
@@ -18140,19 +17932,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 33
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Landed the balloon on Julius Castle",
-      "room": 184,
-      "score": 0,
-      "x": 77,
-      "y": 165
-    },
-    {
-      "kind": "advance",
-      "ticks": 4812
+      "ticks": 4845
     },
     {
       "kind": "checkpoint",
@@ -20979,14 +20759,6 @@
       "ticks": 6
     },
     {
-      "kind": "checkpoint",
-      "label": "Entered the Orb password into the digging machine",
-      "room": 186,
-      "score": 0,
-      "x": 78,
-      "y": 85
-    },
-    {
       "kind": "key",
       "code": 20224
     },
@@ -22656,27 +22428,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 21
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Drove the digging machine through the lava to the surface",
-      "room": 187,
-      "score": 0,
-      "x": 77,
-      "y": 167
-    },
-    {
-      "kind": "advance",
-      "ticks": 2922
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Carried off on Phil's ship toward London",
-      "room": 187,
-      "score": 0,
-      "x": 77,
-      "y": 167
+      "ticks": 2943
     },
     {
       "kind": "key",

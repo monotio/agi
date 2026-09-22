@@ -495,7 +495,7 @@ export function toTheCastle(bc: Cauldron): void {
   run.wait(() => run.state().control, "Taran steps onto the summit");
   bc.leave("N", 30);
   bc.leave("N", 34, true);
-  run.checkpoint("Stood before the Horned King's castle", { room: 34, score: 83 });
+  run.verify("Stood before the Horned King's castle", { room: 34, score: 83 });
 }
 
 /**
@@ -543,7 +543,7 @@ export function downTheChute(bc: Cauldron): void {
   run.walkDirection("E", () => bc.room() !== 46, "into the chute", 600);
   run.wait(() => bc.room() === 56 && run.state().control, "landed in the dungeon", 3000);
   bc.alive();
-  run.checkpoint("Slid down the garbage chute", { room: 56, score: 117 });
+  run.verify("Slid down the garbage chute", { room: 56, score: 117 });
 }
 
 /**

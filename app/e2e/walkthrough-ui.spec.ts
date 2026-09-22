@@ -213,14 +213,21 @@ test.describe("Walkthrough UI", () => {
     const marker3 = page.getByTestId("walkthrough-marker-3");
     await expect(marker3).toBeVisible();
     await clickTimelineMark(page, marker3);
-    // Verify seek jumps forward
+    // Verify the seek jumps forward and settles on that highlight before the
+    // rewind below reads the position it starts from.
+    const marker3Tick = await page.evaluate(
+      () => window.__AGI_STATE__?.walkthrough.checkpoints[3]?.tick ?? 0,
+    );
     await expect
       .poll(
         async () => {
+          const seeking = await page.evaluate(
+            () => window.__AGI_STATE__?.walkthrough.seeking ?? true,
+          );
           const tick = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
-          return tick;
+          return !seeking && tick >= marker3Tick ? tick : 0;
         },
-        { timeout: 10_000 },
+        { timeout: 30_000 },
       )
       .toBeGreaterThan(tickPaused + 100);
 
@@ -555,11 +562,11 @@ test.describe("Walkthrough UI", () => {
     const timeline = page.getByTestId("walkthrough-timeline");
     await expect(timeline).toBeVisible({ timeout: 15_000 });
 
-    const cpMarker = page.getByTestId("walkthrough-marker-1");
+    const cpMarker = page.getByTestId("walkthrough-marker-0");
     await expect(cpMarker).toBeVisible({ timeout: 10_000 });
     await clickTimelineMark(page, cpMarker);
 
-    // Verify seeking past prompt (Action 43 "ROGER") reaches room 1 without prompt-hint timeout
+    // Seeking past the name prompt's "ROGER" answer reaches the data archive (room 1) cleanly
     await engineRoomIs(page, 1, 15_000);
   });
 
@@ -576,7 +583,7 @@ test.describe("Walkthrough UI", () => {
 
     for (const milestone of [
       { label: "All seven spells mastered", room: 10, score: 157 },
-      { label: "The wizard’s secrets", room: 2, score: 23 },
+      { label: "A small ingredient in the observatory", room: 1, score: 24 },
       { label: "Gwydion is free of Manannan", room: 8, score: 169 },
     ]) {
       await clickTimelineMark(
@@ -591,7 +598,7 @@ test.describe("Walkthrough UI", () => {
     await page.screenshot({ path: test.info().outputPath("kq3-story-highlights.png") });
   });
 
-  test("scrubs mh1 past MAD terminal answers to Trinity Church checkpoint cleanly", async ({
+  test("scrubs mh1 past MAD terminal answers to the Knife game checkpoint cleanly", async ({
     page,
   }) => {
     const mh1Missing = fixtureSkip(KNOWN_GAME_HASH.MH1, ["AGIDATA.OVL"]);
@@ -608,12 +615,12 @@ test.describe("Walkthrough UI", () => {
     const timeline = page.getByTestId("walkthrough-timeline");
     await expect(timeline).toBeVisible({ timeout: 15_000 });
 
-    const cpMarker = page.locator('.walkthrough-marker[title*="Trinity Church"]');
+    const cpMarker = page.locator('.walkthrough-marker[title*="Knife game"]');
     await expect(cpMarker).toBeVisible({ timeout: 10_000 });
     await clickTimelineMark(page, cpMarker);
 
-    // Verify seeking past MAD terminal answers (actions 166 and 170) reaches room 111 cleanly
-    await engineRoomIs(page, 111);
+    // Seeking past the MAD terminal answers reaches the Flatbush bar's knife game (room 118) cleanly
+    await engineRoomIs(page, 118);
   });
 
   test("seeking forward to Sewers then back to Maze in mh1 avoids direction leakage", async ({
@@ -634,7 +641,7 @@ test.describe("Walkthrough UI", () => {
     await expect(timeline).toBeVisible({ timeout: 15_000 });
 
     const sewersPct = await checkpointPercent(page, "Sewers");
-    const mazePct = await checkpointPercent(page, "Enter the maze challenge");
+    const mazePct = await checkpointPercent(page, "Maze: four squares collected");
     const box = await timeline.boundingBox();
     const clickAt = (pct: number) =>
       page.mouse.click(box!.x + (box!.width * pct) / 100, box!.y + box!.height * 0.5);
@@ -681,9 +688,9 @@ test.describe("Walkthrough UI", () => {
     // fast-forward replays the map cursor's hold-to-move presses, and a stale
     // releaseEligible would skip every release — the cursor drifts off the
     // Bellevue hotspot and the replay stays in room 114.
-    const kewpie = page.locator('.walkthrough-marker[title*="Kewpie"]');
-    await expect(kewpie).toBeVisible({ timeout: 10_000 });
-    await clickTimelineMark(page, kewpie);
+    const coneyIsland = page.locator('.walkthrough-marker[title*="Coney Island"]');
+    await expect(coneyIsland).toBeVisible({ timeout: 10_000 });
+    await clickTimelineMark(page, coneyIsland);
     await roomIs(129);
     // holdToMove mirrors the engine's release gate through frame messages —
     // wait until a posted frame actually reports the cleared gate.

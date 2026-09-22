@@ -25,7 +25,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 5139,
+  "elapsedMs": 4972,
   "virtualTicks": 58852,
   "cycles": 21680,
   "actions": [
@@ -5692,14 +5692,6 @@
     {
       "kind": "advance",
       "ticks": 519
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Old King Cole got his bowl",
-      "room": 37,
-      "score": 17,
-      "x": 77,
-      "y": 100
     },
     {
       "kind": "key",

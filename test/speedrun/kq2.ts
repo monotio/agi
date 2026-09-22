@@ -23,7 +23,7 @@ function skipIntro(run: Speedrun): void {
 /** Opening errands through the cloak and ring; later puzzles are outside this route. */
 export function kq2Opening(run: Speedrun): void {
   skipIntro(run);
-  run.checkpoint("Arrival in Kolyma", { room: 1, score: 0 });
+  run.verify("Arrival in Kolyma", { room: 1, score: 0 });
   run.exit("E", 2);
   run.exit("E", 3);
   // Opening the mailbox turns on observe.blocks inside its pocket (x<17,
@@ -46,7 +46,7 @@ export function kq2Opening(run: Speedrun): void {
   run.walkTo(102, 135);
   run.command("open door");
   run.waitForRoom(72, "tree door opens", 1200);
-  run.checkpoint("The dwarf’s tree house", { room: 72, score: 3 });
+  run.verify("The dwarf’s tree house", { room: 72, score: 3 });
   // Ladder: walk onto the hole; f31 marks the climbing view. Then descend.
   run.walkToUntil(90, 115, () => run.engine.flags[31] !== 0, "climb onto ladder");
   run.exit("S", 73);
@@ -290,7 +290,7 @@ export function kq2Bridge(run: Speedrun): void {
   run.command("look in hole");
   run.command("get brooch");
   run.assertCarried(59, "brooch");
-  run.checkpoint("Treasure among the rocks", { room: 13, score: 39 });
+  run.verify("Treasure among the rocks", { room: 13, score: 39 });
   run.exit("N", 6);
   run.walkPath({ x0: 140, x1: 145, y0: 150, y1: 152 });
   run.exit("N", 48);
@@ -454,7 +454,7 @@ export function kq2Door1(run: Speedrun): void {
   run.walkTo(125, 140);
   run.command("take trident");
   run.waitForItem(51, "trident taken");
-  run.checkpoint("Neptune’s lost trident", { room: 36, score: 62 });
+  run.verify("Neptune’s lost trident", { room: 36, score: 62 });
 
   // 7. Step into water in Room 36 and swim
   run.walkDirection("W", () => run.engine.flags[0] !== 0, "stepping into water in room 36");
@@ -503,7 +503,7 @@ export function kq2Door1(run: Speedrun): void {
   // Take cloth from bottle (+2, item 73)
   run.command("take cloth");
   run.waitForItem(73, "cloth taken");
-  run.checkpoint("Neptune’s key and the bottle", { room: 51, score: 77 });
+  run.verify("Neptune’s key and the bottle", { room: 51, score: 77 });
 
   // Exit East from 51 -> transit 52 -> 53 -> 54 -> Room 15
   run.exit("E", 52);
@@ -1063,7 +1063,7 @@ export function kq2Castle(run: Speedrun): void {
   run.wait(() => run.engine.flags[137] !== 0, "took pillow", 5000);
   run.command("take keys");
   run.wait(() => run.engine.flags[138] !== 0 && run.engine.flags[139] !== 0, "took keys", 5000);
-  run.checkpoint("The final golden key", { room: 67, score: 147 });
+  run.verify("The final golden key", { room: 67, score: 147 });
 
   // 21. Return from 67: 67 -> 66 -> 65 -> 64 -> 63 -> 62
   run.walkTo(132, 130);
@@ -1253,7 +1253,7 @@ export function kq2Complete(run: Speedrun): void {
   run.command("throw fish");
   run.wait(() => run.engine.flags[232] !== 0, "threw fish back");
   run.dismiss();
-  run.checkpoint("Sparing the enchanted fish", { room: 75, score: 169 });
+  run.verify("Sparing the enchanted fish", { room: 75, score: 169 });
 
   run.command("ride fish");
   assert.deepEqual([run.engine.vars[0], run.engine.vars[3]], [75, 170], "Fish ridden");
@@ -1270,7 +1270,7 @@ export function kq2Complete(run: Speedrun): void {
   run.walkPath(16, 88);
   run.command("take amulet");
   run.wait(() => run.engine.flags[122] !== 0, "took amulet");
-  run.checkpoint("The island’s magic amulet", { room: 78, score: 173 });
+  run.verify("The island’s magic amulet", { room: 78, score: 173 });
   run.walkPath({ x0: 50, x1: 70, y0: 165, y1: 167 });
   run.exit("S", 83);
   assert.deepEqual([run.engine.vars[0], run.engine.vars[3]], [83, 173], "Tower exterior");
@@ -1279,7 +1279,7 @@ export function kq2Complete(run: Speedrun): void {
   run.walkPath({ x0: 45, x1: 55, y0: 155, y1: 165 });
   run.command("open door");
   run.wait(() => run.state().room === 93, "entered tower", 10000);
-  run.checkpoint("Inside the quartz tower", { room: 93, score: 173 });
+  run.verify("Inside the quartz tower", { room: 93, score: 173 });
 
   // Tower stairs 93
   run.direction(7);
@@ -1308,12 +1308,12 @@ export function kq2Complete(run: Speedrun): void {
   for (const wp of p91.waypoints) run.walkTo(wp.x, wp.y);
   run.command("open door");
   run.wait(() => run.state().room === 90, "entered princess room", 10000);
-  run.checkpoint("Finding Valanice", { room: 90, score: 182 });
+  run.verify("Finding Valanice", { room: 90, score: 182 });
 
   // Princess room 90 -> Finale
   run.command("home");
   run.wait(() => run.state().room === 107, "wedding cutscene", 10000);
-  run.checkpoint("Graham and Valanice’s wedding", { room: 107, score: 185 });
+  run.verify("Graham and Valanice’s wedding", { room: 107, score: 185 });
 
   run.wait(() => run.state().room === 106, "ending credits", 30000);
   run.checkpoint("KQ2 completed with maximum score", { room: 106, score: 185 });

@@ -25,7 +25,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 33138,
+  "elapsedMs": 40965,
   "virtualTicks": 400160,
   "cycles": 38642,
   "actions": [
@@ -2088,14 +2088,6 @@
     {
       "kind": "advance",
       "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Inspected the patrol car",
-      "room": 7,
-      "score": 27,
-      "x": 34,
-      "y": 153
     },
     {
       "kind": "key",
@@ -6980,14 +6972,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Ticketed the red sports car",
-      "room": 30,
-      "score": 61,
-      "x": 33,
-      "y": 162
     },
     {
       "kind": "key",
@@ -13868,14 +13852,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Invited to Jack's birthday party",
-      "room": 6,
-      "score": 91,
-      "x": 36,
-      "y": 141
     },
     {
       "kind": "key",
@@ -25514,14 +25490,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Transferred to Narcotics",
-      "room": 42,
-      "score": 136,
-      "x": 79,
-      "y": 115
-    },
-    {
       "kind": "key",
       "code": 19712
     },
@@ -31196,14 +31164,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Served the warrant in the nick of time",
-      "room": 40,
-      "score": 157,
-      "x": 117,
-      "y": 113
     },
     {
       "kind": "key",
@@ -42722,14 +42682,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Identified Taselli's body at Cotton Cove",
-      "room": 60,
-      "score": 208,
-      "x": 92,
-      "y": 111
-    },
-    {
       "kind": "key",
       "code": 20736
     },
@@ -47370,14 +47322,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Checked in as Jimmy Lee Banksten",
-      "room": 64,
-      "score": 223,
-      "x": 104,
-      "y": 133
-    },
-    {
       "kind": "key",
       "code": 18176
     },
@@ -48840,14 +48784,6 @@
     {
       "kind": "advance",
       "ticks": 260
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Sent Marie away in a cab",
-      "room": 67,
-      "score": 233,
-      "x": 45,
-      "y": 115
     },
     {
       "kind": "key",
@@ -51258,14 +51194,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Collected the pen transmitter from the backup team",
-      "room": 67,
-      "score": 242,
-      "x": 71,
-      "y": 151
-    },
-    {
       "kind": "key",
       "code": 20736
     },
@@ -53191,19 +53119,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Saw Jessie Bains convicted",
-      "room": 104,
-      "score": 254,
-      "x": 152,
-      "y": 135
-    },
-    {
-      "kind": "advance",
-      "ticks": 335
+      "ticks": 336
     },
     {
       "kind": "key",

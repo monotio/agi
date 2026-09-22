@@ -273,7 +273,7 @@ function placeBoxInPlayground(run: Speedrun): void {
   // collision shuffle settles it one pixel away; logic 16 records where it landed.
   assert.deepEqual([e.vars[VAR.boxX], e.vars[VAR.boxY]], [111, 151], "box position recorded");
   assert.deepEqual([box.x, box.y], [111, 151], "box drawn at its new spot");
-  run.checkpoint("Set the box down in the open corner", { room: ROOM.boxCorner, score: 0 });
+  run.verify("Set the box down in the open corner", { room: ROOM.boxCorner, score: 0 });
   // X beside the box climbs onto it (phase 11, view 24); X again hops off (phase 13, view 16).
   run.key(DO);
   run.until(() => e.vars[VAR.phase] === 11 && e.screenObjects[0]!.view === 24, 100, "on the box");

@@ -26,7 +26,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 14162,
+  "elapsedMs": 18360,
   "virtualTicks": 259462,
   "cycles": 34074,
   "actions": [
@@ -49,14 +49,6 @@
     {
       "kind": "advance",
       "ticks": 409
-    },
-    {
-      "kind": "checkpoint",
-      "label": "A servant in the wizard’s house",
-      "room": 7,
-      "score": 0,
-      "x": 95,
-      "y": 165
     },
     {
       "kind": "key",
@@ -2589,14 +2581,6 @@
     {
       "kind": "advance",
       "ticks": 168
-    },
-    {
-      "kind": "checkpoint",
-      "label": "The wizard’s secrets",
-      "room": 2,
-      "score": 23,
-      "x": 103,
-      "y": 137
     },
     {
       "kind": "key",
@@ -5977,14 +5961,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "The secret of flight",
-      "room": 10,
-      "score": 49,
-      "x": 104,
-      "y": 133
     },
     {
       "kind": "key",
@@ -9811,14 +9787,6 @@
       "ticks": 12
     },
     {
-      "kind": "checkpoint",
-      "label": "Down the mountain to Llewdor",
-      "room": 18,
-      "score": 50,
-      "x": 14,
-      "y": 44
-    },
-    {
       "kind": "key",
       "code": 19712
     },
@@ -11483,14 +11451,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Desert ingredients",
-      "room": 21,
-      "score": 57,
-      "x": 54,
-      "y": 86
-    },
-    {
       "kind": "key",
       "code": 20224
     },
@@ -12681,14 +12641,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Sea water and mistletoe",
-      "room": 29,
-      "score": 62,
-      "x": 23,
-      "y": 113
     },
     {
       "kind": "key",
@@ -15163,14 +15115,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Dew gathered in a thimble",
-      "room": 28,
-      "score": 67,
-      "x": 40,
-      "y": 145
-    },
-    {
       "kind": "key",
       "code": 18176
     },
@@ -16840,19 +16784,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Magic ingredients from the merchant",
-      "room": 39,
-      "score": 81,
-      "x": 89,
-      "y": 133
-    },
-    {
-      "kind": "advance",
-      "ticks": 518
+      "ticks": 524
     },
     {
       "kind": "key",
@@ -17775,14 +17707,6 @@
       "ticks": 480
     },
     {
-      "kind": "checkpoint",
-      "label": "Inside the hollow oak",
-      "room": 22,
-      "score": 89,
-      "x": 139,
-      "y": 82
-    },
-    {
       "kind": "key",
       "code": 108
     },
@@ -18357,14 +18281,6 @@
     {
       "kind": "advance",
       "ticks": 24
-    },
-    {
-      "kind": "checkpoint",
-      "label": "The Oracle reveals Gwydion’s identity",
-      "room": 36,
-      "score": 96,
-      "x": 72,
-      "y": 160
     },
     {
       "kind": "key",
@@ -32311,14 +32227,6 @@
       "ticks": 157
     },
     {
-      "kind": "checkpoint",
-      "label": "Manannan returns for supper",
-      "room": 3,
-      "score": 157,
-      "x": 133,
-      "y": 145
-    },
-    {
       "kind": "key",
       "code": 20224
     },
@@ -34247,14 +34155,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Passage to Daventry",
-      "room": 40,
-      "score": 172,
-      "x": 72,
-      "y": 164
-    },
-    {
       "kind": "key",
       "code": 20480
     },
@@ -35223,14 +35123,6 @@
       "ticks": 6
     },
     {
-      "kind": "checkpoint",
-      "label": "Escape from the cargo hold",
-      "room": 83,
-      "score": 176,
-      "x": 142,
-      "y": 132
-    },
-    {
       "kind": "key",
       "code": 20480
     },
@@ -36095,14 +35987,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Magic recovered from the captain’s chest",
-      "room": 83,
-      "score": 179,
-      "x": 43,
-      "y": 150
-    },
-    {
       "kind": "key",
       "code": 18688
     },
@@ -36727,14 +36611,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "The sleeping ship",
-      "room": 85,
-      "score": 180,
-      "x": 110,
-      "y": 119
-    },
-    {
       "kind": "key",
       "code": 106
     },
@@ -37255,14 +37131,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Treasure beneath the lone palm",
-      "room": 49,
-      "score": 192,
-      "x": 55,
-      "y": 84
-    },
-    {
       "kind": "key",
       "code": 18688
     },
@@ -37613,14 +37481,6 @@
     {
       "kind": "advance",
       "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "A fly above the waterfall",
-      "room": 54,
-      "score": 192,
-      "x": 46,
-      "y": 165
     },
     {
       "kind": "key",
@@ -39381,14 +39241,6 @@
     {
       "kind": "advance",
       "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Across the cliff’s hidden passages",
-      "room": 58,
-      "score": 196,
-      "x": 1,
-      "y": 138
     },
     {
       "kind": "key",
@@ -41187,14 +41039,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Alexander frees his sister",
-      "room": 66,
-      "score": 206,
-      "x": 14,
-      "y": 112
-    },
-    {
       "kind": "key",
       "code": 20736
     },
@@ -42024,19 +41868,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "The castle gates stand open",
-      "room": 71,
-      "score": 206,
-      "x": 90,
-      "y": 163
-    },
-    {
-      "kind": "advance",
-      "ticks": 1156
+      "ticks": 1157
     },
     {
       "kind": "key",

@@ -29,7 +29,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 19035,
+  "elapsedMs": 60476,
   "virtualTicks": 141960,
   "cycles": 29847,
   "actions": [
@@ -83,27 +83,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 2454
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Tracking the suspect",
-      "room": 125,
-      "score": 0,
-      "x": 80,
-      "y": 25
-    },
-    {
-      "kind": "advance",
-      "ticks": 3246
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Tracker replay complete",
-      "room": 125,
-      "score": 0,
-      "x": 145,
-      "y": 40
+      "ticks": 5700
     },
     {
       "kind": "key",
@@ -112,14 +92,6 @@
     {
       "kind": "advance",
       "ticks": 120
-    },
-    {
-      "kind": "checkpoint",
-      "label": "City map",
-      "room": 114,
-      "score": 0,
-      "x": 100,
-      "y": 150
     },
     {
       "kind": "key",
@@ -690,14 +662,6 @@
       "ticks": 90
     },
     {
-      "kind": "checkpoint",
-      "label": "Consult the MAD",
-      "room": 101,
-      "score": 0,
-      "x": 128,
-      "y": 153
-    },
-    {
       "kind": "key",
       "code": 18176
     },
@@ -808,14 +772,6 @@
     {
       "kind": "advance",
       "ticks": 180
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Trinity Church",
-      "room": 111,
-      "score": 0,
-      "x": 48,
-      "y": 70
     },
     {
       "kind": "key",
@@ -976,14 +932,6 @@
     {
       "kind": "advance",
       "ticks": 248
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Flatbush bar",
-      "room": 122,
-      "score": 0,
-      "x": 77,
-      "y": 162
     },
     {
       "kind": "key",
@@ -1276,14 +1224,6 @@
     {
       "kind": "advance",
       "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Enter the maze challenge",
-      "room": 126,
-      "score": 0,
-      "x": 136,
-      "y": 161
     },
     {
       "kind": "key",
@@ -1956,14 +1896,6 @@
     {
       "kind": "advance",
       "ticks": 156
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Maze: ten squares collected",
-      "room": 126,
-      "score": 0,
-      "x": 129,
-      "y": 56
     },
     {
       "kind": "key",
@@ -2664,14 +2596,6 @@
     {
       "kind": "advance",
       "ticks": 240
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Prospect Park",
-      "room": 119,
-      "score": 0,
-      "x": 26,
-      "y": 167
     },
     {
       "kind": "key",
@@ -3842,14 +3766,6 @@
       "ticks": 6
     },
     {
-      "kind": "checkpoint",
-      "label": "4 sewer keycards collected",
-      "room": 128,
-      "score": 0,
-      "x": 68,
-      "y": 150
-    },
-    {
       "kind": "key",
       "code": 13
     },
@@ -4642,14 +4558,6 @@
       "ticks": 6
     },
     {
-      "kind": "checkpoint",
-      "label": "8 sewer keycards collected",
-      "room": 128,
-      "score": 0,
-      "x": 68,
-      "y": 150
-    },
-    {
       "kind": "key",
       "code": 13
     },
@@ -5336,14 +5244,6 @@
     {
       "kind": "advance",
       "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "12 sewer keycards collected",
-      "room": 128,
-      "score": 0,
-      "x": 77,
-      "y": 136
     },
     {
       "kind": "key",
@@ -5384,14 +5284,6 @@
     {
       "kind": "advance",
       "ticks": 120
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Recover the medallion",
-      "room": 128,
-      "score": 0,
-      "x": 77,
-      "y": 130
     },
     {
       "kind": "key",
@@ -5575,19 +5467,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 3
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Kewpie Doll Baseball",
-      "room": 129,
-      "score": 0,
-      "x": 47,
-      "y": 165
-    },
-    {
-      "kind": "advance",
-      "ticks": 150
+      "ticks": 153
     },
     {
       "kind": "key",
@@ -5667,19 +5547,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 9
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Deliver the Data Card to the Orbs",
-      "room": 131,
-      "score": 0,
-      "x": 128,
-      "y": 152
-    },
-    {
-      "kind": "advance",
-      "ticks": 1338
+      "ticks": 1347
     },
     {
       "kind": "key",
@@ -7811,19 +7679,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 3
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Snatched the thirteenth keycard",
-      "room": 140,
-      "score": 0,
-      "x": 20,
-      "y": 135
-    },
-    {
-      "kind": "advance",
-      "ticks": 624
+      "ticks": 627
     },
     {
       "kind": "key",
@@ -8295,19 +8151,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Pried the crowbar from the park",
-      "room": 136,
-      "score": 0,
-      "x": 77,
-      "y": 160
-    },
-    {
-      "kind": "advance",
-      "ticks": 5
+      "ticks": 6
     },
     {
       "kind": "key",
@@ -9014,14 +8858,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Took the key from the shopping bag",
-      "room": 106,
-      "score": 0,
-      "x": 72,
-      "y": 96
-    },
-    {
       "kind": "key",
       "code": 13
     },
@@ -9212,14 +9048,6 @@
     {
       "kind": "advance",
       "ticks": 5
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Unlocked the museum's side doors",
-      "room": 127,
-      "score": 0,
-      "x": 137,
-      "y": 80
     },
     {
       "kind": "key",
@@ -9866,14 +9694,6 @@
       "ticks": 990
     },
     {
-      "kind": "checkpoint",
-      "label": "Showed the guardian the medallion",
-      "room": 135,
-      "score": 0,
-      "x": 75,
-      "y": 130
-    },
-    {
       "kind": "key",
       "code": 13
     },
@@ -10063,19 +9883,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Took Module B",
-      "room": 135,
-      "score": 0,
-      "x": 32,
-      "y": 106
-    },
-    {
-      "kind": "advance",
-      "ticks": 30
+      "ticks": 31
     },
     {
       "kind": "key",
@@ -12187,19 +11995,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 3
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Bought the three badges",
-      "room": 145,
-      "score": 0,
-      "x": 26,
-      "y": 150
-    },
-    {
-      "kind": "advance",
-      "ticks": 1134
+      "ticks": 1137
     },
     {
       "kind": "key",
@@ -13023,19 +12819,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 178
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Took the knifeman's note",
-      "room": 148,
-      "score": 0,
-      "x": 88,
-      "y": 150
-    },
-    {
-      "kind": "advance",
-      "ticks": 60
+      "ticks": 238
     },
     {
       "kind": "key",
@@ -14210,14 +13994,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Pried Module C out of the radio",
-      "room": 113,
-      "score": 0,
-      "x": 78,
-      "y": 70
-    },
-    {
       "kind": "key",
       "code": 13
     },
@@ -14808,14 +14584,6 @@
     {
       "kind": "advance",
       "ticks": 321
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Sent the guard robot on hall patrol",
-      "room": 149,
-      "score": 0,
-      "x": 32,
-      "y": 28
     },
     {
       "kind": "key",
@@ -15572,14 +15340,6 @@
     {
       "kind": "advance",
       "ticks": 3
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Took Module D",
-      "room": 150,
-      "score": 0,
-      "x": 16,
-      "y": 158
     },
     {
       "kind": "key",
@@ -16786,14 +16546,6 @@
       "ticks": 6
     },
     {
-      "kind": "checkpoint",
-      "label": "Found the Orb ship under Grand Central",
-      "room": 152,
-      "score": 0,
-      "x": 76,
-      "y": 160
-    },
-    {
       "kind": "key",
       "code": 18176
     },
@@ -17056,14 +16808,6 @@
     {
       "kind": "advance",
       "ticks": 229
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Seated the four modules",
-      "room": 154,
-      "score": 0,
-      "x": 82,
-      "y": 20
     },
     {
       "kind": "key",
@@ -26823,19 +26567,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1260
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Landed after the last explosion",
-      "room": 162,
-      "score": 0,
-      "x": 5,
-      "y": 145
-    },
-    {
-      "kind": "advance",
-      "ticks": 3654
+      "ticks": 4914
     },
     {
       "kind": "checkpoint",

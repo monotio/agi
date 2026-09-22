@@ -15,7 +15,7 @@ export function firstHalf(run: Speedrun): void {
   run.walkTo(110, 124);
   run.command("open door");
   run.waitForRoom(55, "Castle door opens", 1200);
-  run.checkpoint("Castle door", { room: 55, score: 1 });
+  run.verify("Castle door", { room: 55, score: 1 });
   run.exit("N", 54);
   run.walkTo(run.state().x, 120);
   run.exit("W", 53);
@@ -44,7 +44,7 @@ export function firstHalf(run: Speedrun): void {
   run.walkTo(115, 115);
   run.exit("N", 14);
   run.command("climb tree");
-  run.checkpoint("Tree", { room: 63, score: 13 });
+  run.verify("Tree", { room: 63, score: 13 });
   run.walkWaypoints(
     [
       [50, 145],
@@ -55,7 +55,7 @@ export function firstHalf(run: Speedrun): void {
     { continuous: true },
   );
   run.command("get egg");
-  run.checkpoint("Golden egg", { room: 63, score: 19 });
+  run.verify("Golden egg", { room: 63, score: 19 });
   run.walkWaypoints(
     [
       [60, 105],
@@ -124,7 +124,7 @@ export function middle(run: Speedrun): void {
     "Elf encounter did not appear",
     20,
   );
-  run.checkpoint("Elf ring", { score: 29 });
+  run.verify("Elf ring", { score: 29 });
   run.walkTo(35, 70);
   run.exit("N", 31);
   run.walkTo(4, 150);
@@ -220,7 +220,7 @@ export function middle(run: Speedrun): void {
       if (!run.engine.flags[170]) {
         run.command("get note");
         run.command("read note");
-        run.checkpoint("Witch's note", { room: 65, score: 41 });
+        run.verify("Witch's note", { room: 65, score: 41 });
       }
       // Wait in the bedroom: her entrance walk to the oven only triggers
       // while ego stays in posn(105,1,158,166).  A lucky entry roll has her
@@ -247,11 +247,11 @@ export function middle(run: Speedrun): void {
   run.walkTo(35, 100);
   run.walkTo(40, 120);
   run.command("push witch"); // said("move", "witch") within 15px shoves her in (logic 065)
-  run.checkpoint("Witch defeated", { score: 48 });
+  run.verify("Witch defeated", { score: 48 });
   run.walkTo(40, 98);
   run.command("open cabinet"); // said("open", "cabinet") (logic 065)
   run.command("get cheese");
-  run.checkpoint("Cheese", { score: 52 });
+  run.verify("Cheese", { score: 52 });
   run.walkWaypoints(
     [
       [44, 135],
@@ -381,7 +381,7 @@ export function beans(run: Speedrun): void {
     run.walkTo(20, 140);
     run.walkTo(20, 162);
   }
-  run.checkpoint("Goat", { room: 11, score: 72 });
+  run.verify("Goat", { room: 11, score: 72 });
   run.exit("W", 10);
   run.walkTo(70, 162);
   run.exit("S", 7);
@@ -416,7 +416,7 @@ export function beans(run: Speedrun): void {
   run.command("ifnkovhgroghprm");
   run.walkTo(40, 120);
   run.command("get beans");
-  run.checkpoint("Beans", { room: 40, score: 85 });
+  run.verify("Beans", { room: 40, score: 85 });
   run.walkTo(110, 120);
   run.walkTo(145, 100);
   run.walkTo(145, 70);
@@ -556,10 +556,10 @@ export function secondHalf(run: Speedrun): void {
   run.walkTo(100, 140);
   run.command("throw water"); // said("cast", "water") douses the dragon (logic 051)
   run.wait(() => engine.vars[75] === 2, "extinguish dragon");
-  run.checkpoint("Dragon defeated", { room: 51 });
+  run.verify("Dragon defeated", { room: 51 });
   run.walkTo(40, 120);
   run.command("get mirror");
-  run.checkpoint("Magic mirror", { room: 51, score: 125 });
+  run.verify("Magic mirror", { room: 51, score: 125 });
   run.walkTo(120, 127);
   run.exit("E", 52);
   run.walkTo(75, 116);
@@ -626,7 +626,7 @@ export function finishFromCondor(run: Speedrun): void {
   run.exit("W", 47);
   run.walkTo(90, 85);
   run.command("get mushroom");
-  run.checkpoint("Mushroom", { room: 47, score: 133 });
+  run.verify("Mushroom", { room: 47, score: 133 });
   run.walkTo(145, 100);
   run.exit("E", 48);
   run.walkTo(55, 120);
@@ -718,7 +718,7 @@ export function finishFromCondor(run: Speedrun): void {
 /** Recover the three royal treasures and finish the throne-room ending. */
 export function kq1Complete(run: Speedrun): void {
   run.advance(30);
-  run.checkpoint("Title", { room: 83, score: 0 });
+  run.verify("Title", { room: 83, score: 0 });
   run.press(AGI_KEY.ENTER, 30);
   run.dismiss();
   assert.equal(run.state().room, 1);

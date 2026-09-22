@@ -22,7 +22,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 13097,
+  "elapsedMs": 14676,
   "virtualTicks": 106125,
   "cycles": 42082,
   "actions": [
@@ -1907,14 +1907,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Found the gold coin under the gazebo",
-      "room": 5,
-      "score": 16,
-      "x": 32,
-      "y": 100
-    },
-    {
       "kind": "key",
       "code": 20480
     },
@@ -3635,14 +3627,6 @@
       "ticks": 11
     },
     {
-      "kind": "checkpoint",
-      "label": "Withdrew the savings from Brooklyn Bank",
-      "room": 22,
-      "score": 24,
-      "x": 96,
-      "y": 137
-    },
-    {
       "kind": "key",
       "code": 18688
     },
@@ -5287,14 +5271,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Read the ticket poster in the warehouse",
-      "room": 23,
-      "score": 42,
-      "x": 118,
-      "y": 153
-    },
-    {
       "kind": "key",
       "code": 19712
     },
@@ -6711,14 +6687,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Laid flowers on the family graves",
-      "room": 19,
-      "score": 56,
-      "x": 121,
-      "y": 78
-    },
-    {
       "kind": "key",
       "code": 20224
     },
@@ -7644,19 +7612,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Boarded the Sea Farer with every Brooklyn point",
-      "room": 7,
-      "score": 60,
-      "x": 72,
-      "y": 75
-    },
-    {
-      "kind": "advance",
-      "ticks": 2315
+      "ticks": 2316
     },
     {
       "kind": "key",
@@ -8787,14 +8743,6 @@
       "ticks": 5
     },
     {
-      "kind": "checkpoint",
-      "label": "Hung from a vine while the jungle ants passed",
-      "room": 93,
-      "score": 75,
-      "x": 126,
-      "y": 157
-    },
-    {
       "kind": "key",
       "code": 20736
     },
@@ -9083,14 +9031,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Picked up the Spanish gold disk on the hidden trail",
-      "room": 94,
-      "score": 85,
-      "x": 73,
-      "y": 96
-    },
-    {
       "kind": "key",
       "code": 20736
     },
@@ -9360,19 +9300,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Crossed the Panama swamp alive",
-      "room": 40,
-      "score": 100,
-      "x": 0,
-      "y": 135
-    },
-    {
-      "kind": "advance",
-      "ticks": 68
+      "ticks": 69
     },
     {
       "kind": "key",
@@ -9489,14 +9417,6 @@
     {
       "kind": "advance",
       "ticks": 347
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Caught the stage to Sutter's Fort",
-      "room": 76,
-      "score": 101,
-      "x": 108,
-      "y": 118
     },
     {
       "kind": "key",
@@ -9933,14 +9853,6 @@
     {
       "kind": "key",
       "code": 13
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Decoded the tombstone and Psalm clues at Pa's grave",
-      "room": 90,
-      "score": 113,
-      "x": 83,
-      "y": 66
     },
     {
       "kind": "key",
@@ -17607,14 +17519,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Bought a mule with river gold",
-      "room": 81,
-      "score": 169,
-      "x": 107,
-      "y": 142
-    },
-    {
       "kind": "key",
       "code": 19200
     },
@@ -23215,14 +23119,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Crawled through the fireplace into the walled-up room",
-      "room": 12,
-      "score": 189,
-      "x": 51,
-      "y": 128
-    },
-    {
       "kind": "key",
       "code": 18688
     },
@@ -23853,14 +23749,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Found Jake's note, magnet and string in the secret room",
-      "room": 12,
-      "score": 192,
-      "x": 79,
-      "y": 100
     },
     {
       "kind": "key",
@@ -24609,14 +24497,6 @@
     {
       "kind": "advance",
       "ticks": 26
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Sidled along the hotel ledge to the balcony",
-      "room": 136,
-      "score": 196,
-      "x": 126,
-      "y": 87
     },
     {
       "kind": "key",
@@ -26747,14 +26627,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Climbed down the shaft under Jake's outhouse",
-      "room": 147,
-      "score": 207,
-      "x": 82,
-      "y": 125
-    },
-    {
       "kind": "key",
       "code": 108
     },
@@ -28435,14 +28307,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Found Jake's pick at the bottom of the shaft",
-      "room": 156,
-      "score": 217,
-      "x": 85,
-      "y": 145
-    },
-    {
       "kind": "key",
       "code": 18176
     },
@@ -29265,14 +29129,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Struck the first gold veins with Jake's pick",
-      "room": 151,
-      "score": 223,
-      "x": 22,
-      "y": 145
     },
     {
       "kind": "key",
@@ -33371,14 +33227,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Picked the last of the seventy gold finds",
-      "room": 162,
-      "score": 249,
-      "x": 42,
-      "y": 124
-    },
-    {
       "kind": "key",
       "code": 117
     },
@@ -33832,19 +33680,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Broke through into the cavern of gold",
-      "room": 193,
-      "score": 249,
-      "x": 12,
-      "y": 160
-    },
-    {
-      "kind": "advance",
-      "ticks": 782
+      "ticks": 783
     },
     {
       "kind": "key",

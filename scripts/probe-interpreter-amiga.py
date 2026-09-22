@@ -21,6 +21,10 @@ Subcommands:
   dispatch  locate action/condition dispatchers and their tables (capstone)
   census    walk every LOGIC resource, count action opcode usage
   extract   write one decompressed resource to a file
+
+The census walker decodes linearly. A `quit` whose 0xff operand doubles as
+the next `if` marker (SQ1 logic 99) desyncs such a walk: counts of late
+opcodes stay reliable, stray high-byte tests are artifacts of that quirk.
 """
 import argparse
 import struct

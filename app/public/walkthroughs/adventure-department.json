@@ -22,7 +22,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 40,
+  "elapsedMs": 44,
   "virtualTicks": 1367,
   "cycles": 82,
   "actions": [

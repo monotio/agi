@@ -673,7 +673,7 @@ wrappers at `0x2512` / `0x27f3` and save selector wrappers at `0x2753` /
 unavailable; it establishes wait timing, not cel rendering. Graphics routines,
 keyboard devices and resource lookup boundaries are intercepted explicitly.
 
-The engine now lets ordinary modal time reach v11..v14, keeps explicit pause
+The engine lets ordinary modal time reach v11..v14, keeps explicit pause
 and save selectors frozen, and normalizes script-written clock fields as above.
 A mandatory host-checkpoint print field distinguishes pause from ordinary print;
 no authentic save layout changes. Worker and walkthrough pacing retain the
@@ -1071,8 +1071,8 @@ noise and 68-step envelope expectations.
 These are isolated player-routine executions with captured port writes, not
 audible chip measurements. KQ1's adjustment sequence at 0x80f3..0x8108 adds
 into an 8-bit register and uses signed comparisons; the corresponding v3
-execution produces the same boundary outputs. The engine now preserves those
-byte operations instead of applying an unsigned saturating sum.
+execution produces the same boundary outputs. The engine preserves those
+byte operations rather than applying an unsigned saturating sum.
 
 Representative first-tick `(device, base, v23) → port byte` vectors:
 `(1,0,128) → 0x90`, `(1,0,255) → 0xff`, `(1,7,127) → 0x94`,
@@ -1125,10 +1125,11 @@ call sites establish where a playing sound's done flag is written:
   opening the selector completes the flag.
 - The error path 0x3fe8 and the restore/reset path 0x681c.
 
-Engine: `selectSavedGame`, `restart.game` and pause already called `stopSound`
-at the matching points; `quit.game` now stops before the operand branch rather
-than only on the immediate/accepted paths. SQ2 2.936's restart intercept list
-(above) contains the same 0x5234 helper, consistent with the shared 2.936 core.
+Engine: `selectSavedGame`, `restart.game`, pause and `quit.game` call
+`stopSound` at the matching points, and the quit stop precedes the operand
+branch so a declined prompt completes the flag. SQ2 2.936's restart intercept
+list (above) contains the same 0x5234 helper, consistent with the shared 2.936
+core.
 
 ### Original save and restart audit
 
@@ -1257,7 +1258,7 @@ follow retry byte) to 255. It preserves the other three parameter bytes,
 position and saved flags. Undrawn followers and other motion modes retain the
 saved retry byte. The matrix covers seven flag words and all four motion
 modes in each build. The successful restore tail sets f12 and returns zero,
-aborting the old bytecode continuation. The engine now applies these effects
+aborting the old bytecode continuation. The engine applies these effects
 to authentic restores; exact host history retains its saved retry and f12.
 Public synthetic tests observe f12 in the first resumed script and its clearing
 at the normal cycle tail.
@@ -1267,11 +1268,11 @@ representing the separately proven restore/restart zero return followed by an
 ordinary completed logic pass. Both execute one input phase and one pre-logic
 motion phase, call logic twice without an intervening scheduler wait, then
 execute one post-logic movement phase. The second logic observes f6 or f12;
-the same cycle tail clears that flag. The engine now resumes successful
+the same cycle tail clears that flag. The engine resumes successful
 restore/restart inside its current logic loop. Quit and refused authoring
 retain their separate stop behavior. Direct host image restoration still
-returns without running game logic. New synthetic regressions fail when
-resumption is delayed to another tick and pass after this correction.
+returns without running game logic. Synthetic regressions fail when
+resumption is delayed to another tick.
 
 Startup now initializes f9=1 and v24=41; accepted restart restores v24=41
 while preserving the pre-restart sound preference. Hosts can still apply a
@@ -1311,7 +1312,7 @@ particularly for 0x8000 and combinations not established by execution.
 
 `animate.obj` writes only the flag word (0x70: update|cycling|animated, wiping
 the other tested bits) and zeroes record bytes 0x21..0x23; it touches no cadence
-or dimension scalar (KQ3 2.936 handler at 0x4d9, body 0x6f5; the same narrow
+or dimension scalar (KQ3 2.936 handler at 0x4d9, body 0x4f5; the same narrow
 write set in the SQ2/GR1 bodies above). Because the state initializer produces
 zeroed records, an animated-but-unconfigured object keeps step interval,
 countdown, step size, cycle interval/countdown, width and height all zero: a
@@ -1319,8 +1320,9 @@ zero movement countdown is due every pass but step size 0 moves no pixels, a
 zero animation countdown never advances the cel, and the pre-logic direction
 pass (countdown == 1) never runs. Games get usable cadence from step.size,
 step.time and cycle.time, and `new.room` separately resets the cadence fields
-to 1. Engine decision: fresh records are zeroed rather than prefilled; synthetic
-tests configure cadence explicitly where they model ordinary script setup.
+to 1. Fresh engine records are zeroed the same way, so a synthetic test or an
+authored intro that animates an object before its first `new.room` sets
+`step.size` and `cycle.time` itself, as the shipped games do.
 
 Across the two builds the probe checks 204 controlled vectors: preserved I/O
 and restart cases, 56 reconstruction/return cases, 12 object lifecycle cases,
@@ -1367,7 +1369,7 @@ direction coupling = 1, unblock, horizon = 36; v1 = v0, v0 = room, v4 = v5 = 0;
 v16 = ego view; load the room logic; reposition ego from v2 and clear it;
 set f5; clear the mapped controller array; redraw status and input line.
 
-Facts the engine now matches that it previously did not:
+Consequences the engine models:
 
 - The object loop **selects** the updating partition (0x10) while clearing
   drawn (0x01) and animated membership (0x40). A stopped-update actor
@@ -1466,13 +1468,18 @@ tests against an earlier actor's pre-move value, and on the next pass a mover's
 saved baseline equals its current one. No routine was executed for this entry;
 the executed movement vectors above used steps for which both readings agree.
 
-The engine wrote the pair inside the move, which left it one step stale. An
-actor stepping one pixel per pass past a standing actor's corner was then
-judged to have crossed its baseline a pass late and stopped for good. Police
+The engine commits the pair the same way, after the whole pass has moved and
+only for actors whose countdown reloaded, and derives the stationary bit from
+that comparison. A pair written inside the move would sit one step stale: an
+actor stepping one pixel per pass past a standing actor's corner would be
+judged to have crossed its baseline a pass late and stop for good. Police
 Quest logic 37 walks the bikers out past a scripted ego position this way.
+Because `reposition` and cel clipping move x/y without touching the pair, an
+actor they move reads as moved even when its own step lands back on its feet;
+Space Quest II's swamp lurker, nudged by its room script while it follows
+Roger, walks straight at him for that reason instead of sidestepping.
 
-Tests: [original-movement.test.ts](../test/original-movement.test.ts). The
-KQ3 walkthrough's tape moved by 60 polls and keeps its 210-point ending.
+Tests: [original-movement.test.ts](../test/original-movement.test.ts).
 
 ### Original show.obj description formatting
 
@@ -1516,25 +1523,22 @@ descrambled KQ3 2.936 image. `position` (0x805a in 3.002.086, 0x7c1c in 2.936)
 and `position.v` (0x8096, 0x7c5a) store the two operands into the record's x
 and y and into the saved pair at 0x16/0x18, and nothing else. `reposition`
 (0x7ce7 in 2.936) ORs state bit 0x400 into the record before applying its
-deltas, then calls the placement spiral at 0x593a — the same routine the
-movement pass's rejected-step fallback enters — and `reposition.to`
-(0x7d77) and `reposition.to.v` end in the same call. So placement runs
-inline at script time AND the 0x400 flag still suppresses the object's next
-due step as a zero-step re-check; an earlier audit row misread the tail
-call as `call 0x5b3a` (the byte-fill helper at that _code_ offset) when the
-operand decodes to 0x593a — file offset 0x5b3a of the descrambled image.
-Fact: only the reposition family and cel clipping mark an object newly
-positioned (the five `or 0x400` sites in each image), and the spec's
-`position` entry says the same. The engine marked `position` too, which
-scheduled a zero-step placement pass that suppresses the first real step;
-under 3.002.086 that pass reports an exact zero left edge as border 4, so
-King's Quest IV's room 28, which positions ego at x=0 and starts the
-unicorn ride, bounced between rooms 27 and 28 for good.
+deltas, then calls the placement spiral at 0x593a (horizon clamp, bounds,
+collision and control checks, then a widening search), the routine the
+movement pass also enters when it rejects a step; `reposition.to` (0x7d77)
+and `reposition.to.v` end in the same call. Placement therefore runs inline
+at script time, and the 0x400 flag still turns the object's next due step
+into a zero-step re-check. Fact: only the reposition family and cel clipping
+mark an object newly positioned (the five `or 0x400` sites in each image),
+and the spec's `position` entry says the same. A placement pass after
+`position` would suppress the first real step, and under 3.002.086 it would
+report an exact zero left edge as border 4, so King's Quest IV's room 28,
+which positions ego at x=0 and starts the unicorn ride, would bounce between
+rooms 27 and 28 for good.
 
-The engine follows the originals in every profile: `position` and `position.v`
-no longer schedule the placement pass, so the first real step is never
-suppressed. Walkthrough tapes recorded against the deviation were re-verified
-against the faithful behavior (see the rc.15 audit's A2 entry).
+The engine follows the originals in every profile: `position` and
+`position.v` store the coordinates and the saved pair only, and the
+reposition family places inline and marks the object.
 
 Tests: [original-movement.test.ts](../test/original-movement.test.ts).
 

@@ -25,21 +25,13 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 5703,
+  "elapsedMs": 5799,
   "virtualTicks": 145011,
   "cycles": 15882,
   "actions": [
     {
       "kind": "advance",
       "ticks": 60
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Title screen",
-      "room": 1,
-      "score": 0,
-      "x": 0,
-      "y": 160
     },
     {
       "kind": "key",
@@ -488,14 +480,6 @@
     {
       "kind": "advance",
       "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Bought a whiskey at Lefty's",
-      "room": 15,
-      "score": 1,
-      "x": 90,
-      "y": 131
     },
     {
       "kind": "key",
@@ -1744,14 +1728,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Found a diamond ring in the sink",
-      "room": 13,
-      "score": 10,
-      "x": 97,
-      "y": 143
     },
     {
       "kind": "key",
@@ -4000,14 +3976,6 @@
     {
       "kind": "advance",
       "ticks": 78
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Climbed out onto the fire escape",
-      "room": 12,
-      "score": 23,
-      "x": 70,
-      "y": 64
     },
     {
       "kind": "key",
@@ -6458,14 +6426,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Took a seat in the cabaret",
-      "room": 36,
-      "score": 29,
-      "x": 107,
-      "y": 152
-    },
-    {
       "kind": "key",
       "code": 115
     },
@@ -7880,14 +7840,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Answered a telephone survey",
-      "room": 22,
-      "score": 33,
-      "x": 64,
-      "y": 148
     },
     {
       "kind": "key",
@@ -9504,14 +9456,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Phoned Sierra On-Line",
-      "room": 22,
-      "score": 55,
-      "x": 60,
-      "y": 138
     },
     {
       "kind": "key",
@@ -11528,14 +11472,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Lent Fawn a hundred dollars for the wedding",
-      "room": 24,
-      "score": 90,
-      "x": 116,
-      "y": 119
     },
     {
       "kind": "key",
@@ -19850,14 +19786,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Smashed a window for the bottle of pills",
-      "room": 12,
-      "score": 154,
-      "x": 86,
-      "y": 64
-    },
-    {
       "kind": "key",
       "code": 19200
     },
@@ -22291,19 +22219,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Tempted Eve with the apple",
-      "room": 43,
-      "score": 197,
-      "x": 86,
-      "y": 102
-    },
-    {
-      "kind": "advance",
-      "ticks": 372
+      "ticks": 378
     },
     {
       "kind": "key",

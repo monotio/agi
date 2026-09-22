@@ -418,7 +418,7 @@ export function gr1Complete(run: Speedrun): void {
   run.walkDirection("N", () => run.state().y <= 100, "up the gazebo steps", 400);
   run.take("get coin", 20);
   run.take("pick flowers", 21);
-  run.checkpoint("Found the gold coin under the gazebo", { room: 5, score: 16 });
+  run.verify("Found the gold coin under the gazebo", { room: 5, score: 16 });
   run.walkDirection("S", () => run.state().y >= 127, "down the gazebo steps", 400);
   run.walkTo(20, 138);
   leave(run, "W", 9);
@@ -460,7 +460,7 @@ export function gr1Complete(run: Speedrun): void {
   run.command("withdraw money");
   run.waitForFlag(33, "savings withdrawn", 2000);
   control(run, "teller done");
-  run.checkpoint("Withdrew the savings from Brooklyn Bank", { room: 22, score: 24 });
+  run.verify("Withdrew the savings from Brooklyn Bank", { room: 22, score: 24 });
   enter(run, 142, 125, 8);
   frontStreetToHouse(run);
   // The buyer paces the pavement and makes his offer at exactly 13 units;
@@ -504,7 +504,7 @@ export function gr1Complete(run: Speedrun): void {
   run.key(AGI_KEY.ENTER);
   run.wait(() => run.engine.inputEnabled, "poster put away", 300);
   assert.equal(run.engine.flags[49], 1, "knows where tickets are sold");
-  run.checkpoint("Read the ticket poster in the warehouse", { room: 23, score: 42 });
+  run.verify("Read the ticket poster in the warehouse", { room: 23, score: 42 });
   leave(run, "E", 7);
   leave(run, "S", 8);
   frontStreetToHouse(run);
@@ -532,7 +532,7 @@ export function gr1Complete(run: Speedrun): void {
   run.walkPath({ x0: 117, x1: 126, y0: 76, y1: 81 });
   run.command("read grave");
   run.command("put flowers on grave");
-  run.checkpoint("Laid flowers on the family graves", { room: 19, score: 56 });
+  run.verify("Laid flowers on the family graves", { room: 19, score: 56 });
   leave(run, "W", 18);
   enter(run, 40, 99, 17);
   leave(run, "W", 16);
@@ -551,7 +551,7 @@ export function gr1Complete(run: Speedrun): void {
   // Up the gangplank; the Sea Farer sails at the eighteenth minute.
   walk(run, 72, 75);
   assert.equal(run.engine.flags[42], 1, "aboard the Sea Farer");
-  run.checkpoint("Boarded the Sea Farer with every Brooklyn point", { room: 7, score: 60 });
+  run.verify("Boarded the Sea Farer with every Brooklyn point", { room: 7, score: 60 });
   run.wait(() => run.state().room === 53, "the ship leaves Brooklyn", 12000);
   run.checkpoint("Sailed from Brooklyn as the gold rush news broke", { room: 53, score: 60 });
   // The voyage is a chain of narrated scenes. F8 (the game's own toggle)
@@ -590,13 +590,13 @@ export function gr1Complete(run: Speedrun): void {
   run.command("let go");
   run.wait(() => run.engine.vars[221] === 0, "back on the road", 300);
   control(run, "down from the vine");
-  run.checkpoint("Hung from a vine while the jungle ants passed", { room: 93, score: 75 });
+  run.verify("Hung from a vine while the jungle ants passed", { room: 93, score: 75 });
   enter(run, 152, 160, 94);
   // Four overgrown trails cross this screen; the two lower ones hide a
   // sword plant and a boa. The topmost passes the lost Spanish gold disk.
   run.walkPath({ x0: 73, x1: 80, y0: 96, y1: 97 }, { geometry: "current" });
   run.take("get disk", 34);
-  run.checkpoint("Picked up the Spanish gold disk on the hidden trail", { room: 94, score: 85 });
+  run.verify("Picked up the Spanish gold disk on the hidden trail", { room: 94, score: 85 });
   leave(run, "E", 95);
   assert.equal(run.state().score, 90, "fourth-trail bonus");
   // The swamp: every trigger pixel outside the stepping stones is quicksand,
@@ -611,7 +611,7 @@ export function gr1Complete(run: Speedrun): void {
   alive(run);
   run.walkDirection("E", () => run.state().room !== 95, "across the east ford and out", 400);
   alive(run);
-  run.checkpoint("Crossed the Panama swamp alive", { score: 100 });
+  run.verify("Crossed the Panama swamp alive", { score: 100 });
   run.waitForRoom(96, "Panama City harbour", 6000);
   run.key(CTRL_N);
   run.waitForRoom(41, "through the Golden Gate", 6000);
@@ -627,7 +627,7 @@ export function gr1Complete(run: Speedrun): void {
   enter(run, 118, 104, 75);
   run.waitForRoom(76, "the stage pulls into the fort", 3000);
   run.wait(() => egoOnScreen(run), "off the stage", 600);
-  run.checkpoint("Caught the stage to Sutter's Fort", { room: 76, score: 101 });
+  run.verify("Caught the stage to Sutter's Fort", { room: 76, score: 101 });
   // New Helvetia cemetery: Pa's stone is a template for Jake's punched letter.
   enter(run, 158, 119, 75);
   enter(run, 97, 88, 90);
@@ -643,7 +643,7 @@ export function gr1Complete(run: Speedrun): void {
   run.waitForRoom(90, "back in the cemetery", 300);
   run.command("read psalm");
   assert.equal(run.engine.flags[112], 1, "Psalm 23 read");
-  run.checkpoint("Decoded the tombstone and Psalm clues at Pa's grave", {
+  run.verify("Decoded the tombstone and Psalm clues at Pa's grave", {
     room: 90,
     score: 113,
   });
@@ -695,7 +695,7 @@ export function gr1Complete(run: Speedrun): void {
   walkInto(run, { x0: 104, x1: 112, y0: 140, y1: 143 });
   assert.ok(run.engine.vars[123]! <= 15, "within reach of the mule's rope");
   run.take("get mule", 48);
-  run.checkpoint("Bought a mule with river gold", { room: 81, score: 169 });
+  run.verify("Bought a mule with river gold", { room: 81, score: 169 });
   // Lead the mule back to the forge; it trails a few paces behind.
   enter(run, 1, 130, 80);
   enter(run, 1, 140, 79);
@@ -850,7 +850,7 @@ export function gr1Complete(run: Speedrun): void {
   assert.equal(run.state().score, 189);
   run.command("enter fireplace");
   run.waitForRoom(12, "through the fireplace", 100);
-  run.checkpoint("Crawled through the fireplace into the walled-up room", {
+  run.verify("Crawled through the fireplace into the walled-up room", {
     room: 12,
     score: 189,
   });
@@ -863,7 +863,7 @@ export function gr1Complete(run: Speedrun): void {
   run.command("unlatch window");
   run.command("open window");
   assert.equal(run.engine.flags[73], 1, "window open for the pigeon");
-  run.checkpoint("Found Jake's note, magnet and string in the secret room", {
+  run.verify("Found Jake's note, magnet and string in the secret room", {
     room: 12,
     score: 192,
   });
@@ -892,7 +892,7 @@ export function gr1Complete(run: Speedrun): void {
   alive(run);
   run.walkToUntil(4, 95, () => run.state().room === 136, "along the ledge to the balcony", 200);
   alive(run);
-  run.checkpoint("Sidled along the hotel ledge to the balcony", { room: 136, score: 196 });
+  run.verify("Sidled along the hotel ledge to the balcony", { room: 136, score: 196 });
   enterInto(run, { x0: 33, x1: 46, y0: 81, y1: 82 }, 139);
   enterInto(run, { x0: 54, x1: 62, y0: 65, y1: 66 }, 137);
   run.walkDirection("SE", () => run.state().y >= 90, "down the hotel stairs", 600);
@@ -964,7 +964,7 @@ export function gr1Complete(run: Speedrun): void {
   run.wait(() => run.engine.vars[222] === 3, "second thoughts on the seat", 600);
   run.command("yes");
   run.waitForRoom(147, "down the outhouse shaft", 600);
-  run.checkpoint("Climbed down the shaft under Jake's outhouse", { room: 147, score: 207 });
+  run.verify("Climbed down the shaft under Jake's outhouse", { room: 147, score: 207 });
   run.command("light lantern");
   assert.equal(run.engine.flags[111], 1, "lantern lit");
   enterInto(run, { x0: 1, x1: 1, y0: 120, y1: 167 }, 148);
@@ -1000,7 +1000,7 @@ export function gr1Complete(run: Speedrun): void {
   alive(run);
   walkInto(run, { x0: 80, x1: 91, y0: 141, y1: 149 });
   run.take("get pick", 46);
-  run.checkpoint("Found Jake's pick at the bottom of the shaft", { room: 156, score: 217 });
+  run.verify("Found Jake's pick at the bottom of the shaft", { room: 156, score: 217 });
   dig(run, 85, 120, "E", 132, "vein by the pick chamber");
   // Back up both ladders to the ledge in the long-ladder cavern.
   walkInto(run, { x0: 56, x1: 63, y0: 117, y1: 117 }, () => run.engine.flags[238] === 1);
@@ -1012,7 +1012,7 @@ export function gr1Complete(run: Speedrun): void {
   dig(run, 84, 147, "E", 133, "vein on the ladder ledge");
   enterInto(run, { x0: 130, x1: 130, y0: 140, y1: 167 }, 151);
   dig(run, 22, 145, "W", 131, "vein below the first ladder");
-  run.checkpoint("Struck the first gold veins with Jake's pick", { room: 151, score: 223 });
+  run.verify("Struck the first gold veins with Jake's pick", { room: 151, score: 223 });
   enterInto(run, { x0: 130, x1: 130, y0: 100, y1: 167 }, 152);
   // East gallery: the floor in front of the ladder head (x 39-64, y 115-118)
   // is a hole, so keep to the wall on the way to the vein.
@@ -1104,14 +1104,14 @@ export function gr1Complete(run: Speedrun): void {
     assert.equal(run.state().score, score + 2);
   }
   assert.equal(run.engine.vars[126], 70, "every one of the game's seventy gold finds");
-  run.checkpoint("Picked the last of the seventy gold finds", { room: 162, score: 249 });
+  run.verify("Picked the last of the seventy gold finds", { room: 162, score: 249 });
   for (let size = 1; size <= 4; size++) {
     swing(`widening the hole (${size})`);
     assert.equal(run.engine.vars[129], size, "hole grows");
   }
   run.command("enter hole");
   run.waitForRoom(193, "through the hole into the cavern", 200);
-  run.checkpoint("Broke through into the cavern of gold", { room: 193, score: 249 });
+  run.verify("Broke through into the cavern of gold", { room: 193, score: 249 });
   // The brothers' celebration plays out by itself and ends on the thank-you card.
   run.wait(() => run.engine.vars[225] === 34, "ending sequence", 6000);
   run.dismiss();

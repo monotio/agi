@@ -382,7 +382,7 @@ function dwarfs(run: Speedrun): void {
   run.wait(() => run.engine.flags[222] !== 0, "door opens", 3000);
   run.walkDirection("N", () => run.state().room === 54, "into the tree house", 200);
   run.wait(() => run.engine.inputEnabled, "inside the tree house");
-  run.checkpoint("Inside the seven dwarfs' untidy house", { room: 54, score: 9 });
+  run.verify("Inside the seven dwarfs' untidy house", { room: 54, score: 9 });
   run.command("clean house");
   run.wait(
     () =>
@@ -411,7 +411,7 @@ function mine(run: Speedrun): void {
   run.command("give pouch to dwarf");
   run.assertCarried(ITEM.lantern);
   run.assertCarried(ITEM.pouch);
-  run.checkpoint("An honest return earns a lantern", { room: 56, score: 19 });
+  run.verify("An honest return earns a lantern", { room: 56, score: 19 });
   enter(run, 8, 105, 55, { x1: 12, y1: 130 });
   // The ramp back up starts at the foot of the wall, where logic 55 lifts the block lines;
   // its edges are signal pixels that tumble Rosella back to the mine floor.
@@ -444,7 +444,7 @@ function robin(run: Speedrun): void {
   go(run, worm.x - 8, worm.y - 3, worm.x + 8, worm.y + 5);
   run.command("get worm");
   run.assertCarried(ITEM.worm);
-  run.checkpoint("The early bird loses its worm", { score: 21 });
+  run.verify("The early bird loses its worm", { score: 21 });
   if (run.state().room === 29) leave(run, "N", 23);
 }
 
@@ -465,7 +465,7 @@ function waterfallCave(run: Speedrun): void {
   go(run, 43, 96, 60, 99);
   run.command("get bone");
   run.assertCarried(ITEM.bone);
-  run.checkpoint("A board and a bone from the troll's cave", { room: 71, score: 30 });
+  run.verify("A board and a bone from the troll's cave", { room: 71, score: 30 });
   enter(run, 22, 96, 70, { x1: 27, y1: 100 });
   // Deep water carries Rosella back out through the falls.
   run.walkDirection("W", () => run.state().room === 24, "swept out through the falls", 600);
@@ -558,7 +558,7 @@ function unicorn(run: Speedrun): void {
   );
   run.command("shoot arrow at unicorn");
   assert.notEqual(run.engine.flags[187], 0, "unicorn tamed");
-  run.checkpoint("Cupid's arrow tames the unicorn", { score: 42 });
+  run.verify("Cupid's arrow tames the unicorn", { score: 42 });
 }
 
 /** The minstrel (rooms 13, 14, 19) and Pan (rooms 2, 8, 9) are each dealt with random(1,3). */
@@ -567,7 +567,7 @@ function musicians(run: Speedrun): void {
   approach(run, 10, 16);
   run.command("give book to minstrel");
   run.assertCarried(ITEM.lute);
-  run.checkpoint("Shakespeare for a lute", { score: 45 });
+  run.verify("Shakespeare for a lute", { score: 45 });
   hunt(run, [8, 2, 9], () => run.engine.flags[238] !== 0, "Pan pipes in the meadow");
   run.command("play lute");
   run.wait(() => run.engine.inputEnabled, "Pan listens", 3000);
@@ -686,7 +686,7 @@ function swimToIsland(run: Speedrun): void {
     () => run.carried(ITEM.feather) && run.engine.movementControlEnabled,
     "feather picked up",
   );
-  run.checkpoint("A peacock feather on Genesta's island", { score: 57 });
+  run.verify("A peacock feather on Genesta's island", { score: 57 });
 }
 
 /**
@@ -721,7 +721,7 @@ function whale(run: Speedrun): void {
     6000,
   );
   assert.equal(run.state().score, 62);
-  run.checkpoint("Tickled out of the whale", { room: 31, score: 62 });
+  run.verify("Tickled out of the whale", { room: 31, score: 62 });
 }
 
 /** The whale leaves Rosella one screen south of the wrecked-ship island (room 43). */
@@ -810,7 +810,7 @@ function ogreYard(run: Speedrun): void {
     3000,
   );
   assert.ok(!run.carried(ITEM.bone), "bone thrown");
-  run.checkpoint("A bone for the ogres' bulldog", { room: 49, score: 89 });
+  run.verify("A bone for the ogres' bulldog", { room: 49, score: 89 });
 }
 
 /**
@@ -843,7 +843,7 @@ function ogreAxe(run: Speedrun): void {
   go(run, 111, 111, 120, 117);
   run.command("take axe");
   run.assertCarried(ITEM.axe);
-  run.checkpoint("The ogre's axe from the bedroom", { room: 48, score: 91 });
+  run.verify("The ogre's axe from the bedroom", { room: 48, score: 91 });
   downstairs(run);
 }
 
@@ -918,7 +918,7 @@ function goldenHen(run: Speedrun): void {
     "the trees cower",
     1200,
   );
-  run.checkpoint("The trees learn to fear the axe", { room: 5, score: 99 });
+  run.verify("The trees learn to fear the axe", { room: 5, score: 99 });
 }
 
 function henDelivered(run: Speedrun): void {
@@ -966,7 +966,7 @@ function witches(run: Speedrun): void {
     "the witches grope about",
     600,
   );
-  run.checkpoint("The witches' only eye", { room: 57, score: 109 });
+  run.verify("The witches' only eye", { room: 57, score: 109 });
   run.walkWaypoints(
     [
       [60, 132],
@@ -989,7 +989,7 @@ function witches(run: Speedrun): void {
   run.assertCarried(ITEM.scarab);
   run.command("give eye to witches");
   run.wait(() => !run.carried(ITEM.eye) && run.engine.inputEnabled, "the eye returned", 3000);
-  run.checkpoint("A scarab for the witches' eye", { room: 57, score: 114 });
+  run.verify("A scarab for the witches' eye", { room: 57, score: 114 });
   leave(run, "S", 6, { avoidTriggers: false });
 }
 
@@ -1123,7 +1123,7 @@ function swampFruit(run: Speedrun): void {
   go(run, 99, 141, 103, 143, { avoidTriggers: false, dry: true });
   run.command("take fruit");
   run.assertCarried(ITEM.fruit);
-  run.checkpoint("The magic fruit from the swamp island", { room: 78, score: 132 });
+  run.verify("The magic fruit from the swamp island", { room: 78, score: 132 });
   // The charmed cobra still blocks the shore row; return along the tree line.
   run.walkWaypoints(
     [
@@ -1166,7 +1166,7 @@ function swampFruit(run: Speedrun): void {
   trollFree(run, (b) => caveWest(b, 74));
   // Room 74's way up is the signal row at y 57, reached along the channel above (61,85).
   trollFree(run, (b) => enter(b, 62, 56, 71, { x1: 64, y1: 57, avoidTriggers: false }));
-  run.checkpoint("Back through the caves with the fruit", { room: 71, score: 134 });
+  run.verify("Back through the caves with the fruit", { room: 71, score: 134 });
 }
 
 /** The manor's front door (room 17) must be opened on every visit. */
@@ -1293,7 +1293,7 @@ function manorGhosts(run: Speedrun): void {
   leave(run, "W", 16, { avoidTriggers: false });
   dig(run, 50, 84, 52, 86, ITEM.rattle);
   assert.equal(run.state().score, 137, "rattle");
-  run.checkpoint("A rattle from the baby's grave", { room: 16, score: 137 });
+  run.verify("A rattle from the baby's grave", { room: 16, score: 137 });
   leave(run, "E", 17, { avoidTriggers: false });
   intoManor(run);
   // The stairs' signal row is y 68: x 41..55 climbs to the master bedroom (62),
@@ -1306,7 +1306,7 @@ function manorGhosts(run: Speedrun): void {
   run.command("give rattle to baby");
   run.wait(() => run.engine.vars[144] === 2 && run.engine.inputEnabled, "the baby sleeps", 1200);
   assert.equal(run.state().score, 139, "rattle returned");
-  run.checkpoint("The baby ghost sleeps", { room: 59, score: 139 });
+  run.verify("The baby ghost sleeps", { room: 59, score: 139 });
 
   outToGraveyard(run, 16);
   dig(run, 20, 155, 24, 157, ITEM.coins);
@@ -1327,7 +1327,7 @@ function manorGhosts(run: Speedrun): void {
   run.command("give locket to ghost");
   run.wait(() => run.engine.vars[144] === 4 && run.engine.inputEnabled, "the lady rests", 1200);
   assert.equal(run.state().score, 149, "locket returned");
-  run.checkpoint("A locket for the lady who waited", { room: 60, score: 149 });
+  run.verify("A locket for the lady who waited", { room: 60, score: 149 });
 
   outToGraveyard(run, 16);
   dig(run, 122, 150, 124, 151, ITEM.medal);
@@ -1360,7 +1360,7 @@ function manorGhosts(run: Speedrun): void {
   run.wait(() => run.engine.flags[234] !== 0 && run.engine.inputEnabled, "chest open", 600);
   run.command("look in chest");
   run.assertCarried(ITEM.music);
-  run.checkpoint("Sheet music from the attic chest", { room: 63, score: 161 });
+  run.verify("Sheet music from the attic chest", { room: 63, score: 161 });
 }
 
 /**
@@ -1568,7 +1568,7 @@ function organAndCrypt(run: Speedrun): void {
   run.walkToUntil(box.x, box.y + 2, () => run.engine.vars[221]! < 12, "up to the box", 300);
   run.command("take box");
   run.assertCarried(ITEM.box);
-  run.checkpoint("Pandora's box from the crypt", { room: 69, score: 176 });
+  run.verify("Pandora's box from the crypt", { room: 69, score: 176 });
   run.walkTo(52, 143);
   run.command("climb up ladder");
   run.wait(
@@ -1627,7 +1627,7 @@ function edgarsRose(run: Speedrun): void {
     "door open",
     3000,
   );
-  run.checkpoint("Edgar's rose and its gold key", { room: 81, score: 187 });
+  run.verify("Edgar's rose and its gold key", { room: 81, score: 187 });
   leave(run, "S", 85, { avoidTriggers: false });
 }
 
@@ -1902,7 +1902,7 @@ function upToLolotte(run: Speedrun): void {
   run.walkTo(68, 126);
   climb(run, 93, 88, EAST_TOWER_UP);
   climb(run, 88, 82, EAST_STEPS_UP);
-  run.checkpoint("Up the east tower to Lolotte's door", { room: 82, score: 191 });
+  run.verify("Up the east tower to Lolotte's door", { room: 82, score: 191 });
 }
 
 function lolotte(run: Speedrun): void {
@@ -1917,7 +1917,7 @@ function lolotte(run: Speedrun): void {
     3000,
   );
   assert.equal(run.state().score, 193, "her door opened");
-  run.checkpoint("Into Lolotte's bed chamber", { room: 82, score: 193 });
+  run.verify("Into Lolotte's bed chamber", { room: 82, score: 193 });
   // Cupid's remaining arrow finishes her (f86); Edgar comes running.
   go(run, 60, 118, 90, 125, { avoidTriggers: false });
   run.command("shoot arrow at lolotte");
@@ -1934,7 +1934,7 @@ function lolotte(run: Speedrun): void {
   run.walkTo(50, 110);
   run.command("take talisman");
   run.assertCarried(ITEM.talisman);
-  run.checkpoint("Genesta's talisman recovered", { room: 82, score: 206 });
+  run.verify("Genesta's talisman recovered", { room: 82, score: 206 });
 }
 
 /** Down the east steps from Lolotte's door to the hallway (x < 29) or the pocket above room 93. */
@@ -1977,7 +1977,7 @@ function storageRoom(run: Speedrun): void {
   run.command("take hen");
   run.assertCarried(ITEM.hen);
   assert.equal(run.state().score, 210, "hen and box");
-  run.checkpoint("The hen and the box from Lolotte's storeroom", { room: 84, score: 210 });
+  run.verify("The hen and the box from Lolotte's storeroom", { room: 84, score: 210 });
   leave(run, "S", 87, { avoidTriggers: false });
 }
 
@@ -2016,7 +2016,7 @@ function freeTheUnicorn(run: Speedrun): void {
     6000,
   );
   assert.equal(run.state().score, 214, "unicorn freed");
-  run.checkpoint("The unicorn set free", { room: 94, score: 214 });
+  run.verify("The unicorn set free", { room: 94, score: 214 });
 }
 
 /**
@@ -2102,7 +2102,7 @@ function downTheMountain(run: Speedrun): void {
   run.walkDirection("S", () => run.state().room === 30, "down to the foothills", 100);
   settle(run);
   assert.equal(run.state().score, 214);
-  run.checkpoint("Down the mountain from Lolotte's castle", { room: 30, score: 214 });
+  run.verify("Down the mountain from Lolotte's castle", { room: 30, score: 214 });
   for (const [x, y] of FOOTHILL_TO_ROAD) run.walkTo(x, y);
   run.walkDirection("N", () => run.state().room === 24, "up to the graveyard road", 200);
   settle(run);
@@ -2131,7 +2131,7 @@ function boxReturned(run: Speedrun): void {
   run.command("put down box");
   run.wait(() => !run.carried(ITEM.box), "the box set down", 300);
   assert.equal(run.state().score, 216, "box returned");
-  run.checkpoint("Pandora's box back in its tomb", { room: 69, score: 216 });
+  run.verify("Pandora's box back in its tomb", { room: 69, score: 216 });
   run.walkTo(52, 143);
   run.command("climb up ladder");
   run.wait(
@@ -2146,7 +2146,7 @@ function boxReturned(run: Speedrun): void {
   run.command("lock door");
   run.wait(() => !run.carried(ITEM.key), "the key slides under the door", 300);
   assert.equal(run.state().score, 218, "crypt locked");
-  run.checkpoint("The crypt locked, its key slipped under the door", { room: 18, score: 218 });
+  run.verify("The crypt locked, its key slipped under the door", { room: 18, score: 218 });
 }
 
 /**
@@ -2215,7 +2215,7 @@ function swimToGenesta(run: Speedrun): void {
   assert.equal(run.engine.flags[221], 1, "on the landing");
   run.walkDirection("E", () => run.state().room === 45, "up the second flight", 100);
   settle(run);
-  run.checkpoint("Up the palace stairs to Genesta's bedside", { room: 45, score: 218 });
+  run.verify("Up the palace stairs to Genesta's bedside", { room: 45, score: 218 });
 }
 /** Between the flights the hall is walked with blocks ignored (f221 clear): behind the stair to the landing. */
 const PALACE_LANDING: readonly (readonly [number, number])[] = [
@@ -2241,7 +2241,7 @@ function genestaRestored(run: Speedrun): void {
     300,
   );
   assert.equal(run.state().score, 228, "talisman returned");
-  run.checkpoint("Genesta's talisman returned", { room: 134, score: 228 });
+  run.verify("Genesta's talisman returned", { room: 134, score: 228 });
   run.until(
     () => run.state().room === 135 && !run.carried(ITEM.hen),
     6000,
@@ -2250,9 +2250,9 @@ function genestaRestored(run: Speedrun): void {
   assert.equal(run.state().score, 230, "maximum score");
   run.checkpoint("The golden hen restored to Genesta", { room: 135, score: 230 });
   run.until(() => run.state().room === 139, 6000, "Edgar restored to his true form");
-  run.checkpoint("Edgar, no longer Lolotte's son, offers his heart", { room: 139, score: 230 });
+  run.verify("Edgar, no longer Lolotte's son, offers his heart", { room: 139, score: 230 });
   run.until(() => run.state().room === 138, 12000, "home to Daventry");
-  run.checkpoint("Rosella returns to Daventry", { room: 138, score: 230 });
+  run.verify("Rosella returns to Daventry", { room: 138, score: 230 });
   run.until(
     () => run.state().room === 138 && run.engine.flags[65] !== 0 && run.engine.vars[221] === 11,
     12000,

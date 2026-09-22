@@ -515,7 +515,7 @@ export function mumgComplete(run: Speedrun): void {
   hop(run, N, 4, { edge: [41, 117] });
   door(run, { x0: 74, x1: 86, y0: 106, y1: 108 }, 37);
   giveToKing(run, 2);
-  run.checkpoint("Old King Cole got his bowl", { room: 37, score: 17 });
+  run.verify("Old King Cole got his bowl", { room: 37, score: 17 });
 
   hop(run, S, 4);
   hop(run, S, 11);

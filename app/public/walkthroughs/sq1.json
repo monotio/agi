@@ -25,7 +25,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 4550,
+  "elapsedMs": 5989,
   "virtualTicks": 142268,
   "cycles": 18999,
   "actions": [
@@ -44,14 +44,6 @@
     {
       "kind": "advance",
       "ticks": 143
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Aboard the Arcada",
-      "room": 2,
-      "score": 0,
-      "x": 97,
-      "y": 66
     },
     {
       "kind": "key",
@@ -316,14 +308,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Retrieve the Astral Body cartridge",
-      "room": 1,
-      "score": 5,
-      "x": 81,
-      "y": 106
     },
     {
       "kind": "key",
@@ -644,14 +628,6 @@
     {
       "kind": "advance",
       "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Discover the Star Generator theft",
-      "room": 11,
-      "score": 6,
-      "x": 115,
-      "y": 164
     },
     {
       "kind": "key",
@@ -1582,14 +1558,6 @@
       "ticks": 6
     },
     {
-      "kind": "checkpoint",
-      "label": "Collect the flight gear",
-      "room": 9,
-      "score": 14,
-      "x": 55,
-      "y": 100
-    },
-    {
       "kind": "key",
       "code": 20480
     },
@@ -2262,14 +2230,6 @@
       "ticks": 6
     },
     {
-      "kind": "checkpoint",
-      "label": "Escape pod",
-      "room": 10,
-      "score": 15,
-      "x": 52,
-      "y": 92
-    },
-    {
       "kind": "key",
       "code": 99
     },
@@ -2763,31 +2723,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 84
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Autonav",
-      "room": 10,
-      "score": 17,
-      "x": 52,
-      "y": 92
-    },
-    {
-      "kind": "advance",
-      "ticks": 432
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Arcada exploded",
-      "room": 12,
-      "score": 32,
-      "x": 51,
-      "y": 96
-    },
-    {
-      "kind": "advance",
-      "ticks": 296
+      "ticks": 812
     },
     {
       "kind": "key",
@@ -2984,14 +2920,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Survival kit",
-      "room": 14,
-      "score": 34,
-      "x": 51,
-      "y": 96
     },
     {
       "kind": "key",
@@ -3432,14 +3360,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Glass",
-      "room": 30,
-      "score": 37,
-      "x": 55,
-      "y": 120
     },
     {
       "kind": "key",
@@ -6102,14 +6022,6 @@
       "ticks": 6
     },
     {
-      "kind": "checkpoint",
-      "label": "Geyser plugged",
-      "room": 26,
-      "score": 48,
-      "x": 30,
-      "y": 144
-    },
-    {
       "kind": "key",
       "code": 18176
     },
@@ -6932,14 +6844,6 @@
     {
       "kind": "advance",
       "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Acid drops navigated",
-      "room": 26,
-      "score": 56,
-      "x": 29,
-      "y": 56
     },
     {
       "kind": "key",
@@ -8460,14 +8364,6 @@
     {
       "kind": "advance",
       "ticks": 1
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Orat part taken",
-      "room": 24,
-      "score": 63,
-      "x": 125,
-      "y": 132
     },
     {
       "kind": "key",
@@ -12946,14 +12842,6 @@
       "ticks": 42
     },
     {
-      "kind": "checkpoint",
-      "label": "Entered bar",
-      "room": 70,
-      "score": 113,
-      "x": 10,
-      "y": 134
-    },
-    {
       "kind": "key",
       "code": 20736
     },
@@ -13614,14 +13502,6 @@
       "ticks": 18
     },
     {
-      "kind": "checkpoint",
-      "label": "Slot machine",
-      "room": 75,
-      "score": 118,
-      "x": 122,
-      "y": 142
-    },
-    {
       "kind": "key",
       "code": 104
     },
@@ -14203,19 +14083,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Tiny used ships lot",
-      "room": 37,
-      "score": 118,
-      "x": 130,
-      "y": 165
-    },
-    {
-      "kind": "advance",
-      "ticks": 444
+      "ticks": 450
     },
     {
       "kind": "key",
@@ -14439,19 +14307,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Droids-B-Us",
-      "room": 71,
-      "score": 122,
-      "x": 72,
-      "y": 162
-    },
-    {
-      "kind": "advance",
-      "ticks": 356
+      "ticks": 362
     },
     {
       "kind": "key",
@@ -14932,14 +14788,6 @@
     {
       "kind": "advance",
       "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Boarding ship",
-      "room": 37,
-      "score": 126,
-      "x": 152,
-      "y": 154
     },
     {
       "kind": "key",
@@ -15962,14 +15810,6 @@
       "ticks": 289
     },
     {
-      "kind": "checkpoint",
-      "label": "Laundry trunk",
-      "room": 53,
-      "score": 155,
-      "x": 35,
-      "y": 108
-    },
-    {
       "kind": "key",
       "code": 13
     },
@@ -16439,19 +16279,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Explore the laundry vent",
-      "room": 52,
-      "score": 157,
-      "x": 137,
-      "y": 99
-    },
-    {
-      "kind": "advance",
-      "ticks": 12
+      "ticks": 18
     },
     {
       "kind": "key",
@@ -18710,14 +18538,6 @@
       "ticks": 1
     },
     {
-      "kind": "checkpoint",
-      "label": "Grenade stolen",
-      "room": 51,
-      "score": 171,
-      "x": 123,
-      "y": 140
-    },
-    {
       "kind": "key",
       "code": 19200
     },
@@ -18756,14 +18576,6 @@
     {
       "kind": "advance",
       "ticks": 11
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Pulseray acquired",
-      "room": 51,
-      "score": 174,
-      "x": 100,
-      "y": 120
     },
     {
       "kind": "key",
@@ -19554,14 +19366,6 @@
       "ticks": 6
     },
     {
-      "kind": "checkpoint",
-      "label": "Force field lowered",
-      "room": 50,
-      "score": 188,
-      "x": 78,
-      "y": 158
-    },
-    {
       "kind": "key",
       "code": 18688
     },
@@ -20063,19 +19867,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 72
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Shuttle bay entered",
-      "room": 62,
-      "score": 199,
-      "x": 35,
-      "y": 73
-    },
-    {
-      "kind": "advance",
-      "ticks": 18
+      "ticks": 90
     },
     {
       "kind": "key",
@@ -20403,19 +20195,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 19
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Shuttle launched",
-      "room": 62,
-      "score": 202,
-      "x": 14,
-      "y": 121
-    },
-    {
-      "kind": "advance",
-      "ticks": 1877
+      "ticks": 1896
     },
     {
       "kind": "key",

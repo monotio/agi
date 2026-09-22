@@ -39,7 +39,7 @@ function takeCartridge(run: Speedrun): void {
     30,
   );
   run.wait(() => run.engine.movementControlEnabled, "hallway entry returns player control");
-  run.checkpoint("Aboard the Arcada", { room: 2, score: 0 });
+  run.verify("Aboard the Arcada", { room: 2, score: 0 });
   // The ship-boarder announcement interrupts the first walk.
   walkPastNarration(run, () => run.walkTo(10, 66), /sound of an alarm/);
   run.exit("W", 1);
@@ -52,7 +52,7 @@ function takeCartridge(run: Speedrun): void {
   run.type("get cart"); // 001.agi:346 said("acquire", "cart"); buffered while the retrieval unit delivers
   run.waitForFlag(35, "retrieval unit delivers cartridge", 5000);
   run.submit("get cart");
-  run.checkpoint("Retrieve the Astral Body cartridge", { room: 1, score: 5 });
+  run.verify("Retrieve the Astral Body cartridge", { room: 1, score: 5 });
   run.assertCarried(1, "Cartridge");
 }
 
@@ -96,7 +96,7 @@ export function sq1LowerLevel(run: Speedrun): void {
   run.walkTo(114, 155);
   run.walkTo(114, 137); // base x114-120 must fit the x113-122 opening; x123 is pri 0
   run.exit("N", 11);
-  run.checkpoint("Discover the Star Generator theft", { room: 11, score: 6 });
+  run.verify("Discover the Star Generator theft", { room: 11, score: 6 });
 }
 
 /**
@@ -195,7 +195,7 @@ export function sq1FlightPrep(run: Speedrun): void {
   run.type("get gadget"); // 009.agi:411 said("acquire", "dialect translator"); typed during the walk west
   run.walkTo(55, 100);
   run.submit("get gadget");
-  run.checkpoint("Collect the flight gear", { room: 9, score: 14 });
+  run.verify("Collect the flight gear", { room: 9, score: 14 });
   run.assertCarried(3, "Dialect translator");
 }
 
@@ -235,7 +235,7 @@ export function sq1Escape(run: Speedrun): void {
   run.walkTo(52, 92);
   run.submit("board pod");
   run.wait(() => run.state().room === 10, "boarded escape pod", 3000);
-  run.checkpoint("Escape pod", { room: 10, score: 15 });
+  run.verify("Escape pod", { room: 10, score: 15 });
   run.command("close door");
   run.command("buckle belt"); // 010.agi:379 said("buckle", "belt")
   run.command("press power"); // 010.agi:302 said("press", "power")
@@ -244,10 +244,10 @@ export function sq1Escape(run: Speedrun): void {
   run.wait(() => run.engine.flags[79] !== 0, "pod launched", 3000);
   run.command("press autonav"); // 010.agi:279 said("press", "autonav")
   run.wait(() => run.engine.inputEnabled, "autonav engaged", 3000);
-  run.checkpoint("Autonav", { room: 10, score: 17 });
+  run.verify("Autonav", { room: 10, score: 17 });
   run.wait(() => run.state().room === 12, "pod clear of the Arcada", 30000);
   run.wait(() => run.engine.vars[3] === 32, "explosion points awarded", 30000);
-  run.checkpoint("Arcada exploded", { room: 12, score: 32 });
+  run.verify("Arcada exploded", { room: 12, score: 32 });
   run.wait(() => run.state().room === 13, "Kerona approach", 30000);
   run.checkpoint("Kerona approach", { room: 13, score: 32 });
 }
@@ -263,7 +263,7 @@ export function sq1Landing(run: Speedrun): void {
   run.wait(() => run.state().room === 14, "pod landed", 30000);
   assertProgress(run, 14, 32, "Pod interior");
   run.command("take survival kit");
-  run.checkpoint("Survival kit", { room: 14, score: 34 });
+  run.verify("Survival kit", { room: 14, score: 34 });
   run.command("open kit");
   run.command("unbuckle seat belt");
   run.command("get out");
@@ -271,7 +271,7 @@ export function sq1Landing(run: Speedrun): void {
   run.walkTo(35, 120); // clear of the pod's block(45,92,70,108)
   run.walkTo(55, 120);
   run.command("take glass");
-  run.checkpoint("Glass", { room: 30, score: 37 });
+  run.verify("Glass", { room: 30, score: 37 });
   run.assertCarried(6, "Glass");
 }
 
@@ -510,7 +510,7 @@ export function sq1UlenceFlats(run: Speedrun): void {
   run.walkTo(30, 144);
   run.command("put rock in geyser");
   run.wait(() => eng.flags[84] !== 0, "geyser plugged (f84)", 3000);
-  run.checkpoint("Geyser plugged", { room: 26, score: 48 });
+  run.verify("Geyser plugged", { room: 26, score: 48 });
 
   // Walk to open cave door at x=14
   run.walkTo(17, 130);
@@ -545,7 +545,7 @@ export function sq1UlenceFlats(run: Speedrun): void {
   run.wait(() => (eng.vars[33] ?? 0) >= 20, "drop 3 fell", 5000);
   run.walkTo(130, 42);
   run.exit("E", 26);
-  run.checkpoint("Acid drops navigated", { room: 26, score: 56 });
+  run.verify("Acid drops navigated", { room: 26, score: 56 });
 
   // Room 26 upper ledge: turn on translator and enter alien chamber
   run.command("turn on translator");
@@ -671,7 +671,7 @@ export function sq1UlenceFlats(run: Speedrun): void {
   run.walkPath({ x0: 120, y0: 125, x1: 135, y1: 135 });
   run.command("take orat part");
   run.waitForItem(4, "took orat part (item 4)", 3000);
-  run.checkpoint("Orat part taken", { room: 24, score: 63 });
+  run.verify("Orat part taken", { room: 24, score: 63 });
   run.assertCarried(4, "Orat part");
 
   // Exit Orat cave back to Room 20 ground level
@@ -948,7 +948,7 @@ export function sq1DeltaurDeparture(run: Speedrun): void {
   run.walkTo(95, 111);
   run.direction(3);
   run.wait(() => run.state().room === 70, "entered bar");
-  run.checkpoint("Entered bar", { room: 70, score: 113 });
+  run.verify("Entered bar", { room: 70, score: 113 });
 
   // Drink 3 beers
   run.walkTo(120, 155);
@@ -970,7 +970,7 @@ export function sq1DeltaurDeparture(run: Speedrun): void {
   run.walkTo(120, 142);
   run.direction(3);
   run.wait(() => run.state().room === 75, "entered slot machine");
-  run.checkpoint("Slot machine", { room: 75, score: 118 });
+  run.verify("Slot machine", { room: 75, score: 118 });
 
   function spin(cheatNum: number) {
     run.answerNumber(cheatNum);
@@ -1004,7 +1004,7 @@ export function sq1DeltaurDeparture(run: Speedrun): void {
   // Room 34 to Room 37
   run.walkTo(130, 116);
   run.exit("N", 37);
-  run.checkpoint("Tiny used ships lot", { room: 37, score: 118 });
+  run.verify("Tiny used ships lot", { room: 37, score: 118 });
 
   // Buy spaceship
   run.wait(() => Boolean(run.engine.flags[43]), "salesman approached");
@@ -1017,7 +1017,7 @@ export function sq1DeltaurDeparture(run: Speedrun): void {
   run.exit("E", 39);
   run.walkPath({ x0: 45, y0: 130, x1: 65, y1: 134 });
   run.exit("N", 71);
-  run.checkpoint("Droids-B-Us", { room: 71, score: 122 });
+  run.verify("Droids-B-Us", { room: 71, score: 122 });
 
   // Wait for salesman
   run.wait(() => Boolean(run.engine.flags[38]), "salesman approached");
@@ -1042,7 +1042,7 @@ export function sq1DeltaurDeparture(run: Speedrun): void {
   run.walkPath({ x0: 0, y0: 140, x1: 5, y1: 167 });
   run.exit("W", 38);
   run.exit("W", 37);
-  run.checkpoint("Boarding ship", { room: 37, score: 126 });
+  run.verify("Boarding ship", { room: 37, score: 126 });
 
   // Board ship and load droid
   run.walkTo(109, 150);
@@ -1128,7 +1128,7 @@ export function sq1Complete(run: Speedrun): void {
   run.command("open trunk");
   run.command("get in trunk");
   run.wait(() => run.state().room === 53, "in room 53");
-  run.checkpoint("Laundry trunk", { room: 53, score: 155 });
+  run.verify("Laundry trunk", { room: 53, score: 155 });
   run.key(AGI_KEY.ENTER);
   run.advance(5);
   run.wait(() => run.state().inputEnabled, "graphics restored");
@@ -1140,7 +1140,7 @@ export function sq1Complete(run: Speedrun): void {
   run.command("open vent");
   run.command("enter vent");
   run.wait(() => run.state().room === 52, "in room 52");
-  run.checkpoint("Explore the laundry vent", { room: 52, score: 157 });
+  run.verify("Explore the laundry vent", { room: 52, score: 157 });
   run.wait(() => run.engine.movementControlEnabled, "vent entry crawl finishes");
   run.exit("E", 53);
   assertProgress(run, 53, 158, "Laundry vent exit");
@@ -1215,13 +1215,13 @@ export function sq1Complete(run: Speedrun): void {
   run.walkTo(100, 140);
   run.walkTo(123, 140);
   run.command("take grenade");
-  run.checkpoint("Grenade stolen", { room: 51, score: 171 });
+  run.verify("Grenade stolen", { room: 51, score: 171 });
   run.walkTo(100, 140);
   run.walkTo(100, 120);
   run.wait(() => run.engine.flags[38] !== 0, "droid returned with pulseray", 10000);
   run.advance(10);
   if (run.engine.modalKind !== null) run.dismiss();
-  run.checkpoint("Pulseray acquired", { room: 51, score: 174 });
+  run.verify("Pulseray acquired", { room: 51, score: 174 });
   run.assertCarried(14, "Pulseray");
   run.assertCarried(15, "Grenade");
 
@@ -1303,7 +1303,7 @@ export function sq1Complete(run: Speedrun): void {
 
   run.command("push button");
   run.advance(5);
-  run.checkpoint("Force field lowered", { room: 50, score: 188 });
+  run.verify("Force field lowered", { room: 50, score: 188 });
 
   // 8. Arm Star Generator self-destruct via Room 65 keypad (+10 pts)
   run.walkTo(86, 156);
@@ -1358,7 +1358,7 @@ export function sq1Complete(run: Speedrun): void {
   );
   run.direction(1);
   run.wait(() => run.state().room === 62, "entered shuttle bay (room 62)");
-  run.checkpoint("Shuttle bay entered", { room: 62, score: 199 });
+  run.verify("Shuttle bay entered", { room: 62, score: 199 });
   run.wait(
     () => run.state().inputEnabled && run.state().y >= 75 && run.engine.movementControlEnabled,
     "stepped out in 62",
@@ -1369,7 +1369,7 @@ export function sq1Complete(run: Speedrun): void {
   run.command("enter ship");
   run.command("push button");
   run.wait(() => run.engine.flags[38] !== 0, "launched shuttle");
-  run.checkpoint("Shuttle launched", { room: 62, score: 202 });
+  run.verify("Shuttle launched", { room: 62, score: 202 });
   assert.equal(run.state().score, 202, "Final maximum score 202 achieved!");
 
   // Wait for ending sequence: room 62 -> 43 -> 63 -> 64

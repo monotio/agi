@@ -190,7 +190,10 @@ clock advancement and milestone assertions; the
    assertions; do not change flags, inventory or coordinates to advance the route.
 3. Derive expected milestones from the game logic and behavioral specification.
    Assert the relevant score, inventory, room or ending condition. A process
-   exiting without an error does not establish completion.
+   exiting without an error does not establish completion. `run.checkpoint`
+   records a story highlight for the tape's timeline and `run.verify` asserts
+   the same state without one; keep highlights a few percent of the tape apart
+   so the transport can land on each of them.
 4. Replay each new segment twice from a cold boot. Verify the assertion can fail
    by omitting a required action, then restore it. When a route exposes an engine
    bug, add a small synthetic regression where possible and observe it fail
@@ -288,20 +291,20 @@ when they do not need a timeline marker. The narrated tapes have these costs:
 
 | Route                | Host polls | Logic cycles | Highlights |
 | -------------------- | ---------: | -----------: | ---------: |
-| KQ1                  |    110,047 |       15,849 |         37 |
-| KQ2                  |    126,363 |       17,953 |         34 |
-| KQ3                  |    259,462 |       34,094 |         46 |
-| SQ1                  |    132,398 |       17,612 |         55 |
-| SQ2                  |    144,312 |       18,854 |         48 |
-| PQ1                  |    401,420 |       39,228 |         35 |
-| LSL1                 |    143,148 |       15,692 |         31 |
-| Black Cauldron       |    104,637 |       12,202 |         26 |
-| Mother Goose         |     58,993 |       21,760 |         24 |
-| Donald Duck          |     10,341 |        2,335 |         16 |
-| MH1                  |    142,440 |       29,969 |         59 |
-| MH2                  |    149,082 |       27,852 |         53 |
-| Gold Rush            |    105,687 |       43,379 |         48 |
-| KQ4                  |    151,260 |       70,674 |         56 |
+| KQ1                  |    109,408 |       15,811 |         24 |
+| KQ2                  |    126,171 |       17,921 |         23 |
+| KQ3                  |    259,462 |       34,074 |         26 |
+| SQ1                  |    142,268 |       18,999 |         31 |
+| SQ2                  |    143,943 |       18,801 |         31 |
+| PQ1                  |    400,160 |       38,642 |         25 |
+| LSL1                 |    145,011 |       15,882 |         21 |
+| Black Cauldron       |    105,204 |       12,266 |         24 |
+| Mother Goose         |     58,852 |       21,680 |         23 |
+| Donald Duck          |     10,269 |        2,319 |         15 |
+| MH1                  |    141,960 |       29,847 |         30 |
+| MH2                  |    148,362 |       27,590 |         27 |
+| Gold Rush            |    106,125 |       42,082 |         29 |
+| KQ4                  |    151,260 |       70,672 |         23 |
 | Adventure Department |      1,367 |           82 |          4 |
 
 The inexpensive [artifact quality check](../app/test/walkthrough-quality.test.ts)

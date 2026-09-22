@@ -25,7 +25,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 6196,
+  "elapsedMs": 6356,
   "virtualTicks": 105204,
   "cycles": 12266,
   "actions": [
@@ -4262,14 +4262,6 @@
       "ticks": 6
     },
     {
-      "kind": "checkpoint",
-      "label": "Stood before the Horned King's castle",
-      "room": 34,
-      "score": 83,
-      "x": 80,
-      "y": 165
-    },
-    {
       "kind": "key",
       "code": 18432
     },
@@ -5008,14 +5000,6 @@
     {
       "kind": "advance",
       "ticks": 492
-    },
-    {
-      "kind": "checkpoint",
-      "label": "Slid down the garbage chute",
-      "room": 56,
-      "score": 117,
-      "x": 74,
-      "y": 121
     },
     {
       "kind": "key",
