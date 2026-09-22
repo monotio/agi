@@ -663,6 +663,50 @@ test.describe("Walkthrough UI", () => {
     await engineRoomIs(page, 126, 30_000);
   });
 
+  test("a mark click held through the snapshot restore still resumes mh1 playback", async ({
+    page,
+  }) => {
+    const mh1Missing = fixtureSkip(KNOWN_GAME_HASH.MH1, ["AGIDATA.OVL"]);
+    test.skip(Boolean(mh1Missing), mh1Missing || "");
+    test.setTimeout(120_000);
+    await isolateStorage(page);
+    await page.goto("/");
+    await openCardMenu(page, "game-actions-mh1");
+    await page.getByTestId("run-walkthrough").click();
+    await expect(page.getByTestId("walkthrough-timeline")).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("walkthrough-speed-8").click();
+
+    const tickOf = (label: string) =>
+      page.evaluate(
+        (l) => window.__AGI_STATE__?.walkthrough.checkpoints.find((c) => c.label === l)?.tick ?? 0,
+        label,
+      );
+    const replayTick = () => page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0);
+    await clickTimelineMark(page, page.locator('.walkthrough-marker[title*="Took Module A"]'));
+    const forward = await tickOf("Took Module A from the church");
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate(() => window.__AGI_STATE__?.walkthrough.seeking)) === false &&
+          (await replayTick()) >= forward,
+        { timeout: 60_000 },
+      )
+      .toBe(true);
+
+    // A real click holds the pointer for a moment; the restore lands while
+    // the timeline is still scrubbing, and the release must let playback go on.
+    const box = (await page
+      .locator('.walkthrough-marker[title*="Maze challenge completed"]')
+      .boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(400);
+    await page.mouse.up();
+    const back = await tickOf("Maze challenge completed");
+    await expect.poll(replayTick, { timeout: 15_000 }).toBeGreaterThan(back + 300);
+    await expect(page.getByTestId("walkthrough-label")).toContainText("Maze challenge completed");
+  });
+
   test("seeking mh1 backward from a tap-to-move section still releases held directions on the map", async ({
     page,
   }) => {

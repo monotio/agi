@@ -144,7 +144,7 @@ export type TransportModel = TransportSource &
 const SCRUB_FORWARD_MS = 150;
 const SCRUB_BACKWARD_MS = 350;
 /** A mark grabs the hover when the pointer sits within this lane percent. */
-const MARK_SNAP_PERCENT = 4;
+const MARK_SNAP_PERCENT = 1.5;
 
 export function useTransport(source: TransportSource, extras: TransportExtras): TransportModel {
   const ui = reactive({

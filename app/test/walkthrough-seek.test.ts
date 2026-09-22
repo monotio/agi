@@ -52,6 +52,7 @@ function harness() {
   const posted: WorkerInbound[] = [];
   const restoreCalls: { tick: number; sessionId: number | undefined }[] = [];
   const playBatchStarts: number[] = [];
+  const batchOptions: Parameters<ReplayDriver["playBatch"]>[1][] = [];
   let sessionId = 0;
   // The batch promise a run awaits — kept pending so the run stays live.
   const batch: Promise<never> = new Promise(() => {});
@@ -77,6 +78,7 @@ function harness() {
     snapshot: () => {},
     playBatch: (_actions, options) => {
       playBatchStarts.push(options?.startIndex ?? 0);
+      batchOptions.push(options);
       return batch;
     },
   };
@@ -115,7 +117,7 @@ function harness() {
   };
 
   const controller = useWalkthroughController(ctx);
-  return { state, driver, posted, restoreCalls, playBatchStarts, controller };
+  return { state, driver, posted, restoreCalls, playBatchStarts, batchOptions, controller };
 }
 
 const ARTIFACT = {
@@ -186,6 +188,38 @@ test("a retarget ahead of the live replay head retunes the seek instead of resta
     );
     assert.equal(state.walkthrough.tick, 500);
     assert.notEqual(state.walkthrough.status, "error");
+  } finally {
+    globalThis.fetch = originalFetch;
+    controller.abort();
+  }
+});
+
+test("lifting the pointer after a scrub wakes a runner parked on the scrub gate", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    ok: true,
+    json: async () => ARTIFACT,
+  })) as unknown as typeof fetch;
+  const { state, driver, batchOptions, controller } = harness();
+  try {
+    void controller.startWalkthrough("kq1");
+    await flush();
+    assert.equal(state.walkthrough.status, "playing");
+    const options = batchOptions[0]!;
+    driver.latest = fakeObservation(400);
+    // A pointer held on the timeline pauses the runner until it lifts.
+    controller.transport.scrubDown(60);
+    assert.equal(options?.isPaused?.(), true, "scrubbing parks the runner");
+    let resumed = false;
+    void options?.waitForResume?.().then(() => {
+      resumed = true;
+    });
+    await flush();
+    assert.equal(resumed, false, "still parked while the pointer is down");
+    controller.transport.scrubUp(60);
+    await flush();
+    assert.equal(options?.isPaused?.(), false);
+    assert.equal(resumed, true, "the release wakes the parked runner");
   } finally {
     globalThis.fetch = originalFetch;
     controller.abort();

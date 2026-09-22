@@ -719,6 +719,9 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     setSpeed: setWalkthroughSpeed,
     setScrubbing: (active) => {
       state.walkthrough.scrubbing = active;
+      // The runner parks on the scrub gate; a restore that lands while the
+      // pointer is still down must wake it when the pointer lifts.
+      if (!active) notifyResume();
     },
     step: (dir) => {
       const pct = Math.max(0, Math.min(100, state.walkthrough.percent + dir * 5));
