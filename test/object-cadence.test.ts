@@ -561,27 +561,6 @@ test("reposition.to places the object and suppresses its next due movement", () 
   assert.equal(engine.screenObjects[0]!.y, 37, "placement obeys the default horizon");
 });
 
-test("reposition writes x/y and defers placement to the next due pass", () => {
-  // Originals: reposition/reposition.to only set flag 0x400 after writing
-  // the coordinates; placement (border clamp + collision spiral) runs on
-  // the object's next due movement pass. A get.posn in the same script
-  // therefore reads the raw written position, and the pass still lands the
-  // object inside the horizon.
-  const engine = game(`if (!isset(f200)) { set(f200); ${setup} return; }
-    reposition.to(o0, 50, 20); get.posn(o0, v60, v61); return;
-  `);
-  engine.tick();
-  engine.tick();
-  assert.deepEqual(
-    [engine.vars[60], engine.vars[61]],
-    [50, 20],
-    "same-script get.posn sees the raw repositioned coordinates",
-  );
-  const ego = engine.screenObjects[0]!;
-  assert.deepEqual([ego.x, ego.y], [50, 37], "the due pass performed the placement");
-  assert.equal(ego.newlyPositioned, false, "the flag was consumed by that pass");
-});
-
 test("footprint scan: trigger latches on any cell, water needs every cell", () => {
   // Ego is a two-cell-wide actor at (20,100); logic 0 idles, so every tick's
   // due movement pass re-scans the baseline in place and rewrites f0/f3.

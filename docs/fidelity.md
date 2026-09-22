@@ -1515,14 +1515,21 @@ Static disassembly of the KQ4 3.002.086 executable
 descrambled KQ3 2.936 image. `position` (0x805a in 3.002.086, 0x7c1c in 2.936)
 and `position.v` (0x8096, 0x7c5a) store the two operands into the record's x
 and y and into the saved pair at 0x16/0x18, and nothing else. `reposition`
-(0x8126) ORs state bit 0x400 into the record before applying its deltas, and
-`reposition.to` and `reposition.to.v` do the same. Fact: only the reposition
-family and cel clipping mark an object newly positioned (the five `or 0x400`
-sites in each image), and the spec's `position` entry says the same. The
-engine marked `position` too, which scheduled a zero-step placement pass that
-suppresses the first real step; under 3.002.086 that pass reports an exact
-zero left edge as border 4, so King's Quest IV's room 28, which positions ego
-at x=0 and starts the unicorn ride, bounced between rooms 27 and 28 for good.
+(0x7ce7 in 2.936) ORs state bit 0x400 into the record before applying its
+deltas, then calls the placement spiral at 0x593a — the same routine the
+movement pass's rejected-step fallback enters — and `reposition.to`
+(0x7d77) and `reposition.to.v` end in the same call. So placement runs
+inline at script time AND the 0x400 flag still suppresses the object's next
+due step as a zero-step re-check; an earlier audit row misread the tail
+call as `call 0x5b3a` (the byte-fill helper at that *code* offset) when the
+operand decodes to 0x593a — file offset 0x5b3a of the descrambled image.
+Fact: only the reposition family and cel clipping mark an object newly
+positioned (the five `or 0x400` sites in each image), and the spec's
+`position` entry says the same. The engine marked `position` too, which
+scheduled a zero-step placement pass that suppresses the first real step;
+under 3.002.086 that pass reports an exact zero left edge as border 4, so
+King's Quest IV's room 28, which positions ego at x=0 and starts the
+unicorn ride, bounced between rooms 27 and 28 for good.
 
 The engine follows the originals in every profile: `position` and `position.v`
 no longer schedule the placement pass, so the first real step is never
