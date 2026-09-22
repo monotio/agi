@@ -329,6 +329,10 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         deliver(w, { type, profile: "amiga-2.316" });
         assert.equal(state.soundMode, "amiga");
         assert.ok(audioCalls.includes("setMode:amiga"));
+        // An Apple IIgs profile selects the iigs mode the same way.
+        deliver(w, { type, profile: "iigs-1.014" });
+        assert.equal(state.soundMode, "iigs");
+        assert.ok(audioCalls.includes("setMode:iigs"));
         // Booting a PC edition afterward falls back to the PC default.
         deliver(w, { type, profile: "2.917" });
         assert.equal(state.soundMode, "tandy");

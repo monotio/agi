@@ -4476,9 +4476,12 @@ export class Engine {
         // click.move.pending (Amiga 2.31x dispatch bound): the handler tests
         // ego's motion mode against the click-move mode. No host interaction
         // selects that mode yet, so this reads false — a current host
-        // limitation, not established original behavior.
+        // limitation, not established original behavior. The IIgs 1.014
+        // dispatcher reaches the same slot with unverified semantics; the
+        // profile reads it false pending handler disassembly (docs/fidelity.md).
         if (this.profile.maxCondition < 0x13)
           throw new Error(`invalid condition byte 0x${b.toString(16)}`);
+        if (this.profile.condition0x13 === "constant-false") return { result: false, next: pc + 1 };
         return { result: this.objects[0]!.motionMode === MOTION_CLICK_MOVE, next: pc + 1 };
       default:
         throw new Error(`invalid condition byte 0x${b.toString(16)}`);

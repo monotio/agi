@@ -305,7 +305,9 @@ export function actionSpec(
   if (!spec || spec.code > profile.maxAction) return undefined;
   if (spec.code === 0x86 && profile.exitOperandBytes === 0) return { ...spec, operands: [] };
   if (spec.code >= 0xb0 && profile.extraActions === "none") return undefined;
-  if (spec.code === 0xb0 && profile.extraActions === "v3-086")
+  // Both the 3.002.086 build and the IIgs 1.014 executable take one operand
+  // byte in slot 0xb0 — the IIgs logics emit `b0 <imm>` (docs/fidelity.md).
+  if (spec.code === 0xb0 && (profile.extraActions === "v3-086" || profile.extraActions === "iigs"))
     return { ...spec, operands: ["imm"] };
   // The 0xb6 slot exists only in the Amiga 2.31x dispatch table.
   if (spec.code === 0xb6 && profile.extraActions !== "amiga-2.31x") return undefined;

@@ -355,7 +355,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     title: "Space Quest II (Apple IIgs)",
     author: "Mark Crowe, Scott Murphy (Sierra On-Line)",
     era: "v2-split",
-    profile: "2.936",
+    profile: "iigs-1.014",
     wordsSha256: "c4af35513d77e3956170139a5545c6170e9a73d9431ca8099d465c5a7d68b2a3",
     objectSha256: "3b887ff34eb1ec5b9f398e98ad6443b03cb3f7d32eeac01abc096c08a048a766",
   },

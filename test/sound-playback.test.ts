@@ -560,3 +560,213 @@ describe("pc booter 2.001 row streams", () => {
     assert.equal(restored.tick(true, 0).complete, true);
   });
 });
+
+describe("apple iigs stream family (docs/fidelity.md, seg3 sound scheduler)", () => {
+  const iigs = (data: Uint8Array): SoundPlayback =>
+    new SoundPlayback(detectProfile(new Map(), "iigs-1.014"), data, 1);
+
+  // Hand-computed machine timing: the scheduler performs one micro-step per
+  // 60 Hz tick — a delta-byte read (1 tick), its countdown (1 tick per unit),
+  // or one command execution (1 tick). `[02][00 00]` leaves a leading delta
+  // byte of 0 at offset 2, so the first command executes on tick 2.
+  const T2 = Uint8Array.of(
+    0x02,
+    0x00,
+    0x00,
+    0xc0,
+    0x05,
+    0x03,
+    0x90,
+    0x40,
+    0x64,
+    0x05,
+    0x80,
+    0x40,
+    0x00,
+    0x07,
+    0xfc,
+  );
+  const IIGS_OUTPUTS = {
+    program5: {
+      kind: "iigs",
+      channel: 0,
+      on: false,
+      note: 0,
+      velocity: 0,
+      volume: 127,
+      program: 5,
+    },
+    noteOn: {
+      kind: "iigs",
+      channel: 0,
+      on: true,
+      note: 64,
+      velocity: 100,
+      volume: 127,
+      program: 5,
+    },
+    noteOff: {
+      kind: "iigs",
+      channel: 0,
+      on: false,
+      note: 64,
+      velocity: 0,
+      volume: 127,
+      program: 5,
+    },
+  } as const;
+
+  it("decodes a type-2 stream with running status timing into per-channel events", () => {
+    const sound = iigs(T2);
+    assert.equal(sound.durationTicks, 23);
+    // tick 1: leading delta byte; tick 2: program change.
+    assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: false });
+    assert.deepEqual(sound.tick(true, 0), { outputs: [IIGS_OUTPUTS.program5], complete: false });
+    // delta 3 -> countdown on ticks 3..6; the note-on executes on tick 7.
+    for (let t = 0; t < 4; t++)
+      assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: false });
+    assert.deepEqual(sound.tick(true, 0), { outputs: [IIGS_OUTPUTS.noteOn], complete: false });
+    // delta 5 -> ticks 8..13; the note-off executes on tick 14.
+    for (let t = 0; t < 6; t++)
+      assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: false });
+    assert.deepEqual(sound.tick(true, 0), { outputs: [IIGS_OUTPUTS.noteOff], complete: false });
+    // delta 7 -> read on tick 15, countdown 16..22; 0xfc executes on tick 23.
+    for (let t = 0; t < 8; t++)
+      assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: false });
+    assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: true });
+    assert.deepEqual(sound.stop(), []);
+  });
+
+  it("keeps running status and tracks events per channel", () => {
+    // After the 0x90 status, `42 32` is a second note-on under running status;
+    // channel 1 gets its own note under status 0x91.
+    const sound = iigs(
+      Uint8Array.of(
+        0x02,
+        0x00,
+        0x00,
+        0x90,
+        0x40,
+        0x64,
+        0x02,
+        0x42,
+        0x32,
+        0x01,
+        0x91,
+        0x41,
+        0x28,
+        0x04,
+        0x80,
+        0x40,
+        0x00,
+        0x02,
+        0x81,
+        0x41,
+        0x00,
+        0x01,
+        0xfc,
+      ),
+    );
+    const out: (readonly unknown[] | null)[] = [];
+    for (let t = 0; t < 23; t++) out.push(sound.tick(true, 0).outputs);
+    // t2: note-on ch0(64,100).
+    assert.deepEqual(out[1], [
+      { kind: "iigs", channel: 0, on: true, note: 64, velocity: 100, volume: 127, program: -1 },
+    ]);
+    // t6: running-status note-on(66,50) adds a second sounding note on ch0.
+    assert.deepEqual(out[5], [
+      { kind: "iigs", channel: 0, on: true, note: 66, velocity: 50, volume: 127, program: -1 },
+    ]);
+    // t9: 0x91 note-on on channel 1 (the status byte selects the channel).
+    assert.deepEqual(out[8], [
+      { kind: "iigs", channel: 1, on: true, note: 65, velocity: 40, volume: 127, program: -1 },
+    ]);
+    // t15: note-off 64 on ch0 releases 64 but 66 is still sounding.
+    assert.deepEqual(out[14], [
+      { kind: "iigs", channel: 0, on: true, note: 66, velocity: 50, volume: 127, program: -1 },
+    ]);
+    // t19: note-off 65 on ch1 silences it.
+    assert.deepEqual(out[18], [
+      { kind: "iigs", channel: 1, on: false, note: 65, velocity: 0, volume: 127, program: -1 },
+    ]);
+    // t22 is the 0xfc terminator: ch0 still holds 66, released by the end marker.
+    assert.deepEqual(out[21], [
+      { kind: "iigs", channel: 0, on: false, note: 66, velocity: 0, volume: 127, program: -1 },
+    ]);
+  });
+
+  it("treats 0xf8 as a 255-tick delta escape and 0xfc as the terminator", () => {
+    // f8 sets the countdown to 255 and stays in the delta phase, so the next
+    // byte extends the same wait: f8 02 waits 1+255+1+2 ticks.
+    const sound = iigs(
+      Uint8Array.of(0x02, 0x00, 0x00, 0x90, 0x40, 0x64, 0xf8, 0x02, 0x80, 0x40, 0x00, 0x00, 0xfc),
+    );
+    assert.equal(sound.durationTicks, 264);
+    assert.deepEqual(sound.tick(true, 0).outputs, []);
+    assert.equal(sound.tick(true, 0).outputs.length, 1, "tick 2 note-on");
+    for (let t = 0; t < 259; t++) assert.equal(sound.tick(true, 0).complete, false);
+    assert.deepEqual(sound.tick(true, 0), {
+      outputs: [
+        { kind: "iigs", channel: 0, on: false, note: 64, velocity: 0, volume: 127, program: -1 },
+      ],
+      complete: false,
+    });
+    assert.equal(sound.tick(true, 0).complete, false);
+    assert.equal(sound.tick(true, 0).complete, true);
+  });
+
+  it("silences a still-sounding channel at the stream end", () => {
+    // The note-on has no matching note-off before 0xfc: the end marker
+    // releases the voice on the terminator tick.
+    const sound = iigs(Uint8Array.of(0x02, 0x00, 0x00, 0x90, 0x40, 0x64, 0x03, 0xfc));
+    // t1 delta; t2 note-on; t3 delta 3; t4-6 countdown; t7 fc.
+    assert.equal(sound.durationTicks, 7);
+    assert.equal(sound.tick(true, 0).complete, false);
+    assert.equal(sound.tick(true, 0).outputs.length, 1);
+    for (let t = 0; t < 4; t++) assert.equal(sound.tick(true, 0).complete, false);
+    assert.deepEqual(sound.tick(true, 0), {
+      outputs: [
+        { kind: "iigs", channel: 0, on: false, note: 64, velocity: 0, volume: 127, program: -1 },
+      ],
+      complete: true,
+    });
+  });
+
+  it("derives a finite type-1 duration from the wave length and rate word", () => {
+    // Type 1: [01][00][3 u16 stream offsets][u16 wave byte count at +8]
+    // [setup][wave data at +54]. The 10-byte wave record at +44 holds the
+    // Free-Form Synthesizer freqOffset twice around the 0x7f 0xc0 tag; the
+    // documented rate is freqOffset * 51.40625 Hz (docs/fidelity.md).
+    // freqOffset 100 -> 5140.625 Hz; 514 wave bytes -> 60*514/5140.625 = 6 ticks.
+    const payload = new Uint8Array(54 + 514);
+    payload[0] = 0x01;
+    payload[2] = 0x2c;
+    payload[4] = 0x2c;
+    payload[6] = 0x2c;
+    payload[8] = 0x02;
+    payload[9] = 0x02; // u16le wave byte count 0x0202 = 514
+    payload.set([0x64, 0x00, 0x00, 0x00, 0x7f, 0xc0, 0x64, 0x00, 0x00, 0x00], 0x2c);
+    payload.fill(0x80, 54);
+    const sound = iigs(payload);
+    assert.equal(sound.durationTicks, 6);
+    // The PCM stream's FFStartSound semantics are a documented gap: playback
+    // emits silence but completes on the computed tick.
+    assert.deepEqual(sound.tick(true, 0), {
+      outputs: [
+        { kind: "iigs", channel: 0, on: false, note: 0, velocity: 0, volume: 0, program: -1 },
+      ],
+      complete: false,
+    });
+    for (let t = 0; t < 4; t++)
+      assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: false });
+    assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: true });
+  });
+
+  it("completes immediately on an unrecognized or truncated resource", () => {
+    const sound = iigs(Uint8Array.of(0x09, 0x01, 0x02, 0x03));
+    assert.equal(sound.durationTicks, 1);
+    assert.equal(sound.tick(true, 0).complete, true);
+    const empty = iigs(new Uint8Array(0));
+    assert.equal(empty.tick(true, 0).complete, true);
+  });
+});

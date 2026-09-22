@@ -265,6 +265,19 @@ const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
     checkpoint: true,
     gates: true,
   },
+  // The IIgs save layout is unverified (no observed IIgs save); the build
+  // applies the block-1 partition of the 2.936 profile it is derived from
+  // (docs/fidelity.md "Apple IIgs interpreter").
+  "iigs-1.014": {
+    size: 0x05e1,
+    middle: "common",
+    keyMapEntries: 39,
+    keyMapReserved: 10,
+    stringSlots: 12,
+    stringReserved: 12,
+    checkpoint: true,
+    gates: false,
+  },
 };
 
 /** Derived block-1 field positions for a layout. */

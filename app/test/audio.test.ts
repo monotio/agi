@@ -202,6 +202,50 @@ describe("audio command backend", () => {
     audio.stop();
     assert.ok(bufferSources.every((source) => source.stopped));
   });
+  it("renders iigs events with per-channel oscillators", () => {
+    const { audio, gains, oscillators } = context();
+    audio.setMode("iigs");
+    // MIDI note 69 at full velocity and channel volume maps to A4 and the
+    // channel's voice gain.
+    audio.output({
+      kind: "iigs",
+      channel: 0,
+      on: true,
+      note: 69,
+      velocity: 100,
+      volume: 127,
+      program: 0,
+    });
+    assert.equal(audio.isPlaying, true);
+    assert.equal(oscillators[0]!.type, "triangle");
+    assert.equal(oscillators[0]!.frequency.value, 440);
+    assert.ok(gains[1]!.gain.value > 0, "note-on opens the channel gain");
+    // A second channel is an independent voice.
+    audio.output({
+      kind: "iigs",
+      channel: 2,
+      on: true,
+      note: 57,
+      velocity: 64,
+      volume: 127,
+      program: 0,
+    });
+    assert.equal(oscillators[2]!.frequency.value, 220);
+    // Note-off releases the voice without stopping the oscillator.
+    audio.output({
+      kind: "iigs",
+      channel: 0,
+      on: false,
+      note: 69,
+      velocity: 0,
+      volume: 127,
+      program: 0,
+    });
+    assert.equal(gains[1]!.gain.value, 0);
+    assert.equal(oscillators[0]!.stopped, false);
+    audio.stop();
+    assert.ok(oscillators.every((osc) => osc.stopped));
+  });
 });
 
 describe("audio mode selection", () => {
@@ -217,6 +261,10 @@ describe("audio mode selection", () => {
     assert.deepEqual(posted, [], "the Amiga path is not a PC device selection");
     assert.equal(state.soundMode, "amiga");
     assert.equal(audio.currentMode, "amiga");
+    // The IIgs path is profile-fixed too: no device operand is posted.
+    controller.setAudioMode("iigs");
+    assert.deepEqual(posted, [], "the IIgs path is not a PC device selection");
+    assert.equal(audio.currentMode, "iigs");
     controller.setAudioMode("tandy");
     assert.deepEqual(posted, [{ type: "soundDevice", device: 1 }]);
   });

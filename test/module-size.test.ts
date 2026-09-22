@@ -45,10 +45,18 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
   },
   "src/runtime/profile.ts": {
     // rc.16: six Amiga interpreter profiles with their own dispatch bounds,
-    // OBJECT layout and hunk/dirs detection evidence.
-    lines: 736,
+    // OBJECT layout and hunk/dirs detection evidence; the IIgs 1.014
+    // profile adds its *.SYS16 banner detection and variant fields.
+    lines: 813,
     boundary:
       "the interpreter profile contract: per-build variant fields, promotion evidence and detection",
+  },
+  "src/sound/sound.ts": {
+    // The IIgs stream/wave decoders join the PC, booter and Amiga families;
+    // each decoder feeds the one tick-driven playback state machine.
+    lines: 836,
+    boundary:
+      "the sound resource decoders and the tick-driven playback state machine behind every output family",
   },
   "src/agent/history.ts": {
     lines: 970,

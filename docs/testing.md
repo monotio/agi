@@ -39,12 +39,15 @@ always sees `LOGDIR`, `VOL.n`, `WORDS.TOK` and `OBJECT` while unrelated files
 keep their spelling. The catalogued ports are `games/sq1-amiga/`
 (amiga-2.082), `games/kq2-amiga/` (amiga-2.176), `games/sq2-amiga/`
 (amiga-2.202), `games/pq1-amiga/` (amiga-2.310), `games/goldrush-amiga/`
-(amiga-2.316), `games/mh2-amiga/` (amiga-2.333) and `games/sq2-iigs/` (2.936);
-[test/ports.test.ts](../test/ports.test.ts) opens each under its on-disk
-names, counts its logics and boots into its first room under the catalogued
-profile. The Gold Rush suite also plays sound 1 through the Amiga sound
-family and checks the emitted Paula register stream against the original
-driver's decode (docs/fidelity.md, "Original Amiga sound player").
+(amiga-2.316), `games/mh2-amiga/` (amiga-2.333) and `games/sq2-iigs/`
+(iigs-1.014); [test/ports.test.ts](../test/ports.test.ts) opens each under
+its on-disk names, counts its logics and boots into its first room under
+the catalogued profile. The Gold Rush suite also plays sound 1 through
+the Amiga sound family and checks the emitted Paula register stream
+against the original driver's decode (docs/fidelity.md, "Original Amiga
+sound player"); the SQ2 IIgs suite presses a key to leave the intro and
+bounds the wait for its first sound's done flag (docs/fidelity.md,
+"Apple IIgs interpreter").
 
 ### Optional fixtures
 
@@ -79,7 +82,7 @@ resource readers still reject unavailable data if the scenario requests it.
 | Police Quest (Amiga)     | `games/pq1-amiga/`      | Amiga 2.310 / amiga-2.310   | [Port resources and boot](../test/ports.test.ts) (118 logics, room 6)                                                                                                                                                                    |
 | Gold Rush! (Amiga)       | `games/goldrush-amiga/` | Amiga 2.316 / amiga-2.316   | [Port resources and boot](../test/ports.test.ts) (183 logics, room 129), [Amiga sound decode](../test/ports.test.ts) (sound 1 Paula stream)                                                                                              |
 | Manhunter 2 (Amiga)      | `games/mh2-amiga/`      | Amiga 2.333 / amiga-2.333   | [Port resources and boot](../test/ports.test.ts) (96 logics, room 153)                                                                                                                                                                   |
-| Space Quest II (IIgs)    | `games/sq2-iigs/`       | 2.936                       | [Port resources and boot](../test/ports.test.ts) (119 logics, room 2)                                                                                                                                                                    |
+| Space Quest II (IIgs)    | `games/sq2-iigs/`       | IIgs 1.014 / iigs-1.014     | [Port resources and boot](../test/ports.test.ts) (119 logics, room 2), [IIgs sound decode](../test/ports.test.ts) (first sound's done flag)                                                                                              |
 
 `test/demopac4.test.ts` runs all six demonstrations in the Sierra demo pack to
 completion, exercising v3 containers and compressed logic. See

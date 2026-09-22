@@ -31,8 +31,9 @@ export function useAudioController(
     audio.setMode(mode);
     state.soundMode = mode;
     // The device operand selects between the PC output families; the Amiga
-    // path is fixed by the interpreter profile, not a host preference.
-    if (mode !== "amiga")
+    // and IIgs paths are fixed by the interpreter profile, not a host
+    // preference.
+    if (mode !== "amiga" && mode !== "iigs")
       postWorkerMessage({ type: "soundDevice", device: mode === "pc-speaker" ? 0 : 1 });
   }
 

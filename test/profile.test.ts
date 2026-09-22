@@ -637,7 +637,6 @@ describe("amiga interpreter profiles", () => {
     engine.tick();
     assert.equal(engine.flags[221], 1);
   });
-
   test("mouse.posn writes the held pointer position on Amiga profiles", () => {
     const SOURCE = "assignn(v100, 77);\nassignn(v101, 88);\nmouse.posn(v100, v101);\nreturn;\n";
     const { engine } = bootAs(SOURCE, "amiga-2.310");
@@ -660,5 +659,86 @@ describe("amiga interpreter profiles", () => {
     engine.tick();
     assert.equal(engine.modalKind, null, "menu.input does not open a menu");
     assert.equal(engine.releaseGate, 0, "release.key is a stub slot");
+  });
+});
+
+describe("apple iigs profile (docs/fidelity.md, SQ2.SYS16 1.014)", () => {
+  // The dispatch bounds are read off the executable's jump tables; actions
+  // 0xb0/0xb1 and condition 0x13 are host decisions pending handler
+  // disassembly. Everything else inherits the 2.936 contract.
+  test("iigs-1.014 inherits the 2.936 container and widens dispatch to 0xb1/0x13", () => {
+    const p = PROFILES["iigs-1.014"];
+    assert.equal(p.container, "v2-split");
+    assert.equal(p.volumeHeaderBytes, 5);
+    assert.equal(p.maxAction, 0xb1);
+    assert.equal(p.maxCondition, 0x13);
+    assert.equal(p.extraActions, "iigs");
+    assert.equal(p.condition0x13, "constant-false");
+    assert.equal(p.sound, "iigs");
+    assert.equal(p.menuInteractionGate, false);
+    assert.equal(p.releaseGateAction, "increment");
+  });
+
+  test("a *.SYS16 file carrying the interpreter version string detects the build", () => {
+    // The fixture executable is a GS/OS OMF load file whose data carries
+    // "Adventure Game Interpreter\n      Version 1.014" (docs/fidelity.md).
+    const sys16 = new Uint8Array(0x8000);
+    sys16.set(ascii("Adventure Game Interpreter"), 0x7690);
+    sys16.set(ascii("Version 1.014"), 0x76c0);
+    const files = new Map<string, Uint8Array>([
+      ["LOGDIR", new Uint8Array(3)],
+      ["VOL.0", new Uint8Array(0)],
+      ["SQ2.SYS16", sys16],
+    ]);
+    assert.equal(detectProfile(files).id, "iigs-1.014");
+  });
+
+  test("the SYS16 name alone does not select the build", () => {
+    const files = new Map<string, Uint8Array>([
+      ["LOGDIR", new Uint8Array(3)],
+      ["SQ2.SYS16", new Uint8Array([0xde, 0xad, 0xbe, 0xef])],
+    ]);
+    assert.equal(detectProfile(files).id, "2.936");
+    // The banner without a SYS16 name is not an interpreter either.
+    const banner = new Uint8Array(0x100);
+    banner.set(ascii("Adventure Game Interpreter"), 0x10);
+    banner.set(ascii("Version 1.014"), 0x40);
+    files.set("SQ2", banner);
+    assert.equal(detectProfile(files).id, "2.936");
+  });
+
+  test("0xb0 and 0xb1 dispatch with one operand only under the IIgs profile", () => {
+    // The IIgs logics emit `b0 <imm>`; the executable's dispatchers bound
+    // actions at 0xb1 (docs/fidelity.md). Both slots are host no-ops pending
+    // handler disassembly, so only the flow observable — reaching the flag
+    // set — is asserted.
+    const SOURCE = "hide.mouse(3);\nallow.menu(1);\nset(f221);\nreturn;\n";
+    const { engine } = bootAs(SOURCE, "iigs-1.014");
+    assert.equal(engine.flags[221], 1, "dispatch passed both extension slots");
+    // The shared 2.936 bound rejects slot 0xb0 entirely; the v3 extension
+    // profiles carry the same one-operand shape the IIgs logics use.
+    assert.throws(() => bootAs(SOURCE, "2.936"), undefined);
+    // The same bytecode is not an action at all under the PC bound.
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(SOURCE, { dictionary: DICT, profile: PROFILES["iigs-1.014"] }).payload,
+    );
+    assert.throws(
+      () => new Engine(container, new Host(), DICT, { profile: "2.936" }).tick(),
+      UnimplementedOpcodeError,
+    );
+  });
+
+  test("condition 0x13 reads false under the IIgs profile, not the Amiga rule", () => {
+    const SOURCE = "if (click.move.pending()) { set(f221); }\nreturn;\n";
+    const { engine } = bootAs(SOURCE, "iigs-1.014");
+    assert.equal(engine.flags[221], 0, "the IIgs slot reads false");
+    // Even with ego's motion mode forced to the Amiga value, the host
+    // decision holds — the semantics are not click-move.
+    engine.screenObjects[0]!.motionMode = 4;
+    engine.tick();
+    assert.equal(engine.flags[221], 0);
   });
 });

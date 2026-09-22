@@ -402,13 +402,18 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         state.profile = profile;
         hook.profile = profile;
         // The sound mode follows the profile's output family: an Amiga
-        // edition plays through Paula, and leaving an Amiga edition returns
-        // to the PC default rather than keeping a stale selection.
+        // edition plays through Paula, a IIgs edition through the Note
+        // Synthesizer path, and leaving either returns to the PC default
+        // rather than keeping a stale selection.
         const sound = profile ? PROFILES[profile as ProfileId]?.sound : undefined;
-        if (sound === "amiga" && state.soundMode !== "amiga") {
-          audio.setMode("amiga");
-          state.soundMode = "amiga";
-        } else if (sound !== "amiga" && state.soundMode === "amiga") {
+        const familyMode = sound === "amiga" || sound === "iigs" ? sound : null;
+        if (familyMode !== null && state.soundMode !== familyMode) {
+          audio.setMode(familyMode);
+          state.soundMode = familyMode;
+        } else if (
+          familyMode === null &&
+          (state.soundMode === "amiga" || state.soundMode === "iigs")
+        ) {
           audio.setMode("tandy");
           state.soundMode = "tandy";
         }

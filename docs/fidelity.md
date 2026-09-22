@@ -1895,8 +1895,9 @@ variant; capstone's 65816 modes cannot track REP/SEP mid-stream).
 Cross-segment calls in the file are link addresses `segnum<<16 | offset`
 patched at load by SUPER records (`jsl $013314` = main+0x3314, a
 far-indirect-call helper; `jsl $070000` = actionseg entry; `jsl $090000`
-= errorseg entry). Toolbox calls are `ldx #$TTFF; jsl $e10000` (or
-`$e100a8` for GS/OS), X = toolset<<8 | function.
+= errorseg entry). Toolbox calls are `ldx #$FFTT; jsl $e10000` (or
+`$e100a8` for GS/OS), X = function<<8 | toolset — so `$1902` is Memory
+Manager function `$19`, not a Note Synthesizer call.
 
 #### Dispatch bounds (fact)
 
@@ -1940,22 +1941,31 @@ logic 23 are inside `said()` word data — engine decode of logic 23 shows
 no 0xb0 action.) Semantics of IIgs 0xb0/0xb1 and condition 0x13 are
 unverified — inference only that they follow the v3/mouse-family pattern.
 
+The `iigs-1.014` profile therefore dispatches 0xb0 and 0xb1 as one-operand
+actions without effect and reads condition 0x13 as constant false. Those
+are host decisions pending disassembly of the handlers (the action table
+in ~arrays+0x03fe is OMF-relocated, so the file carries no target
+addresses), not verified original behaviour.
+
 #### Sound format (fact, except where marked)
 
 All 72 SND resources differ from the PC edition — none begin with the PC
 four-channel u16-offset header. Payload byte 0 is a type tag:
 
-- **Type 0x01 (49 sounds)** — `[01][00][3 x u16le stream offsets]`, a
-  fixed-size setup block to the smallest offset (containing `7f`-bounded
-  values and a `30/14` field — inference: instrument/envelope
-  parameters), then three data streams. Stream bytes cluster around 0x80
-  with slow-moving runs (inference: 8-bit waveform or oscillator
-  parameter data). E.g. snd 1 (7,791 B): offsets 0x33/0x5a/0x2c.
+- **Type 0x01 (49 sounds)** — `[01][00][3 x u16le stream offsets]`, then
+  a fixed-size setup block and the wave data. The u16le at offset 8 is
+  the wave byte count; wave (8-bit PCM) data begins at offset 54. The
+  setup block carries a wave record at offset 44: a `freqOffset` u16le,
+  two zero fields, the tag `7f c0` at offset 0x30, then the same three
+  fields again. E.g. snd 1 (7,791 B): offsets 0x33/0x5a/0x2c.
 - **Type 0x02 (23 sounds)** — `[02][u16le][event stream]` of
-  `status + data + delta-time` records with MIDI status bytes: `0xCn`
-  program changes (snd 60 opens with programs on channels 1–8), `0xBn`
-  control changes (controller 7 = channel volume), `0x9n`/`0x8n` note
-  on/off with velocity, delta byte after each event. E.g. snd 2:
+  `delta + command + data` records with MIDI status bytes and running
+  status: `0xCn` program changes (snd 60 opens with programs on channels
+  1–8), `0xBn` control changes (controller 7 = channel volume), `0x9n`/
+  `0x8n` note on/off with velocity. One delta byte precedes each command;
+  `0xf8` in delta position is a 255-tick extended wait that stays in the
+  delta phase, and `0xfc` (any `0xf0`-class byte in command position)
+  terminates the stream. E.g. snd 2:
   `c0 28 02 90 45 40 05 80 45 40 00 90 48 3e ...`.
 
 Under the PC decoder these bytes misparse as channel offsets: type-2
@@ -1965,21 +1975,52 @@ durations of ~1.4e7–5.2e7 ticks (≈66 hours to 10 days), so sound-done
 flags never fire in reasonable time.
 
 The interpreter drives sound entirely through the IIgs toolbox — no
-`$C03x` Ensoniq DOC register writes appear anywhere in the binary.
-`main`+0x2750..0x29a0 is an event scheduler calling Note Synthesizer
-`$1902` (six sites) per event; `main`+0x5516 calls Note Sequencer
-`$1a02` with a far pointer to a sequence and hands the result to toolset
-`$18` fn `$02`. `SIERRASTANDARD` is exactly 64 KiB — the Ensoniq DOC
-wavetable RAM size — loaded from `data/sierrastandard` (path string in
-~arrays+0x1613). Inference: the type-2 streams are played by the Note
-Sequencer through the DOC using SIERRASTANDARD as the wavetable image;
-type-1 sounds are the sampled/parameter-driven effects. Instrument-index
-mapping into SIERRASTANDARD and envelope semantics were not decoded.
+`$C03x` Ensoniq DOC register writes appear anywhere in the binary. The
+player is `seg3`: it makes Note Synthesizer (toolset `$19`) and Sound
+Manager (toolset `$08`) calls, including `FFStartSound` (`$1408`).
+`SIERRASTANDARD` is exactly 64 KiB — the Ensoniq DOC wavetable RAM size —
+loaded from `data/sierrastandard` (path string in ~arrays+0x1613).
+Instrument-index mapping into SIERRASTANDARD and envelope semantics were
+not decoded; the app's `iigs` audio mode renders the events with plain
+triangle oscillators, so Ensoniq wavetable fidelity is explicitly out of
+scope.
+
+Timing: `initmachseg` installs a Misc Tools heart-beat task at
+main+0xee0 (`SetHeartBeat` `$1203`, cleared via `$1303`; the pushed task
+address is OMF-relocated). The IIgs heart beat fires at 60 Hz; every beat
+calls the stream tick (`seg3`+0x1dcd via main+0xef3), and every third
+beat runs main+0x186f, which advances the game clock in
+20ths/60ths/hours — the usual 20 Hz AGI timer. The stream delta unit is
+therefore 1/60 s, which also yields plausible durations across all 23
+type-2 resources (~1.6–92 s).
+
+Type-2 player (`seg3`): the sound descriptor keeps the raw resource
+pointer; the init routine (seg3+0x235e) arms delta phase with running
+status `0x90`, so parsing begins with the u16 header's high byte as the
+first delta and the first real command lands at offset 3. Each tick is
+one micro-step — a delta read, one unit of its countdown, or one command
+execution (which consumes the command's data bytes). The note handlers
+(0x1fb5 on, off) keep a per-channel note table: a note-off releases only
+the named note and the channel sounds until its table is empty; the
+control handler (0x20a3) treats controller 7 as channel volume. All 23
+resources decode cleanly under this grammar and end on `0xfc`.
+
+Type-1 player (`seg3`+0x1484): calls `FFStartSound` every heartbeat until
+it returns `0xffff` (the toolbox's busy answer), so the resource plays to
+completion at the DOC's own pace. The exact FFStartSound setup/PCM
+semantics are a gap; `src/sound/sound.ts` computes a finite duration from
+the wave byte count at offset 8 played at `freqOffset × 1645/32` Hz (the
+rate word in the tagged wave record at offset 44), emits silence, and
+completes the sound-done flag on schedule.
 
 #### Boot behaviour under the engine (fact)
 
-`detectProfile` finds no `AGIDATA.OVL`/`AGI`/`*.COM`, so the fixture falls
-through to the v2 container default = PC `2.936`.
+`detectProfile` selects `iigs-1.014` for the fixture: the folder carries
+no `AGIDATA.OVL`/`AGI`/`*.COM` version string, so detection reaches the
+`*.SYS16` scan, which matches `SQ2.SYS16`'s embedded
+`Adventure Game Interpreter` / `Version 1.014` banner. A `*.SYS16` file
+without the banner — or the banner under any other name — does not
+select the profile.
 
 Cold boot with an ACK-answering QuietHost, 3,000 ticks: no exception, no
 host-request stall — the engine sits in room 140 (the intro) executing
@@ -1989,14 +2030,9 @@ f100, which logic 0 sets for one cycle whenever v12 (clock minutes)
 changes — i.e. one story page per minute, looping `new.room(140)` when
 done. With an injected keypress the trace runs room 140 → 1 → 98 → 2;
 room 2 then runs 5,000 ticks cleanly and prints normally. A restarted
-boot lands directly in room 2.
-
-So the bare engine does not hard-hang at boot. The observable failures
-are instead: (a) any script that waits on a sound-done
-flag (`sound(n, fX)` sites use f35/f40/f61 etc.) waits effectively
-forever under misdecoded durations; (b) executing the `0xb0` byte in
-logic 1 raises `unimplemented opcode` under 2.936; (c) all music/sfx are
-silent or garbage because no IIgs sound decoder exists.
+boot lands directly in room 2, calls `sound(1, fX)` within its first few
+cycles, and the type-2 stream's `0xfc` terminator sets the done flag
+after the decoded stream length — test/ports.test.ts bounds the wait.
 
 #### Input and pacing (fact + inference)
 

@@ -248,6 +248,21 @@ export type SoundOutput =
       volume: number;
       /** True while the voice plays the LFSR noise buffer instead of the tone sample. */
       noise?: boolean;
+    }
+  | {
+      kind: "iigs";
+      /** The Note Synthesizer channel, 0..15. */
+      channel: number;
+      /** True while a note sounds on the channel; false releases the voice. */
+      on: boolean;
+      /** The MIDI note number of the event (or of the last sounding note). */
+      note: number;
+      /** The note-on velocity 1..127; 0 on release. */
+      velocity: number;
+      /** The channel volume set by controller 7, 0..127; 127 until set. */
+      volume: number;
+      /** The program number of the last program change, or -1 before the first. */
+      program: number;
     };
 interface PlaybackChannel {
   notes: readonly SoundNote[];
@@ -257,6 +272,212 @@ interface PlaybackChannel {
   base: number;
   envelopeIndex: number;
   envelopeValue: number;
+}
+
+// ---- Apple IIgs stream resources (docs/fidelity.md, "Apple IIgs interpreter") ----
+
+type IigsOutput = Extract<SoundOutput, { kind: "iigs" }>;
+
+/**
+ * One decoded IIgs stream step: the channel state a command produces on its
+ * execution tick, or a stream-end marker (output null) that bounds the
+ * resource's duration the way the original scheduler's 0xf0-class terminator
+ * does.
+ */
+interface IigsEvent {
+  /** 1-based sound tick (the 60 Hz heartbeat) on which the event executes. */
+  readonly tick: number;
+  readonly output: IigsOutput | null;
+}
+
+interface IigsDecoded {
+  /** Per Note-Synthesizer-channel event queues, in stream order. */
+  readonly events: readonly (readonly IigsEvent[])[];
+  /** Tick on which the stream terminator executes. */
+  readonly endTick: number;
+}
+
+/** Bytes consumed by each handled command class (running-status aware). */
+const IIGS_DATA_BYTES: Readonly<Record<number, number>> = {
+  0x80: 2,
+  0x90: 2,
+  0xb0: 2,
+  0xc0: 1,
+};
+
+const IIGS_CHANNELS = 16;
+
+/**
+ * Decode a type-0x02 IIgs stream the way the seg3 scheduler interprets it:
+ * one micro-step per 60 Hz heartbeat tick — a delta-byte read (1 tick), its
+ * countdown (1 tick per unit), or one command execution (1 tick, including
+ * the command's data bytes). 0xf8 in delta position sets a 255-tick wait and
+ * stays in the delta phase, so a following byte extends the same wait.
+ * Commands carry running status: a byte below 0x80 re-dispatches the stored
+ * status. Classes 0x80/0x90/0xb0/0xc0 consume their data bytes inside the
+ * execution step; every other class dispatches to no handler, so its data
+ * bytes fall to the delta phase and accumulate as wait time. Execution
+ * begins with the byte at offset 2 as the leading delta — the `[02][u16]`
+ * header's high byte — so commands start at offset 3.
+ */
+function decodeIigsStream(payload: Uint8Array, onWarning?: (m: string) => void): IigsDecoded {
+  const events: IigsEvent[][] = Array.from({ length: IIGS_CHANNELS }, () => []);
+  // The original keeps a note table per channel; a note-off releases only
+  // the named note, and the channel sounds until its table is empty.
+  const sounding: { note: number; velocity: number }[][] = Array.from(
+    { length: IIGS_CHANNELS },
+    () => [],
+  );
+  const volume = new Array<number>(IIGS_CHANNELS).fill(127);
+  const program = new Array<number>(IIGS_CHANNELS).fill(-1);
+  const lastNote = new Array<number>(IIGS_CHANNELS).fill(0);
+
+  let pos = 2;
+  let tick = 0;
+  let countdown = 0;
+  let deltaPhase = true;
+  let status = 0x90;
+  let channel = 0;
+  let terminated = false;
+
+  const stateOutput = (ch: number, note: number): IigsOutput => {
+    const active = sounding[ch]!.at(-1);
+    return {
+      kind: "iigs",
+      channel: ch,
+      on: active !== undefined,
+      note: active?.note ?? note,
+      velocity: active?.velocity ?? 0,
+      volume: volume[ch]!,
+      program: program[ch]!,
+    };
+  };
+
+  while (pos < payload.length || countdown > 0) {
+    tick++;
+    if (countdown > 0) {
+      countdown--;
+      continue;
+    }
+    if (pos >= payload.length) break;
+    if (deltaPhase) {
+      const delta = payload[pos++]!;
+      if (delta === 0xf8) {
+        countdown = 0xff;
+        continue;
+      }
+      countdown += delta;
+      deltaPhase = false;
+      continue;
+    }
+    const head = payload[pos]!;
+    if ((head & 0x80) !== 0) {
+      if ((head & 0xf0) === 0xf0) {
+        terminated = true;
+        break;
+      }
+      status = head & 0xf0;
+      channel = head & 0x0f;
+      pos++;
+    }
+    const dataBytes = IIGS_DATA_BYTES[status];
+    if (dataBytes !== undefined) {
+      if (pos + dataBytes > payload.length) break;
+      const d0 = payload[pos]!;
+      const d1 = dataBytes === 2 ? payload[pos + 1]! : 0;
+      pos += dataBytes;
+      if (status === 0x90 && d1 !== 0) {
+        sounding[channel]!.push({ note: d0, velocity: d1 });
+        lastNote[channel] = d0;
+        events[channel]!.push({ tick, output: stateOutput(channel, d0) });
+      } else if (status === 0x90 || status === 0x80) {
+        const list = sounding[channel]!;
+        const at = list.findIndex((entry) => entry.note === d0);
+        if (at >= 0) list.splice(at, 1);
+        events[channel]!.push({ tick, output: stateOutput(channel, d0) });
+      } else if (status === 0xc0) {
+        program[channel] = d0;
+        events[channel]!.push({ tick, output: stateOutput(channel, lastNote[channel]!) });
+      } else if (d0 === 7) {
+        volume[channel] = d1;
+        events[channel]!.push({ tick, output: stateOutput(channel, lastNote[channel]!) });
+      }
+      // Other controllers reach the same stub the unhandled classes do:
+      // consumed without an emitted state change.
+    }
+    deltaPhase = true;
+  }
+  const endTick = tick;
+  if (!terminated) onWarning?.("iigs stream ends without the 0xfc terminator.");
+
+  for (let ch = 0; ch < IIGS_CHANNELS; ch++) {
+    if (events[ch]!.length === 0) continue;
+    const active = sounding[ch]!.at(-1);
+    events[ch]!.push({
+      tick: endTick,
+      output:
+        active === undefined
+          ? null
+          : {
+              kind: "iigs",
+              channel: ch,
+              on: false,
+              note: active.note,
+              velocity: 0,
+              volume: volume[ch]!,
+              program: program[ch]!,
+            },
+    });
+  }
+  if (events.every((queue) => queue.length === 0)) events[0]!.push({ tick: endTick, output: null });
+  return { events, endTick };
+}
+
+/**
+ * Decode a type-0x01 IIgs wave resource into a silent, finite-length event
+ * stream. The resource holds Free-Form Synthesizer wave data the original
+ * feeds to FFStartSound and polls until the toolbox reports completion; the
+ * setup block's stream semantics are a documented gap (docs/fidelity.md), so
+ * the resource's duration comes from the wave byte count at offset 8 played
+ * at the documented rate — the freqOffset in the wave record at offset 44
+ * times 51.40625 Hz — and playback emits silence.
+ */
+function decodeIigsWave(payload: Uint8Array, onWarning?: (m: string) => void): IigsDecoded {
+  const u16 = (at: number) => (payload[at] ?? 0) | ((payload[at + 1] ?? 0) << 8);
+  const waveBytes = Math.min(u16(8), Math.max(0, payload.length - 54));
+  // The wave record at offset 44: freqOffset, two zeros, the 0x7f 0xc0 tag,
+  // then the same three fields. Without the tag the freqOffset cannot be
+  // located reliably; fall back to a mid-range rate.
+  const tagged = payload[0x30] === 0x7f && payload[0x31] === 0xc0;
+  const freqOffset = tagged ? u16(0x2c) : 0x100;
+  if (!tagged) onWarning?.("iigs wave resource lacks the 0x7f 0xc0 rate tag.");
+  // rate = freqOffset * 1645/32 Hz; ticks = waveBytes / rate * 60.
+  const endTick = Math.max(1, Math.round((waveBytes * 1920) / (freqOffset * 1645)));
+  const events: IigsEvent[][] = Array.from({ length: IIGS_CHANNELS }, () => []);
+  events[0]!.push(
+    {
+      tick: 1,
+      output: {
+        kind: "iigs",
+        channel: 0,
+        on: false,
+        note: 0,
+        velocity: 0,
+        volume: 0,
+        program: -1,
+      },
+    },
+    { tick: endTick, output: null },
+  );
+  return { events, endTick };
+}
+
+function decodeIigs(payload: Uint8Array, onWarning?: (m: string) => void): IigsDecoded {
+  if (payload.length > 2 && payload[0] === 0x02) return decodeIigsStream(payload, onWarning);
+  if (payload.length > 2 && payload[0] === 0x01) return decodeIigsWave(payload, onWarning);
+  if (payload.length > 0)
+    onWarning?.(`unrecognized iigs sound resource type ${payload[0]?.toString(16)}.`);
+  return { events: [[{ tick: 1, output: null }]], endTick: 1 };
 }
 
 /** Tick-driven command interpreter; the host owns the clock, never the synthesizer. */
@@ -273,6 +494,13 @@ export class SoundPlayback {
    * carries one placeholder per row purely to bound the recorded cursor.
    */
   private readonly rows: readonly (readonly number[])[] | null;
+  /**
+   * IIgs stream events per channel; the notes array carries one placeholder
+   * per event purely to bound the recorded cursor, like the booter rows.
+   */
+  private readonly iigsEvents: readonly (readonly IigsEvent[])[] | null;
+  /** Last state emitted per IIgs channel, for stop() releases. */
+  private readonly iigsLast: (IigsOutput | undefined)[] = [];
   /** Longest voice this device plays, in sound ticks; a zero duration counts as 65536 without being ticked through. */
   readonly durationTicks: number;
   private active = true;
@@ -293,9 +521,36 @@ export class SoundPlayback {
           : DEFAULT_ENVELOPE_TABLE;
     // The booter payload is already raw chip writes; there is no speaker rendition.
     this.single =
-      profile.sound === "booter-2.001" || profile.sound === "amiga"
+      profile.sound === "booter-2.001" || profile.sound === "amiga" || profile.sound === "iigs"
         ? false
         : this.device === 0 || (profile.sound === "common" && this.device === 8);
+    if (profile.sound === "iigs") {
+      const decoded = decodeIigs(payload, onWarning);
+      const placeholder: SoundNote = {
+        tone: 0,
+        control: 0,
+        duration: 1,
+        freqDivisor: 0,
+        frequency: 0,
+        attenuation: 15,
+        volume: 0,
+      };
+      this.rows = null;
+      this.iigsEvents = decoded.events;
+      this.durationTicks = decoded.endTick;
+      this.channels = decoded.events.map((events) => ({
+        notes: events.map(() => placeholder),
+        cursor: 0,
+        countdown: events.length > 0 ? events[0]!.tick : 0,
+        terminated: events.length === 0,
+        // base doubles as the sounding flag: 1 while the channel holds a note.
+        base: 0,
+        envelopeIndex: -1,
+        envelopeValue: 0,
+      }));
+      return;
+    }
+    this.iigsEvents = null;
     if (profile.sound === "booter-2.001") {
       const rows = booterSoundRows(payload);
       const placeholder: SoundNote = {
@@ -377,6 +632,42 @@ export class SoundPlayback {
         if (row !== undefined && row.length > 0) outputs.push({ kind: "psg", bytes: row });
       }
       if (channel.terminated) outputs.push(...this.stop());
+      return { outputs, complete: !this.active };
+    }
+    if (this.iigsEvents) {
+      // Each channel's countdown arms the gap to its next stream event; an
+      // exhausted queue terminates the channel at the terminator's tick.
+      for (let index = 0; index < this.channels.length; index++) {
+        const channel = this.channels[index]!;
+        if (channel.terminated) continue;
+        channel.countdown--;
+        if (channel.countdown !== 0) continue;
+        const events = this.iigsEvents[index]!;
+        while (true) {
+          const event = events[channel.cursor];
+          if (event === undefined) {
+            channel.terminated = true;
+            break;
+          }
+          if (event.output !== null) {
+            channel.base = event.output.on ? 1 : 0;
+            this.iigsLast[index] = event.output;
+            outputs.push(event.output);
+          }
+          channel.cursor++;
+          const next = events[channel.cursor];
+          if (next === undefined) {
+            channel.terminated = true;
+            break;
+          }
+          const gap = next.tick - event.tick;
+          if (gap > 0) {
+            channel.countdown = gap;
+            break;
+          }
+        }
+      }
+      if (this.channels.every((channel) => channel.terminated)) outputs.push(...this.stop());
       return { outputs, complete: !this.active };
     }
     if (this.profile.sound === "amiga") {
@@ -512,6 +803,22 @@ export class SoundPlayback {
   stop(): SoundOutput[] {
     if (!this.active) return [];
     this.active = false;
+    if (this.iigsEvents)
+      return this.channels.flatMap((channel, index) => {
+        if (channel.base !== 1) return [];
+        const last = this.iigsLast[index];
+        return [
+          {
+            kind: "iigs" as const,
+            channel: index,
+            on: false,
+            note: last?.note ?? 0,
+            velocity: 0,
+            volume: last?.volume ?? 0,
+            program: last?.program ?? -1,
+          },
+        ];
+      });
     if (this.profile.sound === "amiga")
       return this.channels.map((_, channel) => ({
         kind: "paula" as const,

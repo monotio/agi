@@ -314,7 +314,9 @@ async function onRecordSave(): Promise<void> {
                   ? 'pc-speaker'
                   : state.soundMode === 'pc-speaker'
                     ? 'amiga'
-                    : 'tandy',
+                    : state.soundMode === 'amiga'
+                      ? 'iigs'
+                      : 'tandy',
               );
             "
           >
@@ -324,7 +326,9 @@ async function onRecordSave(): Promise<void> {
                   ? "Tandy 4-Voice"
                   : state.soundMode === "pc-speaker"
                     ? "PC Speaker"
-                    : "Amiga Paula"
+                    : state.soundMode === "amiga"
+                      ? "Amiga Paula"
+                      : "Apple IIgs Ensoniq"
               }}</small></span
             >
             <span class="setting-value">Change</span>

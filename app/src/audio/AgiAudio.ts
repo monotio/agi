@@ -10,7 +10,7 @@ import {
   type SoundOutput,
 } from "../../../src/sound/sound.ts";
 
-export type AudioMode = "tandy" | "pc-speaker" | "amiga";
+export type AudioMode = "tandy" | "pc-speaker" | "amiga" | "iigs";
 
 /** The PAL Paula clock; the driver's AUDxPER converts it to a sample rate. */
 const PAULA_CLOCK = 3546895;
@@ -33,6 +33,8 @@ export class AgiAudio {
   private paulaNoise: boolean[] = [];
   private paulaToneBuffer: AudioBuffer | null = null;
   private paulaNoiseBuffer: AudioBuffer | null = null;
+  private iigsGains: GainNode[] = [];
+  private iigsOscillators: OscillatorNode[] = [];
   private readonly contextFactory: (() => AudioContext) | undefined;
   private activeNodes: { stop?: () => void; disconnect: () => void }[] = [];
 
@@ -143,6 +145,25 @@ export class AgiAudio {
     if (ctx.state === "suspended") ctx.resume().catch(() => {});
     this.playing = true;
     const maxFreq = (ctx.sampleRate || 48000) / 2;
+    if (event.kind === "iigs") {
+      // Simple per-channel oscillators: the Ensoniq DOC wavetable instruments
+      // in SIERRASTANDARD are out of scope, so every program shares one
+      // triangle voice (docs/fidelity.md, "Apple IIgs interpreter").
+      while (this.iigsOscillators.length <= event.channel) this.createIigsChannel(ctx);
+      const channel = event.channel;
+      const gain = this.iigsGains[channel]!.gain;
+      if (event.on) {
+        const frequency = 440 * Math.pow(2, (event.note - 69) / 12);
+        this.iigsOscillators[channel]!.frequency.setValueAtTime(
+          Math.min(maxFreq, frequency),
+          ctx.currentTime,
+        );
+        this.ramp(gain, (event.velocity / 127) * (event.volume / 127) * 0.4, 0.008);
+      } else {
+        this.ramp(gain, 0, 0.03);
+      }
+      return;
+    }
     if (event.kind === "paula") {
       if (!this.paulaSources.length) this.createPaulaChannels(ctx);
       const channel = event.channel & 3;
@@ -225,10 +246,35 @@ export class AgiAudio {
     this.paulaNoise = [];
     this.paulaToneBuffer = null;
     this.paulaNoiseBuffer = null;
+    this.iigsGains = [];
+    this.iigsOscillators = [];
     this.divisors.fill(0);
     this.latchedRegister = 0;
     this.playing = false;
     this.family = null;
+  }
+
+  /** Short attack/release on a parameter; falls back to a step in test doubles. */
+  private ramp(param: AudioParam, target: number, seconds: number): void {
+    const now = this.ctx!.currentTime;
+    param.setValueAtTime(param.value, now);
+    if (typeof param.linearRampToValueAtTime === "function")
+      param.linearRampToValueAtTime(target, now + seconds);
+    else param.setValueAtTime(target, now);
+  }
+
+  /** One triangle voice per Note Synthesizer channel, created on demand. */
+  private createIigsChannel(ctx: AudioContext): void {
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.connect(this.masterGain!);
+    const oscillator = ctx.createOscillator();
+    oscillator.type = "triangle";
+    oscillator.connect(gain);
+    oscillator.start();
+    this.iigsGains.push(gain);
+    this.iigsOscillators.push(oscillator);
+    this.activeNodes.push(gain, oscillator);
   }
 
   private createChannels(ctx: AudioContext, count: number): void {

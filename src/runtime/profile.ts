@@ -30,7 +30,8 @@ export type ProfileId =
   | "amiga-2.202"
   | "amiga-2.310"
   | "amiga-2.316"
-  | "amiga-2.333";
+  | "amiga-2.333"
+  | "iigs-1.014";
 
 /** Resource container family (conformance matrix, "Resource directory"). */
 export type ContainerKind = "v2-split" | "v3-combined";
@@ -38,9 +39,10 @@ export type ContainerKind = "v2-split" | "v3-combined";
 /**
  * Extra action slots above the shared 2.936 range (logic_bytecode "Version 3
  * extension actions"; "amiga-2.31x" is the Amiga 2.31x tail through 0xb6,
- * docs/fidelity.md "Amiga interpreter profiles").
+ * docs/fidelity.md "Amiga interpreter profiles"; "iigs" is the Apple IIgs
+ * 0xb0..0xb1 range, docs/fidelity.md "Apple IIgs interpreter").
  */
-export type ExtraActions = "none" | "v3-086" | "v3-full" | "amiga-2.31x";
+export type ExtraActions = "none" | "v3-086" | "v3-full" | "amiga-2.31x" | "iigs";
 
 /** Menu-construction action support (conformance matrix, "Exit and menu actions"). */
 export type MenuActionSupport = "none" | "stub" | "full";
@@ -56,6 +58,14 @@ export type PriorityBaseAction = "effect" | "noop";
 
 /** Action 0xb4 semantics: "noop" on PC v3; Amiga writes the pointer position into its operands. */
 export type MousePosnAction = "noop" | "write-pointer";
+
+/**
+ * Condition 0x13 semantics for profiles whose dispatchers reach it. The
+ * Amiga 2.31x handler tests ego's motion mode against the click-move value;
+ * the Apple IIgs handler's semantics are unverified, so the host reads it
+ * false (docs/fidelity.md "Apple IIgs interpreter").
+ */
+export type Condition0x13 = "click-move" | "constant-false";
 
 /** Action 0xad semantics (input_text_and_menus "Tracked key release"). */
 export type ReleaseGateAction = "unavailable" | "increment" | "set" | "noop";
@@ -89,7 +99,8 @@ export type SoundProfile =
   | "early-2.411"
   | "early-2.440"
   | "common"
-  | "amiga";
+  | "amiga"
+  | "iigs";
 
 /**
  * The measured decay-envelope shape for the "common" sound family
@@ -134,8 +145,14 @@ export interface AgiProfile {
   // ---- bytecode ranges (logic_bytecode "Main stream grammar", "Catalog completeness") ----
   /** Highest valid action opcode. Bytes above it are not actions in this profile. */
   readonly maxAction: number;
-  /** Highest valid condition opcode; 0x12 everywhere except the Amiga 2.31x generation (0x13). */
+  /** Highest valid condition opcode; 0x12 everywhere except the Amiga 2.31x generation and the Apple IIgs build (0x13). */
   readonly maxCondition: number;
+  /**
+   * Semantics of condition 0x13 where it dispatches (Amiga click-move; IIgs
+   * reads false pending handler disassembly). Profiles bounded at 0x12 never
+   * consult this field.
+   */
+  readonly condition0x13: Condition0x13;
   /** Extra action slots 0xb0.. (logic_bytecode "Version 3 extension actions"; Amiga 2.31x tail). */
   readonly extraActions: ExtraActions;
   /**
@@ -293,6 +310,7 @@ const BASE_2936: AgiProfile = {
   action0x8f: "set-game-id",
   maxAction: 0xaf,
   maxCondition: 0x12,
+  condition0x13: "constant-false",
   extraActions: "none",
   exitOperandBytes: 1,
   exitAlwaysImmediate: false,
@@ -394,6 +412,7 @@ const BASE_AMIGA_31X: AgiProfile = {
   id: "amiga-2.310",
   maxAction: 0xb6,
   maxCondition: 0x13,
+  condition0x13: "click-move",
   extraActions: "amiga-2.31x",
   keyMapCapacity: 49,
   releaseGateAction: "noop",
@@ -570,6 +589,23 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   "amiga-2.310": { ...BASE_AMIGA_31X, id: "amiga-2.310" },
   "amiga-2.316": { ...BASE_AMIGA_31X, id: "amiga-2.316" },
   "amiga-2.333": { ...BASE_AMIGA_31X, id: "amiga-2.333" },
+  // Apple IIgs "SQ2.SYS16" 1.014 (SQ2 IIgs; docs/fidelity.md "Apple IIgs
+  // interpreter"). The executable's action and condition dispatchers bound at
+  // 0xb1 and 0x13. Actions 0xb0/0xb1 and condition 0x13 have no verified
+  // semantics: they dispatch without effect and the condition reads false —
+  // host decisions pending disassembly of the handlers, not original
+  // behavior. Sound resources use the IIgs stream formats decoded by the
+  // "iigs" family. Everything else inherits the 2.936 contract and is marked
+  // inherited, not verified, in docs/fidelity.md.
+  "iigs-1.014": {
+    ...BASE_2936,
+    id: "iigs-1.014",
+    maxAction: 0xb1,
+    maxCondition: 0x13,
+    condition0x13: "constant-false",
+    extraActions: "iigs",
+    sound: "iigs",
+  },
 };
 
 /** String-keyed lookup used by detection (an arbitrary string may name no profile). */
@@ -714,16 +750,43 @@ function detectAmigaProfile(files: ReadonlyMap<string, Uint8Array>): AgiProfile 
   return null;
 }
 
+/** True when the binary contains the ASCII marker (an OMF segment's data is contiguous). */
+function containsAscii(bytes: Uint8Array, marker: string): boolean {
+  outer: for (let i = 0; i + marker.length <= bytes.length; i++) {
+    for (let j = 0; j < marker.length; j++)
+      if (bytes[i + j] !== marker.charCodeAt(j)) continue outer;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * The Apple IIgs interpreter is a GS/OS OMF load file named `*.SYS16` (the
+ * executable keeps its own name next to the canonical v2 container). Its
+ * build is identified by the banner the observed file carries —
+ * "Adventure Game Interpreter\n      Version 1.014" (docs/fidelity.md
+ * "Apple IIgs interpreter"). A SYS16 file without the banner, or the banner
+ * under any other name, does not select the profile.
+ */
+function detectIigsProfile(files: ReadonlyMap<string, Uint8Array>): AgiProfile | null {
+  for (const [name, bytes] of files) {
+    if (!name.toUpperCase().endsWith(".SYS16")) continue;
+    if (containsAscii(bytes, "Adventure Game Interpreter") && containsAscii(bytes, "Version 1.014"))
+      return PROFILES["iigs-1.014"];
+  }
+  return null;
+}
+
 /**
  * Select the interpreter profile for a game folder.
  *
  * The interpreter version is not recorded in the resource container, so
  * detection is: an explicit override, then the ASCII version string in an
- * interpreter binary shipped alongside the data, then the Amiga hunk/dirs
- * markers, then the container shape (v2 split -> 2.936, v3 combined ->
- * 3.002.149). A version string that names no known profile or documented
- * equivalent also uses the container fallback (version_profiles.md, "Other
- * observed versions").
+ * interpreter binary shipped alongside the data, then the Apple IIgs
+ * `*.SYS16` banner, then the Amiga hunk/dirs markers, then the container
+ * shape (v2 split -> 2.936, v3 combined -> 3.002.149). A version string that
+ * names no known profile or documented equivalent also uses the container
+ * fallback (version_profiles.md, "Other observed versions").
  */
 export function detectProfile(
   files: ReadonlyMap<string, Uint8Array>,
@@ -742,6 +805,8 @@ export function detectProfile(
     const equivalent = EQUIVALENT_BUILDS[version];
     if (equivalent) return PROFILES[equivalent];
   }
+  const iigs = detectIigsProfile(files);
+  if (iigs) return iigs;
   const amiga = detectAmigaProfile(files);
   if (amiga) return amiga;
   return hasCombinedDirectory(files) ? DEFAULT_V3_PROFILE : DEFAULT_V2_PROFILE;

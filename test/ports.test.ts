@@ -38,17 +38,26 @@ const PORTS: readonly PortCase[] = [
   { folder: "pq1-amiga", profile: "amiga-2.310", logics: 118, corrupt: 0, firstRoom: 6 },
   { folder: "goldrush-amiga", profile: "amiga-2.316", logics: 183, corrupt: 0, firstRoom: 129 },
   { folder: "mh2-amiga", profile: "amiga-2.333", logics: 96, corrupt: 0, firstRoom: 153 },
-  { folder: "sq2-iigs", profile: "2.936", logics: 119, corrupt: 1, firstRoom: 2 },
+  { folder: "sq2-iigs", profile: "iigs-1.014", logics: 119, corrupt: 1, firstRoom: 2 },
 ];
 
 class QuietHost implements EngineHost {
   prints: string[] = [];
   outputs: SoundOutput[] = [];
+  keys: number[] = [];
+  played: number[] = [];
+  stopped = 0;
   print(text: string): void {
     this.prints.push(text);
   }
   soundOutput(output: SoundOutput): void {
     this.outputs.push(output);
+  }
+  playSound(soundNum: number): void {
+    this.played.push(soundNum);
+  }
+  stopSound(): void {
+    this.stopped++;
   }
   displayAt(): void {}
   statusLine(): void {}
@@ -56,7 +65,7 @@ class QuietHost implements EngineHost {
     return null;
   }
   takeKeys(): number[] {
-    return [];
+    return this.keys.splice(0);
   }
   ackPrint(): void {}
   prompt(): void {}
@@ -194,5 +203,57 @@ test(
       1,
     );
     assert.equal(engine.flags[60], 0, "the sound still plays at tick 60");
+  },
+);
+
+// docs/fidelity.md "Apple IIgs interpreter": SQ2 IIgs boots its intro logic
+// (which uses the IIgs-only action 0xb0), leaves it on a key, reaches room 2
+// and plays its first sound — a type-0x02 stream whose 0xfc terminator must
+// complete the sound-done flag within bounded ticks.
+test(
+  "sq2-iigs: key leaves the intro, room 2's first sound completes its done flag",
+  { skip: fixtureSkip("sq2-iigs") },
+  () => {
+    const { container, dict } = loadPort("sq2-iigs");
+    const host = new QuietHost();
+    // Keep an Enter waiting for the intro's have.key poll.
+    host.keys.push(0x0d);
+    const engine = new Engine(container, host, dict, {
+      restarted: true,
+      profile: "iigs-1.014",
+    });
+    // Three sound ticks per interpreter tick matches the 60 Hz heartbeat
+    // against the ~20 Hz game pass.
+    const step = () => {
+      engine.tick();
+      for (let i = 0; i < 3; i++) engine.soundTick();
+      if (host.prints.length > 0) engine.ackPrint();
+      if (host.keys.length === 0) host.keys.push(0x0d);
+    };
+    for (let i = 0; i < 600 && (engine.vars[0] !== 2 || host.played.length === 0); i++) step();
+    assert.equal(engine.vars[0], 2, "the intro releases to room 2");
+    assert.ok(host.played.length > 0, "the game called sound() by room 2");
+    // The done flag the logic passed goes 0 at the sound call and 1 when the
+    // stream's terminator executes; bound the wait far past any decoded
+    // resource length.
+    let doneFlags: number[] = [];
+    let spuriousStops = 0;
+    let ticks = 0;
+    for (; ticks < 40000 && doneFlags.length === 0; ticks++) {
+      const before = Uint8Array.from(engine.flags);
+      const stopsBefore = host.stopped;
+      engine.soundTick();
+      if (host.stopped === stopsBefore) continue;
+      // A flag set on the same sound tick as the stop is the done flag; a
+      // stop without one is the game's own stop.sound/discard.sound.
+      const flipped: number[] = [];
+      for (let f = 0; f < 256; f++) if (before[f] === 0 && engine.flags[f] === 1) flipped.push(f);
+      if (flipped.length > 0) doneFlags = flipped;
+      else spuriousStops++;
+    }
+    assert.ok(
+      doneFlags.length > 0,
+      `done flag after ${ticks} sound ticks (${spuriousStops} game-initiated stops)`,
+    );
   },
 );
