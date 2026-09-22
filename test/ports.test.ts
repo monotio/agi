@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { openContainer } from "../src/container/container.ts";
+import { assembleLogic } from "../src/logic/assembler.ts";
 import { parseLogicResource } from "../src/logic/resource.ts";
 import { parseWordsTok } from "../src/logic/words.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import type { ProfileId } from "../src/runtime/profile.ts";
+import type { SoundOutput } from "../src/sound/sound.ts";
 import { findFixture, fixtureSkip } from "./fixtures.ts";
 
 /**
@@ -41,8 +43,12 @@ const PORTS: readonly PortCase[] = [
 
 class QuietHost implements EngineHost {
   prints: string[] = [];
+  outputs: SoundOutput[] = [];
   print(text: string): void {
     this.prints.push(text);
+  }
+  soundOutput(output: SoundOutput): void {
+    this.outputs.push(output);
   }
   displayAt(): void {}
   statusLine(): void {}
@@ -125,3 +131,68 @@ for (const port of PORTS) {
     },
   );
 }
+
+// docs/fidelity.md "Original Amiga sound player": Gold Rush's sound 1 notes
+// decode under the h197 formulas into the periods and volumes below.
+test(
+  "goldrush-amiga: sound 1 drives the Paula path with the driver's envelope",
+  { skip: fixtureSkip("goldrush-amiga") },
+  () => {
+    const { container, dict } = loadPort("goldrush-amiga");
+    const host = new QuietHost();
+    const engine = new Engine(container, host, dict, {
+      restarted: true,
+      profile: "amiga-2.316",
+    });
+    engine.patchResource(
+      "logic",
+      0,
+      assembleLogic("set(f9);load.sound(1);sound(1,f60);return;", { dictionary: dict }).payload,
+    );
+    engine.tick();
+    const ticks: SoundOutput[][] = [];
+    for (let t = 0; t < 60; t++) {
+      const start = host.outputs.length;
+      engine.soundTick();
+      ticks.push(host.outputs.slice(start));
+    }
+    const at = (tick: number, channel: number) =>
+      ticks[tick - 1]!.find(
+        (event): event is Extract<SoundOutput, { kind: "paula" }> =>
+          event.kind === "paula" && event.channel === channel,
+      );
+
+    // Each tone channel opens on a rest (control & 0xf = 15) at period 0; the
+    // noise voice's stream is just the terminator, so it silences on tick 1.
+    assert.deepEqual(ticks[0], [
+      { kind: "paula", channel: 0, period: 0, volume: 0 },
+      { kind: "paula", channel: 1, period: 0, volume: 0 },
+      { kind: "paula", channel: 2, period: 0, volume: 0 },
+      { kind: "paula", channel: 3, period: null, volume: 0 },
+    ]);
+    // Tick 13 decodes channel 0's second note: tone 0x8e0b -> divisor
+    // (0x0b&0x3f)<<4 | (0x8e&0xf) = 0xbe -> period 4*190, attenuation 0 with
+    // envelope offset table[0] = 2 -> volume ((15-2)<<6)/15 = 55.
+    assert.equal(at(13, 0)?.period, 4 * 0xbe);
+    assert.equal(at(13, 0)?.volume, 55);
+    // table[2] = 0 returns the note to full volume; table[6] = 1 attenuates.
+    assert.equal(at(15, 0)?.volume, 64);
+    assert.equal(at(19, 0)?.volume, 59);
+    // Tick 21 decodes the third note: tone 0x8a0a -> divisor 0xaa -> period
+    // 4*170; the tone envelope cursor restarts at table[0].
+    assert.equal(at(21, 0)?.period, 4 * 0xaa);
+    assert.equal(at(21, 0)?.volume, 55);
+    // Channel 1's 29-tick rest ends at tick 30: tone 0xad17 -> divisor 0x17d.
+    assert.equal(at(30, 1)?.period, 4 * 0x17d);
+    assert.equal(at(30, 1)?.volume, 55);
+    // Channel 2's 47-tick rest ends at tick 48: tone 0xce0f -> divisor 0xfe.
+    assert.equal(at(48, 2)?.period, 4 * 0xfe);
+    assert.equal(at(48, 2)?.volume, 55);
+    // The noise voice only ever emitted its termination.
+    assert.equal(
+      ticks.flat().filter((event) => event.kind === "paula" && event.channel === 3).length,
+      1,
+    );
+    assert.equal(engine.flags[60], 0, "the sound still plays at tick 60");
+  },
+);

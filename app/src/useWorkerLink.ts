@@ -8,6 +8,7 @@ import type { AgentHandler, LlmRequest } from "./agent/hostRequests.ts";
 import type { AgiAudio } from "./audio/AgiAudio.ts";
 import type { BootedGame, Frame } from "./gameTypes.ts";
 import type { HistoryBatch } from "../../src/agent/history.ts";
+import { PROFILES, type ProfileId } from "../../src/runtime/profile.ts";
 import { decodeTextRows, gameStorageKey } from "./gameTypes.ts";
 import type { ReplayDriver, ReplayObservation } from "./replay.ts";
 import { LAST_GAME_KEY } from "./useAutosaveController.ts";
@@ -400,6 +401,17 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         const profile = typeof msg.profile === "string" ? msg.profile : null;
         state.profile = profile;
         hook.profile = profile;
+        // The sound mode follows the profile's output family: an Amiga
+        // edition plays through Paula, and leaving an Amiga edition returns
+        // to the PC default rather than keeping a stale selection.
+        const sound = profile ? PROFILES[profile as ProfileId]?.sound : undefined;
+        if (sound === "amiga" && state.soundMode !== "amiga") {
+          audio.setMode("amiga");
+          state.soundMode = "amiga";
+        } else if (sound !== "amiga" && state.soundMode === "amiga") {
+          audio.setMode("tandy");
+          state.soundMode = "tandy";
+        }
         publishHook();
       },
       error: (msg) => {

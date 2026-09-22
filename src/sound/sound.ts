@@ -68,6 +68,48 @@ export const V3_ENVELOPE_TABLE: readonly number[] = [
 ];
 
 /**
+ * The per-tick attenuation offsets executed by the Amiga sound driver — 61
+ * longwords then the 0x80 hold sentinel, stored big-endian at the start of
+ * data hunk 198 (docs/fidelity.md, "Original Amiga sound player"). Each tick
+ * the offset applies to the note's own attenuation; the entries do not
+ * accumulate.
+ */
+export const AMIGA_ENVELOPE_TABLE: readonly number[] = [
+  2, 1, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5,
+  5, 5, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 11, 0x80,
+];
+
+/**
+ * The 8-byte waveform the driver loads into every tone voice's AUDx buffer,
+ * signed PCM copied from hunk 198 offset 0xf8 (docs/fidelity.md, "Original
+ * Amiga sound player").
+ */
+export const AMIGA_TONE_SAMPLE: readonly number[] = [0, 64, 127, 64, 0, -64, -127, -64];
+
+/**
+ * The AUDxPER values a noise note's control type selects on the fourth
+ * voice: types 0, 1 and 2, with 3 falling through to the last case
+ * (docs/fidelity.md, "Original Amiga sound player").
+ */
+const AMIGA_NOISE_PERIODS: readonly number[] = [0x200, 0x400, 0x800, 0x800];
+
+/**
+ * The 4,096-byte PCM the driver synthesizes at init for the noise voice:
+ * a Galois LFSR seeded with 1 and tapped with 0x0ca0, storing the low byte
+ * of each successive state (docs/fidelity.md, "Original Amiga sound
+ * player").
+ */
+export function amigaNoisePcm(length = 4096): Int8Array {
+  const pcm = new Int8Array(length);
+  let state = 1;
+  for (let i = 0; i < length; i++) {
+    state = state & 1 ? (state >> 1) ^ 0x0ca0 : state >> 1;
+    pcm[i] = state & 0xff;
+  }
+  return pcm;
+}
+
+/**
  * Parses an authentic binary AGI sound resource.
  */
 export function parseSound(payload: Uint8Array): AgiSound {
@@ -194,7 +236,19 @@ function decodeSound(
 }
 
 export type SoundOutput =
-  { kind: "speaker"; divisor: number | null } | { kind: "psg"; bytes: readonly number[] };
+  | { kind: "speaker"; divisor: number | null }
+  | { kind: "psg"; bytes: readonly number[] }
+  | {
+      kind: "paula";
+      /** The Paula voice, 0..3; voice 3 is the noise voice. */
+      channel: number;
+      /** The AUDxPER period count; null silences the voice. */
+      period: number | null;
+      /** The AUDxVOL value, 0..64. */
+      volume: number;
+      /** True while the voice plays the LFSR noise buffer instead of the tone sample. */
+      noise?: boolean;
+    };
 interface PlaybackChannel {
   notes: readonly SoundNote[];
   cursor: number;
@@ -231,10 +285,15 @@ export class SoundPlayback {
   ) {
     this.profile = profile;
     this.device = device & 255;
-    this.envelope = profile.soundEnvelope === "3.002" ? V3_ENVELOPE_TABLE : DEFAULT_ENVELOPE_TABLE;
+    this.envelope =
+      profile.sound === "amiga"
+        ? AMIGA_ENVELOPE_TABLE
+        : profile.soundEnvelope === "3.002"
+          ? V3_ENVELOPE_TABLE
+          : DEFAULT_ENVELOPE_TABLE;
     // The booter payload is already raw chip writes; there is no speaker rendition.
     this.single =
-      profile.sound === "booter-2.001"
+      profile.sound === "booter-2.001" || profile.sound === "amiga"
         ? false
         : this.device === 0 || (profile.sound === "common" && this.device === 8);
     if (profile.sound === "booter-2.001") {
@@ -272,7 +331,9 @@ export class SoundPlayback {
       countdown: 1,
       terminated: false,
       base: 15,
-      envelopeIndex: -1,
+      // The Amiga driver starts every channel's envelope cursor at the table
+      // start; the PC families arm theirs on each decoded note instead.
+      envelopeIndex: profile.sound === "amiga" ? 0 : -1,
       envelopeValue: 0,
     }));
   }
@@ -316,6 +377,55 @@ export class SoundPlayback {
         if (row !== undefined && row.length > 0) outputs.push({ kind: "psg", bytes: row });
       }
       if (channel.terminated) outputs.push(...this.stop());
+      return { outputs, complete: !this.active };
+    }
+    if (this.profile.sound === "amiga") {
+      // The Paula driver rewrites each live voice's AUDx registers on every
+      // tick: the note's period with the envelope-adjusted volume
+      // (docs/fidelity.md, "Original Amiga sound player").
+      for (let index = 0; index < this.channels.length; index++) {
+        const channel = this.channels[index]!;
+        if (channel.terminated) continue;
+        channel.countdown--;
+        if (channel.countdown === 0) {
+          const note = channel.notes[channel.cursor++];
+          if (!note) {
+            channel.terminated = true;
+            outputs.push({ kind: "paula", channel: index, period: null, volume: 0 });
+            continue;
+          }
+          channel.countdown = note.duration;
+          channel.base = note.attenuation;
+          // Tone voices restart the envelope cursor on each note; the noise
+          // voice's cursor runs the table once from its start.
+          if (index < 3) channel.envelopeIndex = 0;
+        }
+        if (channel.envelopeIndex >= 0) {
+          const delta = this.envelope[channel.envelopeIndex++]!;
+          if (delta === 0x80) {
+            channel.envelopeIndex = -1;
+            channel.base = channel.envelopeValue;
+          } else {
+            channel.envelopeValue = Math.max(0, Math.min(15, channel.base + delta));
+          }
+        }
+        const note = channel.notes[channel.cursor - 1];
+        const attenuation = channel.envelopeIndex > 0 ? channel.envelopeValue : channel.base;
+        outputs.push({
+          kind: "paula",
+          channel: index,
+          period:
+            note === undefined
+              ? null
+              : index === 3
+                ? AMIGA_NOISE_PERIODS[(note.tone >> 8) & 3]!
+                : 4 * note.freqDivisor,
+          // AUDxVOL = ((15 - attenuation) << 6) / 15 on the 0..64 scale.
+          volume: (((15 - attenuation) << 6) / 15) | 0,
+          ...(index === 3 ? { noise: true } : {}),
+        });
+      }
+      if (this.channels.every((channel) => channel.terminated)) outputs.push(...this.stop());
       return { outputs, complete: !this.active };
     }
     for (let index = 0; index < this.channels.length; index++) {
@@ -402,6 +512,13 @@ export class SoundPlayback {
   stop(): SoundOutput[] {
     if (!this.active) return [];
     this.active = false;
+    if (this.profile.sound === "amiga")
+      return this.channels.map((_, channel) => ({
+        kind: "paula" as const,
+        channel,
+        period: null,
+        volume: 0,
+      }));
     return this.single
       ? [{ kind: "speaker", divisor: null }]
       : [{ kind: "psg", bytes: [0x9f, 0xbf, 0xdf, 0xff] }];

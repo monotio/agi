@@ -327,6 +327,188 @@ it("runtime playback bounds damaged channels while keeping valid notes and compl
   assert.equal(missing.tick(true, 0).complete, true);
 });
 
+describe("amiga paula family (docs/fidelity.md, original Amiga sound player)", () => {
+  const amiga = (data: Uint8Array, device = 1, profile: ProfileId = "amiga-2.316"): SoundPlayback =>
+    new SoundPlayback(detectProfile(new Map(), profile), data, device);
+  const paula = (outputs: ReturnType<SoundPlayback["tick"]>["outputs"]) =>
+    outputs.filter((event) => event.kind === "paula");
+
+  it("decodes tone notes into Paula periods and 0..64 volumes", () => {
+    // Channel 0 note: duration 2, tone 0x0123 -> divisor 0x231 -> period 4*561,
+    // attenuation 4; channels 1..3 point at the terminator.
+    const sound = amiga(payload(2, 0x94));
+    // The decode tick also runs the envelope: table[0] = 2 -> attenuation
+    // 4+2=6 -> volume ((15-6)<<6)/15 = 38.
+    assert.deepEqual(sound.tick(true, 0).outputs, [
+      { kind: "paula", channel: 0, period: 4 * 0x231, volume: 38 },
+      { kind: "paula", channel: 1, period: null, volume: 0 },
+      { kind: "paula", channel: 2, period: null, volume: 0 },
+      { kind: "paula", channel: 3, period: null, volume: 0 },
+    ]);
+    // table[1] = 1 -> attenuation 4+1=5 -> volume ((15-5)<<6)/15 = 42.
+    assert.deepEqual(sound.tick(true, 0).outputs, [
+      { kind: "paula", channel: 0, period: 4 * 0x231, volume: 42 },
+    ]);
+    // Termination silences the channel and completes the sound.
+    const last = sound.tick(true, 0);
+    assert.deepEqual(last.outputs, [
+      { kind: "paula", channel: 0, period: null, volume: 0 },
+      { kind: "paula", channel: 0, period: null, volume: 0 },
+      { kind: "paula", channel: 1, period: null, volume: 0 },
+      { kind: "paula", channel: 2, period: null, volume: 0 },
+      { kind: "paula", channel: 3, period: null, volume: 0 },
+    ]);
+    assert.equal(last.complete, true);
+    assert.deepEqual(sound.stop(), []);
+  });
+
+  it("applies the h198 envelope as offsets from the note's attenuation, then holds", () => {
+    // Attenuation 0, 120-tick note: tick t applies table[t-1] (61 deltas),
+    // tick 62 reads the 0x80 sentinel and the last volume holds.
+    const sound = amiga(payload(120, 0x90));
+    const expected = new Map<number, number>([
+      [1, 55], // att 0+2 -> (13*64)/15
+      [2, 59], // att 0+1 -> (14*64)/15
+      [3, 64], // att 0+0 -> full volume
+      [7, 59], // att 0+1
+      [11, 55], // att 0+2
+      [19, 51], // att 0+3 -> (12*64)/15
+      [26, 46], // att 0+4
+      [31, 42], // att 0+5
+      [36, 38], // att 0+6
+      [41, 34], // att 0+7
+      [46, 29], // att 0+8
+      [51, 25], // att 0+9
+      [56, 21], // att 0+10
+      [61, 17], // att 0+11 -> (4*64)/15
+      [62, 17], // sentinel: the envelope holds, it does not reset
+      [80, 17],
+    ]);
+    for (let tick = 1; tick <= 80; tick++) {
+      const out = paula(sound.tick(true, 0).outputs);
+      const want = expected.get(tick);
+      if (want !== undefined) assert.equal(out[0]!.volume, want, `tick ${tick}`);
+    }
+  });
+
+  it("maps the noise control's type bits to fixed periods on the noise voice", () => {
+    const data = payload(2, 0xf0);
+    data[0] = 15; // channels 0..2 terminate immediately
+    data[6] = 8; // channel 3 holds the note
+    data[10] = 0;
+    data[11] = 0xe2; // noise control: type 2 -> period 0x800
+    const sound = amiga(data);
+    assert.deepEqual(sound.tick(true, 0).outputs, [
+      { kind: "paula", channel: 0, period: null, volume: 0 },
+      { kind: "paula", channel: 1, period: null, volume: 0 },
+      { kind: "paula", channel: 2, period: null, volume: 0 },
+      { kind: "paula", channel: 3, period: 0x800, volume: 55, noise: true },
+    ]);
+    // The noise channel shares the envelope tick while its cursor is alive.
+    assert.deepEqual(sound.tick(true, 0).outputs, [
+      { kind: "paula", channel: 3, period: 0x800, volume: 59, noise: true },
+    ]);
+    for (const [type, period] of [
+      [0xe0, 0x200],
+      [0xe1, 0x400],
+      [0xe3, 0x800],
+    ] as const) {
+      const d = payload(2, 0xf0);
+      d[0] = 15;
+      d[6] = 8;
+      d[10] = 0;
+      d[11] = type;
+      const out = paula(amiga(d).tick(true, 0).outputs);
+      assert.equal(out[3]!.period, period, `type byte ${type.toString(16)}`);
+    }
+  });
+
+  it("runs the noise channel's envelope cursor once and never resets it per note", () => {
+    // Noise note 1 (duration 70) exhausts the table; note 2 decodes with the
+    // dead cursor, so its attenuation plays without an envelope offset.
+    const data = Uint8Array.of(
+      18,
+      0,
+      18,
+      0,
+      18,
+      0,
+      8,
+      0,
+      70,
+      0,
+      0,
+      0xe0,
+      0xf0,
+      5,
+      0,
+      0,
+      0xe0,
+      0xf0,
+      255,
+      255,
+    );
+    const sound = amiga(data);
+    let out: ReturnType<typeof paula> = [];
+    for (let tick = 1; tick <= 70; tick++) out = paula(sound.tick(true, 0).outputs);
+    assert.equal(out[0]!.volume, 17, "the held envelope value at the hold point");
+    // Note 2 starts at tick 71: no cursor reset -> plain volume for att 0.
+    assert.deepEqual(paula(sound.tick(true, 0).outputs), [
+      { kind: "paula", channel: 3, period: 0x200, volume: 64, noise: true },
+    ]);
+    assert.equal(paula(sound.tick(true, 0).outputs)[0]!.volume, 64);
+  });
+
+  it("restarts the tone envelope at every note on the tone channels", () => {
+    // Two consecutive channel-0 notes, attenuation 0.
+    const data = Uint8Array.of(
+      8,
+      0,
+      18,
+      0,
+      18,
+      0,
+      18,
+      0,
+      2,
+      0,
+      0x23,
+      0x81,
+      0x90,
+      2,
+      0,
+      0x24,
+      0x82,
+      0x90,
+      255,
+      255,
+    );
+    const sound = amiga(data);
+    assert.equal(paula(sound.tick(true, 0).outputs)[0]!.volume, 55);
+    assert.equal(paula(sound.tick(true, 0).outputs)[0]!.volume, 59);
+    // Second note decodes on tick 3: the envelope restarts at table[0].
+    const out = paula(sound.tick(true, 0).outputs);
+    assert.equal(out[0]!.period, 4 * 0x242);
+    assert.equal(out[0]!.volume, 55, "the second note applies table[0] again");
+  });
+
+  it("keeps all four voices regardless of the device operand", () => {
+    for (const device of [0, 1, 8]) {
+      const out = amiga(payload(2, 0x94), device).tick(true, 0).outputs;
+      assert.equal(out.length, 4, `device ${device} still drives four voices`);
+    }
+  });
+
+  it("silences every channel when sound is disabled", () => {
+    assert.deepEqual(amiga(payload(2, 0x94)).tick(false, 0).outputs, [
+      { kind: "paula", channel: 0, period: null, volume: 0 },
+      { kind: "paula", channel: 1, period: null, volume: 0 },
+      { kind: "paula", channel: 2, period: null, volume: 0 },
+      { kind: "paula", channel: 3, period: null, volume: 0 },
+    ]);
+  });
+});
+
 describe("pc booter 2.001 row streams", () => {
   it("splits payload into zero-terminated rows, keeping empty and unterminated rows", () => {
     assert.deepEqual(booterSoundRows(Uint8Array.of(0x80, 0x02, 0, 0, 0x9f, 0)), [

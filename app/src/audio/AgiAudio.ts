@@ -3,9 +3,17 @@
  * Resource timing, channel selection, envelopes and completion belong to the
  * profile-aware core scheduler. Analog tone/noise synthesis is approximate.
  */
-import { PIT_BASE_FREQ, type SoundOutput } from "../../../src/sound/sound.ts";
+import {
+  AMIGA_TONE_SAMPLE,
+  PIT_BASE_FREQ,
+  amigaNoisePcm,
+  type SoundOutput,
+} from "../../../src/sound/sound.ts";
 
-export type AudioMode = "tandy" | "pc-speaker";
+export type AudioMode = "tandy" | "pc-speaker" | "amiga";
+
+/** The PAL Paula clock; the driver's AUDxPER converts it to a sample rate. */
+const PAULA_CLOCK = 3546895;
 
 export class AgiAudio {
   private ctx: AudioContext | null = null;
@@ -21,6 +29,10 @@ export class AgiAudio {
   private noiseFilter: BiquadFilterNode | null = null;
   private readonly divisors = [0, 0, 0];
   private latchedRegister = 0;
+  private paulaSources: AudioBufferSourceNode[] = [];
+  private paulaNoise: boolean[] = [];
+  private paulaToneBuffer: AudioBuffer | null = null;
+  private paulaNoiseBuffer: AudioBuffer | null = null;
   private readonly contextFactory: (() => AudioContext) | undefined;
   private activeNodes: { stop?: () => void; disconnect: () => void }[] = [];
 
@@ -131,6 +143,27 @@ export class AgiAudio {
     if (ctx.state === "suspended") ctx.resume().catch(() => {});
     this.playing = true;
     const maxFreq = (ctx.sampleRate || 48000) / 2;
+    if (event.kind === "paula") {
+      if (!this.paulaSources.length) this.createPaulaChannels(ctx);
+      const channel = event.channel & 3;
+      const source = this.paulaSources[channel]!;
+      if ((event.noise === true) !== this.paulaNoise[channel]) {
+        this.paulaNoise[channel] = event.noise === true;
+        source.buffer = event.noise ? this.paulaNoiseBuffer! : this.paulaToneBuffer!;
+      }
+      // Paula steps the sample at clock / period bytes per second; a looping
+      // source replays its buffer at context rate times playbackRate.
+      if (event.period !== null && event.period > 0)
+        source.playbackRate.setValueAtTime(
+          PAULA_CLOCK / event.period / ctx.sampleRate,
+          ctx.currentTime,
+        );
+      this.channelGains[channel]!.gain.setValueAtTime(
+        event.period === null ? 0 : (event.volume / 64) * 0.4,
+        ctx.currentTime,
+      );
+      return;
+    }
     if (!this.channelGains.length) this.createChannels(ctx, event.kind === "speaker" ? 1 : 4);
     if (event.kind === "speaker") {
       const divisor = event.divisor;
@@ -188,6 +221,10 @@ export class AgiAudio {
     this.channelGains = [];
     this.oscillators = [];
     this.noiseFilter = null;
+    this.paulaSources = [];
+    this.paulaNoise = [];
+    this.paulaToneBuffer = null;
+    this.paulaNoiseBuffer = null;
     this.divisors.fill(0);
     this.latchedRegister = 0;
     this.playing = false;
@@ -225,6 +262,38 @@ export class AgiAudio {
         this.noiseFilter = filter;
         this.activeNodes.push(noise, filter);
       }
+    }
+  }
+
+  /**
+   * One looping buffer source per Paula voice through a per-voice gain: the
+   * tone voices play the driver's 8-byte sample, the noise voice the
+   * 4,096-byte LFSR PCM (docs/fidelity.md, "Original Amiga sound player").
+   */
+  private createPaulaChannels(ctx: AudioContext): void {
+    const tone = ctx.createBuffer(1, AMIGA_TONE_SAMPLE.length, ctx.sampleRate);
+    const toneData = tone.getChannelData(0);
+    for (let i = 0; i < toneData.length; i++) toneData[i] = AMIGA_TONE_SAMPLE[i]! / 128;
+    const noisePcm = amigaNoisePcm();
+    const noise = ctx.createBuffer(1, noisePcm.length, ctx.sampleRate);
+    const noiseData = noise.getChannelData(0);
+    for (let i = 0; i < noiseData.length; i++) noiseData[i] = noisePcm[i]! / 128;
+    this.paulaToneBuffer = tone;
+    this.paulaNoiseBuffer = noise;
+    for (let channel = 0; channel < 4; channel++) {
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.connect(this.masterGain!);
+      this.channelGains.push(gain);
+      this.activeNodes.push(gain);
+      const source = ctx.createBufferSource();
+      source.buffer = channel === 3 ? noise : tone;
+      source.loop = true;
+      source.connect(gain);
+      source.start();
+      this.paulaSources.push(source);
+      this.paulaNoise.push(channel === 3);
+      this.activeNodes.push(source);
     }
   }
 }

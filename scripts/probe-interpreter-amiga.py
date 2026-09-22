@@ -19,6 +19,7 @@ Subcommands:
   info      hunk table summary
   names     dump the embedded opcode name table (index == opcode)
   dispatch  locate action/condition dispatchers and their tables (capstone)
+  hunk      dump one hunk as bytes and big-endian longwords
   census    walk every LOGIC resource, count action opcode usage
   extract   write one decompressed resource to a file
 
@@ -384,6 +385,26 @@ def cmd_dispatch(args):
                         print(f"  {j.address:#x}: {j.mnemonic} {j.op_str}")
 
 
+def cmd_hunk(args):
+    hunks, _ = parse_hunks(args.exe)
+    h = next((h for h in hunks if h["i"] == args.index), None)
+    if h is None:
+        raise SystemExit(f"no hunk {args.index}")
+    kinds = {HUNK_CODE: "code", HUNK_DATA: "data", HUNK_BSS: "bss"}
+    d = h["data"]
+    print(f"h{h['i']} {kinds.get(h['t'], h['t'])} base=0x{h['base']:x} "
+          f"size=0x{h['size']:x} stored={len(d)}")
+    for off in range(0, len(d), 16):
+        chunk = d[off:off + 16]
+        hexs = " ".join(f"{b:02x}" for b in chunk)
+        print(f"  +0x{off:04x}: {hexs}")
+    if not d:
+        return
+    print("longwords:")
+    for off in range(0, len(d) - len(d) % 4, 4):
+        print(f"  +0x{off:04x}: 0x{u32(d, off):08x}")
+
+
 def cmd_census(args):
     c = Container(args.folder)
     use, cuse, bad = {}, {}, []
@@ -429,6 +450,10 @@ def main():
         s.add_argument("exe", type=Path)
         s.set_defaults(fn={"info": cmd_info, "names": cmd_names,
                            "dispatch": cmd_dispatch}[name])
+    s = sub.add_parser("hunk")
+    s.add_argument("exe", type=Path)
+    s.add_argument("index", type=int, help="hunk index from `info`")
+    s.set_defaults(fn=cmd_hunk)
     s = sub.add_parser("census")
     s.add_argument("folder", type=Path)
     s.set_defaults(fn=cmd_census)

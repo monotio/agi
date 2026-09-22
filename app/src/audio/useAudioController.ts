@@ -30,7 +30,10 @@ export function useAudioController(
   function setAudioMode(mode: AudioMode): void {
     audio.setMode(mode);
     state.soundMode = mode;
-    postWorkerMessage({ type: "soundDevice", device: mode === "pc-speaker" ? 0 : 1 });
+    // The device operand selects between the PC output families; the Amiga
+    // path is fixed by the interpreter profile, not a host preference.
+    if (mode !== "amiga")
+      postWorkerMessage({ type: "soundDevice", device: mode === "pc-speaker" ? 0 : 1 });
   }
 
   function setAudioVolume(vol: number): void {

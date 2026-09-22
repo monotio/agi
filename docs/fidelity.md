@@ -1733,10 +1733,12 @@ fields are the dispatch bounds and ceilings above, the container kind of each
 fixture, the one-byte `quit` selector, the real menu-construction handlers,
 the stub slots, the pointer write of `mouse.posn`, the nudge store of
 `adj.ego.move.to.x.y`, the motion-mode-4 test of `click.move.pending`, the
-72-byte object record and the OBJECT layout/encryption above. Unverified
-fields — string slots, key-map capacity, sound, persistence layout, direction
-selection and the remaining presentation details — keep the derivation
-base's contract and are marked as such in `src/runtime/profile.ts`.
+72-byte object record and the OBJECT layout/encryption above. The sound
+player is verified separately in "Original Amiga sound player" below.
+Unverified fields — string slots, key-map capacity, persistence layout,
+direction selection and the remaining presentation details — keep the
+derivation base's contract and are marked as such in
+`src/runtime/profile.ts`.
 
 Current host limitations, not original behavior: no host interaction selects
 the click-move motion mode yet, so `click.move.pending` reads false and the
@@ -1753,7 +1755,96 @@ Tests: [profile.test.ts](../test/profile.test.ts),
 python scripts/probe-interpreter-amiga.py info games/pq1-amiga/PQ
 python scripts/probe-interpreter-amiga.py names games/mh2-amiga/MH2
 python scripts/probe-interpreter-amiga.py dispatch games/sq1-amiga/Sierra
+python scripts/probe-interpreter-amiga.py hunk games/goldrush-amiga/GR 198
 ```
+
+### Original Amiga sound player
+
+The Amiga editions play the same SOUND resources as the PC releases (the
+Gold Rush payloads are byte-identical, 44 of 44) through a dedicated Paula
+driver instead of the PC chip writes. On the GR 2.316 executable (134,852
+bytes, sha256 `7bfa2f36616923a4` — build table above) the driver is code
+hunk 197 (`hunk` type, base `0xf0b8`, `0x6c4` bytes) and its data is hunk
+198 (base `0xf77c`, `0x120` bytes), followed by bss hunk 199 (`0x9c`).
+
+Cross-check: data hunk 198 is byte-identical in PQ 2.310 and MH2 2.333
+(sha256 `aa58503273b9af41`). Code hunk 197 is byte-identical between GR and
+PQ (sha256 `06c91c9320595f16`); MH2's copy differs only in branch targets
+and the called shutdown slot (sha256 `8a739721db6a206c`) — the same
+instruction sequence and formulas. The earlier Amiga builds were not
+disassembled for this driver; their profiles select the same family
+because they play the same resources on the same hardware.
+
+Init (`0xf0b8`): allocates an 8-byte tone buffer and copies h198 `+0xf8`
+into it — the signed-PCM waveform `00 40 7f 40 00 c0 81 c0` (0, 64, 127,
+64, 0, -64, -127, -64); allocates `0x1000` bytes and fills them with a
+noise PCM: an LFSR seeded with 1, each step `state = (state & 1) ?
+(state >> 1) ^ 0x0ca0 : state >> 1`, storing the low byte of every new
+state. Two `0x44`-byte IOAudio request blocks are prepared, the reply port
+is named `AGI-sound-port` (length-prefixed at h198 `+0x100`), and
+`audio.device` (h198 `+0x110`) is opened.
+
+Channel records (init at `0xf1ec`): four `0x20`-byte records holding the
+stream pointer, channel number, countdown, current Paula period, current
+volume, base attenuation, held value, envelope-delta cursor and derived
+register fields. The DMACON enable bit is `1 << channel` and the AUDx
+register block is `0xdff0a0 + channel * 0x10`. Tone voices point at the
+8-byte sample with AUDxLEN 4 (words); the noise voice points at the
+4,096-byte PCM with AUDxLEN `0x800`. Channel allocation and the
+DMACON/AUDx writes go through `audio.device`.
+
+Per-tick decode (`0xf282` on GR): each live channel decrements its
+countdown; at zero it consumes one 5-byte note record — u16le duration
+(`0xffff` terminates the channel; the game-facing flag is set on the same
+tick), two tone bytes and a control byte — then programs the voice:
+
+- Channel 3 (noise) skips the first tone byte and takes `type = byte1 &
+3`: type 0 → period `0x200`, 1 → `0x400`, 2 → `0x800`, 3 falls through to
+  `0x800`, always over the noise PCM.
+- Tone channels compute the Paula period from the tone word
+  `((b0 & 0x3f) << 9 | (b1 & 0xf) << 5) >> 3` — four times the PC 10-bit
+  divisor — and reset the envelope cursor to the table start.
+- The control byte's low nibble is the base attenuation; the AUDxVOL write
+  is `((15 - attenuation) << 6) / 15` (integer division) on Paula's 0..64
+  scale.
+
+Envelope (`0xf462`): applied on every tick including the decode tick, per
+channel. If the cursor is dead nothing changes; a `0x80` longword kills
+the cursor and the last computed volume holds. Otherwise the effective
+attenuation is `clamp(base + delta, 0, 15)` — the delta applies to the
+note's own base attenuation; the entries do not accumulate — and AUDxVOL
+gets `((15 - attenuation) << 6) / 15`. The tone voices reset the cursor on
+every note; the noise voice's cursor is initialized once and never
+reset, so it runs the table to the sentinel a single time.
+
+The envelope table is h198 `+0x0000..+0xf4`: 62 big-endian signed
+longwords — 61 per-tick offsets then the `0x80` sentinel (the remaining
+`0x28` bytes of the hunk are the tone sample and the two strings). Read
+off `hunk` subcommand output:
+
+```text
+2, 1, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2,
+3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5,
+6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9,
+10, 10, 10, 10, 10, 11, 0x80
+```
+
+Unlike the PC tables the offsets start positive — the note dips below
+full volume for two ticks, returns to it for four, then decays — and the
+driver rewrites AUDxPER/AUDxVOL on every tick rather than only on note
+boundaries, so the envelope output is a continuous register stream.
+
+Engine/app mapping: `SoundPlayback` emits `{kind: "paula", channel,
+period, volume, noise?}` per live voice per tick on the same 60 Hz clock
+(`AMIGA_ENVELOPE_TABLE`, `AMIGA_TONE_SAMPLE`, `amigaNoisePcm` in
+`src/sound/sound.ts`); `app/src/audio/AgiAudio.ts` renders the voices with
+looping buffer sources — sample rate `3546895 / period` against the PAL
+Paula clock — and per-voice gains. The `soundDevice` operand stays a
+PC-family selection and does not reach this path.
+
+Tests: [sound-playback.test.ts](../test/sound-playback.test.ts),
+[ports.test.ts](../test/ports.test.ts),
+[audio.test.ts](../app/test/audio.test.ts).
 
 ### Apple IIgs interpreter (SQ2 1.014)
 

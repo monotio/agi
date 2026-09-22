@@ -509,6 +509,9 @@ describe("amiga interpreter profiles", () => {
       // The OBJECT metadata uses the Amiga four-byte entry layout.
       assert.equal(p.inventoryHeaderBytes, 4, id);
       assert.equal(p.inventoryEntryBytes, 4, id);
+      // Sound resources are decoded by the Paula driver on every Amiga build
+      // (docs/fidelity.md, "Original Amiga sound player").
+      assert.equal(p.sound, "amiga", id);
     }
     // OBJECT storage: plain on 2.082, key-encrypted on the later builds.
     assert.equal(PROFILES["amiga-2.082"].inventoryMetadataEncrypted, false);

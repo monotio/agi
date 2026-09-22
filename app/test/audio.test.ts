@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { AgiAudio } from "../src/audio/AgiAudio.ts";
+import { AgiAudio, type AudioMode } from "../src/audio/AgiAudio.ts";
+import { useAudioController } from "../src/audio/useAudioController.ts";
 
 function context() {
   const params = () => ({
@@ -37,6 +38,13 @@ function context() {
     oscillators.push(result);
     return result;
   }
+  const buffers: { data: Float32Array; getChannelData(): Float32Array }[] = [];
+  type BufferSource = ReturnType<typeof node> & {
+    buffer: { data: Float32Array } | null;
+    loop: boolean;
+    playbackRate: ReturnType<typeof params>;
+  };
+  const bufferSources: BufferSource[] = [];
   const ctx = {
     state: "running",
     currentTime: 12,
@@ -44,10 +52,26 @@ function context() {
     destination: {},
     createGain: gain,
     createOscillator: oscillator,
-    createBuffer: (_channels: number, length: number) => ({
-      getChannelData: () => new Float32Array(length),
-    }),
-    createBufferSource: () => ({ ...node(), buffer: null, loop: false, playbackRate: params() }),
+    createBuffer: (_channels: number, length: number) => {
+      const buffer = {
+        data: new Float32Array(length),
+        getChannelData() {
+          return this.data;
+        },
+      };
+      buffers.push(buffer);
+      return buffer;
+    },
+    createBufferSource: () => {
+      const source: BufferSource = {
+        ...node(),
+        buffer: null,
+        loop: false,
+        playbackRate: params(),
+      };
+      bufferSources.push(source);
+      return source;
+    },
     createBiquadFilter: () => ({ ...node(), type: "bandpass", Q: params(), frequency: params() }),
     resume: async () => {},
   };
@@ -55,6 +79,8 @@ function context() {
     ctx,
     gains,
     oscillators,
+    buffers,
+    bufferSources,
     audio: new AgiAudio({ contextFactory: () => ctx as unknown as AudioContext }),
   };
 }
@@ -140,5 +166,58 @@ describe("audio command backend", () => {
     audio.output({ kind: "psg", bytes: [0x00, 0x00] });
     // Channel 0 must remain silent (not corrupted to gain 0.25 / attenuation 0)
     assert.equal(gains[1]!.gain.value, 0);
+  });
+  it("renders paula events with the driver's tone sample and per-voice gains", () => {
+    const { audio, gains, bufferSources } = context();
+    audio.output({ kind: "paula", channel: 0, period: 760, volume: 55 });
+    // PAL Paula clock / period is the byte rate; the source replays its
+    // buffer against the context rate.
+    assert.equal(bufferSources[0]!.playbackRate.value, 3546895 / 760 / 8000);
+    assert.equal(bufferSources[0]!.loop, true);
+    assert.equal(gains[1]!.gain.value, (55 / 64) * 0.4);
+    // The tone voices loop the 8-byte h198 sample as signed PCM.
+    const tone = bufferSources[0]!.buffer!;
+    assert.deepEqual(
+      [...tone.data],
+      [0, 64, 127, 64, 0, -64, -127, -64].map((v) => v / 128),
+    );
+    // A tone voice event without the noise flag keeps the tone sample.
+    audio.output({ kind: "paula", channel: 1, period: 1016, volume: 21 });
+    assert.equal(bufferSources[1]!.buffer, tone);
+    // The noise voice loops the 4,096-byte LFSR PCM; the first states are
+    // 1 -> 0xca0 -> 0x650 -> 0x328 -> 0x194, stored low-byte first.
+    audio.output({ kind: "paula", channel: 3, period: 0x800, volume: 64, noise: true });
+    const noise = bufferSources[3]!.buffer!;
+    assert.equal(noise.data.length, 4096);
+    assert.deepEqual(
+      [noise.data[0], noise.data[1], noise.data[2], noise.data[3]],
+      [-0x60 / 128, 0x50 / 128, 0x28 / 128, -0x6c / 128],
+    );
+    assert.equal(bufferSources[3]!.playbackRate.value, 3546895 / 0x800 / 8000);
+    assert.equal(gains[4]!.gain.value, 0.4);
+    // A null period silences the voice without stopping its source.
+    audio.output({ kind: "paula", channel: 0, period: null, volume: 0 });
+    assert.equal(gains[1]!.gain.value, 0);
+    assert.equal(bufferSources[0]!.stopped, false);
+    audio.stop();
+    assert.ok(bufferSources.every((source) => source.stopped));
+  });
+});
+
+describe("audio mode selection", () => {
+  it("posts the device operand only for the PC sound families", () => {
+    const { audio } = context();
+    const state = { soundMode: "tandy" as AudioMode, soundMuted: false };
+    const posted: unknown[] = [];
+    const controller = useAudioController(audio, state, (msg) => posted.push(msg));
+    controller.setAudioMode("pc-speaker");
+    assert.deepEqual(posted, [{ type: "soundDevice", device: 0 }]);
+    posted.length = 0;
+    controller.setAudioMode("amiga");
+    assert.deepEqual(posted, [], "the Amiga path is not a PC device selection");
+    assert.equal(state.soundMode, "amiga");
+    assert.equal(audio.currentMode, "amiga");
+    controller.setAudioMode("tandy");
+    assert.deepEqual(posted, [{ type: "soundDevice", device: 1 }]);
   });
 });

@@ -309,12 +309,22 @@ async function onRecordSave(): Promise<void> {
             data-keep-open
             @click="
               resumeAudio();
-              setAudioMode(state.soundMode === 'tandy' ? 'pc-speaker' : 'tandy');
+              setAudioMode(
+                state.soundMode === 'tandy'
+                  ? 'pc-speaker'
+                  : state.soundMode === 'pc-speaker'
+                    ? 'amiga'
+                    : 'tandy',
+              );
             "
           >
             <span
               >Sound chip<small>{{
-                state.soundMode === "tandy" ? "Tandy 4-Voice" : "PC Speaker"
+                state.soundMode === "tandy"
+                  ? "Tandy 4-Voice"
+                  : state.soundMode === "pc-speaker"
+                    ? "PC Speaker"
+                    : "Amiga Paula"
               }}</small></span
             >
             <span class="setting-value">Change</span>

@@ -320,9 +320,11 @@ test("sound controls allow toggling mute and switching sound chip mode", async (
   await muteBtn.click();
   await expect(muteBtn.locator(".setting-value")).toHaveText("On");
 
-  // Toggle sound mode
+  // Toggle sound mode through the three render paths
   await modeBtn.click();
   await expect(modeBtn).toContainText("PC Speaker");
+  await modeBtn.click();
+  await expect(modeBtn).toContainText("Amiga Paula");
   await modeBtn.click();
   await expect(modeBtn).toContainText("Tandy 4-Voice");
 });

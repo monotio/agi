@@ -124,6 +124,7 @@ function makeLink() {
   const audio = {
     setMuted: () => audioCalls.push("setMuted"),
     setPaused: () => audioCalls.push("setPaused"),
+    setMode: (mode: string) => audioCalls.push(`setMode:${mode}`),
     stop: () => audioCalls.push("stop"),
     output: () => audioCalls.push("output"),
   } as unknown as AgiAudio;
@@ -323,6 +324,14 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         deliver(w, { type, profile: "2.917" });
         assert.equal(state.phase, "running");
         assert.equal(state.profile, "2.917");
+        assert.equal(state.soundMode ?? "tandy", "tandy", "a PC profile keeps the mode");
+        // A profile whose interpreter drives Paula selects the amiga mode.
+        deliver(w, { type, profile: "amiga-2.316" });
+        assert.equal(state.soundMode, "amiga");
+        assert.ok(audioCalls.includes("setMode:amiga"));
+        // Booting a PC edition afterward falls back to the PC default.
+        deliver(w, { type, profile: "2.917" });
+        assert.equal(state.soundMode, "tandy");
         break;
       case "roomTransition":
         deliver(w, {

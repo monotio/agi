@@ -81,9 +81,15 @@ export type PatternProfile = "none" | "point-2.411" | "shaped-v2" | "v3-center-r
 /** Actions 0x4d/0x4e (conformance matrix, "Movement-clear actions"). */
 export type MovementClearRule = "early" | "later";
 
-/** Sound output family (conformance matrix, "Sound output" / "Sound channels"; "booter-2.001" per docs/fidelity.md pc-booter-sound-rows). */
+/** Sound output family (conformance matrix, "Sound output" / "Sound channels"; "booter-2.001" per docs/fidelity.md pc-booter-sound-rows; "amiga" is the Paula driver, docs/fidelity.md "Original Amiga sound player"). */
 export type SoundProfile =
-  "booter-2.001" | "early-2.089" | "early-2.272" | "early-2.411" | "early-2.440" | "common";
+  | "booter-2.001"
+  | "early-2.089"
+  | "early-2.272"
+  | "early-2.411"
+  | "early-2.440"
+  | "common"
+  | "amiga";
 
 /**
  * The measured decay-envelope shape for the "common" sound family
@@ -378,8 +384,10 @@ const AMIGA_INVENTORY = {
  * condition slots through 0x13, and stub handlers for menu.input,
  * open/close.dialogue, hold.key, set.pri.base, discard.sound, hide.mouse,
  * allow.menu, show.mouse, fence.mouse and release.key (docs/fidelity.md
- * "Amiga interpreter profiles"). Unverified fields (string slots, key map,
- * sound, persistence, direction selection) keep the 3.002.149 contract.
+ * "Amiga interpreter profiles"). Sound decodes through the Paula driver
+ * (docs/fidelity.md "Original Amiga sound player"). Unverified fields
+ * (string slots, key map, persistence, direction selection) keep the
+ * 3.002.149 contract.
  */
 const BASE_AMIGA_31X: AgiProfile = {
   ...BASE_V3,
@@ -397,6 +405,7 @@ const BASE_AMIGA_31X: AgiProfile = {
   priorityBaseAction: "noop",
   mousePosnAction: "write-pointer",
   directionLoops: "four-or-more-f20",
+  sound: "amiga",
   soundEnvelope: "3.002",
   ...AMIGA_INVENTORY,
 };
@@ -525,6 +534,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     exitAlwaysImmediate: false,
     menuActions: "full",
     menuInputAction: "noop",
+    sound: "amiga",
   },
   // Amiga "KQ2" 2.176 (KQ2 Amiga): 170 action slots through 0xa9, 19
   // condition slots; menu.input and open/close.dialogue share the stub
@@ -541,6 +551,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     menuInputAction: "noop",
     inputWidthActions: "noop",
     inventoryMetadataEncrypted: true,
+    sound: "amiga",
   },
   // Amiga "SQ2" 2.202 (SQ2 Amiga): the same 170/19-slot dispatch shape as
   // 2.176 with the same stub slots (docs/fidelity.md). Derived from the
@@ -552,6 +563,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0xa9,
     menuInputAction: "noop",
     inputWidthActions: "noop",
+    sound: "amiga",
   },
   // Amiga "PQ" 2.310 / "GR" 2.316 / "MH2" 2.333: the shared 2.31x generation
   // (BASE_AMIGA_31X above; docs/fidelity.md "Amiga interpreter profiles").

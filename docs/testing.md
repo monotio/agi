@@ -42,7 +42,9 @@ keep their spelling. The catalogued ports are `games/sq1-amiga/`
 (amiga-2.316), `games/mh2-amiga/` (amiga-2.333) and `games/sq2-iigs/` (2.936);
 [test/ports.test.ts](../test/ports.test.ts) opens each under its on-disk
 names, counts its logics and boots into its first room under the catalogued
-profile.
+profile. The Gold Rush suite also plays sound 1 through the Amiga sound
+family and checks the emitted Paula register stream against the original
+driver's decode (docs/fidelity.md, "Original Amiga sound player").
 
 ### Optional fixtures
 
@@ -75,7 +77,7 @@ resource readers still reject unavailable data if the scenario requests it.
 | King's Quest II (Amiga)  | `games/kq2-amiga/`      | Amiga 2.176 / amiga-2.176   | [Port resources and boot](../test/ports.test.ts) (125 logics, room 1)                                                                                                                                                                    |
 | Space Quest II (Amiga)   | `games/sq2-amiga/`      | Amiga 2.202 / amiga-2.202   | [Port resources and boot](../test/ports.test.ts) (118 logics, room 2)                                                                                                                                                                    |
 | Police Quest (Amiga)     | `games/pq1-amiga/`      | Amiga 2.310 / amiga-2.310   | [Port resources and boot](../test/ports.test.ts) (118 logics, room 6)                                                                                                                                                                    |
-| Gold Rush! (Amiga)       | `games/goldrush-amiga/` | Amiga 2.316 / amiga-2.316   | [Port resources and boot](../test/ports.test.ts) (183 logics, room 129)                                                                                                                                                                  |
+| Gold Rush! (Amiga)       | `games/goldrush-amiga/` | Amiga 2.316 / amiga-2.316   | [Port resources and boot](../test/ports.test.ts) (183 logics, room 129), [Amiga sound decode](../test/ports.test.ts) (sound 1 Paula stream)                                                                                              |
 | Manhunter 2 (Amiga)      | `games/mh2-amiga/`      | Amiga 2.333 / amiga-2.333   | [Port resources and boot](../test/ports.test.ts) (96 logics, room 153)                                                                                                                                                                   |
 | Space Quest II (IIgs)    | `games/sq2-iigs/`       | 2.936                       | [Port resources and boot](../test/ports.test.ts) (119 logics, room 2)                                                                                                                                                                    |
 
