@@ -12,15 +12,20 @@ function xorWithKey(payload: Uint8Array): Uint8Array {
 }
 
 /**
- * A decoded file whose item table fits: the size is a whole number of
- * three-byte entries and the table ends inside the file. Any transform of the
- * wrong reading fails this for realistic files, because the key bytes land in
- * the size field.
+ * A decoded file whose item table fits: the size is a whole number of the
+ * profile's entries (three bytes on PC, four on Amiga) and the table ends
+ * inside the file. Any transform of the wrong reading fails this for
+ * realistic files, because the key bytes land in the size field.
  */
-export function inventoryTableFits(decoded: Uint8Array): boolean {
-  if (decoded.length < 3) return false;
+export function inventoryTableFits(decoded: Uint8Array, profile: AgiProfile): boolean {
+  if (decoded.length < profile.inventoryHeaderBytes) return false;
+  const entryBytes = profile.inventoryEntryBytes;
   const tableSize = decoded[0]! | (decoded[1]! << 8);
-  return tableSize % 3 === 0 && tableSize <= 256 * 3 && 3 + tableSize <= decoded.length;
+  return (
+    tableSize % entryBytes === 0 &&
+    tableSize <= 256 * entryBytes &&
+    profile.inventoryHeaderBytes + tableSize <= decoded.length
+  );
 }
 
 /**
@@ -33,7 +38,7 @@ export function inventoryTableFits(decoded: Uint8Array): boolean {
  */
 export function decodeInventoryFile(payload: Uint8Array, profile: AgiProfile): Uint8Array {
   const expected = profile.inventoryMetadataEncrypted ? xorWithKey(payload) : payload.slice();
-  if (inventoryTableFits(expected)) return expected;
+  if (inventoryTableFits(expected, profile)) return expected;
   const alternative = profile.inventoryMetadataEncrypted ? payload.slice() : xorWithKey(payload);
-  return inventoryTableFits(alternative) ? alternative : expected;
+  return inventoryTableFits(alternative, profile) ? alternative : expected;
 }

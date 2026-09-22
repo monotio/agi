@@ -261,7 +261,9 @@ it("opens an Amiga v3 installation whose combined directory is named dirs", () =
   assert.deepEqual(detectContainerFormat(files), { kind: "v3-combined", prefix: "" });
   const profile = detectProfile(files);
   assert.equal(profile.container, "v3-combined");
-  assert.equal(profile.id, "3.002.149");
+  // The bare dirs directory is the Amiga v3 layout; without a known hunk
+  // executable the fallback selects the 2.31x generation.
+  assert.equal(profile.id, "amiga-2.333");
   const c = openContainer(files);
   assert.deepEqual(c.getResource("logic", 0), Uint8Array.of(5, 6));
   // The canonical empty-prefix names are DIR and VOL.n; other files pass through.
@@ -285,10 +287,11 @@ it("unifies detection and profile for empty-prefix v3 container (DIR and VOL.0)"
   const detected = detectContainerFormat(files);
   assert.deepEqual(detected, { kind: "v3-combined", prefix: "" });
 
-  // 2. Profile detection detects v3 container and DEFAULT_V3_PROFILE without interpreter binary
+  // 2. Profile detection reads the bare empty-prefix directory as the Amiga
+  // v3 layout and selects the 2.31x generation fallback.
   const profile = detectProfile(files);
   assert.equal(profile.container, "v3-combined");
-  assert.equal(profile.id, "3.002.149");
+  assert.equal(profile.id, "amiga-2.333");
 
   // 3. Opening container works seamlessly with empty prefix
   const c = openContainer(files);

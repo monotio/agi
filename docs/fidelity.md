@@ -1662,3 +1662,95 @@ matching is observed behavior, not a recommendation for generated story code.
 ```bash
 /tmp/agi-binary-venv/bin/python scripts/probe-interpreter-input.py games/gr1/AGI games/gr1/AGIDATA.OVL
 ```
+
+### Amiga interpreter profiles
+
+The six Amiga editions ship their own interpreter series as Amiga Hunk
+executables (load-module magic `0x000003f3`); no PC-style `AGIDATA.OVL` or
+`AGI` file exists. Each binary carries its own "Version" string, so the Amiga
+builds are profiled on their own numbers rather than borrowed PC profiles.
+
+| Fixture                 | Executable | Version | Size   | SHA-256 (first 16 hex) |
+| ----------------------- | ---------- | ------- | ------ | ---------------------- |
+| `games/sq1-amiga/`      | `Sierra`   | 2.082   | 86280  | `80c6b0c4912a4ca5`     |
+| `games/kq2-amiga/`      | `KQ2`      | 2.176   | 128488 | `62b17ac8049a982e`     |
+| `games/sq2-amiga/`      | `SQ2`      | 2.202   | 128708 | `557215fbbf431193`     |
+| `games/pq1-amiga/`      | `PQ`       | 2.310   | 134160 | `72ddbb3ecda804b8`     |
+| `games/goldrush-amiga/` | `GR`       | 2.316   | 134852 | `7bfa2f36616923a4`     |
+| `games/mh2-amiga/`      | `MH2`      | 2.333   | 135016 | `5ce3b163bd32ee02`     |
+
+Dispatch tables are six-byte records `{u32 handler_ptr, u16
+operandCount<<8 | varOperandMask}` in a data hunk; the handler longwords are
+relocation slots. The action dispatcher rejects structural bytes (`>= 0xfc`),
+then compares the opcode against the record count with an inclusive branch;
+the last real opcode is therefore one below the count. The condition
+dispatcher compares with a strict below. Table sizes and the bounds read off
+each binary:
+
+| Build | Action compare                 | Slots | Ceiling             | Condition compare               | Slots | Ceiling |
+| ----- | ------------------------------ | ----- | ------------------- | ------------------------------- | ----- | ------- |
+| 2.082 | `cmpi.l #$a1, ble` h5 @0x00aee | 161   | 0xa0 `disable.item` | `cmpi.l #$13, bls` h17 @0x02218 | 19    | 0x12    |
+| 2.176 | `cmpi.b #$aa, bls` h6 @0x00a16 | 170   | 0xa9 `close.window` | `cmpi.b #$13, bcs` h23 @0x01e06 | 19    | 0x12    |
+| 2.202 | `cmpi.b #$aa, bls` h6 @0x00a16 | 170   | 0xa9                | `cmpi.b #$13, bcs` h23 @0x01e06 | 19    | 0x12    |
+| 2.310 | `cmpi.b #$b7, bls` h6 @0x00a72 | 183   | 0xb6                | `cmpi.b #$14, bcs` h23 @0x02102 | 20    | 0x13    |
+| 2.316 | `cmpi.b #$b7, bls` h6 @0x00a72 | 183   | 0xb6                | `cmpi.b #$14, bcs` h23 @0x02102 | 20    | 0x13    |
+| 2.333 | `cmpi.b #$b7, bls` h6 @0x00a72 | 183   | 0xb6                | `cmpi.b #$14, bcs` h23 @0x020d6 | 20    | 0x13    |
+
+The embedded opcode name table (index == opcode) matches the PC vocabulary
+through 0xaf apart from spelling. The 2.31x tail is `set.simple` 0xaa,
+`push.script` 0xab, `pop.script` 0xac, `hold.key` 0xad, `set.pri.base` 0xae,
+`discard.sound` 0xaf, `hide.mouse` 0xb0, `allow.menu` 0xb1, `show.mouse` 0xb2,
+`fence.mouse` 0xb3, `mouse.posn` 0xb4, `release.key` 0xb5 and
+`adj.ego.move.to.x.y` 0xb6 (two immediate operands). Handler pointers group
+the tail: `menu.input`, `open.dialogue`, `close.dialogue`, `hold.key`,
+`hide.mouse`, `show.mouse` and `release.key` share one stub routine;
+`set.pri.base`, `discard.sound` and `allow.menu` share a one-operand skip;
+`fence.mouse` shares a four-operand skip. The same stub pattern holds on the
+2.176/2.202 tables where the slots exist; on 2.082 the stubbed slots are
+above the action bound. `mouse.posn` is a real handler that writes pointer
+X/2 and Y into its two variable operands, and `adj.ego.move.to.x.y` stores
+its two signed bytes into the pending click-move nudge words. Condition
+0x13 (`click.move.pending`) tests ego's motion mode against the click-move
+mode 4; Gold Rush's logics 1, 3, 5, 6, 137 and 192 gate on `not` of it.
+
+The screen-object record is 72 bytes (stride `0x48`, PC 43); `position`
+writes x/y and the saved pair with no flag, like PC. `quit` (0x86) consumes
+one operand byte on every Amiga build, including 2.082.
+
+The Amiga OBJECT file uses a four-byte header `{u16le tableBytes, u16le
+field}` and four-byte entries `{u16le nameOffset, u8 room, u8 pad}`, verified
+on the unencrypted SQ1 file and on the key-encrypted KQ2/SQ2/PQ1/GR/MH2 files
+(SQ1's OBJECT is plain; the later files carry the repeating "Avis Durgan"
+key). Amiga v2 editions use lowercase split files (`logdir`, `picdir`,
+`viewdir`, `snddir`, `vol.n`, `object`, `words.tok`) with five-byte record
+headers; the Amiga v3 editions use a lowercase `dirs` combined directory and
+seven-byte record headers with dictionary/picture compression.
+
+Profile derivation: `amiga-2.082` and `amiga-2.176` derive from the earliest
+documented (early-v2) contract, `amiga-2.202` from 2.936, and the
+`amiga-2.310`/`amiga-2.316`/`amiga-2.333` generation from 3.002.149. Verified
+fields are the dispatch bounds and ceilings above, the container kind of each
+fixture, the one-byte `quit` selector, the real menu-construction handlers,
+the stub slots, the pointer write of `mouse.posn`, the nudge store of
+`adj.ego.move.to.x.y`, the motion-mode-4 test of `click.move.pending`, the
+72-byte object record and the OBJECT layout/encryption above. Unverified
+fields — string slots, key-map capacity, sound, persistence layout, direction
+selection and the remaining presentation details — keep the derivation
+base's contract and are marked as such in `src/runtime/profile.ts`.
+
+Current host limitations, not original behavior: no host interaction selects
+the click-move motion mode yet, so `click.move.pending` reads false and the
+stored nudge is inert; the engine's held pointer is `(0,0)` until a pointer
+channel exists, so `mouse.posn` writes zeroes. Detection falls back to a
+known hunk-executable name plus magic for an exact build, or a bare `dirs`
+combined directory for the 2.31x generation.
+
+Tests: [profile.test.ts](../test/profile.test.ts),
+[ports.test.ts](../test/ports.test.ts),
+[inventory-file.test.ts](../test/inventory-file.test.ts).
+
+```bash
+python scripts/probe-interpreter-amiga.py info games/pq1-amiga/PQ
+python scripts/probe-interpreter-amiga.py names games/mh2-amiga/MH2
+python scripts/probe-interpreter-amiga.py dispatch games/sq1-amiga/Sierra
+```

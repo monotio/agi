@@ -30,12 +30,12 @@ interface PortCase {
 }
 
 const PORTS: readonly PortCase[] = [
-  { folder: "sq1-amiga", profile: "2.411", logics: 102, corrupt: 0, firstRoom: 2 },
-  { folder: "kq2-amiga", profile: "2.411", logics: 125, corrupt: 0, firstRoom: 1 },
-  { folder: "sq2-amiga", profile: "2.936", logics: 118, corrupt: 1, firstRoom: 2 },
-  { folder: "pq1-amiga", profile: "3.002.149", logics: 118, corrupt: 0, firstRoom: 6 },
-  { folder: "goldrush-amiga", profile: "3.002.149", logics: 183, corrupt: 0, firstRoom: 129 },
-  { folder: "mh2-amiga", profile: "3.002.149", logics: 96, corrupt: 0, firstRoom: 153 },
+  { folder: "sq1-amiga", profile: "amiga-2.082", logics: 102, corrupt: 0, firstRoom: 2 },
+  { folder: "kq2-amiga", profile: "amiga-2.176", logics: 125, corrupt: 0, firstRoom: 1 },
+  { folder: "sq2-amiga", profile: "amiga-2.202", logics: 118, corrupt: 1, firstRoom: 2 },
+  { folder: "pq1-amiga", profile: "amiga-2.310", logics: 118, corrupt: 0, firstRoom: 6 },
+  { folder: "goldrush-amiga", profile: "amiga-2.316", logics: 183, corrupt: 0, firstRoom: 129 },
+  { folder: "mh2-amiga", profile: "amiga-2.333", logics: 96, corrupt: 0, firstRoom: 153 },
   { folder: "sq2-iigs", profile: "2.936", logics: 119, corrupt: 1, firstRoom: 2 },
 ];
 
@@ -120,6 +120,7 @@ for (const port of PORTS) {
         engine.tick();
         if (host.prints.length > 0) engine.ackPrint();
       }
+      assert.equal(engine.profile.id, port.profile);
       assert.equal(engine.vars[0], port.firstRoom);
     },
   );

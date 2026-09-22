@@ -236,6 +236,9 @@ export const CONDITIONS: readonly ConditionSpec[] = [
   { code: 0x10, name: "obj.in.box", operands: ["object", "imm", "imm", "imm", "imm"] },
   { code: 0x11, name: "center.posn", operands: ["object", "imm", "imm", "imm", "imm"] },
   { code: 0x12, name: "right.posn", operands: ["object", "imm", "imm", "imm", "imm"] },
+  // Amiga 2.31x only (docs/fidelity.md "Amiga interpreter profiles"): true
+  // while ego runs the click-move motion mode. PC dispatch tables end at 0x12.
+  { code: 0x13, name: "click.move.pending", operands: [] },
 ] as const;
 
 /** Structural bytes in the bytecode stream. */
@@ -277,6 +280,19 @@ const V3_BY_NAME: Record<string, ActionSpec> = Object.fromEntries(
   V3_ACTIONS.map((action) => [action.name, action]),
 );
 
+/**
+ * Amiga 2.31x tail action (docs/fidelity.md "Amiga interpreter profiles"):
+ * slot 0xb6 in the 183-entry table of the 2.310/2.316/2.333 executables,
+ * above every PC dispatch bound.
+ */
+export const AMIGA_ACTIONS: readonly ActionSpec[] = [
+  { code: 0xb6, name: "adj.ego.move.to.x.y", operands: ["imm", "imm"] },
+];
+const AMIGA_BY_CODE = new Map(AMIGA_ACTIONS.map((action) => [action.code, action]));
+const AMIGA_BY_NAME: Record<string, ActionSpec> = Object.fromEntries(
+  AMIGA_ACTIONS.map((action) => [action.name, action]),
+);
+
 /** Runtime instruction shape for the selected profile, excluding scanner metadata. */
 export function actionSpec(
   opcode: number | string,
@@ -284,12 +300,14 @@ export function actionSpec(
 ): ActionSpec | undefined {
   const spec =
     typeof opcode === "number"
-      ? (ACTION_BY_CODE.get(opcode) ?? V3_BY_CODE.get(opcode))
-      : (ACTION_BY_NAME[opcode] ?? V3_BY_NAME[opcode]);
+      ? (ACTION_BY_CODE.get(opcode) ?? V3_BY_CODE.get(opcode) ?? AMIGA_BY_CODE.get(opcode))
+      : (ACTION_BY_NAME[opcode] ?? V3_BY_NAME[opcode] ?? AMIGA_BY_NAME[opcode]);
   if (!spec || spec.code > profile.maxAction) return undefined;
   if (spec.code === 0x86 && profile.exitOperandBytes === 0) return { ...spec, operands: [] };
   if (spec.code >= 0xb0 && profile.extraActions === "none") return undefined;
   if (spec.code === 0xb0 && profile.extraActions === "v3-086")
     return { ...spec, operands: ["imm"] };
+  // The 0xb6 slot exists only in the Amiga 2.31x dispatch table.
+  if (spec.code === 0xb6 && profile.extraActions !== "amiga-2.31x") return undefined;
   return spec;
 }

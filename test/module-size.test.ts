@@ -19,8 +19,9 @@ const ROOTS = ["src", "app/src"];
 const BASELINE: Record<string, { lines: number; boundary: string }> = {
   "src/runtime/engine.ts": {
     // rc.15: deferred reposition placement, dispatch/condition bounds, input
-    // fidelity and the new.room transition corrections.
-    lines: 6219,
+    // fidelity and the new.room transition corrections; the Amiga 2.31x
+    // opcode handlers ride on the same dispatch switch.
+    lines: 6274,
     boundary:
       "the interpreter core: dispatch, original movement phases, modal timing and restore re-entry",
   },
@@ -37,8 +38,17 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the inspector surface: resource controls, runtime state and visual diagnostics",
   },
   "src/runtime/persistence.ts": {
-    lines: 1132,
+    // The Amiga profiles pin block-1 layouts inherited from their derivation
+    // bases (unverified save images; docs/fidelity.md).
+    lines: 1194,
     boundary: "the save format; the release contract pins its structure",
+  },
+  "src/runtime/profile.ts": {
+    // rc.16: six Amiga interpreter profiles with their own dispatch bounds,
+    // OBJECT layout and hunk/dirs detection evidence.
+    lines: 736,
+    boundary:
+      "the interpreter profile contract: per-build variant fields, promotion evidence and detection",
   },
   "src/agent/history.ts": {
     lines: 970,

@@ -1,5 +1,12 @@
 /** Agent command discovery uses the same profile-filtered tables as the assembler. */
-import { ACTIONS, V3_ACTIONS, CONDITIONS, actionSpec, type OperandKind } from "../logic/opcodes.ts";
+import {
+  ACTIONS,
+  V3_ACTIONS,
+  AMIGA_ACTIONS,
+  CONDITIONS,
+  actionSpec,
+  type OperandKind,
+} from "../logic/opcodes.ts";
 import { ACTION_HELP, CONDITION_HELP } from "./commandHelp.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import type { ToolDefinition, AgentToolResult } from "./tools.ts";
@@ -61,7 +68,7 @@ export interface CommandReference {
 
 export function commandReference(profile: AgiProfile): CommandReference[] {
   const result: CommandReference[] = [];
-  for (const candidate of [...ACTIONS, ...V3_ACTIONS]) {
+  for (const candidate of [...ACTIONS, ...V3_ACTIONS, ...AMIGA_ACTIONS]) {
     const spec = actionSpec(candidate.code, profile);
     if (!spec) continue;
     result.push({

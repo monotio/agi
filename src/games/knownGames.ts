@@ -293,17 +293,15 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
       "1e914a657dc2a7e0b9c9fda5f183c5d1ec9f52cab146a58d9ed1077b016d5df7",
     ),
   },
-  // Platform ports carry their own (WORDS.TOK, OBJECT) pair and boot under
-  // the nearest promoted PC profile until a port profile exists.
+  // Platform ports carry their own (WORDS.TOK, OBJECT) pair and run under
+  // their own interpreter profiles (docs/fidelity.md "Amiga interpreter
+  // profiles"; the IIgs entry stays on the PC profile it was catalogued with).
   {
     alias: "sq1-amiga",
     title: "Space Quest I (Amiga)",
     author: "Mark Crowe, Scott Murphy (Sierra On-Line)",
     era: "v2-split",
-    // The port's logics issue set.menu.item/menu.input, which the 2.089
-    // action range does not carry; 2.411 is the earliest promoted profile
-    // that executes them.
-    profile: "2.411",
+    profile: "amiga-2.082",
     wordsSha256: "252c863e9d8e65f0c08f63ec8188a4956d056658032cd2e04a9588db838e695e",
     objectSha256: "ce283e791f78be46ba63a2d96065293befbe6f01156ffc714493259900eaf28a",
   },
@@ -312,7 +310,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     title: "King's Quest II (Amiga)",
     author: "Roberta Williams (Sierra On-Line)",
     era: "v2-split",
-    profile: "2.411",
+    profile: "amiga-2.176",
     wordsSha256: "536b272ad012c93a2dcc238d263ced36b406cd96eed3e1e2378c911b504475d4",
     objectSha256: "4eeb797b36cc448a3f834b6ad066cee732c5a5b77aa00cd99663ed23b6459473",
   },
@@ -321,7 +319,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     title: "Space Quest II (Amiga)",
     author: "Mark Crowe, Scott Murphy (Sierra On-Line)",
     era: "v2-split",
-    profile: "2.936",
+    profile: "amiga-2.202",
     wordsSha256: KNOWN_GAME_HASH.SQ2,
     objectSha256: "d5c766d0725ab0cd4bb23b863217277d97ca99a8bf073e44199d7387297ecb27",
   },
@@ -330,7 +328,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     title: "Police Quest (Amiga)",
     author: "Jim Walls (Sierra On-Line)",
     era: "v3-combined",
-    profile: "3.002.149",
+    profile: "amiga-2.310",
     wordsSha256: KNOWN_GAME_HASH.PQ1,
     objectSha256: "f0d630abc339c4acf3492a6f6e7b59b72ef7d80a948b2b1f97124f11a218893a",
   },
@@ -339,7 +337,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     title: "Gold Rush! (Amiga)",
     author: "Doug MacNeill, Ken MacNeill (Sierra On-Line)",
     era: "v3-combined",
-    profile: "3.002.149",
+    profile: "amiga-2.316",
     wordsSha256: KNOWN_GAME_HASH.GR1,
     objectSha256: "f87ac0d5dea09968f1068d158b4f98119c3ddb2fa0a221bacecb7f530df70bd3",
   },
@@ -348,7 +346,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     title: "Manhunter 2 (Amiga)",
     author: "Dave Murry, Barry Murry (Sierra On-Line)",
     era: "v3-combined",
-    profile: "3.002.149",
+    profile: "amiga-2.333",
     wordsSha256: KNOWN_GAME_HASH.MH2,
     objectSha256: "afd8025f7944a997f397ed6b15607cb6e85f3282935165123b11bfe4b4a76ca8",
   },

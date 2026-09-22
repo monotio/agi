@@ -81,11 +81,13 @@ function gameDirectories(library: string): string[] {
 
 function validateInventory(payload: Uint8Array, profile: AgiProfile): void {
   const decoded = decodeInventoryFile(payload, profile);
-  if (!inventoryTableFits(decoded)) throw new Error("Invalid OBJECT inventory table");
+  if (!inventoryTableFits(decoded, profile)) throw new Error("Invalid OBJECT inventory table");
   const size = decoded[0]! | (decoded[1]! << 8);
-  for (let offset = 3; offset < size + 3; offset += 3) {
-    const start = 3 + (decoded[offset]! | (decoded[offset + 1]! << 8));
-    if (start < size + 3 || decoded.indexOf(0, start) < start)
+  const header = profile.inventoryHeaderBytes;
+  const stride = profile.inventoryEntryBytes;
+  for (let offset = header; offset < size + header; offset += stride) {
+    const start = header + (decoded[offset]! | (decoded[offset + 1]! << 8));
+    if (start < size + header || decoded.indexOf(0, start) < start)
       throw new Error("Invalid OBJECT name offset or terminator");
   }
 }

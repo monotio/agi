@@ -24,19 +24,41 @@ export type ProfileId =
   | "2.936"
   | "3.002.086"
   | "3.002.102"
-  | "3.002.149";
+  | "3.002.149"
+  | "amiga-2.082"
+  | "amiga-2.176"
+  | "amiga-2.202"
+  | "amiga-2.310"
+  | "amiga-2.316"
+  | "amiga-2.333";
 
 /** Resource container family (conformance matrix, "Resource directory"). */
 export type ContainerKind = "v2-split" | "v3-combined";
 
-/** Extra action slots above the shared 2.936 range (logic_bytecode "Version 3 extension actions"). */
-export type ExtraActions = "none" | "v3-086" | "v3-full";
+/**
+ * Extra action slots above the shared 2.936 range (logic_bytecode "Version 3
+ * extension actions"; "amiga-2.31x" is the Amiga 2.31x tail through 0xb6,
+ * docs/fidelity.md "Amiga interpreter profiles").
+ */
+export type ExtraActions = "none" | "v3-086" | "v3-full" | "amiga-2.31x";
 
 /** Menu-construction action support (conformance matrix, "Exit and menu actions"). */
 export type MenuActionSupport = "none" | "stub" | "full";
 
+/**
+ * Action 0xa1 semantics: "effect" requests the menu interaction; "noop" is the
+ * Amiga stub slot (menu interaction is native, docs/fidelity.md).
+ */
+export type MenuInputAction = "effect" | "noop";
+
+/** Action 0xae semantics: "effect" sets the priority base; "noop" is the Amiga stub slot. */
+export type PriorityBaseAction = "effect" | "noop";
+
+/** Action 0xb4 semantics: "noop" on PC v3; Amiga writes the pointer position into its operands. */
+export type MousePosnAction = "noop" | "write-pointer";
+
 /** Action 0xad semantics (input_text_and_menus "Tracked key release"). */
-export type ReleaseGateAction = "unavailable" | "increment" | "set";
+export type ReleaseGateAction = "unavailable" | "increment" | "set" | "noop";
 
 /** Actions 0xa3/0xa4 (conformance matrix, "Input-width actions"). */
 export type InputWidthActions = "effect" | "noop";
@@ -92,16 +114,23 @@ export interface AgiProfile {
    * item_table_size u16le plus the maximum drawable object index byte; the
    * observed 2.001 file is the u16le item table size followed immediately by
    * the three-byte entries, with no object-index byte and no name pool
-   * (docs/fidelity.md pc-booter-inventory-file).
+   * (docs/fidelity.md pc-booter-inventory-file). The Amiga builds carry a
+   * four-byte header (table size u16le, object index u16le).
    */
-  readonly inventoryHeaderBytes: 2 | 3;
+  readonly inventoryHeaderBytes: 2 | 3 | 4;
+  /**
+   * OBJECT entry stride in the expanded form: three bytes on PC
+   * ({nameOffset u16le, room u8}), four on Amiga
+   * ({nameOffset u16le, room u8, pad u8}; docs/fidelity.md).
+   */
+  readonly inventoryEntryBytes: 3 | 4;
 
   // ---- bytecode ranges (logic_bytecode "Main stream grammar", "Catalog completeness") ----
   /** Highest valid action opcode. Bytes above it are not actions in this profile. */
   readonly maxAction: number;
-  /** Highest valid condition opcode; 0x12 in every promoted profile. */
+  /** Highest valid condition opcode; 0x12 everywhere except the Amiga 2.31x generation (0x13). */
   readonly maxCondition: number;
-  /** Extra v3 action slots 0xb0.. (logic_bytecode "Version 3 extension actions"). */
+  /** Extra action slots 0xb0.. (logic_bytecode "Version 3 extension actions"; Amiga 2.31x tail). */
   readonly extraActions: ExtraActions;
   /**
    * Action 0x8f semantics:
@@ -133,6 +162,12 @@ export interface AgiProfile {
    */
   readonly menuActions: MenuActionSupport;
   /**
+   * Action 0xa1 menu.input: "effect" requests menu interaction; "noop" is the
+   * Amiga stub slot — the Amiga menu system is driven natively, not by script
+   * (docs/fidelity.md "Amiga interpreter profiles").
+   */
+  readonly menuInputAction: MenuInputAction;
+  /**
    * Separate menu-interaction gate set by action 0xb1 (v3 profiles). The v2
    * profiles have no such gate (conformance matrix, "Menu interaction gate").
    */
@@ -162,6 +197,17 @@ export interface AgiProfile {
    * (version_profiles.md, 3.002.149 and 3.002.102 sections).
    */
   readonly closeWindowClearsInputWidth: boolean;
+  /**
+   * Action 0xae set.pri.base: "effect" sets the priority-band base; "noop" is
+   * the Amiga 2.31x stub slot (docs/fidelity.md).
+   */
+  readonly priorityBaseAction: PriorityBaseAction;
+  /**
+   * Action 0xb4 mouse.posn: "noop" on the PC v3 profiles; "write-pointer"
+   * writes pointerX/2 and pointerY into its variable operands on the Amiga
+   * 2.31x generation (docs/fidelity.md).
+   */
+  readonly mousePosnAction: MousePosnAction;
   /**
    * Immediate room aliases applied by action 0x12 before the common room
    * effects. Supplied through an explicit profile override for build-specific
@@ -237,6 +283,7 @@ const BASE_2936: AgiProfile = {
   volumeHeaderBytes: 5,
   inventoryMetadataEncrypted: true,
   inventoryHeaderBytes: 3,
+  inventoryEntryBytes: 3,
   action0x8f: "set-game-id",
   maxAction: 0xaf,
   maxCondition: 0x12,
@@ -244,6 +291,7 @@ const BASE_2936: AgiProfile = {
   exitOperandBytes: 1,
   exitAlwaysImmediate: false,
   menuActions: "full",
+  menuInputAction: "effect",
   menuInteractionGate: false,
   stringSlots: 12,
   keyMapCapacity: 39,
@@ -251,6 +299,8 @@ const BASE_2936: AgiProfile = {
   releaseGateClearAction: false,
   inputWidthActions: "effect",
   closeWindowClearsInputWidth: true,
+  priorityBaseAction: "effect",
+  mousePosnAction: "noop",
   roomAliases: null,
   wordSequenceTailTerminator: true,
   directionLoops: "four-or-more",
@@ -308,6 +358,47 @@ const BASE_V3: AgiProfile = {
   menuInteractionGate: true,
   patternProfile: "v3-center-row",
   saveBlock3Xor: true,
+};
+
+/**
+ * Amiga OBJECT metadata layout (docs/fidelity.md "Amiga interpreter
+ * profiles"): a four-byte header (table size u16le, object index u16le) and
+ * four-byte entries ({nameOffset u16le, room u8, pad u8}), verified on the
+ * unencrypted SQ1 file and the key-encrypted KQ2/SQ2/PQ1/GR/MH2 files.
+ */
+const AMIGA_INVENTORY = {
+  inventoryHeaderBytes: 4,
+  inventoryEntryBytes: 4,
+} as const;
+
+/**
+ * Amiga 2.31x generation (PQ1 2.310, GR 2.316, MH2 2.333), derived from the
+ * documented 3.002.149 profile: same container, bytecode and runtime shape
+ * except where the executables disagree — 183 action slots through 0xb6, 20
+ * condition slots through 0x13, and stub handlers for menu.input,
+ * open/close.dialogue, hold.key, set.pri.base, discard.sound, hide.mouse,
+ * allow.menu, show.mouse, fence.mouse and release.key (docs/fidelity.md
+ * "Amiga interpreter profiles"). Unverified fields (string slots, key map,
+ * sound, persistence, direction selection) keep the 3.002.149 contract.
+ */
+const BASE_AMIGA_31X: AgiProfile = {
+  ...BASE_V3,
+  id: "amiga-2.310",
+  maxAction: 0xb6,
+  maxCondition: 0x13,
+  extraActions: "amiga-2.31x",
+  keyMapCapacity: 49,
+  releaseGateAction: "noop",
+  releaseGateClearAction: false,
+  inputWidthActions: "noop",
+  closeWindowClearsInputWidth: false,
+  menuInputAction: "noop",
+  menuInteractionGate: false,
+  priorityBaseAction: "noop",
+  mousePosnAction: "write-pointer",
+  directionLoops: "four-or-more-f20",
+  soundEnvelope: "3.002",
+  ...AMIGA_INVENTORY,
 };
 
 export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
@@ -421,6 +512,52 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     // GR1 3.002.149's measured envelope (docs/fidelity.md, sound player audit).
     soundEnvelope: "3.002",
   },
+  // Amiga "Sierra" 2.082 (SQ1 Amiga): 161 action slots through 0xa0, 19
+  // condition slots through 0x12, one-byte quit selector, real menu handlers
+  // and a plain OBJECT file (docs/fidelity.md "Amiga interpreter profiles").
+  // Derived from the early-v2 contract; unverified fields are inherited.
+  "amiga-2.082": {
+    ...BASE_EARLY,
+    ...AMIGA_INVENTORY,
+    id: "amiga-2.082",
+    maxAction: 0xa0,
+    exitOperandBytes: 1,
+    exitAlwaysImmediate: false,
+    menuActions: "full",
+    menuInputAction: "noop",
+  },
+  // Amiga "KQ2" 2.176 (KQ2 Amiga): 170 action slots through 0xa9, 19
+  // condition slots; menu.input and open/close.dialogue share the stub
+  // routine; the OBJECT file is key-encrypted (docs/fidelity.md). Derived
+  // from the early-v2 contract; unverified fields are inherited.
+  "amiga-2.176": {
+    ...BASE_EARLY,
+    ...AMIGA_INVENTORY,
+    id: "amiga-2.176",
+    maxAction: 0xa9,
+    exitOperandBytes: 1,
+    exitAlwaysImmediate: false,
+    menuActions: "full",
+    menuInputAction: "noop",
+    inputWidthActions: "noop",
+    inventoryMetadataEncrypted: true,
+  },
+  // Amiga "SQ2" 2.202 (SQ2 Amiga): the same 170/19-slot dispatch shape as
+  // 2.176 with the same stub slots (docs/fidelity.md). Derived from the
+  // 2.936 contract; unverified fields are inherited.
+  "amiga-2.202": {
+    ...BASE_2936,
+    ...AMIGA_INVENTORY,
+    id: "amiga-2.202",
+    maxAction: 0xa9,
+    menuInputAction: "noop",
+    inputWidthActions: "noop",
+  },
+  // Amiga "PQ" 2.310 / "GR" 2.316 / "MH2" 2.333: the shared 2.31x generation
+  // (BASE_AMIGA_31X above; docs/fidelity.md "Amiga interpreter profiles").
+  "amiga-2.310": { ...BASE_AMIGA_31X, id: "amiga-2.310" },
+  "amiga-2.316": { ...BASE_AMIGA_31X, id: "amiga-2.316" },
+  "amiga-2.333": { ...BASE_AMIGA_31X, id: "amiga-2.333" },
 };
 
 /** String-keyed lookup used by detection (an arbitrary string may name no profile). */
@@ -526,15 +663,55 @@ export function hasCombinedDirectory(files: ReadonlyMap<string, Uint8Array>): bo
   return false;
 }
 
+/** Amiga hunk executable magic: the load-module header's first long word. */
+const AMIGA_HUNK_MAGIC = 0x000003f3;
+
+/**
+ * Amiga interpreter executables observed in contributor fixtures, keyed by
+ * their (case-insensitive) file names (docs/fidelity.md "Amiga interpreter
+ * profiles"). A name only selects a build when the file opens with the hunk
+ * magic; a PC data file that happens to share the name is not an interpreter.
+ */
+const AMIGA_INTERPRETER_FILES: Readonly<Record<string, ProfileId>> = {
+  SIERRA: "amiga-2.082",
+  KQ2: "amiga-2.176",
+  SQ2: "amiga-2.202",
+  PQ: "amiga-2.310",
+  GR: "amiga-2.316",
+  MH2: "amiga-2.333",
+};
+
+/**
+ * Amiga folders carry no PC version string. A hunk executable with a known
+ * interpreter name selects its exact build; an Amiga v3 `dirs` file — the
+ * combined directory with an empty prefix, canonical DIR, beside its volumes
+ * — selects the 2.31x generation that shipped those editions, represented by
+ * its latest observed build. Anything else returns null for the container
+ * fallback.
+ */
+function detectAmigaProfile(files: ReadonlyMap<string, Uint8Array>): AgiProfile | null {
+  for (const [name, bytes] of files) {
+    const id = AMIGA_INTERPRETER_FILES[name.toUpperCase()];
+    if (id === undefined || bytes.length < 4) continue;
+    const magic = ((bytes[0]! << 24) | (bytes[1]! << 16) | (bytes[2]! << 8) | bytes[3]!) >>> 0;
+    if (magic === AMIGA_HUNK_MAGIC) return PROFILES[id];
+  }
+  const canonical = [...files.keys()].map(canonicalResourceName);
+  if (canonical.includes("DIR") && canonical.some((name) => /^VOL\.\d+$/.test(name)))
+    return PROFILES["amiga-2.333"];
+  return null;
+}
+
 /**
  * Select the interpreter profile for a game folder.
  *
  * The interpreter version is not recorded in the resource container, so
  * detection is: an explicit override, then the ASCII version string in an
- * interpreter binary shipped alongside the data, then the container shape
- * (v2 split -> 2.936, v3 combined -> 3.002.149). A version string that names
- * no known profile or documented equivalent also uses the container fallback
- * (version_profiles.md, "Other observed versions").
+ * interpreter binary shipped alongside the data, then the Amiga hunk/dirs
+ * markers, then the container shape (v2 split -> 2.936, v3 combined ->
+ * 3.002.149). A version string that names no known profile or documented
+ * equivalent also uses the container fallback (version_profiles.md, "Other
+ * observed versions").
  */
 export function detectProfile(
   files: ReadonlyMap<string, Uint8Array>,
@@ -553,5 +730,7 @@ export function detectProfile(
     const equivalent = EQUIVALENT_BUILDS[version];
     if (equivalent) return PROFILES[equivalent];
   }
+  const amiga = detectAmigaProfile(files);
+  if (amiga) return amiga;
   return hasCombinedDirectory(files) ? DEFAULT_V3_PROFILE : DEFAULT_V2_PROFILE;
 }

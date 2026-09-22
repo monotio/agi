@@ -34,9 +34,9 @@ class Host implements EngineHost {
 test("the profile's storage rule decodes a file whose table fits", () => {
   assert.deepEqual(decodeInventoryFile(ENCRYPTED_STUB, PROFILES["3.002.102"]), PLAIN_STUB);
   assert.deepEqual(decodeInventoryFile(PLAIN_STUB, PROFILES["2.089"]), PLAIN_STUB);
-  assert.equal(inventoryTableFits(PLAIN_STUB), true);
+  assert.equal(inventoryTableFits(PLAIN_STUB, PROFILES["3.002.102"]), true);
   // Key bytes in the size field: 0x03^0x41, 0x00^0x76 => 0x7642, not a table.
-  assert.equal(inventoryTableFits(ENCRYPTED_STUB), false);
+  assert.equal(inventoryTableFits(ENCRYPTED_STUB, PROFILES["3.002.102"]), false);
 });
 
 test("a plain stub next to a later interpreter is read plain, and vice versa", () => {
@@ -155,7 +155,7 @@ test("a long name pool cannot make an impossible decoded item count win", () => 
   plain.fill(65, 9, plain.length - 1);
   const encrypted = plain.map((b, i) => b ^ MESSAGE_KEY.charCodeAt(i % MESSAGE_KEY.length));
   // 0x7647 is divisible by three and fits the file, but describes 10093 items.
-  assert.equal(inventoryTableFits(encrypted), false);
+  assert.equal(inventoryTableFits(encrypted, PROFILES["3.002.102"]), false);
   assert.equal(decodeInventoryFile(plain, PROFILES["3.002.102"])[0], 6);
   const items = readInventoryObjects(plain, PROFILES["3.002.102"]);
   assert.equal(items.length, 2);

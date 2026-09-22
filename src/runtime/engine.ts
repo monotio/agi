@@ -55,6 +55,7 @@ import {
   MOTION_MOVE_OBJ,
   MOTION_FOLLOW,
   MOTION_WANDER,
+  MOTION_CLICK_MOVE,
   CYCLE_FORWARD,
   CYCLE_REVERSE,
   CYCLE_END_OF_LOOP,
@@ -601,6 +602,21 @@ export class Engine {
   private pendingController: number | null = null;
   /** Tracked key-release gate (action 0xad; spec "Tracked key release"). */
   private keyReleaseGate = 0;
+  /**
+   * Held pointer position in native pointer coordinates, written by
+   * mouse.posn on Amiga profiles. (0,0) until a host pointer channel exists
+   * — a current host limitation, not established original behavior
+   * (docs/fidelity.md "Amiga interpreter profiles").
+   */
+  pointerX = 0;
+  pointerY = 0;
+  /**
+   * Pending click-move nudge stored by the Amiga 2.31x action
+   * adj.ego.move.to.x.y (signed operands). The original keeps them in two
+   * pending words read by its click-move motion mode; nothing consumes them
+   * here until a host can start that mode.
+   */
+  readonly clickMoveNudge: [number, number] = [0, 0];
   /** Scratch arrays and cached composition for presentation and ego visibility. */
   private readonly scratchVisual = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly scratchPriority = new Uint8Array(SCREEN_WIDTH * 168);
@@ -2651,12 +2667,12 @@ export class Engine {
     const objectRecords =
       this.maxDrawnObjectsCount !== null
         ? this.maxDrawnObjectsCount
-        : headerBytes === 3
+        : headerBytes >= 3
           ? decoded[2]! + 1
           : 21;
     return (this.inventoryMetaCache = {
       payload: decoded.subarray(headerBytes),
-      entryCount: Math.floor(tableSize / 3),
+      entryCount: Math.floor(tableSize / this.profile.inventoryEntryBytes),
       objectRecords,
     });
   }
@@ -2672,8 +2688,9 @@ export class Engine {
   private initInventory(): void {
     this.itemLocations.fill(0);
     const meta = this.inventoryMetadata();
+    const stride = this.profile.inventoryEntryBytes;
     for (let item = 0; item < meta.entryCount; item++) {
-      this.itemLocations[item] = meta.payload[item * 3 + 2] ?? 0;
+      this.itemLocations[item] = meta.payload[item * stride + 2] ?? 0;
     }
   }
 
@@ -2904,9 +2921,14 @@ export class Engine {
     if (!decoded) return (this.itemNameCache = []);
     const tableSize = decoded[0]! | (decoded[1]! << 8);
     const base = this.profile.inventoryHeaderBytes; // runtime_inventory_data starts after the header
+    const stride = this.profile.inventoryEntryBytes;
     const names: string[] = [];
     const decoder = new TextDecoder();
-    for (let at = base; at + 3 <= base + tableSize && at + 3 <= decoded.length; at += 3) {
+    for (
+      let at = base;
+      at + stride <= base + tableSize && at + stride <= decoded.length;
+      at += stride
+    ) {
       const rel = decoded[at]! | (decoded[at + 1]! << 8);
       let end = base + rel;
       while (end < decoded.length && decoded[end] !== 0) end++;
@@ -4276,7 +4298,8 @@ export class Engine {
       return pc + 2 + count * 2;
     }
     const spec = CONDITION_BY_CODE.get(b);
-    if (!spec) throw new Error(`invalid condition byte 0x${b.toString(16)} in skip`);
+    if (!spec || b > this.profile.maxCondition)
+      throw new Error(`invalid condition byte 0x${b.toString(16)} in skip`);
     return pc + 1 + spec.operands.length;
   }
 
@@ -4449,6 +4472,14 @@ export class Engine {
         const b2 = this.normalizeString(this.strings[o(1)] ?? "");
         return { result: a === b2, next: pc + 3 };
       }
+      case 0x13:
+        // click.move.pending (Amiga 2.31x dispatch bound): the handler tests
+        // ego's motion mode against the click-move mode. No host interaction
+        // selects that mode yet, so this reads false — a current host
+        // limitation, not established original behavior.
+        if (this.profile.maxCondition < 0x13)
+          throw new Error(`invalid condition byte 0x${b.toString(16)}`);
+        return { result: this.objects[0]!.motionMode === MOTION_CLICK_MOVE, next: pc + 1 };
       default:
         throw new Error(`invalid condition byte 0x${b.toString(16)}`);
     }
@@ -5528,8 +5559,9 @@ export class Engine {
       case 0xa1:
         // menu.input: the v3 profiles add a separate menu-interaction gate set
         // by action 0xb1 (profile.menuInteractionGate); the v2 profiles gate on
-        // f14 alone.
+        // f14 alone. On Amiga the slot is the stub routine (menuInputAction).
         if (
+          this.profile.menuInputAction === "effect" &&
           this.profile.menuActions === "full" &&
           this.flags[F_MENU_ENABLED] !== 0 &&
           (!this.profile.menuInteractionGate || this.menuInteractionGate !== 0)
@@ -5604,25 +5636,45 @@ export class Engine {
         // hold.key: the v2 and 3.002.086 profiles increment the release gate
         // modulo 256; 3.002.102 and 3.002.149 set it to one (spec "Tracked key
         // release"). 2.411/2.440 do not expose the action at all — their action
-        // range rejects the byte before dispatch reaches here.
+        // range rejects the byte before dispatch reaches here. On the Amiga
+        // 2.31x executables the slot is the stub routine.
+        if (this.profile.releaseGateAction === "noop") return next;
         this.keyReleaseGate =
           this.profile.releaseGateAction === "set" ? 1 : (this.keyReleaseGate + 1) & 0xff;
         return next;
       case 0xae:
-        this.priorityBase = a(0);
+        // set.pri.base: the Amiga 2.31x slot is the one-operand skip stub.
+        if (this.profile.priorityBaseAction === "effect") this.priorityBase = a(0);
         return next;
       case 0xaf:
         return next; // Spec: no runtime effect and no operand byte.
       case 0xb0:
       case 0xb2:
       case 0xb3:
-      case 0xb4:
         return next; // Full-EGA profile no-ops, with profile-specific widths.
+      case 0xb4:
+        // mouse.posn: PC v3 profiles no-op it; the Amiga 2.31x handler writes
+        // pointer X divided by two and pointer Y into its variable operands.
+        // The held pointer is (0,0) until a host pointer channel exists.
+        if (this.profile.mousePosnAction === "write-pointer") {
+          this.vars[a(0)] = (this.pointerX >> 1) & 0xff;
+          this.vars[a(1)] = this.pointerY & 0xff;
+        }
+        return next;
       case 0xb1:
-        this.menuInteractionGate = a(0);
+        // allow.menu: the Amiga 2.31x slot is the one-operand skip stub.
+        if (this.profile.menuInteractionGate) this.menuInteractionGate = a(0);
         return next;
       case 0xb5:
-        this.keyReleaseGate = 0;
+        // release.key: the Amiga 2.31x slot is the stub routine.
+        if (this.profile.releaseGateClearAction) this.keyReleaseGate = 0;
+        return next;
+      case 0xb6:
+        // adj.ego.move.to.x.y (Amiga 2.31x): stores the signed nudge operands
+        // into two pending words the click-move motion mode reads. Nothing
+        // selects that mode here yet, so the pair is inert state.
+        this.clickMoveNudge[0] = (a(0) << 24) >> 24;
+        this.clickMoveNudge[1] = (a(1) << 24) >> 24;
         return next;
 
       default:

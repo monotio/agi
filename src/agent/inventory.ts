@@ -5,13 +5,15 @@ import { decodeInventoryFile, inventoryTableFits } from "../runtime/inventoryFil
 export function readInventoryObjects(payload: Uint8Array | undefined, profile: AgiProfile) {
   if (!payload) return [];
   const data = decodeInventoryFile(payload, profile);
-  if (data.length < 3) throw new Error("Invalid inventory header");
+  if (data.length < profile.inventoryHeaderBytes) throw new Error("Invalid inventory header");
   const size = data[0]! | (data[1]! << 8);
-  if (!inventoryTableFits(data)) throw new Error("Invalid inventory table");
-  return Array.from({ length: size / 3 }, (_, i) => {
-    const entry = 3 + i * 3;
-    let at = 3 + (data[entry]! | (data[entry + 1]! << 8));
-    if (at < size + 3 || at >= data.length) throw new Error("Invalid inventory name offset");
+  if (!inventoryTableFits(data, profile)) throw new Error("Invalid inventory table");
+  const header = profile.inventoryHeaderBytes;
+  const stride = profile.inventoryEntryBytes;
+  return Array.from({ length: size / stride }, (_, i) => {
+    const entry = header + i * stride;
+    let at = header + (data[entry]! | (data[entry + 1]! << 8));
+    if (at < size + header || at >= data.length) throw new Error("Invalid inventory name offset");
     let name = "";
     while (at < data.length && data[at] !== 0) name += String.fromCharCode(data[at++]!);
     if (at === data.length) throw new Error("Unterminated inventory name");
