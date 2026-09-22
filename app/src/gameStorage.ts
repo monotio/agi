@@ -34,6 +34,7 @@ const LIBRARY_FIELDS: Record<keyof LibraryMetadata, true> = {
   source: true,
   catalog: true,
   preview: true,
+  profile: true,
   validation: true,
   description: true,
   author: true,

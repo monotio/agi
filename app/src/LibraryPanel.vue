@@ -9,11 +9,13 @@
  */
 import ActionMenu from "./ActionMenu.vue";
 import CatalogPanel from "./CatalogPanel.vue";
+import ProfileChoiceDialog from "./ProfileChoiceDialog.vue";
 import UiIcon from "./UiIcon.vue";
 import { useGameLibrary } from "./useGameLibrary.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { hasWalkthrough } from "./walkthrough.ts";
 import { getKnownGameByRevision } from "../../src/games/knownGames.ts";
+import { describeGameProfile } from "./profileChoice.ts";
 import { computed } from "vue";
 
 const {
@@ -56,6 +58,11 @@ const {
   onGameFolder,
   onGameDrop,
   refreshHostedCatalog,
+  profileChoiceState,
+  openLibraryProfileChoice,
+  closeProfileChoice,
+  applyProfileChoice,
+  decideLaterProfileChoice,
 } = useGameLibrary();
 const bridge = useShellBridge();
 
@@ -224,6 +231,16 @@ const pendingAutosaveTitle = computed(
                 @click="onCopyLibraryGame(game)"
               >
                 Make a copy
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="interpreter-profile-menu-item"
+                @click="openLibraryProfileChoice(game)"
+              >
+                <span
+                  >Interpreter profile<small>{{ describeGameProfile(game) }}</small></span
+                >
               </button>
               <div role="separator"></div>
               <button
@@ -406,6 +423,21 @@ const pendingAutosaveTitle = computed(
         {{ importNotice }}
       </p>
     </section>
+
+    <ProfileChoiceDialog
+      v-if="profileChoiceState"
+      open
+      :mode="profileChoiceState.mode"
+      :title="profileChoiceState.title"
+      :default-profile="profileChoiceState.defaultProfile"
+      :current-profile="profileChoiceState.currentProfile"
+      :current-kind="profileChoiceState.currentKind"
+      :has-override="profileChoiceState.hasOverride"
+      @confirm="applyProfileChoice"
+      @decide-later="decideLaterProfileChoice"
+      @return-to-auto="applyProfileChoice(undefined)"
+      @close="closeProfileChoice"
+    />
   </aside>
 </template>
 

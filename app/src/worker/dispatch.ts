@@ -204,7 +204,12 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.boot.authoredWords = null;
       ctx.boot.authorRooms = boot.authorRooms === true;
       ctx.boot.selectedSoundDevice = boot.soundDevice === 0 ? 0 : 1;
-      ctx.engine = new Engine(openContainer(files), ctx.host, ctx.boot.liveDictionary);
+      ctx.engine = new Engine(
+        openContainer(files),
+        ctx.host,
+        ctx.boot.liveDictionary,
+        boot.profile ? { profile: boot.profile } : undefined,
+      );
       ctx.fns.armJournal();
       // Browser sessions start with game sound enabled; saved games restore their own flag.
       ctx.engine.flags[9] = 1;
@@ -248,7 +253,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       // the boot record carries the image the session resumed from.
       ctx.fns.historyBoot(boot);
       if (!ctx.replay.replay) ctx.fns.startTimers();
-      control({ type: "booted", profile: ctx.engine.profile.id });
+      control({ type: "booted", profile: ctx.engine.profile.id, kind: ctx.engine.profileKind });
       ctx.fns.postReplay(null);
       return;
     }

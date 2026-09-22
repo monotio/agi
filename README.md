@@ -59,7 +59,8 @@ _Manhunter 2: San Francisco_, and the _Sierra demo pack_ (see
 editions and fixture tests). Your library appears under **Your games**,
 with **Resume** or **Play** on each card and a screenshot from its latest autosave.
 Rename a game with the pencil beside its name. Open **Game actions** to start
-over, check an imported game's opening, make a copy, download or remove a game.
+over, check an imported game's opening, choose or change its interpreter profile,
+make a copy, download or remove a game.
 **Details** contains game metadata.
 
 To create an adventure with an AI provider, pick a starting point under
@@ -147,12 +148,19 @@ provider during authoring. See [Security](SECURITY.md) for storage and data flow
 ## Save and share
 
 **Your games** holds authored adventures, the included tutorial and games opened
-from a ZIP or local folder. An opening check identifies the interpreter profile,
-captures a local thumbnail and catches invalid boot resources before an import is
-stored. It checks the opening only; it does not prove that every room or puzzle is
-playable. Importing the same game resources again reuses the library entry, while
-project archives and remix copies keep independent authoring histories and save
-slots. Renaming a game does not change that identity.
+from a ZIP or local folder. An opening check identifies the edition from its
+interpreter files or from the catalog of known releases, selects the interpreter
+profile, captures a local thumbnail and catches invalid boot resources before an
+import is stored. It checks the opening only; it does not prove that every room or
+puzzle is playable. A game that ships neither interpreter files nor a catalogued
+fingerprint, such as a fan-made adventure, asks which profile to run under before
+its first boot; **Decide later** keeps the container default. **Game actions →
+Interpreter profile** shows the active profile and how it was chosen, and lets
+you pick any profile or return to automatic detection; the choice is stored with
+the library entry and applied on every boot. Importing the same game resources
+again reuses the library entry, while project archives and remix copies keep
+independent authoring histories and save slots. Renaming a game does not change
+that identity.
 Playing the included tutorial or an imported game needs no provider key.
 
 Choose **Add game → ZIP file** or **Game folder**, or drop one ZIP or game

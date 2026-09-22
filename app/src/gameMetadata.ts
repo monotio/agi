@@ -9,6 +9,7 @@ import {
 import { sha256Hex } from "./crypto.ts";
 import { canonicalResourceName } from "../../src/types.ts";
 import type { BootedGame } from "./gameTypes.ts";
+import type { ProfileId, ProfileDetectionKind } from "../../src/runtime/profile.ts";
 
 /** Versioned library metadata. Resource revisions and local project IDs have separate jobs. */
 export interface PublicGameMetadata {
@@ -26,10 +27,15 @@ export interface LibraryMetadata extends PublicGameMetadata {
   catalog?: { id: string; version: string } | undefined;
   /** A browser-generated PNG, never an imported remote URL. */
   preview?: string | undefined;
+  /** Optional interpreter profile override applied on boot. */
+  profile?: ProfileId | undefined;
   validation: {
     status: "ready" | "needs-input" | "unverified";
     message: string;
     profile?: string | undefined;
+    kind?: ProfileDetectionKind | undefined;
+    /** The interpreter build the identification named, when it differs from the profile. */
+    build?: string | undefined;
   };
 }
 
@@ -101,6 +107,11 @@ export function normalizeLibraryMetadata(
   const status = validationValue?.["status"];
   const message = boundedText(validationValue?.["message"], 300);
   const profile = boundedText(validationValue?.["profile"], 80);
+  const rawKind = validationValue?.["kind"];
+  const kind: ProfileDetectionKind | undefined =
+    rawKind === "binary" || rawKind === "catalog" || rawKind === "default" ? rawKind : undefined;
+  const build = boundedText(validationValue?.["build"], 80);
+  const profileOverride = boundedText(value["profile"], 80) as ProfileId | undefined;
   return {
     ...publicGameMetadata(value as PublicGameMetadata),
     version: 1,
@@ -110,6 +121,7 @@ export function normalizeLibraryMetadata(
       ? { catalog: { id: catalogId, version: catalogVersion } }
       : {}),
     ...(isLocalGamePreview(value["preview"]) ? { preview: value["preview"] } : {}),
+    ...(profileOverride ? { profile: profileOverride } : {}),
     validation: {
       status:
         status === "ready" || status === "needs-input" || status === "unverified"
@@ -117,6 +129,8 @@ export function normalizeLibraryMetadata(
           : "unverified",
       message: message ?? "Opening not checked yet.",
       ...(profile ? { profile } : {}),
+      ...(kind ? { kind } : {}),
+      ...(build ? { build } : {}),
     },
   };
 }

@@ -26,6 +26,8 @@ export interface TextHook {
   textMode: boolean;
   /** Interpreter profile the engine detected from the shipped AGIDATA.OVL. */
   profile: string | null;
+  /** Detection kind of the interpreter profile: "binary", "catalog", or "default". */
+  profileKind: string | null;
   /** The interpreter is parked between cycles (power-up freeze). */
   paused: boolean;
   /** Interpreter cycles completed; stops advancing while the world is frozen. */
@@ -45,6 +47,7 @@ const EMPTY_HOOK: TextHook = {
   modal: null,
   textMode: false,
   profile: null,
+  profileKind: null,
   paused: false,
   cycle: 0,
   frame: 0,

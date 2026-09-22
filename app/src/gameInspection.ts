@@ -1,11 +1,14 @@
 import { Engine, type EngineHost } from "../../src/runtime/engine.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { compositeFrame } from "./composite.ts";
+import type { ProfileDetectionKind } from "../../src/runtime/profile.ts";
 
 export interface GameInspection {
   status: "ready" | "needs-input";
   message: string;
   profile: string;
+  kind: ProfileDetectionKind;
+  build: string | undefined;
   rgba: Uint8ClampedArray<ArrayBuffer>;
   rows: string[];
 }
@@ -78,6 +81,8 @@ export function inspectGame(game: {
       ? "Opening checked. The game may need a key or an answer to continue."
       : "Opening checked. Later rooms have not been playtested.",
     profile: engine.profile.id,
+    kind: engine.profileKind,
+    build: engine.profileBuild ?? undefined,
     rgba,
     rows: Array.from({ length: 25 }, (_, row) => engine.textRow(row)),
   };

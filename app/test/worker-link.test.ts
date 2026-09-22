@@ -321,20 +321,21 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         assert.ok(depCalls.includes("restored"));
         break;
       case "booted":
-        deliver(w, { type, profile: "2.917" });
+        deliver(w, { type, profile: "2.917", kind: "binary" });
         assert.equal(state.phase, "running");
         assert.equal(state.profile, "2.917");
+        assert.equal(state.profileKind, "binary");
         assert.equal(state.soundMode ?? "tandy", "tandy", "a PC profile keeps the mode");
         // A profile whose interpreter drives Paula selects the amiga mode.
-        deliver(w, { type, profile: "amiga-2.316" });
+        deliver(w, { type, profile: "amiga-2.316", kind: "catalog" });
         assert.equal(state.soundMode, "amiga");
         assert.ok(audioCalls.includes("setMode:amiga"));
         // An Apple IIgs profile selects the iigs mode the same way.
-        deliver(w, { type, profile: "iigs-1.014" });
+        deliver(w, { type, profile: "iigs-1.014", kind: "binary" });
         assert.equal(state.soundMode, "iigs");
         assert.ok(audioCalls.includes("setMode:iigs"));
         // Booting a PC edition afterward falls back to the PC default.
-        deliver(w, { type, profile: "2.917" });
+        deliver(w, { type, profile: "2.917", kind: "binary" });
         assert.equal(state.soundMode, "tandy");
         break;
       case "roomTransition":
