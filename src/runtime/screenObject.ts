@@ -109,8 +109,8 @@ export const MOTION_FOLLOW = 2;
 export const MOTION_WANDER = 3;
 /**
  * Amiga click-to-move mode (docs/fidelity.md "Amiga interpreter profiles"):
- * the 2.31x condition 0x13 tests this value. No host interaction selects it
- * yet, so the condition reads false under every current host.
+ * the 2.31x condition 0x13 tests this value. No host interaction selects
+ * that mode, so the condition reads false under every current host.
  */
 export const MOTION_CLICK_MOVE = 4;
 export const CYCLE_FORWARD = 0;

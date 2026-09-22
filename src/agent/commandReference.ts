@@ -63,6 +63,26 @@ const HELP: Record<string, string> = {
     "Apple IIgs only: the dispatcher reads past the action table into the quit routine; the action ends the interpreter session.",
 };
 
+/**
+ * Amiga action slots whose dispatch-table entry is a shared stub that only
+ * steps over its operand bytes (docs/fidelity.md "Amiga interpreter
+ * profiles"): the PC help for these codes describes effects those builds lack.
+ */
+const AMIGA_STUB_SLOTS = new Set([
+  0xa1, 0xa3, 0xa4, 0xad, 0xae, 0xaf, 0xb0, 0xb1, 0xb2, 0xb3, 0xb5,
+]);
+const AMIGA_STUB_HELP =
+  "Amiga stub: the interpreter steps over the operand bytes and does nothing else.";
+
+function actionHelp(profile: AgiProfile, code: number, name: string): string {
+  // Code-keyed help describes the shared/PC meaning of a slot; the IIgs tail
+  // carries different actions at the same codes, so only the name-keyed help
+  // applies there.
+  if (profile.extraActions === "iigs" && code >= 0xaf) return HELP[name] ?? "";
+  if (profile.id.startsWith("amiga-") && AMIGA_STUB_SLOTS.has(code)) return AMIGA_STUB_HELP;
+  return [ACTION_HELP[code], HELP[name]].filter(Boolean).join(" ");
+}
+
 export interface CommandReference {
   name: string;
   kind: "action" | "condition";
@@ -83,18 +103,17 @@ export function commandReference(profile: AgiProfile): CommandReference[] {
       ...spec,
       kind: "action",
       signature: `${spec.name}(${spec.operands.join(", ")})`,
-      // Code-keyed help describes the shared/PC meaning of a slot; the IIgs
-      // tail carries different actions at the same codes, so only the
-      // name-keyed help applies there.
-      help: (profile.extraActions === "iigs" && spec.code >= 0xaf
-        ? [HELP[spec.name]]
-        : [ACTION_HELP[spec.code], HELP[spec.name]]
-      )
-        .filter(Boolean)
-        .join(" "),
+      help: actionHelp(profile, spec.code, spec.name),
     });
   }
-  for (const spec of CONDITIONS.filter((spec) => spec.code <= profile.maxCondition))
+  // The IIgs condition 0x13 slot overruns its handler table: the assembler
+  // rejects it, so it is not an accepted command.
+  const conditions = CONDITIONS.filter(
+    (spec) =>
+      spec.code <= profile.maxCondition &&
+      !(spec.code === 0x13 && profile.condition0x13 === "wild-dispatch"),
+  );
+  for (const spec of conditions)
     result.push({
       ...spec,
       kind: "condition",

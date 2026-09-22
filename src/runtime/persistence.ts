@@ -105,25 +105,16 @@ export interface AmigaBlock1Layout {
 
 /**
  * Positions and capacities of the Apple IIgs save (docs/fidelity.md "Apple
- * IIgs interpreter"). The envelope is six big-endian-length blocks: an
- * opaque lead block, then the 0x3d0-byte main state block this layout maps
- * (little-endian fields), the object records, the inventory payload, the
- * replay pairs and the logic-resume records.
+ * IIgs interpreter"). The envelope is six big-endian-length blocks: the
+ * ~globals lead block, then the 0x3d0-byte main state block (both mapped
+ * here, little-endian fields), the object records, the inventory payload,
+ * the replay pairs and the logic-resume records.
  */
 export interface IigsBlock1Layout {
   readonly kind: "iigs";
-  /** Bytes of the leading block saved ahead of the state block. */
+  /** Bytes of the leading block saved ahead of the state block: the
+   * ~globals image $010d..$0144 ({@link IIGS_LEAD_WORDS}). */
   readonly lead: number;
-  /** Lead-block offsets, all u16le: the block()/horizon globals at bank 0
-   * $0111..$0121 (docs/fidelity.md "Apple IIgs interpreter"). */
-  readonly horizon: number;
-  readonly blockRect: number;
-  /** Lead-block offset of the player/program-control flag (u16le, $011d). */
-  readonly controlFlag: number;
-  /** Lead-block offset of the block-enable flag (u16le, $0121). */
-  readonly blockEnabled: number;
-  /** Offset inside the lead block of the replay capacity u16le. */
-  readonly replayCapacity: number;
   /** Bytes of the main state block (the second block in the envelope). */
   readonly size: number;
   /** Key-map start inside the state block: {rawKey u16le, status u16le}. */
@@ -392,18 +383,13 @@ const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
     navMirror: null,
   },
   // Apple IIgs 1.014 (SQ2.SYS16): the savegameseg writer emits six
-  // big-endian-length blocks — a 0x38-byte lead state block (replay capacity
-  // u16le at +0x1a), then the 0x3d0-byte main state block mapped here:
-  // 8 opaque head bytes, key map @0x08, strings @0xa8, vars @0x2b0, flags
+  // big-endian-length blocks — the 0x38-byte ~globals image $010d..$0144,
+  // then the 0x3d0-byte ~arrays state block mapped here: the set.game.id
+  // signature @0x00, key map @0x08, strings @0xa8, vars @0x2b0, flags
   // @0x3b0 (docs/fidelity.md "Apple IIgs interpreter").
   "iigs-1.014": {
     kind: "iigs",
     lead: 0x38,
-    horizon: 0x04,
-    blockRect: 0x08,
-    controlFlag: 0x10,
-    blockEnabled: 0x14,
-    replayCapacity: 0x1a,
     size: 0x03d0,
     keyMap: 0x08,
     keyMapEntries: 40,
@@ -598,9 +584,9 @@ export interface SaveState {
    */
   reservedBlock1: Uint8Array | null;
   /**
-   * Whole opaque blocks the profile's envelope carries ahead of the state
-   * block — currently the Apple IIgs lead block. Decoded verbatim and
-   * re-emitted at the same envelope position.
+   * Whole blocks the profile's envelope carries ahead of the state block —
+   * currently the Apple IIgs lead block. Kept as decoded so its unmapped
+   * words re-emit unchanged; the mapped words are rewritten from the state.
    */
   extraBlocks: Uint8Array[];
 }
@@ -952,10 +938,22 @@ function decodeBlock1Pc(block: Uint8Array, layout: PcBlock1Layout, into: SaveSta
 
 // ---------- Amiga block 1 (the raw state-hunk image, big-endian) ----------
 
+/**
+ * The state hunk's load image: zeros except the `0x000f` word directly ahead
+ * of the replay capacity and that capacity's initial 50 (docs/fidelity.md
+ * "Save image"). The capacity word is a mapped field, rewritten on encode.
+ */
+function canonicalBlock1Amiga(layout: AmigaBlock1Layout): Uint8Array {
+  const block = new Uint8Array(layout.size);
+  putU16be(block, layout.replayCapacity - 2, 0x000f);
+  putU16be(block, layout.replayCapacity, 50);
+  return block;
+}
+
 function encodeBlock1Amiga(state: SaveState, layout: AmigaBlock1Layout): Uint8Array {
   const base = state.reservedBlock1;
   const block =
-    base && base.length === layout.size ? Uint8Array.from(base) : new Uint8Array(layout.size);
+    base && base.length === layout.size ? Uint8Array.from(base) : canonicalBlock1Amiga(layout);
   block.set(state.signature.subarray(0, SIGNATURE_BYTES), OFF_SIGNATURE);
   putU32be(block, 0x08, state.timerTicks);
   putU16be(block, 0x0e, state.horizon);
@@ -1045,6 +1043,8 @@ function encodeBlock1Iigs(state: SaveState, layout: IigsBlock1Layout): Uint8Arra
   const base = state.reservedBlock1;
   const block =
     base && base.length === layout.size ? Uint8Array.from(base) : new Uint8Array(layout.size);
+  // set.game.id copies seven bytes to the block's first bytes (~arrays+0x2e).
+  block.set(state.signature.subarray(0, SIGNATURE_BYTES), OFF_SIGNATURE);
   for (let i = 0; i < layout.keyMapEntries; i++) {
     const entry = state.keyMap[i] ?? { rawKey: 0, status: 0 };
     putU16(block, layout.keyMap + i * 4, entry.rawKey);
@@ -1063,6 +1063,7 @@ function decodeBlock1Iigs(block: Uint8Array, layout: IigsBlock1Layout, into: Sav
     throw new RangeError(`block 1 is ${block.length} bytes, expected ${layout.size}`);
   }
   into.reservedBlock1 = Uint8Array.from(block);
+  into.signature = block.slice(OFF_SIGNATURE, OFF_SIGNATURE + SIGNATURE_BYTES);
   into.keyMap = [];
   for (let i = 0; i < layout.keyMapEntries; i++) {
     into.keyMap.push({
@@ -1197,22 +1198,31 @@ function decodeBlock2(block: Uint8Array): SaveObjectRecord[] {
 export const NATIVE_OBJECT_RECORD_BYTES = 0x48;
 
 /**
- * The Amiga family's native flag word (record +0x3e) is its own bit
- * assignment, not the engine's portable packing — the verified bits
- * (docs/fidelity.md "Amiga interpreter profiles"):
+ * The native flag word (record +0x3e) of the Amiga and IIgs builds is its
+ * own bit assignment, not the engine's portable packing. Every bit below is
+ * read off the handler that sets or clears it, identically on SQ2 2.202,
+ * Sierra 2.082 and the IIgs 1.014 build (docs/fidelity.md "Amiga interpreter
+ * profiles" and "Apple IIgs interpreter"):
  *
- *   0x0001 drawn      0x0010 update      0x0100 water "both"
- *   0x0004 fixed pri  0x0020 cycling     0x0200 ignore objects
- *   0x0008 ignore hor 0x0040 animated    0x0800 water "off" (0x0900 = "on")
- *   0x1000 stationary 0x2000 fix.loop
+ *   0x0001 drawn             portable active
+ *   0x0002 ignore blocks     portable NOT observeBlocks
+ *   0x0004 fixed priority    portable fixedPriority
+ *   0x0008 ignore horizon    portable NOT observeHorizon
+ *   0x0010 update pass       portable NOT earlierPartition (stop/start.update)
+ *   0x0020 cycling           portable cycling
+ *   0x0040 animated          portable update (animate.obj / unanimate.all)
+ *   0x0100 on water          portable waterGate "on"  (0x0900: "both")
+ *   0x0200 ignore objects    portable NOT observeObjects
+ *   0x0400 reposition        portable newlyPositioned
+ *   0x0800 on land           portable waterGate "off"
+ *   0x1000 cycle delay       portable cycleDelay (end.of.loop sets, draw clears)
+ *   0x2000 fix.loop          portable loopFixed
+ *   0x4000 stationary        portable stationary
  *
- * 0x0002 is ignore.blocks on both families (verified). 0x0040 is the
- * "animated" state `animate.obj` writes; the portable word has no
- * corresponding bit, so it and the unverified 0x0400/0x4000 bits round-trip
- * through the record's `raw` image.
+ * 0x0080 (the configured-rectangle crossing block) and 0x8000 have no
+ * portable state; they round-trip through the record's `raw` image only.
  */
-const AMIGA_FLAG_MAPPED =
-  0x0001 | 0x0002 | 0x0004 | 0x0008 | 0x0010 | 0x0020 | 0x0100 | 0x0200 | 0x0800 | 0x1000 | 0x2000;
+const NATIVE_FLAG_MAPPED = 0x7f7f;
 
 /** Portable state-word bits this translation reads (engine's packing). */
 const P_ACTIVE = 0x0001;
@@ -1226,65 +1236,73 @@ const P_LOOP_FIXED = 0x0080;
 const P_WATER_ON = 0x0100;
 const P_WATER_OFF = 0x0200;
 const P_EARLIER_PARTITION = 0x0400;
+const P_NEWLY_POSITIONED = 0x0800;
+const P_CYCLE_DELAY = 0x1000;
 const P_STATIONARY = 0x2000;
 
 /** Portable -> native motion-mode values: {normal, move, follow, wander, click} -> {0,3,2,1,4}.
  * Identical on the Amiga builds and the Apple IIgs (verified from the
  * normal.motion/move.obj/follow.ego/wander handlers on both). */
 const NATIVE_MOTION: readonly number[] = [0, 3, 2, 1, 4];
-/** Portable -> Amiga native cycle-mode values: {forward, reverse, end.of.loop, reverse.loop} -> {0,1,3,2}. */
-const NATIVE_CYCLE: readonly number[] = [0, 1, 3, 2];
-/** Portable -> IIgs native cycle-mode values -> {0,3,1,2}: the IIgs
- * reverse.cycle/end.of.loop/reverse.loop handlers write the PC order
- * (docs/fidelity.md "Apple IIgs interpreter"). */
-const IIGS_CYCLE: readonly number[] = [0, 3, 1, 2];
+/** Portable -> native cycle-mode values: {forward, reverse, end.of.loop,
+ * reverse.loop} -> {0,3,1,2}. The Amiga and IIgs normal.cycle/end.of.loop/
+ * reverse.loop/reverse.cycle handlers write 0/1/2/3 — the PC order
+ * (docs/fidelity.md "Amiga interpreter profiles"). */
+const NATIVE_CYCLE: readonly number[] = [0, 3, 1, 2];
+
+/** The portable value a native mode word decodes to; an unknown native value
+ * (none occurs in the shipped images) runs as mode 0 while the record's raw
+ * image keeps the original word. */
+function portableMode(table: readonly number[], native: number): number {
+  const mode = table.indexOf(native);
+  return mode < 0 ? 0 : mode;
+}
+
+function nativeMode(table: readonly number[], portable: number, what: string): number {
+  const native = table[portable];
+  if (native === undefined) throw new RangeError(`${what} mode ${portable} has no native value`);
+  return native;
+}
 
 function nativeFlagsFromPortable(state: number): number {
   let w = 0;
-  // 0x0001 is "drawn" (drawseg/draw handlers on both families); an object in
-  // the earlier drawn partition is drawn too.
-  if (state & (P_ACTIVE | P_EARLIER_PARTITION)) w |= 0x0001;
+  if (state & P_ACTIVE) w |= 0x0001;
   if (!(state & P_OBSERVE_BLOCKS)) w |= 0x0002;
   if (state & P_FIXED_PRIORITY) w |= 0x0004;
   if (!(state & P_OBSERVE_HORIZON)) w |= 0x0008;
-  if (state & P_UPDATE) w |= 0x0010;
+  if (!(state & P_EARLIER_PARTITION)) w |= 0x0010;
   if (state & P_CYCLING) w |= 0x0020;
-  const water = state & (P_WATER_ON | P_WATER_OFF);
-  if (water === (P_WATER_ON | P_WATER_OFF)) w |= 0x0100;
-  else if (water === P_WATER_OFF) w |= 0x0800;
-  else if (water === P_WATER_ON) w |= 0x0900;
+  if (state & P_UPDATE) w |= 0x0040;
+  if (state & P_WATER_ON) w |= 0x0100;
   if (!(state & P_OBSERVE_OBJECTS)) w |= 0x0200;
-  if (state & P_STATIONARY) w |= 0x1000;
+  if (state & P_NEWLY_POSITIONED) w |= 0x0400;
+  if (state & P_WATER_OFF) w |= 0x0800;
+  if (state & P_CYCLE_DELAY) w |= 0x1000;
   if (state & P_LOOP_FIXED) w |= 0x2000;
+  if (state & P_STATIONARY) w |= 0x4000;
   return w;
 }
 
 function portableFlagsFromNative(w: number): number {
-  // 0x0002 is the native ignore.blocks bit (blockseg/motion handlers on both
-  // families); the portable word tracks the observing state instead.
-  let s = w & 0x0002 ? 0 : P_OBSERVE_BLOCKS;
+  let s = 0;
   if (w & 0x0001) s |= P_ACTIVE;
-  if (w & 0x0010) s |= P_UPDATE;
-  if (w & 0x0020) s |= P_CYCLING;
+  if (!(w & 0x0002)) s |= P_OBSERVE_BLOCKS;
   if (w & 0x0004) s |= P_FIXED_PRIORITY;
   if (!(w & 0x0008)) s |= P_OBSERVE_HORIZON;
+  if (!(w & 0x0010)) s |= P_EARLIER_PARTITION;
+  if (w & 0x0020) s |= P_CYCLING;
+  if (w & 0x0040) s |= P_UPDATE;
+  if (w & 0x0100) s |= P_WATER_ON;
   if (!(w & 0x0200)) s |= P_OBSERVE_OBJECTS;
+  if (w & 0x0400) s |= P_NEWLY_POSITIONED;
+  if (w & 0x0800) s |= P_WATER_OFF;
+  if (w & 0x1000) s |= P_CYCLE_DELAY;
   if (w & 0x2000) s |= P_LOOP_FIXED;
-  const water = w & 0x0900;
-  if (water === 0x0900) s |= P_WATER_ON;
-  else if (water === 0x0800) s |= P_WATER_OFF;
-  else if (w & 0x0100) s |= P_WATER_ON | P_WATER_OFF;
-  // Drawn without an update pass is the earlier-drawn partition.
-  if (w & 0x0001 && !(w & 0x0010)) s |= P_EARLIER_PARTITION;
-  if (w & 0x1000) s |= P_STATIONARY;
+  if (w & 0x4000) s |= P_STATIONARY;
   return s;
 }
 
-function encodeBlock2Native(
-  objects: readonly SaveObjectRecord[],
-  be: boolean,
-  cycles: readonly number[],
-): Uint8Array {
+function encodeBlock2Native(objects: readonly SaveObjectRecord[], be: boolean): Uint8Array {
   const block = new Uint8Array(objects.length * NATIVE_OBJECT_RECORD_BYTES);
   const w16 = be ? putU16be : putU16;
   const r16 = be ? u16be : u16;
@@ -1293,8 +1311,8 @@ function encodeBlock2Native(
     const at = i * NATIVE_OBJECT_RECORD_BYTES;
     // Start from the decoded image so pointers (+0x0c..0x27) and the
     // unmapped flag bits keep their native contents.
-    const base = o.raw;
-    if (base && base.length === NATIVE_OBJECT_RECORD_BYTES) block.set(base, at);
+    const base = o.raw && o.raw.length === NATIVE_OBJECT_RECORD_BYTES ? o.raw : null;
+    if (base) block.set(base, at);
     w16(block, at + 0x00, o.stepTime);
     w16(block, at + 0x02, o.stepCount);
     w16(block, at + 0x04, o.event);
@@ -1313,13 +1331,17 @@ function encodeBlock2Native(
     w16(block, at + 0x32, o.cycleTime);
     w16(block, at + 0x34, o.cycleCount);
     w16(block, at + 0x36, o.direction);
-    w16(block, at + 0x38, NATIVE_MOTION[o.motionMode] ?? 0);
-    w16(block, at + 0x3a, cycles[o.cycleMode] ?? 0);
+    // A mode word is rewritten only when the portable value no longer
+    // decodes from it, so an unknown native value the image carried stays.
+    if (!base || portableMode(NATIVE_MOTION, r16(base, 0x38)) !== o.motionMode)
+      w16(block, at + 0x38, nativeMode(NATIVE_MOTION, o.motionMode, "motion"));
+    if (!base || portableMode(NATIVE_CYCLE, r16(base, 0x3a)) !== o.cycleMode)
+      w16(block, at + 0x3a, nativeMode(NATIVE_CYCLE, o.cycleMode, "cycle"));
     w16(block, at + 0x3c, o.priority);
     // Unmapped flag bits survive through the preserved image; the mapped
     // bits come from the portable state word.
-    const carried = base && base.length === NATIVE_OBJECT_RECORD_BYTES ? r16(base, 0x3e) : 0;
-    w16(block, at + 0x3e, (carried & ~AMIGA_FLAG_MAPPED) | nativeFlagsFromPortable(o.state));
+    const carried = base ? r16(base, 0x3e) : 0;
+    w16(block, at + 0x3e, (carried & ~NATIVE_FLAG_MAPPED) | nativeFlagsFromPortable(o.state));
     // The parameter bank is four bytes riding in the low half of four words.
     for (let p = 0; p < 4; p++) {
       block[at + 0x40 + p * 2 + (be ? 1 : 0)] = o.motionParams[p]! & 0xff;
@@ -1328,11 +1350,7 @@ function encodeBlock2Native(
   return block;
 }
 
-function decodeBlock2Native(
-  block: Uint8Array,
-  be: boolean,
-  cycles: readonly number[],
-): SaveObjectRecord[] {
+function decodeBlock2Native(block: Uint8Array, be: boolean): SaveObjectRecord[] {
   if (block.length % NATIVE_OBJECT_RECORD_BYTES !== 0) {
     throw new RangeError(
       `block 2 is ${block.length} bytes, not a multiple of ${NATIVE_OBJECT_RECORD_BYTES}`,
@@ -1361,11 +1379,8 @@ function decodeBlock2Native(
     record.cycleTime = r16(rec, 0x32);
     record.cycleCount = r16(rec, 0x34);
     record.direction = r16(rec, 0x36);
-    // The Amiga tables are involutions; the IIgs cycle table is not — decode
-    // native values through a reverse lookup of the portable->native table.
-    record.motionMode = Math.max(0, NATIVE_MOTION.indexOf(r16(rec, 0x38)));
-    if (record.motionMode < 0) record.motionMode = 0;
-    record.cycleMode = Math.max(0, cycles.indexOf(r16(rec, 0x3a)));
+    record.motionMode = portableMode(NATIVE_MOTION, r16(rec, 0x38));
+    record.cycleMode = portableMode(NATIVE_CYCLE, r16(rec, 0x3a));
     record.priority = r16(rec, 0x3c);
     record.state = portableFlagsFromNative(r16(rec, 0x3e));
     record.motionParams = [
@@ -1487,9 +1502,7 @@ export function encodeSave(state: SaveState, profile: AgiProfile): Uint8Array {
 
   const blocks: Uint8Array[] = [
     encodeBlock1(state, layout),
-    layout.kind === "amiga"
-      ? encodeBlock2Native(state.objects, true, NATIVE_CYCLE)
-      : encodeBlock2(state.objects),
+    layout.kind === "amiga" ? encodeBlock2Native(state.objects, true) : encodeBlock2(state.objects),
     profile.saveBlock3Xor ? transformBlock3(state.inventory) : Uint8Array.from(state.inventory),
     encodeBlock4(state.replay, state.replayCapacity),
   ];
@@ -1516,31 +1529,60 @@ export function encodeSave(state: SaveState, profile: AgiProfile): Uint8Array {
 }
 
 /**
- * The Apple IIgs envelope: six blocks with big-endian lengths — the opaque
- * lead block, the state block, the little-endian object records, the raw
+ * The Apple IIgs envelope: six blocks with big-endian lengths — the
+ * ~globals lead block, the state block, the little-endian object records, the raw
  * inventory, the replay pairs and the logic-resume records
  * (docs/fidelity.md "Apple IIgs interpreter").
  */
+/** Numeric SaveState fields, the ones a lead-block word can carry. */
+type NumericSaveField = {
+  [K in keyof SaveState]: SaveState[K] extends number ? K : never;
+}[keyof SaveState];
+
+/**
+ * The IIgs lead block is the ~globals image $010d..$0144; each u16le word
+ * here is the global its handler writes (docs/fidelity.md "Bounds, objects
+ * and the save image"). The u32 timer sits at +0x00 and the cursor byte at
+ * +0x28; every other byte is carried from the decoded image.
+ */
+const IIGS_LEAD_WORDS: readonly (readonly [NumericSaveField, number])[] = [
+  ["horizon", 0x04],
+  ["blockLeft", 0x08],
+  ["blockTop", 0x0a],
+  ["blockRight", 0x0c],
+  ["blockBottom", 0x0e],
+  ["directionCoupling", 0x10],
+  ["lastPicture", 0x12],
+  ["blockEnabled", 0x14],
+  ["replayCapacity", 0x1a],
+  ["replayActive", 0x1c],
+  ["textFg", 0x1e],
+  ["textBg", 0x20],
+  ["inputEnabled", 0x24],
+  ["statusEnabled", 0x2a],
+  ["displayBaseRow", 0x2e],
+  ["displayBottomRow", 0x30],
+  ["inputRow", 0x32],
+  ["statusRow", 0x34],
+  ["replayCheckpoint", 0x36],
+];
+const IIGS_LEAD_TIMER = 0x00;
+const IIGS_LEAD_PROMPT = 0x28;
+
 function encodeSaveIigs(state: SaveState, layout: IigsBlock1Layout): Uint8Array {
-  const lead =
-    state.extraBlocks[0] && state.extraBlocks[0]!.length === layout.lead
-      ? Uint8Array.from(state.extraBlocks[0]!)
-      : new Uint8Array(layout.lead);
-  // The lead block is the bank-0 globals image ($010d..$0144): horizon,
-  // the block rectangle and enable, the player/program-control flag and the
-  // replay capacity sit at the verified offsets (docs/fidelity.md).
-  putU16(lead, layout.horizon, state.horizon);
-  putU16(lead, layout.blockRect, state.blockLeft);
-  putU16(lead, layout.blockRect + 2, state.blockTop);
-  putU16(lead, layout.blockRect + 4, state.blockRight);
-  putU16(lead, layout.blockRect + 6, state.blockBottom);
-  putU16(lead, layout.controlFlag, state.directionCoupling);
-  putU16(lead, layout.blockEnabled, state.blockEnabled);
-  putU16(lead, layout.replayCapacity, state.replayCapacity);
+  const supplied = state.extraBlocks[0];
+  const decoded = supplied?.length === layout.lead;
+  const lead = decoded ? Uint8Array.from(supplied) : new Uint8Array(layout.lead);
+  // The ~globals load image is zero here except 0x000f at +0x18, ahead of
+  // the replay capacity as on the Amiga, and mapped capacity/row words.
+  if (!decoded) putU16(lead, 0x18, 0x000f);
+  putU32(lead, IIGS_LEAD_TIMER, state.timerTicks);
+  for (const [field, at] of IIGS_LEAD_WORDS) putU16(lead, at, state[field]);
+  lead[IIGS_LEAD_PROMPT] = state.promptChar & 0xff;
   const blocks: Uint8Array[] = [
     lead,
     encodeBlock1(state, layout),
-    encodeBlock2Native(state.objects, false, IIGS_CYCLE),
+    encodeBlock2Native(state.objects, false),
     Uint8Array.from(state.inventory),
     encodeBlock4(state.replay, state.replayCapacity),
     encodeBlock5(state.logicResume),
@@ -1587,24 +1629,15 @@ export function decodeSave(bytes: Uint8Array, profile: AgiProfile): SaveState {
     if (lead.length !== layout.lead) {
       throw new RangeError(`lead block is ${lead.length} bytes, expected ${layout.lead}`);
     }
-    state.horizon = u16(lead, layout.horizon);
-    state.blockLeft = u16(lead, layout.blockRect);
-    state.blockTop = u16(lead, layout.blockRect + 2);
-    state.blockRight = u16(lead, layout.blockRect + 4);
-    state.blockBottom = u16(lead, layout.blockRect + 6);
-    state.directionCoupling = u16(lead, layout.controlFlag);
-    state.blockEnabled = u16(lead, layout.blockEnabled);
-    state.replayCapacity = u16(lead, layout.replayCapacity);
+    state.timerTicks = u32(lead, IIGS_LEAD_TIMER);
+    for (const [field, at] of IIGS_LEAD_WORDS) state[field] = u16(lead, at);
+    state.promptChar = lead[IIGS_LEAD_PROMPT]!;
   }
   decodeBlock1(blocks[0]!, layout, state);
   state.objects =
     layout.kind === "pc"
       ? decodeBlock2(blocks[1]!)
-      : decodeBlock2Native(
-          blocks[1]!,
-          layout.kind === "amiga",
-          layout.kind === "iigs" ? IIGS_CYCLE : NATIVE_CYCLE,
-        );
+      : decodeBlock2Native(blocks[1]!, layout.kind === "amiga");
   const block3 = blocks[2]!;
   state.inventory = profile.saveBlock3Xor ? transformBlock3(block3) : block3;
   state.replay = decodeBlock4(blocks[3]!);

@@ -4492,7 +4492,7 @@ export class Engine {
       case 0x13:
         // click.move.pending (Amiga 2.31x dispatch bound): the handler tests
         // ego's motion mode against the click-move mode. No host interaction
-        // selects that mode yet, so this reads false — a current host
+        // selects that mode, so this reads false — a current host
         // limitation, not established original behavior. The IIgs 1.014
         // evaluator's bound admits 0x13 but its 19-entry handler table ends
         // at 0x12: the slot reads into the code that follows the table and
@@ -5712,8 +5712,8 @@ export class Engine {
         return next;
       case 0xb6:
         // adj.ego.move.to.x.y (Amiga 2.31x): stores the signed nudge operands
-        // into two pending words the click-move motion mode reads. Nothing
-        // selects that mode here yet, so the pair is inert state.
+        // into two pending words the click-move motion mode reads. No host
+        // interaction selects that mode, so the pair is inert state.
         this.clickMoveNudge[0] = (a(0) << 24) >> 24;
         this.clickMoveNudge[1] = (a(1) << 24) >> 24;
         return next;

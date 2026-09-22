@@ -295,7 +295,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
   },
   // Platform ports carry their own (WORDS.TOK, OBJECT) pair and run under
   // their own interpreter profiles (docs/fidelity.md "Amiga interpreter
-  // profiles"; the IIgs entry stays on the PC profile it was catalogued with).
+  // profiles" and "Apple IIgs interpreter": the IIgs entry runs iigs-1.014).
   {
     alias: "sq1-amiga",
     title: "Space Quest I (Amiga)",

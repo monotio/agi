@@ -800,7 +800,12 @@ function emitCondition(
       lit.cond.tok.col,
     );
   }
-  if (spec.code > profile.maxCondition) {
+  // The IIgs evaluator admits 0x13, but the slot overruns its handler table
+  // (docs/fidelity.md "Apple IIgs interpreter"): no condition exists there.
+  if (
+    spec.code > profile.maxCondition ||
+    (spec.code === 0x13 && profile.condition0x13 === "wild-dispatch")
+  ) {
     throw new AssemblerError(
       `condition '${spec.name}' is not available in profile ${profile.id}`,
       lit.cond.tok.line,

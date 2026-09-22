@@ -89,6 +89,41 @@ describe("profile-selected logic bytecode", () => {
     assert.deepEqual(assembleLogic(disassembleLogic(payload, opts), opts).code, code);
   });
 
+  for (const id of ["amiga-2.310", "amiga-2.316", "amiga-2.333"] as const) {
+    it(`${id} round-trips the 0xad..0xb6 tail at the dispatch table's widths`, () => {
+      // Operand counts from the six-byte records of the PQ/GR/MH2 action
+      // tables (data hunk 5, record n at n * 6, count byte at +4): 0xad 0,
+      // 0xae 1, 0xaf 1 (h5+0x41e), 0xb0 0, 0xb1 1, 0xb2 0, 0xb3 4, 0xb4 2,
+      // 0xb5 0, 0xb6 2 (docs/fidelity.md "Amiga interpreter profiles").
+      const opts = { dictionary, profile: PROFILES[id] };
+      const code = new Uint8Array([
+        0xad, 0xae, 40, 0xaf, 5, 0xb0, 0xb1, 1, 0xb2, 0xb3, 1, 2, 3, 4, 0xb4, 200, 201, 0xb5, 0xb6,
+        2, 0xfe, 0,
+      ]);
+      const source =
+        "hold.key(); set.pri.base(40); discard.sound(5); hide.mouse(); allow.menu(1); show.mouse(); " +
+        "fence.mouse(1,2,3,4); mouse.posn(v200,v201); release.key(); adj.ego.move.to.x.y(2, 254); return;";
+      assert.deepEqual(assembleLogic(source, opts).code, code);
+      const payload = buildLogicResource(code, []);
+      assert.deepEqual(disassembleLogicWarnings(payload, opts), []);
+      assert.deepEqual(assembleLogic(disassembleLogic(payload, opts), opts).code, code);
+    });
+  }
+
+  it("iigs-1.014 rejects condition 0x13, whose slot overruns the handler table", () => {
+    const opts = { dictionary, profile: PROFILES["iigs-1.014"] };
+    assert.throws(
+      () => assembleLogic("if (click.move.pending()) { return; } return;", opts),
+      /not available.*iigs-1\.014/,
+    );
+    // The Amiga 2.31x handler is real, so the name assembles there.
+    const amiga = { dictionary, profile: PROFILES["amiga-2.316"] };
+    assert.deepEqual(
+      Array.from(assembleLogic("if (click.move.pending()) { return; } return;", amiga).code),
+      [0xff, 0x13, 0xff, 0x01, 0x00, 0x00, 0x00],
+    );
+  });
+
   it("iigs-1.014 does not resolve the PC v3 tail names", () => {
     const opts = { dictionary, profile: PROFILES["iigs-1.014"] };
     // Slots 0xad/0xae stay shared — they are inside the IIgs table's

@@ -339,5 +339,9 @@ export function actionSpec(
     return { ...spec, operands: ["imm"] };
   // The 0xb6 slot exists only in the Amiga 2.31x dispatch table.
   if (spec.code === 0xb6 && profile.extraActions !== "amiga-2.31x") return undefined;
+  // The Amiga 2.31x 0xaf slot is the shared one-operand skip stub
+  // (docs/fidelity.md "Amiga interpreter profiles").
+  if (spec.code === 0xaf && profile.extraActions === "amiga-2.31x")
+    return { ...spec, operands: ["imm"] };
   return spec;
 }

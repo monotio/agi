@@ -19,8 +19,8 @@ const ROOTS = ["src", "app/src"];
 const BASELINE: Record<string, { lines: number; boundary: string }> = {
   "src/runtime/engine.ts": {
     // rc.15: deferred reposition placement, dispatch/condition bounds, input
-    // fidelity and the new.room transition corrections; the Amiga 2.31x
-    // opcode handlers ride on the same dispatch switch.
+    // fidelity and the new.room transition corrections. rc.16: the Amiga
+    // 2.31x and IIgs opcode handlers ride on the same dispatch switch.
     lines: 6274,
     boundary:
       "the interpreter core: dispatch, original movement phases, modal timing and restore re-entry",

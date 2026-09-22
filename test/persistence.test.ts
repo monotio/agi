@@ -17,11 +17,12 @@ import {
 import { PROFILES } from "../src/runtime/profile.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { rngDraw } from "../src/runtime/rng.ts";
-import { createContainer } from "../src/container/container.ts";
+import { createContainer, openContainer } from "../src/container/container.ts";
+import { parseWordsTok } from "../src/logic/words.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildView } from "../src/view/view.ts";
 import { findFixture, fixtureSkip } from "./fixtures.ts";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -599,7 +600,7 @@ describe("amiga save image (docs/fidelity.md, Amiga interpreter profiles)", () =
     object.cycleCount = 4;
     object.direction = 7;
     object.motionMode = 1; // move.obj: Amiga mode 3
-    object.cycleMode = 2; // end.of.loop: Amiga mode 3
+    object.cycleMode = 2; // end.of.loop: Amiga mode 1 (the PC order)
     object.priority = 9;
     // active|update|cycling|fixedPri|obsHor|obsBlk|obsObj|loopFixed|waterOn|stationary
     object.state = 1 | 2 | 4 | 8 | 0x10 | 0x20 | 0x40 | 0x80 | 0x100 | 0x2000;
@@ -627,12 +628,16 @@ describe("amiga save image (docs/fidelity.md, Amiga interpreter profiles)", () =
     assert.equal(u16be(r, 0x34), 4);
     assert.equal(u16be(r, 0x36), 7);
     assert.equal(u16be(r, 0x38), 3, "move.obj is Amiga motion mode 3");
-    assert.equal(u16be(r, 0x3a), 3, "end.of.loop is Amiga cycle mode 3");
+    assert.equal(u16be(r, 0x3a), 1, "end.of.loop is Amiga cycle mode 1");
     assert.equal(u16be(r, 0x3c), 9);
-    // Amiga flag word: drawn 0x01 | fixedPri 0x04 | update 0x10 | cycling 0x20
-    // | water-on 0x900 | stationary 0x1000 | fix.loop 0x2000. The "animated"
-    // bit 0x40 has no portable state and stays raw-preserved.
-    assert.equal(u16be(r, 0x3e), 0x3935);
+    // Native flag word, bit by bit from the handlers (docs/fidelity.md):
+    // drawn 0x0001 (active) + fixed priority 0x0004 + update pass 0x0010
+    // (not earlierPartition) + cycling 0x0020 + animated 0x0040 (portable
+    // update) + on.water 0x0100 + fix.loop 0x2000 + stationary 0x4000; the
+    // observed horizon/blocks/objects leave 0x0008/0x0002/0x0200 clear.
+    // 0x0001 + 0x0004 + 0x0010 + 0x0020 + 0x0040 + 0x0100 + 0x2000 + 0x4000
+    // = 0x6175.
+    assert.equal(u16be(r, 0x3e), 0x6175);
     assert.deepEqual(
       Array.from(r.subarray(0x40, 0x48)),
       [0x00, 0x0a, 0x00, 0x14, 0x00, 0x1e, 0x00, 0x28],
@@ -658,6 +663,103 @@ describe("amiga save image (docs/fidelity.md, Amiga interpreter profiles)", () =
     assert.equal(out.state & 0x40, 0, "observeObjects bit cleared");
     assert.equal(out.state & 1, 1, "active");
     assert.equal(out.state & 4, 4, "cycling");
+  });
+
+  test("each native flag bit decodes to the portable state its handler maintains", () => {
+    // One native bit per record, decoded against the portable packing
+    // (screenObject.ts): active 0x1, update (animated) 0x2, cycling 0x4,
+    // fixedPriority 0x8, observeHorizon 0x10, observeBlocks 0x20,
+    // observeObjects 0x40, loopFixed 0x80, water on 0x100 / off 0x200,
+    // earlierPartition 0x400, newlyPositioned 0x800, cycleDelay 0x1000,
+    // stationary 0x2000. A zero native word observes everything and, with the
+    // update-pass bit 0x0010 clear, selects the earlier partition: 0x0470.
+    const cases: [number, number][] = [
+      [0x0000, 0x0470],
+      [0x0001, 0x0471], // drawn (draw sets, erase clears)
+      [0x0002, 0x0450], // ignore.blocks
+      [0x0004, 0x0478], // set.priority
+      [0x0008, 0x0460], // ignore.horizon
+      [0x0010, 0x0070], // update pass (start.update sets, stop.update clears)
+      [0x0020, 0x0474], // start.cycling
+      [0x0040, 0x0472], // animate.obj (unanimate.all clears)
+      [0x0100, 0x0570], // object.on.water
+      [0x0200, 0x0430], // ignore.objs
+      [0x0400, 0x0c70], // reposition
+      [0x0800, 0x0670], // object.on.land
+      [0x0900, 0x0770], // object.on.water + object.on.land
+      [0x1000, 0x1470], // end.of.loop/reverse.loop delay (draw clears)
+      [0x2000, 0x04f0], // fix.loop
+      [0x4000, 0x2470], // x,y equal the saved pair on the due pass
+    ];
+    const profile = PROFILES["amiga-2.202"];
+    const block = new Uint8Array(cases.length * 0x48);
+    cases.forEach(([native], i) => {
+      block[i * 0x48 + 0x3e] = native >> 8;
+      block[i * 0x48 + 0x3f] = native & 0xff;
+    });
+    const { state } = amigaState();
+    const image = encodeSave(state, profile);
+    const b2at = DESC + 2 + 0x40a;
+    const withObjects = new Uint8Array(image.length + block.length);
+    withObjects.set(image.subarray(0, b2at), 0);
+    withObjects[b2at] = block.length & 0xff;
+    withObjects[b2at + 1] = block.length >> 8;
+    withObjects.set(block, b2at + 2);
+    withObjects.set(image.subarray(b2at + 2), b2at + 2 + block.length);
+    const decoded = decodeSave(withObjects, profile);
+    assert.deepEqual(
+      decoded.objects.map((o) => o.state.toString(16)),
+      cases.map(([, portable]) => portable.toString(16)),
+    );
+    // Without the raw image, the portable word alone reproduces each native word.
+    for (const o of decoded.objects) delete o.raw;
+    const again = encodeSave(decoded, profile);
+    cases.forEach(([native], i) =>
+      assert.equal(
+        u16be(again, b2at + 2 + i * 0x48 + 0x3e),
+        native,
+        `native ${native.toString(16)}`,
+      ),
+    );
+  });
+
+  test("an unknown native mode word runs as mode 0 and re-encodes unchanged", () => {
+    const profile = PROFILES["amiga-2.202"];
+    const { state } = amigaState();
+    const record = newObjectRecord();
+    record.raw = new Uint8Array(0x48);
+    record.raw[0x39] = 9; // motion mode 9: no handler writes it
+    record.raw[0x3b] = 7; // cycle mode 7: no handler writes it
+    state.objects = [record];
+    const image = encodeSave(state, profile);
+    const b2at = DESC + 2 + 0x40a;
+    assert.equal(u16be(image, b2at + 2 + 0x38), 9);
+    assert.equal(u16be(image, b2at + 2 + 0x3a), 7);
+    const decoded = decodeSave(image, profile);
+    assert.equal(decoded.objects[0]!.motionMode, 0);
+    assert.equal(decoded.objects[0]!.cycleMode, 0);
+    assert.deepEqual(Array.from(encodeSave(decoded, profile)), Array.from(image));
+    // A mode the engine changes is written through the table.
+    decoded.objects[0]!.motionMode = 3; // wander: native 1
+    assert.equal(u16be(encodeSave(decoded, profile), b2at + 2 + 0x38), 1);
+  });
+
+  test("an engine-written block 1 starts from the state hunk's load image", () => {
+    // The 2.176+ hunk image is zero except 0x000f at +0x24 and the script
+    // capacity 50 (0x32) at +0x26 (docs/fidelity.md "Save image").
+    const profile = PROFILES["amiga-2.202"];
+    const state = newSaveState(profile);
+    state.replayCapacity = 50;
+    const image = encodeSave(state, profile);
+    assert.equal(u16be(image, DESC + 2 + 0x24), 0x000f);
+    assert.equal(u16be(image, DESC + 2 + 0x26), 0x0032);
+    // 2.082 sits two bytes later: 0x000f at +0x26, the capacity at +0x28.
+    const sierra = PROFILES["amiga-2.082"];
+    const early = newSaveState(sierra);
+    early.replayCapacity = 50;
+    const earlyImage = encodeSave(early, sierra);
+    assert.equal(u16be(earlyImage, DESC + 2 + 0x26), 0x000f);
+    assert.equal(u16be(earlyImage, DESC + 2 + 0x28), 0x0032);
   });
 
   test("a decoded record preserves its unmapped bytes on re-encode", () => {
@@ -774,6 +876,20 @@ describe("apple iigs save image (docs/fidelity.md, Apple IIgs interpreter)", () 
     state.blockBottom = 0x55;
     state.blockEnabled = 1;
     state.directionCoupling = 1;
+    state.signature.set([0x53, 0x51, 0x32]); // "SQ2"
+    state.timerTicks = 0x00012345;
+    state.lastPicture = 9;
+    state.replayActive = 2;
+    state.replayCheckpoint = 1;
+    state.textFg = 14;
+    state.textBg = 1;
+    state.inputEnabled = 1;
+    state.promptChar = 0x5f;
+    state.statusEnabled = 1;
+    state.displayBaseRow = 1;
+    state.displayBottomRow = 22;
+    state.inputRow = 23;
+    state.statusRow = 0;
     state.replay = [
       { kind: 2, value: 1 },
       { kind: 4, value: 2 },
@@ -803,8 +919,27 @@ describe("apple iigs save image (docs/fidelity.md, Apple IIgs interpreter)", () 
     assert.equal(u16(lead, 0x10), 1, "player/program-control flag");
     assert.equal(u16(lead, 0x14), 1, "block enable");
     assert.equal(u16(lead, 0x1a), 3);
-    // State block: key map @0x08, strings @0xa8, vars @0x2b0, flags @0x3b0.
+    // The ~globals words handlers write: timer u32 $010d, picture $011f,
+    // active count $0129, checkpoint $0143, text colors $012b/$012d, input
+    // enable $0131, cursor byte $0135, status enable $0137, rows $013b..$0141.
+    assert.deepEqual(Array.from(lead.subarray(0x00, 0x04)), [0x45, 0x23, 0x01, 0x00], "timer");
+    assert.equal(u16(lead, 0x12), 9, "last picture");
+    assert.equal(u16(lead, 0x18), 0x000f, "load-image word ahead of the capacity");
+    assert.equal(u16(lead, 0x1c), 2, "replay active");
+    assert.equal(u16(lead, 0x36), 1, "replay checkpoint");
+    assert.deepEqual([u16(lead, 0x1e), u16(lead, 0x20)], [14, 1], "text fg/bg");
+    assert.equal(u16(lead, 0x24), 1, "input enable");
+    assert.equal(lead[0x28], 0x5f, "cursor character");
+    assert.equal(u16(lead, 0x2a), 1, "status enable");
+    assert.deepEqual(
+      [u16(lead, 0x2e), u16(lead, 0x30), u16(lead, 0x32), u16(lead, 0x34)],
+      [1, 22, 23, 0],
+      "configure.screen rows",
+    );
+    // State block: signature @0x00, key map @0x08, strings @0xa8, vars
+    // @0x2b0, flags @0x3b0.
     const b1 = image.subarray(DESC + 2 + 0x38 + 2, DESC + 2 + 0x38 + 2 + 0x3d0);
+    assert.deepEqual(Array.from(b1.subarray(0x00, 0x04)), [0x53, 0x51, 0x32, 0x00], "SQ2");
     assert.deepEqual(Array.from(b1.subarray(0x08, 0x10)), [0x00, 0x3b, 0x02, 0x00, 0, 0, 0, 0]);
     assert.equal(b1[0xa8], 0x3e);
     assert.equal(b1[0x2b0], 9);
@@ -822,6 +957,12 @@ describe("apple iigs save image (docs/fidelity.md, Apple IIgs interpreter)", () 
     assert.equal(decoded.blockBottom, 0x55);
     assert.equal(decoded.blockEnabled, 1);
     assert.equal(decoded.directionCoupling, 1);
+    assert.equal(decoded.timerTicks, 0x00012345);
+    assert.equal(decoded.lastPicture, 9);
+    assert.equal(decoded.replayActive, 2);
+    assert.equal(decoded.replayCheckpoint, 1);
+    assert.equal(decoded.promptChar, 0x5f);
+    assert.equal(decoded.inputRow, 23);
     assert.deepEqual(decoded.logicResume, [{ logic: 1, offset: 0x10 }]);
   });
 
@@ -834,7 +975,7 @@ describe("apple iigs save image (docs/fidelity.md, Apple IIgs interpreter)", () 
     object.view = 7;
     object.direction = 3;
     object.motionMode = 1; // move.obj: IIgs mode 3 (verified, same as Amiga)
-    object.cycleMode = 1; // reverse.cycle: IIgs mode 3 (PC order — Amiga is 1)
+    object.cycleMode = 1; // reverse.cycle: native mode 3 (the PC order)
     // active|update|observeHorizon|observeObjects — the ignore bits stay clear.
     object.state = 1 | 2 | 0x10 | 0x40;
     state.objects = [object];
@@ -848,8 +989,9 @@ describe("apple iigs save image (docs/fidelity.md, Apple IIgs interpreter)", () 
     assert.equal(u16(r, 0x36), 3, "direction u16le");
     assert.equal(u16(r, 0x38), 3, "move.obj is motion mode 3");
     assert.equal(u16(r, 0x3a), 3, "reverse.cycle is IIgs cycle mode 3 (PC order)");
-    // drawn 0x01 | ignore.blocks 0x02 | update 0x10 (no portable "animated").
-    assert.equal(u16(r, 0x3e), 0x13);
+    // drawn 0x01 + ignore.blocks 0x02 + update pass 0x10 (not stopped) +
+    // animated 0x40 (portable update) = 0x53.
+    assert.equal(u16(r, 0x3e), 0x53);
     const decoded = decodeSave(image, profile);
     assert.equal(decoded.objects[0]!.x, 0x52);
     assert.equal(decoded.objects[0]!.motionMode, 1);
@@ -860,8 +1002,7 @@ describe("apple iigs save image (docs/fidelity.md, Apple IIgs interpreter)", () 
     const profile = PROFILES["iigs-1.014"];
     const state = newSaveState(profile);
     // Portable {forward, reverse.cycle, end.of.loop, reverse.loop} -> the
-    // verified IIgs native values {0, 3, 1, 2} (the Amiga builds use
-    // {0, 1, 3, 2}).
+    // verified native values {0, 3, 1, 2}, shared with the Amiga builds.
     state.objects = [0, 1, 2, 3].map((m) => {
       const o = newObjectRecord();
       o.cycleMode = m;
@@ -1766,4 +1907,154 @@ describe("shipped Amiga save images (fixture-gated)", () => {
       }
     });
   }
+});
+
+describe("native object flags and engine save round trips (fixture-gated)", () => {
+  function u16be(bytes: Uint8Array, at: number): number {
+    return (bytes[at]! << 8) | bytes[at + 1]!;
+  }
+
+  /** The edition's files under their on-disk names, as the app opens them. */
+  function openFixture(alias: string): {
+    container: ReturnType<typeof openContainer>;
+    dict: Map<string, number>;
+  } {
+    const fixture = findFixture(alias)!;
+    const files = new Map<string, Uint8Array>();
+    let dict = new Map<string, number>();
+    for (const actual of fixture.files.values()) {
+      const path = join(fixture.dir, actual);
+      if (!statSync(path).isFile()) continue;
+      const bytes = new Uint8Array(readFileSync(path));
+      if (actual.toLowerCase() === "words.tok")
+        dict = new Map(parseWordsTok(bytes).map((e) => [e.word, e.id]));
+      files.set(actual, bytes);
+    }
+    return { container: openContainer(files), dict };
+  }
+
+  class QuietHost implements EngineHost {
+    prints = 0;
+    keys: number[] = [];
+    print(): void {
+      this.prints++;
+    }
+    displayAt(): void {}
+    statusLine(): void {}
+    takeInputLine(): string | null {
+      return null;
+    }
+    takeKeys(): number[] {
+      return this.keys.splice(0);
+    }
+  }
+
+  function boot(alias: string, profile: keyof typeof PROFILES, room: number) {
+    const { container, dict } = openFixture(alias);
+    const host = new QuietHost();
+    const engine = new Engine(container, host, dict, { restarted: true, profile });
+    for (let i = 0; i < 600 && engine.vars[0] !== room; i++) {
+      if (host.keys.length === 0) host.keys.push(0x0d);
+      engine.tick();
+      if (host.prints > 0) {
+        engine.ackPrint();
+        host.prints = 0;
+      }
+    }
+    assert.equal(engine.vars[0], room, `${alias} reaches room ${room}`);
+    // Let the room's opening passes run (SQ2 IIgs accepts input ~150 in).
+    for (let i = 0; i < 200; i++) {
+      if (host.keys.length === 0) host.keys.push(0x0d);
+      engine.tick();
+      if (host.prints > 0) {
+        engine.ackPrint();
+        host.prints = 0;
+      }
+    }
+    return { engine, container, dict };
+  }
+
+  test("sq2sg.1 decodes object 1 animated but stopped and slot 15 unanimated", (t) => {
+    const reason = fixtureSkip("sq2-amiga");
+    if (reason) return t.skip(reason);
+    const fixture = findFixture("sq2-amiga")!;
+    const bytes = new Uint8Array(
+      readFileSync(join(fixture.dir, fixture.files.get("save")!, "sq2sg.1")),
+    );
+    const state = decodeSave(bytes, PROFILES["amiga-2.202"]);
+    const flagsOf = (n: number) => u16be(state.objects[n]!.raw!, 0x3e);
+    // Object 1's native word 0x6247 = drawn 0x0001 + ignore.blocks 0x0002 +
+    // fixed priority 0x0004 + animated 0x0040 + ignore.objs 0x0200 +
+    // fix.loop 0x2000 + stationary 0x4000, with the update-pass bit 0x0010
+    // clear (stop.update). Portable: active 0x1 + update 0x2 + fixedPriority
+    // 0x8 + observeHorizon 0x10 + loopFixed 0x80 + earlierPartition 0x400 +
+    // stationary 0x2000 = 0x249b.
+    assert.equal(flagsOf(1), 0x6247);
+    assert.equal(state.objects[1]!.state, 0x249b);
+    // Slot 15 is unused: only the update-pass bit, so neither drawn nor
+    // animated nor stopped — it observes horizon, blocks and objects: 0x70.
+    assert.equal(flagsOf(15), 0x0010);
+    assert.equal(state.objects[15]!.state, 0x0070);
+  });
+
+  test("sq1-amiga: an engine save restores stopped, animated and stationary state", (t) => {
+    const reason = fixtureSkip("sq1-amiga");
+    if (reason) return t.skip(reason);
+    const profile = PROFILES["amiga-2.082"];
+    const { engine } = boot("sq1-amiga", "amiga-2.082", 2);
+    const state = decodeSave(engine.serialize(), profile);
+    // Portable 0x2413: active 0x1 + update 0x2 + observeHorizon 0x10 +
+    // earlierPartition 0x400 + stationary 0x2000 — drawn, animated,
+    // stop.update'd and stationary, ignoring blocks and objects. Object 1
+    // borrows ego's loaded view so restore can rebind its cel.
+    state.objects[1] = { ...state.objects[0]!, event: 1, state: 0x2413 };
+    delete state.objects[1].raw;
+    engine.restoreImage(encodeSave(state, profile));
+    const saved = engine.serialize();
+    // Native: drawn 0x0001 + ignore.blocks 0x0002 + animated 0x0040 +
+    // ignore.objs 0x0200 + stationary 0x4000 = 0x4243 (update pass clear).
+    const b2at = DESC + 2 + 0x2f4;
+    assert.equal(u16be(saved, b2at + 2 + 0x48 + 0x3e), 0x4243);
+    assert.equal(decodeSave(saved, profile).objects[1]!.state, 0x2413);
+  });
+
+  test("sq2-iigs: an engine save restores its picture, replay, text and input state", (t) => {
+    const reason = fixtureSkip("sq2-iigs");
+    if (reason) return t.skip(reason);
+    const profile = PROFILES["iigs-1.014"];
+    const { engine, container, dict } = boot("sq2-iigs", "iigs-1.014", 2);
+    const image = engine.serialize();
+    const before = decodeSave(image, profile);
+    // Room 2 drew its picture through the replay buffer and turned on the
+    // status line and input — the ~globals words the lead block now carries.
+    assert.ok(before.replayActive > 0, "replay pairs recorded");
+    assert.ok(before.lastPicture > 0, "a picture was drawn");
+    assert.equal(before.statusEnabled, 1);
+    assert.equal(before.inputEnabled, 1);
+    assert.equal(String.fromCharCode(...before.signature.subarray(0, 3)), "SQ2");
+    const restored = new Engine(container, new QuietHost(), dict, { profile: "iigs-1.014" });
+    restored.restoreImage(image);
+    assert.deepEqual(
+      Array.from(restored.surface.visual),
+      Array.from(engine.surface.visual),
+      "the replay redraws the saved screen",
+    );
+    const after = decodeSave(restored.serialize(), profile);
+    for (const field of [
+      "timerTicks",
+      "lastPicture",
+      "replayActive",
+      "replayCheckpoint",
+      "textFg",
+      "textBg",
+      "inputEnabled",
+      "inputRow",
+      "promptChar",
+      "statusEnabled",
+      "statusRow",
+      "displayBaseRow",
+      "displayBottomRow",
+    ] as const)
+      assert.equal(after[field], before[field], field);
+  });
 });
