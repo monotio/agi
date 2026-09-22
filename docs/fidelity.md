@@ -1754,3 +1754,171 @@ python scripts/probe-interpreter-amiga.py info games/pq1-amiga/PQ
 python scripts/probe-interpreter-amiga.py names games/mh2-amiga/MH2
 python scripts/probe-interpreter-amiga.py dispatch games/sq1-amiga/Sierra
 ```
+
+### Apple IIgs interpreter (SQ2 1.014)
+
+`games/sq2-iigs` ships the Apple IIgs port of Space Quest II 2.0A with its
+own 65816 interpreter, `SQ2.SYS16` (107,882 bytes, sha256
+`e1a2788f92cb76220e5ac228945bf2eaf7f3a97208f0c3af2ae81d947407717f`). The
+resources are a plain v2 split container — the same `LOGDIR`/`PICDIR`/
+`VIEWDIR`/`SNDDIR` + `VOL.n` + `OBJECT` + `WORDS.TOK` layout as the PC
+edition, resolved by the same reader. Extra files: `SIERRASTANDARD`
+(65,536 bytes, sha256 `9d43496535c3e5f22033096f1c539b51cc3d57dc9161c751b25c93f9cf4416e3`), `AGIFONT`
+(sha256 `5978fce553c17b2903ab57e82745c3f00677abea4fef909b116275bf19953610`), and the `SQ2.1`/`SQ2.2`/
+`SQ2.3` disk-name strings inside the binary.
+
+#### OMF layout (fact)
+
+`SQ2.SYS16` is a GS/OS load file: 43 sequential OMF segment records, not a
+flat binary. Each header is `bytecnt/respc/length` u32s, then
+lablen/numlen/version/banksize/kind/org/align, a 1-byte segnum ordinal
+(1–43), a 4-byte `entry` field, and dispname/dispdata words. Segment
+bodies are record streams: `0xf2` LCONST (u32 count + data), `0xf1` DS
+(u32 count, zero fill), `0xf5` cRELOC and `0xf7` SUPER compressed
+relocation records, `0x00` END. The loaded image must be built from the
+records; code bytes are not contiguous in the file.
+
+Segments (all `org = 0`, all `entry = 0` — the IIgs loader assigns banks;
+there is no fixed load address or recorded entry point):
+
+`main` (0x592b, file 0x0), `~globals` (0x161e), `~arrays` (0x1fa4),
+`Stack Size` (0x2000, BSS), `heap` (0xfde8, BSS), `screen` (0x6900, BSS),
+`actionseg`, `debugseg`, `errorseg`, `etcseg`, `eventseg`, `collide`,
+`seg3`, `getgameseg`, `initseg`, `initmachseg`, `initscrseg`, `miscseg`,
+`seg2` (0x6d6c), `savegameseg`, `savenameseg`, `statusseg`, `memmgrseg`,
+`logicseg`, `animateseg`, `advancelseg`, `followseg`, `objlistseg`,
+`shakeseg`, `movetoseg`, `objactseg`, `newroomseg`, `moveobjsseg`,
+`motionseg`, `logseg`, `flagseg`, `findposseg`, `encryptseg`, `drawseg`,
+`cycleseg`, `controlseg`, `blockseg`, `anilistseg`.
+
+The version string sits in `main` data at file offset 0x76a9:
+`Adventure Game Interpreter\n      Version 1.014`. Resource paths are
+relative strings in `main`/`~arrays`: `data/words.tok`, `data/object`,
+`data/AgiFont`, `data/sierrastandard`, `data/logdir`, `data/viewdir`,
+`data/picdir`, `data/snddir`, `data/vol.%d`. Tooling:
+`scripts/probe-interpreter-iigs.py` (`info`, `strings`, `segment`,
+`dispatch`, `snd`, `census`) parses the OMF and disassembles 65816 with a
+purpose-built mode-tracking decoder (py65's ORG16 is a soft-core 6502
+variant; capstone's 65816 modes cannot track REP/SEP mid-stream).
+
+Cross-segment calls in the file are link addresses `segnum<<16 | offset`
+patched at load by SUPER records (`jsl $013314` = main+0x3314, a
+far-indirect-call helper; `jsl $070000` = actionseg entry; `jsl $090000`
+= errorseg entry). Toolbox calls are `ldx #$TTFF; jsl $e10000` (or
+`$e100a8` for GS/OS), X = toolset<<8 | function.
+
+#### Dispatch bounds (fact)
+
+The action dispatcher is `actionseg` (seg 7). It reads the opcode byte
+through `[$fd]`, masks to 8 bits, `sbc #$00fc` (+0x13) sends opcodes
+`>= 0xfc` to a return path, opcode `0x00` returns, then `sbc #$00b1`
+(+0x33): `beq` and the signed-less-than idiom both reach the dispatch
+path, so opcodes `0x01..0xb1` are valid actions. `0xb2..0xfb` push the
+opcode + `0x10` and `jsl $090000` (errorseg). Dispatch multiplies the
+opcode by four and far-calls through a 177×4-byte far-pointer table; the
+table pointer is loaded as two `#$03fe` immediates at +0x78/+0x7d,
+patched by SUPER records type 0x10 (low word, site 0x79) and 0x1c (bank,
+site 0x7e). The file value `0x03fe` identifies ~arrays (seg 3) offset
+0x03fe: the image there is a zeroed BSS run and `0x3fe + 177*4 = 0x6c2`
+lands exactly on the end of the zeroed region, so the table is a
+fully-relocated 177-entry far-pointer array in ~arrays+0x03fe.
+
+The condition evaluator is `main`+0x1aaf: `cmp #$0013`, `beq`/`bcc` to
+`jsr ($1b0c,X)` — a 4-byte-stride near-pointer table at main+0x1b0c
+(all zeros in file, OMF-relocated). Conditions `0x00..0x13` dispatch;
+`> 0x13` pushes the opcode + `0x0f` and calls errorseg. `0xfc`/`0xfd`/
+`0xfe`/`0xff` are the usual or/not/goto/if control bytes handled by the
+statement loop at main+0x191e. A `$15be` global gates trace calls to
+seg2 (`jsl $1344b3` / `jsl $1345cc`) around each action and condition —
+the interpreter's trace hook.
+
+Compared to PC 2.936 (`maxAction 0xaf`, `maxCondition 0x12`): the IIgs
+accepts two more action slots (`0xb0`, `0xb1`) and one more condition
+(`0x13`). The extra slots line up with the v3-family tail
+(`hide.mouse` 0xb0, `allow.menu` 0xb1) and the Amiga 2.31x-only condition
+0x13 (`click.move.pending` there) — consistent with a mouse-driven port,
+but the IIgs names/semantics were not confirmed from a name table.
+
+In-game usage: `games/sq2-iigs` logic 1 ends `... b0 35 00`. The engine's
+structured decoder fails on logic 1 ("logic bytecode ends mid-instruction
+at 894"); reading `0xb0` as a one-operand action makes the tail parse
+cleanly (`action 0xb0 (arg 0x35); return`), so the IIgs logics do carry a
+non-PC action. Executing it under the 2.936 profile raises
+`unimplemented opcode 0xb0`. (The `0xb0` bytes a linear walker reports in
+logic 23 are inside `said()` word data — engine decode of logic 23 shows
+no 0xb0 action.) Semantics of IIgs 0xb0/0xb1 and condition 0x13 are
+unverified — inference only that they follow the v3/mouse-family pattern.
+
+#### Sound format (fact, except where marked)
+
+All 72 SND resources differ from the PC edition — none begin with the PC
+four-channel u16-offset header. Payload byte 0 is a type tag:
+
+- **Type 0x01 (49 sounds)** — `[01][00][3 x u16le stream offsets]`, a
+  fixed-size setup block to the smallest offset (containing `7f`-bounded
+  values and a `30/14` field — inference: instrument/envelope
+  parameters), then three data streams. Stream bytes cluster around 0x80
+  with slow-moving runs (inference: 8-bit waveform or oscillator
+  parameter data). E.g. snd 1 (7,791 B): offsets 0x33/0x5a/0x2c.
+- **Type 0x02 (23 sounds)** — `[02][u16le][event stream]` of
+  `status + data + delta-time` records with MIDI status bytes: `0xCn`
+  program changes (snd 60 opens with programs on channels 1–8), `0xBn`
+  control changes (controller 7 = channel volume), `0x9n`/`0x8n` note
+  on/off with velocity, delta byte after each event. E.g. snd 2:
+  `c0 28 02 90 45 40 05 80 45 40 00 90 48 3e ...`.
+
+Under the PC decoder these bytes misparse as channel offsets: type-2
+sounds produce out-of-range channel offsets (silent in recover mode),
+type-1 sounds decode into thousands of bogus notes with computed
+durations of ~1.4e7–5.2e7 ticks (≈66 hours to 10 days), so sound-done
+flags never fire in reasonable time.
+
+The interpreter drives sound entirely through the IIgs toolbox — no
+`$C03x` Ensoniq DOC register writes appear anywhere in the binary.
+`main`+0x2750..0x29a0 is an event scheduler calling Note Synthesizer
+`$1902` (six sites) per event; `main`+0x5516 calls Note Sequencer
+`$1a02` with a far pointer to a sequence and hands the result to toolset
+`$18` fn `$02`. `SIERRASTANDARD` is exactly 64 KiB — the Ensoniq DOC
+wavetable RAM size — loaded from `data/sierrastandard` (path string in
+~arrays+0x1613). Inference: the type-2 streams are played by the Note
+Sequencer through the DOC using SIERRASTANDARD as the wavetable image;
+type-1 sounds are the sampled/parameter-driven effects. Instrument-index
+mapping into SIERRASTANDARD and envelope semantics were not decoded.
+
+#### Boot behaviour under the engine (fact)
+
+`detectProfile` finds no `AGIDATA.OVL`/`AGI`/`*.COM`, so the fixture falls
+through to the v2 container default = PC `2.936`.
+
+Cold boot with an ACK-answering QuietHost, 3,000 ticks: no exception, no
+host-request stall — the engine sits in room 140 (the intro) executing
+logic 140 + logic 0 every cycle. Logic 140 is an authentic wait: it skips
+to `new.room(1)` on `have.key()`, and its story text crawl is paced by
+f100, which logic 0 sets for one cycle whenever v12 (clock minutes)
+changes — i.e. one story page per minute, looping `new.room(140)` when
+done. With an injected keypress the trace runs room 140 → 1 → 98 → 2;
+room 2 then runs 5,000 ticks cleanly and prints normally. A restarted
+boot lands directly in room 2.
+
+So the bare engine does not hard-hang at boot. The observable failures
+are instead: (a) any script that waits on a sound-done
+flag (`sound(n, fX)` sites use f35/f40/f61 etc.) waits effectively
+forever under misdecoded durations; (b) executing the `0xb0` byte in
+logic 1 raises `unimplemented opcode` under 2.936; (c) all music/sfx are
+silent or garbage because no IIgs sound decoder exists.
+
+#### Input and pacing (fact + inference)
+
+Input comes through the desktop Event Manager (toolset $06 calls) with
+event mask `0x098c` stored in ~arrays+0x1529 region; toolset $09 (ADB)
+fn $02 is called 14 times — plausibly the keyboard/mouse poll (inference
+on function identity). `eventseg` is a thin wrapper over seg3/main. The
+binary carries joystick-calibration strings ("Please center your
+joystick\nand press one of the buttons.", "If you have a joystick,
+please center it and press ...", "Otherwise, press any key to
+continue.") and "Game paused." Menu/Window/Control/Dialog manager
+toolsets ($0e/$0f/$10/$15) are called — the IIgs port uses native
+desktop UI for menus and dialogs (inference: `menu.input`/`open.dialogue`
+semantics likely differ from PC). Clock variables follow the same
+v11–v14 seconds/minutes/hours convention (f100 above). No fixed-cycle
+vsync wait was identified; event/timer pacing is toolbox-driven.
