@@ -56,7 +56,12 @@ _Leisure Suit Larry I_, _The Black Cauldron_, _Mixed-Up Mother Goose_,
 _Donald Duck's Playground_, _Gold Rush!_, _Manhunter: New York_,
 _Manhunter 2: San Francisco_, and the _Sierra demo pack_ (see
 [testing compatibility](docs/testing.md#testing-compatibility) for supported
-editions and fixture tests). Your library appears under **Your games**,
+editions and fixture tests). The Amiga editions of _Space Quest I–II_,
+_King's Quest II_, _Police Quest I_, _Gold Rush!_ and _Manhunter 2_, and the
+Apple IIgs _Space Quest II_, run under their own interpreter profiles and
+play their sound through Amiga Paula or Apple IIgs playback. PC editions
+choose between the Tandy and PC speaker chips under **Settings** ›
+**Advanced…** › **Sound chip**. Your library appears under **Your games**,
 with **Resume** or **Play** on each card and a screenshot from its latest autosave.
 Rename a game with the pencil beside its name. Open **Game actions** to start
 over, check an imported game's opening, choose or change its interpreter profile,
@@ -154,10 +159,11 @@ profile, captures a local thumbnail and catches invalid boot resources before an
 import is stored. It checks the opening only; it does not prove that every room or
 puzzle is playable. A game that ships neither interpreter files nor a catalogued
 fingerprint, such as a fan-made adventure, asks which profile to run under before
-its first boot; **Decide later** keeps the container default. **Game actions →
-Interpreter profile** shows the active profile and how it was chosen, and lets
-you pick any profile or return to automatic detection; the choice is stored with
-the library entry and applied on every boot. Importing the same game resources
+its first boot; **Keep** runs the detected container default, and games made in
+the app never ask. **Game actions → Interpreter profile** shows the active profile
+and how it was chosen, and lets you pick any profile or return to **Automatic**;
+the choice is stored with the library entry and applied on every boot, replay and
+history view. Importing the same game resources
 again reuses the library entry, while project archives and remix copies keep
 independent authoring histories and save slots. Renaming a game does not change
 that identity.

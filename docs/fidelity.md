@@ -1660,7 +1660,7 @@ Include the consumed-input repeat and a parser snapshot roundtrip. Group zero
 matching is observed behavior, not a recommendation for generated story code.
 
 ```bash
-/tmp/agi-binary-venv/bin/python scripts/probe-interpreter-input.py games/gr1/AGI games/gr1/AGIDATA.OVL
+python scripts/probe-interpreter-input.py games/gr1/AGI games/gr1/AGIDATA.OVL
 ```
 
 ### Amiga interpreter profiles
@@ -1720,7 +1720,7 @@ throughout; `position` writes x/y and the saved pair with no flag, like PC.
 `set.step.time`, `position`, `set.view`, `set.loop`, `set.cel`, `set.dir`,
 `move.obj`, `normal.cycle` and friends) and confirmed against the shipped
 save images, whose block 2 is N × `0x48` records (SQ2: `0x5e8` = 21
-records; SQ1: `0x510` = 27):
+records; SQ1: `0x510` = 18):
 
 ```text
 +0x00 step time     +0x02 step count    +0x04 table index
@@ -1734,25 +1734,51 @@ records; SQ1: `0x510` = 27):
 +0x3e flag word     +0x40..+0x47 four motion parameters (word low bytes)
 ```
 
-The native mode numbering differs from the engine's portable order — the
-handlers write `move.obj` = 3, `wander` = 1, `follow.ego` = 2, `click` = 4,
-`end.of.loop` = 3, `reverse.loop` = 2, `reverse.cycle` = 1 — so the
-portable values translate `{0,3,2,1,4}` and `{0,1,3,2}` at the record
-boundary. The flag word is likewise its own assignment, verified from
-the flag-writing handlers on SQ2 2.202 and Sierra 2.082: `0x0001` drawn
-(draw sets, erase clears — the shipped records carry update and cycling
-bits with the drawn bit clear, so it is an independent field, not a
-partition marker), `0x0002` ignore.blocks (`ignore.blocks`/`observe.blocks`
-`ori.w`/`andi.w` the bit at record `+0x3e` on Sierra and SQ2 — the bit the
-earlier draft called unverified),
-`0x0004` fixed priority, `0x0008` ignore horizon, `0x0010` update,
-`0x0020` cycling, `0x0040` animated (the bit `animate.obj` writes in its
-`0x0070` mask — the portable state word has no "animated" concept, so
-this bit round-trips through the record's raw image rather than a mapped
-field), `0x0100` water "both", `0x0200` ignore objects, `0x0800` water
-"off" (with `0x0900` = "on"), `0x1000` stationary, `0x2000` fix.loop.
-Shipped records carry additional bits (`0x0400`, `0x4000`) whose meaning
-is unverified; the record's raw image preserves them.
+The motion numbering differs from the engine's portable order: the
+handlers write `wander` = 1, `follow.ego` = 2, `move.obj` = 3 and the
+click-move mode 4 (SQ2 h165+0x214, +0x18c, +0x24), so portable
+`{normal, move, follow, wander, click}` translates to `{0,3,2,1,4}`. The
+cycle numbering is the PC order: `normal.cycle` clears `+0x3a`,
+`end.of.loop` writes 1, `reverse.loop` 2 and `reverse.cycle` 3 (SQ2 and
+GR h162+0x24/+0x62/+0xfa/+0xba, dispatch slots 0x48/0x49/0x4b/0x4a;
+Sierra 2.082 h119 at the same offsets), so portable `{forward, reverse,
+end.of.loop, reverse.loop}` translates to `{0,3,1,2}`. The two loop-ending
+modes are the ones that also set `0x1030` — delay, cycling and update.
+
+The flag word is its own assignment, read off the handler that sets or
+clears each bit on SQ2 2.202 (dispatch table data hunk 5, six-byte
+records), with the same instructions on GR 2.316 and Sierra 2.082:
+
+| Bit      | Writer (SQ2)                                                       | Portable state         |
+| -------- | ------------------------------------------------------------------ | ---------------------- |
+| `0x0001` | `draw` `ori` (h24+0xc4); erase clears                              | `active`               |
+| `0x0002` | `ignore.blocks` `ori` / `observe.blocks` `andi` (h188)             | not `observeBlocks`    |
+| `0x0004` | fixed priority                                                     | `fixedPriority`        |
+| `0x0008` | `ignore.horizon` / `observe.horizon`                               | not `observeHorizon`   |
+| `0x0010` | `start.update` sets, `stop.update` clears (h159+0x1d8/+0x1a6)      | not `earlierPartition` |
+| `0x0020` | `start.cycling` / `stop.cycling`                                   | `cycling`              |
+| `0x0040` | `animate.obj` `0x0070` if clear (h16+0x72); `unanimate.all` clears | `update` (animated)    |
+| `0x0100` | `object.on.water` `ori` (h191+0x29c)                               | `waterGate` "on"       |
+| `0x0200` | `ignore.objs` `ori` / `observe.objs` `andi` (h109)                 | not `observeObjects`   |
+| `0x0400` | `reposition` (h191+0x132); `set.cel`'s helper (h88+0x528)          | `newlyPositioned`      |
+| `0x0800` | `object.on.land` `ori` (h191+0x2d4); `on.anything` clears both     | `waterGate` "off"      |
+| `0x1000` | loop-ending cycles set; `draw`/`set.cel`/cel advance clear         | `cycleDelay`           |
+| `0x2000` | `fix.loop` / `release.loop`                                        | `loopFixed`            |
+| `0x4000` | refresh pass: set when x,y equal the saved pair (h7+0x22e)         | `stationary`           |
+
+The delay bit is set with `ori #$1030` by `end.of.loop`/`reverse.loop`
+(h162+0x6c/+0x104) and cleared by `draw` (h24+0xea), `set.cel`
+(h88+0x42e) and the cel advance (h112+0x16), which consumes it instead
+of stepping. Both water bits set is the engine's "both". The update-list
+predicate is `(flags & 0x11) == 0x11` and the stopped list `(flags & 0x11) == 1`
+(h159+0x10/+0x36), so `0x0010` is the update-partition selector and the
+drawn bit an independent field — shipped unused slots carry `0x0010`
+alone. `0x0080` (the configured-rectangle crossing block) and `0x8000`
+have no portable state; they round-trip only through the record's raw
+image, so a save the engine writes without a decoded record leaves them
+clear. A native mode word no handler writes (none occurs in the shipped
+images) runs as mode 0 in the engine and is re-emitted unchanged until
+the engine changes the mode.
 
 The Amiga OBJECT file uses a four-byte header `{u16le tableBytes, u16le
 field}` and four-byte entries `{u16le nameOffset, u8 room, u8 pad}`, verified
@@ -1766,6 +1792,26 @@ seven-byte record headers with dictionary/picture compression.
 Profile derivation: `amiga-2.082` and `amiga-2.176` derive from the earliest
 documented (early-v2) contract, `amiga-2.202` from 2.936, and the
 `amiga-2.310`/`amiga-2.316`/`amiga-2.333` generation from 3.002.149.
+
+Current host limitations, not original behavior: no host interaction
+selects the click-move motion mode, so `click.move.pending` reads false and
+the stored nudge is inert; the engine holds the pointer at `(0,0)` until a
+pointer channel exists, so `mouse.posn` writes zeroes. Detection reads the
+hunk executable — a known executable name plus the load-module magic — for
+an exact build. A folder with only an Amiga `dirs` combined directory and
+no executable or catalog match runs the 2.310/2.316/2.333 generation's
+latest build, `amiga-2.333`, as a container default, and the app asks
+which profile to use.
+
+Tests: [profile.test.ts](../test/profile.test.ts),
+[ports.test.ts](../test/ports.test.ts),
+[inventory-file.test.ts](../test/inventory-file.test.ts).
+
+```bash
+python scripts/probe-interpreter-amiga.py info games/pq1-amiga/PQ
+python scripts/probe-interpreter-amiga.py names games/mh2-amiga/MH2
+python scripts/probe-interpreter-amiga.py dispatch games/sq1-amiga/Sierra
+```
 
 #### String slots and key map (fact)
 
@@ -1801,7 +1847,7 @@ object table, block 3 the inventory region, block 4 the replay pairs
 
 | Fixture   | b1 state | b2 objects   | b3 inventory | b4 replay        | b5 resume |
 | --------- | -------- | ------------ | ------------ | ---------------- | --------- |
-| SQ1 2.082 | `0x2f4`  | `0x510` (27) | `0x16d`      | `0x64` (cap 50)  | `0x1c`    |
+| SQ1 2.082 | `0x2f4`  | `0x510` (18) | `0x16d`      | `0x64` (cap 50)  | `0x1c`    |
 | SQ2 2.202 | `0x40a`  | `0x5e8` (21) | `0x170`      | `0xc8` (cap 100) | `0x18`    |
 
 Block-1 lengths on the remaining builds, read off their save routines and
@@ -1824,8 +1870,14 @@ picture, not the current room); and the block-enable long — `block` does
 later builds, whose `+0x22` word is a different, unmapped field carried
 by the raw block image. Sierra's `+0x20` word is the ego click-direction
 mirror (written from the object's direction field when ego's motion is
-the click-move mode). `+0x24`/`+0x26` hold `0x000f` and the default
-script capacity from the hunk's init image rather than runtime writes.
+the click-move mode). A `0x000f` word and the script capacity come from
+the hunk's init image rather than runtime writes, followed by the active
+replay-pair count: `+0x26`/`+0x28`/`+0x2a` on 2.082 (SQ1 capacity 50) and
+`+0x24`/`+0x26`/`+0x28` on the later builds (SQ2 capacity 100), matching
+the cap/active columns below. The state hunk's load image (Sierra h146,
+KQ2/SQ2/PQ/GR/MH2 h206) is zero except that `0x000f` word, a capacity of
+50 and the input/status rows 23/21 in the text tail, so an image the engine
+writes without a decoded block starts from those words.
 Then the key map, the string bank, `v0..v255`, the 32 packed flag bytes
 and the 24-byte text tail (three `u16be` text attributes, `u32be` input
 enable, `u16be` input row, prompt byte + pad, `u32be` status enable,
@@ -1855,7 +1907,7 @@ tail, and the string slots keep bytes after their terminators).
 Beyond the save layout, these profile behaviors are verified on the
 executables:
 
-- `distance` on Sierra 2.082 stores the centre-x delta sum with a bare
+- `distance` on Sierra 2.082 stores the center-x delta sum with a bare
   `move.b d1,(a0)` — the value wraps mod 256 (h91+0x8c92). On 2.176,
   2.202 and GR 2.316 the same handler clamps `cmpi.w #$fe; bls` —
   saturation at 254 (SQ2 h109+0x14e, at 0x8962). The profile's
@@ -1875,8 +1927,6 @@ executables:
   holds no flag operation; its `moveq #$f` push feeds a text-tail
   routine (h128+0x144 writes `+0x2dc`/`+0x2de`), so 2.082 keeps the
   early value.
-- `quit` consumes one operand byte on every Amiga build, including
-  2.082.
 
 #### Amiga profile fields inherited without evidence
 
@@ -1886,7 +1936,7 @@ either was not located in a bounded scan or does not exist on that
 build. Fields the verified dispatch bounds, container kinds, stub slots
 and sound findings above decide (`container`, `volumeHeaderBytes`,
 `maxCondition`, `condition0x13`, `extraActions`, `mousePosnAction`, the
-2.082 `menuActions`, the 2.31x `soundEnvelope`) are not in these lists:
+2.082 `menuActions`, the 2.176, 2.202 and 2.31x `soundEnvelope`) are not in these lists:
 
 - `amiga-2.082` (early-v2 base): `menuInteractionGate`,
   `releaseGateAction`, `releaseGateClearAction`, `inputWidthActions`,
@@ -1897,8 +1947,16 @@ and sound findings above decide (`container`, `volumeHeaderBytes`,
   `clampExactZeroLeftBoundary`, `pictureMaxCommand`, `patternProfile`,
   `restartPromptBypassedByF16`, `heapDiagnosticExtraLine`,
   `soundEnvelope` (inert — the 2.082 driver has no envelope table).
-- `amiga-2.176` (early-v2 base): the 2.082 list without the distance,
-  stop.motion and f15 fields verified above.
+- `amiga-2.176` (early-v2 base): `menuInteractionGate`,
+  `releaseGateAction`, `releaseGateClearAction`,
+  `closeWindowClearsInputWidth`, `priorityBaseAction`, `roomAliases`,
+  `wordSequenceTailTerminator`, `positionActionOrder`,
+  `earlierPartitionOrder`, `packedViewLoopHeader`, `targetMotionDeferred`,
+  `inventorySelector`, `timedPrintClearsV21`,
+  `clampExactZeroLeftBoundary`, `pictureMaxCommand`, `patternProfile`,
+  `restartPromptBypassedByF16`, `heapDiagnosticExtraLine` — the 2.082
+  list without `inputWidthActions` (a stub slot on 2.176) and
+  `soundEnvelope` (KQ2's own table).
 - `amiga-2.202` (2.936 base): `exitAlwaysImmediate`, `menuActions`,
   `menuInteractionGate`, `releaseGateAction`, `releaseGateClearAction`,
   `closeWindowClearsInputWidth`, `priorityBaseAction`, `roomAliases`,
@@ -1907,7 +1965,7 @@ and sound findings above decide (`container`, `volumeHeaderBytes`,
   `inventorySelector`, `timedPrintClearsV21`,
   `clampExactZeroLeftBoundary`, `pictureMaxCommand`, `patternProfile`,
   `restartPromptBypassedByF16`, `heapDiagnosticExtraLine`.
-- `amiga-2.31x` (3.002.149 base): `menuActions`, `menuInputAction`,
+- `amiga-2.310`/`amiga-2.316`/`amiga-2.333` (3.002.149 base): `menuActions`, `menuInputAction`,
   `menuInteractionGate`, `releaseGateAction`, `releaseGateClearAction`,
   `inputWidthActions`, `closeWindowClearsInputWidth`,
   `priorityBaseAction`, `roomAliases`, `wordSequenceTailTerminator`,
@@ -1918,27 +1976,40 @@ and sound findings above decide (`container`, `volumeHeaderBytes`,
   `heapDiagnosticExtraLine`. PQ 2.310 and MH2 2.333 carry the GR 2.316
   verifications by shared code rather than by direct scan.
 
-#### The older 2.082 driver (fact)
+### Original Amiga sound player
 
-SQ1 2.082's sound driver is an earlier program, not this family: its
-channel records are `0x16` bytes (the later driver uses `0x20`), its data
-hunk carries no envelope table, and its tick routine differs at every
-point the later driver's evidence covers:
+The Amiga editions play the same SOUND resources as the PC releases (the
+Gold Rush payloads are byte-identical, 44 of 44) through a dedicated Paula
+driver instead of the PC chip writes. On the GR 2.316 executable (134,852
+bytes, sha256 `7bfa2f36616923a4` — build table above) the driver is code
+hunk 197 (`hunk` type, base `0xf0b8`, `0x6c4` bytes) and its data is hunk
+198 (base `0xf77c`, `0x120` bytes), followed by bss hunk 199 (`0x9c`).
 
-- A live voice's AUDx registers are programmed only when a note decodes —
-  held-note ticks emit nothing; the later driver rewrites period and
-  volume on every tick to run the envelope.
-- The tone period is `16 * divisor`, four times the later driver's
-  `4 * divisor` scaling.
-- The noise control's type bits select fixed periods `{6, 3, 1, 1}`
-  (type 3 falls through to 1), not the `{0x200, 0x400, 0x800, 0x800}`
-  bank.
-- The volume adjustment (v23) is subtracted inside the scale:
-  `((15 - (attenuation - v23)) << 6) / 15`, where the later driver adds
-  v23 to the envelope's live value.
+Cross-check: data hunk 198 is byte-identical in SQ2 2.202, PQ 2.310 and
+MH2 2.333 (sha256 `aa58503273b9af41`). Code hunk 197 is byte-identical
+between GR, SQ2 and PQ (sha256 `06c91c9320595f16`); MH2's copy differs only
+in branch targets and the called shutdown slot (sha256 `8a739721db6a206c`),
+and KQ2 2.176's copy (base `0xe760`, sha256 `13459f357a19d4c0`) differs
+from GR's only in absolute addresses — with those masked, the two
+disassemble to the same instruction sequence. SQ1 2.082 carries an earlier
+driver, described in its own subsection below.
 
-The profile family `amiga-2.082` keeps these behaviors distinct;
-`amiga` is the 2.176+ driver only.
+```bash
+python scripts/probe-interpreter-amiga.py info games/goldrush-amiga/GR
+python scripts/probe-interpreter-amiga.py hunk games/goldrush-amiga/GR 198
+python scripts/probe-interpreter-amiga.py hunk games/kq2-amiga/KQ2 198
+python scripts/probe-interpreter-amiga.py info games/sq1-amiga/Sierra
+```
+
+Code hunks were disassembled with capstone (m68k) after patching each
+reloc32 slot with its target hunk's base, so the absolute operands quoted
+below are image addresses.
+
+Tests: [sound-playback.test.ts](../test/sound-playback.test.ts),
+[ports.test.ts](../test/ports.test.ts),
+[audio.test.ts](../app/test/audio.test.ts).
+
+#### The 2.176+ driver (fact)
 
 Init (`0xf0b8`): allocates an 8-byte tone buffer and copies h198 `+0xf8`
 into it — the signed-PCM waveform `00 40 7f 40 00 c0 81 c0` (0, 64, 127,
@@ -1949,38 +2020,76 @@ state. Two `0x44`-byte IOAudio request blocks are prepared, the reply port
 is named `AGI-sound-port` (length-prefixed at h198 `+0x100`), and
 `audio.device` (h198 `+0x110`) is opened.
 
-Channel records (init at `0xf1ec`): four `0x20`-byte records holding the
-stream pointer, channel number, countdown, current Paula period, current
-volume, base attenuation, held value, envelope-delta cursor and derived
-register fields. The DMACON enable bit is `1 << channel` and the AUDx
-register block is `0xdff0a0 + channel * 0x10`. Tone voices point at the
+Channel records (init at `0xf1ec`): four `0x20`-byte records at `0xf89c` —
+`+0` stream pointer, `+4` channel number, `+6` countdown (starts at 1),
+`+8` Paula period, `+a` base attenuation, `+c` volume, `+e` envelope
+table start, `+12` envelope cursor (both set to h198 `+0` for every
+channel), `+16` active flag, `+1a` DMACON bit `1 << channel`, `+1c` the
+AUDx register block `0xdff0a0 + channel * 0x10`. Tone voices point at the
 8-byte sample with AUDxLEN 4 (words); the noise voice points at the
-4,096-byte PCM with AUDxLEN `0x800`. Channel allocation and the
-DMACON/AUDx writes go through `audio.device`.
+4,096-byte PCM with AUDxLEN `0x800` (`0xf62c..0xf640`). Each voice's
+buffer is fixed by its channel for the whole session.
 
-Per-tick decode (`0xf282` on GR): each live channel decrements its
-countdown; at zero it consumes one 5-byte note record — u16le duration
-(`0xffff` terminates the channel; the game-facing flag is set on the same
-tick), two tone bytes and a control byte — then programs the voice:
+Per-tick routine (`0xf282`): it first tests flag 9 (`jsr 0xe2b6` with 9)
+and stops the sound when it is clear. Each active channel decrements its
+countdown. While it is nonzero, the channel runs the envelope step and
+writes only AUDxVOL (`0xf2d0..0xf2dc`: `move.w $c(a5),$8(a0)`). At zero
+it consumes one 5-byte note record — u16le duration (`0xffff` terminates
+the channel: the active count at `0xf934` drops and `0xf656` clears the
+active flag and writes the DMACON bit without `0x8000`, disabling the
+voice; the sound completes when the count reaches zero), two tone bytes
+and a control byte — then programs the voice:
 
 - Channel 3 (noise) skips the first tone byte and takes `type = byte1 &
-3`: type 0 → period `0x200`, 1 → `0x400`, 2 → `0x800`, 3 falls through to
-  `0x800`, always over the noise PCM.
-- Tone channels compute the Paula period from the tone word
+3` through a jump table: type 0 → period `0x200`, 1 → `0x400`, 2 →
+  `0x800`, 3 shares the `0x800` case (`0xf352..0xf362`). Its envelope
+  cursor is not touched.
+- Tone channels reset the cursor to the table start (`move.l $e(a5),
+$12(a5)`) and compute the Paula period from the tone word
   `((b0 & 0x3f) << 9 | (b1 & 0xf) << 5) >> 3` — four times the PC 10-bit
-  divisor — and reset the envelope cursor to the table start.
-- The control byte's low nibble is the base attenuation; the AUDxVOL write
-  is `((15 - attenuation) << 6) / 15` (integer division) on Paula's 0..64
-  scale.
+  divisor. A rest's tone word 0 gives period 0.
+- The control byte's low nibble is the base attenuation (`+a`); `+c` gets
+  `((15 - attenuation) << 6) / 15` (`divu.w #$f`) on Paula's 0..64 scale.
 
-Envelope (`0xf462`): applied on every tick including the decode tick, per
-channel. If the cursor is dead nothing changes; a `0x80` longword kills
-the cursor and the last computed volume holds. Otherwise the effective
-attenuation is `clamp(base + delta, 0, 15)` — the delta applies to the
-note's own base attenuation; the entries do not accumulate — and AUDxVOL
-gets `((15 - attenuation) << 6) / 15`. The tone voices reset the cursor on
-every note; the noise voice's cursor is initialized once and never
-reset, so it runs the table to the sentinel a single time.
+The decode then calls `0xf42a`, which writes AUDxPER from `+8`, runs the
+envelope step, writes AUDxVOL from `+c` and enables the voice's DMA
+(`ori.w #$8000` into DMACON). AUDxPER is therefore written only when a
+note decodes, including period 0 for a rest; AUDxVOL is written on every
+tick.
+
+Envelope step (`0xf462`), quoted from GR (KQ2 `0xeb0a` is the same
+sequence):
+
+```text
+f46e  tst.l   $12(a5)          ; dead cursor: nothing changes
+f478  cmpi.l  #$80,(a0)        ; sentinel: clr.l $12(a5), volume holds
+f48a  addq.l  #4,$12(a5)
+f48e  moveq   #0,d0
+f490  move.w  $a(a5),d0        ; base attenuation
+f494  add.l   (a0),d0          ; + signed table longword
+f496  move.l  d0,d7
+f498  bge.b   f49e
+f49a  moveq   #0,d7            ; below 0 -> 0
+f49e  cmpi.l  #$f,d7
+f4a4  ble.b   f4a8
+f4a6  moveq   #$f,d7           ; above 15 -> 15
+f4a8  moveq   #$f,d0
+f4aa  sub.l   d7,d0
+f4ac  asl.l   #6,d0
+f4ae  moveq   #$f,d1
+f4b0  jsr     $154ec           ; divide
+f4b6  move.w  d0,$c(a5)        ; volume
+```
+
+The effective attenuation is `clamp(base + delta, 0, 15)` — the delta
+applies to the note's own base attenuation; the entries do not accumulate.
+The tone voices reset the cursor on every note; the noise voice's cursor
+is initialized once and never reset, so it runs the table to the sentinel
+a single time. No instruction in hunk 197 reads a game variable: the
+driver's only outside calls are the flag test, the completion/stop routine
+`0x9c9e`, the division helper and `audio.device`/exec calls, and no code
+hunk of GR addresses v23 (`0x1009d`, var table `0x10086`) absolutely. The
+2.176+ driver ignores the volume-adjustment variable.
 
 The envelope table is h198 `+0x0000..+0xf4`: 62 big-endian signed
 longwords — 61 per-tick offsets then the `0x80` sentinel (the remaining
@@ -1995,27 +2104,78 @@ off `hunk` subcommand output:
 ```
 
 Unlike the PC tables the offsets start positive — the note dips below
-full volume for two ticks, returns to it for four, then decays — and the
-driver rewrites AUDxPER/AUDxVOL on every tick rather than only on note
-boundaries, so the envelope output is a continuous register stream.
+full volume for two ticks, returns to it for four, then decays.
 
-Engine/app mapping: `SoundPlayback` emits `{kind: "paula", channel,
-period, volume, noise?}` per live voice per tick on the same 60 Hz clock —
-the emitted `volume` is the register value the original driver writes to
-AUDxVOL. Paula treats a set bit 6 as maximum volume, so the values the
-KQ2 attack curve pushes into 64..127 (the tests observe 72) play at full
-volume on hardware, and the app clamps them to 64 on render while the
-emitted values stay as the driver writes them
+KQ2 2.176 carries its own table. Its data hunk 198 (base `0xee24`, `0x12c`
+bytes, sha256 `0f50641a37644ec6`) holds 64 signed longwords at
+`+0x00..+0xfc` and the `0x80` sentinel at `+0x100`, then the same tone
+sample at `+0x104` and the two strings:
+
+```text
+-2, -3, -2, -1, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2,
+3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6,
+7, 7, 7, 7, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10,
+11, 11, 11, 11, 11, 12, 12, 12, 12, 12, 13, 0x80
+```
+
+The negative attack clamps at attenuation 0, so a full-volume note stays
+at AUDxVOL 64; on a rest (attenuation 15, period 0) it writes volumes 8,
+12, 8, 4 before settling at 0. The profile field `soundEnvelope` is
+therefore decided by these hunks: `amiga-2.176` for KQ2 2.176, the shared
+h198 table for SQ2 2.202 and the 2.31x generation.
+
+#### The older 2.082 driver (fact)
+
+SQ1 2.082 (`Sierra`, sha256 `80c6b0c4912a4ca5`) carries an earlier
+program: code hunk 138 (base `0xe5fc`, `0x64c` bytes) with a `0x20`-byte
+data hunk 139 holding only the `AGI-sound-port` and `audio.device`
+strings — no envelope table.
+
+- Init (`0xe5fc`) allocates a 4-byte tone buffer and writes `00 80 00 80`
+  into it (`0xe65c..0xe67c`), a two-sample square cycle played with
+  AUDxLEN 2 words; the noise buffer is `0x400` bytes of the same LFSR PCM
+  (`cmpi.w #$400` at `0xe684`), AUDxLEN `0x200` (`0xe976..0xe98e`).
+- Channel records are `0x16` bytes at `0xec68` (the later driver uses
+  `0x20`), initialized at `0xe72e`.
+- The tick (`0xe7b6`) makes the same flag-9 test, then programs a voice
+  only when a note decodes — held ticks write nothing. `0xe95e` writes
+  AUDxPER, AUDxVOL and the DMACON enable in one go.
+- The tone period is `((b0 & 0x3f) << 10 | (b1 & 0xf) << 6) >> 2` — 16
+  times the divisor, four times the later scaling, which the 2-sample
+  cycle brings back to the PC pitch. A rest writes period 0.
+- The noise control's type bits select `move.w #6/#3/#1, $8(a5)`
+  (`0xe872..0xe882`, type 3 shares type 2's case), and `0xe990` copies
+  `+8` to AUDxPER: these are real register values, below Paula's DMA
+  minimum.
+- The volume (`0xe8c2..0xe8fc`) subtracts v23 (`move.b $f31f`, the var
+  table at `0xf308` that the `equaln` handler indexes) from the
+  attenuation, floored at 0 by `cmp.l d1,d0; bls` → `moveq #0,d7`, then
+  scales `((15 - it) << 6) / 15`. v23 makes the note louder; a rest with
+  v23 = 5 writes volume 21 at period 0.
+
+The profile family `amiga-2.082` keeps these behaviors distinct;
+`amiga` is the 2.176+ driver only.
+
+#### Engine/app mapping
+
+`SoundPlayback` emits `{kind: "paula", channel, period, volume, driver?}`
+per voice on the same 60 Hz clock: the 2.176+ family every tick for every
+live voice, the 2.082 family (`driver: "2.082"`) on decode ticks only.
+`period` is the value written to AUDxPER (null when the voice's DMA is
+off) and `volume` the value written to AUDxVOL, always 0..64
 (`AMIGA_ENVELOPE_TABLE`, `AMIGA_2176_ENVELOPE_TABLE`,
-`AMIGA_2082_NOISE_PERIODS`, `AMIGA_TONE_SAMPLE`, `amigaNoisePcm` in
-`src/sound/sound.ts`). `app/src/audio/AgiAudio.ts` renders the voices with
-looping buffer sources — sample rate `3546895 / period` against the PAL
-Paula clock — and per-voice gains. The `soundDevice` operand stays a
-PC-family selection and does not reach this path.
-
-Tests: [sound-playback.test.ts](../test/sound-playback.test.ts),
-[ports.test.ts](../test/ports.test.ts),
-[audio.test.ts](../app/test/audio.test.ts).
+`AMIGA_2082_NOISE_PERIODS`, `AMIGA_TONE_SAMPLE`,
+`AMIGA_2082_TONE_SAMPLE`, `amigaNoisePcm` in `src/sound/sound.ts`).
+`app/src/audio/AgiAudio.ts` renders the voices with looping buffer
+sources whose buffers are fixed per voice as in the drivers — sample rate
+`3546895 / period` against the PAL Paula clock — and per-voice gains; a
+change of driver rebuilds the voices. Two render choices come from the
+hardware, not the drivers: periods below 124 colour clocks render at 124,
+because Paula's audio DMA cannot fetch samples faster (the Amiga Hardware
+Reference Manual's minimum); and period 0 renders silent — an inference
+that a zero period gives no audible pitch, not a measurement. The
+`soundDevice` operand stays a PC-family selection and does not reach this
+path.
 
 ### Apple IIgs interpreter (SQ2 1.014)
 
@@ -2032,9 +2192,10 @@ edition, resolved by the same reader. Extra files: `SIERRASTANDARD`
 #### OMF layout (fact)
 
 `SQ2.SYS16` is a GS/OS load file: 43 sequential OMF segment records, not a
-flat binary. Each header is `bytecnt/respc/length` u32s, then
-lablen/numlen/version/banksize/kind/org/align, a 1-byte segnum ordinal
-(1–43), a 4-byte `entry` field, and dispname/dispdata words. Segment
+flat binary. Each header is the OMF v2 layout (version byte 2 at
+`+0x0f`): `bytecnt/respc/length` u32s, then lablen/numlen/version bytes,
+banksize u32, kind u16, org/align u32s, a numsex byte, a u16 segnum
+(1–43) at `+0x22`, a 4-byte `entry` field, and dispname/dispdata words. Segment
 bodies are record streams: `0xf2` LCONST (u32 count + data), `0xf1` DS
 (u32 count, zero fill), `0xf5` cRELOC and `0xf7` SUPER compressed
 relocation records, `0x00` END. The loaded image must be built from the
@@ -2141,7 +2302,7 @@ appears under the same guard each time — e.g. logic 1 ends
 `if (v20 != 0) { v53 = 0x32; 0xb0(v53); }` (pace `0x32` = 50 heartbeats).
 No logic emits action `0xb1`, and none tests condition `0x13`; the hits a
 linear scanner reports are jump-offset bytes (`fe 13 00` / `ff 13 00`)
-after desynchronisation — the engine's own decoder finds none.
+after desynchronization — the engine's own decoder finds none.
 
 Host model: `0xaf`/`0xb0` arm the fade watchdog described under "Apple
 IIgs sound fade" below; `0xb1` terminates the session through the normal
@@ -2156,7 +2317,7 @@ the key map as zero-terminated `{u16le rawKey, u16le status}` records;
 `set.key` and the save writer bound the same table at forty entries,
 ~arrays+0x36..0xd6. Direction-based loop selection lives in `animateseg`
 (seg 25): `loopCount` 2 or 3 selects through the two-direction table at
-$318fa, 4 through the four-direction table at $31903, anything else
+`$318fa`, 4 through the four-direction table at `$31903`, anything else
 falls through; it applies only when the object's step-count field (+0x02)
 reads 1 — the cadence-due tick — and only when fix.loop (`0x2000`) is
 clear.
@@ -2170,40 +2331,45 @@ the Amiga record map documents — step time/count `+0x00/+0x02`, x/y
 time/count `+0x32/+0x34`, direction `+0x36`, motion `+0x38`, cycle
 `+0x3a`, priority `+0x3c`, flag word `+0x3e`, the four motion-parameter
 bytes in the low halves of `+0x40..+0x47` — so the record field map is
-shared evidence, not inheritance. The mode and flag _values_ differ in
-two places, verified from the IIgs handlers themselves:
+shared evidence, not inheritance. The mode and flag _values_ match the
+Amiga builds too, verified from the IIgs handlers themselves (action
+slots resolved through the ~arrays+0x03fe table's cINTERSEG records):
 
 - Motion modes match the Amiga numbering (`normal.motion`/`wander`/
   `follow.ego`/`move.obj` write 0/1/2/3 in `motionseg`; `stop.motion`
   clears `+0x36`/`+0x38` and the `$011d` control flag like the Amiga).
   The input click-move writes mode 4 when `$011d` is set (`movetoseg`).
-- Cycle modes use the **PC order**, not the Amiga's: `normal.cycle`
+- Cycle modes use the PC order, as on the Amiga: `normal.cycle`
   writes 0, `end.of.loop` 1, `reverse.loop` 2, `reverse.cycle` 3 in
   `cycleseg` — the portable values translate `{0,3,1,2}` at the record
   boundary.
-- The flag-word bits match the Amiga map bit-for-bit in every checked
-  handler: drawn `0x0001` (`draw` `ora`/`erase` `and` in `drawseg`),
-  ignore.blocks `0x0002` (`blockseg`), fixed priority `0x0004`
-  (`anilistseg`), ignore horizon `0x0008`, update `0x0010`, cycling
-  `0x0020`, animated `0x0040` (`animate.obj` writes `0x0070` and clears
-  direction/motion/cycle like the Amiga; `unanimate.all` keeps only
-  `0x0041`), blocked `0x0080` (set when a candidate position lands in
-  the configured rectangle), water gates `0x0100`/`0x0800`/`0x0900`,
-  ignore objects `0x0200`, position-clamped `0x0400`, stationary
-  `0x1000` (cleared by `set.cel`), position-changed `0x4000`, fix.loop
-  `0x2000`. Bits without a verified writer (`0x0080`, `0x0400`,
-  `0x4000` semantics beyond the observed set/clear sites) round-trip
-  through the record's raw image like the Amiga's.
+- The flag-word bits match the Amiga table bit-for-bit, with the same
+  portable mapping: drawn `0x0001` (`draw` `ora` at drawseg+0x10b,
+  `erase` clears), ignore.blocks `0x0002` (`blockseg`), fixed priority
+  `0x0004`, ignore horizon `0x0008`, the update pass `0x0010`
+  (`stop.update` → anilistseg+0x21 `and #$ffef`, `start.update` →
+  anilistseg+0x165 `ora #$0010`; `draw` sets it at drawseg+0xbc),
+  cycling `0x0020`, animated `0x0040` (`animate.obj` tests it at
+  animateseg+0x2bd and writes `0x0070`; `unanimate.all`
+  animateseg+0x230 `and #$ffbe`), blocked `0x0080` (set when a candidate
+  position lands in the configured rectangle), on water `0x0100`
+  (`object.on.water` seg2+0x61ef), on land `0x0800` (`object.on.land`
+  seg2+0x6788; `object.on.anything` seg2+0x66dd `and #$f6ff`), ignore
+  objects `0x0200`, reposition `0x0400` (`reposition` seg2+0x637d),
+  cycle delay `0x1000` (`end.of.loop`/`reverse.loop` `ora #$1030` at
+  cycleseg+0x2e1/+0x1ea; `draw` drawseg+0x12e, `set.cel` seg2+0x341e and
+  the cel advance advancelse+0x70 clear it), fix.loop `0x2000`, and
+  stationary `0x4000` (objlistseg+0xcd sets it when x/y equal the saved
+  pair, +0xf0 clears it). Only `0x0080` and `0x8000` lack portable state
+  and round-trip through the record's raw image.
 
 `savegameseg` writes the 31-byte description header (`pea $001f`) then
 six blocks, each prefixed by a big-endian u16 length (the writer
 divmods the block size and emits high then low byte):
 
 ```text
-block 1  0x38  bank-0 globals image ($010d..$0144): horizon u16le @+0x04,
-               block rectangle @+0x08..+0x0e, player/program-control flag
-               @+0x10, block enable @+0x14, replay capacity u16le @+0x1a
-block 2  0x3d0 main state block — 8 opaque head bytes, key map 40×4
+block 1  0x38  ~globals image $010d..$0144 (u16le words; map below)
+block 2  0x3d0 ~arrays+0x2e..0x3fd — signature @0x00, key map 40×4
                @0x08, strings 13×40 @0xa8, v0..v255 @0x2b0, packed flags
                @0x3b0
 block 3  N×0x48 drawable-object records (little-endian fields)
@@ -2215,17 +2381,38 @@ block 6  logic-resume {u16le logic, u16le offset} records + terminator
 `restore.game` reads the same six blocks back through the matching
 reader. No shipped IIgs save image exists in the fixture, so the
 layout is proven by the writer's push sequences and region boundaries
-rather than a file. The lead block's source range is the bank-0 globals
-the handlers write: `set.horizon` stores at `$0111` (lead `+0x04`),
-`block` stores its four operands at `$0115`/`$0117`/`$0119`/`$011b`
-(lead `+0x08..+0x0e`, x1/y1/x2/y2 like the Amiga order) and the enable
-flag at `$0121` (lead `+0x14`), `player.control`/`stop.motion`-on-ego
-clear and `start.motion` sets the control flag at `$011d` (lead `+0x10`),
-and the replay capacity sits at `+0x1a` as before. The lead block's
-other bytes — including whatever occupies `+0x00..+0x03` and `+0x16`/
-`+0x18` — are preserved raw; the state block's eight head bytes
-(probably the `set.game.id` signature, not yet confirmed) are likewise
-opaque.
+rather than a file. The writer's far pointers resolve through the
+segment's SUPER relocations: the lead block is ~globals (seg 2) +0x10d,
+the state block ~arrays (seg 3) +0x2e, where `set.game.id` (seg2+0x4ca0)
+copies its seven signature bytes. The lead block's words are the
+globals the handlers write:
+
+| Lead    | Global        | Writer                                                           |
+| ------- | ------------- | ---------------------------------------------------------------- |
+| `+0x00` | `$010d/$010f` | heartbeat timer u32 (main+0x186f, every third beat)              |
+| `+0x04` | `$0111`       | `set.horizon`                                                    |
+| `+0x08` | `$0115..011b` | `block` x1/y1/x2/y2, the Amiga order                             |
+| `+0x10` | `$011d`       | control flag (`player.control`/`start.motion` set it)            |
+| `+0x12` | `$011f`       | drawn picture number (`draw.pic` → seg2+0x54c0)                  |
+| `+0x14` | `$0121`       | block enable                                                     |
+| `+0x18` | `$0125`       | `0x000f` in the load image, no runtime writer found              |
+| `+0x1a` | `$0127`       | replay capacity (`script.size`, seg2+0x3c2e)                     |
+| `+0x1c` | `$0129`       | replay active count (append `inc` seg2+0x3da2)                   |
+| `+0x1e` | `$012b`       | text foreground (`set.text.attribute` seg2+0x855)                |
+| `+0x20` | `$012d`       | text background (seg2+0x85a)                                     |
+| `+0x24` | `$0131`       | input enable (`accept.input` 1, `prevent.input` 0)               |
+| `+0x28` | `$0135`       | cursor character byte (`set.cursor.char` seg2+0x19ba)            |
+| `+0x2a` | `$0137`       | status-line enable (statusseg+0x87a / +0x89a)                    |
+| `+0x2e` | `$013b..0141` | `configure.screen`: base row, base + 21, input row, status row   |
+| `+0x36` | `$0143`       | `push.script` copy of the active count; `pop.script` restores it |
+
+Unmapped and carried raw: `+0x06` (`$0113`), `+0x16` (`$0123`), `+0x22`
+(`$012f`, a third word the text-attribute stack moves with foreground and
+background), `+0x26` (`$0133`) and `+0x2c` (`$0139`), plus the state
+block's eighth byte. The ~globals load image holds `0x000f` at `+0x18`,
+capacity 50 and rows 23/21 at `+0x32`/`+0x34`; an image the engine
+writes without a decoded lead block starts from the `0x000f` word, the
+others being mapped fields.
 
 #### Sound format (fact, except where marked)
 
@@ -2261,9 +2448,9 @@ Manager (toolset `$08`) calls, including `FFStartSound` (`$1408`).
 `SIERRASTANDARD` is exactly 64 KiB — the Ensoniq DOC wavetable RAM size —
 loaded from `data/sierrastandard` (path string in ~arrays+0x1613).
 Instrument-index mapping into SIERRASTANDARD and envelope semantics were
-not decoded; the app's `iigs` audio mode renders the events with plain
-triangle oscillators, so Ensoniq wavetable fidelity is explicitly out of
-scope.
+not decoded; the app renders the events with plain triangle oscillators
+and labels the chip "Apple IIgs (approximate)", so Ensoniq wavetable
+fidelity is explicitly out of scope.
 
 Timing: `initmachseg` installs a Misc Tools heart-beat task at
 main+0xee0 (`SetHeartBeat` `$1203`, cleared via `$1303`; the pushed task
@@ -2289,9 +2476,11 @@ Type-1 player (`seg3`+0x1484): calls `FFStartSound` every heartbeat until
 it returns `0xffff` (the toolbox's busy answer), so the resource plays to
 completion at the DOC's own pace. The exact FFStartSound setup/PCM
 semantics are a gap; `src/sound/sound.ts` computes a finite duration from
-the wave byte count at offset 8 played at `freqOffset × 1645/32` Hz (the
-rate word in the tagged wave record at offset 44), emits silence, and
-completes the sound-done flag on schedule.
+the wave byte count at offset 8 played at an assumed `freqOffset × 1645/32`
+Hz (51.40625 Hz per unit of the rate word in the tagged wave record at
+offset 44 — an inference, not read from the binary), emits silence, and
+completes the sound-done flag on schedule. A zero or untagged rate word
+falls back to `0x100` with a warning, keeping the duration finite.
 
 #### Apple IIgs sound fade (fact + host limitation)
 
@@ -2319,7 +2508,7 @@ the observable half — the countdown/expiry schedule and the sound
 completion (with its done flag) — while the per-step `SetSoundVolume`
 attenuation is modelled nowhere.
 
-#### Boot behaviour under the engine (fact)
+#### Boot behavior under the engine (fact)
 
 `detectProfile` selects `iigs-1.014` for the fixture: the folder carries
 no `AGIDATA.OVL`/`AGI`/`*.COM` version string, so detection reaches the
@@ -2342,21 +2531,22 @@ after the decoded stream length — test/ports.test.ts bounds the wait.
 
 #### Input and pacing (fact + inference)
 
-Input comes through the desktop Event Manager (toolset $06 calls) with
+Input comes through the desktop Event Manager (toolset `$06` calls) with
 event mask `0x098c` stored in ~arrays+0x1529 region. Scanning every
-`ldx #$xxxx; jsl $e10000`/`$e100a8`call site finds zero toolset-$09
-(ADB) calls — the`$0902` call words seen 14 times are Memory Manager
-function `$09` (`NewHandle`), since the call word is `function<<8 |
-toolset`. `eventseg`is a thin wrapper over seg3/main. The
+`ldx #$xxxx; jsl $e10000` or `$e100a8` call site finds zero toolset `$09`
+(ADB) calls — the `$0902` call words seen 14 times are Memory Manager
+function `$09` (`NewHandle`), since the call word is
+`function<<8 | toolset`. `eventseg` is a thin wrapper over seg3/main. The
 binary carries joystick-calibration strings ("Please center your
 joystick\nand press one of the buttons.", "If you have a joystick,
 please center it and press ...", "Otherwise, press any key to
 continue.") and "Game paused." Menu/Window/Control/Dialog manager
-toolsets ($0e/$0f/$10/$15) are called — the IIgs port uses native
-desktop UI for menus and dialogs (inference:`menu.input`/`open.dialogue`
-semantics likely differ from PC). Clock variables follow the same
-v11–v14 seconds/minutes/hours convention (f100 above). No fixed-cycle
-vsync wait was identified; event/timer pacing is toolbox-driven.
+toolsets (`$0e`/`$0f`/`$10`/`$15`) are called — the IIgs port uses native
+desktop UI for menus and dialogs (inference: `menu.input` and
+`open.dialogue` semantics likely differ from PC). Clock variables follow
+the same v11–v14 seconds/minutes/hours convention (f100 above). No
+fixed-cycle vsync wait was identified; event/timer pacing is
+toolbox-driven.
 
 #### IIgs profile fields inherited without evidence
 

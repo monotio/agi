@@ -2,9 +2,9 @@
 """Inspect the local Apple IIgs AGI interpreter and its resources.
 
 SQ2.SYS16 is a GS/OS load file (ProDOS S16): a sequence of OMF segment
-records. This fixture's records use the early OMF v1-style header (no
-version/revision fields): bytecnt/respc/length longs, lablen/numlen bytes,
-then banksize/kind/org/align longs, numsex byte, segnum word, entry long,
+records with the OMF v2 header (version byte 2 at +0x0f):
+bytecnt/respc/length longs, lablen/numlen/version bytes, banksize long,
+kind word, org/align longs, numsex byte, segnum word at +0x22, entry long,
 dispname/dispdata words. The body holds LCONST (0xf2 + u32 count + data),
 DS (0xf1 + u32 count, zero fill) and trailing SUPER compressed relocation
 records (0xf7 + u32 size + type byte + data) before the END (0x00) record.
@@ -52,7 +52,7 @@ def parse_omf(path):
         bytecnt, respc, length = struct.unpack_from("<III", d, pos)
         if bytecnt == 0 or pos + bytecnt > len(d):
             break
-        lablen, numlen = d[pos + 0x0E], d[pos + 0x0F]
+        lablen, numlen, version = d[pos + 0x0D], d[pos + 0x0E], d[pos + 0x0F]
         banksize, kind = struct.unpack_from("<IH", d, pos + 0x10)
         org, align = struct.unpack_from("<II", d, pos + 0x18)
         numsex = d[pos + 0x20]
@@ -90,7 +90,7 @@ def parse_omf(path):
             "length": length, "respc": respc, "fileoff": pos,
             "entry": entry, "image": bytes(image), "lconsts": lconsts,
             "banksize": banksize, "align": align, "lablen": lablen,
-            "numlen": numlen, "numsex": numsex, "ddata": ddata,
+            "numlen": numlen, "version": version, "numsex": numsex, "ddata": ddata,
         })
         pos += bytecnt
     return segs
