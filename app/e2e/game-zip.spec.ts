@@ -1,5 +1,5 @@
 import { providerReply } from "../../test/provider-stream.ts";
-import { expect, test } from "@playwright/test";
+import { expect, test, keepDetectedProfile } from "./test.ts";
 import { readFile } from "node:fs/promises";
 import { readGameZip } from "../src/gameZip.ts";
 import { openContainer } from "../../src/container/container.ts";
@@ -45,6 +45,7 @@ test("a friend opens an exported world in a fresh browser without a key", async 
   const context = await browser.newContext();
   try {
     const friend = await context.newPage();
+    await keepDetectedProfile(friend);
     let providerCalls = 0;
     await friend.route("**/api/**", (route) => {
       providerCalls++;
@@ -257,6 +258,7 @@ test("a v3 game can be imported, remixed, exported and opened in a fresh session
   const fresh = await browser.newContext();
   try {
     const friend = await fresh.newPage();
+    await keepDetectedProfile(friend);
     // Cover a cold worker request instead of depending on the runner's load speed.
     await friend.route("**/engine.worker.ts*", async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 6000));
@@ -346,6 +348,7 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
   const context = await browser.newContext();
   try {
     const friend = await context.newPage();
+    await keepDetectedProfile(friend);
     await friend.goto(page.url());
     await friend.getByTestId("game-zip-input").setInputFiles((await exported.path())!);
     const friendCard = savedGameCard(friend, "The Midnight Appointment");

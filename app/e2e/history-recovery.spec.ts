@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
 import { readGameZip } from "../src/gameZip.ts";
 import { isolateStorage, openGameOptions, textHook, waitForCycles } from "./engineProbe.ts";

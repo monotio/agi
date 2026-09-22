@@ -1,170 +1,125 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
-import type { ProfileId, ProfileDetectionKind } from "../../src/runtime/profile.ts";
-import { PROFILE_OPTIONS, formatProfileResolution } from "./profileChoice.ts";
+import { computed, onMounted, ref, useTemplateRef } from "vue";
+import type { ProfileId } from "../../src/runtime/profile.ts";
+import {
+  PROFILE_GROUPS,
+  formatProfileResolution,
+  type ProfileChoiceState,
+} from "./profileChoice.ts";
 
-const props = defineProps<{
-  open: boolean;
-  mode: "import" | "library";
-  title: string;
-  defaultProfile: ProfileId;
-  currentProfile: ProfileId;
-  currentKind: ProfileDetectionKind | "override";
-  hasOverride: boolean;
-}>();
-
+/**
+ * A native modal dialog: focus moves inside, Escape closes it, and the page
+ * behind stays inert until the player saves or keeps the current profile.
+ */
+const { choice } = defineProps<{ choice: ProfileChoiceState }>();
 const emit = defineEmits<{
-  (e: "confirm", profile: ProfileId): void;
-  (e: "decideLater"): void;
-  (e: "returnToAuto"): void;
-  (e: "close"): void;
+  save: [profile: ProfileId | undefined];
+  close: [];
 }>();
 
-const selectedProfile = ref<string>(props.currentProfile);
+const dialog = useTemplateRef("dialog");
+// "" is Automatic. Import preselects the detected profile, which automatic also runs.
+const selected = ref<string>(
+  choice.override ?? (choice.mode === "import" ? (choice.detected ?? "") : ""),
+);
+let settled = false;
 
-watch(
-  () => props.open,
-  (isOpen) => {
-    if (isOpen) {
-      selectedProfile.value = props.currentProfile;
-    }
-  },
-  { immediate: true },
+const current = computed(() =>
+  choice.override
+    ? formatProfileResolution(choice.override, "override")
+    : choice.detected && choice.kind
+      ? formatProfileResolution(choice.detected, choice.kind, choice.build)
+      : "Automatic (opening not checked)",
 );
 
-watch(
-  () => props.currentProfile,
-  (val) => {
-    selectedProfile.value = val;
-  },
-);
+onMounted(() => dialog.value?.showModal());
 
-const currentResolutionText = computed(() => {
-  return formatProfileResolution(props.currentProfile, props.currentKind);
-});
-
-function onConfirm(): void {
-  if (props.mode === "library" && selectedProfile.value === "") {
-    emit("returnToAuto");
-  } else {
-    emit("confirm", selectedProfile.value as ProfileId);
-  }
+function save(): void {
+  settled = true;
+  emit("save", selected.value === "" ? undefined : (selected.value as ProfileId));
 }
 
-function onDecideLater(): void {
-  emit("decideLater");
+function dismiss(): void {
+  dialog.value?.close();
 }
 
-function onReturnToAuto(): void {
-  emit("returnToAuto");
-}
-
-function onClose(): void {
+function onDialogClose(): void {
+  if (settled) return;
+  settled = true;
   emit("close");
 }
 </script>
 
 <template>
   <dialog
-    v-if="open"
-    open
+    ref="dialog"
     class="profile-picker-dialog"
     data-testid="profile-picker-dialog"
     aria-labelledby="profile-picker-title"
-    @keydown.esc="onClose"
+    @close="onDialogClose"
   >
-    <form method="dialog" @submit.prevent="onConfirm">
+    <form method="dialog" @submit.prevent="save">
       <header>
         <h2 id="profile-picker-title">
-          {{ mode === "import" ? "Choose interpreter profile" : "Interpreter profile" }}
+          {{ choice.mode === "import" ? "Choose an interpreter for" : "Interpreter for" }}
+          <q>{{ choice.title }}</q>
         </h2>
         <button
           type="button"
           class="ui-button ui-button--secondary ui-button--icon dialog-close"
           aria-label="Close"
-          @click="onClose"
+          @click="dismiss"
         >
           ×
         </button>
       </header>
-      <div class="profile-picker-body">
-        <p class="profile-picker-intro">
-          <template v-if="mode === 'import'">
-            This game does not include interpreter files and is not in the known-game catalog.
-            Select an interpreter profile to run it under, or keep the default.
-          </template>
-          <template v-else>
-            Current profile: <strong>{{ currentResolutionText }}</strong>
-          </template>
-        </p>
+      <p v-if="choice.mode === 'import'" class="profile-picker-intro">
+        This game has no interpreter files and is not in the game catalog, so we could not tell
+        which version of Sierra's AGI interpreter it was made for. Games built with AGI Studio or
+        WinAGI usually target 2.917 or 2.936. If you are unsure, keep the default.
+      </p>
+      <p v-else class="profile-picker-intro">
+        Current profile: <strong>{{ current }}</strong
+        >. A running game restarts from its latest autosave under the new profile.
+      </p>
+      <p class="profile-picker-intro">You can change this later from the game's ⋯ menu.</p>
 
-        <div class="profile-picker-field">
-          <label for="profile-select">Interpreter profile</label>
-          <select id="profile-select" v-model="selectedProfile" data-testid="profile-picker-select">
-            <option v-if="mode === 'library'" value="">Automatic ({{ defaultProfile }})</option>
-            <option v-for="opt in PROFILE_OPTIONS" :key="opt.id" :value="opt.id">
-              {{ opt.label }}
-            </option>
-          </select>
-        </div>
+      <label for="profile-select">Interpreter profile</label>
+      <select id="profile-select" v-model="selected" data-testid="profile-picker-select">
+        <option v-if="choice.mode === 'library'" value="">
+          Automatic{{ choice.detected ? ` (${choice.detected})` : "" }}
+        </option>
+        <optgroup v-for="group in PROFILE_GROUPS" :key="group.label" :label="group.label">
+          <option v-for="opt in group.options" :key="opt.id" :value="opt.id">
+            {{ opt.id }}{{ opt.id === choice.detected ? " (default)" : ""
+            }}{{ opt.releases ? ` — ${opt.releases}` : "" }}
+          </option>
+        </optgroup>
+      </select>
 
-        <div class="profile-picker-actions">
-          <template v-if="mode === 'import'">
-            <button
-              type="submit"
-              class="ui-button ui-button--primary"
-              data-testid="profile-picker-confirm"
-            >
-              Save profile
-            </button>
-            <button
-              type="button"
-              class="ui-button ui-button--secondary"
-              data-testid="profile-picker-decide-later"
-              @click="onDecideLater"
-            >
-              Decide later
-            </button>
-          </template>
-          <template v-else>
-            <button
-              type="submit"
-              class="ui-button ui-button--primary"
-              data-testid="profile-picker-confirm"
-            >
-              Save profile
-            </button>
-            <button
-              v-if="hasOverride"
-              type="button"
-              class="ui-button ui-button--secondary"
-              data-testid="profile-picker-auto"
-              @click="onReturnToAuto"
-            >
-              Return to automatic
-            </button>
-            <button
-              type="button"
-              class="ui-button ui-button--secondary"
-              data-testid="profile-picker-cancel"
-              @click="onClose"
-            >
-              Cancel
-            </button>
-          </template>
-        </div>
-      </div>
+      <footer>
+        <button
+          type="button"
+          class="ui-button ui-button--secondary"
+          data-testid="profile-picker-keep"
+          @click="dismiss"
+        >
+          {{ choice.mode === "import" && choice.detected ? `Keep ${choice.detected}` : "Cancel" }}
+        </button>
+        <button
+          type="submit"
+          class="ui-button ui-button--primary"
+          data-testid="profile-picker-confirm"
+        >
+          Save profile
+        </button>
+      </footer>
     </form>
   </dialog>
 </template>
 
 <style scoped>
 .profile-picker-dialog {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 1000;
   width: min(520px, calc(100vw - 32px));
   padding: 0;
   border: 1px solid #5e9b9e;
@@ -174,9 +129,12 @@ function onClose(): void {
   box-shadow: 0 24px 80px #000c;
   font-family: system-ui, sans-serif;
 }
+.profile-picker-dialog::backdrop {
+  background: #000b;
+}
 form {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   padding: 22px;
 }
 header {
@@ -189,10 +147,7 @@ h2 {
   margin: 0;
   color: #fff;
   font-size: 20px;
-}
-.profile-picker-body {
-  display: grid;
-  gap: 16px;
+  overflow-wrap: anywhere;
 }
 .profile-picker-intro {
   margin: 0;
@@ -203,11 +158,8 @@ h2 {
 .profile-picker-intro strong {
   color: #e9f4f4;
 }
-.profile-picker-field {
-  display: grid;
-  gap: 6px;
-}
 label {
+  margin-top: 6px;
   color: #c7d9da;
   font-size: 13px;
 }
@@ -224,8 +176,9 @@ select {
     14px/1.4 system-ui,
     sans-serif;
 }
-.profile-picker-actions {
+footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;

@@ -25,91 +25,100 @@ function savedGameCard(page: Parameters<typeof textHook>[0], name: string) {
   return page.locator(".saved-game-card", { hasText: name });
 }
 
-test("installs a synthetic game without interpreter files, sees the picker, picks a profile, and boots under it", async ({
+async function importSynthetic(page: Parameters<typeof textHook>[0], name: string) {
+  await page.getByTestId("game-zip-input").setInputFiles({
+    name: `${name}.zip`,
+    mimeType: "application/zip",
+    buffer: syntheticGame(),
+  });
+}
+
+test("an unidentified import asks for a profile in a modal and boots under the choice", async ({
   page,
 }) => {
   await isolateStorage(page);
   await page.goto("/");
-  const zip = syntheticGame();
-  await page.getByTestId("game-zip-input").setInputFiles({
-    name: "synthetic-choice.zip",
-    mimeType: "application/zip",
-    buffer: zip,
-  });
+  await importSynthetic(page, "synthetic-choice");
 
-  // Sees the picker dialog
   const picker = page.getByTestId("profile-picker-dialog");
   await expect(picker).toBeVisible();
-
-  // Container default (2.936) is preselected
+  await expect(picker.getByRole("heading")).toContainText("synthetic-choice");
+  // The detected default is preselected and marked; the options are grouped by platform.
   const select = page.getByTestId("profile-picker-select");
   await expect(select).toHaveValue("2.936");
+  await expect(select.locator("option:checked")).toContainText("default");
+  expect(
+    await select.locator("optgroup").evaluateAll((g) => g.map((e) => e.getAttribute("label"))),
+  ).toEqual(["PC v2", "PC v3", "Amiga", "Apple IIgs"]);
+  // A native modal: focus is inside it.
+  expect(await picker.evaluate((dialog) => dialog.contains(document.activeElement))).toBe(true);
 
-  // Picks a profile, e.g. 2.411
   await select.selectOption("2.411");
   await page.getByTestId("profile-picker-confirm").click();
   await expect(picker).toBeHidden();
 
-  // Boots under it
-  const card = savedGameCard(page, "synthetic-choice");
-  await card.getByTestId("btn-resume-cached").click();
-
-  // The booted profile is visible through existing test hooks
+  await savedGameCard(page, "synthetic-choice").getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).profile).toBe("2.411");
+
+  // The same bytes imported again keep the stored choice without asking.
+  await page.goto("/");
+  await importSynthetic(page, "synthetic-choice");
+  await expect(page.getByTestId("game-import-ready")).toBeVisible();
+  await expect(picker).toBeHidden();
 });
 
-test("decide later keeps container default profile", async ({ page }) => {
+test("keeping the default or pressing Escape stores no override", async ({ page }) => {
   await isolateStorage(page);
   await page.goto("/");
-  const zip = syntheticGame();
-  await page.getByTestId("game-zip-input").setInputFiles({
-    name: "synthetic-decide-later.zip",
-    mimeType: "application/zip",
-    buffer: zip,
-  });
+  await importSynthetic(page, "synthetic-keep");
 
   const picker = page.getByTestId("profile-picker-dialog");
   await expect(picker).toBeVisible();
-  await page.getByTestId("profile-picker-decide-later").click();
+  await expect(page.getByTestId("profile-picker-keep")).toHaveText("Keep 2.936");
+  await page.keyboard.press("Escape");
   await expect(picker).toBeHidden();
 
-  const card = savedGameCard(page, "synthetic-decide-later");
+  const card = savedGameCard(page, "synthetic-keep");
+  await card.getByRole("button", { name: "Game actions" }).click();
+  await expect(page.getByTestId("interpreter-profile-menu-item")).toContainText(
+    "2.936 (container default)",
+  );
+  await page.keyboard.press("Escape");
   await card.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).profile).toBe("2.936");
   await expect.poll(async () => (await textHook(page)).profileKind).toBe("default");
 });
 
-test("gallery card menu shows interpreter profile and updates profile", async ({ page }) => {
+test("the card menu changes the profile and returns it to automatic", async ({ page }) => {
   await isolateStorage(page);
   await page.goto("/");
-  const zip = syntheticGame();
-  await page.getByTestId("game-zip-input").setInputFiles({
-    name: "synthetic-reboot.zip",
-    mimeType: "application/zip",
-    buffer: zip,
-  });
+  await importSynthetic(page, "synthetic-menu");
+  await page.getByTestId("profile-picker-keep").click();
 
-  await page.getByTestId("profile-picker-decide-later").click();
-  const card = savedGameCard(page, "synthetic-reboot");
-
-  // Open action menu on the card
-  await card.getByRole("button", { name: "Game actions" }).click();
+  const card = savedGameCard(page, "synthetic-menu");
   const menuItem = page.getByTestId("interpreter-profile-menu-item");
-  await expect(menuItem).toBeVisible();
-  await expect(menuItem).toContainText("2.936 (container default)");
-
-  // Click menu item to open dialog
-  await menuItem.click();
   const picker = page.getByTestId("profile-picker-dialog");
-  await expect(picker).toBeVisible();
-
-  // Change to 2.440 and confirm
   const select = page.getByTestId("profile-picker-select");
+
+  await card.getByRole("button", { name: "Game actions" }).click();
+  await menuItem.click();
+  await expect(picker).toBeVisible();
+  await expect(select).toHaveValue("");
   await select.selectOption("2.440");
   await page.getByTestId("profile-picker-confirm").click();
   await expect(picker).toBeHidden();
 
-  // Now boot under the newly configured profile
   await card.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).profile).toBe("2.440");
+
+  await page.goto("/");
+  await card.getByRole("button", { name: "Game actions" }).click();
+  await expect(menuItem).toContainText("2.440 (your override)");
+  await menuItem.click();
+  await expect(select).toHaveValue("2.440");
+  await select.selectOption("");
+  await page.getByTestId("profile-picker-confirm").click();
+  await expect(picker).toBeHidden();
+  await card.getByRole("button", { name: "Game actions" }).click();
+  await expect(menuItem).toContainText("2.936 (container default)");
 });

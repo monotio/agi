@@ -1,5 +1,5 @@
 import { providerReply } from "../../test/provider-stream.ts";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";

@@ -62,7 +62,6 @@ const {
   openLibraryProfileChoice,
   closeProfileChoice,
   applyProfileChoice,
-  decideLaterProfileChoice,
 } = useGameLibrary();
 const bridge = useShellBridge();
 
@@ -426,16 +425,9 @@ const pendingAutosaveTitle = computed(
 
     <ProfileChoiceDialog
       v-if="profileChoiceState"
-      open
-      :mode="profileChoiceState.mode"
-      :title="profileChoiceState.title"
-      :default-profile="profileChoiceState.defaultProfile"
-      :current-profile="profileChoiceState.currentProfile"
-      :current-kind="profileChoiceState.currentKind"
-      :has-override="profileChoiceState.hasOverride"
-      @confirm="applyProfileChoice"
-      @decide-later="decideLaterProfileChoice"
-      @return-to-auto="applyProfileChoice(undefined)"
+      :key="`${profileChoiceState.mode}:${profileChoiceState.projectId}`"
+      :choice="profileChoiceState"
+      @save="applyProfileChoice"
       @close="closeProfileChoice"
     />
   </aside>

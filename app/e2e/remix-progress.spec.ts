@@ -1,5 +1,5 @@
 import { providerReply } from "../../test/provider-stream.ts";
-import { test, expect } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { buildZip } from "../src/zip.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";

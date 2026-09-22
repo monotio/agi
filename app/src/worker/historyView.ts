@@ -304,7 +304,12 @@ export function createHistoryView(ctx: WorkerContext) {
     // the departing session untouched. The image's recorded presentation is
     // restored verbatim — the live-restore redraw would rewrite the text
     // ages the snapshot carries.
-    const candidate = new Engine(openContainer(files), ctx.host, dictionary);
+    const candidate = new Engine(
+      openContainer(files),
+      ctx.host,
+      dictionary,
+      boot.profile ? { profile: boot.profile } : undefined,
+    );
     if (boot.image !== undefined)
       candidate.restoreImage(base64ToBytes(boot.image), { preservePresentation: true });
     if (boot.menus !== undefined) candidate.restoreMenuState(boot.menus);
@@ -330,6 +335,7 @@ export function createHistoryView(ctx: WorkerContext) {
     ctx.boot.currentBootFiles = files;
     ctx.boot.currentDictionary = dictionary;
     ctx.boot.authorRooms = boot.authorRooms;
+    ctx.boot.profile = boot.profile ?? null;
     ctx.boot.authoredWords = null;
     ctx.boot.selectedSoundDevice = boot.soundDevice === 0 ? 0 : 1;
     ctx.hostRequests.hostRequestOutstanding = null;
@@ -423,6 +429,7 @@ export function createHistoryView(ctx: WorkerContext) {
       files: Object.fromEntries([...files].map(([name, data]) => [name, bytesToBase64(data)])),
       dictionary: [...scratch.boot.liveDictionary.entries()],
       authorRooms: scratch.boot.authorRooms,
+      ...(scratch.boot.profile ? { profile: scratch.boot.profile } : {}),
       image: bytesToBase64(image),
       replay: engine.captureReplayState(),
       menus: engine.readMenuState(),

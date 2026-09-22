@@ -250,6 +250,7 @@ export function createReplay(ctx: WorkerContext) {
       openContainer(ctx.boot.currentBootFiles),
       ctx.host,
       ctx.boot.currentDictionary,
+      ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,
     );
     ctx.fns.armJournal();
     ctx.engine.flags[9] = 1;
@@ -302,6 +303,7 @@ export function createReplay(ctx: WorkerContext) {
       openContainer(ctx.boot.currentBootFiles),
       ctx.host,
       ctx.boot.currentDictionary,
+      ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,
     );
     ctx.fns.armJournal();
     ctx.engine.flags[9] = 1;
@@ -606,7 +608,13 @@ export function openHistoryDrive(
     ctx.boot.authorRooms = segment.boot.authorRooms;
     ctx.boot.selectedSoundDevice = anchor ? anchor.soundDevice : segment.boot.soundDevice;
     ctx.boot.authoredWords = wordsPatched ? (files.get("WORDS.TOK") ?? null) : null;
-    ctx.engine = new Engine(openContainer(files), ctx.host, dictionary);
+    ctx.boot.profile = segment.boot.profile ?? null;
+    ctx.engine = new Engine(
+      openContainer(files),
+      ctx.host,
+      dictionary,
+      ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,
+    );
     ctx.fns.armJournal();
     // Browser sessions boot with game sound enabled; the recorded flag restores below.
     ctx.engine.flags[9] = 1;

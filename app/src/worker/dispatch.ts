@@ -204,11 +204,12 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.boot.authoredWords = null;
       ctx.boot.authorRooms = boot.authorRooms === true;
       ctx.boot.selectedSoundDevice = boot.soundDevice === 0 ? 0 : 1;
+      ctx.boot.profile = boot.profile ?? null;
       ctx.engine = new Engine(
         openContainer(files),
         ctx.host,
         ctx.boot.liveDictionary,
-        boot.profile ? { profile: boot.profile } : undefined,
+        ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,
       );
       ctx.fns.armJournal();
       // Browser sessions start with game sound enabled; saved games restore their own flag.

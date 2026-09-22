@@ -20,6 +20,7 @@
  */
 import { validateEngineReplayState, type EngineReplayState } from "../runtime/replayState.ts";
 import type { EngineMenuState } from "../runtime/engine.ts";
+import { PROFILES, type ProfileId } from "../runtime/profile.ts";
 import { gameIdentity, type GameIdentity } from "../gameIdentity.ts";
 
 /** Current recording contract: game identity, original 16-bit RNG and reseed events. */
@@ -241,6 +242,8 @@ export interface HistoryBoot {
   dictionary: [string, number][];
   /** The recorded session allowed the prepareRoom host hook (authored games). */
   authorRooms: boolean;
+  /** Interpreter-profile override the session booted under; absent detects from `files`. */
+  profile?: ProfileId;
   /** Set when the segment continues an earlier one (replay takeover, budget rollover). */
   resumedFrom?: { segment: string; seq: number; tick: number };
   image?: string;
@@ -857,6 +860,12 @@ function anchor(value: unknown): HistoryAnchor {
   return out;
 }
 
+function profileId(value: unknown): ProfileId {
+  if (typeof value !== "string" || !Object.hasOwn(PROFILES, value))
+    fail("boot profile must be a known interpreter profile.");
+  return value as ProfileId;
+}
+
 function boot(value: unknown): HistoryBoot {
   if (!isObj(value)) fail("boot must be an object.");
   const files = value["files"];
@@ -870,6 +879,7 @@ function boot(value: unknown): HistoryBoot {
     ),
     dictionary: dictionary(value["dictionary"]),
     authorRooms: value["authorRooms"] === true,
+    ...(value["profile"] !== undefined ? { profile: profileId(value["profile"]) } : {}),
     rng: int(value["rng"], "boot rng", 0xffff),
     ...(value["resumedFrom"] !== undefined
       ? {

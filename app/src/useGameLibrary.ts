@@ -35,7 +35,7 @@ import { gameRevision } from "./gameMetadata.ts";
 import { getKnownGameByRevision } from "../../src/games/knownGames.ts";
 import type { InstalledGameDescriptor, ProjectId } from "./gameTypes.ts";
 import { projectId, requireProjectId } from "../../src/gameIdentity.ts";
-import { createProfileChoiceController, type ProfileId } from "./profileChoice.ts";
+import { createProfileChoiceController } from "./profileChoice.ts";
 
 export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: ShellBridge) {
   const {
@@ -389,9 +389,6 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
   }
 
   async function onBootSavedGame(alreadyBusy = false): Promise<void> {
-    if (profileChoiceState.value?.mode === "import") {
-      closeProfileChoice();
-    }
     if (libraryActionBusy.value && !alreadyBusy) return;
     const id = selectedProjectId.value;
     if (!id) return;
@@ -436,9 +433,6 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
   }
 
   async function onPlayLibraryGame(game: CachedGameMeta): Promise<void> {
-    if (profileChoiceState.value?.mode === "import") {
-      closeProfileChoice();
-    }
     selectLibraryGame(game);
     const autosave = readAutosave(game.projectId);
     if (!autosave) {
@@ -458,28 +452,22 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     }
   }
 
-  function isGameRunning(id: ProjectId): boolean {
-    if (state.phase === "idle" || state.phase === "loading" || state.phase === "error")
-      return false;
-    const current = currentGame();
-    if (!current) return false;
-    if (current.projectId === id) return true;
-    const meta = getCachedGameMeta(id);
-    return Boolean(meta?.library?.revision && current.revision === meta.library.revision);
-  }
-
   const {
     profileChoiceState,
-    openImportProfileChoice,
+    offerImportProfileChoice,
     openLibraryProfileChoice,
     closeProfileChoice,
     applyProfileChoice,
-    decideLaterProfileChoice,
   } = createProfileChoiceController({
-    isGameRunning,
+    // A copy shares its original's revision, so only the project id names the running game.
+    runningProjectId: () =>
+      state.phase === "idle" || state.phase === "loading" || state.phase === "error"
+        ? undefined
+        : currentGame()?.projectId,
     flushAutosave,
     refreshLibrary,
     onPlayLibraryGame,
+    reportError: (message) => (libraryActionError.value = message),
   });
 
   async function onStartLibraryGameOver(game: CachedGameMeta): Promise<void> {
@@ -524,13 +512,9 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       (report) => (stored = report),
     );
     refreshLibrary(importedProjectId);
-    if (opening.kind === "default") {
-      openImportProfileChoice(
-        importedProjectId,
-        game.title ?? title,
-        (opening.profile as ProfileId) ?? "2.936",
-      );
-    }
+    const entry = getCachedGameMeta(importedProjectId);
+    if (entry)
+      offerImportProfileChoice(entry, game.project !== undefined || game.roomGeneration === true);
     return stored;
   }
 
@@ -728,7 +712,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     try {
       const game = await loadAuthoredGame(selected);
       if (!game) throw new Error("This game is no longer in your library. Import it again.");
-      const opening = await previewGame(game);
+      const opening = await previewGame(game, game.library?.profile);
       const revision = game.library?.revision ?? (await gameRevision(game.files));
       if (!(await updateGamePreview(game.projectId, revision, opening.preview, opening)))
         throw new Error("The game changed while its opening was being checked. Try again.");
@@ -964,7 +948,6 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     openLibraryProfileChoice,
     closeProfileChoice,
     applyProfileChoice,
-    decideLaterProfileChoice,
     onExportAgiZip,
     mountCatalog,
     unmountCatalog,

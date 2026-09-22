@@ -5,6 +5,7 @@
  * under Node — no `self`, `postMessage`, `window` or `document` here.
  */
 import type { Engine, EngineHost } from "../../../src/runtime/engine.ts";
+import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { EngineReplayState } from "../../../src/runtime/replayState.ts";
 import { CycleClock } from "../../../src/runtime/cycleClock.ts";
 import { SoundClock } from "../soundClock.ts";
@@ -76,6 +77,8 @@ export interface BootState {
   authoredWords: Uint8Array | null;
   currentBootFiles: Map<string, Uint8Array> | null;
   currentDictionary: Map<string, number> | null;
+  /** The boot's interpreter-profile override; null detects from the files. */
+  profile: ProfileId | null;
 }
 
 /** worker/input.ts */
@@ -532,6 +535,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       authoredWords: null,
       currentBootFiles: null,
       currentDictionary: null,
+      profile: null,
     },
     clocks: { sound: new SoundClock(now), cycle: new CycleClock(now) },
     input: { keyQueue: [], deferredMovement: [], inputBuffer: [], keyWaiting: false },

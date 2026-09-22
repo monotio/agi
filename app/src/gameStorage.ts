@@ -13,6 +13,7 @@ import {
 import type { CachedGameMeta, CachedGameData, ProjectId, ResourceRevision } from "./gameTypes.ts";
 import { normalizeReferences, type StoredReference } from "./referenceArt.ts";
 import { projectId, resourceRevision } from "../../src/gameIdentity.ts";
+import { PROFILES, type ProfileId } from "../../src/runtime/profile.ts";
 export type { CachedGameMeta, CachedGameData, ProjectId } from "./gameTypes.ts";
 
 interface StoredGameIndex extends CachedGameMeta {
@@ -879,6 +880,29 @@ export function renameAuthoredGame(
       const gen = expectedGeneration ?? data.generation;
       data.title = name;
       await writeBody(data, { expectedGeneration: gen });
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** Store an interpreter-profile override (undefined: automatic); false when refused or stale. */
+export function setLibraryGameProfile(
+  projectId: ProjectId,
+  profile: ProfileId | undefined,
+  expectedGeneration?: number,
+): Promise<boolean> {
+  return serializeWrite(projectId, async () => {
+    if (profile !== undefined && !Object.hasOwn(PROFILES, profile)) return false;
+    try {
+      const data = await readBody(projectId);
+      if (!data?.library) return false;
+      const library = { ...data.library };
+      if (profile) library.profile = profile;
+      else delete library.profile;
+      data.library = library;
+      await writeBody(data, { expectedGeneration: expectedGeneration ?? data.generation });
       return true;
     } catch {
       return false;

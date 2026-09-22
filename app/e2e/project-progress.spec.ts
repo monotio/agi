@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { testProjectId, testRevision } from "../test/identity.ts";
 import { readFile } from "node:fs/promises";
 import { readGameZip } from "../src/gameZip.ts";

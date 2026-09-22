@@ -181,7 +181,6 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         files,
         words,
         autosaveFiles: true,
-        ...(match?.profile ? { profile: match.profile } : {}),
         ...(await autosave.takeResumeState(files)),
       } satisfies WorkerInbound);
     } catch (e) {

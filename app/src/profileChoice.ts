@@ -6,57 +6,69 @@ import {
   type ProfileDetectionKind,
 } from "../../src/runtime/profile.ts";
 import { KNOWN_GAMES } from "../../src/games/knownGames.ts";
-import type { CachedGameMeta } from "./gameStorage.ts";
-import { getCachedGameMeta } from "./gameStorage.ts";
-import { updateLibraryGameProfile } from "./gameLibrary.ts";
+import { getCachedGameMeta, setLibraryGameProfile, type CachedGameMeta } from "./gameStorage.ts";
 import type { ProjectId } from "./gameTypes.ts";
 
 export { type ProfileId, type ProfileDetectionKind };
 
 export interface ProfileOption {
   readonly id: ProfileId;
+  /** Catalogued releases that ship this build, comma-separated; empty when none do. */
+  readonly releases: string;
+}
+
+export interface ProfileOptionGroup {
   readonly label: string;
+  readonly options: readonly ProfileOption[];
+}
+
+function platformLabel(id: ProfileId): string {
+  if (id.startsWith("amiga-")) return "Amiga";
+  if (id.startsWith("iigs-")) return "Apple IIgs";
+  return PROFILES[id].container === "v3-combined" ? "PC v3" : "PC v2";
 }
 
 /**
- * Every promoted profile, labelled with the catalogued releases known to ship
- * that build (or a documented equivalent); a profile no catalogued release
- * uses is listed by id alone.
+ * Every promoted profile grouped by platform, with the catalogued releases
+ * known to ship that build (or a documented equivalent).
  */
-export const PROFILE_OPTIONS: readonly ProfileOption[] = (Object.keys(PROFILES) as ProfileId[]).map(
-  (id) => {
+export const PROFILE_GROUPS: readonly ProfileOptionGroup[] = (() => {
+  const groups = new Map<string, ProfileOption[]>();
+  for (const id of Object.keys(PROFILES) as ProfileId[]) {
     const titles = KNOWN_GAMES.filter(
       (game) =>
         game.alias !== "synthetic" &&
         (game.profile === id || EQUIVALENT_BUILDS[game.profile] === id),
     ).map((game) => game.title.split(":")[0]!);
-    return { id, label: titles.length > 0 ? `${id} — ${titles.join(", ")}` : id };
-  },
-);
+    const platform = platformLabel(id);
+    groups.set(platform, [...(groups.get(platform) ?? []), { id, releases: titles.join(", ") }]);
+  }
+  return [...groups].map(([label, options]) => ({ label, options }));
+})();
+
+function knownProfile(value: string | undefined): ProfileId | undefined {
+  return value !== undefined && Object.hasOwn(PROFILES, value) ? (value as ProfileId) : undefined;
+}
 
 export interface ProfileChoiceState {
   projectId: ProjectId;
   title: string;
-  defaultProfile: ProfileId;
-  currentProfile: ProfileId;
-  currentKind: ProfileDetectionKind | "override";
-  hasOverride: boolean;
   mode: "import" | "library";
+  /** The profile the opening check detected; absent until the opening is checked. */
+  detected: ProfileId | undefined;
+  kind: ProfileDetectionKind | undefined;
+  build: string | undefined;
+  /** The stored override, if any. */
+  override: ProfileId | undefined;
 }
 
 export interface ProfileChoiceControllerDeps {
-  isGameRunning: (id: ProjectId) => boolean;
+  /** The project the player is in, if a game is running. */
+  runningProjectId: () => ProjectId | undefined;
   flushAutosave: (timeoutMs?: number) => Promise<unknown>;
   refreshLibrary: (id?: ProjectId) => void;
   onPlayLibraryGame: (game: CachedGameMeta) => Promise<void>;
-}
-
-/**
- * An imported game shows the profile picker before its first boot only when
- * the edition could not be identified from interpreter binaries or catalog hashes.
- */
-export function shouldShowProfilePicker(kind: ProfileDetectionKind | undefined | null): boolean {
-  return kind === "default";
+  reportError: (message: string) => void;
 }
 
 /**
@@ -82,90 +94,91 @@ export function formatProfileResolution(
   }
 }
 
-/** Short summary of an installed or cached game's current interpreter profile. */
+/** Short summary of a library game's current interpreter profile. */
 export function describeGameProfile(game: CachedGameMeta): string {
-  if (game.library?.profile) {
-    return formatProfileResolution(game.library.profile, "override");
-  }
-  const profile = (game.library?.validation?.profile as ProfileId) ?? "2.936";
-  const kind = game.library?.validation?.kind ?? "default";
-  return formatProfileResolution(profile, kind, game.library?.validation?.build);
+  if (game.library?.profile) return formatProfileResolution(game.library.profile, "override");
+  const validation = game.library?.validation;
+  if (!validation?.profile || !validation.kind) return "Automatic (opening not checked)";
+  return formatProfileResolution(validation.profile, validation.kind, validation.build);
+}
+
+function choiceState(game: CachedGameMeta, mode: ProfileChoiceState["mode"]): ProfileChoiceState {
+  const validation = game.library?.validation;
+  return {
+    projectId: game.projectId,
+    title: game.title,
+    mode,
+    detected: knownProfile(validation?.profile),
+    kind: validation?.kind,
+    build: validation?.build,
+    override: game.library?.profile,
+  };
 }
 
 export function createProfileChoiceController(deps: ProfileChoiceControllerDeps) {
   const profileChoiceState = ref<ProfileChoiceState>();
+  // Imports that arrive while the picker is open wait their turn.
+  const waiting: ProfileChoiceState[] = [];
 
-  function openImportProfileChoice(
-    projectId: ProjectId,
-    title: string,
-    defaultProfile: ProfileId,
-  ): void {
-    profileChoiceState.value = {
-      projectId,
-      title,
-      defaultProfile,
-      currentProfile: defaultProfile,
-      currentKind: "default",
-      hasOverride: false,
-      mode: "import",
-    };
+  function show(state: ProfileChoiceState): void {
+    if (profileChoiceState.value) waiting.push(state);
+    else profileChoiceState.value = state;
+  }
+
+  /**
+   * Offer the picker after an import when the edition could not be identified.
+   * A game made in the app is plain 2.936 by design, and an entry that already
+   * holds a choice (the same bytes imported again) keeps it without asking.
+   */
+  function offerImportProfileChoice(game: CachedGameMeta, createdInApp: boolean): boolean {
+    const validation = game.library?.validation;
+    if (createdInApp || game.roomGeneration || game.library?.profile) return false;
+    if (validation?.kind !== "default" || !knownProfile(validation.profile)) return false;
+    show(choiceState(game, "import"));
+    return true;
   }
 
   function openLibraryProfileChoice(game: CachedGameMeta): void {
-    const currentOverride = game.library?.profile;
-    const detectedProfile = (game.library?.validation?.profile as ProfileId) ?? "2.936";
-    const detectedKind = game.library?.validation?.kind ?? "default";
-    profileChoiceState.value = {
-      projectId: game.projectId,
-      title: game.title,
-      defaultProfile: detectedProfile,
-      currentProfile: currentOverride ?? detectedProfile,
-      currentKind: currentOverride ? "override" : detectedKind,
-      hasOverride: Boolean(currentOverride),
-      mode: "library",
-    };
+    show(choiceState(game, "library"));
   }
 
   function closeProfileChoice(): void {
-    profileChoiceState.value = undefined;
+    profileChoiceState.value = waiting.shift();
   }
 
-  async function applyProfileChoice(newProfile: ProfileId | undefined): Promise<void> {
+  /**
+   * Store the chosen override; undefined means automatic. At import the
+   * detected profile is what automatic already runs, so choosing it stores
+   * nothing. A running game reboots under its new profile.
+   */
+  async function applyProfileChoice(choice: ProfileId | undefined): Promise<void> {
     const current = profileChoiceState.value;
     if (!current) return;
+    closeProfileChoice();
+    const stored = current.mode === "import" && choice === current.detected ? undefined : choice;
+    if (stored === current.override) return;
     const id = current.projectId;
-    closeProfileChoice();
-
-    const isRunning = deps.isGameRunning(id);
-    if (isRunning) {
-      try {
-        await deps.flushAutosave(1000);
-      } catch {
-        // checkpoint failure ignored
-      }
+    const running = deps.runningProjectId() === id;
+    try {
+      if (running) await deps.flushAutosave(1000);
+      const saved = await setLibraryGameProfile(id, stored, getCachedGameMeta(id)?.generation);
+      if (!saved)
+        throw new Error(
+          "The interpreter profile could not be saved. The game may have changed in another window; reopen the menu and try again.",
+        );
+      deps.refreshLibrary(id);
+      const updated = running ? getCachedGameMeta(id) : null;
+      if (updated) await deps.onPlayLibraryGame(updated);
+    } catch (error) {
+      deps.reportError(String(error).replace(/^Error: /, ""));
     }
-
-    await updateLibraryGameProfile(id, newProfile);
-    deps.refreshLibrary(id);
-
-    if (isRunning) {
-      const updatedMeta = getCachedGameMeta(id);
-      if (updatedMeta) {
-        await deps.onPlayLibraryGame(updatedMeta);
-      }
-    }
-  }
-
-  function decideLaterProfileChoice(): void {
-    closeProfileChoice();
   }
 
   return {
     profileChoiceState,
-    openImportProfileChoice,
+    offerImportProfileChoice,
     openLibraryProfileChoice,
     closeProfileChoice,
     applyProfileChoice,
-    decideLaterProfileChoice,
   };
 }
