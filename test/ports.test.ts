@@ -7,7 +7,7 @@ import { assembleLogic } from "../src/logic/assembler.ts";
 import { parseLogicResource } from "../src/logic/resource.ts";
 import { parseWordsTok } from "../src/logic/words.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
-import type { ProfileId } from "../src/runtime/profile.ts";
+import { detectProfileDecision, type ProfileId } from "../src/runtime/profile.ts";
 import type { SoundOutput } from "../src/sound/sound.ts";
 import { findFixture, fixtureSkip } from "./fixtures.ts";
 
@@ -79,6 +79,7 @@ class QuietHost implements EngineHost {
 function loadPort(folder: string): {
   container: ReturnType<typeof openContainer>;
   dict: ReadonlyMap<string, number>;
+  files: ReadonlyMap<string, Uint8Array>;
 } {
   const fixture = findFixture(folder)!;
   const files = new Map<string, Uint8Array>();
@@ -92,7 +93,7 @@ function loadPort(folder: string): {
     }
     files.set(actual, bytes);
   }
-  return { container: openContainer(files), dict };
+  return { container: openContainer(files), dict, files };
 }
 
 for (const port of PORTS) {
@@ -120,6 +121,23 @@ for (const port of PORTS) {
     assert.equal(logics, port.logics);
     assert.equal(corrupt, port.corrupt);
   });
+
+  test(
+    `${port.folder}: detection names the build from the executable, else the catalog`,
+    { skip },
+    () => {
+      const { files } = loadPort(port.folder);
+      const shipped = detectProfileDecision(files);
+      assert.deepEqual([shipped.profile.id, shipped.kind], [port.profile, "binary"]);
+      // A copy without the interpreter executable (a data-only ZIP) still
+      // resolves through the catalogued WORDS.TOK + OBJECT pair.
+      const dataOnly = new Map(
+        [...files].filter(([name]) => !/^(sierra|kq2|sq2|pq|gr|mh2|.*\.sys16)$/i.test(name)),
+      );
+      const stripped = detectProfileDecision(dataOnly);
+      assert.deepEqual([stripped.profile.id, stripped.kind], [port.profile, "catalog"]);
+    },
+  );
 
   test(
     `${port.folder}: restarted boot reaches room ${port.firstRoom} without an exception`,

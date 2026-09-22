@@ -5,6 +5,7 @@ import {
   type ProfileId,
   PROFILES,
   detectProfile,
+  detectProfileDecision,
   detectVersionString,
   findVersionString,
 } from "../src/runtime/profile.ts";
@@ -586,12 +587,17 @@ describe("amiga interpreter profiles", () => {
     assert.equal(at("MH2"), "amiga-2.333");
   });
 
-  test("the empty-prefix `dirs` directory selects the Amiga 2.31x generation", () => {
+  test("the empty-prefix `dirs` directory falls back to the Amiga 2.31x generation", () => {
     const files = new Map<string, Uint8Array>([
       ["dirs", new Uint8Array(8)],
       ["vol.0", new Uint8Array(0)],
     ]);
-    assert.equal(detectProfile(files).id, "amiga-2.333");
+    // Container shape is not an interpreter binary: the decision reports the
+    // fallback as a default so the app asks which profile to run.
+    const decision = detectProfileDecision(files);
+    assert.equal(decision.profile.id, "amiga-2.333");
+    assert.equal(decision.kind, "default");
+    assert.equal(decision.build, null);
     // A prefixed combined directory stays the PC v3 fallback.
     const pc = new Map<string, Uint8Array>([
       ["GRDIR", new Uint8Array(8)],
@@ -817,9 +823,18 @@ describe("apple iigs profile (docs/fidelity.md, SQ2.SYS16 1.014)", () => {
     // the slot reads the first bytes of the code that follows the table and
     // jumps mid-instruction (docs/fidelity.md). The host models the wild
     // dispatch as an error rather than guessing a result; the game itself
-    // contains no genuine 0x13 condition.
+    // contains no genuine 0x13 condition, and the assembler rejects one.
+    const source = "if (click.move.pending()) { set(f221); }\nreturn;";
+    assert.throws(() => bootAs(source, "iigs-1.014"), /not available.*iigs-1\.014/);
+    // The same byte assembled for the Amiga 2.31x handler reaches the engine.
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(source, { dictionary: DICT, profile: PROFILES["amiga-2.316"] }).payload,
+    );
     assert.throws(
-      () => bootAs("if (click.move.pending()) { set(f221); }\nreturn;", "iigs-1.014"),
+      () => new Engine(container, new Host(), DICT, { profile: "iigs-1.014" }).tick(),
       /condition 0x13/,
     );
   });

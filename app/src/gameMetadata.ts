@@ -8,8 +8,9 @@ import {
 } from "../../src/gameIdentity.ts";
 import { sha256Hex } from "./crypto.ts";
 import { canonicalResourceName } from "../../src/types.ts";
+import { isInterpreterFileName } from "../../src/runtime/profile.ts";
 import type { BootedGame } from "./gameTypes.ts";
-import type { ProfileId, ProfileDetectionKind } from "../../src/runtime/profile.ts";
+import { PROFILES, type ProfileId, type ProfileDetectionKind } from "../../src/runtime/profile.ts";
 
 /** Versioned library metadata. Resource revisions and local project IDs have separate jobs. */
 export interface PublicGameMetadata {
@@ -111,7 +112,11 @@ export function normalizeLibraryMetadata(
   const kind: ProfileDetectionKind | undefined =
     rawKind === "binary" || rawKind === "catalog" || rawKind === "default" ? rawKind : undefined;
   const build = boundedText(validationValue?.["build"], 80);
-  const profileOverride = boundedText(value["profile"], 80) as ProfileId | undefined;
+  // An override names a profile this build ships; anything else boots automatically.
+  const profileOverride =
+    typeof value["profile"] === "string" && Object.hasOwn(PROFILES, value["profile"])
+      ? (value["profile"] as ProfileId)
+      : undefined;
   return {
     ...publicGameMetadata(value as PublicGameMetadata),
     version: 1,
@@ -163,8 +168,9 @@ export function readPublicMetadata(raw: unknown): {
  * bundle, and never move the ResourceRevision.
  */
 export function isPlayableFileName(name: string): boolean {
-  return /^([A-Z0-9_]*DIR|DIRS|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/i.test(
-    name,
+  return (
+    /^([A-Z0-9_]*DIR|DIRS|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT)$/i.test(name) ||
+    isInterpreterFileName(name)
   );
 }
 

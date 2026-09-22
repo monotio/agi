@@ -797,11 +797,7 @@ const AMIGA_INTERPRETER_FILES: Readonly<Record<string, ProfileId>> = {
 
 /**
  * Amiga folders carry no PC version string. A hunk executable with a known
- * interpreter name selects its exact build; an Amiga v3 `dirs` file — the
- * combined directory with an empty prefix, canonical DIR, beside its volumes
- * — selects the 2.31x generation that shipped those editions, represented by
- * its latest observed build. Anything else returns null for the container
- * fallback.
+ * interpreter name selects its exact build; anything else returns null.
  */
 function detectAmigaProfile(files: ReadonlyMap<string, Uint8Array>): AgiProfile | null {
   for (const [name, bytes] of files) {
@@ -810,10 +806,34 @@ function detectAmigaProfile(files: ReadonlyMap<string, Uint8Array>): AgiProfile 
     const magic = ((bytes[0]! << 24) | (bytes[1]! << 16) | (bytes[2]! << 8) | bytes[3]!) >>> 0;
     if (magic === AMIGA_HUNK_MAGIC) return PROFILES[id];
   }
-  const canonical = [...files.keys()].map(canonicalResourceName);
-  if (canonical.includes("DIR") && canonical.some((name) => /^VOL\.\d+$/.test(name)))
-    return PROFILES["amiga-2.333"];
   return null;
+}
+
+/**
+ * An Amiga v3 `dirs` file — the combined directory with an empty prefix,
+ * canonical DIR, beside its volumes — is the container shape the 2.31x
+ * generation shipped. It is shape, not interpreter evidence: an unidentified
+ * folder with it falls back to that generation's latest observed build.
+ */
+function hasAmigaCombinedDirectory(files: ReadonlyMap<string, Uint8Array>): boolean {
+  const canonical = [...files.keys()].map(canonicalResourceName);
+  return canonical.includes("DIR") && canonical.some((name) => /^VOL\.\d+$/.test(name));
+}
+
+/**
+ * Whether a file is an interpreter executable detection reads: the PC
+ * version-string carriers and `*.COM` loaders, the Amiga hunk executables
+ * and the Apple IIgs `*.SYS16` load file. Hosts keep these beside the
+ * resources so the edition is identified from its own binary.
+ */
+export function isInterpreterFileName(name: string): boolean {
+  const upper = name.toUpperCase();
+  return (
+    INTERPRETER_FILES.includes(upper) ||
+    upper.endsWith(".COM") ||
+    upper.endsWith(".SYS16") ||
+    Object.hasOwn(AMIGA_INTERPRETER_FILES, upper)
+  );
 }
 
 /** True when the binary contains the ASCII marker (an OMF segment's data is contiguous). */
@@ -915,10 +935,11 @@ function identifyEdition(files: ReadonlyMap<string, Uint8Array>): {
  * The interpreter version is not recorded in the resource container, so the
  * edition is identified from the ASCII version string in an interpreter
  * binary shipped alongside the data, then the Apple IIgs `*.SYS16` banner,
- * then the Amiga hunk/dirs markers, then the catalog's WORDS.TOK + OBJECT
+ * then the Amiga hunk executable, then the catalog's WORDS.TOK + OBJECT
  * fingerprint. The profile is the identified build's promoted profile or
  * documented equivalent; a build without one, and an unidentified edition,
- * run the container fallback (v2 split -> 2.936, v3 combined -> 3.002.149).
+ * run the container fallback (v2 split -> 2.936, Amiga `dirs` -> 2.333,
+ * other v3 combined -> 3.002.149).
  * An explicit override replaces the profile but not the identification.
  */
 export function detectProfileDecision(
@@ -926,7 +947,11 @@ export function detectProfileDecision(
   override?: ProfileId | AgiProfile,
 ): ProfileDecision {
   const edition = identifyEdition(files);
-  const fallback = hasCombinedDirectory(files) ? DEFAULT_V3_PROFILE : DEFAULT_V2_PROFILE;
+  const fallback = hasAmigaCombinedDirectory(files)
+    ? PROFILES["amiga-2.333"]
+    : hasCombinedDirectory(files)
+      ? DEFAULT_V3_PROFILE
+      : DEFAULT_V2_PROFILE;
   const profile = override !== undefined ? resolveProfile(override) : (edition.profile ?? fallback);
   return { profile, kind: edition.kind, build: edition.build };
 }
