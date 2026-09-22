@@ -1,7 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { AgiAudio, type AudioMode } from "../src/audio/AgiAudio.ts";
-import { useAudioController } from "../src/audio/useAudioController.ts";
+import {
+  nextAudioMode,
+  soundChipLabel,
+  soundFamily,
+  useAudioController,
+} from "../src/audio/useAudioController.ts";
 
 function context() {
   const params = () => ({
@@ -63,9 +68,17 @@ function context() {
       return buffer;
     },
     createBufferSource: () => {
+      // Web Audio throws InvalidStateError when a set buffer is reassigned.
+      let assigned: { data: Float32Array } | null = null;
       const source: BufferSource = {
         ...node(),
-        buffer: null,
+        get buffer() {
+          return assigned;
+        },
+        set buffer(value) {
+          if (assigned !== null) throw new Error("InvalidStateError: buffer already set");
+          assigned = value;
+        },
         loop: false,
         playbackRate: params(),
       };
@@ -181,12 +194,12 @@ describe("audio command backend", () => {
       [...tone.data],
       [0, 64, 127, 64, 0, -64, -127, -64].map((v) => v / 128),
     );
-    // A tone voice event without the noise flag keeps the tone sample.
+    // Every tone voice loops the same tone sample.
     audio.output({ kind: "paula", channel: 1, period: 1016, volume: 21 });
     assert.equal(bufferSources[1]!.buffer, tone);
     // The noise voice loops the 4,096-byte LFSR PCM; the first states are
     // 1 -> 0xca0 -> 0x650 -> 0x328 -> 0x194, stored low-byte first.
-    audio.output({ kind: "paula", channel: 3, period: 0x800, volume: 64, noise: true });
+    audio.output({ kind: "paula", channel: 3, period: 0x800, volume: 64 });
     const noise = bufferSources[3]!.buffer!;
     assert.equal(noise.data.length, 4096);
     assert.deepEqual(
@@ -195,10 +208,16 @@ describe("audio command backend", () => {
     );
     assert.equal(bufferSources[3]!.playbackRate.value, 3546895 / 0x800 / 8000);
     assert.equal(gains[4]!.gain.value, 0.4);
-    // Register values with bit 6 set are Paula's maximum: KQ2's signed
-    // envelope writes 72, which renders like 64.
-    audio.output({ kind: "paula", channel: 1, period: 1016, volume: 72 });
-    assert.equal(gains[2]!.gain.value, 0.4);
+    // A rest writes AUDxPER 0 with a nonzero volume (KQ2's attack gives 8):
+    // the voice renders silent and keeps its previous rate.
+    audio.output({ kind: "paula", channel: 1, period: 0, volume: 8 });
+    assert.equal(gains[2]!.gain.value, 0);
+    assert.equal(bufferSources[1]!.playbackRate.value, 3546895 / 1016 / 8000);
+    // The engine's terminator and stop() events carry no noise flag; the
+    // noise voice keeps its buffer (Web Audio cannot reassign one).
+    audio.output({ kind: "paula", channel: 3, period: null, volume: 0 });
+    assert.equal(bufferSources[3]!.buffer, noise);
+    assert.equal(gains[4]!.gain.value, 0);
     // A null period silences the voice without stopping its source.
     audio.output({ kind: "paula", channel: 0, period: null, volume: 0 });
     assert.equal(gains[1]!.gain.value, 0);
@@ -206,9 +225,26 @@ describe("audio command backend", () => {
     audio.stop();
     assert.ok(bufferSources.every((source) => source.stopped));
   });
+  it("renders the 2.082 driver's own buffers and clamps its sub-DMA periods", () => {
+    const { audio, gains, bufferSources } = context();
+    audio.output({ kind: "paula", channel: 0, period: 760, volume: 55 });
+    assert.equal(bufferSources[0]!.buffer!.data.length, 8);
+    // A 2.082 event rebuilds the voices with the 4-byte square and the
+    // 1,024-byte noise PCM instead of reassigning buffers.
+    audio.output({ kind: "paula", channel: 3, period: 3, volume: 64, driver: "2.082" });
+    assert.ok(bufferSources.slice(0, 4).every((source) => source.stopped));
+    assert.deepEqual([...bufferSources[4]!.buffer!.data], [0, -1, 0, -1]);
+    assert.equal(bufferSources[7]!.buffer!.data.length, 0x400);
+    // Periods below Paula's DMA minimum render at the 124-clock limit.
+    assert.equal(bufferSources[7]!.playbackRate.value, 3546895 / 124 / 8000);
+    assert.equal(gains[8]!.gain.value, 0.4);
+    // The terminator keeps the 2.082 voices.
+    audio.output({ kind: "paula", channel: 3, period: null, volume: 0, driver: "2.082" });
+    assert.equal(bufferSources.length, 8);
+    assert.equal(gains[8]!.gain.value, 0);
+  });
   it("renders iigs events with per-channel oscillators", () => {
     const { audio, gains, oscillators } = context();
-    audio.setMode("iigs");
     // MIDI note 69 at full velocity and channel volume maps to A4 and the
     // channel's voice gain.
     audio.output({
@@ -260,16 +296,28 @@ describe("audio mode selection", () => {
     const controller = useAudioController(audio, state, (msg) => posted.push(msg));
     controller.setAudioMode("pc-speaker");
     assert.deepEqual(posted, [{ type: "soundDevice", device: 0 }]);
+    assert.equal(audio.currentMode, "pc-speaker");
     posted.length = 0;
-    controller.setAudioMode("amiga");
-    assert.deepEqual(posted, [], "the Amiga path is not a PC device selection");
-    assert.equal(state.soundMode, "amiga");
-    assert.equal(audio.currentMode, "amiga");
-    // The IIgs path is profile-fixed too: no device operand is posted.
-    controller.setAudioMode("iigs");
-    assert.deepEqual(posted, [], "the IIgs path is not a PC device selection");
-    assert.equal(audio.currentMode, "iigs");
     controller.setAudioMode("tandy");
     assert.deepEqual(posted, [{ type: "soundDevice", device: 1 }]);
+  });
+  it("derives the fixed sound family from the profile's sound driver", () => {
+    assert.equal(soundFamily(null), "pc");
+    assert.equal(soundFamily("2.917"), "pc");
+    assert.equal(soundFamily("amiga-2.316"), "amiga");
+    assert.equal(soundFamily("amiga-2.176"), "amiga");
+    // SQ1's older driver is still Paula.
+    assert.equal(soundFamily("amiga-2.082"), "amiga");
+    assert.equal(soundFamily("iigs-1.014"), "iigs");
+    assert.equal(soundFamily("not-a-profile"), "pc");
+  });
+  it("cycles only the PC chips and labels the fixed families", () => {
+    assert.equal(nextAudioMode("tandy"), "pc-speaker");
+    assert.equal(nextAudioMode("pc-speaker"), "tandy");
+    assert.equal(soundChipLabel("pc", "tandy"), "Tandy 4-Voice");
+    assert.equal(soundChipLabel("pc", "pc-speaker"), "PC Speaker");
+    // The PC preference does not leak into a fixed family's label.
+    assert.equal(soundChipLabel("amiga", "pc-speaker"), "Amiga Paula");
+    assert.equal(soundChipLabel("iigs", "pc-speaker"), "Apple IIgs (approximate)");
   });
 });

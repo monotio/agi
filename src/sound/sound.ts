@@ -83,8 +83,9 @@ export const AMIGA_ENVELOPE_TABLE: readonly number[] = [
  * The envelope table inside KQ2's 0x12c-byte data hunk 198 — a signed
  * attack curve opening at -2 (louder than the note's attenuation) where the
  * shared 2.202+ table opens at +2, 64 steps then the 0x80 hold sentinel
- * (docs/fidelity.md, "Original Amiga sound player"). The driver code is
- * byte-identical to 2.202+; only the data hunk differs. Selected through
+ * (docs/fidelity.md, "Original Amiga sound player"). The driver code has
+ * the same instruction sequence as 2.202+ and clamps the sum to 0..15, so
+ * the attack saturates at full volume. Selected through
  * `AgiProfile.soundEnvelope`.
  */
 export const AMIGA_2176_ENVELOPE_TABLE: readonly number[] = [
@@ -108,11 +109,22 @@ export const AMIGA_TONE_SAMPLE: readonly number[] = [0, 64, 127, 64, 0, -64, -12
 const AMIGA_NOISE_PERIODS: readonly number[] = [0x200, 0x400, 0x800, 0x800];
 
 /**
- * The older driver's noise-control periods: the SQ1 2.082 build maps the
- * control byte's two type bits to fixed AUDxPER values {6, 3, 1, 1}, nothing
- * like the 2.176+ bank (docs/fidelity.md, "Original Amiga sound player").
+ * The older driver's noise-control periods: the SQ1 2.082 build writes the
+ * control byte's two type bits as the AUDxPER values {6, 3, 1, 1} — below
+ * Paula's DMA minimum, nothing like the 2.176+ bank (docs/fidelity.md,
+ * "The older 2.082 driver").
  */
 const AMIGA_2082_NOISE_PERIODS: readonly number[] = [6, 3, 1, 1];
+
+/**
+ * The older driver's 4-byte tone buffer, built at init as signed PCM
+ * `00 80 00 80` and played with AUDxLEN 2 — a two-sample square cycle
+ * (docs/fidelity.md, "The older 2.082 driver").
+ */
+export const AMIGA_2082_TONE_SAMPLE: readonly number[] = [0, -128, 0, -128];
+
+/** The older driver's noise buffer length: 0x400 bytes of the same LFSR PCM. */
+export const AMIGA_2082_NOISE_BYTES = 0x400;
 
 /**
  * The 4,096-byte PCM the driver synthesizes at init for the noise voice:
@@ -267,8 +279,12 @@ export type SoundOutput =
       period: number | null;
       /** The AUDxVOL value, 0..64. */
       volume: number;
-      /** True while the voice plays the LFSR noise buffer instead of the tone sample. */
-      noise?: boolean;
+      /**
+       * Set on the older SQ1 2.082 driver, whose voices loop a 4-byte square
+       * and a 1,024-byte noise PCM instead of the 2.176+ buffers. Each voice's
+       * buffer is fixed by its channel either way.
+       */
+      driver?: "2.082";
     }
   | {
       kind: "iigs";
@@ -460,19 +476,22 @@ function decodeIigsStream(payload: Uint8Array, onWarning?: (m: string) => void):
  * feeds to FFStartSound and polls until the toolbox reports completion; the
  * setup block's stream semantics are a documented gap (docs/fidelity.md), so
  * the resource's duration comes from the wave byte count at offset 8 played
- * at the documented rate — the freqOffset in the wave record at offset 44
- * times 51.40625 Hz — and playback emits silence.
+ * at an inferred rate — the freqOffset in the wave record at offset 44
+ * times 1645/32 = 51.40625 Hz, not taken from the binary — and playback
+ * emits silence.
  */
 function decodeIigsWave(payload: Uint8Array, onWarning?: (m: string) => void): IigsDecoded {
   const u16 = (at: number) => (payload[at] ?? 0) | ((payload[at + 1] ?? 0) << 8);
   const waveBytes = Math.min(u16(8), Math.max(0, payload.length - 54));
   // The wave record at offset 44: freqOffset, two zeros, the 0x7f 0xc0 tag,
   // then the same three fields. Without the tag the freqOffset cannot be
-  // located reliably; fall back to a mid-range rate.
+  // located reliably, and a zero rate never finishes the computed
+  // duration; both fall back to a mid-range rate.
   const tagged = payload[0x30] === 0x7f && payload[0x31] === 0xc0;
-  const freqOffset = tagged ? u16(0x2c) : 0x100;
+  const freqOffset = tagged && u16(0x2c) !== 0 ? u16(0x2c) : 0x100;
   if (!tagged) onWarning?.("iigs wave resource lacks the 0x7f 0xc0 rate tag.");
-  // rate = freqOffset * 1645/32 Hz; ticks = waveBytes / rate * 60.
+  else if (freqOffset !== u16(0x2c)) onWarning?.("iigs wave resource has a zero rate word.");
+  // Inferred rate = freqOffset * 1645/32 Hz; ticks = waveBytes / rate * 60.
   const endTick = Math.max(1, Math.round((waveBytes * 1920) / (freqOffset * 1645)));
   const events: IigsEvent[][] = Array.from({ length: IIGS_CHANNELS }, () => []);
   events[0]!.push(
@@ -666,6 +685,21 @@ export class SoundPlayback {
     this.iigsFade = state.fade;
     for (let i = 0; i < state.channels.length; i++)
       Object.assign(this.channels[i]!, state.channels[i]!);
+    // The last IIgs event per channel is a function of the cursor, so it is
+    // rebuilt here instead of being recorded in the snapshot.
+    if (this.iigsEvents)
+      for (let i = 0; i < this.channels.length; i++) {
+        const events = this.iigsEvents[i]!;
+        let last: IigsOutput | undefined;
+        for (let at = Math.min(this.channels[i]!.cursor, events.length) - 1; at >= 0; at--) {
+          const output = events[at]!.output;
+          if (output !== null) {
+            last = output;
+            break;
+          }
+        }
+        this.iigsLast[i] = last;
+      }
   }
 
   tick(enabled: boolean, adjustment: number): { outputs: SoundOutput[]; complete: boolean } {
@@ -746,30 +780,33 @@ export class SoundPlayback {
         const note = channel.notes[channel.cursor++];
         if (!note) {
           channel.terminated = true;
-          outputs.push({ kind: "paula", channel: index, period: null, volume: 0 });
+          outputs.push({ kind: "paula", channel: index, period: null, volume: 0, driver: "2.082" });
           continue;
         }
         channel.countdown = note.duration;
         channel.base = note.attenuation;
+        // SQ1 h138 0xe8ca..0xe8f8: attenuation minus v23, floored at 0
+        // (`cmp.l d1,d0; bls` zeroes it when v23 >= attenuation), then
+        // ((15 - it) << 6) / 15 — v23 raises the volume.
+        const attenuation = note.attenuation > adjustment ? note.attenuation - adjustment : 0;
         outputs.push({
           kind: "paula",
           channel: index,
           period:
             index === 3 ? AMIGA_2082_NOISE_PERIODS[(note.tone >> 8) & 3]! : 16 * note.freqDivisor,
-          // AUDxVOL = ((15 - (attenuation - adjustment)) << 6) / 15: this
-          // driver subtracts v23 inside the scaling instead of adding to
-          // the envelope's live value.
-          volume: (((15 - (note.attenuation - adjustment)) << 6) / 15) | 0,
-          ...(index === 3 ? { noise: true } : {}),
+          volume: (((15 - attenuation) << 6) / 15) | 0,
+          driver: "2.082",
         });
       }
       if (this.channels.every((channel) => channel.terminated)) outputs.push(...this.stop());
       return { outputs, complete: !this.active };
     }
     if (this.profile.sound === "amiga") {
-      // The Paula driver rewrites each live voice's AUDx registers on every
-      // tick: the note's period with the envelope-adjusted volume
-      // (docs/fidelity.md, "Original Amiga sound player").
+      // The Paula driver steps each live voice's envelope and rewrites its
+      // AUDxVOL on every tick; AUDxPER is written when a note decodes, so
+      // the repeated period is the value the register already holds. The
+      // driver never reads v23 (docs/fidelity.md, "Original Amiga sound
+      // player").
       for (let index = 0; index < this.channels.length; index++) {
         const channel = this.channels[index]!;
         if (channel.terminated) continue;
@@ -793,9 +830,9 @@ export class SoundPlayback {
             channel.envelopeIndex = -1;
             channel.base = channel.envelopeValue;
           } else {
-            // KQ2's signed table dips below zero — the attenuation goes
-            // negative and the volume above 64; only the top clamps.
-            channel.envelopeValue = Math.min(15, channel.base + delta);
+            // GR h197 0xf494..0xf4a6: base + delta clamped to 0..15, so
+            // KQ2's signed attack saturates at attenuation 0.
+            channel.envelopeValue = Math.max(0, Math.min(15, channel.base + delta));
           }
         }
         const note = channel.notes[channel.cursor - 1];
@@ -811,7 +848,6 @@ export class SoundPlayback {
                 : 4 * note.freqDivisor,
           // AUDxVOL = ((15 - attenuation) << 6) / 15 on the 0..64 scale.
           volume: (((15 - attenuation) << 6) / 15) | 0,
-          ...(index === 3 ? { noise: true } : {}),
         });
       }
       if (this.channels.every((channel) => channel.terminated)) outputs.push(...this.stop());
@@ -926,6 +962,7 @@ export class SoundPlayback {
         channel,
         period: null,
         volume: 0,
+        ...(this.profile.sound === "amiga-2.082" ? { driver: "2.082" as const } : {}),
       }));
     return this.single
       ? [{ kind: "speaker", divisor: null }]

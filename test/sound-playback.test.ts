@@ -402,11 +402,11 @@ describe("amiga paula family (docs/fidelity.md, original Amiga sound player)", (
       { kind: "paula", channel: 0, period: null, volume: 0 },
       { kind: "paula", channel: 1, period: null, volume: 0 },
       { kind: "paula", channel: 2, period: null, volume: 0 },
-      { kind: "paula", channel: 3, period: 0x800, volume: 55, noise: true },
+      { kind: "paula", channel: 3, period: 0x800, volume: 55 },
     ]);
     // The noise channel shares the envelope tick while its cursor is alive.
     assert.deepEqual(sound.tick(true, 0).outputs, [
-      { kind: "paula", channel: 3, period: 0x800, volume: 59, noise: true },
+      { kind: "paula", channel: 3, period: 0x800, volume: 59 },
     ]);
     for (const [type, period] of [
       [0xe0, 0x200],
@@ -454,7 +454,7 @@ describe("amiga paula family (docs/fidelity.md, original Amiga sound player)", (
     assert.equal(out[0]!.volume, 17, "the held envelope value at the hold point");
     // Note 2 starts at tick 71: no cursor reset -> plain volume for att 0.
     assert.deepEqual(paula(sound.tick(true, 0).outputs), [
-      { kind: "paula", channel: 3, period: 0x200, volume: 64, noise: true },
+      { kind: "paula", channel: 3, period: 0x200, volume: 64 },
     ]);
     assert.equal(paula(sound.tick(true, 0).outputs)[0]!.volume, 64);
   });
@@ -492,6 +492,15 @@ describe("amiga paula family (docs/fidelity.md, original Amiga sound player)", (
     assert.equal(out[0]!.volume, 55, "the second note applies table[0] again");
   });
 
+  it("never reads the volume-adjustment variable", () => {
+    // GR h197 holds no v23 access: the same note plays identically at any v23.
+    for (const adjustment of [0, 5, 200]) {
+      const sound = amiga(payload(2, 0x94));
+      assert.equal(paula(sound.tick(true, adjustment).outputs)[0]!.volume, 38);
+      assert.equal(paula(sound.tick(true, adjustment).outputs)[0]!.volume, 42);
+    }
+  });
+
   it("keeps all four voices regardless of the device operand", () => {
     for (const device of [0, 1, 8]) {
       const out = amiga(payload(2, 0x94), device).tick(true, 0).outputs;
@@ -521,10 +530,10 @@ describe("amiga 2.082 driver family (docs/fidelity.md, original Amiga sound play
     // the same tick.
     const sound = old(payload(2, 0x94));
     assert.deepEqual(sound.tick(true, 0).outputs, [
-      { kind: "paula", channel: 0, period: 16 * 0x231, volume: 46 },
-      { kind: "paula", channel: 1, period: null, volume: 0 },
-      { kind: "paula", channel: 2, period: null, volume: 0 },
-      { kind: "paula", channel: 3, period: null, volume: 0 },
+      { kind: "paula", channel: 0, period: 16 * 0x231, volume: 46, driver: "2.082" },
+      { kind: "paula", channel: 1, period: null, volume: 0, driver: "2.082" },
+      { kind: "paula", channel: 2, period: null, volume: 0, driver: "2.082" },
+      { kind: "paula", channel: 3, period: null, volume: 0, driver: "2.082" },
     ]);
     // No envelope pass: the held note emits nothing on the second tick.
     assert.deepEqual(sound.tick(true, 0).outputs, []);
@@ -532,20 +541,32 @@ describe("amiga 2.082 driver family (docs/fidelity.md, original Amiga sound play
     // voice the host may have left sounding.
     const last = sound.tick(true, 0);
     assert.deepEqual(last.outputs, [
-      { kind: "paula", channel: 0, period: null, volume: 0 },
-      { kind: "paula", channel: 0, period: null, volume: 0 },
-      { kind: "paula", channel: 1, period: null, volume: 0 },
-      { kind: "paula", channel: 2, period: null, volume: 0 },
-      { kind: "paula", channel: 3, period: null, volume: 0 },
+      { kind: "paula", channel: 0, period: null, volume: 0, driver: "2.082" },
+      { kind: "paula", channel: 0, period: null, volume: 0, driver: "2.082" },
+      { kind: "paula", channel: 1, period: null, volume: 0, driver: "2.082" },
+      { kind: "paula", channel: 2, period: null, volume: 0, driver: "2.082" },
+      { kind: "paula", channel: 3, period: null, volume: 0, driver: "2.082" },
     ]);
     assert.equal(last.complete, true);
     assert.deepEqual(sound.stop(), []);
   });
 
-  it("subtracts the volume-adjustment variable before scaling", () => {
-    const sound = old(payload(2, 0x94));
+  it("subtracts the volume-adjustment variable before scaling, floored at 0", () => {
     // adjustment 2: atten 4-2 -> ((15-2)<<6)/15 = 55.
-    assert.equal(paula(sound.tick(true, 2).outputs)[0]!.volume, 55);
+    assert.equal(paula(old(payload(2, 0x94)).tick(true, 2).outputs)[0]!.volume, 55);
+    // adjustment 5 >= atten 4: the driver zeroes the attenuation -> 64.
+    assert.equal(paula(old(payload(2, 0x94)).tick(true, 5).outputs)[0]!.volume, 64);
+    // A rest (tone 0, atten 15) writes period 0 with ((15-10)<<6)/15 = 21.
+    const rest = payload(2, 0x9f);
+    rest[10] = 0;
+    rest[11] = 0;
+    assert.deepEqual(paula(old(rest).tick(true, 5).outputs)[0], {
+      kind: "paula",
+      channel: 0,
+      period: 0,
+      volume: 21,
+      driver: "2.082",
+    });
   });
 
   it("maps the noise control type to its fixed periods", () => {
@@ -555,7 +576,7 @@ describe("amiga 2.082 driver family (docs/fidelity.md, original Amiga sound play
     data[10] = 0;
     data[11] = 0xe1; // noise control: type 1 -> period 3
     const out = paula(old(data).tick(true, 0).outputs);
-    assert.deepEqual(out[3], { kind: "paula", channel: 3, period: 3, volume: 64, noise: true });
+    assert.deepEqual(out[3], { kind: "paula", channel: 3, period: 3, volume: 64, driver: "2.082" });
     for (const [type, period] of [
       [0xe0, 6],
       [0xe2, 1],
@@ -578,11 +599,23 @@ describe("amiga kq2 envelope (docs/fidelity.md, original Amiga sound player)", (
     // attenuation), where the 2.202+ table opens at +2.
     const kq2 = new SoundPlayback(detectProfile(new Map(), "amiga-2.176"), payload(2, 0x90), 1);
     const sq2 = new SoundPlayback(detectProfile(new Map(), "amiga-2.202"), payload(2, 0x90), 1);
-    // atten 0 + (-2) -> ((15+2)<<6)/15 = 72 on KQ2; atten 0+2 -> 55 on SQ2.
+    // atten 0 + (-2) clamps to 0 -> 64 on KQ2; atten 0+2 -> 55 on SQ2.
     const kq2out = kq2.tick(true, 0).outputs;
-    assert.equal(kq2out[0]!.kind === "paula" && kq2out[0]!.volume, 72);
+    assert.equal(kq2out[0]!.kind === "paula" && kq2out[0]!.volume, 64);
     const sq2out = sq2.tick(true, 0).outputs;
     assert.equal(sq2out[0]!.kind === "paula" && sq2out[0]!.volume, 55);
+  });
+
+  it("writes the attack's volumes at period 0 for a rest", () => {
+    // Tone 0, atten 15: 15-2, 15-3, 15-2, 15-1 -> volumes 8, 12, 8, 4, then 0.
+    const rest = payload(8, 0x9f);
+    rest[10] = 0;
+    rest[11] = 0;
+    const kq2 = new SoundPlayback(detectProfile(new Map(), "amiga-2.176"), rest, 1);
+    const voice0 = () =>
+      kq2.tick(true, 0).outputs.find((e) => e.kind === "paula" && e.channel === 0);
+    for (const volume of [8, 12, 8, 4, 0])
+      assert.deepEqual(voice0(), { kind: "paula", channel: 0, period: 0, volume });
   });
 });
 
@@ -813,7 +846,7 @@ describe("apple iigs stream family (docs/fidelity.md, seg3 sound scheduler)", ()
     // Type 1: [01][00][3 u16 stream offsets][u16 wave byte count at +8]
     // [setup][wave data at +54]. The 10-byte wave record at +44 holds the
     // Free-Form Synthesizer freqOffset twice around the 0x7f 0xc0 tag; the
-    // documented rate is freqOffset * 51.40625 Hz (docs/fidelity.md).
+    // inferred rate is freqOffset * 51.40625 Hz (docs/fidelity.md).
     // freqOffset 100 -> 5140.625 Hz; 514 wave bytes -> 60*514/5140.625 = 6 ticks.
     const payload = new Uint8Array(54 + 514);
     payload[0] = 0x01;
@@ -837,6 +870,22 @@ describe("apple iigs stream family (docs/fidelity.md, seg3 sound scheduler)", ()
     for (let t = 0; t < 4; t++)
       assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: false });
     assert.deepEqual(sound.tick(true, 0), { outputs: [], complete: true });
+  });
+
+  it("falls back to the mid-range rate when the tagged rate word is zero", () => {
+    // A zero freqOffset would give an infinite duration; like an untagged
+    // record it takes 0x100: 514 bytes * 1920 / (256 * 1645) -> 2 ticks.
+    const payload = new Uint8Array(54 + 514);
+    payload[0] = 0x01;
+    payload[8] = 0x02;
+    payload[9] = 0x02;
+    payload.set([0x00, 0x00, 0x00, 0x00, 0x7f, 0xc0, 0x00, 0x00, 0x00, 0x00], 0x2c);
+    const warnings: string[] = [];
+    const sound = new SoundPlayback(detectProfile(new Map(), "iigs-1.014"), payload, 1, (m) =>
+      warnings.push(m),
+    );
+    assert.equal(sound.durationTicks, 2);
+    assert.equal(warnings.length, 1);
   });
 
   it("completes immediately on an unrecognized or truncated resource", () => {
@@ -879,6 +928,16 @@ describe("apple iigs stream family (docs/fidelity.md, seg3 sound scheduler)", ()
     sound.armFade(1);
     for (let t = 0; t < 5; t++) assert.equal(sound.tick(true, 0).complete, false);
     assert.equal(sound.tick(true, 0).complete, true);
+  });
+
+  it("a restored mid-note stream releases the sounding note on stop", () => {
+    // Tick 7 plays the note-on; a restore after it rebuilds the channel's
+    // last event from the cursor, so stop() releases note 64, not note 0.
+    const sound = iigs(T2);
+    for (let t = 0; t < 7; t++) sound.tick(true, 0);
+    const restored = iigs(T2);
+    restored.restore(sound.snapshot());
+    assert.deepEqual(restored.stop(), [IIGS_OUTPUTS.noteOff]);
   });
 
   it("snapshot and restore preserve the fade watchdog", () => {

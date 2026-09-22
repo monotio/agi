@@ -325,18 +325,15 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         assert.equal(state.phase, "running");
         assert.equal(state.profile, "2.917");
         assert.equal(state.profileKind, "binary");
-        assert.equal(state.soundMode ?? "tandy", "tandy", "a PC profile keeps the mode");
-        // A profile whose interpreter drives Paula selects the amiga mode.
-        deliver(w, { type, profile: "amiga-2.316", kind: "catalog" });
-        assert.equal(state.soundMode, "amiga");
-        assert.ok(audioCalls.includes("setMode:amiga"));
-        // An Apple IIgs profile selects the iigs mode the same way.
-        deliver(w, { type, profile: "iigs-1.014", kind: "binary" });
-        assert.equal(state.soundMode, "iigs");
-        assert.ok(audioCalls.includes("setMode:iigs"));
-        // Booting a PC edition afterward falls back to the PC default.
-        deliver(w, { type, profile: "2.917", kind: "binary" });
-        assert.equal(state.soundMode, "tandy");
+        // The sound mode is the player's PC chip preference: Amiga (both
+        // driver generations) and IIgs boots leave it, and the device
+        // operand it implies, untouched.
+        state.soundMode = "pc-speaker";
+        for (const profile of ["amiga-2.316", "amiga-2.082", "iigs-1.014", "2.917"]) {
+          deliver(w, { type, profile, kind: "binary" });
+          assert.equal(state.soundMode, "pc-speaker", profile);
+        }
+        assert.ok(!audioCalls.some((call) => call.startsWith("setMode:")));
         break;
       case "roomTransition":
         deliver(w, {

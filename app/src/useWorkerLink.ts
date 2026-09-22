@@ -8,7 +8,6 @@ import type { AgentHandler, LlmRequest } from "./agent/hostRequests.ts";
 import type { AgiAudio } from "./audio/AgiAudio.ts";
 import type { BootedGame, Frame } from "./gameTypes.ts";
 import type { HistoryBatch } from "../../src/agent/history.ts";
-import { PROFILES, type ProfileId } from "../../src/runtime/profile.ts";
 import { decodeTextRows, gameStorageKey } from "./gameTypes.ts";
 import type { ReplayDriver, ReplayObservation } from "./replay.ts";
 import { LAST_GAME_KEY } from "./useAutosaveController.ts";
@@ -403,22 +402,10 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         hook.profile = profile;
         state.profileKind = msg.kind ?? null;
         hook.profileKind = msg.kind ?? null;
-        // The sound mode follows the profile's output family: an Amiga
-        // edition plays through Paula, a IIgs edition through the Note
-        // Synthesizer path, and leaving either returns to the PC default
-        // rather than keeping a stale selection.
-        const sound = profile ? PROFILES[profile as ProfileId]?.sound : undefined;
-        const familyMode = sound === "amiga" || sound === "iigs" ? sound : null;
-        if (familyMode !== null && state.soundMode !== familyMode) {
-          audio.setMode(familyMode);
-          state.soundMode = familyMode;
-        } else if (
-          familyMode === null &&
-          (state.soundMode === "amiga" || state.soundMode === "iigs")
-        ) {
-          audio.setMode("tandy");
-          state.soundMode = "tandy";
-        }
+        // The sound mode stays the player's PC chip preference: Amiga and
+        // IIgs editions render by event kind, and the header derives their
+        // fixed family from the profile (`soundFamily`), so the preference
+        // survives them.
         publishHook();
       },
       error: (msg) => {
