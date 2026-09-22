@@ -51,6 +51,8 @@ export async function previewGame(game: {
     status: result.status,
     message: result.message,
     profile: result.profile,
+    kind: result.kind,
+    build: result.build,
     preview: canvas.toDataURL("image/png"),
   };
 }

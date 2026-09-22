@@ -16,12 +16,15 @@ import {
 import { requireProjectId } from "../../src/gameIdentity.ts";
 import { rebindStagedReferences } from "./referenceArt.ts";
 import type { OpenedGame } from "./gameZip.ts";
+import type { ProfileDetectionKind, ProfileId } from "../../src/runtime/profile.ts";
 
 export interface CheckedOpening {
   preview: string;
   status: "ready" | "needs-input";
   message: string;
   profile: string;
+  kind?: ProfileDetectionKind | undefined;
+  build?: string | undefined;
 }
 
 /** Import only after inspection. Re-importing bytes never replaces a remix or private project. */
@@ -32,6 +35,7 @@ export async function addLibraryGame(
   opening: CheckedOpening,
   catalog?: { id: string; version: string },
   onProgressStored?: (report: ImportStorageReport) => void,
+  profileOverride?: ProfileId,
 ): Promise<ProjectId> {
   if (!isLocalGamePreview(opening.preview))
     throw new Error("The checked opening did not produce a local PNG preview.");
@@ -79,11 +83,14 @@ export async function addLibraryGame(
     source,
     ...(catalog ? { catalog } : {}),
     ...(known?.author && !game.metadata?.author ? { author: known.author } : {}),
+    ...(profileOverride ? { profile: profileOverride } : {}),
     preview: opening.preview,
     validation: {
       status: opening.status,
       message: opening.message,
       profile: opening.profile || known?.profile,
+      ...(opening.kind ? { kind: opening.kind } : {}),
+      ...(opening.build ? { build: opening.build } : {}),
     },
   };
   const effectiveTitle = game.title ?? known?.title ?? title;
@@ -170,4 +177,22 @@ export async function copyLibraryGame(projectId: ProjectId): Promise<ProjectId> 
   )
     throw new Error("Your browser could not save the copy. Free some storage space and try again.");
   return id;
+}
+
+/** Update the persisted interpreter profile override for a library entry. */
+export async function updateLibraryGameProfile(
+  projectId: ProjectId,
+  profile: ProfileId | undefined,
+): Promise<void> {
+  const game = await loadAuthoredGame(projectId);
+  if (!game) throw new Error("Game not found.");
+  const library: LibraryMetadata = {
+    ...game.library!,
+    profile,
+  };
+  if (!profile) delete library.profile;
+  await saveAuthoredGame(projectId, {
+    ...game,
+    library,
+  });
 }

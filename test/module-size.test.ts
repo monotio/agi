@@ -44,10 +44,9 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the save format; the release contract pins its structure",
   },
   "src/runtime/profile.ts": {
-    // rc.16: six Amiga interpreter profiles with their own dispatch bounds,
-    // OBJECT layout and hunk/dirs detection evidence; the IIgs 1.014
-    // profile adds its *.SYS16 banner detection and variant fields.
-    lines: 813,
+    // rc.16: six Amiga interpreter profiles, IIgs 1.014, and catalog hash detection
+    // with kind reporting (binary/catalog/default) and explicit override.
+    lines: 912,
     boundary:
       "the interpreter profile contract: per-build variant fields, promotion evidence and detection",
   },
@@ -96,7 +95,7 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
       "the agent session lifecycle: genesis, room and remix turns, and revision-checked adoption",
   },
   "app/src/useGameLibrary.ts": {
-    lines: 896,
+    lines: 988,
     boundary: "library import, export and storage operations",
   },
   "app/src/PlayArea.vue": {

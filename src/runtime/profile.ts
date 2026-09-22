@@ -11,6 +11,8 @@
  */
 
 import { canonicalResourceName } from "../types.ts";
+import { sha256Hex } from "../crypto.ts";
+import { detectKnownGameByHashes, type KnownAgiGame } from "../games/knownGames.ts";
 
 /** Identifier of a promoted profile. */
 export type ProfileId =
@@ -782,37 +784,98 @@ function detectIigsProfile(files: ReadonlyMap<string, Uint8Array>): AgiProfile |
   return null;
 }
 
+/** How the engine identified the edition whose profile it runs. */
+export type ProfileDetectionKind = "binary" | "catalog" | "default";
+
 /**
- * Select the interpreter profile for a game folder.
- *
- * The interpreter version is not recorded in the resource container, so
- * detection is: an explicit override, then the ASCII version string in an
- * interpreter binary shipped alongside the data, then the Apple IIgs
- * `*.SYS16` banner, then the Amiga hunk/dirs markers, then the container
- * shape (v2 split -> 2.936, v3 combined -> 3.002.149). A version string that
- * names no known profile or documented equivalent also uses the container
- * fallback (version_profiles.md, "Other observed versions").
+ * The profile decision for a game folder: the profile the engine runs, how
+ * the edition was identified, and the interpreter build that identification
+ * named. `build` differs from `profile.id` when the named build has no
+ * promoted profile (version_profiles.md, "Other observed versions") and the
+ * container fallback runs instead, or when an explicit override replaces the
+ * identified profile.
  */
+export interface ProfileDecision {
+  readonly profile: AgiProfile;
+  readonly kind: ProfileDetectionKind;
+  readonly build: string | null;
+}
+
+function resolveProfile(override: ProfileId | AgiProfile): AgiProfile {
+  if (typeof override !== "string") return override;
+  const chosen = BY_ID[override];
+  if (!chosen) throw new RangeError(`unknown interpreter profile ${override}`);
+  return chosen;
+}
+
+/** The promoted profile a build name selects, directly or through a documented equivalent. */
+function promotedProfile(build: string): AgiProfile | null {
+  const direct = BY_ID[build];
+  if (direct) return direct;
+  const equivalent = EQUIVALENT_BUILDS[build];
+  return equivalent ? PROFILES[equivalent] : null;
+}
+
+/**
+ * The catalog fingerprints an edition by its WORDS.TOK + OBJECT pair; a port
+ * or fan edition sharing only the vocabulary is not the catalogued release.
+ */
+function detectCatalogEntry(files: ReadonlyMap<string, Uint8Array>): KnownAgiGame | null {
+  const byCanonical = new Map<string, Uint8Array>();
+  for (const [name, bytes] of files) {
+    const canonical = canonicalResourceName(name);
+    if (!byCanonical.has(canonical)) byCanonical.set(canonical, bytes);
+  }
+  const words = byCanonical.get("WORDS.TOK");
+  if (!words) return null;
+  const object = byCanonical.get("OBJECT");
+  return detectKnownGameByHashes(sha256Hex(words), object ? sha256Hex(object) : undefined);
+}
+
+function identifyEdition(files: ReadonlyMap<string, Uint8Array>): {
+  kind: ProfileDetectionKind;
+  build: string | null;
+  profile: AgiProfile | null;
+} {
+  const version = detectVersionString(files);
+  if (version !== null)
+    return { kind: "binary", build: version, profile: promotedProfile(version) };
+  const iigs = detectIigsProfile(files);
+  if (iigs) return { kind: "binary", build: iigs.id, profile: iigs };
+  const amiga = detectAmigaProfile(files);
+  if (amiga) return { kind: "binary", build: amiga.id, profile: amiga };
+  const known = detectCatalogEntry(files);
+  if (known)
+    return { kind: "catalog", build: known.profile, profile: promotedProfile(known.profile) };
+  return { kind: "default", build: null, profile: null };
+}
+
+/**
+ * Decide the interpreter profile for a game folder and report how.
+ *
+ * The interpreter version is not recorded in the resource container, so the
+ * edition is identified from the ASCII version string in an interpreter
+ * binary shipped alongside the data, then the Apple IIgs `*.SYS16` banner,
+ * then the Amiga hunk/dirs markers, then the catalog's WORDS.TOK + OBJECT
+ * fingerprint. The profile is the identified build's promoted profile or
+ * documented equivalent; a build without one, and an unidentified edition,
+ * run the container fallback (v2 split -> 2.936, v3 combined -> 3.002.149).
+ * An explicit override replaces the profile but not the identification.
+ */
+export function detectProfileDecision(
+  files: ReadonlyMap<string, Uint8Array>,
+  override?: ProfileId | AgiProfile,
+): ProfileDecision {
+  const edition = identifyEdition(files);
+  const fallback = hasCombinedDirectory(files) ? DEFAULT_V3_PROFILE : DEFAULT_V2_PROFILE;
+  const profile = override !== undefined ? resolveProfile(override) : (edition.profile ?? fallback);
+  return { profile, kind: edition.kind, build: edition.build };
+}
+
+/** The profile half of `detectProfileDecision`. */
 export function detectProfile(
   files: ReadonlyMap<string, Uint8Array>,
   override?: ProfileId | AgiProfile,
 ): AgiProfile {
-  if (override !== undefined) {
-    if (typeof override !== "string") return override;
-    const chosen = BY_ID[override];
-    if (!chosen) throw new RangeError(`unknown interpreter profile ${override}`);
-    return chosen;
-  }
-  const version = detectVersionString(files);
-  if (version !== null) {
-    const direct = BY_ID[version];
-    if (direct) return direct;
-    const equivalent = EQUIVALENT_BUILDS[version];
-    if (equivalent) return PROFILES[equivalent];
-  }
-  const iigs = detectIigsProfile(files);
-  if (iigs) return iigs;
-  const amiga = detectAmigaProfile(files);
-  if (amiga) return amiga;
-  return hasCombinedDirectory(files) ? DEFAULT_V3_PROFILE : DEFAULT_V2_PROFILE;
+  return detectProfileDecision(files, override).profile;
 }

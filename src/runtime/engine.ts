@@ -27,7 +27,12 @@ import { parseLogicResource, type LogicResource } from "../logic/resource.ts";
 import { decodeInventoryFile } from "./inventoryFile.ts";
 import { actionSpec, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../logic/opcodes.ts";
 import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "../view/view.ts";
-import { detectProfile, type AgiProfile, type ProfileId } from "./profile.ts";
+import {
+  detectProfileDecision,
+  type AgiProfile,
+  type ProfileDetectionKind,
+  type ProfileId,
+} from "./profile.ts";
 import { TraceWindow } from "./trace.ts";
 import { InputQueue } from "./inputQueue.ts";
 import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, normalizeModalKey } from "./keys.ts";
@@ -475,6 +480,10 @@ export class Engine {
   readonly strings: string[];
   /** Selected interpreter profile: the single source of version-variant behavior. */
   readonly profile: AgiProfile;
+  /** How the edition was identified: an interpreter binary, the catalog, or neither. */
+  readonly profileKind: ProfileDetectionKind;
+  /** The interpreter build the identification named; null when unidentified. */
+  readonly profileBuild: string | null;
   readonly controllers = new Uint8Array(256);
   readonly surface: PictureSurface = createPictureSurface();
 
@@ -723,8 +732,12 @@ export class Engine {
     this.remainingInstructions = this.instructionBudget;
     // The interpreter version is not in the resource data: an explicit profile
     // wins, otherwise detection reads the version string from an interpreter
-    // binary shipped in the same folder, otherwise the container shape decides.
-    this.profile = detectProfile(container.files, options?.profile);
+    // binary shipped in the same folder, otherwise the catalog hash pair,
+    // otherwise the container shape decides.
+    const decision = detectProfileDecision(container.files, options?.profile);
+    this.profile = decision.profile;
+    this.profileKind = decision.kind;
+    this.profileBuild = decision.build;
     // The table and its reserved records are one contiguous bank; only parse()
     // stops at the slot count (docs/fidelity.md, "Original string slot addressing").
     const bank = block1Layout(this.profile);

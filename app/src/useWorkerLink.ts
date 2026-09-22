@@ -401,6 +401,8 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         const profile = typeof msg.profile === "string" ? msg.profile : null;
         state.profile = profile;
         hook.profile = profile;
+        state.profileKind = msg.kind ?? null;
+        hook.profileKind = msg.kind ?? null;
         // The sound mode follows the profile's output family: an Amiga
         // edition plays through Paula, a IIgs edition through the Note
         // Synthesizer path, and leaving either returns to the PC default

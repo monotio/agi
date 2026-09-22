@@ -181,6 +181,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         files,
         words,
         autosaveFiles: true,
+        ...(match?.profile ? { profile: match.profile } : {}),
         ...(await autosave.takeResumeState(files)),
       } satisfies WorkerInbound);
     } catch (e) {
@@ -438,6 +439,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             words: cached.words,
             autosaveFiles: true,
             authorRooms: Boolean(cached.roomGeneration),
+            ...(cached.library?.profile ? { profile: cached.library.profile } : {}),
             ...(await autosave.takeResumeState(cached.files)),
           } satisfies WorkerInbound);
           // Same baseline as a fresh boot — posted after the segment opens.

@@ -3,6 +3,7 @@ import type { StoredReference } from "./referenceArt.ts";
 import type { ScreenObjectState } from "../../src/runtime/engine.ts";
 import { projectId } from "../../src/gameIdentity.ts";
 import type { GameIdentity, ProjectId, ResourceRevision } from "../../src/gameIdentity.ts";
+import type { ProfileId } from "../../src/runtime/profile.ts";
 
 /**
  * One library entry's stable id (an imported game, a created adventure, a
@@ -62,6 +63,7 @@ export interface InstalledGameDescriptor {
   /** Full bundle revision of the served file set — walkthrough offers key on it. */
   readonly revision?: ResourceRevision | undefined;
   readonly folder?: string | undefined;
+  readonly profile?: ProfileId | undefined;
 }
 
 export interface CurrentGame {

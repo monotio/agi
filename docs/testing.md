@@ -49,6 +49,27 @@ sound player"); the SQ2 IIgs suite presses a key to leave the intro and
 bounds the wait for its first sound's done flag (docs/fidelity.md,
 "Apple IIgs interpreter").
 
+### Interpreter profile detection and override
+
+`detectProfileDecision` in `src/runtime/profile.ts` reports how an edition was
+identified along with the profile it runs: `"binary"` (a version string in an
+interpreter file, an Amiga hunk executable or the Apple IIgs `*.SYS16` banner),
+`"catalog"` (the `WORDS.TOK` + `OBJECT` fingerprint of a catalogued release) or
+`"default"` (neither; the container shape picks 2.936 or 3.002.149). The
+decision also names the identified build, which differs from the profile when
+that build has no promoted profile and the fallback runs. The `Engine`
+constructor's `profile` option replaces the profile but not the identification,
+and the engine exposes both as `profileKind` and `profileBuild`.
+
+The worker's `boot` message carries an optional `profile` override and its
+`booted` reply reports the profile with its detection kind; an override the
+resources cannot run under surfaces as the usual boot error. The app persists
+the override in the library entry (storage keys for saves and autosaves are
+unchanged), asks for it at import when the kind is `"default"`, and offers it
+from **Game actions → Interpreter profile**, rebooting a running game on change.
+Browser tests read the active profile and kind from the text hook's `profile`
+and `profileKind` fields.
+
 ### Optional fixtures
 
 To enable a game's compatibility tests, supply the edition below in its fixture
