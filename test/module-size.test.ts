@@ -38,23 +38,25 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the inspector surface: resource controls, runtime state and visual diagnostics",
   },
   "src/runtime/persistence.ts": {
-    // The Amiga profiles pin block-1 layouts inherited from their derivation
-    // bases (unverified save images; docs/fidelity.md).
-    lines: 1194,
+    // The Amiga/IIgs layouts are verified against the shipped Save/ images:
+    // big-endian state-hunk block 1, 0x48-byte runtime object records with
+    // native mode/flag translation, and the six-block IIgs envelope
+    // (docs/fidelity.md).
+    lines: 1864,
     boundary: "the save format; the release contract pins its structure",
   },
   "src/runtime/profile.ts": {
     // rc.16: six Amiga interpreter profiles with their own dispatch bounds,
     // OBJECT layout and hunk/dirs detection evidence; the IIgs 1.014
     // profile adds its *.SYS16 banner detection and variant fields.
-    lines: 813,
+    lines: 877,
     boundary:
       "the interpreter profile contract: per-build variant fields, promotion evidence and detection",
   },
   "src/sound/sound.ts": {
     // The IIgs stream/wave decoders join the PC, booter and Amiga families;
-    // each decoder feeds the one tick-driven playback state machine.
-    lines: 836,
+    // the Amiga split adds the older 2.082 driver and KQ2's own envelope.
+    lines: 936,
     boundary:
       "the sound resource decoders and the tick-driven playback state machine behind every output family",
   },

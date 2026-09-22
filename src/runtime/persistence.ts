@@ -45,8 +45,9 @@ export const LOGIC_RESUME_TERMINATOR = 0xffff;
  */
 export type Block1MiddleOrder = "early" | "common";
 
-/** Positions and capacities of one profile's block 1. */
-export interface Block1Layout {
+/** Positions and capacities of one PC profile's block 1. */
+export interface PcBlock1Layout {
+  readonly kind: "pc";
   /** Exact block-1 length in bytes. */
   readonly size: number;
   readonly middle: Block1MiddleOrder;
@@ -63,6 +64,82 @@ export interface Block1Layout {
   /** The trailing menu-interaction gate word and key-release gate byte exist. */
   readonly gates: boolean;
 }
+
+/**
+ * Positions and capacities of an Amiga profile's block 1 — the raw
+ * state-hunk image the save routine dumps, with big-endian fields
+ * (docs/fidelity.md "Amiga interpreter profiles"). Every offset is read off
+ * the shipped Save/ images and the save/restore disassembly.
+ */
+export interface AmigaBlock1Layout {
+  readonly kind: "amiga";
+  /** Exact block-1 (state-hunk) length in bytes. */
+  readonly size: number;
+  /** Key-map start: `keyMapEntries` {rawKey u16be, status u16be} records. */
+  readonly keyMap: number;
+  readonly keyMapEntries: number;
+  /** String bank start: `stringSlots` 40-byte zero-terminated records. */
+  readonly strings: number;
+  readonly stringSlots: number;
+  /** v0..v255 start. */
+  readonly vars: number;
+  /** 32 packed flag bytes. */
+  readonly flags: number;
+  /** The 24-byte text/window group (three u16be attributes, u32be input enable, u16be input row, prompt byte + pad, u32be status enable, three u16be rows). */
+  readonly text: number;
+  /** Script-buffer capacity word (u16be); block 4 is this many two-byte pairs. */
+  readonly replayCapacity: number;
+  /** Active replay-pair count word (u16be). */
+  readonly replayActive: number;
+  /**
+   * Block-enable flag (u32be): written by `block`/`unblock`. The verified
+   * offset is +0x22 on 2.082 and +0x20 on the later builds (docs/fidelity.md).
+   */
+  readonly blockEnabled: number;
+  /**
+   * The 2.082 ego click-direction mirror (u16be at +0x20), or null on the
+   * later builds where that word is a different, unmapped field.
+   */
+  readonly navMirror: number | null;
+}
+
+/**
+ * Positions and capacities of the Apple IIgs save (docs/fidelity.md "Apple
+ * IIgs interpreter"). The envelope is six big-endian-length blocks: an
+ * opaque lead block, then the 0x3d0-byte main state block this layout maps
+ * (little-endian fields), the object records, the inventory payload, the
+ * replay pairs and the logic-resume records.
+ */
+export interface IigsBlock1Layout {
+  readonly kind: "iigs";
+  /** Bytes of the leading block saved ahead of the state block. */
+  readonly lead: number;
+  /** Lead-block offsets, all u16le: the block()/horizon globals at bank 0
+   * $0111..$0121 (docs/fidelity.md "Apple IIgs interpreter"). */
+  readonly horizon: number;
+  readonly blockRect: number;
+  /** Lead-block offset of the player/program-control flag (u16le, $011d). */
+  readonly controlFlag: number;
+  /** Lead-block offset of the block-enable flag (u16le, $0121). */
+  readonly blockEnabled: number;
+  /** Offset inside the lead block of the replay capacity u16le. */
+  readonly replayCapacity: number;
+  /** Bytes of the main state block (the second block in the envelope). */
+  readonly size: number;
+  /** Key-map start inside the state block: {rawKey u16le, status u16le}. */
+  readonly keyMap: number;
+  readonly keyMapEntries: number;
+  /** String bank start inside the state block. */
+  readonly strings: number;
+  readonly stringSlots: number;
+  /** v0..v255 start inside the state block. */
+  readonly vars: number;
+  /** 32 packed flag bytes. */
+  readonly flags: number;
+}
+
+/** Positions and capacities of one profile's block 1. */
+export type Block1Layout = PcBlock1Layout | AmigaBlock1Layout | IigsBlock1Layout;
 
 const SIGNATURE_BYTES = 7;
 const VAR_COUNT = 256;
@@ -81,6 +158,7 @@ const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
   // 2.001 save images are unverified (no observed 2.001 save); the earliest
   // documented partition applies. docs/fidelity.md pc-booter-2.001-profile.
   "2.001": {
+    kind: "pc",
     size: 0x03db,
     middle: "early",
     keyMapEntries: 39,
@@ -92,6 +170,7 @@ const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
   },
   // "The source-backed 2.089/2.230/2.272 block-1 partition": 0x03db.
   "2.089": {
+    kind: "pc",
     size: 0x03db,
     middle: "early",
     keyMapEntries: 39,
@@ -102,6 +181,7 @@ const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
     gates: false,
   },
   "2.230": {
+    kind: "pc",
     size: 0x03db,
     middle: "early",
     keyMapEntries: 39,
@@ -112,6 +192,7 @@ const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
     gates: false,
   },
   "2.272": {
+    kind: "pc",
     size: 0x03db,
     middle: "early",
     keyMapEntries: 39,
@@ -124,6 +205,7 @@ const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
   // "Profiles 2.411 and 2.440 observed early blocks": the first 0x05df bytes of
   // the 2.936 partition, omitting the saved replay-checkpoint count.
   "2.411": {
+    kind: "pc",
     size: 0x05df,
     middle: "common",
     keyMapEntries: 39,
@@ -134,6 +216,7 @@ const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
     gates: false,
   },
   "2.440": {
+    kind: "pc",
     size: 0x05df,
     middle: "common",
     keyMapEntries: 39,
@@ -145,6 +228,7 @@ const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
   },
   // "The selected KQ1 data uses the profile 2.936 block-1 partition ... exactly."
   "2.917": {
+    kind: "pc",
     size: 0x05e1,
     middle: "common",
     keyMapEntries: 39,
@@ -156,6 +240,7 @@ const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
   },
   // "Profile 2.936 block 1": exactly 0x05e1 bytes.
   "2.936": {
+    kind: "pc",
     size: 0x05e1,
     middle: "common",
     keyMapEntries: 39,
@@ -169,6 +254,7 @@ const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
   // The profile's menu interaction gate and incrementing key-release gate are
   // not fields in this serialized block."
   "3.002.086": {
+    kind: "pc",
     size: 0x05e1,
     middle: "common",
     keyMapEntries: 39,
@@ -181,6 +267,7 @@ const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
   // "Profile 3.002.102 observed KQ4D demo blocks": 2.936 through 0x05e0, then
   // the menu interaction gate and key-release enqueue gate. 0x05e4 bytes.
   "3.002.102": {
+    kind: "pc",
     size: 0x05e4,
     middle: "common",
     keyMapEntries: 39,
@@ -193,6 +280,7 @@ const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
   // "Profile 3.002.149 observed Gold Rush blocks": the 49-slot key map consumes
   // the ten inactive records, and there is no reserved string bank. 0x0404.
   "3.002.149": {
+    kind: "pc",
     size: 0x0404,
     middle: "common",
     keyMapEntries: 49,
@@ -202,85 +290,131 @@ const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
     checkpoint: true,
     gates: true,
   },
-  // Amiga save images are unverified (no observed Amiga save); each build
-  // applies the block-1 partition of the PC profile it is derived from
-  // (docs/fidelity.md "Amiga interpreter profiles").
+  // Amiga "Sierra" 2.082 (SQ1): the 0x2f4-byte state hunk, verified against
+  // the shipped Save/sqsg.* images — key map @0x2c, strings @0xcc, vars
+  // @0x1bc, flags @0x2bc, text tail @0x2dc, and the script capacity/active
+  // words at +0x28/+0x2a (docs/fidelity.md "Amiga interpreter profiles").
   "amiga-2.082": {
-    size: 0x03db,
-    middle: "early",
-    keyMapEntries: 39,
-    keyMapReserved: 0,
+    kind: "amiga",
+    size: 0x02f4,
+    keyMap: 0x2c,
+    keyMapEntries: 40,
+    strings: 0xcc,
     stringSlots: 6,
-    stringReserved: 6,
-    checkpoint: false,
-    gates: false,
+    vars: 0x1bc,
+    flags: 0x2bc,
+    text: 0x2dc,
+    replayCapacity: 0x28,
+    replayActive: 0x2a,
+    blockEnabled: 0x22,
+    navMirror: 0x20,
   },
+  // Amiga "KQ2" 2.176: the 0x40a-byte state hunk — key map @0x2a, strings
+  // @0xca, vars @0x2d2, flags @0x3d2, text tail @0x3f2, capacity/active at
+  // +0x26/+0x28 (docs/fidelity.md "Amiga interpreter profiles").
   "amiga-2.176": {
-    size: 0x03db,
-    middle: "early",
+    kind: "amiga",
+    size: 0x040a,
+    keyMap: 0x2a,
     keyMapEntries: 39,
-    keyMapReserved: 0,
-    stringSlots: 6,
-    stringReserved: 6,
-    checkpoint: false,
-    gates: false,
+    strings: 0xca,
+    stringSlots: 13,
+    vars: 0x2d2,
+    flags: 0x3d2,
+    text: 0x3f2,
+    replayCapacity: 0x26,
+    replayActive: 0x28,
+    blockEnabled: 0x20,
+    navMirror: null,
   },
+  // Amiga "SQ2" 2.202: the same state-hunk partition as 2.176, verified
+  // against the shipped Save/sq2sg.* images.
   "amiga-2.202": {
-    size: 0x05e1,
-    middle: "common",
+    kind: "amiga",
+    size: 0x040a,
+    keyMap: 0x2a,
     keyMapEntries: 39,
-    keyMapReserved: 10,
-    stringSlots: 12,
-    stringReserved: 12,
-    checkpoint: true,
-    gates: false,
+    strings: 0xca,
+    stringSlots: 13,
+    vars: 0x2d2,
+    flags: 0x3d2,
+    text: 0x3f2,
+    replayCapacity: 0x26,
+    replayActive: 0x28,
+    blockEnabled: 0x20,
+    navMirror: null,
   },
+  // Amiga 2.31x (PQ/GR/MH2): the 0x414-byte state hunk — the 2.176 partition
+  // plus ten trailing bytes the later builds' tail adds.
   "amiga-2.310": {
-    size: 0x0404,
-    middle: "common",
-    keyMapEntries: 49,
-    keyMapReserved: 0,
-    stringSlots: 12,
-    stringReserved: 0,
-    checkpoint: true,
-    gates: true,
+    kind: "amiga",
+    size: 0x0414,
+    keyMap: 0x2a,
+    keyMapEntries: 39,
+    strings: 0xca,
+    stringSlots: 13,
+    vars: 0x2d2,
+    flags: 0x3d2,
+    text: 0x3f2,
+    replayCapacity: 0x26,
+    replayActive: 0x28,
+    blockEnabled: 0x20,
+    navMirror: null,
   },
   "amiga-2.316": {
-    size: 0x0404,
-    middle: "common",
-    keyMapEntries: 49,
-    keyMapReserved: 0,
-    stringSlots: 12,
-    stringReserved: 0,
-    checkpoint: true,
-    gates: true,
+    kind: "amiga",
+    size: 0x0414,
+    keyMap: 0x2a,
+    keyMapEntries: 39,
+    strings: 0xca,
+    stringSlots: 13,
+    vars: 0x2d2,
+    flags: 0x3d2,
+    text: 0x3f2,
+    replayCapacity: 0x26,
+    replayActive: 0x28,
+    blockEnabled: 0x20,
+    navMirror: null,
   },
   "amiga-2.333": {
-    size: 0x0404,
-    middle: "common",
-    keyMapEntries: 49,
-    keyMapReserved: 0,
-    stringSlots: 12,
-    stringReserved: 0,
-    checkpoint: true,
-    gates: true,
-  },
-  // The IIgs save layout is unverified (no observed IIgs save); the build
-  // applies the block-1 partition of the 2.936 profile it is derived from
-  // (docs/fidelity.md "Apple IIgs interpreter").
-  "iigs-1.014": {
-    size: 0x05e1,
-    middle: "common",
+    kind: "amiga",
+    size: 0x0414,
+    keyMap: 0x2a,
     keyMapEntries: 39,
-    keyMapReserved: 10,
-    stringSlots: 12,
-    stringReserved: 12,
-    checkpoint: true,
-    gates: false,
+    strings: 0xca,
+    stringSlots: 13,
+    vars: 0x2d2,
+    flags: 0x3d2,
+    text: 0x3f2,
+    replayCapacity: 0x26,
+    replayActive: 0x28,
+    blockEnabled: 0x20,
+    navMirror: null,
+  },
+  // Apple IIgs 1.014 (SQ2.SYS16): the savegameseg writer emits six
+  // big-endian-length blocks — a 0x38-byte lead state block (replay capacity
+  // u16le at +0x1a), then the 0x3d0-byte main state block mapped here:
+  // 8 opaque head bytes, key map @0x08, strings @0xa8, vars @0x2b0, flags
+  // @0x3b0 (docs/fidelity.md "Apple IIgs interpreter").
+  "iigs-1.014": {
+    kind: "iigs",
+    lead: 0x38,
+    horizon: 0x04,
+    blockRect: 0x08,
+    controlFlag: 0x10,
+    blockEnabled: 0x14,
+    replayCapacity: 0x1a,
+    size: 0x03d0,
+    keyMap: 0x08,
+    keyMapEntries: 40,
+    strings: 0xa8,
+    stringSlots: 13,
+    vars: 0x2b0,
+    flags: 0x3b0,
   },
 };
 
-/** Derived block-1 field positions for a layout. */
+/** Derived block-1 field positions for a PC layout. */
 interface Block1Offsets {
   keyMap: number;
   preStringPadding: number;
@@ -293,7 +427,7 @@ interface Block1Offsets {
   end: number;
 }
 
-function block1Offsets(layout: Block1Layout): Block1Offsets {
+function block1Offsets(layout: PcBlock1Layout): Block1Offsets {
   const keyMap = OFF_MIDDLE + MIDDLE_BYTES[layout.middle];
   const preStringPadding = keyMap + (layout.keyMapEntries + layout.keyMapReserved) * 4;
   const strings = preStringPadding + 4;
@@ -318,13 +452,20 @@ function block1Offsets(layout: Block1Layout): Block1Offsets {
 /** Block-1 layout the selected profile serializes. */
 export function block1Layout(profile: AgiProfile): Block1Layout {
   const layout = BLOCK1_LAYOUTS[profile.id];
-  const computed = block1Offsets(layout).end;
-  if (computed !== layout.size) {
-    throw new RangeError(
-      `profile ${profile.id} block-1 layout computes ${computed}, expected ${layout.size}`,
-    );
+  if (layout.kind === "pc") {
+    const computed = block1Offsets(layout).end;
+    if (computed !== layout.size) {
+      throw new RangeError(
+        `profile ${profile.id} block-1 layout computes ${computed}, expected ${layout.size}`,
+      );
+    }
   }
   return layout;
+}
+
+/** Total string records serialized (addressable slots plus the PC reserved bank). */
+export function layoutStringTotal(layout: Block1Layout): number {
+  return layout.kind === "pc" ? layout.stringSlots + layout.stringReserved : layout.stringSlots;
 }
 
 /** One `raw_key:u16le, status:u16le` script key mapping (spec, block 1). */
@@ -382,12 +523,26 @@ export interface SaveObjectRecord {
   motionParams: readonly [number, number, number, number];
   /** The five serialized reference tokens, in record order. */
   tokens: readonly [number, number, number, number, number];
+  /**
+   * The native record image this record decoded from (Amiga/IIgs 0x48-byte
+   * runtime records). Fields the portable record does not model — pointers,
+   * view-cache words — are re-emitted verbatim on the next encode, like
+   * `reservedBlock1` does for block 1.
+   */
+  raw?: Uint8Array;
 }
 
 /** Portable contents of one save file. */
 export interface SaveState {
   /** Displayed description: the zero-terminated prefix of the 31-byte header. */
   description: string;
+  /**
+   * The 31-byte header image this state decoded from, or null. Encoding
+   * re-emits it verbatim when `description` is still its zero-terminated
+   * prefix — the original leaves the previous string's tail bytes in the
+   * field rather than clearing them.
+   */
+  descriptionImage: Uint8Array | null;
   /** Game/save signature area (7 bytes). */
   signature: Uint8Array;
   /** Variables v0..v255. */
@@ -442,6 +597,12 @@ export interface SaveState {
    * emitted unchanged (spec "Reserved-state rule").
    */
   reservedBlock1: Uint8Array | null;
+  /**
+   * Whole opaque blocks the profile's envelope carries ahead of the state
+   * block — currently the Apple IIgs lead block. Decoded verbatim and
+   * re-emitted at the same envelope position.
+   */
+  extraBlocks: Uint8Array[];
 }
 
 // ---------- little-endian primitives ----------
@@ -466,6 +627,28 @@ function putU32(bytes: Uint8Array, at: number, value: number): void {
   putU16(bytes, at + 2, (value >>> 16) & 0xffff);
 }
 
+// ---------- big-endian primitives (Amiga state fields, IIgs envelope) ----------
+
+function u16be(bytes: Uint8Array, at: number): number {
+  return (bytes[at]! << 8) | bytes[at + 1]!;
+}
+
+function putU16be(bytes: Uint8Array, at: number, value: number): void {
+  bytes[at] = (value >>> 8) & 0xff;
+  bytes[at + 1] = value & 0xff;
+}
+
+function u32be(bytes: Uint8Array, at: number): number {
+  return (
+    ((bytes[at]! << 24) | (bytes[at + 1]! << 16) | (bytes[at + 2]! << 8) | bytes[at + 3]!) >>> 0
+  );
+}
+
+function putU32be(bytes: Uint8Array, at: number, value: number): void {
+  putU16be(bytes, at, (value >>> 16) & 0xffff);
+  putU16be(bytes, at + 2, value & 0xffff);
+}
+
 /** Zero-terminated ASCII prefix of a fixed-size field. */
 function readZString(bytes: Uint8Array, at: number, size: number): string {
   let end = at;
@@ -481,6 +664,35 @@ function writeZString(bytes: Uint8Array, at: number, size: number, value: string
   bytes.fill(0, at, at + size);
   const n = Math.min(value.length, size - 1);
   for (let i = 0; i < n; i++) bytes[at + i] = value.charCodeAt(i) & 0xff;
+}
+
+/**
+ * Write a zero-terminated string into a fixed-size field without clearing
+ * the bytes after the terminator — the Amiga and IIgs state images keep the
+ * previous contents there (shipped saves show a prior string's tail and
+ * space padding past the NUL).
+ */
+function writeZStringKeepTail(bytes: Uint8Array, at: number, size: number, value: string): void {
+  const n = Math.min(value.length, size - 1);
+  for (let i = 0; i < n; i++) bytes[at + i] = value.charCodeAt(i) & 0xff;
+  bytes[at + n] = 0;
+}
+
+/**
+ * Emit the 31-byte description header: the decoded header image verbatim
+ * while `description` is still its zero-terminated prefix (the original
+ * leaves the previous string's tail bytes in the field), else a fresh
+ * zero-terminated write.
+ */
+function writeDescription(out: Uint8Array, state: SaveState): void {
+  const image = state.descriptionImage;
+  if (image && image.length === SAVE_DESCRIPTION_BYTES) {
+    if (readZString(image, 0, SAVE_DESCRIPTION_BYTES) === state.description) {
+      out.set(image, 0);
+      return;
+    }
+  }
+  writeZString(out, 0, SAVE_DESCRIPTION_BYTES, state.description);
 }
 
 /**
@@ -524,6 +736,7 @@ export function newSaveState(profile: AgiProfile): SaveState {
   const layout = block1Layout(profile);
   return {
     description: "",
+    descriptionImage: null,
     signature: new Uint8Array(SIGNATURE_BYTES),
     vars: new Uint8Array(256),
     flags: new Uint8Array(256),
@@ -544,7 +757,7 @@ export function newSaveState(profile: AgiProfile): SaveState {
     replayActive: 0,
     replayCheckpoint: 0,
     keyMap: Array.from({ length: layout.keyMapEntries }, () => ({ rawKey: 0, status: 0 })),
-    strings: Array.from({ length: layout.stringSlots + layout.stringReserved }, () => ""),
+    strings: Array.from({ length: layoutStringTotal(layout) }, () => ""),
     textFg: 15,
     textBg: 0,
     textAttr: 0,
@@ -562,6 +775,7 @@ export function newSaveState(profile: AgiProfile): SaveState {
     replay: [],
     logicResume: [],
     reservedBlock1: null,
+    extraBlocks: [],
   };
 }
 
@@ -572,7 +786,7 @@ export function newSaveState(profile: AgiProfile): SaveState {
  */
 function canonicalBlock1(layout: Block1Layout): Uint8Array {
   const block = new Uint8Array(layout.size);
-  if (layout.middle === "common") {
+  if (layout.kind === "pc" && layout.middle === "common") {
     putU16(block, OFF_MIDDLE + 2, 0x0000);
     putU16(block, OFF_MIDDLE + 18, 0x000f);
   }
@@ -582,6 +796,18 @@ function canonicalBlock1(layout: Block1Layout): Uint8Array {
 // ---------- block 1 ----------
 
 function encodeBlock1(state: SaveState, layout: Block1Layout): Uint8Array {
+  if (layout.kind === "amiga") return encodeBlock1Amiga(state, layout);
+  if (layout.kind === "iigs") return encodeBlock1Iigs(state, layout);
+  return encodeBlock1Pc(state, layout);
+}
+
+function decodeBlock1(block: Uint8Array, layout: Block1Layout, into: SaveState): void {
+  if (layout.kind === "amiga") return decodeBlock1Amiga(block, layout, into);
+  if (layout.kind === "iigs") return decodeBlock1Iigs(block, layout, into);
+  return decodeBlock1Pc(block, layout, into);
+}
+
+function encodeBlock1Pc(state: SaveState, layout: PcBlock1Layout): Uint8Array {
   const off = block1Offsets(layout);
   const base = state.reservedBlock1;
   const block =
@@ -655,7 +881,7 @@ function encodeBlock1(state: SaveState, layout: Block1Layout): Uint8Array {
   return block;
 }
 
-function decodeBlock1(block: Uint8Array, layout: Block1Layout, into: SaveState): void {
+function decodeBlock1Pc(block: Uint8Array, layout: PcBlock1Layout, into: SaveState): void {
   if (block.length !== layout.size) {
     throw new RangeError(`block 1 is ${block.length} bytes, expected ${layout.size}`);
   }
@@ -722,6 +948,134 @@ function decodeBlock1(block: Uint8Array, layout: Block1Layout, into: SaveState):
   into.replayCheckpoint = layout.checkpoint ? u16(block, off.checkpoint) : 0;
   into.menuGate = layout.gates ? u16(block, off.menuGate) : 0;
   into.releaseGate = layout.gates ? block[off.releaseGate]! : 0;
+}
+
+// ---------- Amiga block 1 (the raw state-hunk image, big-endian) ----------
+
+function encodeBlock1Amiga(state: SaveState, layout: AmigaBlock1Layout): Uint8Array {
+  const base = state.reservedBlock1;
+  const block =
+    base && base.length === layout.size ? Uint8Array.from(base) : new Uint8Array(layout.size);
+  block.set(state.signature.subarray(0, SIGNATURE_BYTES), OFF_SIGNATURE);
+  putU32be(block, 0x08, state.timerTicks);
+  putU16be(block, 0x0e, state.horizon);
+  putU16be(block, 0x12, state.blockLeft);
+  putU16be(block, 0x14, state.blockTop);
+  putU16be(block, 0x16, state.blockRight);
+  putU16be(block, 0x18, state.blockBottom);
+  // +0x1a is the player/program-control flag (a long; `pause` reaches its
+  // low word at +0x1c); +0x1e is the drawn picture number (docs/fidelity.md).
+  putU32be(block, 0x1a, state.directionCoupling);
+  putU16be(block, 0x1e, state.lastPicture);
+  putU32be(block, layout.blockEnabled, state.blockEnabled);
+  if (layout.navMirror !== null) putU16be(block, layout.navMirror, state.navigationDirection);
+  putU16be(block, layout.replayCapacity, state.replayCapacity);
+  putU16be(block, layout.replayActive, state.replayActive);
+  for (let i = 0; i < layout.keyMapEntries; i++) {
+    const entry = state.keyMap[i] ?? { rawKey: 0, status: 0 };
+    putU16be(block, layout.keyMap + i * 4, entry.rawKey);
+    putU16be(block, layout.keyMap + i * 4 + 2, entry.status);
+  }
+  for (let i = 0; i < layout.stringSlots; i++) {
+    writeZStringKeepTail(block, layout.strings + i * 40, 40, state.strings[i] ?? "");
+  }
+  block.set(state.vars.subarray(0, VAR_COUNT), layout.vars);
+  packFlags(state.flags, block, layout.flags);
+  const t = layout.text;
+  putU16be(block, t, state.textFg);
+  putU16be(block, t + 2, state.textBg);
+  putU16be(block, t + 4, state.textAttr);
+  putU32be(block, t + 6, state.inputEnabled);
+  putU16be(block, t + 0x0a, state.inputRow);
+  block[t + 0x0c] = state.promptChar & 0xff;
+  putU32be(block, t + 0x0e, state.statusEnabled);
+  putU16be(block, t + 0x12, state.statusRow);
+  putU16be(block, t + 0x14, state.displayBaseRow);
+  putU16be(block, t + 0x16, state.displayBottomRow);
+  return block;
+}
+
+function decodeBlock1Amiga(block: Uint8Array, layout: AmigaBlock1Layout, into: SaveState): void {
+  if (block.length !== layout.size) {
+    throw new RangeError(`block 1 is ${block.length} bytes, expected ${layout.size}`);
+  }
+  into.reservedBlock1 = Uint8Array.from(block);
+  into.signature = block.slice(OFF_SIGNATURE, OFF_SIGNATURE + SIGNATURE_BYTES);
+  into.timerTicks = u32be(block, 0x08);
+  into.horizon = u16be(block, 0x0e);
+  into.blockLeft = u16be(block, 0x12);
+  into.blockTop = u16be(block, 0x14);
+  into.blockRight = u16be(block, 0x16);
+  into.blockBottom = u16be(block, 0x18);
+  into.directionCoupling = u32be(block, 0x1a);
+  into.lastPicture = u16be(block, 0x1e);
+  into.blockEnabled = u32be(block, layout.blockEnabled);
+  if (layout.navMirror !== null) into.navigationDirection = u16be(block, layout.navMirror);
+  into.replayCapacity = u16be(block, layout.replayCapacity);
+  into.replayActive = u16be(block, layout.replayActive);
+  into.keyMap = [];
+  for (let i = 0; i < layout.keyMapEntries; i++) {
+    into.keyMap.push({
+      rawKey: u16be(block, layout.keyMap + i * 4),
+      status: u16be(block, layout.keyMap + i * 4 + 2),
+    });
+  }
+  into.strings = [];
+  for (let i = 0; i < layout.stringSlots; i++) {
+    into.strings.push(readZString(block, layout.strings + i * 40, 40));
+  }
+  into.vars = block.slice(layout.vars, layout.vars + VAR_COUNT);
+  into.flags = unpackFlags(block, layout.flags);
+  const t = layout.text;
+  into.textFg = u16be(block, t);
+  into.textBg = u16be(block, t + 2);
+  into.textAttr = u16be(block, t + 4);
+  into.inputEnabled = u32be(block, t + 6);
+  into.inputRow = u16be(block, t + 0x0a);
+  into.promptChar = block[t + 0x0c]!;
+  into.statusEnabled = u32be(block, t + 0x0e);
+  into.statusRow = u16be(block, t + 0x12);
+  into.displayBaseRow = u16be(block, t + 0x14);
+  into.displayBottomRow = u16be(block, t + 0x16);
+}
+
+// ---------- Apple IIgs block 1 (the 0x3d0-byte state block, little-endian) ----------
+
+function encodeBlock1Iigs(state: SaveState, layout: IigsBlock1Layout): Uint8Array {
+  const base = state.reservedBlock1;
+  const block =
+    base && base.length === layout.size ? Uint8Array.from(base) : new Uint8Array(layout.size);
+  for (let i = 0; i < layout.keyMapEntries; i++) {
+    const entry = state.keyMap[i] ?? { rawKey: 0, status: 0 };
+    putU16(block, layout.keyMap + i * 4, entry.rawKey);
+    putU16(block, layout.keyMap + i * 4 + 2, entry.status);
+  }
+  for (let i = 0; i < layout.stringSlots; i++) {
+    writeZStringKeepTail(block, layout.strings + i * 40, 40, state.strings[i] ?? "");
+  }
+  block.set(state.vars.subarray(0, VAR_COUNT), layout.vars);
+  packFlags(state.flags, block, layout.flags);
+  return block;
+}
+
+function decodeBlock1Iigs(block: Uint8Array, layout: IigsBlock1Layout, into: SaveState): void {
+  if (block.length !== layout.size) {
+    throw new RangeError(`block 1 is ${block.length} bytes, expected ${layout.size}`);
+  }
+  into.reservedBlock1 = Uint8Array.from(block);
+  into.keyMap = [];
+  for (let i = 0; i < layout.keyMapEntries; i++) {
+    into.keyMap.push({
+      rawKey: u16(block, layout.keyMap + i * 4),
+      status: u16(block, layout.keyMap + i * 4 + 2),
+    });
+  }
+  into.strings = [];
+  for (let i = 0; i < layout.stringSlots; i++) {
+    into.strings.push(readZString(block, layout.strings + i * 40, 40));
+  }
+  into.vars = block.slice(layout.vars, layout.vars + VAR_COUNT);
+  into.flags = unpackFlags(block, layout.flags);
 }
 
 // ---------- block 2 ----------
@@ -837,6 +1191,195 @@ function decodeBlock2(block: Uint8Array): SaveObjectRecord[] {
   return out;
 }
 
+// ---------- Amiga/IIgs block 2 (0x48-byte runtime records) ----------
+
+/** Bytes of one Amiga/IIgs drawable-object record (docs/fidelity.md). */
+export const NATIVE_OBJECT_RECORD_BYTES = 0x48;
+
+/**
+ * The Amiga family's native flag word (record +0x3e) is its own bit
+ * assignment, not the engine's portable packing — the verified bits
+ * (docs/fidelity.md "Amiga interpreter profiles"):
+ *
+ *   0x0001 drawn      0x0010 update      0x0100 water "both"
+ *   0x0004 fixed pri  0x0020 cycling     0x0200 ignore objects
+ *   0x0008 ignore hor 0x0040 animated    0x0800 water "off" (0x0900 = "on")
+ *   0x1000 stationary 0x2000 fix.loop
+ *
+ * 0x0002 is ignore.blocks on both families (verified). 0x0040 is the
+ * "animated" state `animate.obj` writes; the portable word has no
+ * corresponding bit, so it and the unverified 0x0400/0x4000 bits round-trip
+ * through the record's `raw` image.
+ */
+const AMIGA_FLAG_MAPPED =
+  0x0001 | 0x0002 | 0x0004 | 0x0008 | 0x0010 | 0x0020 | 0x0100 | 0x0200 | 0x0800 | 0x1000 | 0x2000;
+
+/** Portable state-word bits this translation reads (engine's packing). */
+const P_ACTIVE = 0x0001;
+const P_UPDATE = 0x0002;
+const P_CYCLING = 0x0004;
+const P_FIXED_PRIORITY = 0x0008;
+const P_OBSERVE_HORIZON = 0x0010;
+const P_OBSERVE_BLOCKS = 0x0020;
+const P_OBSERVE_OBJECTS = 0x0040;
+const P_LOOP_FIXED = 0x0080;
+const P_WATER_ON = 0x0100;
+const P_WATER_OFF = 0x0200;
+const P_EARLIER_PARTITION = 0x0400;
+const P_STATIONARY = 0x2000;
+
+/** Portable -> native motion-mode values: {normal, move, follow, wander, click} -> {0,3,2,1,4}.
+ * Identical on the Amiga builds and the Apple IIgs (verified from the
+ * normal.motion/move.obj/follow.ego/wander handlers on both). */
+const NATIVE_MOTION: readonly number[] = [0, 3, 2, 1, 4];
+/** Portable -> Amiga native cycle-mode values: {forward, reverse, end.of.loop, reverse.loop} -> {0,1,3,2}. */
+const NATIVE_CYCLE: readonly number[] = [0, 1, 3, 2];
+/** Portable -> IIgs native cycle-mode values -> {0,3,1,2}: the IIgs
+ * reverse.cycle/end.of.loop/reverse.loop handlers write the PC order
+ * (docs/fidelity.md "Apple IIgs interpreter"). */
+const IIGS_CYCLE: readonly number[] = [0, 3, 1, 2];
+
+function nativeFlagsFromPortable(state: number): number {
+  let w = 0;
+  // 0x0001 is "drawn" (drawseg/draw handlers on both families); an object in
+  // the earlier drawn partition is drawn too.
+  if (state & (P_ACTIVE | P_EARLIER_PARTITION)) w |= 0x0001;
+  if (!(state & P_OBSERVE_BLOCKS)) w |= 0x0002;
+  if (state & P_FIXED_PRIORITY) w |= 0x0004;
+  if (!(state & P_OBSERVE_HORIZON)) w |= 0x0008;
+  if (state & P_UPDATE) w |= 0x0010;
+  if (state & P_CYCLING) w |= 0x0020;
+  const water = state & (P_WATER_ON | P_WATER_OFF);
+  if (water === (P_WATER_ON | P_WATER_OFF)) w |= 0x0100;
+  else if (water === P_WATER_OFF) w |= 0x0800;
+  else if (water === P_WATER_ON) w |= 0x0900;
+  if (!(state & P_OBSERVE_OBJECTS)) w |= 0x0200;
+  if (state & P_STATIONARY) w |= 0x1000;
+  if (state & P_LOOP_FIXED) w |= 0x2000;
+  return w;
+}
+
+function portableFlagsFromNative(w: number): number {
+  // 0x0002 is the native ignore.blocks bit (blockseg/motion handlers on both
+  // families); the portable word tracks the observing state instead.
+  let s = w & 0x0002 ? 0 : P_OBSERVE_BLOCKS;
+  if (w & 0x0001) s |= P_ACTIVE;
+  if (w & 0x0010) s |= P_UPDATE;
+  if (w & 0x0020) s |= P_CYCLING;
+  if (w & 0x0004) s |= P_FIXED_PRIORITY;
+  if (!(w & 0x0008)) s |= P_OBSERVE_HORIZON;
+  if (!(w & 0x0200)) s |= P_OBSERVE_OBJECTS;
+  if (w & 0x2000) s |= P_LOOP_FIXED;
+  const water = w & 0x0900;
+  if (water === 0x0900) s |= P_WATER_ON;
+  else if (water === 0x0800) s |= P_WATER_OFF;
+  else if (w & 0x0100) s |= P_WATER_ON | P_WATER_OFF;
+  // Drawn without an update pass is the earlier-drawn partition.
+  if (w & 0x0001 && !(w & 0x0010)) s |= P_EARLIER_PARTITION;
+  if (w & 0x1000) s |= P_STATIONARY;
+  return s;
+}
+
+function encodeBlock2Native(
+  objects: readonly SaveObjectRecord[],
+  be: boolean,
+  cycles: readonly number[],
+): Uint8Array {
+  const block = new Uint8Array(objects.length * NATIVE_OBJECT_RECORD_BYTES);
+  const w16 = be ? putU16be : putU16;
+  const r16 = be ? u16be : u16;
+  for (let i = 0; i < objects.length; i++) {
+    const o = objects[i]!;
+    const at = i * NATIVE_OBJECT_RECORD_BYTES;
+    // Start from the decoded image so pointers (+0x0c..0x27) and the
+    // unmapped flag bits keep their native contents.
+    const base = o.raw;
+    if (base && base.length === NATIVE_OBJECT_RECORD_BYTES) block.set(base, at);
+    w16(block, at + 0x00, o.stepTime);
+    w16(block, at + 0x02, o.stepCount);
+    w16(block, at + 0x04, o.event);
+    w16(block, at + 0x06, o.x);
+    w16(block, at + 0x08, o.y);
+    w16(block, at + 0x0a, o.view);
+    w16(block, at + 0x10, o.loop);
+    w16(block, at + 0x12, o.loopCount);
+    w16(block, at + 0x18, o.cel);
+    w16(block, at + 0x1a, o.celCount);
+    w16(block, at + 0x28, o.prevX);
+    w16(block, at + 0x2a, o.prevY);
+    w16(block, at + 0x2c, o.width);
+    w16(block, at + 0x2e, o.height);
+    w16(block, at + 0x30, o.stepSize);
+    w16(block, at + 0x32, o.cycleTime);
+    w16(block, at + 0x34, o.cycleCount);
+    w16(block, at + 0x36, o.direction);
+    w16(block, at + 0x38, NATIVE_MOTION[o.motionMode] ?? 0);
+    w16(block, at + 0x3a, cycles[o.cycleMode] ?? 0);
+    w16(block, at + 0x3c, o.priority);
+    // Unmapped flag bits survive through the preserved image; the mapped
+    // bits come from the portable state word.
+    const carried = base && base.length === NATIVE_OBJECT_RECORD_BYTES ? r16(base, 0x3e) : 0;
+    w16(block, at + 0x3e, (carried & ~AMIGA_FLAG_MAPPED) | nativeFlagsFromPortable(o.state));
+    // The parameter bank is four bytes riding in the low half of four words.
+    for (let p = 0; p < 4; p++) {
+      block[at + 0x40 + p * 2 + (be ? 1 : 0)] = o.motionParams[p]! & 0xff;
+    }
+  }
+  return block;
+}
+
+function decodeBlock2Native(
+  block: Uint8Array,
+  be: boolean,
+  cycles: readonly number[],
+): SaveObjectRecord[] {
+  if (block.length % NATIVE_OBJECT_RECORD_BYTES !== 0) {
+    throw new RangeError(
+      `block 2 is ${block.length} bytes, not a multiple of ${NATIVE_OBJECT_RECORD_BYTES}`,
+    );
+  }
+  const r16 = be ? u16be : u16;
+  const out: SaveObjectRecord[] = [];
+  for (let at = 0; at < block.length; at += NATIVE_OBJECT_RECORD_BYTES) {
+    const rec = block.slice(at, at + NATIVE_OBJECT_RECORD_BYTES);
+    const record = newObjectRecord();
+    record.stepTime = r16(rec, 0x00);
+    record.stepCount = r16(rec, 0x02);
+    record.event = r16(rec, 0x04);
+    record.x = r16(rec, 0x06);
+    record.y = r16(rec, 0x08);
+    record.view = r16(rec, 0x0a);
+    record.loop = r16(rec, 0x10);
+    record.loopCount = r16(rec, 0x12);
+    record.cel = r16(rec, 0x18);
+    record.celCount = r16(rec, 0x1a);
+    record.prevX = r16(rec, 0x28);
+    record.prevY = r16(rec, 0x2a);
+    record.width = r16(rec, 0x2c);
+    record.height = r16(rec, 0x2e);
+    record.stepSize = r16(rec, 0x30);
+    record.cycleTime = r16(rec, 0x32);
+    record.cycleCount = r16(rec, 0x34);
+    record.direction = r16(rec, 0x36);
+    // The Amiga tables are involutions; the IIgs cycle table is not — decode
+    // native values through a reverse lookup of the portable->native table.
+    record.motionMode = Math.max(0, NATIVE_MOTION.indexOf(r16(rec, 0x38)));
+    if (record.motionMode < 0) record.motionMode = 0;
+    record.cycleMode = Math.max(0, cycles.indexOf(r16(rec, 0x3a)));
+    record.priority = r16(rec, 0x3c);
+    record.state = portableFlagsFromNative(r16(rec, 0x3e));
+    record.motionParams = [
+      rec[0x40 + (be ? 1 : 0)]!,
+      rec[0x42 + (be ? 1 : 0)]!,
+      rec[0x44 + (be ? 1 : 0)]!,
+      rec[0x46 + (be ? 1 : 0)]!,
+    ];
+    record.raw = rec;
+    out.push(record);
+  }
+  return out;
+}
+
 // ---------- blocks 4 and 5 ----------
 
 function encodeBlock4(replay: readonly ReplayPair[], capacity: number): Uint8Array {
@@ -898,6 +1441,38 @@ export function resumeOffsetFor(records: readonly LogicResumeRecord[], logic: nu
   return 0;
 }
 
+/**
+ * The Amiga logic-resume block carries the same grammar — a {0,0}
+ * cache-head record, one {logic, offset} record per cached logic and a
+ * {0xffff, 0} terminator — in the state hunk's big-endian byte order
+ * (docs/fidelity.md "Amiga interpreter profiles"). The IIgs keeps the
+ * little-endian form.
+ */
+function encodeBlock5Native(records: readonly LogicResumeRecord[]): Uint8Array {
+  const block = new Uint8Array((records.length + 2) * 4);
+  putU16be(block, 0, 0);
+  putU16be(block, 2, 0);
+  for (let i = 0; i < records.length; i++) {
+    putU16be(block, 4 + i * 4, records[i]!.logic);
+    putU16be(block, 6 + i * 4, records[i]!.offset);
+  }
+  putU16be(block, 4 + records.length * 4, LOGIC_RESUME_TERMINATOR);
+  putU16be(block, 6 + records.length * 4, 0);
+  return block;
+}
+
+function decodeBlock5Native(block: Uint8Array): LogicResumeRecord[] {
+  if (block.length % 4 !== 0)
+    throw new RangeError(`block 5 is ${block.length} bytes, not a multiple of 4`);
+  const out: LogicResumeRecord[] = [];
+  for (let at = 4; at + 4 <= block.length; at += 4) {
+    const logic = u16be(block, at);
+    if (logic === LOGIC_RESUME_TERMINATOR) break;
+    out.push({ logic, offset: u16be(block, at + 2) });
+  }
+  return out;
+}
+
 // ---------- envelope ----------
 
 /** Encode a save state as the real file image for the selected profile. */
@@ -908,21 +1483,75 @@ export function encodeSave(state: SaveState, profile: AgiProfile): Uint8Array {
       `replay sequence has ${state.replay.length} pairs, capacity is ${state.replayCapacity}`,
     );
   }
+  if (layout.kind === "iigs") return encodeSaveIigs(state, layout);
+
   const blocks: Uint8Array[] = [
     encodeBlock1(state, layout),
-    encodeBlock2(state.objects),
+    layout.kind === "amiga"
+      ? encodeBlock2Native(state.objects, true, NATIVE_CYCLE)
+      : encodeBlock2(state.objects),
     profile.saveBlock3Xor ? transformBlock3(state.inventory) : Uint8Array.from(state.inventory),
     encodeBlock4(state.replay, state.replayCapacity),
   ];
-  if (profile.saveBlocks === 5) blocks.push(encodeBlock5(state.logicResume));
+  if (profile.saveBlocks >= 5) {
+    // The Amiga logic-resume block is big-endian; the PC grammar is little-endian.
+    blocks.push(
+      layout.kind === "amiga"
+        ? encodeBlock5Native(state.logicResume)
+        : encodeBlock5(state.logicResume),
+    );
+  }
 
   let size = SAVE_DESCRIPTION_BYTES;
   for (const block of blocks) size += 2 + block.length;
   const out = new Uint8Array(size);
-  writeZString(out, 0, SAVE_DESCRIPTION_BYTES, state.description);
+  writeDescription(out, state);
   let at = SAVE_DESCRIPTION_BYTES;
   for (const block of blocks) {
     putU16(out, at, block.length);
+    out.set(block, at + 2);
+    at += 2 + block.length;
+  }
+  return out;
+}
+
+/**
+ * The Apple IIgs envelope: six blocks with big-endian lengths — the opaque
+ * lead block, the state block, the little-endian object records, the raw
+ * inventory, the replay pairs and the logic-resume records
+ * (docs/fidelity.md "Apple IIgs interpreter").
+ */
+function encodeSaveIigs(state: SaveState, layout: IigsBlock1Layout): Uint8Array {
+  const lead =
+    state.extraBlocks[0] && state.extraBlocks[0]!.length === layout.lead
+      ? Uint8Array.from(state.extraBlocks[0]!)
+      : new Uint8Array(layout.lead);
+  // The lead block is the bank-0 globals image ($010d..$0144): horizon,
+  // the block rectangle and enable, the player/program-control flag and the
+  // replay capacity sit at the verified offsets (docs/fidelity.md).
+  putU16(lead, layout.horizon, state.horizon);
+  putU16(lead, layout.blockRect, state.blockLeft);
+  putU16(lead, layout.blockRect + 2, state.blockTop);
+  putU16(lead, layout.blockRect + 4, state.blockRight);
+  putU16(lead, layout.blockRect + 6, state.blockBottom);
+  putU16(lead, layout.controlFlag, state.directionCoupling);
+  putU16(lead, layout.blockEnabled, state.blockEnabled);
+  putU16(lead, layout.replayCapacity, state.replayCapacity);
+  const blocks: Uint8Array[] = [
+    lead,
+    encodeBlock1(state, layout),
+    encodeBlock2Native(state.objects, false, IIGS_CYCLE),
+    Uint8Array.from(state.inventory),
+    encodeBlock4(state.replay, state.replayCapacity),
+    encodeBlock5(state.logicResume),
+  ];
+  let size = SAVE_DESCRIPTION_BYTES;
+  for (const block of blocks) size += 2 + block.length;
+  const out = new Uint8Array(size);
+  writeDescription(out, state);
+  let at = SAVE_DESCRIPTION_BYTES;
+  for (const block of blocks) {
+    putU16be(out, at, block.length);
     out.set(block, at + 2);
     at += 2 + block.length;
   }
@@ -937,27 +1566,52 @@ export function decodeSave(bytes: Uint8Array, profile: AgiProfile): SaveState {
   }
   const state = newSaveState(profile);
   state.description = readZString(bytes, 0, SAVE_DESCRIPTION_BYTES);
+  state.descriptionImage = Uint8Array.from(bytes.subarray(0, SAVE_DESCRIPTION_BYTES));
 
+  const bigEndian = layout.kind === "iigs";
   const blocks: Uint8Array[] = [];
   let at = SAVE_DESCRIPTION_BYTES;
   for (let i = 0; i < profile.saveBlocks; i++) {
     if (at + 2 > bytes.length)
       throw new RangeError(`save file ends before block ${i + 1}'s length`);
-    const length = u16(bytes, at);
+    const length = bigEndian ? u16be(bytes, at) : u16(bytes, at);
     if (at + 2 + length > bytes.length)
       throw new RangeError(`save file ends inside block ${i + 1}`);
     blocks.push(bytes.slice(at + 2, at + 2 + length));
     at += 2 + length;
   }
 
+  if (layout.kind === "iigs") {
+    state.extraBlocks = [blocks.shift()!];
+    const lead = state.extraBlocks[0]!;
+    if (lead.length !== layout.lead) {
+      throw new RangeError(`lead block is ${lead.length} bytes, expected ${layout.lead}`);
+    }
+    state.horizon = u16(lead, layout.horizon);
+    state.blockLeft = u16(lead, layout.blockRect);
+    state.blockTop = u16(lead, layout.blockRect + 2);
+    state.blockRight = u16(lead, layout.blockRect + 4);
+    state.blockBottom = u16(lead, layout.blockRect + 6);
+    state.directionCoupling = u16(lead, layout.controlFlag);
+    state.blockEnabled = u16(lead, layout.blockEnabled);
+    state.replayCapacity = u16(lead, layout.replayCapacity);
+  }
   decodeBlock1(blocks[0]!, layout, state);
-  state.objects = decodeBlock2(blocks[1]!);
+  state.objects =
+    layout.kind === "pc"
+      ? decodeBlock2(blocks[1]!)
+      : decodeBlock2Native(
+          blocks[1]!,
+          layout.kind === "amiga",
+          layout.kind === "iigs" ? IIGS_CYCLE : NATIVE_CYCLE,
+        );
   const block3 = blocks[2]!;
   state.inventory = profile.saveBlock3Xor ? transformBlock3(block3) : block3;
   state.replay = decodeBlock4(blocks[3]!);
   if (state.replay.length !== state.replayCapacity) {
     throw new RangeError(
-      `block 4 holds ${state.replay.length} pairs but block 1 configures ${state.replayCapacity}`,
+      `block ${layout.kind === "iigs" ? 5 : 4} holds ${state.replay.length} pairs but ` +
+        `${layout.kind === "iigs" ? "the lead block" : "block 1"} configures ${state.replayCapacity}`,
     );
   }
   if (state.replayActive > state.replayCapacity) {
@@ -965,7 +1619,10 @@ export function decodeSave(bytes: Uint8Array, profile: AgiProfile): SaveState {
       `active replay count ${state.replayActive} exceeds capacity ${state.replayCapacity}`,
     );
   }
-  state.logicResume = profile.saveBlocks === 5 ? decodeBlock5(blocks[4]!) : [];
+  const last = blocks[blocks.length - 1]!;
+  if (profile.saveBlocks >= 5) {
+    state.logicResume = layout.kind === "amiga" ? decodeBlock5Native(last) : decodeBlock5(last);
+  }
   return state;
 }
 

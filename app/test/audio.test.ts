@@ -195,6 +195,10 @@ describe("audio command backend", () => {
     );
     assert.equal(bufferSources[3]!.playbackRate.value, 3546895 / 0x800 / 8000);
     assert.equal(gains[4]!.gain.value, 0.4);
+    // Register values with bit 6 set are Paula's maximum: KQ2's signed
+    // envelope writes 72, which renders like 64.
+    audio.output({ kind: "paula", channel: 1, period: 1016, volume: 72 });
+    assert.equal(gains[2]!.gain.value, 0.4);
     // A null period silences the voice without stopping its source.
     audio.output({ kind: "paula", channel: 0, period: null, volume: 0 });
     assert.equal(gains[1]!.gain.value, 0);

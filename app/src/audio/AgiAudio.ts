@@ -179,8 +179,12 @@ export class AgiAudio {
           PAULA_CLOCK / event.period / ctx.sampleRate,
           ctx.currentTime,
         );
+      // AUDxVOL is the register value the driver writes; Paula reads bit 6 as
+      // "maximum", so 64..127 all render at full volume (KQ2's signed
+      // envelope pushes the driver above 64; docs/fidelity.md "Original
+      // Amiga sound player").
       this.channelGains[channel]!.gain.setValueAtTime(
-        event.period === null ? 0 : (event.volume / 64) * 0.4,
+        event.period === null ? 0 : (Math.min(64, event.volume) / 64) * 0.4,
         ctx.currentTime,
       );
       return;

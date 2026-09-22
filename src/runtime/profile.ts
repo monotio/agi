@@ -93,7 +93,13 @@ export type PatternProfile = "none" | "point-2.411" | "shaped-v2" | "v3-center-r
 /** Actions 0x4d/0x4e (conformance matrix, "Movement-clear actions"). */
 export type MovementClearRule = "early" | "later";
 
-/** Sound output family (conformance matrix, "Sound output" / "Sound channels"; "booter-2.001" per docs/fidelity.md pc-booter-sound-rows; "amiga" is the Paula driver, docs/fidelity.md "Original Amiga sound player"). */
+/**
+ * Sound output family (conformance matrix, "Sound output" / "Sound
+ * channels"; "booter-2.001" per docs/fidelity.md pc-booter-sound-rows;
+ * "amiga" is the Paula driver shared by Amiga 2.176 and later, and
+ * "amiga-2.082" is the distinct older driver inside the SQ1 build,
+ * docs/fidelity.md "Original Amiga sound player").
+ */
 export type SoundProfile =
   | "booter-2.001"
   | "early-2.089"
@@ -102,6 +108,7 @@ export type SoundProfile =
   | "early-2.440"
   | "common"
   | "amiga"
+  | "amiga-2.082"
   | "iigs";
 
 /**
@@ -110,8 +117,13 @@ export type SoundProfile =
  * executed on KQ1 2.917, or the 78-entry table executed on MH1 3.002.107 and
  * GR1 3.002.149. Unmeasured common-family profiles keep the 2.917 table —
  * the audit does not license extending the v3 shape to them.
+ *
+ * For the "amiga" family the field selects between the two observed data
+ * hunks: KQ2 2.176's signed attack curve ("amiga-2.176") and the shared
+ * 2.202..2.333 decay table ("amiga-2.202"); the driver code is identical
+ * (docs/fidelity.md, "Original Amiga sound player").
  */
-export type SoundEnvelope = "2.917" | "3.002";
+export type SoundEnvelope = "2.917" | "3.002" | "amiga-2.176" | "amiga-2.202";
 
 export interface AgiProfile {
   /** Promoted profile identifier, e.g. "2.936". */
@@ -200,14 +212,19 @@ export interface AgiProfile {
 
   // ---- runtime state ----
   /**
-   * String slot count: six (s0..s5) in 2.089/2.230/2.272, twelve in later
-   * promoted profiles (input_text_and_menus "String slots").
+   * String slot count: six (s0..s5) in 2.089/2.230/2.272 and Amiga 2.082,
+   * twelve in the later promoted PC profiles, thirteen in Amiga 2.176+ and
+   * the Apple IIgs build — the parse() operand bound read off the
+   * executables (input_text_and_menus "String slots"; docs/fidelity.md
+   * "Amiga interpreter profiles" and "Apple IIgs interpreter").
    */
-  readonly stringSlots: 6 | 12;
+  readonly stringSlots: 6 | 12 | 13;
   /**
-   * Script key-map entries: 39 in 2.411..3.002.102, 49 in 3.002.149
-   * (input_text_and_menus "Mapped keys"; logic_bytecode action 0x79). The
-   * pre-2.411 profiles are not separately specified; they take the same 39.
+   * Script key-map entries: 39 in 2.411..3.002.102 and Amiga 2.176+, 49 in
+   * 3.002.149, and 40 in Amiga 2.082 and the Apple IIgs build — the set.key
+   * scan bound read off the executables (input_text_and_menus "Mapped keys";
+   * logic_bytecode action 0x79; docs/fidelity.md). The pre-2.411 PC profiles
+   * are not separately specified; they take the same 39.
    */
   readonly keyMapCapacity: number;
   /** Action 0xad: increment modulo 256, set to one, or not exposed (2.411/2.440). */
@@ -290,8 +307,8 @@ export interface AgiProfile {
   readonly restartPromptBypassedByF16: boolean;
   /** The heap diagnostic prints the later "rm.0, etc." line (false in 2.411/2.440). */
   readonly heapDiagnosticExtraLine: boolean;
-  /** Save envelope block count: four in 2.089, five afterwards. */
-  readonly saveBlocks: 4 | 5;
+  /** Save envelope block count: four in 2.089, five on PC and Amiga, six on the Apple IIgs build. */
+  readonly saveBlocks: 4 | 5 | 6;
   /** Save block 3 is XOR-transformed with the repeating key (v3 profiles). */
   readonly saveBlock3Xor: boolean;
 
@@ -405,9 +422,10 @@ const AMIGA_INVENTORY = {
  * open/close.dialogue, hold.key, set.pri.base, discard.sound, hide.mouse,
  * allow.menu, show.mouse, fence.mouse and release.key (docs/fidelity.md
  * "Amiga interpreter profiles"). Sound decodes through the Paula driver
- * (docs/fidelity.md "Original Amiga sound player"). Unverified fields
- * (string slots, key map, persistence, direction selection) keep the
- * 3.002.149 contract.
+ * (docs/fidelity.md "Original Amiga sound player"). Verified against the
+ * executables and their shipped Save/ images: thirteen string slots, a
+ * 39-entry key map, exact-four direction selection applied when the cadence
+ * countdown is due, and the five-block Amiga save envelope.
  */
 const BASE_AMIGA_31X: AgiProfile = {
   ...BASE_V3,
@@ -416,7 +434,8 @@ const BASE_AMIGA_31X: AgiProfile = {
   maxCondition: 0x13,
   condition0x13: "click-move",
   extraActions: "amiga-2.31x",
-  keyMapCapacity: 49,
+  stringSlots: 13,
+  keyMapCapacity: 39,
   releaseGateAction: "noop",
   releaseGateClearAction: false,
   inputWidthActions: "noop",
@@ -425,9 +444,15 @@ const BASE_AMIGA_31X: AgiProfile = {
   menuInteractionGate: false,
   priorityBaseAction: "noop",
   mousePosnAction: "write-pointer",
-  directionLoops: "four-or-more-f20",
+  directionLoops: "exact-four",
+  directionLoopTiming: "cadence-due",
+  // The Amiga save writes the inventory region raw; the v3 XOR transform is
+  // a PC v3 behavior only (docs/fidelity.md "Amiga interpreter profiles").
+  // Fields not listed here inherit the base without evidence;
+  // docs/fidelity.md "Amiga profile fields inherited without evidence".
+  saveBlock3Xor: false,
   sound: "amiga",
-  soundEnvelope: "3.002",
+  soundEnvelope: "amiga-2.202",
   ...AMIGA_INVENTORY,
 };
 
@@ -545,7 +570,11 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   // Amiga "Sierra" 2.082 (SQ1 Amiga): 161 action slots through 0xa0, 19
   // condition slots through 0x12, one-byte quit selector, real menu handlers
   // and a plain OBJECT file (docs/fidelity.md "Amiga interpreter profiles").
-  // Derived from the early-v2 contract; unverified fields are inherited.
+  // Verified on the executable and its shipped Save/ images: six string
+  // slots, a 40-entry key map, direction selection on every pass, and the
+  // older sound driver family distinct from the later Paula driver.
+  // Unlisted fields: docs/fidelity.md "Amiga profile fields inherited
+  // without evidence".
   "amiga-2.082": {
     ...BASE_EARLY,
     ...AMIGA_INVENTORY,
@@ -555,12 +584,18 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     exitAlwaysImmediate: false,
     menuActions: "full",
     menuInputAction: "noop",
-    sound: "amiga",
+    keyMapCapacity: 40,
+    // Sierra's stop.motion clears the motion word like the later builds
+    // (docs/fidelity.md "Amiga interpreter profiles").
+    movementClear: "later",
+    saveBlocks: 5,
+    sound: "amiga-2.082",
   },
   // Amiga "KQ2" 2.176 (KQ2 Amiga): 170 action slots through 0xa9, 19
   // condition slots; menu.input and open/close.dialogue share the stub
-  // routine; the OBJECT file is key-encrypted (docs/fidelity.md). Derived
-  // from the early-v2 contract; unverified fields are inherited.
+  // routine; the OBJECT file is key-encrypted (docs/fidelity.md). Verified:
+  // thirteen string slots, 39 key-map entries, direction selection on the
+  // cadence countdown, the shared Paula driver with KQ2's own envelope.
   "amiga-2.176": {
     ...BASE_EARLY,
     ...AMIGA_INVENTORY,
@@ -572,11 +607,22 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     menuInputAction: "noop",
     inputWidthActions: "noop",
     inventoryMetadataEncrypted: true,
+    stringSlots: 13,
+    directionLoopTiming: "cadence-due",
+    // KQ2's distance, stop.motion, show.pic and print worker share the later
+    // behavior, verified on the executable (docs/fidelity.md).
+    objectDistanceSaturates: true,
+    movementClear: "later",
+    showPictureClearsF15: true,
+    printConsumesF15: true,
+    saveBlocks: 5,
     sound: "amiga",
+    soundEnvelope: "amiga-2.176",
   },
   // Amiga "SQ2" 2.202 (SQ2 Amiga): the same 170/19-slot dispatch shape as
-  // 2.176 with the same stub slots (docs/fidelity.md). Derived from the
-  // 2.936 contract; unverified fields are inherited.
+  // 2.176 with the same stub slots (docs/fidelity.md). Verified: thirteen
+  // string slots, 39 key-map entries, exact-four direction selection on the
+  // cadence countdown, the shared Paula driver and envelope table.
   "amiga-2.202": {
     ...BASE_2936,
     ...AMIGA_INVENTORY,
@@ -584,7 +630,10 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0xa9,
     menuInputAction: "noop",
     inputWidthActions: "noop",
+    stringSlots: 13,
+    directionLoops: "exact-four",
     sound: "amiga",
+    soundEnvelope: "amiga-2.202",
   },
   // Amiga "PQ" 2.310 / "GR" 2.316 / "MH2" 2.333: the shared 2.31x generation
   // (BASE_AMIGA_31X above; docs/fidelity.md "Amiga interpreter profiles").
@@ -600,15 +649,25 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   // interpreter. Condition 0x13's slot likewise reads past the 19-entry
   // condition table into the code that follows it, so it has no defined
   // result. Sound resources use the IIgs stream formats decoded by the
-  // "iigs" family. Everything else inherits the 2.936 contract and is marked
-  // inherited, not verified, in docs/fidelity.md.
+  // "iigs" family. Verified on the executable: thirteen string slots
+  // (parse() bound 0x0d), a 40-entry key map, exact-four direction-based
+  // loop selection applied when the cadence countdown is due, and the
+  // six-block big-endian save envelope. Other runtime fields inherit the
+  // 2.936 contract.
   "iigs-1.014": {
     ...BASE_2936,
+    // Fields not listed here inherit the 2.936 contract without IIgs
+    // evidence; docs/fidelity.md "IIgs profile fields inherited without
+    // evidence" enumerates them.
     id: "iigs-1.014",
     maxAction: 0xb1,
     maxCondition: 0x13,
     condition0x13: "wild-dispatch",
     extraActions: "iigs",
+    stringSlots: 13,
+    keyMapCapacity: 40,
+    directionLoops: "exact-four",
+    saveBlocks: 6,
     sound: "iigs",
   },
 };

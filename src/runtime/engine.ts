@@ -69,6 +69,7 @@ import {
   encodeSave,
   newObjectRecord,
   block1Layout,
+  layoutStringTotal,
   newSaveState,
   resumeOffsetFor,
   type LogicResumeRecord,
@@ -728,7 +729,7 @@ export class Engine {
     // The table and its reserved records are one contiguous bank; only parse()
     // stops at the slot count (docs/fidelity.md, "Original string slot addressing").
     const bank = block1Layout(this.profile);
-    this.strings = Array.from({ length: bank.stringSlots + bank.stringReserved }, () => "");
+    this.strings = Array.from({ length: layoutStringTotal(bank) }, () => "");
     this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
     this.vars[24] = 41;
     this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
@@ -1955,7 +1956,9 @@ export class Engine {
     }
     state.inventory = Uint8Array.from(meta.payload);
     for (let item = 0; item < meta.entryCount; item++) {
-      state.inventory[item * 3 + 2] = this.itemLocations[item]!;
+      // The location byte rides at +2 of each entry on every profile — the
+      // Amiga entries are four bytes wide (docs/fidelity.md).
+      state.inventory[item * this.profile.inventoryEntryBytes + 2] = this.itemLocations[item]!;
     }
     state.replay = this.replay.map((pair) => ({ ...pair }));
     state.logicResume = [...this.logics.keys()].map((logic) => ({
@@ -2479,8 +2482,9 @@ export class Engine {
       this.stampDraw(o);
     }
     const entryCount = this.inventoryMetadata().entryCount;
+    const itemStride = this.profile.inventoryEntryBytes;
     for (let item = 0; item < entryCount; item++) {
-      this.itemLocations[item] = s.inventory[item * 3 + 2] ?? 0;
+      this.itemLocations[item] = s.inventory[item * itemStride + 2] ?? 0;
     }
     this.replay.length = 0;
     for (const pair of s.replay.slice(0, s.replayActive)) this.replay.push({ ...pair });
@@ -2614,7 +2618,7 @@ export class Engine {
       }
       // Host history restores an exact loaded set; an authentic save's
       // unmatched resume records do not issue extra resource loads.
-      if (history && this.profile.saveBlocks === 5) {
+      if (history && this.profile.saveBlocks >= 5) {
         this.logics.clear();
         this.scanStart.clear();
         for (const record of resume) {

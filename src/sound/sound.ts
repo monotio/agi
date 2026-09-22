@@ -80,6 +80,20 @@ export const AMIGA_ENVELOPE_TABLE: readonly number[] = [
 ];
 
 /**
+ * The envelope table inside KQ2's 0x12c-byte data hunk 198 — a signed
+ * attack curve opening at -2 (louder than the note's attenuation) where the
+ * shared 2.202+ table opens at +2, 64 steps then the 0x80 hold sentinel
+ * (docs/fidelity.md, "Original Amiga sound player"). The driver code is
+ * byte-identical to 2.202+; only the data hunk differs. Selected through
+ * `AgiProfile.soundEnvelope`.
+ */
+export const AMIGA_2176_ENVELOPE_TABLE: readonly number[] = [
+  -2, -3, -2, -1, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5,
+  5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 11, 11, 12, 12,
+  12, 12, 12, 13, 0x80,
+];
+
+/**
  * The 8-byte waveform the driver loads into every tone voice's AUDx buffer,
  * signed PCM copied from hunk 198 offset 0xf8 (docs/fidelity.md, "Original
  * Amiga sound player").
@@ -92,6 +106,13 @@ export const AMIGA_TONE_SAMPLE: readonly number[] = [0, 64, 127, 64, 0, -64, -12
  * (docs/fidelity.md, "Original Amiga sound player").
  */
 const AMIGA_NOISE_PERIODS: readonly number[] = [0x200, 0x400, 0x800, 0x800];
+
+/**
+ * The older driver's noise-control periods: the SQ1 2.082 build maps the
+ * control byte's two type bits to fixed AUDxPER values {6, 3, 1, 1}, nothing
+ * like the 2.176+ bank (docs/fidelity.md, "Original Amiga sound player").
+ */
+const AMIGA_2082_NOISE_PERIODS: readonly number[] = [6, 3, 1, 1];
 
 /**
  * The 4,096-byte PCM the driver synthesizes at init for the noise voice:
@@ -522,13 +543,18 @@ export class SoundPlayback {
     this.device = device & 255;
     this.envelope =
       profile.sound === "amiga"
-        ? AMIGA_ENVELOPE_TABLE
+        ? profile.soundEnvelope === "amiga-2.176"
+          ? AMIGA_2176_ENVELOPE_TABLE
+          : AMIGA_ENVELOPE_TABLE
         : profile.soundEnvelope === "3.002"
           ? V3_ENVELOPE_TABLE
           : DEFAULT_ENVELOPE_TABLE;
     // The booter payload is already raw chip writes; there is no speaker rendition.
     this.single =
-      profile.sound === "booter-2.001" || profile.sound === "amiga" || profile.sound === "iigs"
+      profile.sound === "booter-2.001" ||
+      profile.sound === "amiga" ||
+      profile.sound === "amiga-2.082" ||
+      profile.sound === "iigs"
         ? false
         : this.device === 0 || (profile.sound === "common" && this.device === 8);
     if (profile.sound === "iigs") {
@@ -707,6 +733,39 @@ export class SoundPlayback {
       if (this.channels.every((channel) => channel.terminated)) outputs.push(...this.stop());
       return { outputs, complete: !this.active };
     }
+    if (this.profile.sound === "amiga-2.082") {
+      // The older driver has no envelope and no held-tick register writes:
+      // a voice's AUDx registers are programmed only when a note decodes,
+      // and the period is 16 times the note divisor rather than 4
+      // (docs/fidelity.md, "Original Amiga sound player").
+      for (let index = 0; index < this.channels.length; index++) {
+        const channel = this.channels[index]!;
+        if (channel.terminated) continue;
+        channel.countdown--;
+        if (channel.countdown !== 0) continue;
+        const note = channel.notes[channel.cursor++];
+        if (!note) {
+          channel.terminated = true;
+          outputs.push({ kind: "paula", channel: index, period: null, volume: 0 });
+          continue;
+        }
+        channel.countdown = note.duration;
+        channel.base = note.attenuation;
+        outputs.push({
+          kind: "paula",
+          channel: index,
+          period:
+            index === 3 ? AMIGA_2082_NOISE_PERIODS[(note.tone >> 8) & 3]! : 16 * note.freqDivisor,
+          // AUDxVOL = ((15 - (attenuation - adjustment)) << 6) / 15: this
+          // driver subtracts v23 inside the scaling instead of adding to
+          // the envelope's live value.
+          volume: (((15 - (note.attenuation - adjustment)) << 6) / 15) | 0,
+          ...(index === 3 ? { noise: true } : {}),
+        });
+      }
+      if (this.channels.every((channel) => channel.terminated)) outputs.push(...this.stop());
+      return { outputs, complete: !this.active };
+    }
     if (this.profile.sound === "amiga") {
       // The Paula driver rewrites each live voice's AUDx registers on every
       // tick: the note's period with the envelope-adjusted volume
@@ -734,7 +793,9 @@ export class SoundPlayback {
             channel.envelopeIndex = -1;
             channel.base = channel.envelopeValue;
           } else {
-            channel.envelopeValue = Math.max(0, Math.min(15, channel.base + delta));
+            // KQ2's signed table dips below zero — the attenuation goes
+            // negative and the volume above 64; only the top clamps.
+            channel.envelopeValue = Math.min(15, channel.base + delta);
           }
         }
         const note = channel.notes[channel.cursor - 1];
@@ -859,7 +920,7 @@ export class SoundPlayback {
           },
         ];
       });
-    if (this.profile.sound === "amiga")
+    if (this.profile.sound === "amiga" || this.profile.sound === "amiga-2.082")
       return this.channels.map((_, channel) => ({
         kind: "paula" as const,
         channel,

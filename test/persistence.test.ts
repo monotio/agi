@@ -20,6 +20,9 @@ import { rngDraw } from "../src/runtime/rng.ts";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildView } from "../src/view/view.ts";
+import { findFixture, fixtureSkip } from "./fixtures.ts";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * Authentic save-file envelope, clean-room from the agi-re specification
@@ -70,6 +73,8 @@ describe("save block-1 layouts", () => {
 
   test("2.936 serializes a 39-entry key map and twelve string slots", () => {
     const layout = block1Layout(PROFILES["2.936"]);
+    assert.equal(layout.kind, "pc");
+    if (layout.kind !== "pc") return;
     assert.equal(layout.keyMapEntries, 39);
     assert.equal(layout.keyMapReserved, 10);
     assert.equal(layout.stringSlots, 12);
@@ -79,6 +84,8 @@ describe("save block-1 layouts", () => {
 
   test("3.002.149's 49-slot key map consumes the ten inactive records", () => {
     const layout = block1Layout(PROFILES["3.002.149"]);
+    assert.equal(layout.kind, "pc");
+    if (layout.kind !== "pc") return;
     assert.equal(layout.keyMapEntries, 49);
     assert.equal(layout.keyMapReserved, 0);
     // 39*4 + 10*4 == 49*4: the expanded map occupies exactly the same bytes.
@@ -428,6 +435,463 @@ describe("v3 block-3 transform", () => {
     state.inventory = Uint8Array.from([3, 0, 0xff]);
     const image = encodeSave(state, profile);
     assert.equal(image[DESC + 2 + 0x05e1 + 2 + 0 + 2], 3);
+  });
+});
+
+describe("amiga save image (docs/fidelity.md, Amiga interpreter profiles)", () => {
+  /**
+   * Read off the original Save/ files and the save-routine disassembly: the
+   * envelope is the same 31-byte header plus five u16le length-prefixed
+   * blocks; block 1 is the raw state-hunk image with big-endian fields;
+   * block 2 holds N * 0x48 object records; block 3 is the raw inventory
+   * region (no XOR); block 4 the replay pair bank; block 5 big-endian
+   * {logic, offset} records under a zero head record and a 0xffff
+   * terminator.
+   *
+   *   block 1 (2.082)       = 0x02f4: keymap 40*4 @0x2c, strings 6*40 @0xcc,
+   *                         vars @0x1bc, flags @0x2bc, text @0x2dc
+   *   block 1 (2.176/2.202) = 0x040a: keymap 39*4 @0x2a, strings 13*40 @0xca,
+   *                         vars @0x2d2, flags @0x3d2, text @0x3f2
+   *   block 1 (2.31x)       = 0x0414: same offsets, ten trailing bytes
+   */
+
+  function u16be(bytes: Uint8Array, at: number): number {
+    return (bytes[at]! << 8) | bytes[at + 1]!;
+  }
+
+  test("the block-1 layouts carry the verified sizes and field offsets", () => {
+    const early = block1Layout(PROFILES["amiga-2.082"]);
+    const later = block1Layout(PROFILES["amiga-2.202"]);
+    const gen31x = block1Layout(PROFILES["amiga-2.316"]);
+    assert.equal(early.kind, "amiga");
+    assert.equal(later.kind, "amiga");
+    assert.equal(gen31x.kind, "amiga");
+    if (early.kind !== "amiga" || later.kind !== "amiga" || gen31x.kind !== "amiga") return;
+    assert.equal(early.size, 0x2f4);
+    assert.equal(later.size, 0x40a);
+    assert.equal(gen31x.size, 0x414);
+    // 2.082: forty key-map entries at +0x2c, six strings at +0xcc, the script
+    // capacity/active words at +0x28/+0x2a.
+    assert.equal(early.keyMap, 0x2c);
+    assert.equal(early.keyMapEntries, 40);
+    assert.equal(early.strings, 0xcc);
+    assert.equal(early.stringSlots, 6);
+    assert.equal(early.vars, 0x1bc);
+    assert.equal(early.flags, 0x2bc);
+    assert.equal(early.text, 0x2dc);
+    assert.equal(early.replayCapacity, 0x28);
+    assert.equal(early.replayActive, 0x2a);
+    // Later builds: 39 entries at +0x2a, thirteen strings at +0xca, capacity
+    // and active at +0x26/+0x28.
+    for (const layout of [later, gen31x]) {
+      assert.equal(layout.keyMap, 0x2a);
+      assert.equal(layout.keyMapEntries, 39);
+      assert.equal(layout.strings, 0xca);
+      assert.equal(layout.stringSlots, 13);
+      assert.equal(layout.vars, 0x2d2);
+      assert.equal(layout.flags, 0x3d2);
+      assert.equal(layout.text, 0x3f2);
+      assert.equal(layout.replayCapacity, 0x26);
+      assert.equal(layout.replayActive, 0x28);
+    }
+  });
+
+  /** A state exercising every mapped field of the Amiga state-hunk image. */
+  function amigaState(profile = PROFILES["amiga-2.202"]) {
+    const state = newSaveState(profile);
+    state.description = "door";
+    state.signature.set([0x53, 0x51, 0x32]); // "SQ2"
+    state.vars[0] = 7;
+    state.flags[0] = 1;
+    state.flags[255] = 1;
+    state.timerTicks = 0x0003f710;
+    state.horizon = 36;
+    state.blockLeft = 0x52;
+    state.blockTop = 0x51;
+    state.blockRight = 0x74;
+    state.blockBottom = 0x55;
+    state.blockEnabled = 1;
+    state.directionCoupling = 1;
+    state.lastPicture = 0x11;
+    state.navigationDirection = 5;
+    state.replayCapacity = 4;
+    state.replayActive = 2;
+    state.keyMap[0] = { rawKey: 0x3b00, status: 2 };
+    state.strings[0] = ">";
+    state.textFg = 15;
+    state.inputEnabled = 1;
+    state.inputRow = 22;
+    state.promptChar = 0x5f;
+    state.statusEnabled = 1;
+    state.displayBaseRow = 1;
+    state.displayBottomRow = 22;
+    state.inventory = Uint8Array.from([6, 0, 0xff, 0, 6, 0, 3, 0, 0x61, 0x78, 0x65, 0]);
+    state.replay = [
+      { kind: 2, value: 1 },
+      { kind: 4, value: 1 },
+    ];
+    state.logicResume = [
+      { logic: 0, offset: 0 },
+      { logic: 0x3e, offset: 0 },
+    ];
+    return { profile, state };
+  }
+
+  test("block 1 puts the big-endian fields at the verified positions", () => {
+    const { profile, state } = amigaState();
+    const image = encodeSave(state, profile);
+    const b1 = image.subarray(DESC + 2, DESC + 2 + 0x40a);
+    assert.equal(u16(image, DESC), 0x40a, "block-1 length is little-endian in the envelope");
+    assert.deepEqual(Array.from(b1.subarray(0, 3)), [0x53, 0x51, 0x32]);
+    assert.deepEqual(Array.from(b1.subarray(0x08, 0x0c)), [0x00, 0x03, 0xf7, 0x10], "timer u32be");
+    assert.equal(u16be(b1, 0x0e), 36, "horizon u16be");
+    assert.deepEqual(
+      Array.from(b1.subarray(0x12, 0x1a)),
+      [0x00, 0x52, 0x00, 0x51, 0x00, 0x74, 0x00, 0x55],
+      "block rectangle u16be",
+    );
+    // +0x1a is the player/program-control flag (u32be); +0x1c stays
+    // reserved; +0x1e is the drawn picture (u16be); the block-enable flag
+    // sits at +0x20 on the later builds (u32be).
+    assert.deepEqual(Array.from(b1.subarray(0x1a, 0x1e)), [0, 0, 0, 1], "control flag u32be");
+    assert.equal(u16be(b1, 0x1e), 0x11, "drawn picture u16be");
+    assert.deepEqual(Array.from(b1.subarray(0x20, 0x24)), [0, 0, 0, 1], "block enable u32be");
+    assert.equal(u16be(b1, 0x26), 4, "replay capacity u16be");
+    assert.equal(u16be(b1, 0x28), 2, "active replay count u16be");
+    // Key map @0x2a: {rawKey u16be, status u16be}.
+    assert.deepEqual(Array.from(b1.subarray(0x2a, 0x32)), [0x3b, 0x00, 0x00, 0x02, 0, 0, 0, 0]);
+    // String slot 0 @0xca is the input buffer.
+    assert.equal(b1[0xca], 0x3e);
+    assert.equal(b1[0xcb], 0);
+    // Vars @0x2d2, packed flags @0x3d2.
+    assert.equal(b1[0x2d2], 7);
+    assert.equal(b1[0x3d2], 0b0000_0001);
+    assert.equal(b1[0x3d2 + 31], 0b1000_0000);
+    // Text tail @0x3f2: fg/bg/attr u16be, inputEnabled u32be, inputRow u16be,
+    // prompt byte + pad, statusEnabled u32be, status/base/bottom rows u16be.
+    assert.deepEqual(
+      Array.from(b1.subarray(0x3f2, 0x40a)),
+      [
+        0x00, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x16, 0x5f, 0x00, 0x00,
+        0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x16,
+      ],
+    );
+  });
+
+  test("block 2 records are 0x48 bytes with the big-endian field map", () => {
+    const { profile, state } = amigaState();
+    const object = newObjectRecord();
+    object.stepTime = 3;
+    object.stepCount = 2;
+    object.x = 0x52;
+    object.y = 0x51;
+    object.view = 7;
+    object.loop = 1;
+    object.loopCount = 4;
+    object.cel = 2;
+    object.celCount = 5;
+    object.prevX = 0x40;
+    object.prevY = 0x41;
+    object.width = 13;
+    object.height = 32;
+    object.stepSize = 1;
+    object.cycleTime = 6;
+    object.cycleCount = 4;
+    object.direction = 7;
+    object.motionMode = 1; // move.obj: Amiga mode 3
+    object.cycleMode = 2; // end.of.loop: Amiga mode 3
+    object.priority = 9;
+    // active|update|cycling|fixedPri|obsHor|obsBlk|obsObj|loopFixed|waterOn|stationary
+    object.state = 1 | 2 | 4 | 8 | 0x10 | 0x20 | 0x40 | 0x80 | 0x100 | 0x2000;
+    object.motionParams = [10, 20, 30, 40];
+    state.objects = [object];
+    const image = encodeSave(state, profile);
+    const b2at = DESC + 2 + 0x40a;
+    assert.equal(u16(image, b2at), 0x48);
+    const r = image.subarray(b2at + 2, b2at + 2 + 0x48);
+    assert.equal(u16be(r, 0x00), 3);
+    assert.equal(u16be(r, 0x02), 2);
+    assert.equal(u16be(r, 0x06), 0x52);
+    assert.equal(u16be(r, 0x08), 0x51);
+    assert.equal(u16be(r, 0x0a), 7);
+    assert.equal(u16be(r, 0x10), 1);
+    assert.equal(u16be(r, 0x12), 4);
+    assert.equal(u16be(r, 0x18), 2);
+    assert.equal(u16be(r, 0x1a), 5);
+    assert.equal(u16be(r, 0x28), 0x40);
+    assert.equal(u16be(r, 0x2a), 0x41);
+    assert.equal(u16be(r, 0x2c), 13);
+    assert.equal(u16be(r, 0x2e), 32);
+    assert.equal(u16be(r, 0x30), 1);
+    assert.equal(u16be(r, 0x32), 6);
+    assert.equal(u16be(r, 0x34), 4);
+    assert.equal(u16be(r, 0x36), 7);
+    assert.equal(u16be(r, 0x38), 3, "move.obj is Amiga motion mode 3");
+    assert.equal(u16be(r, 0x3a), 3, "end.of.loop is Amiga cycle mode 3");
+    assert.equal(u16be(r, 0x3c), 9);
+    // Amiga flag word: drawn 0x01 | fixedPri 0x04 | update 0x10 | cycling 0x20
+    // | water-on 0x900 | stationary 0x1000 | fix.loop 0x2000. The "animated"
+    // bit 0x40 has no portable state and stays raw-preserved.
+    assert.equal(u16be(r, 0x3e), 0x3935);
+    assert.deepEqual(
+      Array.from(r.subarray(0x40, 0x48)),
+      [0x00, 0x0a, 0x00, 0x14, 0x00, 0x1e, 0x00, 0x28],
+      "four u16be motion parameters",
+    );
+  });
+
+  test("the flag word and mode numbering round-trip through the portable record", () => {
+    const { profile, state } = amigaState();
+    const object = newObjectRecord();
+    object.motionMode = 3; // wander: Amiga mode 1
+    object.cycleMode = 3; // reverse.loop: Amiga mode 2
+    // Ignore horizon + ignore objects: the inverted Amiga bits set.
+    object.state = 1 | 4 | 0x20; // active|cycling|obsBlocks — horizon/objs NOT observed
+    state.objects = [object];
+    const decoded = decodeSave(encodeSave(state, profile), profile);
+    const out = decoded.objects[0]!;
+    assert.equal(out.motionMode, 3);
+    assert.equal(out.cycleMode, 3);
+    // The Amiga word carries 0x0008 (ignore horizon) and 0x0200 (ignore
+    // objects): both map back to "not observing".
+    assert.equal(out.state & 0x10, 0, "observeHorizon bit cleared");
+    assert.equal(out.state & 0x40, 0, "observeObjects bit cleared");
+    assert.equal(out.state & 1, 1, "active");
+    assert.equal(out.state & 4, 4, "cycling");
+  });
+
+  test("a decoded record preserves its unmapped bytes on re-encode", () => {
+    const { profile, state } = amigaState();
+    const image = encodeSave(state, profile);
+    const first = decodeSave(image, profile);
+    // Point an unmapped runtime field (the view-data pointer at +0x0c) at a
+    // plausible value and confirm it survives the next encode.
+    const record = first.objects;
+    assert.equal(record.length, 0, "no objects in the first state");
+    // Round-trip with a record whose raw bytes carried a pointer field.
+    const b2at = DESC + 2 + 0x40a;
+    const image2 = Uint8Array.from(image);
+    image2[b2at] = 0x48;
+    image2[b2at + 1] = 0;
+    const grown = new Uint8Array(image2.length + 0x48);
+    // Rebuild: header + block1 + len 0x48 + record + rest.
+    let at = 0;
+    grown.set(image2.subarray(0, b2at + 2), at);
+    at += b2at + 2;
+    const rec = new Uint8Array(0x48);
+    rec.set([0xde, 0xad, 0xbe, 0xef], 0x0c); // pointer field, unmapped
+    rec.set([0x00, 0x40], 0x3e); // animated bit only
+    grown.set(rec, at);
+    at += 0x48;
+    grown.set(image2.subarray(b2at + 2), at);
+    const decoded = decodeSave(grown, profile);
+    assert.equal(decoded.objects.length, 1);
+    const again = encodeSave(decoded, profile);
+    const againB2 = again.subarray(b2at + 2, b2at + 2 + 0x48);
+    assert.deepEqual(Array.from(againB2.subarray(0x0c, 0x10)), [0xde, 0xad, 0xbe, 0xef]);
+  });
+
+  test("block 5 is big-endian records under a zero head, ended by 0xffff", () => {
+    const { profile, state } = amigaState();
+    const image = encodeSave(state, profile);
+    const b5at =
+      DESC + 2 + 0x40a + 2 + 0 + 2 + state.inventory.length + 2 + state.replayCapacity * 2;
+    assert.equal(u16(image, b5at), (state.logicResume.length + 2) * 4);
+    const b5 = image.subarray(b5at + 2, b5at + 2 + (state.logicResume.length + 2) * 4);
+    assert.deepEqual(
+      Array.from(b5),
+      [
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3e, 0x00, 0x00, 0xff, 0xff, 0x00,
+        0x00,
+      ],
+    );
+    const decoded = decodeSave(image, profile);
+    assert.deepEqual(decoded.logicResume, [
+      { logic: 0, offset: 0 },
+      { logic: 0x3e, offset: 0 },
+    ]);
+  });
+
+  test("block 3 is the raw inventory payload without the v3 transform", () => {
+    const { profile, state } = amigaState(PROFILES["amiga-2.316"]);
+    const image = encodeSave(state, profile);
+    const b3at = DESC + 2 + 0x414 + 2 + 0;
+    assert.deepEqual(
+      Array.from(image.subarray(b3at + 2, b3at + 2 + state.inventory.length)),
+      Array.from(state.inventory),
+      "identical bytes, no XOR",
+    );
+  });
+});
+
+describe("apple iigs save image (docs/fidelity.md, Apple IIgs interpreter)", () => {
+  /**
+   * The savegameseg writer emits the 31-byte description then six blocks,
+   * each prefixed by a big-endian u16 byte count produced by its
+   * divide-and-write-bytes helper:
+   *
+   *   block 0 = 0x38 bytes — the bank-0 globals image ($010d..$0144):
+   *             horizon @+0x04, block rectangle @+0x08, control flag @+0x10,
+   *             block enable @+0x14, replay capacity u16le @+0x1a
+   *   block 1 = 0x3d0 main state: 8 opaque head bytes, key map 40*4 u16le
+   *             @0x08, strings 13*40 @0xa8, vars @0x2b0, packed flags @0x3b0
+   *   block 2 = N * 0x48 object records, little-endian fields
+   *   block 3 = inventory payload
+   *   block 4 = replay pairs, capacity * 2 bytes
+   *   block 5 = logic-resume records
+   */
+  function u16be(bytes: Uint8Array, at: number): number {
+    return (bytes[at]! << 8) | bytes[at + 1]!;
+  }
+
+  test("the iigs layout carries the verified block sizes and offsets", () => {
+    const layout = block1Layout(PROFILES["iigs-1.014"]);
+    assert.equal(layout.kind, "iigs");
+    if (layout.kind !== "iigs") return;
+    assert.equal(layout.lead, 0x38);
+    assert.equal(layout.size, 0x3d0);
+    assert.equal(layout.keyMap, 0x08);
+    assert.equal(layout.keyMapEntries, 40);
+    assert.equal(layout.strings, 0xa8);
+    assert.equal(layout.stringSlots, 13);
+    assert.equal(layout.vars, 0x2b0);
+    assert.equal(layout.flags, 0x3b0);
+  });
+
+  test("the envelope is a 31-byte header plus six u16be-length blocks", () => {
+    const profile = PROFILES["iigs-1.014"];
+    const state = newSaveState(profile);
+    state.description = "cell";
+    state.vars[0] = 9;
+    state.flags[0] = 1;
+    state.keyMap[0] = { rawKey: 0x3b00, status: 2 };
+    state.strings[0] = ">";
+    state.replayCapacity = 3;
+    state.horizon = 36;
+    state.blockLeft = 0x52;
+    state.blockTop = 0x51;
+    state.blockRight = 0x74;
+    state.blockBottom = 0x55;
+    state.blockEnabled = 1;
+    state.directionCoupling = 1;
+    state.replay = [
+      { kind: 2, value: 1 },
+      { kind: 4, value: 2 },
+      { kind: 3, value: 5 },
+    ];
+    state.logicResume = [{ logic: 1, offset: 0x10 }];
+    const image = encodeSave(state, profile);
+    let at = DESC;
+    const lens: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      const n = u16be(image, at);
+      lens.push(n);
+      at += 2 + n;
+    }
+    assert.equal(at, image.length, "six blocks consume the file");
+    assert.deepEqual(lens, [0x38, 0x3d0, 0, state.inventory.length, 6, (1 + 2) * 4]);
+    // Lead block (bank-0 globals $010d..$0144): horizon u16le @+0x04, the
+    // block rectangle @+0x08..+0x0e, control flag @+0x10, block enable @+0x14
+    // and the replay capacity @+0x1a.
+    const lead = image.subarray(DESC + 2, DESC + 2 + 0x38);
+    assert.equal(u16(lead, 0x04), 36, "horizon u16le");
+    assert.deepEqual(
+      Array.from(lead.subarray(0x08, 0x10)),
+      [0x52, 0, 0x51, 0, 0x74, 0, 0x55, 0],
+      "block rectangle u16le",
+    );
+    assert.equal(u16(lead, 0x10), 1, "player/program-control flag");
+    assert.equal(u16(lead, 0x14), 1, "block enable");
+    assert.equal(u16(lead, 0x1a), 3);
+    // State block: key map @0x08, strings @0xa8, vars @0x2b0, flags @0x3b0.
+    const b1 = image.subarray(DESC + 2 + 0x38 + 2, DESC + 2 + 0x38 + 2 + 0x3d0);
+    assert.deepEqual(Array.from(b1.subarray(0x08, 0x10)), [0x00, 0x3b, 0x02, 0x00, 0, 0, 0, 0]);
+    assert.equal(b1[0xa8], 0x3e);
+    assert.equal(b1[0x2b0], 9);
+    assert.equal(b1[0x3b0], 1);
+    // Decode returns the same portable fields.
+    const decoded = decodeSave(image, profile);
+    assert.equal(decoded.vars[0], 9);
+    assert.equal(decoded.flags[0], 1);
+    assert.equal(decoded.keyMap[0]!.rawKey, 0x3b00);
+    assert.equal(decoded.keyMap[0]!.status, 2);
+    assert.equal(decoded.strings[0], ">");
+    assert.equal(decoded.replayCapacity, 3);
+    assert.equal(decoded.horizon, 36);
+    assert.equal(decoded.blockLeft, 0x52);
+    assert.equal(decoded.blockBottom, 0x55);
+    assert.equal(decoded.blockEnabled, 1);
+    assert.equal(decoded.directionCoupling, 1);
+    assert.deepEqual(decoded.logicResume, [{ logic: 1, offset: 0x10 }]);
+  });
+
+  test("iigs object records use the shared 0x48 map with little-endian words", () => {
+    const profile = PROFILES["iigs-1.014"];
+    const state = newSaveState(profile);
+    const object = newObjectRecord();
+    object.x = 0x52;
+    object.y = 0x51;
+    object.view = 7;
+    object.direction = 3;
+    object.motionMode = 1; // move.obj: IIgs mode 3 (verified, same as Amiga)
+    object.cycleMode = 1; // reverse.cycle: IIgs mode 3 (PC order — Amiga is 1)
+    // active|update|observeHorizon|observeObjects — the ignore bits stay clear.
+    object.state = 1 | 2 | 0x10 | 0x40;
+    state.objects = [object];
+    const image = encodeSave(state, profile);
+    const b2at = DESC + 2 + 0x38 + 2 + 0x3d0;
+    assert.equal(u16be(image, b2at), 0x48);
+    const r = image.subarray(b2at + 2, b2at + 2 + 0x48);
+    assert.equal(u16(r, 0x06), 0x52, "x u16le");
+    assert.equal(u16(r, 0x08), 0x51, "y u16le");
+    assert.equal(u16(r, 0x0a), 7, "view u16le");
+    assert.equal(u16(r, 0x36), 3, "direction u16le");
+    assert.equal(u16(r, 0x38), 3, "move.obj is motion mode 3");
+    assert.equal(u16(r, 0x3a), 3, "reverse.cycle is IIgs cycle mode 3 (PC order)");
+    // drawn 0x01 | ignore.blocks 0x02 | update 0x10 (no portable "animated").
+    assert.equal(u16(r, 0x3e), 0x13);
+    const decoded = decodeSave(image, profile);
+    assert.equal(decoded.objects[0]!.x, 0x52);
+    assert.equal(decoded.objects[0]!.motionMode, 1);
+    assert.equal(decoded.objects[0]!.cycleMode, 1);
+  });
+
+  test("iigs cycle modes use the PC order and ignore.blocks maps to 0x0002", () => {
+    const profile = PROFILES["iigs-1.014"];
+    const state = newSaveState(profile);
+    // Portable {forward, reverse.cycle, end.of.loop, reverse.loop} -> the
+    // verified IIgs native values {0, 3, 1, 2} (the Amiga builds use
+    // {0, 1, 3, 2}).
+    state.objects = [0, 1, 2, 3].map((m) => {
+      const o = newObjectRecord();
+      o.cycleMode = m;
+      o.state = 1 | 2 | 0x10 | 0x40;
+      return o;
+    });
+    const blocking = newObjectRecord();
+    blocking.cycleMode = 0;
+    // active|update|observeHorizon|observeObjects — observeBlocks cleared.
+    blocking.state = 1 | 2 | 0x10 | 0x40;
+    state.objects.push(blocking);
+    state.objects[4]!.state &= ~0x20;
+    const image = encodeSave(state, profile);
+    const b2at = DESC + 2 + 0x38 + 2 + 0x3d0;
+    const modes = [0, 3, 1, 2];
+    for (let i = 0; i < 4; i++) {
+      assert.equal(
+        u16(image, b2at + 2 + i * 0x48 + 0x3a),
+        modes[i],
+        `portable cycle ${i} encodes as IIgs mode ${modes[i]}`,
+      );
+    }
+    // Record 4 cleared observeBlocks: native flag word carries 0x0002.
+    assert.equal(u16(image, b2at + 2 + 4 * 0x48 + 0x3e) & 0x0002, 0x0002);
+    const decoded = decodeSave(image, profile);
+    assert.deepEqual(
+      decoded.objects.map((o) => o.cycleMode),
+      [0, 1, 2, 3, 0],
+    );
+    assert.equal(decoded.objects[4]!.state & 0x20, 0, "ignore.blocks decoded");
   });
 });
 
@@ -1228,4 +1692,78 @@ describe("the block-2 object record carries the shared parameter bank", () => {
     assert.deepEqual(decoded.objects[3]!.motionParams, [90, 80, 1, 67]);
     assert.deepEqual(decoded.objects[4]!.motionParams, [0, 80, 1, 68]);
   });
+});
+
+describe("shipped Amiga save images (fixture-gated)", () => {
+  /**
+   * Every shipped Save/ image of an Amiga fixture must decode under the
+   * fixture's profile and re-encode byte-identically — the layout claims in
+   * docs/fidelity.md rest on these files. The F1 key-map entry
+   * ({rawKey 0x3b00, status 2}), the signature stem, the replay capacity
+   * that sizes block 4 and the logic-resume list are checked explicitly.
+   */
+  interface ShippedSaveCase {
+    readonly alias: string;
+    readonly profile: keyof typeof PROFILES;
+    readonly signature: string;
+    readonly replayCapacity: number;
+  }
+
+  const CASES: readonly ShippedSaveCase[] = [
+    { alias: "sq1-amiga", profile: "amiga-2.082", signature: "SQ", replayCapacity: 50 },
+    { alias: "sq2-amiga", profile: "amiga-2.202", signature: "SQ2", replayCapacity: 100 },
+  ];
+
+  function saveImages(alias: string): readonly { name: string; bytes: Uint8Array }[] {
+    const fixture = findFixture(alias);
+    if (!fixture) return [];
+    const dir = fixture.files.get("save");
+    if (!dir) return [];
+    return readdirSync(join(fixture.dir, dir))
+      .filter((name) => !name.endsWith(".info"))
+      .sort()
+      .map((name) => ({
+        name,
+        bytes: new Uint8Array(readFileSync(join(fixture.dir, dir, name))),
+      }));
+  }
+
+  for (const c of CASES) {
+    const reason = fixtureSkip(c.alias);
+    test(`${c.alias}: every shipped Save/ image decodes and round-trips`, (t) => {
+      if (reason) {
+        t.skip(reason);
+        return;
+      }
+      const images = saveImages(c.alias);
+      assert.ok(images.length > 0, `${c.alias} ships no Save/ images`);
+      const profile = PROFILES[c.profile];
+      for (const image of images) {
+        const state = decodeSave(image.bytes, profile);
+        const stem = String.fromCharCode(...state.signature.subarray(0, c.signature.length));
+        assert.equal(stem, c.signature, `${image.name} signature`);
+        assert.deepEqual(
+          state.keyMap[0],
+          { rawKey: 0x3b00, status: 2 },
+          `${image.name} F1 key-map entry`,
+        );
+        assert.equal(state.replayCapacity, c.replayCapacity, `${image.name} replay capacity`);
+        assert.equal(
+          state.replay.length,
+          state.replayCapacity,
+          `${image.name} block-4 length matches`,
+        );
+        assert.ok(state.replayActive <= state.replayCapacity, `${image.name} active count`);
+        assert.ok(
+          state.logicResume.every((r) => r.logic !== 0xffff),
+          `${image.name} logic-resume list has no terminator inside`,
+        );
+        assert.deepEqual(
+          Array.from(encodeSave(state, profile)),
+          Array.from(image.bytes),
+          `${image.name} re-encodes byte-identically`,
+        );
+      }
+    });
+  }
 });

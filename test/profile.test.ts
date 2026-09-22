@@ -513,10 +513,34 @@ describe("amiga interpreter profiles", () => {
       // The OBJECT metadata uses the Amiga four-byte entry layout.
       assert.equal(p.inventoryHeaderBytes, 4, id);
       assert.equal(p.inventoryEntryBytes, 4, id);
-      // Sound resources are decoded by the Paula driver on every Amiga build
-      // (docs/fidelity.md, "Original Amiga sound player").
-      assert.equal(p.sound, "amiga", id);
+      // Five-block save envelope; block 3 is the raw inventory region, not
+      // the v3 XOR transform (docs/fidelity.md, "Amiga interpreter
+      // profiles").
+      assert.equal(p.saveBlocks, 5, id);
+      assert.equal(p.saveBlock3Xor, false, id);
+      // Every Amiga build runs direction-based loop selection for exactly
+      // four loops (docs/fidelity.md, "Amiga interpreter profiles").
+      assert.equal(p.directionLoops, "exact-four", id);
     }
+    // Sound: 2.082 runs the older driver family; the later builds run the
+    // Paula driver, with KQ2's distinct envelope table (docs/fidelity.md,
+    // "Original Amiga sound player").
+    assert.equal(PROFILES["amiga-2.082"].sound, "amiga-2.082");
+    for (const [id] of AMIGA_BOUNDS.slice(1)) assert.equal(PROFILES[id].sound, "amiga", id);
+    assert.equal(PROFILES["amiga-2.176"].soundEnvelope, "amiga-2.176");
+    for (const id of ["amiga-2.202", "amiga-2.310", "amiga-2.316", "amiga-2.333"] as const)
+      assert.equal(PROFILES[id].soundEnvelope, "amiga-2.202", id);
+    // Direction selection timing: 2.082 applies it every pass; the later
+    // builds only when the cadence countdown is due.
+    assert.equal(PROFILES["amiga-2.082"].directionLoopTiming, "every-pass");
+    for (const [id] of AMIGA_BOUNDS.slice(1))
+      assert.equal(PROFILES[id].directionLoopTiming, "cadence-due", id);
+    // String slots: parse() bounds at 6 on 2.082 and 13 on the later builds.
+    assert.equal(PROFILES["amiga-2.082"].stringSlots, 6);
+    for (const [id] of AMIGA_BOUNDS.slice(1)) assert.equal(PROFILES[id].stringSlots, 13, id);
+    // Key-map capacity: 40 scanned entries on 2.082, 39 afterwards.
+    assert.equal(PROFILES["amiga-2.082"].keyMapCapacity, 40);
+    for (const [id] of AMIGA_BOUNDS.slice(1)) assert.equal(PROFILES[id].keyMapCapacity, 39, id);
     // OBJECT storage: plain on 2.082, key-encrypted on the later builds.
     assert.equal(PROFILES["amiga-2.082"].inventoryMetadataEncrypted, false);
     for (const [id] of AMIGA_BOUNDS.slice(1))
@@ -681,6 +705,16 @@ describe("apple iigs profile (docs/fidelity.md, SQ2.SYS16 1.014)", () => {
     assert.equal(p.sound, "iigs");
     assert.equal(p.menuInteractionGate, false);
     assert.equal(p.releaseGateAction, "increment");
+    // Verified on the executable (docs/fidelity.md "Apple IIgs interpreter"):
+    // parse() bounds at 13 string slots, set.key scans 40 four-byte entries,
+    // direction-based loop selection applies to exactly four loops, and the
+    // save envelope carries six blocks.
+    assert.equal(p.stringSlots, 13);
+    assert.equal(p.keyMapCapacity, 40);
+    assert.equal(p.directionLoops, "exact-four");
+    assert.equal(p.directionLoopTiming, "cadence-due");
+    assert.equal(p.saveBlocks, 6);
+    assert.equal(p.saveBlock3Xor, false);
   });
 
   test("a *.SYS16 file carrying the interpreter version string detects the build", () => {

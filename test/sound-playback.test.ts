@@ -509,6 +509,83 @@ describe("amiga paula family (docs/fidelity.md, original Amiga sound player)", (
   });
 });
 
+describe("amiga 2.082 driver family (docs/fidelity.md, original Amiga sound player)", () => {
+  const old = (data: Uint8Array, device = 1): SoundPlayback =>
+    new SoundPlayback(detectProfile(new Map(), "amiga-2.082"), data, device);
+  const paula = (outputs: ReturnType<SoundPlayback["tick"]>["outputs"]) =>
+    outputs.filter((event) => event.kind === "paula");
+
+  it("emits on the decode tick only, with 16x the note divisor as the period", () => {
+    // Channel 0: duration 2, tone 0x0123 -> divisor 0x231 -> period 16*0x231;
+    // attenuation 4 -> volume ((15-4)<<6)/15 = 46. Channels 1..3 terminate on
+    // the same tick.
+    const sound = old(payload(2, 0x94));
+    assert.deepEqual(sound.tick(true, 0).outputs, [
+      { kind: "paula", channel: 0, period: 16 * 0x231, volume: 46 },
+      { kind: "paula", channel: 1, period: null, volume: 0 },
+      { kind: "paula", channel: 2, period: null, volume: 0 },
+      { kind: "paula", channel: 3, period: null, volume: 0 },
+    ]);
+    // No envelope pass: the held note emits nothing on the second tick.
+    assert.deepEqual(sound.tick(true, 0).outputs, []);
+    // The terminator silences the channel, then completion silences every
+    // voice the host may have left sounding.
+    const last = sound.tick(true, 0);
+    assert.deepEqual(last.outputs, [
+      { kind: "paula", channel: 0, period: null, volume: 0 },
+      { kind: "paula", channel: 0, period: null, volume: 0 },
+      { kind: "paula", channel: 1, period: null, volume: 0 },
+      { kind: "paula", channel: 2, period: null, volume: 0 },
+      { kind: "paula", channel: 3, period: null, volume: 0 },
+    ]);
+    assert.equal(last.complete, true);
+    assert.deepEqual(sound.stop(), []);
+  });
+
+  it("subtracts the volume-adjustment variable before scaling", () => {
+    const sound = old(payload(2, 0x94));
+    // adjustment 2: atten 4-2 -> ((15-2)<<6)/15 = 55.
+    assert.equal(paula(sound.tick(true, 2).outputs)[0]!.volume, 55);
+  });
+
+  it("maps the noise control type to its fixed periods", () => {
+    const data = payload(2, 0xf0);
+    data[0] = 15;
+    data[6] = 8;
+    data[10] = 0;
+    data[11] = 0xe1; // noise control: type 1 -> period 3
+    const out = paula(old(data).tick(true, 0).outputs);
+    assert.deepEqual(out[3], { kind: "paula", channel: 3, period: 3, volume: 64, noise: true });
+    for (const [type, period] of [
+      [0xe0, 6],
+      [0xe2, 1],
+      [0xe3, 1],
+    ] as const) {
+      const d = payload(2, 0xf0);
+      d[0] = 15;
+      d[6] = 8;
+      d[10] = 0;
+      d[11] = type;
+      const next = paula(old(d).tick(true, 0).outputs);
+      assert.equal(next[3]!.period, period, `type byte ${type.toString(16)}`);
+    }
+  });
+});
+
+describe("amiga kq2 envelope (docs/fidelity.md, original Amiga sound player)", () => {
+  it("applies KQ2's signed attack curve instead of the 2.202 decay table", () => {
+    // The 2.176 data hunk's envelope opens at -2 (louder than the note's
+    // attenuation), where the 2.202+ table opens at +2.
+    const kq2 = new SoundPlayback(detectProfile(new Map(), "amiga-2.176"), payload(2, 0x90), 1);
+    const sq2 = new SoundPlayback(detectProfile(new Map(), "amiga-2.202"), payload(2, 0x90), 1);
+    // atten 0 + (-2) -> ((15+2)<<6)/15 = 72 on KQ2; atten 0+2 -> 55 on SQ2.
+    const kq2out = kq2.tick(true, 0).outputs;
+    assert.equal(kq2out[0]!.kind === "paula" && kq2out[0]!.volume, 72);
+    const sq2out = sq2.tick(true, 0).outputs;
+    assert.equal(sq2out[0]!.kind === "paula" && sq2out[0]!.volume, 55);
+  });
+});
+
 describe("pc booter 2.001 row streams", () => {
   it("splits payload into zero-terminated rows, keeping empty and unterminated rows", () => {
     assert.deepEqual(booterSoundRows(Uint8Array.of(0x80, 0x02, 0, 0, 0x9f, 0)), [
