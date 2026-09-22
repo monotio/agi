@@ -155,7 +155,14 @@ function alive(run: Speedrun, label: string): void {
  * leg presses its own heading, exactly as a driver steers through a corner.
  * Radio traffic opens message windows mid-drive; they are read and dismissed.
  */
-function steer(run: Speedrun, dir: Heading, until: () => boolean, label: string, max = 4000): void {
+function steer(
+  run: Speedrun,
+  dir: Heading,
+  until: () => boolean,
+  label: string,
+  max = 4000,
+  hold?: () => boolean,
+): void {
   const from = run.cycles;
   for (let n = 0; n < max; n++) {
     // Once a cycle has run, the queued speed key has landed in v55.
@@ -164,7 +171,7 @@ function steer(run: Speedrun, dir: Heading, until: () => boolean, label: string,
     alive(run, label);
     assert.equal(run.engine.vars[227], 0, `${label}: collision`);
     if (until()) return;
-    run.direction(dir);
+    run.direction(hold?.() === true ? 0 : dir);
     run.advance();
   }
   assert.fail(`${label}: not reached from ${JSON.stringify(run.state())}`);
@@ -219,12 +226,13 @@ function driveWithin(
   lo: number,
   hi: number,
   fast: 1 | 2 | 3 = 3,
+  hold?: () => boolean,
 ): void {
   const ego = run.engine.screenObjects[0]!;
   const at = (): number => (dir === "N" || dir === "S" ? ego.y : ego.x);
   assert.ok(hi - lo + 1 >= fast, "window narrower than one step");
   code(run, fast);
-  steer(run, dir, () => at() >= lo && at() <= hi, `drive ${dir} into ${lo}..${hi}`);
+  steer(run, dir, () => at() >= lo && at() <= hi, `drive ${dir} into ${lo}..${hi}`, 4000, hold);
 }
 
 /** Drive off the edge of one map square into the next. */
@@ -731,6 +739,26 @@ function planStreets(run: Speedrun, goal: Junction): Junction[] {
 }
 
 /**
+ * A car already inside a junction turns across whatever arrives beside it.
+ * True while a driven car (motionMode set) sits in the junction box and ego is
+ * approaching its mouth — hold there rather than share the turn. Once inside
+ * the box, or still well clear of it, drive on.
+ */
+function junctionBusy(run: Speedrun, x: number, y: number): boolean {
+  const ego = run.engine.screenObjects[0]!;
+  const dx = Math.abs(ego.x - x);
+  const dy = Math.abs(ego.y - y);
+  if (dx <= 12 && dy <= 10) return false;
+  if (dx > 30 || dy > 26) return false;
+  return run.engine
+    .readObjects()
+    .some(
+      (o) =>
+        o.num !== 0 && o.motionMode !== 0 && Math.abs(o.x - x) <= 12 && Math.abs(o.y - y) <= 10,
+    );
+}
+
+/**
  * Drive junction to junction along street centre lines. The centre windows
  * are three pixels wide, so Code 3 always lands inside one without easing,
  * and they stay two pixels clear of every traffic lane.
@@ -752,6 +780,7 @@ function driveToJunction(run: Speedrun, goal: Junction): void {
     const room = run.state().room;
     const x = AVENUE_X[hop.avenue]!;
     const y = hop.street === 0 ? 32 : 124;
+    const yieldToTraffic = (): boolean => junctionBusy(run, x, y);
     const vertical =
       inAvenue(ego.x) === hop.avenue &&
       (hop.room !== room ? Math.abs(hop.room - room) === 4 : inStreet(ego.y) !== hop.street);
@@ -760,9 +789,10 @@ function driveToJunction(run: Speedrun, goal: Junction): void {
       driveOut(run, delta === -4 ? "N" : delta === 4 ? "S" : delta === 1 ? "E" : "W", hop.room);
     }
     if (vertical) {
-      if (ego.y < y - 1 || ego.y > y + 1) driveWithin(run, ego.y > y ? "N" : "S", y - 1, y + 1);
+      if (ego.y < y - 1 || ego.y > y + 1)
+        driveWithin(run, ego.y > y ? "N" : "S", y - 1, y + 1, 3, yieldToTraffic);
     } else if (ego.x < x - 1 || ego.x > x + 1)
-      driveWithin(run, ego.x > x ? "W" : "E", x - 1, x + 1);
+      driveWithin(run, ego.x > x ? "W" : "E", x - 1, x + 1, 3, yieldToTraffic);
   }
 }
 

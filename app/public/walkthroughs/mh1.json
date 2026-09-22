@@ -29,9 +29,9 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 18340,
-  "virtualTicks": 142440,
-  "cycles": 29969,
+  "elapsedMs": 19035,
+  "virtualTicks": 141960,
+  "cycles": 29847,
   "actions": [
     {
       "kind": "advance",
@@ -83,7 +83,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 2460
+      "ticks": 2454
     },
     {
       "kind": "checkpoint",
@@ -95,7 +95,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 3243
+      "ticks": 3246
     },
     {
       "kind": "checkpoint",
@@ -315,15 +315,7 @@
     },
     {
       "kind": "key",
-      "code": 20736
-    },
-    {
-      "kind": "advance",
-      "ticks": 3
-    },
-    {
-      "kind": "key",
-      "code": 20736
+      "code": 20224
     },
     {
       "kind": "advance",
@@ -423,7 +415,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 167
+      "ticks": 173
     },
     {
       "kind": "key",
@@ -807,7 +799,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 186
+      "ticks": 183
     },
     {
       "kind": "key",
@@ -971,15 +963,7 @@
     },
     {
       "kind": "key",
-      "code": 20736
-    },
-    {
-      "kind": "advance",
-      "ticks": 3
-    },
-    {
-      "kind": "key",
-      "code": 20736
+      "code": 18688
     },
     {
       "kind": "advance",
@@ -991,7 +975,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 242
+      "ticks": 248
     },
     {
       "kind": "checkpoint",
@@ -1222,12 +1206,12 @@
       "label": "Knife game",
       "room": 118,
       "score": 0,
-      "x": 31,
+      "x": 33,
       "y": 167
     },
     {
       "kind": "advance",
-      "ticks": 27
+      "ticks": 24
     },
     {
       "kind": "key",
@@ -1259,7 +1243,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1242
+      "ticks": 1245
     },
     {
       "kind": "key",
@@ -5598,12 +5582,12 @@
       "label": "Kewpie Doll Baseball",
       "room": 129,
       "score": 0,
-      "x": 41,
+      "x": 47,
       "y": 165
     },
     {
       "kind": "advance",
-      "ticks": 156
+      "ticks": 150
     },
     {
       "kind": "key",
@@ -5627,7 +5611,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 96
+      "ticks": 102
     },
     {
       "kind": "key",
@@ -5835,11 +5819,19 @@
     },
     {
       "kind": "key",
-      "code": 20480
+      "code": 20736
     },
     {
       "kind": "advance",
       "ticks": 4
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
     },
     {
       "kind": "key",
@@ -6087,7 +6079,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 3152
+      "ticks": 3149
     },
     {
       "kind": "key",
@@ -6119,7 +6111,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 4
+      "ticks": 6
     },
     {
       "kind": "key",
@@ -6127,7 +6119,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 3
+      "ticks": 4
     },
     {
       "kind": "key",
@@ -6375,7 +6367,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 764
+      "ticks": 758
     },
     {
       "kind": "key",
@@ -6383,7 +6375,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 288
+      "ticks": 291
     },
     {
       "kind": "key",
@@ -6439,7 +6431,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 31
+      "ticks": 28
     },
     {
       "kind": "key",
@@ -6455,7 +6447,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 19
+      "ticks": 16
     },
     {
       "kind": "key",
@@ -6463,7 +6455,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 24
+      "ticks": 27
     },
     {
       "kind": "key",
@@ -6559,103 +6551,103 @@
     },
     {
       "kind": "advance",
+      "ticks": 84
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 72
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 72
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 72
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 72
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
       "ticks": 96
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 60
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 84
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 60
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 84
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 60
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 84
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 60
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 84
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 60
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 84
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 60
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 84
     },
     {
       "kind": "key",
@@ -6783,7 +6775,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 96
+      "ticks": 72
     },
     {
       "kind": "key",
@@ -6807,7 +6799,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 60
+      "ticks": 72
     },
     {
       "kind": "key",
@@ -6823,11 +6815,11 @@
     },
     {
       "kind": "advance",
-      "ticks": 84
+      "ticks": 60
     },
     {
       "kind": "key",
-      "code": 20480
+      "code": 18432
     },
     {
       "kind": "advance",
@@ -6872,46 +6864,6 @@
     {
       "kind": "advance",
       "ticks": 84
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 72
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 60
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 60
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 60
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 60
     },
     {
       "kind": "key",
@@ -6952,6 +6904,46 @@
     {
       "kind": "advance",
       "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 72
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 84
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 96
     },
     {
       "kind": "key",
@@ -7063,6 +7055,38 @@
     },
     {
       "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 72
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
       "ticks": 72
     },
     {
@@ -7119,55 +7143,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 72
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 72
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 72
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 72
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 72
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
       "ticks": 96
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 84
     },
     {
       "kind": "key",
@@ -7183,31 +7159,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 72
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 72
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
       "ticks": 96
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 84
     },
     {
       "kind": "key",
@@ -7271,7 +7223,79 @@
     },
     {
       "kind": "advance",
+      "ticks": 96
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 84
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 84
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 96
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
       "ticks": 72
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 96
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 84
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 60
     },
     {
       "kind": "key",
@@ -7303,7 +7327,39 @@
     },
     {
       "kind": "advance",
-      "ticks": 162
+      "ticks": 108
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 126
     },
     {
       "kind": "key",
@@ -7311,55 +7367,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 90
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 90
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 90
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 90
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 90
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 90
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 90
+      "ticks": 108
     },
     {
       "kind": "key",
@@ -7403,35 +7411,11 @@
     },
     {
       "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 90
-    },
-    {
-      "kind": "key",
       "code": 18432
     },
     {
       "kind": "advance",
-      "ticks": 90
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 90
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 90
+      "ticks": 108
     },
     {
       "kind": "key",
@@ -7499,23 +7483,7 @@
     },
     {
       "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 90
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 90
-    },
-    {
-      "kind": "key",
-      "code": 18432
+      "code": 20480
     },
     {
       "kind": "advance",
@@ -7548,6 +7516,38 @@
     {
       "kind": "key",
       "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 90
+    },
+    {
+      "kind": "key",
+      "code": 18432
     },
     {
       "kind": "advance",
@@ -7583,7 +7583,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 324
+      "ticks": 330
     },
     {
       "kind": "checkpoint",
@@ -7619,7 +7619,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 237
+      "ticks": 234
     },
     {
       "kind": "key",
@@ -7803,14 +7803,6 @@
     },
     {
       "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
       "ticks": 8
     },
     {
@@ -7831,7 +7823,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 618
+      "ticks": 624
     },
     {
       "kind": "key",
@@ -7879,7 +7871,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 154
+      "ticks": 151
     },
     {
       "kind": "key",
@@ -7887,7 +7879,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 50
+      "ticks": 53
     },
     {
       "kind": "key",
@@ -7903,7 +7895,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 13
+      "ticks": 10
     },
     {
       "kind": "key",
@@ -7927,7 +7919,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 18
+      "ticks": 15
     },
     {
       "kind": "key",
@@ -9291,7 +9283,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 249
+      "ticks": 195
     },
     {
       "kind": "key",
@@ -10203,7 +10195,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1269
+      "ticks": 1260
     },
     {
       "kind": "key",
@@ -10211,7 +10203,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 801
+      "ticks": 810
     },
     {
       "kind": "key",
@@ -10259,7 +10251,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 31
+      "ticks": 28
     },
     {
       "kind": "key",
@@ -10803,14 +10795,6 @@
     },
     {
       "kind": "advance",
-      "ticks": 3
-    },
-    {
-      "kind": "key",
-      "code": 20736
-    },
-    {
-      "kind": "advance",
       "ticks": 6
     },
     {
@@ -11323,7 +11307,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 114
+      "ticks": 120
     },
     {
       "kind": "key",
@@ -12999,7 +12983,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 198
+      "ticks": 189
     },
     {
       "kind": "key",
@@ -13007,7 +12991,23 @@
     },
     {
       "kind": "advance",
-      "ticks": 459
+      "ticks": 81
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 27
+    },
+    {
+      "kind": "key",
+      "code": 13
+    },
+    {
+      "kind": "advance",
+      "ticks": 486
     },
     {
       "kind": "key",
@@ -13023,7 +13023,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 124
+      "ticks": 178
     },
     {
       "kind": "checkpoint",
@@ -13799,7 +13799,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 37
+      "ticks": 34
     },
     {
       "kind": "key",
@@ -13815,7 +13815,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 161
+      "ticks": 164
     },
     {
       "kind": "key",
@@ -13831,7 +13831,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 7
+      "ticks": 4
     },
     {
       "kind": "key",
@@ -13843,7 +13843,7 @@
     },
     {
       "kind": "key",
-      "code": 20224
+      "code": 18176
     },
     {
       "kind": "advance",
@@ -13851,14 +13851,6 @@
     },
     {
       "kind": "key",
-      "code": 18176
-    },
-    {
-      "kind": "advance",
-      "ticks": 3
-    },
-    {
-      "kind": "key",
       "code": 20224
     },
     {
@@ -13884,6 +13876,14 @@
     {
       "kind": "key",
       "code": 18176
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
+      "code": 20224
     },
     {
       "kind": "advance",
@@ -14303,7 +14303,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 31
+      "ticks": 28
     },
     {
       "kind": "key",
@@ -14468,14 +14468,6 @@
     {
       "kind": "key",
       "code": 18688
-    },
-    {
-      "kind": "advance",
-      "ticks": 3
-    },
-    {
-      "kind": "key",
-      "code": 18176
     },
     {
       "kind": "advance",
@@ -14719,7 +14711,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 501
+      "ticks": 510
     },
     {
       "kind": "answer",
@@ -15187,15 +15179,7 @@
     },
     {
       "kind": "key",
-      "code": 20736
-    },
-    {
-      "kind": "advance",
-      "ticks": 3
-    },
-    {
-      "kind": "key",
-      "code": 20736
+      "code": 20224
     },
     {
       "kind": "advance",
@@ -15287,7 +15271,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 146
+      "ticks": 149
     },
     {
       "kind": "key",
@@ -15531,7 +15515,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 3164
+      "ticks": 3170
     },
     {
       "kind": "checkpoint",
@@ -15683,7 +15667,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 903
+      "ticks": 957
     },
     {
       "kind": "key",
@@ -15724,22 +15708,6 @@
     {
       "kind": "advance",
       "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 42
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 60
     },
     {
       "kind": "key",
@@ -16235,23 +16203,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 12
-    },
-    {
-      "kind": "key",
-      "code": 19200
-    },
-    {
-      "kind": "advance",
-      "ticks": 276
-    },
-    {
-      "kind": "key",
-      "code": 19712
-    },
-    {
-      "kind": "advance",
-      "ticks": 348
+      "ticks": 72
     },
     {
       "kind": "key",
@@ -16351,7 +16303,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 642
+      "ticks": 648
     },
     {
       "kind": "key",
@@ -17135,7 +17087,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 190
+      "ticks": 184
     },
     {
       "kind": "key",
@@ -17151,7 +17103,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 922
+      "ticks": 928
     },
     {
       "kind": "key",
@@ -25611,7 +25563,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 3114
+      "ticks": 3111
     },
     {
       "kind": "key",
@@ -26147,7 +26099,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 324
+      "ticks": 327
     },
     {
       "kind": "key",
@@ -26871,7 +26823,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1284
+      "ticks": 1260
     },
     {
       "kind": "checkpoint",
@@ -26883,7 +26835,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 3630
+      "ticks": 3654
     },
     {
       "kind": "checkpoint",
@@ -26910,7 +26862,7 @@
       0,
       0,
       0,
-      0,
+      255,
       0,
       2,
       0,
@@ -26944,7 +26896,7 @@
       0,
       0,
       0,
-      5,
+      4,
       0,
       0,
       0,
@@ -27055,7 +27007,7 @@
       1,
       0,
       90,
-      78,
+      80,
       4,
       64,
       4,

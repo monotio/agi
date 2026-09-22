@@ -21,7 +21,7 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 32,
+  "elapsedMs": 34,
   "virtualTicks": 348,
   "cycles": 211,
   "actions": [
@@ -62,7 +62,7 @@
       "label": "Chamber",
       "room": 2,
       "score": 0,
-      "x": 30,
+      "x": 31,
       "y": 130
     },
     {
@@ -150,7 +150,7 @@
       "label": "Solved",
       "room": 2,
       "score": 50,
-      "x": 30,
+      "x": 31,
       "y": 130
     },
     {
@@ -194,7 +194,7 @@
       0,
       0,
       0,
-      0,
+      255,
       0,
       0,
       5,
@@ -702,6 +702,18 @@
       0
     ],
     "strings": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
       "",
       "",
       "",

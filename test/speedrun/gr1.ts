@@ -46,12 +46,14 @@ function walkInto(
   avoidTriggers = false,
 ): void {
   const { x0: x, y0: y } = target;
+  let lastOutcome: string | undefined;
   for (let attempt = 0; attempt < 12; attempt++) {
     if (until?.()) return;
     const { outcome } = run.navigate(
       { kind: "position", target, planned: true },
       { planOptions: { geometry: "current", avoidTriggers } },
     );
+    lastOutcome = JSON.stringify(outcome);
     if (outcome.status === "reached") {
       run.direction(0);
       return;
@@ -70,9 +72,13 @@ function walkInto(
     );
     run.direction(0);
     run.advance(3);
-    run.wait(() => egoOnScreen(run), `moving again toward (${x},${y})`, 600);
+    run.wait(
+      () => egoOnScreen(run) && run.engine.movementControlEnabled,
+      `moving again toward (${x},${y})`,
+      3000,
+    );
   }
-  assert.fail(`too many interruptions walking to (${x},${y})`);
+  assert.fail(`too many interruptions walking to (${x},${y}); last ${lastOutcome}`);
 }
 
 /** Wait until an animated prop (a door, mostly) shows the last cel of its loop. */
@@ -166,8 +172,26 @@ function frontStreetToHouse(run: Speedrun): void {
   leave(run, "E", 4);
 }
 
+/**
+ * The wagon sweeps Front Street along y 148 and brushing it is fatal — the
+ * room logic drops Jerrod where he stands. True while nothing on that row is
+ * within reach of ego's column.
+ */
+function wagonGap(run: Speedrun): boolean {
+  const ego = run.engine.screenObjects[0]!;
+  const cx = ego.x + (ego.width >> 1);
+  return run.engine
+    .readObjects()
+    .every(
+      (o) => o.num === 0 || Math.abs(o.y - 148) > 2 || Math.abs(o.x + (o.width >> 1) - cx) > 36,
+    );
+}
+
 /** One screen west along Front Street, below the wagon lane and the lawns. */
 function frontStreetWest(run: Speedrun, room: number): void {
+  // Starting above the lane means the walk crosses y 148; wait for a gap first.
+  if (run.engine.screenObjects[0]!.y < 148)
+    run.wait(() => wagonGap(run), "a gap in the Front Street wagons", 6000);
   walk(run, 8, 156);
   leave(run, "W", room);
 }
@@ -447,6 +471,7 @@ export function gr1Complete(run: Speedrun): void {
   run.command("yes");
   assert.equal(run.engine.vars[49], 20, "house sold");
   run.checkpoint("Sold the family house at top price", { room: 4, score: 33 });
+  control(run, "the sale script hands control back", 10000);
   frontStreetWest(run, 5);
   frontStreetWest(run, 9);
   // Post office: same closing-door handover as the newspaper building. The

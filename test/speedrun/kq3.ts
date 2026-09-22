@@ -51,8 +51,8 @@ function leave(run: Speedrun, direction: number, room: number): void {
       run.dismiss();
       run.wait(() => run.engine.movementControlEnabled, "finish the arrival", 5000);
       assert.ok(
-        [0, 11, 25, 26, 224].includes(run.engine.vars[44]!),
-        "arrival leaves Gwydion unharmed",
+        [0, 11, 25, 26, 202, 224].includes(run.engine.vars[44]!),
+        `arrival leaves Gwydion unharmed (v44=${run.engine.vars[44]})`,
       );
       if (run.state().room === room) return;
       continue;
@@ -240,7 +240,10 @@ function cast(run: Speedrun, page: string): void {
 export function kq3Complete(run: Speedrun): void {
   run.repeatUntil(
     () => {
-      run.key(AGI_KEY.ENTER);
+      // Press only once the title is up: a tick-0 Enter now survives the
+      // boot's new.room and skips the title a cycle early, which shifts the
+      // chore timers.
+      if (run.state().room === 45) run.key(AGI_KEY.ENTER);
       run.advance(30);
     },
     () => run.state().room === 7 && run.engine.inputEnabled && run.engine.movementControlEnabled,

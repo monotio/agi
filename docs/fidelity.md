@@ -1521,7 +1521,7 @@ movement pass's rejected-step fallback enters — and `reposition.to`
 (0x7d77) and `reposition.to.v` end in the same call. So placement runs
 inline at script time AND the 0x400 flag still suppresses the object's next
 due step as a zero-step re-check; an earlier audit row misread the tail
-call as `call 0x5b3a` (the byte-fill helper at that *code* offset) when the
+call as `call 0x5b3a` (the byte-fill helper at that _code_ offset) when the
 operand decodes to 0x593a — file offset 0x5b3a of the descrambled image.
 Fact: only the reposition family and cel clipping mark an object newly
 positioned (the five `or 0x400` sites in each image), and the spec's

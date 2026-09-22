@@ -25,18 +25,10 @@
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 7438,
-  "virtualTicks": 126363,
-  "cycles": 17953,
+  "elapsedMs": 5221,
+  "virtualTicks": 126171,
+  "cycles": 17921,
   "actions": [
-    {
-      "kind": "key",
-      "code": 13
-    },
-    {
-      "kind": "advance",
-      "ticks": 30
-    },
     {
       "kind": "key",
       "code": 13
@@ -619,7 +611,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 246
+      "ticks": 240
     },
     {
       "kind": "key",
@@ -1347,7 +1339,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 12
+      "ticks": 18
     },
     {
       "kind": "key",
@@ -1395,7 +1387,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 600
+      "ticks": 594
     },
     {
       "kind": "key",
@@ -1635,7 +1627,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 12
+      "ticks": 6
     },
     {
       "kind": "key",
@@ -1755,7 +1747,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 12
+      "ticks": 6
     },
     {
       "kind": "key",
@@ -2203,7 +2195,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 126
+      "ticks": 120
     },
     {
       "kind": "key",
@@ -2931,7 +2923,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 396
+      "ticks": 390
     },
     {
       "kind": "key",
@@ -3003,7 +2995,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 511
+      "ticks": 541
     },
     {
       "kind": "key",
@@ -3251,7 +3243,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 114
+      "ticks": 108
     },
     {
       "kind": "key",
@@ -3615,11 +3607,19 @@
     },
     {
       "kind": "key",
+      "code": 20224
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
       "code": 19200
     },
     {
       "kind": "advance",
-      "ticks": 294
+      "ticks": 288
     },
     {
       "kind": "key",
@@ -6243,7 +6243,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 72
+      "ticks": 66
     },
     {
       "kind": "key",
@@ -6251,7 +6251,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 444
+      "ticks": 450
     },
     {
       "kind": "key",
@@ -6563,11 +6563,11 @@
       "room": 54,
       "score": 66,
       "x": 62,
-      "y": 50
+      "y": 52
     },
     {
       "kind": "advance",
-      "ticks": 1002
+      "ticks": 984
     },
     {
       "kind": "key",
@@ -6999,7 +6999,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1429
+      "ticks": 1411
     },
     {
       "kind": "key",
@@ -7007,7 +7007,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 348
+      "ticks": 342
     },
     {
       "kind": "key",
@@ -7087,7 +7087,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 384
+      "ticks": 378
     },
     {
       "kind": "key",
@@ -7199,7 +7199,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 120
+      "ticks": 114
     },
     {
       "kind": "key",
@@ -7647,7 +7647,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 60
+      "ticks": 54
     },
     {
       "kind": "key",
@@ -9855,7 +9855,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1044
+      "ticks": 1032
     },
     {
       "kind": "key",
@@ -10055,7 +10055,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 390
+      "ticks": 384
     },
     {
       "kind": "key",
@@ -10651,7 +10651,7 @@
     },
     {
       "kind": "key",
-      "code": 18432
+      "code": 18688
     },
     {
       "kind": "advance",
@@ -10659,7 +10659,7 @@
     },
     {
       "kind": "key",
-      "code": 18432
+      "code": 18688
     },
     {
       "kind": "advance",
@@ -10711,7 +10711,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 78
+      "ticks": 72
     },
     {
       "kind": "key",
@@ -10847,7 +10847,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 936
+      "ticks": 924
     },
     {
       "kind": "key",
@@ -12463,7 +12463,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 330
+      "ticks": 318
     },
     {
       "kind": "key",
@@ -12767,7 +12767,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 397
+      "ticks": 391
     },
     {
       "kind": "key",
@@ -12783,7 +12783,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 6
+      "ticks": 12
     },
     {
       "kind": "key",
@@ -12935,7 +12935,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 66
+      "ticks": 60
     },
     {
       "kind": "key",
@@ -13167,7 +13167,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 180
+      "ticks": 174
     },
     {
       "kind": "key",
@@ -13487,7 +13487,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 60
+      "ticks": 54
     },
     {
       "kind": "key",
@@ -13831,7 +13831,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 642
+      "ticks": 636
     },
     {
       "kind": "key",
@@ -13859,11 +13859,19 @@
     },
     {
       "kind": "key",
+      "code": 20224
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
       "code": 20480
     },
     {
       "kind": "advance",
-      "ticks": 78
+      "ticks": 72
     },
     {
       "kind": "key",
@@ -14007,11 +14015,19 @@
     },
     {
       "kind": "advance",
-      "ticks": 630
+      "ticks": 624
     },
     {
       "kind": "key",
-      "code": 20736
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 20480
     },
     {
       "kind": "advance",
@@ -14079,23 +14095,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 20224
-    },
-    {
-      "kind": "advance",
-      "ticks": 210
+      "ticks": 216
     },
     {
       "kind": "key",
@@ -14191,7 +14191,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 144
+      "ticks": 150
     },
     {
       "kind": "key",
@@ -14207,7 +14207,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 18
+      "ticks": 24
     },
     {
       "kind": "key",
@@ -14231,7 +14231,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 222
+      "ticks": 216
     },
     {
       "kind": "key",
@@ -14719,7 +14719,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 378
+      "ticks": 372
     },
     {
       "kind": "key",
@@ -14887,7 +14887,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 636
+      "ticks": 630
     },
     {
       "kind": "key",
@@ -14895,7 +14895,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 24
+      "ticks": 30
     },
     {
       "kind": "key",
@@ -14939,11 +14939,19 @@
     },
     {
       "kind": "key",
+      "code": 20736
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
       "code": 20480
     },
     {
       "kind": "advance",
-      "ticks": 60
+      "ticks": 54
     },
     {
       "kind": "key",
@@ -14991,7 +14999,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 60
+      "ticks": 54
     },
     {
       "kind": "key",
@@ -14999,7 +15007,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 90
+      "ticks": 96
     },
     {
       "kind": "key",
@@ -15619,11 +15627,19 @@
     },
     {
       "kind": "key",
+      "code": 18688
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
       "code": 19712
     },
     {
       "kind": "advance",
-      "ticks": 30
+      "ticks": 24
     },
     {
       "kind": "key",
@@ -15695,7 +15711,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 168
+      "ticks": 162
     },
     {
       "kind": "key",
@@ -15727,7 +15743,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 84
+      "ticks": 78
     },
     {
       "kind": "key",
@@ -15759,7 +15775,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 132
+      "ticks": 126
     },
     {
       "kind": "key",
@@ -15767,7 +15783,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 18
+      "ticks": 24
     },
     {
       "kind": "key",
@@ -15983,7 +15999,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 390
+      "ticks": 384
     },
     {
       "kind": "key",
@@ -16083,38 +16099,6 @@
     },
     {
       "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 18
-    },
-    {
-      "kind": "key",
-      "code": 18432
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 18
-    },
-    {
-      "kind": "key",
-      "code": 20480
-    },
-    {
-      "kind": "advance",
-      "ticks": 6
-    },
-    {
-      "kind": "key",
       "code": 20224
     },
     {
@@ -16160,6 +16144,38 @@
     {
       "kind": "advance",
       "ticks": 24
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
+    },
+    {
+      "kind": "key",
+      "code": 18432
+    },
+    {
+      "kind": "advance",
+      "ticks": 6
+    },
+    {
+      "kind": "key",
+      "code": 20480
+    },
+    {
+      "kind": "advance",
+      "ticks": 18
     },
     {
       "kind": "key",
@@ -18211,7 +18227,7 @@
       "room": 106,
       "score": 185,
       "x": 110,
-      "y": 152
+      "y": 151
     }
   ],
   "finalState": {
@@ -18219,7 +18235,7 @@
     "room": 106,
     "previousRoom": 107,
     "egoX": 110,
-    "egoY": 152,
+    "egoY": 151,
     "egoDirection": 1,
     "vars": [
       106,
@@ -18230,10 +18246,10 @@
       0,
       1,
       185,
-      0,
+      255,
       0,
       2,
-      6,
+      2,
       35,
       0,
       0,
@@ -18276,8 +18292,8 @@
       0,
       248,
       0,
-      125,
-      69,
+      133,
+      92,
       7,
       16,
       49,
@@ -18743,6 +18759,18 @@
       "",
       "",
       "Version 2.1",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
       "",
       "",
       "",

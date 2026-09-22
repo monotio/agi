@@ -124,6 +124,21 @@ export function sq1FlightPrep(run: Speedrun): void {
     "elevator down to room 5",
     3000,
   );
+  // The wandering Sarien (logic 103) is armed per visit when the room-entry
+  // draw sets v67: stepping out of the shaft box during its countdown is
+  // fatal. If armed, shelter in the box until the alien gives up and leaves.
+  if (run.engine.vars[67] === 1) {
+    run.wait(
+      () => run.engine.vars[231] !== 0 || run.engine.vars[67] === 0,
+      "sarien zombie spawned or disarmed",
+      3000,
+    );
+    run.wait(
+      () => run.engine.vars[231] === 0 && run.engine.movementControlEnabled,
+      "sarien zombie left",
+      3000,
+    );
+  }
   assertProgress(run, 5, 6, "Bottom level");
   // Straight south out of the elevator shaft, then east at y150: the
   // shaft's right B wall (x37, y132-144) snags any NE diagonal (ego width
@@ -861,29 +876,33 @@ export function sq1UlenceFlats(run: Speedrun): void {
   run.dismiss();
   run.wait(() => eng.vars[0] === 33, "entered skimmer minigame (room 33)", 15000);
 
-  // Room 33: navigate boulder field
-  run.walkTo(10, 146);
-  let targetX = 10;
+  // Room 33: navigate boulder field. o3 drops from x 20-70 and o2 from
+  // x 80-136; a hit lands while the boulder's x is inside (ego.x-8, ego.x+20)
+  // at y 124-130. Staying at x<=60 always clears o2, so each tick steer to
+  // the nearer safe side of the live o3 and re-centre when it is gone.
+  run.walkTo(45, 146);
   for (let n = 0; eng.vars[0] === 33 && (eng.vars[42] ?? 0) < 5; n++) {
-    assert.ok(n < 10000, "Timed out navigating skimmer in room 33");
+    assert.ok(n < 20000, "Timed out navigating skimmer in room 33");
+    const egoX = eng.screenObjects[0]!.x;
     const o3 = eng.screenObjects[3]!;
-    if (o3.active && o3.x < 32 && o3.y >= 65 && o3.y <= 135) {
-      if (targetX !== 40) {
-        targetX = 40;
-        run.walkTo(40, 146);
+    let dx = 0;
+    if (o3.active && o3.y < 131) {
+      if (egoX < o3.x + 8 && egoX > o3.x - 20) {
+        const right = Math.min(60, o3.x + 9);
+        const left = Math.max(10, o3.x - 21);
+        dx = Math.sign((right - egoX <= egoX - left ? right : left) - egoX);
       }
     } else {
-      if (targetX !== 10) {
-        targetX = 10;
-        run.walkTo(10, 146);
-      }
+      dx = Math.sign(45 - egoX);
     }
+    run.direction(dx > 0 ? "E" : dx < 0 ? "W" : 0);
     if (eng.modalKind !== null) {
       run.dismiss();
     } else {
       run.advance(1);
     }
   }
+  run.direction(0);
   if (eng.modalKind !== null) run.dismiss();
 
   // Arrival at Ulence Flats (+25, score 108)
@@ -941,8 +960,9 @@ export function sq1DeltaurDeparture(run: Speedrun): void {
   run.checkpoint("Coordinates overheard", { room: 70, score: 118 });
   assert.equal(run.engine.flags[181], 1, "sector coordinates overheard");
 
-  // 3. Wait for slot machine player to clear (f40)
-  run.wait(() => !run.engine.flags[40], "slot machine clear");
+  // 3. Wait for slot machine player to clear (f40) and the sweeper to
+  // finish its return path through the approach area (v38 back to 0).
+  run.wait(() => !run.engine.flags[40] && run.engine.vars[38] === 0, "slot machine clear");
 
   // Enter slot machine (Room 75)
   run.walkTo(120, 144);
@@ -1243,10 +1263,34 @@ export function sq1Complete(run: Speedrun): void {
   run.walkTo(48, 148);
   run.exit("E", 49);
 
-  // Shoot guard in room 49 with pulseray
-  run.direction(3);
+  // Shoot guard in room 49 with pulseray. The corridor encounter rolls
+  // v160 per entry: 0 empty, 1 Sarien guard, 2 guardian droid — only the
+  // guard can be shot. Bounce through room 48 until the roll gives one.
+  for (let n = 0; ; n++) {
+    assert.ok(n < 30, "patrol guard never spawned in room 49");
+    run.advance(2);
+    if (run.engine.vars[160] === 1) break;
+    run.exit("W", 48);
+    run.exit("E", 49);
+  }
+  // f246 is shared: ego's fire sets it, and the guard only aims on patrol
+  // arrival while it is clear — so firing early keeps the guard standing.
+  // Poll tightly; the guard's leg is only ~4 ticks between whiff windows.
   run.key(AGI_KEY.F6);
-  run.wait(() => run.engine.flags[207] !== 0, "guard shot by pulseray", 10000);
+  for (let n = 0; run.engine.flags[207] === 0; n++) {
+    assert.ok(n < 300, "guard shot by pulseray");
+    if (run.engine.flags[217] === 0 && run.engine.flags[246] === 0) {
+      run.key(AGI_KEY.F6);
+    }
+    run.advance(2);
+  }
+  // A straggler F6 can restart the fire animation after the kill lands;
+  // wait for start.motion to hand control back before walking on.
+  run.wait(
+    () => run.engine.movementControlEnabled && run.engine.flags[217] === 0,
+    "pulseray animation done",
+    3000,
+  );
   run.checkpoint("Guard shot", { room: 49, score: 182 });
 
   // 7. Room 50 main floor: acquire remote and lower force field (+6 pts)

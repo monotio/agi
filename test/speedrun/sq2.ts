@@ -23,17 +23,22 @@ function inControl(run: Speedrun): boolean {
   return run.engine.movementControlEnabled && ego.active && ego.update;
 }
 
-/** Run a walk, acknowledging any narration window that interrupts it. */
+/** Run a walk, acknowledging any narration window or scripted takeover that interrupts it. */
 function through(run: Speedrun, walk: () => void): void {
   for (let prompts = 0; ; prompts++) {
     try {
       walk();
       return;
     } catch (error) {
-      if (!(error instanceof NavigationError) || error.outcome.status !== "needs_input")
+      if (!(error instanceof NavigationError)) throw error;
+      if (
+        error.outcome.status !== "needs_input" &&
+        error.outcome.status !== "movement_control_unavailable"
+      )
         throw error;
-      assert.ok(prompts < 4, "unexpected repeated narration during a walk");
+      assert.ok(prompts < 4, "unexpected repeated interruption during a walk");
       run.dismiss();
+      run.wait(() => inControl(run), "scripted interruption ends", 3000);
     }
   }
 }

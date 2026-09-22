@@ -216,9 +216,7 @@ test("a declined quit prompt still completed the playing sound's done flag", () 
   container.putResource(
     "sound",
     1,
-    new Uint8Array([
-      8, 0, 15, 0, 15, 0, 15, 0, 2, 0, 0x23, 0x81, 0x94, 0xff, 0xff, 0xff, 0xff,
-    ]),
+    new Uint8Array([8, 0, 15, 0, 15, 0, 15, 0, 2, 0, 0x23, 0x81, 0x94, 0xff, 0xff, 0xff, 0xff]),
   );
   const engine = new Engine(container, new SuspendingHost(), new Map());
   engine.tick();

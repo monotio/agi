@@ -153,7 +153,7 @@ function workProduceShift(run: Speedrun): void {
       const vx = e.vars[98]!;
       const inBin =
         held === 1 ? vx > 0 && vx < 25 : held === 2 ? vx > 24 && vx < 55 : vx > 54 && vx < 83;
-      if (inBin && vx === ego.x) {
+      if (inBin) {
         run.direction(0);
         run.key(DO);
         run.until(() => e.vars[VAR.carriedProduce] === 0, 100, "produce released over its bin");
