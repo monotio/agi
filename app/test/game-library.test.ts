@@ -813,40 +813,39 @@ test("the resource revision is pinned: SHA-256 over the canonical playable set",
   assert.equal(await gameRevision(files), createHash("sha256").update(packed).digest("hex"));
 });
 
-test("the same bytes under another interpreter import as their own entry, in either order", async (t) => {
+test("an archive declaring another interpreter imports as its own entry; one declaring none keeps the stored choice", async (t) => {
   installLocalStorage(t);
-  for (const [first, second] of [
-    [undefined, "2.089"],
-    ["2.089", undefined],
-  ] as const) {
-    const files = game(`display(5, 2, "${first ?? "automatic"} first"); return;`);
-    const firstId = await addLibraryGame(
-      { files, words: [], ...(first ? { profile: first } : {}) },
-      "First",
-      "zip",
-      opening,
-    );
-    const before = await loadAuthoredGame(firstId);
-    const secondId = await addLibraryGame(
-      { files, words: [], ...(second ? { profile: second } : {}) },
-      "Second",
-      "zip",
-      opening,
-    );
-    assert.notEqual(secondId, firstId, "a different interpreter is not the same entry");
-    assert.equal((await loadAuthoredGame(secondId))?.library?.profile, second);
-    assert.deepEqual(await loadAuthoredGame(firstId), before, "the first entry is untouched");
-    // The same interpreter again is the same entry.
-    assert.equal(
-      await addLibraryGame(
-        { files, words: [], ...(second ? { profile: second } : {}) },
-        "Again",
-        "zip",
-        opening,
-      ),
-      secondId,
-    );
-  }
+  // Automatic first, then the same bytes declaring 2.089: a separate entry,
+  // the first untouched.
+  const files = game('display(5, 2, "declared"); return;');
+  const automaticId = await addLibraryGame({ files, words: [] }, "Automatic", "zip", opening);
+  const automatic = await loadAuthoredGame(automaticId);
+  const declaredId = await addLibraryGame(
+    { files, words: [], profile: "2.089" },
+    "Declared",
+    "zip",
+    opening,
+  );
+  assert.notEqual(declaredId, automaticId);
+  assert.equal((await loadAuthoredGame(declaredId))?.library?.profile, "2.089");
+  assert.deepEqual(await loadAuthoredGame(automaticId), automatic, "the first entry is untouched");
+  // The same declaration again is the same entry.
+  assert.equal(
+    await addLibraryGame({ files, words: [], profile: "2.089" }, "Again", "zip", opening),
+    declaredId,
+  );
+  // Declared first, then the same bytes declaring nothing: nothing different
+  // is asked for, so the entry and its choice are reused as they are.
+  const other = game('display(5, 2, "declared first"); return;');
+  const firstId = await addLibraryGame(
+    { files: other, words: [], profile: "2.089" },
+    "First",
+    "zip",
+    opening,
+  );
+  const first = await loadAuthoredGame(firstId);
+  assert.equal(await addLibraryGame({ files: other, words: [] }, "Plain", "zip", opening), firstId);
+  assert.deepEqual(await loadAuthoredGame(firstId), first);
 });
 
 test("an unfinished world stays marked through every import and export, and never gains generation", async (t) => {

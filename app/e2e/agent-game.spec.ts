@@ -287,10 +287,11 @@ test("provider and model configuration adapts options and persists choices", asy
 
   await providerSelect.selectOption("openai");
   const modelSelect = dialog.getByTestId("model-select");
-  await expect(modelSelect).toContainText("GPT-5.6");
+  await expect(modelSelect).toContainText("GPT-6 Sol");
+  await expect(modelSelect).toContainText("GPT-6 Luna");
 
   await providerSelect.selectOption("anthropic");
-  await expect(modelSelect).toContainText("Claude Opus 5");
+  await expect(modelSelect).toContainText("Claude Opus 5.5");
   await expect(modelSelect).toContainText("Claude Fable 5.1");
   await dialog.getByTestId("ai-settings-save").click();
   await openAiSettings(page);
