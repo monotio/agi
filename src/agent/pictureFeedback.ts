@@ -168,7 +168,11 @@ export function formatPriorityDiagnostics(
   return [
     `Display geometry: ${dims.width}x${dims.height} logical -> ${dims.width * 2}x${dims.height}; each x unit is 2 display pixels and each y unit is 1.`,
     "Priority/control map (actor collision reads the full baseline/feet row):",
-    ...(controls.length > 0 ? controls.map((line) => `- ${line}`) : ["- controls 0..3: absent"]),
+    ...(controls.length > 0
+      ? controls.map((line) => `- ${line}`)
+      : [
+          "- controls 0..3: absent. Ego can walk across every part of this picture, drawn walls and water included; draw barrier (0) lines along walls and furniture, and water (3) where it should swim or drown.",
+        ]),
     `- depth bands: ${bands.length > 0 ? bands.join("; ") : "absent"}`,
   ].join("\n");
 }

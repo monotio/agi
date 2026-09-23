@@ -9,6 +9,7 @@ import { parseWordsTok } from "../logic/words.ts";
 import { TIMER_INCREMENT_MS } from "../runtime/cycleClock.ts";
 import { Engine, type EngineHost } from "../runtime/engine.ts";
 import { AGI_KEY } from "../runtime/keys.ts";
+import { parseView } from "../view/view.ts";
 import { frameToPng, framesToContactSheet, textRows, type AgentFrame } from "./frames.ts";
 import {
   DIRECTION_SYNONYMS,
@@ -1233,11 +1234,12 @@ export function playtestRoom(
     }
     if (failures.length)
       return simulation.result(false, "failed", failures.join(" "), { ...spawn, nextSteps });
+    const warnings = roomWarnings(simulation.engine, state);
     return simulation.result(
       true,
       steps.length || recording ? "passed" : "not_requested",
       undefined,
-      spawn,
+      warnings.length ? { ...spawn, warnings } : spawn,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -1256,6 +1258,32 @@ export function playtestRoom(
       ? simulation.result(false, status, message)
       : { success: false, error: message };
   }
+}
+
+/**
+ * What makes a room play unlike an AGI room even though it runs: a zero
+ * horizon lets ego walk up into the sky, and a one-cel view slides ego
+ * instead of walking it. Reported, not failed: a cutscene may want either.
+ */
+function roomWarnings(engine: Engine, state: AgentSessionState): string[] {
+  const ego = engine.screenObjects[0];
+  if (!ego?.active) return [];
+  const warnings: string[] = [];
+  if (engine.horizon === 0)
+    warnings.push(
+      "The horizon is 0, so ego can walk to the top of the picture, sky included. AGI's default is 36; set.horizon to the line where the ground ends.",
+    );
+  try {
+    const payload = state.container.getResource("view", ego.view);
+    const loops = payload ? parseView(payload, state.profile).loops : [];
+    if (loops.length && loops.every((loop) => loop.cels.length <= 1))
+      warnings.push(
+        `Ego's view ${ego.view} has one cel per loop, so ego slides instead of walking; give each direction a walk cycle of two or more cels.`,
+      );
+  } catch {
+    // A view the engine could draw but this parse rejects is reported elsewhere.
+  }
+  return warnings;
 }
 
 function textVisible(engine: Engine): boolean {
@@ -1296,6 +1324,7 @@ export function validateGenesis(state: AgentSessionState): AgentToolResult {
             throw new Error(
               `Booted room ${current.room} has an invalid ego spawn: ${issues.join(" ")}`,
             );
+          warnings.push(...roomWarnings(engine, state));
         } else {
           warnings.push(
             `Room ${current.room} accepts input without an active ego (object 0), so players can type but not walk. That suits a text or cutscene opening; otherwise animate.obj, position and draw object 0 before accept.input().`,

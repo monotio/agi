@@ -348,7 +348,10 @@ return;`,
   const result = validateGenesis(state);
   assert.equal(result.success, true, result.error ?? "");
   assert.equal(result.details?.["acknowledgements"], 11, "ten messages and one key press");
-  assert.equal(result.details?.["warnings"], undefined);
+  // The boot itself raises nothing; the fixture's one-cel ego is the only note.
+  assert.deepEqual(result.details?.["warnings"], [
+    "Ego's view 0 has one cel per loop, so ego slides instead of walking; give each direction a walk cycle of two or more cels.",
+  ]);
 });
 
 test("a barrier-blocked exit fails the expected room assertion instead of claiming reachability", () => {
@@ -791,4 +794,17 @@ test("navigation failure attaches a dual-plane navigation diagnostic snapshot", 
   );
   assert.equal(Buffer.from(diag.png).readUInt32BE(16), 640);
   assert.equal(Buffer.from(diag.png).readUInt32BE(20), 336);
+});
+
+test("a playtest warns about rooms that do not play like AGI rooms", () => {
+  // GPT-6 Luna's benchmark rooms set the horizon to 0 and gave ego one cel
+  // per direction: it could climb into the sky and slid instead of walking.
+  const warnings = (result: ReturnType<typeof playtestRoom>) =>
+    ((result.details?.["warnings"] ?? []) as string[]).join("\n");
+  const flat = playtestRoom(world("set.horizon(0);"), { room: 1 });
+  assert.equal(flat.success, true, flat.error ?? "");
+  assert.match(warnings(flat), /horizon is 0/);
+  assert.match(warnings(flat), /one cel per loop/);
+  const usual = playtestRoom(world(), { room: 1 });
+  assert.doesNotMatch(warnings(usual), /horizon/);
 });
