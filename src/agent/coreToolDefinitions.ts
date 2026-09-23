@@ -261,7 +261,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_words",
     description:
-      "Compile parser vocabulary into WORDS.TOK. Slash-separated words share an ID; `groups` preserves explicit synonyms and multiword phrases. Register words before using them in said(). Standard navigation words are added automatically. Failure stores nothing.",
+      'Compile parser vocabulary into WORDS.TOK. Slash-separated words share an ID; `groups` preserves explicit synonyms and multiword phrases. `ignored` lists words the parser drops before matching (AGI word group 0), such as a, an and the, so LOOK AT THE NOTICE can match said("look", "notice") when at and the are ignored. Register words before using them in said(). Standard navigation words are added automatically. Failure stores nothing.',
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -280,8 +280,13 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
           type: "array",
           items: { type: "string" },
         },
+        ignored: {
+          type: ["array", "null"],
+          maxItems: 256,
+          items: { type: "string", minLength: 1, maxLength: 64 },
+        },
       },
-      required: ["words", "groups"],
+      required: ["words", "groups", "ignored"],
     },
   },
   {

@@ -379,3 +379,38 @@ test("a guessed field name is answered with the fields the tool accepts", () => 
     /rooms\[0\]\.name is not a known field \(fields: [^)]*\btitle\b/,
   );
 });
+
+test("write_words declares ignored words the parser drops before matching", () => {
+  // Opus tried to register "a/an/the/to…" as group 0 twice in the benchmark.
+  const state = createAgentSessionState();
+  const written = executeAgentTool(state, "write_words", {
+    words: ["look", "notice"],
+    groups: null,
+    ignored: ["a", "the", "at"],
+  });
+  assert.equal(written.success, true, written.error ?? "");
+  assert.equal(state.sources.words.get("the"), 0);
+  // An ignored word cannot join a synonym group, and a real word keeps its id.
+  const grouped = executeAgentTool(state, "write_words", {
+    words: ["the/notice"],
+    groups: null,
+    ignored: null,
+  });
+  assert.equal(grouped.success, false);
+  assert.match(grouped.error ?? "", /'the' is an ignored word/);
+  const moved = executeAgentTool(state, "write_words", {
+    words: [],
+    groups: null,
+    ignored: ["look"],
+  });
+  assert.equal(moved.success, false);
+  assert.match(moved.error ?? "", /'look' is already a word/);
+  // A stored test may now phrase its command naturally.
+  assert.equal(
+    executeAgentTool(state, "write_logic_source", {
+      room: 1,
+      source: 'if (said("look", "notice")) { print("It reads: help wanted."); } return;',
+    }).success,
+    true,
+  );
+});

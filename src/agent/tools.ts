@@ -741,6 +741,24 @@ function executeLegacyTool(
       };
       const addedNavWords: string[] = [];
       try {
+        if (args["ignored"] != null) {
+          if (!Array.isArray(args["ignored"]) || args["ignored"].length > 256)
+            throw new Error("ignored must be null or at most 256 words.");
+          for (const item of args["ignored"]) {
+            const word =
+              typeof item === "string" ? item.trim().toLowerCase().replace(/\s+/g, " ") : "";
+            if (!/^[a-z][a-z0-9' ]{0,63}$/.test(word))
+              throw new Error(
+                `Invalid ignored word '${String(item)}': use an ASCII word starting with a letter.`,
+              );
+            const existing = nextWords.get(word);
+            if (existing !== undefined && existing !== 0)
+              throw new Error(
+                `'${word}' is already a word (id ${existing}); ignored words must be new, so existing ids stay stable.`,
+              );
+            nextWords.set(word, 0);
+          }
+        }
         for (const item of rawWords) {
           if (typeof item !== "string") throw new Error("Each words entry must be a string.");
           const group = item
@@ -756,6 +774,11 @@ function executeLegacyTool(
               return id === undefined ? [] : [id];
             }),
           );
+          const ignoredWord = group.find((word) => nextWords.get(word) === 0);
+          if (ignoredWord !== undefined)
+            throw new Error(
+              `'${ignoredWord}' is an ignored word (group 0) and cannot join a synonym group.`,
+            );
           if (existingIds.size > 1)
             throw new Error(`Synonym group '${item}' combines existing word IDs.`);
           const id = existingIds.size ? [...existingIds][0]! : allocateId();
