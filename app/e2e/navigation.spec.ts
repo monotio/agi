@@ -122,6 +122,8 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await expect(page.getByTestId("game-controls")).toBeHidden();
   await settings.click();
   await page.screenshot({ path: test.info().outputPath("navigation-mobile.png") });
-  await page.getByRole("heading", { name: "AGI IS HERE", exact: true }).click();
+  // An outside click closes the menu. On a phone in play the brand heading is
+  // visually hidden, so the hint under the game is the neutral target.
+  await page.locator("#game-input-help").click();
   await expect(settings).toHaveAttribute("aria-expanded", "false");
 });

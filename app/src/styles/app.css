@@ -198,6 +198,30 @@ details[open] > .section-summary {
     min-height: 0;
   }
 }
+/* On a phone each game is a compact row: thumbnail beside title and Play. */
+@media (max-width: 600px) {
+  .saved-game-card {
+    flex-direction: row;
+  }
+  .saved-game-media {
+    flex: 0 0 112px;
+    align-self: flex-start;
+  }
+  .saved-game-cover {
+    font-size: 16px;
+    padding: 8px;
+  }
+  .saved-game-card-body {
+    min-width: 0;
+    padding: 10px 12px;
+  }
+  .saved-game-card .saved-world-title {
+    font-size: 16px;
+  }
+  .saved-game-play-row {
+    margin-top: 8px;
+  }
+}
 .saved-game-card .saved-world-title {
   margin: 0;
   color: #f2ffff;

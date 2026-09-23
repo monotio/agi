@@ -29,8 +29,9 @@ account, API key or original Sierra files needed.
   clock. Pause it, scrub the timeline, or **Take control** at any moment.
 - **Rewind.** Every session records itself. Scrub back to any earlier moment
   and resume from there.
-- **Help** in the app covers controls (keyboard, keypad and an on-screen pad for
-  phones), the world map, hints and walkthroughs.
+- **Help** in the app is a short guide to playing, creating and managing your
+  games, reachable from every screen. Each topic can open the control it
+  describes: the game's controls, the map, a hint, Remix, Create or Add game.
 
 ### Supported games
 

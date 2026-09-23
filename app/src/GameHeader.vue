@@ -215,7 +215,7 @@ async function onRecordSave(): Promise<void> {
 }
 </script>
 <template>
-  <header class="header">
+  <header class="header" :class="{ playing: state.phase === 'running' }">
     <div class="header-brand">
       <a
         v-if="state.phase === 'idle' || state.phase === 'error'"
@@ -890,6 +890,19 @@ h1 {
 @media (max-width: 600px) {
   .header {
     gap: 16px;
+  }
+  /* On a phone the game is the page: the menus stay, the brand steps aside
+     (still read out as the page heading). */
+  .header.playing {
+    margin-bottom: 0.75rem;
+  }
+  .header.playing .header-brand {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }
 </style>

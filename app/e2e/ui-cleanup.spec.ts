@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("the start page uses concise tutorial copy and readable primary actions", async ({ page }) => {
-  await expect(page.getByText("Dream it. Play it. Remix it.")).toBeVisible();
+  await expect(page.getByText("Play. Create. Remix.")).toBeVisible();
   await expect(page.getByText("The future has 16 colors. And you can rewrite it.")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Play the tutorial" })).toBeVisible();
   await expect(
