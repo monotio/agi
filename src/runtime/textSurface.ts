@@ -29,6 +29,15 @@ export const GLYPH_BL = 0x05;
 export const GLYPH_BR = 0x06;
 export const GLYPH_CURSOR = 0x07;
 
+/**
+ * A cell as readable text: a transparent cell is a space, printable ASCII
+ * itself, and anything else — the engine's border and cursor glyphs, a game's
+ * code-page characters — '#'.
+ */
+export function cellChar(ch: number): string {
+  return ch === 0 ? " " : ch < 0x20 || ch >= 0x80 ? "#" : String.fromCharCode(ch);
+}
+
 /** Pack a foreground/background colour pair into one attribute byte. */
 export function attr(fg: number, bg: number): number {
   return (fg & 0x0f) | ((bg & 0x0f) << 4);
@@ -186,10 +195,7 @@ export class TextSurface {
   /** The row as text; transparent cells read as spaces, glyph codes as '#'. */
   rowText(row: number): string {
     let s = "";
-    for (let c = 0; c < TEXT_COLS; c++) {
-      const ch = this.charAt(row, c);
-      s += ch === 0 ? " " : ch < 0x20 || ch >= 0x80 ? "#" : String.fromCharCode(ch);
-    }
+    for (let c = 0; c < TEXT_COLS; c++) s += cellChar(this.charAt(row, c));
     return s;
   }
 }
