@@ -415,7 +415,24 @@ const pendingAutosaveTitle = computed(
       <p class="verified-games-hint" data-testid="verified-games-hint">
         Verified to boot: King's Quest I–IV, Space Quest I–II, Police Quest I, Leisure Suit Larry I,
         The Black Cauldron, Mixed-Up Mother Goose, Donald Duck's Playground, Gold Rush!, Manhunter
-        1–2, demopac4.
+        1–2, demopac4; the Amiga editions of King's Quest II, Space Quest I–II, Police Quest I, Gold
+        Rush! and Manhunter 2; and Space Quest II for the Apple IIgs.
+      </p>
+      <p class="verified-games-hint" data-testid="fan-games-hint">
+        No Sierra copies? Fans have made over a hundred free AGI games:
+        <a
+          href="https://agiwiki.sierrahelp.com/index.php/Fan_AGI_Release_List"
+          target="_blank"
+          rel="noopener noreferrer"
+          >AGI Wiki</a
+        >
+        ·
+        <a
+          href="https://sciprogramming.com/fangames.php?eng=agi&cat=Complete&sort=downloads"
+          target="_blank"
+          rel="noopener noreferrer"
+          >SCI Programming</a
+        >. Their content varies, as fan works do.
       </p>
       <p v-if="importError" role="alert" data-testid="game-zip-error">{{ importError }}</p>
       <p v-if="importNotice" role="status" class="import-notice" data-testid="game-import-ready">

@@ -69,7 +69,12 @@ which profile to use. [Testing](docs/testing.md#testing-compatibility) lists
 the exact editions and builds.
 
 Commercial games are not included. Bring your own copies; they stay in your
-browser.
+browser. No copies? Fans have made over a hundred free AGI games since the late
+nineties, collected on the
+[AGI Wiki's fan release list](https://agiwiki.sierrahelp.com/index.php/Fan_AGI_Release_List)
+and in the
+[SCI Programming community's game list](https://sciprogramming.com/fangames.php?eng=agi&cat=Complete&sort=downloads).
+Their content varies, as fan works do.
 
 ## Create
 
