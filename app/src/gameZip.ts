@@ -6,7 +6,7 @@ import type { RoomMapSidecar } from "../../src/agent/roomMap.ts";
 import { crc32 } from "./zip.ts";
 import { readPublicMetadata, type PublicGameMetadata } from "./gameMetadata.ts";
 import { openContainer, DIRECTORY_FILES } from "../../src/container/container.ts";
-import { canonicalResourceName } from "../../src/types.ts";
+import { canonicalResourceName, isPlayableFileName } from "../../src/container/playableFiles.ts";
 import { decodeBooter, isBooterImage } from "../../src/container/booter.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import { parseLogicResource } from "../../src/logic/resource.ts";
@@ -170,6 +170,9 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
   for (const [path, bytes] of input) {
     const upper = path.replace(/\\/g, "/").toUpperCase();
     const slash = upper.lastIndexOf("/");
+    // macOS metadata: Finder's __MACOSX resource-fork tree and AppleDouble
+    // `._` files, which would otherwise read as a second LOGDIR root.
+    if (upper.startsWith("__MACOSX/") || upper.startsWith("._", slash + 1)) continue;
     const name = upper.slice(0, slash + 1) + canonicalResourceName(upper.slice(slash + 1));
     if (
       !name ||
@@ -203,12 +206,8 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
   for (const [path, data] of entries) {
     if (!path.startsWith(root)) continue;
     const name = path.slice(root.length);
-    if (
-      /^([A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|TESTS\.JSON|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/.test(
-        name,
-      )
-    )
-      files[name] = data;
+    // The shared playable vocabulary, plus the stored game tests.
+    if (isPlayableFileName(name) || name === "TESTS.JSON") files[name] = data;
   }
   if (!files["WORDS.TOK"]) throw new Error("The game is missing WORDS.TOK.");
   const container = openContainer(new Map(Object.entries(files)));

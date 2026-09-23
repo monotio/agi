@@ -675,6 +675,46 @@ test("import reports which progress entries browser storage refused", async (t) 
   assert.deepEqual(report, { slots: [1], failedSlots: [7], autosave: null });
 });
 
+test("imports keep port executables and the IIgs wavetable under canonical names", async () => {
+  // The Amiga hunk magic, a SYS16 stand-in and a wavetable stand-in: bytes
+  // only need to survive import, not run.
+  const ports = {
+    Sierra: Uint8Array.of(0, 0, 3, 0xf3),
+    "sq2.sys16": Uint8Array.of(1, 2, 3),
+    sierrastandard: Uint8Array.of(4, 5, 6),
+  };
+  const opened = readGameFiles(
+    new Map(
+      [...Object.entries(game()), ...Object.entries(ports)].map(([n, b]) => [`Port/${n}`, b]),
+    ),
+  );
+  assert.deepEqual(opened.files["SIERRA"], ports.Sierra);
+  assert.deepEqual(opened.files["SQ2.SYS16"], ports["sq2.sys16"]);
+  assert.deepEqual(opened.files["SIERRASTANDARD"], ports.sierrastandard);
+  // Identity ignores spelling: the same bytes under the native and the
+  // canonical names are one revision.
+  assert.equal(await gameRevision({ ...game(), ...ports }), await gameRevision(opened.files));
+  // Two spellings of one playable name are a duplicate, not two files.
+  await assert.rejects(
+    gameRevision({ ...game(), Sierra: ports.Sierra, SIERRA: ports.Sierra }),
+    /Duplicate game resource name/,
+  );
+});
+
+test("a ZIP made by macOS Finder imports despite its AppleDouble metadata", () => {
+  // Finder's Compress adds __MACOSX/<folder>/._<name> resource forks beside
+  // every file; ._LOGDIR ends in DIR and once read as a second game root.
+  const files = Object.entries(game());
+  const opened = readGameFiles(
+    new Map([
+      ...files.map(([n, b]): [string, Uint8Array] => [`quest/${n}`, b]),
+      ...files.map(([n]): [string, Uint8Array] => [`__MACOSX/quest/._${n}`, Uint8Array.of(0, 5)]),
+      ["quest/._LOGDIR", Uint8Array.of(0, 5)],
+    ]),
+  );
+  assert.deepEqual(Object.keys(opened.files).sort(), files.map(([n]) => n).sort());
+});
+
 test("interpreter executables stay in the playable file set so detection can read them", () => {
   for (const name of ["AGI", "AGIDATA.OVL", "SIERRA.COM", "GR", "Sierra", "mh2", "SQ2.SYS16"])
     assert.equal(isPlayableFileName(name), true, name);

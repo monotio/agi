@@ -38,28 +38,7 @@ export type ResourceKind = "logic" | "picture" | "view" | "sound";
 
 export const RESOURCE_KINDS: readonly ResourceKind[] = ["logic", "picture", "view", "sound"];
 
-/**
- * Canonical spelling of a container file name, or the name unchanged.
- * Resource names match case-insensitively: `logdir` is LOGDIR, `vol.0` is
- * VOL.0, `words.tok` is WORDS.TOK. The Amiga v3 `dirs` file is the combined
- * directory with an empty prefix, canonical DIR. Names outside the container
- * vocabulary pass through so unrelated files keep their own spelling.
- */
-export function canonicalResourceName(name: string): string {
-  const upper = name.toUpperCase();
-  if (upper === "DIRS") return "DIR";
-  if (
-    upper === "WORDS.TOK" ||
-    upper === "OBJECT" ||
-    upper === "TESTS.JSON" ||
-    upper === "AGI" ||
-    upper === "AGIDATA.OVL" ||
-    upper.endsWith("DIR") ||
-    /VOL\.\d+$/.test(upper)
-  )
-    return upper;
-  return name;
-}
+export { canonicalResourceName } from "./container/playableFiles.ts";
 
 /**
  * In-memory view of an AGI v2 split or v3 combined container.

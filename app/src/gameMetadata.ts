@@ -7,8 +7,7 @@ import {
   type ResourceRevision,
 } from "../../src/gameIdentity.ts";
 import { sha256Hex } from "./crypto.ts";
-import { canonicalResourceName } from "../../src/types.ts";
-import { isInterpreterFileName } from "../../src/runtime/profile.ts";
+import { canonicalResourceName, isPlayableFileName } from "../../src/container/playableFiles.ts";
 import type { BootedGame } from "./gameTypes.ts";
 import { PROFILES, type ProfileId, type ProfileDetectionKind } from "../../src/runtime/profile.ts";
 
@@ -161,20 +160,12 @@ export function readPublicMetadata(raw: unknown): {
 }
 
 /**
- * The canonical playable file set — the names a Game export ships: AGI
- * directory and volume files, the vocabulary and object tables, the loader
- * overlay and interpreter executables, and the Apple IIgs SIERRASTANDARD
- * wavetable its interpreter uploads to the sound chip. Tests, notes, maps and history are
- * authoring records: they travel in a Project archive, never in a Game
- * bundle, and never move the ResourceRevision.
+ * The canonical playable file set — the names a Game export ships — is one
+ * vocabulary shared with import, discovery and detection. Tests, notes, maps
+ * and history are authoring records: they travel in a Project archive, never
+ * in a Game bundle, and never move the ResourceRevision.
  */
-export function isPlayableFileName(name: string): boolean {
-  return (
-    /^([A-Z0-9_]*DIR|DIRS|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|SIERRASTANDARD)$/i.test(
-      name,
-    ) || isInterpreterFileName(name)
-  );
-}
+export { isPlayableFileName } from "../../src/container/playableFiles.ts";
 
 /**
  * SHA-256 of the canonical playable file set (`isPlayableFileName`), sorted
