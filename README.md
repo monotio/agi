@@ -1,25 +1,155 @@
 # AGI IS HERE
 
-Describe an adventure, then play it as an agent builds the rooms around you.
-You can ask for changes while you play: give the guard a different personality,
-add a puzzle, or turn the courtyard into a swamp.
+Remember typing LOOK AT CASTLE? AGI IS HERE brings back Sierra's adventure
+engine exactly as it ran in 1987, and lets an AI co-author new rooms while you
+play.
 
-AGI IS HERE runs in your browser, using an authentic [**Adventure Game
-Interpreter**](https://en.wikipedia.org/wiki/Adventure_Game_Interpreter), the engine behind Sierra's early adventures. The agent writes
-real AGI game files, which you can inspect, download and play again. Creating
-and remixing use your own OpenAI or Anthropic API key; playing existing content
-needs no key.
+Play the AGI classics in your browser from your own copies, or describe a new
+adventure and play it while an agent builds the rooms around you. Ask for
+changes mid-game: give the guard a different personality, add a puzzle, or turn
+the courtyard into a swamp. Everything the agent makes is a real
+[Adventure Game Interpreter](https://en.wikipedia.org/wiki/Adventure_Game_Interpreter)
+game that you can inspect, download and play again.
 
 ![Adventure Department: paint a mural while playing in the browser](docs/media/tutorial-gallery.png)
 
-See the [media gallery](docs/media/README.md) for picture diagnostics, playtest
-frames, sound previews and reproducible browser captures.
-
 ## Play
 
-Play at [agi.monotio.com](https://agi.monotio.com/), or run it locally.
+Open [agi.monotio.com](https://agi.monotio.com/) and click **Play now** on
+**Adventure Department**, an original three-room tutorial that teaches how AGI
+adventures work: repair a picture, wake a sprite and fix a clerk's priority. No
+account, API key or original Sierra files needed.
 
-With Node.js 22.22 or newer, run:
+- **Your own Sierra games.** **Add game** takes a ZIP or a game folder. The files
+  are read into your browser's storage; nothing is uploaded. The app identifies
+  the edition, picks the matching interpreter profile and checks that the game
+  opens.
+- **Watch a playthrough.** Verified releases come with a recorded completion
+  that replays on the real interpreter, keystroke by keystroke, on the game's own
+  clock. Pause it, scrub the timeline, or **Take control** at any moment.
+- **Rewind.** Every session records itself. Scrub back to any earlier moment
+  and resume from there.
+- **Help** in the app covers controls (keyboard, keypad and an on-screen pad for
+  phones), the world map, hints and walkthroughs.
+
+### Supported games
+
+These editions are verified in this interpreter. PC editions are checked with
+full recorded walkthroughs; the Amiga and Apple IIgs editions boot into their
+first room under their own interpreters.
+
+| Game                       | PC (DOS) | Amiga | Apple IIgs | Recorded walkthrough |
+| -------------------------- | :------: | :---: | :--------: | -------------------- |
+| King's Quest I             |   Yes    |       |            | Full game            |
+| King's Quest II            |   Yes    |  Yes  |            | Full game            |
+| King's Quest III           |   Yes    |       |            | Full game            |
+| King's Quest IV            |   Yes    |       |            | Full game            |
+| Space Quest I              |   Yes    |  Yes  |            | Full game            |
+| Space Quest II             |   Yes    |  Yes  |    Yes     | Full game            |
+| Police Quest I             |   Yes    |  Yes  |            | Full game            |
+| Leisure Suit Larry I       |   Yes    |       |            | Full game            |
+| The Black Cauldron         |   Yes    |       |            | Full game            |
+| Mixed-Up Mother Goose      |   Yes    |       |            | Full game            |
+| Donald Duck's Playground   |   Yes    |       |            | One chapter          |
+| Gold Rush!                 |   Yes    |  Yes  |            | Full game            |
+| Manhunter: New York        |   Yes    |       |            | Full game            |
+| Manhunter 2: San Francisco |   Yes    |  Yes  |            | Full game            |
+| Sierra AGI demo pack 4     |   Yes    |       |            |                      |
+
+Walkthroughs are recorded on the PC editions and bound to the exact release
+they were captured on; the
+[KQ1 completion proof](docs/testing.md#kq1-completion-proof) shows how one is
+made and checked. The Amiga and IIgs editions play their music through emulated
+Amiga Paula and approximate Apple IIgs sound, and the engine reproduces their
+mouse click-to-walk. PC editions choose between the Tandy sound chip and the PC
+speaker under **Settings → Advanced… → Sound chip**.
+Fan-made AGI games run too; if the app cannot identify the interpreter, it asks
+which profile to use. [Testing](docs/testing.md#testing-compatibility) lists
+the exact editions and builds.
+
+Commercial games are not included. Bring your own copies; they stay in your
+browser.
+
+## Create
+
+Pick one of the adventure templates or describe your own hero, setting and
+trouble, connect an OpenAI or Anthropic API key, and click **Create
+adventure**.
+
+| Template                                                | Your predicament                                                     |
+| ------------------------------------------------------- | -------------------------------------------------------------------- |
+| [Knight's Trial](games/knights-trial/SKILL.md)          | Find three impossible treasures before the kingdom runs out of time. |
+| [Badge of Millhaven](games/badge-of-millhaven/SKILL.md) | A rookie cop discovers that procedure is easier to follow on paper.  |
+| [Mop Jockey](games/mop-jockey/SKILL.md)                 | The station needs a hero. It has sent the cleaner.                   |
+| [Polyester Nights](games/polyester-nights/SKILL.md)     | A middle-aged lounge lizard tries his luck for one more night.       |
+
+The agent plans the world and builds the opening room: artwork, characters and
+game logic. When you walk into a room that does not exist yet, play pauses while
+the agent writes it. Along the way you can:
+
+- plan on the world map: rename rooms, edit their briefs and pin notes the agent
+  reads when it builds that part of the world;
+- use **Ask** for hints and questions that leave the game untouched, or
+  **Remix** to change it, including any game you imported;
+- attach reference images for rooms and character sprites;
+- preview the game's sounds as WAV clips.
+
+The agent writes logic, vector pictures, animated views, vocabulary, inventory
+and sound as standard AGI resources. It checks its own work with rendered
+previews, compiler diagnostics and isolated playtests. It can still get art,
+puzzles or writing wrong, so expect to playtest and ask for revisions.
+
+**Bring your own key, no server.** The app talks to your provider directly from
+the browser. Your key stays in browser storage, and relevant game content goes
+to the provider you choose, billed to your account. Each task starts with a $5
+estimated budget that you can change. See [Security](SECURITY.md) for storage
+and data flow, and [adventure briefs](games/README.md) for writing your own.
+
+## Save and share
+
+Games, saves and history live in your browser. The game's own Save and Restore
+use the authentic AGI save format, with twelve named slots per game, and the
+app autosaves so **Resume** picks up where you left off.
+
+| Game menu          | What you get                                                                                                                                               |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Export game…**   | A ZIP of the playable resources and public metadata: description, author, license and remix provenance.                                                    |
+| **Download game…** | A ZIP of the game plus its authoring conversation, images, source descriptions, world notes, stored tests, map, session history, saved games and autosave. |
+
+Either ZIP opens again with **Add game**, in any browser. A game without a
+declared license keeps an unknown license: exports never inherit this
+repository's MIT license.
+
+## How it works
+
+The engine is a framework-free TypeScript AGI interpreter with zero runtime
+dependencies. It reads AGI v2 and v3 game files (including the Amiga and Apple
+IIgs layouts) and selects build-specific behavior through interpreter profiles.
+Games created in the app are standard AGI 2.936 bytecode with no custom opcodes.
+The engine runs in a Web Worker; the Vue shell adds a GPU-rendered CRT display
+and an in-game command line, while game text stays on the original 40×25
+character screen.
+
+The engine is an independent implementation of Peter Kelly's CC0
+[agi-re behavioral specification](https://peterkelly.github.io/agi-re/spec/).
+Where games need more than the specification says, the original Sierra
+interpreters are the reference. [Interpreter compatibility](docs/fidelity.md)
+walks through what they do, from the random-number generator to the Amiga sound
+driver, with the evidence and regression tests behind each finding.
+
+## Documentation
+
+| Document                                                | For                                                             |
+| ------------------------------------------------------- | --------------------------------------------------------------- |
+| [Interpreter compatibility](docs/fidelity.md)           | How the original interpreters behave and how the engine matches |
+| [Contributing](CONTRIBUTING.md)                         | Development setup, checks and pull requests                     |
+| [Testing](docs/testing.md)                              | Game fixtures, walkthrough proofs and compatibility checks      |
+| [Hosting](docs/hosting.md#including-games-on-your-site) | Running your own copy and adding games to its catalog           |
+| [Evals](evals/README.md)                                | Measuring authoring quality                                     |
+| [Media gallery](docs/media/README.md)                   | Screenshots of the agent's tools and the tutorial               |
+| [Security](SECURITY.md)                                 | Keys, storage and data flow                                     |
+
+To run it locally, install Node.js 22.22 or newer and run:
 
 ```bash
 npm ci
@@ -27,240 +157,9 @@ npm --prefix app ci
 npm run dev
 ```
 
-Open `http://localhost:5199/` and click **Play now** for **Adventure Department**,
-an original MIT-licensed tutorial with three rooms. Repair a picture, wake a
-sprite and fix a clerk's priority to learn how AGI adventures work. It runs
-locally without a provider key or original Sierra game files. **Make a copy**
-keeps the catalog original intact; **Game → Download game…** includes the tutorial's
-editable logic, picture, view and sound sources. The exported AGI game can also run
-offline in a compatible interpreter. Loading this website itself still needs
-a connection; it is not yet an installable offline app.
-
-**Watch a playthrough** runs a recorded completion on the real interpreter —
-every keystroke replayed on the game's own clock, nothing pre-recorded or
-faked. The transport under the screen offers pause, speed, a scrubbable
-timeline with named checkpoints, and a story-pause toggle that waits at
-dialogue; **Take control** hands the running game to you at any point. The
-tutorial ships with a walkthrough, and verified Sierra releases get one when
-you import your own copy; each recording is bound to the exact game edition it
-was captured on, so it refuses to play against a different build.
-
-The built-in catalog includes Adventure Department 1.0.0. To include more games
-on your own site, put their resources in public folders and list them in
-`catalog.json`; visitors play them directly from the gallery without importing
-files. See [hosting included games](docs/hosting.md#including-games-on-your-site).
-
-**Add game** accepts a ZIP or folder. Compatible games verified to boot in this
-interpreter include _King's Quest I–IV_, _Space Quest I–II_, _Police Quest I_,
-_Leisure Suit Larry I_, _The Black Cauldron_, _Mixed-Up Mother Goose_,
-_Donald Duck's Playground_, _Gold Rush!_, _Manhunter: New York_,
-_Manhunter 2: San Francisco_, and the _Sierra demo pack_ (see
-[testing compatibility](docs/testing.md#testing-compatibility) for supported
-editions and fixture tests). The Amiga editions of _Space Quest I–II_,
-_King's Quest II_, _Police Quest I_, _Gold Rush!_ and _Manhunter 2_, and the
-Apple IIgs _Space Quest II_, run under their own interpreter profiles and
-play their sound through Amiga Paula or Apple IIgs playback. PC editions
-choose between the Tandy and PC speaker chips under **Settings** ›
-**Advanced…** › **Sound chip**. Your library appears under **Your games**,
-with **Resume** or **Play** on each card and a screenshot from its latest autosave.
-Rename a game with the pencil beside its name. Open **Game actions** to start
-over, check an imported game's opening, choose or change its interpreter profile,
-make a copy, download or remove a game.
-**Details** contains game metadata.
-
-To create an adventure with an AI provider, pick a starting point under
-**Create a new adventure**:
-
-| Adventure                                               | Your predicament                                                     |
-| ------------------------------------------------------- | -------------------------------------------------------------------- |
-| [Knight's Trial](games/knights-trial/SKILL.md)          | Find three impossible treasures before the kingdom runs out of time. |
-| [Badge of Millhaven](games/badge-of-millhaven/SKILL.md) | A rookie cop discovers that procedure is easier to follow on paper.  |
-| [Mop Jockey](games/mop-jockey/SKILL.md)                 | The station needs a hero. It has sent the cleaner.                   |
-| [Polyester Nights](games/polyester-nights/SKILL.md)     | A middle-aged lounge lizard tries his luck for one more night.       |
-
-Each template opens a Markdown brief you can edit. Or choose **Your own
-adventure** and describe the hero, setting and trouble. Plain language and
-structured [adventure briefs](games/README.md) both work. Connect your provider in
-**Connect AI**, then click **Create adventure**.
-
-The agent plans the world and builds the opening room — artwork, characters
-and game logic — in one turn, and the world map already shows the planned
-rooms: rename them, extend them, annotate them while you play. When you enter
-an unwritten room — or pick **Build this room** on its map node — play pauses
-while the agent creates it; you can follow its progress in the activity panel.
-Rooms you return to run from their saved resources. New games start with AGI
-boilerplate for boot, menus and death handling; the agent can use, extend or
-replace it to suit the adventure.
-
-Click the game to type, press **Enter** to submit, and use the arrow keys to walk.
-**Home**, **Page Up**, **End** and **Page Down** walk diagonally.
-The numeric keypad also walks in all eight directions: **7/9/1/3** diagonally
-and **8/4/6/2** straight, regardless of Num Lock. Top-row digits still type numbers;
-numeric and text prompts also accept keypad digits normally.
-**Controls** shows shortcuts registered by the running game.
-On a touchscreen, use the eight-direction pad and **Type** to open your phone's
-keyboard. **Enter**, **Esc**, **Space** and **Keys** provide dialog controls,
-F1–F10 and Ctrl/Alt letter combinations. The pad follows the game's movement
-mode: tap the same direction again to stop, or release in games using held-key
-movement. **Settings → Touch controls** also enables the pad on a desktop.
-With assistive activation in held-key games, activate an arrow once to walk
-and again to stop; leaving the control also releases it.
-Menus, inventory and save dialogs use these same keys; game text stays on the
-original 40×25 character screen. Native text entry handles commands, answers
-and save descriptions.
-**✦** opens **Ask** for hints and investigation, or **Remix** to change the game.
-Ask leaves the game untouched; Remix applies the finished changes and resumes
-play. You can also open an existing AGI game ZIP and remix it.
-
-For an authored game, use the attachment button in the agent panel to add a
-PNG, JPEG or WebP reference and a brief. Room references guide the next edit.
-Character pose rows produce a VIEW preview you can inspect and **Keep** as the
-player sprite, or send with **Use in edit**. A character sheet needs four to six
-poses on a flat background or transparency, with the feet on one ground line.
-Stored references and staged previews travel with a project download; reopen
-one with **Staged — inspect** to continue later.
-
-Sound inspection gives the agent timed events and a visual timeline. Known music
-gets a piano roll; effects and unclassified sounds show frequency and noise activity.
-Ask for a sound preview to get a local WAV player and download. These clips use
-the game's sound timing with approximate synthesis; the current authoring
-connections receive the data and image, not the audio.
-
-**Settings → AI provider** is shared by Create, Ask and Remix. Each provider keeps its own
-key, model and reasoning effort in this browser, so switching providers preserves
-your settings. Saving settings starts no model request.
-GPT-6 Astra is the default; choose another OpenAI or Anthropic model and effort
-in the same dialog. Selecting a model applies its default effort, which the app
-pins explicitly: Sol starts at low based on Genesis cost evaluations, Claude
-models at high and other OpenAI models at medium. Every request carries the
-chosen effort.
-Responses stream live: Ask shows text as it arrives, and authoring shows model
-activity and which tool it is preparing. Tools run only after the complete
-response has been received and validated.
-Tasks start with a $5 estimated budget, adjustable in the same settings dialog.
-**Stop** and **Continue** keep work in
-progress in the current tab; a budget pause lets you add another allowance.
-Stopping an active response discards its unfinished draft; Continue retries
-that request with the completed work retained.
-Estimates use reported tokens and standard API rates. A response can cross the
-threshold, and interrupted requests may still be billed.
-
-Your choice of model and brief affects the artwork, puzzles and continuity.
-Expect to playtest and revise. Provider calls are billed to your account; your
-key stays in browser storage and relevant game content goes to your chosen
-provider during authoring. See [Security](SECURITY.md) for storage and data flow.
-
-## Save and share
-
-**Your games** holds authored adventures, the included tutorial and games opened
-from a ZIP or local folder. An opening check identifies the edition from its
-interpreter files or from the catalog of known releases, selects the interpreter
-profile, captures a local thumbnail and catches invalid boot resources before an
-import is stored. It checks the opening only; it does not prove that every room or
-puzzle is playable. A game that ships neither interpreter files nor a catalogued
-fingerprint, such as a fan-made adventure, asks which profile to run under before
-its first boot; **Keep** runs the detected container default, and games made in
-the app never ask. **Game actions → Interpreter profile** shows the active profile
-and how it was chosen, and lets you pick any profile or return to **Automatic**;
-the choice is stored with the library entry and applied on every boot, replay and
-history view. Importing the same game resources
-again reuses the library entry, while project archives and remix copies keep
-independent authoring histories and save slots. Renaming a game does not change
-that identity.
-Playing the included tutorial or an imported game needs no provider key.
-
-Choose **Add game → ZIP file** or **Game folder**, or drop one ZIP or game
-folder into the opening area. Folder drops work in browsers that expose directory
-entries; the folder picker is the fallback. Files are read locally into your
-library, so playing does not require keeping the source folder connected.
-
-Completed remixes save in your browser. While playing, the header offers
-**Help**, **Settings**, **Game** and **Exit**. Help contains game controls,
-the map, hints and walkthroughs; Game contains editing, downloads and Start over.
-**Exit** saves before returning to game selection, and **Resume** restores
-your game and position.
-
-Every session records automatically. The transport stays below the screen:
-**Pause** holds the current game, and scrubbing selects an earlier recorded
-moment. **LIVE** returns to the current game and leaves it paused until you
-press **Resume**. **Resume from here** gives you control at a historical moment;
-**Undo rewind** restores the session you left. Recovery branches and history
-are retained within storage limits. **Watch from here** plays recorded actions
-without taking control. The map's room visits link to their recorded moments.
-
-**Help → Map** pauses the game and initially shows discovered rooms.
-**Full map** reveals rooms and exits found in the game's logic; the creator's
-plan also includes rooms the agent intends to build. Selecting a room shows
-its connections, visits and a thumbnail. The map is also where the world is
-planned: rename planned rooms, edit their briefs, add or remove rooms and
-exits, and pin notes to rooms and edges — the agent sees those notes when it
-builds that part of the world. **Build this room** on a planned node authors
-it without waiting for you to walk there. Discoveries, layout and notes are
-saved per project.
-
-The game's own Save/Restore actions open an engine-rendered selector with twelve
-numbered slots per game. Choose a slot with Up/Down and Enter, name a new save,
-then confirm; Esc cancels. Occupied slots require overwrite confirmation.
-These saves preserve the AGI binary format and are separate from autosave.
-Browser storage supplies the save directory; DOS drive and path dialogs are not
-emulated. Clearing browser data removes these local saves.
-
-| Export                    | What travels with it                                                                                                                                                                                                  |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Game → Export game…**   | Playable resources and public game metadata.                                                                                                                                                                          |
-| **Game → Download game…** | The game plus its authoring conversation, images, source descriptions, world notes, stored game tests, world-map discoveries, layout and notes, the recorded session history, and your saved games and last autosave. |
-
-Development downloads report any missing history or progress in `BACKUP.JSON`
-and in the app. If browser storage fails, the download captures available
-live progress and preserves pending history in `HISTORY-RECOVERY.JSON`.
-That raw history is not automatically restored; keep the original ZIP.
-
-Both downloads are ZIPs you can reopen with **Add game → ZIP file**. Public game
-exports can include a description, author, license and remix provenance in
-`GAME.JSON`. They exclude local thumbnails, validation results and conversations. A missing license remains unknown rather than inheriting this
-repository's MIT license. A game export starts a fresh authoring conversation; a
-project carries its saved context. A game export starts from the beginning; a
-project archive also carries your twelve save slots and latest autosave, so your
-position moves with it between browsers and computers.
-If the running game cannot save its current progress, the download explains why
-and offers an explicit choice to use only the progress already saved in this browser.
-
-## How it works
-
-The agent authors executable logic, vector pictures, animated sprites,
-vocabulary, inventory and sound. These resources run locally in the interpreter.
-When drawing pictures or sprites, the model receives rendered previews. It can
-inspect game state, look up commands for the active interpreter profile and test
-candidate logic, using compiler diagnostics and tool feedback to revise its work.
-Picture previews preserve AGI's double-width pixels. Scene probes report actor
-scale, control footprints and depth overlap; isolated playtests replay commands
-and movement and report wall contacts and observed animation timing. Requested
-checkpoints show intermediate composed frames with actor positions, cels and
-priorities, so the agent can inspect motion as well as the final scene. These checks
-support a repair-and-replay loop, but do not automatically solve arbitrary games
-or establish that their art and writing are good.
-
-The tutorial uses original native AGI vector backgrounds with broad color areas
-and sparse detail. Its characters use carefully resolved native EGA pixel clusters
-and aligned VIEW cels. The lever animates as a separate VIEW and keeps its pulled
-position when you return to the room.
-Collision and scenery depth are authored separately and tested in the interpreter;
-no image service is needed to play.
-
-The engine is framework-free TypeScript with zero runtime dependencies. It reads
-AGI v2 and v3 containers and selects interpreter behavior by profile; generated
-adventures target AGI 2.936 with standard bytecode. The browser shell adds a GPU
-CRT display and an in-game command line. The game resources and engine are open
-to inspection.
-
-[Interpreter compatibility](docs/fidelity.md) documents profile selection and
-behavior verified against original interpreters, with evidence and regression tests.
-
-See [Contributing](CONTRIBUTING.md) for architecture, tests and local game
-fixtures, [Hosting](docs/hosting.md) for running your own site, and
-[evals](evals/README.md) for authoring evaluations.
-The [KQ1 completion proof](docs/testing.md#kq1-completion-proof) runs a local
-walkthrough on a virtual clock and replays it through desktop and phone controls.
+Then open `http://localhost:5199/`. The website needs a connection to load; it
+is not yet an installable offline app. Exported games play offline in any
+compatible interpreter.
 
 ## Back to AGI, thirty years later
 
@@ -283,8 +182,13 @@ is the foundation of this independent implementation.** It documents the formats
 observable behavior and interpreter versions, and is published under
 [CC0](https://github.com/peterkelly/agi-re/blob/main/LICENSE). Thank you, Peter.
 
-Created by Joakim Riedel and published by [Monotio](https://monotio.com).
-The engine, authoring tools, browser shell and original project assets use the
-[MIT license](LICENSE). Dependencies and imported games retain their own licenses.
-The pencil, menu and chevron icons are from [Lucide](https://lucide.dev), with
-[ISC and Feather MIT notices](app/public/licenses/lucide.txt) included in the build.
+## License
+
+Created by Joakim Riedel and published by [Monotio](https://monotio.com). The
+engine, authoring tools, browser shell and original project assets, including
+the Adventure Department tutorial, use the [MIT license](LICENSE).
+Dependencies and imported games keep their own licenses; no commercial game
+assets are part of this repository. The pencil, menu and chevron icons are from
+[Lucide](https://lucide.dev), with
+[ISC and Feather MIT notices](app/public/licenses/lucide.txt) included in the
+build.
