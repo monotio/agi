@@ -1,0 +1,17 @@
+id: no-locale-compare-in-src
+language: ts
+severity: error
+message: >-
+  localeCompare in engine or authoring code — order by code point so hashes and
+  stored revisions do not depend on the browser's language
+note: |
+  Resource-set hints, world-plan revisions and other canonical serializations
+  are stored in projects and tapes and recomputed on another machine.
+  `localeCompare` follows the runtime locale (Danish sorts `AA` after `Z`),
+  so the same bytes could hash differently in two browsers.
+  BAD:  entries.sort(([a], [b]) => a.localeCompare(b))
+  GOOD: entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+files:
+  - src/**
+rule:
+  pattern: $A.localeCompare($$$)

@@ -32,8 +32,12 @@ export interface OpenedGame {
   metadata?: PublicGameMetadata;
   /** The interpreter override GAME.JSON names; detection decides without one. */
   profile?: ProfileId;
+  /** An override naming a profile this build does not ship. */
+  unknownProfile?: string;
   /** Recovery payloads remain in the original ZIP; they are not replay imports. */
   backupWarning?: string;
+  /** A MAP.JSON this app could not read; the import goes on without the map. */
+  mapWarning?: string;
 }
 
 export async function readGameZip(bytes: Uint8Array): Promise<OpenedGame> {
@@ -240,17 +244,19 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
   const projectBytes = entries.get(`${root}PROJECT.JSON`);
   const project = projectBytes ? readProjectContext(projectBytes, entries, root) : undefined;
   const progress = project
-    ? readProgressEntries(entries, root, files, gameMetadata.profile)
+    ? readProgressEntries(entries, root, files, gameMetadata.profile, gameMetadata.unknownProfile)
     : undefined;
-  // A corrupt map must not sink the import: it is derived UI data, so it
-  // degrades to an empty map rather than refusing the whole project.
+  // A corrupt or newer map must not sink the import: it is derived UI data,
+  // so the import goes on without it — and says so, because the next export
+  // will not carry it either.
   let map: OpenedGame["map"];
+  let mapWarning: string | undefined;
   const mapBytes = project ? entries.get(`${root}MAP.JSON`) : undefined;
   if (mapBytes) {
     try {
       map = readMapArchive(mapBytes);
-    } catch {
-      map = undefined;
+    } catch (error) {
+      mapWarning = `The world map could not be read (${String(error).replace(/^Error: /, "")}) and was left out. Keep the original ZIP to keep it.`;
     }
   }
   // The tape is part of the released project format: a corrupt or
@@ -303,5 +309,6 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
     ...(map ? { map } : {}),
     ...(history ? { history } : {}),
     ...(backupWarning ? { backupWarning } : {}),
+    ...(mapWarning ? { mapWarning } : {}),
   };
 }

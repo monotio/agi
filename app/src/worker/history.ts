@@ -338,22 +338,34 @@ export function createHistory(ctx: WorkerContext) {
     // the bound is full. Without it the stored segment never closes and the
     // dropped tail is a silent hole instead of a marked gap.
     h.sent.push(batch);
-    ctx.ports.control({ type: "historyBatch", epoch: h.epoch, batch });
+    send(batch);
     armResend();
   }
 
   function post(batch: HistoryBatch): void {
     const h = ctx.history;
     h.sent.push(batch);
-    ctx.ports.control({ type: "historyBatch", epoch: h.epoch, batch });
+    send(batch);
     armResend();
+  }
+
+  /**
+   * A batch names the profile the engine runs: the first one opens the
+   * stored tape, possibly before the page has heard that the game booted.
+   */
+  function send(batch: HistoryBatch): void {
+    ctx.ports.control({
+      type: "historyBatch",
+      epoch: ctx.history.epoch,
+      batch,
+      ...(ctx.engine ? { profile: ctx.engine.profile.id } : {}),
+    });
   }
 
   /** Resend the oldest un-acked batch, bypassing the new-batch credit. */
   function resend(): void {
     const h = ctx.history;
-    if (h.sent.length > 0)
-      ctx.ports.control({ type: "historyBatch", epoch: h.epoch, batch: h.sent[0]! });
+    if (h.sent.length > 0) send(h.sent[0]!);
   }
 
   /**

@@ -176,7 +176,15 @@ function openDatabase(): Promise<IDBDatabase> {
     };
     request.onerror = () => {
       database = undefined;
-      reject(request.error);
+      // A newer app already upgraded this browser's database; this page's
+      // code is out of date, not the data.
+      reject(
+        request.error?.name === "VersionError"
+          ? new Error(
+              "Your projects were saved by a newer version of this app. Reload the page to update it.",
+            )
+          : request.error,
+      );
     };
   });
   return database.catch((error) => {

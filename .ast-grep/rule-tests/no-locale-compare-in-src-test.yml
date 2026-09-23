@@ -1,0 +1,7 @@
+id: no-locale-compare-in-src
+valid:
+  - "entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));"
+  - "names.sort();"
+invalid:
+  - "entries.sort(([a], [b]) => a.localeCompare(b));"
+  - 'title.localeCompare(other, "en");'

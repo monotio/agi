@@ -246,6 +246,11 @@ test("a stamped record whose fields drifted fails validation", () => {
   const drifted = JSON.parse(JSON.stringify(good));
   drifted.segments[0].boot.rng = 8;
   assert.throws(() => validateHistoryRecording(drifted), /fingerprint does not match/);
+
+  // A newer recorder's fingerprint says so rather than posing as drift.
+  const newer = JSON.parse(JSON.stringify(good));
+  newer.segments[0].boot.fingerprint.v = 2;
+  assert.throws(() => validateHistoryRecording(newer), /fingerprint version 2 is not supported/);
 });
 
 test("an end batch alone cannot skip a failed lower batch", async () => {

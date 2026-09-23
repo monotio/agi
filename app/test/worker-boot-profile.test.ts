@@ -164,6 +164,9 @@ test("the recorded boot carries the override and replays and adoptions use it", 
   assert.ok(opened?.batch.boot);
   const boot: HistoryBoot = opened.batch.boot;
   assert.equal(boot.profile, "2.411", "the segment boot records the override");
+  // The batch that opens the stored tape names the running profile itself:
+  // it can reach the page before the booted message does.
+  assert.equal(opened.profile, "2.411", "the opening batch names the running profile");
   assert.equal(validateHistoryBoot(JSON.parse(JSON.stringify(boot))).profile, "2.411");
   assert.throws(() => validateHistoryBoot({ ...boot, profile: "9.999" }), /profile/);
 

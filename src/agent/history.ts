@@ -837,10 +837,11 @@ function syncMarks(value: unknown): HistorySyncMark[] {
 
 function fingerprint(value: unknown): HistoryFingerprint {
   if (!isObj(value)) fail("fingerprint must be an object.");
-  return {
-    v: int(value["v"], "fingerprint v", 0xffff),
-    hash: text(value["hash"], "fingerprint hash", 64),
-  };
+  const v = int(value["v"], "fingerprint v", 0xffff);
+  // A newer fingerprint is a newer recorder, not a mismatched state.
+  if (v !== HISTORY_FINGERPRINT_VERSION)
+    fail(`fingerprint version ${v} is not supported by this version of the app.`);
+  return { v, hash: text(value["hash"], "fingerprint hash", 64) };
 }
 
 function anchor(value: unknown): HistoryAnchor {

@@ -331,7 +331,7 @@ export function useEngine(
     handleAutosave: autosaveController.handleAutosave,
     // The transport's live axis tracks every posted batch — the timeline's
     // LIVE endpoint moves with play whether or not the commit has landed.
-    handleHistoryBatch: (msg: { epoch: number; batch: HistoryBatch }) => {
+    handleHistoryBatch: (msg: { epoch: number; batch: HistoryBatch; profile?: string }) => {
       historyView.observeBatch(msg.batch);
       return historyController.handleHistoryBatch(msg);
     },

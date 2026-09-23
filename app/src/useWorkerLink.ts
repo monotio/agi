@@ -27,7 +27,11 @@ export interface WorkerLinkDeps {
   cancelPrompt(): void;
   handleAutosave(msg: Extract<WorkerOutbound, { type: "autosave" }>): void;
   /** Persist one history batch; true answers it with a historyAck. */
-  handleHistoryBatch(msg: { epoch: number; batch: HistoryBatch }): Promise<boolean>;
+  handleHistoryBatch(msg: {
+    epoch: number;
+    batch: HistoryBatch;
+    profile?: string;
+  }): Promise<boolean>;
   /** History-transport position reports — progress and terminal replies. */
   handleHistoryView(msg: Extract<WorkerOutbound, { type: "historyView" }>): void;
   handleFlushed(msg: Extract<WorkerOutbound, { type: "flushed" }>): void;

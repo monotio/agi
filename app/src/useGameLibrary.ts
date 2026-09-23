@@ -522,7 +522,9 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
   function progressNote(game: OpenedGame, stored: ImportStorageReport | null): string {
     const mapNote = game.map
       ? ` (world map ${stored?.map ? "stored" : "could not be stored"})`
-      : "";
+      : game.mapWarning
+        ? ` (${game.mapWarning})`
+        : "";
     const recoveryNote = game.backupWarning ? ` (${game.backupWarning})` : "";
     const historyNote = game.history
       ? ` (session tape ${stored?.history ? "stored" : "could not be stored"})`

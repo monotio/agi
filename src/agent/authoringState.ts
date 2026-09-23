@@ -32,7 +32,9 @@ export function resourceCacheHint(payload: Uint8Array | null): string {
 export function resourceSetHint(state: { getFiles(): Map<string, Uint8Array> }): string {
   let hash = 0x811c9dc5;
   let total = 0;
-  for (const [name, bytes] of [...state.getFiles()].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [name, bytes] of [...state.getFiles()].sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  )) {
     for (let i = 0; i < name.length; i++)
       hash = Math.imul(hash ^ name.charCodeAt(i), 0x01000193) >>> 0;
     hash = Math.imul(hash ^ 0xff, 0x01000193) >>> 0;

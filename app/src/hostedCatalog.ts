@@ -1,11 +1,10 @@
 import type { GameCatalogEntry } from "./gameCatalog.ts";
 import { readGameFiles, type OpenedGame } from "./gameZip.ts";
+import { canonicalResourceName, isPlayableFileName } from "../../src/container/playableFiles.ts";
 
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_GAME_BYTES = 256 * 1024 * 1024;
-const PUBLIC_GAME_FILE =
-  /^(?:[A-Z0-9_]*DIR|DIRS|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM|GAME\.JSON)$/;
 
 export interface HostedCatalogRecord {
   id: string;
@@ -64,10 +63,11 @@ export function readHostedCatalogManifest(raw: unknown, manifestUrl: URL): Hoste
     const files = game["files"].map((file) => {
       if (typeof file !== "string" || file !== file.trim())
         throw new Error("Hosted catalog file name is invalid.");
-      const upper = file.toUpperCase();
-      if (!PUBLIC_GAME_FILE.test(upper) || names.has(upper))
+      // The playable set a Game export ships, plus its metadata.
+      const canonical = canonicalResourceName(file.toUpperCase());
+      if ((!isPlayableFileName(file) && canonical !== "GAME.JSON") || names.has(canonical))
         throw new Error("Hosted catalog file list contains an unsafe or duplicate file.");
-      names.add(upper);
+      names.add(canonical);
       return file;
     });
     const description = text(game["description"], "description", 600, false);

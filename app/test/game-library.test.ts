@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { testProjectId } from "./identity.ts";
 import { requireResourceRevision } from "../../src/gameIdentity.ts";
@@ -645,6 +646,20 @@ test("an interpreter override travels with both exports and decodes the saves th
   const plain = await buildProjectZip(automatic, progress);
   assert.equal(new TextDecoder().decode(plain).includes('"profile"'), false);
   await assert.rejects(readGameZip(plain), /SAVES\/SG\.1 is not a save file for this game/);
+  // A newer app's profile this build does not know boots automatically, and
+  // a save that needs it is refused by name rather than as foreign.
+  const future = await readGameZip(
+    await buildProjectZip(
+      {
+        ...data,
+        // The export's own OBJECT, so no fallback runs under the unknown id.
+        files: { ...files, OBJECT: project.files["OBJECT"]! },
+        library: { ...data.library!, profile: "9.999" as never },
+      },
+      progress,
+    ),
+  ).catch((error: unknown) => error as Error);
+  assert.match(String(future), /saves are for interpreter 9\.999, .* Update the app/);
 });
 
 test("import reports which progress entries browser storage refused", async (t) => {
@@ -755,6 +770,38 @@ test("imports keep port executables and the IIgs wavetable under canonical names
     gameRevision({ ...game(), Sierra: ports.Sierra, SIERRA: ports.Sierra }),
     /Duplicate game resource name/,
   );
+});
+
+test("the resource revision is pinned: SHA-256 over the canonical playable set", async () => {
+  // Stored autosaves, catalog entries, references and walkthroughs all keep
+  // a revision, so its input and packing are part of the 1.0 contract. Each
+  // playable file contributes, in code-point order of its canonical name, a
+  // u32be name length, a u32be byte length, the ASCII name and the bytes;
+  // authoring sidecars and other files do not contribute.
+  const files = {
+    "sq2.sys16": Uint8Array.of(4),
+    Sierra: Uint8Array.of(1),
+    dirs: Uint8Array.of(2, 3),
+    sierrastandard: Uint8Array.of(5, 6, 7),
+    "TESTS.JSON": Uint8Array.of(9),
+    "ReadMe.txt": Uint8Array.of(8),
+  };
+  const packed = Buffer.concat(
+    (
+      [
+        ["DIR", [2, 3]],
+        ["SIERRA", [1]],
+        ["SIERRASTANDARD", [5, 6, 7]],
+        ["SQ2.SYS16", [4]],
+      ] as const
+    ).map(([name, bytes]) => {
+      const head = Buffer.alloc(8);
+      head.writeUInt32BE(name.length, 0);
+      head.writeUInt32BE(bytes.length, 4);
+      return Buffer.concat([head, Buffer.from(name, "ascii"), Buffer.from(bytes)]);
+    }),
+  );
+  assert.equal(await gameRevision(files), createHash("sha256").update(packed).digest("hex"));
 });
 
 test("a ZIP made by macOS Finder imports despite its AppleDouble metadata", () => {

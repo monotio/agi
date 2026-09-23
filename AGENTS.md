@@ -59,6 +59,16 @@ Version 1.0 is the first public archive baseline. After it, released saves and
 exports stay readable. Readers reject unknown versions without rewriting bytes. Add migrations
 only for released formats and keep their original fixtures.
 
+- The released archives in `app/test/formats/` are never regenerated;
+  `app/test/archive-formats.test.ts` must keep reading them.
+- A new field in a released format, or a change to the engine replay state that
+  tapes and recorded tests carry, is a version bump. Most readers rebuild their
+  records and would drop the field on the next save.
+- Stored identities stay fixed: the resource revision (pinned in
+  `app/test/game-library.test.ts`) and profile ids (pinned in
+  `test/profile.test.ts`). Hashes and canonical serializations order by code
+  point, never by locale.
+
 During release-candidate development, project-owned schemas stay at v1 and evolve
 in place. Do not add schema bumps, old readers, compatibility paths or backfills.
 Rebuild fixtures and clear development storage explicitly when needed. Local

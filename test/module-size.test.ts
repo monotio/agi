@@ -127,7 +127,8 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the stored game-test runner",
   },
   "app/src/gameStorage.ts": {
-    lines: 1008,
+    // rc.18: a database a newer app upgraded explains itself.
+    lines: 1063,
     boundary:
       "the local persistence records layer: conditional writes, coherent body/lifetime reads and transactional deletion receipts",
   },

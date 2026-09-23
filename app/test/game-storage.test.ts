@@ -631,6 +631,38 @@ test("a database open that finishes after being blocked closes its abandoned con
   assert.equal(closed, 1);
 });
 
+test("a database a newer app upgraded asks for a reload instead of a raw VersionError", async (t) => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "indexedDB");
+  t.after(() => {
+    if (previous) Object.defineProperty(globalThis, "indexedDB", previous);
+    else Reflect.deleteProperty(globalThis, "indexedDB");
+  });
+  const request = {
+    onerror: null as (() => void) | null,
+    error: Object.assign(
+      new Error("The requested version (1) is less than the existing version (2)."),
+      {
+        name: "VersionError",
+      },
+    ),
+  };
+  Object.defineProperty(globalThis, "indexedDB", {
+    configurable: true,
+    value: {
+      open: () => {
+        queueMicrotask(() => request.onerror?.());
+        return request;
+      },
+    },
+  });
+  const modulePath = "../src/gameStorage.ts?newer-database";
+  const fresh = await import(modulePath);
+  await assert.rejects(
+    fresh.bodyTransaction("readonly", (store: IDBObjectStore) => store.getAllKeys()),
+    /saved by a newer version of this app\. Reload the page/,
+  );
+});
+
 test("concurrency conflict compare-and-swap preserves losing edits in stashedConflicts", async (t) => {
   const values = new Map<string, string>();
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");

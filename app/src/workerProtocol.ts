@@ -321,7 +321,7 @@ export type WorkerControl =
    * Batches are committed with the anchor they carry, then acknowledged with
    * historyAck so the worker's ring stays bounded.
    */
-  | { type: "historyBatch"; epoch: number; batch: HistoryBatch }
+  | { type: "historyBatch"; epoch: number; batch: HistoryBatch; profile?: string }
   | RoomTransitionNotice
   | {
       type: "flushed";
