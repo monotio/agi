@@ -6,6 +6,8 @@
  * renders. The engine API is injected, never passed as a prop.
  */
 import ActionMenu from "./ActionMenu.vue";
+import HelpGuide from "./HelpGuide.vue";
+import type { HelpAction } from "./helpContent.ts";
 import { computed, ref, useTemplateRef } from "vue";
 import { useEngineApi } from "./engineContext.ts";
 import { useAiSettings } from "./useAiSettings.ts";
@@ -56,6 +58,48 @@ const { aiModelLabel, aiSettingsUnavailable, openAiSettings, llmConfig } = useAi
 const bridge = useShellBridge();
 
 const controlsDialog = useTemplateRef("controlsDialog");
+const helpGuide = useTemplateRef("helpGuide");
+
+/** The Help guide's "Show me" actions this screen can perform right now. */
+const helpActions = computed<HelpAction[]>(() => {
+  if (state.phase !== "running")
+    return aiSettingsUnavailable.value
+      ? ["create", "add-game"]
+      : ["ai-settings", "create", "add-game"];
+  const actions: HelpAction[] = ["controls", "map"];
+  if (!state.powerUp.busy && !state.historyView.active) actions.push("hint", "remix");
+  if (!aiSettingsUnavailable.value) actions.push("ai-settings");
+  return actions;
+});
+
+function onHelpAction(kind: HelpAction): void {
+  switch (kind) {
+    case "controls":
+      controlsDialog.value?.showModal();
+      return;
+    case "map":
+      roomMap.openMap({ experience: "play" });
+      return;
+    case "hint":
+      onPowerUp("ask");
+      return;
+    case "remix":
+      onPowerUp("remix");
+      return;
+    case "ai-settings":
+      openAiSettings(null, "header");
+      return;
+    case "create":
+      void bridge.openCreateSection();
+      return;
+    case "add-game": {
+      const addGame = document.getElementById("open-game");
+      addGame?.scrollIntoView({ block: "center" });
+      addGame?.querySelector<HTMLElement>("[data-testid='open-game-menu']")?.focus();
+      return;
+    }
+  }
+}
 
 function closeNavMenus(restoreFocus = false): void {
   void restoreFocus;
@@ -187,7 +231,24 @@ async function onRecordSave(): Promise<void> {
       class="game-nav"
       aria-label="App options"
     >
+      <button
+        v-if="state.phase !== 'running'"
+        type="button"
+        class="ui-button ui-button--secondary"
+        data-testid="btn-help"
+        @click="helpGuide?.open()"
+      >
+        Help
+      </button>
       <ActionMenu v-if="state.phase === 'running'" label="Help" test-id="help-menu">
+        <button
+          type="button"
+          role="menuitem"
+          data-testid="btn-help-guide"
+          @click="helpGuide?.open()"
+        >
+          <span>Help guide<small>Playing, creating and your games</small></span>
+        </button>
         <button
           type="button"
           role="menuitem"
@@ -481,6 +542,7 @@ async function onRecordSave(): Promise<void> {
   <p v-if="recordResult" class="record-result" data-testid="record-result" role="status">
     {{ recordResult }}
   </p>
+  <HelpGuide ref="helpGuide" :available="helpActions" @action="onHelpAction" />
   <dialog
     ref="controlsDialog"
     class="controls-dialog"
