@@ -5,6 +5,7 @@ import { readHistoryArchive, type ProjectHistory } from "./historyArchive.ts";
 import type { RoomMapSidecar } from "../../src/agent/roomMap.ts";
 import { crc32 } from "./zip.ts";
 import { readPublicMetadata, type PublicGameMetadata } from "./gameMetadata.ts";
+import type { ProfileId } from "../../src/runtime/profile.ts";
 import { openContainer, DIRECTORY_FILES } from "../../src/container/container.ts";
 import { canonicalResourceName, isPlayableFileName } from "../../src/container/playableFiles.ts";
 import { decodeBooter, isBooterImage } from "../../src/container/booter.ts";
@@ -29,6 +30,8 @@ export interface OpenedGame {
   /** The recorded session tape with its kept original and bookmarks; project archives only. */
   history?: ProjectHistory;
   metadata?: PublicGameMetadata;
+  /** The interpreter override GAME.JSON names; detection decides without one. */
+  profile?: ProfileId;
   /** Recovery payloads remain in the original ZIP; they are not replay imports. */
   backupWarning?: string;
 }
@@ -236,7 +239,9 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
   const gameMetadata = metadata ? readPublicMetadata(rawMetadata) : { roomGeneration: false };
   const projectBytes = entries.get(`${root}PROJECT.JSON`);
   const project = projectBytes ? readProjectContext(projectBytes, entries, root) : undefined;
-  const progress = project ? readProgressEntries(entries, root, files) : undefined;
+  const progress = project
+    ? readProgressEntries(entries, root, files, gameMetadata.profile)
+    : undefined;
   // A corrupt map must not sink the import: it is derived UI data, so it
   // degrades to an empty map rather than refusing the whole project.
   let map: OpenedGame["map"];

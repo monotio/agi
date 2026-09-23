@@ -6,7 +6,7 @@
  */
 import { Engine, type EngineHost, type EngineMenuState } from "../../src/runtime/engine.ts";
 import { decodeHostImage, decodeSave } from "../../src/runtime/persistence.ts";
-import { detectProfile } from "../../src/runtime/profile.ts";
+import { detectProfile, type ProfileId } from "../../src/runtime/profile.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { readGameSaves, writeGameSave } from "./gameSaves.ts";
@@ -135,6 +135,7 @@ const RESTORE_CHECK_HOST: EngineHost = {
  */
 function restoreChecker(
   files: Record<string, Uint8Array>,
+  profile: ProfileId | undefined,
 ): (label: string, image: Uint8Array) => void {
   let engine: Engine | undefined;
   return (label, image) => {
@@ -146,6 +147,7 @@ function restoreChecker(
         words
           ? new Map(parseWordsTok(words).map(({ word, id }): [string, number] => [word, id]))
           : undefined,
+        profile ? { profile } : undefined,
       );
     }
     try {
@@ -222,6 +224,7 @@ export function readProgressEntries(
   entries: ReadonlyMap<string, Uint8Array>,
   root: string,
   files: Record<string, Uint8Array>,
+  override?: ProfileId,
 ): GameProgress | undefined {
   const saves: Record<string, Uint8Array> = {};
   let autosaveBytes: Uint8Array | undefined;
@@ -235,8 +238,9 @@ export function readProgressEntries(
     }
   }
   if (autosaveBytes === undefined && Object.keys(saves).length === 0) return undefined;
-  const profile = detectProfile(new Map(Object.entries(files)));
-  const restores = restoreChecker(files);
+  // Saves decode under the interpreter the game boots under.
+  const profile = detectProfile(new Map(Object.entries(files)), override);
+  const restores = restoreChecker(files, override);
   for (const [slot, image] of Object.entries(saves)) {
     if (image.length > MAX_SAVE_IMAGE_BYTES)
       throw new Error(`SAVES/SG.${slot} is too large to be a save file.`);

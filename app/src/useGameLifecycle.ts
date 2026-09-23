@@ -418,6 +418,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
                     ? cached.sessionId
                     : undefined,
                   cached.authoringState,
+                  cached.library?.profile,
                 )
               : null;
           authoring.setSession(cachedSession);

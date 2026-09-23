@@ -36,7 +36,8 @@ function gameEntries(
   data: Pick<CachedGameData, "files" | "title" | "roomGeneration" | "library">,
 ): ZipFileInput[] {
   const packed = compactContainer(new Map(Object.entries(data.files)));
-  if (!packed.has("OBJECT")) packed.set("OBJECT", buildObjectFile([], detectProfile(packed)));
+  if (!packed.has("OBJECT"))
+    packed.set("OBJECT", buildObjectFile([], detectProfile(packed, data.library?.profile)));
   const entries = [...packed]
     .filter(([name]) => isPlayableFileName(name))
     .map(([name, bytes]) => ({ name, data: bytes }) as ZipFileInput);
@@ -47,6 +48,9 @@ function gameEntries(
       version: 1,
       metadata: publicGameMetadata(data.library),
       title: data.title,
+      // The player's interpreter choice travels with the game; detection
+      // evidence does not — the importer checks the opening itself.
+      ...(data.library?.profile ? { profile: data.library.profile } : {}),
       roomGeneration: data.roomGeneration === true,
     }),
   });

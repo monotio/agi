@@ -591,6 +591,62 @@ test("import stores saves and autosave without a progress observer", async (t) =
   assert.equal(stored.autosave?.game.identity.revision, await gameRevision(files));
 });
 
+test("an interpreter override travels with both exports and decodes the saves they carry", async (t) => {
+  installLocalStorage(t);
+  // A synthetic v2 game boots 2.936 by default. The player chose 2.089,
+  // whose save has another block-1 layout (0x3db bytes, not 0x5e1), so a
+  // slot written under the override is unreadable under detection.
+  const container = createContainer();
+  container.putResource("picture", 0, Uint8Array.of(0xff));
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic("load.pic(v0); draw.pic(v0); show.pic(); return;", { dictionary: new Map() })
+      .payload,
+  );
+  container.putFile("WORDS.TOK", buildWordsTok([]));
+  const host = {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  };
+  const engine = new Engine(container, host, undefined, { profile: "2.089" });
+  engine.tick();
+  const slot = engine.serialize();
+  const files = Object.fromEntries(container.files);
+  const data: CachedGameData = {
+    projectId: testProjectId("override"),
+    title: "Override",
+    provider: "stub",
+    model: "offline-stub",
+    authoredAt: "2026-09-23",
+    files,
+    words: [],
+    transcript: [],
+    library: {
+      version: 1,
+      revision: await gameRevision(files),
+      source: "zip",
+      profile: "2.089",
+      validation: { status: "unverified", message: "Opening not checked yet." },
+    },
+  };
+  const progress: GameProgress = { saves: { "1": slot }, autosave: null };
+  assert.equal((await readGameZip(buildPublicGameZip(data))).profile, "2.089");
+  const project = await readGameZip(await buildProjectZip(data, progress));
+  assert.equal(project.profile, "2.089");
+  assert.deepEqual(project.progress?.saves["1"], slot);
+  const id = await addLibraryGame(project, "Override", "zip", opening);
+  assert.equal((await loadAuthoredGame(id))?.library?.profile, "2.089");
+  // Detection alone refuses the same slot.
+  const automatic = { ...data, library: { ...data.library!, profile: undefined } };
+  const plain = await buildProjectZip(automatic, progress);
+  assert.equal(new TextDecoder().decode(plain).includes('"profile"'), false);
+  await assert.rejects(readGameZip(plain), /SAVES\/SG\.1 is not a save file for this game/);
+});
+
 test("import reports which progress entries browser storage refused", async (t) => {
   installLocalStorage(t);
   // A game the engine has played one cycle, saved as a slot and an autosave.

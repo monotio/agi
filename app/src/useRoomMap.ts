@@ -102,6 +102,8 @@ interface ScannedResources {
   readonly logic: Set<number>;
   readonly picture: Set<number>;
   readonly files: Record<string, Uint8Array>;
+  /** The interpreter the game boots under; null when nothing was scanned. */
+  readonly profile: AgiProfile | null;
   /** Rooms stored game tests name — a definition reference, not a pass. */
   readonly testCoverage: { referenced: Set<number> };
 }
@@ -397,9 +399,12 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
         logic: new Set(),
         picture: new Set(),
         files: {},
+        profile: null,
         testCoverage: { referenced: new Set() },
       };
-    const key = game.revision;
+    // The player's interpreter override, if any, is part of what was scanned.
+    const override = game.authoredGame?.library?.profile;
+    const key = `${game.revision}:${override ?? ""}`;
     if (scanned && scanned.key === key && scanned.files === game.files) return scanned;
     const logicPayloads = new Map<number, Uint8Array>();
     const picture = new Set<number>();
@@ -419,11 +424,12 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
         logic: new Set(),
         picture,
         files: game.files,
+        profile: null,
         testCoverage: storedTestCoverage(game.files, undefined),
       };
       return scanned;
     }
-    const profile = detectProfile(new Map(Object.entries(game.files)));
+    const profile = detectProfile(new Map(Object.entries(game.files)), override);
     const { scans, shared } = scanContainerExits(logicPayloads, profile);
     scanned = {
       key,
@@ -432,6 +438,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       logic: new Set(logicPayloads.keys()),
       picture,
       files: game.files,
+      profile,
       testCoverage: storedTestCoverage(game.files, profile),
     };
     staticThumbs.clear();
@@ -901,7 +908,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     if (missing.length === 0) return;
     const files = new Map(Object.entries(scan.files));
     const container = openContainer(files);
-    const profile = detectProfile(files);
+    const profile = scan.profile ?? detectProfile(files);
     let produced = false;
     for (const [room, pic] of missing) {
       try {

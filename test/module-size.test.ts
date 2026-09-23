@@ -96,7 +96,8 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the logic compiler, the validator of last resort",
   },
   "app/src/agent/agentSession.ts": {
-    lines: 1152,
+    // rc.18: the game's interpreter override survives every state rebuild.
+    lines: 1207,
     boundary:
       "the agent session lifecycle: genesis, room and remix turns, and revision-checked adoption",
   },

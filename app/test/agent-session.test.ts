@@ -860,3 +860,29 @@ test("a reserved resource transaction refuses map commits and incoming adoptions
   assert.equal(session.commitPlanDraft(draft).status, "committed");
   assert.equal(session.state.authoring.world.rooms["1"]?.title, "Changed while keeping");
 });
+
+test("a session keeps the game's interpreter override through adoption and reconfiguration", () => {
+  // A synthetic v2 game detects as 2.936; the override must win everywhere
+  // the session rebuilds its state, or tools compile for the wrong build.
+  const files = Object.fromEntries(openContainer(new Map()).files);
+  files["WORDS.TOK"] = buildWordsTok([]);
+  const config = { provider: "stub", model: "offline-stub", apiKey: "" } as const;
+  const session = AgentSession.fromAuthoredData(
+    config,
+    () => {},
+    files,
+    [],
+    undefined,
+    undefined,
+    undefined,
+    "2.089",
+  );
+  assert.equal(session.state.profile.id, "2.089");
+  session.adoptAuthoredData(files, []);
+  assert.equal(session.state.profile.id, "2.089");
+  const replacement = session.reconfigure({ ...config, model: "offline-stub-2" });
+  replacement.adoptAuthoredData(files, []);
+  assert.equal(replacement.state.profile.id, "2.089");
+  const automatic = AgentSession.fromAuthoredData(config, () => {}, files, []);
+  assert.equal(automatic.state.profile.id, "2.936");
+});

@@ -143,6 +143,8 @@ export function readPublicMetadata(raw: unknown): {
   title?: string;
   roomGeneration: boolean;
   metadata?: PublicGameMetadata;
+  /** The interpreter the exporter chose over detection; unknown ids boot automatically. */
+  profile?: ProfileId;
 } {
   if (!raw || typeof raw !== "object") throw new Error("GAME.JSON must contain game metadata.");
   const value = raw as Record<string, unknown>;
@@ -152,8 +154,12 @@ export function readPublicMetadata(raw: unknown): {
       "This game metadata version is newer than this app. Update the app and try again.",
     );
   const title = boundedText(value["title"], 160);
+  const profile = value["profile"];
   return {
     ...(title ? { title } : {}),
+    ...(typeof profile === "string" && Object.hasOwn(PROFILES, profile)
+      ? { profile: profile as ProfileId }
+      : {}),
     roomGeneration: value["roomGeneration"] === true,
     metadata: publicGameMetadata(value["metadata"] as PublicGameMetadata | undefined),
   };

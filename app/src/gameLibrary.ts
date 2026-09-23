@@ -82,6 +82,7 @@ export async function addLibraryGame(
     source,
     ...(catalog ? { catalog } : {}),
     ...(known?.author && !game.metadata?.author ? { author: known.author } : {}),
+    ...(game.profile ? { profile: game.profile } : {}),
     preview: opening.preview,
     validation: {
       status: opening.status,

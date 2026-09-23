@@ -9,7 +9,7 @@ import {
   type ResourceKind,
 } from "../types.ts";
 import { parseView } from "../view/view.ts";
-import { detectProfile } from "../runtime/profile.ts";
+import { detectProfile, type AgiProfile, type ProfileId } from "../runtime/profile.ts";
 
 import { validateRoomInventory } from "./inventory.ts";
 import { parseGameTests } from "./gameTests.ts";
@@ -29,13 +29,15 @@ export interface RoomPatch {
  * a shared logic — as long as every payload parses, existing vocabulary IDs and
  * inventory bindings stay stable, and the requested room ends up playable. Any
  * rejection lands before `resources` is returned, so callers either commit the
- * whole staged set or nothing.
+ * whole staged set or nothing. Payloads are checked under `profile`, the
+ * game's effective interpreter, or the one its files identify.
  */
 export function prepareRoomPatch(
   container: GameContainer,
   room: number,
   response: string,
   dictionary: ReadonlyMap<string, number>,
+  profile?: ProfileId | AgiProfile,
 ): RoomPatch {
   const raw = JSON.parse(response);
   if (!raw || raw.room !== room || !Array.isArray(raw.resources) || raw.resources.length > 256) {
@@ -62,7 +64,7 @@ export function prepareRoomPatch(
       throw new Error("Room authoring changed existing vocabulary");
   }
   const staged = openContainer(container.files);
-  const profile = detectProfile(container.files);
+  const effective = detectProfile(container.files, profile);
   const resources: RoomPatch["resources"] = [];
   const seen = new Set<string>();
   for (const resource of raw.resources) {
@@ -88,10 +90,11 @@ export function prepareRoomPatch(
     seen.add(key);
     const payload = new Uint8Array(resource.data);
     if (kind === "logic") {
-      const source = disassembleLogic(payload, { dictionary: nextDictionary, profile });
+      const source = disassembleLogic(payload, { dictionary: nextDictionary, profile: effective });
       if (source.includes("// !!")) throw new Error("Invalid AGI logic in room response");
-    } else if (kind === "picture") renderPicture(payload, createPictureSurface(), { profile });
-    else if (kind === "view") parseView(payload, profile);
+    } else if (kind === "picture")
+      renderPicture(payload, createPictureSurface(), { profile: effective });
+    else if (kind === "view") parseView(payload, effective);
     else parseSound(payload);
     staged.putResource(kind, num, payload);
     resources.push({ kind, num, payload });
@@ -110,7 +113,7 @@ export function prepareRoomPatch(
     )
       throw new Error("Invalid room inventory bytes");
     objects = new Uint8Array(raw.objects);
-    validateRoomInventory(container.files.get("OBJECT"), objects, profile);
+    validateRoomInventory(container.files.get("OBJECT"), objects, effective);
   }
   let tests: Uint8Array | undefined;
   if (raw.tests !== undefined) {

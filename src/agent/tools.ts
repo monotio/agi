@@ -80,7 +80,12 @@ import {
   type ResourceKind,
 } from "../types.ts";
 import { createContainer } from "../container/container.ts";
-import { detectProfile, DEFAULT_V2_PROFILE, type AgiProfile } from "../runtime/profile.ts";
+import {
+  detectProfile,
+  DEFAULT_V2_PROFILE,
+  type AgiProfile,
+  type ProfileId,
+} from "../runtime/profile.ts";
 import { describeKeyWord } from "../runtime/keys.ts";
 import {
   FRAME_HEIGHT,
@@ -229,7 +234,14 @@ export function buildObjectFile(
   return encrypted;
 }
 
-export function createAgentSessionState(existingContainer?: GameContainer): AgentSessionState {
+/**
+ * `profile` is the game's interpreter override, when the player chose one;
+ * without it the profile is detected from the container's files.
+ */
+export function createAgentSessionState(
+  existingContainer?: GameContainer,
+  profile?: ProfileId | AgiProfile,
+): AgentSessionState {
   const container = existingContainer ?? createContainer();
   if (!existingContainer) container.putFile("OBJECT", buildObjectFile([]));
   const dictionary = container.files.get("WORDS.TOK");
@@ -245,7 +257,7 @@ export function createAgentSessionState(existingContainer?: GameContainer): Agen
       sounds: new Map(),
     },
     container,
-    profile: detectProfile(container.files),
+    profile: detectProfile(container.files, profile),
     wordsPayload,
     objectPayload,
     testsPayload: undefined,

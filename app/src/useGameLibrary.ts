@@ -501,7 +501,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     title: string,
     source: "zip" | "folder",
   ): Promise<ImportStorageReport | null> {
-    const opening = await previewGame(game);
+    const opening = await previewGame(game, game.profile);
     let stored: ImportStorageReport | null = null;
     const importedProjectId = await addLibraryGame(
       game,
