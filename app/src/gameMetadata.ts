@@ -151,8 +151,6 @@ export function readPublicMetadata(raw: unknown): {
   metadata?: PublicGameMetadata;
   /** The interpreter the exporter chose over detection. */
   profile?: ProfileId;
-  /** A profile id this build does not ship: the game boots automatically. */
-  unknownProfile?: string;
 } {
   if (!raw || typeof raw !== "object") throw new Error("GAME.JSON must contain game metadata.");
   const value = raw as Record<string, unknown>;
@@ -162,14 +160,16 @@ export function readPublicMetadata(raw: unknown): {
       "This game metadata version is newer than this app. Update the app and try again.",
     );
   const title = boundedText(value["title"], 160);
-  const profile = boundedText(value["profile"], 80);
+  // An interpreter this build does not ship is newer data, refused like a
+  // newer version: playing it under another would silently drop the choice.
+  const profile = value["profile"];
+  if (profile !== undefined && (typeof profile !== "string" || !Object.hasOwn(PROFILES, profile)))
+    throw new Error(
+      `This game asks for interpreter ${String(profile).slice(0, 80)}, which this version of the app does not know. Update the app and try again.`,
+    );
   return {
     ...(title ? { title } : {}),
-    ...(profile && Object.hasOwn(PROFILES, profile)
-      ? { profile: profile as ProfileId }
-      : profile
-        ? { unknownProfile: profile }
-        : {}),
+    ...(profile !== undefined ? { profile: profile as ProfileId } : {}),
     roomGeneration: value["roomGeneration"] === true,
     metadata: publicGameMetadata(value["metadata"] as PublicGameMetadata | undefined),
   };

@@ -225,7 +225,6 @@ export function readProgressEntries(
   root: string,
   files: Record<string, Uint8Array>,
   override?: ProfileId,
-  unknownProfile?: string,
 ): GameProgress | undefined {
   const saves: Record<string, Uint8Array> = {};
   let autosaveBytes: Uint8Array | undefined;
@@ -242,21 +241,13 @@ export function readProgressEntries(
   // Saves decode under the interpreter the game boots under.
   const profile = detectProfile(new Map(Object.entries(files)), override);
   const restores = restoreChecker(files, override);
-  // A newer app's interpreter choice explains a save this one cannot read.
-  function refuse(message: string): never {
-    throw new Error(
-      unknownProfile
-        ? `This project's saves are for interpreter ${unknownProfile}, which this version of the app does not know. Update the app to import them.`
-        : message,
-    );
-  }
   for (const [slot, image] of Object.entries(saves)) {
     if (image.length > MAX_SAVE_IMAGE_BYTES)
       throw new Error(`SAVES/SG.${slot} is too large to be a save file.`);
     try {
       decodeSave(image, profile);
     } catch {
-      refuse(`SAVES/SG.${slot} is not a save file for this game.`);
+      throw new Error(`SAVES/SG.${slot} is not a save file for this game.`);
     }
     restores(`SAVES/SG.${slot}`, image);
   }
@@ -272,7 +263,7 @@ export function readProgressEntries(
       hostImage = fromBase64(parsed.image);
       decodeSave(decodeHostImage(hostImage).image, profile);
     } catch {
-      refuse("SAVES/AUTOSAVE.JSON does not hold a save image for this game.");
+      throw new Error("SAVES/AUTOSAVE.JSON does not hold a save image for this game.");
     }
     restores("SAVES/AUTOSAVE.JSON", hostImage);
     autosave = parsed;

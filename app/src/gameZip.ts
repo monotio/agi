@@ -32,8 +32,6 @@ export interface OpenedGame {
   metadata?: PublicGameMetadata;
   /** The interpreter override GAME.JSON names; detection decides without one. */
   profile?: ProfileId;
-  /** An override naming a profile this build does not ship. */
-  unknownProfile?: string;
   /** Recovery payloads remain in the original ZIP; they are not replay imports. */
   backupWarning?: string;
   /** A MAP.JSON this app could not read; the import goes on without the map. */
@@ -244,7 +242,7 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
   const projectBytes = entries.get(`${root}PROJECT.JSON`);
   const project = projectBytes ? readProjectContext(projectBytes, entries, root) : undefined;
   const progress = project
-    ? readProgressEntries(entries, root, files, gameMetadata.profile, gameMetadata.unknownProfile)
+    ? readProgressEntries(entries, root, files, gameMetadata.profile)
     : undefined;
   // A corrupt or newer map must not sink the import: it is derived UI data,
   // so the import goes on without it — and says so, because the next export

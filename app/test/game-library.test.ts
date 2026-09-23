@@ -654,20 +654,20 @@ test("an interpreter override travels with both exports and decodes the saves th
   const plain = await buildProjectZip(automatic, progress);
   assert.equal(new TextDecoder().decode(plain).includes('"profile"'), false);
   await assert.rejects(readGameZip(plain), /SAVES\/SG\.1 is not a save file for this game/);
-  // A newer app's profile this build does not know boots automatically, and
-  // a save that needs it is refused by name rather than as foreign.
-  const future = await readGameZip(
-    await buildProjectZip(
-      {
-        ...data,
-        // The export's own OBJECT, so no fallback runs under the unknown id.
-        files: { ...files, OBJECT: project.files["OBJECT"]! },
-        library: { ...data.library!, profile: "9.999" as never },
-      },
-      progress,
-    ),
-  ).catch((error: unknown) => error as Error);
-  assert.match(String(future), /saves are for interpreter 9\.999, .* Update the app/);
+  // An interpreter this build does not ship is newer data: a Game or Project
+  // naming one is refused before anything is staged, saves or not, rather
+  // than played under another interpreter that would drop the choice.
+  const future = {
+    ...data,
+    // The export's own OBJECT, so no fallback runs under the unknown id.
+    files: { ...files, OBJECT: project.files["OBJECT"]! },
+    library: { ...data.library!, profile: "9.999" as never },
+  };
+  for (const archive of [buildPublicGameZip(future), await buildProjectZip(future, progress)])
+    await assert.rejects(
+      readGameZip(archive),
+      /asks for interpreter 9\.999, which this version of the app does not know\. Update the app/,
+    );
 });
 
 test("import reports which progress entries browser storage refused", async (t) => {
