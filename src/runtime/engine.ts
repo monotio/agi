@@ -479,6 +479,8 @@ const REPLAY_ADD_TO_PIC = 5;
 const REPLAY_DISCARD_PICTURE = 6;
 const REPLAY_DISCARD_VIEW = 7;
 const REPLAY_OVERLAY_PICTURE = 8;
+/** IIgs discard.sound: the recorder's type 9 (docs/fidelity.md "Apple IIgs sound discard"). */
+const REPLAY_DISCARD_SOUND = 9;
 
 export class Engine {
   readonly vars = new Uint8Array(256);
@@ -2610,6 +2612,9 @@ export class Engine {
             break;
           case REPLAY_OVERLAY_PICTURE:
             this.overlayPicture(pair.value);
+            break;
+          case REPLAY_DISCARD_SOUND:
+            this.discardSound(pair.value);
             break;
           case REPLAY_ADD_TO_PIC: {
             // A four-pair packet: (5,0) then (view, loop), (cel, left_x),
@@ -5169,7 +5174,8 @@ export class Engine {
           const ax = aObj.x + Math.floor(aObj.width / 2);
           const bx = bObj.x + Math.floor(bObj.width / 2);
           const d = Math.abs(ax - bx) + Math.abs(aObj.y - bObj.y);
-          this.vars[a(2)] = this.profile.objectDistanceSaturates ? Math.min(254, d) : d & 0xff;
+          const cap = this.profile.objectDistanceCap;
+          this.vars[a(2)] = cap === null ? d & 0xff : Math.min(cap, d);
         }
         return next;
       }
@@ -5735,8 +5741,11 @@ export class Engine {
           this.profile.releaseGateAction === "set" ? 1 : (this.keyReleaseGate + 1) & 0xff;
         return next;
       case 0xae:
-        // set.pri.base: the Amiga 2.31x slot is the one-operand skip stub.
-        if (this.profile.priorityBaseAction === "effect") this.priorityBase = a(0);
+        // set.pri.base: the Amiga 2.31x slot is the one-operand skip stub. On
+        // the IIgs the slot is discard.sound (docs/fidelity.md "Apple IIgs
+        // sound discard").
+        if (this.profile.extraActions === "iigs") this.discardSoundRecorded(a(0));
+        else if (this.profile.priorityBaseAction === "effect") this.priorityBase = a(0);
         return next;
       case 0xaf:
         // On the IIgs this slot is fade.sound: it arms the heartbeat
@@ -5932,6 +5941,25 @@ export class Engine {
   private discardViewRecorded(num: number): void {
     this.discardView(num);
     this.record(REPLAY_DISCARD_VIEW, num);
+  }
+
+  /**
+   * IIgs discard.sound: the loaded-sound list is released from the named
+   * sound on, like the view list; a sound that is not loaded is the
+   * interpreter's error 9. A playing sound keeps playing.
+   */
+  private discardSound(num: number): void {
+    if (!this.sounds.has(num)) throw new Error(`sound ${num} is not loaded`);
+    let found = false;
+    for (const loaded of [...this.sounds.keys()]) {
+      if (loaded === num) found = true;
+      if (found) this.sounds.delete(loaded);
+    }
+  }
+
+  private discardSoundRecorded(num: number): void {
+    this.discardSound(num);
+    this.record(REPLAY_DISCARD_SOUND, num);
   }
 
   /**

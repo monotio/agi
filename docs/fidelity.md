@@ -1921,7 +1921,7 @@ executables:
   `move.b d1,(a0)` — the value wraps mod 256 (h91+0x8c92). On 2.176,
   2.202 and GR 2.316 the same handler clamps `cmpi.w #$fe; bls` —
   saturation at 254 (SQ2 h109+0x14e, at 0x8962). The profile's
-  `objectDistanceSaturates` splits the generations accordingly.
+  `objectDistanceCap` (null, then 254) splits the generations accordingly.
 - `stop.motion`/`start.motion` clear both the direction and motion
   words (`+0x36`/`+0x38`) on every build checked — Sierra h120+0x24e
   (0xce80..0xce84), KQ2 h165+0x1d6, SQ2 h165+0x262, GR h165 — the
@@ -1938,53 +1938,68 @@ executables:
   routine (h128+0x144 writes `+0x2dc`/`+0x2de`), so 2.082 keeps the
   early value.
 
-#### Amiga profile fields inherited without evidence
+#### Amiga profile fields verified from the handlers
 
-The remaining fields of each Amiga profile keep their derivation base's
-contract without binary evidence — the handler that would decide them
-either was not located in a bounded scan or does not exist on that
-build. Fields the verified dispatch bounds, container kinds, stub slots
-and sound findings above decide (`container`, `volumeHeaderBytes`,
-`maxCondition`, `condition0x13`, `extraActions`, `mousePosnAction`, `clickMove`, `motionCounters`, the
-2.082 `menuActions`, the 2.176, 2.202 and 2.31x `soundEnvelope`) are not in these lists:
+Each remaining profile field was classified against the executables' own
+handlers (static disassembly, the dispatch tables above). Values that change
+behavior were confirmed independently at the addresses given (**fact**):
 
-- `amiga-2.082` (early-v2 base): `menuInteractionGate`,
-  `releaseGateAction`, `releaseGateClearAction`, `inputWidthActions`,
-  `closeWindowClearsInputWidth`, `priorityBaseAction`, `roomAliases`,
-  `wordSequenceTailTerminator`, `positionActionOrder`,
-  `earlierPartitionOrder`, `packedViewLoopHeader`, `targetMotionDeferred`,
-  `inventorySelector`, `timedPrintClearsV21`,
-  `clampExactZeroLeftBoundary`, `pictureMaxCommand`, `patternProfile`,
-  `restartPromptBypassedByF16`, `heapDiagnosticExtraLine`,
-  `soundEnvelope` (inert — the 2.082 driver has no envelope table).
-- `amiga-2.176` (early-v2 base): `menuInteractionGate`,
-  `releaseGateAction`, `releaseGateClearAction`,
-  `closeWindowClearsInputWidth`, `priorityBaseAction`, `roomAliases`,
-  `wordSequenceTailTerminator`, `positionActionOrder`,
-  `earlierPartitionOrder`, `packedViewLoopHeader`, `targetMotionDeferred`,
-  `inventorySelector`, `timedPrintClearsV21`,
-  `clampExactZeroLeftBoundary`, `pictureMaxCommand`, `patternProfile`,
-  `restartPromptBypassedByF16`, `heapDiagnosticExtraLine` — the 2.082
-  list without `inputWidthActions` (a stub slot on 2.176) and
-  `soundEnvelope` (KQ2's own table).
-- `amiga-2.202` (2.936 base): `exitAlwaysImmediate`, `menuActions`,
-  `menuInteractionGate`, `releaseGateAction`, `releaseGateClearAction`,
-  `closeWindowClearsInputWidth`, `priorityBaseAction`, `roomAliases`,
-  `wordSequenceTailTerminator`, `positionActionOrder`,
-  `earlierPartitionOrder`, `packedViewLoopHeader`, `targetMotionDeferred`,
-  `inventorySelector`, `timedPrintClearsV21`,
-  `clampExactZeroLeftBoundary`, `pictureMaxCommand`, `patternProfile`,
-  `restartPromptBypassedByF16`, `heapDiagnosticExtraLine`.
-- `amiga-2.310`/`amiga-2.316`/`amiga-2.333` (3.002.149 base): `menuActions`, `menuInputAction`,
-  `menuInteractionGate`, `releaseGateAction`, `releaseGateClearAction`,
-  `inputWidthActions`, `closeWindowClearsInputWidth`,
-  `priorityBaseAction`, `roomAliases`, `wordSequenceTailTerminator`,
-  `directionLoopTiming`, `positionActionOrder`, `earlierPartitionOrder`,
-  `packedViewLoopHeader`, `targetMotionDeferred`, `inventorySelector`,
-  `timedPrintClearsV21`, `clampExactZeroLeftBoundary`,
-  `pictureMaxCommand`, `patternProfile`, `restartPromptBypassedByF16`,
-  `heapDiagnosticExtraLine`. PQ 2.310 and MH2 2.333 carry the GR 2.316
-  verifications by shared code rather than by direct scan.
+| Build(s)            | Field                        | Value                        | Evidence                                                                                                       |
+| ------------------- | ---------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 2.082               | `restartPromptBypassedByF16` | false                        | `restart.game` (h45+0x0) goes straight to the confirm dialog; 2.176+ test f16 first (KQ2 h63+0x10)             |
+| 2.082, 2.176+       | `timedPrintClearsV21`        | true                         | the timed wait clears v21 on both the deadline and the key exit (Sierra h40+0x1cc, KQ2/GR h57+0x204/+0x20c)    |
+| all                 | `heapDiagnosticExtraLine`    | false                        | `show.mem` prints heapsize, now/max, max script and "fast RAM"; no "rm.0" string exists in any executable      |
+| 2.176               | `targetMotionDeferred`       | false                        | `move.obj` ends with `jsr h45+0x0`, the steering routine (KQ2 h165+0x90); Sierra 2.082's (h120) does not       |
+| 2.176               | `inventorySelector`          | true                         | `status` (h82) waits for event type 0x0b and stores its code in v25 (h82+0x184); Sierra 2.082 never writes v25 |
+| 2.176               | `pictureMaxCommand`          | 0xfa                         | the picture dispatcher accepts `f0..fa` (`cmpi.b #$a; bhi`, KQ2/SQ2 h152+0x6e); Sierra 2.082 stops at 0xf8     |
+| 2.176, 2.202, 2.31x | `patternProfile`             | `short-r1`, `center-row-320` | [Original Amiga and IIgs pattern brushes](#original-amiga-and-iigs-pattern-brushes)                            |
+
+Fields whose slot is above a build's dispatch bound (see the table above)
+never run there: `menuInteractionGate`, `releaseGateAction`,
+`releaseGateClearAction` and `priorityBaseAction` below 2.310, and
+`inputWidthActions` on 2.082. `closeWindowClearsInputWidth` has no input-width
+state to clear on any Amiga build (0xa3/0xa4 are stubs or absent).
+
+The same scan found the other fields matching the contract each profile
+inherits, and these were spot-checked rather than re-derived: `roomAliases`
+null (no 0x7e..0x80 compare in `new.room`), `wordSequenceTailTerminator` true
+(`cmpi.w #$270f`, h17+0x55c / h23+0x268), `positionActionOrder`
+store-together, `earlierPartitionOrder` drawing-key, `packedViewLoopHeader`
+false (a u16be loop-offset table), `clampExactZeroLeftBoundary` false (a
+strict negative test, h127+0x168), 2.082's `targetMotionDeferred` true,
+`inventorySelector` false, `pictureMaxCommand` 0xf8 and `patternProfile`
+none, and on 2.31x `menuInputAction`, `releaseGateAction`,
+`inputWidthActions` and `priorityBaseAction` as the stub slots and
+`directionLoopTiming` cadence-due (h16+0x14e). PQ 2.310 and MH2 2.333 differ
+from GR 2.316 only in version, disk-count and game-ID strings, one init
+routine and relocations. `soundEnvelope` is inert on 2.082, whose driver has
+no envelope table.
+
+### Original Amiga and IIgs pattern brushes
+
+The shaped brush of picture commands 0xf9/0xfa differs from both PC
+families in two ways (**fact**):
+
+- **Horizontal limit.** Every Amiga plotter and the IIgs clamp the doubled
+  start x to `0x140 - 2r` — 320, the v2 limit — including the builds whose
+  radius-1 shape is the v3 cross (KQ2 and GR h152+0x162 `move.w #$140`; IIgs
+  `main+0xa2b` `lda #$0140`). A plot clamped at the right edge therefore
+  writes one column past 159, into the next row, as on PC v2. The vertical
+  limit is `0xa7 - 2r` (167), as on the PC.
+- **Radius 1.** The Amiga brush table (h150+0x5a) is eight relocated
+  pointers to per-radius row arrays. On 2.176 and 2.202 radius 1's array
+  holds two rows (`e000 e000`, h150+0x7c..0x80) but the plotter reads three,
+  so its third row is radius 2's first word, `7000`: the brush is
+  `[e000, e000, 7000]`. 2.310/2.316/2.333 store the cross
+  `[4000, e000, 4000]`, as does the IIgs's flat table (`~globals+0x18b`).
+  Radii 0 and 2..7 match the PC v2 rows on every build.
+
+The stipple generator is the PC one: the seed is ORed with 1, then
+`lsr` / `eor #$b8` per pixel, writing only when bit 0 is clear and bit 1 set
+(GR h152+0x1d0..0x230; IIgs `main+0xad1`). `AgiProfile.patternProfile`
+selects `short-r1` for 2.176/2.202 and `center-row-320` for the 2.31x
+generation and the IIgs. Tests:
+[picture-profile.test.ts](../test/picture-profile.test.ts).
 
 ### Original click-to-walk
 
@@ -2682,27 +2697,46 @@ the same v11–v14 seconds/minutes/hours convention (f100 above). No
 fixed-cycle vsync wait was identified; event/timer pacing is
 toolbox-driven.
 
-#### IIgs profile fields inherited without evidence
+#### Apple IIgs sound discard
 
-`iigs-1.014` derives from the 2.936 contract. Verified on the
-executable: the dispatch bounds and tail semantics, the string/key-map
-bounds, direction-based loop selection (exact-four, cadence-due), the
-quit operand width (the 0x86 handler reads one byte), `stop.motion`/
-`start.motion` clearing direction and motion (`movementClear` "later"),
-the object-record field map and the PC-order cycle numbering above, and
-the six-block save envelope. The following fields keep the base values
-without binary evidence — no deciding handler was located in a bounded
-scan: `volumeHeaderBytes`, `inventoryMetadataEncrypted`,
-`inventoryEntryBytes`, `exitAlwaysImmediate`, `menuActions`,
-`menuInputAction`, `menuInteractionGate`, `releaseGateAction`,
-`releaseGateClearAction`, `inputWidthActions`,
-`closeWindowClearsInputWidth`, `priorityBaseAction`, `mousePosnAction`,
-`roomAliases`, `wordSequenceTailTerminator`, `positionActionOrder`,
-`earlierPartitionOrder`, `packedViewLoopHeader`, `objectDistanceSaturates`,
-`targetMotionDeferred`, `inventorySelector`, `showPictureClearsF15`,
-`printConsumesF15`, `timedPrintClearsV21`, `clampExactZeroLeftBoundary`,
-`pictureMaxCommand`, `patternProfile`, `restartPromptBypassedByF16`,
-`heapDiagnosticExtraLine`, `saveBlock3Xor` (the save writer's block-3
-path is verified; whether a transform applies is not — none is evident
-in the writer), `soundEnvelope` (inert — the IIgs driver has no Paula
-envelope).
+Action 0xae is `discard.sound` on the IIgs, not `set.pri.base` (the action
+table at `~arrays+0x3fe` sends it to `seg3+0x1c73`; **fact**). It reads the
+sound number as an immediate, looks the sound up (`jsl $0019bd`), raises
+error 9 if it is not loaded, records replay type 9 through the resource
+recorder (`seg2+0x3d0a`, which skips recording while flag 7 is set), cuts the
+loaded-sound list at that sound — releasing it and every sound loaded after
+it — and frees the memory around an object-list erase/redraw. A playing sound
+is not stopped. The engine keeps the loaded sounds in load order and replays
+type 9 on restore. Tests: [port-handlers.test.ts](../test/port-handlers.test.ts).
+
+#### IIgs profile fields verified from the handlers
+
+Values that change behavior, confirmed at the addresses given (**fact**):
+
+| Field                     | Value            | Evidence                                                                                                                     |
+| ------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `menuInputAction`         | noop             | 0xa1 → `seg3+0x142f`, which returns the operand pointer unchanged                                                            |
+| `inputWidthActions`       | noop             | 0xa3/0xa4 → `seg2+0x3bb8`/`+0x3be4`, the same pure stub                                                                      |
+| `priorityBaseAction`      | noop             | 0xae is the [sound discard](#apple-iigs-sound-discard)                                                                       |
+| `objectDistanceCap`       | 255              | `collide+0x313`: `sbc #$00ff` and a signed test store 255 for any sum of 255 or more, the value an undrawn object also reads |
+| `heapDiagnosticExtraLine` | false            | `show.mem` (memmgrseg+0xc1) prints heapsize, now/max, max script and "Sys RAM"; no "rm.0" line                               |
+| `patternProfile`          | `center-row-320` | [Original Amiga and IIgs pattern brushes](#original-amiga-and-iigs-pattern-brushes)                                          |
+
+`timedPrintClearsV21` stays true: the timed wait (`seg2+0x22a8`, v21 at
+`$0302f3`) zeroes v21 as it closes (`seg2+0x2340`). `menuInteractionGate`
+and `releaseGateClearAction` have no slot (0xb1 is the wild dispatch, 0xb5 is
+past the table) and `closeWindowClearsInputWidth` has no state to clear.
+
+The scan found the rest matching the 2.936 contract, spot-checked:
+`volumeHeaderBytes` 5, `inventoryMetadataEncrypted` true and
+`inventoryEntryBytes` 3 (read off the shipped files), `exitAlwaysImmediate`
+false (quit's selector 1 exits at once, others confirm), `menuActions` full,
+`releaseGateAction` increment (`seg3+0xecc` `inc $0080`), `roomAliases` null,
+`wordSequenceTailTerminator` true (`main+0x2284`), `positionActionOrder`
+store-together, `earlierPartitionOrder` drawing-key, `packedViewLoopHeader`
+false, `targetMotionDeferred` false, `inventorySelector` true,
+`showPictureClearsF15` and `printConsumesF15` true (flagseg calls with 15),
+`clampExactZeroLeftBoundary` false, `pictureMaxCommand` 0xfa,
+`restartPromptBypassedByF16` true (flag 16 tested before the prompt) and
+`saveBlock3Xor` false (the save writer never calls `encryptseg`).
+`soundEnvelope` is inert: the IIgs driver has no Paula envelope.

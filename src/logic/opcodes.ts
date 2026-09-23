@@ -291,6 +291,9 @@ const V3_BY_NAME: Record<string, ActionSpec> = Object.fromEntries(
  * interpreter's GS/OS quit routine — executing it terminates the session.
  */
 export const IIGS_ACTIONS: readonly ActionSpec[] = [
+  // Slot 0xae is discard.sound, not the PC set.pri.base (docs/fidelity.md
+  // "Apple IIgs sound discard").
+  { code: 0xae, name: "discard.sound", operands: ["imm"] },
   { code: 0xaf, name: "fade.sound", operands: ["imm"] },
   { code: 0xb0, name: "fade.sound.v", operands: ["var"] },
   { code: 0xb1, name: "terminate", operands: [] },
@@ -330,9 +333,9 @@ export function actionSpec(
   if (!spec || spec.code > profile.maxAction) return undefined;
   if (spec.code === 0x86 && profile.exitOperandBytes === 0) return { ...spec, operands: [] };
   if (spec.code >= 0xb0 && profile.extraActions === "none") return undefined;
-  // Under the IIgs profile the 0xaf..0xb5 slots resolve only through
+  // Under the IIgs profile the 0xae..0xb5 slots resolve only through
   // IIGS_ACTIONS — the PC v3 names are not this interpreter's vocabulary.
-  if (spec.code >= 0xaf && profile.extraActions === "iigs") return undefined;
+  if (spec.code >= 0xae && profile.extraActions === "iigs") return undefined;
   // The 3.002.086 build takes one ignored operand byte in slot 0xb0
   // (docs/fidelity.md).
   if (spec.code === 0xb0 && profile.extraActions === "v3-086")

@@ -128,18 +128,23 @@ describe("profile-selected logic bytecode", () => {
 
   it("iigs-1.014 does not resolve the PC v3 tail names", () => {
     const opts = { dictionary, profile: PROFILES["iigs-1.014"] };
-    // Slots 0xad/0xae stay shared — they are inside the IIgs table's
-    // 0x00..0xb0 range. The 0xaf..0xb6 tail is IIgs-specific: none of the PC
-    // v3 or Amiga names at those slots are this interpreter's vocabulary.
+    // Slot 0xad stays shared — it is inside the IIgs table's 0x00..0xb0
+    // range. The 0xae..0xb6 tail is IIgs-specific: none of the PC v3 or Amiga
+    // names at those slots are this interpreter's vocabulary.
     for (const source of [
+      "set.pri.base(60);",
       "slow.mouse();",
       "hide.mouse(3);",
       "allow.menu(1);",
       "mouse.posn(v1, v2);",
-      "discard.sound();",
       "adj.ego.move.to.x.y(1, 2);",
     ])
       assert.throws(() => assembleLogic(source, opts), /not available.*iigs-1\.014/, source);
+    // Its own 0xae is discard.sound with the sound number as an immediate.
+    assert.deepEqual(
+      Array.from(assembleLogic("discard.sound(3); return;", opts).code),
+      [0xae, 3, 0x00],
+    );
     assert.notDeepEqual(
       disassembleLogicWarnings(buildLogicResource(new Uint8Array([0xb4, 0]), []), opts),
       [],

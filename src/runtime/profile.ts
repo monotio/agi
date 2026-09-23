@@ -111,7 +111,17 @@ export type PositionActionOrder = "erase-then-store" | "store-together";
 export type PartitionOrder = "object-number" | "drawing-key";
 
 /** Pattern-command profile for picture commands 0xf9/0xfa (picture chapter; version_profiles per profile). */
-export type PatternProfile = "none" | "point-2.411" | "shaped-v2" | "v3-center-row";
+/**
+ * Pattern-plot geometry for picture commands 0xf9/0xfa. "shaped-v2": the v2
+ * brush table, horizontal limit 320. "v3-center-row": radius 1 is the
+ * center-row cross and the limit 318. The Amiga and IIgs plotters keep the
+ * 320 limit: "center-row-320" (Amiga 2.31x, IIgs) has the cross, and
+ * "short-r1" (Amiga 2.176/2.202) stores radius 1 as two rows, so its third
+ * row is radius 2's first word (docs/fidelity.md "Original Amiga and IIgs
+ * pattern brushes").
+ */
+export type PatternProfile =
+  "none" | "point-2.411" | "shaped-v2" | "v3-center-row" | "center-row-320" | "short-r1";
 
 /** Actions 0x4d/0x4e (conformance matrix, "Movement-clear actions"). */
 export type MovementClearRule = "early" | "later";
@@ -297,8 +307,12 @@ export interface AgiProfile {
   readonly earlierPartitionOrder: PartitionOrder;
   /** Packed loop-header orientation/mirroring nibble; unique to 2.230 (conformance matrix, "View loop encoding"). */
   readonly packedViewLoopHeader: boolean;
-  /** Object-distance action 0x45 saturates at 254 (later) or wraps its low byte (early profiles). */
-  readonly objectDistanceSaturates: boolean;
+  /**
+   * Object-distance action 0x45 saturates at 254 (later PC and Amiga), at 255
+   * on the IIgs — where a far object reads like an undrawn one — or wraps its
+   * low byte (null, early profiles).
+   */
+  readonly objectDistanceCap: 254 | 255 | null;
   /** Target-motion actions 0x51/0x52 defer their first direction/completion calculation (early profiles). */
   readonly targetMotionDeferred: boolean;
   /** Actions 0x4d/0x4e clear semantics; "early" is the 2.089/2.230 form. */
@@ -380,7 +394,7 @@ const BASE_2936: AgiProfile = {
   positionActionOrder: "store-together",
   earlierPartitionOrder: "drawing-key",
   packedViewLoopHeader: false,
-  objectDistanceSaturates: true,
+  objectDistanceCap: 254,
   targetMotionDeferred: false,
   movementClear: "later",
   inventorySelector: true,
@@ -410,7 +424,7 @@ const BASE_EARLY: AgiProfile = {
   releaseGateAction: "unavailable",
   directionLoops: "exact-four",
   directionLoopTiming: "every-pass",
-  objectDistanceSaturates: false,
+  objectDistanceCap: null,
   targetMotionDeferred: true,
   movementClear: "early",
   inventorySelector: false,
@@ -479,9 +493,11 @@ const BASE_AMIGA_31X: AgiProfile = {
   directionLoopTiming: "cadence-due",
   // The Amiga save writes the inventory region raw; the v3 XOR transform is
   // a PC v3 behavior only (docs/fidelity.md "Amiga interpreter profiles").
-  // Fields not listed here inherit the base without evidence;
-  // docs/fidelity.md "Amiga profile fields inherited without evidence".
+  // Fields not listed here were checked against the handlers and match the
+  // base; docs/fidelity.md "Amiga profile fields verified from the handlers".
   saveBlock3Xor: false,
+  patternProfile: "center-row-320",
+  heapDiagnosticExtraLine: false,
   sound: "amiga",
   soundEnvelope: "amiga-2.202",
   ...AMIGA_INVENTORY,
@@ -599,13 +615,14 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     soundEnvelope: "3.002",
   },
   // Amiga "Sierra" 2.082 (SQ1 Amiga): 161 action slots through 0xa0, 19
-  // condition slots through 0x12, one-byte quit selector, real menu handlers
+  // condition slots through 0x12 behind an inclusive 0x13 bound, one-byte
+  // quit selector, real menu handlers
   // and a plain OBJECT file (docs/fidelity.md "Amiga interpreter profiles").
   // Verified on the executable and its shipped Save/ images: six string
   // slots, a 40-entry key map, direction selection on every pass, and the
   // older sound driver family distinct from the later Paula driver.
-  // Unlisted fields: docs/fidelity.md "Amiga profile fields inherited
-  // without evidence".
+  // Unlisted fields match the base: docs/fidelity.md "Amiga profile fields
+  // verified from the handlers".
   "amiga-2.082": {
     ...BASE_EARLY,
     ...AMIGA_INVENTORY,
@@ -618,6 +635,12 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     condition0x13: "wild-dispatch",
     clickMove: "amiga",
     motionCounters: "word",
+    // restart.game prompts without testing f16; the timed print clears v21
+    // on either exit; show.mem has no "rm.0" line (docs/fidelity.md
+    // "Amiga profile fields verified from the handlers").
+    restartPromptBypassedByF16: false,
+    timedPrintClearsV21: true,
+    heapDiagnosticExtraLine: false,
     exitOperandBytes: 1,
     exitAlwaysImmediate: false,
     menuActions: "full",
@@ -651,10 +674,19 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     directionLoopTiming: "cadence-due",
     // KQ2's distance, stop.motion, show.pic and print worker share the later
     // behavior, verified on the executable (docs/fidelity.md).
-    objectDistanceSaturates: true,
+    objectDistanceCap: 254,
     movementClear: "later",
     showPictureClearsF15: true,
     printConsumesF15: true,
+    // move.obj steers at once, status is the interactive selector, the timed
+    // print clears v21, pictures dispatch 0xf9/0xfa with the short radius-1
+    // brush, and show.mem has no "rm.0" line (docs/fidelity.md).
+    targetMotionDeferred: false,
+    inventorySelector: true,
+    timedPrintClearsV21: true,
+    pictureMaxCommand: 0xfa,
+    patternProfile: "short-r1",
+    heapDiagnosticExtraLine: false,
     saveBlocks: 5,
     sound: "amiga",
     soundEnvelope: "amiga-2.176",
@@ -674,6 +706,8 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     inputWidthActions: "noop",
     stringSlots: 13,
     directionLoops: "exact-four",
+    patternProfile: "short-r1",
+    heapDiagnosticExtraLine: false,
     sound: "amiga",
     soundEnvelope: "amiga-2.202",
   },
@@ -694,19 +728,29 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   // "iigs" family. Verified on the executable: thirteen string slots
   // (parse() bound 0x0d), a 40-entry key map, exact-four direction-based
   // loop selection applied when the cadence countdown is due, and the
-  // six-block big-endian save envelope. Other runtime fields inherit the
+  // six-block big-endian save envelope. Other runtime fields match the
   // 2.936 contract.
   "iigs-1.014": {
     ...BASE_2936,
-    // Fields not listed here inherit the 2.936 contract without IIgs
-    // evidence; docs/fidelity.md "IIgs profile fields inherited without
-    // evidence" enumerates them.
+    // Fields not listed here were checked against the handlers and match
+    // the 2.936 contract; docs/fidelity.md "IIgs profile fields verified
+    // from the handlers".
     id: "iigs-1.014",
     maxAction: 0xb1,
     maxCondition: 0x13,
     condition0x13: "wild-dispatch",
     clickMove: "iigs",
     motionCounters: "word",
+    // menu.input and the input-width pair are stubs; slot 0xae is the sound
+    // discard, not set.pri.base; distance saturates at 255; the plotter keeps
+    // the 320 limit with the center-row cross; show.mem has no "rm.0" line
+    // (docs/fidelity.md "IIgs profile fields verified from the handlers").
+    menuInputAction: "noop",
+    inputWidthActions: "noop",
+    priorityBaseAction: "noop",
+    objectDistanceCap: 255,
+    patternProfile: "center-row-320",
+    heapDiagnosticExtraLine: false,
     extraActions: "iigs",
     stringSlots: 13,
     keyMapCapacity: 40,
