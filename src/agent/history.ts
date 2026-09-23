@@ -231,7 +231,7 @@ export interface HistoryAnchor {
   resourceSet: string;
   patchGeneration: number;
   /** Recorded semantic fingerprint — replay must re-derive it after restore. */
-  fingerprint?: HistoryFingerprint;
+  fingerprint: HistoryFingerprint;
 }
 
 /**
@@ -267,7 +267,7 @@ export interface HistoryBoot {
   resourceSet: string;
   requestSerial: number;
   /** Recorded semantic fingerprint — replay must re-derive it after restore. */
-  fingerprint?: HistoryFingerprint;
+  fingerprint: HistoryFingerprint;
 }
 
 /**
@@ -440,7 +440,9 @@ const sortDictionary = (entries: readonly [string, number][]): [string, number][
   [...entries].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 
 /** The semantic view of a recorded anchor — every resumable-state field it carries. */
-export function historyAnchorSemantic(anchor: HistoryAnchor): HistorySemanticState {
+export function historyAnchorSemantic(
+  anchor: Omit<HistoryAnchor, "fingerprint">,
+): HistorySemanticState {
   const out: HistorySemanticState = {
     image: anchor.image,
     replay: anchor.replay,
@@ -460,7 +462,7 @@ export function historyAnchorSemantic(anchor: HistoryAnchor): HistorySemanticSta
 }
 
 /** The semantic view of a segment boot — every resumable-state field it carries. */
-export function historyBootSemantic(boot: HistoryBoot): HistorySemanticState {
+export function historyBootSemantic(boot: Omit<HistoryBoot, "fingerprint">): HistorySemanticState {
   const out: HistorySemanticState = {
     authorRooms: boot.authorRooms,
     dictionary: sortDictionary(boot.dictionary),
@@ -501,6 +503,16 @@ export function historyFingerprint(state: HistorySemanticState): HistoryFingerpr
     hash = ((hash ^ BigInt(text.charCodeAt(i))) * 0x100000001b3n) & 0xffffffffffffffffn;
   }
   return { v: HISTORY_FINGERPRINT_VERSION, hash: hash.toString(16).padStart(16, "0") };
+}
+
+/** A recorded anchor, stamped with the fingerprint replay must re-derive. */
+export function stampAnchor(anchor: Omit<HistoryAnchor, "fingerprint">): HistoryAnchor {
+  return { ...anchor, fingerprint: historyFingerprint(historyAnchorSemantic(anchor)) };
+}
+
+/** A segment boot, stamped with the fingerprint replay must re-derive. */
+export function stampBoot(boot: Omit<HistoryBoot, "fingerprint">): HistoryBoot {
+  return { ...boot, fingerprint: historyFingerprint(historyBootSemantic(boot)) };
 }
 
 // ---------- validation (project archives are untrusted input) ----------
@@ -832,8 +844,7 @@ function syncMarks(value: unknown): HistorySyncMark[] {
       room: int(m["room"], "sync room", 255),
       score: int(m["score"], "sync score", 0xffff),
       patchGeneration: int(m["patchGeneration"], "sync patchGeneration"),
-      modal:
-        m["modal"] === null || m["modal"] === undefined ? null : text(m["modal"], "sync modal", 64),
+      modal: m["modal"] === null ? null : text(m["modal"], "sync modal", 64),
     };
   });
 }
@@ -852,7 +863,7 @@ function anchor(value: unknown): HistoryAnchor {
   const reason = value["reason"];
   if (!["boot", "room", "autosave", "flush", "pause", "resume"].includes(String(reason)))
     fail("anchor reason is invalid.");
-  const out: HistoryAnchor = {
+  const out: Omit<HistoryAnchor, "fingerprint"> = {
     seq: int(value["seq"], "anchor seq"),
     tick: int(value["tick"], "anchor tick"),
     cycle: int(value["cycle"], "anchor cycle"),
@@ -881,12 +892,10 @@ function anchor(value: unknown): HistoryAnchor {
     resourceSet: text(value["resourceSet"], "anchor resourceSet", MAX_HISTORY_STRING),
     patchGeneration: int(value["patchGeneration"], "anchor patchGeneration"),
   };
-  if (value["fingerprint"] !== undefined) {
-    out.fingerprint = fingerprint(value["fingerprint"]);
-    if (historyFingerprint(historyAnchorSemantic(out)).hash !== out.fingerprint.hash)
-      fail("anchor fingerprint does not match its recorded state.");
-  }
-  return out;
+  const stamp = fingerprint(value["fingerprint"]);
+  if (historyFingerprint(historyAnchorSemantic(out)).hash !== stamp.hash)
+    fail("anchor fingerprint does not match its recorded state.");
+  return { ...out, fingerprint: stamp };
 }
 
 function profileId(value: unknown, label = "boot profile"): ProfileId {
@@ -899,7 +908,7 @@ function boot(value: unknown): HistoryBoot {
   if (!isObj(value)) fail("boot must be an object.");
   const files = value["files"];
   if (!isObj(files) || Object.keys(files).length > 1024) fail("boot.files must be a bounded map.");
-  const out: HistoryBoot = {
+  const out: Omit<HistoryBoot, "fingerprint"> = {
     files: Object.fromEntries(
       Object.entries(files).map(([name, data]) => {
         if (!/^[A-Z0-9._-]+$/i.test(name)) fail("boot file name is invalid.");
@@ -947,12 +956,10 @@ function boot(value: unknown): HistoryBoot {
   if (value["clock"] !== undefined) out.clock = clock(value["clock"]);
   if (value["soundRemainder"] !== undefined)
     out.soundRemainder = num(value["soundRemainder"], "boot soundRemainder", 1000);
-  if (value["fingerprint"] !== undefined) {
-    out.fingerprint = fingerprint(value["fingerprint"]);
-    if (historyFingerprint(historyBootSemantic(out)).hash !== out.fingerprint.hash)
-      fail("boot fingerprint does not match its recorded state.");
-  }
-  return out;
+  const stamp = fingerprint(value["fingerprint"]);
+  if (historyFingerprint(historyBootSemantic(out)).hash !== stamp.hash)
+    fail("boot fingerprint does not match its recorded state.");
+  return { ...out, fingerprint: stamp };
 }
 
 /** Validate a standalone boot record (a retained original carried over messages). */

@@ -631,8 +631,7 @@ function readLibrary(data: CachedGameData): LibraryMetadata {
   });
   const library: Record<string, unknown> = { ...normalized };
   for (const [key, value] of Object.entries(raw))
-    // A stored alias is a pre-identity lookup key, not an extension — drop it.
-    if (!Object.hasOwn(LIBRARY_FIELDS, key) && key !== "alias") library[key] = value;
+    if (!Object.hasOwn(LIBRARY_FIELDS, key)) library[key] = value;
   return library as unknown as LibraryMetadata;
 }
 async function stampLibraryMetadata(
@@ -1045,7 +1044,7 @@ export async function reconcileGameIndex(): Promise<void> {
       try {
         index = JSON.parse(raw) as Record<string, unknown>;
       } catch {
-        // Leave unrelated legacy data recoverable.
+        // Leave data this app does not recognise untouched.
         return;
       }
       if (

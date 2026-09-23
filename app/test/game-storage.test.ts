@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { stampBoot } from "../../src/agent/history.ts";
 import { test } from "node:test";
 import { testProjectId } from "./identity.ts";
 import { requireResourceRevision } from "../../src/gameIdentity.ts";
@@ -62,7 +63,7 @@ test("renaming preserves game resources, conversation and save identity", async 
   assert.equal(await storage.renameAuthoredGame(testProjectId("absent"), "New title"), false);
 });
 
-test("pre-release localStorage project bodies are left untouched", async (t) => {
+test("an unrecognised localStorage project record is refused and left untouched", async (t) => {
   const values = new Map<string, string>();
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   t.after(() => {
@@ -961,7 +962,7 @@ test("removing a library game deletes its history records and blobs too", async 
   });
   // A real tape: boot batch (segment + files blob) plus an unsettled staged
   // candidate (second blob + staged manifest ref).
-  const boot = {
+  const boot = stampBoot({
     files: { "VOL.0": "AA==" },
     dictionary: [],
     authorRooms: false,
@@ -969,7 +970,7 @@ test("removing a library game deletes its history records and blobs too", async 
     soundDevice: 1,
     resourceSet: "rev-1",
     requestSerial: 0,
-  };
+  });
   const identity = { project: projectId, revision: testRevision("tape") };
   assert.equal(
     await appendHistoryBatch(
@@ -982,7 +983,7 @@ test("removing a library game deletes its history records and blobs too", async 
   );
   await stageRetainedOriginal(projectId, {
     id: "staged-1",
-    boot: { ...boot, files: { "VOL.0": "Ag==" } },
+    boot: stampBoot({ ...boot, files: { "VOL.0": "Ag==" } }),
     from: { segment: "s1", seq: 0, tick: 0 },
     retainedAt: 1,
   });
@@ -1068,7 +1069,7 @@ test("reconciling the index with history records present reads only project bodi
     files: { "VOL.0": Uint8Array.of(3) },
     words: [],
   });
-  const boot = {
+  const boot = stampBoot({
     files: { "VOL.0": "AA==" },
     dictionary: [],
     authorRooms: false,
@@ -1076,7 +1077,7 @@ test("reconciling the index with history records present reads only project bodi
     soundDevice: 1,
     resourceSet: "rev-1",
     requestSerial: 0,
-  };
+  });
   const identity = { project: projectId, revision: testRevision("tape") };
   assert.equal(
     await appendHistoryBatch(

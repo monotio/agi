@@ -78,8 +78,8 @@ export function parseAutosaveRecord(raw: unknown): AutosaveRecord | null {
 
 /**
  * Preserve recognized checkpoints with a future integer version. Malformed
- * records and unreleased older formats are replaceable, so corrupt metadata
- * cannot block autosave for good.
+ * and format-less records are replaceable, so corrupt metadata cannot block
+ * autosave for good.
  */
 export function writeAutosave(
   storage: Pick<Storage, "getItem" | "setItem">,

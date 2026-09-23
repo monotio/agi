@@ -55,7 +55,7 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
       "the sound resource decoders and the tick-driven playback state machine behind every output family",
   },
   "src/agent/history.ts": {
-    lines: 970,
+    lines: 1027,
     boundary:
       "the history recording contract incl. the recorded clock, RNG-reseed and semantic-fingerprint lanes; the release contract pins its structure",
   },

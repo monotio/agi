@@ -30,9 +30,8 @@ import {
   HISTORY_SEGMENT_BYTE_LIMIT,
   HISTORY_SEGMENT_EVENT_LIMIT,
   computeSyncMark,
-  historyAnchorSemantic,
-  historyBootSemantic,
-  historyFingerprint,
+  stampAnchor,
+  stampBoot,
   type HistoryAnchor,
   type HistoryBatch,
   type HistoryBoot,
@@ -228,7 +227,10 @@ export function createHistory(ctx: WorkerContext) {
     if (!image) return;
     const h = ctx.history;
     syncMark();
-    const anchor: HistoryAnchor = {
+    // The fingerprint is recorded now and re-derived from the restored
+    // scratch at replay — drift the sync digest does not cover (PRNG,
+    // strings, motion state, queues, clocks) fails at the resume point.
+    const anchor = stampAnchor({
       seq: h.seq,
       tick: tick(),
       cycle: cycle(),
@@ -251,11 +253,7 @@ export function createHistory(ctx: WorkerContext) {
       soundRemainder: ctx.clocks.sound.snapshot(),
       resourceSet: currentResourceSet(),
       patchGeneration: engine.patchGeneration,
-    };
-    // The fingerprint is recorded now and re-derived from the restored
-    // scratch at replay — drift the sync digest does not cover (PRNG,
-    // strings, motion state, queues, clocks) fails at the resume point.
-    anchor.fingerprint = historyFingerprint(historyAnchorSemantic(anchor));
+    });
     closeBatch({ anchor });
   }
 
@@ -539,7 +537,7 @@ export function createHistory(ctx: WorkerContext) {
     h.pendingEndReply = null;
     h.rng = (typeof msg.rngSeed === "number" ? msg.rngSeed : 1) & 0xffff;
     if (ctx.replay.replay) return; // a seeded boot is a scratch replay session
-    const boot: HistoryBoot = {
+    const boot = stampBoot({
       files: bootFiles(),
       dictionary: [...ctx.boot.liveDictionary.entries()],
       authorRooms: ctx.boot.authorRooms,
@@ -552,8 +550,7 @@ export function createHistory(ctx: WorkerContext) {
         ? { image: msg.restoreImage }
         : {}),
       ...(msg.restoreMenus !== undefined ? { menus: msg.restoreMenus } : {}),
-    };
-    boot.fingerprint = historyFingerprint(historyBootSemantic(boot));
+    });
     beginSegment(boot);
   }
 
@@ -588,7 +585,7 @@ export function createHistory(ctx: WorkerContext) {
     const image = engine.recordingImage();
     if (!image) return null;
     const h = ctx.history;
-    const boot: HistoryBoot = {
+    const boot = stampBoot({
       files: bootFiles(),
       dictionary: [...ctx.boot.liveDictionary.entries()],
       authorRooms: ctx.boot.authorRooms,
@@ -612,8 +609,7 @@ export function createHistory(ctx: WorkerContext) {
       resourceSet: currentResourceSet(),
       requestSerial: ctx.hostRequests.hostRequestSerial,
       ...(h.resumedFrom !== null ? { resumedFrom: h.resumedFrom } : {}),
-    };
-    boot.fingerprint = historyFingerprint(historyBootSemantic(boot));
+    });
     return boot;
   }
 

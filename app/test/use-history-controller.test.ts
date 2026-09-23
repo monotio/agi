@@ -5,6 +5,7 @@
  * the ledger clear. A game switch drops the ledger: the old worker's
  * resends are gone with it.
  */
+import { stampBoot } from "../../src/agent/history.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { useHistoryController } from "../src/useHistoryController.ts";
@@ -29,7 +30,7 @@ import {
 
 const records = installIndexedDbFixture();
 
-const BOOT: HistoryBoot = {
+const BOOT: HistoryBoot = stampBoot({
   files: { "VOL.0": "eA==" },
   dictionary: [],
   authorRooms: false,
@@ -37,7 +38,7 @@ const BOOT: HistoryBoot = {
   soundDevice: 1,
   resourceSet: "rev-1",
   requestSerial: 0,
-};
+});
 
 function game(id: string): BootedGame {
   return {

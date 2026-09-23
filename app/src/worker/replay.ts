@@ -671,21 +671,19 @@ export function openHistoryDrive(
     // scratch re-derives it from the restored state and the two must
     // agree before a single event replays — drift the sync digest does
     // not cover (PRNG, strings, motion state, queues, clocks) fails here.
-    const fingerprint = anchor?.fingerprint ?? segment.boot.fingerprint;
-    if (fingerprint !== undefined) {
-      if (fingerprint.v !== HISTORY_FINGERPRINT_VERSION)
-        throw new Error(`resume point carries fingerprint version ${fingerprint.v}`);
-      const actual = historyFingerprint(
-        captureSemanticState(
-          ctx,
-          anchor !== null ? historyAnchorSemantic(anchor) : historyBootSemantic(segment.boot),
-        ),
+    const fingerprint = anchor !== null ? anchor.fingerprint : segment.boot.fingerprint;
+    if (fingerprint.v !== HISTORY_FINGERPRINT_VERSION)
+      throw new Error(`resume point carries fingerprint version ${fingerprint.v}`);
+    const actual = historyFingerprint(
+      captureSemanticState(
+        ctx,
+        anchor !== null ? historyAnchorSemantic(anchor) : historyBootSemantic(segment.boot),
+      ),
+    );
+    if (actual.hash !== fingerprint.hash)
+      throw new Error(
+        `${anchor !== null ? `anchor ${anchor.seq}` : "boot"} semantic fingerprint does not hold: the restored state is not the recorded state`,
       );
-      if (actual.hash !== fingerprint.hash)
-        throw new Error(
-          `${anchor !== null ? `anchor ${anchor.seq}` : "boot"} semantic fingerprint does not hold: the restored state is not the recorded state`,
-        );
-    }
 
     engine = ctx.engine;
     replay = ctx.replay.replay;

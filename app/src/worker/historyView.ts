@@ -21,6 +21,7 @@ import {
   HISTORY_FINGERPRINT_VERSION,
   historyBootSemantic,
   historyFingerprint,
+  stampBoot,
   validateHistoryBoot,
   type HistoryBoot,
   type HistorySegment,
@@ -314,20 +315,18 @@ export function createHistoryView(ctx: WorkerContext) {
       candidate.restoreImage(base64ToBytes(boot.image), { preservePresentation: true });
     if (boot.menus !== undefined) candidate.restoreMenuState(boot.menus);
     if (boot.replay !== undefined) candidate.restoreReplayState(boot.replay);
-    if (boot.fingerprint !== undefined) {
-      if (boot.fingerprint.v !== HISTORY_FINGERPRINT_VERSION)
-        throw new Error(`history boot carries fingerprint version ${boot.fingerprint.v}`);
-      const semantic = historyBootSemantic(boot);
-      if (semantic.image !== undefined) {
-        const image = candidate.recordingImage();
-        if (image === null) throw new Error("the adopted state is not a resumable boundary");
-        semantic.image = bytesToBase64(image);
-      }
-      if (semantic.replay !== undefined) semantic.replay = candidate.captureReplayState();
-      if (semantic.menus !== undefined) semantic.menus = candidate.readMenuState();
-      if (historyFingerprint(semantic).hash !== boot.fingerprint.hash)
-        throw new Error("the adopted state is not the recorded state");
+    if (boot.fingerprint.v !== HISTORY_FINGERPRINT_VERSION)
+      throw new Error(`history boot carries fingerprint version ${boot.fingerprint.v}`);
+    const semantic = historyBootSemantic(boot);
+    if (semantic.image !== undefined) {
+      const image = candidate.recordingImage();
+      if (image === null) throw new Error("the adopted state is not a resumable boundary");
+      semantic.image = bytesToBase64(image);
     }
+    if (semantic.replay !== undefined) semantic.replay = candidate.captureReplayState();
+    if (semantic.menus !== undefined) semantic.menus = candidate.readMenuState();
+    if (historyFingerprint(semantic).hash !== boot.fingerprint.hash)
+      throw new Error("the adopted state is not the recorded state");
     ctx.fns.abandonHostRequest();
     endView(false);
     ctx.fns.historyEnd("resume");
@@ -426,7 +425,9 @@ export function createHistoryView(ctx: WorkerContext) {
     }
     const files = new Map(engine.containerFiles);
     if (scratch.boot.authoredWords) files.set("WORDS.TOK", scratch.boot.authoredWords);
-    const boot: HistoryBoot = {
+    // The adopted position's semantic fingerprint rides the boot so the
+    // segment it opens verifies the same resume point on replay.
+    const boot = stampBoot({
       files: Object.fromEntries([...files].map(([name, data]) => [name, bytesToBase64(data)])),
       dictionary: [...scratch.boot.liveDictionary.entries()],
       authorRooms: scratch.boot.authorRooms,
@@ -446,10 +447,7 @@ export function createHistoryView(ctx: WorkerContext) {
       soundDevice: scratch.boot.selectedSoundDevice,
       resourceSet: resourceSetHint({ getFiles: () => files }),
       requestSerial: scratch.hostRequests.hostRequestSerial,
-    };
-    // The adopted position's semantic fingerprint rides the boot so the
-    // segment it opens verifies the same resume point on replay.
-    boot.fingerprint = historyFingerprint(historyBootSemantic(boot));
+    });
     // The authoring state belonging to these bytes: the last checkpoint the
     // host committed at-or-before this position — earlier segments count, a
     // take mid-commit simply sees the previous one. Scanning back, a

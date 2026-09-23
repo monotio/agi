@@ -591,7 +591,11 @@ import { buildView } from "../src/view/view.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
 import { Simulation } from "../src/agent/playtest.ts";
 import type { RecordedOperation } from "../src/agent/recordedReplay.ts";
-import { HISTORY_FORMAT_VERSION, validateHistoryRecording } from "../src/agent/history.ts";
+import {
+  HISTORY_FORMAT_VERSION,
+  validateHistoryRecording,
+  stampBoot,
+} from "../src/agent/history.ts";
 import { requireProjectId, requireResourceRevision } from "../src/gameIdentity.ts";
 
 /** 1 loop, 1 cel: a solid width x height block of color 5 (test/click-move's fixture). */
@@ -703,7 +707,7 @@ test("the history parser round-trips a click cause and rejects bad coordinates",
     segments: [
       {
         id: "s.1",
-        boot: {
+        boot: stampBoot({
           files: { "VOL.0": "eA==" },
           dictionary: [],
           authorRooms: false,
@@ -711,7 +715,7 @@ test("the history parser round-trips a click cause and rejects bad coordinates",
           soundDevice: 1,
           resourceSet: "rev-1",
           requestSerial: 0,
-        },
+        }),
         anchors: [],
         events: [{ seq: 0, tick: 0, cycle: 0, cause }],
         marks: [],

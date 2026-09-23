@@ -102,7 +102,6 @@ export function readHistoryArchive(bytes: Uint8Array): ProjectHistory {
   if (!isObj(raw) || raw["format"] !== "monotio.agi.history" || raw["version"] !== 1)
     throw new Error("HISTORY.JSON is not a history record this app understands.");
   const recording = validateHistoryRecording(raw["recording"]);
-  if ("retained" in raw) throw new Error("HISTORY.JSON contains an unsupported retained layout.");
   const retainedList = (key: "branches" | "staged"): RetainedOriginal[] => {
     const entry = key === "branches" ? "retained branch" : "staged candidate";
     const rawList = raw[key] ?? [];

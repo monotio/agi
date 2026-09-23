@@ -195,7 +195,6 @@ function readManifest(raw: unknown): HistoryManifest | null {
     !isObject(raw["committed"]) ||
     !isObject(raw["bytes"]) ||
     !isObject(raw["blobs"]) ||
-    "retained" in raw ||
     (raw["branches"] !== undefined && !Array.isArray(raw["branches"])) ||
     (raw["staged"] !== undefined && !Array.isArray(raw["staged"]))
   )
