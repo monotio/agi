@@ -14,8 +14,8 @@ import { isolateStorage, openGameOptions, textHook } from "./engineProbe.ts";
  * through import, boot, Export game and re-import. The playable-file filter
  * once dropped the Amiga `GR` and IIgs `SQ2.SYS16` executables on import,
  * booting on "catalog" evidence; the same bytes under another spelling also
- * hashed to a different revision. Export compacts the volumes, so the
- * exported set has its own revision, which re-import must reproduce exactly.
+ * hashed to a different revision. An untouched original exports as the
+ * bytes it was imported as, so the revision holds end to end.
  * port-boot.spec.ts covers the gallery path.
  */
 const PORTS: readonly { alias: string; executable: string }[] = [
@@ -53,7 +53,8 @@ for (const port of PORTS) {
     await page.goto("/?replaySeed=1");
     await importAndBoot(page, zip, known.profile);
     const original = await readGameZip(new Uint8Array(await readFile(zip)));
-    expect(await storedRevision(page)).toBe(await gameRevision(original.files));
+    const revision = await gameRevision(original.files);
+    expect(await storedRevision(page)).toBe(revision);
 
     const pending = page.waitForEvent("download");
     await openGameOptions(page, "game-menu");
@@ -61,7 +62,7 @@ for (const port of PORTS) {
     const exported = (await (await pending).path())!;
     const game = await readGameZip(new Uint8Array(await readFile(exported)));
     expect(Object.keys(game.files)).toContain(port.executable);
-    const revision = await gameRevision(game.files);
+    expect(await gameRevision(game.files)).toBe(revision);
 
     const fresh = await browser.newContext();
     try {

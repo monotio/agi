@@ -371,17 +371,25 @@ test("import and copy rebind a verified staged reference; a stale one keeps its 
   );
 });
 
-test("project compaction preserves current staging and refuses stale staging through repeated imports and copies", async (t) => {
+test("exports ship stored bytes; a supplied OBJECT keeps current staging and refuses stale staging through repeated imports and copies", async (t) => {
   installLocalStorage(t);
-  const packed = (await readGameZip(buildPublicGameZip({ files: game(), title: "Port" }))).files;
-  const files = { ...packed, "VOL.0": Uint8Array.of(...packed["VOL.0"]!, 1, 2, 3, 4) };
+  // Stored bytes ship as they are, slack after the last record included: an
+  // untouched original exports as the same bytes and the same revision.
+  const exported = (await readGameZip(buildPublicGameZip({ files: game(), title: "Port" }))).files;
+  const slack = { ...exported, "VOL.0": Uint8Array.of(...exported["VOL.0"]!, 1, 2, 3, 4) };
+  assert.deepEqual(
+    (await readGameZip(buildPublicGameZip({ files: slack, title: "Port" }))).files,
+    slack,
+  );
+  // Export supplies a missing OBJECT, which moves the revision.
+  const { OBJECT: _object, ...files } = exported;
   const originalIdentity = {
-    project: testProjectId("unpacked"),
+    project: testProjectId("objectless"),
     revision: await gameRevision(files),
   };
-  // This old attachment already equals the future compacted revision. Export
-  // must preserve its refusal rather than accidentally reviving it on import.
-  const staleIdentity = { ...originalIdentity, revision: await gameRevision(packed) };
+  // This old attachment already equals the exported revision. Export must
+  // preserve its refusal rather than accidentally reviving it on import.
+  const staleIdentity = { ...originalIdentity, revision: await gameRevision(exported) };
   assert.notEqual(originalIdentity.revision, staleIdentity.revision);
   const fresh = stageCharacterView(
     "fresh",
@@ -412,7 +420,7 @@ test("project compaction preserves current staging and refuses stale staging thr
   };
   for (let round = 0; round < 2; round++) {
     const opened = await readGameZip(await buildProjectZip(project));
-    assert.deepEqual(opened.files, packed, "export compacts only unused container bytes");
+    assert.deepEqual(opened.files, exported, "export adds only the missing OBJECT");
     const importedId = await addLibraryGame(opened, "Port", "zip", opening);
     const imported = (await loadAuthoredGame(importedId))!;
     for (const candidate of [
