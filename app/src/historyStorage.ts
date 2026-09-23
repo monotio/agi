@@ -100,7 +100,8 @@ interface ManifestSegment {
  * and everything retention needs to collect, without touching tape bytes.
  */
 interface HistoryManifest {
-  format: "monotio.agi.history";
+  /** The browser's tape record; HISTORY.JSON is the archive format. */
+  format: "monotio.agi.stored-history";
   version: 1;
   /** The object store's keyPath: `history/<gameStorageKey>` — a record locator, not an identity. */
   projectId: string;
@@ -181,7 +182,7 @@ function readManifest(raw: unknown): HistoryManifest | null {
   if (raw === undefined) return null;
   const isObject = (value: unknown): value is Record<string, unknown> =>
     typeof value === "object" && value !== null && !Array.isArray(value);
-  if (!isObject(raw) || raw["format"] !== "monotio.agi.history" || raw["version"] !== 1)
+  if (!isObject(raw) || raw["format"] !== "monotio.agi.stored-history" || raw["version"] !== 1)
     throw new Error("This history record version is not supported by this app.");
   if (
     typeof raw["projectId"] !== "string" ||
@@ -318,7 +319,7 @@ function evictSegments(
 
 function manifestPut(manifest: HistoryManifest): unknown {
   const put: Record<string, unknown> = {
-    format: "monotio.agi.history",
+    format: "monotio.agi.stored-history",
     version: 1,
     projectId: manifest.projectId,
     recording: manifest.recording,
@@ -343,7 +344,7 @@ function freshManifest(
   resourceSet: string,
 ): HistoryManifest {
   return {
-    format: "monotio.agi.history",
+    format: "monotio.agi.stored-history",
     version: 1,
     projectId: key,
     recording: {

@@ -460,7 +460,8 @@ test("released bodies load with normalized library text; identity checks re-hash
   await assert.rejects(storage.loadAuthoredGame(testProjectId("bounded")), /version/);
 });
 
-test("format-less records are replaced while future versions stay untouched", async (t) => {
+test("a record this release does not recognise is never overwritten", async (t) => {
+  t.mock.method(console, "error", () => {});
   const values = new Map<string, string>();
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   t.after(() => {
@@ -477,7 +478,7 @@ test("format-less records are replaced while future versions stay untouched", as
   });
   indexedDbRecords.set("formatless", {
     projectId: testProjectId("formatless"),
-    title: "Pre-release",
+    title: "Unrecognised",
     provider: "stub",
     model: "stub",
     files: { "VOL.0": Uint8Array.of(9) },
@@ -491,13 +492,13 @@ test("format-less records are replaced while future versions stay untouched", as
       files: { "VOL.0": Uint8Array.of(1) },
       words: [],
     }),
-    true,
+    false,
   );
-  assert.equal((await storage.loadAuthoredGame(testProjectId("formatless")))?.title, "Replacement");
+  assert.equal((indexedDbRecords.get("formatless") as { title: string }).title, "Unrecognised");
 
   indexedDbRecords.set("conversation/formatless", {
     projectId: "conversation/formatless",
-    transcript: [{ text: "pre-release" }],
+    transcript: [{ text: "unrecognised" }],
   });
   const conversation = {
     provider: "stub",
@@ -505,8 +506,11 @@ test("format-less records are replaced while future versions stay untouched", as
     transcript: [{ text: "hello" }],
     authoringState: {},
   };
-  await storage.saveGameConversation("formatless", conversation);
-  assert.deepEqual(await storage.loadGameConversation("formatless"), conversation);
+  await assert.rejects(storage.saveGameConversation("formatless", conversation));
+  assert.deepEqual(
+    (indexedDbRecords.get("conversation/formatless") as { transcript: unknown }).transcript,
+    [{ text: "unrecognised" }],
+  );
 });
 
 test("removing a library game clears its conversation, checkpoint, save slots and resume pointer", async (t) => {
