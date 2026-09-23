@@ -33,17 +33,35 @@ export function editableSource(
   );
 }
 
-/** Revision of the editable snapshot: shown text plus its compilation context. */
+/**
+ * Revision of the editable snapshot: shown text plus the context it compiles
+ * in. That context is what the text depends on — the words it quotes, with
+ * their ids, and the bindings it names. Vocabulary or bindings it does not use
+ * cannot change how it compiles, so registering them does not stale a read.
+ */
 export function sourceContextRevision(
   state: AgentSessionState,
   kind: "logic" | "picture",
   num: number,
   source: string,
 ): string {
+  const byCodePoint = ([a]: [string, unknown], [b]: [string, unknown]) =>
+    a < b ? -1 : a > b ? 1 : 0;
+  const quoted = new Set(
+    [...source.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((match) => match[1]!.toLowerCase()),
+  );
+  const names = new Set(source.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []);
   return sourceRevision(state.container.getResource(kind, num), source, {
     profile: state.profile.id,
-    words: [...state.sources.words.keys()].sort(),
-    bindings: state.authoring.bindings,
+    words: [...state.sources.words]
+      .filter(([word]) => quoted.has(word))
+      .sort(byCodePoint)
+      .map(([word, id]) => `${word}=${id}`),
+    bindings: Object.fromEntries(
+      Object.entries(state.authoring.bindings)
+        .filter(([name]) => names.has(name))
+        .sort(byCodePoint),
+    ),
   });
 }
 

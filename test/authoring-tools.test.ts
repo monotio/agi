@@ -300,3 +300,54 @@ test("write_logic_source warns on non-diegetic (+N) score counters without delet
   );
   assert.equal(state.sources.logics.get(1), source, "preserves authored copy intact");
 });
+
+test("a source revision covers what its text depends on, not unrelated vocabulary or bindings", () => {
+  // Every Genesis benchmark lane paid a repair turn here: it read logic 0,
+  // registered more words, then edited with the revision it had read.
+  const state = createAgentSessionState();
+  assert.equal(
+    executeAgentTool(state, "write_words", { words: ["look"], groups: null }).success,
+    true,
+  );
+  assert.equal(
+    executeAuthoringTool(state, "reserve_binding", { kind: "flag", name: "gate_open", id: null })!
+      .success,
+    true,
+  );
+  const written = executeAgentTool(state, "write_logic_source", {
+    room: 1,
+    source: 'if (said("look")) { set(gate_open); } return;',
+  });
+  assert.equal(written.success, true, written.error ?? "");
+  const revision = logicRevision(state, 1);
+
+  // Words and bindings the source does not use leave the revision alone.
+  assert.equal(
+    executeAgentTool(state, "write_words", { words: ["look", "lantern", "moat"], groups: null })
+      .success,
+    true,
+  );
+  assert.equal(
+    executeAuthoringTool(state, "reserve_binding", { kind: "flag", name: "lamp_lit", id: null })!
+      .success,
+    true,
+  );
+  assert.equal(logicRevision(state, 1), revision);
+  const edit = executeAuthoringTool(state, "edit_resource_source", {
+    kind: "logic",
+    num: 1,
+    expectedRevision: revision,
+    edits: [{ find: "set(gate_open);", replace: "set(gate_open); set(lamp_lit);" }],
+  })!;
+  assert.equal(edit.success, true, edit.error ?? "");
+
+  // The edit moved the text, so the old revision is stale now.
+  const stale = executeAuthoringTool(state, "edit_resource_source", {
+    kind: "logic",
+    num: 1,
+    expectedRevision: revision,
+    edits: [{ find: "set(lamp_lit);", replace: "" }],
+  })!;
+  assert.equal(stale.success, false);
+  assert.match(stale.error ?? "", /Source revision changed/);
+});

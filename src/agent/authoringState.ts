@@ -47,7 +47,8 @@ export function resourceSetHint(state: { getFiles(): Map<string, Uint8Array> }):
 /**
  * Revision for the editable source snapshot. Covers the exact text the agent
  * was shown plus everything that changes how it compiles — resource bytes,
- * interpreter profile, dictionary, and named bindings — not only bytes.
+ * interpreter profile, and the dictionary entries and named bindings the text
+ * uses — not only bytes.
  * Formatting-only drift and stale tokens alike invalidate pending edits.
  */
 export function sourceRevision(
