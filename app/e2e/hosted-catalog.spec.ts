@@ -101,12 +101,14 @@ test("a hosted game's declared interpreter is the one its library entry and play
   await expect(card.getByRole("img")).toHaveAttribute("src", /^data:image\/png;base64,/);
   await card.getByRole("button", { name: "Play", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).profile).toBe("2.089");
-  const stored = await page.evaluate(async () => {
-    const path = "/src/gameStorage.ts";
-    const store = await import(path);
-    return store.listCachedGames()[0]?.library?.profile;
-  });
-  expect(stored).toBe("2.089");
+  // The library entry holds the same choice (read through the UI, so the
+  // production bundle runs this too).
+  await page.getByTestId("btn-exit").click();
+  const saved = page.getByTestId("saved-game-card-catalog-declared-1.0.0");
+  await saved.getByRole("button", { name: "Game actions" }).click();
+  await expect(page.getByTestId("interpreter-profile-menu-item")).toContainText(
+    "2.089 (your override)",
+  );
 });
 
 test("catalog and opening failures explain the problem before play and allow retry", async ({
