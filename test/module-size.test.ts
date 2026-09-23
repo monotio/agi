@@ -21,8 +21,9 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     // rc.15: deferred reposition placement, dispatch/condition bounds, input
     // fidelity and the new.room transition corrections. rc.16: the Amiga
     // 2.31x and IIgs opcode handlers ride on the same dispatch switch, and
-    // the Amiga/IIgs click-to-walk joins the input phase and motion pass.
-    lines: 6377,
+    // the Amiga/IIgs click-to-walk and word motion counters join the input
+    // phase and motion pass.
+    lines: 6390,
     boundary:
       "the interpreter core: dispatch, original movement phases, modal timing and restore re-entry",
   },
@@ -49,8 +50,9 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
   "src/runtime/profile.ts": {
     // rc.16: six Amiga interpreter profiles and IIgs 1.014 with their own
     // dispatch bounds, OBJECT layouts and detection evidence, plus the
-    // catalog-fingerprint identification and its kind/build report.
-    lines: 940,
+    // catalog-fingerprint identification and its kind/build report, then
+    // the click-to-walk and motion-counter variant fields.
+    lines: 1007,
     boundary:
       "the interpreter profile contract: per-build variant fields, promotion evidence and detection",
   },

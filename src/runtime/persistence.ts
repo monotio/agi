@@ -23,7 +23,6 @@
  */
 
 import type { AgiProfile, ProfileId } from "./profile.ts";
-import { MOTION_CLICK_MOVE } from "./screenObject.ts";
 import { validateContinuation, type ParkedContinuation } from "./replayState.ts";
 import { TEXT_COLS, TEXT_ROWS } from "./textSurface.ts";
 
@@ -1343,13 +1342,10 @@ function encodeBlock2Native(objects: readonly SaveObjectRecord[], be: boolean): 
     // bits come from the portable state word.
     const carried = base ? r16(base, 0x3e) : 0;
     w16(block, at + 0x3e, (carried & ~NATIVE_FLAG_MAPPED) | nativeFlagsFromPortable(o.state));
-    // The parameter bank is four bytes riding in the low half of four words;
-    // the click-move starter writes whole words — its target and saved step
-    // (docs/fidelity.md "Original click-to-walk").
-    for (let p = 0; p < 4; p++) {
-      if (o.motionMode === MOTION_CLICK_MOVE) w16(block, at + 0x40 + p * 2, o.motionParams[p]!);
-      else block[at + 0x40 + p * 2 + (be ? 1 : 0)] = o.motionParams[p]! & 0xff;
-    }
+    // Four parameter words: the handlers write whole words — zero-extended
+    // operands, click targets, word countdowns (docs/fidelity.md "Original
+    // click-to-walk", "Original motion counter width").
+    for (let p = 0; p < 4; p++) w16(block, at + 0x40 + p * 2, o.motionParams[p]!);
   }
   return block;
 }
@@ -1387,10 +1383,7 @@ function decodeBlock2Native(block: Uint8Array, be: boolean): SaveObjectRecord[] 
     record.cycleMode = portableMode(NATIVE_CYCLE, r16(rec, 0x3a));
     record.priority = r16(rec, 0x3c);
     record.state = portableFlagsFromNative(r16(rec, 0x3e));
-    const words = record.motionMode === MOTION_CLICK_MOVE;
-    const param = (offset: number): number =>
-      words ? r16(rec, offset) : rec[offset + (be ? 1 : 0)]!;
-    record.motionParams = [param(0x40), param(0x42), param(0x44), param(0x46)];
+    record.motionParams = [r16(rec, 0x40), r16(rec, 0x42), r16(rec, 0x44), r16(rec, 0x46)];
     record.raw = rec;
     out.push(record);
   }

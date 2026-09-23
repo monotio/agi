@@ -3360,26 +3360,37 @@ export class Engine {
             } while (bank[2] < obj.stepSize);
           }
         } else if (bank[2] !== 0) {
-          // Original SUB/JGE compares signed operands, including overflow;
-          // the wrapped result's sign alone is insufficient.
-          // docs/fidelity.md: Original complete movement and follow audit.
-          const signedDelay = (bank[2] << 24) >> 24;
-          const signedStep = (obj.stepSize << 24) >> 24;
-          bank[2] = signedDelay >= signedStep ? (bank[2] - obj.stepSize) & 0xff : 0;
+          if (this.profile.motionCounters === "word") {
+            // Amiga/IIgs: a word subtraction, zeroed when it goes negative
+            // (docs/fidelity.md "Original motion counter width").
+            const remaining = (((bank[2] - obj.stepSize) & 0xffff) << 16) >> 16;
+            bank[2] = remaining < 0 ? 0 : remaining;
+          } else {
+            // Original SUB/JGE compares signed operands, including overflow;
+            // the wrapped result's sign alone is insufficient.
+            // docs/fidelity.md: Original complete movement and follow audit.
+            const signedDelay = (bank[2] << 24) >> 24;
+            const signedStep = (obj.stepSize << 24) >> 24;
+            bank[2] = signedDelay >= signedStep ? (bank[2] - obj.stepSize) & 0xff : 0;
+          }
         } else obj.direction = direct;
         if (obj === this.objects[0]) this.vars[V_EGO_DIR] = obj.direction;
         return;
       }
       case MOTION_WANDER: {
-        // Decrement first modulo 256; only an exhausted count (old zero —
-        // wraps to 255 and is kept) or a stationary object draws a new
-        // direction, and the reroll keeps an already-valid count — a
-        // `while`, not a do/while (docs/fidelity.md, wander countdown).
+        // Decrement first; only an exhausted count or a stationary object
+        // draws a new direction, and the reroll keeps an already-valid count
+        // — a `while`, not a do/while (docs/fidelity.md, wander countdown).
+        // A PC byte count wraps an exhausted 0 to 255 and keeps it; an
+        // Amiga/IIgs word goes to -1, below the signed 6, and rerolls
+        // (docs/fidelity.md "Original motion counter width").
+        const word = this.profile.motionCounters === "word";
         const previousCount = obj.paramBank[0];
-        obj.paramBank[0] = (previousCount - 1) & 0xff;
+        obj.paramBank[0] = (previousCount - 1) & (word ? 0xffff : 0xff);
         if (previousCount === 0 || obj.stationary) {
           obj.direction = this.randomByte() % 9;
-          while (obj.paramBank[0] < 6) obj.paramBank[0] = this.randomByte() % 51;
+          const count = (): number => (word ? (obj.paramBank[0] << 16) >> 16 : obj.paramBank[0]);
+          while (count() < 6) obj.paramBank[0] = this.randomByte() % 51;
         }
         if (obj === this.objects[0]) this.vars[V_EGO_DIR] = obj.direction;
         return;
@@ -5130,7 +5141,9 @@ export class Engine {
       case 0x54: {
         const o = obj(0);
         o.motionMode = MOTION_WANDER;
-        o.paramBank[0] = 0; // the wander countdown is the bank's first byte
+        // The PC handler zeroes the countdown (the bank's first byte); the
+        // Amiga and IIgs handlers leave the word as they found it.
+        if (this.profile.motionCounters === "byte") o.paramBank[0] = 0;
         if (o === this.objects[0]) this.directionCoupling = 0;
         return next;
       }

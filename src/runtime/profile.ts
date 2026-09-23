@@ -73,6 +73,16 @@ export type MousePosnAction = "noop" | "write-pointer";
 export type ClickMoveRule = "none" | "amiga" | "amiga-2.31x" | "iigs";
 
 /**
+ * Width of the wander countdown and follow delay (docs/fidelity.md
+ * "Original motion counter width"). "byte": the PC counters wrap modulo 256
+ * and compare signed bytes. "word": the Amiga and IIgs object records hold
+ * them as signed words — the wander decrement goes negative and rerolls,
+ * the follow delay subtracts and clamps at zero, and `wander` leaves the
+ * countdown as it found it.
+ */
+export type MotionCounters = "byte" | "word";
+
+/**
  * Condition 0x13 semantics for profiles whose dispatchers reach it. The
  * Amiga 2.31x handler tests ego's motion mode against the click-move value.
  * The Apple IIgs and Amiga 2.082 evaluators' bounds admit 0x13 but their
@@ -265,6 +275,8 @@ export interface AgiProfile {
   readonly mousePosnAction: MousePosnAction;
   /** Left-click handling: none on PC; Amiga and IIgs start ego's click-move. */
   readonly clickMove: ClickMoveRule;
+  /** Wander and follow counter width: PC bytes, Amiga and IIgs words. */
+  readonly motionCounters: MotionCounters;
   /**
    * Immediate room aliases applied by action 0x12 before the common room
    * effects. Supplied through an explicit profile override for build-specific
@@ -360,6 +372,7 @@ const BASE_2936: AgiProfile = {
   priorityBaseAction: "effect",
   mousePosnAction: "noop",
   clickMove: "none",
+  motionCounters: "byte",
   roomAliases: null,
   wordSequenceTailTerminator: true,
   directionLoops: "four-or-more",
@@ -461,6 +474,7 @@ const BASE_AMIGA_31X: AgiProfile = {
   priorityBaseAction: "noop",
   mousePosnAction: "write-pointer",
   clickMove: "amiga-2.31x",
+  motionCounters: "word",
   directionLoops: "exact-four",
   directionLoopTiming: "cadence-due",
   // The Amiga save writes the inventory region raw; the v3 XOR transform is
@@ -603,6 +617,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxCondition: 0x13,
     condition0x13: "wild-dispatch",
     clickMove: "amiga",
+    motionCounters: "word",
     exitOperandBytes: 1,
     exitAlwaysImmediate: false,
     menuActions: "full",
@@ -625,6 +640,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     id: "amiga-2.176",
     maxAction: 0xa9,
     clickMove: "amiga",
+    motionCounters: "word",
     exitOperandBytes: 1,
     exitAlwaysImmediate: false,
     menuActions: "full",
@@ -653,6 +669,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     id: "amiga-2.202",
     maxAction: 0xa9,
     clickMove: "amiga",
+    motionCounters: "word",
     menuInputAction: "noop",
     inputWidthActions: "noop",
     stringSlots: 13,
@@ -689,6 +706,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxCondition: 0x13,
     condition0x13: "wild-dispatch",
     clickMove: "iigs",
+    motionCounters: "word",
     extraActions: "iigs",
     stringSlots: 13,
     keyMapCapacity: 40,

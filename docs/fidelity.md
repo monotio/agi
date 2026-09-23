@@ -1945,7 +1945,7 @@ contract without binary evidence — the handler that would decide them
 either was not located in a bounded scan or does not exist on that
 build. Fields the verified dispatch bounds, container kinds, stub slots
 and sound findings above decide (`container`, `volumeHeaderBytes`,
-`maxCondition`, `condition0x13`, `extraActions`, `mousePosnAction`, `clickMove`, the
+`maxCondition`, `condition0x13`, `extraActions`, `mousePosnAction`, `clickMove`, `motionCounters`, the
 2.082 `menuActions`, the 2.176, 2.202 and 2.31x `soundEnvelope`) are not in these lists:
 
 - `amiga-2.082` (early-v2 base): `menuInteractionGate`,
@@ -2054,24 +2054,61 @@ to consume. Sierra 2.082 also has a second left-button arm (h78+0x25c): with
 the menu flag set, a click enqueues Enter.
 
 **Apple IIgs 1.014.** The Event Manager loop's mouse-down arm (seg3+0x8eb)
-ignores clicks with `where.y < 8` (the menu bar) and, when the input-state
-bytes `$00b3`, `$1590` and `$1592` allow it, calls `movetoseg+0xb4` with
-the click — the same starter: player control `$011d`, mode 4,
+sends clicks on rows 0-7 (`where.y - 8` negative, signed) to the menu bar
+unless byte `$0090` is set or `$00b3` is 1. Other clicks go through a hit
+test (`jsl $000e1f` with the position, seg3+0x9be); a zero result or part 2
+of its four-way table (seg3+0xa3a) reaches the walk arm (seg3+0xa4b), which
+starts the walk when `$1592` and `$00b3` are both zero or `$1590` is set,
+and otherwise turns the click into Enter when `$00b3` is 1. The walk arm calls
+`movetoseg+0xb4` with the click — the same starter: player control `$011d`, mode 4,
 `+0x40 = x/2 - width/2`, `+0x42 = y - $b7` (the play-area top), `+0x44 =
 +0x30`, and no nudge. The finish (`movetoseg+0x198`) skips the completion
 flag for mode 4 and hands control back; the mover's edge case
 (`moveobjsse+0x1ec`) finishes only mode 3; `newroomseg+0x115` clears a mode-4
 ego and v6. The IIgs has no `mouse.posn`, flag-19 or nudge surface. The
-meanings of `$00b3`/`$1590`/`$1592` are not decoded (**not found**; `$00b3=1`
-turns the click into an Enter event instead), so the engine applies only the
-menu-bar and player-control gates.
+meanings of `$0090`, `$00b3`, `$1590`, `$1592` and the hit test's parts are
+not decoded (**not found**), so the engine applies the normal case: rows 0-7
+never walk, and below them the player-control gate decides.
 
 **Engine mapping.** The host reports left-button-downs through
 `EngineHost.takePointerClicks` as screen pixels; the engine applies them in
 the input phase after the queued keys, per `AgiProfile.clickMove`. The
-parameter bank holds the target words and saved step; Amiga and IIgs save
-images carry them as whole words at +0x40..+0x45 while ego is in click-move.
+parameter bank holds the target words and saved step, which Amiga and IIgs
+save images carry whole at +0x40..+0x45.
 Tests: [click-move.test.ts](../test/click-move.test.ts).
+
+### Original motion counter width
+
+The PC interpreters keep the wander countdown and the follow delay in bytes
+(the [wander countdown](#wander-decrement-first-conditionally-reroll-the-count)
+wraps an exhausted 0 to 255 and keeps it; the follow delay compares signed
+bytes). Every Amiga build and the IIgs build keep both in the object record's
+signed words, which changes what a player sees (**fact**, static
+disassembly):
+
+- **Wander step** (Sierra 2.082 h68+0x0, KQ2 2.176 and GR 2.316 h91+0x0, IIgs
+  `seg2+0x590b`): `subq.w #1` / `dec` on the word at +0x40; an old count of 0
+  or the stationary bit draws a direction (`random % 9`, which may be 0), then
+  `while (count < 6) count = random % 51` with a signed word compare
+  (`cmpi.w #6; bge` / `sbc #6; bvs; eor #$8000; bmi`). An exhausted count
+  becomes -1 and rerolls at once, so an Amiga or IIgs wanderer turns every 7
+  to 51 steps where the PC one walks 256 steps after its count wraps. A
+  negative count that did not come from exhaustion only counts down.
+- **`wander` action** (GR h165+0x1e2, IIgs `motionseg+0x4c2`): clears player
+  control for ego, sets mode 1 and flag bit `0x0010`, and leaves +0x40 as it
+  was — a `move.obj` target or click target left there becomes the first
+  countdown. The PC handler zeroes it.
+- **Follow delay** (Sierra h20+0x136, KQ2 and GR h27+0x136, IIgs
+  `followseg+0x1af`): `delay -= step` as a word, then zero when negative
+  (`bpl` / the signed-test idiom). A delay of 128 or more counts down instead
+  of being dropped by the PC's signed-byte compare. The random delay draw is
+  `random % distance` from the same byte generator (h10+0x0 computes
+  `seed = seed * 0x7c4d + 1` and returns `(seed >> 8) ^ (seed & 0xff)`, the
+  PC algorithm; its time reseed skips the multiply on that draw).
+
+`AgiProfile.motionCounters` selects the width. Amiga and IIgs save images
+carry the four parameter words whole. Tests:
+[motion-counters.test.ts](../test/motion-counters.test.ts).
 
 ### Original Amiga sound player
 
