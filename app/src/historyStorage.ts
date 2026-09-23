@@ -20,6 +20,7 @@
  *
  * Unsupported versions and malformed layouts are refused without rewriting them.
  */
+import { PROFILES, type ProfileId } from "../../src/runtime/profile.ts";
 import {
   HISTORY_FORMAT_VERSION,
   validateHistoryRecording,
@@ -109,7 +110,7 @@ interface HistoryManifest {
   recording: {
     version: number;
     identity: GameIdentity;
-    profile: string;
+    profile: ProfileId;
     resourceSet: string;
     startedAt: number;
     dropped?: number;
@@ -188,6 +189,8 @@ function readManifest(raw: unknown): HistoryManifest | null {
     typeof raw["projectId"] !== "string" ||
     !isObject(raw["recording"]) ||
     raw["recording"]["version"] !== HISTORY_FORMAT_VERSION ||
+    typeof raw["recording"]["profile"] !== "string" ||
+    !Object.hasOwn(PROFILES, raw["recording"]["profile"]) ||
     !Array.isArray(raw["segments"]) ||
     !isObject(raw["committed"]) ||
     !isObject(raw["bytes"]) ||
@@ -339,7 +342,7 @@ function manifestPut(manifest: HistoryManifest): unknown {
 
 function freshManifest(
   key: string,
-  profile: string,
+  profile: ProfileId,
   identity: GameIdentity,
   resourceSet: string,
 ): HistoryManifest {
@@ -373,7 +376,7 @@ function freshManifest(
 export async function appendHistoryBatch(
   storageKey: string,
   batch: HistoryBatch,
-  profile: string,
+  profile: ProfileId | undefined,
   identity: GameIdentity,
   lifetime?: string | null,
 ): Promise<boolean> {
@@ -413,7 +416,7 @@ export function renewHistoryWriter(
 export async function mergeHistoryBatch(
   key: string,
   batch: HistoryBatch,
-  profile: string,
+  profile: ProfileId | undefined,
   identity: GameIdentity,
   lifetime?: string | null,
 ): Promise<boolean> {
@@ -426,8 +429,10 @@ export async function mergeHistoryBatch(
     return await updateBodyRecords<boolean>(key, expected, (raw) => {
       const stored = readManifest(raw);
       const w = emptyWrites();
+      // Only a batch that names the running interpreter can open a tape.
+      if (stored === null && profile === undefined) return { result: false };
       const manifest =
-        stored ?? freshManifest(key, profile, identity, batch.boot?.resourceSet ?? "");
+        stored ?? freshManifest(key, profile!, identity, batch.boot?.resourceSet ?? "");
       const ledger = (manifest.committed[batch.segment] ??= []);
       if (ledger.includes(batch.batch)) return { result: true }; // a resend of a committed batch
       let directory = manifest.segments.find((s) => s.id === batch.segment);

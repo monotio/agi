@@ -19,6 +19,7 @@
  * serialized behind pending old-key commits — so the continuing stream
  * never lands on a record that never saw its boot.
  */
+import { PROFILES, type ProfileId } from "../../src/runtime/profile.ts";
 import {
   appendHistoryBatch,
   moveHistoryRecord,
@@ -46,11 +47,15 @@ export interface HistoryController {
   handleHistoryBatch(msg: {
     epoch: number;
     batch: HistoryBatch;
-    profile?: string;
+    profile?: ProfileId;
   }): Promise<boolean>;
   /** Resolves when every commit posted so far has finished (ok or not). */
   drainHistoryCommits(): Promise<void>;
   stopWriterRenewal(): void;
+}
+
+function knownProfile(id: string | null): ProfileId | undefined {
+  return id !== null && Object.hasOwn(PROFILES, id) ? (id as ProfileId) : undefined;
 }
 
 export function useHistoryController(ctx: HistoryControllerContext): HistoryController {
@@ -119,7 +124,7 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
   function handleHistoryBatch(msg: {
     epoch: number;
     batch: HistoryBatch;
-    profile?: string;
+    profile?: ProfileId;
   }): Promise<boolean> {
     const batchKey = `${msg.batch.segment}:${msg.batch.batch}`;
     ctx.state.historyPending++;
@@ -173,7 +178,9 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
       return appendHistoryBatch(
         storageKey,
         msg.batch,
-        msg.profile ?? ctx.getProfile() ?? "",
+        // The batch names the running profile; the booted one is the same
+        // interpreter once the page has heard of it.
+        msg.profile ?? knownProfile(ctx.getProfile()),
         {
           project,
           revision: game.revision,

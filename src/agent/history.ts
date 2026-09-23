@@ -293,7 +293,7 @@ export interface HistoryRecording {
   /** The library entry and playable-bytes revision this tape belongs to. */
   identity: GameIdentity;
   /** Interpreter profile id the first segment booted under. */
-  profile: string;
+  profile: ProfileId;
   /** resourceSetHint at the first segment's start — a cache hint, not identity. */
   resourceSet: string;
   startedAt: number;
@@ -780,8 +780,11 @@ function eventCause(value: unknown): HistoryEventCause {
     }
     case "reseed":
       return { kind: "reseed", value: int(value["value"], "reseed value", 0xffff) };
-    case "end":
-      return { kind: "end", reason: text(value["reason"], "end reason", 64) as HistoryEndReason };
+    case "end": {
+      const reason = text(value["reason"], "end reason", 64);
+      if (!END_REASONS.has(reason as HistoryEndReason)) fail("end reason is invalid.");
+      return { kind: "end", reason: reason as HistoryEndReason };
+    }
     default:
       fail(`unknown event cause ${String(value["kind"])}.`);
   }
@@ -886,9 +889,9 @@ function anchor(value: unknown): HistoryAnchor {
   return out;
 }
 
-function profileId(value: unknown): ProfileId {
+function profileId(value: unknown, label = "boot profile"): ProfileId {
   if (typeof value !== "string" || !Object.hasOwn(PROFILES, value))
-    fail("boot profile must be a known interpreter profile.");
+    fail(`${label} must be a known interpreter profile.`);
   return value as ProfileId;
 }
 
@@ -978,7 +981,7 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
   return {
     version: HISTORY_FORMAT_VERSION,
     identity,
-    profile: text(value["profile"], "profile", 64),
+    profile: profileId(value["profile"], "recording profile"),
     resourceSet: text(value["resourceSet"], "resourceSet", MAX_HISTORY_STRING),
     startedAt: int(value["startedAt"], "startedAt"),
     ...(value["dropped"] !== undefined ? { dropped: int(value["dropped"], "dropped") } : {}),

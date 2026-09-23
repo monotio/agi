@@ -251,6 +251,17 @@ test("a stamped record whose fields drifted fails validation", () => {
   const newer = JSON.parse(JSON.stringify(good));
   newer.segments[0].boot.fingerprint.v = 2;
   assert.throws(() => validateHistoryRecording(newer), /fingerprint version 2 is not supported/);
+
+  // The header names a known interpreter, and an end event a known reason.
+  assert.throws(
+    () => validateHistoryRecording({ ...good, profile: "" }),
+    /recording profile must be a known interpreter profile/,
+  );
+  const ended = JSON.parse(JSON.stringify(good));
+  ended.segments[0].events = [
+    { seq: 0, tick: 0, cycle: 0, cause: { kind: "end", reason: "nope" } },
+  ];
+  assert.throws(() => validateHistoryRecording(ended), /end reason is invalid/);
 });
 
 test("an end batch alone cannot skip a failed lower batch", async () => {
@@ -506,7 +517,7 @@ test("an imported project's tape persists whole — recording, kept session, boo
   const recording = {
     version: HISTORY_FORMAT_VERSION,
     identity: IDENTITY,
-    profile: "2.936",
+    profile: "2.936" as const,
     resourceSet: "rev-a",
     startedAt: 1_757_000_000_000,
     segments: [
