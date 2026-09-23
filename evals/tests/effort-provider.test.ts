@@ -153,6 +153,10 @@ test("timeout cancels a production session and marks its usage incomplete", asyn
     const captured = readFileSync(report.artifacts.firstRequest, "utf8");
     assert.ok(captured.includes("Tiny template"));
     assert.ok(!captured.includes("test-placeholder"));
+    // An unfinished run still keeps what it built, as a Project archive.
+    const project = readFileSync(report.artifacts.project!);
+    assert.ok(project.includes("PROJECT.JSON"));
+    assert.ok(project.includes("timeout"));
   } finally {
     rmSync(outputRoot, { recursive: true, force: true });
   }

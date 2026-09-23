@@ -10,6 +10,7 @@ the tools give it enough feedback to correct mistakes.
 | Picture fidelity  | `npm run eval:picture`               | Render structure, pixel metrics and visual quality across authoring rounds     |
 | Remix benchmark   | `npm run eval:remix`                 | Ask/Remix cases on a real engine: requests, cost, latency and cache per run    |
 | Production effort | `npm --prefix evals run eval:effort` | Complete app Genesis runs, startup payloads, cost, repairs and playable output |
+| Genesis matrix    | `npm run eval:matrix`                | Cost, content, picture depth and control lines, and brief coverage per run     |
 
 ## Offline verification
 
@@ -83,6 +84,18 @@ Claude requests enable automatic conversation caching in addition to the static
 tool and system prefixes. Compare prompt variants with the same caching policy;
 cache reads, writes and uncached input all contribute to the reported cost.
 See [Claude's caching contract](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
+
+## Benchmark snapshots
+
+`evals/benchmarks/genesis/<version>/` freezes a set of production effort runs
+so later prompts, tools and models are measured against the same briefs.
+`npm run eval:snapshot` copies completed runs out of `results/`, dropping
+embedded images, encrypted reasoning, the debug log and absolute paths.
+`npm run eval:matrix` then analyses the runs with the engine's own code into
+`matrix/metrics.json` and `matrix/matrix.md`, folding in any hand-written
+`reading-<brief>.md`. `tests/genesis-matrix.test.ts` checks that every snapshot
+still reproduces its committed metrics. The
+[1.0.0 snapshot](benchmarks/genesis/1.0.0/README.md) lists the exact commands.
 
 ## Reading the results
 

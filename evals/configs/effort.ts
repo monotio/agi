@@ -14,6 +14,10 @@ import { MODEL_IDS } from "./providers.ts";
 import type { EffortProvider, EffortStage } from "../providers/genesis-session.ts";
 
 const models: ReadonlyArray<readonly [EffortProvider, string]> = [
+  ["openai", MODEL_IDS.gpt6Astra],
+  ["openai", MODEL_IDS.gpt6Sol],
+  ["openai", MODEL_IDS.gpt6Luna],
+  ["anthropic", MODEL_IDS.claudeOpus55],
   ["openai", MODEL_IDS.gpt56Sol],
   ["openai", MODEL_IDS.gpt56Terra],
   ["anthropic", MODEL_IDS.claudeOpus5],
@@ -23,6 +27,7 @@ const models: ReadonlyArray<readonly [EffortProvider, string]> = [
 const knownStages: Record<string, EffortStage> = {
   "baseline-default": { promptVariant: "baseline" },
   "lean-default": { promptVariant: "lean" },
+  "lean-high": { promptVariant: "lean", effort: "high" },
   "lean-medium": { promptVariant: "lean", effort: "medium" },
   "lean-low": { promptVariant: "lean", effort: "low" },
   "baseline-medium": { promptVariant: "baseline", effort: "medium" },

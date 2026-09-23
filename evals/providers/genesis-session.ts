@@ -10,6 +10,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { AgentSession, type BootResources } from "../../app/src/agent/agentSession.ts";
+import { buildProjectZip } from "../../app/src/projectArchive.ts";
+import { requireProjectId } from "../../src/gameIdentity.ts";
 import { validateGenesis } from "../../src/agent/playtest.ts";
 import { RESOURCE_KINDS } from "../../src/types.ts";
 
@@ -288,6 +290,7 @@ export async function runGenesisSession(options: GenesisOptions) {
     const framePath = resolve(directory, `${stem}.first-frame.png`);
     const transcriptPath = resolve(directory, `${stem}.transcript.json`);
     const eventsPath = resolve(directory, `${stem}.events.json`);
+    const projectPath = resolve(directory, `${stem}.project.zip`);
     const resourcesPath = resolve(directory, `${stem}.resources`);
     const delegate = options.fetchImpl ?? globalThis.fetch;
     const originalFetch = globalThis.fetch;
@@ -447,6 +450,30 @@ export async function runGenesisSession(options: GenesisOptions) {
         );
     }
     writeFileSync(eventsPath, `${JSON.stringify(events, null, 2)}\n`, "utf8");
+    // Every run, finished or not, keeps what it built as a Project archive the
+    // app imports: the files, the conversation and the authoring state, so
+    // runs can be played and compared side by side afterwards.
+    let projectArchive: string | null = null;
+    if (session) {
+      try {
+        const zip = await buildProjectZip({
+          projectId: requireProjectId(`eval-${stem}`.slice(0, 128)),
+          title: `${caseName} · ${options.model} · ${options.effort ?? "default"}`,
+          authoredAt: startedAtIso,
+          provider,
+          model: options.model,
+          files: Object.fromEntries(session.state.getFiles()),
+          words: [...session.state.sources.words],
+          transcript: session.getTranscript(),
+          authoringState: session.getAuthoringState(),
+          roomGeneration: true,
+        });
+        writeFileSync(projectPath, zip);
+        projectArchive = projectPath;
+      } catch (error) {
+        console.error(`[evals] ${stem}: project archive not written: ${String(error)}`);
+      }
+    }
     const report = {
       schemaVersion: 1,
       startedAt: startedAtIso,
@@ -515,6 +542,7 @@ export async function runGenesisSession(options: GenesisOptions) {
         firstRequest: requestPath,
         report: reportPath,
         firstFrame: frame ? framePath : null,
+        project: projectArchive,
         transcript: bootResources?.transcript ? transcriptPath : null,
         resources: bootResources ? resourcesPath : null,
         events: eventsPath,

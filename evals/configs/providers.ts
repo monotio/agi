@@ -11,6 +11,10 @@ import {
 } from "../../src/agent/toolTransport.ts";
 
 export const MODEL_IDS = {
+  gpt6Astra: "gpt-6-astra",
+  gpt6Sol: "gpt-6-sol",
+  gpt6Luna: "gpt-6-luna",
+  claudeOpus55: "claude-opus-5-5",
   gpt56Sol: "gpt-5.6-sol",
   gpt56Terra: "gpt-5.6-terra",
   claudeOpus5: "claude-opus-5",
