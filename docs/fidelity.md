@@ -2009,8 +2009,10 @@ disassembly of the executables in the tables above (GR 2.316 first, the
 other builds by the same routines at the listed offsets), all **fact**
 unless marked.
 
-**Pointer input (Amiga).** The game window's IDCMP template (GR h131+0x4e,
-flags `0x000c2568`) subscribes to button, gadget, menu, raw-key and
+**Pointer input (Amiga).** The game window is a borderless backdrop window
+at (0, 0), 320x200 (NewWindow template GR h131+0x44, flags `0x1900`), so its
+mouse coordinates are screen pixels. Its IDCMP template (h131+0x4e, flags
+`0x000c2568`) subscribes to button, gadget, menu, raw-key and
 activation messages but not MOUSEMOVE or DELTAMOVE, so the pointer position
 is only seen inside a button message. The message pump (GR h106+0x3c) copies
 the message's MouseX/MouseY — screen pixels on the 320x200 screen — and
