@@ -429,7 +429,9 @@ export class Simulation {
                 ? extra["genesisValidated"]
                   ? "Boot reached a shown, interactive scene with a valid ego spawn."
                   : "Executed the supplied actions; all supplied outcome assertions passed."
-                : "Spawn footprint checked. Add steps and expect to verify an interaction or exit.",
+                : status === "reached_planned_room"
+                  ? `The exit to room ${String(extra["plannedRoom"])} fires. That room is planned and is built when the player first arrives, so the steps and expectations after the transition were not run.`
+                  : "Spawn footprint checked. Add steps and expect to verify an interaction or exit.",
           }),
       details: {
         simulation: status,
@@ -1240,6 +1242,16 @@ export function playtestRoom(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const status = error instanceof SimulationStop ? error.status : "failed";
+    // A growing world builds a planned room when the player first arrives, so
+    // reaching its exit proves the exit works; only an unplanned room is a gap.
+    const reached = simulation?.missingRooms.at(-1);
+    if (
+      simulation &&
+      status === "needs_authoring" &&
+      reached !== undefined &&
+      Object.hasOwn(state.authoring.world.rooms, String(reached))
+    )
+      return simulation.result(true, "reached_planned_room", undefined, { plannedRoom: reached });
     return simulation
       ? simulation.result(false, status, message)
       : { success: false, error: message };

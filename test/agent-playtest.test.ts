@@ -108,6 +108,21 @@ test("movement reaches authored rooms and reports future missing rooms separatel
   assert.equal(missing.success, false);
   assert.equal(missing.details?.["simulation"], "needs_authoring");
   assert.deepEqual(missing.details?.["missingRooms"], [2]);
+  // A room the world plan declares is built when the player first arrives,
+  // so reaching its exit proves the exit and is not a failure.
+  state.authoring.world.rooms["2"] = { title: "Hall", description: "", exits: {} };
+  const planned = playtestRoom(state, {
+    room: 1,
+    spawnX: 156,
+    spawnY: 120,
+    steps: [{ action: "move", direction: "right", ticks: 8 }],
+    expect: { room: 2 },
+  });
+  assert.equal(planned.success, true, planned.error ?? "");
+  assert.equal(planned.details?.["simulation"], "reached_planned_room");
+  assert.deepEqual(planned.details?.["missingRooms"], [2]);
+  assert.match(planned.message ?? "", /room 2.*planned.*built when the player first arrives/);
+  delete state.authoring.world.rooms["2"];
   const dictionary = new Map([
     ["take", 10],
     ["key", 11],
