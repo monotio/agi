@@ -12,6 +12,7 @@
  *   pause               remix freeze; acknowledged by "paused"
  *   input               player pressed Enter on the input line
  *   key                 key press; answers a parked key wait
+ *   click               pointer click in 320x200 screen pixels (click-to-walk)
  *   direction           movement key press (0 = tracked key release)
  *   edit                live mirror of the host input widget
  *   dismissPrint        acknowledge the engine's open modal (click path)
@@ -120,6 +121,7 @@ export type WorkerInbound =
   | BootMessage
   | { type: "pause"; paused: boolean }
   | { type: "key"; code: number; sessionId?: number }
+  | { type: "click"; x: number; y: number; sessionId?: number }
   | {
       type: "direction";
       dir: number;

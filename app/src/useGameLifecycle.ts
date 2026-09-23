@@ -142,6 +142,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
 
   async function bootGame(query: string): Promise<void> {
     if (!import.meta.env?.DEV) throw new Error("Installed fixtures are development-only");
+    state.loading = { title: "", generating: false };
     state.phase = "loading";
     state.error = "";
     try {
@@ -156,6 +157,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       const folder = match?.folder ?? query;
       const alias = known?.alias ?? match?.alias ?? query;
       const title = known?.title ?? match?.title ?? folder.toUpperCase();
+      state.loading = { title, generating: false };
       const hash = match?.hash ?? target;
 
       const w = link.spawnWorker();
@@ -375,6 +377,11 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       overwrite?: boolean;
     },
   ): Promise<void> {
+    const resumed = bootOptions?.useCached && bootOptions.projectId;
+    state.loading = {
+      title: bootOptions?.title || (resumed ? (getCachedGameMeta(resumed)?.title ?? "") : ""),
+      generating: !bootOptions?.useCached,
+    };
     state.phase = "loading";
     state.error = "";
     try {

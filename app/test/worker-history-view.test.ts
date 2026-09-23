@@ -327,9 +327,11 @@ test("viewing the tape replays it in a scratch session the live engine never fee
   // neither the scratch's stream nor the parked engine's queues move.
   const queueDepth = ctx.input.keyQueue.length;
   send({ type: "key", code: 65 });
+  send({ type: "click", x: 161, y: 108 });
   send({ type: "input", text: "jump" });
   send({ type: "direction", dir: 8 });
   assert.equal(ctx.input.keyQueue.length, queueDepth, "the parked engine heard nothing");
+  assert.equal(ctx.input.clickQueue.length, 0, "the parked engine took no click");
 
   // The live engine sat through the whole session untouched.
   assert.equal(historySyncDigest(ctx.engine!), liveDigest, "the parked engine never moved");
@@ -345,6 +347,34 @@ test("viewing the tape replays it in a scratch session the live engine never fee
   send({ type: "pause", paused: false });
   tick(3);
   assert.ok(ctx.cycle.cycleCount > liveCycles, "the live session resumed");
+});
+
+test("a click while viewing is transport traffic, never parked-engine input", () => {
+  // Boot under a click-to-walk override so the dispatch blocklist — not the
+  // profile gate in onClick — is what keeps the parked engine's queue empty.
+  const h = viewHarness(viewGame(), { rngSeed: 0xbeef, profile: "amiga-2.316" });
+  const { ctx, send, tick } = h;
+  assert.equal(ctx.engine!.profile.clickMove, "amiga-2.31x");
+  tick(4);
+  send({ type: "pause", paused: true });
+  const recording = asRecording(collectSegments(h.control));
+  const lastTick = Math.max(
+    0,
+    ...recording.segments[0]!.events.map((e) => e.tick),
+    ...recording.segments[0]!.sync.map((s) => s.tick),
+  );
+  send({ type: "historyViewStart", id: 1, recording, segment: 0, tick: lastTick });
+  assert.equal(finalView(h.control, 1).error, null);
+
+  const queued = ctx.input.clickQueue.length;
+  send({ type: "click", x: 161, y: 108 });
+  assert.equal(ctx.input.clickQueue.length, queued, "the parked engine heard nothing");
+  assert.equal(
+    ctx.history.open.events.filter((e) => e.cause.kind === "click").length,
+    0,
+    "no click cause recorded while the transport owns the session",
+  );
+  send({ type: "historyViewEnd" });
 });
 
 test("Resume here adopts the viewed moment; Back to before restores the original", () => {
@@ -1026,6 +1056,7 @@ test("the anchor fingerprint fails on mutations the sync digest cannot see", () 
     ["queued keys", (a) => a.inputQueue.push(13)],
     ["queued direction", (a) => a.directionQueue.push(2)],
     ["queued input lines", (a) => a.inputLines.push("east")],
+    ["queued clicks", (a) => (a.clickQueue ??= []).push([161, 108])],
     ["cycle clock", (a) => (a.clock.remainder += 1)],
     ["sound clock", (a) => (a.soundRemainder = (a.soundRemainder ?? 0) + 1)],
     ["patch generation", (a) => ((a.replay as { patchGeneration: number }).patchGeneration += 1)],

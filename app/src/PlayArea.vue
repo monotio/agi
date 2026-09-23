@@ -6,8 +6,10 @@ import TransportBar from "./TransportBar.vue";
 import { useEngineApi } from "./engineContext.ts";
 import { usePresentation } from "./usePresentation.ts";
 import { useShellBridge } from "./shellBridge.ts";
+import { FRAME_HEIGHT, FRAME_WIDTH } from "./composite.ts";
 import type { ModalKind } from "./useEngine.ts";
 import { pcKey, movementDirection } from "./gameControls.ts";
+import { PROFILES, type ProfileId } from "../../src/runtime/profile.ts";
 import { AGI_KEY, DIRECTION_KEYS } from "../../src/runtime/keys.ts";
 import { GLYPH_CURSOR, TEXT_COLS } from "../../src/runtime/textSurface.ts";
 
@@ -24,6 +26,7 @@ const {
   sendEdit,
   sendDirection,
   sendKey,
+  sendClick,
   submitPrompt,
   setDebugConsumer,
   debugWrite,
@@ -114,7 +117,7 @@ function onScreenPointerDown(ev: PointerEvent): void {
   screenPointerType = ev.pointerType;
 }
 
-function onScreenClick(): void {
+function onScreenClick(ev: MouseEvent): void {
   resumeAudio();
   if (state.phase !== "running") return;
   // The tape is a recording — screen clicks can't interact with it.
@@ -145,7 +148,41 @@ function onScreenClick(): void {
     sendKey(0x000d);
     return;
   }
+  // A mouse click is also pointer input on click-move profiles (Amiga, IIgs).
+  if (screenPointerType === "mouse") sendScreenClick(ev);
   inputEl.value?.focus({ preventScroll: true });
+}
+
+/** The live game's click-move mode; PC profiles and unknown ids ignore clicks. */
+const screenClickMove = computed(() => {
+  const profile = state.profile;
+  if (profile === null || !Object.hasOwn(PROFILES, profile)) return "none";
+  return PROFILES[profile as ProfileId].clickMove;
+});
+
+/**
+ * Click-to-walk: map a mouse click on the visible surface into the 320x200
+ * frame's pixels. The canvas fills `.screen`'s content box (its 2px border
+ * stays outside the frame), so the canvas rect is the exact map.
+ */
+function sendScreenClick(ev: MouseEvent): void {
+  if (screenClickMove.value === "none") return;
+  if (
+    state.walkthrough.active ||
+    state.paused ||
+    state.powerUp.open ||
+    state.modal !== null ||
+    state.waitingForKey
+  ) {
+    return;
+  }
+  const canvas = gpuBackend.value ? presentation.gpuCanvasEl.value : presentation.canvasEl.value;
+  const rect = canvas?.getBoundingClientRect();
+  if (!rect || rect.width <= 0 || rect.height <= 0) return;
+  const x = Math.floor(((ev.clientX - rect.left) * FRAME_WIDTH) / rect.width);
+  const y = Math.floor(((ev.clientY - rect.top) * FRAME_HEIGHT) / rect.height);
+  if (x < 0 || x >= FRAME_WIDTH || y < 0 || y >= FRAME_HEIGHT) return;
+  sendClick(x, y);
 }
 
 function focusInput(): void {

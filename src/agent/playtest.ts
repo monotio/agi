@@ -178,6 +178,15 @@ export class Simulation {
         this.keys = [];
         return keys;
       },
+      takePointerClicks: () => {
+        // Optional call: absent when the recorded tick had no clicks, so an
+        // unmatched next call must not be consumed (contrast recordedValue).
+        if (!this.recordedCalls) return [];
+        while (this.recordedCalls[0]?.[0] === "clock")
+          this.advanceRecordedClock(this.recordedCalls.shift()![1] as number);
+        if (this.recordedCalls[0]?.[0] !== "clicks") return [];
+        return this.recordedCalls.shift()![1] as [number, number][];
+      },
       prepareRoom: (room) => {
         if (!container.getResource("logic", room)) {
           this.missingRooms.push(room);

@@ -89,6 +89,16 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
       ctx.recording.recording?.tape.host(["keys", keys.slice()]);
       return keys;
     },
+    takePointerClicks() {
+      const clicks = ctx.input.clickQueue.splice(0);
+      // Recorded only when non-empty, so pre-click tapes stay byte-identical.
+      if (clicks.length > 0)
+        ctx.recording.recording?.tape.host([
+          "clicks",
+          clicks.map(([x, y]): [number, number] => [x, y]),
+        ]);
+      return clicks;
+    },
     prepareRoom(room, from) {
       if (!ctx.boot.authorRooms || !ctx.engine) return true;
       const container = openContainer(ctx.engine.containerFiles);

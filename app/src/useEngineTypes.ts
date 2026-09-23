@@ -109,6 +109,12 @@ export interface HistoryViewUiState {
 
 export interface EngineState {
   agentTask: AgentRunState | null;
+  /**
+   * The game the loading phase is opening. `generating` marks an agent
+   * writing a new adventure; a plain boot is quick, so its splash stays out
+   * of sight unless the load turns out slow.
+   */
+  loading: { title: string; generating: boolean } | null;
   leaving: boolean;
   controls: GameControlBinding[];
   inputEnabled: boolean;

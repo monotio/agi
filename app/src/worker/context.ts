@@ -88,6 +88,8 @@ export interface InputState {
   /** Admitted walking releases and later walking keys wait for ordinary input. */
   deferredMovement: number[];
   inputBuffer: string[];
+  /** Pointer clicks awaiting the next input phase's takePointerClicks drain. */
+  clickQueue: [number, number][];
   /** The suspended interaction waits on a player key, not a host request. */
   keyWaiting: boolean;
 }
@@ -146,6 +148,7 @@ export interface ReplaySnapshot {
   keyQueue: number[];
   deferredMovement: number[];
   inputBuffer: string[];
+  clickQueue: [number, number][];
   requestSerial: number;
   clock: ReturnType<CycleClock["snapshot"]>;
   soundRemainder: number;
@@ -394,6 +397,7 @@ export interface WorkerFns {
   deliverQueuedKey(): void;
   onKey(msg: Inbound<"key">): void;
   onDirection(msg: Inbound<"direction">): void;
+  onClick(msg: Inbound<"click">): void;
   onInput(msg: Inbound<"input">): void;
   onEdit(msg: Inbound<"edit">): void;
   onDismissPrint(): void;
@@ -538,7 +542,13 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       profile: null,
     },
     clocks: { sound: new SoundClock(now), cycle: new CycleClock(now) },
-    input: { keyQueue: [], deferredMovement: [], inputBuffer: [], keyWaiting: false },
+    input: {
+      keyQueue: [],
+      deferredMovement: [],
+      inputBuffer: [],
+      clickQueue: [],
+      keyWaiting: false,
+    },
     hostRequests: { hostRequestSerial: 0, hostRequestOutstanding: null, pendingReenter: false },
     replay: {
       replay: null,
@@ -680,6 +690,7 @@ export function resetSession(ctx: WorkerContext): void {
   ctx.cycle.pendingClock = null;
   ctx.input.inputBuffer = [];
   ctx.input.keyQueue = [];
+  ctx.input.clickQueue = [];
   ctx.input.deferredMovement.length = 0;
   ctx.recording.recording = null;
   ctx.hostRequests.pendingReenter = false;

@@ -344,6 +344,7 @@ export function createHistoryView(ctx: WorkerContext) {
     ctx.input.keyQueue = [...(boot.inputQueue ?? [])];
     ctx.input.deferredMovement = [...(boot.directionQueue ?? [])];
     ctx.input.inputBuffer = [...(boot.inputLines ?? [])];
+    ctx.input.clickQueue = (boot.clickQueue ?? []).map(([x, y]): [number, number] => [x, y]);
     ctx.engine = candidate;
     ctx.fns.armJournal();
     ctx.fns.setKeyWaiting(ctx.engine.awaitingKey);
@@ -436,6 +437,9 @@ export function createHistoryView(ctx: WorkerContext) {
       inputQueue: [...scratch.input.keyQueue],
       directionQueue: [...scratch.input.deferredMovement],
       inputLines: [...scratch.input.inputBuffer],
+      ...(scratch.input.clickQueue.length > 0
+        ? { clickQueue: scratch.input.clickQueue.map(([x, y]): [number, number] => [x, y]) }
+        : {}),
       clock: scratch.clocks.cycle.snapshot(),
       soundRemainder: scratch.clocks.sound.snapshot(),
       rng: scratch.replay.replay?.random ?? ctx.history.rng,

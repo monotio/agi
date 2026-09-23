@@ -86,6 +86,7 @@ export function useEngine(
 
   const state = reactive<EngineState>({
     agentTask: null,
+    loading: null,
     leaving: false,
     controls: [],
     inputEnabled: false,
@@ -202,7 +203,7 @@ export function useEngine(
     logAgent,
     getActiveWalkthroughSession: () => activeWalkthroughSession,
   });
-  const { sendInput, sendEdit, sendDirection, sendKey } = input;
+  const { sendInput, sendEdit, sendDirection, sendKey, sendClick } = input;
 
   const debug = useEngineDebug({ state, link });
 
@@ -510,6 +511,7 @@ export function useEngine(
     sendEdit,
     sendDirection,
     sendKey,
+    sendClick,
     dismissModal,
     submitPrompt,
     ejectGame: lifecycle.ejectGame,

@@ -60,8 +60,8 @@ Walkthroughs are recorded on the PC editions and bound to the exact release
 they were captured on; the
 [KQ1 completion proof](docs/testing.md#kq1-completion-proof) shows how one is
 made and checked. The Amiga and IIgs editions play their music through emulated
-Amiga Paula and approximate Apple IIgs sound, and the engine reproduces their
-mouse click-to-walk. PC editions choose between the Tandy sound chip and the PC
+Amiga Paula and approximate Apple IIgs sound, and on those editions a mouse click
+walks the hero there, as it did on the originals. PC editions choose between the Tandy sound chip and the PC
 speaker under **Settings → Advanced… → Sound chip**.
 Fan-made AGI games run too; if the app cannot identify the interpreter, it asks
 which profile to use. [Testing](docs/testing.md#testing-compatibility) lists

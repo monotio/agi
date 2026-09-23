@@ -86,6 +86,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
     if (
       ctx.view.recording !== null &&
       (msg.type === "key" ||
+        msg.type === "click" ||
         msg.type === "direction" ||
         msg.type === "input" ||
         msg.type === "edit" ||
@@ -358,6 +359,10 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
     }
     if (msg.type === "key") {
       ctx.fns.onKey(msg);
+      return;
+    }
+    if (msg.type === "click") {
+      ctx.fns.onClick(msg);
       return;
     }
     if (msg.type === "direction") {
