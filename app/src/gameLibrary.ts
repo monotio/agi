@@ -58,11 +58,15 @@ export async function addLibraryGame(
       : `imported-${revision}`;
   const preferredId = requireProjectId(catalog ? `${basePrefix}-${catalog.version}` : basePrefix);
   // Imported projects carry independent histories. Trusted catalog sources are repeatable fixtures.
+  // The same bytes under another interpreter are another game to play: an
+  // entry is reused only when its interpreter choice matches, so neither
+  // import silently changes the other's setting or saves.
   if (!game.project || source === "catalog") {
     const existing = listCachedGames().find((entry) => {
       const library = entry.library;
       return (
         library?.revision === revision &&
+        library.profile === game.profile &&
         entry.roomGeneration === roomGeneration &&
         (!catalog ||
           (library?.catalog?.id === catalog.id && library.catalog?.version === catalog.version))

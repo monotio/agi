@@ -663,7 +663,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     try {
       const game = catalogGames.get(id) ?? (await entry.load());
       catalogGames.set(id, game);
-      catalogOpenings.value[id] = await previewGame(game);
+      catalogOpenings.value[id] = await previewGame(game, game.profile);
     } catch (error) {
       catalogGames.delete(id);
       catalogErrors.value[id] = String(error).replace(/^Error: /, "");

@@ -812,6 +812,42 @@ test("the resource revision is pinned: SHA-256 over the canonical playable set",
   assert.equal(await gameRevision(files), createHash("sha256").update(packed).digest("hex"));
 });
 
+test("the same bytes under another interpreter import as their own entry, in either order", async (t) => {
+  installLocalStorage(t);
+  for (const [first, second] of [
+    [undefined, "2.089"],
+    ["2.089", undefined],
+  ] as const) {
+    const files = game(`display(5, 2, "${first ?? "automatic"} first"); return;`);
+    const firstId = await addLibraryGame(
+      { files, words: [], ...(first ? { profile: first } : {}) },
+      "First",
+      "zip",
+      opening,
+    );
+    const before = await loadAuthoredGame(firstId);
+    const secondId = await addLibraryGame(
+      { files, words: [], ...(second ? { profile: second } : {}) },
+      "Second",
+      "zip",
+      opening,
+    );
+    assert.notEqual(secondId, firstId, "a different interpreter is not the same entry");
+    assert.equal((await loadAuthoredGame(secondId))?.library?.profile, second);
+    assert.deepEqual(await loadAuthoredGame(firstId), before, "the first entry is untouched");
+    // The same interpreter again is the same entry.
+    assert.equal(
+      await addLibraryGame(
+        { files, words: [], ...(second ? { profile: second } : {}) },
+        "Again",
+        "zip",
+        opening,
+      ),
+      secondId,
+    );
+  }
+});
+
 test("a growing world published without its project imports as a work in progress", async (t) => {
   installLocalStorage(t);
   const data = {
