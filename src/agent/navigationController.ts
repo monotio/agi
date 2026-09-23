@@ -215,10 +215,7 @@ export class NavigationController {
           );
     }
     if (engine.modalKind !== null || engine.continuationPending)
-      return this.finish(
-        "needs_input",
-        "A modal or suspended interaction needs explicit host input.",
-      );
+      return this.finish("needs_input", inputReason(engine.modalKind));
     if (
       this.goal.kind === "position" &&
       this.inTarget(this.goal.target) &&
@@ -246,7 +243,13 @@ export class NavigationController {
     )
       return this.finish(
         "movement_control_unavailable",
-        "Ego is not currently available for player movement.",
+        !engine.movementControlEnabled
+          ? "The room's logic has program control of ego (program.control): it hands movement back with player.control, or wait for its scripted move to end."
+          : !ego.active || !ego.update
+            ? "Ego is not animated and updating (animate.obj(0), draw(0), start.update(0)), so it cannot walk."
+            : engine.textModeActive
+              ? "The game is showing its text screen; it must return to graphics before ego can walk."
+              : "Ego is not currently available for player movement.",
       );
     for (const metric of ["hostPolls", "logicCycles", "movementUpdates", "wallMs"] as const) {
       if (this.counters[metric] >= this.budgets[metric])
@@ -490,5 +493,22 @@ export class NavigationController {
       minimumBaseline,
       waterWidth: ego.waterGate === null ? null : ego.width,
     };
+  }
+}
+
+/** What an open modal waits for, phrased as the step that answers it. */
+function inputReason(kind: string | null): string {
+  switch (kind) {
+    case "print":
+    case "showObj":
+      return "A message window is open; add an enter step to dismiss it before walking.";
+    case "inventory":
+    case "menu":
+      return "The inventory or menu is open; close it with an enter or escape key step before walking.";
+    case "getstring":
+    case "getnum":
+      return "The game is waiting for typed input; add an answer step before walking.";
+    default:
+      return "The game is waiting for input; add the enter, key or answer step it needs before walking.";
   }
 }

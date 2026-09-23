@@ -678,6 +678,8 @@ test("navigation leaves an open prompt for explicit input", () => {
   assert.equal(result.success, false);
   assert.equal(result.details?.["simulation"], "needs_input");
   assert.equal((result.details?.["state"] as { modalKind: string }).modalKind, "print");
+  // The refusal names the step that answers it.
+  assert.match(result.error ?? "", /message window is open; add an enter step/);
 });
 
 test("navigation reports script movement control separately from parser input", () => {
@@ -690,6 +692,7 @@ test("navigation reports script movement control separately from parser input", 
   const navigation = step["navigation"] as { status: string; inputEnabled: boolean };
   assert.equal(navigation?.status, "movement_control_unavailable");
   assert.equal(navigation.inputEnabled, true);
+  assert.match(result.error ?? "", /program control of ego \(program\.control\).*player\.control/);
   assert.equal(step["completedTicks"], 0);
 });
 
