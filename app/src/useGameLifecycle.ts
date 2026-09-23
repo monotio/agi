@@ -175,6 +175,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       // A successful remix is saved as its own local game before playback resumes.
       const activeReplaySeed = options.getActiveReplaySeed();
       booted.historyLifetime = await readHistoryLifetime(gameStorageKey(booted));
+      audio.useGameFiles(files);
       w.postMessage({
         type: "boot",
         sessionId: options.getSessionId(),
@@ -346,6 +347,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
 
     const activeReplaySeed = options.getActiveReplaySeed();
     booted.historyLifetime = historyLifetime;
+    audio.useGameFiles(files);
     w.postMessage({
       type: "boot",
       sessionId: options.getSessionId(),
@@ -436,6 +438,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           }
           const activeReplaySeed = options.getActiveReplaySeed();
           booted.historyLifetime = historyLifetime;
+          audio.useGameFiles(cached.files);
           w.postMessage({
             type: "boot",
             sessionId: options.getSessionId(),

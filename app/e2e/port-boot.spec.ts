@@ -21,7 +21,7 @@ const PORTS: readonly { alias: string; executable: string; chip: string }[] = [
   { alias: "pq1-amiga", executable: "PQ", chip: "Amiga Paula" },
   { alias: "goldrush-amiga", executable: "GR", chip: "Amiga Paula" },
   { alias: "mh2-amiga", executable: "MH2", chip: "Amiga Paula" },
-  { alias: "sq2-iigs", executable: "SQ2.SYS16", chip: "Apple IIgs (approximate)" },
+  { alias: "sq2-iigs", executable: "SQ2.SYS16", chip: "Apple IIgs Ensoniq" },
 ];
 
 for (const port of PORTS) {

@@ -580,17 +580,21 @@ save writer's code rather than from a file.
 
 ### IIgs sound
 
-The IIgs edition replaces every SOUND resource with one of two new formats:
-sampled waveforms, and MIDI-like event streams with program changes, volume
-controllers and note on/off events. The interpreter plays them through the IIgs
-toolbox's Note Synthesizer and Sound Manager on a 60 Hz heartbeat, using a 64
-KiB wavetable file.
+The IIgs edition replaces every SOUND resource with one of two formats: a
+MIDI-like event stream, and a single sampled note. Both play through the IIgs
+Note Synthesizer on the Ensoniq DOC sound chip. At startup the interpreter
+uploads the 64 KiB `SIERRASTANDARD` wavetable into the chip's wave RAM, and its
+own data segment carries 28 instruments — envelopes, key splits and waves in that
+RAM — that the streams select by program number.
 
-The engine plays the event streams with plain triangle oscillators and labels
-the chip "Apple IIgs (approximate)"; wavetable fidelity is out of scope. Sampled
-sounds play silently for a computed duration, so their done flags fire on
-schedule. The fade actions run their watchdog schedule and complete the sound,
-without the volume steps, because the browser has no GS system volume.
+The engine replays the streams on the interpreter's 60 Hz heartbeat, tick for
+tick: an event runs exactly its timing byte's value in ticks after the previous
+one. A sampled note completes when the chip reaches the zero byte that ends its
+sample. In the browser the app rebuilds the wave RAM and the instrument bank from
+the player's own `SIERRASTANDARD` and `SQ2.SYS16`, and renders each note from its
+instrument's waves and envelope. The fade actions run their watchdog schedule and
+complete the sound, without the volume steps, because the browser has no GS
+system volume.
 
 **Evidence:**
 [Sound format (fact, except where marked)](#sound-format-fact-except-where-marked)
@@ -3129,71 +3133,90 @@ others being mapped fields.
 
 #### Sound format (fact, except where marked)
 
-All 72 SND resources differ from the PC edition — none begin with the PC
-four-channel u16-offset header. Payload byte 0 is a type tag:
+All 72 SND resources differ from the PC edition. The player (`seg3`) reads
+the resource's first word as its type (seg3+0x1448): 1 is a sampled note,
+anything else an event stream. Everything after the type word is the sound's
+data. The interpreter writes no `$C03x` DOC registers itself; it drives the
+chip through the Note Synthesizer (toolset `$19`) and Sound Manager (toolset
+`$08`).
 
-- **Type 0x01 (49 sounds)** — `[01][00][3 x u16le stream offsets]`, then
-  a fixed-size setup block and the wave data. The u16le at offset 8 is
-  the wave byte count; wave (8-bit PCM) data begins at offset 54. The
-  setup block carries a wave record at offset 44: a `freqOffset` u16le,
-  two zero fields, the tag `7f c0` at offset 0x30, then the same three
-  fields again. E.g. snd 1 (7,791 B): offsets 0x33/0x5a/0x2c.
-- **Type 0x02 (23 sounds)** — `[02][u16le][event stream]` of
-  `delta + command + data` records with MIDI status bytes and running
-  status: `0xCn` program changes (snd 60 opens with programs on channels
-  1–8), `0xBn` control changes (controller 7 = channel volume), `0x9n`/
-  `0x8n` note on/off with velocity. One delta byte precedes each command;
-  `0xf8` in delta position is a 255-tick extended wait that stays in the
-  delta phase, and `0xfc` (any `0xf0`-class byte in command position)
-  terminates the stream. E.g. snd 2:
-  `c0 28 02 90 45 40 05 80 45 40 00 90 48 3e ...`.
+**Wave RAM.** At startup (seg3+0x2155) the player reads
+`data/sierrastandard` in eight 8 KiB chunks and writes each to DOC RAM with
+`WriteRamBlock(buffer, page, $1FFF)` (seg3+0x2275), then calls
+`NSStartUp(150)` — a 60 Hz update rate, in the toolbox's 0.4 Hz units. The
+`$1FFF` count leaves the last byte of every 8 KiB page unwritten; what the
+chip holds there is unknown, and the app keeps the file's byte (the file's
+bytes at those offsets are nonzero, so this matters only if the chip's
+content there is zero, which would halt an oscillator crossing it). The file
+is not parsed: instruments address it by page.
 
-Under the PC decoder these bytes misparse as channel offsets: type-2
-sounds produce out-of-range channel offsets (silent in recover mode),
-type-1 sounds decode into thousands of bogus notes with computed
-durations of ~1.4e7–5.2e7 ticks (≈66 hours to 10 days), so sound-done
-flags never fire in reasonable time.
+**Instruments.** 28 Note Synthesizer instrument records tile
+`~globals+0x04BC`..`0x09C8`, in the layout of Apple's Note Synthesizer ERS:
+eight envelope segments `{breakpoint u8, increment u16le}`, then release
+segment, priority increment, pitch-bend range, vibrato depth and speed, a
+spare byte, the A and B wave counts, and six-byte wave entries `{top key,
+DOC page, size/resolution, DOC mode, relative pitch i16le}`. A 50-entry
+program map at `~globals+0x0A08` holds far pointers that the OMF loader's
+relocation records fill in (the file image holds zeros there). Programs
+without an instrument, and every channel before its first program change,
+use the record at `~globals+0x05C4`: a four-way key-split instrument.
 
-The interpreter drives sound entirely through the IIgs toolbox — no
-`$C03x` Ensoniq DOC register writes appear anywhere in the binary. The
-player is `seg3`: it makes Note Synthesizer (toolset `$19`) and Sound
-Manager (toolset `$08`) calls, including `FFStartSound` (`$1408`).
-`SIERRASTANDARD` is exactly 64 KiB — the Ensoniq DOC wavetable RAM size —
-loaded from `data/sierrastandard` (path string in ~arrays+0x1613).
-Instrument-index mapping into SIERRASTANDARD and envelope semantics were
-not decoded; the app renders the events with plain triangle oscillators
-and labels the chip "Apple IIgs (approximate)", so Ensoniq wavetable
-fidelity is explicitly out of scope.
+**Event streams (type 2, 23 sounds).** The heartbeat (seg3+0x1dcd) first
+spends a pending delay: a nonzero delay is decremented and the tick ends
+(+0x1e3d). Otherwise it loops (+0x1e49..+0x1e6b): in the timing state a byte
+adds its value to the delay and switches to the event state — `0xf8` instead
+stores 255 and stays in the timing state (+0x1e7d); in the event state one
+event runs and returns to the timing state (+0x1ec8). An event therefore runs
+exactly its timing byte's value in ticks after the previous one, and events
+behind zero timing bytes run in the same tick. A status byte (bit 7) sets the
+class and channel; a data byte keeps the running status. The handlers:
 
-Timing: `initmachseg` installs a Misc Tools heart-beat task at
-main+0xee0 (`SetHeartBeat` `$1203`, cleared via `$1303`; the pushed task
-address is OMF-relocated). The IIgs heart beat fires at 60 Hz; every beat
-calls the stream tick (`seg3`+0x1dcd via main+0xef3), and every third
-beat runs main+0x186f, which advances the game clock in
-20ths/60ths/hours — the usual 20 Hz AGI timer. The stream delta unit is
-therefore 1/60 s, which also yields plausible durations across all 23
-type-2 resources (~1.6–92 s).
+| Class | Handler | Data | Effect                                                                                                                                       |
+| ----- | ------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `8n`  | +0x1f42 | 2    | releases the channel's first generator holding the note                                                                                      |
+| `9n`  | +0x1fb5 | 2    | `AllocGen`, then `NoteOn(gen, note, volume[ch], instrument[ch])` — the note byte is the semitone, unmodified; velocity 0 is a note-off       |
+| `Bn`  | +0x20a3 | 2    | stores the value as the channel's note volume for **any** controller; controller 7 also sets the volume of the channel's sounding generators |
+| `Cn`  | +0x205b | 1    | selects the channel's instrument through the program map                                                                                     |
+| `Fn`  | +0x2333 | 0    | channel 12 (`0xfc`) ends the sound; other channels do nothing                                                                                |
 
-Type-2 player (`seg3`): the sound descriptor keeps the raw resource
-pointer; the init routine (seg3+0x235e) arms delta phase with running
-status `0x90`, so parsing begins with the u16 header's high byte as the
-first delta and the first real command lands at offset 3. Each tick is
-one micro-step — a delta read, one unit of its countdown, or one command
-execution (which consumes the command's data bytes). The note handlers
-(0x1fb5 on, off) keep a per-channel note table: a note-off releases only
-the named note and the channel sounds until its table is empty; the
-control handler (0x20a3) treats controller 7 as channel volume. All 23
-resources decode cleanly under this grammar and end on `0xfc`.
+Other classes have no handler, so their data bytes are read as timing bytes.
+Velocity never reaches the synthesizer, and nothing transposes the note.
+Every shipped stream ends with `0xfc`. The engine reproduces this timing
+exactly ([sound.ts](../src/sound/sound.ts)); an earlier model that spent a
+tick on each timing read and each event played the streams 30–40% slow.
 
-Type-1 player (`seg3`+0x1484): calls `FFStartSound` every heartbeat until
-it returns `0xffff` (the toolbox's busy answer), so the resource plays to
-completion at the DOC's own pace. The exact FFStartSound setup/PCM
-semantics are a gap; `src/sound/sound.ts` computes a finite duration from
-the wave byte count at offset 8 played at an assumed `freqOffset × 1645/32`
-Hz (51.40625 Hz per unit of the rate word in the tagged wave record at
-offset 44 — an inference, not read from the binary), emits silence, and
-completes the sound-done flag on schedule. A zero or untagged rate word
-falls back to `0x100` with a warning, keeping the duration finite.
+**Sampled notes (type 1, 49 sounds).** The data holds the semitone, volume,
+wave offset (`0x2c` in every resource) and byte count as u16le words, then an
+instrument record at data+8 and unsigned 8-bit PCM at data+8+0x2c
+(seg3+0x1460). E.g. snd 1 (7,791 bytes): semitone `0x33`, volume `0x5a`. On a
+new sample the player turns all notes off, shuts the synthesizer down, writes
+the PCM to DOC RAM `$C000` with `WriteRamBlock`, restarts it, and plays
+`NoteOn` on the embedded instrument, whose waves point at page `$C0`. The
+heartbeat polls `FFSoundDoneStatus` (`$1408`, seg3+0x1e29) until the
+generator halts. There is no `FFStartSound` call. Every embedded envelope
+sustains, so only the Ensoniq DOC stops the note: it halts an oscillator on a
+zero sample, or at the end of its table in one-shot mode. 33 samples end with
+a zero byte. The other 16 fill their table exactly (the byte count equals
+`256 << T`): four are one-shot and halt at the table's end, and twelve are
+free-running loops — they play until the game stops the sound, and their done
+flag never sets. The engine completes a halting sample after (bytes played) /
+(256 × f(semitone)) seconds, at the first heartbeat past that time. The 256
+bytes per cycle is the Note Synthesizer's wave convention; the
+semitone-to-frequency table lives in the toolset ROM, and the engine's equal
+temperament with semitone 69 at 440 Hz is an **inference**.
+
+**Rendering (host).** The app builds each note from its instrument: the A and
+B wave entries whose top key covers the semitone, each a table of
+`256 << T` bytes from its DOC page, ending at its first zero byte; one-shot
+waves play once and free-running waves loop (the swap mode's A/B hand-off is
+approximated as a loop, and a halted oscillator is silent). Envelope levels
+are logarithmic — 16 steps per 6 dB — and each segment ramps at
+`increment / 256` levels per 60 Hz update; an increment of 0 sustains, and a
+note-off jumps to the release segment. The note volume scales the note
+linearly, an **inference**. A game without `SIERRASTANDARD` or its `.SYS16`
+falls back to a triangle per note. Tests:
+[sound-playback.test.ts](../test/sound-playback.test.ts),
+[iigs-synth.test.ts](../app/test/iigs-synth.test.ts).
 
 #### Apple IIgs sound fade (fact + host limitation)
 

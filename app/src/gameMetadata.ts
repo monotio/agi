@@ -163,14 +163,16 @@ export function readPublicMetadata(raw: unknown): {
 /**
  * The canonical playable file set — the names a Game export ships: AGI
  * directory and volume files, the vocabulary and object tables, the loader
- * overlay and interpreter executables. Tests, notes, maps and history are
+ * overlay and interpreter executables, and the Apple IIgs SIERRASTANDARD
+ * wavetable its interpreter uploads to the sound chip. Tests, notes, maps and history are
  * authoring records: they travel in a Project archive, never in a Game
  * bundle, and never move the ResourceRevision.
  */
 export function isPlayableFileName(name: string): boolean {
   return (
-    /^([A-Z0-9_]*DIR|DIRS|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT)$/i.test(name) ||
-    isInterpreterFileName(name)
+    /^([A-Z0-9_]*DIR|DIRS|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|SIERRASTANDARD)$/i.test(
+      name,
+    ) || isInterpreterFileName(name)
   );
 }
 

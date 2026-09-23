@@ -16,6 +16,11 @@ function context() {
       this.value = value;
       this.values.push([value, at]);
     },
+    exponentialRampToValueAtTime(value: number, at: number) {
+      this.value = value;
+      this.values.push([value, at]);
+    },
+    cancelScheduledValues() {},
   });
   const node = () => ({
     stopped: false,
@@ -243,47 +248,35 @@ describe("audio command backend", () => {
     assert.equal(bufferSources.length, 8);
     assert.equal(gains[8]!.gain.value, 0);
   });
-  it("renders iigs events with per-channel oscillators", () => {
-    const { audio, gains, oscillators } = context();
-    // MIDI note 69 at full velocity and channel volume maps to A4 and the
-    // channel's voice gain.
+  it("renders iigs notes as triangles when the game lacks its IIgs sound files", () => {
+    const { audio, oscillators } = context();
     audio.output({
       kind: "iigs",
+      event: "note-on",
+      voice: 0,
       channel: 0,
-      on: true,
       note: 69,
-      velocity: 100,
       volume: 127,
       program: 0,
     });
     assert.equal(audio.isPlaying, true);
     assert.equal(oscillators[0]!.type, "triangle");
     assert.equal(oscillators[0]!.frequency.value, 440);
-    assert.ok(gains[1]!.gain.value > 0, "note-on opens the channel gain");
-    // A second channel is an independent voice.
+    // Voices are independent: a second note gets its own oscillator.
     audio.output({
       kind: "iigs",
+      event: "note-on",
+      voice: 1,
       channel: 2,
-      on: true,
       note: 57,
-      velocity: 64,
       volume: 127,
       program: 0,
     });
-    assert.equal(oscillators[2]!.frequency.value, 220);
-    // Note-off releases the voice without stopping the oscillator.
-    audio.output({
-      kind: "iigs",
-      channel: 0,
-      on: false,
-      note: 69,
-      velocity: 0,
-      volume: 127,
-      program: 0,
-    });
-    assert.equal(gains[1]!.gain.value, 0);
-    assert.equal(oscillators[0]!.stopped, false);
-    audio.stop();
+    assert.equal(oscillators[1]!.frequency.value, 220);
+    audio.output({ kind: "iigs", event: "note-off", voice: 0 });
+    assert.equal(oscillators[0]!.stopped, true);
+    assert.equal(oscillators[1]!.stopped, false);
+    audio.output({ kind: "iigs", event: "all-off" });
     assert.ok(oscillators.every((osc) => osc.stopped));
   });
 });
@@ -318,6 +311,6 @@ describe("audio mode selection", () => {
     assert.equal(soundChipLabel("pc", "pc-speaker"), "PC Speaker");
     // The PC preference does not leak into a fixed family's label.
     assert.equal(soundChipLabel("amiga", "pc-speaker"), "Amiga Paula");
-    assert.equal(soundChipLabel("iigs", "pc-speaker"), "Apple IIgs (approximate)");
+    assert.equal(soundChipLabel("iigs", "pc-speaker"), "Apple IIgs Ensoniq");
   });
 });

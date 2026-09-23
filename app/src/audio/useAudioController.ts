@@ -25,7 +25,7 @@ export function nextAudioMode(mode: AudioMode): AudioMode {
  */
 export function soundChipLabel(family: SoundFamily, mode: AudioMode): string {
   if (family === "amiga") return "Amiga Paula";
-  if (family === "iigs") return "Apple IIgs (approximate)";
+  if (family === "iigs") return "Apple IIgs Ensoniq";
   return mode === "tandy" ? "Tandy 4-Voice" : "PC Speaker";
 }
 

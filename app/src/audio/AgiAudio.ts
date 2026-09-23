@@ -9,8 +9,10 @@ import {
   AMIGA_TONE_SAMPLE,
   PIT_BASE_FREQ,
   amigaNoisePcm,
+  type IigsOutput,
   type SoundOutput,
 } from "../../../src/sound/sound.ts";
+import { IigsSynth, iigsSources, type IigsSources } from "./iigsSynth.ts";
 
 /**
  * The player's PC sound-chip preference, which is also the `soundDevice`
@@ -45,8 +47,11 @@ export class AgiAudio {
   private readonly divisors = [0, 0, 0];
   private latchedRegister = 0;
   private paulaSources: AudioBufferSourceNode[] = [];
-  private iigsGains: GainNode[] = [];
-  private iigsOscillators: OscillatorNode[] = [];
+  /** The game's DOC RAM and instrument bank, when its files carry them. */
+  private iigsSources: IigsSources | null = null;
+  private iigsSynth: IigsSynth | null = null;
+  /** Fallback voices without the bank: one triangle per sounding note. */
+  private iigsFallback = new Map<number, { osc: OscillatorNode; gain: GainNode }>();
   private readonly contextFactory: (() => AudioContext) | undefined;
   private activeNodes: { stop?: () => void; disconnect: () => void }[] = [];
 
@@ -161,22 +166,10 @@ export class AgiAudio {
     this.playing = true;
     const maxFreq = (ctx.sampleRate || 48000) / 2;
     if (event.kind === "iigs") {
-      // Simple per-channel oscillators: the Ensoniq DOC wavetable instruments
-      // in SIERRASTANDARD are out of scope, so every program shares one
-      // triangle voice (docs/fidelity.md, "Apple IIgs interpreter").
-      while (this.iigsOscillators.length <= event.channel) this.createIigsChannel(ctx);
-      const channel = event.channel;
-      const gain = this.iigsGains[channel]!.gain;
-      if (event.on) {
-        const frequency = 440 * Math.pow(2, (event.note - 69) / 12);
-        this.iigsOscillators[channel]!.frequency.setValueAtTime(
-          Math.min(maxFreq, frequency),
-          ctx.currentTime,
-        );
-        this.ramp(gain, (event.velocity / 127) * (event.volume / 127) * 0.4, 0.008);
-      } else {
-        this.ramp(gain, 0, 0.03);
-      }
+      if (this.iigsSources) {
+        this.iigsSynth ??= new IigsSynth(ctx, this.masterGain!, this.iigsSources);
+        this.iigsSynth.output(event);
+      } else this.iigsFallbackOutput(ctx, event, maxFreq);
       return;
     }
     if (event.kind === "paula") {
@@ -260,8 +253,9 @@ export class AgiAudio {
     this.oscillators = [];
     this.noiseFilter = null;
     this.paulaSources = [];
-    this.iigsGains = [];
-    this.iigsOscillators = [];
+    this.iigsSynth?.stop();
+    for (const voice of this.iigsFallback.values()) voice.osc.stop();
+    this.iigsFallback.clear();
     this.divisors.fill(0);
     this.latchedRegister = 0;
     this.playing = false;
@@ -277,18 +271,44 @@ export class AgiAudio {
     else param.setValueAtTime(target, now);
   }
 
-  /** One triangle voice per Note Synthesizer channel, created on demand. */
-  private createIigsChannel(ctx: AudioContext): void {
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0, ctx.currentTime);
-    gain.connect(this.masterGain!);
-    const oscillator = ctx.createOscillator();
-    oscillator.type = "triangle";
-    oscillator.connect(gain);
-    oscillator.start();
-    this.iigsGains.push(gain);
-    this.iigsOscillators.push(oscillator);
-    this.activeNodes.push(gain, oscillator);
+  /**
+   * The IIgs rendition for a game whose files lack SIERRASTANDARD or the
+   * SYS16 bank (a data-only copy): a triangle per note, no samples.
+   */
+  private iigsFallbackOutput(ctx: AudioContext, event: IigsOutput, maxFreq: number): void {
+    if (event.event === "all-off") {
+      for (const voice of this.iigsFallback.values()) voice.osc.stop();
+      this.iigsFallback.clear();
+    } else if (event.event === "note-off") {
+      const voice = this.iigsFallback.get(event.voice);
+      voice?.osc.stop();
+      this.iigsFallback.delete(event.voice);
+    } else if (event.event === "note-on") {
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime((event.volume / 127) * 0.3, ctx.currentTime);
+      gain.connect(this.masterGain!);
+      const osc = ctx.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(
+        Math.min(maxFreq, 440 * 2 ** ((event.note - 69) / 12)),
+        ctx.currentTime,
+      );
+      osc.connect(gain);
+      osc.start();
+      this.iigsFallback.set(event.voice, { osc, gain });
+    }
+  }
+
+  /** Read the IIgs wave RAM and instrument bank from a game's files at boot. */
+  useGameFiles(files: Readonly<Record<string, Uint8Array>>): void {
+    this.iigsSynth?.stop();
+    this.iigsSynth = null;
+    this.iigsSources = iigsSources(files);
+  }
+
+  /** Whether IIgs sound renders the game's own instruments. */
+  get iigsInstruments(): boolean {
+    return this.iigsSources !== null;
   }
 
   private createChannels(ctx: AudioContext, count: number): void {
