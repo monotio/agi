@@ -9,7 +9,7 @@
 
 import { CORE_AGENT_TOOLS } from "./coreToolDefinitions.ts";
 import { normalizeToolArguments, validateToolArguments } from "./schemaValidate.ts";
-import { assembleLogic } from "../logic/assembler.ts";
+import { AssemblerError, assembleLogic } from "../logic/assembler.ts";
 import { buildWordsTok, parseWordsTok, type WordEntry } from "../logic/words.ts";
 import { renderPicture, type PictureFillDiagnostic } from "../picture/renderer.ts";
 import {
@@ -805,17 +805,7 @@ function executeLegacyTool(
       }
       try {
         const normalized = normalizeAuthoredLogic(source);
-        const defined = new Set(
-          [...normalized.source.matchAll(/^\s*#define\s+(\w+)/gm)].map((match) => match[1]),
-        );
-        const bindings = Object.entries(session.authoring.bindings)
-          .filter(([name]) => !defined.has(name))
-          .map(([name, binding]) => `#define ${name} ${binding.num}`)
-          .join("\n");
-        const assembled = assembleLogic(`${bindings}\n${normalized.source}`, {
-          dictionary: session.sources.words,
-          profile: session.profile,
-        });
+        const assembled = assembleAuthoredLogic(session, normalized.source);
         session.container.putResource("logic", room, assembled.payload);
         session.sources.logics.set(room, normalized.source);
         // A rewrite that drops a declared plan exit still commits — the plan
@@ -1722,6 +1712,28 @@ export function authoredPictureSource(session: AgentSessionState, num: number): 
 }
 
 /**
+ * Assemble logic the agent wrote, with its named bindings. The bindings the
+ * source does not define itself are prepended as #define lines; an error
+ * position is mapped back to the agent's own line, which is what it reads.
+ */
+function assembleAuthoredLogic(session: AgentSessionState, source: string) {
+  const defined = new Set([...source.matchAll(/^\s*#define\s+(\w+)/gm)].map((match) => match[1]));
+  const prelude = Object.entries(session.authoring.bindings)
+    .filter(([name]) => !defined.has(name))
+    .map(([name, binding]) => `#define ${name} ${binding.num}`);
+  try {
+    return assembleLogic(prelude.length ? `${prelude.join("\n")}\n${source}` : source, {
+      dictionary: session.sources.words,
+      profile: session.profile,
+    });
+  } catch (error) {
+    if (!(error instanceof AssemblerError) || error.line <= prelude.length) throw error;
+    const detail = error.message.slice(`${error.line}:${error.col}: `.length);
+    throw new AssemblerError(detail, error.line - prelude.length, error.col);
+  }
+}
+
+/**
  * The logic text the agent wrote this session, only while it still compiles to
  * the stored resource bytes.
  */
@@ -1730,18 +1742,7 @@ export function authoredLogicSource(session: AgentSessionState, num: number): st
   const payload = session.container.getResource("logic", num);
   if (authored === undefined || !payload) return undefined;
   try {
-    const defined = new Set(
-      [...authored.matchAll(/^\s*#define\s+(\w+)/gm)].map((match) => match[1]),
-    );
-    const bindings = Object.entries(session.authoring.bindings)
-      .filter(([name]) => !defined.has(name))
-      .map(([name, binding]) => `#define ${name} ${binding.num}`)
-      .join("\n");
-    const fullSource = bindings.length ? `${bindings}\n${authored}` : authored;
-    const compiled = assembleLogic(fullSource, {
-      dictionary: session.sources.words,
-      profile: session.profile,
-    }).payload;
+    const compiled = assembleAuthoredLogic(session, authored).payload;
     if (compiled.length !== payload.length) return undefined;
     for (let index = 0; index < compiled.length; index++)
       if (compiled[index] !== payload[index]) return undefined;

@@ -351,3 +351,16 @@ test("a source revision covers what its text depends on, not unrelated vocabular
   assert.equal(stale.success, false);
   assert.match(stale.error ?? "", /Source revision changed/);
 });
+
+test("assembler errors point at the line the agent wrote, with or without named bindings", () => {
+  // The named-binding #define prelude once shifted every reported line: by
+  // one with no bindings at all, and by one more per binding.
+  const source = "assignn(v40, 1);\nassignn(v41, 300);\nreturn;";
+  const state = createAgentSessionState();
+  const bare = executeAgentTool(state, "write_logic_source", { room: 1, source });
+  assert.match(bare.error ?? "", /AssemblerError: 2:\d+: byte value out of range/);
+  for (const name of ["gate_open", "lamp_lit"])
+    executeAuthoringTool(state, "reserve_binding", { kind: "flag", name, id: null });
+  const bound = executeAgentTool(state, "write_logic_source", { room: 1, source });
+  assert.match(bound.error ?? "", /AssemblerError: 2:\d+: byte value out of range/);
+});
