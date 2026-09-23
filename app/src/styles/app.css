@@ -25,33 +25,34 @@
   align-items: center;
   gap: 16px;
 }
-@media (orientation: landscape) and (max-height: 600px) {
-  .play-area.with-touch {
-    --game-width: min(calc(100vw - 268px), calc((var(--visible-height, 100dvh) - 100px) * 1.6));
-    flex-direction: row;
-    align-items: flex-start;
-    flex-wrap: wrap;
-    gap: 16px;
-  }
-  /* The transport stays under the game, not a third column beside the pad. */
-  .play-area.with-touch .transport {
-    flex-basis: 100%;
-    order: 3;
-  }
-  .app-container:has(.with-touch) {
-    padding: 8px 0;
-  }
-  .app-container:has(.with-touch) .header {
-    margin-bottom: 8px;
-  }
+/*
+ * Orientation comes from the stable layout (App.vue, viewportLayout.ts), not
+ * a media query: an on-screen keyboard makes a portrait phone's viewport wider
+ * than tall, and must not flip it into the landscape layout.
+ */
+.layout-landscape-short .play-area.with-touch {
+  --game-width: min(calc(100vw - 268px), calc((var(--layout-height, 100dvh) - 100px) * 1.6));
+  flex-direction: row;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
 }
-@media (orientation: portrait) {
-  .play-area.with-touch {
-    --game-width: min(
-      calc(100vw - 32px),
-      max(160px, calc((var(--visible-height, 100dvh) - 340px) * 1.6))
-    );
-  }
+/* The transport stays under the game, not a third column beside the pad. */
+.layout-landscape-short .play-area.with-touch .transport {
+  flex-basis: 100%;
+  order: 3;
+}
+.app-container.layout-landscape-short:has(.with-touch) {
+  padding: 8px 0;
+}
+.app-container.layout-landscape-short:has(.with-touch) .header {
+  margin-bottom: 8px;
+}
+.layout-portrait .play-area.with-touch {
+  --game-width: min(
+    calc(100vw - 32px),
+    max(160px, calc((var(--layout-height, 100dvh) - 340px) * 1.6))
+  );
 }
 
 @media (max-width: 600px) {

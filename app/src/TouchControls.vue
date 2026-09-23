@@ -290,23 +290,22 @@ select {
   max-height: 45vh;
   overflow: auto;
 }
-@media (orientation: landscape) and (max-height: 600px) {
-  .direction-pad {
-    grid-template-columns: repeat(3, 44px);
-    gap: 3px;
-  }
-  .touch-main {
-    gap: 8px;
-  }
-  .action-keys {
-    min-width: 64px;
-    gap: 3px;
-  }
-  .touch-controls {
-    width: 220px;
-  }
-  .movement-help {
-    font-size: 11px;
-  }
+/* The stable layout's orientation (App.vue), which a keyboard cannot flip. */
+:global(.layout-landscape-short) .direction-pad {
+  grid-template-columns: repeat(3, 44px);
+  gap: 3px;
+}
+:global(.layout-landscape-short) .touch-main {
+  gap: 8px;
+}
+:global(.layout-landscape-short) .action-keys {
+  min-width: 64px;
+  gap: 3px;
+}
+:global(.layout-landscape-short) .touch-controls {
+  width: 220px;
+}
+:global(.layout-landscape-short) .movement-help {
+  font-size: 11px;
 }
 </style>
