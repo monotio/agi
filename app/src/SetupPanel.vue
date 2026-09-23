@@ -44,7 +44,7 @@ const {
       >
     </p>
     <h1 id="welcome-title">AGI IS HERE<span>.</span></h1>
-    <p class="welcome-line">Dream it. Play it. Remix it.</p>
+    <p class="welcome-line">Play. Create. Remix.</p>
   </section>
 
   <details

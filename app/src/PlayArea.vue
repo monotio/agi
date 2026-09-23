@@ -39,6 +39,7 @@ const bridge = useShellBridge();
 
 /** The DOM input is the keyboard capture; its text lives on the engine's input row. */
 const inputEl = useTemplateRef("inputEl");
+const screenEl = useTemplateRef("screenEl");
 const inputLine = ref("");
 const promptLine = ref("");
 const composing = ref(false);
@@ -498,7 +499,13 @@ onMounted(() => {
   bridge.focusGameInput = focusInput;
 });
 
+/** Scroll the game screen to the top of the visible viewport (keyboard up). */
+function revealScreen(): void {
+  screenEl.value?.scrollIntoView({ block: "start" });
+}
+
 defineExpose({
+  revealScreen,
   inputEl,
   focusInput,
   triggerKey,
@@ -518,6 +525,7 @@ defineExpose({
   <div class="play-area" :class="{ 'with-touch': touchControls && state.phase === 'running' }">
     <div
       v-show="state.phase === 'running'"
+      ref="screenEl"
       class="screen"
       :class="{
         active: state.phase === 'running',

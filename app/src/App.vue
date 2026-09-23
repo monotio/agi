@@ -29,6 +29,7 @@ import { createAiSettings, provideAiSettings } from "./useAiSettings.ts";
 import { createGameLibrary, provideGameLibrary } from "./useGameLibrary.ts";
 import { createPresentation, providePresentation } from "./usePresentation.ts";
 import SetupPanel from "./SetupPanel.vue";
+import { nextViewportLayout } from "./viewportLayout.ts";
 import ReferenceUpload from "./ReferenceUpload.vue";
 
 const testMode = import.meta.env.MODE === "test";
@@ -37,7 +38,9 @@ const touchControls = ref(
     (localStorage.getItem("monotio_agi.touchControls") !== "off" &&
       matchMedia("(any-pointer: coarse)").matches),
 );
-const viewportHeight = ref(window.visualViewport?.height ?? window.innerHeight);
+const viewport = ref(
+  nextViewportLayout(null, window.innerWidth, window.visualViewport?.height ?? window.innerHeight),
+);
 watch(touchControls, (enabled) =>
   localStorage.setItem("monotio_agi.touchControls", enabled ? "on" : "off"),
 );
@@ -408,7 +411,16 @@ function onTakeControl(): void {
 }
 
 function resizeViewport(): void {
-  viewportHeight.value = window.visualViewport?.height ?? window.innerHeight;
+  const opened = !viewport.value.keyboard;
+  viewport.value = nextViewportLayout(
+    viewport.value,
+    window.innerWidth,
+    window.visualViewport?.height ?? window.innerHeight,
+  );
+  // Typing on a phone: bring the whole game screen, with the command line it
+  // draws, to the top of what the keyboard leaves visible.
+  if (opened && viewport.value.keyboard && state.phase === "running")
+    nextTick(() => playArea.value?.revealScreen());
 }
 
 /**
@@ -573,8 +585,12 @@ watch(
 <template>
   <div
     class="app-container"
-    :class="{ 'at-menu': state.phase === 'idle' || state.phase === 'error' }"
-    :style="{ '--visible-height': `${viewportHeight}px` }"
+    :class="{
+      'at-menu': state.phase === 'idle' || state.phase === 'error',
+      'layout-portrait': viewport.height >= viewport.width,
+      'layout-landscape-short': viewport.width > viewport.height && viewport.height <= 600,
+    }"
+    :style="{ '--layout-height': `${viewport.height}px` }"
   >
     <GameHeader
       :touch-controls="touchControls"

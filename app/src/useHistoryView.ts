@@ -1214,7 +1214,8 @@ export function useHistoryView(deps: HistoryViewDeps) {
         return `Room ${v.room} · ${pct}%${v.seeking ? " · replaying…" : ""}`;
       }
       if (v.parked) return "Paused";
-      return "LIVE";
+      // Live: the LIVE button already says so.
+      return undefined;
     },
     posTestid: "history-pos",
     get dropped() {
