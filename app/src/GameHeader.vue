@@ -425,7 +425,13 @@ async function onRecordSave(): Promise<void> {
           :disabled="exportBusy || state.powerUp.busy"
           @click="onExportAgiZip(true)"
         >
-          <span
+          <span v-if="currentGame()?.growing"
+            >Export game…<small data-testid="export-work-in-progress"
+              >Work in progress: this world is still growing, and exits to rooms not built yet stop
+              the game — a ZIP file</small
+            ></span
+          >
+          <span v-else
             >Export game…<small
               >For publishing: playable game without private editing work or play history — a ZIP
               file</small

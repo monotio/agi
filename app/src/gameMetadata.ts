@@ -29,6 +29,11 @@ export interface LibraryMetadata extends PublicGameMetadata {
   preview?: string | undefined;
   /** Optional interpreter profile override applied on boot. */
   profile?: ProfileId | undefined;
+  /**
+   * A published game whose world was still growing when it was exported:
+   * exits may lead to rooms nobody has built yet, which stop the game.
+   */
+  workInProgress?: true | undefined;
   validation: {
     status: "ready" | "needs-input" | "unverified";
     message: string;
@@ -126,6 +131,7 @@ export function normalizeLibraryMetadata(
       : {}),
     ...(isLocalGamePreview(value["preview"]) ? { preview: value["preview"] } : {}),
     ...(profileOverride ? { profile: profileOverride } : {}),
+    ...(value["workInProgress"] === true ? { workInProgress: true as const } : {}),
     validation: {
       status:
         status === "ready" || status === "needs-input" || status === "unverified"

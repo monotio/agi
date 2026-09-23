@@ -804,6 +804,34 @@ test("the resource revision is pinned: SHA-256 over the canonical playable set",
   assert.equal(await gameRevision(files), createHash("sha256").update(packed).digest("hex"));
 });
 
+test("a growing world published without its project imports as a work in progress", async (t) => {
+  installLocalStorage(t);
+  const data = {
+    projectId: testProjectId("growing"),
+    title: "Growing",
+    provider: "stub",
+    model: "offline-stub",
+    authoredAt: "2026-09-23",
+    files: game(),
+    words: [] as [string, number][],
+    transcript: [],
+    roomGeneration: true,
+  };
+  const published = await readGameZip(buildPublicGameZip(data));
+  assert.equal(published.roomGeneration, true, "GAME.JSON marks the world as growing");
+  const publishedId = await addLibraryGame(published, "Growing", "zip", opening);
+  const stored = (await loadAuthoredGame(publishedId))!;
+  assert.equal(stored.library?.workInProgress, true);
+  assert.equal(stored.roomGeneration, false, "a public claim never enables authoring");
+  // The project archive carries the authoring context: the world can keep
+  // growing here, so it is the creator's project, not a work in progress.
+  const project = await readGameZip(await buildProjectZip(data));
+  const projectId = await addLibraryGame(project, "Growing", "zip", opening);
+  const continued = (await loadAuthoredGame(projectId))!;
+  assert.equal(continued.library?.workInProgress, undefined);
+  assert.equal(continued.roomGeneration, true);
+});
+
 test("a ZIP made by macOS Finder imports despite its AppleDouble metadata", () => {
   // Finder's Compress adds __MACOSX/<folder>/._<name> resource forks beside
   // every file; ._LOGDIR ends in DIR and once read as a second game root.

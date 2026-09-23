@@ -325,8 +325,9 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
         : undefined;
       return parentTitle ? `Remix of ${parentTitle}` : "Remix";
     }
-    if (lib.source === "zip" || lib.source === "folder") return "Imported copy";
-    return null;
+    const origin = lib.source === "zip" || lib.source === "folder" ? "Imported copy" : null;
+    if (lib.workInProgress) return origin ? `${origin} · Work in progress` : "Work in progress";
+    return origin;
   }
 
   function refreshPendingAutosave(): void {
@@ -518,6 +519,13 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     return stored;
   }
 
+  /** A growing world published without its authoring context stops at unbuilt rooms. */
+  function workInProgressNote(game: OpenedGame): string {
+    return game.roomGeneration === true && !game.project
+      ? " It is a work in progress: exits to rooms not built yet stop the game."
+      : "";
+  }
+
   /** What a project archive brought along besides the game — and what storage refused. */
   function progressNote(game: OpenedGame, stored: ImportStorageReport | null): string {
     const mapNote = game.map
@@ -558,7 +566,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       if (file.size > MAX_GAME_ZIP_BYTES) throw new Error("Choose a game ZIP smaller than 128 MB.");
       const game = await readGameZip(new Uint8Array(await file.arrayBuffer()));
       const stored = await stageLibraryGame(game, file.name.replace(/\.zip$/i, ""), "zip");
-      importNotice.value = `${game.title ?? file.name.replace(/\.zip$/i, "")} added to your library${progressNote(game, stored)}.`;
+      importNotice.value = `${game.title ?? file.name.replace(/\.zip$/i, "")} added to your library${progressNote(game, stored)}.${workInProgressNote(game)}`;
     } catch (error) {
       importError.value = String(error).replace(/^Error: /, "");
     } finally {
@@ -595,7 +603,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       const firstPath = paths.keys().next().value as string | undefined;
       const title = firstPath?.split("/")[0] || "Imported game";
       const stored = await stageLibraryGame(game, title, "folder");
-      importNotice.value = `${game.title ?? title} added to your library${progressNote(game, stored)}.`;
+      importNotice.value = `${game.title ?? title} added to your library${progressNote(game, stored)}.${workInProgressNote(game)}`;
     } catch (error) {
       importError.value = String(error).replace(/^Error: /, "");
     } finally {

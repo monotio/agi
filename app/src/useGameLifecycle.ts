@@ -514,6 +514,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       ? {
           installed: booted.installed,
           title: booted.title,
+          growing: booted.authoredGame?.roomGeneration === true,
           revision: booted.revision,
           hash: booted.hash,
           alias: booted.alias,
