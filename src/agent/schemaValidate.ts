@@ -102,7 +102,10 @@ function check(schema: unknown, value: unknown, path: string, errors: string[]):
     for (const [key, item] of Object.entries(obj)) {
       const child = path ? `${path}.${key}` : key;
       if (Object.hasOwn(props, key)) check(props[key], item, child, errors);
-      else if (s["additionalProperties"] === false) errors.push(`${child} is not a known field.`);
+      // Naming the accepted fields turns a guessed name (a room's `name` for
+      // its `title`) into a one-step correction.
+      else if (s["additionalProperties"] === false)
+        errors.push(`${child} is not a known field (fields: ${Object.keys(props).join(", ")}).`);
     }
   }
 }

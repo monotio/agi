@@ -53,7 +53,7 @@ describe("validateToolArguments", () => {
       "label must have at most 4 characters.",
       'mode must be one of ["a","b"].',
       "items must have at least 1 items.",
-      "extra is not a known field.",
+      "extra is not a known field (fields: num, label, hex, beats, mode, items).",
     ]);
     assert.deepEqual(validateToolArguments(schema, { num: 1.5, mode: "a", items: [{}] }), [
       "num must be integer, got number.",
@@ -72,9 +72,11 @@ describe("validateToolArguments", () => {
       const raw = JSON.parse(
         `{"num":1,"mode":"a","items":[{"name":"x"}],${JSON.stringify(key)}:{"polluted":1}}`,
       );
-      assert.deepEqual(validateToolArguments(schema, raw), [`${key} is not a known field.`]);
+      assert.deepEqual(validateToolArguments(schema, raw), [
+        `${key} is not a known field (fields: num, label, hex, beats, mode, items).`,
+      ]);
       assert.deepEqual(validateToolArguments(schema, normalizeToolArguments(schema, raw)), [
-        `${key} is not a known field.`,
+        `${key} is not a known field (fields: num, label, hex, beats, mode, items).`,
       ]);
       const session = createAgentSessionState();
       const call = JSON.parse(`{"words":["look"],${JSON.stringify(key)}:{"polluted":1}}`);

@@ -364,3 +364,18 @@ test("assembler errors point at the line the agent wrote, with or without named 
   const bound = executeAgentTool(state, "write_logic_source", { room: 1, source });
   assert.match(bound.error ?? "", /AssemblerError: 2:\d+: byte value out of range/);
 });
+
+test("a guessed field name is answered with the fields the tool accepts", () => {
+  // Opus named plan rooms `name` four times in the Genesis benchmark.
+  const state = createAgentSessionState();
+  const result = executeAgentTool(state, "update_world", {
+    rooms: [{ num: 2, name: "Hall", description: "", exits: [] }],
+    facts: [],
+    quests: [],
+  });
+  assert.equal(result.success, false);
+  assert.match(
+    result.error ?? "",
+    /rooms\[0\]\.name is not a known field \(fields: [^)]*\btitle\b/,
+  );
+});
