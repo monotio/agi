@@ -18,11 +18,6 @@ const ROOTS = ["src", "app/src"];
 
 const BASELINE: Record<string, { lines: number; boundary: string }> = {
   "src/runtime/engine.ts": {
-    // rc.15: deferred reposition placement, dispatch/condition bounds, input
-    // fidelity and the new.room transition corrections. rc.16: the Amiga
-    // 2.31x and IIgs opcode handlers ride on the same dispatch switch, and
-    // the Amiga/IIgs click-to-walk and word motion counters join the input
-    // phase and motion pass.
     lines: 6390,
     boundary:
       "the interpreter core: dispatch, original movement phases, modal timing and restore re-entry",
@@ -48,10 +43,6 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the save format; the release contract pins its structure",
   },
   "src/runtime/profile.ts": {
-    // rc.16: six Amiga interpreter profiles and IIgs 1.014 with their own
-    // dispatch bounds, OBJECT layouts and detection evidence, plus the
-    // catalog-fingerprint identification and its kind/build report, then
-    // the click-to-walk and motion-counter variant fields.
     lines: 1007,
     boundary:
       "the interpreter profile contract: per-build variant fields, promotion evidence and detection",
@@ -96,7 +87,6 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the logic compiler, the validator of last resort",
   },
   "app/src/agent/agentSession.ts": {
-    // rc.18: the game's interpreter override survives every state rebuild.
     lines: 1207,
     boundary:
       "the agent session lifecycle: genesis, room and remix turns, and revision-checked adoption",
@@ -127,7 +117,6 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the stored game-test runner",
   },
   "app/src/gameStorage.ts": {
-    // rc.18: a database a newer app upgraded explains itself.
     lines: 1063,
     boundary:
       "the local persistence records layer: conditional writes, coherent body/lifetime reads and transactional deletion receipts",
@@ -180,7 +169,6 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
       "the one replay drive: the live-session drive with checkpoint snapshots and the scratch tape drive on the shared tick",
   },
   "app/src/App.vue": {
-    // rc.18: the Original 4:3 display preference.
     lines: 670,
     boundary: "the shell root: engine boot, library/catalog routing and global key handling",
   },
