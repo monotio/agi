@@ -1,0 +1,440 @@
+// ===== logic 0 (707 bytes)
+#message 1 "File"
+#message 2 "Save Game      F5"
+#message 3 "Restore Game   F7"
+#message 4 "Restart Game   F9"
+#message 5 "Quit          Alt+Z"
+#message 6 "Speed"
+#message 7 "Slow"
+#message 8 "Normal"
+#message 9 "Fast"
+#message 10 "Fastest"
+#message 11 "Sound"
+#message 12 "On"
+#message 13 "Off"
+#message 14 "Help"
+#message 15 "Help           F1"
+#message 16 "About"
+#message 17 "Type a command and press ENTER. Arrow keys walk. ESC opens the menu."
+#message 18 "Badge of Millhaven"
+#message 19 "I don't know the word \"%s11\"."
+#message 20 "I don't understand that."
+
+if (!isset(f200)) {
+  set(f200);
+  configure.screen(1, 22, 0);
+  assignn(v7, 215);
+  status.line.on();
+  set(f9);
+  assignn(v10, 2);
+  set.menu(m1);
+  set.menu.item(m2, 201);
+  set.menu.item(m3, 202);
+  set.menu.item(m4, 203);
+  set.menu.item(m5, 204);
+  set.menu(m6);
+  set.menu.item(m7, 205);
+  set.menu.item(m8, 206);
+  set.menu.item(m9, 207);
+  set.menu.item(m10, 208);
+  set.menu(m11);
+  set.menu.item(m12, 209);
+  set.menu.item(m13, 210);
+  set.menu(m14);
+  set.menu.item(m15, 211);
+  set.menu.item(m16, 212);
+  submit.menu();
+  set(f14);
+  set.key(27, 0, 200);
+  set.key(0, 59, 211);
+  set.key(0, 63, 201);
+  set.key(0, 65, 202);
+  set.key(0, 67, 203);
+  set.key(0, 44, 204);
+  set.key(9, 0, 213);
+  assignn(v0, 1);
+  new.room.v(v0);
+}
+call.v(v0);
+if (isset(f202)) {
+  call(255);
+}
+if (!isset(f202)) {
+  if (controller(200)) {
+    menu.input();
+  }
+  if (controller(201)) {
+    save.game();
+  }
+  if (controller(202)) {
+    restore.game();
+  }
+  if (controller(203)) {
+    restart.game();
+  }
+  if (controller(204)) {
+    quit(0);
+  }
+  if (controller(205)) {
+    assignn(v10, 4);
+  }
+  if (controller(206)) {
+    assignn(v10, 2);
+  }
+  if (controller(207)) {
+    assignn(v10, 1);
+  }
+  if (controller(208)) {
+    assignn(v10, 0);
+  }
+  if (controller(209)) {
+    set(f9);
+  }
+  if (controller(210)) {
+    reset(f9);
+  }
+  if (controller(211)) {
+    print(m17);
+  }
+  if (controller(212)) {
+    print(m18);
+  }
+  if (controller(213)) {
+    status();
+  }
+}
+if (isset(f2) && !isset(f4) && !isset(f202)) {
+  if (greatern(v9, 0)) {
+    if (equaln(v9, 1)) {
+      word.to.string(s11, 1);
+    }
+    if (equaln(v9, 2)) {
+      word.to.string(s11, 2);
+    }
+    if (equaln(v9, 3)) {
+      word.to.string(s11, 3);
+    }
+    if (equaln(v9, 4)) {
+      word.to.string(s11, 4);
+    }
+    if (equaln(v9, 5)) {
+      word.to.string(s11, 5);
+    }
+    if (equaln(v9, 6)) {
+      word.to.string(s11, 6);
+    }
+    if (equaln(v9, 7)) {
+      word.to.string(s11, 7);
+    }
+    if (equaln(v9, 8)) {
+      word.to.string(s11, 8);
+    }
+    if (equaln(v9, 9)) {
+      word.to.string(s11, 9);
+    }
+    if (equaln(v9, 10)) {
+      word.to.string(s11, 10);
+    }
+    if (equaln(v9, 11)) {
+      word.to.string(s11, 11);
+    }
+    print(m19);
+  } else {
+    print(m20);
+  }
+}
+return;
+
+
+// ===== logic 1 (3870 bytes)
+#message 1 "Prakash looks up from a stack of forms. 'Reyes. Come over; I have an assignment for you.'"
+#message 2 "Prakash waits behind the front desk. The assignment board hangs to his right, and a desk radio blinks beside the forms. The west hall leads to records; the east doors open onto Main Street."
+#message 3 "'Bell's Pharmacy was broken into last night. Ellis, the delivery driver, says he left at 21:10. He's outside the shop now. Get his account and check it with dispatch. Photograph the stockroom latch before collecting evidence. Bud will meet you on Main Street.'"
+#message 4 "'Start with Ellis outside Bell's. Ask when he left, then check his story with dispatch. The board has the details. Bring me evidence I can put in a report.'"
+#message 5 "BELL'S PHARMACY - BREAK-IN\nDriver: Ellis, Harbor Delivery.\nClaimed departure: 21:10. Verify with dispatch.\nDocument stockroom latch; record where any evidence was found.\nBud: Main Street. Ledger: records office."
+#message 6 "Dispatch: 'Receiving you, Reyes. Get the driver's account first, then call with the time he gives you. I'll check the log.'"
+#message 7 "Your badge reads D. REYES, MILLHAVEN POLICE. Your portable radio is charged and clipped to your duty belt."
+#message 8 "Prakash glances at the badge. 'Yes, that's the right one. Now let's get your first case right, too.'"
+#message 9 "The desk holds a radio, unfinished forms, and a tray marked MISFILED. Prakash says, 'That tray is the only one that fills itself.'"
+#message 10 "'There's no case report yet, Reyes. First, let me give you the assignment.'"
+#message 11 "'I still need the driver's statement checked against dispatch. Ask Ellis when he left Bell's.'"
+#message 12 "'The latch photographs and the bottle's recovery details are missing. Go back to Bell's and document them.'"
+#message 13 "'We need to tie the stock to an address. Compare the delivery ledger with the pharmacist's account.'"
+#message 14 "'The evidence is in order. Take Bud, call backup at the warehouse and bring the suspect in.'"
+#message 15 "Prakash checks the statement, photographs, bottle log and arrest report. 'Complete and consistent. Good work, Reyes.' He files the case and signs your shift sheet. 'Go home. The misfiled tray will still be here tomorrow.'"
+#message 16 "'The case is filed, Reyes. Your shift is over.'"
+#message 17 "Prakash is at the desk. You can talk to him, read the board or call dispatch."
+#message 18 "The assignment stays on the board so every officer can check it. Your badge and portable radio are already with you."
+#message 19 "Ellis is outside Bell's Pharmacy on Main Street. The east doors lead out there."
+#message 20 "The west hall leads to records. The delivery ledger is kept there."
+#message 21 "'Don't pick a suspect before you have the evidence,' Prakash says. 'Start at Bell's.'"
+#message 22 "There is no case evidence to photograph at the front desk. Bud has the field kit on Main Street."
+#message 23 "MILLHAVEN POLICE"
+#message 24 "FILES"
+#message 25 "STREET"
+#message 26 "'Bud is waiting by the patrol car. If he starts telling you about his first case, ask for the short version.'"
+#message 27 "Prakash has kept the assignment on the board. The west hall leads to records; Main Street is through the east doors."
+#message 28 "Your case report needs the driver's checked statement, the pharmacy evidence, the warehouse connection and a supported arrest. Prakash can check it when you file it."
+
+if (isset(f5)) {
+  assignn(v7, 215);
+  assignn(v40, 1);
+  load.pic(v40);
+  draw.pic(v40);
+  discard.pic(v40);
+  set.horizon(85);
+  load.view(1);
+  load.view(2);
+  load.view(3);
+  animate.obj(o0);
+  set.view(o0, 1);
+  set.loop(o0, 2);
+  set.cel(o0, 1);
+  position(o0, 77, 143);
+  if (equaln(v1, 2)) {
+    position(o0, 8, 126);
+  }
+  if (equaln(v1, 3)) {
+    position(o0, 140, 126);
+  }
+  assignn(v32, 3);
+  cycle.time(o0, v32);
+  assignn(v34, 1);
+  step.time(o0, v34);
+  step.size(o0, v34);
+  animate.obj(o1);
+  set.view(o1, 2);
+  set.loop(o1, 2);
+  fix.loop(o1);
+  set.cel(o1, 0);
+  position(o1, 72, 94);
+  ignore.objs(o1);
+  stop.cycling(o1);
+  animate.obj(o2);
+  set.view(o2, 3);
+  set.loop(o2, 0);
+  fix.loop(o2);
+  set.cel(o2, 0);
+  position(o2, 58, 90);
+  set.priority(o2, 11);
+  ignore.objs(o2);
+  assignn(v33, 12);
+  cycle.time(o2, v33);
+  draw(o1);
+  draw(o2);
+  draw(o0);
+  show.pic();
+  set.text.attribute(15, 1);
+  display(3, 12, m23);
+  set.text.attribute(15, 0);
+  display(7, 0, m24);
+  display(7, 34, m25);
+  accept.input();
+  player.control();
+  if (isset(f32)) {
+    print(m27);
+  } else {
+    print(m1);
+  }
+}
+if (equaln(v6, 0)) {
+  stop.cycling(o0);
+} else {
+  start.cycling(o0);
+}
+if (equaln(v2, 4)) {
+  new.room(2);
+}
+if (equaln(v2, 2)) {
+  new.room(3);
+}
+if (said("west")) {
+  new.room(2);
+}
+if (said("east")) {
+  new.room(3);
+}
+if (said("examine")) {
+  print(m2);
+}
+if (said("examine", "prakash")) {
+  print(m17);
+}
+if (said("speak") || said("speak", "prakash") || said("speak", "at", "prakash")) {
+  if (!isset(f32)) {
+    set(f32);
+    addn(v3, 10);
+    print(m3);
+  } else {
+    if (isset(f37)) {
+      print(m16);
+    } else {
+      print(m4);
+    }
+  }
+}
+if (said("read", "assignment") || said("examine", "assignment") || said("check", "assignment")) {
+  print(m5);
+}
+if (said("call") || said("call", "dispatch") || said("check", "call") || said("examine", "call")) {
+  print(m6);
+}
+if (said("examine", "badge") || said("read", "badge") || said("check", "badge")) {
+  print(m7);
+}
+if (said("show", "badge") || said("show", "badge", "prakash") || said("show", "badge", "at", "prakash")) {
+  print(m8);
+}
+if (said("examine", "desk") || said("check", "desk") || said("read", "desk")) {
+  print(m9);
+}
+if (said("examine", "driver") || said("speak", "driver") || said("check", "driver") || said("examine", "pharmacy")) {
+  print(m19);
+}
+if (said("examine", "records") || said("examine", "ledger") || said("read", "ledger")) {
+  print(m20);
+}
+if (said("examine", "warehouse") || said("examine", "suspect") || said("check", "bottle")) {
+  print(m21);
+}
+if (said("speak", "bud") || said("examine", "bud")) {
+  print(m26);
+}
+if (said("examine", "street") || said("examine", "door")) {
+  print(m2);
+}
+if (said("get", "assignment") || said("get", "badge") || said("get", "call")) {
+  print(m18);
+}
+if (said("photograph") || said("photograph", "desk") || said("photograph", "assignment")) {
+  print(m22);
+}
+if (said("read", "case") || said("examine", "case") || said("check", "case")) {
+  print(m28);
+}
+if (said("file", "case") || said("show", "case")) {
+  if (!isset(f32)) {
+    print(m10);
+  } else {
+    if (!isset(f33)) {
+      print(m11);
+    } else {
+      if (!isset(f34)) {
+        print(m12);
+      } else {
+        if (!isset(f35)) {
+          print(m13);
+        } else {
+          if (!isset(f36)) {
+            print(m14);
+          } else {
+            if (isset(f37)) {
+              print(m16);
+            } else {
+              set(f37);
+              addn(v3, 50);
+              print(m15);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+if (isset(f2) && !isset(f4)) {
+  set(f4);
+  print(m17);
+}
+return;
+
+
+// ===== logic 255 (324 bytes)
+#message 1 ">"
+#message 2 " "
+#message 3 "You have died."
+#message 4 "Restore"
+#message 5 "Restart"
+#message 6 "Quit"
+#message 7 "1-3, SPACE, ENTER"
+
+if (!isset(f202)) {
+  set(f202);
+  assignn(v250, 0);
+  program.control();
+  prevent.input();
+  stop.motion(o0);
+  stop.cycling(o0);
+  reset(f14);
+  load.sound(255);
+  sound(255, f201);
+}
+reset(f203);
+if (equaln(v19, 32)) {
+  increment(v250);
+  if (equaln(v250, 3)) {
+    assignn(v250, 0);
+  }
+}
+if (equaln(v19, 49)) {
+  assignn(v250, 0);
+  set(f203);
+}
+if (equaln(v19, 50)) {
+  assignn(v250, 1);
+  set(f203);
+}
+if (equaln(v19, 51)) {
+  assignn(v250, 2);
+  set(f203);
+}
+if (equaln(v19, 13)) {
+  set(f203);
+}
+if (controller(202)) {
+  assignn(v250, 0);
+  set(f203);
+}
+if (controller(203)) {
+  assignn(v250, 1);
+  set(f203);
+}
+if (controller(204)) {
+  assignn(v250, 2);
+  set(f203);
+}
+if (isset(f203)) {
+  if (equaln(v250, 0)) {
+    restore.game();
+  }
+  if (equaln(v250, 1)) {
+    set(f16);
+    restart.game();
+  }
+  if (equaln(v250, 2)) {
+    quit(0);
+  }
+}
+set.text.attribute(0, 15);
+clear.text.rect(9, 10, 16, 30, 15);
+display(10, 14, m3);
+display(12, 15, m4);
+display(13, 15, m5);
+display(14, 15, m6);
+display(15, 12, m7);
+if (equaln(v250, 0)) {
+  display(12, 13, m1);
+  display(13, 13, m2);
+  display(14, 13, m2);
+}
+if (equaln(v250, 1)) {
+  display(12, 13, m2);
+  display(13, 13, m1);
+  display(14, 13, m2);
+}
+if (equaln(v250, 2)) {
+  display(12, 13, m2);
+  display(13, 13, m2);
+  display(14, 13, m1);
+}
+set.text.attribute(15, 0);
+return;
