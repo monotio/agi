@@ -140,19 +140,37 @@ const {
   </div>
 
   <!-- Interstitial Splash / Loading Screen during Genesis -->
-  <div v-if="state.phase === 'loading'" class="loading-panel" data-testid="splash-screen">
+  <!-- A plain boot names the game it opens and stays hidden unless slow. -->
+  <div
+    v-if="state.phase === 'loading'"
+    class="loading-panel"
+    :class="{ quiet: state.loading?.generating === false }"
+    data-testid="splash-screen"
+  >
     <div class="splash-card">
-      <h2 class="splash-title">{{ activeTemplate.title }}</h2>
-      <p class="splash-desc">{{ activeTemplate.description }}</p>
+      <h2 class="splash-title">
+        {{
+          state.loading?.generating === false
+            ? state.loading.title
+            : state.loading?.title || activeTemplate.title
+        }}
+      </h2>
+      <p v-if="state.loading?.generating !== false" class="splash-desc">
+        {{ activeTemplate.description }}
+      </p>
       <div class="splash-progress">
         <div
           class="spinner-box"
           v-if="state.agentTask?.status !== 'paused' && !state.agentTask?.progress"
         >
           <span class="pulsing-dot" />
-          <span>Preparing your adventure…</span>
+          <span>{{
+            state.loading?.generating === false ? "Loading…" : "Preparing your adventure…"
+          }}</span>
         </div>
-        <p class="splash-subtext">Your game will appear here when it is ready.</p>
+        <p v-if="state.loading?.generating !== false" class="splash-subtext">
+          Your game will appear here when it is ready.
+        </p>
         <AgentTaskControls
           :task="state.agentTask"
           @stop="stopAgent"
@@ -378,6 +396,21 @@ const {
   color: #fbb;
   line-height: 1.4;
   word-break: break-word;
+}
+
+/* A quick boot shows only the black screen; the card appears if the load runs long. */
+.loading-panel.quiet .splash-card {
+  animation: quiet-reveal 0.8s both;
+}
+
+@keyframes quiet-reveal {
+  0%,
+  60% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
 }
 
 .loading-panel {

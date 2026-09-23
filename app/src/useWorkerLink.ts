@@ -400,6 +400,12 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         const profile = typeof msg.profile === "string" ? msg.profile : null;
         state.profile = profile;
         hook.profile = profile;
+        state.profileKind = msg.kind ?? null;
+        hook.profileKind = msg.kind ?? null;
+        // The sound mode stays the player's PC chip preference: Amiga and
+        // IIgs editions render by event kind, and the header derives their
+        // fixed family from the profile (`soundFamily`), so the preference
+        // survives them.
         publishHook();
       },
       error: (msg) => {

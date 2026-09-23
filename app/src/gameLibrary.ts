@@ -16,12 +16,15 @@ import {
 import { requireProjectId } from "../../src/gameIdentity.ts";
 import { rebindStagedReferences } from "./referenceArt.ts";
 import type { OpenedGame } from "./gameZip.ts";
+import type { ProfileDetectionKind } from "../../src/runtime/profile.ts";
 
 export interface CheckedOpening {
   preview: string;
   status: "ready" | "needs-input";
   message: string;
   profile: string;
+  kind?: ProfileDetectionKind | undefined;
+  build?: string | undefined;
 }
 
 /** Import only after inspection. Re-importing bytes never replaces a remix or private project. */
@@ -84,6 +87,8 @@ export async function addLibraryGame(
       status: opening.status,
       message: opening.message,
       profile: opening.profile || known?.profile,
+      ...(opening.kind ? { kind: opening.kind } : {}),
+      ...(opening.build ? { build: opening.build } : {}),
     },
   };
   const effectiveTitle = game.title ?? known?.title ?? title;

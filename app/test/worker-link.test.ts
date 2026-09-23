@@ -124,6 +124,7 @@ function makeLink() {
   const audio = {
     setMuted: () => audioCalls.push("setMuted"),
     setPaused: () => audioCalls.push("setPaused"),
+    setMode: (mode: string) => audioCalls.push(`setMode:${mode}`),
     stop: () => audioCalls.push("stop"),
     output: () => audioCalls.push("output"),
   } as unknown as AgiAudio;
@@ -320,9 +321,19 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         assert.ok(depCalls.includes("restored"));
         break;
       case "booted":
-        deliver(w, { type, profile: "2.917" });
+        deliver(w, { type, profile: "2.917", kind: "binary" });
         assert.equal(state.phase, "running");
         assert.equal(state.profile, "2.917");
+        assert.equal(state.profileKind, "binary");
+        // The sound mode is the player's PC chip preference: Amiga (both
+        // driver generations) and IIgs boots leave it, and the device
+        // operand it implies, untouched.
+        state.soundMode = "pc-speaker";
+        for (const profile of ["amiga-2.316", "amiga-2.082", "iigs-1.014", "2.917"]) {
+          deliver(w, { type, profile, kind: "binary" });
+          assert.equal(state.soundMode, "pc-speaker", profile);
+        }
+        assert.ok(!audioCalls.some((call) => call.startsWith("setMode:")));
         break;
       case "roomTransition":
         deliver(w, {

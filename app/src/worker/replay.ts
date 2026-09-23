@@ -202,6 +202,7 @@ export function createReplay(ctx: WorkerContext) {
       keyQueue: [...ctx.input.keyQueue],
       deferredMovement: [...ctx.input.deferredMovement],
       inputBuffer: [...ctx.input.inputBuffer],
+      clickQueue: ctx.input.clickQueue.map(([x, y]): [number, number] => [x, y]),
       requestSerial: ctx.hostRequests.hostRequestSerial,
       clock: ctx.cycle.pendingClock ?? ctx.clocks.cycle.snapshot(),
       soundRemainder: ctx.clocks.sound.snapshot(),
@@ -250,6 +251,7 @@ export function createReplay(ctx: WorkerContext) {
       openContainer(ctx.boot.currentBootFiles),
       ctx.host,
       ctx.boot.currentDictionary,
+      ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,
     );
     ctx.fns.armJournal();
     ctx.engine.flags[9] = 1;
@@ -262,6 +264,7 @@ export function createReplay(ctx: WorkerContext) {
       ctx.input.keyQueue = [...snap.keyQueue];
       ctx.input.deferredMovement = [...snap.deferredMovement];
       ctx.input.inputBuffer = [...snap.inputBuffer];
+      ctx.input.clickQueue = snap.clickQueue.map(([x, y]): [number, number] => [x, y]);
       ctx.hostRequests.hostRequestSerial = snap.requestSerial;
       // The replay tick axis is virtual time; both clocks re-base onto it.
       const virtualNow = (tick * 1000) / 60;
@@ -302,6 +305,7 @@ export function createReplay(ctx: WorkerContext) {
       openContainer(ctx.boot.currentBootFiles),
       ctx.host,
       ctx.boot.currentDictionary,
+      ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,
     );
     ctx.fns.armJournal();
     ctx.engine.flags[9] = 1;
@@ -499,6 +503,8 @@ function captureSemanticState(
   if (template.inputQueue !== undefined) out.inputQueue = [...ctx.input.keyQueue];
   if (template.directionQueue !== undefined) out.directionQueue = [...ctx.input.deferredMovement];
   if (template.inputLines !== undefined) out.inputLines = [...ctx.input.inputBuffer];
+  if (template.clickQueue !== undefined)
+    out.clickQueue = ctx.input.clickQueue.map(([x, y]): [number, number] => [x, y]);
   if (template.clock !== undefined) out.clock = ctx.clocks.cycle.snapshot();
   if (template.soundRemainder !== undefined) out.soundRemainder = ctx.clocks.sound.snapshot();
   if (template.patchGeneration !== undefined) out.patchGeneration = engine.patchGeneration;
@@ -606,7 +612,13 @@ export function openHistoryDrive(
     ctx.boot.authorRooms = segment.boot.authorRooms;
     ctx.boot.selectedSoundDevice = anchor ? anchor.soundDevice : segment.boot.soundDevice;
     ctx.boot.authoredWords = wordsPatched ? (files.get("WORDS.TOK") ?? null) : null;
-    ctx.engine = new Engine(openContainer(files), ctx.host, dictionary);
+    ctx.boot.profile = segment.boot.profile ?? null;
+    ctx.engine = new Engine(
+      openContainer(files),
+      ctx.host,
+      dictionary,
+      ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,
+    );
     ctx.fns.armJournal();
     // Browser sessions boot with game sound enabled; the recorded flag restores below.
     ctx.engine.flags[9] = 1;
@@ -643,6 +655,11 @@ export function openHistoryDrive(
       ...(anchor ? anchor.directionQueue : (segment.boot.directionQueue ?? [])),
     ];
     ctx.input.inputBuffer = [...(anchor ? anchor.inputLines : (segment.boot.inputLines ?? []))];
+    // The queue is optional on pre-click tapes; an anchor lacking it means
+    // empty, never the boot's leftovers.
+    ctx.input.clickQueue = (
+      anchor ? (anchor.clickQueue ?? []) : (segment.boot.clickQueue ?? [])
+    ).map(([x, y]): [number, number] => [x, y]);
     const clock = anchor ? anchor.clock : segment.boot.clock;
     if (clock !== undefined) ctx.clocks.cycle.restore(clock, virtualNow);
     const soundRemainder = anchor ? anchor.soundRemainder : segment.boot.soundRemainder;
@@ -750,6 +767,9 @@ export function openHistoryDrive(
         // the tape when the host's frame mirror lagged the engine's.
         if (ctx.input.deferredMovement.length < 19) ctx.input.deferredMovement.push(0);
         ctx.fns.flushDeferredMovement();
+        return;
+      case "click":
+        ctx.fns.onClick({ type: "click", x: cause.x, y: cause.y });
         return;
       case "input":
         ctx.fns.onInput({ type: "input", text: cause.text });

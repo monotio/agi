@@ -19,8 +19,11 @@ const ROOTS = ["src", "app/src"];
 const BASELINE: Record<string, { lines: number; boundary: string }> = {
   "src/runtime/engine.ts": {
     // rc.15: deferred reposition placement, dispatch/condition bounds, input
-    // fidelity and the new.room transition corrections.
-    lines: 6219,
+    // fidelity and the new.room transition corrections. rc.16: the Amiga
+    // 2.31x and IIgs opcode handlers ride on the same dispatch switch, and
+    // the Amiga/IIgs click-to-walk and word motion counters join the input
+    // phase and motion pass.
+    lines: 6390,
     boundary:
       "the interpreter core: dispatch, original movement phases, modal timing and restore re-entry",
   },
@@ -37,8 +40,28 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     boundary: "the inspector surface: resource controls, runtime state and visual diagnostics",
   },
   "src/runtime/persistence.ts": {
-    lines: 1132,
+    // The Amiga/IIgs layouts are verified against the shipped Save/ images:
+    // big-endian state-hunk block 1, 0x48-byte runtime object records with
+    // native mode/flag translation, and the six-block IIgs envelope
+    // (docs/fidelity.md).
+    lines: 1864,
     boundary: "the save format; the release contract pins its structure",
+  },
+  "src/runtime/profile.ts": {
+    // rc.16: six Amiga interpreter profiles and IIgs 1.014 with their own
+    // dispatch bounds, OBJECT layouts and detection evidence, plus the
+    // catalog-fingerprint identification and its kind/build report, then
+    // the click-to-walk and motion-counter variant fields.
+    lines: 1007,
+    boundary:
+      "the interpreter profile contract: per-build variant fields, promotion evidence and detection",
+  },
+  "src/sound/sound.ts": {
+    // The IIgs stream/wave decoders join the PC, booter and Amiga families;
+    // the Amiga split adds the older 2.082 driver and KQ2's own envelope.
+    lines: 936,
+    boundary:
+      "the sound resource decoders and the tick-driven playback state machine behind every output family",
   },
   "src/agent/history.ts": {
     lines: 970,
@@ -78,7 +101,7 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
       "the agent session lifecycle: genesis, room and remix turns, and revision-checked adoption",
   },
   "app/src/useGameLibrary.ts": {
-    lines: 896,
+    lines: 988,
     boundary: "library import, export and storage operations",
   },
   "app/src/PlayArea.vue": {

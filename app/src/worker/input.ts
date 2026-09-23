@@ -140,6 +140,38 @@ export function createInput(ctx: WorkerContext) {
     }
   }
 
+  /**
+   * A pointer click is engine input only on click-to-walk profiles, and only
+   * while the interpreter could consume it — an open modal, a parked key wait
+   * or a suspended host answer owns the screen. Accepted clicks record like
+   * any boundary and queue for the next input-phase drain.
+   */
+  function onClick(msg: Inbound<"click">): void {
+    const engine = ctx.engine;
+    if (engine === null) return;
+    if (
+      ctx.replay.replay &&
+      typeof msg.sessionId === "number" &&
+      msg.sessionId !== 0 &&
+      msg.sessionId !== ctx.replay.currentSessionId
+    ) {
+      return;
+    }
+    const x = Number(msg.x);
+    const y = Number(msg.y);
+    if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || x > 319 || y < 0 || y > 199)
+      return;
+    if (
+      engine.modalKind !== null ||
+      engine.awaitingKey ||
+      engine.awaitingHostAnswer ||
+      engine.profile.clickMove === "none"
+    )
+      return;
+    ctx.fns.historyRecord({ kind: "click", x, y });
+    ctx.input.clickQueue.push([x, y]);
+  }
+
   function onInput(msg: Inbound<"input">): void {
     const text = String(msg.text);
     ctx.fns.historyRecord({ kind: "input", text });
@@ -181,6 +213,7 @@ export function createInput(ctx: WorkerContext) {
     deliverQueuedKey,
     onKey,
     onDirection,
+    onClick,
     onInput,
     onEdit,
     onDismissPrint,

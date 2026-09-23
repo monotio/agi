@@ -3,12 +3,16 @@ import type {
   PreviewWorkerInbound,
   PreviewWorkerOutbound,
 } from "./gameInspection.ts";
+import type { ProfileId } from "../../src/runtime/profile.ts";
 
 /** The wall-clock deadline also bounds pathological binary decoders, outside bytecode budgets. */
-export async function previewGame(game: {
-  files: Record<string, Uint8Array>;
-  words: [string, number][];
-}): Promise<Omit<GameInspection, "rgba" | "rows"> & { preview: string }> {
+export async function previewGame(
+  game: {
+    files: Record<string, Uint8Array>;
+    words: [string, number][];
+  },
+  profile?: ProfileId,
+): Promise<Omit<GameInspection, "rgba" | "rows"> & { preview: string }> {
   const worker = new Worker(new URL("./preview.worker.ts", import.meta.url), { type: "module" });
   const result = await new Promise<GameInspection>((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -39,7 +43,11 @@ export async function previewGame(game: {
     };
     // The worker inspects resources only; an imported project's transcript and
     // authoring state must not be cloned into it.
-    worker.postMessage({ files: game.files, words: game.words } satisfies PreviewWorkerInbound);
+    worker.postMessage({
+      files: game.files,
+      words: game.words,
+      ...(profile ? { profile } : {}),
+    } satisfies PreviewWorkerInbound);
   });
   const canvas = document.createElement("canvas");
   canvas.width = 320;
@@ -51,6 +59,8 @@ export async function previewGame(game: {
     status: result.status,
     message: result.message,
     profile: result.profile,
+    kind: result.kind,
+    build: result.build,
     preview: canvas.toDataURL("image/png"),
   };
 }

@@ -12,6 +12,7 @@ import { useAiSettings } from "./useAiSettings.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { gameShortcuts } from "./gameControls.ts";
 import { hasWalkthrough } from "./walkthrough.ts";
+import { nextAudioMode, soundChipLabel, soundFamily } from "./audio/useAudioController.ts";
 import {
   suggestAssertions,
   type AssertionSuggestion,
@@ -63,6 +64,8 @@ function closeNavMenus(restoreFocus = false): void {
 bridge.closeNavMenus = closeNavMenus;
 
 const shortcuts = computed(() => gameShortcuts(state.controls));
+/** Amiga and IIgs editions fix their sound hardware; only PC editions cycle chips. */
+const chipFamily = computed(() => soundFamily(state.profile));
 const shortcutsBlocked = computed(
   () => state.paused || state.modal !== null || state.prompt !== null || state.textMode,
 );
@@ -307,17 +310,16 @@ async function onRecordSave(): Promise<void> {
             role="menuitem"
             data-testid="toggle-sound-mode"
             data-keep-open
+            :disabled="chipFamily !== 'pc'"
             @click="
               resumeAudio();
-              setAudioMode(state.soundMode === 'tandy' ? 'pc-speaker' : 'tandy');
+              setAudioMode(nextAudioMode(state.soundMode));
             "
           >
             <span
-              >Sound chip<small>{{
-                state.soundMode === "tandy" ? "Tandy 4-Voice" : "PC Speaker"
-              }}</small></span
+              >Sound chip<small>{{ soundChipLabel(chipFamily, state.soundMode) }}</small></span
             >
-            <span class="setting-value">Change</span>
+            <span v-if="chipFamily === 'pc'" class="setting-value">Change</span>
           </button>
           <button
             v-if="state.phase === 'running'"

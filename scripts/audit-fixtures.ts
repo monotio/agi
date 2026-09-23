@@ -29,7 +29,12 @@ import {
   type ProfileId,
 } from "../src/runtime/profile.ts";
 import { parseSound } from "../src/sound/sound.ts";
-import { createPictureSurface, RESOURCE_KINDS, type ResourceKind } from "../src/types.ts";
+import {
+  canonicalResourceName,
+  createPictureSurface,
+  RESOURCE_KINDS,
+  type ResourceKind,
+} from "../src/types.ts";
 import { parseView } from "../src/view/view.ts";
 
 export interface FixtureIssue {
@@ -55,7 +60,7 @@ export interface LibraryAudit {
 }
 
 const RESOURCE_FILE = /^(?:[A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.\d+|WORDS\.TOK|OBJECT)$/;
-const RESOURCE_DIRECTORY = /^[A-Z0-9_]*DIR$/i;
+const RESOURCE_DIRECTORY = /^(?:[A-Z0-9_]*DIR|DIRS)$/i;
 const DISK_IMAGE = /\.(?:img|ima)$/i;
 function gameDirectories(library: string): string[] {
   return readdirSync(library, { withFileTypes: true })
@@ -76,11 +81,13 @@ function gameDirectories(library: string): string[] {
 
 function validateInventory(payload: Uint8Array, profile: AgiProfile): void {
   const decoded = decodeInventoryFile(payload, profile);
-  if (!inventoryTableFits(decoded)) throw new Error("Invalid OBJECT inventory table");
+  if (!inventoryTableFits(decoded, profile)) throw new Error("Invalid OBJECT inventory table");
   const size = decoded[0]! | (decoded[1]! << 8);
-  for (let offset = 3; offset < size + 3; offset += 3) {
-    const start = 3 + (decoded[offset]! | (decoded[offset + 1]! << 8));
-    if (start < size + 3 || decoded.indexOf(0, start) < start)
+  const header = profile.inventoryHeaderBytes;
+  const stride = profile.inventoryEntryBytes;
+  for (let offset = header; offset < size + header; offset += stride) {
+    const start = header + (decoded[offset]! | (decoded[offset + 1]! << 8));
+    if (start < size + header || decoded.indexOf(0, start) < start)
       throw new Error("Invalid OBJECT name offset or terminator");
   }
 }
@@ -136,7 +143,7 @@ function auditGame(library: string, name: string): FixtureAudit {
     }
     const files = new Map<string, Uint8Array>();
     for (const entry of entries) {
-      const canonical = entry.name.toUpperCase();
+      const canonical = canonicalResourceName(entry.name.toUpperCase());
       if (
         !RESOURCE_FILE.test(canonical) &&
         !INTERPRETER_FILES.includes(canonical) &&

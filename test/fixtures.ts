@@ -35,6 +35,8 @@ export function combinedDirectoryOf(
 ): { name: string; prefix: string } | null {
   if (!names) return null;
   for (const [key, actual] of names) {
+    // The Amiga v3 `dirs` file is the combined directory with an empty prefix.
+    if (key === "dirs") return { name: actual, prefix: "" };
     if (!/^[a-z0-9_]*dir$/.test(key) || SPLIT_DIRECTORIES.includes(key.toUpperCase())) continue;
     return { name: actual, prefix: actual.slice(0, -3).toUpperCase() };
   }
@@ -172,15 +174,20 @@ export function scanFixtures(): {
  * beside the resources) is an authored copy, not an edition fixture. When a
  * hash matches one plain edition plus such exports, the edition is the fixture.
  * Platform ports of the same game share the WORDS.TOK vocabulary hash but not
- * the OBJECT fingerprint; the single catalogued edition wins a bare hash query
- * so tests and walkthroughs keep running the verified release, and the ports
- * stay reachable by folder name. Anything else ambiguous still asks.
+ * the OBJECT fingerprint; the vocabulary's catalogued pair wins a bare hash
+ * query so tests and walkthroughs keep running the verified release, and the
+ * ports stay reachable by folder name. Anything else ambiguous still asks.
  */
 function uniqueEdition(query: string, matches: readonly DiscoveredFixture[]): DiscoveredFixture {
   if (matches.length === 1) return matches[0]!;
   const editions = matches.filter((m) => !m.files.has("project.json") && !m.files.has("game.json"));
   if (editions.length === 1) return editions[0]!;
-  const cataloged = editions.filter((m) => m.known !== null);
+  const cataloged = editions.filter(
+    (m) =>
+      m.known !== null &&
+      m.wordsSha256 !== undefined &&
+      detectKnownGameByHashes(m.wordsSha256) === m.known,
+  );
   if (cataloged.length === 1) return cataloged[0]!;
   throw new Error(
     `Ambiguous fixture query "${query}" matches multiple editions (${matches.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
@@ -284,6 +291,8 @@ const UNSHIPPED_VOLUMES: Record<string, readonly number[]> = {
   "3ceb755dc98398f3369038d21528763c05aac926238681ad88efac74c60d4d2d": [6, 7],
   // Manhunter 2 3.02 (1989-07-26, 3.5"): sounds 215-216.
   f646929faac4b905c4ed9fe3d8661cb33c97e4ae3168c38fa097cf3e1dbd8948: [6],
+  // Manhunter 2 (Amiga): picture 106.
+  "4c4ed1128707c0b5cf35ae978b9bb77b9bb98f18b98e0f87a9911620d54515da": [15],
 };
 
 function referencedVolumes(entries: Uint8Array, exactAbsence: boolean): Set<number> {

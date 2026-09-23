@@ -1,7 +1,7 @@
 /**
  * Resource-file extraction from the PC booter 2.001 layout.
  * Clean-room disk observations and native loader behavior are recorded in
- * docs/fidelity.md (pc-booter-resource-layout). Resource records and directory
+ * docs/fidelity.md "PC booter 2.001 profile". Resource records and directory
  * entries use the agi-re "Resource Containers" five-byte/three-byte contracts.
  * Inventory and sound payloads remain in their original 2.001 formats.
  */

@@ -1,11 +1,19 @@
 import { Engine, type EngineHost } from "../../src/runtime/engine.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { compositeFrame } from "./composite.ts";
+import {
+  detectProfileDecision,
+  type ProfileDetectionKind,
+  type ProfileId,
+} from "../../src/runtime/profile.ts";
 
 export interface GameInspection {
   status: "ready" | "needs-input";
   message: string;
+  /** The detected profile — what the game runs under without an override. */
   profile: string;
+  kind: ProfileDetectionKind;
+  build: string | undefined;
   rgba: Uint8ClampedArray<ArrayBuffer>;
   rows: string[];
 }
@@ -14,16 +22,15 @@ export interface GameInspection {
 export interface PreviewWorkerInbound {
   files: Record<string, Uint8Array>;
   words: [string, number][];
+  /** The library entry's override; the opening runs under it. */
+  profile?: ProfileId | undefined;
 }
 export type PreviewWorkerOutbound = { result: GameInspection } | { error: string };
 
 class PreviewInput extends Error {}
 
 /** A disposable interpreter, with no authoring, persistence, audio or network capabilities. */
-export function inspectGame(game: {
-  files: Record<string, Uint8Array>;
-  words: [string, number][];
-}): GameInspection {
+export function inspectGame(game: PreviewWorkerInbound): GameInspection {
   const stop = (): never => {
     throw new PreviewInput();
   };
@@ -41,12 +48,12 @@ export function inspectGame(game: {
     quit: stop,
     randomByte: () => 123,
   };
-  const engine = new Engine(
-    openContainer(new Map(Object.entries(game.files))),
-    host,
-    new Map(game.words),
-    { instructionBudget: 100_000 },
-  );
+  const files = new Map(Object.entries(game.files));
+  const engine = new Engine(openContainer(files), host, new Map(game.words), {
+    instructionBudget: 100_000,
+    ...(game.profile ? { profile: game.profile } : {}),
+  });
+  const detected = game.profile ? detectProfileDecision(files).profile : engine.profile;
   let needsInput = false;
   let visible = false;
   try {
@@ -77,7 +84,9 @@ export function inspectGame(game: {
     message: needsInput
       ? "Opening checked. The game may need a key or an answer to continue."
       : "Opening checked. Later rooms have not been playtested.",
-    profile: engine.profile.id,
+    profile: detected.id,
+    kind: engine.profileKind,
+    build: engine.profileBuild ?? undefined,
     rgba,
     rows: Array.from({ length: 25 }, (_, row) => engine.textRow(row)),
   };

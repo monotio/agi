@@ -35,6 +35,7 @@ import { gameRevision } from "./gameMetadata.ts";
 import { getKnownGameByRevision } from "../../src/games/knownGames.ts";
 import type { InstalledGameDescriptor, ProjectId } from "./gameTypes.ts";
 import { projectId, requireProjectId } from "../../src/gameIdentity.ts";
+import { createProfileChoiceController } from "./profileChoice.ts";
 
 export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: ShellBridge) {
   const {
@@ -451,6 +452,24 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     }
   }
 
+  const {
+    profileChoiceState,
+    offerImportProfileChoice,
+    openLibraryProfileChoice,
+    closeProfileChoice,
+    applyProfileChoice,
+  } = createProfileChoiceController({
+    // A copy shares its original's revision, so only the project id names the running game.
+    runningProjectId: () =>
+      state.phase === "idle" || state.phase === "loading" || state.phase === "error"
+        ? undefined
+        : currentGame()?.projectId,
+    flushAutosave,
+    refreshLibrary,
+    onPlayLibraryGame,
+    reportError: (message) => (libraryActionError.value = message),
+  });
+
   async function onStartLibraryGameOver(game: CachedGameMeta): Promise<void> {
     selectLibraryGame(game);
     await resumeAudio();
@@ -493,6 +512,9 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       (report) => (stored = report),
     );
     refreshLibrary(importedProjectId);
+    const entry = getCachedGameMeta(importedProjectId);
+    if (entry)
+      offerImportProfileChoice(entry, game.project !== undefined || game.roomGeneration === true);
     return stored;
   }
 
@@ -690,7 +712,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     try {
       const game = await loadAuthoredGame(selected);
       if (!game) throw new Error("This game is no longer in your library. Import it again.");
-      const opening = await previewGame(game);
+      const opening = await previewGame(game, game.library?.profile);
       const revision = game.library?.revision ?? (await gameRevision(game.files));
       if (!(await updateGamePreview(game.projectId, revision, opening.preview, opening)))
         throw new Error("The game changed while its opening was being checked. Try again.");
@@ -922,6 +944,10 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     playCatalogGame,
     playCatalogWalkthrough,
     observeCatalogCard,
+    profileChoiceState,
+    openLibraryProfileChoice,
+    closeProfileChoice,
+    applyProfileChoice,
     onExportAgiZip,
     mountCatalog,
     unmountCatalog,

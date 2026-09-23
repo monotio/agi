@@ -327,6 +327,298 @@ it("runtime playback bounds damaged channels while keeping valid notes and compl
   assert.equal(missing.tick(true, 0).complete, true);
 });
 
+describe("amiga paula family (docs/fidelity.md, original Amiga sound player)", () => {
+  const amiga = (data: Uint8Array, device = 1, profile: ProfileId = "amiga-2.316"): SoundPlayback =>
+    new SoundPlayback(detectProfile(new Map(), profile), data, device);
+  const paula = (outputs: ReturnType<SoundPlayback["tick"]>["outputs"]) =>
+    outputs.filter((event) => event.kind === "paula");
+
+  it("decodes tone notes into Paula periods and 0..64 volumes", () => {
+    // Channel 0 note: duration 2, tone 0x0123 -> divisor 0x231 -> period 4*561,
+    // attenuation 4; channels 1..3 point at the terminator.
+    const sound = amiga(payload(2, 0x94));
+    // The decode tick also runs the envelope: table[0] = 2 -> attenuation
+    // 4+2=6 -> volume ((15-6)<<6)/15 = 38.
+    assert.deepEqual(sound.tick(true, 0).outputs, [
+      { kind: "paula", channel: 0, period: 4 * 0x231, volume: 38 },
+      { kind: "paula", channel: 1, period: null, volume: 0 },
+      { kind: "paula", channel: 2, period: null, volume: 0 },
+      { kind: "paula", channel: 3, period: null, volume: 0 },
+    ]);
+    // table[1] = 1 -> attenuation 4+1=5 -> volume ((15-5)<<6)/15 = 42.
+    assert.deepEqual(sound.tick(true, 0).outputs, [
+      { kind: "paula", channel: 0, period: 4 * 0x231, volume: 42 },
+    ]);
+    // Termination silences the channel and completes the sound.
+    const last = sound.tick(true, 0);
+    assert.deepEqual(last.outputs, [
+      { kind: "paula", channel: 0, period: null, volume: 0 },
+      { kind: "paula", channel: 0, period: null, volume: 0 },
+      { kind: "paula", channel: 1, period: null, volume: 0 },
+      { kind: "paula", channel: 2, period: null, volume: 0 },
+      { kind: "paula", channel: 3, period: null, volume: 0 },
+    ]);
+    assert.equal(last.complete, true);
+    assert.deepEqual(sound.stop(), []);
+  });
+
+  it("applies the h198 envelope as offsets from the note's attenuation, then holds", () => {
+    // Attenuation 0, 120-tick note: tick t applies table[t-1] (61 deltas),
+    // tick 62 reads the 0x80 sentinel and the last volume holds.
+    const sound = amiga(payload(120, 0x90));
+    const expected = new Map<number, number>([
+      [1, 55], // att 0+2 -> (13*64)/15
+      [2, 59], // att 0+1 -> (14*64)/15
+      [3, 64], // att 0+0 -> full volume
+      [7, 59], // att 0+1
+      [11, 55], // att 0+2
+      [19, 51], // att 0+3 -> (12*64)/15
+      [26, 46], // att 0+4
+      [31, 42], // att 0+5
+      [36, 38], // att 0+6
+      [41, 34], // att 0+7
+      [46, 29], // att 0+8
+      [51, 25], // att 0+9
+      [56, 21], // att 0+10
+      [61, 17], // att 0+11 -> (4*64)/15
+      [62, 17], // sentinel: the envelope holds, it does not reset
+      [80, 17],
+    ]);
+    for (let tick = 1; tick <= 80; tick++) {
+      const out = paula(sound.tick(true, 0).outputs);
+      const want = expected.get(tick);
+      if (want !== undefined) assert.equal(out[0]!.volume, want, `tick ${tick}`);
+    }
+  });
+
+  it("maps the noise control's type bits to fixed periods on the noise voice", () => {
+    const data = payload(2, 0xf0);
+    data[0] = 15; // channels 0..2 terminate immediately
+    data[6] = 8; // channel 3 holds the note
+    data[10] = 0;
+    data[11] = 0xe2; // noise control: type 2 -> period 0x800
+    const sound = amiga(data);
+    assert.deepEqual(sound.tick(true, 0).outputs, [
+      { kind: "paula", channel: 0, period: null, volume: 0 },
+      { kind: "paula", channel: 1, period: null, volume: 0 },
+      { kind: "paula", channel: 2, period: null, volume: 0 },
+      { kind: "paula", channel: 3, period: 0x800, volume: 55 },
+    ]);
+    // The noise channel shares the envelope tick while its cursor is alive.
+    assert.deepEqual(sound.tick(true, 0).outputs, [
+      { kind: "paula", channel: 3, period: 0x800, volume: 59 },
+    ]);
+    for (const [type, period] of [
+      [0xe0, 0x200],
+      [0xe1, 0x400],
+      [0xe3, 0x800],
+    ] as const) {
+      const d = payload(2, 0xf0);
+      d[0] = 15;
+      d[6] = 8;
+      d[10] = 0;
+      d[11] = type;
+      const out = paula(amiga(d).tick(true, 0).outputs);
+      assert.equal(out[3]!.period, period, `type byte ${type.toString(16)}`);
+    }
+  });
+
+  it("runs the noise channel's envelope cursor once and never resets it per note", () => {
+    // Noise note 1 (duration 70) exhausts the table; note 2 decodes with the
+    // dead cursor, so its attenuation plays without an envelope offset.
+    const data = Uint8Array.of(
+      18,
+      0,
+      18,
+      0,
+      18,
+      0,
+      8,
+      0,
+      70,
+      0,
+      0,
+      0xe0,
+      0xf0,
+      5,
+      0,
+      0,
+      0xe0,
+      0xf0,
+      255,
+      255,
+    );
+    const sound = amiga(data);
+    let out: ReturnType<typeof paula> = [];
+    for (let tick = 1; tick <= 70; tick++) out = paula(sound.tick(true, 0).outputs);
+    assert.equal(out[0]!.volume, 17, "the held envelope value at the hold point");
+    // Note 2 starts at tick 71: no cursor reset -> plain volume for att 0.
+    assert.deepEqual(paula(sound.tick(true, 0).outputs), [
+      { kind: "paula", channel: 3, period: 0x200, volume: 64 },
+    ]);
+    assert.equal(paula(sound.tick(true, 0).outputs)[0]!.volume, 64);
+  });
+
+  it("restarts the tone envelope at every note on the tone channels", () => {
+    // Two consecutive channel-0 notes, attenuation 0.
+    const data = Uint8Array.of(
+      8,
+      0,
+      18,
+      0,
+      18,
+      0,
+      18,
+      0,
+      2,
+      0,
+      0x23,
+      0x81,
+      0x90,
+      2,
+      0,
+      0x24,
+      0x82,
+      0x90,
+      255,
+      255,
+    );
+    const sound = amiga(data);
+    assert.equal(paula(sound.tick(true, 0).outputs)[0]!.volume, 55);
+    assert.equal(paula(sound.tick(true, 0).outputs)[0]!.volume, 59);
+    // Second note decodes on tick 3: the envelope restarts at table[0].
+    const out = paula(sound.tick(true, 0).outputs);
+    assert.equal(out[0]!.period, 4 * 0x242);
+    assert.equal(out[0]!.volume, 55, "the second note applies table[0] again");
+  });
+
+  it("never reads the volume-adjustment variable", () => {
+    // GR h197 holds no v23 access: the same note plays identically at any v23.
+    for (const adjustment of [0, 5, 200]) {
+      const sound = amiga(payload(2, 0x94));
+      assert.equal(paula(sound.tick(true, adjustment).outputs)[0]!.volume, 38);
+      assert.equal(paula(sound.tick(true, adjustment).outputs)[0]!.volume, 42);
+    }
+  });
+
+  it("keeps all four voices regardless of the device operand", () => {
+    for (const device of [0, 1, 8]) {
+      const out = amiga(payload(2, 0x94), device).tick(true, 0).outputs;
+      assert.equal(out.length, 4, `device ${device} still drives four voices`);
+    }
+  });
+
+  it("silences every channel when sound is disabled", () => {
+    assert.deepEqual(amiga(payload(2, 0x94)).tick(false, 0).outputs, [
+      { kind: "paula", channel: 0, period: null, volume: 0 },
+      { kind: "paula", channel: 1, period: null, volume: 0 },
+      { kind: "paula", channel: 2, period: null, volume: 0 },
+      { kind: "paula", channel: 3, period: null, volume: 0 },
+    ]);
+  });
+});
+
+describe("amiga 2.082 driver family (docs/fidelity.md, original Amiga sound player)", () => {
+  const old = (data: Uint8Array, device = 1): SoundPlayback =>
+    new SoundPlayback(detectProfile(new Map(), "amiga-2.082"), data, device);
+  const paula = (outputs: ReturnType<SoundPlayback["tick"]>["outputs"]) =>
+    outputs.filter((event) => event.kind === "paula");
+
+  it("emits on the decode tick only, with 16x the note divisor as the period", () => {
+    // Channel 0: duration 2, tone 0x0123 -> divisor 0x231 -> period 16*0x231;
+    // attenuation 4 -> volume ((15-4)<<6)/15 = 46. Channels 1..3 terminate on
+    // the same tick.
+    const sound = old(payload(2, 0x94));
+    assert.deepEqual(sound.tick(true, 0).outputs, [
+      { kind: "paula", channel: 0, period: 16 * 0x231, volume: 46, driver: "2.082" },
+      { kind: "paula", channel: 1, period: null, volume: 0, driver: "2.082" },
+      { kind: "paula", channel: 2, period: null, volume: 0, driver: "2.082" },
+      { kind: "paula", channel: 3, period: null, volume: 0, driver: "2.082" },
+    ]);
+    // No envelope pass: the held note emits nothing on the second tick.
+    assert.deepEqual(sound.tick(true, 0).outputs, []);
+    // The terminator silences the channel, then completion silences every
+    // voice the host may have left sounding.
+    const last = sound.tick(true, 0);
+    assert.deepEqual(last.outputs, [
+      { kind: "paula", channel: 0, period: null, volume: 0, driver: "2.082" },
+      { kind: "paula", channel: 0, period: null, volume: 0, driver: "2.082" },
+      { kind: "paula", channel: 1, period: null, volume: 0, driver: "2.082" },
+      { kind: "paula", channel: 2, period: null, volume: 0, driver: "2.082" },
+      { kind: "paula", channel: 3, period: null, volume: 0, driver: "2.082" },
+    ]);
+    assert.equal(last.complete, true);
+    assert.deepEqual(sound.stop(), []);
+  });
+
+  it("subtracts the volume-adjustment variable before scaling, floored at 0", () => {
+    // adjustment 2: atten 4-2 -> ((15-2)<<6)/15 = 55.
+    assert.equal(paula(old(payload(2, 0x94)).tick(true, 2).outputs)[0]!.volume, 55);
+    // adjustment 5 >= atten 4: the driver zeroes the attenuation -> 64.
+    assert.equal(paula(old(payload(2, 0x94)).tick(true, 5).outputs)[0]!.volume, 64);
+    // A rest (tone 0, atten 15) writes period 0 with ((15-10)<<6)/15 = 21.
+    const rest = payload(2, 0x9f);
+    rest[10] = 0;
+    rest[11] = 0;
+    assert.deepEqual(paula(old(rest).tick(true, 5).outputs)[0], {
+      kind: "paula",
+      channel: 0,
+      period: 0,
+      volume: 21,
+      driver: "2.082",
+    });
+  });
+
+  it("maps the noise control type to its fixed periods", () => {
+    const data = payload(2, 0xf0);
+    data[0] = 15;
+    data[6] = 8;
+    data[10] = 0;
+    data[11] = 0xe1; // noise control: type 1 -> period 3
+    const out = paula(old(data).tick(true, 0).outputs);
+    assert.deepEqual(out[3], { kind: "paula", channel: 3, period: 3, volume: 64, driver: "2.082" });
+    for (const [type, period] of [
+      [0xe0, 6],
+      [0xe2, 1],
+      [0xe3, 1],
+    ] as const) {
+      const d = payload(2, 0xf0);
+      d[0] = 15;
+      d[6] = 8;
+      d[10] = 0;
+      d[11] = type;
+      const next = paula(old(d).tick(true, 0).outputs);
+      assert.equal(next[3]!.period, period, `type byte ${type.toString(16)}`);
+    }
+  });
+});
+
+describe("amiga kq2 envelope (docs/fidelity.md, original Amiga sound player)", () => {
+  it("applies KQ2's signed attack curve instead of the 2.202 decay table", () => {
+    // The 2.176 data hunk's envelope opens at -2 (louder than the note's
+    // attenuation), where the 2.202+ table opens at +2.
+    const kq2 = new SoundPlayback(detectProfile(new Map(), "amiga-2.176"), payload(2, 0x90), 1);
+    const sq2 = new SoundPlayback(detectProfile(new Map(), "amiga-2.202"), payload(2, 0x90), 1);
+    // atten 0 + (-2) clamps to 0 -> 64 on KQ2; atten 0+2 -> 55 on SQ2.
+    const kq2out = kq2.tick(true, 0).outputs;
+    assert.equal(kq2out[0]!.kind === "paula" && kq2out[0]!.volume, 64);
+    const sq2out = sq2.tick(true, 0).outputs;
+    assert.equal(sq2out[0]!.kind === "paula" && sq2out[0]!.volume, 55);
+  });
+
+  it("writes the attack's volumes at period 0 for a rest", () => {
+    // Tone 0, atten 15: 15-2, 15-3, 15-2, 15-1 -> volumes 8, 12, 8, 4, then 0.
+    const rest = payload(8, 0x9f);
+    rest[10] = 0;
+    rest[11] = 0;
+    const kq2 = new SoundPlayback(detectProfile(new Map(), "amiga-2.176"), rest, 1);
+    const voice0 = () =>
+      kq2.tick(true, 0).outputs.find((e) => e.kind === "paula" && e.channel === 0);
+    for (const volume of [8, 12, 8, 4, 0])
+      assert.deepEqual(voice0(), { kind: "paula", channel: 0, period: 0, volume });
+  });
+});
+
 describe("pc booter 2.001 row streams", () => {
   it("splits payload into zero-terminated rows, keeping empty and unterminated rows", () => {
     assert.deepEqual(booterSoundRows(Uint8Array.of(0x80, 0x02, 0, 0, 0x9f, 0)), [
@@ -376,5 +668,259 @@ describe("pc booter 2.001 row streams", () => {
     restored.restore(sound.snapshot());
     assert.deepEqual(bytes(restored.tick(true, 0).outputs), [0x84]);
     assert.equal(restored.tick(true, 0).complete, true);
+  });
+});
+
+describe('apple iigs stream family (docs/fidelity.md "IIgs sound")', () => {
+  const iigs = (data: Uint8Array): SoundPlayback =>
+    new SoundPlayback(detectProfile(new Map(), "iigs-1.014"), data, 1);
+
+  // Hand-computed heartbeat timing (seg3+0x1dcd): an event runs exactly its
+  // timing byte's value in ticks after the previous event, and events behind
+  // zero timing bytes run in the same tick. The stream starts after the type
+  // word, so `[02 00]` is followed directly by the first timing byte.
+  const T2 = Uint8Array.of(
+    ...[0x02, 0x00],
+    ...[0x00, 0xc0, 0x05], // tick 1: program 5
+    ...[0x03, 0x90, 0x40, 0x64], // tick 4: note-on 64
+    ...[0x05, 0x80, 0x40, 0x00], // tick 9: note-off 64
+    ...[0x07, 0xfc], // tick 16: end
+  );
+  const ALL_OFF = { kind: "iigs", event: "all-off" } as const;
+
+  /** Outputs by tick until completion, with the completing tick. */
+  const run = (
+    sound: SoundPlayback,
+    limit = 2000,
+  ): { byTick: Map<number, unknown[]>; end: number } => {
+    const byTick = new Map<number, unknown[]>();
+    for (let tick = 1; tick <= limit; tick++) {
+      const { outputs, complete } = sound.tick(true, 0);
+      if (outputs.length > 0) byTick.set(tick, outputs);
+      if (complete) return { byTick, end: tick };
+    }
+    throw new Error("sound did not complete");
+  };
+
+  it("runs each event its timing byte's ticks after the previous one", () => {
+    const { byTick, end } = run(iigs(T2));
+    assert.deepEqual(
+      [...byTick],
+      [
+        [1, [ALL_OFF]],
+        [
+          4,
+          [
+            {
+              kind: "iigs",
+              event: "note-on",
+              voice: 0,
+              channel: 0,
+              note: 64,
+              volume: 127,
+              program: 5,
+            },
+          ],
+        ],
+        [9, [{ kind: "iigs", event: "note-off", voice: 0 }]],
+        [16, [ALL_OFF]],
+      ],
+    );
+    assert.equal(end, 16);
+  });
+
+  it("chains zero-delay events in one tick and keeps running status per channel", () => {
+    const { byTick, end } = run(
+      iigs(
+        Uint8Array.of(
+          ...[0x02, 0x00],
+          ...[0x00, 0x90, 0x3c, 0x40], // tick 1: note-on 60 (voice 0)
+          ...[0x00, 0x3e, 0x40], // tick 1: running status, note-on 62 (voice 1)
+          ...[0x02, 0x3c, 0x00], // tick 3: velocity 0 releases voice 0
+          ...[0x01, 0xb1, 0x07, 0x50], // tick 4: channel 1 volume 80
+          ...[0x00, 0xc1, 0x0a], // tick 4: channel 1 program 10
+          ...[0x00, 0x91, 0x40, 0x20], // tick 4: note-on 64 at volume 80 (voice 2)
+          ...[0x03, 0xfc], // tick 7: end
+        ),
+      ),
+    );
+    const on = (voice: number, channel: number, note: number, volume: number, program: number) => ({
+      kind: "iigs",
+      event: "note-on",
+      voice,
+      channel,
+      note,
+      volume,
+      program,
+    });
+    assert.deepEqual(
+      [...byTick],
+      [
+        [1, [ALL_OFF, on(0, 0, 60, 127, -1), on(1, 0, 62, 127, -1)]],
+        [3, [{ kind: "iigs", event: "note-off", voice: 0 }]],
+        [4, [{ kind: "iigs", event: "volume", channel: 1, volume: 80 }, on(2, 1, 64, 80, 10)]],
+        [7, [ALL_OFF]],
+      ],
+    );
+    assert.equal(end, 7);
+  });
+
+  it("0xf8 waits 255 ticks and 0xfc ends the sound", () => {
+    // Tick 1 stores 255; the trailing 5 is read on tick 256; the note plays
+    // on tick 261 and the terminator after a zero delay in the same tick.
+    const { byTick, end } = run(
+      iigs(Uint8Array.of(0x02, 0x00, 0xf8, 0x05, 0x90, 0x3c, 0x40, 0x00, 0xfc)),
+    );
+    assert.deepEqual([...byTick.keys()], [1, 261]);
+    assert.equal(end, 261);
+  });
+
+  it("any controller sets the note volume; only controller 7 re-levels sounding notes", () => {
+    const { byTick } = run(
+      iigs(Uint8Array.of(0x02, 0x00, 0x00, 0xb0, 0x0a, 0x30, 0x00, 0x90, 0x3c, 0x40, 0x00, 0xfc)),
+    );
+    assert.deepEqual(byTick.get(1), [
+      ALL_OFF,
+      { kind: "iigs", event: "note-on", voice: 0, channel: 0, note: 60, volume: 48, program: -1 },
+      ALL_OFF,
+    ]);
+  });
+
+  it("an unhandled class leaves its data bytes to the timing state", () => {
+    // 0xa0 has no handler: the next byte (2) is read as a timing byte.
+    const { byTick, end } = run(
+      iigs(Uint8Array.of(0x02, 0x00, 0x00, 0xa0, 0x02, 0x90, 0x3c, 0x40, 0x00, 0xfc)),
+    );
+    assert.deepEqual([...byTick.keys()], [1, 3]);
+    assert.equal(end, 3);
+  });
+
+  /**
+   * A type-1 resource: semitone, volume, wave offset 44, byte count, then a
+   * 44-byte instrument whose first A wave (at +32) has the given size byte
+   * and DOC mode, then the PCM.
+   */
+  const sample = (
+    semitone: number,
+    pcm: readonly number[],
+    wave: { size: number; mode: number } = { size: 0x2d, mode: 0x02 },
+  ): Uint8Array => {
+    const instrument = new Array<number>(44).fill(0);
+    instrument[34] = wave.size;
+    instrument[35] = wave.mode;
+    return Uint8Array.of(
+      ...[0x01, 0x00],
+      ...[semitone, 0x00, 0x7f, 0x00, 0x2c, 0x00, pcm.length & 0xff, pcm.length >> 8],
+      ...instrument,
+      ...pcm,
+    );
+  };
+
+  it("a type-1 sample completes when the oscillator reaches its zero byte", () => {
+    // Semitone 57 is 220 Hz: 256 * 220 = 56,320 bytes per second, 938.67 per
+    // tick. 1,000 bytes before the zero halt in the second tick.
+    const payload = sample(57, [...new Array<number>(1000).fill(0x80), 0x00]);
+    const { byTick, end } = run(iigs(payload));
+    assert.deepEqual(byTick.get(1), [
+      ALL_OFF,
+      { kind: "iigs", event: "sample", voice: 0, data: payload.subarray(2) },
+    ]);
+    assert.deepEqual(byTick.get(2), [ALL_OFF]);
+    assert.equal(end, 2);
+  });
+
+  it("an early zero byte halts the sample before its byte count", () => {
+    // 10 bytes at 938.67 per tick halt within the first tick.
+    const { end } = run(
+      iigs(
+        sample(57, [
+          ...new Array<number>(10).fill(0x80),
+          0x00,
+          ...new Array<number>(2000).fill(0x80),
+          0x00,
+        ]),
+      ),
+    );
+    assert.equal(end, 1);
+  });
+
+  it("a one-shot sample without a zero byte halts at the end of its table", () => {
+    // Size byte 0x12 is T = 2: a 1,024-byte table, 1.09 ticks at 938.67 bytes per tick.
+    const { end } = run(
+      iigs(sample(57, new Array<number>(1024).fill(0x80), { size: 0x12, mode: 0x02 })),
+    );
+    assert.equal(end, 2);
+  });
+
+  it("a free-running sample without a zero byte loops until stopped", () => {
+    const sound = iigs(sample(57, new Array<number>(1024).fill(0x80), { size: 0x12, mode: 0x00 }));
+    for (let tick = 0; tick < 1000; tick++) assert.equal(sound.tick(true, 0).complete, false);
+    assert.deepEqual(sound.stop(), [ALL_OFF]);
+  });
+
+  it("completes immediately on a truncated resource", () => {
+    const empty = iigs(new Uint8Array(0));
+    assert.equal(empty.tick(true, 0).complete, true);
+  });
+
+  it("the fade watchdog completes an armed sound on the pacing schedule", () => {
+    // fade.sound/fade.sound.v arm the heartbeat watchdog (docs/fidelity.md
+    // "Apple IIgs sound fade"): a latched 0xff budget steps down 0x10 at each
+    // pace expiry, checked before the decrement, so pace 2 completes on the
+    // sixteenth expiry — heartbeat 32 — well before the stream's deltas end.
+    // The stream below holds four 255-tick waits in delta position.
+    const sound = iigs(Uint8Array.of(0x02, 0x00, 0xf8, 0xf8, 0xf8, 0xf8, 0x01, 0xfc));
+    sound.armFade(2);
+    for (let beat = 1; beat < 32; beat++)
+      assert.equal(sound.tick(true, 0).complete, false, `heartbeat ${beat}`);
+    assert.equal(sound.tick(true, 0).complete, true);
+  });
+
+  it("a zero fade pace completes on the next heartbeat and disarms on stop", () => {
+    const sound = iigs(Uint8Array.of(0x02, 0x00, 0xf8, 0xf8, 0xf8, 0xf8, 0x01, 0xfc));
+    sound.armFade(0);
+    assert.equal(sound.tick(true, 0).complete, true);
+    // Completion restores the disarmed state (the original's $df = 0xffff),
+    // so a snapshot carries no watchdog.
+    assert.equal(sound.snapshot().fade, null);
+  });
+
+  it("re-arming updates the pace without relatching the volume budget", () => {
+    const sound = iigs(Uint8Array.of(0x02, 0x00, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0x01, 0xfc));
+    sound.armFade(1);
+    // Ten heartbeats at pace 1: ten expiries, budget 0xff -> 0x5f.
+    for (let t = 0; t < 10; t++) assert.equal(sound.tick(true, 0).complete, false);
+    // Re-arming preserves the stepped budget: five more expiries reach 0x0f,
+    // the sixth finds it below 0x10 — six beats, not sixteen.
+    sound.armFade(1);
+    for (let t = 0; t < 5; t++) assert.equal(sound.tick(true, 0).complete, false);
+    assert.equal(sound.tick(true, 0).complete, true);
+  });
+
+  it("a restored stream continues on the same ticks and stops with AllNotesOff", () => {
+    const sound = iigs(T2);
+    for (let t = 0; t < 5; t++) sound.tick(true, 0);
+    const restored = iigs(T2);
+    restored.restore(sound.snapshot());
+    // Ticks 6..9: the note-off arrives on tick 9, four heartbeats on.
+    for (let t = 6; t < 9; t++) assert.deepEqual(restored.tick(true, 0).outputs, []);
+    assert.deepEqual(restored.tick(true, 0).outputs, [
+      { kind: "iigs", event: "note-off", voice: 0 },
+    ]);
+    assert.deepEqual(restored.stop(), [ALL_OFF]);
+  });
+
+  it("snapshot and restore preserve the fade watchdog", () => {
+    const payload = Uint8Array.of(0x02, 0x00, 0xf8, 0xf8, 0xf8, 0xf8, 0x01, 0xfc);
+    const sound = iigs(payload);
+    sound.armFade(2);
+    sound.tick(true, 0);
+    const saved = iigs(payload);
+    saved.restore(sound.snapshot());
+    // The restored countdown and budget finish the same schedule: 31 more
+    // heartbeats then completion on the 32nd.
+    for (let beat = 2; beat < 32; beat++)
+      assert.equal(saved.tick(true, 0).complete, false, `heartbeat ${beat}`);
+    assert.equal(saved.tick(true, 0).complete, true);
   });
 });

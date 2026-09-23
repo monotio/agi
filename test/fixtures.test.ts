@@ -253,6 +253,48 @@ test("the catalogued OBJECT fingerprint wins a hash query shared with a port edi
   assert.equal(catalogedFixture?.known?.alias, "synthetic");
 });
 
+test("a lowercase port installation is discovered and checked through its own file names", (t) => {
+  const dir = mkdtempSync(fixtureDir("port-edition-").slice(0, -1));
+  const target = basename(dir);
+  t.after(() => {
+    rmSync(dir, { recursive: true, force: true });
+    clearFixtureCache();
+  });
+  writeFileSync(join(dir, "logdir"), Uint8Array.of(0x20, 0, 0));
+  for (const name of ["picdir", "viewdir", "snddir", "object", "words.tok"]) {
+    writeFileSync(join(dir, name), new Uint8Array());
+  }
+  assert.match(String(fixtureSkip(target)), /VOL\.2/);
+  writeFileSync(join(dir, "vol.0"), new Uint8Array());
+  writeFileSync(join(dir, "vol.2"), new Uint8Array());
+  assert.equal(fixtureSkip(target), false);
+  const fixture = findFixture(target);
+  assert.equal(fixture?.folder, target);
+  assert.equal(fixture?.combined, null);
+});
+
+test("a dirs installation is discovered as a v3 combined edition with an empty prefix", (t) => {
+  const dir = mkdtempSync(fixtureDir("port-v3-").slice(0, -1));
+  const target = basename(dir);
+  t.after(() => {
+    rmSync(dir, { recursive: true, force: true });
+    clearFixtureCache();
+  });
+  // Same layout as a prefixed combined directory: logic in volume 0,
+  // view in volume 1, sound in volume 15, picture absent.
+  writeFileSync(
+    join(dir, "dirs"),
+    Uint8Array.of(8, 0, 11, 0, 14, 0, 17, 0, 0, 0, 0, 255, 255, 255, 0x10, 0, 0, 0xf0, 0, 0),
+  );
+  assert.deepEqual(combinedDirectory(target), { name: "dirs", prefix: "" });
+  assert.match(String(fixtureSkip(target)), /WORDS\.TOK.*VOL\.0.*VOL\.1.*VOL\.15/);
+  assert.doesNotMatch(String(fixtureSkip(target)), /LOGDIR/);
+  for (const name of ["object", "words.tok", "vol.0", "vol.1", "vol.15"]) {
+    writeFileSync(join(dir, name), new Uint8Array());
+  }
+  assert.equal(fixtureSkip(target), false);
+});
+
 test("a plain edition outranks project exports that share its vocabulary hash", (t) => {
   const edition = mkdtempSync(fixtureDir("edition-plain-").slice(0, -1));
   const exported = mkdtempSync(fixtureDir("edition-export-").slice(0, -1));

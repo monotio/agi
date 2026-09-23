@@ -47,7 +47,7 @@ export interface ScreenObject {
   cycleMode: number;
   cycleTime: number;
   cycleCount: number;
-  motionMode: number; // 0 normal, 1 move.obj, 2 follow, 3 wander
+  motionMode: number; // 0 normal, 1 move.obj, 2 follow, 3 wander, 4 amiga click-move
   observeHorizon: boolean;
   observeBlocks: boolean;
   observeObjects: boolean;
@@ -107,6 +107,12 @@ export const MOTION_NORMAL = 0;
 export const MOTION_MOVE_OBJ = 1;
 export const MOTION_FOLLOW = 2;
 export const MOTION_WANDER = 3;
+/**
+ * Amiga click-to-move mode (docs/fidelity.md "Amiga interpreter profiles"):
+ * the 2.31x condition 0x13 tests this value. No host interaction selects
+ * that mode, so the condition reads false under every current host.
+ */
+export const MOTION_CLICK_MOVE = 4;
 export const CYCLE_FORWARD = 0;
 export const CYCLE_REVERSE = 1;
 export const CYCLE_END_OF_LOOP = 2;

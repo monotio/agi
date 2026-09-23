@@ -12,6 +12,7 @@
  *   pause               remix freeze; acknowledged by "paused"
  *   input               player pressed Enter on the input line
  *   key                 key press; answers a parked key wait
+ *   click               pointer click in 320x200 screen pixels (click-to-walk)
  *   direction           movement key press (0 = tracked key release)
  *   edit                live mirror of the host input widget
  *   dismissPrint        acknowledge the engine's open modal (click path)
@@ -53,6 +54,7 @@ import type { LlmRequest } from "./agent/hostRequests.ts";
 import type { ReplayObservation } from "./replay.ts";
 import type { RingFrame } from "./frameRing.ts";
 import type { HistoryBatch, HistoryBoot, HistoryRecording } from "../../src/agent/history.ts";
+import type { ProfileDetectionKind, ProfileId } from "../../src/runtime/profile.ts";
 
 /** Ops the worker may suspend on; see agent/hostRequests.ts. */
 export type HostRequestOp = LlmRequest["op"];
@@ -83,6 +85,8 @@ export interface BootMessage {
   files: Record<string, Uint8Array>;
   words: [string, number][];
   sessionId?: number;
+  /** Explicit interpreter profile override; null/undefined detects from files. */
+  profile?: ProfileId | undefined;
   /** Browser-selected sound device: 0 speaker, 1 four-channel output. */
   soundDevice?: number;
   /** Autosave cadence override; the host owns the policy, the worker the timing. */
@@ -117,6 +121,7 @@ export type WorkerInbound =
   | BootMessage
   | { type: "pause"; paused: boolean }
   | { type: "key"; code: number; sessionId?: number }
+  | { type: "click"; x: number; y: number; sessionId?: number }
   | {
       type: "direction";
       dir: number;
@@ -310,7 +315,7 @@ export type WorkerControl =
       egoY?: number;
       message?: string;
     }
-  | { type: "booted"; profile: string }
+  | { type: "booted"; profile: string; kind: ProfileDetectionKind }
   /**
    * One posted history batch: the always-on recording's transport unit.
    * Batches are committed with the anchor they carry, then acknowledged with

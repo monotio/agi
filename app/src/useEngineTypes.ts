@@ -18,6 +18,7 @@ import type { PowerUpUiState } from "./useAuthoringController.ts";
 import type { PromptState } from "./usePromptController.ts";
 import type { WalkthroughUiState } from "./useWalkthroughController.ts";
 import type { HistoryViewMark } from "./useHistoryView.ts";
+import type { ProfileDetectionKind } from "../../src/runtime/profile.ts";
 
 /** Engine modal kinds (the engine draws them on its text surface). */
 export type ModalKind = "print" | "inventory" | "menu" | "showObj" | "showPri" | "save" | "restore";
@@ -29,6 +30,8 @@ export interface TextHook {
   textMode: boolean;
   /** Interpreter profile the engine detected for the booted game, e.g. "2.917". */
   profile: string | null;
+  /** Detection kind of the interpreter profile: "binary", "catalog", or "default". */
+  profileKind?: ProfileDetectionKind | null;
   /** The interpreter is parked between cycles (remix freeze). */
   paused: boolean;
   /** Interpreter cycles completed since boot; stops advancing while paused. */
@@ -106,6 +109,12 @@ export interface HistoryViewUiState {
 
 export interface EngineState {
   agentTask: AgentRunState | null;
+  /**
+   * The game the loading phase is opening. `generating` marks an agent
+   * writing a new adventure; a plain boot is quick, so its splash stays out
+   * of sight unless the load turns out slow.
+   */
+  loading: { title: string; generating: boolean } | null;
   leaving: boolean;
   controls: GameControlBinding[];
   inputEnabled: boolean;
@@ -130,6 +139,8 @@ export interface EngineState {
   installedGames: InstalledGameDescriptor[] | null;
   /** Interpreter profile the engine detected for the booted game, e.g. "2.917". */
   profile: string | null;
+  /** Detection kind of the interpreter profile: "binary", "catalog", or "default". */
+  profileKind: ProfileDetectionKind | null;
   /** Debug screen: live agent activity (requests, responses, patches). */
   agentLog: AgentLogEntry[];
   omittedLogEntries?: number;

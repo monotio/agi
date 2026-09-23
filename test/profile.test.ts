@@ -2,8 +2,10 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
   type AgiProfile,
+  type ProfileId,
   PROFILES,
   detectProfile,
+  detectProfileDecision,
   detectVersionString,
   findVersionString,
 } from "../src/runtime/profile.ts";
@@ -37,6 +39,10 @@ const ROOM_ALIAS_PROFILE: AgiProfile = {
 class Host implements EngineHost {
   keys: number[] = [];
   printed: string[] = [];
+  quits = 0;
+  quit(): void {
+    this.quits++;
+  }
   print(text: string): void {
     this.printed.push(text);
   }
@@ -66,6 +72,26 @@ function boot(
 
 function ascii(text: string): Uint8Array {
   return new Uint8Array([...text].map((c) => c.charCodeAt(0)));
+}
+
+/** Assemble AND run under the same profile: needed for bytes outside 2.936. */
+function bootAs(
+  source: string,
+  profile: Parameters<typeof detectProfile>[1],
+  extra?: (c: ReturnType<typeof createContainer>) => void,
+): { engine: Engine; host: Host } {
+  const container = createContainer();
+  const resolved = detectProfile(new Map(), profile);
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(source, { dictionary: DICT, profile: resolved }).payload,
+  );
+  extra?.(container);
+  const host = new Host();
+  const engine = new Engine(container, host, DICT, { profile: resolved });
+  engine.tick();
+  return { engine, host };
 }
 
 describe("profile table", () => {
@@ -457,5 +483,349 @@ describe("engine selects behavior by profile field", () => {
     assert.equal(later.vars[211], 1, "resumed logic sees restart before the cycle ends");
     const prompt = boot(SOURCE, "2.411").engine;
     assert.equal(prompt.vars[210], 9, "2.411 does not restart without confirmation");
+  });
+});
+
+describe("amiga interpreter profiles", () => {
+  // docs/fidelity.md "Amiga interpreter profiles": dispatch bounds, container
+  // kinds and the opcode surface are read off the local hunk executables.
+  const AMIGA_BOUNDS: readonly [ProfileId, number, number, "v2-split" | "v3-combined"][] = [
+    ["amiga-2.082", 0xa0, 0x13, "v2-split"],
+    ["amiga-2.176", 0xa9, 0x12, "v2-split"],
+    ["amiga-2.202", 0xa9, 0x12, "v2-split"],
+    ["amiga-2.310", 0xb6, 0x13, "v3-combined"],
+    ["amiga-2.316", 0xb6, 0x13, "v3-combined"],
+    ["amiga-2.333", 0xb6, 0x13, "v3-combined"],
+  ];
+
+  test("the six builds carry their dispatch bounds and container kinds", () => {
+    for (const [id, maxAction, maxCondition, container] of AMIGA_BOUNDS) {
+      const p = PROFILES[id];
+      assert.equal(p.id, id);
+      assert.equal(p.maxAction, maxAction, id);
+      assert.equal(p.maxCondition, maxCondition, id);
+      assert.equal(p.container, container, id);
+      assert.equal(p.volumeHeaderBytes, container === "v3-combined" ? 7 : 5, id);
+      // The quit selector is one byte on every Amiga build, including 2.082.
+      assert.equal(p.exitOperandBytes, 1, id);
+      // Menu construction has real handlers; menu.input is the stub routine.
+      assert.equal(p.menuActions, "full", id);
+      assert.equal(p.menuInputAction, "noop", id);
+      // The OBJECT metadata uses the Amiga four-byte entry layout.
+      assert.equal(p.inventoryHeaderBytes, 4, id);
+      assert.equal(p.inventoryEntryBytes, 4, id);
+      // Five-block save envelope; block 3 is the raw inventory region, not
+      // the v3 XOR transform (docs/fidelity.md, "Amiga interpreter
+      // profiles").
+      assert.equal(p.saveBlocks, 5, id);
+      assert.equal(p.saveBlock3Xor, false, id);
+      // Every Amiga build runs direction-based loop selection for exactly
+      // four loops (docs/fidelity.md, "Amiga interpreter profiles").
+      assert.equal(p.directionLoops, "exact-four", id);
+    }
+    // Sound: 2.082 runs the older driver family; the later builds run the
+    // Paula driver, with KQ2's distinct envelope table (docs/fidelity.md,
+    // "Original Amiga sound player").
+    assert.equal(PROFILES["amiga-2.082"].sound, "amiga-2.082");
+    for (const [id] of AMIGA_BOUNDS.slice(1)) assert.equal(PROFILES[id].sound, "amiga", id);
+    assert.equal(PROFILES["amiga-2.176"].soundEnvelope, "amiga-2.176");
+    for (const id of ["amiga-2.202", "amiga-2.310", "amiga-2.316", "amiga-2.333"] as const)
+      assert.equal(PROFILES[id].soundEnvelope, "amiga-2.202", id);
+    // Direction selection timing: 2.082 applies it every pass; the later
+    // builds only when the cadence countdown is due.
+    assert.equal(PROFILES["amiga-2.082"].directionLoopTiming, "every-pass");
+    for (const [id] of AMIGA_BOUNDS.slice(1))
+      assert.equal(PROFILES[id].directionLoopTiming, "cadence-due", id);
+    // String slots: parse() bounds at 6 on 2.082 and 13 on the later builds.
+    assert.equal(PROFILES["amiga-2.082"].stringSlots, 6);
+    for (const [id] of AMIGA_BOUNDS.slice(1)) assert.equal(PROFILES[id].stringSlots, 13, id);
+    // Key-map capacity: 40 scanned entries on 2.082, 39 afterwards.
+    assert.equal(PROFILES["amiga-2.082"].keyMapCapacity, 40);
+    for (const [id] of AMIGA_BOUNDS.slice(1)) assert.equal(PROFILES[id].keyMapCapacity, 39, id);
+    // OBJECT storage: plain on 2.082, key-encrypted on the later builds.
+    assert.equal(PROFILES["amiga-2.082"].inventoryMetadataEncrypted, false);
+    for (const [id] of AMIGA_BOUNDS.slice(1))
+      assert.equal(PROFILES[id].inventoryMetadataEncrypted, true, id);
+    for (const id of ["amiga-2.082", "amiga-2.176", "amiga-2.202"] as const)
+      assert.equal(PROFILES[id].extraActions, "none", id);
+    for (const id of ["amiga-2.310", "amiga-2.316", "amiga-2.333"] as const)
+      assert.equal(PROFILES[id].extraActions, "amiga-2.31x", id);
+  });
+
+  test("the 2.31x profiles record the verified stub and pointer variants", () => {
+    for (const id of ["amiga-2.310", "amiga-2.316", "amiga-2.333"] as const) {
+      const p = PROFILES[id];
+      // hold.key, release.key, set.pri.base and allow.menu share the stub
+      // routine on the 2.31x executables; mouse.posn reports the pointer.
+      assert.equal(p.releaseGateAction, "noop", id);
+      assert.equal(p.releaseGateClearAction, false, id);
+      assert.equal(p.priorityBaseAction, "noop", id);
+      assert.equal(p.menuInteractionGate, false, id);
+      assert.equal(p.inputWidthActions, "noop", id);
+      assert.equal(p.mousePosnAction, "write-pointer", id);
+    }
+    // The same stub pattern holds on the 2.176/2.202 tables where the slots
+    // exist; on 2.082 they are above the action bound.
+    assert.equal(PROFILES["amiga-2.176"].inputWidthActions, "noop");
+    assert.equal(PROFILES["amiga-2.202"].inputWidthActions, "noop");
+  });
+
+  test("an Amiga hunk executable selects its build by name and magic", () => {
+    const hunk = new Uint8Array([0x00, 0x00, 0x03, 0xf3, 1, 2, 3]);
+    const at = (name: string) =>
+      detectProfile(
+        new Map<string, Uint8Array>([
+          ["LOGDIR", new Uint8Array(3)],
+          [name, hunk],
+        ]),
+      ).id;
+    assert.equal(at("Sierra"), "amiga-2.082");
+    assert.equal(at("KQ2"), "amiga-2.176");
+    assert.equal(at("SQ2"), "amiga-2.202");
+    assert.equal(at("PQ"), "amiga-2.310");
+    assert.equal(at("GR"), "amiga-2.316");
+    assert.equal(at("MH2"), "amiga-2.333");
+  });
+
+  test("the empty-prefix `dirs` directory falls back to the Amiga 2.31x generation", () => {
+    const files = new Map<string, Uint8Array>([
+      ["dirs", new Uint8Array(8)],
+      ["vol.0", new Uint8Array(0)],
+    ]);
+    // Container shape is not an interpreter binary: the decision reports the
+    // fallback as a default so the app asks which profile to run.
+    const decision = detectProfileDecision(files);
+    assert.equal(decision.profile.id, "amiga-2.333");
+    assert.equal(decision.kind, "default");
+    assert.equal(decision.build, null);
+    // A prefixed combined directory stays the PC v3 fallback.
+    const pc = new Map<string, Uint8Array>([
+      ["GRDIR", new Uint8Array(8)],
+      ["GRVOL.0", new Uint8Array(0)],
+    ]);
+    assert.equal(detectProfile(pc).id, "3.002.149");
+  });
+
+  test("a hunk executable with an unknown name keeps the container fallback", () => {
+    const unknown = new Map<string, Uint8Array>([
+      ["LOGDIR", new Uint8Array(3)],
+      ["Mystery", new Uint8Array([0x00, 0x00, 0x03, 0xf3])],
+    ]);
+    assert.equal(detectProfile(unknown).id, "2.936");
+    // A known name without the hunk magic is not an Amiga interpreter.
+    const notHunk = new Map<string, Uint8Array>([
+      ["LOGDIR", new Uint8Array(3)],
+      ["GR", new Uint8Array([0xde, 0xad, 0xbe, 0xef])],
+    ]);
+    assert.equal(detectProfile(notHunk).id, "2.936");
+  });
+
+  test("adj.ego.move.to.x.y dispatches only on the 2.31x profiles", () => {
+    const SOURCE = "adj.ego.move.to.x.y(255, 2);\nreturn;\n";
+    for (const id of ["amiga-2.310", "amiga-2.316", "amiga-2.333"] as const)
+      assert.doesNotThrow(() => bootAs(SOURCE, id), id);
+    // The slot is above the earlier Amiga bounds and absent on PC profiles.
+    for (const id of ["amiga-2.082", "amiga-2.176", "amiga-2.202"] as const)
+      assert.throws(() => bootAs(SOURCE, id), /not available/, id);
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(SOURCE, { dictionary: DICT, profile: PROFILES["amiga-2.310"] }).payload,
+    );
+    assert.throws(
+      () => new Engine(container, new Host(), DICT, { profile: "3.002.149" }).tick(),
+      UnimplementedOpcodeError,
+    );
+  });
+
+  test("click.move.pending dispatches only on the 2.31x profiles", () => {
+    const SOURCE = "if (click.move.pending()) { set(f221); }\nreturn;\n";
+    for (const id of ["amiga-2.310", "amiga-2.316", "amiga-2.333"] as const)
+      assert.doesNotThrow(() => bootAs(SOURCE, id), id);
+    for (const id of ["amiga-2.082", "amiga-2.176", "amiga-2.202"] as const)
+      assert.throws(() => bootAs(SOURCE, id), /not available/, id);
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(SOURCE, { dictionary: DICT, profile: PROFILES["amiga-2.310"] }).payload,
+    );
+    assert.throws(
+      () => new Engine(container, new Host(), DICT, { profile: "3.002.149" }).tick(),
+      /invalid condition byte/,
+    );
+  });
+
+  test("click.move.pending is true only in the click-move motion mode", () => {
+    const { engine } = bootAs("if (click.move.pending()) { set(f221); }\nreturn;\n", "amiga-2.316");
+    assert.equal(engine.flags[221], 0, "ego starts in the normal motion mode");
+    // The Amiga handler tests ego's motion mode against 4; forcing the mode
+    // flips the condition on the next cycle.
+    engine.screenObjects[0]!.motionMode = 4;
+    engine.tick();
+    assert.equal(engine.flags[221], 1);
+  });
+  test("mouse.posn is a no-op on PC v3 profiles", () => {
+    // The Amiga latched-click semantics are covered in click-move.test.ts.
+    const SOURCE = "assignn(v100, 77);\nassignn(v101, 88);\nmouse.posn(v100, v101);\nreturn;\n";
+    const pc = bootAs(SOURCE, "3.002.149").engine;
+    assert.equal(pc.vars[100], 77);
+    assert.equal(pc.vars[101], 88);
+  });
+
+  test("the 2.31x stub slots consume their operands without effect", () => {
+    const { engine } = bootAs(
+      "set(f14);\nhold.key();\nhold.key();\nmenu.input();\nopen.dialogue();\nset.pri.base(60);\nrelease.key();\nreturn;\n",
+      "amiga-2.310",
+    );
+    assert.equal(engine.releaseGate, 0, "hold.key is a stub slot");
+    engine.tick();
+    assert.equal(engine.modalKind, null, "menu.input does not open a menu");
+    assert.equal(engine.releaseGate, 0, "release.key is a stub slot");
+  });
+});
+
+describe("apple iigs profile (docs/fidelity.md, SQ2.SYS16 1.014)", () => {
+  // The dispatch bounds are read off the executable's jump tables; the last
+  // action slots and condition 0x13 are table overruns verified by handler
+  // disassembly. Everything else inherits the 2.936 contract.
+  test("iigs-1.014 inherits the 2.936 container and widens dispatch to 0xb1/0x13", () => {
+    const p = PROFILES["iigs-1.014"];
+    assert.equal(p.container, "v2-split");
+    assert.equal(p.volumeHeaderBytes, 5);
+    assert.equal(p.maxAction, 0xb1);
+    assert.equal(p.maxCondition, 0x13);
+    assert.equal(p.extraActions, "iigs");
+    assert.equal(p.condition0x13, "wild-dispatch");
+    assert.equal(p.sound, "iigs");
+    assert.equal(p.menuInteractionGate, false);
+    assert.equal(p.releaseGateAction, "increment");
+    // Verified on the executable (docs/fidelity.md "Apple IIgs interpreter"):
+    // parse() bounds at 13 string slots, set.key scans 40 four-byte entries,
+    // direction-based loop selection applies to exactly four loops, and the
+    // save envelope carries six blocks.
+    assert.equal(p.stringSlots, 13);
+    assert.equal(p.keyMapCapacity, 40);
+    assert.equal(p.directionLoops, "exact-four");
+    assert.equal(p.directionLoopTiming, "cadence-due");
+    assert.equal(p.saveBlocks, 6);
+    assert.equal(p.saveBlock3Xor, false);
+  });
+
+  test("a *.SYS16 file carrying the interpreter version string detects the build", () => {
+    // The fixture executable is a GS/OS OMF load file whose data carries
+    // "Adventure Game Interpreter\n      Version 1.014" (docs/fidelity.md).
+    const sys16 = new Uint8Array(0x8000);
+    sys16.set(ascii("Adventure Game Interpreter"), 0x7690);
+    sys16.set(ascii("Version 1.014"), 0x76c0);
+    const files = new Map<string, Uint8Array>([
+      ["LOGDIR", new Uint8Array(3)],
+      ["VOL.0", new Uint8Array(0)],
+      ["SQ2.SYS16", sys16],
+    ]);
+    assert.equal(detectProfile(files).id, "iigs-1.014");
+  });
+
+  test("the SYS16 name alone does not select the build", () => {
+    const files = new Map<string, Uint8Array>([
+      ["LOGDIR", new Uint8Array(3)],
+      ["SQ2.SYS16", new Uint8Array([0xde, 0xad, 0xbe, 0xef])],
+    ]);
+    assert.equal(detectProfile(files).id, "2.936");
+    // The banner without a SYS16 name is not an interpreter either.
+    const banner = new Uint8Array(0x100);
+    banner.set(ascii("Adventure Game Interpreter"), 0x10);
+    banner.set(ascii("Version 1.014"), 0x40);
+    files.set("SQ2", banner);
+    assert.equal(detectProfile(files).id, "2.936");
+  });
+
+  // A type-2 stream that cannot self-terminate before the watchdog: five
+  // 255-tick deltas in delta position, a one-tick delta, then the
+  // terminator command — roughly 1280 heartbeats of stream.
+  const IIGS_LONG_SOUND = Uint8Array.of(0x02, 0x00, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0x01, 0xfc);
+  const withSound = (c: ReturnType<typeof createContainer>) =>
+    c.putResource("sound", 1, IIGS_LONG_SOUND);
+
+  test("0xaf/0xb0 arm the heartbeat volume-fade watchdog on the playing sound", () => {
+    // The last two relocated entries of the action table are an
+    // immediate/variable pair into a pacing routine: GetSoundVolume is
+    // latched once, then the heartbeat steps the volume down by 0x10 every
+    // `pace` beats and completes the sound when the budget falls below 0x10
+    // (docs/fidelity.md "Apple IIgs sound fade"). The host has no GS system
+    // volume, so the observable half — the scheduled completion — is asserted.
+    const { engine } = bootAs(
+      "set(f9); load.sound(1); sound(1, f10); fade.sound(2); return;",
+      "iigs-1.014",
+      withSound,
+    );
+    assert.equal(engine.flags[10], 0);
+    // A fresh 0xff budget completes at the sixteenth pace expiry: 16 * 2.
+    for (let beat = 1; beat < 32; beat++) {
+      engine.soundTick();
+      assert.equal(engine.flags[10], 0, `still playing at heartbeat ${beat}`);
+    }
+    engine.soundTick();
+    assert.equal(engine.flags[10], 1, "the watchdog completed the sound");
+  });
+
+  test("0xb0 reads the fade pacing from a variable", () => {
+    // vars[53] = 0 arms pace zero: the watchdog completes the sound on the
+    // next heartbeat. This is the shape logic 1 uses (`b0 0x35` after
+    // assigning v53), with zero standing in for its beat count.
+    const { engine } = bootAs(
+      "set(f9); load.sound(1); sound(1, f10); assignn(v53, 0); fade.sound.v(v53); return;",
+      "iigs-1.014",
+      withSound,
+    );
+    engine.soundTick();
+    assert.equal(engine.flags[10], 1, "pace zero completes on the next heartbeat");
+  });
+
+  test("0xb1 reads no operand byte and terminates the interpreter", () => {
+    // The dispatcher bound admits 0xb1 but the action table ends at 0xb0:
+    // the slot's bytes resolve to the middle of the interpreter's GS/OS quit
+    // routine, so executing the action terminates the session like quit.
+    const { engine, host } = bootAs("terminate(); assignn(v50, 7); return;", "iigs-1.014");
+    assert.equal(host.quits, 1, "the wild dispatch reaches the quit path");
+    assert.equal(engine.vars[50], 0, "the pass aborted before the next action");
+    // The terminate name is not PC v3 vocabulary: 2.936 has no 0xb1 at all.
+    assert.throws(() => bootAs("terminate(); return;", "2.936"), /not available/);
+    // The same bytecode is not an action at all under the PC bound.
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic("terminate(); return;", {
+        dictionary: DICT,
+        profile: PROFILES["iigs-1.014"],
+      }).payload,
+    );
+    assert.throws(
+      () => new Engine(container, new Host(), DICT, { profile: "2.936" }).tick(),
+      UnimplementedOpcodeError,
+    );
+  });
+
+  test("condition 0x13 is a handler-table overrun the host cannot define", () => {
+    // The evaluator bound admits 0x13 but the 19-entry table ends at 0x12:
+    // the slot reads the first bytes of the code that follows the table and
+    // jumps mid-instruction (docs/fidelity.md). The host models the wild
+    // dispatch as an error rather than guessing a result; the game itself
+    // contains no genuine 0x13 condition, and the assembler rejects one.
+    const source = "if (click.move.pending()) { set(f221); }\nreturn;";
+    assert.throws(() => bootAs(source, "iigs-1.014"), /not available.*iigs-1\.014/);
+    // The same byte assembled for the Amiga 2.31x handler reaches the engine.
+    const container = createContainer();
+    container.putResource(
+      "logic",
+      0,
+      assembleLogic(source, { dictionary: DICT, profile: PROFILES["amiga-2.316"] }).payload,
+    );
+    assert.throws(
+      () => new Engine(container, new Host(), DICT, { profile: "iigs-1.014" }).tick(),
+      /condition 0x13/,
+    );
   });
 });

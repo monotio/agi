@@ -238,6 +238,10 @@ export function createHistory(ctx: WorkerContext) {
       inputQueue: [...ctx.input.keyQueue],
       directionQueue: [...ctx.input.deferredMovement],
       inputLines: [...ctx.input.inputBuffer],
+      // Omitted while empty: a click-free session's fingerprint is unchanged.
+      ...(ctx.input.clickQueue.length > 0
+        ? { clickQueue: ctx.input.clickQueue.map(([x, y]): [number, number] => [x, y]) }
+        : {}),
       requestSerial: ctx.hostRequests.hostRequestSerial,
       rng: h.rng,
       soundDevice: ctx.boot.selectedSoundDevice,
@@ -527,6 +531,7 @@ export function createHistory(ctx: WorkerContext) {
       files: bootFiles(),
       dictionary: [...ctx.boot.liveDictionary.entries()],
       authorRooms: ctx.boot.authorRooms,
+      ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
       rng: h.rng,
       soundDevice: ctx.boot.selectedSoundDevice,
       resourceSet: currentResourceSet(),
@@ -575,12 +580,16 @@ export function createHistory(ctx: WorkerContext) {
       files: bootFiles(),
       dictionary: [...ctx.boot.liveDictionary.entries()],
       authorRooms: ctx.boot.authorRooms,
+      ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
       image: bytesToBase64(image),
       replay: engine.captureReplayState(),
       menus: engine.readMenuState(),
       inputQueue: [...ctx.input.keyQueue],
       directionQueue: [...ctx.input.deferredMovement],
       inputLines: [...ctx.input.inputBuffer],
+      ...(ctx.input.clickQueue.length > 0
+        ? { clickQueue: ctx.input.clickQueue.map(([x, y]): [number, number] => [x, y]) }
+        : {}),
       // An adoption's clock sits in pendingClock until the host releases the
       // parked session — snapshot it so the segment's boot records the
       // adopted continuation, not the abandoned session's stale live clock.

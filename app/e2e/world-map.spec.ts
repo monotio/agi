@@ -310,11 +310,13 @@ test("Watch from here seeks the walkthrough to the room's checkpoint", async ({ 
   await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
+  await page.getByTestId("btn-world-plan").click();
 
-  // The boot room is observed and the kq1 walkthrough names it ("Title"), so
-  // the action resolves against this exact game edition.
-  await page.getByTestId("map-room-83").click();
-  const watch = page.getByRole("button", { name: /Watch from here/ });
+  // Room 53 is only logic-named here, never visited, yet the kq1 walkthrough
+  // has a checkpoint there ("Audience", tick 3690), so the action resolves
+  // against this exact game edition.
+  await page.getByTestId("map-room-53").click();
+  const watch = page.getByRole("button", { name: /Watch from here\s*Audience/ });
   await expect(watch).toBeVisible({ timeout: 15_000 });
   await watch.click();
 
@@ -323,6 +325,13 @@ test("Watch from here seeks the walkthrough to the room's checkpoint", async ({ 
   await expect
     .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status))
     .toBe("playing");
+  // The seek lands on the checkpoint, not the tape's start.
+  await expect
+    .poll(() => page.evaluate(() => window.__AGI_REPLAY__?.latest?.state.room), {
+      timeout: 30_000,
+    })
+    .toBe(53);
+  expect(await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? 0)).toBeGreaterThan(3000);
 });
 
 test("closing the map restores only the pause it owns", async ({ page }) => {

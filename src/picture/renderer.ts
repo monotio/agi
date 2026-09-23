@@ -9,7 +9,7 @@
  */
 
 import { SCREEN_HEIGHT, SCREEN_WIDTH, type PictureSurface } from "../types.ts";
-import { DEFAULT_V2_PROFILE, type AgiProfile } from "../runtime/profile.ts";
+import { DEFAULT_V2_PROFILE, type AgiProfile, type PatternProfile } from "../runtime/profile.ts";
 
 /** Column masks for pattern plot columns 0..7. */
 const COLUMN_MASKS: readonly number[] = [
@@ -33,6 +33,18 @@ const ROW_WORDS_V2: readonly (readonly number[])[] = [
     0x3ff8, 0x1ff0, 0x07c0,
   ],
 ];
+
+/**
+ * Radius-1 rows that differ from the v2 table: the center-row cross, and the
+ * Amiga 2.176/2.202 table whose radius-1 entry stores two rows, so the
+ * plotter's third read is radius 2's first word (docs/fidelity.md "Original
+ * Amiga and IIgs pattern brushes").
+ */
+const RADIUS_1_ROWS: Partial<Record<PatternProfile, readonly number[]>> = {
+  "v3-center-row": [0x4000, 0xe000, 0x4000],
+  "center-row-320": [0x4000, 0xe000, 0x4000],
+  "short-r1": [0xe000, 0xe000, 0x7000],
+};
 
 export interface RenderPictureOptions {
   /** Decode over existing cells without resetting (overlay semantics). */
@@ -215,9 +227,7 @@ export function renderPicture(
     const maxStartY = 167 - 2 * r;
     if (startY > maxStartY) startY = maxStartY;
     const rows =
-      r === 1 && profile.patternProfile === "v3-center-row"
-        ? [0x4000, 0xe000, 0x4000]
-        : ROW_WORDS_V2[r]!;
+      r === 1 ? (RADIUS_1_ROWS[profile.patternProfile] ?? ROW_WORDS_V2[1]!) : ROW_WORDS_V2[r]!;
     let state = (seed | 1) & 0xff;
     for (let row = 0; row < rows.length; row++) {
       const rowWord = rows[row]!;

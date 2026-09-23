@@ -86,6 +86,7 @@ export function useEngine(
 
   const state = reactive<EngineState>({
     agentTask: null,
+    loading: null,
     leaving: false,
     controls: [],
     inputEnabled: false,
@@ -101,6 +102,7 @@ export function useEngine(
     rows: [],
     installedGames: null,
     profile: null,
+    profileKind: null,
     agentLog: [],
     omittedLogEntries: 0,
     shake: false,
@@ -173,6 +175,7 @@ export function useEngine(
     modal: null,
     textMode: false,
     profile: null,
+    profileKind: null,
     paused: false,
     cycle: 0,
     frame: 0,
@@ -200,7 +203,7 @@ export function useEngine(
     logAgent,
     getActiveWalkthroughSession: () => activeWalkthroughSession,
   });
-  const { sendInput, sendEdit, sendDirection, sendKey } = input;
+  const { sendInput, sendEdit, sendDirection, sendKey, sendClick } = input;
 
   const debug = useEngineDebug({ state, link });
 
@@ -508,6 +511,7 @@ export function useEngine(
     sendEdit,
     sendDirection,
     sendKey,
+    sendClick,
     dismissModal,
     submitPrompt,
     ejectGame: lifecycle.ejectGame,

@@ -4,6 +4,7 @@ import { validateEngineReplayState, type EngineReplayState } from "../runtime/re
 export type RecordedHostCall =
   | ["clock", number]
   | ["keys", number[]]
+  | ["clicks", [number, number][]]
   | ["line", string | null]
   | ["random" | "number" | "waitKey" | "soundDevice", number]
   | ["string" | "version", string];
@@ -124,6 +125,17 @@ function host(value: unknown): RecordedHostCall {
       if (!Array.isArray(v[1]) || v[1].length > 256)
         throw new Error("Recorded key batch is invalid.");
       return ["keys", v[1].map((k) => integer(k, 0, 65535))];
+    case "clicks":
+      if (!Array.isArray(v[1]) || v[1].length > 256)
+        throw new Error("Recorded click batch is invalid.");
+      return [
+        "clicks",
+        v[1].map((p): [number, number] => {
+          if (!Array.isArray(p) || p.length !== 2)
+            throw new Error("Recorded click batch is invalid.");
+          return [integer(p[0], 0, 319), integer(p[1], 0, 199)];
+        }),
+      ];
     case "line":
       return ["line", v[1] === null ? null : string(v[1])];
     case "string":

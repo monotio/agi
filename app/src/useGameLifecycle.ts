@@ -142,6 +142,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
 
   async function bootGame(query: string): Promise<void> {
     if (!import.meta.env?.DEV) throw new Error("Installed fixtures are development-only");
+    state.loading = { title: "", generating: false };
     state.phase = "loading";
     state.error = "";
     try {
@@ -156,6 +157,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       const folder = match?.folder ?? query;
       const alias = known?.alias ?? match?.alias ?? query;
       const title = known?.title ?? match?.title ?? folder.toUpperCase();
+      state.loading = { title, generating: false };
       const hash = match?.hash ?? target;
 
       const w = link.spawnWorker();
@@ -173,6 +175,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       // A successful remix is saved as its own local game before playback resumes.
       const activeReplaySeed = options.getActiveReplaySeed();
       booted.historyLifetime = await readHistoryLifetime(gameStorageKey(booted));
+      audio.useGameFiles(files);
       w.postMessage({
         type: "boot",
         sessionId: options.getSessionId(),
@@ -344,6 +347,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
 
     const activeReplaySeed = options.getActiveReplaySeed();
     booted.historyLifetime = historyLifetime;
+    audio.useGameFiles(files);
     w.postMessage({
       type: "boot",
       sessionId: options.getSessionId(),
@@ -375,6 +379,11 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       overwrite?: boolean;
     },
   ): Promise<void> {
+    const resumed = bootOptions?.useCached && bootOptions.projectId;
+    state.loading = {
+      title: bootOptions?.title || (resumed ? (getCachedGameMeta(resumed)?.title ?? "") : ""),
+      generating: !bootOptions?.useCached,
+    };
     state.phase = "loading";
     state.error = "";
     try {
@@ -429,6 +438,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           }
           const activeReplaySeed = options.getActiveReplaySeed();
           booted.historyLifetime = historyLifetime;
+          audio.useGameFiles(cached.files);
           w.postMessage({
             type: "boot",
             sessionId: options.getSessionId(),
@@ -438,6 +448,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             words: cached.words,
             autosaveFiles: true,
             authorRooms: Boolean(cached.roomGeneration),
+            ...(cached.library?.profile ? { profile: cached.library.profile } : {}),
             ...(await autosave.takeResumeState(cached.files)),
           } satisfies WorkerInbound);
           // Same baseline as a fresh boot — posted after the segment opens.

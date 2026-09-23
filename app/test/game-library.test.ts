@@ -7,7 +7,12 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { Engine } from "../../src/runtime/engine.ts";
 import { readGameFiles, readGameZip } from "../src/gameZip.ts";
-import { gameRevision, normalizeLibraryMetadata, readPublicMetadata } from "../src/gameMetadata.ts";
+import {
+  gameRevision,
+  isPlayableFileName,
+  normalizeLibraryMetadata,
+  readPublicMetadata,
+} from "../src/gameMetadata.ts";
 import { addLibraryGame, copyLibraryGame } from "../src/gameLibrary.ts";
 import { loadAuthoredGame, updateAuthoredGameFiles } from "../src/gameStorage.ts";
 import { inspectGame } from "../src/gameInspection.ts";
@@ -668,4 +673,11 @@ test("import reports which progress entries browser storage refused", async (t) 
   );
   assert.ok(projectId);
   assert.deepEqual(report, { slots: [1], failedSlots: [7], autosave: null });
+});
+
+test("interpreter executables stay in the playable file set so detection can read them", () => {
+  for (const name of ["AGI", "AGIDATA.OVL", "SIERRA.COM", "GR", "Sierra", "mh2", "SQ2.SYS16"])
+    assert.equal(isPlayableFileName(name), true, name);
+  for (const name of ["GR.info", "Disk.info", "Pointer", "README.TXT", "SQ2.1"])
+    assert.equal(isPlayableFileName(name), false, name);
 });

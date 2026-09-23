@@ -588,6 +588,152 @@ test("recorded setup preserves game captions painted over the status and input r
 });
 
 import { buildView } from "../src/view/view.ts";
+import { PROFILES } from "../src/runtime/profile.ts";
+import { Simulation } from "../src/agent/playtest.ts";
+import type { RecordedOperation } from "../src/agent/recordedReplay.ts";
+import { HISTORY_FORMAT_VERSION, validateHistoryRecording } from "../src/agent/history.ts";
+import { requireProjectId, requireResourceRevision } from "../src/gameIdentity.ts";
+
+/** 1 loop, 1 cel: a solid width x height block of color 5 (test/click-move's fixture). */
+function solidView(width: number, height: number): Uint8Array {
+  const rows = Array.from({ length: height }, () => [0x50 | width, 0]).flat();
+  return new Uint8Array([0, 0, 1, 0, 0, 7, 0, 1, 3, 0, width, height, 0, ...rows]);
+}
+
+test("the tape validator accepts a bounded click batch and rejects bad points", () => {
+  const { engine } = world();
+  const replayState = engine.captureReplayState();
+  const withCalls = (calls: unknown[]) => ({
+    state: replayState,
+    operations: [["tick", calls]],
+  });
+  const good = validateRecordedReplay(
+    withCalls([
+      ["keys", []],
+      ["clicks", [[161, 108]]],
+      ["line", null],
+    ]),
+  );
+  assert.deepEqual(good.operations[0], [
+    "tick",
+    [
+      ["keys", []],
+      ["clicks", [[161, 108]]],
+      ["line", null],
+    ],
+  ]);
+  for (const calls of [
+    [["clicks", [[320, 0]]]],
+    [["clicks", [[0, 200]]]],
+    [["clicks", [[-1, 0]]]],
+    [["clicks", [[1.5, 10]]]],
+    [["clicks", [[0, 0, 0]]]],
+    [["clicks", "161,108"]],
+    [["clicks", Array.from({ length: 257 }, () => [0, 0])]],
+  ])
+    assert.throws(() => validateRecordedReplay(withCalls(calls)), /click|range|tuple/i);
+});
+
+test("a recorded click batch replays through the tape host into click-move", () => {
+  // Same ego setup as test/click-move.test.ts boot(), under the GR hunk's
+  // detected profile: a click at (161,108) walks ego to x 78, y 100.
+  const container = openContainer(
+    new Map([["GR", Uint8Array.of(0, 0, 3, 0xf3)]]), // hunk magic → amiga-2.316
+  );
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if (!isset(f200)) {
+         set(f200);
+         load.pic(v250); draw.pic(v250); show.pic();
+         animate.obj(o0); load.view(0); set.view(o0, 0); position(o0, 20, 100);
+         assignn(v251, 1); step.size(o0, v251); step.time(o0, v251); draw(o0);
+       }
+       return;`,
+      { dictionary: new Map(), profile: PROFILES["amiga-2.316"] },
+    ).payload,
+  );
+  container.putResource("picture", 0, Uint8Array.of(0xff));
+  container.putResource("view", 0, solidView(4, 10));
+  const state = createAgentSessionState(container);
+  assert.equal(state.profile.id, "amiga-2.316");
+
+  const sim = new Simulation(state);
+  sim.tick();
+  assert.equal(sim.engine.screenObjects[0]!.x, 20);
+  const image = sim.engine.recordingImage()!;
+  const initial = sim.engine.captureReplayState();
+  const operations: RecordedOperation[] = [
+    [
+      "tick",
+      [
+        ["keys", []],
+        ["clicks", [[161, 108]]],
+        ["line", null],
+      ],
+    ],
+    ...Array.from({ length: 80 }, (): RecordedOperation => [
+      "tick",
+      [
+        ["keys", []],
+        ["line", null],
+      ],
+    ]),
+  ];
+  success(
+    playtestRoom(
+      state,
+      { room: 1, steps: [], expect: { object: { num: 0, x0: 78, x1: 78 } } },
+      { setupImage: image, replay: { state: initial, operations } },
+    ),
+  );
+});
+
+test("the history parser round-trips a click cause and rejects bad coordinates", () => {
+  const recording = (cause: unknown) => ({
+    version: HISTORY_FORMAT_VERSION,
+    identity: {
+      project: requireProjectId("click-history"),
+      revision: requireResourceRevision("0".repeat(64)),
+    },
+    profile: "amiga-2.316",
+    resourceSet: "rev-1",
+    startedAt: 0,
+    segments: [
+      {
+        id: "s.1",
+        boot: {
+          files: { "VOL.0": "eA==" },
+          dictionary: [],
+          authorRooms: false,
+          rng: 1,
+          soundDevice: 1,
+          resourceSet: "rev-1",
+          requestSerial: 0,
+        },
+        anchors: [],
+        events: [{ seq: 0, tick: 0, cycle: 0, cause }],
+        marks: [],
+        sync: [],
+      },
+    ],
+  });
+  assert.deepEqual(
+    validateHistoryRecording(recording({ kind: "click", x: 161, y: 108 })).segments[0]!.events[0]!
+      .cause,
+    { kind: "click", x: 161, y: 108 },
+  );
+  for (const cause of [
+    { kind: "click", x: 320, y: 108 },
+    { kind: "click", x: 161, y: 200 },
+    { kind: "click", x: -1, y: 108 },
+    { kind: "click", x: 161, y: 108.5 },
+    { kind: "click", x: "161", y: 108 },
+  ])
+    assert.throws(() => validateHistoryRecording(recording(cause)), /click/);
+});
+
 test("recording preserves the historical ego visibility flag with custom priority bands", () => {
   const game = capture(
     "if (isset(f5)) {set.pri.base(68);load.view(0);animate.obj(o0);set.view(o0,0);position(o0,80,60);draw(o0);} if (isset(f1)) {increment(v50);}",

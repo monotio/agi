@@ -20,6 +20,7 @@
  */
 import { validateEngineReplayState, type EngineReplayState } from "../runtime/replayState.ts";
 import type { EngineMenuState } from "../runtime/engine.ts";
+import { PROFILES, type ProfileId } from "../runtime/profile.ts";
 import { gameIdentity, type GameIdentity } from "../gameIdentity.ts";
 
 /** Current recording contract: game identity, original 16-bit RNG and reseed events. */
@@ -71,6 +72,8 @@ export type HistoryEventCause =
   | { kind: "key"; code: number }
   | { kind: "direction"; dir: number }
   | { kind: "release" }
+  /** Pointer click in 320x200 screen pixels; only click-to-walk profiles consume it. */
+  | { kind: "click"; x: number; y: number }
   | { kind: "input"; text: string }
   | { kind: "edit"; text: string }
   | { kind: "dismiss" }
@@ -215,6 +218,8 @@ export interface HistoryAnchor {
   directionQueue: number[];
   /** Submitted command lines not yet consumed by takeInputLine. */
   inputLines: string[];
+  /** Pointer clicks not yet consumed by takePointerClicks; absent on older tapes. */
+  clickQueue?: [number, number][];
   /** Host-request serial, so replayed requests keep their answer pairing. */
   requestSerial: number;
   rng: number;
@@ -241,6 +246,8 @@ export interface HistoryBoot {
   dictionary: [string, number][];
   /** The recorded session allowed the prepareRoom host hook (authored games). */
   authorRooms: boolean;
+  /** Interpreter-profile override the session booted under; absent detects from `files`. */
+  profile?: ProfileId;
   /** Set when the segment continues an earlier one (replay takeover, budget rollover). */
   resumedFrom?: { segment: string; seq: number; tick: number };
   image?: string;
@@ -249,6 +256,7 @@ export interface HistoryBoot {
   inputQueue?: number[];
   directionQueue?: number[];
   inputLines?: string[];
+  clickQueue?: [number, number][];
   /** The RNG's 16-bit state word at this point (docs/fidelity.md, "Original RNG"). */
   rng: number;
   clock?: HistoryClock;
@@ -418,6 +426,7 @@ export interface HistorySemanticState {
   inputQueue?: number[];
   directionQueue?: number[];
   inputLines?: string[];
+  clickQueue?: [number, number][];
   requestSerial: number;
   rng: number;
   clock?: HistoryClock;
@@ -445,6 +454,7 @@ export function historyAnchorSemantic(anchor: HistoryAnchor): HistorySemanticSta
     resourceSet: anchor.resourceSet,
     patchGeneration: anchor.patchGeneration,
   };
+  if (anchor.clickQueue !== undefined) out.clickQueue = anchor.clickQueue;
   if (anchor.soundRemainder !== undefined) out.soundRemainder = anchor.soundRemainder;
   return out;
 }
@@ -465,6 +475,7 @@ export function historyBootSemantic(boot: HistoryBoot): HistorySemanticState {
   if (boot.inputQueue !== undefined) out.inputQueue = boot.inputQueue;
   if (boot.directionQueue !== undefined) out.directionQueue = boot.directionQueue;
   if (boot.inputLines !== undefined) out.inputLines = boot.inputLines;
+  if (boot.clickQueue !== undefined) out.clickQueue = boot.clickQueue;
   if (boot.clock !== undefined) out.clock = boot.clock;
   if (boot.soundRemainder !== undefined) out.soundRemainder = boot.soundRemainder;
   return out;
@@ -555,6 +566,14 @@ function numberList(value: unknown, name: string, max = 4096): number[] {
 function stringList(value: unknown, name: string, max = 1024): string[] {
   if (!Array.isArray(value) || value.length > max) fail(`${name} must be a bounded list.`);
   return value.map((v) => text(v, name, 1024));
+}
+
+function clickPairs(value: unknown, name: string): [number, number][] {
+  if (!Array.isArray(value) || value.length > 256) fail(`${name} must be a bounded list.`);
+  return value.map((p): [number, number] => {
+    if (!Array.isArray(p) || p.length !== 2) fail(`${name} entries must be [x, y] pairs.`);
+    return [int(p[0], `${name} x`, 319), int(p[1], `${name} y`, 199)];
+  });
 }
 
 function dictionary(value: unknown): [string, number][] {
@@ -684,6 +703,12 @@ function eventCause(value: unknown): HistoryEventCause {
       return { kind: "direction", dir: int(value["dir"], "direction", 0xff) };
     case "release":
       return { kind: "release" };
+    case "click":
+      return {
+        kind: "click",
+        x: int(value["x"], "click x", 319),
+        y: int(value["y"], "click y", 199),
+      };
     case "input":
       return { kind: "input", text: text(value["text"], "input text", 1024) };
     case "edit":
@@ -839,6 +864,9 @@ function anchor(value: unknown): HistoryAnchor {
     inputQueue: numberList(value["inputQueue"], "anchor inputQueue"),
     directionQueue: numberList(value["directionQueue"], "anchor directionQueue"),
     inputLines: stringList(value["inputLines"], "anchor inputLines"),
+    ...(value["clickQueue"] !== undefined
+      ? { clickQueue: clickPairs(value["clickQueue"], "anchor clickQueue") }
+      : {}),
     requestSerial: int(value["requestSerial"], "anchor requestSerial"),
     rng: int(value["rng"], "anchor rng", 0xffff),
     clock: clock(value["clock"]),
@@ -857,6 +885,12 @@ function anchor(value: unknown): HistoryAnchor {
   return out;
 }
 
+function profileId(value: unknown): ProfileId {
+  if (typeof value !== "string" || !Object.hasOwn(PROFILES, value))
+    fail("boot profile must be a known interpreter profile.");
+  return value as ProfileId;
+}
+
 function boot(value: unknown): HistoryBoot {
   if (!isObj(value)) fail("boot must be an object.");
   const files = value["files"];
@@ -870,6 +904,7 @@ function boot(value: unknown): HistoryBoot {
     ),
     dictionary: dictionary(value["dictionary"]),
     authorRooms: value["authorRooms"] === true,
+    ...(value["profile"] !== undefined ? { profile: profileId(value["profile"]) } : {}),
     rng: int(value["rng"], "boot rng", 0xffff),
     ...(value["resumedFrom"] !== undefined
       ? {
@@ -903,6 +938,8 @@ function boot(value: unknown): HistoryBoot {
     out.directionQueue = numberList(value["directionQueue"], "boot directionQueue");
   if (value["inputLines"] !== undefined)
     out.inputLines = stringList(value["inputLines"], "boot inputLines");
+  if (value["clickQueue"] !== undefined)
+    out.clickQueue = clickPairs(value["clickQueue"], "boot clickQueue");
   if (value["clock"] !== undefined) out.clock = clock(value["clock"]);
   if (value["soundRemainder"] !== undefined)
     out.soundRemainder = num(value["soundRemainder"], "boot soundRemainder", 1000);

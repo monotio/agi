@@ -27,7 +27,12 @@ import { parseLogicResource, type LogicResource } from "../logic/resource.ts";
 import { decodeInventoryFile } from "./inventoryFile.ts";
 import { actionSpec, CONDITION_BY_CODE, GOTO, IF, NOT, OR } from "../logic/opcodes.ts";
 import { parseView, selectViewCel, readViewCel, drawCel, type AgiView } from "../view/view.ts";
-import { detectProfile, type AgiProfile, type ProfileId } from "./profile.ts";
+import {
+  detectProfileDecision,
+  type AgiProfile,
+  type ProfileDetectionKind,
+  type ProfileId,
+} from "./profile.ts";
 import { TraceWindow } from "./trace.ts";
 import { InputQueue } from "./inputQueue.ts";
 import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, normalizeModalKey } from "./keys.ts";
@@ -55,6 +60,7 @@ import {
   MOTION_MOVE_OBJ,
   MOTION_FOLLOW,
   MOTION_WANDER,
+  MOTION_CLICK_MOVE,
   CYCLE_FORWARD,
   CYCLE_REVERSE,
   CYCLE_END_OF_LOOP,
@@ -68,6 +74,7 @@ import {
   encodeSave,
   newObjectRecord,
   block1Layout,
+  layoutStringTotal,
   newSaveState,
   resumeOffsetFor,
   type LogicResumeRecord,
@@ -128,6 +135,12 @@ export interface EngineHost {
   takeInputLine(): string | null;
   /** Raw key events pending since last cycle (low byte values). */
   takeKeys(): number[];
+  /**
+   * Left-button-down clicks pending since last cycle, as [x, y] in the
+   * 320x200 screen's pixels. Profiles without click-to-walk ignore them
+   * (docs/fidelity.md "Original click-to-walk").
+   */
+  takePointerClicks?(): readonly (readonly [number, number])[];
   /**
    * Optional host preparation before a room transition changes any state.
    * The host may synchronously supply missing resources. False cancels the
@@ -466,6 +479,8 @@ const REPLAY_ADD_TO_PIC = 5;
 const REPLAY_DISCARD_PICTURE = 6;
 const REPLAY_DISCARD_VIEW = 7;
 const REPLAY_OVERLAY_PICTURE = 8;
+/** IIgs discard.sound: the recorder's type 9 (docs/fidelity.md "Apple IIgs sound discard"). */
+const REPLAY_DISCARD_SOUND = 9;
 
 export class Engine {
   readonly vars = new Uint8Array(256);
@@ -474,6 +489,10 @@ export class Engine {
   readonly strings: string[];
   /** Selected interpreter profile: the single source of version-variant behavior. */
   readonly profile: AgiProfile;
+  /** How the edition was identified: an interpreter binary, the catalog, or neither. */
+  readonly profileKind: ProfileDetectionKind;
+  /** The interpreter build the identification named; null when unidentified. */
+  readonly profileBuild: string | null;
   readonly controllers = new Uint8Array(256);
   readonly surface: PictureSurface = createPictureSurface();
 
@@ -601,6 +620,20 @@ export class Engine {
   private pendingController: number | null = null;
   /** Tracked key-release gate (action 0xad; spec "Tracked key release"). */
   private keyReleaseGate = 0;
+  /**
+   * Screen position of the last left click the Amiga 2.31x generation
+   * latched — mouse.posn reports this, not a live pointer: the original
+   * subscribes to no pointer-move messages (docs/fidelity.md "Original
+   * click-to-walk").
+   */
+  pointerX = 0;
+  pointerY = 0;
+  /**
+   * Click-move target nudge stored by the Amiga 2.31x action
+   * adj.ego.move.to.x.y: two zero-extended operand bytes, added to every
+   * later click's target and never cleared.
+   */
+  readonly clickMoveNudge: [number, number] = [0, 0];
   /** Scratch arrays and cached composition for presentation and ego visibility. */
   private readonly scratchVisual = new Uint8Array(SCREEN_WIDTH * 168);
   private readonly scratchPriority = new Uint8Array(SCREEN_WIDTH * 168);
@@ -707,12 +740,16 @@ export class Engine {
     this.remainingInstructions = this.instructionBudget;
     // The interpreter version is not in the resource data: an explicit profile
     // wins, otherwise detection reads the version string from an interpreter
-    // binary shipped in the same folder, otherwise the container shape decides.
-    this.profile = detectProfile(container.files, options?.profile);
+    // binary shipped in the same folder, otherwise the catalog hash pair,
+    // otherwise the container shape decides.
+    const decision = detectProfileDecision(container.files, options?.profile);
+    this.profile = decision.profile;
+    this.profileKind = decision.kind;
+    this.profileBuild = decision.build;
     // The table and its reserved records are one contiguous bank; only parse()
     // stops at the slot count (docs/fidelity.md, "Original string slot addressing").
     const bank = block1Layout(this.profile);
-    this.strings = Array.from({ length: bank.stringSlots + bank.stringReserved }, () => "");
+    this.strings = Array.from({ length: layoutStringTotal(bank) }, () => "");
     this.vars[22] = (this.host.soundDevice?.() ?? 1) === 0 ? 1 : 3;
     this.vars[24] = 41;
     this.vars[V_FREE_PAGES] = AMPLE_FREE_PAGES;
@@ -1939,7 +1976,9 @@ export class Engine {
     }
     state.inventory = Uint8Array.from(meta.payload);
     for (let item = 0; item < meta.entryCount; item++) {
-      state.inventory[item * 3 + 2] = this.itemLocations[item]!;
+      // The location byte rides at +2 of each entry on every profile — the
+      // Amiga entries are four bytes wide (docs/fidelity.md).
+      state.inventory[item * this.profile.inventoryEntryBytes + 2] = this.itemLocations[item]!;
     }
     state.replay = this.replay.map((pair) => ({ ...pair }));
     state.logicResume = [...this.logics.keys()].map((logic) => ({
@@ -2463,8 +2502,9 @@ export class Engine {
       this.stampDraw(o);
     }
     const entryCount = this.inventoryMetadata().entryCount;
+    const itemStride = this.profile.inventoryEntryBytes;
     for (let item = 0; item < entryCount; item++) {
-      this.itemLocations[item] = s.inventory[item * 3 + 2] ?? 0;
+      this.itemLocations[item] = s.inventory[item * itemStride + 2] ?? 0;
     }
     this.replay.length = 0;
     for (const pair of s.replay.slice(0, s.replayActive)) this.replay.push({ ...pair });
@@ -2573,6 +2613,9 @@ export class Engine {
           case REPLAY_OVERLAY_PICTURE:
             this.overlayPicture(pair.value);
             break;
+          case REPLAY_DISCARD_SOUND:
+            this.discardSound(pair.value);
+            break;
           case REPLAY_ADD_TO_PIC: {
             // A four-pair packet: (5,0) then (view, loop), (cel, left_x),
             // (baseline_y, packed_priority_control).
@@ -2598,7 +2641,7 @@ export class Engine {
       }
       // Host history restores an exact loaded set; an authentic save's
       // unmatched resume records do not issue extra resource loads.
-      if (history && this.profile.saveBlocks === 5) {
+      if (history && this.profile.saveBlocks >= 5) {
         this.logics.clear();
         this.scanStart.clear();
         for (const record of resume) {
@@ -2651,12 +2694,12 @@ export class Engine {
     const objectRecords =
       this.maxDrawnObjectsCount !== null
         ? this.maxDrawnObjectsCount
-        : headerBytes === 3
+        : headerBytes >= 3
           ? decoded[2]! + 1
           : 21;
     return (this.inventoryMetaCache = {
       payload: decoded.subarray(headerBytes),
-      entryCount: Math.floor(tableSize / 3),
+      entryCount: Math.floor(tableSize / this.profile.inventoryEntryBytes),
       objectRecords,
     });
   }
@@ -2672,8 +2715,9 @@ export class Engine {
   private initInventory(): void {
     this.itemLocations.fill(0);
     const meta = this.inventoryMetadata();
+    const stride = this.profile.inventoryEntryBytes;
     for (let item = 0; item < meta.entryCount; item++) {
-      this.itemLocations[item] = meta.payload[item * 3 + 2] ?? 0;
+      this.itemLocations[item] = meta.payload[item * stride + 2] ?? 0;
     }
   }
 
@@ -2904,9 +2948,14 @@ export class Engine {
     if (!decoded) return (this.itemNameCache = []);
     const tableSize = decoded[0]! | (decoded[1]! << 8);
     const base = this.profile.inventoryHeaderBytes; // runtime_inventory_data starts after the header
+    const stride = this.profile.inventoryEntryBytes;
     const names: string[] = [];
     const decoder = new TextDecoder();
-    for (let at = base; at + 3 <= base + tableSize && at + 3 <= decoded.length; at += 3) {
+    for (
+      let at = base;
+      at + stride <= base + tableSize && at + stride <= decoded.length;
+      at += stride
+    ) {
       const rel = decoded[at]! | (decoded[at + 1]! << 8);
       let end = base + rel;
       while (end < decoded.length && decoded[end] !== 0) end++;
@@ -2983,6 +3032,9 @@ export class Engine {
         this.pendingController = null;
       }
       for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
+      // The original's message pump starts a click-move as the click arrives;
+      // a direction event it queued alongside still cancels it below.
+      for (const [x, y] of this.host.takePointerClicks?.() ?? []) this.pointerClick(x, y);
       for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
         if (event.type === 2) {
           this.vars[V_EGO_DIR] = this.vars[V_EGO_DIR] === event.value ? 0 : event.value;
@@ -3143,6 +3195,36 @@ export class Engine {
   }
 
   /**
+   * A left-button-down at screen pixel (x, y), per the profile's click rule
+   * (docs/fidelity.md "Original click-to-walk"). The 2.31x generation sets
+   * f19 and latches the position for mouse.posn even when a text window
+   * then blocks the walk. The starter needs player control; it saves the
+   * step size and aims ego's left edge half its width left of the click,
+   * on the play area's rows. Targets are words: nothing clamps them.
+   */
+  private pointerClick(x: number, y: number): void {
+    const rule = this.profile.clickMove;
+    if (rule === "none") return;
+    if (rule === "iigs" && y < 8) return;
+    if (rule === "amiga-2.31x") {
+      this.flags[19] = 1;
+      this.pointerX = x & 0xffff;
+      this.pointerY = y & 0xffff;
+    }
+    if (rule !== "iigs" && this.persistentWindow !== null) return;
+    if (this.directionCoupling === 0) return;
+    const ego = this.objects[0]!;
+    const nudge = rule === "amiga-2.31x" ? this.clickMoveNudge : [0, 0];
+    ego.motionMode = MOTION_CLICK_MOVE;
+    ego.paramBank = [
+      (((x & 0xffff) >> 1) - Math.trunc(ego.width / 2) + nudge[0]!) & 0xffff,
+      (y - this.displayBaseRow * 8 + nudge[1]!) & 0xffff,
+      ego.stepSize,
+      ego.paramBank[3],
+    ];
+  }
+
+  /**
    * One draw of the interpreter's RNG: the host lane's byte, or the
    * engine's own 16-bit state machine when the host supplies none.
    * docs/fidelity.md, "Original RNG".
@@ -3234,6 +3316,25 @@ export class Engine {
         if (obj === this.objects[0]) this.vars[V_EGO_DIR] = obj.direction;
         return;
       }
+      case MOTION_CLICK_MOVE: {
+        // The Amiga and IIgs steer click-move through move.obj's routine;
+        // arrival restores the step size saved at the click, sets no flag,
+        // and hands ego back to the player. The target words are signed.
+        const bank = obj.paramBank;
+        const step = obj.stepSize;
+        const dx = ((bank[0] << 16) >> 16) - obj.x;
+        const dy = ((bank[1] << 16) >> 16) - obj.y;
+        if (dx > -step && dx < step && dy > -step && dy < step) {
+          obj.motionMode = MOTION_NORMAL;
+          obj.direction = 0;
+          obj.stepSize = bank[2];
+          this.releaseEgoMotion(obj);
+          return;
+        }
+        obj.direction = directionToward(dx, dy, step);
+        if (obj === this.objects[0]) this.vars[V_EGO_DIR] = obj.direction;
+        return;
+      }
       case MOTION_FOLLOW: {
         const bank = obj.paramBank;
         const ego = this.objects[0]!;
@@ -3264,26 +3365,37 @@ export class Engine {
             } while (bank[2] < obj.stepSize);
           }
         } else if (bank[2] !== 0) {
-          // Original SUB/JGE compares signed operands, including overflow;
-          // the wrapped result's sign alone is insufficient.
-          // docs/fidelity.md: Original complete movement and follow audit.
-          const signedDelay = (bank[2] << 24) >> 24;
-          const signedStep = (obj.stepSize << 24) >> 24;
-          bank[2] = signedDelay >= signedStep ? (bank[2] - obj.stepSize) & 0xff : 0;
+          if (this.profile.motionCounters === "word") {
+            // Amiga/IIgs: a word subtraction, zeroed when it goes negative
+            // (docs/fidelity.md "Original motion counter width").
+            const remaining = (((bank[2] - obj.stepSize) & 0xffff) << 16) >> 16;
+            bank[2] = remaining < 0 ? 0 : remaining;
+          } else {
+            // Original SUB/JGE compares signed operands, including overflow;
+            // the wrapped result's sign alone is insufficient.
+            // docs/fidelity.md: Original complete movement and follow audit.
+            const signedDelay = (bank[2] << 24) >> 24;
+            const signedStep = (obj.stepSize << 24) >> 24;
+            bank[2] = signedDelay >= signedStep ? (bank[2] - obj.stepSize) & 0xff : 0;
+          }
         } else obj.direction = direct;
         if (obj === this.objects[0]) this.vars[V_EGO_DIR] = obj.direction;
         return;
       }
       case MOTION_WANDER: {
-        // Decrement first modulo 256; only an exhausted count (old zero —
-        // wraps to 255 and is kept) or a stationary object draws a new
-        // direction, and the reroll keeps an already-valid count — a
-        // `while`, not a do/while (docs/fidelity.md, wander countdown).
+        // Decrement first; only an exhausted count or a stationary object
+        // draws a new direction, and the reroll keeps an already-valid count
+        // — a `while`, not a do/while (docs/fidelity.md, wander countdown).
+        // A PC byte count wraps an exhausted 0 to 255 and keeps it; an
+        // Amiga/IIgs word goes to -1, below the signed 6, and rerolls
+        // (docs/fidelity.md "Original motion counter width").
+        const word = this.profile.motionCounters === "word";
         const previousCount = obj.paramBank[0];
-        obj.paramBank[0] = (previousCount - 1) & 0xff;
+        obj.paramBank[0] = (previousCount - 1) & (word ? 0xffff : 0xff);
         if (previousCount === 0 || obj.stationary) {
           obj.direction = this.randomByte() % 9;
-          while (obj.paramBank[0] < 6) obj.paramBank[0] = this.randomByte() % 51;
+          const count = (): number => (word ? (obj.paramBank[0] << 16) >> 16 : obj.paramBank[0]);
+          while (count() < 6) obj.paramBank[0] = this.randomByte() % 51;
         }
         if (obj === this.objects[0]) this.vars[V_EGO_DIR] = obj.direction;
         return;
@@ -4276,7 +4388,8 @@ export class Engine {
       return pc + 2 + count * 2;
     }
     const spec = CONDITION_BY_CODE.get(b);
-    if (!spec) throw new Error(`invalid condition byte 0x${b.toString(16)} in skip`);
+    if (!spec || b > this.profile.maxCondition)
+      throw new Error(`invalid condition byte 0x${b.toString(16)} in skip`);
     return pc + 1 + spec.operands.length;
   }
 
@@ -4449,6 +4562,19 @@ export class Engine {
         const b2 = this.normalizeString(this.strings[o(1)] ?? "");
         return { result: a === b2, next: pc + 3 };
       }
+      case 0x13:
+        // click.move.pending (Amiga 2.31x dispatch bound): the handler tests
+        // ego's motion mode against the click-move mode. The IIgs 1.014 and
+        // Amiga 2.082 evaluators' bounds admit 0x13 but their 19-entry
+        // handler tables end at 0x12: the slot reads past the table
+        // (docs/fidelity.md "Apple IIgs interpreter", "Amiga interpreter
+        // profiles").
+        if (this.profile.maxCondition < 0x13)
+          throw new Error(`invalid condition byte 0x${b.toString(16)}`);
+        if (this.profile.condition0x13 === "wild-dispatch")
+          throw new Error(`condition 0x13 has no handler entry on ${this.profile.id}`);
+        if (this.profile.condition0x13 === "constant-false") return { result: false, next: pc + 1 };
+        return { result: this.objects[0]!.motionMode === MOTION_CLICK_MOVE, next: pc + 1 };
       default:
         throw new Error(`invalid condition byte 0x${b.toString(16)}`);
     }
@@ -5020,7 +5146,9 @@ export class Engine {
       case 0x54: {
         const o = obj(0);
         o.motionMode = MOTION_WANDER;
-        o.paramBank[0] = 0; // the wander countdown is the bank's first byte
+        // The PC handler zeroes the countdown (the bank's first byte); the
+        // Amiga and IIgs handlers leave the word as they found it.
+        if (this.profile.motionCounters === "byte") o.paramBank[0] = 0;
         if (o === this.objects[0]) this.directionCoupling = 0;
         return next;
       }
@@ -5046,7 +5174,8 @@ export class Engine {
           const ax = aObj.x + Math.floor(aObj.width / 2);
           const bx = bObj.x + Math.floor(bObj.width / 2);
           const d = Math.abs(ax - bx) + Math.abs(aObj.y - bObj.y);
-          this.vars[a(2)] = this.profile.objectDistanceSaturates ? Math.min(254, d) : d & 0xff;
+          const cap = this.profile.objectDistanceCap;
+          this.vars[a(2)] = cap === null ? d & 0xff : Math.min(cap, d);
         }
         return next;
       }
@@ -5463,7 +5592,7 @@ export class Engine {
         // 16-bit (m-n+1), the remainder is taken unsigned, and the stored
         // result is the low byte. Reversed bounds are not normalized —
         // a zero span is the original's divide error, surfaced as a fault
-        // (docs/fidelity.md, RNG consumers).
+        // (docs/fidelity.md "Range mapping and consumers").
         const lo = a(0);
         const span = (a(1) - lo + 1) & 0xffff;
         const random = this.randomByte();
@@ -5528,8 +5657,9 @@ export class Engine {
       case 0xa1:
         // menu.input: the v3 profiles add a separate menu-interaction gate set
         // by action 0xb1 (profile.menuInteractionGate); the v2 profiles gate on
-        // f14 alone.
+        // f14 alone. On Amiga the slot is the stub routine (menuInputAction).
         if (
+          this.profile.menuInputAction === "effect" &&
           this.profile.menuActions === "full" &&
           this.flags[F_MENU_ENABLED] !== 0 &&
           (!this.profile.menuInteractionGate || this.menuInteractionGate !== 0)
@@ -5604,25 +5734,66 @@ export class Engine {
         // hold.key: the v2 and 3.002.086 profiles increment the release gate
         // modulo 256; 3.002.102 and 3.002.149 set it to one (spec "Tracked key
         // release"). 2.411/2.440 do not expose the action at all — their action
-        // range rejects the byte before dispatch reaches here.
+        // range rejects the byte before dispatch reaches here. On the Amiga
+        // 2.31x executables the slot is the stub routine.
+        if (this.profile.releaseGateAction === "noop") return next;
         this.keyReleaseGate =
           this.profile.releaseGateAction === "set" ? 1 : (this.keyReleaseGate + 1) & 0xff;
         return next;
       case 0xae:
-        this.priorityBase = a(0);
+        // set.pri.base: the Amiga 2.31x slot is the one-operand skip stub. On
+        // the IIgs the slot is discard.sound (docs/fidelity.md "Apple IIgs
+        // sound discard").
+        if (this.profile.extraActions === "iigs") this.discardSoundRecorded(a(0));
+        else if (this.profile.priorityBaseAction === "effect") this.priorityBase = a(0);
         return next;
       case 0xaf:
-        return next; // Spec: no runtime effect and no operand byte.
+        // On the IIgs this slot is fade.sound: it arms the heartbeat
+        // volume-fade watchdog on the playing sound (docs/fidelity.md
+        // "Apple IIgs sound fade"). Elsewhere the slot has no effect.
+        if (this.profile.extraActions === "iigs") this.soundPlayback?.armFade(a(0));
+        return next;
       case 0xb0:
+        // The IIgs slot is fade.sound.v — same watchdog, paced from
+        // vars[operand] (docs/fidelity.md). The PC/Amiga slots are no-ops.
+        if (this.profile.extraActions === "iigs") this.soundPlayback?.armFade(this.vars[a(0)]!);
+        return next;
       case 0xb2:
       case 0xb3:
-      case 0xb4:
         return next; // Full-EGA profile no-ops, with profile-specific widths.
+      case 0xb4:
+        // mouse.posn: PC v3 profiles no-op it; the Amiga 2.31x handler writes
+        // the latched click X divided by two and click Y, both unadjusted
+        // for the play area, into its variable operands.
+        if (this.profile.mousePosnAction === "write-pointer") {
+          this.vars[a(0)] = (this.pointerX >> 1) & 0xff;
+          this.vars[a(1)] = this.pointerY & 0xff;
+        }
+        return next;
       case 0xb1:
-        this.menuInteractionGate = a(0);
+        // allow.menu: the Amiga 2.31x slot is the one-operand skip stub. On
+        // the IIgs the dispatcher bound admits 0xb1 but the action table ends
+        // at 0xb0: the slot reads the operand-count bytes that follow it,
+        // which resolve to the middle of the interpreter's GS/OS quit
+        // routine — executing the action terminates the interpreter
+        // (docs/fidelity.md "Apple IIgs interpreter").
+        if (this.profile.extraActions === "iigs") {
+          this.terminated = true;
+          this.host.quit?.();
+          throw new ContinuationAbort();
+        }
+        if (this.profile.menuInteractionGate) this.menuInteractionGate = a(0);
         return next;
       case 0xb5:
-        this.keyReleaseGate = 0;
+        // release.key: the Amiga 2.31x slot is the stub routine.
+        if (this.profile.releaseGateClearAction) this.keyReleaseGate = 0;
+        return next;
+      case 0xb6:
+        // adj.ego.move.to.x.y (Amiga 2.31x): the handler zero-extends each
+        // operand byte into the word the click starter adds to its target
+        // (docs/fidelity.md "Original click-to-walk").
+        this.clickMoveNudge[0] = a(0);
+        this.clickMoveNudge[1] = a(1);
         return next;
 
       default:
@@ -5675,6 +5846,12 @@ export class Engine {
     // Room entry restores player.control, including after stop.motion(ego).
     // Peter Kelly: https://agistudio.sourceforge.net/help/new_room.html
     this.directionCoupling = 1;
+    // The Amiga and IIgs room reset cancels a pending click-move and ego's
+    // heading (docs/fidelity.md "Original click-to-walk").
+    if (this.objects[0]!.motionMode === MOTION_CLICK_MOVE) {
+      this.objects[0]!.motionMode = MOTION_NORMAL;
+      this.vars[V_EGO_DIR] = 0;
+    }
     this.vars[V_OBJ_HIT] = 0;
     this.vars[V_OBJ_EDGE] = 0;
     this.parsedWords = [];
@@ -5690,7 +5867,7 @@ export class Engine {
     for (const num of this.scanStart.keys()) if (num !== 0) this.scanStart.delete(num);
     // The original object loop writes flags &= ~0x41; flags |= 0x10: drawn and
     // animated membership clear, but every record rejoins the updating
-    // partition (docs/fidelity.md: Original complete movement audit, C3).
+    // partition (docs/fidelity.md "Original new.room sequence").
     for (const o of this.objects) {
       o.stepSize = o.stepTime = o.stepCount = o.cycleTime = o.cycleCount = 1;
       o.newlyPositioned = false;
@@ -5764,6 +5941,25 @@ export class Engine {
   private discardViewRecorded(num: number): void {
     this.discardView(num);
     this.record(REPLAY_DISCARD_VIEW, num);
+  }
+
+  /**
+   * IIgs discard.sound: the loaded-sound list is released from the named
+   * sound on, like the view list; a sound that is not loaded is the
+   * interpreter's error 9. A playing sound keeps playing.
+   */
+  private discardSound(num: number): void {
+    if (!this.sounds.has(num)) throw new Error(`sound ${num} is not loaded`);
+    let found = false;
+    for (const loaded of [...this.sounds.keys()]) {
+      if (loaded === num) found = true;
+      if (found) this.sounds.delete(loaded);
+    }
+  }
+
+  private discardSoundRecorded(num: number): void {
+    this.discardSound(num);
+    this.record(REPLAY_DISCARD_SOUND, num);
   }
 
   /**

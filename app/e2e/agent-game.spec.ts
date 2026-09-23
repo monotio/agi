@@ -320,7 +320,8 @@ test("sound controls allow toggling mute and switching sound chip mode", async (
   await muteBtn.click();
   await expect(muteBtn.locator(".setting-value")).toHaveText("On");
 
-  // Toggle sound mode
+  // A PC edition cycles between its two sound chips; Amiga and Apple IIgs
+  // editions play through their own fixed family.
   await modeBtn.click();
   await expect(modeBtn).toContainText("PC Speaker");
   await modeBtn.click();

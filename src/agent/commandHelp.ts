@@ -183,8 +183,9 @@ export const ACTION_HELP: Record<number, string> = {
   0xb1: "Set the V3 menu gate: zero blocks modal entry and nonzero permits it.",
   0xb2: "No operation in profiles 3.002.102 and 3.002.149.",
   0xb3: "Consume four ignored bytes and otherwise do nothing in later V3 profiles.",
-  0xb4: "Consume two variable-index operands and otherwise do nothing in later V3 profiles.",
+  0xb4: "Consume two variable-index operands and otherwise do nothing in later V3 profiles. On the Amiga 2.31x profiles it writes the held pointer position (X halved, then Y) into them.",
   0xb5: "Clear the key-release event gate in later V3 profiles.",
+  0xb6: "Amiga 2.31x only: store the two signed immediate bytes as the pending click-move nudge consumed by the click-move motion mode.",
 };
 
 export const CONDITION_HELP: Record<number, string> = {
@@ -207,4 +208,5 @@ export const CONDITION_HELP: Record<number, string> = {
   0x10: "True when both ends of the object's X..X+width-1 span and its baseline Y are within the inclusive rectangle.",
   0x11: "True when the object's X+floor(width/2) center and baseline Y are within the inclusive rectangle.",
   0x12: "True when the object's X+width-1 right edge and baseline Y are within the inclusive rectangle.",
+  0x13: "Amiga 2.31x only: true while ego runs the click-move motion mode.",
 };

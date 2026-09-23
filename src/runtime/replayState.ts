@@ -53,6 +53,8 @@ export interface ParkedContinuation {
 export interface PlaybackState {
   device: number;
   active: boolean;
+  /** IIgs fade watchdog state; null while disarmed or on other sound families. */
+  fade: { pace: number; countdown: number; budget: number } | null;
   channels: {
     cursor: number;
     countdown: number;
@@ -237,11 +239,23 @@ export function validateContinuation(value: unknown): ParkedContinuation | null 
 }
 
 export function validatePlaybackState(value: unknown): PlaybackState {
-  const s = record(value, ["device", "active", "channels"]);
+  const s = record(value, ["device", "active", "fade", "channels"]);
+  let fade: PlaybackState["fade"] = null;
+  if (s["fade"] !== null) {
+    const f = record(s["fade"], ["pace", "countdown", "budget"]);
+    fade = {
+      pace: number(f["pace"], 0, 255),
+      countdown: number(f["countdown"], 0, 65535),
+      budget: number(f["budget"], 0, 255),
+    };
+  }
   return {
     device: number(s["device"], 0, 255),
     active: bool(s["active"]),
-    channels: array(s["channels"], 4, (v) => {
+    fade,
+    // IIgs playback carries a channel per stream (up to 16); other families
+    // never exceed four.
+    channels: array(s["channels"], 16, (v) => {
       const c = record(v, [
         "cursor",
         "countdown",

@@ -75,6 +75,8 @@ function applyOutput(state: SynthState, output: SoundOutput): void {
     state.speakerDivisor = output.divisor;
     return;
   }
+  // The Amiga family emits Paula register events; this synth models the PC chips.
+  if (output.kind !== "psg") return;
   for (const raw of output.bytes) {
     const byte = raw & 255;
     const latch = (byte & 0x80) !== 0;
