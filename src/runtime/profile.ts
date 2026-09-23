@@ -62,12 +62,23 @@ export type PriorityBaseAction = "effect" | "noop";
 export type MousePosnAction = "noop" | "write-pointer";
 
 /**
+ * What a left click in the game window does (docs/fidelity.md "Original
+ * click-to-walk"). "none": the PC interpreters take no pointer input.
+ * "amiga": left-button-down starts ego's click-move toward the click unless a
+ * menu or text window is up. "amiga-2.31x" adds the script surface: the click
+ * also sets f19, latches the position `mouse.posn` reports and adds the
+ * `adj.ego.move.to.x.y` nudge to the target. "iigs": the same starter,
+ * ignoring clicks on the menu bar (screen rows 0-7) and taking no nudge.
+ */
+export type ClickMoveRule = "none" | "amiga" | "amiga-2.31x" | "iigs";
+
+/**
  * Condition 0x13 semantics for profiles whose dispatchers reach it. The
  * Amiga 2.31x handler tests ego's motion mode against the click-move value.
- * The Apple IIgs evaluator's bound admits 0x13 but its 19-entry handler
- * table ends at 0x12 — the slot reads into the code that follows the table
- * and lands mid-instruction, so evaluating it has no defined behavior
- * (docs/fidelity.md "Apple IIgs interpreter").
+ * The Apple IIgs and Amiga 2.082 evaluators' bounds admit 0x13 but their
+ * 19-entry handler tables end at 0x12 — the slot reads past the table, so
+ * evaluating it has no defined behavior (docs/fidelity.md "Apple IIgs
+ * interpreter", "Amiga interpreter profiles").
  */
 export type Condition0x13 = "click-move" | "constant-false" | "wild-dispatch";
 
@@ -161,7 +172,7 @@ export interface AgiProfile {
   // ---- bytecode ranges (logic_bytecode "Main stream grammar", "Catalog completeness") ----
   /** Highest valid action opcode. Bytes above it are not actions in this profile. */
   readonly maxAction: number;
-  /** Highest valid condition opcode; 0x12 everywhere except the Amiga 2.31x generation and the Apple IIgs build (0x13). */
+  /** Highest valid condition opcode; 0x12 everywhere except Amiga 2.082, the Amiga 2.31x generation and the Apple IIgs build (0x13). */
   readonly maxCondition: number;
   /**
    * Semantics of condition 0x13 where it dispatches (Amiga click-move; the
@@ -252,6 +263,8 @@ export interface AgiProfile {
    * 2.31x generation (docs/fidelity.md).
    */
   readonly mousePosnAction: MousePosnAction;
+  /** Left-click handling: none on PC; Amiga and IIgs start ego's click-move. */
+  readonly clickMove: ClickMoveRule;
   /**
    * Immediate room aliases applied by action 0x12 before the common room
    * effects. Supplied through an explicit profile override for build-specific
@@ -346,6 +359,7 @@ const BASE_2936: AgiProfile = {
   closeWindowClearsInputWidth: true,
   priorityBaseAction: "effect",
   mousePosnAction: "noop",
+  clickMove: "none",
   roomAliases: null,
   wordSequenceTailTerminator: true,
   directionLoops: "four-or-more",
@@ -446,6 +460,7 @@ const BASE_AMIGA_31X: AgiProfile = {
   menuInteractionGate: false,
   priorityBaseAction: "noop",
   mousePosnAction: "write-pointer",
+  clickMove: "amiga-2.31x",
   directionLoops: "exact-four",
   directionLoopTiming: "cadence-due",
   // The Amiga save writes the inventory region raw; the v3 XOR transform is
@@ -582,6 +597,12 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     ...AMIGA_INVENTORY,
     id: "amiga-2.082",
     maxAction: 0xa0,
+    // The condition bound is inclusive (`cmpi.l #$13, bls`) but the table
+    // holds 0x00..0x12, so 0x13 jumps through the bytes past its end
+    // (docs/fidelity.md "Amiga interpreter profiles").
+    maxCondition: 0x13,
+    condition0x13: "wild-dispatch",
+    clickMove: "amiga",
     exitOperandBytes: 1,
     exitAlwaysImmediate: false,
     menuActions: "full",
@@ -603,6 +624,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     ...AMIGA_INVENTORY,
     id: "amiga-2.176",
     maxAction: 0xa9,
+    clickMove: "amiga",
     exitOperandBytes: 1,
     exitAlwaysImmediate: false,
     menuActions: "full",
@@ -630,6 +652,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     ...AMIGA_INVENTORY,
     id: "amiga-2.202",
     maxAction: 0xa9,
+    clickMove: "amiga",
     menuInputAction: "noop",
     inputWidthActions: "noop",
     stringSlots: 13,
@@ -665,6 +688,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
     maxAction: 0xb1,
     maxCondition: 0x13,
     condition0x13: "wild-dispatch",
+    clickMove: "iigs",
     extraActions: "iigs",
     stringSlots: 13,
     keyMapCapacity: 40,

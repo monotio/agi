@@ -20,8 +20,9 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
   "src/runtime/engine.ts": {
     // rc.15: deferred reposition placement, dispatch/condition bounds, input
     // fidelity and the new.room transition corrections. rc.16: the Amiga
-    // 2.31x and IIgs opcode handlers ride on the same dispatch switch.
-    lines: 6274,
+    // 2.31x and IIgs opcode handlers ride on the same dispatch switch, and
+    // the Amiga/IIgs click-to-walk joins the input phase and motion pass.
+    lines: 6377,
     boundary:
       "the interpreter core: dispatch, original movement phases, modal timing and restore re-entry",
   },

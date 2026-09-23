@@ -1683,13 +1683,17 @@ Dispatch tables are six-byte records `{u32 handler_ptr, u16
 operandCount<<8 | varOperandMask}` in a data hunk; the handler longwords are
 relocation slots. The action dispatcher rejects structural bytes (`>= 0xfc`),
 then compares the opcode against the record count with an inclusive branch;
-the last real opcode is therefore one below the count. The condition
-dispatcher compares with a strict below. Table sizes and the bounds read off
-each binary:
+the last real opcode is therefore one below the count, and the count itself
+passes the bound and fetches its handler from past the table — SQ2's action
+hunk h5 is exactly 1020 bytes (170 records), GR's 1100 (183 records and two
+pad bytes). That opcode is a wild dispatch with no defined behavior; the
+engine rejects it as an unavailable opcode. The condition dispatcher compares
+with a strict below on 2.176 and later; 2.082's is inclusive (¹). Table sizes
+and the bounds read off each binary:
 
 | Build | Action compare                 | Slots | Ceiling             | Condition compare               | Slots | Ceiling |
 | ----- | ------------------------------ | ----- | ------------------- | ------------------------------- | ----- | ------- |
-| 2.082 | `cmpi.l #$a1, ble` h5 @0x00aee | 161   | 0xa0 `disable.item` | `cmpi.l #$13, bls` h17 @0x02218 | 19    | 0x12    |
+| 2.082 | `cmpi.l #$a1, ble` h5 @0x00aee | 161   | 0xa0 `disable.item` | `cmpi.l #$13, bls` h17 @0x02218 | 19    | 0x13 ¹  |
 | 2.176 | `cmpi.b #$aa, bls` h6 @0x00a16 | 170   | 0xa9 `close.window` | `cmpi.b #$13, bcs` h23 @0x01e06 | 19    | 0x12    |
 | 2.202 | `cmpi.b #$aa, bls` h6 @0x00a16 | 170   | 0xa9                | `cmpi.b #$13, bcs` h23 @0x01e06 | 19    | 0x12    |
 | 2.310 | `cmpi.b #$b7, bls` h6 @0x00a72 | 183   | 0xb6                | `cmpi.b #$14, bcs` h23 @0x02102 | 20    | 0x13    |
@@ -1707,11 +1711,19 @@ the tail: `menu.input`, `open.dialogue`, `close.dialogue`, `hold.key`,
 `set.pri.base`, `discard.sound` and `allow.menu` share a one-operand skip;
 `fence.mouse` shares a four-operand skip. The same stub pattern holds on the
 2.176/2.202 tables where the slots exist; on 2.082 the stubbed slots are
-above the action bound. `mouse.posn` is a real handler that writes pointer
-X/2 and Y into its two variable operands, and `adj.ego.move.to.x.y` stores
-its two signed bytes into the pending click-move nudge words. Condition
+above the action bound. `mouse.posn` is a real handler that writes the
+latched click X/2 and Y into its two variable operands, and
+`adj.ego.move.to.x.y` zero-extends its two operand bytes into the click-move
+nudge words ([Original click-to-walk](#original-click-to-walk)). Condition
 0x13 (`click.move.pending`) tests ego's motion mode against the click-move
 mode 4; Gold Rush's logics 1, 3, 5, 6, 137 and 192 gate on `not` of it.
+
+¹ The 2.082 condition compare is inclusive (`bls`), so 0x13 dispatches, but
+the handler table at h18+0x0 is 116 bytes — nineteen six-byte entries for
+0x00..0x12 and two pad bytes. Slot 0x13 reads its handler longword from the
+pad and the bytes past the hunk, a wild `jsr (a1)` (h17+0x6c..0x98), the same
+table overrun as the IIgs evaluator's. `amiga-2.082` therefore bounds at 0x13
+with `condition0x13: "wild-dispatch"`, and the assembler rejects the name.
 
 The screen-object record is 72 bytes (stride `0x48`, PC 43), big-endian
 throughout; `position` writes x/y and the saved pair with no flag, like PC.
@@ -1793,10 +1805,8 @@ Profile derivation: `amiga-2.082` and `amiga-2.176` derive from the earliest
 documented (early-v2) contract, `amiga-2.202` from 2.936, and the
 `amiga-2.310`/`amiga-2.316`/`amiga-2.333` generation from 3.002.149.
 
-Current host limitations, not original behavior: no host interaction
-selects the click-move motion mode, so `click.move.pending` reads false and
-the stored nudge is inert; the engine holds the pointer at `(0,0)` until a
-pointer channel exists, so `mouse.posn` writes zeroes. Detection reads the
+Click-to-walk, `mouse.posn` and the nudge are covered in
+[Original click-to-walk](#original-click-to-walk). Detection reads the
 hunk executable — a known executable name plus the load-module magic — for
 an exact build. A folder with only an Amiga `dirs` combined directory and
 no executable or catalog match runs the 2.310/2.316/2.333 generation's
@@ -1935,7 +1945,7 @@ contract without binary evidence — the handler that would decide them
 either was not located in a bounded scan or does not exist on that
 build. Fields the verified dispatch bounds, container kinds, stub slots
 and sound findings above decide (`container`, `volumeHeaderBytes`,
-`maxCondition`, `condition0x13`, `extraActions`, `mousePosnAction`, the
+`maxCondition`, `condition0x13`, `extraActions`, `mousePosnAction`, `clickMove`, the
 2.082 `menuActions`, the 2.176, 2.202 and 2.31x `soundEnvelope`) are not in these lists:
 
 - `amiga-2.082` (early-v2 base): `menuInteractionGate`,
@@ -1975,6 +1985,93 @@ and sound findings above decide (`container`, `volumeHeaderBytes`,
   `pictureMaxCommand`, `patternProfile`, `restartPromptBypassedByF16`,
   `heapDiagnosticExtraLine`. PQ 2.310 and MH2 2.333 carry the GR 2.316
   verifications by shared code rather than by direct scan.
+
+### Original click-to-walk
+
+Every Amiga build and the Apple IIgs build start a click-move of ego on a
+left-button-down; the PC interpreters take no pointer input. Static
+disassembly of the executables in the tables above (GR 2.316 first, the
+other builds by the same routines at the listed offsets), all **fact**
+unless marked.
+
+**Pointer input (Amiga).** The game window's IDCMP template (GR h131+0x4e,
+flags `0x000c2568`) subscribes to button, gadget, menu, raw-key and
+activation messages but not MOUSEMOVE or DELTAMOVE, so the pointer position
+is only seen inside a button message. The message pump (GR h106+0x3c) copies
+the message's MouseX/MouseY — screen pixels on the 320x200 screen — and
+dispatches on the class. The left-button-down arm (`cmpi.w #$68`,
+h106+0x258) does, in order:
+
+1. skip the click if the menu/modal flag h180+0x0 is set;
+2. **2.31x only:** set flag 19 (`moveq #$13` into the `bset` routine
+   h175+0x16) and store MouseX/MouseY in h108+0xc/+0xe;
+3. skip the walk if the text-window flag h59+0x8 is set (set by the
+   windowed print path h57+0x446, cleared at h57+0x796 — the engine's
+   non-blocking print window);
+4. call the starter h45+0x14a(MouseX, MouseY).
+
+`mouse.posn` (h191+0x3b2) reads only h108+0xc/+0xe: it reports the last
+eligible click, X halved, Y unadjusted — never a live pointer. The earlier
+builds (Sierra 2.082 h78+0x228, KQ2/SQ2 h106+0x262) have the same arm without
+the flag or the stored position.
+
+**Starter** (GR h45+0x14a; Sierra 2.082 h33+0x15c and SQ2 2.202 h45+0x14a are
+the same instructions without the nudge adds). Nothing happens unless player
+control (h206+0x1a) is on. Then, on ego's record:
+
+```text
++0x38 = 4                                   ; click-move mode
++0x40 = (MouseX >> 1) - width / 2 + nudgeX  ; lsr.w, divs.w #2
++0x42 = MouseY - playTop + nudgeY           ; playTop = configure.screen row * 8
++0x44 = +0x30                               ; save the step size
+```
+
+All four are words and nothing clamps them: a click above the play area
+stores a negative target. `playTop` is h181+0x20, written by
+`configure.screen` as its first operand times eight (h179+0x218..0x246).
+The starter neither changes player control nor steps ego; the next motion
+pass does. `adj.ego.move.to.x.y` (0xb6, h45+0x1c2) masks each operand byte
+with `andi.w #$ff` into h206+0x40a/+0x40c — the nudge is unsigned, applies
+to every later click and is never cleared; the starter is its only reader.
+
+**Motion.** The per-object dispatch (h16+0x250) sends modes 3 and 4 to the
+same steering routine h45+0x0: direction from the 3x3 table h46
+(`8 1 2 / 7 0 3 / 6 5 4`) indexed by each delta bucketed against the step
+size (`<= -step`, between, `>= step`), written to +0x36 and, for ego, to v6.
+Direction 0 — both deltas strictly within the step — calls the finish
+h45+0x64: restore the step size from +0x44, set the completion flag +0x46
+**unless the mode is 4**, clear the mode, and for ego set player control and
+clear v6. The edge handler (h42+0x1ba) finishes only mode 3, so a click-move
+into a screen edge keeps pushing while the room's logic sees v2. A direction
+event under player control clears ego's mode (h85+0x94..0xa4), cancelling
+the walk. `new.room`'s reset (h51+0xb6) clears ego's mode and v6 when the
+mode is 4.
+
+**Right button (not modelled).** Right-button-up (`0xe9`) runs Intuition's
+`DoubleClick()` against the stored time; a double click with no text window
+enqueues event `{1, 0x401}` (h103+0x40), which no shipped key map was traced
+to consume. Sierra 2.082 also has a second left-button arm (h78+0x25c): with
+the menu flag set, a click enqueues Enter.
+
+**Apple IIgs 1.014.** The Event Manager loop's mouse-down arm (seg3+0x8eb)
+ignores clicks with `where.y < 8` (the menu bar) and, when the input-state
+bytes `$00b3`, `$1590` and `$1592` allow it, calls `movetoseg+0xb4` with
+the click — the same starter: player control `$011d`, mode 4,
+`+0x40 = x/2 - width/2`, `+0x42 = y - $b7` (the play-area top), `+0x44 =
++0x30`, and no nudge. The finish (`movetoseg+0x198`) skips the completion
+flag for mode 4 and hands control back; the mover's edge case
+(`moveobjsse+0x1ec`) finishes only mode 3; `newroomseg+0x115` clears a mode-4
+ego and v6. The IIgs has no `mouse.posn`, flag-19 or nudge surface. The
+meanings of `$00b3`/`$1590`/`$1592` are not decoded (**not found**; `$00b3=1`
+turns the click into an Enter event instead), so the engine applies only the
+menu-bar and player-control gates.
+
+**Engine mapping.** The host reports left-button-downs through
+`EngineHost.takePointerClicks` as screen pixels; the engine applies them in
+the input phase after the queued keys, per `AgiProfile.clickMove`. The
+parameter bank holds the target words and saved step; Amiga and IIgs save
+images carry them as whole words at +0x40..+0x45 while ego is in click-move.
+Tests: [click-move.test.ts](../test/click-move.test.ts).
 
 ### Original Amiga sound player
 

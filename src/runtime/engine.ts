@@ -136,6 +136,12 @@ export interface EngineHost {
   /** Raw key events pending since last cycle (low byte values). */
   takeKeys(): number[];
   /**
+   * Left-button-down clicks pending since last cycle, as [x, y] in the
+   * 320x200 screen's pixels. Profiles without click-to-walk ignore them
+   * (docs/fidelity.md "Original click-to-walk").
+   */
+  takePointerClicks?(): readonly (readonly [number, number])[];
+  /**
    * Optional host preparation before a room transition changes any state.
    * The host may synchronously supply missing resources. False cancels the
    * transition; ordinary interpreters omit this hook entirely.
@@ -613,18 +619,17 @@ export class Engine {
   /** Tracked key-release gate (action 0xad; spec "Tracked key release"). */
   private keyReleaseGate = 0;
   /**
-   * Held pointer position in native pointer coordinates, written by
-   * mouse.posn on Amiga profiles. (0,0) until a host pointer channel exists
-   * — a current host limitation, not established original behavior
-   * (docs/fidelity.md "Amiga interpreter profiles").
+   * Screen position of the last left click the Amiga 2.31x generation
+   * latched — mouse.posn reports this, not a live pointer: the original
+   * subscribes to no pointer-move messages (docs/fidelity.md "Original
+   * click-to-walk").
    */
   pointerX = 0;
   pointerY = 0;
   /**
-   * Pending click-move nudge stored by the Amiga 2.31x action
-   * adj.ego.move.to.x.y (signed operands). The original keeps them in two
-   * pending words read by its click-move motion mode; nothing consumes them
-   * here until a host can start that mode.
+   * Click-move target nudge stored by the Amiga 2.31x action
+   * adj.ego.move.to.x.y: two zero-extended operand bytes, added to every
+   * later click's target and never cleared.
    */
   readonly clickMoveNudge: [number, number] = [0, 0];
   /** Scratch arrays and cached composition for presentation and ego visibility. */
@@ -3022,6 +3027,9 @@ export class Engine {
         this.pendingController = null;
       }
       for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
+      // The original's message pump starts a click-move as the click arrives;
+      // a direction event it queued alongside still cancels it below.
+      for (const [x, y] of this.host.takePointerClicks?.() ?? []) this.pointerClick(x, y);
       for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
         if (event.type === 2) {
           this.vars[V_EGO_DIR] = this.vars[V_EGO_DIR] === event.value ? 0 : event.value;
@@ -3182,6 +3190,36 @@ export class Engine {
   }
 
   /**
+   * A left-button-down at screen pixel (x, y), per the profile's click rule
+   * (docs/fidelity.md "Original click-to-walk"). The 2.31x generation sets
+   * f19 and latches the position for mouse.posn even when a text window
+   * then blocks the walk. The starter needs player control; it saves the
+   * step size and aims ego's left edge half its width left of the click,
+   * on the play area's rows. Targets are words: nothing clamps them.
+   */
+  private pointerClick(x: number, y: number): void {
+    const rule = this.profile.clickMove;
+    if (rule === "none") return;
+    if (rule === "iigs" && y < 8) return;
+    if (rule === "amiga-2.31x") {
+      this.flags[19] = 1;
+      this.pointerX = x & 0xffff;
+      this.pointerY = y & 0xffff;
+    }
+    if (rule !== "iigs" && this.persistentWindow !== null) return;
+    if (this.directionCoupling === 0) return;
+    const ego = this.objects[0]!;
+    const nudge = rule === "amiga-2.31x" ? this.clickMoveNudge : [0, 0];
+    ego.motionMode = MOTION_CLICK_MOVE;
+    ego.paramBank = [
+      (((x & 0xffff) >> 1) - Math.trunc(ego.width / 2) + nudge[0]!) & 0xffff,
+      (y - this.displayBaseRow * 8 + nudge[1]!) & 0xffff,
+      ego.stepSize,
+      ego.paramBank[3],
+    ];
+  }
+
+  /**
    * One draw of the interpreter's RNG: the host lane's byte, or the
    * engine's own 16-bit state machine when the host supplies none.
    * docs/fidelity.md, "Original RNG".
@@ -3266,6 +3304,25 @@ export class Engine {
           obj.direction = 0;
           obj.stepSize = bank[2];
           this.flags[bank[3]] = 1;
+          this.releaseEgoMotion(obj);
+          return;
+        }
+        obj.direction = directionToward(dx, dy, step);
+        if (obj === this.objects[0]) this.vars[V_EGO_DIR] = obj.direction;
+        return;
+      }
+      case MOTION_CLICK_MOVE: {
+        // The Amiga and IIgs steer click-move through move.obj's routine;
+        // arrival restores the step size saved at the click, sets no flag,
+        // and hands ego back to the player. The target words are signed.
+        const bank = obj.paramBank;
+        const step = obj.stepSize;
+        const dx = ((bank[0] << 16) >> 16) - obj.x;
+        const dy = ((bank[1] << 16) >> 16) - obj.y;
+        if (dx > -step && dx < step && dy > -step && dy < step) {
+          obj.motionMode = MOTION_NORMAL;
+          obj.direction = 0;
+          obj.stepSize = bank[2];
           this.releaseEgoMotion(obj);
           return;
         }
@@ -4491,16 +4548,15 @@ export class Engine {
       }
       case 0x13:
         // click.move.pending (Amiga 2.31x dispatch bound): the handler tests
-        // ego's motion mode against the click-move mode. No host interaction
-        // selects that mode, so this reads false — a current host
-        // limitation, not established original behavior. The IIgs 1.014
-        // evaluator's bound admits 0x13 but its 19-entry handler table ends
-        // at 0x12: the slot reads into the code that follows the table and
-        // lands mid-instruction (docs/fidelity.md "Apple IIgs interpreter").
+        // ego's motion mode against the click-move mode. The IIgs 1.014 and
+        // Amiga 2.082 evaluators' bounds admit 0x13 but their 19-entry
+        // handler tables end at 0x12: the slot reads past the table
+        // (docs/fidelity.md "Apple IIgs interpreter", "Amiga interpreter
+        // profiles").
         if (this.profile.maxCondition < 0x13)
           throw new Error(`invalid condition byte 0x${b.toString(16)}`);
         if (this.profile.condition0x13 === "wild-dispatch")
-          throw new Error("condition 0x13 has no handler entry on iigs-1.014");
+          throw new Error(`condition 0x13 has no handler entry on ${this.profile.id}`);
         if (this.profile.condition0x13 === "constant-false") return { result: false, next: pc + 1 };
         return { result: this.objects[0]!.motionMode === MOTION_CLICK_MOVE, next: pc + 1 };
       default:
@@ -5685,8 +5741,8 @@ export class Engine {
         return next; // Full-EGA profile no-ops, with profile-specific widths.
       case 0xb4:
         // mouse.posn: PC v3 profiles no-op it; the Amiga 2.31x handler writes
-        // pointer X divided by two and pointer Y into its variable operands.
-        // The held pointer is (0,0) until a host pointer channel exists.
+        // the latched click X divided by two and click Y, both unadjusted
+        // for the play area, into its variable operands.
         if (this.profile.mousePosnAction === "write-pointer") {
           this.vars[a(0)] = (this.pointerX >> 1) & 0xff;
           this.vars[a(1)] = this.pointerY & 0xff;
@@ -5711,11 +5767,11 @@ export class Engine {
         if (this.profile.releaseGateClearAction) this.keyReleaseGate = 0;
         return next;
       case 0xb6:
-        // adj.ego.move.to.x.y (Amiga 2.31x): stores the signed nudge operands
-        // into two pending words the click-move motion mode reads. No host
-        // interaction selects that mode, so the pair is inert state.
-        this.clickMoveNudge[0] = (a(0) << 24) >> 24;
-        this.clickMoveNudge[1] = (a(1) << 24) >> 24;
+        // adj.ego.move.to.x.y (Amiga 2.31x): the handler zero-extends each
+        // operand byte into the word the click starter adds to its target
+        // (docs/fidelity.md "Original click-to-walk").
+        this.clickMoveNudge[0] = a(0);
+        this.clickMoveNudge[1] = a(1);
         return next;
 
       default:
@@ -5768,6 +5824,12 @@ export class Engine {
     // Room entry restores player.control, including after stop.motion(ego).
     // Peter Kelly: https://agistudio.sourceforge.net/help/new_room.html
     this.directionCoupling = 1;
+    // The Amiga and IIgs room reset cancels a pending click-move and ego's
+    // heading (docs/fidelity.md "Original click-to-walk").
+    if (this.objects[0]!.motionMode === MOTION_CLICK_MOVE) {
+      this.objects[0]!.motionMode = MOTION_NORMAL;
+      this.vars[V_EGO_DIR] = 0;
+    }
     this.vars[V_OBJ_HIT] = 0;
     this.vars[V_OBJ_EDGE] = 0;
     this.parsedWords = [];

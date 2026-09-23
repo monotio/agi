@@ -490,7 +490,7 @@ describe("amiga interpreter profiles", () => {
   // docs/fidelity.md "Amiga interpreter profiles": dispatch bounds, container
   // kinds and the opcode surface are read off the local hunk executables.
   const AMIGA_BOUNDS: readonly [ProfileId, number, number, "v2-split" | "v3-combined"][] = [
-    ["amiga-2.082", 0xa0, 0x12, "v2-split"],
+    ["amiga-2.082", 0xa0, 0x13, "v2-split"],
     ["amiga-2.176", 0xa9, 0x12, "v2-split"],
     ["amiga-2.202", 0xa9, 0x12, "v2-split"],
     ["amiga-2.310", 0xb6, 0x13, "v3-combined"],
@@ -657,28 +657,18 @@ describe("amiga interpreter profiles", () => {
     );
   });
 
-  test("adj.ego.move.to.x.y stores its two signed operands as the pending nudge", () => {
-    const { engine } = bootAs("adj.ego.move.to.x.y(255, 2);\nreturn;\n", "amiga-2.310");
-    assert.deepEqual([...engine.clickMoveNudge], [-1, 2]);
-  });
-
   test("click.move.pending is true only in the click-move motion mode", () => {
     const { engine } = bootAs("if (click.move.pending()) { set(f221); }\nreturn;\n", "amiga-2.316");
-    assert.equal(engine.flags[221], 0, "no host interaction selects motion mode 4");
+    assert.equal(engine.flags[221], 0, "ego starts in the normal motion mode");
     // The Amiga handler tests ego's motion mode against 4; forcing the mode
     // flips the condition on the next cycle.
     engine.screenObjects[0]!.motionMode = 4;
     engine.tick();
     assert.equal(engine.flags[221], 1);
   });
-  test("mouse.posn writes the held pointer position on Amiga profiles", () => {
+  test("mouse.posn is a no-op on PC v3 profiles", () => {
+    // The Amiga latched-click semantics are covered in click-move.test.ts.
     const SOURCE = "assignn(v100, 77);\nassignn(v101, 88);\nmouse.posn(v100, v101);\nreturn;\n";
-    const { engine } = bootAs(SOURCE, "amiga-2.310");
-    // The engine's held pointer is (0,0) until a pointer channel exists; the
-    // original halves pointer X before storing (docs/fidelity.md).
-    assert.equal(engine.vars[100], 0);
-    assert.equal(engine.vars[101], 0);
-    // On PC v3 profiles the same bytes are a no-op.
     const pc = bootAs(SOURCE, "3.002.149").engine;
     assert.equal(pc.vars[100], 77);
     assert.equal(pc.vars[101], 88);

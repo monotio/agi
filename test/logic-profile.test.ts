@@ -110,12 +110,14 @@ describe("profile-selected logic bytecode", () => {
     });
   }
 
-  it("iigs-1.014 rejects condition 0x13, whose slot overruns the handler table", () => {
-    const opts = { dictionary, profile: PROFILES["iigs-1.014"] };
-    assert.throws(
-      () => assembleLogic("if (click.move.pending()) { return; } return;", opts),
-      /not available.*iigs-1\.014/,
-    );
+  it("iigs-1.014 and amiga-2.082 reject condition 0x13, whose slot overruns the handler table", () => {
+    for (const id of ["iigs-1.014", "amiga-2.082"] as const) {
+      const opts = { dictionary, profile: PROFILES[id] };
+      assert.throws(
+        () => assembleLogic("if (click.move.pending()) { return; } return;", opts),
+        new RegExp(`not available.*${id.replace(".", "\\.")}`),
+      );
+    }
     // The Amiga 2.31x handler is real, so the name assembles there.
     const amiga = { dictionary, profile: PROFILES["amiga-2.316"] };
     assert.deepEqual(
