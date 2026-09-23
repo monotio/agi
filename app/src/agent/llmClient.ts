@@ -1,7 +1,7 @@
 import type { AgentRun } from "./agentRun.ts";
 /**
- * BYOK LLM client supporting Anthropic (Claude Opus 5 / Fable 5 / Fable 5.1) and
- * OpenAI (GPT-5.6 / Terra / Sol) directly from the browser with prompt caching.
+ * BYOK LLM client supporting Anthropic (Claude Opus 5.5 / Fable 5.1) and OpenAI
+ * (GPT-6 Astra / Sol / Luna) directly from the browser with prompt caching.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
@@ -166,21 +166,20 @@ export interface LlmTurnResult {
 }
 
 export const DEFAULT_MODELS: Record<ProviderType, string> = {
-  anthropic: "claude-opus-5",
+  anthropic: "claude-opus-5-5",
   openai: "gpt-6-astra",
   stub: "offline-stub",
 };
 
 export const MODEL_OPTIONS: Record<ProviderType, { id: string; label: string }[]> = {
   anthropic: [
-    { id: "claude-opus-5", label: "Claude Opus 5" },
+    { id: "claude-opus-5-5", label: "Claude Opus 5.5" },
     { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
-    { id: "claude-fable-5", label: "Claude Fable 5" },
   ],
   openai: [
     { id: "gpt-6-astra", label: "GPT-6 Astra" },
-    { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
-    { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+    { id: "gpt-6-sol", label: "GPT-6 Sol" },
+    { id: "gpt-6-luna", label: "GPT-6 Luna" },
   ],
   stub: [{ id: "offline-stub", label: "Offline Deterministic Stub" }],
 };

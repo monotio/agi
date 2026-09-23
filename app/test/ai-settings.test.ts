@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { defaultModelEffort } from "../../src/agent/modelEffort.ts";
+import {
+  defaultModelEffort,
+  MODEL_CAPABILITIES,
+  modelEffortOptions,
+} from "../../src/agent/modelEffort.ts";
 import { DEFAULT_MODELS, MODEL_OPTIONS } from "../src/agent/llmClient.ts";
 import {
   AI_SETTINGS_KEY,
@@ -120,4 +124,41 @@ test("one atomic record keeps provider keys and models isolated", () => {
   });
   assert.deepEqual(restored, settings);
   assert.equal(storage.values.size, 1);
+});
+
+test("the app offers the current models, each with its published price and effort", () => {
+  // Checked against the provider model pages on September 23, 2026.
+  assert.deepEqual(
+    MODEL_OPTIONS.anthropic.map((option) => option.id),
+    ["claude-opus-5-5", "claude-fable-5-1"],
+  );
+  assert.deepEqual(
+    MODEL_OPTIONS.openai.map((option) => option.id),
+    ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"],
+  );
+  assert.equal(DEFAULT_MODELS.anthropic, "claude-opus-5-5");
+  assert.equal(DEFAULT_MODELS.openai, "gpt-6-astra");
+  assert.deepEqual(MODEL_CAPABILITIES["claude-opus-5-5"]?.price, {
+    input: 4,
+    output: 20,
+    longContext: false,
+    cacheRead: 0.2,
+  });
+  assert.deepEqual(MODEL_CAPABILITIES["gpt-6-sol"]?.price, {
+    input: 2,
+    output: 10,
+    longContext: true,
+  });
+  assert.deepEqual(MODEL_CAPABILITIES["gpt-6-luna"]?.price, {
+    input: 0.1,
+    output: 0.5,
+    longContext: true,
+  });
+  // GPT-6 Sol and Luna accept none through max and default to medium.
+  for (const id of ["gpt-6-sol", "gpt-6-luna"]) {
+    assert.deepEqual(modelEffortOptions(id), ["none", "low", "medium", "high", "xhigh", "max"]);
+    assert.equal(defaultModelEffort(id), "medium");
+  }
+  for (const option of [...MODEL_OPTIONS.anthropic, ...MODEL_OPTIONS.openai])
+    assert.ok(MODEL_CAPABILITIES[option.id]?.price, `${option.id} has a known price`);
 });
