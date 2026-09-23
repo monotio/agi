@@ -87,9 +87,11 @@ export async function addLibraryGame(
     ...(catalog ? { catalog } : {}),
     ...(known?.author && !game.metadata?.author ? { author: known.author } : {}),
     ...(game.profile ? { profile: game.profile } : {}),
-    // A growing world published without its authoring context cannot grow
-    // here: exits to unbuilt rooms stop the game.
-    ...(game.roomGeneration === true && !roomGeneration ? { workInProgress: true as const } : {}),
+    // An unfinished world stays marked through every import and export,
+    // whether or not this copy may go on generating rooms.
+    ...(game.workInProgress === true || game.roomGeneration === true
+      ? { workInProgress: true as const }
+      : {}),
     preview: opening.preview,
     validation: {
       status: opening.status,

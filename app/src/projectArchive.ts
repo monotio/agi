@@ -57,6 +57,9 @@ function gameEntries(
       // evidence does not — the importer checks the opening itself.
       ...(data.library?.profile ? { profile: data.library.profile } : {}),
       roomGeneration: data.roomGeneration === true,
+      // Completion travels apart from generation: a copy that cannot grow
+      // is still unfinished, through every later export.
+      workInProgress: data.roomGeneration === true || data.library?.workInProgress === true,
     }),
   });
   return entries;

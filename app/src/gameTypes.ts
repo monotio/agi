@@ -68,8 +68,8 @@ export interface InstalledGameDescriptor {
 export interface CurrentGame {
   readonly installed: boolean;
   readonly title: string;
-  /** The world grows while it is played: the agent builds rooms on arrival. */
-  readonly growing: boolean;
+  /** The world is unfinished: exits may lead to rooms not built yet. */
+  readonly workInProgress: boolean;
   readonly revision: ResourceRevision;
   readonly hash?: string | undefined;
   readonly alias?: string | undefined;

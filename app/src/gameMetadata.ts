@@ -30,8 +30,9 @@ export interface LibraryMetadata extends PublicGameMetadata {
   /** Optional interpreter profile override applied on boot. */
   profile?: ProfileId | undefined;
   /**
-   * A published game whose world was still growing when it was exported:
-   * exits may lead to rooms nobody has built yet, which stop the game.
+   * An unfinished world: exits may lead to rooms nobody has built yet, which
+   * stop the game. A completion fact, separate from whether this copy may
+   * generate rooms (CachedGameData.roomGeneration).
    */
   workInProgress?: true | undefined;
   validation: {
@@ -151,10 +152,12 @@ export function readPublicMetadata(raw: unknown): {
   metadata?: PublicGameMetadata;
   /** The interpreter the exporter chose over detection. */
   profile?: ProfileId;
+  /** The world is unfinished: exits may lead to rooms not built yet. */
+  workInProgress: boolean;
 } {
   if (!raw || typeof raw !== "object") throw new Error("GAME.JSON must contain game metadata.");
   const value = raw as Record<string, unknown>;
-  if (value["format"] !== "monotio.agi") return { roomGeneration: false };
+  if (value["format"] !== "monotio.agi") return { roomGeneration: false, workInProgress: false };
   if (value["version"] !== 1)
     throw new Error(
       "This game metadata version is newer than this app. Update the app and try again.",
@@ -171,6 +174,7 @@ export function readPublicMetadata(raw: unknown): {
     ...(title ? { title } : {}),
     ...(profile !== undefined ? { profile: profile as ProfileId } : {}),
     roomGeneration: value["roomGeneration"] === true,
+    workInProgress: value["workInProgress"] === true,
     metadata: publicGameMetadata(value["metadata"] as PublicGameMetadata | undefined),
   };
 }

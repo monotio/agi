@@ -22,6 +22,8 @@ export interface OpenedGame {
   words: [string, number][];
   title?: string;
   roomGeneration?: boolean;
+  /** GAME.JSON marks the world unfinished: exits may lead to rooms not built yet. */
+  workInProgress?: boolean;
   project?: ProjectContext;
   /** The player's save slots and autosave; a project archive carries them, a published game never does. */
   progress?: GameProgress;
@@ -238,7 +240,9 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
       );
     }
   }
-  const gameMetadata = metadata ? readPublicMetadata(rawMetadata) : { roomGeneration: false };
+  const gameMetadata = metadata
+    ? readPublicMetadata(rawMetadata)
+    : { roomGeneration: false, workInProgress: false };
   const projectBytes = entries.get(`${root}PROJECT.JSON`);
   const project = projectBytes ? readProjectContext(projectBytes, entries, root) : undefined;
   const progress = project

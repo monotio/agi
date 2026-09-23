@@ -157,6 +157,7 @@ test("public metadata is versioned, bounded and cannot carry private history or 
   assert.deepEqual(readPublicMetadata({ format: "monotio.agi", version: 1, title: "Game" }), {
     title: "Game",
     roomGeneration: false,
+    workInProgress: false,
     metadata: {},
   });
   assert.throws(
@@ -848,9 +849,9 @@ test("the same bytes under another interpreter import as their own entry, in eit
   }
 });
 
-test("a growing world published without its project imports as a work in progress", async (t) => {
+test("an unfinished world stays marked through every import and export, and never gains generation", async (t) => {
   installLocalStorage(t);
-  const data = {
+  const creator = {
     projectId: testProjectId("growing"),
     title: "Growing",
     provider: "stub",
@@ -861,19 +862,36 @@ test("a growing world published without its project imports as a work in progres
     transcript: [],
     roomGeneration: true,
   };
-  const published = await readGameZip(buildPublicGameZip(data));
-  assert.equal(published.roomGeneration, true, "GAME.JSON marks the world as growing");
-  const publishedId = await addLibraryGame(published, "Growing", "zip", opening);
-  const stored = (await loadAuthoredGame(publishedId))!;
-  assert.equal(stored.library?.workInProgress, true);
-  assert.equal(stored.roomGeneration, false, "a public claim never enables authoring");
-  // The project archive carries the authoring context: the world can keep
-  // growing here, so it is the creator's project, not a work in progress.
-  const project = await readGameZip(await buildProjectZip(data));
-  const projectId = await addLibraryGame(project, "Growing", "zip", opening);
-  const continued = (await loadAuthoredGame(projectId))!;
-  assert.equal(continued.library?.workInProgress, undefined);
+  // The creator's project keeps growing wherever it is imported, and says
+  // it is unfinished.
+  const project = await readGameZip(await buildProjectZip(creator));
+  const continued = (await loadAuthoredGame(
+    await addLibraryGame(project, "Growing", "zip", opening),
+  ))!;
   assert.equal(continued.roomGeneration, true);
+  assert.equal(continued.library?.workInProgress, true);
+
+  // Creator → Game export → recipient: unfinished, and never generating.
+  const published = await readGameZip(buildPublicGameZip(creator));
+  assert.equal(published.workInProgress, true);
+  let recipient = (await loadAuthoredGame(
+    await addLibraryGame(published, "Growing", "zip", opening),
+  ))!;
+  assert.equal(recipient.library?.workInProgress, true);
+  assert.equal(recipient.roomGeneration, false, "a public claim never enables authoring");
+
+  // Recipient → Game and Project export → fresh import, twice over.
+  for (let hop = 0; hop < 2; hop++) {
+    for (const archive of [buildPublicGameZip(recipient), await buildProjectZip(recipient)]) {
+      const opened = await readGameZip(archive);
+      assert.equal(opened.workInProgress, true, `hop ${hop}: the archive says unfinished`);
+      assert.equal(opened.roomGeneration, false, `hop ${hop}: and does not claim generation`);
+    }
+    const next = await readGameZip(await buildProjectZip(recipient));
+    recipient = (await loadAuthoredGame(await addLibraryGame(next, `Hop ${hop}`, "zip", opening)))!;
+    assert.equal(recipient.library?.workInProgress, true, `hop ${hop}: still unfinished`);
+    assert.equal(recipient.roomGeneration, false, `hop ${hop}: still not generating`);
+  }
 });
 
 test("a ZIP made by macOS Finder imports despite its AppleDouble metadata", () => {

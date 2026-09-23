@@ -313,6 +313,13 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
   function libraryProvenance(game: CachedGameMeta): string | null {
     const lib = game.library;
     if (!lib) return null;
+    const origin = libraryOrigin(game);
+    if (!lib.workInProgress) return origin;
+    return origin ? `${origin} · Work in progress` : "Work in progress";
+  }
+
+  function libraryOrigin(game: CachedGameMeta): string | null {
+    const lib = game.library!;
     if (lib.source === "remix") {
       const parent = lib.parent;
       const parentTitle = parent
@@ -325,9 +332,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
         : undefined;
       return parentTitle ? `Remix of ${parentTitle}` : "Remix";
     }
-    const origin = lib.source === "zip" || lib.source === "folder" ? "Imported copy" : null;
-    if (lib.workInProgress) return origin ? `${origin} · Work in progress` : "Work in progress";
-    return origin;
+    return lib.source === "zip" || lib.source === "folder" ? "Imported copy" : null;
   }
 
   function refreshPendingAutosave(): void {
@@ -519,9 +524,11 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     return stored;
   }
 
-  /** A growing world published without its authoring context stops at unbuilt rooms. */
+  /** An unfinished world this copy cannot grow stops at unbuilt rooms. */
   function workInProgressNote(game: OpenedGame): string {
-    return game.roomGeneration === true && !game.project
+    const unfinished = game.workInProgress === true || game.roomGeneration === true;
+    const grows = game.project !== undefined && game.roomGeneration === true;
+    return unfinished && !grows
       ? " It is a work in progress: exits to rooms not built yet stop the game."
       : "";
   }
