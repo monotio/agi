@@ -441,6 +441,20 @@ test("AGI Studio spellings assemble to the canonical commands", () => {
     'if (said("anyword", "look")) { return; } return;',
     'if (said("*", "look")) { return; } return;',
   );
+  // The numeric rest-of-line id is a 16-bit word id, as AGI Studio writes it.
+  same(
+    'if (said("look", 9999)) { return; } return;',
+    'if (said("look", "...")) { return; } return;',
+  );
+  // Byte operands still stop at 255, reported where the number was written.
+  assert.throws(
+    () => assembleLogic("assignn(v40, 1);\nassignn(v41, 300);\nreturn;", { dictionary: new Map() }),
+    (error: unknown) =>
+      error instanceof AssemblerError &&
+      error.line === 2 &&
+      error.col === 14 &&
+      /0\.\.255/.test(error.message),
+  );
   // A game that defines the word keeps its own meaning.
   const rol = new Map([
     ["look", 10],

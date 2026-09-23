@@ -261,7 +261,8 @@ function lex(source: string): Token[] {
 // ---------- AST ----------
 
 type Ref =
-  | { kind: "num"; value: number }
+  /** A number literal keeps its token, so a byte operand out of range reports where it was written. */
+  | { kind: "num"; value: number; tok?: Token }
   | { kind: "v" | "f" | "o" | "m" | "s"; index: number }
   | { kind: "str"; text: string };
 
@@ -477,9 +478,11 @@ class Parser {
   private parseRef(): Ref {
     const tok = this.next();
     if (tok.type === "number") {
+      // said() word ids are 16-bit (9999 is the rest-of-line id); every other
+      // operand is a byte, checked where it is emitted.
       const n = Number(tok.text);
-      if (n > 255) throw new AssemblerError("byte value out of range 0..255", tok.line, tok.col);
-      return { kind: "num", value: n };
+      if (n > 0xffff) throw new AssemblerError("value out of range 0..65535", tok.line, tok.col);
+      return { kind: "num", value: n, tok };
     }
     if (tok.type === "string") return { kind: "str", text: tok.text };
     if (tok.type === "ident") {
@@ -784,6 +787,10 @@ function refByte(ref: Ref, allowString: false, tok: Token, what: string): number
   if (ref.kind === "str") {
     throw new AssemblerError(`string not allowed as ${what} operand`, tok.line, tok.col);
   }
+  if (ref.kind === "num" && ref.value > 255) {
+    const at = ref.tok ?? tok;
+    throw new AssemblerError(`byte value out of range 0..255 in ${what}`, at.line, at.col);
+  }
   return ref.kind === "num" ? ref.value : ref.index;
 }
 
@@ -913,6 +920,7 @@ class MessageTable {
     const n = ref.kind === "num" ? ref.value : ref.index;
     if (n === 0)
       throw new AssemblerError("message numbers are 1-based (m0 invalid)", tok.line, tok.col);
+    if (n > 255) throw new AssemblerError("byte value out of range 0..255", tok.line, tok.col);
     return n;
   }
 
