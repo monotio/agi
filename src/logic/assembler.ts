@@ -51,7 +51,8 @@
  *
  * said() words resolve through the caller-supplied dictionary (word -> id).
  * "*" is the any-one-word wildcard (id 1), "..." the rest-of-line terminator
- * (id 0x270f).
+ * (id 0x270f). AGI Studio's spellings of the two, "anyword" and "rol", are
+ * accepted as well unless the game's own dictionary defines those words.
  *
  * Variable/flag/object/message/string refs accept v5 / f5 / o5 / m5 / s5
  * tokens or plain numbers. Immediate operands are plain numbers or #defines.
@@ -827,10 +828,10 @@ function emitCondition(
       let id: number;
       if (arg.kind === "str") {
         const w = arg.text.toLowerCase();
-        if (w === "*") id = SAID_ANY_WORD;
-        else if (w === "...") id = SAID_REST;
+        const found = dictionary.get(w);
+        if (w === "*" || (w === "anyword" && found === undefined)) id = SAID_ANY_WORD;
+        else if (w === "..." || (w === "rol" && found === undefined)) id = SAID_REST;
         else {
-          const found = dictionary.get(w);
           if (found === undefined) {
             throw new AssemblerError(
               `word '${arg.text}' is not in the dictionary`,

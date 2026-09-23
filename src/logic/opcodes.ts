@@ -317,6 +317,16 @@ const AMIGA_BY_NAME: Record<string, ActionSpec> = Object.fromEntries(
 );
 
 /** Runtime instruction shape for the selected profile, excluding scanner metadata. */
+/**
+ * Alternate spellings authors know from AGI Studio's documentation, accepted
+ * on input; the disassembler still writes the canonical names.
+ */
+const ACTION_ALIASES: Readonly<Record<string, string>> = {
+  "object.on.water": "obj.on.water",
+  "object.on.land": "obj.on.land",
+  "object.on.anything": "obj.on.anything",
+};
+
 export function actionSpec(
   opcode: number | string,
   profile: AgiProfile = DEFAULT_V2_PROFILE,
@@ -329,7 +339,9 @@ export function actionSpec(
   const spec =
     typeof opcode === "number"
       ? (ACTION_BY_CODE.get(opcode) ?? V3_BY_CODE.get(opcode) ?? AMIGA_BY_CODE.get(opcode))
-      : (ACTION_BY_NAME[opcode] ?? V3_BY_NAME[opcode] ?? AMIGA_BY_NAME[opcode]);
+      : (ACTION_BY_NAME[ACTION_ALIASES[opcode] ?? opcode] ??
+        V3_BY_NAME[opcode] ??
+        AMIGA_BY_NAME[opcode]);
   if (!spec || spec.code > profile.maxAction) return undefined;
   if (spec.code === 0x86 && profile.exitOperandBytes === 0) return { ...spec, operands: [] };
   if (spec.code >= 0xb0 && profile.extraActions === "none") return undefined;

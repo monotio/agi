@@ -421,3 +421,33 @@ test("assembler accepts infix assignment and compiles to assignn/assignv", () =>
     code("assignn(v3, 10);\nreturn;"),
   );
 });
+
+test("AGI Studio spellings assemble to the canonical commands", () => {
+  const words = new Map([["look", 10]]);
+  const same = (studio: string, canonical: string, dictionary = words) =>
+    assert.deepEqual(
+      [...assembleLogic(studio, { dictionary }).code],
+      [...assembleLogic(canonical, { dictionary }).code],
+      studio,
+    );
+  same("object.on.water(o1); return;", "obj.on.water(o1); return;");
+  same("object.on.land(o1); return;", "obj.on.land(o1); return;");
+  same("object.on.anything(o1); return;", "obj.on.anything(o1); return;");
+  same(
+    'if (said("look", "rol")) { return; } return;',
+    'if (said("look", "...")) { return; } return;',
+  );
+  same(
+    'if (said("anyword", "look")) { return; } return;',
+    'if (said("*", "look")) { return; } return;',
+  );
+  // A game that defines the word keeps its own meaning.
+  const rol = new Map([
+    ["look", 10],
+    ["rol", 20],
+  ]);
+  assert.notDeepEqual(
+    [...assembleLogic('if (said("look", "rol")) { return; } return;', { dictionary: rol }).code],
+    [...assembleLogic('if (said("look", "...")) { return; } return;', { dictionary: rol }).code],
+  );
+});
