@@ -671,7 +671,7 @@ describe("pc booter 2.001 row streams", () => {
   });
 });
 
-describe("apple iigs stream family (docs/fidelity.md, seg3 sound scheduler)", () => {
+describe('apple iigs stream family (docs/fidelity.md "IIgs sound")', () => {
   const iigs = (data: Uint8Array): SoundPlayback =>
     new SoundPlayback(detectProfile(new Map(), "iigs-1.014"), data, 1);
 

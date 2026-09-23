@@ -1,8 +1,8 @@
 # AGI IS HERE
 
 Remember typing LOOK AT CASTLE? AGI IS HERE brings back Sierra's adventure
-engine exactly as it ran in 1987, and lets an AI co-author new rooms while you
-play.
+engine the way it ran in the eighties, and lets an AI co-author new rooms while
+you play.
 
 Play the AGI classics in your browser from your own copies, or describe a new
 adventure and play it while an agent builds the rooms around you. Ask for

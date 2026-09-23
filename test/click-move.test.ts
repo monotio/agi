@@ -160,7 +160,10 @@ test("reaching the screen edge does not end the walk", () => {
 });
 
 test("new.room cancels a pending walk and clears ego's heading", () => {
-  const { engine, host, ego } = boot("amiga-2.316", "if (isset(f202)) { reset(f202); new.room(0); }");
+  const { engine, host, ego } = boot(
+    "amiga-2.316",
+    "if (isset(f202)) { reset(f202); new.room(0); }",
+  );
   host.clicks.push([161, 108]);
   run(engine, 2);
   assert.equal(ego.motionMode, 4);

@@ -5592,7 +5592,7 @@ export class Engine {
         // 16-bit (m-n+1), the remainder is taken unsigned, and the stored
         // result is the low byte. Reversed bounds are not normalized —
         // a zero span is the original's divide error, surfaced as a fault
-        // (docs/fidelity.md, RNG consumers).
+        // (docs/fidelity.md "Range mapping and consumers").
         const lo = a(0);
         const span = (a(1) - lo + 1) & 0xffff;
         const random = this.randomByte();
@@ -5867,7 +5867,7 @@ export class Engine {
     for (const num of this.scanStart.keys()) if (num !== 0) this.scanStart.delete(num);
     // The original object loop writes flags &= ~0x41; flags |= 0x10: drawn and
     // animated membership clear, but every record rejoins the updating
-    // partition (docs/fidelity.md: Original complete movement audit, C3).
+    // partition (docs/fidelity.md "Original new.room sequence").
     for (const o of this.objects) {
       o.stepSize = o.stepTime = o.stepCount = o.cycleTime = o.cycleCount = 1;
       o.newlyPositioned = false;
