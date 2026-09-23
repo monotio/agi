@@ -63,6 +63,14 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
+        id: "screen",
+        title: "The screen",
+        body: [
+          "AGI games drew 320 × 200 pixels, and a monitor of the day stretched them to fill a 4:3 screen, so each pixel stood a little taller than wide. Original 4:3 in Settings shows them that way; turn it off for square pixels. Either way the game itself is unchanged.",
+          "Game text uses this project's own 8 × 8 font in the originals' character grid, rather than each machine's built-in font. It draws English text and the box drawing the Sierra games use; other characters, such as the accented letters of some fan translations, show blank.",
+        ],
+      },
+      {
         id: "sound",
         title: "Sound",
         body: [
@@ -89,6 +97,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "Rooms appear as you walk",
         body: [
           "Walk into a room that does not exist yet and play pauses while the agent writes it. Everything it makes is real AGI — pictures, views, logic and sound — that you can inspect, download and play again.",
+          "An exported copy cannot grow any further: rooms not built yet stop the game, so it is marked as a work in progress. Download game keeps the project, and the world can go on growing wherever it is imported.",
         ],
       },
       {
@@ -111,7 +120,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "keys",
         title: "Keys and cost",
         body: [
-          "Your key stays in this browser's storage and each request is billed to your provider account. Every task starts with a $5 estimated budget that you can change.",
+          "Your key is saved in this browser and sent to your provider, and only to your provider, with each request. Requests are billed to your provider account. Every task starts with a $5 estimated budget that you can change.",
+          "What the agent writes comes from your provider's model and is not reviewed by this app. Play a game through before you share it, especially with children.",
         ],
         action: { kind: "ai-settings", label: "AI settings" },
       },

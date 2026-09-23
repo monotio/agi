@@ -50,6 +50,18 @@ const crtEnabled = ref<boolean>(
     : localStorage.getItem("monotio_agi.crt") !== "off",
 );
 
+// A 320×200 frame filled a 4:3 monitor, so its pixels stood taller than
+// wide; square pixels are the other choice. Display only: the frame, clicks
+// and screenshots are 320×200 either way.
+const originalAspect = ref<boolean>(
+  testMode
+    ? localStorage.getItem("monotio_agi.originalAspect") === "on"
+    : localStorage.getItem("monotio_agi.originalAspect") !== "off",
+);
+watch(originalAspect, (on) =>
+  localStorage.setItem("monotio_agi.originalAspect", on ? "on" : "off"),
+);
+
 const presentation = createPresentation();
 providePresentation(presentation);
 const { gpuBackend, debugOpen } = presentation;
@@ -589,18 +601,21 @@ watch(
       'at-menu': state.phase === 'idle' || state.phase === 'error',
       'layout-portrait': viewport.height >= viewport.width,
       'layout-landscape-short': viewport.width > viewport.height && viewport.height <= 600,
+      'original-aspect': originalAspect,
     }"
     :style="{ '--layout-height': `${viewport.height}px` }"
   >
     <GameHeader
       :touch-controls="touchControls"
       :crt-enabled="crtEnabled"
+      :original-aspect="originalAspect"
       :gpu-backend="gpuBackend"
       :debug-open="debugOpen"
       :export-busy="exportBusy"
       :export-refusal="exportRefusal"
       @update:touch-controls="touchControls = $event"
       @update:crt-enabled="crtEnabled = $event"
+      @update:original-aspect="originalAspect = $event"
       @update:debug-open="debugOpen = $event"
       @trigger-key="(code) => playArea?.triggerKey(code)"
       @export-zip="(project) => lib.onExportAgiZip(true, project)"

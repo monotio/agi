@@ -4,8 +4,10 @@
  * 0..6 with column 7 as inter-character spacing, caps on rows 0..6, and a
  * one-row descender (row 7) for g j p q y and the comma/semicolon.
  *
- * Covers ASCII 0x20..0x7e plus the engine's box-drawing and cursor glyph
- * codes from src/runtime/textSurface.ts. Every other code renders blank.
+ * Covers ASCII 0x20..0x7e, the engine's box-drawing and cursor glyph codes
+ * from src/runtime/textSurface.ts, and the code-page characters the
+ * catalogued games print. Every other code renders blank, and HAS_GLYPH lets
+ * the compositor say so.
  *
  * Each glyph is 8 rows of 8 characters: '#' lit, '.' dark. FONT holds the
  * packed rows (MSB = leftmost pixel), 8 bytes per code.
@@ -124,13 +126,32 @@ const GLYPHS: [number | string, string][] = [
   [GLYPH_BL, "...#.... ...#.... ...#.... ...##### ........ ........ ........ ........"],
   [GLYPH_BR, "...#.... ...#.... ...#.... ####.... ........ ........ ........ ........"],
   [GLYPH_CURSOR, "........ ........ ........ ........ ........ ........ ######## ########"],
+  // The PC code page's box drawing that Gold Rush! prints in its messages
+  // (docs/fidelity.md "Text beyond ASCII"), in the same line style: single
+  // lines through row 3 / column 3, double verticals in columns 2 and 4.
+  [0xb3, "...#.... ...#.... ...#.... ...#.... ...#.... ...#.... ...#.... ...#...."],
+  [0xb7, "........ ........ ........ #####... ..#.#... ..#.#... ..#.#... ..#.#..."],
+  [0xba, "..#.#... ..#.#... ..#.#... ..#.#... ..#.#... ..#.#... ..#.#... ..#.#..."],
+  [0xbd, "..#.#... ..#.#... ..#.#... #####... ........ ........ ........ ........"],
+  [0xc1, "...#.... ...#.... ...#.... ######## ........ ........ ........ ........"],
+  [0xc2, "........ ........ ........ ######## ...#.... ...#.... ...#.... ...#...."],
+  [0xc4, "........ ........ ........ ######## ........ ........ ........ ........"],
+  [0xd0, "..#.#... ..#.#... ..#.#... ######## ........ ........ ........ ........"],
+  [0xd2, "........ ........ ........ ######## ..#.#... ..#.#... ..#.#... ..#.#..."],
+  [0xd3, "..#.#... ..#.#... ..#.#... ..###### ........ ........ ........ ........"],
+  [0xd6, "........ ........ ........ ..###### ..#.#... ..#.#... ..#.#... ..#.#..."],
+  // The code page's non-breaking space, which King's Quest II prints.
+  [0xff, "........ ........ ........ ........ ........ ........ ........ ........"],
 ];
 
 /** Packed glyph rows: FONT[code * 8 + row], bit 7 = leftmost pixel. */
 export const FONT = new Uint8Array(256 * 8);
+/** 1 for each code this font draws. */
+export const HAS_GLYPH = new Uint8Array(256);
 
 for (const [key, art] of GLYPHS) {
   const code = typeof key === "number" ? key : key.charCodeAt(0);
+  HAS_GLYPH[code] = 1;
   const rows = art.split(" ");
   if (rows.length !== 8) throw new Error(`glyph ${key}: expected 8 rows`);
   rows.forEach((r, y) => {

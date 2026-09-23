@@ -180,7 +180,8 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
       "the one replay drive: the live-session drive with checkpoint snapshots and the scratch tape drive on the shared tick",
   },
   "app/src/App.vue": {
-    lines: 608,
+    // rc.18: the Original 4:3 display preference.
+    lines: 670,
     boundary: "the shell root: engine boot, library/catalog routing and global key handling",
   },
 };

@@ -728,7 +728,7 @@ defineExpose({
 .game-surface {
   display: block;
   width: var(--game-width);
-  aspect-ratio: 8 / 5;
+  aspect-ratio: var(--game-aspect);
   height: auto;
   image-rendering: pixelated;
   outline: none;

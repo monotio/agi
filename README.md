@@ -65,6 +65,11 @@ and the IIgs edition through its own Ensoniq wavetable instruments, read from
 the game's files. On both, a mouse click walks the hero there, as it did on the
 originals. PC editions choose between the Tandy sound chip and the PC
 speaker under **Settings → Advanced… → Sound chip**.
+The screen fills a 4:3 frame, as a monitor of the day stretched the 320 × 200
+picture; **Settings → Original 4:3** turns that off for square pixels. Text
+uses this project's own 8 × 8 font in the original character grid, not each
+machine's built-in font. It draws English text and the box drawing the Sierra
+games print; other characters show blank.
 Fan-made AGI games run too; if the app cannot identify the interpreter, it asks
 which profile to use. [Testing](docs/testing.md#testing-compatibility) lists
 the exact editions and builds.
@@ -107,9 +112,12 @@ previews, compiler diagnostics and isolated playtests. It can still get art,
 puzzles or writing wrong, so expect to playtest and ask for revisions.
 
 **Bring your own key, no server.** The app talks to your provider directly from
-the browser. Your key stays in browser storage, and relevant game content goes
-to the provider you choose, billed to your account. Each task starts with a $5
-estimated budget that you can change. See [Security](SECURITY.md) for storage
+the browser. Your key is saved in browser storage and sent with each request to
+the provider you choose, and only to it, along with the relevant game content.
+Requests are billed to your account. Each task starts with a $5 estimated
+budget that you can change. What the agent writes comes from your provider's
+model and is not reviewed by the app, so play a game through before you share
+it, especially with children. See [Security](SECURITY.md) for storage
 and data flow, and [adventure briefs](games/README.md) for writing your own.
 
 ## Save and share
