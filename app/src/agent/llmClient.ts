@@ -19,7 +19,11 @@ import {
   type OpenAiToolBlock,
 } from "../../../src/agent/toolTransport.ts";
 import { AGI_SYSTEM_PROMPT } from "../../../src/agent/prompt.ts";
-import { resolveModelEffort, type ModelEffort } from "../../../src/agent/modelEffort.ts";
+import {
+  resolveModelEffort,
+  type ModelEffort,
+  DEFAULT_MODELS,
+} from "../../../src/agent/modelEffort.ts";
 
 export type ProviderType = "anthropic" | "openai" | "stub";
 
@@ -165,11 +169,7 @@ export interface LlmTurnResult {
   toolCalls: ToolCallItem[];
 }
 
-export const DEFAULT_MODELS: Record<ProviderType, string> = {
-  anthropic: "claude-opus-5-5",
-  openai: "gpt-6-astra",
-  stub: "offline-stub",
-};
+export { DEFAULT_MODELS };
 
 export const MODEL_OPTIONS: Record<ProviderType, { id: string; label: string }[]> = {
   anthropic: [

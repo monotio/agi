@@ -3,6 +3,13 @@ export type ModelEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export type ModelProvider = "anthropic" | "openai" | "stub";
 
+/** The model each provider starts with, in the app and in the evaluation scripts. */
+export const DEFAULT_MODELS: Record<ModelProvider, string> = {
+  anthropic: "claude-opus-5-5",
+  openai: "gpt-6-astra",
+  stub: "offline-stub",
+};
+
 const REASONING_LEVELS: readonly ModelEffort[] = ["low", "medium", "high", "xhigh", "max"];
 const OPTIONAL_REASONING_LEVELS: readonly ModelEffort[] = ["none", ...REASONING_LEVELS];
 

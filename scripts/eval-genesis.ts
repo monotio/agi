@@ -8,7 +8,7 @@
  *
  * Framework-free TypeScript, runs directly with Node >= 22.6:
  *   node --experimental-strip-types scripts/eval-genesis.ts --template knights-trial --provider stub
- *   node --experimental-strip-types scripts/eval-genesis.ts --template knights-trial --provider openai --model gpt-5.6-sol
+ *   node --experimental-strip-types scripts/eval-genesis.ts --template knights-trial --provider openai --model gpt-6-sol
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
@@ -30,6 +30,7 @@ import {
 } from "../src/agent/toolTransport.ts";
 import { validateGenesis } from "../src/agent/playtest.ts";
 import { createGenesisPrompt, AGI_SYSTEM_PROMPT } from "../src/agent/prompt.ts";
+import { DEFAULT_MODELS } from "../src/agent/modelEffort.ts";
 
 const ANSI = {
   reset: "\x1b[0m",
@@ -158,9 +159,7 @@ function parseCliArgs(): CliArgs {
     (provider === "openai" ? process.env["OPENAI_API_KEY"] : process.env["ANTHROPIC_API_KEY"]) ||
     "";
 
-  const model =
-    options["model"] ||
-    (provider === "openai" ? "gpt-5.6-sol" : provider === "anthropic" ? "claude-opus-5" : "stub");
+  const model = options["model"] || (provider === "stub" ? "stub" : DEFAULT_MODELS[provider]);
 
   const outDir = options["out"];
   const tracePath = options["trace"] || "evals/last-genesis-trace.json";
@@ -473,7 +472,7 @@ async function runAnthropicGenesis(
   session: ReturnType<typeof createAgentSessionState>,
   trace: TraceEntry[],
 ): Promise<void> {
-  // Claude Opus 5 and Fable think by default and max_tokens caps thinking plus
+  // Claude Opus and Fable think by default and max_tokens caps thinking plus
   // tool arguments together; an explicit timeout keeps the non-streaming path.
   const client = new Anthropic({
     apiKey: args.apiKey,

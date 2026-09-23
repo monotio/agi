@@ -23,7 +23,7 @@ import { basename, join } from "node:path";
 import { parseWordsTok } from "../src/logic/words.ts";
 import { Simulation } from "../src/agent/playtest.ts";
 import { AgentSession } from "../app/src/agent/agentSession.ts";
-import { MODEL_CAPABILITIES } from "../src/agent/modelEffort.ts";
+import { DEFAULT_MODELS, MODEL_CAPABILITIES } from "../src/agent/modelEffort.ts";
 import type { AgentFrame } from "../src/agent/frames.ts";
 import type { LlmConfig, LlmUsage } from "../app/src/agent/llmClient.ts";
 
@@ -140,7 +140,7 @@ function configFor(args: Args): LlmConfig {
   return {
     provider,
     apiKey,
-    model: args.model ?? (provider === "anthropic" ? "claude-fable-5" : "gpt-6-astra"),
+    model: args.model ?? DEFAULT_MODELS[provider],
     ...(args.effort !== undefined ? { effort: args.effort } : {}),
   };
 }
