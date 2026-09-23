@@ -857,6 +857,16 @@ test("a ZIP made by macOS Finder imports despite its AppleDouble metadata", () =
 test("interpreter executables stay in the playable file set so detection can read them", () => {
   for (const name of ["AGI", "AGIDATA.OVL", "SIERRA.COM", "GR", "Sierra", "mh2", "SQ2.SYS16"])
     assert.equal(isPlayableFileName(name), true, name);
-  for (const name of ["GR.info", "Disk.info", "Pointer", "README.TXT", "SQ2.1"])
+  for (const name of [
+    "GR.info",
+    "Disk.info",
+    "Pointer",
+    "README.TXT",
+    "SQ2.1",
+    "../SIERRA.COM",
+    "a/b.SYS16",
+    "x?.COM",
+    ".COM",
+  ])
     assert.equal(isPlayableFileName(name), false, name);
 });

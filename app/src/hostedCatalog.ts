@@ -61,7 +61,8 @@ export function readHostedCatalogManifest(raw: unknown, manifestUrl: URL): Hoste
       throw new Error("Hosted catalog file list is invalid.");
     const names = new Set<string>();
     const files = game["files"].map((file) => {
-      if (typeof file !== "string" || file !== file.trim())
+      // A bare file name: no directories, encodings, queries or fragments.
+      if (typeof file !== "string" || !/^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(file))
         throw new Error("Hosted catalog file name is invalid.");
       // The playable set a Game export ships, plus its metadata.
       const canonical = canonicalResourceName(file.toUpperCase());
@@ -141,8 +142,13 @@ function catalogEntry(
     load: async (): Promise<OpenedGame> => {
       const files = new Map<string, Uint8Array>();
       let total = 0;
+      const directory = new URL(record.path, manifestUrl);
       for (const name of record.files) {
-        const bytes = await fetchFile(new URL(`${record.path}${name}`, manifestUrl), fetchImpl);
+        const url = new URL(name, directory);
+        // Defence in depth: every request stays inside the game's directory.
+        if (url.origin !== directory.origin || !url.pathname.startsWith(directory.pathname))
+          throw new Error("Hosted catalog file name is invalid.");
+        const bytes = await fetchFile(url, fetchImpl);
         total += bytes.length;
         if (total > MAX_GAME_BYTES) throw new Error("Hosted game exceeds the 256 MB total limit.");
         files.set(name, bytes);

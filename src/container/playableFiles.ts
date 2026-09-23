@@ -35,8 +35,7 @@ export function isInterpreterFileName(name: string): boolean {
   const upper = name.toUpperCase();
   return (
     INTERPRETER_FILES.includes(upper) ||
-    upper.endsWith(".COM") ||
-    upper.endsWith(".SYS16") ||
+    /^[A-Z0-9_-]+\.(?:COM|SYS16)$/.test(upper) ||
     Object.hasOwn(AMIGA_INTERPRETER_FILES, upper)
   );
 }
