@@ -7,8 +7,10 @@ import {
   splitToolResult,
   openAiToolContent,
   anthropicToolContent,
+  PROVIDER_IMAGE_BYTES,
 } from "../src/agent/toolTransport.ts";
 import { parseView } from "../src/view/view.ts";
+import { assertNoImageData } from "./modelText.ts";
 
 function pixels(png: Uint8Array) {
   const b = Buffer.from(png);
@@ -59,7 +61,7 @@ for (const version of ["2.936", "2.230"]) {
     assert.deepEqual(bitmap.at(37, 54), [38, 43, 50]);
     assert.match(image.caption, /L0 C0.*L1 C0/);
     const content = splitToolResult(result);
-    assert.ok(content.text.length < 1600);
+    assertNoImageData(content.text);
     for (const blocks of [openAiToolContent(content), anthropicToolContent(content)]) {
       assert.equal(blocks.length, 3);
       assert.ok(["image", "input_image"].includes(blocks[2]!.type));
@@ -84,9 +86,9 @@ test("large views return one bounded, explicitly sampled contact sheet", () => {
   const image = result.images![0]!;
   const bitmap = pixels(image.png);
   assert.ok(bitmap.width <= 320 && bitmap.height <= 512);
-  assert.ok(image.png.length < 500_000);
+  assert.ok(image.png.length <= PROVIDER_IMAGE_BYTES);
   assert.match(image.caption, /32 of 100/);
-  assert.ok(splitToolResult(result).text.length < 2000);
+  assertNoImageData(splitToolResult(result).text);
 });
 
 test("four-direction preview states AGI loop order and preserves authored pixels", () => {

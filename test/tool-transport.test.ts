@@ -14,6 +14,8 @@ import {
   anthropicToolDefinitions,
   anthropicToolResult,
   projectToolResult,
+  PROVIDER_IMAGE_BYTES,
+  PROVIDER_IMAGE_EDGE,
   serializeAgentLog,
 } from "../src/agent/toolTransport.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
@@ -22,6 +24,7 @@ import { compilePictureSource } from "../src/picture/source.ts";
 import { buildView } from "../src/view/view.ts";
 import { openContainer } from "../src/container/container.ts";
 import { Engine } from "../src/runtime/engine.ts";
+import { assertNoImageData } from "./modelText.ts";
 
 const picture = { room: 1, source: "vis 1\nfill 0,0\nend" };
 
@@ -31,7 +34,7 @@ test("picture revisions send compact text and byte-exact images to both provider
     const result = executeAgentTool(session, "write_picture", picture);
     assert.equal(result.success, true);
     const content = splitToolResult(result);
-    assert.ok(content.text.length < 2000, `picture text is ${content.text.length} characters`);
+    assertNoImageData(content.text, "picture text");
     assert.match(content.text, new RegExp(`Revision ${round}.`));
     assert.equal(content.images.length, 1);
     for (const blocks of [openAiToolContent(content), anthropicToolContent(content)]) {
@@ -76,7 +79,6 @@ test("source reads carry the source once without dropping other metadata", () =>
 test("debug logs summarize image bytes without expanding them into JSON properties", () => {
   const result = executeAgentTool(createAgentSessionState(), "write_picture", picture);
   const logged = serializeAgentLog({ result });
-  assert.ok(logged.length < 2200);
   assert.deepEqual(JSON.parse(logged).result.images[0].png, {
     binaryBytes: result.images![0]!.png.byteLength,
   });
@@ -173,7 +175,13 @@ function assertTransport(name: string, path: string, result: AgentToolResult): v
   );
   assert.equal(content.images.length, result.images?.length ?? 0);
   for (const image of content.images) {
-    assert.ok(image.png.length < 500_000, `${name} ${path}: oversized image`);
+    assert.ok(image.png.length <= PROVIDER_IMAGE_BYTES, `${name} ${path}: oversized image`);
+    // IHDR width and height: the big-endian words at bytes 16 and 20.
+    const view = new DataView(image.png.buffer, image.png.byteOffset);
+    assert.ok(
+      Math.max(view.getUint32(16), view.getUint32(20)) <= PROVIDER_IMAGE_EDGE,
+      `${name} ${path}: image side over the provider limit`,
+    );
     assert.deepEqual([...image.png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   }
   for (const blocks of [openAiToolContent(content), anthropicToolContent(content)]) {

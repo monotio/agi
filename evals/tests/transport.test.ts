@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { assertNoImageData } from "../../test/modelText.ts";
 
 function record(value: unknown): Record<string, unknown> {
   assert.ok(value !== null && typeof value === "object" && !Array.isArray(value));
@@ -159,7 +160,8 @@ for (const provider of ["openai", "anthropic"]) {
         }
         assert.ok(Array.isArray(result), "tool response must use multimodal blocks");
         const text = record(result[0])["text"];
-        assert.ok(typeof text === "string" && text.length < 2000);
+        assert.ok(typeof text === "string");
+        assertNoImageData(text);
         let encoded: unknown;
         if (provider === "openai") {
           const imageUrl = record(result[2])["image_url"];

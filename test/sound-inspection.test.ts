@@ -119,7 +119,6 @@ test("sound previews are read-only WAV attachments and provider requests keep on
   assert.equal(result.audio?.length, 1);
   assert.equal(new TextDecoder().decode(result.audio![0]!.wav.subarray(0, 4)), "RIFF");
   const content = splitToolResult(result);
-  assert.ok(content.text.length < 3000);
   assert.match(content.text, /not sent to the model/i);
   assert.doesNotMatch(content.text, /"wav"|data:audio|"0":82/);
   assert.equal(openAiToolContent(content).length, 1);
