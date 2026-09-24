@@ -52,6 +52,30 @@ Source: [sound feedback test](../../app/e2e/sound-feedback.spec.ts), using an
 original two-tone test resource and mocked provider replies. The timeline and
 WAV above use the tutorial's separate opening melody.
 
+## From the Genesis benchmark
+
+The README's larger pictures come from the committed
+[1.0.0 Genesis benchmark](../../evals/benchmarks/genesis/1.0.0/README.md): five
+models building the same Knight's Trial opening. Labels use the engine's own
+8×8 font.
+
+![The Knight's Trial opening as five models drew it](genesis-castles.png)
+
+Four of those heroes walking right and towards the viewer, an animated PNG of
+each view's own cels (Opus appears once, at high effort):
+
+![Four heroes walking](genesis-heroes.png)
+
+One room as the player sees it, beside its walkable ground, barriers and horizon:
+
+![A castle gate beside its walkability map](genesis-depth.png)
+
+Regenerate them from the snapshot with:
+
+```bash
+node --experimental-strip-types scripts/benchmark-media.ts
+```
+
 ## Reproduce the tool captures
 
 From the repository root:

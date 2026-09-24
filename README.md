@@ -13,7 +13,11 @@ around you. Ask for changes mid-game: give the guard a different personality,
 add a puzzle, or turn the courtyard into a swamp. Everything the agent makes is
 a real AGI game that you can inspect, download and play again.
 
-![Adventure Department: paint a mural while playing in the browser](docs/media/tutorial-gallery.png)
+![The same Knight's Trial brief drawn by five models, from Claude Opus 5.5 to GPT-6 Luna, with what each cost](docs/media/genesis-castles.png)
+
+_One brief, five models. Each castle is a real AGI picture drawn in vector
+commands, with a working moat, a hero and a game behind it, for between three
+cents and two dollars. From the [Genesis benchmark](evals/benchmarks/genesis/1.0.0/README.md)._
 
 ## Try it
 
@@ -21,6 +25,8 @@ Open [agi.monotio.com](https://agi.monotio.com/) and click **Play now** on
 **Adventure Department**, a three-room tutorial about how these games are made:
 you repair a picture, wake up a sprite and sort out a clerk's priority. You need
 no account, no API key and no Sierra files.
+
+![Adventure Department: paint a mural while playing in the browser](docs/media/tutorial-gallery.png)
 
 - **Play your own Sierra games.** **Add game** takes a ZIP or a game folder.
   The files stay in your browser's storage and are never uploaded. The app
@@ -113,10 +119,23 @@ while the agent writes it. Along the way you can:
 - preview the game's sounds as WAV clips.
 
 Everything the agent writes is a standard AGI resource: logic, vector pictures,
-animated sprites, vocabulary, inventory and sound. It checks its own work with
-rendered previews, compiler messages and playtests of its own. It can still get
-art, puzzles or writing wrong, so play it, and ask for revisions when something
-is off.
+animated sprites, vocabulary, inventory and sound. The heroes above walk because
+the agent drew each frame of each direction, then compiled them into the same
+kind of view file Sierra's artists made:
+
+![The heroes of the Knight's Trial openings walking right and towards the viewer](docs/media/genesis-heroes.png)
+
+An AGI room is also more than its picture. Behind it the game keeps a second,
+invisible layer: how far away each part of the scene is, and where the hero may
+and may not walk. The agent paints that layer too, so the knight walks around
+the notice board and the chest, stops at the water's edge and crosses by the
+drawbridge:
+
+![A castle gate as the player sees it, beside the walkable ground, barriers and horizon the agent painted into it](docs/media/genesis-depth.png)
+
+The agent checks its own work with rendered previews, compiler messages and
+playtests of its own. It can still get art, puzzles or writing wrong, so play
+it, and ask for revisions when something is off.
 
 **Your key, your provider, no server.** The app talks to your provider directly
 from the browser. Your key is saved in browser storage and sent only to the
@@ -162,22 +181,34 @@ is the foundation of this independent implementation.** It documents the
 formats, observable behavior and interpreter versions, and is published under
 [CC0](https://github.com/peterkelly/agi-re/blob/main/LICENSE). Thank you, Peter.
 
-## How it works
+## As close to the originals as we could get
 
-The engine is a TypeScript AGI interpreter with no framework and no runtime
-dependencies. It reads AGI v2 and v3 game files, including the Amiga and Apple
-IIgs layouts, and follows each interpreter build's own behavior through
+Every Sierra AGI game shipped with its own build of the interpreter, and the
+builds do not quite agree. On a PC, a wandering guard whose countdown runs out
+walks 256 more steps before he turns; on an Amiga he turns every 7 to 51
+steps. Details like that decide whether a puzzle is fair, so the engine keeps
+them.
+
+It starts from Peter Kelly's CC0
+[agi-re specification](https://peterkelly.github.io/agi-re/spec/), a clean-room
+description of how AGI behaves. Where a game needs more than the specification
+says, or where builds disagree, the original interpreter's machine code was read
+and often run in isolation with controlled inputs, on PC builds from 2.089 to
+3.002.149 and on the Amiga and Apple IIgs interpreters. The random-number
+generator alone was executed from ten original executables for all 65,536 of
+its states. Each finding is written down with its evidence and held in place by
+a regression test, and full-game walkthroughs of thirteen games replay on the
+engine keystroke by keystroke. [Interpreter compatibility](docs/fidelity.md)
+tells the whole story, from that random-number generator to the Amiga sound
+driver.
+
+Under the hood, the engine is a TypeScript AGI interpreter with no framework
+and no runtime dependencies. It reads AGI v2 and v3 game files, including the
+Amiga and Apple IIgs layouts, and picks each build's behaviour through
 interpreter profiles. Games made in the app are standard AGI 2.936 bytecode
 with no custom opcodes. The engine runs in a Web Worker; the Vue shell adds a
 GPU-rendered CRT display and an in-game command line, while game text stays on
 the original 40 × 25 character screen.
-
-The engine follows Peter Kelly's CC0
-[agi-re specification](https://peterkelly.github.io/agi-re/spec/). Where games
-need more than the specification says, the original Sierra interpreters are the
-reference. [Interpreter compatibility](docs/fidelity.md) walks through what they
-do, from the random-number generator to the Amiga sound driver, with the
-evidence and regression tests behind each finding.
 
 ## Run it yourself
 
