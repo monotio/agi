@@ -20,7 +20,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     });
     const config = {
       provider,
-      model: provider === "openai" ? "gpt-5.6-sol" : "claude-opus-5",
+      model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
       apiKey: "test-placeholder",
       effort: "low" as const,
       systemPrompt: "Create the requested room and verify it.",

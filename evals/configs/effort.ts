@@ -1,8 +1,8 @@
 /**
  * Production Genesis effort and prompt-size comparison.
  *
- * The default plan is one template, one repeat, four models and a bounded
- * lean/default -> lean/low sequence. Baseline and medium stages remain opt-in. Set
+ * The default plan is one template, one repeat, five models and a bounded
+ * lean/default -> lean/low sequence. High and medium stages are opt-in. Set
  * EVAL_EFFORT_STAGES, EVAL_EFFORT_CASES or EVAL_EFFORT_REPEATS to narrow or
  * expand a paid run. Promptfoo is kept at concurrency one because request
  * capture temporarily observes global fetch.
@@ -18,20 +18,14 @@ const models: ReadonlyArray<readonly [EffortProvider, string]> = [
   ["openai", MODEL_IDS.gpt6Sol],
   ["openai", MODEL_IDS.gpt6Luna],
   ["anthropic", MODEL_IDS.claudeOpus55],
-  ["openai", MODEL_IDS.gpt56Sol],
-  ["openai", MODEL_IDS.gpt56Terra],
-  ["anthropic", MODEL_IDS.claudeOpus5],
   ["anthropic", MODEL_IDS.claudeFable51],
 ];
 
 const knownStages: Record<string, EffortStage> = {
-  "baseline-default": { promptVariant: "baseline" },
   "lean-default": { promptVariant: "lean" },
   "lean-high": { promptVariant: "lean", effort: "high" },
   "lean-medium": { promptVariant: "lean", effort: "medium" },
   "lean-low": { promptVariant: "lean", effort: "low" },
-  "baseline-medium": { promptVariant: "baseline", effort: "medium" },
-  "baseline-low": { promptVariant: "baseline", effort: "low" },
 };
 
 function csv(name: string, fallback: string): string[] {

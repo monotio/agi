@@ -32,7 +32,7 @@ test("project round trip retains private history and deduplicates images; public
     projectId: testProjectId("demo"),
     title: "Garden",
     provider: "openai",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     authoredAt: "2026-01-01",
     files: {
       ...Object.fromEntries(container.files),

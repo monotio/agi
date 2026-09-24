@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { AgentRun } from "../src/agent/agentRun.ts";
 
 test("budget pauses before another request and Continue preserves the task", async () => {
-  const run = new AgentRun("gpt-5.6-sol", () => {}, 1);
+  const run = new AgentRun("gpt-6-sol", () => {}, 1);
   const result = run.run(async () => {
-    run.recordUsage({ input: 0, cachedInput: 0, cacheWriteInput: 0, output: 50000 });
+    // 100,000 output tokens at $10/M.
+    run.recordUsage({ input: 0, cachedInput: 0, cacheWriteInput: 0, output: 100_000 });
     await run.checkpoint();
     return 42;
   });
@@ -17,7 +18,7 @@ test("budget pauses before another request and Continue preserves the task", asy
 });
 
 test("productive runs can exceed old turn counts; repeated failures pause", async () => {
-  const run = new AgentRun("gpt-5.6-sol", () => {});
+  const run = new AgentRun("gpt-6-sol", () => {});
   await run.run(async () => {
     for (let i = 0; i < 40; i++) {
       run.recordTool("read_logic", { num: i }, { success: true });
@@ -41,7 +42,7 @@ test("productive runs can exceed old turn counts; repeated failures pause", asyn
 });
 
 test("Stop aborts an in-flight request, waits, then resumes without losing the task", async () => {
-  const run = new AgentRun("gpt-5.6-sol", () => {});
+  const run = new AgentRun("gpt-6-sol", () => {});
   let attempts = 0;
   const result = run.run(() =>
     run.request(async (signal) => {
@@ -61,15 +62,22 @@ test("Stop aborts an in-flight request, waits, then resumes without losing the t
   assert.equal(run.snapshot().usageIncomplete, true);
 });
 
-test("cache reads use the per-model rate: Fable 5.1 charges $0.25/M, not 10% of input", () => {
+test("cache reads use the per-model rate, and 10% of input where none is listed", () => {
   const fable = new AgentRun("claude-fable-5-1", () => {});
   fable.run(async () => {
     fable.recordUsage({ input: 1_000_000, cachedInput: 1_000_000, cacheWriteInput: 0, output: 0 });
   });
   assert.equal(fable.snapshot().spent, 0.25);
-  const opus = new AgentRun("claude-opus-5", () => {});
+  // Opus 5.5 lists $0.20/M; 10% of its $4 input would be $0.40.
+  const opus = new AgentRun("claude-opus-5-5", () => {});
   opus.run(async () => {
     opus.recordUsage({ input: 1_000_000, cachedInput: 1_000_000, cacheWriteInput: 0, output: 0 });
   });
-  assert.equal(opus.snapshot().spent, 0.5);
+  assert.equal(opus.snapshot().spent, 0.2);
+  // GPT-6 Sol lists no cache rate: 100,000 reads at 10% of $2/M, below the long-context threshold.
+  const sol = new AgentRun("gpt-6-sol", () => {});
+  sol.run(async () => {
+    sol.recordUsage({ input: 100_000, cachedInput: 100_000, cacheWriteInput: 0, output: 0 });
+  });
+  assert.equal(sol.snapshot().spent, 0.02);
 });

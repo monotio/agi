@@ -6,7 +6,7 @@
  * only the exact first JSON request body (never headers or credentials).
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { AgentSession, type BootResources } from "../../app/src/agent/agentSession.ts";
@@ -20,7 +20,7 @@ import type { AgentSessionState, AgentToolResult } from "../../src/agent/tools.t
 
 export type EffortProvider = "openai" | "anthropic";
 export interface EffortStage {
-  promptVariant: "baseline" | "lean" | "current";
+  promptVariant: "lean" | "current";
   effort?: LlmConfig["effort"];
 }
 export interface RequestTool {
@@ -47,12 +47,6 @@ export interface ProviderBody {
   output_config?: { effort?: unknown };
   [key: string]: unknown;
 }
-interface PromptVariant {
-  systemPrompt?: string;
-  tools?: RequestTool[];
-  userPrompt?: string;
-  baselineRequestPath?: string;
-}
 export interface GenesisOptions {
   provider: EffortProvider;
   model: string;
@@ -63,7 +57,6 @@ export interface GenesisOptions {
   caseName?: string;
   repeat?: number;
   outputRoot?: string;
-  baselineRequestPath?: string;
   timeoutMs?: number;
   budgetUsd?: number;
   fetchImpl?: typeof fetch;
@@ -136,91 +129,6 @@ function summarizedPlaytest(result: AgentToolResult) {
     cycles: result.details?.["cycles"] ?? 0,
     room: (result.details?.["state"] as { room?: number } | undefined)?.room ?? null,
     ...(result.error ? { error: result.error } : {}),
-  };
-}
-
-async function loadVariant(
-  variant: EffortStage["promptVariant"],
-  baselineRequestPath: string | undefined,
-  templateText: string,
-): Promise<PromptVariant> {
-  if (variant === "current" || variant === "lean") return {};
-  if (variant === "baseline") {
-    const path = resolve(
-      baselineRequestPath ??
-        process.env["EVAL_EFFORT_BASELINE_REQUEST"] ??
-        resolve(
-          import.meta.dirname,
-          "../results/effort/baseline-before-pruning/openai-gpt-5.6-sol-baseline-default--knights-trial--r1.first-request.json",
-        ),
-    );
-    if (!existsSync(path))
-      throw new Error(
-        "Baseline request capture is missing. Set EVAL_EFFORT_BASELINE_REQUEST to the preserved first-request JSON.",
-      );
-    const body = JSON.parse(readFileSync(path, "utf8")) as ProviderBody;
-    const capturedUser = Array.isArray(body.input)
-      ? body.input.find((item) => item?.role === "user")?.content
-      : undefined;
-    if (
-      typeof body.instructions !== "string" ||
-      !Array.isArray(body.tools) ||
-      typeof capturedUser !== "string"
-    )
-      throw new Error(
-        "Baseline request must be an OpenAI startup body with instructions and tools.",
-      );
-    const templateMarker = capturedUser.indexOf("\n---\n");
-    if (templateMarker < 0)
-      throw new Error("Baseline request does not contain the captured Genesis template boundary.");
-    return {
-      systemPrompt: body.instructions,
-      tools: structuredClone(body.tools),
-      userPrompt: `${capturedUser.slice(0, templateMarker + "\n---\n".length)}${templateText.trim()}\n---`,
-      baselineRequestPath: path,
-    };
-  }
-  throw new Error(`Unknown prompt variant: ${variant}`);
-}
-
-export function applyBaselineOverride(
-  body: ProviderBody,
-  variant: PromptVariant,
-  provider: EffortProvider,
-): ProviderBody {
-  if (!variant.tools) return body;
-  if (!Array.isArray(body.tools)) throw new Error("Provider request omitted the production tools.");
-  const capturedByName = new Map(variant.tools.map((tool) => [tool.name, tool]));
-  const tools = body.tools.map((current) => {
-    const captured = capturedByName.get(current.name);
-    if (!captured)
-      throw new Error(
-        `Production Genesis tool ${current.name} is absent from the baseline catalog.`,
-      );
-    if (provider === "openai") return structuredClone(captured);
-    return {
-      ...current,
-      description: captured.description,
-      input_schema: structuredClone(captured.parameters),
-    };
-  });
-  const replaceUser = (items: RequestMessage[]) =>
-    items.map((item) =>
-      item?.role === "user" &&
-      typeof item.content === "string" &&
-      item.content.startsWith("### GENESIS:")
-        ? { ...item, content: variant.userPrompt }
-        : item,
-    );
-  return {
-    ...body,
-    tools,
-    ...(provider === "openai" && Array.isArray(body.input)
-      ? { input: replaceUser(body.input) }
-      : {}),
-    ...(provider === "anthropic" && Array.isArray(body.messages)
-      ? { messages: replaceUser(body.messages) }
-      : {}),
   };
 }
 
@@ -319,26 +227,19 @@ export async function runGenesisSession(options: GenesisOptions) {
     const startedAtIso = new Date().toISOString();
     const startedAt = performance.now();
 
-    let variant: PromptVariant = {};
     globalThis.fetch = async (input, init) => {
       const requestedAt = performance.now();
       requestStarts.push(requestedAt);
-      const originalBodyText = await bodyText(input, init);
-      const outgoingBody = applyBaselineOverride(
-        JSON.parse(originalBodyText) as ProviderBody,
-        variant,
-        provider,
-      );
-      const outgoingText = variant.tools ? JSON.stringify(outgoingBody) : originalBodyText;
+      const text = await bodyText(input, init);
       if (firstRequest.text === undefined) {
-        const text = outgoingText;
         if (Buffer.byteLength(text) > MAX_REQUEST_BYTES)
           throw new Error(`First provider request exceeds ${MAX_REQUEST_BYTES} bytes.`);
-        firstRequest.body = outgoingBody;
+        firstRequest.body = JSON.parse(text) as ProviderBody;
         firstRequest.text = text;
         writeFileSync(requestPath, text, "utf8");
       }
-      const [requestInput, requestInit] = requestWithBody(input, init, outgoingText);
+      // Reading the body consumed a Request's stream; send the same text on.
+      const [requestInput, requestInit] = requestWithBody(input, init, text);
       const response = await delegate(requestInput, requestInit);
       requestLatenciesMs.push(performance.now() - requestedAt);
       return response;
@@ -347,18 +248,12 @@ export async function runGenesisSession(options: GenesisOptions) {
     let monitor: ReturnType<typeof setInterval> | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      variant = await loadVariant(
-        options.promptVariant ?? "baseline",
-        options.baselineRequestPath,
-        options.templateText,
-      );
       session = new AgentSession(
         {
           provider,
           apiKey: options.fetchImpl ? "test-placeholder" : apiKey(provider),
           model: options.model,
           ...(options.effort ? { effort: options.effort } : {}),
-          ...(variant.systemPrompt ? { systemPrompt: variant.systemPrompt } : {}),
           budgetUsd: options.budgetUsd ?? 1.25,
         },
         (type, message, data) => {
@@ -487,8 +382,7 @@ export async function runGenesisSession(options: GenesisOptions) {
         (provider === "openai"
           ? firstRequest.body?.reasoning?.effort
           : firstRequest.body?.output_config?.effort) ?? null,
-      promptVariant: options.promptVariant ?? "baseline",
-      ...(variant.baselineRequestPath ? { baselineRequestPath: variant.baselineRequestPath } : {}),
+      promptVariant: options.promptVariant ?? "lean",
       completion,
       ...(runError ? { error: runError } : {}),
       firstResponseInputTokens: usageTurns[0]?.input ?? null,

@@ -654,7 +654,7 @@ test("Genesis executes advertised room inspection through the shared asynchronou
     });
   });
   const session = new AgentSession(
-    { provider: "openai", apiKey: "test-placeholder", model: "gpt-5.6-sol" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     (_type, message, data) => {
       const event = data as { result?: typeof result } | undefined;
       if (message.startsWith("[Genesis] read_room_context") && event?.result) result = event.result;

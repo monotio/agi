@@ -90,7 +90,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     const pause = new Promise<void>((resolve) => {
       paused = resolve;
     });
-    const run = new AgentRun(provider === "openai" ? "gpt-5.6-sol" : "claude-opus-5", (state) => {
+    const run = new AgentRun(provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5", (state) => {
       if (state.status === "paused") paused();
     });
     const config = { provider, apiKey: "placeholder", model: "test" };
@@ -134,7 +134,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     const ready = new Promise<void>((resolve) => {
       started = resolve;
     });
-    const run = new AgentRun(provider === "openai" ? "gpt-5.6-sol" : "claude-opus-5", () => {});
+    const run = new AgentRun(provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5", () => {});
     const config = { provider, apiKey: "placeholder", model: "test" };
     let request: Record<string, unknown> = {};
     t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
@@ -284,7 +284,7 @@ for (const provider of ["openai", "anthropic"] as const) {
           headers: { "content-type": "text/event-stream" },
         }),
     );
-    const run = new AgentRun("gpt-5.6-sol", () => {});
+    const run = new AgentRun("gpt-6-sol", () => {});
     const config = { provider, apiKey: "placeholder", model: "test" };
     const conversation =
       provider === "openai"

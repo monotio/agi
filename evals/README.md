@@ -65,20 +65,17 @@ supplies the exact total input count.
 For a bounded comparison of one model at medium and low effort:
 
 ```bash
-EVAL_EFFORT_LANES=openai-gpt-5.6-sol-lean-medium,openai-gpt-5.6-sol-lean-low \
+EVAL_EFFORT_LANES=openai-gpt-6-sol-lean-medium,openai-gpt-6-sol-lean-low \
 EVAL_EFFORT_STAGES=lean-medium,lean-low \
 npm --prefix evals run eval:effort -- --no-cache
 ```
 
 Each run starts with a $1.25 estimated allowance and stops at a budget pause or
 timeout. `EVAL_EFFORT_RUN_BUDGET_USD`, `EVAL_EFFORT_CASES`,
-`EVAL_EFFORT_REPEATS` and `EVAL_EFFORT_RUN_ID` control the comparison. Preserve a
-first-request artifact before editing prompts; select `baseline-default` and set
-`EVAL_EFFORT_BASELINE_REQUEST` to replay its system, Genesis instructions and
-tool descriptions. Baseline artifacts are local, not required by offline tests.
-Use `baseline-low,lean-low` for prompt comparisons at a fixed effort, including
-Opus and Fable. The `default` stages use the current app recommendation, which
-can change; reports record the actual requested effort and payload hashes.
+`EVAL_EFFORT_REPEATS` and `EVAL_EFFORT_RUN_ID` control the comparison. Compare
+prompt changes at a fixed effort, such as `lean-low` or `lean-medium`. The
+`default` stage uses the current app recommendation, which can change; reports
+record the actual requested effort and payload hashes.
 
 Claude requests enable automatic conversation caching in addition to the static
 tool and system prefixes. Compare prompt variants with the same caching policy;
@@ -111,7 +108,7 @@ a successful boot alone do not establish better value. Compare effort levels on
 the same briefs and tool implementation, review their frames and interaction
 assertions, and count incomplete runs separately. Preserve important constraints
 while removing repeated instructions, following the current
-[GPT-5.6 guidance](https://developers.openai.com/api/docs/guides/prompt-guidance-gpt-5p6)
+[GPT-6 guidance](https://developers.openai.com/api/docs/guides/prompt-guidance)
 and [Claude effort guidance](https://platform.claude.com/docs/en/build-with-claude/effort).
 
 For comparisons, record the model, prompt and tool versions, input assets,

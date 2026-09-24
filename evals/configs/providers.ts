@@ -1,7 +1,7 @@
 /**
  * Promptfoo Provider Matrix for AGI authoring lanes.
  * Modeled on the author's eval architecture: central model IDs, dual-provider lanes
- * for OpenAI Responses API (GPT-5.6 Sol/Terra) and Anthropic Messages API.
+ * for OpenAI Responses API (GPT-6) and Anthropic Messages API.
  */
 
 import { AGENT_TOOLS } from "../../src/agent/tools.ts";
@@ -15,10 +15,6 @@ export const MODEL_IDS = {
   gpt6Sol: "gpt-6-sol",
   gpt6Luna: "gpt-6-luna",
   claudeOpus55: "claude-opus-5-5",
-  gpt56Sol: "gpt-5.6-sol",
-  gpt56Terra: "gpt-5.6-terra",
-  claudeOpus5: "claude-opus-5",
-  claudeFable5: "claude-fable-5",
   claudeFable51: "claude-fable-5-1",
 };
 
@@ -48,7 +44,7 @@ export interface ProviderMatrixOptions {
   openaiConfig?: Record<string, unknown>;
   anthropicConfig?: Record<string, unknown>;
   includeSol?: boolean;
-  includeTerra?: boolean;
+  includeAstra?: boolean;
   includeAnthropic?: boolean;
 }
 
@@ -57,7 +53,7 @@ export function providerMatrix({
   openaiConfig = {},
   anthropicConfig = {},
   includeSol = true,
-  includeTerra = true,
+  includeAstra = true,
   includeAnthropic = true,
 }: ProviderMatrixOptions = {}): ProviderLane[] {
   const env = process.env;
@@ -68,8 +64,8 @@ export function providerMatrix({
   if (hasOpenAi) {
     if (includeSol) {
       providers.push({
-        id: `openai:responses:${MODEL_IDS.gpt56Sol}`,
-        label: `openai:${MODEL_IDS.gpt56Sol}@${effort}`,
+        id: `openai:responses:${MODEL_IDS.gpt6Sol}`,
+        label: `openai:${MODEL_IDS.gpt6Sol}@${effort}`,
         config: {
           reasoning: { effort },
           tools: variantOpenAiTools(),
@@ -77,10 +73,10 @@ export function providerMatrix({
         },
       });
     }
-    if (includeTerra) {
+    if (includeAstra) {
       providers.push({
-        id: `openai:responses:${MODEL_IDS.gpt56Terra}`,
-        label: `openai:${MODEL_IDS.gpt56Terra}@${effort}`,
+        id: `openai:responses:${MODEL_IDS.gpt6Astra}`,
+        label: `openai:${MODEL_IDS.gpt6Astra}@${effort}`,
         config: {
           reasoning: { effort },
           tools: variantOpenAiTools(),
@@ -94,8 +90,8 @@ export function providerMatrix({
 
   if (hasAnthropic && includeAnthropic) {
     providers.push({
-      id: `anthropic:messages:${MODEL_IDS.claudeOpus5}`,
-      label: `anthropic:${MODEL_IDS.claudeOpus5}`,
+      id: `anthropic:messages:${MODEL_IDS.claudeOpus55}`,
+      label: `anthropic:${MODEL_IDS.claudeOpus55}`,
       config: {
         tools: variantAnthropicTools(),
         ...anthropicConfig,
