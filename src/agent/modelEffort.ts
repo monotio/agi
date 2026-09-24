@@ -46,10 +46,12 @@ export interface ModelCapability {
  * https://platform.claude.com/docs/en/models/opus-5-5/overview
  */
 export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
+  // Anthropic's default, and in the 1.0.0 Genesis benchmark medium matched
+  // high on both briefs for less.
   "claude-opus-5-5": {
     provider: "anthropic",
     effort: REASONING_LEVELS,
-    defaultEffort: "high",
+    defaultEffort: "medium",
     caching: "breakpoint",
     strictSchema: false,
     price: { input: 4, output: 20, longContext: false, cacheRead: 0.2 },

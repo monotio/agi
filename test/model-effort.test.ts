@@ -10,7 +10,9 @@ import {
 
 test("every model gets an explicit pinned default effort", () => {
   assert.equal(defaultModelEffort("gpt-6-sol"), "medium");
-  assert.equal(defaultModelEffort("claude-opus-5-5"), "high");
+  // Anthropic's own defaults: medium on Opus 5.5, high on Fable 5.1.
+  assert.equal(defaultModelEffort("claude-opus-5-5"), "medium");
+  assert.equal(defaultModelEffort("claude-fable-5-1"), "high");
   assert.equal(defaultModelEffort("gpt-6-astra"), "medium");
 });
 
@@ -33,7 +35,7 @@ test("effort none is offered only where the shipped OpenAI models accept it", ()
 test("resolveModelEffort applies the pinned default and rejects unsupported pairs", () => {
   assert.equal(resolveModelEffort("gpt-6-sol"), "medium");
   assert.equal(resolveModelEffort("gpt-6-sol", "none"), "none");
-  assert.equal(resolveModelEffort("claude-opus-5-5"), "high");
+  assert.equal(resolveModelEffort("claude-opus-5-5"), "medium");
   assert.throws(() => resolveModelEffort("claude-opus-5-5", "none"), /none is not supported/);
 });
 
