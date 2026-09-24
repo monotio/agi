@@ -70,8 +70,9 @@ EVAL_EFFORT_STAGES=lean-medium,lean-low \
 npm --prefix evals run eval:effort -- --no-cache
 ```
 
-Each run starts with a $1.25 estimated allowance and stops at a budget pause or
-timeout. `EVAL_EFFORT_RUN_BUDGET_USD`, `EVAL_EFFORT_CASES`,
+Each run gets the app's default task budget ($5) and ends at a budget pause,
+another pause, or a 40-minute timeout that guards against a hung run.
+`EVAL_EFFORT_RUN_BUDGET_USD`, `EVAL_EFFORT_TIMEOUT_MS`, `EVAL_EFFORT_CASES`,
 `EVAL_EFFORT_REPEATS` and `EVAL_EFFORT_RUN_ID` control the comparison. Compare
 prompt changes at a fixed effort, such as `lean-low` or `lean-medium`. The
 `default` stage uses the current app recommendation, which can change; reports

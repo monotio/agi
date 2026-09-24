@@ -11,6 +11,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { MODEL_IDS } from "./providers.ts";
+import { DEFAULT_TASK_BUDGET_USD } from "../../app/src/agent/agentRun.ts";
 import type { EffortProvider, EffortStage } from "../providers/genesis-session.ts";
 
 const models: ReadonlyArray<readonly [EffortProvider, string]> = [
@@ -43,8 +44,8 @@ const stages = csv("EVAL_EFFORT_STAGES", "lean-default,lean-low").map((name) => 
 const cases = csv("EVAL_EFFORT_CASES", "knights-trial");
 const laneFilters = csv("EVAL_EFFORT_LANES", "");
 const repeats = Number(process.env["EVAL_EFFORT_REPEATS"] ?? 1);
-if (!Number.isInteger(repeats) || repeats < 1 || repeats > 5)
-  throw new Error("EVAL_EFFORT_REPEATS must be an integer from 1 to 5.");
+if (!Number.isInteger(repeats) || repeats < 1)
+  throw new Error("EVAL_EFFORT_REPEATS must be a positive integer.");
 
 interface EffortLane {
   id: string;
@@ -72,8 +73,10 @@ for (const [provider, model] of models) {
         provider,
         model,
         lane,
-        budgetUsd: Number(process.env["EVAL_EFFORT_RUN_BUDGET_USD"] ?? 1.25),
-        timeoutMs: Number(process.env["EVAL_EFFORT_TIMEOUT_MS"] ?? 900000),
+        budgetUsd: Number(process.env["EVAL_EFFORT_RUN_BUDGET_USD"] ?? DEFAULT_TASK_BUDGET_USD),
+        ...(process.env["EVAL_EFFORT_TIMEOUT_MS"]
+          ? { timeoutMs: Number(process.env["EVAL_EFFORT_TIMEOUT_MS"]) }
+          : {}),
         ...stage,
       },
     });

@@ -9,6 +9,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
+import { DEFAULT_TASK_BUDGET_USD } from "../../app/src/agent/agentRun.ts";
 import { AgentSession, type BootResources } from "../../app/src/agent/agentSession.ts";
 import { buildProjectZip } from "../../app/src/projectArchive.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
@@ -63,7 +64,8 @@ export interface GenesisOptions {
 }
 
 const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
-const DEFAULT_TIMEOUT_MS = 15 * 60_000;
+/** A hang guard for one paid run, well past the longest recorded Genesis (about twelve minutes). */
+const DEFAULT_TIMEOUT_MS = 40 * 60_000;
 let fetchQueue = Promise.resolve();
 
 function safeName(value: unknown) {
@@ -254,7 +256,7 @@ export async function runGenesisSession(options: GenesisOptions) {
           apiKey: options.fetchImpl ? "test-placeholder" : apiKey(provider),
           model: options.model,
           ...(options.effort ? { effort: options.effort } : {}),
-          budgetUsd: options.budgetUsd ?? 1.25,
+          budgetUsd: options.budgetUsd ?? DEFAULT_TASK_BUDGET_USD,
         },
         (type, message, data) => {
           events.push({ elapsedMs: performance.now() - startedAt, type, message, data });

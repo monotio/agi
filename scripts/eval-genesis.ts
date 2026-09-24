@@ -9,6 +9,9 @@
  * Framework-free TypeScript, runs directly with Node >= 22.6:
  *   node --experimental-strip-types scripts/eval-genesis.ts --template knights-trial --provider stub
  *   node --experimental-strip-types scripts/eval-genesis.ts --template knights-trial --provider openai --model gpt-6-sol
+ *
+ * --max-turns N (default 100) guards a paid run against a loop that never
+ * finishes; --trace and --out choose where the trace and game files go.
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
@@ -127,6 +130,8 @@ interface CliArgs {
   apiKey: string;
   outDir?: string;
   tracePath: string;
+  /** A runaway guard for a paid run, not a target: recorded Genesis runs took 15 to 37 turns. */
+  maxTurns: number;
 }
 
 function parseCliArgs(): CliArgs {
@@ -163,6 +168,9 @@ function parseCliArgs(): CliArgs {
 
   const outDir = options["out"];
   const tracePath = options["trace"] || "evals/last-genesis-trace.json";
+  const maxTurns = Number(options["max-turns"] ?? 100);
+  if (!Number.isInteger(maxTurns) || maxTurns < 1)
+    throw new Error("--max-turns must be a positive integer.");
 
   return {
     template,
@@ -171,6 +179,7 @@ function parseCliArgs(): CliArgs {
     apiKey,
     ...(outDir === undefined ? {} : { outDir }),
     tracePath,
+    maxTurns,
   };
 }
 
@@ -361,9 +370,7 @@ async function runOpenAiGenesis(
   const sessionId = crypto.randomUUID();
 
   let turn = 0;
-  const maxTurns = 20;
-
-  while (turn < maxTurns && !session.genesisComplete) {
+  while (turn < args.maxTurns && !session.genesisComplete) {
     turn++;
     console.log(`\n${ANSI.bold}--- Turn ${turn} (OpenAI: ${args.model}) ---${ANSI.reset}`);
 
@@ -487,16 +494,14 @@ async function runAnthropicGenesis(
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: prompt }];
 
   let turn = 0;
-  const maxTurns = 20;
-
-  while (turn < maxTurns && !session.genesisComplete) {
+  while (turn < args.maxTurns && !session.genesisComplete) {
     turn++;
     console.log(`\n${ANSI.bold}--- Turn ${turn} (Anthropic: ${args.model}) ---${ANSI.reset}`);
 
     const requestedAt = performance.now();
     const response = await client.messages.create({
       model: args.model,
-      max_tokens: 32000,
+      max_tokens: 128000,
       system: [{ type: "text", text: AGI_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
       messages,
       tools,
