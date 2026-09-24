@@ -1,0 +1,433 @@
+{
+  "format": "monotio.agi.tests.v1",
+  "tests": [
+    {
+      "name": "gate_supplies_and_brass_discovery",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "command",
+          "command": "read notice",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "look lantern",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "get bread",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "take lantern",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "take bread",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 1,
+        "carriedItems": [
+          0,
+          1
+        ],
+        "flags": [
+          {
+            "id": 43,
+            "value": true
+          },
+          {
+            "id": 44,
+            "value": true
+          },
+          {
+            "id": 45,
+            "value": true
+          },
+          {
+            "id": 46,
+            "value": true
+          }
+        ],
+        "vars": [
+          {
+            "id": 7,
+            "value": 230,
+            "min": null,
+            "max": null
+          }
+        ],
+        "printed": "already been taken",
+        "text": null,
+        "score": 0,
+        "object": {
+          "num": 1,
+          "view": 2,
+          "x0": null,
+          "y0": null,
+          "x1": null,
+          "y1": null,
+          "active": false
+        },
+        "reachable": null
+      },
+      "cycleBudget": 600
+    },
+    {
+      "name": "gate_hall_exit",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "direction",
+          "command": null,
+          "direction": 1,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": {
+            "room": 2,
+            "flag": null,
+            "var": null
+          },
+          "waypoints": null,
+          "target": null,
+          "ticks": 400,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 2,
+        "carriedItems": null,
+        "flags": null,
+        "vars": null,
+        "printed": null,
+        "text": null,
+        "score": null,
+        "object": null,
+        "reachable": null
+      },
+      "cycleBudget": 600
+    },
+    {
+      "name": "gate_meadow_exit",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "direction",
+          "command": null,
+          "direction": 3,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": {
+            "room": 3,
+            "flag": null,
+            "var": null
+          },
+          "waypoints": null,
+          "target": null,
+          "ticks": 400,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 3,
+        "carriedItems": null,
+        "flags": null,
+        "vars": null,
+        "printed": null,
+        "text": null,
+        "score": null,
+        "object": null,
+        "reachable": null
+      },
+      "cycleBudget": 600
+    },
+    {
+      "name": "gate_moat_bank_blocks_walking",
+      "room": 1,
+      "spawnX": 120,
+      "spawnY": 135,
+      "steps": [
+        {
+          "action": "move",
+          "command": null,
+          "direction": "up",
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": 130,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 1,
+        "carriedItems": null,
+        "flags": [
+          {
+            "id": 202,
+            "value": false
+          }
+        ],
+        "vars": null,
+        "printed": null,
+        "text": null,
+        "score": null,
+        "object": {
+          "num": 0,
+          "view": 1,
+          "x0": 120,
+          "y0": 104,
+          "x1": 120,
+          "y1": 105,
+          "active": true
+        },
+        "reachable": null
+      },
+      "cycleBudget": 600
+    },
+    {
+      "name": "gate_swimming_warns_first",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "command",
+          "command": "swim",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 1,
+        "carriedItems": null,
+        "flags": [
+          {
+            "id": 39,
+            "value": true
+          },
+          {
+            "id": 202,
+            "value": false
+          }
+        ],
+        "vars": null,
+        "printed": "Swimming here would be fatal",
+        "text": null,
+        "score": 0,
+        "object": null,
+        "reachable": null
+      },
+      "cycleBudget": 600
+    },
+    {
+      "name": "gate_deliberate_swimming_death",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "command",
+          "command": "swim",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "swim moat",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 1,
+        "carriedItems": null,
+        "flags": [
+          {
+            "id": 202,
+            "value": true
+          }
+        ],
+        "vars": null,
+        "printed": "before the far bank",
+        "text": null,
+        "score": null,
+        "object": null,
+        "reachable": null
+      },
+      "cycleBudget": 600
+    }
+  ]
+}

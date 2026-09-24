@@ -5,8 +5,9 @@ import { readHistoryArchive, type ProjectHistory } from "./historyArchive.ts";
 import type { RoomMapSidecar } from "../../src/agent/roomMap.ts";
 import { crc32 } from "./zip.ts";
 import { readPublicMetadata, type PublicGameMetadata } from "./gameMetadata.ts";
+import type { ProfileId } from "../../src/runtime/profile.ts";
 import { openContainer, DIRECTORY_FILES } from "../../src/container/container.ts";
-import { canonicalResourceName } from "../../src/types.ts";
+import { canonicalResourceName, isPlayableFileName } from "../../src/container/playableFiles.ts";
 import { decodeBooter, isBooterImage } from "../../src/container/booter.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import { parseLogicResource } from "../../src/logic/resource.ts";
@@ -21,6 +22,8 @@ export interface OpenedGame {
   words: [string, number][];
   title?: string;
   roomGeneration?: boolean;
+  /** GAME.JSON marks the world unfinished: exits may lead to rooms not built yet. */
+  workInProgress?: boolean;
   project?: ProjectContext;
   /** The player's save slots and autosave; a project archive carries them, a published game never does. */
   progress?: GameProgress;
@@ -29,8 +32,12 @@ export interface OpenedGame {
   /** The recorded session tape with its kept original and bookmarks; project archives only. */
   history?: ProjectHistory;
   metadata?: PublicGameMetadata;
+  /** The interpreter override GAME.JSON names; detection decides without one. */
+  profile?: ProfileId;
   /** Recovery payloads remain in the original ZIP; they are not replay imports. */
   backupWarning?: string;
+  /** A MAP.JSON this app could not read; the import goes on without the map. */
+  mapWarning?: string;
 }
 
 export async function readGameZip(bytes: Uint8Array): Promise<OpenedGame> {
@@ -170,6 +177,9 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
   for (const [path, bytes] of input) {
     const upper = path.replace(/\\/g, "/").toUpperCase();
     const slash = upper.lastIndexOf("/");
+    // macOS metadata: Finder's __MACOSX resource-fork tree and AppleDouble
+    // `._` files, which would otherwise read as a second LOGDIR root.
+    if (upper.startsWith("__MACOSX/") || upper.startsWith("._", slash + 1)) continue;
     const name = upper.slice(0, slash + 1) + canonicalResourceName(upper.slice(slash + 1));
     if (
       !name ||
@@ -203,12 +213,8 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
   for (const [path, data] of entries) {
     if (!path.startsWith(root)) continue;
     const name = path.slice(root.length);
-    if (
-      /^([A-Z0-9_]*DIR|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|TESTS\.JSON|AGIDATA\.OVL|AGI|[A-Z0-9_-]+\.COM)$/.test(
-        name,
-      )
-    )
-      files[name] = data;
+    // The shared playable vocabulary, plus the stored game tests.
+    if (isPlayableFileName(name) || name === "TESTS.JSON") files[name] = data;
   }
   if (!files["WORDS.TOK"]) throw new Error("The game is missing WORDS.TOK.");
   const container = openContainer(new Map(Object.entries(files)));
@@ -234,19 +240,25 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
       );
     }
   }
-  const gameMetadata = metadata ? readPublicMetadata(rawMetadata) : { roomGeneration: false };
+  const gameMetadata = metadata
+    ? readPublicMetadata(rawMetadata)
+    : { roomGeneration: false, workInProgress: false };
   const projectBytes = entries.get(`${root}PROJECT.JSON`);
   const project = projectBytes ? readProjectContext(projectBytes, entries, root) : undefined;
-  const progress = project ? readProgressEntries(entries, root, files) : undefined;
-  // A corrupt map must not sink the import: it is derived UI data, so it
-  // degrades to an empty map rather than refusing the whole project.
+  const progress = project
+    ? readProgressEntries(entries, root, files, gameMetadata.profile)
+    : undefined;
+  // A corrupt or newer map must not sink the import: it is derived UI data,
+  // so the import goes on without it — and says so, because the next export
+  // will not carry it either.
   let map: OpenedGame["map"];
+  let mapWarning: string | undefined;
   const mapBytes = project ? entries.get(`${root}MAP.JSON`) : undefined;
   if (mapBytes) {
     try {
       map = readMapArchive(mapBytes);
-    } catch {
-      map = undefined;
+    } catch (error) {
+      mapWarning = `The world map could not be read (${String(error).replace(/^Error: /, "")}) and was left out. Keep the original ZIP to keep it.`;
     }
   }
   // The tape is part of the released project format: a corrupt or
@@ -299,5 +311,6 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
     ...(map ? { map } : {}),
     ...(history ? { history } : {}),
     ...(backupWarning ? { backupWarning } : {}),
+    ...(mapWarning ? { mapWarning } : {}),
   };
 }

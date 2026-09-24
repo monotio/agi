@@ -6,6 +6,7 @@ import { assembleLogic } from "../src/logic/assembler.ts";
 import { parseLogicResource } from "../src/logic/resource.ts";
 import { buildView } from "../src/view/view.ts";
 import { splitToolResult } from "../src/agent/toolTransport.ts";
+import { assertNoImageData } from "./modelText.ts";
 
 test("authoring converts smart punctuation once while preserving explicit message bytes", () => {
   const state = createAgentSessionState();
@@ -68,7 +69,7 @@ test("read_view shows compiled sprites without sending pixel arrays in model tex
   assert.equal(result.success, true, result.error ?? "view can be inspected");
   assert.equal(result.images?.length, 1);
   assert.ok(result.images![0]!.caption.includes("L0 C0"));
-  assert.ok(splitToolResult(result).text.length < 2000);
+  assertNoImageData(splitToolResult(result).text);
   assert.equal(executeAgentTool(state, "read_view", { num: 10 }).success, false);
 });
 

@@ -4,6 +4,7 @@
  * function table (`deps`) useEngine fills after every controller exists, so
  * construction order never matters.
  */
+import type { ProfileId } from "../../src/runtime/profile.ts";
 import type { AgentHandler, LlmRequest } from "./agent/hostRequests.ts";
 import type { AgiAudio } from "./audio/AgiAudio.ts";
 import type { BootedGame, Frame } from "./gameTypes.ts";
@@ -27,7 +28,11 @@ export interface WorkerLinkDeps {
   cancelPrompt(): void;
   handleAutosave(msg: Extract<WorkerOutbound, { type: "autosave" }>): void;
   /** Persist one history batch; true answers it with a historyAck. */
-  handleHistoryBatch(msg: { epoch: number; batch: HistoryBatch }): Promise<boolean>;
+  handleHistoryBatch(msg: {
+    epoch: number;
+    batch: HistoryBatch;
+    profile?: ProfileId;
+  }): Promise<boolean>;
   /** History-transport position reports — progress and terminal replies. */
   handleHistoryView(msg: Extract<WorkerOutbound, { type: "historyView" }>): void;
   handleFlushed(msg: Extract<WorkerOutbound, { type: "flushed" }>): void;

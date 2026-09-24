@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { stampBoot } from "../../src/agent/history.ts";
 import { test } from "node:test";
 import { testProjectId } from "./identity.ts";
 import { requireResourceRevision } from "../../src/gameIdentity.ts";
@@ -62,7 +63,7 @@ test("renaming preserves game resources, conversation and save identity", async 
   assert.equal(await storage.renameAuthoredGame(testProjectId("absent"), "New title"), false);
 });
 
-test("pre-release localStorage project bodies are left untouched", async (t) => {
+test("an unrecognised localStorage project record is refused and left untouched", async (t) => {
   const values = new Map<string, string>();
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   t.after(() => {
@@ -460,7 +461,8 @@ test("released bodies load with normalized library text; identity checks re-hash
   await assert.rejects(storage.loadAuthoredGame(testProjectId("bounded")), /version/);
 });
 
-test("format-less records are replaced while future versions stay untouched", async (t) => {
+test("a record this release does not recognise is never overwritten", async (t) => {
+  t.mock.method(console, "error", () => {});
   const values = new Map<string, string>();
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   t.after(() => {
@@ -477,7 +479,7 @@ test("format-less records are replaced while future versions stay untouched", as
   });
   indexedDbRecords.set("formatless", {
     projectId: testProjectId("formatless"),
-    title: "Pre-release",
+    title: "Unrecognised",
     provider: "stub",
     model: "stub",
     files: { "VOL.0": Uint8Array.of(9) },
@@ -491,13 +493,13 @@ test("format-less records are replaced while future versions stay untouched", as
       files: { "VOL.0": Uint8Array.of(1) },
       words: [],
     }),
-    true,
+    false,
   );
-  assert.equal((await storage.loadAuthoredGame(testProjectId("formatless")))?.title, "Replacement");
+  assert.equal((indexedDbRecords.get("formatless") as { title: string }).title, "Unrecognised");
 
   indexedDbRecords.set("conversation/formatless", {
     projectId: "conversation/formatless",
-    transcript: [{ text: "pre-release" }],
+    transcript: [{ text: "unrecognised" }],
   });
   const conversation = {
     provider: "stub",
@@ -505,8 +507,11 @@ test("format-less records are replaced while future versions stay untouched", as
     transcript: [{ text: "hello" }],
     authoringState: {},
   };
-  await storage.saveGameConversation("formatless", conversation);
-  assert.deepEqual(await storage.loadGameConversation("formatless"), conversation);
+  await assert.rejects(storage.saveGameConversation("formatless", conversation));
+  assert.deepEqual(
+    (indexedDbRecords.get("conversation/formatless") as { transcript: unknown }).transcript,
+    [{ text: "unrecognised" }],
+  );
 });
 
 test("removing a library game clears its conversation, checkpoint, save slots and resume pointer", async (t) => {
@@ -629,6 +634,38 @@ test("a database open that finishes after being blocked closes its abandoned con
   );
   request.onsuccess?.();
   assert.equal(closed, 1);
+});
+
+test("a database a newer app upgraded asks for a reload instead of a raw VersionError", async (t) => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "indexedDB");
+  t.after(() => {
+    if (previous) Object.defineProperty(globalThis, "indexedDB", previous);
+    else Reflect.deleteProperty(globalThis, "indexedDB");
+  });
+  const request = {
+    onerror: null as (() => void) | null,
+    error: Object.assign(
+      new Error("The requested version (1) is less than the existing version (2)."),
+      {
+        name: "VersionError",
+      },
+    ),
+  };
+  Object.defineProperty(globalThis, "indexedDB", {
+    configurable: true,
+    value: {
+      open: () => {
+        queueMicrotask(() => request.onerror?.());
+        return request;
+      },
+    },
+  });
+  const modulePath = "../src/gameStorage.ts?newer-database";
+  const fresh = await import(modulePath);
+  await assert.rejects(
+    fresh.bodyTransaction("readonly", (store: IDBObjectStore) => store.getAllKeys()),
+    /saved by a newer version of this app\. Reload the page/,
+  );
 });
 
 test("concurrency conflict compare-and-swap preserves losing edits in stashedConflicts", async (t) => {
@@ -925,7 +962,7 @@ test("removing a library game deletes its history records and blobs too", async 
   });
   // A real tape: boot batch (segment + files blob) plus an unsettled staged
   // candidate (second blob + staged manifest ref).
-  const boot = {
+  const boot = stampBoot({
     files: { "VOL.0": "AA==" },
     dictionary: [],
     authorRooms: false,
@@ -933,7 +970,7 @@ test("removing a library game deletes its history records and blobs too", async 
     soundDevice: 1,
     resourceSet: "rev-1",
     requestSerial: 0,
-  };
+  });
   const identity = { project: projectId, revision: testRevision("tape") };
   assert.equal(
     await appendHistoryBatch(
@@ -946,7 +983,7 @@ test("removing a library game deletes its history records and blobs too", async 
   );
   await stageRetainedOriginal(projectId, {
     id: "staged-1",
-    boot: { ...boot, files: { "VOL.0": "Ag==" } },
+    boot: stampBoot({ ...boot, files: { "VOL.0": "Ag==" } }),
     from: { segment: "s1", seq: 0, tick: 0 },
     retainedAt: 1,
   });
@@ -1032,7 +1069,7 @@ test("reconciling the index with history records present reads only project bodi
     files: { "VOL.0": Uint8Array.of(3) },
     words: [],
   });
-  const boot = {
+  const boot = stampBoot({
     files: { "VOL.0": "AA==" },
     dictionary: [],
     authorRooms: false,
@@ -1040,7 +1077,7 @@ test("reconciling the index with history records present reads only project bodi
     soundDevice: 1,
     resourceSet: "rev-1",
     requestSerial: 0,
-  };
+  });
   const identity = { project: projectId, revision: testRevision("tape") };
   assert.equal(
     await appendHistoryBatch(

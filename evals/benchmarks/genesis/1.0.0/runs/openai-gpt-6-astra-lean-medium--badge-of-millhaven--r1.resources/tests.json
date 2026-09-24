@@ -1,0 +1,396 @@
+{
+  "format": "monotio.agi.tests.v1",
+  "tests": [
+    {
+      "name": "precinct_assignment_once_and_reminders",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": 1,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "talk prakash",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": 1,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": 1,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "talk sergeant",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": 1,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": 1,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "read board",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": 1,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 1,
+        "carriedItems": [
+          0,
+          1
+        ],
+        "flags": [
+          {
+            "id": 40,
+            "value": true
+          }
+        ],
+        "vars": [
+          {
+            "id": 7,
+            "value": 215,
+            "min": null,
+            "max": null
+          }
+        ],
+        "printed": "Claimed delivery: 9:10.",
+        "text": null,
+        "score": 10,
+        "object": null,
+        "reachable": null
+      },
+      "cycleBudget": 600
+    },
+    {
+      "name": "precinct_incomplete_report_is_recoverable",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": 1,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "file report",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": 1,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 1,
+        "carriedItems": [
+          0,
+          1
+        ],
+        "flags": [
+          {
+            "id": 45,
+            "value": false
+          }
+        ],
+        "vars": null,
+        "printed": "There's no report to file yet.",
+        "text": null,
+        "score": 0,
+        "object": null,
+        "reachable": null
+      },
+      "cycleBudget": 600
+    },
+    {
+      "name": "precinct_east_walking_exit",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": 1,
+          "captureTicks": null
+        },
+        {
+          "action": "direction",
+          "command": null,
+          "direction": 3,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": {
+            "room": 3,
+            "flag": null,
+            "var": null
+          },
+          "waypoints": null,
+          "target": null,
+          "ticks": 180,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 3,
+        "carriedItems": null,
+        "flags": null,
+        "vars": null,
+        "printed": null,
+        "text": null,
+        "score": null,
+        "object": null,
+        "reachable": null
+      },
+      "cycleBudget": 600
+    },
+    {
+      "name": "precinct_west_walking_exit",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": 1,
+          "captureTicks": null
+        },
+        {
+          "action": "direction",
+          "command": null,
+          "direction": 7,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": {
+            "room": 2,
+            "flag": null,
+            "var": null
+          },
+          "waypoints": null,
+          "target": null,
+          "ticks": 180,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 2,
+        "carriedItems": null,
+        "flags": null,
+        "vars": null,
+        "printed": null,
+        "text": null,
+        "score": null,
+        "object": null,
+        "reachable": null
+      },
+      "cycleBudget": 600
+    },
+    {
+      "name": "precinct_desk_contact",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": 1,
+          "captureTicks": null
+        },
+        {
+          "action": "move",
+          "command": null,
+          "direction": "up",
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": 60,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 1,
+        "carriedItems": null,
+        "flags": null,
+        "vars": null,
+        "printed": null,
+        "text": null,
+        "score": null,
+        "object": {
+          "num": 0,
+          "view": 1,
+          "x0": 78,
+          "y0": 108,
+          "x1": 78,
+          "y1": 108,
+          "active": true
+        },
+        "reachable": null
+      },
+      "cycleBudget": 600
+    },
+    {
+      "name": "precinct_wall_contact",
+      "room": 1,
+      "spawnX": 26,
+      "spawnY": 126,
+      "steps": [
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": 1,
+          "captureTicks": null
+        },
+        {
+          "action": "move",
+          "command": null,
+          "direction": "up",
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": 90,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 1,
+        "carriedItems": null,
+        "flags": null,
+        "vars": null,
+        "printed": null,
+        "text": null,
+        "score": null,
+        "object": {
+          "num": 0,
+          "view": 1,
+          "x0": 26,
+          "y0": 78,
+          "x1": 26,
+          "y1": 78,
+          "active": true
+        },
+        "reachable": null
+      },
+      "cycleBudget": 600
+    }
+  ]
+}

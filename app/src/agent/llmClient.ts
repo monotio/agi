@@ -1,7 +1,7 @@
 import type { AgentRun } from "./agentRun.ts";
 /**
- * BYOK LLM client supporting Anthropic (Claude Opus 5 / Fable 5 / Fable 5.1) and
- * OpenAI (GPT-5.6 / Terra / Sol) directly from the browser with prompt caching.
+ * BYOK LLM client supporting Anthropic (Claude Opus 5.5 / Fable 5.1) and OpenAI
+ * (GPT-6 Astra / Sol / Luna) directly from the browser with prompt caching.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
@@ -19,7 +19,12 @@ import {
   type OpenAiToolBlock,
 } from "../../../src/agent/toolTransport.ts";
 import { AGI_SYSTEM_PROMPT } from "../../../src/agent/prompt.ts";
-import { resolveModelEffort, type ModelEffort } from "../../../src/agent/modelEffort.ts";
+import {
+  modelCapability,
+  resolveModelEffort,
+  type ModelEffort,
+  DEFAULT_MODELS,
+} from "../../../src/agent/modelEffort.ts";
 
 export type ProviderType = "anthropic" | "openai" | "stub";
 
@@ -165,22 +170,17 @@ export interface LlmTurnResult {
   toolCalls: ToolCallItem[];
 }
 
-export const DEFAULT_MODELS: Record<ProviderType, string> = {
-  anthropic: "claude-opus-5",
-  openai: "gpt-6-astra",
-  stub: "offline-stub",
-};
+export { DEFAULT_MODELS };
 
 export const MODEL_OPTIONS: Record<ProviderType, { id: string; label: string }[]> = {
   anthropic: [
-    { id: "claude-opus-5", label: "Claude Opus 5" },
+    { id: "claude-opus-5-5", label: "Claude Opus 5.5" },
     { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
-    { id: "claude-fable-5", label: "Claude Fable 5" },
   ],
   openai: [
     { id: "gpt-6-astra", label: "GPT-6 Astra" },
-    { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
-    { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+    { id: "gpt-6-sol", label: "GPT-6 Sol" },
+    { id: "gpt-6-luna", label: "GPT-6 Luna" },
   ],
   stub: [{ id: "offline-stub", label: "Offline Deterministic Stub" }],
 };
@@ -245,7 +245,9 @@ export function createAnthropicConversation(
     apiKey: config.apiKey,
     baseURL: getDevBaseUrl("/api/anthropic"),
     dangerouslyAllowBrowser: true,
-    maxRetries: 0,
+    // The SDK's own retries (twice, with backoff and retry-after) absorb a
+    // transient 429, 5xx or overload before the turn and its staged work fail.
+    maxRetries: 2,
     timeout: 600000,
   });
 
@@ -304,6 +306,12 @@ export function createAnthropicConversation(
             ) as Exclude<ModelEffort, "none">,
           },
           max_tokens: maxTokens,
+          // The notes Opus 5.5 writes between tool calls arrive as thinking
+          // blocks, empty without a display; the agent panel shows them.
+          ...(modelCapability(config.model || DEFAULT_MODELS.anthropic, "anthropic")
+            .summarizedThinking
+            ? { thinking: { type: "adaptive" as const, display: "summarized" as const } }
+            : {}),
           system: [
             {
               type: "text",
@@ -331,6 +339,8 @@ export function createAnthropicConversation(
           }
           if (event.type === "content_block_delta" && event.delta.type === "text_delta")
             run?.updateProgress("text", event.delta.text);
+          if (event.type === "content_block_delta" && event.delta.type === "thinking_delta")
+            run?.updateProgress("thinking", event.delta.thinking);
         }
         const response = await stream.finalMessage();
         responseMs = performance.now() - startedAt;
@@ -472,7 +482,9 @@ export function createOpenAiConversation(
     apiKey: config.apiKey,
     baseURL: getDevBaseUrl("/api/openai/v1"),
     dangerouslyAllowBrowser: true,
-    maxRetries: 0,
+    // The SDK's own retries (twice, with backoff and retry-after) absorb a
+    // transient 429, 5xx or overload before the turn and its staged work fail.
+    maxRetries: 2,
     timeout: 600000,
   });
 

@@ -2,14 +2,20 @@
  * System prompt and prompt construction for the AGI authoring agent.
  *
  * Framework-free TypeScript, zero dependencies. Runs in browser, Web Worker,
- * and Node. Designed for byte-prefix prompt caching in frontier LLMs (GPT-5.6,
- * Claude Opus 5, Claude Fable 5 and 5.1).
+ * and Node. Designed for byte-prefix prompt caching in frontier LLMs (GPT-6,
+ * Claude Opus 5.5 and Claude Fable 5.1).
  *
  * Keep engine instructions stable across games for prefix caching. Per-game
  * context belongs in the user turn. Put parameter and result details in the
  * tool catalog; the system prompt describes cross-tool workflow. Evaluate
  * instruction changes on stored cases instead of assuming a vendor-specific
  * prompting rule improves cost or quality.
+ *
+ * Every request carries this prompt, so its size is a cost and latency
+ * guide, not a limit: about 10,000 characters today. Add what a measured
+ * failure calls for, with the reason when it helps the model; remove what a
+ * tool description already states. The Genesis benchmark's input tokens and
+ * cost show what a change costs.
  */
 
 import { PICTURE_SOURCE_DOC } from "../picture/source.ts";
@@ -26,6 +32,7 @@ Use the tools to author and patch real AGI bytecode, vector pictures, cel views,
 - Logic statements end in semicolons and blocks use braces. Conditions use &&, || and !. Directives include '#message <id> "<text>"', '#define <name> <number>', and bare '#message <id>', which declares that slot ABSENT. Strings support \\n, \\r, \\\\, \\" and \\xNN. Use ASCII punctuation in new dialogue. Register vocabulary before writing a said() handler.
 - Variable operands read a variable's value. For picture 1, use \`assignn(v40, 1); load.pic(v40); draw.pic(v40); show.pic();\`. Inventory operands use numeric item IDs, as in \`get(1)\` and \`has(1)\`.
 - Core state: v0 current room, v1 previous room, v2 ego edge, v6 ego direction, v10 global pace; f2 input entered, f4 input handled, f5 first room cycle, f6 restarted. Prefer variables 32+ for authored state.
+- new.room unanimates every object, ego included: each room's isset(f5) block calls animate.obj(o0) before set.view, position and draw(o0), and accept.input() for the parser; without them ego cannot walk and commands go unread.
 
 ## Picture source grammar
 
@@ -48,9 +55,9 @@ Every tool's own description states what it does, what it returns and how it fai
 - Batch independent reads in one reply; prefer bundled inspections over per-part calls.
 - After write_picture, LOOK AT THE RETURNED IMAGE. Inspect the clean visual, raw EGA priority/control panel, semantic overlay and numeric probes. These compiled outputs are authoritative; references are drafting aids. Revise a concrete defect and Stop when the requested result is achieved.
 - Use fill coverage as diagnosis, not as a quota. Enclose every region before filling. Then inspect the composed frame with the real ego and the VIEW contact sheet. Use captureTicks for an intermediate animation contact sheet when motion matters.
-- Store a game test per puzzle with write_game_tests (kept in TESTS.JSON); writes rerun the tests they touch and run_game_tests replays all.
+- Store a game test per puzzle with write_game_tests.
 - Playtest the requested behavior and nearby regression surface: representative parser commands, persistent interaction and room re-entry states, exits and visible barriers. For a new or materially changed scene, include wall contact, open-floor movement, intended exits, and walking behind and in front of a shaped occluder when present. A bounded speedrun proves only its visited route, not a full solver guarantee.
-- Call handover when the work is done: the host validates then — a boot check plus every stored game test must pass, or it fails with the verdict for repair.
+- Call handover when the work is done: it runs every stored game test (and boots the world on a session's first handover) and returns any failing verdict for repair.
 - New project games use original writing, puzzles and art. When patching a player-supplied game, preserve its existing content except where the player requests a change. Local patches do not publish the game.
 
 ## Runtime interaction
@@ -87,7 +94,7 @@ Logic 0 is the engine entry point: keep or replace the supplied boot so it reach
 
 Write clean, unmannered prose. Say what you mean directly; avoid manufactured aphorisms, mirrored clauses, or forced metaphors. Keep narration strictly diegetic: never break the fourth wall (do not mention "this opening", "chapters", "next part of the story", or "demo"). NEVER print score awards like "(+10)" in messages; award points to variable 3 (addn(v3, points)), which the engine status line displays.
 
-A room logic usually initializes on isset(f5): draw and show the picture, position ego, set the horizon, enable input, describe the room; the rest of it handles actions and exits. For every puzzle you author, store at least one game test for it with write_game_tests and iterate with run_game_tests — handover runs every stored test before it may pass; a puzzle without a passing test is not done. Consult read_authoring_guide only if you need reference patterns for cutscenes or interfaces.
+A room logic usually initializes on isset(f5): draw and show the picture, animate.obj(o0) and position and draw ego, set the horizon, accept.input(), describe the room; the rest of it handles actions and exits. For every puzzle you author, store at least one game test for it with write_game_tests and iterate with run_game_tests — handover runs every stored test before it may pass; a puzzle without a passing test is not done. Consult read_authoring_guide only if you need reference patterns for cutscenes or interfaces.
 
 ---
 ${templateText.trim()}

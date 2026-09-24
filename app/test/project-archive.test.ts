@@ -32,7 +32,7 @@ test("project round trip retains private history and deduplicates images; public
     projectId: testProjectId("demo"),
     title: "Garden",
     provider: "openai",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     authoredAt: "2026-01-01",
     files: {
       ...Object.fromEntries(container.files),
@@ -336,7 +336,7 @@ test("project archives carry the world map; published games never do", async () 
   assert.equal(publicGame.map, undefined);
 });
 
-test("a corrupt MAP.JSON degrades to an empty map instead of refusing the import", async () => {
+test("an unreadable MAP.JSON is left out with a warning instead of refusing the import", async () => {
   const container = createContainer();
   container.putResource("logic", 0, assembleLogic("return;", { dictionary: new Map() }).payload);
   const zip = buildZip([
@@ -358,6 +358,7 @@ test("a corrupt MAP.JSON degrades to an empty map instead of refusing the import
   const opened = await readGameZip(zip);
   assert.ok(opened.project);
   assert.equal(opened.map, undefined);
+  assert.match(opened.mapWarning ?? "", /world map could not be read .* Keep the original ZIP/);
 });
 
 test("a corrupt HISTORY.JSON rejects the import and names the file", async () => {

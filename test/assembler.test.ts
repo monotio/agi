@@ -421,3 +421,47 @@ test("assembler accepts infix assignment and compiles to assignn/assignv", () =>
     code("assignn(v3, 10);\nreturn;"),
   );
 });
+
+test("AGI Studio spellings assemble to the canonical commands", () => {
+  const words = new Map([["look", 10]]);
+  const same = (studio: string, canonical: string, dictionary = words) =>
+    assert.deepEqual(
+      [...assembleLogic(studio, { dictionary }).code],
+      [...assembleLogic(canonical, { dictionary }).code],
+      studio,
+    );
+  same("object.on.water(o1); return;", "obj.on.water(o1); return;");
+  same("object.on.land(o1); return;", "obj.on.land(o1); return;");
+  same("object.on.anything(o1); return;", "obj.on.anything(o1); return;");
+  same(
+    'if (said("look", "rol")) { return; } return;',
+    'if (said("look", "...")) { return; } return;',
+  );
+  same(
+    'if (said("anyword", "look")) { return; } return;',
+    'if (said("*", "look")) { return; } return;',
+  );
+  // The numeric rest-of-line id is a 16-bit word id, as AGI Studio writes it.
+  same(
+    'if (said("look", 9999)) { return; } return;',
+    'if (said("look", "...")) { return; } return;',
+  );
+  // Byte operands still stop at 255, reported where the number was written.
+  assert.throws(
+    () => assembleLogic("assignn(v40, 1);\nassignn(v41, 300);\nreturn;", { dictionary: new Map() }),
+    (error: unknown) =>
+      error instanceof AssemblerError &&
+      error.line === 2 &&
+      error.col === 14 &&
+      /0\.\.255/.test(error.message),
+  );
+  // A game that defines the word keeps its own meaning.
+  const rol = new Map([
+    ["look", 10],
+    ["rol", 20],
+  ]);
+  assert.notDeepEqual(
+    [...assembleLogic('if (said("look", "rol")) { return; } return;', { dictionary: rol }).code],
+    [...assembleLogic('if (said("look", "...")) { return; } return;', { dictionary: rol }).code],
+  );
+});

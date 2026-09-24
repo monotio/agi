@@ -10,21 +10,33 @@
  * alternate text mode cover the picture.
  *
  * Glyph bitmaps are a font input (spec "Font boundary"); the engine deals
- * only in codes. Codes 0x80.. are the box/cursor glyphs this engine's
- * windows use; a font must supply them.
+ * only in codes. A game's own text bytes are stored as they are, 0x80..0xff
+ * included: a translated game prints code-page letters there (0x82 is é on
+ * the PC). The box and cursor glyphs this engine's windows use are private
+ * control codes 0x01..0x07, which no catalogued message prints
+ * (docs/fidelity.md "Text beyond ASCII"); a font must supply them.
  */
 
 export const TEXT_COLS = 40;
 export const TEXT_ROWS = 25;
 
 /** Box-drawing and cursor glyph codes (engine-private code points). */
-export const GLYPH_H = 0x80;
-export const GLYPH_V = 0x81;
-export const GLYPH_TL = 0x82;
-export const GLYPH_TR = 0x83;
-export const GLYPH_BL = 0x84;
-export const GLYPH_BR = 0x85;
-export const GLYPH_CURSOR = 0x86;
+export const GLYPH_H = 0x01;
+export const GLYPH_V = 0x02;
+export const GLYPH_TL = 0x03;
+export const GLYPH_TR = 0x04;
+export const GLYPH_BL = 0x05;
+export const GLYPH_BR = 0x06;
+export const GLYPH_CURSOR = 0x07;
+
+/**
+ * A cell as readable text: a transparent cell is a space, printable ASCII
+ * itself, and anything else — the engine's border and cursor glyphs, a game's
+ * code-page characters — '#'.
+ */
+export function cellChar(ch: number): string {
+  return ch === 0 ? " " : ch < 0x20 || ch >= 0x80 ? "#" : String.fromCharCode(ch);
+}
 
 /** Pack a foreground/background colour pair into one attribute byte. */
 export function attr(fg: number, bg: number): number {
@@ -183,10 +195,7 @@ export class TextSurface {
   /** The row as text; transparent cells read as spaces, glyph codes as '#'. */
   rowText(row: number): string {
     let s = "";
-    for (let c = 0; c < TEXT_COLS; c++) {
-      const ch = this.charAt(row, c);
-      s += ch === 0 ? " " : ch >= 0x80 ? "#" : String.fromCharCode(ch);
-    }
+    for (let c = 0; c < TEXT_COLS; c++) s += cellChar(this.charAt(row, c));
     return s;
   }
 }

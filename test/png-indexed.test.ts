@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { inflateSync } from "node:zlib";
 import { encodePngPaletteRgb } from "../src/picture/png.ts";
+import { PROVIDER_IMAGE_BYTES } from "../src/agent/toolTransport.ts";
 
 interface ParsedPng {
   chunks: Map<string, Uint8Array>;
@@ -115,7 +116,10 @@ describe("indexed palette PNG encoder", () => {
       }
     }
     const png = encodePngPaletteRgb(width, height, rgb);
-    assert.ok(png.length < 500_000, `${png.length} byte indexed graph exceeds transport cap`);
+    assert.ok(
+      png.length <= PROVIDER_IMAGE_BYTES,
+      `${png.length} byte indexed graph exceeds the provider limit`,
+    );
     assert.deepEqual(reconstruct(parsePng(png)), rgb);
   });
 });

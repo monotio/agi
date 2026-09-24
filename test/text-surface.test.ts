@@ -7,6 +7,7 @@ import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import {
   GLYPH_BL,
   GLYPH_BR,
+  GLYPH_CURSOR,
   GLYPH_H,
   GLYPH_TL,
   GLYPH_TR,
@@ -14,6 +15,7 @@ import {
   TEXT_COLS,
   TextSurface,
   attr,
+  cellChar,
   placeWindow,
   wrapLines,
 } from "../src/runtime/textSurface.ts";
@@ -616,4 +618,12 @@ test("display breaks lines on newlines and wraps after column 39, both at column
   assert.equal(engine.textRow(5).slice(30), "wrapped-ar");
   assert.equal(engine.textRow(6).trimEnd(), "ound");
   assert.equal(engine.textRow(24).trimEnd(), "two");
+});
+
+test("cells read as text: borders and code-page bytes are '#', never raw control characters", () => {
+  assert.equal(cellChar(0), " ");
+  assert.equal(cellChar(0x41), "A");
+  for (const code of [GLYPH_H, GLYPH_V, GLYPH_TL, GLYPH_TR, GLYPH_BL, GLYPH_BR, GLYPH_CURSOR])
+    assert.equal(cellChar(code), "#", `glyph 0x${code.toString(16)}`);
+  assert.equal(cellChar(0x82), "#", "é in the PC code page");
 });

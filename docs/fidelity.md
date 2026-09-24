@@ -309,6 +309,33 @@ v21 when it closes. `obj.status.v` is a real modal window, not a log line.
 [Print handler output modes](#print-handler-output-modes) and
 [Original obj.status.v modal](#original-objstatusv-modal).
 
+### Text beyond ASCII
+
+The originals drew text with each machine's own font. This project draws it
+with its own 8×8 font (`app/src/font8x8.ts`) in the same 40 × 25 character
+grid, so letter shapes are the project's, not Sierra's or IBM's.
+
+A scan of every logic message in the catalogued releases found these
+characters outside printable ASCII, apart from line breaks:
+
+| Byte                                                             | PC code page                      | Games                                               | Occurrences                                                            |
+| ---------------------------------------------------------------- | --------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
+| 0xb3, 0xb7, 0xba, 0xbd, 0xc1, 0xc2, 0xc4, 0xd0, 0xd2, 0xd3, 0xd6 | box drawing │ ╖ ║ ╜ ┴ ┬ ─ ╨ ╥ ╙ ╓ | Gold Rush! (PC and Amiga)                           | 1,911, all in logic 26: the Bible pages the copy protection asks about |
+| 0xff                                                             | non-breaking space                | King's Quest II (PC and Amiga)                      | 15 on the PC, 16 on the Amiga                                          |
+| 0x09                                                             | tab                               | Manhunter 1, Space Quest II (PC, Amiga, Apple IIgs) | one each                                                               |
+
+The font draws the box-drawing characters in its own line style and 0xff
+as a blank. There is no evidence yet of how the originals drew a tab, so it
+shows blank. The Amiga Gold Rush! ships the same bytes; whether its own font
+drew them as PC box drawing is unverified. Any other character a game prints
+shows blank and is reported once in the browser console.
+`app/test/font-coverage.test.ts` checks every catalogued release against the
+font.
+
+Game text keeps its bytes: the text surface stores 0x80..0xff unchanged. The
+engine's own window borders and cursor use control codes 0x01..0x07, which
+no catalogued message prints.
+
 ### Messages and strings
 
 The message formatter walks the text once. `%v` inserts a variable (with an

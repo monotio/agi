@@ -418,6 +418,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
                     ? cached.sessionId
                     : undefined,
                   cached.authoringState,
+                  cached.library?.profile,
                 )
               : null;
           authoring.setSession(cachedSession);
@@ -513,6 +514,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       ? {
           installed: booted.installed,
           title: booted.title,
+          workInProgress:
+            booted.authoredGame?.roomGeneration === true ||
+            booted.authoredGame?.library?.workInProgress === true,
           revision: booted.revision,
           hash: booted.hash,
           alias: booted.alias,

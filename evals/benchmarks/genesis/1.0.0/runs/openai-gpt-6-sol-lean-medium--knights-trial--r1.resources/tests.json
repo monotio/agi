@@ -1,0 +1,161 @@
+{
+  "format": "monotio.agi.tests.v1",
+  "tests": [
+    {
+      "name": "Gate supplies persist when taken",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "take bread",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "take lantern",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 1,
+        "carriedItems": [
+          0,
+          1
+        ],
+        "flags": [
+          {
+            "id": 41,
+            "value": true
+          },
+          {
+            "id": 42,
+            "value": true
+          }
+        ],
+        "vars": [
+          {
+            "id": 7,
+            "value": 230,
+            "min": null,
+            "max": null
+          }
+        ],
+        "printed": "Wenna takes the lit lantern",
+        "text": null,
+        "score": 0,
+        "object": {
+          "num": 2,
+          "view": 3,
+          "x0": null,
+          "y0": null,
+          "x1": null,
+          "y1": null,
+          "active": false
+        },
+        "reachable": null
+      },
+      "cycleBudget": 150
+    },
+    {
+      "name": "Alligator warns before danger",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "swim moat",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 1,
+        "carriedItems": null,
+        "flags": [
+          {
+            "id": 49,
+            "value": true
+          }
+        ],
+        "vars": null,
+        "printed": "Swimming would be a poor choice",
+        "text": null,
+        "score": 0,
+        "object": null,
+        "reachable": null
+      },
+      "cycleBudget": 150
+    }
+  ]
+}

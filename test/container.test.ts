@@ -163,6 +163,7 @@ describe("platform port spellings", () => {
       ["object", Uint8Array.of(9)],
       ["words.tok", Uint8Array.of(1, 2)],
       ["Sierra", Uint8Array.of(0x4d, 0x5a)],
+      ["ReadMe.txt", Uint8Array.of(0x41)],
     ]);
     assert.deepEqual(detectContainerFormat(files), { kind: "v2-split", prefix: "" });
     const c = openContainer(files);
@@ -173,8 +174,11 @@ describe("platform port spellings", () => {
     assert.equal(c.files.has("vol.0"), false);
     assert.equal(c.files.has("WORDS.TOK"), true);
     assert.equal(c.files.has("OBJECT"), true);
-    // Non-resource files keep their own spelling.
-    assert.deepEqual(c.files.get("Sierra"), Uint8Array.of(0x4d, 0x5a));
+    // The interpreter executable is playable, so it takes the canonical
+    // spelling too; a file outside the playable vocabulary keeps its own.
+    assert.deepEqual(c.files.get("SIERRA"), Uint8Array.of(0x4d, 0x5a));
+    assert.equal(c.files.has("Sierra"), false);
+    assert.deepEqual(c.files.get("ReadMe.txt"), Uint8Array.of(0x41));
     c.putResource("view", 1, Uint8Array.of(7));
     assert.deepEqual(c.getResource("view", 1), Uint8Array.of(7));
   });

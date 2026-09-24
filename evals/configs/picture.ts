@@ -29,10 +29,10 @@ function lane(vendor: string, model: string) {
 function providers() {
   const list = [];
   if (process.env["OPENAI_API_KEY"]) {
-    list.push(lane("openai", MODEL_IDS.gpt56Sol), lane("openai", MODEL_IDS.gpt56Terra));
+    list.push(lane("openai", MODEL_IDS.gpt6Sol), lane("openai", MODEL_IDS.gpt6Astra));
   } else console.error("[evals] picture: skipping OpenAI lanes (OPENAI_API_KEY not set)");
   if (process.env["ANTHROPIC_API_KEY"]) {
-    list.push(lane("anthropic", MODEL_IDS.claudeOpus5));
+    list.push(lane("anthropic", MODEL_IDS.claudeOpus55));
   } else console.error("[evals] picture: skipping Anthropic lane (ANTHROPIC_API_KEY not set)");
   if (list.length === 0) list.push(lane("fake", "fake"));
   return list;

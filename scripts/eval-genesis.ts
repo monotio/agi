@@ -8,7 +8,10 @@
  *
  * Framework-free TypeScript, runs directly with Node >= 22.6:
  *   node --experimental-strip-types scripts/eval-genesis.ts --template knights-trial --provider stub
- *   node --experimental-strip-types scripts/eval-genesis.ts --template knights-trial --provider openai --model gpt-5.6-sol
+ *   node --experimental-strip-types scripts/eval-genesis.ts --template knights-trial --provider openai --model gpt-6-sol
+ *
+ * --max-turns N (default 100) guards a paid run against a loop that never
+ * finishes; --trace and --out choose where the trace and game files go.
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
@@ -30,6 +33,7 @@ import {
 } from "../src/agent/toolTransport.ts";
 import { validateGenesis } from "../src/agent/playtest.ts";
 import { createGenesisPrompt, AGI_SYSTEM_PROMPT } from "../src/agent/prompt.ts";
+import { DEFAULT_MODELS } from "../src/agent/modelEffort.ts";
 
 const ANSI = {
   reset: "\x1b[0m",
@@ -126,6 +130,8 @@ interface CliArgs {
   apiKey: string;
   outDir?: string;
   tracePath: string;
+  /** A runaway guard for a paid run, not a target: recorded Genesis runs took 15 to 37 turns. */
+  maxTurns: number;
 }
 
 function parseCliArgs(): CliArgs {
@@ -158,12 +164,13 @@ function parseCliArgs(): CliArgs {
     (provider === "openai" ? process.env["OPENAI_API_KEY"] : process.env["ANTHROPIC_API_KEY"]) ||
     "";
 
-  const model =
-    options["model"] ||
-    (provider === "openai" ? "gpt-5.6-sol" : provider === "anthropic" ? "claude-opus-5" : "stub");
+  const model = options["model"] || (provider === "stub" ? "stub" : DEFAULT_MODELS[provider]);
 
   const outDir = options["out"];
   const tracePath = options["trace"] || "evals/last-genesis-trace.json";
+  const maxTurns = Number(options["max-turns"] ?? 100);
+  if (!Number.isInteger(maxTurns) || maxTurns < 1)
+    throw new Error("--max-turns must be a positive integer.");
 
   return {
     template,
@@ -172,6 +179,7 @@ function parseCliArgs(): CliArgs {
     apiKey,
     ...(outDir === undefined ? {} : { outDir }),
     tracePath,
+    maxTurns,
   };
 }
 
@@ -218,23 +226,16 @@ async function runCliGenesis(): Promise<void> {
     // Write ego view
     executeAgentTool(session, "write_view", {
       num: 0,
-      spec: {
-        description: "Ego sprite",
-        loops: [
-          {
-            cels: [
-              {
-                width: 4,
-                height: 4,
-                transparentColor: 0,
-                mirror: false,
-                pixels: new Array(16).fill(1),
-              },
-            ],
-          },
-          { mirrorLoop: 0 },
-        ],
-      },
+      source: [
+        "view",
+        'description "Ego sprite"',
+        "cel ego 4 4 0",
+        ...new Array(4).fill("1111"),
+        "endcel",
+        "loop 0 ego",
+        "loop 1 mirror 0",
+        "endview",
+      ].join("\n"),
     });
     // Write room 1 picture
     executeAgentTool(session, "write_picture", {
@@ -362,9 +363,7 @@ async function runOpenAiGenesis(
   const sessionId = crypto.randomUUID();
 
   let turn = 0;
-  const maxTurns = 20;
-
-  while (turn < maxTurns && !session.genesisComplete) {
+  while (turn < args.maxTurns && !session.genesisComplete) {
     turn++;
     console.log(`\n${ANSI.bold}--- Turn ${turn} (OpenAI: ${args.model}) ---${ANSI.reset}`);
 
@@ -473,7 +472,7 @@ async function runAnthropicGenesis(
   session: ReturnType<typeof createAgentSessionState>,
   trace: TraceEntry[],
 ): Promise<void> {
-  // Claude Opus 5 and Fable think by default and max_tokens caps thinking plus
+  // Claude Opus and Fable think by default and max_tokens caps thinking plus
   // tool arguments together; an explicit timeout keeps the non-streaming path.
   const client = new Anthropic({
     apiKey: args.apiKey,
@@ -488,16 +487,14 @@ async function runAnthropicGenesis(
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: prompt }];
 
   let turn = 0;
-  const maxTurns = 20;
-
-  while (turn < maxTurns && !session.genesisComplete) {
+  while (turn < args.maxTurns && !session.genesisComplete) {
     turn++;
     console.log(`\n${ANSI.bold}--- Turn ${turn} (Anthropic: ${args.model}) ---${ANSI.reset}`);
 
     const requestedAt = performance.now();
     const response = await client.messages.create({
       model: args.model,
-      max_tokens: 32000,
+      max_tokens: 128000,
       system: [{ type: "text", text: AGI_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
       messages,
       tools,

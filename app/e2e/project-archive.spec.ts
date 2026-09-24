@@ -22,7 +22,7 @@ test("Download project resumes private history in a fresh browser; Download game
     format: "monotio.agi.project",
     version: 1,
     provider: "anthropic",
-    model: "claude-opus-5",
+    model: "claude-opus-5-5",
     conversation: { formatVersion: 1, messages: transcript },
     authoringState: {
       sources: { logics: [[0, "return;"]] },

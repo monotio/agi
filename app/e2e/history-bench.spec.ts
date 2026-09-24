@@ -19,6 +19,7 @@
  * numbers, not just the assertions.
  */
 import { expect, test, devices } from "@playwright/test";
+import { stampBoot, type HistoryBoot } from "../../src/agent/history.ts";
 
 test.use({ ...devices["Moto G4"] });
 
@@ -29,6 +30,22 @@ const FILL_SEGMENTS = 18;
 const FILL_BATCH_BYTES = 4 * 1024 * 1024;
 /** Steady-state commits measured on the near-budget tape. */
 const TAIL_BATCHES = 150;
+
+/** A small game's file set — ~300 KB of base64, the payload blob dedup is meant to keep off the per-segment path. */
+const BENCH_BOOT = stampBoot({
+  files: {
+    LOGDIR: "x".repeat(120 * 1024),
+    "VOL.0": "y".repeat(120 * 1024),
+    "WORDS.TOK": "z".repeat(24 * 1024),
+    OBJECT: "w".repeat(4 * 1024),
+  },
+  dictionary: [],
+  authorRooms: false,
+  rng: 7,
+  soundDevice: 1,
+  resourceSet: "bench",
+  requestSerial: 0,
+});
 
 interface BenchResult {
   commits: number;
@@ -55,6 +72,7 @@ test("append-oriented commits stay batch-bounded on a phone-class browser", asyn
       fillSegments: number;
       fillBatchBytes: number;
       tailBatches: number;
+      boot: HistoryBoot;
     }) => {
       const storage = await import("/src/historyStorage.ts");
       const identity = {
@@ -90,23 +108,8 @@ test("append-oriented commits stay batch-bounded on a phone-class browser", asyn
         ],
         ...(boot !== undefined ? { boot } : {}),
       });
-      // A small game's file set — ~300 KB of base64, the payload blob dedup
-      // is meant to keep off the per-segment path.
-      const bootFiles = {
-        LOGDIR: "x".repeat(120 * 1024),
-        "VOL.0": "y".repeat(120 * 1024),
-        "WORDS.TOK": "z".repeat(24 * 1024),
-        OBJECT: "w".repeat(4 * 1024),
-      };
-      const boot = {
-        files: bootFiles,
-        dictionary: [] as [string, number][],
-        authorRooms: false,
-        rng: 7,
-        soundDevice: 1,
-        resourceSet: "bench",
-        requestSerial: 0,
-      };
+      const boot = shapes.boot;
+      const bootFiles = boot.files;
 
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
         const req = indexedDB.open("monotio-agi-projects", 1);
@@ -343,6 +346,7 @@ test("append-oriented commits stay batch-bounded on a phone-class browser", asyn
       fillSegments: FILL_SEGMENTS,
       fillBatchBytes: FILL_BATCH_BYTES,
       tailBatches: TAIL_BATCHES,
+      boot: BENCH_BOOT,
     },
   );
 

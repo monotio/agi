@@ -4,38 +4,29 @@ import { createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts
 import { executeSpriteTool, SPRITE_TOOLS } from "../src/agent/spriteTools.ts";
 import { buildView, parseView, selectViewCel } from "../src/view/view.ts";
 
-const ACTOR = {
-  num: 0,
-  description: "Four-way actor",
-  transparentColor: 0,
-  mirrorLeftFromRight: true,
-  right: [["120", "340"]],
-  left: null,
-  down: [["506", "780"]],
-  up: [["90A", "BC0"]],
-};
+/** A four-direction actor: right, down and up drawn, left mirrored from right. */
+const ACTOR = `view
+description "Four-way actor"
+cel right 3 2 0
+120
+340
+endcel
+cel down 3 2 0
+506
+780
+endcel
+cel up 3 2 0
+90A
+BC0
+endcel
+loop 0 right
+loop 1 mirror 0
+loop 2 down
+loop 3 up
+endview`;
 
-const writeActor = (
-  state: ReturnType<typeof createAgentSessionState>,
-  args: Record<string, unknown>,
-) =>
-  executeAgentTool(state, "write_view", {
-    num: args["num"],
-    spec: {
-      description: null,
-      loops: null,
-      facings: {
-        description: args["description"] ?? null,
-        transparentColor: args["transparentColor"],
-        mirrorLeftFromRight: args["mirrorLeftFromRight"] ?? null,
-        mirrorUpFromDown: args["mirrorUpFromDown"] ?? null,
-        right: args["right"] ?? null,
-        left: args["left"] ?? null,
-        down: args["down"] ?? null,
-        up: args["up"] ?? null,
-      },
-    },
-  });
+const writeView = (state: ReturnType<typeof createAgentSessionState>, source: string, num = 0) =>
+  executeAgentTool(state, "write_view", { num, source });
 
 describe("sprite authoring tools", () => {
   it("advertises strict, bounded schemas", () => {
@@ -52,9 +43,9 @@ describe("sprite authoring tools", () => {
     }
   });
 
-  it("writes all four named facings in AGI order and mirrors left from right", () => {
+  it("writes a four-direction actor from source, left mirrored from right", () => {
     const state = createAgentSessionState();
-    const result = writeActor(state, ACTOR);
+    const result = writeView(state, ACTOR);
     assert.equal(result?.success, true);
     const payload = state.container.getResource("view", 0)!;
     const view = parseView(payload, state.profile);
@@ -68,74 +59,54 @@ describe("sprite authoring tools", () => {
     assert.equal(result?.images?.length, 1);
   });
 
-  it("accepts a single direction and safely populates missing loops with warnings", () => {
+  it("takes as many cels per loop as the interpreter allows", () => {
+    // The facings shorthand capped every direction at 15 cels, the limit of
+    // packed-header interpreters only; 2.936 allows 255.
     const state = createAgentSessionState();
-    const result = writeActor(state, {
-      num: 1,
-      description: "Simple actor",
-      transparentColor: 0,
-      mirrorLeftFromRight: null,
-      mirrorUpFromDown: null,
-      right: [["12", "34"]],
-      left: null,
-      down: null,
-      up: null,
-    });
-    assert.equal(result?.success, true);
-    const view = parseView(state.container.getResource("view", 1)!, state.profile);
-    assert.equal(view.loops.length, 4);
-    assert.deepEqual([...selectViewCel(view, 0, 0)!.pixels], [1, 2, 3, 4]);
-    assert.deepEqual([...selectViewCel(view, 1, 0)!.pixels], [2, 1, 4, 3]); // mirrored
-    assert.deepEqual([...selectViewCel(view, 2, 0)!.pixels], [1, 2, 3, 4]); // down copied from right
-    assert.deepEqual([...selectViewCel(view, 3, 0)!.pixels], [1, 2, 3, 4]); // up copied from down/right
-    assert.ok(result?.adjustments?.some((a) => a.includes("down")));
-    assert.ok(result?.adjustments?.some((a) => a.includes("up")));
+    const walk = Array.from({ length: 20 }, (_, index) => (index % 2 ? "a" : "b")).join(" ");
+    const long = writeView(
+      state,
+      `view\ncel a 3 1 0\n120\nendcel\ncel b copy a\nrow 0 021\nendcel\nloop 0 ${walk}\nendview`,
+      2,
+    );
+    assert.equal(long?.success, true, long?.error ?? "");
+    assert.equal(
+      parseView(state.container.getResource("view", 2)!, state.profile).loops[0]!.cels.length,
+      20,
+    );
   });
 
-  it("flips up vertically from down when mirrorUpFromDown is true", () => {
+  it("writes a view whose walk does not move, and tells the model why", () => {
     const state = createAgentSessionState();
-    const result = writeActor(state, {
-      num: 2,
-      description: "Top-down vehicle",
-      transparentColor: 0,
-      mirrorLeftFromRight: true,
-      mirrorUpFromDown: true,
-      right: [["12", "34"]],
-      left: null,
-      down: [["12", "34"]],
-      up: null,
-    });
-    assert.equal(result?.success, true);
-    const view = parseView(state.container.getResource("view", 2)!, state.profile);
-    assert.equal(view.loops.length, 4);
-    assert.deepEqual([...selectViewCel(view, 2, 0)!.pixels], [1, 2, 3, 4]);
-    // vertically flipped: rows are reversed (row 1 becomes row 0)
-    assert.deepEqual([...selectViewCel(view, 3, 0)!.pixels], [3, 4, 1, 2]);
-    assert.ok(result?.adjustments?.some((a) => a.includes("vertically")));
+    const result = writeView(
+      state,
+      "view\ncel a 3 1 0\n120\nendcel\ncel b copy a\nendcel\nloop 0 a b\nendview",
+    );
+    assert.equal(result?.success, true, result?.error ?? "");
+    assert.match(result?.message ?? "", /Loop 0: all 2 cels are identical/);
+    assert.deepEqual(result?.details?.["warnings"], [
+      "Loop 0: all 2 cels are identical, so it shows no motion; change the rows that move (for a walk, the legs).",
+    ]);
   });
 
-  it("rejects inconsistent row widths and invalid colors before writing", () => {
+  it("rejects a malformed row before writing, naming the cel, row and fix", () => {
     const state = createAgentSessionState();
-    const uneven = writeActor(state, {
-      ...ACTOR,
-      right: [["123", "45"]],
-    });
+    const uneven = writeView(state, ACTOR.replace("340", "34"));
     assert.equal(uneven?.success, false);
-    assert.match(uneven?.error ?? "", /same width/);
+    assert.match(
+      uneven?.error ?? "",
+      /View 0 was not written: line 5: cel right row 1 has 2 symbols; its width is 3/,
+    );
     assert.equal(state.container.getResource("view", 0), null);
-
-    const invalid = writeActor(state, {
-      ...ACTOR,
-      right: [["12G"]],
-    });
+    const invalid = writeView(state, ACTOR.replace("120", "12G"));
     assert.equal(invalid?.success, false);
-    assert.match(invalid?.error ?? "", /hex digits/);
+    assert.match(invalid?.error ?? "", /"12G" may use only 0-9, A-F/);
     assert.equal(state.container.getResource("view", 0), null);
   });
 
   it("reads one selected cel as exact rendered rows, colors and revision", () => {
     const state = createAgentSessionState();
-    writeActor(state, ACTOR);
+    writeView(state, ACTOR);
     const result = executeAgentTool(state, "read_view", {
       num: 0,
       cels: [{ loop: 1, cel: 0 }],
@@ -189,7 +160,7 @@ describe("sprite authoring tools", () => {
 
   it("rejects a stale revision atomically", () => {
     const state = createAgentSessionState();
-    writeActor(state, ACTOR);
+    writeView(state, ACTOR);
     const before = state.container.getResource("view", 0)!.slice();
     const result = executeSpriteTool(state, "patch_view_cels", {
       num: 0,

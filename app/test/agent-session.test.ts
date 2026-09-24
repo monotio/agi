@@ -322,9 +322,13 @@ test("a staged change the model abandons in text is discarded, not adopted", asy
 
   const result = await session.runPowerUp("simplify room 1", 1);
 
-  // The verdict went out once; the second plain-text reply discards the
-  // unvalidated candidate and says so instead of claiming it landed.
-  assert.equal(requests.length, 3);
+  // Opus 5.5 can end a turn with a progress note while work is owed, so the
+  // verdict goes back three times, as Anthropic's guidance for unattended
+  // runs suggests, before a fourth plain-text reply discards the unvalidated
+  // candidate and says so instead of claiming it landed.
+  assert.equal(requests.length, 5);
+  for (const request of requests.slice(2))
+    assert.match(JSON.stringify(request["input"]), /cannot be committed.*what blocks it/);
   assert.deepEqual(state.container.getResource("logic", 1), originalRoom);
   assert.match(result.text, /not applied/);
 });
@@ -639,7 +643,8 @@ test("Genesis executes advertised room inspection through the shared asynchronou
   let requests = 0;
   let result: { success?: boolean; error?: string } | undefined;
   t.mock.method(globalThis, "fetch", async () => {
-    if (++requests > 1) throw new Error("End this bounded inspection test.");
+    // A 400 ends the bounded test; the SDK retries connection errors.
+    if (++requests > 1) return new Response("End this bounded inspection test.", { status: 400 });
     // The one-flow genesis turn's read_room_context is the call under test.
     const output = [
       {
@@ -654,7 +659,7 @@ test("Genesis executes advertised room inspection through the shared asynchronou
     });
   });
   const session = new AgentSession(
-    { provider: "openai", apiKey: "test-placeholder", model: "gpt-5.6-sol" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     (_type, message, data) => {
       const event = data as { result?: typeof result } | undefined;
       if (message.startsWith("[Genesis] read_room_context") && event?.result) result = event.result;
@@ -669,7 +674,8 @@ test("genesis is one turn: the world plan and resource writes share the tool sur
   const requests: { tool_choice?: { tools: { name: string }[] }; input: unknown }[] = [];
   t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
     requests.push(JSON.parse(String(init.body)));
-    if (requests.length > 1) throw new Error("End this bounded genesis test.");
+    // A 400 ends the bounded test; the SDK retries connection errors.
+    if (requests.length > 1) return new Response("End this bounded genesis test.", { status: 400 });
     // One flow: update_world and a resource write land in the same turn —
     // no plan phase gates either of them.
     const output = [
@@ -859,4 +865,30 @@ test("a reserved resource transaction refuses map commits and incoming adoptions
   release();
   assert.equal(session.commitPlanDraft(draft).status, "committed");
   assert.equal(session.state.authoring.world.rooms["1"]?.title, "Changed while keeping");
+});
+
+test("a session keeps the game's interpreter override through adoption and reconfiguration", () => {
+  // A synthetic v2 game detects as 2.936; the override must win everywhere
+  // the session rebuilds its state, or tools compile for the wrong build.
+  const files = Object.fromEntries(openContainer(new Map()).files);
+  files["WORDS.TOK"] = buildWordsTok([]);
+  const config = { provider: "stub", model: "offline-stub", apiKey: "" } as const;
+  const session = AgentSession.fromAuthoredData(
+    config,
+    () => {},
+    files,
+    [],
+    undefined,
+    undefined,
+    undefined,
+    "2.089",
+  );
+  assert.equal(session.state.profile.id, "2.089");
+  session.adoptAuthoredData(files, []);
+  assert.equal(session.state.profile.id, "2.089");
+  const replacement = session.reconfigure({ ...config, model: "offline-stub-2" });
+  replacement.adoptAuthoredData(files, []);
+  assert.equal(replacement.state.profile.id, "2.089");
+  const automatic = AgentSession.fromAuthoredData(config, () => {}, files, []);
+  assert.equal(automatic.state.profile.id, "2.936");
 });

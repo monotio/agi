@@ -233,7 +233,8 @@ jobs:
           grep -qi '^x-content-type-options: nosniff' /tmp/agi-headers
           asset="$(grep -o '/assets/[^"]*\.js' /tmp/agi-index | head -1)"
           test -n "$asset"
-          curl --fail --silent --show-error "https://agi.monotio.com$asset" -o /tmp/agi-asset
+          # The new index can reach the edge before its assets do.
+          curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 10 "https://agi.monotio.com$asset" -o /tmp/agi-asset
           test "$(wc -c < /tmp/agi-asset)" -gt 10000
 
   verify:

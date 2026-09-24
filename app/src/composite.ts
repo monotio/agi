@@ -9,8 +9,11 @@
  * putImageData it.
  */
 import { EGA_PALETTE } from "./palette.ts";
-import { FONT } from "./font8x8.ts";
+import { FONT, HAS_GLYPH } from "./font8x8.ts";
 import { TEXT_COLS, TEXT_ROWS } from "../../src/runtime/textSurface.ts";
+
+/** Codes already reported as missing from the font, once per page. */
+const reportedGlyphs = new Uint8Array(256);
 
 export const FRAME_WIDTH = 320;
 export const FRAME_HEIGHT = 200;
@@ -123,6 +126,14 @@ export function compositeFrame(
       const at = (row * TEXT_COLS + col) * 2;
       const ch = input.text[at]!;
       if (ch === 0) continue;
+      if (!HAS_GLYPH[ch] && !reportedGlyphs[ch]) {
+        // A translated or fan game can print codes past ASCII; say so
+        // rather than leave a silent blank.
+        reportedGlyphs[ch] = 1;
+        console.warn(
+          `Game text uses character 0x${ch.toString(16).padStart(2, "0")}, which the 8×8 font does not draw; it shows as a blank cell.`,
+        );
+      }
       const a = input.text[at + 1]!;
       const fg = EGA_PALETTE[a & 0x0f]!;
       const bg = EGA_PALETTE[(a >> 4) & 0x0f]!;

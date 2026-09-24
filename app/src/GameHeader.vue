@@ -24,6 +24,7 @@ import {
 defineProps<{
   touchControls: boolean;
   crtEnabled: boolean;
+  originalAspect: boolean;
   gpuBackend: string | undefined;
   debugOpen: boolean;
   exportBusy: boolean;
@@ -33,6 +34,7 @@ defineProps<{
 const emit = defineEmits<{
   "update:touchControls": [value: boolean];
   "update:crtEnabled": [value: boolean];
+  "update:originalAspect": [value: boolean];
   "update:debugOpen": [value: boolean];
   "trigger-key": [code: number];
   "export-zip": [project: boolean];
@@ -336,6 +338,16 @@ async function onRecordSave(): Promise<void> {
         <button
           type="button"
           role="menuitemcheckbox"
+          :aria-checked="originalAspect"
+          data-testid="toggle-original-aspect"
+          @click="$emit('update:originalAspect', !originalAspect)"
+        >
+          <span>Original 4:3<small>Taller pixels, as 1980s monitors showed them</small></span>
+          <span class="setting-value">{{ originalAspect ? "On" : "Off" }}</span>
+        </button>
+        <button
+          type="button"
+          role="menuitemcheckbox"
           :aria-checked="touchControls"
           data-testid="toggle-touch-controls"
           @click="$emit('update:touchControls', !touchControls)"
@@ -425,7 +437,12 @@ async function onRecordSave(): Promise<void> {
           :disabled="exportBusy || state.powerUp.busy"
           @click="onExportAgiZip(true)"
         >
-          <span
+          <span v-if="currentGame()?.workInProgress"
+            >Export game…<small data-testid="export-work-in-progress"
+              >Work in progress: exits to rooms not built yet stop the game — a ZIP file</small
+            ></span
+          >
+          <span v-else
             >Export game…<small
               >For publishing: playable game without private editing work or play history — a ZIP
               file</small

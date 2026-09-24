@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { stampBoot } from "../../src/agent/history.ts";
 import { test } from "node:test";
 import { readHistoryArchive } from "../src/historyArchive.ts";
 import { testProjectId, testRevision } from "./identity.ts";
@@ -12,7 +13,7 @@ const recording = {
   segments: [],
 };
 const branch = {
-  boot: {
+  boot: stampBoot({
     files: {},
     dictionary: [],
     authorRooms: false,
@@ -20,7 +21,7 @@ const branch = {
     soundDevice: 1,
     resourceSet: "archive",
     requestSerial: 0,
-  },
+  }),
   from: null,
   retainedAt: 1,
 };
@@ -37,8 +38,7 @@ function read(extra: Record<string, unknown>) {
   );
 }
 
-test("history archives reject singleton branches and missing branch IDs instead of backfilling", () => {
-  assert.throws(() => read({ retained: { ...branch, id: "kept" } }), /HISTORY.JSON/);
+test("history archives reject branches without IDs instead of backfilling", () => {
   assert.throws(() => read({ branches: [branch] }), /retained branch is invalid/);
   assert.equal(read({ branches: [{ ...branch, id: "kept" }] }).branches?.[0]?.id, "kept");
 });

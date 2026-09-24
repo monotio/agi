@@ -58,3 +58,20 @@ test("blend tints depth bands and hatches control lines", () => {
   assert.deepEqual(pixelAt(out, 0, 8 + 100), [102, 230, 128]);
   assert.deepEqual(pixelAt(out, 2, 8 + 100), [150, 238, 168]);
 });
+
+test("a character the font does not draw is reported once, not left silently blank", (t) => {
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (message: string) => warnings.push(message));
+  const input = fixture();
+  // "A", then code 0x82 (é in the PC code page) twice.
+  input.text.set([0x41, 0x0f, 0x82, 0x0f, 0x82, 0x0f]);
+  const out = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
+  compositeFrame(input, out);
+  compositeFrame(input, out);
+  // The é cell is blank background, not one of the window border glyphs.
+  for (let y = 0; y < 8; y++)
+    for (let x = 8; x < 16; x++) assert.deepEqual(pixelAt(out, x, y), EGA_PALETTE[0]!.slice(0, 3));
+  assert.deepEqual(warnings, [
+    "Game text uses character 0x82, which the 8×8 font does not draw; it shows as a blank cell.",
+  ]);
+});

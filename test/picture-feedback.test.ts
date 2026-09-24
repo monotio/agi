@@ -297,3 +297,12 @@ describe("picture feedback: edit report", () => {
     assert.equal(r.strayCells, 1);
   });
 });
+
+it("reports a picture with no control lines as walkable everywhere", () => {
+  // Priority 4 everywhere: no barrier, trigger or water line anywhere.
+  const text = formatPriorityDiagnostics(new Uint8Array(160 * 168).fill(4));
+  assert.match(text, /controls 0\.\.3: absent\. Ego can walk across every part of this picture/);
+  const walled = new Uint8Array(160 * 168).fill(4);
+  walled.fill(0, 100 * 160, 101 * 160);
+  assert.doesNotMatch(formatPriorityDiagnostics(walled), /Ego can walk across every part/);
+});

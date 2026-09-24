@@ -19,6 +19,16 @@ export type AnthropicToolBlock =
     };
 
 /**
+ * Per-image limits every image sent to a model must meet, from Anthropic's
+ * vision limits (the tighter provider): 10 MB of base64 per image, and at
+ * most 2000 px a side once a request carries more than 20 images, which a
+ * long authoring conversation soon does.
+ * https://platform.claude.com/docs/en/build-with-claude/vision#request-limits
+ */
+export const PROVIDER_IMAGE_BYTES = 7_500_000;
+export const PROVIDER_IMAGE_EDGE = 2000;
+
+/**
  * Serialized-character budget per `details` field. Larger fields move to the
  * session's diagnostic store, retrievable by read_diagnostic; the compact
  * projection keeps scalars, revisions, counts and verdict fields.

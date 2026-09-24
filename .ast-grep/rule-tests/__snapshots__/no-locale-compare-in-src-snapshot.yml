@@ -1,0 +1,14 @@
+id: no-locale-compare-in-src
+snapshots:
+  entries.sort(([a], [b]) => a.localeCompare(b));:
+    labels:
+      - source: a.localeCompare(b)
+        style: primary
+        start: 27
+        end: 45
+  title.localeCompare(other, "en");:
+    labels:
+      - source: title.localeCompare(other, "en")
+        style: primary
+        start: 0
+        end: 32

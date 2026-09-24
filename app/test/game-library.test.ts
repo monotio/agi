@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { testProjectId } from "./identity.ts";
 import { requireResourceRevision } from "../../src/gameIdentity.ts";
@@ -156,6 +157,7 @@ test("public metadata is versioned, bounded and cannot carry private history or 
   assert.deepEqual(readPublicMetadata({ format: "monotio.agi", version: 1, title: "Game" }), {
     title: "Game",
     roomGeneration: false,
+    workInProgress: false,
     metadata: {},
   });
   assert.throws(
@@ -370,17 +372,25 @@ test("import and copy rebind a verified staged reference; a stale one keeps its 
   );
 });
 
-test("project compaction preserves current staging and refuses stale staging through repeated imports and copies", async (t) => {
+test("exports ship stored bytes; a supplied OBJECT keeps current staging and refuses stale staging through repeated imports and copies", async (t) => {
   installLocalStorage(t);
-  const packed = (await readGameZip(buildPublicGameZip({ files: game(), title: "Port" }))).files;
-  const files = { ...packed, "VOL.0": Uint8Array.of(...packed["VOL.0"]!, 1, 2, 3, 4) };
+  // Stored bytes ship as they are, slack after the last record included: an
+  // untouched original exports as the same bytes and the same revision.
+  const exported = (await readGameZip(buildPublicGameZip({ files: game(), title: "Port" }))).files;
+  const slack = { ...exported, "VOL.0": Uint8Array.of(...exported["VOL.0"]!, 1, 2, 3, 4) };
+  assert.deepEqual(
+    (await readGameZip(buildPublicGameZip({ files: slack, title: "Port" }))).files,
+    slack,
+  );
+  // Export supplies a missing OBJECT, which moves the revision.
+  const { OBJECT: _object, ...files } = exported;
   const originalIdentity = {
-    project: testProjectId("unpacked"),
+    project: testProjectId("objectless"),
     revision: await gameRevision(files),
   };
-  // This old attachment already equals the future compacted revision. Export
-  // must preserve its refusal rather than accidentally reviving it on import.
-  const staleIdentity = { ...originalIdentity, revision: await gameRevision(packed) };
+  // This old attachment already equals the exported revision. Export must
+  // preserve its refusal rather than accidentally reviving it on import.
+  const staleIdentity = { ...originalIdentity, revision: await gameRevision(exported) };
   assert.notEqual(originalIdentity.revision, staleIdentity.revision);
   const fresh = stageCharacterView(
     "fresh",
@@ -411,7 +421,7 @@ test("project compaction preserves current staging and refuses stale staging thr
   };
   for (let round = 0; round < 2; round++) {
     const opened = await readGameZip(await buildProjectZip(project));
-    assert.deepEqual(opened.files, packed, "export compacts only unused container bytes");
+    assert.deepEqual(opened.files, exported, "export adds only the missing OBJECT");
     const importedId = await addLibraryGame(opened, "Port", "zip", opening);
     const imported = (await loadAuthoredGame(importedId))!;
     for (const candidate of [
@@ -591,6 +601,76 @@ test("import stores saves and autosave without a progress observer", async (t) =
   assert.equal(stored.autosave?.game.identity.revision, await gameRevision(files));
 });
 
+test("an interpreter override travels with both exports and decodes the saves they carry", async (t) => {
+  installLocalStorage(t);
+  // A synthetic v2 game boots 2.936 by default. The player chose 2.089,
+  // whose save has another block-1 layout (0x3db bytes, not 0x5e1), so a
+  // slot written under the override is unreadable under detection.
+  const container = createContainer();
+  container.putResource("picture", 0, Uint8Array.of(0xff));
+  container.putResource(
+    "logic",
+    0,
+    assembleLogic("load.pic(v0); draw.pic(v0); show.pic(); return;", { dictionary: new Map() })
+      .payload,
+  );
+  container.putFile("WORDS.TOK", buildWordsTok([]));
+  const host = {
+    print() {},
+    displayAt() {},
+    statusLine() {},
+    takeInputLine: () => null,
+    takeKeys: () => [],
+  };
+  const engine = new Engine(container, host, undefined, { profile: "2.089" });
+  engine.tick();
+  const slot = engine.serialize();
+  const files = Object.fromEntries(container.files);
+  const data: CachedGameData = {
+    projectId: testProjectId("override"),
+    title: "Override",
+    provider: "stub",
+    model: "offline-stub",
+    authoredAt: "2026-09-23",
+    files,
+    words: [],
+    transcript: [],
+    library: {
+      version: 1,
+      revision: await gameRevision(files),
+      source: "zip",
+      profile: "2.089",
+      validation: { status: "unverified", message: "Opening not checked yet." },
+    },
+  };
+  const progress: GameProgress = { saves: { "1": slot }, autosave: null };
+  assert.equal((await readGameZip(buildPublicGameZip(data))).profile, "2.089");
+  const project = await readGameZip(await buildProjectZip(data, progress));
+  assert.equal(project.profile, "2.089");
+  assert.deepEqual(project.progress?.saves["1"], slot);
+  const id = await addLibraryGame(project, "Override", "zip", opening);
+  assert.equal((await loadAuthoredGame(id))?.library?.profile, "2.089");
+  // Detection alone refuses the same slot.
+  const automatic = { ...data, library: { ...data.library!, profile: undefined } };
+  const plain = await buildProjectZip(automatic, progress);
+  assert.equal(new TextDecoder().decode(plain).includes('"profile"'), false);
+  await assert.rejects(readGameZip(plain), /SAVES\/SG\.1 is not a save file for this game/);
+  // An interpreter this build does not ship is newer data: a Game or Project
+  // naming one is refused before anything is staged, saves or not, rather
+  // than played under another interpreter that would drop the choice.
+  const future = {
+    ...data,
+    // The export's own OBJECT, so no fallback runs under the unknown id.
+    files: { ...files, OBJECT: project.files["OBJECT"]! },
+    library: { ...data.library!, profile: "9.999" as never },
+  };
+  for (const archive of [buildPublicGameZip(future), await buildProjectZip(future, progress)])
+    await assert.rejects(
+      readGameZip(archive),
+      /asks for interpreter 9\.999, which this version of the app does not know\. Update the app/,
+    );
+});
+
 test("import reports which progress entries browser storage refused", async (t) => {
   installLocalStorage(t);
   // A game the engine has played one cycle, saved as a slot and an autosave.
@@ -675,9 +755,171 @@ test("import reports which progress entries browser storage refused", async (t) 
   assert.deepEqual(report, { slots: [1], failedSlots: [7], autosave: null });
 });
 
+test("imports keep port executables and the IIgs wavetable under canonical names", async () => {
+  // The Amiga hunk magic, a SYS16 stand-in and a wavetable stand-in: bytes
+  // only need to survive import, not run.
+  const ports = {
+    Sierra: Uint8Array.of(0, 0, 3, 0xf3),
+    "sq2.sys16": Uint8Array.of(1, 2, 3),
+    sierrastandard: Uint8Array.of(4, 5, 6),
+  };
+  const opened = readGameFiles(
+    new Map(
+      [...Object.entries(game()), ...Object.entries(ports)].map(([n, b]) => [`Port/${n}`, b]),
+    ),
+  );
+  assert.deepEqual(opened.files["SIERRA"], ports.Sierra);
+  assert.deepEqual(opened.files["SQ2.SYS16"], ports["sq2.sys16"]);
+  assert.deepEqual(opened.files["SIERRASTANDARD"], ports.sierrastandard);
+  // Identity ignores spelling: the same bytes under the native and the
+  // canonical names are one revision.
+  assert.equal(await gameRevision({ ...game(), ...ports }), await gameRevision(opened.files));
+  // Two spellings of one playable name are a duplicate, not two files.
+  await assert.rejects(
+    gameRevision({ ...game(), Sierra: ports.Sierra, SIERRA: ports.Sierra }),
+    /Duplicate game resource name/,
+  );
+});
+
+test("the resource revision is pinned: SHA-256 over the canonical playable set", async () => {
+  // Stored autosaves, catalog entries, references and walkthroughs all keep
+  // a revision, so its input and packing are part of the 1.0 contract. Each
+  // playable file contributes, in code-point order of its canonical name, a
+  // u32be name length, a u32be byte length, the ASCII name and the bytes;
+  // authoring sidecars and other files do not contribute.
+  const files = {
+    "sq2.sys16": Uint8Array.of(4),
+    Sierra: Uint8Array.of(1),
+    dirs: Uint8Array.of(2, 3),
+    sierrastandard: Uint8Array.of(5, 6, 7),
+    "TESTS.JSON": Uint8Array.of(9),
+    "ReadMe.txt": Uint8Array.of(8),
+  };
+  const packed = Buffer.concat(
+    (
+      [
+        ["DIR", [2, 3]],
+        ["SIERRA", [1]],
+        ["SIERRASTANDARD", [5, 6, 7]],
+        ["SQ2.SYS16", [4]],
+      ] as const
+    ).map(([name, bytes]) => {
+      const head = Buffer.alloc(8);
+      head.writeUInt32BE(name.length, 0);
+      head.writeUInt32BE(bytes.length, 4);
+      return Buffer.concat([head, Buffer.from(name, "ascii"), Buffer.from(bytes)]);
+    }),
+  );
+  assert.equal(await gameRevision(files), createHash("sha256").update(packed).digest("hex"));
+});
+
+test("an archive declaring another interpreter imports as its own entry; one declaring none keeps the stored choice", async (t) => {
+  installLocalStorage(t);
+  // Automatic first, then the same bytes declaring 2.089: a separate entry,
+  // the first untouched.
+  const files = game('display(5, 2, "declared"); return;');
+  const automaticId = await addLibraryGame({ files, words: [] }, "Automatic", "zip", opening);
+  const automatic = await loadAuthoredGame(automaticId);
+  const declaredId = await addLibraryGame(
+    { files, words: [], profile: "2.089" },
+    "Declared",
+    "zip",
+    opening,
+  );
+  assert.notEqual(declaredId, automaticId);
+  assert.equal((await loadAuthoredGame(declaredId))?.library?.profile, "2.089");
+  assert.deepEqual(await loadAuthoredGame(automaticId), automatic, "the first entry is untouched");
+  // The same declaration again is the same entry.
+  assert.equal(
+    await addLibraryGame({ files, words: [], profile: "2.089" }, "Again", "zip", opening),
+    declaredId,
+  );
+  // Declared first, then the same bytes declaring nothing: nothing different
+  // is asked for, so the entry and its choice are reused as they are.
+  const other = game('display(5, 2, "declared first"); return;');
+  const firstId = await addLibraryGame(
+    { files: other, words: [], profile: "2.089" },
+    "First",
+    "zip",
+    opening,
+  );
+  const first = await loadAuthoredGame(firstId);
+  assert.equal(await addLibraryGame({ files: other, words: [] }, "Plain", "zip", opening), firstId);
+  assert.deepEqual(await loadAuthoredGame(firstId), first);
+});
+
+test("an unfinished world stays marked through every import and export, and never gains generation", async (t) => {
+  installLocalStorage(t);
+  const creator = {
+    projectId: testProjectId("growing"),
+    title: "Growing",
+    provider: "stub",
+    model: "offline-stub",
+    authoredAt: "2026-09-23",
+    files: game(),
+    words: [] as [string, number][],
+    transcript: [],
+    roomGeneration: true,
+  };
+  // The creator's project keeps growing wherever it is imported, and says
+  // it is unfinished.
+  const project = await readGameZip(await buildProjectZip(creator));
+  const continued = (await loadAuthoredGame(
+    await addLibraryGame(project, "Growing", "zip", opening),
+  ))!;
+  assert.equal(continued.roomGeneration, true);
+  assert.equal(continued.library?.workInProgress, true);
+
+  // Creator → Game export → recipient: unfinished, and never generating.
+  const published = await readGameZip(buildPublicGameZip(creator));
+  assert.equal(published.workInProgress, true);
+  let recipient = (await loadAuthoredGame(
+    await addLibraryGame(published, "Growing", "zip", opening),
+  ))!;
+  assert.equal(recipient.library?.workInProgress, true);
+  assert.equal(recipient.roomGeneration, false, "a public claim never enables authoring");
+
+  // Recipient → Game and Project export → fresh import, twice over.
+  for (let hop = 0; hop < 2; hop++) {
+    for (const archive of [buildPublicGameZip(recipient), await buildProjectZip(recipient)]) {
+      const opened = await readGameZip(archive);
+      assert.equal(opened.workInProgress, true, `hop ${hop}: the archive says unfinished`);
+      assert.equal(opened.roomGeneration, false, `hop ${hop}: and does not claim generation`);
+    }
+    const next = await readGameZip(await buildProjectZip(recipient));
+    recipient = (await loadAuthoredGame(await addLibraryGame(next, `Hop ${hop}`, "zip", opening)))!;
+    assert.equal(recipient.library?.workInProgress, true, `hop ${hop}: still unfinished`);
+    assert.equal(recipient.roomGeneration, false, `hop ${hop}: still not generating`);
+  }
+});
+
+test("a ZIP made by macOS Finder imports despite its AppleDouble metadata", () => {
+  // Finder's Compress adds __MACOSX/<folder>/._<name> resource forks beside
+  // every file; ._LOGDIR ends in DIR and once read as a second game root.
+  const files = Object.entries(game());
+  const opened = readGameFiles(
+    new Map([
+      ...files.map(([n, b]): [string, Uint8Array] => [`quest/${n}`, b]),
+      ...files.map(([n]): [string, Uint8Array] => [`__MACOSX/quest/._${n}`, Uint8Array.of(0, 5)]),
+      ["quest/._LOGDIR", Uint8Array.of(0, 5)],
+    ]),
+  );
+  assert.deepEqual(Object.keys(opened.files).sort(), files.map(([n]) => n).sort());
+});
+
 test("interpreter executables stay in the playable file set so detection can read them", () => {
   for (const name of ["AGI", "AGIDATA.OVL", "SIERRA.COM", "GR", "Sierra", "mh2", "SQ2.SYS16"])
     assert.equal(isPlayableFileName(name), true, name);
-  for (const name of ["GR.info", "Disk.info", "Pointer", "README.TXT", "SQ2.1"])
+  for (const name of [
+    "GR.info",
+    "Disk.info",
+    "Pointer",
+    "README.TXT",
+    "SQ2.1",
+    "../SIERRA.COM",
+    "a/b.SYS16",
+    "x?.COM",
+    ".COM",
+  ])
     assert.equal(isPlayableFileName(name), false, name);
 });

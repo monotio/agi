@@ -91,20 +91,7 @@ describe("agent tools", () => {
     // 2. write view 0 (ego)
     const viewRes = executeAgentTool(session, "write_view", {
       num: 0,
-      spec: {
-        loops: [
-          {
-            cels: [
-              {
-                width: 2,
-                height: 2,
-                transparentColor: 0,
-                pixels: [1, 1, 1, 1],
-              },
-            ],
-          },
-        ],
-      },
+      source: "view\ncel ego 2 2 0\n11\n11\nendcel\nloop 0 ego\nendview",
     });
     assert.equal(viewRes.success, true);
     assert.ok(session.container.getResource("view", 0));
@@ -166,7 +153,7 @@ describe("agent tools", () => {
     executeAgentTool(session, "write_words", { words: ["look", "east"] });
     executeAgentTool(session, "write_view", {
       num: 0,
-      spec: { loops: [{ cels: [{ width: 1, height: 1, pixels: [2] }] }] },
+      source: "view\ncel ego 1 1 0\n2\nendcel\nloop 0 ego\nendview",
     });
     executeAgentTool(session, "write_picture", { room: 1, source: "end\n" });
     executeAgentTool(session, "write_logic_source", {
@@ -357,6 +344,22 @@ describe("agent tools", () => {
     assert.match(res.message ?? "", /controls \[0@x20-21\]/);
     // A rect draws its 8x4 outline: 8 + 8 + 2 + 2 = 20 distinct cells.
     assert.match(res.message ?? "", /higher-priority scenery 20\/192 cells/);
+  });
+
+  it("write_picture checks every actor layout the source asks for", () => {
+    // Probes past the sixteenth were silently skipped.
+    const session = createAgentSessionState();
+    const actors = Array.from(
+      { length: 20 },
+      (_, index) => `# actor: a${index} x${index * 7} y120 width6 height24 priority11`,
+    );
+    const res = executeAgentTool(session, "write_picture", {
+      room: 8,
+      source: [...actors, "pri 4", "fill 0,0", "end"].join("\n"),
+    });
+    assert.equal(res.success, true, res.error ?? "");
+    for (let index = 0; index < 20; index++)
+      assert.match(res.message ?? "", new RegExp(`- a${index}: logical`));
   });
 
   it("write_picture reports preservation and leak metrics when revising the same picture", () => {
@@ -650,61 +653,6 @@ describe("agent tools", () => {
     assert.equal(soundData[18], 15);
     assert.equal(soundData[19], 0);
     assert.equal(soundData[22], 0x9f); // 0x90 | 15 (silence)
-  });
-
-  it("handles write_view when model supplies mirrorLoop: null alongside cels, or mirrored loop with cels: null", () => {
-    const session = createAgentSessionState();
-    const res = executeAgentTool(session, "write_view", {
-      num: 0,
-      spec: {
-        description: "Ego sprite",
-        loops: [
-          {
-            mirrorLoop: null,
-            cels: [
-              {
-                width: 2,
-                height: 2,
-                transparentColor: null,
-                mirror: null,
-                pixels: [1, 1, 1, 1],
-              },
-            ],
-          },
-          {
-            mirrorLoop: 0,
-            cels: null,
-          },
-        ],
-      },
-    });
-    assert.equal(res.success, true);
-    assert.ok(session.container.getResource("view", 0));
-  });
-
-  it("handles write_view when model supplies redundant mirrorLoop alongside non-empty cels on loop 0", () => {
-    const session = createAgentSessionState();
-    const res = executeAgentTool(session, "write_view", {
-      num: 0,
-      spec: {
-        description: "Ego sprite redundant mirror",
-        loops: [
-          {
-            mirrorLoop: 0,
-            cels: [
-              {
-                width: 2,
-                height: 2,
-                transparentColor: 0,
-                pixels: [1, 1, 1, 1],
-              },
-            ],
-          },
-        ],
-      },
-    });
-    assert.equal(res.success, true);
-    assert.ok(session.container.getResource("view", 0));
   });
 });
 

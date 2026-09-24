@@ -9,7 +9,7 @@
 
 import { CORE_AGENT_TOOLS } from "./coreToolDefinitions.ts";
 import { normalizeToolArguments, validateToolArguments } from "./schemaValidate.ts";
-import { assembleLogic } from "../logic/assembler.ts";
+import { AssemblerError, assembleLogic } from "../logic/assembler.ts";
 import { buildWordsTok, parseWordsTok, type WordEntry } from "../logic/words.ts";
 import { renderPicture, type PictureFillDiagnostic } from "../picture/renderer.ts";
 import {
@@ -44,7 +44,8 @@ import {
   executeAuthoringTool,
   sourceContextRevision,
 } from "./authoringTools.ts";
-import { SPRITE_TOOLS, actorSpecFromFacings, executeSpriteTool } from "./spriteTools.ts";
+import { SPRITE_TOOLS, executeSpriteTool } from "./spriteTools.ts";
+import { compileViewSource, viewSourceWarnings } from "../view/viewSource.ts";
 import { SOUND_TOOLS, executeSoundTool } from "./soundTools.ts";
 import { PICTURE_TOOLS, executePictureTool } from "./pictureTools.ts";
 import {
@@ -66,13 +67,7 @@ import {
 import { playtestRoom, validateGenesis } from "./playtest.ts";
 import { serializeAgentLog } from "./toolTransport.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
-import {
-  buildView,
-  parseView,
-  type BuildCelInput,
-  type BuildLoopInput,
-  type BuildViewInput,
-} from "../view/view.ts";
+import { buildView, parseView, type BuildViewInput } from "../view/view.ts";
 import {
   createPictureSurface,
   RESOURCE_KINDS,
@@ -80,7 +75,12 @@ import {
   type ResourceKind,
 } from "../types.ts";
 import { createContainer } from "../container/container.ts";
-import { detectProfile, DEFAULT_V2_PROFILE, type AgiProfile } from "../runtime/profile.ts";
+import {
+  detectProfile,
+  DEFAULT_V2_PROFILE,
+  type AgiProfile,
+  type ProfileId,
+} from "../runtime/profile.ts";
 import { describeKeyWord } from "../runtime/keys.ts";
 import {
   FRAME_HEIGHT,
@@ -229,7 +229,14 @@ export function buildObjectFile(
   return encrypted;
 }
 
-export function createAgentSessionState(existingContainer?: GameContainer): AgentSessionState {
+/**
+ * `profile` is the game's interpreter override, when the player chose one;
+ * without it the profile is detected from the container's files.
+ */
+export function createAgentSessionState(
+  existingContainer?: GameContainer,
+  profile?: ProfileId | AgiProfile,
+): AgentSessionState {
   const container = existingContainer ?? createContainer();
   if (!existingContainer) container.putFile("OBJECT", buildObjectFile([]));
   const dictionary = container.files.get("WORDS.TOK");
@@ -245,7 +252,7 @@ export function createAgentSessionState(existingContainer?: GameContainer): Agen
       sounds: new Map(),
     },
     container,
-    profile: detectProfile(container.files),
+    profile: detectProfile(container.files, profile),
     wordsPayload,
     objectPayload,
     testsPayload: undefined,
@@ -729,6 +736,24 @@ function executeLegacyTool(
       };
       const addedNavWords: string[] = [];
       try {
+        if (args["ignored"] != null) {
+          if (!Array.isArray(args["ignored"]) || args["ignored"].length > 256)
+            throw new Error("ignored must be null or at most 256 words.");
+          for (const item of args["ignored"]) {
+            const word =
+              typeof item === "string" ? item.trim().toLowerCase().replace(/\s+/g, " ") : "";
+            if (!/^[a-z][a-z0-9' ]{0,63}$/.test(word))
+              throw new Error(
+                `Invalid ignored word '${String(item)}': use an ASCII word starting with a letter.`,
+              );
+            const existing = nextWords.get(word);
+            if (existing !== undefined && existing !== 0)
+              throw new Error(
+                `'${word}' is already a word (id ${existing}); ignored words must be new, so existing ids stay stable.`,
+              );
+            nextWords.set(word, 0);
+          }
+        }
         for (const item of rawWords) {
           if (typeof item !== "string") throw new Error("Each words entry must be a string.");
           const group = item
@@ -744,6 +769,11 @@ function executeLegacyTool(
               return id === undefined ? [] : [id];
             }),
           );
+          const ignoredWord = group.find((word) => nextWords.get(word) === 0);
+          if (ignoredWord !== undefined)
+            throw new Error(
+              `'${ignoredWord}' is an ignored word (group 0) and cannot join a synonym group.`,
+            );
           if (existingIds.size > 1)
             throw new Error(`Synonym group '${item}' combines existing word IDs.`);
           const id = existingIds.size ? [...existingIds][0]! : allocateId();
@@ -793,17 +823,7 @@ function executeLegacyTool(
       }
       try {
         const normalized = normalizeAuthoredLogic(source);
-        const defined = new Set(
-          [...normalized.source.matchAll(/^\s*#define\s+(\w+)/gm)].map((match) => match[1]),
-        );
-        const bindings = Object.entries(session.authoring.bindings)
-          .filter(([name]) => !defined.has(name))
-          .map(([name, binding]) => `#define ${name} ${binding.num}`)
-          .join("\n");
-        const assembled = assembleLogic(`${bindings}\n${normalized.source}`, {
-          dictionary: session.sources.words,
-          profile: session.profile,
-        });
+        const assembled = assembleAuthoredLogic(session, normalized.source);
         session.container.putResource("logic", room, assembled.payload);
         session.sources.logics.set(room, normalized.source);
         // A rewrite that drops a declared plan exit still commits — the plan
@@ -1205,112 +1225,33 @@ function executeLegacyTool(
       if (!Number.isInteger(num) || num < 0 || num > 255) {
         return { success: false, error: `Invalid view resource number: ${num}. Must be 0..255.` };
       }
-      const rawSpec = args["spec"] as Record<string, unknown> | undefined;
-      const hasLoops = Array.isArray(rawSpec?.["loops"]);
-      const hasFacings = rawSpec?.["facings"] !== null && rawSpec?.["facings"] !== undefined;
-      if (!rawSpec || hasLoops === hasFacings) {
+      if (typeof args["source"] !== "string")
+        return { success: false, error: "write_view needs `source`, the view as text." };
+      let spec: BuildViewInput;
+      try {
+        spec = compileViewSource(args["source"]);
+      } catch (err) {
         return {
           success: false,
-          error:
-            "Missing or invalid view specification: exactly one of 'spec.loops' or 'spec.facings' is required.",
+          error: `View ${num} was not written: ${err instanceof Error ? err.message : String(err)}`,
         };
       }
-
-      const sanitizedLoops: BuildLoopInput[] = [];
-      const adjustments: string[] = [];
-      let specDescription: string | undefined;
-
-      if (hasFacings) {
-        // Four-facing actor shorthand: {right,left,down,up} hex-row cels,
-        // mirror flags and a shared transparentColor expand to four loops.
-        try {
-          const built = actorSpecFromFacings(rawSpec["facings"] as Record<string, unknown>);
-          sanitizedLoops.push(...built.spec.loops);
-          adjustments.push(...built.adjustments);
-          specDescription = built.spec.description ?? undefined;
-        } catch (err) {
-          return { success: false, error: `Invalid facings spec: ${String(err)}` };
-        }
-      }
-
-      const rawLoops = hasFacings ? [] : (rawSpec["loops"] as unknown[]);
-
-      for (let i = 0; i < rawLoops.length; i++) {
-        const rawLoop = rawLoops[i];
-        if (!rawLoop || typeof rawLoop !== "object") continue;
-        const loopObj = rawLoop as Record<string, unknown>;
-
-        const rawCels = Array.isArray(loopObj["cels"]) ? (loopObj["cels"] as unknown[]) : [];
-        const mirrorVal =
-          typeof loopObj["mirrorLoop"] === "number" ? loopObj["mirrorLoop"] : undefined;
-
-        if (rawCels.length > 0) {
-          if (mirrorVal !== undefined) {
-            adjustments.push(
-              `Loop ${i}: both cels and mirrorLoop were specified. Explicit cels took precedence.`,
-            );
-          }
-          const cels: BuildCelInput[] = [];
-          for (let celIdx = 0; celIdx < rawCels.length; celIdx++) {
-            const item = rawCels[celIdx];
-            if (!item || typeof item !== "object") continue;
-            const celObj = item as Record<string, unknown>;
-            const width = Number(celObj["width"]) || 0;
-            const height = Number(celObj["height"]) || 0;
-            const transparentColor =
-              typeof celObj["transparentColor"] === "number" ? celObj["transparentColor"] : 0;
-            const mirror = Boolean(celObj["mirror"]);
-            const rawPixels = Array.isArray(celObj["pixels"]) ? (celObj["pixels"] as number[]) : [];
-            const targetLen = width * height;
-            let pixels = rawPixels.map((p) => Number(p) & 0x0f);
-            if (targetLen > 0) {
-              if (pixels.length > targetLen) {
-                const excess = pixels.length - targetLen;
-                pixels = pixels.slice(0, targetLen);
-                adjustments.push(
-                  `Loop ${i} cel ${celIdx}: pixel count was ${rawPixels.length}, expected ${width}x${height} = ${targetLen}. Auto-truncated ${excess} excess pixels. The compiled sprite retains ${width}x${height} logical dimensions. You may submit an updated write_view if you wish to adjust the cel pixels.`,
-                );
-              } else if (pixels.length < targetLen) {
-                const missing = targetLen - pixels.length;
-                pixels = pixels.concat(new Array(missing).fill(transparentColor));
-                adjustments.push(
-                  `Loop ${i} cel ${celIdx}: pixel count was ${rawPixels.length}, expected ${width}x${height} = ${targetLen}. Auto-padded ${missing} missing pixels with transparentColor (${transparentColor}).`,
-                );
-              }
-            }
-            cels.push({ width, height, transparentColor, mirror, pixels });
-          }
-          sanitizedLoops.push({ cels });
-        } else if (mirrorVal !== undefined) {
-          sanitizedLoops.push({ mirrorLoop: mirrorVal });
-        } else {
-          sanitizedLoops.push({ cels: [] });
-        }
-      }
-
-      const cleanSpec: BuildViewInput = {
-        loops: sanitizedLoops,
-        description:
-          specDescription ??
-          (typeof rawSpec["description"] === "string" ? rawSpec["description"] : undefined),
-      };
-
       try {
-        const payload = buildView(cleanSpec, session.profile);
+        const payload = buildView(spec, session.profile);
         const { png, caption, ...preview } = viewFeedback(payload, session.profile, num);
         session.container.putResource("view", num, payload);
-        session.sources.views.set(num, cleanSpec);
+        session.sources.views.set(num, spec);
+        const warnings = viewSourceWarnings(spec);
         return {
           success: true,
-          message: `View ${num} compiled successfully (${cleanSpec.loops.length} loops, ${payload.length} bytes). Inspect the sprite preview.`,
+          message: `View ${num} compiled successfully (${spec.loops.length} loops, ${payload.length} bytes). Inspect the sprite preview.${warnings.length ? ` ${warnings.join(" ")}` : ""}`,
           images: [{ png, caption }],
-          ...(adjustments.length > 0 ? { adjustments } : {}),
           details: {
             view: num,
             bytes: payload.length,
-            loops: cleanSpec.loops.length,
+            loops: spec.loops.length,
             preview,
-            adjustments: adjustments.length > 0 ? adjustments : undefined,
+            ...(warnings.length ? { warnings } : {}),
           },
         };
       } catch (err) {
@@ -1710,6 +1651,28 @@ export function authoredPictureSource(session: AgentSessionState, num: number): 
 }
 
 /**
+ * Assemble logic the agent wrote, with its named bindings. The bindings the
+ * source does not define itself are prepended as #define lines; an error
+ * position is mapped back to the agent's own line, which is what it reads.
+ */
+function assembleAuthoredLogic(session: AgentSessionState, source: string) {
+  const defined = new Set([...source.matchAll(/^\s*#define\s+(\w+)/gm)].map((match) => match[1]));
+  const prelude = Object.entries(session.authoring.bindings)
+    .filter(([name]) => !defined.has(name))
+    .map(([name, binding]) => `#define ${name} ${binding.num}`);
+  try {
+    return assembleLogic(prelude.length ? `${prelude.join("\n")}\n${source}` : source, {
+      dictionary: session.sources.words,
+      profile: session.profile,
+    });
+  } catch (error) {
+    if (!(error instanceof AssemblerError) || error.line <= prelude.length) throw error;
+    const detail = error.message.slice(`${error.line}:${error.col}: `.length);
+    throw new AssemblerError(detail, error.line - prelude.length, error.col);
+  }
+}
+
+/**
  * The logic text the agent wrote this session, only while it still compiles to
  * the stored resource bytes.
  */
@@ -1718,18 +1681,7 @@ export function authoredLogicSource(session: AgentSessionState, num: number): st
   const payload = session.container.getResource("logic", num);
   if (authored === undefined || !payload) return undefined;
   try {
-    const defined = new Set(
-      [...authored.matchAll(/^\s*#define\s+(\w+)/gm)].map((match) => match[1]),
-    );
-    const bindings = Object.entries(session.authoring.bindings)
-      .filter(([name]) => !defined.has(name))
-      .map(([name, binding]) => `#define ${name} ${binding.num}`)
-      .join("\n");
-    const fullSource = bindings.length ? `${bindings}\n${authored}` : authored;
-    const compiled = assembleLogic(fullSource, {
-      dictionary: session.sources.words,
-      profile: session.profile,
-    }).payload;
+    const compiled = assembleAuthoredLogic(session, authored).payload;
     if (compiled.length !== payload.length) return undefined;
     for (let index = 0; index < compiled.length; index++)
       if (compiled[index] !== payload[index]) return undefined;

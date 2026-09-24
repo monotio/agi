@@ -19,6 +19,7 @@ import {
   validateHistoryRecording,
   type HistoryBatch,
   type HistoryBoot,
+  stampBoot,
 } from "../../src/agent/history.ts";
 import {
   appendHistoryBatch,
@@ -50,7 +51,7 @@ const RECORDS = installIndexedDbFixture();
 const KEY = "tape-store-fixture";
 const IDENTITY = { project: testProjectId(KEY), revision: testRevision("tape") };
 
-const BOOT: HistoryBoot = {
+const BOOT: HistoryBoot = stampBoot({
   files: { "VOL.0": "eA==" },
   dictionary: [],
   authorRooms: false,
@@ -58,7 +59,7 @@ const BOOT: HistoryBoot = {
   soundDevice: 1,
   resourceSet: "rev-1",
   requestSerial: 0,
-};
+});
 
 let branchSerial = 0;
 function retainedOn(from: string, at = 1): RetainedOriginal {
@@ -100,7 +101,7 @@ test("commits keep the recovery branches and bookmarks other writers stored", as
       {
         ...batch(1),
         segment: "s-a.2",
-        boot: { ...BOOT, resumedFrom: { segment: "s-a.1", seq: 4, tick: 9 } },
+        boot: stampBoot({ ...BOOT, resumedFrom: { segment: "s-a.1", seq: 4, tick: 9 } }),
       },
       "2.936",
       IDENTITY,
@@ -246,6 +247,26 @@ test("a stamped record whose fields drifted fails validation", () => {
   const drifted = JSON.parse(JSON.stringify(good));
   drifted.segments[0].boot.rng = 8;
   assert.throws(() => validateHistoryRecording(drifted), /fingerprint does not match/);
+
+  // A newer recorder's fingerprint says so rather than posing as drift.
+  const newer = JSON.parse(JSON.stringify(good));
+  newer.segments[0].boot.fingerprint.v = 2;
+  assert.throws(() => validateHistoryRecording(newer), /fingerprint version 2 is not supported/);
+
+  // Every boot carries the fingerprint replay verifies.
+  const unstamped = JSON.parse(JSON.stringify(good));
+  delete unstamped.segments[0].boot.fingerprint;
+  assert.throws(() => validateHistoryRecording(unstamped), /fingerprint must be an object/);
+  // The header names a known interpreter, and an end event a known reason.
+  assert.throws(
+    () => validateHistoryRecording({ ...good, profile: "" }),
+    /recording profile must be a known interpreter profile/,
+  );
+  const ended = JSON.parse(JSON.stringify(good));
+  ended.segments[0].events = [
+    { seq: 0, tick: 0, cycle: 0, cause: { kind: "end", reason: "nope" } },
+  ];
+  assert.throws(() => validateHistoryRecording(ended), /end reason is invalid/);
 });
 
 test("an end batch alone cannot skip a failed lower batch", async () => {
@@ -311,7 +332,7 @@ test("a staged swap leaves the kept branches intact until the adoption commits",
   const key = "tape-store-staged";
   assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
   const first = retainedOn("s-a.1", 1);
-  const second = { ...retainedOn("s-a.2", 2), boot: { ...BOOT, rng: 99 } };
+  const second = { ...retainedOn("s-a.2", 2), boot: stampBoot({ ...BOOT, rng: 99 }) };
   await stageRetainedOriginal(key, first);
   await commitStagedOriginal(key, first.id);
   assert.deepEqual(await loadRetainedBranches(key), [first]);
@@ -501,7 +522,7 @@ test("an imported project's tape persists whole — recording, kept session, boo
   const recording = {
     version: HISTORY_FORMAT_VERSION,
     identity: IDENTITY,
-    profile: "2.936",
+    profile: "2.936" as const,
     resourceSet: "rev-a",
     startedAt: 1_757_000_000_000,
     segments: [
@@ -543,7 +564,7 @@ test("an imported project's tape persists whole — recording, kept session, boo
         events: [],
         marks: [],
         sync: [],
-        boot: { ...BOOT, resumedFrom: { segment: "sess1.s1", seq: 0, tick: 3 } },
+        boot: stampBoot({ ...BOOT, resumedFrom: { segment: "sess1.s1", seq: 0, tick: 3 } }),
       },
       "2.936",
       IDENTITY,
@@ -755,7 +776,7 @@ test("two clients committing concurrently never lose an acknowledged batch", asy
     mergeHistoryBatch(key, { ...batch(1), segment: "s-t.a", boot: BOOT }, "2.936", IDENTITY),
     mergeHistoryBatch(
       key,
-      { ...batch(1), segment: "s-t.b", boot: { ...BOOT, rng: 42 } },
+      { ...batch(1), segment: "s-t.b", boot: stampBoot({ ...BOOT, rng: 42 }) },
       "2.936",
       IDENTITY,
     ),
@@ -878,7 +899,7 @@ test("segments replaying the same bytes share one file blob", async () => {
   assert.equal(Object.values(manifest.blobs)[0]?.length, 64);
 
   // A changed file set gets its own blob; the shared one stays.
-  const other = { ...BOOT, files: { "VOL.0": "eB==", LOGDIR: "eGM=" } };
+  const other = stampBoot({ ...BOOT, files: { "VOL.0": "eB==", LOGDIR: "eGM=" } });
   assert.equal(
     await appendHistoryBatch(
       key,
@@ -896,7 +917,7 @@ test("eviction deletes an evicted segment's batch records and its private blob",
   const end = { seq: 0, tick: 0, cycle: 0, reason: "quit" as const };
   // 65 segments: the 65th commit evicts the oldest.
   for (let seg = 1; seg <= 65; seg++) {
-    const boot = { ...BOOT, files: { "VOL.0": `e${seg}==` } };
+    const boot = stampBoot({ ...BOOT, files: { "VOL.0": `e${seg}==` } });
     assert.equal(
       await appendHistoryBatch(
         key,
@@ -924,14 +945,14 @@ test("eviction deletes an evicted segment's batch records and its private blob",
 
 test("history uses v1 and refuses unsupported or obsolete storage without rewriting", async () => {
   assert.equal(HISTORY_FORMAT_VERSION, 1);
-  for (const kind of ["envelope", "recording", "singleton", "missing-directory"]) {
+  for (const kind of ["envelope", "recording", "profile", "missing-directory"]) {
     const key = `tape-store-refuse-${kind}`;
     await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY);
     const manifest = RECORDS.get(`history/${key}`) as Record<string, unknown>;
     assert.equal(manifest["version"], 1);
     if (kind === "envelope") manifest["version"] = 2;
     if (kind === "recording") (manifest["recording"] as { version: number }).version = 2;
-    if (kind === "singleton") manifest["retained"] = retainedOn("s-a.1");
+    if (kind === "profile") (manifest["recording"] as { profile: string }).profile = "9.999";
     if (kind === "missing-directory") delete manifest["segments"];
     const before = JSON.stringify([...RECORDS]);
     await assert.rejects(loadGameHistory(key), /history record/i);

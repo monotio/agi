@@ -123,7 +123,10 @@ defineExpose({ show, close });
           placeholder="Paste your provider API key"
           data-testid="api-key-input"
         />
-        <p class="privacy-note">Your key stays in this browser.</p>
+        <p class="privacy-note" data-testid="api-key-note">
+          Saved in this browser and sent only to
+          {{ draft.provider === "anthropic" ? "Anthropic" : "OpenAI" }} with each request.
+        </p>
       </template>
       <label for="task-budget">Budget per task · USD</label>
       <input

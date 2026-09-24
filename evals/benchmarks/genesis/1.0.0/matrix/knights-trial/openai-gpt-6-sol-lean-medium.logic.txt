@@ -1,0 +1,463 @@
+// ===== logic 0 (724 bytes)
+#message 1 "File"
+#message 2 "Save Game      F5"
+#message 3 "Restore Game   F7"
+#message 4 "Restart Game   F9"
+#message 5 "Quit          Alt+Z"
+#message 6 "Speed"
+#message 7 "Slow"
+#message 8 "Normal"
+#message 9 "Fast"
+#message 10 "Fastest"
+#message 11 "Sound"
+#message 12 "On"
+#message 13 "Off"
+#message 14 "Help"
+#message 15 "Help           F1"
+#message 16 "About"
+#message 17 "Type a command and press ENTER. Arrow keys walk. ESC opens the menu."
+#message 18 "An adventure written with AGI IS HERE."
+#message 19 "I don't know the word \"%s11\"."
+#message 20 "I don't understand that."
+
+if (!isset(f200)) {
+  set(f200);
+  configure.screen(1, 22, 0);
+  status.line.on();
+  set(f9);
+  assignn(v10, 2);
+  set.menu(m1);
+  set.menu.item(m2, 201);
+  set.menu.item(m3, 202);
+  set.menu.item(m4, 203);
+  set.menu.item(m5, 204);
+  set.menu(m6);
+  set.menu.item(m7, 205);
+  set.menu.item(m8, 206);
+  set.menu.item(m9, 207);
+  set.menu.item(m10, 208);
+  set.menu(m11);
+  set.menu.item(m12, 209);
+  set.menu.item(m13, 210);
+  set.menu(m14);
+  set.menu.item(m15, 211);
+  set.menu.item(m16, 212);
+  submit.menu();
+  set(f14);
+  set.key(27, 0, 200);
+  set.key(0, 59, 211);
+  set.key(0, 63, 201);
+  set.key(0, 65, 202);
+  set.key(0, 67, 203);
+  set.key(0, 44, 204);
+  set.key(9, 0, 213);
+  assignn(v0, 1);
+  new.room.v(v0);
+}
+call.v(v0);
+if (isset(f202)) {
+  call(255);
+}
+if (!isset(f202)) {
+  if (controller(200)) {
+    menu.input();
+  }
+  if (controller(201)) {
+    save.game();
+  }
+  if (controller(202)) {
+    restore.game();
+  }
+  if (controller(203)) {
+    restart.game();
+  }
+  if (controller(204)) {
+    quit(0);
+  }
+  if (controller(205)) {
+    assignn(v10, 4);
+  }
+  if (controller(206)) {
+    assignn(v10, 2);
+  }
+  if (controller(207)) {
+    assignn(v10, 1);
+  }
+  if (controller(208)) {
+    assignn(v10, 0);
+  }
+  if (controller(209)) {
+    set(f9);
+  }
+  if (controller(210)) {
+    reset(f9);
+  }
+  if (controller(211)) {
+    print(m17);
+  }
+  if (controller(212)) {
+    print(m18);
+  }
+  if (controller(213)) {
+    status();
+  }
+}
+if (isset(f2) && !isset(f4) && !isset(f202)) {
+  if (greatern(v9, 0)) {
+    if (equaln(v9, 1)) {
+      word.to.string(s11, 1);
+    }
+    if (equaln(v9, 2)) {
+      word.to.string(s11, 2);
+    }
+    if (equaln(v9, 3)) {
+      word.to.string(s11, 3);
+    }
+    if (equaln(v9, 4)) {
+      word.to.string(s11, 4);
+    }
+    if (equaln(v9, 5)) {
+      word.to.string(s11, 5);
+    }
+    if (equaln(v9, 6)) {
+      word.to.string(s11, 6);
+    }
+    if (equaln(v9, 7)) {
+      word.to.string(s11, 7);
+    }
+    if (equaln(v9, 8)) {
+      word.to.string(s11, 8);
+    }
+    if (equaln(v9, 9)) {
+      word.to.string(s11, 9);
+    }
+    if (equaln(v9, 10)) {
+      word.to.string(s11, 10);
+    }
+    if (equaln(v9, 11)) {
+      word.to.string(s11, 11);
+    }
+    print(m19);
+  } else {
+    print(m20);
+  }
+}
+return;
+
+
+// ===== logic 1 (2702 bytes)
+#message 1 "Thornwall Gate. The king's notice stands beside the drawbridge. Bread and a lit lantern wait by the meadow path. An alligator watches the moat. The hall is west; the meadow is east."
+#message 2 "The notice reads: 'The Three Bright Things are lost. Those willing to help should speak to King Brannoc in the hall. Please do not feed the alligator.'"
+#message 3 "Wenna takes the journey bread. It is still warm under the crust."
+#message 4 "Wenna takes the lit lantern. Its brass handle has been polished recently."
+#message 5 "The bread is already in your bag."
+#message 6 "The lantern is already in your hand."
+#message 7 "The alligator follows Wenna with one eye. Its mouth stays open."
+#message 8 "The moat is deep, and the alligator is waiting. Swimming would be a poor choice."
+#message 9 "Wenna steps into the moat. The alligator proves surprisingly quick."
+#message 10 "The castle hall lies west across the drawbridge. The meadow path runs east."
+#message 11 "The bread smells of rosemary. A heron in the meadow might appreciate it."
+#message 12 "The lantern's flame is steady. Its brass casing reflects the castle wall."
+#message 13 "The gate stands open. The king is waiting in the hall to the west."
+#message 14 "The drawbridge is sound. Its planks cross the moat toward the hall."
+#message 15 "The meadow path leads east, away from the castle."
+#message 16 "Wenna has nobody here to give the bread to. A heron waits in the meadow."
+#message 17 "The lantern is already lit."
+#message 18 "You can read the notice, take the bread or lantern, and follow the west or east path."
+#message 19 "King Brannoc is in the hall to the west. His notice asks for help."
+#message 20 "A heron is said to frequent the meadow east of the gate."
+#message 21 "The Three Bright Things are an underwater Bell, an undying Ember and a wandering Map. The king knows more."
+#message 22 "The lantern is fixed to its post no longer; Wenna could carry it."
+#message 23 "There is no candle here to light. Keep the lantern for the road."
+#message 24 "The notice is nailed to the post. Wenna leaves it for the next traveler."
+#message 25 "Wenna has a steady walk and a difficult errand ahead."
+#message 26 "The moat bars the way north. Use the drawbridge rather than trying the water."
+#message 27 "The castle wall blocks the way. The open drawbridge leads west."
+
+if (isset(f5)) {
+  assignn(v7, 230);
+  status.line.off();
+  status.line.on();
+  assignn(v40, 1);
+  load.pic(v40);
+  draw.pic(v40);
+  show.pic();
+  set.horizon(105);
+  load.view(1);
+  load.view(2);
+  load.view(3);
+  load.view(4);
+  animate.obj(o0);
+  set.view(o0, 1);
+  position(o0, 109, 157);
+  assignn(v41, 8);
+  cycle.time(o0, v41);
+  draw(o0);
+  if (!isset(f41)) {
+    animate.obj(o1);
+    set.view(o1, 2);
+    position(o1, 123, 150);
+    draw(o1);
+  }
+  if (!isset(f42)) {
+    animate.obj(o2);
+    set.view(o2, 3);
+    position(o2, 147, 139);
+    assignn(v42, 9);
+    cycle.time(o2, v42);
+    draw(o2);
+  }
+  animate.obj(o3);
+  set.view(o3, 4);
+  position(o3, 65, 123);
+  assignn(v43, 14);
+  cycle.time(o3, v43);
+  draw(o3);
+  accept.input();
+  print(m1);
+}
+if (isset(f2) && said("examine")) {
+  print(m1);
+  set(f4);
+}
+if (isset(f2) && said("examine", "notice")) {
+  print(m2);
+  set(f4);
+}
+if (isset(f2) && said("read", "notice")) {
+  print(m2);
+  set(f4);
+}
+if (isset(f2) && said("get", "notice")) {
+  print(m24);
+  set(f4);
+}
+if (isset(f2) && said("examine", "bread")) {
+  print(m11);
+  set(f4);
+}
+if (isset(f2) && said("get", "bread")) {
+  if (!isset(f41)) {
+    set(f41);
+    get(0);
+    erase(o1);
+    print(m3);
+  } else {
+    print(m5);
+  }
+  set(f4);
+}
+if (isset(f2) && said("examine", "lamp")) {
+  print(m12);
+  set(f4);
+}
+if (isset(f2) && said("get", "lamp")) {
+  if (!isset(f42)) {
+    set(f42);
+    get(1);
+    erase(o2);
+    print(m4);
+  } else {
+    print(m6);
+  }
+  set(f4);
+}
+if (isset(f2) && said("ignite", "lamp")) {
+  print(m17);
+  set(f4);
+}
+if (isset(f2) && said("use", "lamp")) {
+  print(m23);
+  set(f4);
+}
+if (isset(f2) && said("examine", "alligator")) {
+  print(m7);
+  set(f4);
+}
+if (isset(f2) && said("speak", "alligator")) {
+  print(m7);
+  set(f4);
+}
+if (isset(f2) && said("examine", "moat")) {
+  print(m8);
+  set(f4);
+}
+if (isset(f2) && said("dive")) {
+  if (!isset(f49)) {
+    set(f49);
+    print(m8);
+  } else {
+    print(m9);
+    call(255);
+  }
+  set(f4);
+}
+if (isset(f2) && said("dive", "moat")) {
+  if (!isset(f49)) {
+    set(f49);
+    print(m8);
+  } else {
+    print(m9);
+    call(255);
+  }
+  set(f4);
+}
+if (isset(f2) && said("examine", "bridge")) {
+  print(m14);
+  set(f4);
+}
+if (isset(f2) && said("examine", "castle")) {
+  print(m13);
+  set(f4);
+}
+if (isset(f2) && said("examine", "gate")) {
+  print(m13);
+  set(f4);
+}
+if (isset(f2) && said("examine", "meadow")) {
+  print(m15);
+  set(f4);
+}
+if (isset(f2) && said("feed", "bread")) {
+  print(m16);
+  set(f4);
+}
+if (isset(f2) && said("speak", "brannoc")) {
+  print(m19);
+  set(f4);
+}
+if (isset(f2) && said("examine", "heron")) {
+  print(m20);
+  set(f4);
+}
+if (isset(f2) && said("examine", "bell")) {
+  print(m21);
+  set(f4);
+}
+if (isset(f2) && said("examine", "ember")) {
+  print(m21);
+  set(f4);
+}
+if (isset(f2) && said("examine", "map")) {
+  print(m21);
+  set(f4);
+}
+if (isset(f2) && said("examine", "wenna")) {
+  print(m25);
+  set(f4);
+}
+if (isset(f2) && said("help")) {
+  print(m18);
+  set(f4);
+}
+if (isset(f2) && !isset(f4)) {
+  print(m18);
+  set(f4);
+}
+if (equaln(v2, 4)) {
+  new.room(2);
+}
+if (equaln(v2, 2)) {
+  new.room(3);
+}
+if (equaln(v2, 1)) {
+  print(m26);
+  position(o0, 109, 144);
+}
+if (equaln(v2, 3)) {
+  print(m27);
+  position(o0, 109, 153);
+}
+return;
+
+
+// ===== logic 255 (324 bytes)
+#message 1 ">"
+#message 2 " "
+#message 3 "You have died."
+#message 4 "Restore"
+#message 5 "Restart"
+#message 6 "Quit"
+#message 7 "1-3, SPACE, ENTER"
+
+if (!isset(f202)) {
+  set(f202);
+  assignn(v250, 0);
+  program.control();
+  prevent.input();
+  stop.motion(o0);
+  stop.cycling(o0);
+  reset(f14);
+  load.sound(255);
+  sound(255, f201);
+}
+reset(f203);
+if (equaln(v19, 32)) {
+  increment(v250);
+  if (equaln(v250, 3)) {
+    assignn(v250, 0);
+  }
+}
+if (equaln(v19, 49)) {
+  assignn(v250, 0);
+  set(f203);
+}
+if (equaln(v19, 50)) {
+  assignn(v250, 1);
+  set(f203);
+}
+if (equaln(v19, 51)) {
+  assignn(v250, 2);
+  set(f203);
+}
+if (equaln(v19, 13)) {
+  set(f203);
+}
+if (controller(202)) {
+  assignn(v250, 0);
+  set(f203);
+}
+if (controller(203)) {
+  assignn(v250, 1);
+  set(f203);
+}
+if (controller(204)) {
+  assignn(v250, 2);
+  set(f203);
+}
+if (isset(f203)) {
+  if (equaln(v250, 0)) {
+    restore.game();
+  }
+  if (equaln(v250, 1)) {
+    set(f16);
+    restart.game();
+  }
+  if (equaln(v250, 2)) {
+    quit(0);
+  }
+}
+set.text.attribute(0, 15);
+clear.text.rect(9, 10, 16, 30, 15);
+display(10, 14, m3);
+display(12, 15, m4);
+display(13, 15, m5);
+display(14, 15, m6);
+display(15, 12, m7);
+if (equaln(v250, 0)) {
+  display(12, 13, m1);
+  display(13, 13, m2);
+  display(14, 13, m2);
+}
+if (equaln(v250, 1)) {
+  display(12, 13, m2);
+  display(13, 13, m1);
+  display(14, 13, m2);
+}
+if (equaln(v250, 2)) {
+  display(12, 13, m2);
+  display(13, 13, m2);
+  display(14, 13, m1);
+}
+set.text.attribute(15, 0);
+return;

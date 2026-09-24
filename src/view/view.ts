@@ -149,19 +149,28 @@ export function buildView(
       const transColor = typeof transparentColor === "number" ? transparentColor : 0;
       const mirrorBit = Boolean(mirror);
 
-      if (width < 1 || width > SCREEN_WIDTH) {
+      if (!Number.isInteger(width) || width < 1 || width > SCREEN_WIDTH) {
         throw new RangeError(`cel width must be between 1 and ${SCREEN_WIDTH} (got ${width})`);
       }
-      if (height < 1 || height > 168) {
+      if (!Number.isInteger(height) || height < 1 || height > 168) {
         throw new RangeError(`cel height must be between 1 and 168 (got ${height})`);
       }
-      if (transColor < 0 || transColor > 15) {
+      if (!Number.isInteger(transColor) || transColor < 0 || transColor > 15) {
         throw new RangeError(`transparentColor must be 0..15 (got ${transColor})`);
       }
       if (pixels.length !== width * height) {
         throw new RangeError(
           `cel pixels length ${pixels.length} does not match width ${width} * height ${height} = ${width * height}`,
         );
+      }
+      // Every pixel, before encoding: the row scan below stops at the last
+      // opaque pixel, and the encoder packs colours into a nibble.
+      for (let index = 0; index < pixels.length; index++) {
+        const color = pixels[index]!;
+        if (!Number.isInteger(color) || color < 0 || color > 15)
+          throw new RangeError(
+            `pixel at row ${Math.floor(index / width)}, col ${index % width} has invalid color ${color}`,
+          );
       }
 
       const mirrorable = mirrorBit || forceMirror;
@@ -175,9 +184,6 @@ export function buildView(
         let lastNonTrans = -1;
         for (let x = width - 1; x >= 0; x--) {
           const color = pixels[rowStart + x]!;
-          if (!Number.isInteger(color) || color < 0 || color > 15) {
-            throw new RangeError(`pixel at row ${row}, col ${x} has invalid color ${color}`);
-          }
           if (color !== transColor) {
             lastNonTrans = x;
             break;
@@ -190,7 +196,7 @@ export function buildView(
           const end = lastNonTrans + 1;
           let x = 0;
           while (x < end) {
-            const color = pixels[rowStart + x]! & 0x0f;
+            const color = pixels[rowStart + x]!;
             let runLen = 1;
             while (x + runLen < end && pixels[rowStart + x + runLen] === color) {
               runLen++;

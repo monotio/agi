@@ -23,7 +23,7 @@ import { basename, join } from "node:path";
 import { parseWordsTok } from "../src/logic/words.ts";
 import { Simulation } from "../src/agent/playtest.ts";
 import { AgentSession } from "../app/src/agent/agentSession.ts";
-import { MODEL_CAPABILITIES } from "../src/agent/modelEffort.ts";
+import { DEFAULT_MODELS, MODEL_CAPABILITIES } from "../src/agent/modelEffort.ts";
 import type { AgentFrame } from "../src/agent/frames.ts";
 import type { LlmConfig, LlmUsage } from "../app/src/agent/llmClient.ts";
 
@@ -140,7 +140,7 @@ function configFor(args: Args): LlmConfig {
   return {
     provider,
     apiKey,
-    model: args.model ?? (provider === "anthropic" ? "claude-fable-5" : "gpt-6-astra"),
+    model: args.model ?? DEFAULT_MODELS[provider],
     ...(args.effort !== undefined ? { effort: args.effort } : {}),
   };
 }
@@ -282,13 +282,29 @@ async function runCase(
     session.setOrientation({ game: basename(args.game), profile: engine.profile.id });
 
     const room = engine.vars[0] ?? 1;
-    // --warm: an Ask turn first so the Remix request measures warm prefixes.
-    if (args.warm && bench.mode === "remix")
-      await session.runAsk(CASES["keys-help"]!.instruction, room);
-    const result =
-      bench.mode === "ask"
-        ? await session.runAsk(bench.instruction, room)
-        : await session.runPowerUp(bench.instruction, room);
+    // A paused task (budget, repeated failure) waits for a player who is not
+    // there; end the run with the pause's reason instead of waiting forever.
+    let pausedReason = "";
+    const monitor = setInterval(() => {
+      const task = session.task.snapshot();
+      if (task.status !== "paused") return;
+      pausedReason = task.reason;
+      session.task.cancel();
+    }, 20);
+    let result: Awaited<ReturnType<typeof session.runPowerUp>> | string;
+    try {
+      // --warm: an Ask turn first so the Remix request measures warm prefixes.
+      if (args.warm && bench.mode === "remix")
+        await session.runAsk(CASES["keys-help"]!.instruction, room);
+      result =
+        bench.mode === "ask"
+          ? await session.runAsk(bench.instruction, room)
+          : await session.runPowerUp(bench.instruction, room);
+    } catch (error) {
+      throw pausedReason ? new Error(`Production agent paused: ${pausedReason}`) : error;
+    } finally {
+      clearInterval(monitor);
+    }
     const wallMs = performance.now() - t0;
     const patched =
       typeof result === "string" ? [] : result.patched.map((p) => `${p.kind} ${p.num}`);

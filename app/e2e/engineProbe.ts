@@ -402,4 +402,8 @@ export async function cacheGame(
     },
   );
   expect(saved).toBe(true);
+  // The save pulled the storage modules in through a dynamic import. A reload
+  // that cancels those requests mid-flight can make WebKit fail the next
+  // page's module loads outright, so callers reload only once they settle.
+  await page.waitForLoadState("networkidle");
 }

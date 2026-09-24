@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { assertNoImageData } from "../../test/modelText.ts";
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import {
@@ -83,12 +84,9 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
         }
         return;
       }
-      if (content.expectedTextMaxChars !== undefined) {
+      if (content.expectedImageCount !== undefined) {
         const wire = splitToolResult(res);
-        assert.ok(
-          wire.text.length <= content.expectedTextMaxChars,
-          "tool text exceeds its byte-free budget",
-        );
+        assertNoImageData(wire.text, `${file}: tool text`);
         assert.equal(wire.images.length, content.expectedImageCount);
       }
 

@@ -17,12 +17,12 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   const original = TUTORIAL_LOGIC_SOURCES[1]!;
   const patched = original.replace("PICTURE GALLERY", "REMIX GALLERY");
   expect(patched).not.toBe(original);
-  const sprite = { loops: [{ cels: [{ width: 3, height: 2, pixels: [4, 4, 4, 4, 0, 4] }] }] };
+  const sprite = "view\ncel s 3 2 0\n444\n4.4\nendcel\nloop 0 s\nendview";
   let requests = 0;
   await page.route("**/api/openai/v1/responses", async (route) => {
     requests++;
     const calls = [
-      ["write_view", { num: 9, spec: sprite }],
+      ["write_view", { num: 9, source: sprite }],
       ["write_logic_source", { room: 1, source: patched }],
     ];
     await route.fulfill(

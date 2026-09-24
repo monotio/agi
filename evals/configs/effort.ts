@@ -1,8 +1,8 @@
 /**
  * Production Genesis effort and prompt-size comparison.
  *
- * The default plan is one template, one repeat, four models and a bounded
- * lean/default -> lean/low sequence. Baseline and medium stages remain opt-in. Set
+ * The default plan is one template, one repeat, five models and a bounded
+ * lean/default -> lean/low sequence. High and medium stages are opt-in. Set
  * EVAL_EFFORT_STAGES, EVAL_EFFORT_CASES or EVAL_EFFORT_REPEATS to narrow or
  * expand a paid run. Promptfoo is kept at concurrency one because request
  * capture temporarily observes global fetch.
@@ -11,22 +11,22 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { MODEL_IDS } from "./providers.ts";
+import { DEFAULT_TASK_BUDGET_USD } from "../../app/src/agent/agentRun.ts";
 import type { EffortProvider, EffortStage } from "../providers/genesis-session.ts";
 
 const models: ReadonlyArray<readonly [EffortProvider, string]> = [
-  ["openai", MODEL_IDS.gpt56Sol],
-  ["openai", MODEL_IDS.gpt56Terra],
-  ["anthropic", MODEL_IDS.claudeOpus5],
+  ["openai", MODEL_IDS.gpt6Astra],
+  ["openai", MODEL_IDS.gpt6Sol],
+  ["openai", MODEL_IDS.gpt6Luna],
+  ["anthropic", MODEL_IDS.claudeOpus55],
   ["anthropic", MODEL_IDS.claudeFable51],
 ];
 
 const knownStages: Record<string, EffortStage> = {
-  "baseline-default": { promptVariant: "baseline" },
   "lean-default": { promptVariant: "lean" },
+  "lean-high": { promptVariant: "lean", effort: "high" },
   "lean-medium": { promptVariant: "lean", effort: "medium" },
   "lean-low": { promptVariant: "lean", effort: "low" },
-  "baseline-medium": { promptVariant: "baseline", effort: "medium" },
-  "baseline-low": { promptVariant: "baseline", effort: "low" },
 };
 
 function csv(name: string, fallback: string): string[] {
@@ -44,8 +44,8 @@ const stages = csv("EVAL_EFFORT_STAGES", "lean-default,lean-low").map((name) => 
 const cases = csv("EVAL_EFFORT_CASES", "knights-trial");
 const laneFilters = csv("EVAL_EFFORT_LANES", "");
 const repeats = Number(process.env["EVAL_EFFORT_REPEATS"] ?? 1);
-if (!Number.isInteger(repeats) || repeats < 1 || repeats > 5)
-  throw new Error("EVAL_EFFORT_REPEATS must be an integer from 1 to 5.");
+if (!Number.isInteger(repeats) || repeats < 1)
+  throw new Error("EVAL_EFFORT_REPEATS must be a positive integer.");
 
 interface EffortLane {
   id: string;
@@ -73,8 +73,10 @@ for (const [provider, model] of models) {
         provider,
         model,
         lane,
-        budgetUsd: Number(process.env["EVAL_EFFORT_RUN_BUDGET_USD"] ?? 1.25),
-        timeoutMs: Number(process.env["EVAL_EFFORT_TIMEOUT_MS"] ?? 900000),
+        budgetUsd: Number(process.env["EVAL_EFFORT_RUN_BUDGET_USD"] ?? DEFAULT_TASK_BUDGET_USD),
+        ...(process.env["EVAL_EFFORT_TIMEOUT_MS"]
+          ? { timeoutMs: Number(process.env["EVAL_EFFORT_TIMEOUT_MS"]) }
+          : {}),
         ...stage,
       },
     });

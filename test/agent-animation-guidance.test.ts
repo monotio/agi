@@ -4,6 +4,7 @@ import { createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts
 import { AGI_SYSTEM_PROMPT } from "../src/agent/prompt.ts";
 import { BASE_TEMPLATE_LOGIC0_SOURCE } from "../src/agent/baseTemplate.ts";
 import { splitToolResult } from "../src/agent/toolTransport.ts";
+import { assertNoImageData } from "./modelText.ts";
 
 test("animated sprite feedback explains timing and baseline without silently changing logic", () => {
   const state = createAgentSessionState();
@@ -12,17 +13,12 @@ test("animated sprite feedback explains timing and baseline without silently cha
   const logic = state.container.getResource("logic", 1)!.slice();
   const result = executeAgentTool(state, "write_view", {
     num: 1,
-    spec: {
-      loops: [
-        {
-          cels: [
-            { width: 1, height: 1, pixels: [1] },
-            { width: 1, height: 1, pixels: [2] },
-            { width: 1, height: 1, pixels: [3] },
-          ],
-        },
-      ],
-    },
+    source: [
+      "view",
+      ...["1", "2", "3"].flatMap((colour, cel) => [`cel c${cel} 1 1 0`, colour, "endcel"]),
+      "loop 0 c0 c1 c2",
+      "endview",
+    ].join("\n"),
   });
   assert.equal(result.success, true);
   const captions = result.images!.map((image) => image.caption).join("\n");
@@ -30,7 +26,7 @@ test("animated sprite feedback explains timing and baseline without silently cha
   assert.match(captions, /baseline/i);
   assert.match(captions, /logic/i);
   assert.deepEqual(state.container.getResource("logic", 1), logic);
-  assert.ok(splitToolResult(result).text.length < 3000);
+  assertNoImageData(splitToolResult(result).text);
 });
 
 test("invented fix.priority is rejected with the authentic correction and no mutation", () => {

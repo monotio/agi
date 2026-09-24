@@ -7,6 +7,7 @@ import {
   createOpenAiConversation,
 } from "../src/agent/llmClient.ts";
 import { MODEL_CAPABILITIES } from "../../src/agent/modelEffort.ts";
+import { AGENT_TOOLS } from "../../src/agent/tools.ts";
 
 test("every selectable model has a tested capability entry", () => {
   for (const option of Object.values(MODEL_OPTIONS).flat())
@@ -129,7 +130,7 @@ test("Anthropic reports total input including cache and closes unfinished tool t
   await conversation.sendUserMessage("smaller");
   assert.match(JSON.stringify(requests[1]?.["messages"]), /not executed/i);
   const tools = requests[0]?.["tools"] as { name: string; strict?: boolean }[];
-  assert.ok(tools.length > 20);
+  assert.equal(tools.length, AGENT_TOOLS.length);
   // Anthropic strict tools are limited to 20 tools and 16 union parameters and
   // reject numeric constraints; this catalog is sent unconstrained instead.
   assert.ok(tools.every((tool) => !("strict" in tool)));
@@ -163,7 +164,7 @@ test("Anthropic keeps the full catalog and an annotation-free transcript across 
   assert.equal(requests.length, 2);
   for (const request of requests) {
     const tools = request["tools"] as { name: string }[];
-    assert.ok(tools.length > 20, "the advertised catalog never narrows");
+    assert.equal(tools.length, AGENT_TOOLS.length, "the advertised catalog never narrows");
     assert.ok(
       tools.every((tool) => !("cache_control" in tool)),
       "tool definitions carry no markers",

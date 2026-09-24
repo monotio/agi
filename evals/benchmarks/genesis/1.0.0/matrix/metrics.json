@@ -1,0 +1,7442 @@
+{
+ "resultsDir": "runs",
+ "cases": {
+  "badge-of-millhaven": {
+   "anthropic-claude-opus-5-5-lean-high--r1": {
+    "stem": "anthropic-claude-opus-5-5-lean-high--badge-of-millhaven--r1",
+    "lane": "anthropic-claude-opus-5-5-lean-high",
+    "case": "badge-of-millhaven",
+    "provider": "anthropic",
+    "model": "claude-opus-5-5",
+    "effort": "high",
+    "promptVariant": "lean",
+    "completion": true,
+    "playtest": {
+     "success": true,
+     "simulation": "passed",
+     "cycles": 1,
+     "room": 1
+    },
+    "cost": {
+     "costUsd": 1.9216838000000003,
+     "usageIncomplete": false,
+     "inputTokens": 989795,
+     "cachedInputTokens": 885809,
+     "cacheWriteTokens": 103958,
+     "outputTokens": 61231,
+     "cachedPct": 89.5,
+     "wallSec": 594,
+     "providerRequests": 21,
+     "modelTurns": 13,
+     "toolCalls": 20,
+     "repairTurns": 0,
+     "toolFailures": 0,
+     "repairCategories": {
+      "actionable": {
+       "turns": 0,
+       "toolFailures": 0
+      },
+      "expectedFutureRoomExit": {
+       "turns": 0,
+       "toolFailures": 0
+      }
+     },
+     "authoredResources": 6,
+     "costPerAuthoredResource": 0.32
+    },
+    "logic": {
+     "count": 3,
+     "totalBytes": 9359,
+     "totalCodeBytes": 2103,
+     "roomLogics": [
+      1
+     ],
+     "roomCodeBytes": 1489,
+     "template": [
+      {
+       "num": 0,
+       "status": "modified",
+       "delta": {
+        "changedMessages": [
+         17,
+         18
+        ],
+        "addedInsns": [
+         "assignn(7,215)"
+        ],
+        "removedInsns": 0
+       }
+      },
+      {
+       "num": 255,
+       "status": "identical"
+      }
+     ],
+     "distinctCommandsAll": 56,
+     "distinctCommandsRooms": 28,
+     "roomCommands": [
+      "accept.input",
+      "addn",
+      "animate.obj",
+      "assignn",
+      "cycle.time",
+      "discard.pic",
+      "draw",
+      "draw.pic",
+      "drop",
+      "equaln",
+      "get",
+      "get.posn",
+      "has",
+      "ignore.horizon",
+      "ignore.objs",
+      "isset",
+      "load.pic",
+      "load.view",
+      "new.room",
+      "position",
+      "print",
+      "reposition.to.v",
+      "said",
+      "set",
+      "set.horizon",
+      "set.view",
+      "show.pic",
+      "status"
+     ],
+     "saidCalls": 95,
+     "saidDistinctPatterns": 92,
+     "saidWordGroups": 49,
+     "vocabularyWords": 203,
+     "vocabularyGroups": 67,
+     "roomMessages": 78,
+     "roomMessageChars": 6464,
+     "allMessages": 105,
+     "exits": [
+      {
+       "from": 1,
+       "to": [
+        {
+         "to": 2,
+         "edge": "left"
+        },
+        {
+         "to": 3,
+         "edge": "right"
+        }
+       ]
+      }
+     ],
+     "roomFlags": [
+      2,
+      4,
+      5,
+      32,
+      33,
+      34,
+      35,
+      37,
+      38,
+      39,
+      40
+     ],
+     "roomVars": [
+      1,
+      2,
+      3,
+      6,
+      9,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37
+     ],
+     "scoreAwards": [
+      10,
+      50
+     ],
+     "maxScore": 215,
+     "deathCalls": 0,
+     "animatedObjects": [
+      1,
+      2,
+      0
+     ],
+     "horizon": 94,
+     "egoView": 0,
+     "egoStart": [
+      94,
+      142
+     ],
+     "egoStartSource": "engine boot (6 cycles)",
+     "boot": {
+      "room": 1,
+      "x": 94,
+      "y": 142,
+      "width": 8,
+      "horizon": 94
+     },
+     "perLogic": [
+      {
+       "num": 0,
+       "bytes": 839,
+       "codeBytes": 367,
+       "messages": 20,
+       "messageChars": 407,
+       "template": "logic0",
+       "templateStatus": "modified",
+       "templateDelta": {
+        "changedMessages": [
+         17,
+         18
+        ],
+        "addedInsns": [
+         "assignn(7,215)"
+        ],
+        "removedInsns": 0
+       },
+       "flags": [
+        2,
+        4,
+        9,
+        14,
+        200,
+        202
+       ],
+       "vars": [
+        0,
+        7,
+        9,
+        10
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [
+        255
+       ],
+       "scoreAwards": [],
+       "maxScore": 215,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 1,
+       "animatedObjects": [],
+       "saidCalls": 0
+      },
+      {
+       "num": 1,
+       "bytes": 8196,
+       "codeBytes": 1489,
+       "messages": 78,
+       "messageChars": 6464,
+       "template": null,
+       "templateStatus": "n/a",
+       "flags": [
+        2,
+        4,
+        5,
+        32,
+        33,
+        34,
+        35,
+        37,
+        38,
+        39,
+        40
+       ],
+       "vars": [
+        1,
+        2,
+        3,
+        6,
+        9,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37
+       ],
+       "exits": [
+        {
+         "to": 2,
+         "edge": "left"
+        },
+        {
+         "to": 3,
+         "edge": "right"
+        }
+       ],
+       "pictures": [
+        1
+       ],
+       "calls": [],
+       "scoreAwards": [
+        10,
+        50
+       ],
+       "maxScore": null,
+       "horizon": 94,
+       "egoView": 0,
+       "egoStart": [
+        1,
+        140
+       ],
+       "deathCalls": 0,
+       "animatedObjects": [
+        1,
+        2,
+        0
+       ],
+       "saidCalls": 95
+      },
+      {
+       "num": 255,
+       "bytes": 324,
+       "codeBytes": 247,
+       "messages": 7,
+       "messageChars": 51,
+       "template": "death",
+       "templateStatus": "identical",
+       "flags": [
+        14,
+        16,
+        201,
+        202,
+        203
+       ],
+       "vars": [
+        19,
+        250
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [],
+       "scoreAwards": [],
+       "maxScore": null,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 0,
+       "animatedObjects": [],
+       "saidCalls": 0
+      }
+     ]
+    },
+    "inventory": [
+     {
+      "name": "?",
+      "startingRoom": 0
+     },
+     {
+      "name": "badge",
+      "startingRoom": 255
+     },
+     {
+      "name": "radio",
+      "startingRoom": 255
+     },
+     {
+      "name": "camera",
+      "startingRoom": 0
+     },
+     {
+      "name": "driver's logbook",
+      "startingRoom": 0
+     },
+     {
+      "name": "pill bottle",
+      "startingRoom": 0
+     },
+     {
+      "name": "crime scene photos",
+      "startingRoom": 0
+     },
+     {
+      "name": "ledger page",
+      "startingRoom": 0
+     },
+     {
+      "name": "arrest report",
+      "startingRoom": 0
+     }
+    ],
+    "pictures": [
+     {
+      "num": 1,
+      "usedByRoom": true,
+      "startRoom": true,
+      "bytes": 852,
+      "commands": 182,
+      "colorsUsed": [
+       0,
+       1,
+       2,
+       3,
+       6,
+       7,
+       8,
+       10,
+       11,
+       12,
+       14,
+       15
+      ],
+      "distinctColors": 12,
+      "fillPct": 97.6,
+      "edgeDensity": 0.102,
+      "regionCount": 109,
+      "priorityBandsUsed": [
+       4,
+       12
+      ],
+      "priorityBandCount": 2,
+      "depthDrawnPct": 2,
+      "controlPct": {
+       "barrier0": 8.7,
+       "conditional1": 0,
+       "trigger2": 0,
+       "water3": 0
+      },
+      "controlAnyPct": 8.7,
+      "horizon": 94,
+      "horizonSanityPct": 100,
+      "egoStart": [
+       94,
+       142
+      ],
+      "egoStartPriority": 4,
+      "egoStartStandable": true,
+      "egoStartYBand": 12,
+      "reachablePctBelowHorizon": 78.2,
+      "reachesEdges": [
+       "left",
+       "right",
+       "bottom",
+       "horizon"
+      ],
+      "waterReachable": false,
+      "triggerReachable": false,
+      "reachableColors": [
+       {
+        "color": 7,
+        "name": "lgray",
+        "pctOfReachable": 87.7
+       },
+       {
+        "color": 8,
+        "name": "dgray",
+        "pctOfReachable": 5.6
+       },
+       {
+        "color": 0,
+        "name": "black",
+        "pctOfReachable": 2.5
+       },
+       {
+        "color": 6,
+        "name": "brown",
+        "pctOfReachable": 2.4
+       },
+       {
+        "color": 15,
+        "name": "white",
+        "pctOfReachable": 1
+       },
+       {
+        "color": 1,
+        "name": "blue",
+        "pctOfReachable": 0.9
+       }
+      ]
+     }
+    ],
+    "views": [
+     {
+      "num": 0,
+      "bytes": 1488,
+      "loops": 4,
+      "celsPerLoop": [
+       4,
+       4,
+       4,
+       4
+      ],
+      "cels": 16,
+      "paintedPixels": 2652,
+      "maxSize": "9x30",
+      "firstCelWidth": 8,
+      "colors": [
+       0,
+       1,
+       6,
+       12,
+       14
+      ],
+      "description": "Officer Dana Reyes: navy uniform, cap, duty belt",
+      "fourDirWalk": true
+     },
+     {
+      "num": 1,
+      "bytes": 604,
+      "loops": 1,
+      "celsPerLoop": [
+       8
+      ],
+      "cels": 8,
+      "paintedPixels": 952,
+      "maxSize": "11x15",
+      "firstCelWidth": 11,
+      "colors": [
+       0,
+       1,
+       4,
+       6,
+       7,
+       8,
+       14
+      ],
+      "description": "Sergeant Prakash seated behind the front desk, occasional blink",
+      "fourDirWalk": false
+     },
+     {
+      "num": 2,
+      "bytes": 226,
+      "loops": 1,
+      "celsPerLoop": [
+       8
+      ],
+      "cels": 8,
+      "paintedPixels": 136,
+      "maxSize": "5x5",
+      "firstCelWidth": 5,
+      "colors": [
+       0,
+       2,
+       4,
+       8,
+       10,
+       12
+      ],
+      "description": "Desk base radio with an occasional blinking light",
+      "fourDirWalk": false
+     }
+    ],
+    "sounds": [
+     {
+      "num": 255,
+      "bytes": 66,
+      "template": true,
+      "durationTicks": 42,
+      "durationSec": 0.7,
+      "voices": [
+       0,
+       1
+      ],
+      "audibleNotes": 8
+     }
+    ],
+    "tests": [
+     {
+      "name": "precinct_assignment",
+      "room": 1,
+      "steps": 8,
+      "stepSummary": "enter, walkTo, \"ask sergeant about case\", enter, enter, enter, enter, \"talk to prakash\"",
+      "asserts": [
+       "room=1",
+       "carriedItems=[1,2,3]",
+       "flags[1]",
+       "printed=\"Talk to the driver on Main Street\"",
+       "score=10"
+      ]
+     },
+     {
+      "name": "precinct_exit_blocked",
+      "room": 1,
+      "steps": 2,
+      "stepSummary": "enter, direction",
+      "asserts": [
+       "room=1",
+       "flags[1]",
+       "printed=\"You don't have an assignment yet\"",
+       "score=0"
+      ]
+     },
+     {
+      "name": "precinct_report_not_ready",
+      "room": 1,
+      "steps": 2,
+      "stepSummary": "enter, \"write report\"",
+      "asserts": [
+       "room=1",
+       "carriedItems=[1,2]",
+       "printed=\"nothing to report yet\"",
+       "score=0"
+      ]
+     }
+    ],
+    "session": {
+     "toolCalls": {
+      "inspect_world_bible": 1,
+      "read_logic": 1,
+      "read_authoring_guide": 1,
+      "update_world": 1,
+      "reserve_binding": 1,
+      "write_inventory_objects": 1,
+      "write_words": 1,
+      "write_view": 3,
+      "write_picture": 1,
+      "write_logic_source": 1,
+      "edit_resource_source": 2,
+      "playtest_room": 3,
+      "read_diagnostic": 1,
+      "write_game_tests": 1,
+      "handover": 1
+     },
+     "toolCallCount": 20,
+     "failures": [],
+     "failuresByCategory": {},
+     "representativeErrors": [],
+     "pictureWrites": [
+      {
+       "tool": "write_picture",
+       "priorityCommands": 3,
+       "controlCommands": 2
+      },
+      {
+       "tool": "edit_resource_source",
+       "priorityCommands": 0,
+       "controlCommands": 0
+      }
+     ],
+     "pictureWritesUsingPriority": 1,
+     "assistantMessages": 13,
+     "proseBlocks": 2,
+     "proseChars": 153,
+     "reasoningVisibleChars": 40609,
+     "proseMentionsPriority": 0,
+     "proseSample": [
+      "Now playtest: the intro, talking to Prakash, blocked exit, and a composed frame.",
+      "Quick check that the east exit opens after the assignment, then handover."
+     ]
+    },
+    "brief": {
+     "checklist": [
+      {
+       "label": "precinct / front desk (message)",
+       "pass": true
+      },
+      {
+       "label": "Sergeant Prakash named",
+       "pass": true
+      },
+      {
+       "label": "talk to Prakash (said talk)",
+       "pass": true
+      },
+      {
+       "label": "badge (OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "radio (OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "board readable (said board)",
+       "pass": true
+      },
+      {
+       "label": "lead: driver/pharmacy mentioned",
+       "pass": true
+      },
+      {
+       "label": "receive assignment +10",
+       "pass": true
+      },
+      {
+       "label": ">=1 exit",
+       "pass": true
+      },
+      {
+       "label": "Dana/Reyes named",
+       "pass": true
+      },
+      {
+       "label": "ego navy/blue uniform",
+       "pass": true
+      },
+      {
+       "label": "palette: red brick + blue + green",
+       "pass": true
+      }
+     ],
+     "passed": 12,
+     "total": 12,
+     "lexicon": {
+      "verbsInDictionary": 8,
+      "nounsInDictionary": 8,
+      "verbsInSaid": 8,
+      "nounsInSaid": 6,
+      "verbs": 8,
+      "nouns": 8,
+      "namesInMessages": [
+       "Officer Dana Reyes",
+       "Millhaven",
+       "Sergeant Prakash",
+       "Officer Bud Bukowski",
+       "Dispatch"
+      ],
+      "names": [
+       "Officer Dana Reyes",
+       "Millhaven",
+       "Sergeant Prakash",
+       "Officer Bud Bukowski",
+       "Dispatch"
+      ]
+     },
+     "maxScoreBrief": 215
+    },
+    "startMessages": [
+     "Millhaven Police Department, 7:58 a.m. Officer Dana Reyes reports for her first week on patrol. Sergeant Prakash sits behind the front desk, sorting forms into three trays.",
+     "The front desk of the Millhaven Police Department. Sergeant Prakash works behind the counter under green fluorescent lights. A bulletin board hangs on the back wall. The records office is down the hall to the west. Glass doors lead east to Main Street.",
+     "Sergeant Prakash has twenty-two years on the force and a mustache that has outlasted three chiefs. He stamps forms without looking at them.",
+     "\"Reyes. Hale's Pharmacy on Main Street was broken into overnight. Somebody took a case of prescription painkillers.\"",
+     "\"A delivery driver, Marty Voss, called it in at 2:15 this morning. Says he saw the whole thing. He's waiting by his van on Main Street. Take his statement.\"",
+     "\"Then document the scene. Photographs, and anything the thief left behind.\" He slides a department camera across the counter. \"Bukowski is riding with you. He's out at the car. Try to keep him on topic.\"",
+     "\"The details are on the board if you forget. Dismissed.\"",
+     "\"Talk to the driver on Main Street. People remember things wrong. Check his story against something written down.\"",
+     "\"Hale's Pharmacy. Photograph the scene and bag anything the thief left behind. Talk to the pharmacist.\"",
+     "\"You've got a driver whose story doesn't hold and evidence from the scene. Records can tell you who rents what on Pier Road. Put it together.\"",
+     "\"You know where this goes. Radio dispatch for backup before you set foot in that warehouse. That's not advice, Reyes.\"",
+     "\"Write up the report, sign it and give it to me. Evidence attached.\"",
+     "\"Go home, Reyes. Come back tomorrow and do it again.\"",
+     "Wanted posters, a softball sign-up sheet and a typed notice: DAY SHIFT SEE SGT. PRAKASH FOR ASSIGNMENTS. The yellow index card in the middle is blank.",
+     "The yellow card reads: HALE'S PHARMACY, MAIN ST. BREAK-IN APPROX. 2 A.M. REPORTED 2:15 A.M. BY MARTY VOSS, QUICKLINE DELIVERY. TAKE STATEMENT. DOCUMENT SCENE.",
+     "Three wire trays sit on the counter, labeled IN, OUT and WRONG TRAY. The third one is the fullest.",
+     "\"Forms filed in the wrong tray go in that tray. Then I move them to the right tray. It's a system, Reyes.\"",
+     "Badge 417. The shine is still new.",
+     "Your handheld radio, set to channel two. Dispatch is on the other end.",
+     "Dispatch: \"Reyes, the sergeant is twenty feet away from you. Ask him.\"",
+     "Dispatch: \"Your call is the break-in at Hale's Pharmacy on Main Street. Reporting party is Marty Voss, Quickline Delivery. He's waiting by his van.\"",
+     "A department camera loaded with fresh film.",
+     "Prakash raises one hand without looking up. \"Save the film for evidence.\"",
+     "You don't have a camera.",
+     "Prakash puts a hand on it. \"Assignment first, Reyes.\"",
+     "The camera is already on your belt.",
+     "\"I issued that badge, Reyes. I know what it looks like.\"",
+     "A long counter. Prakash's side holds a rubber stamp, a coffee mug, the base radio and three wire trays.",
+     "A wooden bench for visitors. Someone has carved INNOCENT into the armrest.",
+     "Glass doors open onto Main Street to the east.",
+     "A hallway to the west leads to the records office.",
+     "Officer Dana Reyes: navy uniform, cap and duty belt. Badge 417. First week.",
+     "Prakash calls after you. \"Reyes! You don't have an assignment yet.\"",
+     "There's nothing to report yet. The case is still open.",
+     "You take a blank arrest report from the IN tray and fill it out at the end of the counter: the driver's log, the scene, the records, the warehouse and the arrest.",
+     "The report is already written.",
+     "You don't have a report to give him.",
+     "Prakash turns to the last page and taps an empty line. \"Box twelve. Arresting officer's signature.\" He slides it back.",
+     "You sign box twelve.",
+     "There's nothing to sign.",
+     "It's already signed.",
+     "\"Where's the driver's logbook? The whole case hangs on his timeline. Go get it.\" He hands the report back.",
+     "\"Where's the pill bottle from the scene? No physical evidence, no case.\" He hands the report back.",
+     "\"No scene photographs. Go back to Hale's with that camera.\" He hands the report back.",
+     "\"You say the warehouse ties to the Voss brothers. Show me the ledger page from records.\" He hands the report back.",
+     "Prakash reads every page. He checks the logbook against the ledger page, holds the pill bottle up to the light and flips through the photographs.",
+     "\"Timeline, evidence, records, signature.\" He stamps the report and drops it in the OUT tray. \"It'll stick. Good work, Reyes.\"",
+     "At 6:04 p.m. Officer Dana Reyes clocks out. Her first case is closed, and the paperwork is in the right tray.",
+     "\"It's filed. Go home, Reyes.\"",
+     "A department camera sits on the counter next to Prakash's stamp.",
+     "\"Bukowski's out at the patrol car on Main Street. You'll hear him before you see him.\"",
+     "Prakash nods without looking up. \"Reyes.\"",
+     "Nothing here needs photographing.",
+     "The clock says a few minutes before eight. It has run four minutes fast for years.",
+     "A potted fern. Somebody waters it with cold coffee.",
+     "Prakash's mug reads WORLD'S OKAYEST SERGEANT.",
+     "The Millhaven Police seal: a gold badge over a blue banner.",
+     "There's nothing here you need to take.",
+     "\"Marty Voss. Drives for Quickline Delivery. Very helpful on the phone. Maybe too helpful.\"",
+     "\"Hale's Pharmacy, down Main Street. The pharmacist is Ruth Okafor. She's been jumpy lately, and not just since last night.\"",
+     "\"Pier Road is nothing but warehouses. Find out which one before you go knocking.\"",
+     "\"Warehouse 7. You radio dispatch for backup before you go in. Bukowski will tell you the same thing.\"",
+     "You'd rather stand. It's your first week.",
+     "You flash your badge. Nobody here is impressed.",
+     "Arrest report, Millhaven PD. It still needs your signature in box twelve.",
+     "Arrest report, signed. The evidence goes with it.",
+     "Prakash glances up. \"Talk to me, read the board or get moving, Reyes.\"",
+     "WANTED: a man who steals garden gnomes. WANTED: players for the department softball team. Both have been up since spring.",
+     "Dispatch: \"Backup for what, Reyes? You're standing in the station.\"",
+     "The glass doors swing both ways. Walk through them to reach Main Street.",
+     "Fluorescent tubes hum overhead and turn everything faintly green.",
+     "A rubber stamp that says RECEIVED. Prakash uses it on everything.",
+     "Prakash waves you over. \"Talk to me first, Reyes.\"",
+     "\"Quickline Delivery. Half the shops on Main Street use them. Their drivers know every back door in town.\"",
+     "Blank forms fill the IN tray. You'll need one when there's something to report.",
+     "You reach for the OUT tray. Prakash takes the report out of your hand first. \"Not in a tray, Reyes. To me.\"",
+     "You don't see that here.",
+     "Prakash's stamp stays with Prakash."
+    ]
+   },
+   "anthropic-claude-opus-5-5-lean-medium--r1": {
+    "stem": "anthropic-claude-opus-5-5-lean-medium--badge-of-millhaven--r1",
+    "lane": "anthropic-claude-opus-5-5-lean-medium",
+    "case": "badge-of-millhaven",
+    "provider": "anthropic",
+    "model": "claude-opus-5-5",
+    "effort": "medium",
+    "promptVariant": "lean",
+    "completion": true,
+    "playtest": {
+     "success": true,
+     "simulation": "passed",
+     "cycles": 1,
+     "room": 1
+    },
+    "cost": {
+     "costUsd": 1.0280247999999998,
+     "usageIncomplete": false,
+     "inputTokens": 703932,
+     "cachedInputTokens": 639934,
+     "cacheWriteTokens": 63966,
+     "outputTokens": 29004,
+     "cachedPct": 90.9,
+     "wallSec": 295,
+     "providerRequests": 23,
+     "modelTurns": 15,
+     "toolCalls": 20,
+     "repairTurns": 1,
+     "toolFailures": 1,
+     "repairCategories": {
+      "actionable": {
+       "turns": 1,
+       "toolFailures": 1
+      },
+      "expectedFutureRoomExit": {
+       "turns": 0,
+       "toolFailures": 0
+      }
+     },
+     "authoredResources": 8,
+     "costPerAuthoredResource": 0.129
+    },
+    "logic": {
+     "count": 3,
+     "totalBytes": 6113,
+     "totalCodeBytes": 1466,
+     "roomLogics": [
+      1
+     ],
+     "roomCodeBytes": 831,
+     "template": [
+      {
+       "num": 0,
+       "status": "modified",
+       "delta": {
+        "changedMessages": [
+         17,
+         18
+        ],
+        "addedInsns": [
+         "assignn(7,215)",
+         "status()"
+        ],
+        "removedInsns": 0
+       }
+      },
+      {
+       "num": 255,
+       "status": "modified",
+       "delta": {
+        "changedMessages": [
+         3
+        ],
+        "addedInsns": [],
+        "removedInsns": 0
+       }
+      }
+     ],
+     "distinctCommandsAll": 56,
+     "distinctCommandsRooms": 28,
+     "roomCommands": [
+      "accept.input",
+      "addn",
+      "animate.obj",
+      "assignn",
+      "cycle.time",
+      "discard.pic",
+      "draw",
+      "draw.pic",
+      "equaln",
+      "erase",
+      "get",
+      "get.posn",
+      "has",
+      "ignore.objs",
+      "isset",
+      "load.pic",
+      "load.view",
+      "new.room",
+      "position",
+      "print",
+      "reposition.to.v",
+      "said",
+      "set",
+      "set.horizon",
+      "set.priority",
+      "set.view",
+      "show.pic",
+      "stop.cycling"
+     ],
+     "saidCalls": 41,
+     "saidDistinctPatterns": 40,
+     "saidWordGroups": 25,
+     "vocabularyWords": 119,
+     "vocabularyGroups": 47,
+     "roomMessages": 46,
+     "roomMessageChars": 3940,
+     "allMessages": 73,
+     "exits": [
+      {
+       "from": 1,
+       "to": [
+        {
+         "to": 2,
+         "edge": "left"
+        },
+        {
+         "to": 3,
+         "edge": "right"
+        }
+       ]
+      }
+     ],
+     "roomFlags": [
+      5,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56
+     ],
+     "roomVars": [
+      0,
+      1,
+      2,
+      3,
+      50,
+      51,
+      52,
+      53
+     ],
+     "scoreAwards": [
+      10,
+      50
+     ],
+     "maxScore": 215,
+     "deathCalls": 0,
+     "animatedObjects": [
+      1,
+      2,
+      3,
+      0
+     ],
+     "horizon": 76,
+     "egoView": 0,
+     "egoStart": [
+      40,
+      130
+     ],
+     "egoStartSource": "engine boot (6 cycles)",
+     "boot": {
+      "room": 1,
+      "x": 40,
+      "y": 130,
+      "width": 8,
+      "horizon": 76
+     },
+     "perLogic": [
+      {
+       "num": 0,
+       "bytes": 879,
+       "codeBytes": 388,
+       "messages": 20,
+       "messageChars": 426,
+       "template": "logic0",
+       "templateStatus": "modified",
+       "templateDelta": {
+        "changedMessages": [
+         17,
+         18
+        ],
+        "addedInsns": [
+         "assignn(7,215)",
+         "status()"
+        ],
+        "removedInsns": 0
+       },
+       "flags": [
+        2,
+        4,
+        9,
+        14,
+        200,
+        202
+       ],
+       "vars": [
+        0,
+        7,
+        9,
+        10
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [
+        255
+       ],
+       "scoreAwards": [],
+       "maxScore": 215,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 1,
+       "animatedObjects": [],
+       "saidCalls": 1
+      },
+      {
+       "num": 1,
+       "bytes": 4914,
+       "codeBytes": 831,
+       "messages": 46,
+       "messageChars": 3940,
+       "template": null,
+       "templateStatus": "n/a",
+       "flags": [
+        5,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56
+       ],
+       "vars": [
+        0,
+        1,
+        2,
+        3,
+        50,
+        51,
+        52,
+        53
+       ],
+       "exits": [
+        {
+         "to": 2,
+         "edge": "left"
+        },
+        {
+         "to": 3,
+         "edge": "right"
+        }
+       ],
+       "pictures": [
+        1
+       ],
+       "calls": [],
+       "scoreAwards": [
+        10,
+        50
+       ],
+       "maxScore": null,
+       "horizon": 76,
+       "egoView": 0,
+       "egoStart": [
+        2,
+        125
+       ],
+       "deathCalls": 0,
+       "animatedObjects": [
+        1,
+        2,
+        3,
+        0
+       ],
+       "saidCalls": 41
+      },
+      {
+       "num": 255,
+       "bytes": 320,
+       "codeBytes": 247,
+       "messages": 7,
+       "messageChars": 47,
+       "template": "death",
+       "templateStatus": "modified",
+       "templateDelta": {
+        "changedMessages": [
+         3
+        ],
+        "addedInsns": [],
+        "removedInsns": 0
+       },
+       "flags": [
+        14,
+        16,
+        201,
+        202,
+        203
+       ],
+       "vars": [
+        19,
+        250
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [],
+       "scoreAwards": [],
+       "maxScore": null,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 0,
+       "animatedObjects": [],
+       "saidCalls": 0
+      }
+     ]
+    },
+    "inventory": [
+     {
+      "name": "badge",
+      "startingRoom": 255
+     },
+     {
+      "name": "radio",
+      "startingRoom": 255
+     },
+     {
+      "name": "camera",
+      "startingRoom": 1
+     },
+     {
+      "name": "dispatch log",
+      "startingRoom": 2
+     },
+     {
+      "name": "pill bottle",
+      "startingRoom": 4
+     },
+     {
+      "name": "driver statement",
+      "startingRoom": 0
+     }
+    ],
+    "pictures": [
+     {
+      "num": 1,
+      "usedByRoom": true,
+      "startRoom": true,
+      "bytes": 343,
+      "commands": 74,
+      "colorsUsed": [
+       0,
+       2,
+       6,
+       7,
+       8,
+       11,
+       12,
+       14,
+       15
+      ],
+      "distinctColors": 9,
+      "fillPct": 99.6,
+      "edgeDensity": 0.042,
+      "regionCount": 30,
+      "priorityBandsUsed": [
+       4,
+       9
+      ],
+      "priorityBandCount": 2,
+      "depthDrawnPct": 4.8,
+      "controlPct": {
+       "barrier0": 0.5,
+       "conditional1": 0,
+       "trigger2": 0,
+       "water3": 0
+      },
+      "controlAnyPct": 0.5,
+      "horizon": 76,
+      "horizonSanityPct": 100,
+      "egoStart": [
+       40,
+       130
+      ],
+      "egoStartPriority": 4,
+      "egoStartStandable": true,
+      "egoStartYBand": 11,
+      "reachablePctBelowHorizon": 84.8,
+      "reachesEdges": [
+       "left",
+       "right",
+       "bottom",
+       "horizon"
+      ],
+      "waterReachable": false,
+      "triggerReachable": false,
+      "reachableColors": [
+       {
+        "color": 7,
+        "name": "lgray",
+        "pctOfReachable": 100
+       }
+      ]
+     }
+    ],
+    "views": [
+     {
+      "num": 0,
+      "bytes": 1407,
+      "loops": 4,
+      "celsPerLoop": [
+       4,
+       4,
+       4,
+       4
+      ],
+      "cels": 16,
+      "paintedPixels": 2478,
+      "maxSize": "8x29",
+      "firstCelWidth": 8,
+      "colors": [
+       0,
+       1,
+       6,
+       14
+      ],
+      "description": "Officer Dana Reyes, navy uniform, cap and duty belt",
+      "fourDirWalk": true
+     },
+     {
+      "num": 1,
+      "bytes": 289,
+      "loops": 1,
+      "celsPerLoop": [
+       2
+      ],
+      "cels": 2,
+      "paintedPixels": 420,
+      "maxSize": "10x30",
+      "firstCelWidth": 10,
+      "colors": [
+       0,
+       1,
+       6,
+       8,
+       14
+      ],
+      "description": "Sergeant Prakash behind the desk",
+      "fourDirWalk": false
+     },
+     {
+      "num": 2,
+      "bytes": 143,
+      "loops": 1,
+      "celsPerLoop": [
+       4
+      ],
+      "cels": 4,
+      "paintedPixels": 96,
+      "maxSize": "6x4",
+      "firstCelWidth": 6,
+      "colors": [
+       0,
+       4,
+       7,
+       8,
+       10
+      ],
+      "description": "Dispatch speaker on the wall with a blinking light",
+      "fourDirWalk": false
+     },
+     {
+      "num": 3,
+      "bytes": 42,
+      "loops": 1,
+      "celsPerLoop": [
+       1
+      ],
+      "cels": 1,
+      "paintedPixels": 12,
+      "maxSize": "5x3",
+      "firstCelWidth": 5,
+      "colors": [
+       0,
+       7,
+       8
+      ],
+      "description": "Department camera",
+      "fourDirWalk": false
+     }
+    ],
+    "sounds": [
+     {
+      "num": 255,
+      "bytes": 66,
+      "template": true,
+      "durationTicks": 42,
+      "durationSec": 0.7,
+      "voices": [
+       0,
+       1
+      ],
+      "audibleNotes": 8
+     }
+    ],
+    "tests": [
+     {
+      "name": "room1_assignment_camera_exit",
+      "room": 1,
+      "steps": 11,
+      "stepSummary": "enter, \"take camera\", enter, \"talk to sergeant\", enter, enter, enter, \"take the camera\", enter, walkTo, direction",
+      "asserts": [
+       "room=3",
+       "carriedItems=[0,1,2]",
+       "flags[1]",
+       "score=10"
+      ]
+     },
+     {
+      "name": "room1_exit_blocked_without_assignment",
+      "room": 1,
+      "steps": 2,
+      "stepSummary": "enter, direction",
+      "asserts": [
+       "room=1",
+       "flags[1]",
+       "printed=\"Assignment first\"",
+       "score=0"
+      ]
+     },
+     {
+      "name": "room1_file_incomplete_report",
+      "room": 1,
+      "steps": 6,
+      "stepSummary": "enter, \"talk to prakash\", enter, enter, enter, \"file report\"",
+      "asserts": [
+       "room=1",
+       "flags[1]",
+       "printed=\"dispatch log\"",
+       "score=10"
+      ]
+     }
+    ],
+    "session": {
+     "toolCalls": {
+      "inspect_world_bible": 1,
+      "read_logic": 2,
+      "reserve_binding": 1,
+      "update_world": 1,
+      "write_inventory_objects": 1,
+      "write_view": 4,
+      "write_picture": 1,
+      "edit_resource_source": 4,
+      "write_words": 1,
+      "write_logic_source": 1,
+      "playtest_room": 1,
+      "write_game_tests": 1,
+      "handover": 1
+     },
+     "toolCallCount": 20,
+     "failures": [
+      {
+       "tool": "playtest_room",
+       "category": "playtest-walk",
+       "error": "steps[9]: walkTo did not reach its goal: unreachable_under_current_model (No route in the current static model.)."
+      }
+     ],
+     "failuresByCategory": {
+      "playtest-walk": 1
+     },
+     "representativeErrors": [
+      {
+       "tool": "playtest_room",
+       "category": "playtest-walk",
+       "error": "steps[9]: walkTo did not reach its goal: unreachable_under_current_model (No route in the current static model.)."
+      }
+     ],
+     "pictureWrites": [
+      {
+       "tool": "write_picture",
+       "priorityCommands": 2,
+       "controlCommands": 1
+      },
+      {
+       "tool": "edit_resource_source",
+       "priorityCommands": 0,
+       "controlCommands": 0
+      }
+     ],
+     "pictureWritesUsingPriority": 1,
+     "assistantMessages": 15,
+     "proseBlocks": 1,
+     "proseChars": 67,
+     "reasoningVisibleChars": 15672,
+     "proseMentionsPriority": 0,
+     "proseSample": [
+      "Now a playtest: intro, blocked exit, assignment, camera, exit east."
+     ]
+    },
+    "brief": {
+     "checklist": [
+      {
+       "label": "precinct / front desk (message)",
+       "pass": true
+      },
+      {
+       "label": "Sergeant Prakash named",
+       "pass": true
+      },
+      {
+       "label": "talk to Prakash (said talk)",
+       "pass": true
+      },
+      {
+       "label": "badge (OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "radio (OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "board readable (said board)",
+       "pass": true
+      },
+      {
+       "label": "lead: driver/pharmacy mentioned",
+       "pass": true
+      },
+      {
+       "label": "receive assignment +10",
+       "pass": true
+      },
+      {
+       "label": ">=1 exit",
+       "pass": true
+      },
+      {
+       "label": "Dana/Reyes named",
+       "pass": true
+      },
+      {
+       "label": "ego navy/blue uniform",
+       "pass": true
+      },
+      {
+       "label": "palette: red brick + blue + green",
+       "pass": false
+      }
+     ],
+     "passed": 11,
+     "total": 12,
+     "lexicon": {
+      "verbsInDictionary": 8,
+      "nounsInDictionary": 8,
+      "verbsInSaid": 8,
+      "nounsInSaid": 3,
+      "verbs": 8,
+      "nouns": 8,
+      "namesInMessages": [
+       "Officer Dana Reyes",
+       "Millhaven",
+       "Sergeant Prakash",
+       "Officer Bud Bukowski",
+       "Dispatch"
+      ],
+      "names": [
+       "Officer Dana Reyes",
+       "Millhaven",
+       "Sergeant Prakash",
+       "Officer Bud Bukowski",
+       "Dispatch"
+      ]
+     },
+     "maxScoreBrief": 215
+    },
+    "startMessages": [
+     "Millhaven Police Department, 7:58 AM. Your first week on the job. Sergeant Prakash is at the front desk, working through a stack of forms.",
+     "The front desk of the Millhaven precinct. Sergeant Prakash sits behind the counter beside two wire trays. A bulletin board and the equipment shelf are on the back wall. The records hallway is to the west. The front doors open east onto Main Street.",
+     "\"Reyes. Good, you're early. Hale's Pharmacy on Main Street had its back window broken overnight. Boxes of painkillers are gone.\"",
+     "\"The delivery driver who called it in, Rick Mendez, says he showed up at six and saw nothing. Check his story. Records has the dispatch logs.\"",
+     "\"Sign out a camera from the shelf before you go. Bukowski is waiting at the car. The details are on the board.\"",
+     "Prakash: \"The driver, Mendez. Compare what he told us with the dispatch log in Records, then talk to him again on Main Street.\"",
+     "Prakash: \"Document the pharmacy. Photographs of the window, and anything the thief left behind.\"",
+     "Prakash: \"You've got a witness and evidence. Records keeps the Quayside Freight ledger. See where they lead.\"",
+     "Prakash: \"Pier Road, then. Take Bukowski, and call for backup before you go through any door.\"",
+     "Prakash: \"You made an arrest. Now make it stick. File your report with me.\"",
+     "Prakash: \"Go home, Reyes. Get some sleep.\"",
+     "HALE'S PHARMACY, 14 MAIN ST. Break-in reported 6:10 AM by Rick Mendez, driver, Quayside Freight. Rear window broken. Prescription painkillers missing. Assigned: Reyes, Bukowski.",
+     "Two wire trays. One is labeled IN. The other is labeled FORMS COMPLETED IN THE WRONG TRAY.",
+     "Sergeant Prakash has worked this desk for nineteen years. He reads every form twice.",
+     "The equipment shelf. A department camera sits in the top cubby.",
+     "The equipment shelf. The camera cubby is empty. Your name is on the sign-out sheet.",
+     "Prakash looks up. \"Equipment goes out with an assignment, Reyes. You don't have one yet.\"",
+     "You sign the sheet on the clipboard and take the camera.",
+     "You already have the camera.",
+     "Millhaven PD badge number 417. Still shiny.",
+     "Prakash: \"I issued you that badge on Monday, Reyes. I remember it.\"",
+     "The dispatch speaker on the wall. Its light blinks whenever a channel opens.",
+     "Dispatch: \"Go ahead, Reyes.\" You ask for the case details. \"Hale's Pharmacy, 14 Main. Reported at 6:10 by Rick Mendez, Quayside Freight. Anything else?\"",
+     "Dispatch: \"You're standing in the police station, Reyes. Backup is all around you.\"",
+     "Nothing here needs photographing.",
+     "You don't have a camera.",
+     "Bud is out at the patrol car on Main Street.",
+     "Prakash: \"Reyes. Assignment first, then the street.\"",
+     "Prakash: \"You haven't got a case to file yet.\"",
+     "Prakash reads the report. \"The driver's story. You never checked it against the dispatch log. Fix that and come back.\"",
+     "Prakash reads the report. \"No photographs of the pharmacy, no physical evidence. Go back and document the scene.\"",
+     "Prakash reads the report. \"Nothing here ties the break-in to anyone. Check the Quayside records against your evidence.\"",
+     "Prakash reads the report. \"A suspect and no arrest. Finish it, with backup.\"",
+     "You drop the report in the nearest tray. Prakash lifts it out of the tray marked FORMS COMPLETED IN THE WRONG TRAY and moves it to IN.",
+     "Prakash reads every page twice. \"Driver's statement, photographs, the bottle, the ledger, and an arrest with backup. This one will stick.\"",
+     "\"Good first week, Reyes. Go home.\" Your first shift is over.",
+     "Prakash: \"Already filed. It's in the right tray this time.\"",
+     "The front doors lead east to Main Street.",
+     "The hallway to the west leads to the records office.",
+     "Prakash: \"You have an assignment. Do it.\"",
+     "Prakash: \"Talk to me first, Reyes. Then read the board.\"",
+     "Prakash: \"Right here. Hale's Pharmacy break-in. Get moving.\"",
+     "The camera sits in the cubby. The sign-out sheet is on the shelf.",
+     "A wooden counter with two wire trays and Prakash behind it.",
+     "Prakash: \"If it's a crime, Reyes, it goes in a report. If it isn't, it goes in a report anyway.\"",
+     "Prakash: \"Mendez is out on Main Street, not in here.\""
+    ]
+   },
+   "openai-gpt-6-astra-lean-medium--r1": {
+    "stem": "openai-gpt-6-astra-lean-medium--badge-of-millhaven--r1",
+    "lane": "openai-gpt-6-astra-lean-medium",
+    "case": "badge-of-millhaven",
+    "provider": "openai",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "promptVariant": "lean",
+    "completion": true,
+    "playtest": {
+     "success": true,
+     "simulation": "passed",
+     "cycles": 1,
+     "room": 1
+    },
+    "cost": {
+     "costUsd": 1.4151275,
+     "usageIncomplete": false,
+     "inputTokens": 330203,
+     "cachedInputTokens": 293375,
+     "cacheWriteTokens": 36789,
+     "outputTokens": 13230,
+     "cachedPct": 88.8,
+     "wallSec": 312,
+     "providerRequests": 21,
+     "modelTurns": 13,
+     "toolCalls": 26,
+     "repairTurns": 1,
+     "toolFailures": 1,
+     "repairCategories": {
+      "actionable": {
+       "turns": 1,
+       "toolFailures": 1
+      },
+      "expectedFutureRoomExit": {
+       "turns": 0,
+       "toolFailures": 0
+      }
+     },
+     "authoredResources": 7,
+     "costPerAuthoredResource": 0.202
+    },
+    "logic": {
+     "count": 3,
+     "totalBytes": 4489,
+     "totalCodeBytes": 1301,
+     "roomLogics": [
+      1
+     ],
+     "roomCodeBytes": 687,
+     "template": [
+      {
+       "num": 0,
+       "status": "modified",
+       "delta": {
+        "changedMessages": [
+         18
+        ],
+        "addedInsns": [
+         "assignn(7,215)"
+        ],
+        "removedInsns": 0
+       }
+      },
+      {
+       "num": 255,
+       "status": "identical"
+      }
+     ],
+     "distinctCommandsAll": 55,
+     "distinctCommandsRooms": 27,
+     "roomCommands": [
+      "accept.input",
+      "addn",
+      "animate.obj",
+      "assignn",
+      "cycle.time",
+      "draw",
+      "draw.pic",
+      "equaln",
+      "has",
+      "ignore.horizon",
+      "ignore.objs",
+      "isset",
+      "load.pic",
+      "load.view",
+      "new.room",
+      "player.control",
+      "position",
+      "print",
+      "said",
+      "set",
+      "set.cel",
+      "set.horizon",
+      "set.loop",
+      "set.priority",
+      "set.view",
+      "show.pic",
+      "stop.cycling"
+     ],
+     "saidCalls": 44,
+     "saidDistinctPatterns": 44,
+     "saidWordGroups": 28,
+     "vocabularyWords": 53,
+     "vocabularyGroups": 39,
+     "roomMessages": 22,
+     "roomMessageChars": 2637,
+     "allMessages": 49,
+     "exits": [
+      {
+       "from": 1,
+       "to": [
+        {
+         "to": 2
+        },
+        {
+         "to": 3
+        },
+        {
+         "to": 2,
+         "edge": "left"
+        },
+        {
+         "to": 3,
+         "edge": "right"
+        }
+       ]
+      }
+     ],
+     "roomFlags": [
+      2,
+      4,
+      5,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      47
+     ],
+     "roomVars": [
+      1,
+      2,
+      3,
+      7,
+      32,
+      33,
+      40
+     ],
+     "scoreAwards": [
+      10,
+      50
+     ],
+     "maxScore": 215,
+     "deathCalls": 0,
+     "animatedObjects": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "horizon": 77,
+     "egoView": 1,
+     "egoStart": [
+      78,
+      135
+     ],
+     "egoStartSource": "engine boot (6 cycles)",
+     "boot": {
+      "room": 1,
+      "x": 78,
+      "y": 135,
+      "width": 9,
+      "horizon": 77
+     },
+     "perLogic": [
+      {
+       "num": 0,
+       "bytes": 770,
+       "codeBytes": 367,
+       "messages": 20,
+       "messageChars": 338,
+       "template": "logic0",
+       "templateStatus": "modified",
+       "templateDelta": {
+        "changedMessages": [
+         18
+        ],
+        "addedInsns": [
+         "assignn(7,215)"
+        ],
+        "removedInsns": 0
+       },
+       "flags": [
+        2,
+        4,
+        9,
+        14,
+        200,
+        202
+       ],
+       "vars": [
+        0,
+        7,
+        9,
+        10
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [
+        255
+       ],
+       "scoreAwards": [],
+       "maxScore": 215,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 1,
+       "animatedObjects": [],
+       "saidCalls": 0
+      },
+      {
+       "num": 1,
+       "bytes": 3395,
+       "codeBytes": 687,
+       "messages": 22,
+       "messageChars": 2637,
+       "template": null,
+       "templateStatus": "n/a",
+       "flags": [
+        2,
+        4,
+        5,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        47
+       ],
+       "vars": [
+        1,
+        2,
+        3,
+        7,
+        32,
+        33,
+        40
+       ],
+       "exits": [
+        {
+         "to": 2
+        },
+        {
+         "to": 3
+        },
+        {
+         "to": 2,
+         "edge": "left"
+        },
+        {
+         "to": 3,
+         "edge": "right"
+        }
+       ],
+       "pictures": [
+        1
+       ],
+       "calls": [],
+       "scoreAwards": [
+        10,
+        50
+       ],
+       "maxScore": 215,
+       "horizon": 77,
+       "egoView": 1,
+       "egoStart": [
+        78,
+        135
+       ],
+       "deathCalls": 0,
+       "animatedObjects": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "saidCalls": 44
+      },
+      {
+       "num": 255,
+       "bytes": 324,
+       "codeBytes": 247,
+       "messages": 7,
+       "messageChars": 51,
+       "template": "death",
+       "templateStatus": "identical",
+       "flags": [
+        14,
+        16,
+        201,
+        202,
+        203
+       ],
+       "vars": [
+        19,
+        250
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [],
+       "scoreAwards": [],
+       "maxScore": null,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 0,
+       "animatedObjects": [],
+       "saidCalls": 0
+      }
+     ]
+    },
+    "inventory": [
+     {
+      "name": "Badge",
+      "startingRoom": 255
+     },
+     {
+      "name": "Radio",
+      "startingRoom": 255
+     },
+     {
+      "name": "Lock photograph",
+      "startingRoom": 0
+     },
+     {
+      "name": "Bagged bottle M47",
+      "startingRoom": 0
+     },
+     {
+      "name": "Delivery ledger copy",
+      "startingRoom": 0
+     },
+     {
+      "name": "Case report",
+      "startingRoom": 0
+     }
+    ],
+    "pictures": [
+     {
+      "num": 1,
+      "usedByRoom": true,
+      "startRoom": true,
+      "bytes": 861,
+      "commands": 171,
+      "colorsUsed": [
+       0,
+       1,
+       2,
+       4,
+       6,
+       7,
+       8,
+       9,
+       10,
+       11,
+       14,
+       15
+      ],
+      "distinctColors": 12,
+      "fillPct": 99.1,
+      "edgeDensity": 0.092,
+      "regionCount": 97,
+      "priorityBandsUsed": [
+       4,
+       10
+      ],
+      "priorityBandCount": 2,
+      "depthDrawnPct": 4.3,
+      "controlPct": {
+       "barrier0": 2.8,
+       "conditional1": 0,
+       "trigger2": 0,
+       "water3": 0
+      },
+      "controlAnyPct": 2.8,
+      "horizon": 77,
+      "horizonSanityPct": 100,
+      "egoStart": [
+       78,
+       135
+      ],
+      "egoStartPriority": 4,
+      "egoStartStandable": true,
+      "egoStartYBand": 12,
+      "reachablePctBelowHorizon": 91.5,
+      "reachesEdges": [
+       "left",
+       "right"
+      ],
+      "waterReachable": false,
+      "triggerReachable": false,
+      "reachableColors": [
+       {
+        "color": 7,
+        "name": "lgray",
+        "pctOfReachable": 78.1
+       },
+       {
+        "color": 8,
+        "name": "dgray",
+        "pctOfReachable": 14.2
+       },
+       {
+        "color": 6,
+        "name": "brown",
+        "pctOfReachable": 5.2
+       },
+       {
+        "color": 0,
+        "name": "black",
+        "pctOfReachable": 1.9
+       },
+       {
+        "color": 14,
+        "name": "yellow",
+        "pctOfReachable": 0.5
+       },
+       {
+        "color": 1,
+        "name": "blue",
+        "pctOfReachable": 0.2
+       },
+       {
+        "color": 15,
+        "name": "white",
+        "pctOfReachable": 0
+       }
+      ]
+     }
+    ],
+    "views": [
+     {
+      "num": 1,
+      "bytes": 860,
+      "loops": 4,
+      "celsPerLoop": [
+       2,
+       2,
+       2,
+       2
+      ],
+      "cels": 8,
+      "paintedPixels": 1190,
+      "maxSize": "9x30",
+      "firstCelWidth": 9,
+      "colors": [
+       1,
+       6,
+       8,
+       9,
+       12,
+       14
+      ],
+      "description": "Officer Dana Reyes: navy uniform, cap, badge and duty belt.",
+      "fourDirWalk": true
+     },
+     {
+      "num": 2,
+      "bytes": 168,
+      "loops": 1,
+      "celsPerLoop": [
+       1
+      ],
+      "cels": 1,
+      "paintedPixels": 207,
+      "maxSize": "11x30",
+      "firstCelWidth": 11,
+      "colors": [
+       1,
+       6,
+       7,
+       8,
+       9,
+       14,
+       15
+      ],
+      "description": "Sergeant Prakash",
+      "fourDirWalk": false
+     },
+     {
+      "num": 3,
+      "bytes": 367,
+      "loops": 1,
+      "celsPerLoop": [
+       8
+      ],
+      "cels": 8,
+      "paintedPixels": 328,
+      "maxSize": "10x8",
+      "firstCelWidth": 10,
+      "colors": [
+       2,
+       7,
+       8,
+       10
+      ],
+      "description": "Desk radio with occasional green receive light",
+      "fourDirWalk": false
+     },
+     {
+      "num": 4,
+      "bytes": 505,
+      "loops": 1,
+      "celsPerLoop": [
+       2
+      ],
+      "cels": 2,
+      "paintedPixels": 1550,
+      "maxSize": "25x31",
+      "firstCelWidth": 25,
+      "colors": [
+       2,
+       6,
+       7,
+       8,
+       14,
+       15
+      ],
+      "description": "Case board: assignment card is posted after briefing",
+      "fourDirWalk": false
+     }
+    ],
+    "sounds": [
+     {
+      "num": 255,
+      "bytes": 66,
+      "template": true,
+      "durationTicks": 42,
+      "durationSec": 0.7,
+      "voices": [
+       0,
+       1
+      ],
+      "audibleNotes": 8
+     }
+    ],
+    "tests": [
+     {
+      "name": "precinct_assignment_once_and_reminders",
+      "room": 1,
+      "steps": 6,
+      "stepSummary": "enter, \"talk prakash\", enter, \"talk sergeant\", enter, \"read board\"",
+      "asserts": [
+       "room=1",
+       "carriedItems=[0,1]",
+       "flags[1]",
+       "vars[1]",
+       "printed=\"Claimed delivery: 9:10.\"",
+       "score=10"
+      ]
+     },
+     {
+      "name": "precinct_incomplete_report_is_recoverable",
+      "room": 1,
+      "steps": 2,
+      "stepSummary": "enter, \"file report\"",
+      "asserts": [
+       "room=1",
+       "carriedItems=[0,1]",
+       "flags[1]",
+       "printed=\"There's no report to file yet.\"",
+       "score=0"
+      ]
+     },
+     {
+      "name": "precinct_east_walking_exit",
+      "room": 1,
+      "steps": 2,
+      "stepSummary": "enter, direction",
+      "asserts": [
+       "room=3"
+      ]
+     },
+     {
+      "name": "precinct_west_walking_exit",
+      "room": 1,
+      "steps": 2,
+      "stepSummary": "enter, direction",
+      "asserts": [
+       "room=2"
+      ]
+     },
+     {
+      "name": "precinct_desk_contact",
+      "room": 1,
+      "steps": 2,
+      "stepSummary": "enter, move",
+      "asserts": [
+       "room=1",
+       "object={\"num\":0,\"view\":1,\"x0\":78,\"y0\":108,\"x1\":"
+      ]
+     },
+     {
+      "name": "precinct_wall_contact",
+      "room": 1,
+      "steps": 2,
+      "stepSummary": "enter, move",
+      "asserts": [
+       "room=1",
+       "object={\"num\":0,\"view\":1,\"x0\":26,\"y0\":78,\"x1\":2"
+      ]
+     }
+    ],
+    "session": {
+     "toolCalls": {
+      "inspect_world_bible": 1,
+      "read_logic": 1,
+      "read_authoring_guide": 3,
+      "update_world": 2,
+      "reserve_binding": 1,
+      "write_inventory_objects": 1,
+      "write_words": 1,
+      "write_view": 4,
+      "write_picture": 1,
+      "read_picture": 1,
+      "write_logic_source": 2,
+      "read_command_reference": 1,
+      "edit_resource_source": 2,
+      "playtest_room": 2,
+      "write_game_tests": 1,
+      "run_game_tests": 1,
+      "handover": 1
+     },
+     "toolCallCount": 26,
+     "failures": [
+      {
+       "tool": "write_logic_source",
+       "category": "assembler",
+       "error": "Assembler error in logic 1: AssemblerError: 52:3: unknown action 'ignore.objects' or action not available in profile 2.936 (check spelling and the selected profile). Use read_command_reference for the active profile's ex"
+      }
+     ],
+     "failuresByCategory": {
+      "assembler": 1
+     },
+     "representativeErrors": [
+      {
+       "tool": "write_logic_source",
+       "category": "assembler",
+       "error": "Assembler error in logic 1: AssemblerError: 52:3: unknown action 'ignore.objects' or action not available in profile 2.936 (check spelling and the selected profile). Use read_command_reference for the active profile's ex"
+      }
+     ],
+     "pictureWrites": [
+      {
+       "tool": "write_picture",
+       "priorityCommands": 3,
+       "controlCommands": 2
+      },
+      {
+       "tool": "edit_resource_source",
+       "priorityCommands": 0,
+       "controlCommands": 0
+      }
+     ],
+     "pictureWritesUsingPriority": 1,
+     "assistantMessages": 2,
+     "proseBlocks": 2,
+     "proseChars": 608,
+     "reasoningVisibleChars": 0,
+     "proseMentionsPriority": 0,
+     "proseSample": [
+      "I’ll plan five connected locations, then build only the precinct. Dana can get the assignment from Prakash, check the board, use the radio, and leave for Records or the street. The later investigation will keep missing evidence and incomple",
+      "The precinct is built. Prakash’s briefing posts the assignment on the board and awards its 10 points once. The opening playtest also confirmed Dana’s badge and radio, walking animation, and radio blink.\n\nI’m checking repeated conversations,"
+     ]
+    },
+    "brief": {
+     "checklist": [
+      {
+       "label": "precinct / front desk (message)",
+       "pass": true
+      },
+      {
+       "label": "Sergeant Prakash named",
+       "pass": true
+      },
+      {
+       "label": "talk to Prakash (said talk)",
+       "pass": true
+      },
+      {
+       "label": "badge (OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "radio (OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "board readable (said board)",
+       "pass": true
+      },
+      {
+       "label": "lead: driver/pharmacy mentioned",
+       "pass": true
+      },
+      {
+       "label": "receive assignment +10",
+       "pass": true
+      },
+      {
+       "label": ">=1 exit",
+       "pass": true
+      },
+      {
+       "label": "Dana/Reyes named",
+       "pass": true
+      },
+      {
+       "label": "ego navy/blue uniform",
+       "pass": true
+      },
+      {
+       "label": "palette: red brick + blue + green",
+       "pass": true
+      }
+     ],
+     "passed": 12,
+     "total": 12,
+     "lexicon": {
+      "verbsInDictionary": 8,
+      "nounsInDictionary": 8,
+      "verbsInSaid": 8,
+      "nounsInSaid": 8,
+      "verbs": 8,
+      "nouns": 8,
+      "namesInMessages": [
+       "Officer Dana Reyes",
+       "Millhaven",
+       "Sergeant Prakash",
+       "Dispatch"
+      ],
+      "names": [
+       "Officer Dana Reyes",
+       "Millhaven",
+       "Sergeant Prakash",
+       "Officer Bud Bukowski",
+       "Dispatch"
+      ]
+     },
+     "maxScoreBrief": 215
+    },
+    "startMessages": [
+     "Millhaven Precinct. Sergeant Prakash waits behind the desk. The case board hangs to his right. Records is through the west door; the street is east.",
+     "Prakash: Bell's Pharmacy was broken into before dawn. Driver Len Voss says he made his delivery at 9:10. Bell says nothing arrived. Start with Voss outside the pharmacy, then check his time with Dispatch. I've posted the details on the board.",
+     "Prakash: Ask Voss about the delivery, then check his time with Dispatch. Photograph the forced lock before collecting anything. Records can trace a marked lot. Keep the witnesses' accounts with the evidence.",
+     "CASE BOARD\nBell's Pharmacy, Millhaven Street.\nDriver: Len Voss. Claimed delivery: 9:10.\nCheck the time with Dispatch. Photograph the lock before collecting evidence.\nRecords: west. Street: east.",
+     "The board lists Bell's Pharmacy and a reported break-in. Prakash has the assignment.",
+     "The desk has an incoming tray, an outgoing tray, and a tray marked WRONG TRAY. A radio's green lamp blinks beside them.",
+     "Prakash: Reyes. I remember. Your badge was the only thing on your application that didn't need another signature.",
+     "Badge 214, Officer Dana Reyes. The brass still has its original shine.",
+     "Dispatch: Reyes, you're clear. Talk to Sergeant Prakash for your assignment.",
+     "Dispatch: Voss is by Bell's Pharmacy on Millhaven Street. Get his account first. Call me from there and I'll check the vehicle log.",
+     "The radio is charged and tuned to Dispatch.",
+     "Prakash: There's no report to file yet. Take the assignment, speak to the driver, and document the pharmacy.",
+     "Prakash: Keep the report open. I still need the checked delivery time, pharmacy evidence, a supported warehouse connection, and the arrest record. Records can help assemble it.",
+     "Prakash reads each page, checks the evidence log, and signs. 'Good work, Reyes. This one will hold up.' Dana's first shift ends with a complete case in the right tray.",
+     "Prakash: The case is filed, Reyes. Go home before someone finds another form.",
+     "Prakash: Bud will meet you on the street. If this leads to a confrontation, call backup before going in.",
+     "The board and desk equipment stay here. Dana already carries a badge and radio.",
+     "The precinct is quiet. Prakash can brief you; the board keeps the details. Records is west and the street is east.",
+     "The break-in is at Bell's Pharmacy, east of the precinct. The desk has no evidence to photograph.",
+     "Prakash: Bring me the evidence before we name a suspect. Records can check delivery lots and addresses.",
+     "Records is through the west door. The clerk can compare delivery records with the evidence.",
+     "Millhaven Street is through the east door. Bell's Pharmacy and its delivery driver are nearby."
+    ]
+   },
+   "openai-gpt-6-luna-lean-medium--r1": {
+    "stem": "openai-gpt-6-luna-lean-medium--badge-of-millhaven--r1",
+    "lane": "openai-gpt-6-luna-lean-medium",
+    "case": "badge-of-millhaven",
+    "provider": "openai",
+    "model": "gpt-6-luna",
+    "effort": "medium",
+    "promptVariant": "lean",
+    "completion": true,
+    "playtest": {
+     "success": true,
+     "simulation": "passed",
+     "cycles": 1,
+     "room": 1
+    },
+    "cost": {
+     "costUsd": 0.026391855000000006,
+     "usageIncomplete": false,
+     "inputTokens": 1021624,
+     "cachedInputTokens": 965388,
+     "cacheWriteTokens": 56155,
+     "outputTokens": 19421,
+     "cachedPct": 94.5,
+     "wallSec": 257,
+     "providerRequests": 35,
+     "modelTurns": 27,
+     "toolCalls": 44,
+     "repairTurns": 6,
+     "toolFailures": 7,
+     "repairCategories": {
+      "actionable": {
+       "turns": 6,
+       "toolFailures": 7
+      },
+      "expectedFutureRoomExit": {
+       "turns": 0,
+       "toolFailures": 0
+      }
+     },
+     "authoredResources": 4,
+     "costPerAuthoredResource": 0.007
+    },
+    "logic": {
+     "count": 3,
+     "totalBytes": 2066,
+     "totalCodeBytes": 843,
+     "roomLogics": [
+      1
+     ],
+     "roomCodeBytes": 232,
+     "template": [
+      {
+       "num": 0,
+       "status": "identical"
+      },
+      {
+       "num": 255,
+       "status": "identical"
+      }
+     ],
+     "distinctCommandsAll": 59,
+     "distinctCommandsRooms": 31,
+     "roomCommands": [
+      "accept.input",
+      "addn",
+      "animate.obj",
+      "assignn",
+      "assignv",
+      "cycle.time",
+      "draw",
+      "draw.pic",
+      "equaln",
+      "equalv",
+      "fix.loop",
+      "get.posn",
+      "isset",
+      "load.pic",
+      "load.view",
+      "new.room",
+      "normal.cycle",
+      "normal.motion",
+      "player.control",
+      "position",
+      "print",
+      "said",
+      "set",
+      "set.horizon",
+      "set.loop",
+      "set.priority",
+      "set.view",
+      "show.pic",
+      "start.cycling",
+      "step.time",
+      "stop.cycling"
+     ],
+     "saidCalls": 9,
+     "saidDistinctPatterns": 8,
+     "saidWordGroups": 8,
+     "vocabularyWords": 65,
+     "vocabularyGroups": 46,
+     "roomMessages": 4,
+     "roomMessageChars": 769,
+     "allMessages": 31,
+     "exits": [
+      {
+       "from": 1,
+       "to": [
+        {
+         "to": 2,
+         "edge": "right"
+        }
+       ]
+      }
+     ],
+     "roomFlags": [
+      5,
+      32
+     ],
+     "roomVars": [
+      2,
+      3,
+      6,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39
+     ],
+     "scoreAwards": [
+      10
+     ],
+     "maxScore": null,
+     "deathCalls": 0,
+     "animatedObjects": [
+      1,
+      0
+     ],
+     "horizon": 72,
+     "egoView": 1,
+     "egoStart": [
+      27,
+      147
+     ],
+     "egoStartSource": "engine boot (6 cycles)",
+     "boot": {
+      "room": 1,
+      "x": 27,
+      "y": 147,
+      "width": 9,
+      "horizon": 72
+     },
+     "perLogic": [
+      {
+       "num": 0,
+       "bytes": 724,
+       "codeBytes": 364,
+       "messages": 20,
+       "messageChars": 295,
+       "template": "logic0",
+       "templateStatus": "identical",
+       "flags": [
+        2,
+        4,
+        9,
+        14,
+        200,
+        202
+       ],
+       "vars": [
+        0,
+        9,
+        10
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [
+        255
+       ],
+       "scoreAwards": [],
+       "maxScore": null,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 1,
+       "animatedObjects": [],
+       "saidCalls": 0
+      },
+      {
+       "num": 1,
+       "bytes": 1018,
+       "codeBytes": 232,
+       "messages": 4,
+       "messageChars": 769,
+       "template": null,
+       "templateStatus": "n/a",
+       "flags": [
+        5,
+        32
+       ],
+       "vars": [
+        2,
+        3,
+        6,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39
+       ],
+       "exits": [
+        {
+         "to": 2,
+         "edge": "right"
+        }
+       ],
+       "pictures": [
+        1
+       ],
+       "calls": [],
+       "scoreAwards": [
+        10
+       ],
+       "maxScore": null,
+       "horizon": 72,
+       "egoView": 1,
+       "egoStart": [
+        27,
+        147
+       ],
+       "deathCalls": 0,
+       "animatedObjects": [
+        1,
+        0
+       ],
+       "saidCalls": 9
+      },
+      {
+       "num": 255,
+       "bytes": 324,
+       "codeBytes": 247,
+       "messages": 7,
+       "messageChars": 51,
+       "template": "death",
+       "templateStatus": "identical",
+       "flags": [
+        14,
+        16,
+        201,
+        202,
+        203
+       ],
+       "vars": [
+        19,
+        250
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [],
+       "scoreAwards": [],
+       "maxScore": null,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 0,
+       "animatedObjects": [],
+       "saidCalls": 0
+      }
+     ]
+    },
+    "inventory": [
+     {
+      "name": "badge",
+      "startingRoom": 255
+     },
+     {
+      "name": "radio",
+      "startingRoom": 255
+     }
+    ],
+    "pictures": [
+     {
+      "num": 1,
+      "usedByRoom": true,
+      "startRoom": true,
+      "bytes": 3003,
+      "commands": 637,
+      "colorsUsed": [
+       0,
+       1,
+       4,
+       6,
+       8,
+       9,
+       11,
+       12,
+       14,
+       15
+      ],
+      "distinctColors": 10,
+      "fillPct": 99.4,
+      "edgeDensity": 0.055,
+      "regionCount": 30,
+      "priorityBandsUsed": [
+       4,
+       8
+      ],
+      "priorityBandCount": 2,
+      "depthDrawnPct": 7.9,
+      "controlPct": {
+       "barrier0": 0.3,
+       "conditional1": 0,
+       "trigger2": 0,
+       "water3": 0
+      },
+      "controlAnyPct": 0.3,
+      "horizon": 72,
+      "horizonSanityPct": 100,
+      "egoStart": [
+       27,
+       147
+      ],
+      "egoStartPriority": 4,
+      "egoStartStandable": true,
+      "egoStartYBand": 13,
+      "reachablePctBelowHorizon": 99.5,
+      "reachesEdges": [
+       "left",
+       "right",
+       "bottom",
+       "horizon"
+      ],
+      "waterReachable": false,
+      "triggerReachable": false,
+      "reachableColors": [
+       {
+        "color": 1,
+        "name": "blue",
+        "pctOfReachable": 42
+       },
+       {
+        "color": 4,
+        "name": "red",
+        "pctOfReachable": 20.7
+       },
+       {
+        "color": 11,
+        "name": "lcyan",
+        "pctOfReachable": 16.8
+       },
+       {
+        "color": 6,
+        "name": "brown",
+        "pctOfReachable": 15
+       },
+       {
+        "color": 14,
+        "name": "yellow",
+        "pctOfReachable": 2.3
+       },
+       {
+        "color": 9,
+        "name": "lblue",
+        "pctOfReachable": 2.1
+       },
+       {
+        "color": 15,
+        "name": "white",
+        "pctOfReachable": 0.6
+       },
+       {
+        "color": 8,
+        "name": "dgray",
+        "pctOfReachable": 0.6
+       }
+      ]
+     }
+    ],
+    "views": [
+     {
+      "num": 1,
+      "bytes": 537,
+      "loops": 4,
+      "celsPerLoop": [
+       2,
+       2,
+       1,
+       1
+      ],
+      "cels": 6,
+      "paintedPixels": 900,
+      "maxSize": "9x30",
+      "firstCelWidth": 9,
+      "colors": [
+       1,
+       7,
+       8,
+       10
+      ],
+      "description": "Officer Dana Reyes in a navy Millhaven uniform, duty belt and cap.",
+      "fourDirWalk": false
+     },
+     {
+      "num": 2,
+      "bytes": 396,
+      "loops": 4,
+      "celsPerLoop": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "cels": 4,
+      "paintedPixels": 596,
+      "maxSize": "9x30",
+      "firstCelWidth": 9,
+      "colors": [
+       1,
+       6
+      ],
+      "description": "Sergeant Prakash, a senior officer in uniform.",
+      "fourDirWalk": false
+     }
+    ],
+    "sounds": [
+     {
+      "num": 255,
+      "bytes": 66,
+      "template": true,
+      "durationTicks": 42,
+      "durationSec": 0.7,
+      "voices": [
+       0,
+       1
+      ],
+      "audibleNotes": 8
+     }
+    ],
+    "tests": [
+     {
+      "name": "precinct assignment and briefing",
+      "room": 1,
+      "steps": 7,
+      "stepSummary": "enter, \"talk sergeant\", enter, \"talk sergeant\", enter, \"read board\", enter",
+      "asserts": [
+       "room=1",
+       "carriedItems=[0,1]",
+       "flags[1]",
+       "score=10"
+      ]
+     }
+    ],
+    "session": {
+     "toolCalls": {
+      "inspect_world_bible": 1,
+      "read_authoring_guide": 1,
+      "read_logic": 3,
+      "read_command_reference": 1,
+      "update_world": 1,
+      "reserve_binding": 1,
+      "write_words": 4,
+      "write_scene": 3,
+      "write_view": 4,
+      "write_inventory_objects": 1,
+      "patch_view_cels": 1,
+      "write_picture": 1,
+      "read_words": 1,
+      "write_room": 1,
+      "read_view": 1,
+      "read_room_context": 2,
+      "read_picture": 4,
+      "edit_resource_source": 4,
+      "playtest_room": 5,
+      "read_diagnostic": 1,
+      "write_game_tests": 1,
+      "run_game_tests": 1,
+      "handover": 1
+     },
+     "toolCallCount": 44,
+     "failures": [
+      {
+       "tool": "write_words",
+       "category": "dictionary",
+       "error": "Dictionary compilation error: Error: 'about' is an ignored word (group 0) and cannot join a synonym group."
+      },
+      {
+       "tool": "write_words",
+       "category": "dictionary",
+       "error": "Dictionary compilation error: Error: 'at' is an ignored word (group 0) and cannot join a synonym group."
+      },
+      {
+       "tool": "write_scene",
+       "category": "picture/scene",
+       "error": "Scene was not written: Error: Shape 4 x1 must be null for line."
+      },
+      {
+       "tool": "patch_view_cels",
+       "category": "view",
+       "error": "View cels were not patched: Error: patches[0] (loop 0, cel 0).recolor[0]: from 0 is the cel's transparent color; use rows to change transparency."
+      },
+      {
+       "tool": "write_words",
+       "category": "dictionary",
+       "error": "Dictionary compilation error: Error: 'at' is an ignored word (group 0) and cannot join a synonym group."
+      },
+      {
+       "tool": "write_scene",
+       "category": "picture/scene",
+       "error": "Scene was not written: Error: Shape 22 rect points must be null."
+      },
+      {
+       "tool": "read_room_context",
+       "category": "other",
+       "error": "Supply room 0..255 when no live room is attached."
+      }
+     ],
+     "failuresByCategory": {
+      "dictionary": 3,
+      "picture/scene": 2,
+      "view": 1,
+      "other": 1
+     },
+     "representativeErrors": [
+      {
+       "tool": "write_words",
+       "category": "dictionary",
+       "error": "Dictionary compilation error: Error: 'about' is an ignored word (group 0) and cannot join a synonym group."
+      },
+      {
+       "tool": "patch_view_cels",
+       "category": "view",
+       "error": "View cels were not patched: Error: patches[0] (loop 0, cel 0).recolor[0]: from 0 is the cel's transparent color; use rows to change transparency."
+      }
+     ],
+     "pictureWrites": [
+      {
+       "tool": "write_scene",
+       "priorityCommands": 0,
+       "controlCommands": 0
+      },
+      {
+       "tool": "write_picture",
+       "priorityCommands": 1,
+       "controlCommands": 0
+      },
+      {
+       "tool": "write_scene",
+       "priorityCommands": 1,
+       "controlCommands": 0
+      },
+      {
+       "tool": "write_scene",
+       "priorityCommands": 1,
+       "controlCommands": 0
+      },
+      {
+       "tool": "edit_resource_source",
+       "priorityCommands": 2,
+       "controlCommands": 1
+      },
+      {
+       "tool": "edit_resource_source",
+       "priorityCommands": 1,
+       "controlCommands": 1
+      }
+     ],
+     "pictureWritesUsingPriority": 5,
+     "assistantMessages": 0,
+     "proseBlocks": 0,
+     "proseChars": 0,
+     "reasoningVisibleChars": 0,
+     "proseMentionsPriority": 0,
+     "proseSample": []
+    },
+    "brief": {
+     "checklist": [
+      {
+       "label": "precinct / front desk (message)",
+       "pass": true
+      },
+      {
+       "label": "Sergeant Prakash named",
+       "pass": true
+      },
+      {
+       "label": "talk to Prakash (said talk)",
+       "pass": true
+      },
+      {
+       "label": "badge (OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "radio (OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "board readable (said board)",
+       "pass": true
+      },
+      {
+       "label": "lead: driver/pharmacy mentioned",
+       "pass": true
+      },
+      {
+       "label": "receive assignment +10",
+       "pass": true
+      },
+      {
+       "label": ">=1 exit",
+       "pass": true
+      },
+      {
+       "label": "Dana/Reyes named",
+       "pass": false
+      },
+      {
+       "label": "ego navy/blue uniform",
+       "pass": true
+      },
+      {
+       "label": "palette: red brick + blue + green",
+       "pass": false
+      }
+     ],
+     "passed": 10,
+     "total": 12,
+     "lexicon": {
+      "verbsInDictionary": 8,
+      "nounsInDictionary": 8,
+      "verbsInSaid": 4,
+      "nounsInSaid": 1,
+      "verbs": 8,
+      "nouns": 8,
+      "namesInMessages": [
+       "Sergeant Prakash",
+       "Dispatch"
+      ],
+      "names": [
+       "Officer Dana Reyes",
+       "Millhaven",
+       "Sergeant Prakash",
+       "Officer Bud Bukowski",
+       "Dispatch"
+      ]
+     },
+     "maxScoreBrief": 215
+    },
+    "startMessages": [
+     "The precinct lobby is quiet. Sergeant Prakash waits behind the front desk; today's pharmacy call is on the briefing board.",
+     "Sergeant Prakash taps the open case folder. \"A pharmacy was broken into overnight. The delivery driver says his van never left the depot. A signed slip puts it at the pharmacy at 2:10. Check the story, document the scene, and keep your evidence together. Bud can back you up if this reaches Pier Road.\"",
+     "The board reads: PHARMACY BREAK-IN. Driver claims the van stayed at the depot; signed delivery slip says 2:10 a.m. Get the pharmacy evidence, compare it with dispatch records, and call for backup before the warehouse.",
+     "Your badge is clean and clipped to your navy uniform. Your radio is charged. Prakash has not sent you out without a case number."
+    ]
+   },
+   "openai-gpt-6-sol-lean-medium--r1": {
+    "stem": "openai-gpt-6-sol-lean-medium--badge-of-millhaven--r1",
+    "lane": "openai-gpt-6-sol-lean-medium",
+    "case": "badge-of-millhaven",
+    "provider": "openai",
+    "model": "gpt-6-sol",
+    "effort": "medium",
+    "promptVariant": "lean",
+    "completion": true,
+    "playtest": {
+     "success": true,
+     "simulation": "passed",
+     "cycles": 1,
+     "room": 1
+    },
+    "cost": {
+     "costUsd": 0.2980599000000001,
+     "usageIncomplete": false,
+     "inputTokens": 453335,
+     "cachedInputTokens": 417127,
+     "cacheWriteTokens": 36157,
+     "outputTokens": 12414,
+     "cachedPct": 92,
+     "wallSec": 223,
+     "providerRequests": 25,
+     "modelTurns": 17,
+     "toolCalls": 27,
+     "repairTurns": 2,
+     "toolFailures": 2,
+     "repairCategories": {
+      "actionable": {
+       "turns": 2,
+       "toolFailures": 2
+      },
+      "expectedFutureRoomExit": {
+       "turns": 0,
+       "toolFailures": 0
+      }
+     },
+     "authoredResources": 4,
+     "costPerAuthoredResource": 0.075
+    },
+    "logic": {
+     "count": 3,
+     "totalBytes": 3985,
+     "totalCodeBytes": 1195,
+     "roomLogics": [
+      1
+     ],
+     "roomCodeBytes": 584,
+     "template": [
+      {
+       "num": 0,
+       "status": "identical"
+      },
+      {
+       "num": 255,
+       "status": "identical"
+      }
+     ],
+     "distinctCommandsAll": 50,
+     "distinctCommandsRooms": 21,
+     "roomCommands": [
+      "accept.input",
+      "addn",
+      "animate.obj",
+      "assignn",
+      "cycle.time",
+      "draw",
+      "draw.pic",
+      "equaln",
+      "fix.loop",
+      "isset",
+      "load.pic",
+      "load.view",
+      "new.room",
+      "position",
+      "print",
+      "said",
+      "set",
+      "set.horizon",
+      "set.loop",
+      "set.view",
+      "show.pic"
+     ],
+     "saidCalls": 39,
+     "saidDistinctPatterns": 36,
+     "saidWordGroups": 23,
+     "vocabularyWords": 79,
+     "vocabularyGroups": 43,
+     "roomMessages": 21,
+     "roomMessageChars": 2285,
+     "allMessages": 48,
+     "exits": [
+      {
+       "from": 1,
+       "to": [
+        {
+         "to": 2,
+         "edge": "left"
+        },
+        {
+         "to": 3,
+         "edge": "bottom"
+        }
+       ]
+      }
+     ],
+     "roomFlags": [
+      2,
+      4,
+      5,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45
+     ],
+     "roomVars": [
+      1,
+      2,
+      3,
+      7,
+      40,
+      41,
+      42
+     ],
+     "scoreAwards": [
+      10,
+      50
+     ],
+     "maxScore": 215,
+     "deathCalls": 0,
+     "animatedObjects": [
+      0,
+      1
+     ],
+     "horizon": 108,
+     "egoView": 1,
+     "egoStart": [
+      57,
+      145
+     ],
+     "egoStartSource": "engine boot (6 cycles)",
+     "boot": {
+      "room": 1,
+      "x": 57,
+      "y": 145,
+      "width": 8,
+      "horizon": 108
+     },
+     "perLogic": [
+      {
+       "num": 0,
+       "bytes": 724,
+       "codeBytes": 364,
+       "messages": 20,
+       "messageChars": 295,
+       "template": "logic0",
+       "templateStatus": "identical",
+       "flags": [
+        2,
+        4,
+        9,
+        14,
+        200,
+        202
+       ],
+       "vars": [
+        0,
+        9,
+        10
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [
+        255
+       ],
+       "scoreAwards": [],
+       "maxScore": null,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 1,
+       "animatedObjects": [],
+       "saidCalls": 0
+      },
+      {
+       "num": 1,
+       "bytes": 2937,
+       "codeBytes": 584,
+       "messages": 21,
+       "messageChars": 2285,
+       "template": null,
+       "templateStatus": "n/a",
+       "flags": [
+        2,
+        4,
+        5,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45
+       ],
+       "vars": [
+        1,
+        2,
+        3,
+        7,
+        40,
+        41,
+        42
+       ],
+       "exits": [
+        {
+         "to": 2,
+         "edge": "left"
+        },
+        {
+         "to": 3,
+         "edge": "bottom"
+        }
+       ],
+       "pictures": [
+        1
+       ],
+       "calls": [],
+       "scoreAwards": [
+        10,
+        50
+       ],
+       "maxScore": 215,
+       "horizon": 108,
+       "egoView": 1,
+       "egoStart": [
+        21,
+        143
+       ],
+       "deathCalls": 0,
+       "animatedObjects": [
+        0,
+        1
+       ],
+       "saidCalls": 39
+      },
+      {
+       "num": 255,
+       "bytes": 324,
+       "codeBytes": 247,
+       "messages": 7,
+       "messageChars": 51,
+       "template": "death",
+       "templateStatus": "identical",
+       "flags": [
+        14,
+        16,
+        201,
+        202,
+        203
+       ],
+       "vars": [
+        19,
+        250
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [],
+       "scoreAwards": [],
+       "maxScore": null,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 0,
+       "animatedObjects": [],
+       "saidCalls": 0
+      }
+     ]
+    },
+    "inventory": [
+     {
+      "name": "Badge",
+      "startingRoom": 255
+     },
+     {
+      "name": "Radio",
+      "startingRoom": 255
+     }
+    ],
+    "pictures": [
+     {
+      "num": 1,
+      "usedByRoom": true,
+      "startRoom": true,
+      "bytes": 2362,
+      "commands": 519,
+      "colorsUsed": [
+       0,
+       1,
+       2,
+       4,
+       6,
+       7,
+       8,
+       9,
+       10,
+       12,
+       14,
+       15
+      ],
+      "distinctColors": 12,
+      "fillPct": 99.6,
+      "edgeDensity": 0.071,
+      "regionCount": 62,
+      "priorityBandsUsed": [
+       4,
+       12
+      ],
+      "priorityBandCount": 2,
+      "depthDrawnPct": 7.1,
+      "controlPct": {
+       "barrier0": 1,
+       "conditional1": 0,
+       "trigger2": 0,
+       "water3": 0
+      },
+      "controlAnyPct": 1,
+      "horizon": 108,
+      "horizonSanityPct": 99.8,
+      "egoStart": [
+       57,
+       145
+      ],
+      "egoStartPriority": 4,
+      "egoStartStandable": true,
+      "egoStartYBand": 13,
+      "reachablePctBelowHorizon": 68.9,
+      "reachesEdges": [
+       "left",
+       "right",
+       "bottom",
+       "horizon"
+      ],
+      "waterReachable": false,
+      "triggerReachable": false,
+      "reachableColors": [
+       {
+        "color": 6,
+        "name": "brown",
+        "pctOfReachable": 84.4
+       },
+       {
+        "color": 0,
+        "name": "black",
+        "pctOfReachable": 8.1
+       },
+       {
+        "color": 8,
+        "name": "dgray",
+        "pctOfReachable": 4.5
+       },
+       {
+        "color": 15,
+        "name": "white",
+        "pctOfReachable": 1.5
+       },
+       {
+        "color": 9,
+        "name": "lblue",
+        "pctOfReachable": 1
+       },
+       {
+        "color": 7,
+        "name": "lgray",
+        "pctOfReachable": 0.6
+       }
+      ]
+     }
+    ],
+    "views": [
+     {
+      "num": 1,
+      "bytes": 705,
+      "loops": 4,
+      "celsPerLoop": [
+       2,
+       2,
+       2,
+       2
+      ],
+      "cels": 8,
+      "paintedPixels": 1038,
+      "maxSize": "8x30",
+      "firstCelWidth": 8,
+      "colors": [
+       1,
+       6,
+       7,
+       8,
+       9
+      ],
+      "description": "Officer Dana Reyes in navy uniform and cap",
+      "fourDirWalk": true
+     },
+     {
+      "num": 2,
+      "bytes": 715,
+      "loops": 4,
+      "celsPerLoop": [
+       2,
+       2,
+       2,
+       2
+      ],
+      "cels": 8,
+      "paintedPixels": 1288,
+      "maxSize": "10x29",
+      "firstCelWidth": 10,
+      "colors": [
+       1,
+       6,
+       7,
+       8
+      ],
+      "description": "Sergeant Prakash behind the front counter",
+      "fourDirWalk": true
+     }
+    ],
+    "sounds": [
+     {
+      "num": 255,
+      "bytes": 66,
+      "template": true,
+      "durationTicks": 42,
+      "durationSec": 0.7,
+      "voices": [
+       0,
+       1
+      ],
+      "audibleNotes": 8
+     }
+    ],
+    "tests": [
+     {
+      "name": "Prakash assigns Dana the case once",
+      "room": 1,
+      "steps": 4,
+      "stepSummary": "enter, \"talk prakash\", enter, \"talk sergeant\"",
+      "asserts": [
+       "room=1",
+       "carriedItems=[0,1]",
+       "flags[1]",
+       "vars[2]",
+       "printed=\"compare his route\"",
+       "score=10"
+      ]
+     },
+     {
+      "name": "Incomplete report stays at precinct",
+      "room": 1,
+      "steps": 2,
+      "stepSummary": "enter, \"file report\"",
+      "asserts": [
+       "room=1",
+       "carriedItems=[0,1]",
+       "flags[1]",
+       "vars[1]",
+       "printed=\"not ready\"",
+       "score=0"
+      ]
+     }
+    ],
+    "session": {
+     "toolCalls": {
+      "inspect_world_bible": 1,
+      "read_logic": 2,
+      "read_authoring_guide": 3,
+      "read_view": 1,
+      "update_world": 1,
+      "reserve_binding": 1,
+      "write_inventory_objects": 1,
+      "write_words": 2,
+      "write_picture": 1,
+      "write_view": 2,
+      "write_scene": 1,
+      "write_logic_source": 2,
+      "playtest_room": 5,
+      "read_picture": 1,
+      "edit_resource_source": 1,
+      "write_game_tests": 1,
+      "handover": 1
+     },
+     "toolCallCount": 27,
+     "failures": [
+      {
+       "tool": "read_view",
+       "category": "view",
+       "error": "View 0 is not present in the container."
+      },
+      {
+       "tool": "write_logic_source",
+       "category": "assembler",
+       "error": "Assembler error in logic 1: AssemblerError: 79:7: word 'file' is not in the dictionary. Use read_words to inspect existing word groups, then write_words to register the missing vocabulary or its synonyms before retrying "
+      }
+     ],
+     "failuresByCategory": {
+      "view": 1,
+      "assembler": 1
+     },
+     "representativeErrors": [
+      {
+       "tool": "write_logic_source",
+       "category": "assembler",
+       "error": "Assembler error in logic 1: AssemblerError: 79:7: word 'file' is not in the dictionary. Use read_words to inspect existing word groups, then write_words to register the missing vocabulary or its synonyms before retrying "
+      },
+      {
+       "tool": "read_view",
+       "category": "view",
+       "error": "View 0 is not present in the container."
+      }
+     ],
+     "pictureWrites": [
+      {
+       "tool": "write_picture",
+       "priorityCommands": 2,
+       "controlCommands": 1
+      },
+      {
+       "tool": "write_scene",
+       "priorityCommands": 4,
+       "controlCommands": 3
+      },
+      {
+       "tool": "edit_resource_source",
+       "priorityCommands": 1,
+       "controlCommands": 1
+      }
+     ],
+     "pictureWritesUsingPriority": 3,
+     "assistantMessages": 0,
+     "proseBlocks": 0,
+     "proseChars": 0,
+     "reasoningVisibleChars": 0,
+     "proseMentionsPriority": 0,
+     "proseSample": []
+    },
+    "brief": {
+     "checklist": [
+      {
+       "label": "precinct / front desk (message)",
+       "pass": true
+      },
+      {
+       "label": "Sergeant Prakash named",
+       "pass": true
+      },
+      {
+       "label": "talk to Prakash (said talk)",
+       "pass": true
+      },
+      {
+       "label": "badge (OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "radio (OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "board readable (said board)",
+       "pass": true
+      },
+      {
+       "label": "lead: driver/pharmacy mentioned",
+       "pass": true
+      },
+      {
+       "label": "receive assignment +10",
+       "pass": true
+      },
+      {
+       "label": ">=1 exit",
+       "pass": true
+      },
+      {
+       "label": "Dana/Reyes named",
+       "pass": true
+      },
+      {
+       "label": "ego navy/blue uniform",
+       "pass": true
+      },
+      {
+       "label": "palette: red brick + blue + green",
+       "pass": true
+      }
+     ],
+     "passed": 12,
+     "total": 12,
+     "lexicon": {
+      "verbsInDictionary": 8,
+      "nounsInDictionary": 8,
+      "verbsInSaid": 8,
+      "nounsInSaid": 3,
+      "verbs": 8,
+      "nouns": 8,
+      "namesInMessages": [
+       "Officer Dana Reyes",
+       "Sergeant Prakash",
+       "Dispatch"
+      ],
+      "names": [
+       "Officer Dana Reyes",
+       "Millhaven",
+       "Sergeant Prakash",
+       "Officer Bud Bukowski",
+       "Dispatch"
+      ]
+     },
+     "maxScoreBrief": 215
+    },
+    "startMessages": [
+     "The precinct's green lamps light a case board, a records corridor, and Prakash's front counter. The street doors are behind you. Your badge and radio are on your belt.",
+     "Prakash slides a file across the counter. 'Pharmacy break-in. The delivery driver says his van was nowhere near it after closing. Dispatch logged a detour toward Pier Road. Check his story, document the scene, and come back with a report that holds up.'",
+     "The board lists the pharmacy break-in, the delivery driver's account, and the Pier Road detour. Records are down the left corridor; the pharmacy is out on the street.",
+     "'Talk to the driver and compare his route with dispatch. Photograph the pharmacy before you move anything,' Prakash says.",
+     "The front counter holds Prakash's report tray. He will not accept a guess in place of a case.",
+     "Your badge reads OFFICER DANA REYES. First week, same small print as everyone else.",
+     "The radio connects you to dispatch. For now, the detour toward Pier Road is all they have.",
+     "'Dispatch here. Delivery van detoured toward Pier Road after the pharmacy closed. Ask again if you need that repeated.'",
+     "The report is not ready. Prakash needs the driver's discrepancy, documented pharmacy evidence, the warehouse connection, and a supported arrest.",
+     "Prakash checks the evidence, signs your report, and puts it in the correct tray. 'Good work, Reyes. Go home before I find another form.' Your first shift is finished.",
+     "Prakash already gave you the assignment. The case board keeps the details handy.",
+     "The records office is down the left corridor. The street doors lead to the pharmacy.",
+     "Ask Prakash for the assignment, read the board, or head to records or the street.",
+     "Prakash watches the report tray. 'The file needs facts, Reyes. Start with the driver and the pharmacy.'",
+     "The blank forms stay in the tray until the arrest and evidence are in order.",
+     "The street is quiet. Bud is due outside the pharmacy.",
+     "The radio crackles once and falls silent. Dispatch can repeat the van's route.",
+     "The precinct board shows the detour; there is nothing to photograph here. Save the camera for the pharmacy.",
+     "Prakash checks your badge. 'Yes, Reyes. You work here. Now find the driver.'",
+     "The records office holds the dispatch log and delivery ledger.",
+     "Prakash turns over the completed case. 'Filed. You can let Bud tell the story now.'"
+    ]
+   }
+  },
+  "knights-trial": {
+   "anthropic-claude-opus-5-5-lean-high--r1": {
+    "stem": "anthropic-claude-opus-5-5-lean-high--knights-trial--r1",
+    "lane": "anthropic-claude-opus-5-5-lean-high",
+    "case": "knights-trial",
+    "provider": "anthropic",
+    "model": "claude-opus-5-5",
+    "effort": "high",
+    "promptVariant": "lean",
+    "completion": true,
+    "playtest": {
+     "success": true,
+     "simulation": "passed",
+     "cycles": 1,
+     "room": 1
+    },
+    "cost": {
+     "costUsd": 2.0623654000000005,
+     "usageIncomplete": false,
+     "inputTokens": 997859,
+     "cachedInputTokens": 888842,
+     "cacheWriteTokens": 108989,
+     "outputTokens": 66977,
+     "cachedPct": 89.1,
+     "wallSec": 647,
+     "providerRequests": 21,
+     "modelTurns": 13,
+     "toolCalls": 22,
+     "repairTurns": 0,
+     "toolFailures": 0,
+     "repairCategories": {
+      "actionable": {
+       "turns": 0,
+       "toolFailures": 0
+      },
+      "expectedFutureRoomExit": {
+       "turns": 0,
+       "toolFailures": 0
+      }
+     },
+     "authoredResources": 6,
+     "costPerAuthoredResource": 0.344
+    },
+    "logic": {
+     "count": 3,
+     "totalBytes": 7731,
+     "totalCodeBytes": 1930,
+     "roomLogics": [
+      1
+     ],
+     "roomCodeBytes": 912,
+     "template": [
+      {
+       "num": 0,
+       "status": "modified",
+       "delta": {
+        "changedMessages": [
+         21,
+         22,
+         23,
+         24,
+         25,
+         26,
+         27,
+         28,
+         29,
+         30,
+         31,
+         32,
+         33,
+         34,
+         35,
+         36,
+         37,
+         38,
+         39,
+         40,
+         41
+        ],
+        "addedInsns": [
+         "assignn(7,230)",
+         "print(21)",
+         "print(22)",
+         "print(21)",
+         "print(22)",
+         "print(23)",
+         "print(22)",
+         "print(24)",
+         "print(22)",
+         "print(26)",
+         "print(25)",
+         "print(22)",
+         "print(27)",
+         "print(22)",
+         "print(30)",
+         "print(22)",
+         "print(29)",
+         "set(61)",
+         "print(28)",
+         "print(22)",
+         "print(41)",
+         "print(31)",
+         "print(22)",
+         "print(34)",
+         "print(22)",
+         "print(35)",
+         "print(38)",
+         "print(36)",
+         "print(39)",
+         "print(37)",
+         "print(40)",
+         "print(32)",
+         "status()",
+         "print(33)",
+         "print(17)"
+        ],
+        "removedInsns": 0
+       }
+      },
+      {
+       "num": 255,
+       "status": "identical"
+      }
+     ],
+     "distinctCommandsAll": 58,
+     "distinctCommandsRooms": 31,
+     "roomCommands": [
+      "accept.input",
+      "addn",
+      "animate.obj",
+      "assignn",
+      "call",
+      "cycle.time",
+      "discard.pic",
+      "draw",
+      "draw.pic",
+      "equaln",
+      "erase",
+      "get",
+      "has",
+      "ignore.objs",
+      "isset",
+      "load.pic",
+      "load.view",
+      "new.room",
+      "obj.in.room",
+      "position",
+      "posn",
+      "print",
+      "said",
+      "set",
+      "set.cel",
+      "set.horizon",
+      "set.loop",
+      "set.priority",
+      "set.view",
+      "show.pic",
+      "stop.cycling"
+     ],
+     "saidCalls": 43,
+     "saidDistinctPatterns": 37,
+     "saidWordGroups": 29,
+     "vocabularyWords": 158,
+     "vocabularyGroups": 60,
+     "roomMessages": 37,
+     "roomMessageChars": 3360,
+     "allMessages": 85,
+     "exits": [
+      {
+       "from": 1,
+       "to": [
+        {
+         "to": 2,
+         "edge": "top"
+        },
+        {
+         "to": 3,
+         "edge": "right"
+        }
+       ]
+      }
+     ],
+     "roomFlags": [
+      5,
+      50,
+      60,
+      62
+     ],
+     "roomVars": [
+      0,
+      1,
+      2,
+      3,
+      41
+     ],
+     "scoreAwards": [
+      10
+     ],
+     "maxScore": 230,
+     "deathCalls": 1,
+     "animatedObjects": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      0
+     ],
+     "horizon": 72,
+     "egoView": 1,
+     "egoStart": [
+      76,
+      140
+     ],
+     "egoStartSource": "engine boot (6 cycles)",
+     "boot": {
+      "room": 1,
+      "x": 76,
+      "y": 140,
+      "width": 8,
+      "horizon": 72
+     },
+     "perLogic": [
+      {
+       "num": 0,
+       "bytes": 3019,
+       "codeBytes": 771,
+       "messages": 41,
+       "messageChars": 2120,
+       "template": "logic0",
+       "templateStatus": "modified",
+       "templateDelta": {
+        "changedMessages": [
+         21,
+         22,
+         23,
+         24,
+         25,
+         26,
+         27,
+         28,
+         29,
+         30,
+         31,
+         32,
+         33,
+         34,
+         35,
+         36,
+         37,
+         38,
+         39,
+         40,
+         41
+        ],
+        "addedInsns": [
+         "assignn(7,230)",
+         "print(21)",
+         "print(22)",
+         "print(21)",
+         "print(22)",
+         "print(23)",
+         "print(22)",
+         "print(24)",
+         "print(22)",
+         "print(26)",
+         "print(25)",
+         "print(22)",
+         "print(27)",
+         "print(22)",
+         "print(30)",
+         "print(22)",
+         "print(29)",
+         "set(61)",
+         "print(28)",
+         "print(22)",
+         "print(41)",
+         "print(31)",
+         "print(22)",
+         "print(34)",
+         "print(22)",
+         "print(35)",
+         "print(38)",
+         "print(36)",
+         "print(39)",
+         "print(37)",
+         "print(40)",
+         "print(32)",
+         "status()",
+         "print(33)",
+         "print(17)"
+        ],
+        "removedInsns": 0
+       },
+       "flags": [
+        2,
+        4,
+        9,
+        14,
+        61,
+        200,
+        202
+       ],
+       "vars": [
+        0,
+        7,
+        9,
+        10
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [
+        255
+       ],
+       "scoreAwards": [],
+       "maxScore": 230,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 1,
+       "animatedObjects": [],
+       "saidCalls": 20
+      },
+      {
+       "num": 1,
+       "bytes": 4388,
+       "codeBytes": 912,
+       "messages": 37,
+       "messageChars": 3360,
+       "template": null,
+       "templateStatus": "n/a",
+       "flags": [
+        5,
+        50,
+        60,
+        62
+       ],
+       "vars": [
+        0,
+        1,
+        2,
+        3,
+        41
+       ],
+       "exits": [
+        {
+         "to": 2,
+         "edge": "top"
+        },
+        {
+         "to": 3,
+         "edge": "right"
+        }
+       ],
+       "pictures": [
+        1
+       ],
+       "calls": [
+        255
+       ],
+       "scoreAwards": [
+        10
+       ],
+       "maxScore": null,
+       "horizon": 72,
+       "egoView": 1,
+       "egoStart": [
+        76,
+        82
+       ],
+       "deathCalls": 1,
+       "animatedObjects": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        0
+       ],
+       "saidCalls": 43
+      },
+      {
+       "num": 255,
+       "bytes": 324,
+       "codeBytes": 247,
+       "messages": 7,
+       "messageChars": 51,
+       "template": "death",
+       "templateStatus": "identical",
+       "flags": [
+        14,
+        16,
+        201,
+        202,
+        203
+       ],
+       "vars": [
+        19,
+        250
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [],
+       "scoreAwards": [],
+       "maxScore": null,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 0,
+       "animatedObjects": [],
+       "saidCalls": 0
+      }
+     ]
+    },
+    "inventory": [
+     {
+      "name": "?",
+      "startingRoom": 0
+     },
+     {
+      "name": "royal notice",
+      "startingRoom": 1
+     },
+     {
+      "name": "loaf of bread",
+      "startingRoom": 1
+     },
+     {
+      "name": "brass lantern",
+      "startingRoom": 1
+     },
+     {
+      "name": "brass hook",
+      "startingRoom": 1
+     },
+     {
+      "name": "ball of yarn",
+      "startingRoom": 3
+     },
+     {
+      "name": "Bell",
+      "startingRoom": 5
+     },
+     {
+      "name": "Ember",
+      "startingRoom": 6
+     },
+     {
+      "name": "Map",
+      "startingRoom": 3
+     }
+    ],
+    "pictures": [
+     {
+      "num": 1,
+      "usedByRoom": true,
+      "startRoom": true,
+      "bytes": 855,
+      "commands": 142,
+      "colorsUsed": [
+       0,
+       1,
+       2,
+       4,
+       6,
+       7,
+       8,
+       9,
+       10,
+       12,
+       14,
+       15
+      ],
+      "distinctColors": 12,
+      "fillPct": 99.8,
+      "edgeDensity": 0.062,
+      "regionCount": 95,
+      "priorityBandsUsed": [
+       4,
+       11
+      ],
+      "priorityBandCount": 2,
+      "depthDrawnPct": 2.1,
+      "controlPct": {
+       "barrier0": 2.9,
+       "conditional1": 0,
+       "trigger2": 0,
+       "water3": 0
+      },
+      "controlAnyPct": 2.9,
+      "horizon": 72,
+      "horizonSanityPct": 100,
+      "egoStart": [
+       76,
+       140
+      ],
+      "egoStartPriority": 4,
+      "egoStartStandable": true,
+      "egoStartYBand": 12,
+      "reachablePctBelowHorizon": 78.7,
+      "reachesEdges": [
+       "left",
+       "right",
+       "horizon"
+      ],
+      "waterReachable": false,
+      "triggerReachable": false,
+      "reachableColors": [
+       {
+        "color": 10,
+        "name": "lgreen",
+        "pctOfReachable": 48.5
+       },
+       {
+        "color": 6,
+        "name": "brown",
+        "pctOfReachable": 23.1
+       },
+       {
+        "color": 1,
+        "name": "blue",
+        "pctOfReachable": 22.4
+       },
+       {
+        "color": 8,
+        "name": "dgray",
+        "pctOfReachable": 3
+       },
+       {
+        "color": 2,
+        "name": "green",
+        "pctOfReachable": 1.9
+       },
+       {
+        "color": 0,
+        "name": "black",
+        "pctOfReachable": 0.5
+       },
+       {
+        "color": 9,
+        "name": "lblue",
+        "pctOfReachable": 0.4
+       },
+       {
+        "color": 14,
+        "name": "yellow",
+        "pctOfReachable": 0.1
+       },
+       {
+        "color": 12,
+        "name": "lred",
+        "pctOfReachable": 0.1
+       }
+      ]
+     }
+    ],
+    "views": [
+     {
+      "num": 1,
+      "bytes": 1481,
+      "loops": 4,
+      "celsPerLoop": [
+       4,
+       4,
+       4,
+       4
+      ],
+      "cels": 16,
+      "paintedPixels": 2088,
+      "maxSize": "8x30",
+      "firstCelWidth": 8,
+      "colors": [
+       0,
+       4,
+       6,
+       8,
+       12
+      ],
+      "description": "Wenna, third squire: short brown hair, rust-red tunic with oversized sleeves",
+      "fourDirWalk": true
+     },
+     {
+      "num": 2,
+      "bytes": 177,
+      "loops": 4,
+      "celsPerLoop": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "cels": 4,
+      "paintedPixels": 114,
+      "maxSize": "8x8",
+      "firstCelWidth": 7,
+      "colors": [
+       0,
+       4,
+       6,
+       14,
+       15
+      ],
+      "description": "Castle gate props: bread, lantern, royal notice, brass hook",
+      "fourDirWalk": false
+     },
+     {
+      "num": 3,
+      "bytes": 298,
+      "loops": 1,
+      "celsPerLoop": [
+       6
+      ],
+      "cels": 6,
+      "paintedPixels": 240,
+      "maxSize": "20x4",
+      "firstCelWidth": 20,
+      "colors": [
+       2,
+       9,
+       14,
+       15
+      ],
+      "description": "Alligator floating in the moat, eyes and back above water",
+      "fourDirWalk": false
+     }
+    ],
+    "sounds": [
+     {
+      "num": 255,
+      "bytes": 66,
+      "template": true,
+      "durationTicks": 42,
+      "durationSec": 0.7,
+      "voices": [
+       0,
+       1
+      ],
+      "audibleNotes": 8
+     }
+    ],
+    "tests": [
+     {
+      "name": "gate_accept_errand",
+      "room": 1,
+      "steps": 8,
+      "stepSummary": "enter, enter, walkTo, \"read notice\", enter, \"take notice\", enter, \"take hook\"",
+      "asserts": [
+       "room=1",
+       "carriedItems=[1,4]",
+       "flags[1]",
+       "printed=\"You work the brass hook loose\"",
+       "score=10"
+      ]
+     },
+     {
+      "name": "gate_take_supplies",
+      "room": 1,
+      "steps": 8,
+      "stepSummary": "enter, enter, walkTo, \"take bread\", enter, \"get lamp\", enter, \"polish the lantern\"",
+      "asserts": [
+       "room=1",
+       "carriedItems=[2,3]",
+       "flags[1]",
+       "printed=\"You rub the lantern\"",
+       "score=0"
+      ]
+     },
+     {
+      "name": "gate_swim_warns_then_kills",
+      "room": 1,
+      "steps": 7,
+      "stepSummary": "enter, enter, \"swim in moat\", enter, \"swim\", enter, wait",
+      "asserts": [
+       "room=1",
+       "flags[2]",
+       "text=\"You have died.\""
+      ]
+     }
+    ],
+    "session": {
+     "toolCalls": {
+      "inspect_world_bible": 1,
+      "read_logic": 2,
+      "read_authoring_guide": 1,
+      "update_world": 1,
+      "reserve_binding": 1,
+      "write_inventory_objects": 1,
+      "write_words": 1,
+      "write_view": 3,
+      "write_picture": 1,
+      "edit_resource_source": 2,
+      "write_logic_source": 1,
+      "playtest_room": 5,
+      "write_game_tests": 1,
+      "handover": 1
+     },
+     "toolCallCount": 22,
+     "failures": [],
+     "failuresByCategory": {},
+     "representativeErrors": [],
+     "pictureWrites": [
+      {
+       "tool": "write_picture",
+       "priorityCommands": 2,
+       "controlCommands": 1
+      }
+     ],
+     "pictureWritesUsingPriority": 1,
+     "assistantMessages": 13,
+     "proseBlocks": 2,
+     "proseChars": 125,
+     "reasoningVisibleChars": 45893,
+     "proseMentionsPriority": 0,
+     "proseSample": [
+      "Now a playtest: boot, dismiss intro, take the notice, the hook, the bread and the lantern.",
+      "All three tests pass. Handing over."
+     ]
+    },
+    "brief": {
+     "checklist": [
+      {
+       "label": "royal notice (message)",
+       "pass": true
+      },
+      {
+       "label": "notice readable (said read/look notice)",
+       "pass": true
+      },
+      {
+       "label": "bread takeable (said + OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "lit lantern (OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "alligator in moat (message)",
+       "pass": true
+      },
+      {
+       "label": "swimming warned then fatal (call 255)",
+       "pass": true
+      },
+      {
+       "label": "hall/drawbridge mentioned",
+       "pass": true
+      },
+      {
+       "label": "meadow mentioned",
+       "pass": true
+      },
+      {
+       "label": ">=2 exits (hall + meadow)",
+       "pass": true
+      },
+      {
+       "label": "accept errand +10",
+       "pass": true
+      },
+      {
+       "label": "King Brannoc named",
+       "pass": true
+      },
+      {
+       "label": "Wenna/Thornwall named",
+       "pass": true
+      },
+      {
+       "label": "ego red/brown (tunic, hair)",
+       "pass": true
+      },
+      {
+       "label": "palette: green + blue + gray",
+       "pass": true
+      }
+     ],
+     "passed": 14,
+     "total": 14,
+     "lexicon": {
+      "verbsInDictionary": 7,
+      "nounsInDictionary": 8,
+      "verbsInSaid": 6,
+      "nounsInSaid": 3,
+      "verbs": 7,
+      "nouns": 8,
+      "namesInMessages": [
+       "Wenna",
+       "Thornwall",
+       "King Brannoc"
+      ],
+      "names": [
+       "Wenna",
+       "Thornwall",
+       "Three Bright\nThings",
+       "King Brannoc"
+      ]
+     },
+     "maxScoreBrief": 230
+    },
+    "startMessages": [
+     "The gate of Thornwall Castle. A drawbridge crosses the moat to the great hall. The king's notice hangs on a board by the moat, and someone has left supplies on a crate. The path runs east into the meadow. Something in the moat is watching you.",
+     "The last candle in Thornwall burns in the great hall, and when it goes out, so does the kingdom. You are Wenna, third squire to King Brannoc. This morning the king posted a notice at the gate.",
+     "Thornwall Castle is gray, patched and much too big for the people left in it. The great hall lies through the gatehouse, across the drawbridge.",
+     "The drawbridge is down. Nobody has raised it in years, because nobody remembers where the crank went.",
+     "The moat is deep and green-brown, and not empty. A long shape floats near the drawbridge.",
+     "An alligator floats with only its eyes and back above the water. It watches you with calm, complete interest.",
+     "\"Good morning,\" you say. The alligator does not answer. It blinks once, slowly, and keeps watching.",
+     "The alligator ignores the bread. It is not interested in snacks while a whole meal stands on the bank.",
+     "You step toward the edge of the moat. The alligator's eyes follow you, and a ripple starts toward the bank. You decide to think about it first.",
+     "You slide into the moat. The alligator moves much faster than it looked. King Brannoc will have to promote the fourth squire.",
+     "A wooden board with a little roof. The king's notice is pinned to it.",
+     "The board is bare except for a bent brass hook where the notice hung.",
+     "An empty notice board.",
+     "BY ORDER OF KING BRANNOC OF THORNWALL: Wanted, one brave soul to find the Three Bright Things - the Bell that rings under water, the Ember that never dies and the Map that will not stay put - and bring them to the great hall before the last candle burns out. Take this notice to accept.",
+     "You unpin the notice and tuck it into your tunic. The errand is yours now. Behind where it hung, a bent brass hook sticks out of the board.",
+     "You need to get closer.",
+     "You work the brass hook loose. It is bent into a neat curl, like the end of a fishing line.",
+     "A supply crate. A tag on it says FOR THE ERRAND.",
+     "An empty supply crate. The tag says FOR THE ERRAND, and you have taken it at its word.",
+     "A round loaf of brown bread sits on the crate, still a little warm.",
+     "You take the loaf of bread. It smells good enough to be a problem.",
+     "A brass lantern sits on the crate, already lit. The brass is dull with soot.",
+     "You take the lantern. Its flame does not even flicker.",
+     "Far off in the eastern hills, smoke rises from a crooked chimney. Somebody out there keeps a fire going.",
+     "The path runs east from the drawbridge, through the meadow and into the countryside.",
+     "The grass is green and the hedges are thick. Nothing lives in them but beetles.",
+     "There are no candles out here. The last one burns in the great hall.",
+     "You already have the notice. The errand is yours.",
+     "You already have it.",
+     "A pale sky over gray towers. To the east, a thin line of smoke.",
+     "You keep your hands well away from the alligator.",
+     "A small brass hook, bent into a curl, sticks out of the notice board.",
+     "Thornwall's banner: a white candle on a red field. It has faded to pink.",
+     "Take the notice from the board first. That is how the king's errands work.",
+     "You have a squire's knife and the alligator has a great many teeth. You leave it alone.",
+     "You've found no candles to light here.",
+     "You have no bread, and the alligator would not want it anyway."
+    ]
+   },
+   "anthropic-claude-opus-5-5-lean-medium--r1": {
+    "stem": "anthropic-claude-opus-5-5-lean-medium--knights-trial--r1",
+    "lane": "anthropic-claude-opus-5-5-lean-medium",
+    "case": "knights-trial",
+    "provider": "anthropic",
+    "model": "claude-opus-5-5",
+    "effort": "medium",
+    "promptVariant": "lean",
+    "completion": true,
+    "playtest": {
+     "success": true,
+     "simulation": "passed",
+     "cycles": 1,
+     "room": 1
+    },
+    "cost": {
+     "costUsd": 1.4263268000000002,
+     "usageIncomplete": false,
+     "inputTokens": 974672,
+     "cachedInputTokens": 894024,
+     "cacheWriteTokens": 80610,
+     "outputTokens": 42216,
+     "cachedPct": 91.7,
+     "wallSec": 393,
+     "providerRequests": 26,
+     "modelTurns": 18,
+     "toolCalls": 23,
+     "repairTurns": 1,
+     "toolFailures": 1,
+     "repairCategories": {
+      "actionable": {
+       "turns": 1,
+       "toolFailures": 1
+      },
+      "expectedFutureRoomExit": {
+       "turns": 0,
+       "toolFailures": 0
+      }
+     },
+     "authoredResources": 6,
+     "costPerAuthoredResource": 0.238
+    },
+    "logic": {
+     "count": 3,
+     "totalBytes": 6404,
+     "totalCodeBytes": 1737,
+     "roomLogics": [
+      1
+     ],
+     "roomCodeBytes": 1123,
+     "template": [
+      {
+       "num": 0,
+       "status": "modified",
+       "delta": {
+        "changedMessages": [
+         18
+        ],
+        "addedInsns": [
+         "assignn(7,230)"
+        ],
+        "removedInsns": 0
+       }
+      },
+      {
+       "num": 255,
+       "status": "identical"
+      }
+     ],
+     "distinctCommandsAll": 57,
+     "distinctCommandsRooms": 31,
+     "roomCommands": [
+      "accept.input",
+      "addn",
+      "animate.obj",
+      "assignn",
+      "call",
+      "cycle.time",
+      "discard.pic",
+      "draw",
+      "draw.pic",
+      "equaln",
+      "erase",
+      "get",
+      "has",
+      "ignore.blocks",
+      "ignore.objs",
+      "isset",
+      "load.pic",
+      "load.view",
+      "new.room",
+      "position",
+      "posn",
+      "print",
+      "said",
+      "set",
+      "set.cel",
+      "set.horizon",
+      "set.loop",
+      "set.view",
+      "show.pic",
+      "status",
+      "stop.cycling"
+     ],
+     "saidCalls": 67,
+     "saidDistinctPatterns": 67,
+     "saidWordGroups": 45,
+     "vocabularyWords": 134,
+     "vocabularyGroups": 59,
+     "roomMessages": 49,
+     "roomMessageChars": 4019,
+     "allMessages": 76,
+     "exits": [
+      {
+       "from": 1,
+       "to": [
+        {
+         "to": 6
+        },
+        {
+         "to": 2,
+         "edge": "right"
+        }
+       ]
+      }
+     ],
+     "roomFlags": [
+      2,
+      4,
+      5,
+      32,
+      33,
+      34,
+      35,
+      36
+     ],
+     "roomVars": [
+      0,
+      1,
+      2,
+      3,
+      9,
+      33,
+      34,
+      35
+     ],
+     "scoreAwards": [
+      10
+     ],
+     "maxScore": 230,
+     "deathCalls": 1,
+     "animatedObjects": [
+      1,
+      2,
+      3,
+      4,
+      0
+     ],
+     "horizon": 40,
+     "egoView": 0,
+     "egoStart": [
+      30,
+      140
+     ],
+     "egoStartSource": "engine boot (6 cycles)",
+     "boot": {
+      "room": 1,
+      "x": 30,
+      "y": 140,
+      "width": 8,
+      "horizon": 40
+     },
+     "perLogic": [
+      {
+       "num": 0,
+       "bytes": 786,
+       "codeBytes": 367,
+       "messages": 20,
+       "messageChars": 354,
+       "template": "logic0",
+       "templateStatus": "modified",
+       "templateDelta": {
+        "changedMessages": [
+         18
+        ],
+        "addedInsns": [
+         "assignn(7,230)"
+        ],
+        "removedInsns": 0
+       },
+       "flags": [
+        2,
+        4,
+        9,
+        14,
+        200,
+        202
+       ],
+       "vars": [
+        0,
+        7,
+        9,
+        10
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [
+        255
+       ],
+       "scoreAwards": [],
+       "maxScore": 230,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 1,
+       "animatedObjects": [],
+       "saidCalls": 0
+      },
+      {
+       "num": 1,
+       "bytes": 5294,
+       "codeBytes": 1123,
+       "messages": 49,
+       "messageChars": 4019,
+       "template": null,
+       "templateStatus": "n/a",
+       "flags": [
+        2,
+        4,
+        5,
+        32,
+        33,
+        34,
+        35,
+        36
+       ],
+       "vars": [
+        0,
+        1,
+        2,
+        3,
+        9,
+        33,
+        34,
+        35
+       ],
+       "exits": [
+        {
+         "to": 6
+        },
+        {
+         "to": 2,
+         "edge": "right"
+        }
+       ],
+       "pictures": [
+        1
+       ],
+       "calls": [
+        255
+       ],
+       "scoreAwards": [
+        10
+       ],
+       "maxScore": null,
+       "horizon": 40,
+       "egoView": 0,
+       "egoStart": [
+        76,
+        88
+       ],
+       "deathCalls": 1,
+       "animatedObjects": [
+        1,
+        2,
+        3,
+        4,
+        0
+       ],
+       "saidCalls": 67
+      },
+      {
+       "num": 255,
+       "bytes": 324,
+       "codeBytes": 247,
+       "messages": 7,
+       "messageChars": 51,
+       "template": "death",
+       "templateStatus": "identical",
+       "flags": [
+        14,
+        16,
+        201,
+        202,
+        203
+       ],
+       "vars": [
+        19,
+        250
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [],
+       "scoreAwards": [],
+       "maxScore": null,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 0,
+       "animatedObjects": [],
+       "saidCalls": 0
+      }
+     ]
+    },
+    "inventory": [
+     {
+      "name": "?",
+      "startingRoom": 0
+     },
+     {
+      "name": "royal notice",
+      "startingRoom": 1
+     },
+     {
+      "name": "bread",
+      "startingRoom": 1
+     },
+     {
+      "name": "brass lantern",
+      "startingRoom": 1
+     },
+     {
+      "name": "Bell",
+      "startingRoom": 0
+     },
+     {
+      "name": "Ember",
+      "startingRoom": 0
+     },
+     {
+      "name": "Map",
+      "startingRoom": 0
+     }
+    ],
+    "pictures": [
+     {
+      "num": 1,
+      "usedByRoom": true,
+      "startRoom": true,
+      "bytes": 3732,
+      "commands": 818,
+      "colorsUsed": [
+       0,
+       1,
+       2,
+       4,
+       6,
+       7,
+       8,
+       9,
+       10,
+       13,
+       14,
+       15
+      ],
+      "distinctColors": 12,
+      "fillPct": 100,
+      "edgeDensity": 0.052,
+      "regionCount": 79,
+      "priorityBandsUsed": [
+       4
+      ],
+      "priorityBandCount": 1,
+      "depthDrawnPct": 0,
+      "controlPct": {
+       "barrier0": 1,
+       "conditional1": 0,
+       "trigger2": 0,
+       "water3": 0.5
+      },
+      "controlAnyPct": 1.5,
+      "horizon": 40,
+      "horizonSanityPct": 100,
+      "egoStart": [
+       30,
+       140
+      ],
+      "egoStartPriority": 4,
+      "egoStartStandable": true,
+      "egoStartYBand": 12,
+      "reachablePctBelowHorizon": 92.7,
+      "reachesEdges": [
+       "left",
+       "right",
+       "bottom",
+       "horizon"
+      ],
+      "waterReachable": true,
+      "triggerReachable": false,
+      "reachableColors": [
+       {
+        "color": 10,
+        "name": "lgreen",
+        "pctOfReachable": 40.8
+       },
+       {
+        "color": 1,
+        "name": "blue",
+        "pctOfReachable": 16.2
+       },
+       {
+        "color": 7,
+        "name": "lgray",
+        "pctOfReachable": 15.9
+       },
+       {
+        "color": 6,
+        "name": "brown",
+        "pctOfReachable": 11.2
+       },
+       {
+        "color": 2,
+        "name": "green",
+        "pctOfReachable": 7.6
+       },
+       {
+        "color": 0,
+        "name": "black",
+        "pctOfReachable": 3.5
+       },
+       {
+        "color": 9,
+        "name": "lblue",
+        "pctOfReachable": 2.9
+       },
+       {
+        "color": 8,
+        "name": "dgray",
+        "pctOfReachable": 1.8
+       },
+       {
+        "color": 14,
+        "name": "yellow",
+        "pctOfReachable": 0
+       },
+       {
+        "color": 13,
+        "name": "lmagenta",
+        "pctOfReachable": 0
+       },
+       {
+        "color": 15,
+        "name": "white",
+        "pctOfReachable": 0
+       }
+      ]
+     }
+    ],
+    "views": [
+     {
+      "num": 0,
+      "bytes": 1520,
+      "loops": 4,
+      "celsPerLoop": [
+       4,
+       4,
+       4,
+       4
+      ],
+      "cels": 16,
+      "paintedPixels": 2168,
+      "maxSize": "8x30",
+      "firstCelWidth": 8,
+      "colors": [
+       0,
+       4,
+       6,
+       8,
+       12
+      ],
+      "description": "Wenna, a squire in a rust-red tunic with oversized sleeves",
+      "fourDirWalk": true
+     },
+     {
+      "num": 1,
+      "bytes": 262,
+      "loops": 3,
+      "celsPerLoop": [
+       1,
+       3,
+       2
+      ],
+      "cels": 6,
+      "paintedPixels": 222,
+      "maxSize": "10x7",
+      "firstCelWidth": 6,
+      "colors": [
+       0,
+       4,
+       6,
+       8,
+       9,
+       12,
+       14,
+       15
+      ],
+      "description": "Castle gate props: royal notice, basket, brass lantern",
+      "fourDirWalk": false
+     },
+     {
+      "num": 2,
+      "bytes": 268,
+      "loops": 2,
+      "celsPerLoop": [
+       6,
+       6
+      ],
+      "cels": 12,
+      "paintedPixels": 468,
+      "maxSize": "16x5",
+      "firstCelWidth": 16,
+      "colors": [
+       0,
+       2,
+       9,
+       14,
+       15
+      ],
+      "description": "The moat alligator, eyes and snout above the water",
+      "fourDirWalk": false
+     }
+    ],
+    "sounds": [
+     {
+      "num": 255,
+      "bytes": 66,
+      "template": true,
+      "durationTicks": 42,
+      "durationSec": 0.7,
+      "voices": [
+       0,
+       1
+      ],
+      "audibleNotes": 8
+     }
+    ],
+    "tests": [
+     {
+      "name": "gate_accept_errand_and_supplies",
+      "room": 1,
+      "steps": 12,
+      "stepSummary": "enter, walkTo, \"take notice\", enter, \"look in basket\", enter, walkTo, \"take bread\", enter, walkTo, \"take lantern\", enter",
+      "asserts": [
+       "room=1",
+       "carriedItems=[1,2,3]",
+       "flags[3]",
+       "score=10"
+      ]
+     },
+     {
+      "name": "gate_swim_warns_first",
+      "room": 1,
+      "steps": 2,
+      "stepSummary": "enter, \"swim in moat\"",
+      "asserts": [
+       "room=1",
+       "flags[2]",
+       "printed=\"You decide to think it over.\""
+      ]
+     },
+     {
+      "name": "gate_swim_twice_dies",
+      "room": 1,
+      "steps": 6,
+      "stepSummary": "enter, \"swim\", enter, \"swim\", enter, wait",
+      "asserts": [
+       "room=1",
+       "flags[1]",
+       "printed=\"delighted to meet you\""
+      ]
+     }
+    ],
+    "session": {
+     "toolCalls": {
+      "inspect_world_bible": 1,
+      "read_logic": 2,
+      "read_authoring_guide": 1,
+      "reserve_binding": 2,
+      "update_world": 1,
+      "write_view": 3,
+      "write_scene": 1,
+      "read_picture": 1,
+      "edit_resource_source": 2,
+      "write_inventory_objects": 1,
+      "write_words": 1,
+      "write_logic_source": 2,
+      "playtest_room": 3,
+      "write_game_tests": 1,
+      "handover": 1
+     },
+     "toolCallCount": 23,
+     "failures": [
+      {
+       "tool": "write_logic_source",
+       "category": "assembler",
+       "error": "Assembler error in logic 1: AssemblerError: 4:27: expected number, got 'f32'. Use read_command_reference for the active profile's exact signatures and semantics. Candidates below are suggestions; choose by intended behav"
+      }
+     ],
+     "failuresByCategory": {
+      "assembler": 1
+     },
+     "representativeErrors": [
+      {
+       "tool": "write_logic_source",
+       "category": "assembler",
+       "error": "Assembler error in logic 1: AssemblerError: 4:27: expected number, got 'f32'. Use read_command_reference for the active profile's exact signatures and semantics. Candidates below are suggestions; choose by intended behav"
+      }
+     ],
+     "pictureWrites": [
+      {
+       "tool": "write_scene",
+       "priorityCommands": 0,
+       "controlCommands": 0
+      },
+      {
+       "tool": "edit_resource_source",
+       "priorityCommands": 2,
+       "controlCommands": 2
+      }
+     ],
+     "pictureWritesUsingPriority": 1,
+     "assistantMessages": 18,
+     "proseBlocks": 2,
+     "proseChars": 110,
+     "reasoningVisibleChars": 16869,
+     "proseMentionsPriority": 1,
+     "proseSample": [
+      "Now playtest the core puzzle route and exits.",
+      "Now the exits and barriers: east edge, drawbridge, and moat bank."
+     ]
+    },
+    "brief": {
+     "checklist": [
+      {
+       "label": "royal notice (message)",
+       "pass": true
+      },
+      {
+       "label": "notice readable (said read/look notice)",
+       "pass": true
+      },
+      {
+       "label": "bread takeable (said + OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "lit lantern (OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "alligator in moat (message)",
+       "pass": true
+      },
+      {
+       "label": "swimming warned then fatal (call 255)",
+       "pass": true
+      },
+      {
+       "label": "hall/drawbridge mentioned",
+       "pass": true
+      },
+      {
+       "label": "meadow mentioned",
+       "pass": true
+      },
+      {
+       "label": ">=2 exits (hall + meadow)",
+       "pass": true
+      },
+      {
+       "label": "accept errand +10",
+       "pass": true
+      },
+      {
+       "label": "King Brannoc named",
+       "pass": true
+      },
+      {
+       "label": "Wenna/Thornwall named",
+       "pass": true
+      },
+      {
+       "label": "ego red/brown (tunic, hair)",
+       "pass": true
+      },
+      {
+       "label": "palette: green + blue + gray",
+       "pass": true
+      }
+     ],
+     "passed": 14,
+     "total": 14,
+     "lexicon": {
+      "verbsInDictionary": 7,
+      "nounsInDictionary": 8,
+      "verbsInSaid": 7,
+      "nounsInSaid": 8,
+      "verbs": 7,
+      "nouns": 8,
+      "namesInMessages": [
+       "Wenna",
+       "Thornwall",
+       "King Brannoc"
+      ],
+      "names": [
+       "Wenna",
+       "Thornwall",
+       "Three Bright\nThings",
+       "King Brannoc"
+      ]
+     },
+     "maxScoreBrief": 230
+    },
+    "startMessages": [
+     "Wenna, third squire to King Brannoc, stands before the gate of Thornwall. A notice is nailed to a post, a covered basket sits beside the path, and a lantern burns on a hook by the drawbridge.",
+     "The gray gate of Thornwall stands over a green moat. The drawbridge leads into the great hall, and a dirt path runs east into the meadow. An alligator floats in the moat, watching you.",
+     "A royal notice, nailed to the post at eye level. It is signed with a large, tired flourish.",
+     "HEAR YE. The last candle of Thornwall is burning down. Whoever takes this notice undertakes to find the Three Bright Things: the Bell that rings under water, the Ember that never dies, and the Map that will not sit still. Bring them to the hall. Bread and a lantern are provided.\n    -- Brannoc, King (still)",
+     "You pull the notice off its nail. By its own terms, the errand is now yours.",
+     "You already have the notice.",
+     "You need to be closer to the post.",
+     "A wicker basket with a checked cloth tucked over it. You lift the cloth. Underneath is a round loaf of bread, still warm. Someone in the kitchen likes you.",
+     "A wicker basket. The loaf of bread is waiting inside.",
+     "An empty wicker basket and a checked cloth.",
+     "You take the loaf of bread and tuck it under your arm.",
+     "You lift the cloth and find a loaf of bread underneath, still warm. You take it.",
+     "You already have the bread.",
+     "You need to be closer to the basket.",
+     "A brass lantern hangs from a hook on the post, its flame steady. The brass is dull with soot.",
+     "You unhook the lantern. The brass is warm and a little sooty.",
+     "You already have the lantern.",
+     "You need to be closer to the lantern post.",
+     "The lantern is already lit. The flame burns without any oil you can see.",
+     "You rub the lantern with the end of your sleeve. The brass comes up bright as a new coin. Your sleeves are finally good for something.",
+     "The alligator's eyes sit above the water like two green buttons. It has not blinked since you arrived. It is waiting for someone to go swimming.",
+     "\"Good morning,\" you say. The alligator says nothing, but its smile gets wider.",
+     "You look at the water. The alligator looks at you. It would be very glad if you came in. You decide to think it over.",
+     "You slide into the moat. The alligator is delighted to meet you, briefly.",
+     "The alligator sniffs at the bread and sinks a little lower. It is not a bread sort of alligator.",
+     "You are tempted, but the notice says the bread is for the journey. You save it.",
+     "Thornwall's walls are gray and patched. Two pennants hang from the towers without much enthusiasm.",
+     "The gate stands open. Across the drawbridge is the great hall, where the king keeps the last candle.",
+     "Old planks and older chains. It creaks, but it holds.",
+     "The path runs east into the meadow, where the countryside begins.",
+     "The last candle burns in the hall. Out along the roads, the roadside candles have all gone dark.",
+     "King Brannoc is in the great hall, across the drawbridge.",
+     "The Three Bright Things are out in the countryside, not here at the gate.",
+     "There is no heron here. Herons prefer rivers to moats with alligators in them.",
+     "Buttercups and clover. Pleasant, if not useful.",
+     "A thick hedge. It keeps the meadow in and the squires out.",
+     "Clear and blue. Good weather for an errand.",
+     "Thornwall's colors, red and yellow, somewhat faded.",
+     "There are no candles to light here. The roadside candles are out in the countryside.",
+     "Your sleeves are slightly too big. They were made for the second squire, who grew.",
+     "There is no one to talk to here except the alligator.",
+     "The notice explains the terms: whoever takes it undertakes the errand.",
+     "You have already accepted the errand. The notice is in your pocket.",
+     "Try reading the notice, looking in the basket, or taking the lantern. The path east leads into the countryside.",
+     "That doesn't help here. You could look at the notice, the basket, the lantern or the alligator.",
+     "You would need longer arms, and a different alligator.",
+     "Your lantern lights the way. Somewhere out in the countryside there may be candles worth lighting.",
+     "A post by the drawbridge. It is there to hold things up.",
+     "You have nothing it wants, except possibly yourself."
+    ]
+   },
+   "openai-gpt-6-astra-lean-medium--r1": {
+    "stem": "openai-gpt-6-astra-lean-medium--knights-trial--r1",
+    "lane": "openai-gpt-6-astra-lean-medium",
+    "case": "knights-trial",
+    "provider": "openai",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "promptVariant": "lean",
+    "completion": true,
+    "playtest": {
+     "success": true,
+     "simulation": "passed",
+     "cycles": 1,
+     "room": 1
+    },
+    "cost": {
+     "costUsd": 1.6504060000000003,
+     "usageIncomplete": false,
+     "inputTokens": 443529,
+     "cachedInputTokens": 404146,
+     "cacheWriteTokens": 39332,
+     "outputTokens": 15082,
+     "cachedPct": 91.1,
+     "wallSec": 347,
+     "providerRequests": 25,
+     "modelTurns": 17,
+     "toolCalls": 31,
+     "repairTurns": 2,
+     "toolFailures": 2,
+     "repairCategories": {
+      "actionable": {
+       "turns": 2,
+       "toolFailures": 2
+      },
+      "expectedFutureRoomExit": {
+       "turns": 0,
+       "toolFailures": 0
+      }
+     },
+     "authoredResources": 7,
+     "costPerAuthoredResource": 0.236
+    },
+    "logic": {
+     "count": 3,
+     "totalBytes": 3494,
+     "totalCodeBytes": 1251,
+     "roomLogics": [
+      1
+     ],
+     "roomCodeBytes": 637,
+     "template": [
+      {
+       "num": 0,
+       "status": "modified",
+       "delta": {
+        "changedMessages": [
+         18
+        ],
+        "addedInsns": [
+         "assignn(7,230)"
+        ],
+        "removedInsns": 0
+       }
+      },
+      {
+       "num": 255,
+       "status": "identical"
+      }
+     ],
+     "distinctCommandsAll": 59,
+     "distinctCommandsRooms": 33,
+     "roomCommands": [
+      "accept.input",
+      "animate.obj",
+      "assignn",
+      "call",
+      "cycle.time",
+      "draw",
+      "draw.pic",
+      "equaln",
+      "erase",
+      "get",
+      "has",
+      "ignore.blocks",
+      "ignore.objs",
+      "isset",
+      "load.pic",
+      "load.view",
+      "new.room",
+      "normal.motion",
+      "player.control",
+      "position",
+      "posn",
+      "print",
+      "said",
+      "set",
+      "set.cel",
+      "set.horizon",
+      "set.loop",
+      "set.view",
+      "show.pic",
+      "start.cycling",
+      "step.time",
+      "stop.cycling",
+      "stop.motion"
+     ],
+     "saidCalls": 37,
+     "saidDistinctPatterns": 37,
+     "saidWordGroups": 31,
+     "vocabularyWords": 52,
+     "vocabularyGroups": 38,
+     "roomMessages": 22,
+     "roomMessageChars": 1759,
+     "allMessages": 49,
+     "exits": [
+      {
+       "from": 1,
+       "to": [
+        {
+         "to": 2
+        },
+        {
+         "to": 3,
+         "edge": "right"
+        }
+       ]
+      }
+     ],
+     "roomFlags": [
+      2,
+      4,
+      5,
+      39,
+      43,
+      44,
+      45,
+      46,
+      202
+     ],
+     "roomVars": [
+      1,
+      2,
+      6,
+      7,
+      32,
+      33,
+      34,
+      35,
+      40
+     ],
+     "scoreAwards": [],
+     "maxScore": 230,
+     "deathCalls": 1,
+     "animatedObjects": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "horizon": 58,
+     "egoView": 1,
+     "egoStart": [
+      78,
+      143
+     ],
+     "egoStartSource": "engine boot (6 cycles)",
+     "boot": {
+      "room": 1,
+      "x": 78,
+      "y": 143,
+      "width": 9,
+      "horizon": 58
+     },
+     "perLogic": [
+      {
+       "num": 0,
+       "bytes": 703,
+       "codeBytes": 367,
+       "messages": 20,
+       "messageChars": 271,
+       "template": "logic0",
+       "templateStatus": "modified",
+       "templateDelta": {
+        "changedMessages": [
+         18
+        ],
+        "addedInsns": [
+         "assignn(7,230)"
+        ],
+        "removedInsns": 0
+       },
+       "flags": [
+        2,
+        4,
+        9,
+        14,
+        200,
+        202
+       ],
+       "vars": [
+        0,
+        7,
+        9,
+        10
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [
+        255
+       ],
+       "scoreAwards": [],
+       "maxScore": 230,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 1,
+       "animatedObjects": [],
+       "saidCalls": 0
+      },
+      {
+       "num": 1,
+       "bytes": 2467,
+       "codeBytes": 637,
+       "messages": 22,
+       "messageChars": 1759,
+       "template": null,
+       "templateStatus": "n/a",
+       "flags": [
+        2,
+        4,
+        5,
+        39,
+        43,
+        44,
+        45,
+        46,
+        202
+       ],
+       "vars": [
+        1,
+        2,
+        6,
+        7,
+        32,
+        33,
+        34,
+        35,
+        40
+       ],
+       "exits": [
+        {
+         "to": 2
+        },
+        {
+         "to": 3,
+         "edge": "right"
+        }
+       ],
+       "pictures": [
+        1
+       ],
+       "calls": [
+        255
+       ],
+       "scoreAwards": [],
+       "maxScore": 230,
+       "horizon": 58,
+       "egoView": 1,
+       "egoStart": [
+        78,
+        143
+       ],
+       "deathCalls": 1,
+       "animatedObjects": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "saidCalls": 37
+      },
+      {
+       "num": 255,
+       "bytes": 324,
+       "codeBytes": 247,
+       "messages": 7,
+       "messageChars": 51,
+       "template": "death",
+       "templateStatus": "identical",
+       "flags": [
+        14,
+        16,
+        201,
+        202,
+        203
+       ],
+       "vars": [
+        19,
+        250
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [],
+       "scoreAwards": [],
+       "maxScore": null,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 0,
+       "animatedObjects": [],
+       "saidCalls": 0
+      }
+     ]
+    },
+    "inventory": [
+     {
+      "name": "Bread",
+      "startingRoom": 1
+     },
+     {
+      "name": "Lit brass lantern",
+      "startingRoom": 1
+     },
+     {
+      "name": "Underwater Bell",
+      "startingRoom": 0
+     },
+     {
+      "name": "Undying Ember",
+      "startingRoom": 0
+     },
+     {
+      "name": "Wandering Map",
+      "startingRoom": 0
+     }
+    ],
+    "pictures": [
+     {
+      "num": 1,
+      "usedByRoom": true,
+      "startRoom": true,
+      "bytes": 5746,
+      "commands": 1193,
+      "colorsUsed": [
+       0,
+       1,
+       2,
+       4,
+       6,
+       7,
+       8,
+       9,
+       10,
+       11,
+       14,
+       15
+      ],
+      "distinctColors": 12,
+      "fillPct": 98.4,
+      "edgeDensity": 0.058,
+      "regionCount": 65,
+      "priorityBandsUsed": [
+       4,
+       12
+      ],
+      "priorityBandCount": 2,
+      "depthDrawnPct": 4.3,
+      "controlPct": {
+       "barrier0": 1,
+       "conditional1": 0,
+       "trigger2": 0,
+       "water3": 9.3
+      },
+      "controlAnyPct": 10.3,
+      "horizon": 58,
+      "horizonSanityPct": 100,
+      "egoStart": [
+       78,
+       143
+      ],
+      "egoStartPriority": 4,
+      "egoStartStandable": true,
+      "egoStartYBand": 12,
+      "reachablePctBelowHorizon": 93.5,
+      "reachesEdges": [
+       "left",
+       "right",
+       "bottom",
+       "horizon"
+      ],
+      "waterReachable": true,
+      "triggerReachable": false,
+      "reachableColors": [
+       {
+        "color": 2,
+        "name": "green",
+        "pctOfReachable": 36.8
+       },
+       {
+        "color": 14,
+        "name": "yellow",
+        "pctOfReachable": 16.2
+       },
+       {
+        "color": 6,
+        "name": "brown",
+        "pctOfReachable": 14.5
+       },
+       {
+        "color": 9,
+        "name": "lblue",
+        "pctOfReachable": 12.6
+       },
+       {
+        "color": 10,
+        "name": "lgreen",
+        "pctOfReachable": 7.6
+       },
+       {
+        "color": 7,
+        "name": "lgray",
+        "pctOfReachable": 6
+       },
+       {
+        "color": 8,
+        "name": "dgray",
+        "pctOfReachable": 3.3
+       },
+       {
+        "color": 0,
+        "name": "black",
+        "pctOfReachable": 1.2
+       },
+       {
+        "color": 15,
+        "name": "white",
+        "pctOfReachable": 1.1
+       },
+       {
+        "color": 11,
+        "name": "lcyan",
+        "pctOfReachable": 0.5
+       },
+       {
+        "color": 4,
+        "name": "red",
+        "pctOfReachable": 0.1
+       }
+      ]
+     }
+    ],
+    "views": [
+     {
+      "num": 1,
+      "bytes": 1634,
+      "loops": 4,
+      "celsPerLoop": [
+       4,
+       4,
+       4,
+       4
+      ],
+      "cels": 16,
+      "paintedPixels": 2708,
+      "maxSize": "9x30",
+      "firstCelWidth": 9,
+      "colors": [
+       1,
+       4,
+       6,
+       12,
+       14,
+       15
+      ],
+      "description": null,
+      "fourDirWalk": true
+     },
+     {
+      "num": 2,
+      "bytes": 41,
+      "loops": 1,
+      "celsPerLoop": [
+       1
+      ],
+      "cels": 1,
+      "paintedPixels": 46,
+      "maxSize": "10x6",
+      "firstCelWidth": 10,
+      "colors": [
+       6,
+       14
+      ],
+      "description": null,
+      "fourDirWalk": false
+     },
+     {
+      "num": 3,
+      "bytes": 158,
+      "loops": 1,
+      "celsPerLoop": [
+       2
+      ],
+      "cels": 2,
+      "paintedPixels": 126,
+      "maxSize": "7x15",
+      "firstCelWidth": 7,
+      "colors": [
+       6,
+       12,
+       14,
+       15
+      ],
+      "description": null,
+      "fourDirWalk": false
+     },
+     {
+      "num": 4,
+      "bytes": 188,
+      "loops": 1,
+      "celsPerLoop": [
+       4
+      ],
+      "cels": 4,
+      "paintedPixels": 544,
+      "maxSize": "25x8",
+      "firstCelWidth": 25,
+      "colors": [
+       2,
+       3,
+       10,
+       14
+      ],
+      "description": null,
+      "fourDirWalk": false
+     }
+    ],
+    "sounds": [
+     {
+      "num": 255,
+      "bytes": 66,
+      "template": true,
+      "durationTicks": 42,
+      "durationSec": 0.7,
+      "voices": [
+       0,
+       1
+      ],
+      "audibleNotes": 8
+     }
+    ],
+    "tests": [
+     {
+      "name": "gate_supplies_and_brass_discovery",
+      "room": 1,
+      "steps": 9,
+      "stepSummary": "\"read notice\", enter, \"look lantern\", enter, \"get bread\", enter, \"take lantern\", enter, \"take bread\"",
+      "asserts": [
+       "room=1",
+       "carriedItems=[0,1]",
+       "flags[4]",
+       "vars[1]",
+       "printed=\"already been taken\"",
+       "score=0",
+       "object={\"num\":1,\"view\":2,\"x0\":null,\"y0\":null,\"x"
+      ]
+     },
+     {
+      "name": "gate_hall_exit",
+      "room": 1,
+      "steps": 1,
+      "stepSummary": "direction",
+      "asserts": [
+       "room=2"
+      ]
+     },
+     {
+      "name": "gate_meadow_exit",
+      "room": 1,
+      "steps": 1,
+      "stepSummary": "direction",
+      "asserts": [
+       "room=3"
+      ]
+     },
+     {
+      "name": "gate_moat_bank_blocks_walking",
+      "room": 1,
+      "steps": 1,
+      "stepSummary": "move",
+      "asserts": [
+       "room=1",
+       "flags[1]",
+       "object={\"num\":0,\"view\":1,\"x0\":120,\"y0\":104,\"x1\""
+      ]
+     },
+     {
+      "name": "gate_swimming_warns_first",
+      "room": 1,
+      "steps": 1,
+      "stepSummary": "\"swim\"",
+      "asserts": [
+       "room=1",
+       "flags[2]",
+       "printed=\"Swimming here would be fatal\"",
+       "score=0"
+      ]
+     },
+     {
+      "name": "gate_deliberate_swimming_death",
+      "room": 1,
+      "steps": 4,
+      "stepSummary": "\"swim\", enter, \"swim moat\", enter",
+      "asserts": [
+       "room=1",
+       "flags[1]",
+       "printed=\"before the far bank\""
+      ]
+     }
+    ],
+    "session": {
+     "toolCalls": {
+      "inspect_world_bible": 1,
+      "read_logic": 2,
+      "read_authoring_guide": 3,
+      "update_world": 2,
+      "reserve_binding": 2,
+      "write_inventory_objects": 1,
+      "write_words": 1,
+      "write_view": 6,
+      "write_scene": 1,
+      "write_logic_source": 1,
+      "playtest_room": 4,
+      "read_room_context": 1,
+      "edit_resource_source": 2,
+      "write_game_tests": 1,
+      "read_picture": 1,
+      "run_game_tests": 1,
+      "handover": 1
+     },
+     "toolCallCount": 31,
+     "failures": [
+      {
+       "tool": "write_view",
+       "category": "view",
+       "error": "View 1 was not written: line 2: unknown command \"#\": use cel, loop, description or endview."
+      },
+      {
+       "tool": "write_view",
+       "category": "view",
+       "error": "View 1 was not written: line 40: cel right1 row 28 has 10 symbols; its width is 9. Send exactly 9."
+      }
+     ],
+     "failuresByCategory": {
+      "view": 2
+     },
+     "representativeErrors": [
+      {
+       "tool": "write_view",
+       "category": "view",
+       "error": "View 1 was not written: line 2: unknown command \"#\": use cel, loop, description or endview."
+      }
+     ],
+     "pictureWrites": [
+      {
+       "tool": "write_scene",
+       "priorityCommands": 12,
+       "controlCommands": 7
+      },
+      {
+       "tool": "edit_resource_source",
+       "priorityCommands": 1,
+       "controlCommands": 1
+      }
+     ],
+     "pictureWritesUsingPriority": 2,
+     "assistantMessages": 2,
+     "proseBlocks": 2,
+     "proseChars": 545,
+     "reasoningVisibleChars": 0,
+     "proseMentionsPriority": 1,
+     "proseSample": [
+      "I’ll map six connected places, then build only the castle gate. Wenna can read the royal notice, collect bread and a lit brass lantern, and leave either for the hall or the meadow. The candle will give the story urgency without imposing a h",
+      "The six-room plan is recorded, and only the castle gate is built. Wenna’s supplies and brass-lantern clue are working, both exits lead to their planned destinations, and six stored tests pass. I also checked walking, moat barriers, and move"
+     ]
+    },
+    "brief": {
+     "checklist": [
+      {
+       "label": "royal notice (message)",
+       "pass": true
+      },
+      {
+       "label": "notice readable (said read/look notice)",
+       "pass": true
+      },
+      {
+       "label": "bread takeable (said + OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "lit lantern (OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "alligator in moat (message)",
+       "pass": true
+      },
+      {
+       "label": "swimming warned then fatal (call 255)",
+       "pass": true
+      },
+      {
+       "label": "hall/drawbridge mentioned",
+       "pass": true
+      },
+      {
+       "label": "meadow mentioned",
+       "pass": true
+      },
+      {
+       "label": ">=2 exits (hall + meadow)",
+       "pass": true
+      },
+      {
+       "label": "accept errand +10",
+       "pass": false
+      },
+      {
+       "label": "King Brannoc named",
+       "pass": true
+      },
+      {
+       "label": "Wenna/Thornwall named",
+       "pass": true
+      },
+      {
+       "label": "ego red/brown (tunic, hair)",
+       "pass": true
+      },
+      {
+       "label": "palette: green + blue + gray",
+       "pass": true
+      }
+     ],
+     "passed": 13,
+     "total": 14,
+     "lexicon": {
+      "verbsInDictionary": 7,
+      "nounsInDictionary": 8,
+      "verbsInSaid": 7,
+      "nounsInSaid": 8,
+      "verbs": 7,
+      "nouns": 8,
+      "namesInMessages": [
+       "Wenna",
+       "Thornwall",
+       "King Brannoc"
+      ],
+      "names": [
+       "Wenna",
+       "Thornwall",
+       "Three Bright\nThings",
+       "King Brannoc"
+      ]
+     },
+     "maxScoreBrief": 230
+    },
+    "startMessages": [
+     "Thornwall's gate stands open. The hall lies across the drawbridge; the meadow path runs east. A royal notice stands beside a bench with bread and a lit lantern. An alligator watches from the moat.",
+     "BY ORDER OF KING BRANNOC\nThe last candle burns in the hall. Three Bright Things may save Thornwall: the Bell beneath the gorge, the Ember at the stove hut, and the Map at the old oak.\nWenna, come to the hall. Bread and a lantern are ready for the road.",
+     "The lantern is already lit. Its brass back is polished enough to serve as a mirror. An engraving reads: KEEP A LIGHT FOR THE ROAD.",
+     "The bread is wrapped in a clean cloth. A note from the cook says: 'The meadow heron knows the river. Take something worth discussing.'",
+     "The alligator lies very still. Its eyes follow Wenna. The drawbridge is the safe way across.",
+     "The moat is deep, and the alligator is awake. Swimming here would be fatal.",
+     "The alligator reaches Wenna before the far bank.",
+     "Wenna wraps the bread and puts it in her satchel.",
+     "Wenna takes the lit lantern by its handle.",
+     "The bread has already been taken.",
+     "Wenna already has the lantern.",
+     "King Brannoc is in the hall, across the drawbridge.",
+     "The meadow heron knows the gorge. The cook recommends bringing bread.",
+     "The alligator has no use for bread. Better save it for the heron.",
+     "The lantern is already burning steadily.",
+     "The royal notice names the Three Bright Things and where to seek them.",
+     "The drawbridge leads north into the hall. The meadow path leads east.",
+     "The alligator closes one eye. It has nothing to add.",
+     "The bread is for the journey. Wenna saves it for someone who needs it.",
+     "The notice may be worth reading. The bench holds bread and a lantern for the road.",
+     "Only the empty cloth marks where the bread lay.",
+     "The bench holds a loaf and a lantern. Both are meant for Wenna."
+    ]
+   },
+   "openai-gpt-6-luna-lean-medium--r1": {
+    "stem": "openai-gpt-6-luna-lean-medium--knights-trial--r1",
+    "lane": "openai-gpt-6-luna-lean-medium",
+    "case": "knights-trial",
+    "provider": "openai",
+    "model": "gpt-6-luna",
+    "effort": "medium",
+    "promptVariant": "lean",
+    "completion": true,
+    "playtest": {
+     "success": true,
+     "simulation": "passed",
+     "cycles": 1,
+     "room": 1
+    },
+    "cost": {
+     "costUsd": 0.027605050000000003,
+     "usageIncomplete": false,
+     "inputTokens": 753445,
+     "cachedInputTokens": 697000,
+     "cacheWriteTokens": 56382,
+     "outputTokens": 27162,
+     "cachedPct": 92.5,
+     "wallSec": 328,
+     "providerRequests": 29,
+     "modelTurns": 21,
+     "toolCalls": 48,
+     "repairTurns": 6,
+     "toolFailures": 11,
+     "repairCategories": {
+      "actionable": {
+       "turns": 6,
+       "toolFailures": 11
+      },
+      "expectedFutureRoomExit": {
+       "turns": 0,
+       "toolFailures": 0
+      }
+     },
+     "authoredResources": 7,
+     "costPerAuthoredResource": 0.004
+    },
+    "logic": {
+     "count": 3,
+     "totalBytes": 2795,
+     "totalCodeBytes": 1108,
+     "roomLogics": [
+      1
+     ],
+     "roomCodeBytes": 497,
+     "template": [
+      {
+       "num": 0,
+       "status": "identical"
+      },
+      {
+       "num": 255,
+       "status": "identical"
+      }
+     ],
+     "distinctCommandsAll": 60,
+     "distinctCommandsRooms": 32,
+     "roomCommands": [
+      "accept.input",
+      "addn",
+      "animate.obj",
+      "assignn",
+      "assignv",
+      "cycle.time",
+      "draw",
+      "draw.pic",
+      "equaln",
+      "equalv",
+      "erase",
+      "get",
+      "get.posn",
+      "isset",
+      "load.pic",
+      "load.view",
+      "new.room",
+      "normal.cycle",
+      "normal.motion",
+      "player.control",
+      "position",
+      "print",
+      "said",
+      "set",
+      "set.horizon",
+      "set.loop",
+      "set.priority",
+      "set.view",
+      "show.pic",
+      "start.cycling",
+      "step.time",
+      "stop.cycling"
+     ],
+     "saidCalls": 20,
+     "saidDistinctPatterns": 17,
+     "saidWordGroups": 17,
+     "vocabularyWords": 62,
+     "vocabularyGroups": 38,
+     "roomMessages": 14,
+     "roomMessageChars": 1203,
+     "allMessages": 41,
+     "exits": [
+      {
+       "from": 1,
+       "to": [
+        {
+         "to": 2,
+         "edge": "right"
+        },
+        {
+         "to": 3,
+         "edge": "bottom"
+        }
+       ]
+      }
+     ],
+     "roomFlags": [
+      4,
+      5,
+      32,
+      33,
+      34
+     ],
+     "roomVars": [
+      2,
+      3,
+      6,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38
+     ],
+     "scoreAwards": [
+      10
+     ],
+     "maxScore": null,
+     "deathCalls": 0,
+     "animatedObjects": [
+      0,
+      1,
+      2,
+      3,
+      4
+     ],
+     "horizon": 90,
+     "egoView": 1,
+     "egoStart": [
+      80,
+      155
+     ],
+     "egoStartSource": "engine boot (6 cycles)",
+     "boot": {
+      "room": 1,
+      "x": 80,
+      "y": 155,
+      "width": 7,
+      "horizon": 90
+     },
+     "perLogic": [
+      {
+       "num": 0,
+       "bytes": 724,
+       "codeBytes": 364,
+       "messages": 20,
+       "messageChars": 295,
+       "template": "logic0",
+       "templateStatus": "identical",
+       "flags": [
+        2,
+        4,
+        9,
+        14,
+        200,
+        202
+       ],
+       "vars": [
+        0,
+        9,
+        10
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [
+        255
+       ],
+       "scoreAwards": [],
+       "maxScore": null,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 1,
+       "animatedObjects": [],
+       "saidCalls": 0
+      },
+      {
+       "num": 1,
+       "bytes": 1747,
+       "codeBytes": 497,
+       "messages": 14,
+       "messageChars": 1203,
+       "template": null,
+       "templateStatus": "n/a",
+       "flags": [
+        4,
+        5,
+        32,
+        33,
+        34
+       ],
+       "vars": [
+        2,
+        3,
+        6,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38
+       ],
+       "exits": [
+        {
+         "to": 2,
+         "edge": "right"
+        },
+        {
+         "to": 3,
+         "edge": "bottom"
+        }
+       ],
+       "pictures": [
+        1
+       ],
+       "calls": [],
+       "scoreAwards": [
+        10
+       ],
+       "maxScore": null,
+       "horizon": 90,
+       "egoView": 1,
+       "egoStart": [
+        80,
+        155
+       ],
+       "deathCalls": 0,
+       "animatedObjects": [
+        0,
+        1,
+        2,
+        3,
+        4
+       ],
+       "saidCalls": 20
+      },
+      {
+       "num": 255,
+       "bytes": 324,
+       "codeBytes": 247,
+       "messages": 7,
+       "messageChars": 51,
+       "template": "death",
+       "templateStatus": "identical",
+       "flags": [
+        14,
+        16,
+        201,
+        202,
+        203
+       ],
+       "vars": [
+        19,
+        250
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [],
+       "scoreAwards": [],
+       "maxScore": null,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 0,
+       "animatedObjects": [],
+       "saidCalls": 0
+      }
+     ]
+    },
+    "inventory": [
+     {
+      "name": "bread",
+      "startingRoom": 1
+     },
+     {
+      "name": "lantern",
+      "startingRoom": 1
+     }
+    ],
+    "pictures": [
+     {
+      "num": 1,
+      "usedByRoom": true,
+      "startRoom": true,
+      "bytes": 2374,
+      "commands": 506,
+      "colorsUsed": [
+       0,
+       1,
+       2,
+       6,
+       7,
+       8,
+       9,
+       10,
+       14
+      ],
+      "distinctColors": 9,
+      "fillPct": 100,
+      "edgeDensity": 0.04,
+      "regionCount": 27,
+      "priorityBandsUsed": [
+       4,
+       5
+      ],
+      "priorityBandCount": 2,
+      "depthDrawnPct": 22.6,
+      "controlPct": {
+       "barrier0": 0.2,
+       "conditional1": 0,
+       "trigger2": 0,
+       "water3": 8.6
+      },
+      "controlAnyPct": 8.8,
+      "horizon": 90,
+      "horizonSanityPct": 58.6,
+      "egoStart": [
+       80,
+       155
+      ],
+      "egoStartPriority": 4,
+      "egoStartStandable": true,
+      "egoStartYBand": 13,
+      "reachablePctBelowHorizon": 97.6,
+      "reachesEdges": [
+       "left",
+       "right",
+       "bottom",
+       "horizon"
+      ],
+      "waterReachable": true,
+      "triggerReachable": false,
+      "reachableColors": [
+       {
+        "color": 2,
+        "name": "green",
+        "pctOfReachable": 69
+       },
+       {
+        "color": 1,
+        "name": "blue",
+        "pctOfReachable": 18.1
+       },
+       {
+        "color": 6,
+        "name": "brown",
+        "pctOfReachable": 9.5
+       },
+       {
+        "color": 10,
+        "name": "lgreen",
+        "pctOfReachable": 1.3
+       },
+       {
+        "color": 14,
+        "name": "yellow",
+        "pctOfReachable": 0.9
+       },
+       {
+        "color": 7,
+        "name": "lgray",
+        "pctOfReachable": 0.6
+       },
+       {
+        "color": 9,
+        "name": "lblue",
+        "pctOfReachable": 0.4
+       },
+       {
+        "color": 0,
+        "name": "black",
+        "pctOfReachable": 0.2
+       },
+       {
+        "color": 8,
+        "name": "dgray",
+        "pctOfReachable": 0.2
+       }
+      ]
+     }
+    ],
+    "views": [
+     {
+      "num": 1,
+      "bytes": 434,
+      "loops": 4,
+      "celsPerLoop": [
+       2,
+       2,
+       1,
+       1
+      ],
+      "cels": 6,
+      "paintedPixels": 402,
+      "maxSize": "7x24",
+      "firstCelWidth": 7,
+      "colors": [
+       6,
+       7,
+       12
+      ],
+      "description": "Wenna, a steady young squire in a rust-red tunic.",
+      "fourDirWalk": false
+     },
+     {
+      "num": 2,
+      "bytes": 72,
+      "loops": 1,
+      "celsPerLoop": [
+       1
+      ],
+      "cels": 1,
+      "paintedPixels": 69,
+      "maxSize": "14x7",
+      "firstCelWidth": 14,
+      "colors": [
+       2,
+       10
+      ],
+      "description": "An alligator watching the moat.",
+      "fourDirWalk": false
+     },
+     {
+      "num": 3,
+      "bytes": 57,
+      "loops": 1,
+      "celsPerLoop": [
+       1
+      ],
+      "cels": 1,
+      "paintedPixels": 32,
+      "maxSize": "8x5",
+      "firstCelWidth": 8,
+      "colors": [
+       6,
+       14
+      ],
+      "description": "A loaf wrapped for the road.",
+      "fourDirWalk": false
+     },
+     {
+      "num": 4,
+      "bytes": 70,
+      "loops": 1,
+      "celsPerLoop": [
+       1
+      ],
+      "cels": 1,
+      "paintedPixels": 30,
+      "maxSize": "7x10",
+      "firstCelWidth": 7,
+      "colors": [
+       6,
+       14
+      ],
+      "description": "A lit brass lantern.",
+      "fourDirWalk": false
+     },
+     {
+      "num": 5,
+      "bytes": 148,
+      "loops": 1,
+      "celsPerLoop": [
+       1
+      ],
+      "cels": 1,
+      "paintedPixels": 95,
+      "maxSize": "8x29",
+      "firstCelWidth": 8,
+      "colors": [
+       6,
+       7,
+       12,
+       14
+      ],
+      "description": "King Brannoc, tired but determined.",
+      "fourDirWalk": false
+     }
+    ],
+    "sounds": [
+     {
+      "num": 255,
+      "bytes": 66,
+      "template": true,
+      "durationTicks": 42,
+      "durationSec": 0.7,
+      "voices": [
+       0,
+       1
+      ],
+      "audibleNotes": 8
+     }
+    ],
+    "tests": [
+     {
+      "name": "Gate Errand and Supplies",
+      "room": 1,
+      "steps": 14,
+      "stepSummary": "enter, \"read notice\", enter, \"talk king\", enter, \"talk king\", enter, \"take bread\", enter, \"get bread\", enter, \"take lantern\", enter, \"swim moat\"",
+      "asserts": [
+       "room=1",
+       "carriedItems=[0,1]",
+       "flags[3]",
+       "printed=\"The alligator watches from the moat. Th",
+       "score=10"
+      ]
+     }
+    ],
+    "session": {
+     "toolCalls": {
+      "inspect_world_bible": 6,
+      "read_authoring_guide": 1,
+      "read_logic": 3,
+      "read_command_reference": 1,
+      "reserve_binding": 1,
+      "update_world": 2,
+      "write_picture": 1,
+      "write_view": 13,
+      "write_words": 2,
+      "write_inventory_objects": 2,
+      "write_scene": 3,
+      "write_room": 1,
+      "read_picture": 1,
+      "write_logic_source": 3,
+      "playtest_room": 4,
+      "write_game_tests": 1,
+      "run_game_tests": 1,
+      "read_game_tests": 1,
+      "handover": 1
+     },
+     "toolCallCount": 48,
+     "failures": [
+      {
+       "tool": "write_view",
+       "category": "view",
+       "error": "View 1 was not written: line 47: cel wf0 row 13 has 8 symbols; its width is 7. Send exactly 7."
+      },
+      {
+       "tool": "write_view",
+       "category": "view",
+       "error": "View 4 was not written: line 4: cel lamp row 0 has 8 symbols; its width is 7. Send exactly 7."
+      },
+      {
+       "tool": "write_view",
+       "category": "view",
+       "error": "View 5 was not written: line 27: cel king row 23 has 9 symbols; its width is 8. Send exactly 8."
+      },
+      {
+       "tool": "write_scene",
+       "category": "picture/scene",
+       "error": "Scene was not written: Error: Shape 7 x1 must be null for line."
+      },
+      {
+       "tool": "write_view",
+       "category": "view",
+       "error": "View 1 was not written: line 20: cel wr0 row 16 has 8 symbols; its width is 7. Send exactly 7."
+      },
+      {
+       "tool": "write_view",
+       "category": "view",
+       "error": "View 5 was not written: line 32: cel king has 28 rows; its height is 29. Send exactly 29."
+      },
+      {
+       "tool": "write_view",
+       "category": "view",
+       "error": "View 1 was not written: line 49: inside a copied cel, write \"row Y SYMBOLS\" or \"endcel\"."
+      },
+      {
+       "tool": "write_view",
+       "category": "view",
+       "error": "View 5 was not written: line 32: cel king has 28 rows; its height is 29. Send exactly 29."
+      },
+      {
+       "tool": "write_logic_source",
+       "category": "assembler",
+       "error": "Assembler error in logic 1: AssemblerError: 47:54: word 'pick' is not in the dictionary. Use read_words to inspect existing word groups, then write_words to register the missing vocabulary or its synonyms before retrying"
+      },
+      {
+       "tool": "write_logic_source",
+       "category": "assembler",
+       "error": "Assembler error in logic 1: AssemblerError: 57:81: word 'swim' is not in the dictionary. Use read_words to inspect existing word groups, then write_words to register the missing vocabulary or its synonyms before retrying"
+      },
+      {
+       "tool": "playtest_room",
+       "category": "playtest-expect",
+       "error": "Expected item 0 carried; observed room 1. Expected item 1 carried; observed room 1."
+      }
+     ],
+     "failuresByCategory": {
+      "view": 7,
+      "picture/scene": 1,
+      "assembler": 2,
+      "playtest-expect": 1
+     },
+     "representativeErrors": [
+      {
+       "tool": "write_logic_source",
+       "category": "assembler",
+       "error": "Assembler error in logic 1: AssemblerError: 47:54: word 'pick' is not in the dictionary. Use read_words to inspect existing word groups, then write_words to register the missing vocabulary or its synonyms before retrying"
+      },
+      {
+       "tool": "write_view",
+       "category": "view",
+       "error": "View 1 was not written: line 47: cel wf0 row 13 has 8 symbols; its width is 7. Send exactly 7."
+      }
+     ],
+     "pictureWrites": [
+      {
+       "tool": "write_picture",
+       "priorityCommands": 3,
+       "controlCommands": 2
+      },
+      {
+       "tool": "write_scene",
+       "priorityCommands": 12,
+       "controlCommands": 4
+      },
+      {
+       "tool": "write_scene",
+       "priorityCommands": 11,
+       "controlCommands": 4
+      },
+      {
+       "tool": "write_scene",
+       "priorityCommands": 11,
+       "controlCommands": 4
+      }
+     ],
+     "pictureWritesUsingPriority": 4,
+     "assistantMessages": 0,
+     "proseBlocks": 0,
+     "proseChars": 0,
+     "reasoningVisibleChars": 0,
+     "proseMentionsPriority": 0,
+     "proseSample": []
+    },
+    "brief": {
+     "checklist": [
+      {
+       "label": "royal notice (message)",
+       "pass": true
+      },
+      {
+       "label": "notice readable (said read/look notice)",
+       "pass": true
+      },
+      {
+       "label": "bread takeable (said + OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "lit lantern (OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "alligator in moat (message)",
+       "pass": true
+      },
+      {
+       "label": "swimming warned then fatal (call 255)",
+       "pass": false
+      },
+      {
+       "label": "hall/drawbridge mentioned",
+       "pass": true
+      },
+      {
+       "label": "meadow mentioned",
+       "pass": false
+      },
+      {
+       "label": ">=2 exits (hall + meadow)",
+       "pass": true
+      },
+      {
+       "label": "accept errand +10",
+       "pass": true
+      },
+      {
+       "label": "King Brannoc named",
+       "pass": true
+      },
+      {
+       "label": "Wenna/Thornwall named",
+       "pass": true
+      },
+      {
+       "label": "ego red/brown (tunic, hair)",
+       "pass": true
+      },
+      {
+       "label": "palette: green + blue + gray",
+       "pass": true
+      }
+     ],
+     "passed": 12,
+     "total": 14,
+     "lexicon": {
+      "verbsInDictionary": 7,
+      "nounsInDictionary": 8,
+      "verbsInSaid": 6,
+      "nounsInSaid": 4,
+      "verbs": 7,
+      "nouns": 8,
+      "namesInMessages": [
+       "Wenna",
+       "Thornwall",
+       "King Brannoc"
+      ],
+      "names": [
+       "Wenna",
+       "Thornwall",
+       "Three Bright\nThings",
+       "King Brannoc"
+      ]
+     },
+     "maxScoreBrief": 230
+    },
+    "startMessages": [
+     "The gray keep rises above a blue moat. King Brannoc waits by the gate. A notice hangs on the wall; bread and a lit lantern are ready for the road. An alligator watches from the water. The drawbridge is the safe crossing.",
+     "The notice names three Bright Things: an underwater Bell, an undying Ember, and a wandering Map. Bring them home before Thornwall's last candle goes out.",
+     "King Brannoc gives you the charge. \"Find the Bell, Ember and Map. I would like Thornwall to remain on the maps, if it is not too much trouble.\"",
+     "You have already accepted the king's errand.",
+     "You take the loaf. The heron at the river may have opinions about it.",
+     "You already packed the bread.",
+     "You take the lit lantern. It should help in a dark place.",
+     "The lantern is already in your pack, still lit.",
+     "The alligator watches from the moat. The drawbridge is considerably safer than swimming.",
+     "Wenna is at Thornwall Gate. Read the notice, talk to King Brannoc, take the bread, or take the lantern.",
+     "The notice is clear enough: three treasures, then home to Thornwall.",
+     "It is lit already. You will want it for a dark place.",
+     "The bread is for the journey. The heron is down the river.",
+     "The bridge is sound. The moat is deep, and the alligator looks patient."
+    ]
+   },
+   "openai-gpt-6-sol-lean-medium--r1": {
+    "stem": "openai-gpt-6-sol-lean-medium--knights-trial--r1",
+    "lane": "openai-gpt-6-sol-lean-medium",
+    "case": "knights-trial",
+    "provider": "openai",
+    "model": "gpt-6-sol",
+    "effort": "medium",
+    "promptVariant": "lean",
+    "completion": true,
+    "playtest": {
+     "success": true,
+     "simulation": "passed",
+     "cycles": 1,
+     "room": 1
+    },
+    "cost": {
+     "costUsd": 0.2537903,
+     "usageIncomplete": false,
+     "inputTokens": 343231,
+     "cachedInputTokens": 310394,
+     "cacheWriteTokens": 32795,
+     "outputTokens": 10964,
+     "cachedPct": 90.4,
+     "wallSec": 190,
+     "providerRequests": 18,
+     "modelTurns": 14,
+     "toolCalls": 24,
+     "repairTurns": 1,
+     "toolFailures": 1,
+     "repairCategories": {
+      "actionable": {
+       "turns": 1,
+       "toolFailures": 1
+      },
+      "expectedFutureRoomExit": {
+       "turns": 0,
+       "toolFailures": 0
+      }
+     },
+     "authoredResources": 6,
+     "costPerAuthoredResource": 0.042
+    },
+    "logic": {
+     "count": 3,
+     "totalBytes": 3750,
+     "totalCodeBytes": 1271,
+     "roomLogics": [
+      1
+     ],
+     "roomCodeBytes": 660,
+     "template": [
+      {
+       "num": 0,
+       "status": "identical"
+      },
+      {
+       "num": 255,
+       "status": "identical"
+      }
+     ],
+     "distinctCommandsAll": 50,
+     "distinctCommandsRooms": 23,
+     "roomCommands": [
+      "accept.input",
+      "animate.obj",
+      "assignn",
+      "call",
+      "cycle.time",
+      "draw",
+      "draw.pic",
+      "equaln",
+      "erase",
+      "get",
+      "isset",
+      "load.pic",
+      "load.view",
+      "new.room",
+      "position",
+      "print",
+      "said",
+      "set",
+      "set.horizon",
+      "set.view",
+      "show.pic",
+      "status.line.off",
+      "status.line.on"
+     ],
+     "saidCalls": 27,
+     "saidDistinctPatterns": 27,
+     "saidWordGroups": 24,
+     "vocabularyWords": 74,
+     "vocabularyGroups": 40,
+     "roomMessages": 27,
+     "roomMessageChars": 1956,
+     "allMessages": 54,
+     "exits": [
+      {
+       "from": 1,
+       "to": [
+        {
+         "to": 2,
+         "edge": "left"
+        },
+        {
+         "to": 3,
+         "edge": "right"
+        }
+       ]
+      }
+     ],
+     "roomFlags": [
+      2,
+      4,
+      5,
+      41,
+      42,
+      49
+     ],
+     "roomVars": [
+      2,
+      7,
+      40,
+      41,
+      42,
+      43
+     ],
+     "scoreAwards": [],
+     "maxScore": 230,
+     "deathCalls": 2,
+     "animatedObjects": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "horizon": 105,
+     "egoView": 1,
+     "egoStart": [
+      109,
+      157
+     ],
+     "egoStartSource": "engine boot (6 cycles)",
+     "boot": {
+      "room": 1,
+      "x": 109,
+      "y": 157,
+      "width": 9,
+      "horizon": 105
+     },
+     "perLogic": [
+      {
+       "num": 0,
+       "bytes": 724,
+       "codeBytes": 364,
+       "messages": 20,
+       "messageChars": 295,
+       "template": "logic0",
+       "templateStatus": "identical",
+       "flags": [
+        2,
+        4,
+        9,
+        14,
+        200,
+        202
+       ],
+       "vars": [
+        0,
+        9,
+        10
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [
+        255
+       ],
+       "scoreAwards": [],
+       "maxScore": null,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 1,
+       "animatedObjects": [],
+       "saidCalls": 0
+      },
+      {
+       "num": 1,
+       "bytes": 2702,
+       "codeBytes": 660,
+       "messages": 27,
+       "messageChars": 1956,
+       "template": null,
+       "templateStatus": "n/a",
+       "flags": [
+        2,
+        4,
+        5,
+        41,
+        42,
+        49
+       ],
+       "vars": [
+        2,
+        7,
+        40,
+        41,
+        42,
+        43
+       ],
+       "exits": [
+        {
+         "to": 2,
+         "edge": "left"
+        },
+        {
+         "to": 3,
+         "edge": "right"
+        }
+       ],
+       "pictures": [
+        1
+       ],
+       "calls": [
+        255
+       ],
+       "scoreAwards": [],
+       "maxScore": 230,
+       "horizon": 105,
+       "egoView": 1,
+       "egoStart": [
+        109,
+        157
+       ],
+       "deathCalls": 2,
+       "animatedObjects": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "saidCalls": 27
+      },
+      {
+       "num": 255,
+       "bytes": 324,
+       "codeBytes": 247,
+       "messages": 7,
+       "messageChars": 51,
+       "template": "death",
+       "templateStatus": "identical",
+       "flags": [
+        14,
+        16,
+        201,
+        202,
+        203
+       ],
+       "vars": [
+        19,
+        250
+       ],
+       "exits": [],
+       "pictures": [],
+       "calls": [],
+       "scoreAwards": [],
+       "maxScore": null,
+       "horizon": null,
+       "egoView": null,
+       "egoStart": null,
+       "deathCalls": 0,
+       "animatedObjects": [],
+       "saidCalls": 0
+      }
+     ]
+    },
+    "inventory": [
+     {
+      "name": "Journey bread",
+      "startingRoom": 1
+     },
+     {
+      "name": "Lit lantern",
+      "startingRoom": 1
+     }
+    ],
+    "pictures": [
+     {
+      "num": 1,
+      "usedByRoom": true,
+      "startRoom": true,
+      "bytes": 4592,
+      "commands": 931,
+      "colorsUsed": [
+       0,
+       1,
+       2,
+       6,
+       7,
+       8,
+       9,
+       10,
+       11,
+       14
+      ],
+      "distinctColors": 10,
+      "fillPct": 100,
+      "edgeDensity": 0.037,
+      "regionCount": 55,
+      "priorityBandsUsed": [
+       4
+      ],
+      "priorityBandCount": 1,
+      "depthDrawnPct": 0,
+      "controlPct": {
+       "barrier0": 11.1,
+       "conditional1": 0,
+       "trigger2": 0,
+       "water3": 0
+      },
+      "controlAnyPct": 11.1,
+      "horizon": 105,
+      "horizonSanityPct": 91,
+      "egoStart": [
+       109,
+       157
+      ],
+      "egoStartPriority": 4,
+      "egoStartStandable": true,
+      "egoStartYBand": 14,
+      "reachablePctBelowHorizon": 83.1,
+      "reachesEdges": [
+       "left",
+       "right",
+       "bottom",
+       "horizon"
+      ],
+      "waterReachable": false,
+      "triggerReachable": false,
+      "reachableColors": [
+       {
+        "color": 6,
+        "name": "brown",
+        "pctOfReachable": 56.9
+       },
+       {
+        "color": 10,
+        "name": "lgreen",
+        "pctOfReachable": 21
+       },
+       {
+        "color": 2,
+        "name": "green",
+        "pctOfReachable": 12.9
+       },
+       {
+        "color": 0,
+        "name": "black",
+        "pctOfReachable": 3.4
+       },
+       {
+        "color": 1,
+        "name": "blue",
+        "pctOfReachable": 3.3
+       },
+       {
+        "color": 14,
+        "name": "yellow",
+        "pctOfReachable": 1.7
+       },
+       {
+        "color": 8,
+        "name": "dgray",
+        "pctOfReachable": 0.8
+       }
+      ]
+     }
+    ],
+    "views": [
+     {
+      "num": 1,
+      "bytes": 715,
+      "loops": 4,
+      "celsPerLoop": [
+       2,
+       2,
+       2,
+       2
+      ],
+      "cels": 8,
+      "paintedPixels": 988,
+      "maxSize": "9x30",
+      "firstCelWidth": 9,
+      "colors": [
+       4,
+       6,
+       7,
+       8,
+       14
+      ],
+      "description": "Wenna in a rust-red tunic",
+      "fourDirWalk": true
+     },
+     {
+      "num": 2,
+      "bytes": 50,
+      "loops": 1,
+      "celsPerLoop": [
+       1
+      ],
+      "cels": 1,
+      "paintedPixels": 52,
+      "maxSize": "10x7",
+      "firstCelWidth": 10,
+      "colors": [
+       6,
+       14
+      ],
+      "description": "Journey bread",
+      "fourDirWalk": false
+     },
+     {
+      "num": 3,
+      "bytes": 164,
+      "loops": 1,
+      "celsPerLoop": [
+       2
+      ],
+      "cels": 2,
+      "paintedPixels": 102,
+      "maxSize": "7x13",
+      "firstCelWidth": 7,
+      "colors": [
+       6,
+       10,
+       12,
+       14
+      ],
+      "description": "Lit brass lantern",
+      "fourDirWalk": false
+     },
+     {
+      "num": 4,
+      "bytes": 97,
+      "loops": 1,
+      "celsPerLoop": [
+       2
+      ],
+      "cels": 2,
+      "paintedPixels": 129,
+      "maxSize": "16x7",
+      "firstCelWidth": 16,
+      "colors": [
+       2,
+       14
+      ],
+      "description": "An alligator waiting in the moat",
+      "fourDirWalk": false
+     }
+    ],
+    "sounds": [
+     {
+      "num": 255,
+      "bytes": 66,
+      "template": true,
+      "durationTicks": 42,
+      "durationSec": 0.7,
+      "voices": [
+       0,
+       1
+      ],
+      "audibleNotes": 8
+     }
+    ],
+    "tests": [
+     {
+      "name": "Gate supplies persist when taken",
+      "room": 1,
+      "steps": 4,
+      "stepSummary": "enter, \"take bread\", enter, \"take lantern\"",
+      "asserts": [
+       "room=1",
+       "carriedItems=[0,1]",
+       "flags[2]",
+       "vars[1]",
+       "printed=\"Wenna takes the lit lantern\"",
+       "score=0",
+       "object={\"num\":2,\"view\":3,\"x0\":null,\"y0\":null,\"x"
+      ]
+     },
+     {
+      "name": "Alligator warns before danger",
+      "room": 1,
+      "steps": 2,
+      "stepSummary": "enter, \"swim moat\"",
+      "asserts": [
+       "room=1",
+       "flags[1]",
+       "printed=\"Swimming would be a poor choice\"",
+       "score=0"
+      ]
+     }
+    ],
+    "session": {
+     "toolCalls": {
+      "inspect_world_bible": 1,
+      "read_logic": 3,
+      "read_authoring_guide": 2,
+      "update_world": 1,
+      "write_inventory_objects": 1,
+      "write_words": 1,
+      "write_view": 5,
+      "write_picture": 1,
+      "write_scene": 1,
+      "write_logic_source": 1,
+      "playtest_room": 4,
+      "write_game_tests": 1,
+      "edit_resource_source": 1,
+      "handover": 1
+     },
+     "toolCallCount": 24,
+     "failures": [
+      {
+       "tool": "write_view",
+       "category": "view",
+       "error": "View 4 was not written: line 11: cel gator0 row 7 has 29 symbols; its width is 28. Send exactly 28."
+      }
+     ],
+     "failuresByCategory": {
+      "view": 1
+     },
+     "representativeErrors": [
+      {
+       "tool": "write_view",
+       "category": "view",
+       "error": "View 4 was not written: line 11: cel gator0 row 7 has 29 symbols; its width is 28. Send exactly 28."
+      }
+     ],
+     "pictureWrites": [
+      {
+       "tool": "write_picture",
+       "priorityCommands": 1,
+       "controlCommands": 1
+      },
+      {
+       "tool": "write_scene",
+       "priorityCommands": 3,
+       "controlCommands": 3
+      }
+     ],
+     "pictureWritesUsingPriority": 2,
+     "assistantMessages": 0,
+     "proseBlocks": 0,
+     "proseChars": 0,
+     "reasoningVisibleChars": 0,
+     "proseMentionsPriority": 0,
+     "proseSample": []
+    },
+    "brief": {
+     "checklist": [
+      {
+       "label": "royal notice (message)",
+       "pass": true
+      },
+      {
+       "label": "notice readable (said read/look notice)",
+       "pass": true
+      },
+      {
+       "label": "bread takeable (said + OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "lit lantern (OBJECT)",
+       "pass": true
+      },
+      {
+       "label": "alligator in moat (message)",
+       "pass": true
+      },
+      {
+       "label": "swimming warned then fatal (call 255)",
+       "pass": true
+      },
+      {
+       "label": "hall/drawbridge mentioned",
+       "pass": true
+      },
+      {
+       "label": "meadow mentioned",
+       "pass": true
+      },
+      {
+       "label": ">=2 exits (hall + meadow)",
+       "pass": true
+      },
+      {
+       "label": "accept errand +10",
+       "pass": false
+      },
+      {
+       "label": "King Brannoc named",
+       "pass": true
+      },
+      {
+       "label": "Wenna/Thornwall named",
+       "pass": true
+      },
+      {
+       "label": "ego red/brown (tunic, hair)",
+       "pass": true
+      },
+      {
+       "label": "palette: green + blue + gray",
+       "pass": true
+      }
+     ],
+     "passed": 13,
+     "total": 14,
+     "lexicon": {
+      "verbsInDictionary": 7,
+      "nounsInDictionary": 8,
+      "verbsInSaid": 7,
+      "nounsInSaid": 8,
+      "verbs": 7,
+      "nouns": 8,
+      "namesInMessages": [
+       "Wenna",
+       "Thornwall",
+       "King Brannoc"
+      ],
+      "names": [
+       "Wenna",
+       "Thornwall",
+       "Three Bright\nThings",
+       "King Brannoc"
+      ]
+     },
+     "maxScoreBrief": 230
+    },
+    "startMessages": [
+     "Thornwall Gate. The king's notice stands beside the drawbridge. Bread and a lit lantern wait by the meadow path. An alligator watches the moat. The hall is west; the meadow is east.",
+     "The notice reads: 'The Three Bright Things are lost. Those willing to help should speak to King Brannoc in the hall. Please do not feed the alligator.'",
+     "Wenna takes the journey bread. It is still warm under the crust.",
+     "Wenna takes the lit lantern. Its brass handle has been polished recently.",
+     "The bread is already in your bag.",
+     "The lantern is already in your hand.",
+     "The alligator follows Wenna with one eye. Its mouth stays open.",
+     "The moat is deep, and the alligator is waiting. Swimming would be a poor choice.",
+     "Wenna steps into the moat. The alligator proves surprisingly quick.",
+     "The castle hall lies west across the drawbridge. The meadow path runs east.",
+     "The bread smells of rosemary. A heron in the meadow might appreciate it.",
+     "The lantern's flame is steady. Its brass casing reflects the castle wall.",
+     "The gate stands open. The king is waiting in the hall to the west.",
+     "The drawbridge is sound. Its planks cross the moat toward the hall.",
+     "The meadow path leads east, away from the castle.",
+     "Wenna has nobody here to give the bread to. A heron waits in the meadow.",
+     "The lantern is already lit.",
+     "You can read the notice, take the bread or lantern, and follow the west or east path.",
+     "King Brannoc is in the hall to the west. His notice asks for help.",
+     "A heron is said to frequent the meadow east of the gate.",
+     "The Three Bright Things are an underwater Bell, an undying Ember and a wandering Map. The king knows more.",
+     "The lantern is fixed to its post no longer; Wenna could carry it.",
+     "There is no candle here to light. Keep the lantern for the road.",
+     "The notice is nailed to the post. Wenna leaves it for the next traveler.",
+     "Wenna has a steady walk and a difficult errand ahead.",
+     "The moat bars the way north. Use the drawbridge rather than trying the water.",
+     "The castle wall blocks the way. The open drawbridge leads west."
+    ]
+   }
+  }
+ }
+}

@@ -58,11 +58,17 @@ export async function addLibraryGame(
       : `imported-${revision}`;
   const preferredId = requireProjectId(catalog ? `${basePrefix}-${catalog.version}` : basePrefix);
   // Imported projects carry independent histories. Trusted catalog sources are repeatable fixtures.
+  // The same bytes under another interpreter are another game to play: an
+  // archive that declares an interpreter reuses only an entry with that
+  // choice, so neither import silently changes the other's setting or saves.
+  // An archive that declares none asks for nothing different, and keeps the
+  // choice the player made for these bytes.
   if (!game.project || source === "catalog") {
     const existing = listCachedGames().find((entry) => {
       const library = entry.library;
       return (
         library?.revision === revision &&
+        (game.profile === undefined || library.profile === game.profile) &&
         entry.roomGeneration === roomGeneration &&
         (!catalog ||
           (library?.catalog?.id === catalog.id && library.catalog?.version === catalog.version))
@@ -82,6 +88,12 @@ export async function addLibraryGame(
     source,
     ...(catalog ? { catalog } : {}),
     ...(known?.author && !game.metadata?.author ? { author: known.author } : {}),
+    ...(game.profile ? { profile: game.profile } : {}),
+    // An unfinished world stays marked through every import and export,
+    // whether or not this copy may go on generating rooms.
+    ...(game.workInProgress === true || game.roomGeneration === true
+      ? { workInProgress: true as const }
+      : {}),
     preview: opening.preview,
     validation: {
       status: opening.status,

@@ -90,7 +90,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     const pause = new Promise<void>((resolve) => {
       paused = resolve;
     });
-    const run = new AgentRun(provider === "openai" ? "gpt-5.6-sol" : "claude-opus-5", (state) => {
+    const run = new AgentRun(provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5", (state) => {
       if (state.status === "paused") paused();
     });
     const config = { provider, apiKey: "placeholder", model: "test" };
@@ -134,7 +134,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     const ready = new Promise<void>((resolve) => {
       started = resolve;
     });
-    const run = new AgentRun(provider === "openai" ? "gpt-5.6-sol" : "claude-opus-5", () => {});
+    const run = new AgentRun(provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5", () => {});
     const config = { provider, apiKey: "placeholder", model: "test" };
     let request: Record<string, unknown> = {};
     t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
@@ -284,7 +284,7 @@ for (const provider of ["openai", "anthropic"] as const) {
           headers: { "content-type": "text/event-stream" },
         }),
     );
-    const run = new AgentRun("gpt-5.6-sol", () => {});
+    const run = new AgentRun("gpt-6-sol", () => {});
     const config = { provider, apiKey: "placeholder", model: "test" };
     const conversation =
       provider === "openai"
@@ -299,3 +299,84 @@ for (const provider of ["openai", "anthropic"] as const) {
     if (provider === "anthropic") assert.equal(conversation.getUsage?.().input, 10);
   });
 }
+
+test("Opus 5.5 shows its thinking between tool calls instead of going quiet", async (t) => {
+  // Opus 5.5 returns the notes it writes between tool calls as thinking
+  // blocks, empty unless a display is requested; the agent panel showed
+  // nothing during long turns. The player opens that panel by choice.
+  for (const [model, displayed] of [
+    ["claude-opus-5-5", true],
+    ["unlisted-model", false],
+  ] as const) {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => (started = resolve));
+    let request: Record<string, unknown> = {};
+    t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+      request = JSON.parse(String(init.body));
+      return new Response(
+        new ReadableStream({
+          start(c) {
+            controller = c;
+            started();
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    });
+    const run = new AgentRun("claude-opus-5-5", () => {});
+    const conversation = createAnthropicConversation(
+      { provider: "anthropic", apiKey: "placeholder", model },
+      undefined,
+      run,
+    );
+    const work = run.run(() => conversation.sendUserMessage("Build the gate."));
+    void work.catch(() => {});
+    await Promise.race([ready, work]);
+    try {
+      assert.deepEqual(
+        request["thinking"],
+        displayed ? { type: "adaptive", display: "summarized" } : undefined,
+      );
+      controller.enqueue(
+        new TextEncoder().encode(
+          [
+            {
+              type: "message_start",
+              message: {
+                id: "r",
+                role: "assistant",
+                type: "message",
+                content: [],
+                usage: { input_tokens: 10, output_tokens: 0 },
+              },
+            },
+            {
+              type: "content_block_start",
+              index: 0,
+              content_block: { type: "thinking", thinking: "", signature: "" },
+            },
+            {
+              type: "content_block_delta",
+              index: 0,
+              delta: { type: "thinking_delta", thinking: "Checking the moat's control lines." },
+            },
+          ]
+            .map(sseEvent)
+            .join(""),
+        ),
+      );
+      for (let i = 0; i < 30 && !run.snapshot().progress?.text; i++)
+        await new Promise(setImmediate);
+      assert.equal(run.snapshot().progress?.text, "Checking the moat's control lines.");
+    } finally {
+      run.cancel();
+      try {
+        controller.close();
+      } catch {
+        // Already closed.
+      }
+      await work.catch(() => {});
+    }
+  }
+});

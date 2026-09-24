@@ -92,7 +92,7 @@ export interface StoredReference {
  */
 export interface DecodedImage extends SheetBitmap {
   readonly mime: string;
-  /** The upload's own file bytes — what the model receives. */
+  /** What the model receives: the upload's own bytes, or a copy fitted to provider image limits. */
   readonly bytes: Uint8Array;
 }
 

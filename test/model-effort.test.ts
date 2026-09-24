@@ -9,13 +9,15 @@ import {
 } from "../src/agent/modelEffort.ts";
 
 test("every model gets an explicit pinned default effort", () => {
-  assert.equal(defaultModelEffort("gpt-5.6-sol"), "low");
-  assert.equal(defaultModelEffort("claude-opus-5"), "high");
+  assert.equal(defaultModelEffort("gpt-6-sol"), "medium");
+  // Anthropic's own defaults: medium on Opus 5.5, high on Fable 5.1.
+  assert.equal(defaultModelEffort("claude-opus-5-5"), "medium");
+  assert.equal(defaultModelEffort("claude-fable-5-1"), "high");
   assert.equal(defaultModelEffort("gpt-6-astra"), "medium");
 });
 
 test("effort none is offered only where the shipped OpenAI models accept it", () => {
-  assert.deepEqual(modelEffortOptions("gpt-5.6-sol"), [
+  assert.deepEqual(modelEffortOptions("gpt-6-sol"), [
     "none",
     "low",
     "medium",
@@ -23,17 +25,18 @@ test("effort none is offered only where the shipped OpenAI models accept it", ()
     "xhigh",
     "max",
   ]);
-  assert.deepEqual(modelEffortOptions("gpt-5.6-terra"), modelEffortOptions("gpt-5.6-sol"));
-  // Ids outside the shipped catalog, retired ones included, get the mandatory levels.
-  for (const model of ["gpt-6-astra", "gpt-5.6-luna", "claude-opus-5"])
+  assert.deepEqual(modelEffortOptions("gpt-6-luna"), modelEffortOptions("gpt-6-sol"));
+  // Models that require reasoning, and ids outside the shipped catalog (retired
+  // ones included), get the mandatory levels.
+  for (const model of ["gpt-6-astra", "claude-opus-5-5", "gpt-5.6-sol"])
     assert.deepEqual(modelEffortOptions(model), ["low", "medium", "high", "xhigh", "max"], model);
 });
 
 test("resolveModelEffort applies the pinned default and rejects unsupported pairs", () => {
-  assert.equal(resolveModelEffort("gpt-5.6-sol"), "low");
-  assert.equal(resolveModelEffort("gpt-5.6-sol", "none"), "none");
-  assert.equal(resolveModelEffort("claude-opus-5"), "high");
-  assert.throws(() => resolveModelEffort("claude-opus-5", "none"), /none is not supported/);
+  assert.equal(resolveModelEffort("gpt-6-sol"), "medium");
+  assert.equal(resolveModelEffort("gpt-6-sol", "none"), "none");
+  assert.equal(resolveModelEffort("claude-opus-5-5"), "medium");
+  assert.throws(() => resolveModelEffort("claude-opus-5-5", "none"), /none is not supported/);
 });
 
 test("the capability table covers every shipped model with provider-verified fields", () => {

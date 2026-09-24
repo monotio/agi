@@ -238,6 +238,48 @@ test("reference art uploads, rides the agent turn as an image, and stages a VIEW
   expect((await storedProject(page)).references?.length).toBe(1);
 });
 
+test("a large room reference reaches the model within provider image limits", async ({ page }) => {
+  // Uploads went to the provider byte for byte. Anthropic rejects an image
+  // side over 2000 px once a request carries more than 20 images, which a long
+  // authoring conversation soon does, so the model's copy is fitted to it.
+  test.setTimeout(120_000);
+  const requests: string[] = [];
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    requests.push(route.request().postData()!);
+    await route.fulfill(
+      providerReply("openai", {
+        id: `reply-${requests.length}`,
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "I see the reference." }],
+          },
+        ],
+      }),
+    );
+  });
+  await bootAgentGame(page);
+  await configureAi(page, { provider: "openai", key: "test-placeholder" });
+  await openBubbleAndUpload(page);
+  const width = 2400;
+  const height = 300;
+  await page.getByTestId("reference-room-file").setInputFiles({
+    name: "panorama.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(encodePngRgb(width, height, new Uint8Array(width * height * 3).fill(90))),
+  });
+  await page.getByTestId("reference-attach").click();
+  await expect(page.getByTestId("reference-attached")).toBeVisible();
+  await page.getByTestId("reference-send").click();
+  await expect.poll(() => requests.length, { timeout: 15_000 }).toBeGreaterThan(0);
+  const sent = requests.find((body) => body.includes("input_image"))!;
+  const data = /data:image\/png;base64,([A-Za-z0-9+/=]+)/.exec(sent)![1]!;
+  const png = Buffer.from(data, "base64");
+  // IHDR: width and height are the big-endian words at bytes 16 and 20.
+  expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([2000, 250]);
+});
+
 test("oversized, corrupt and unusable uploads each fail with a reason", async ({ page }) => {
   test.setTimeout(120_000);
   await bootAgentGame(page);

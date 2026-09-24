@@ -5,14 +5,26 @@
  * rules live in each component's scoped style block.
  */
 .app-container {
+  /* The game screen's width over height: square pixels, or the 4:3 monitor. */
+  --game-ratio: 1.6;
+  --game-aspect: 8 / 5;
   --shell-width: min(960px, calc(100vw - 32px));
-  --game-width: min(960px, calc(100vw - 32px), max(640px, calc((100dvh - 280px) * 1.6)));
+  --game-width: min(
+    960px,
+    calc(100vw - 32px),
+    max(640px, calc((100dvh - 280px) * var(--game-ratio)))
+  );
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 24px 0;
   font-size: 14px;
   line-height: 1.5;
+}
+
+.app-container.original-aspect {
+  --game-ratio: calc(4 / 3);
+  --game-aspect: 4 / 3;
 }
 
 .at-menu {
@@ -31,7 +43,10 @@
  * than tall, and must not flip it into the landscape layout.
  */
 .layout-landscape-short .play-area.with-touch {
-  --game-width: min(calc(100vw - 268px), calc((var(--layout-height, 100dvh) - 100px) * 1.6));
+  --game-width: min(
+    calc(100vw - 268px),
+    calc((var(--layout-height, 100dvh) - 100px) * var(--game-ratio))
+  );
   flex-direction: row;
   align-items: flex-start;
   flex-wrap: wrap;
@@ -51,7 +66,7 @@
 .layout-portrait .play-area.with-touch {
   --game-width: min(
     calc(100vw - 32px),
-    max(160px, calc((var(--layout-height, 100dvh) - 340px) * 1.6))
+    max(160px, calc((var(--layout-height, 100dvh) - 340px) * var(--game-ratio)))
   );
 }
 

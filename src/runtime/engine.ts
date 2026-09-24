@@ -2135,10 +2135,10 @@ export class Engine {
     this.soundDoneFlag = state.sound?.doneFlag ?? null;
     // The patch counter is session state: the recorded stream folds the same
     // patches before this restore, so the count must land, not accumulate.
-    this.patchGen = state.patchGeneration ?? 0;
+    this.patchGen = state.patchGeneration;
     // The recorded state had no parked pass: neither should the engine,
     // whatever a setup image's continuation applied before this ran.
-    const continuation = state.continuation ?? null;
+    const continuation = state.continuation;
     if (continuation === null) {
       this.pendingLogic = null;
       this.parkedClockWait = false;
@@ -2719,11 +2719,6 @@ export class Engine {
     for (let item = 0; item < meta.entryCount; item++) {
       this.itemLocations[item] = meta.payload[item * stride + 2] ?? 0;
     }
-  }
-
-  /** Legacy host stop notification; completion normally comes from soundTick. */
-  soundDone(): void {
-    this.stopSound();
   }
 
   /** Stop the active sound before the host changes audio devices. */

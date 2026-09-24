@@ -22,8 +22,9 @@ interface StoredGameIndex extends CachedGameMeta {
   storage: "indexeddb";
 }
 
+/** The browser's project record; PROJECT.JSON is the archive format. */
 interface StoredGameBody extends CachedGameData {
-  format: "monotio.agi.project";
+  format: "monotio.agi.stored-project";
   version: 1;
 }
 
@@ -36,6 +37,7 @@ const LIBRARY_FIELDS: Record<keyof LibraryMetadata, true> = {
   catalog: true,
   preview: true,
   profile: true,
+  workInProgress: true,
   validation: true,
   description: true,
   author: true,
@@ -176,7 +178,15 @@ function openDatabase(): Promise<IDBDatabase> {
     };
     request.onerror = () => {
       database = undefined;
-      reject(request.error);
+      // A newer app already upgraded this browser's database; this page's
+      // code is out of date, not the data.
+      reject(
+        request.error?.name === "VersionError"
+          ? new Error(
+              "Your projects were saved by a newer version of this app. Reload the page to update it.",
+            )
+          : request.error,
+      );
     };
   });
   return database.catch((error) => {
@@ -426,9 +436,8 @@ async function putVersionedRecord<T extends { format: string; version: number }>
     let contractError: Error | undefined;
     existing.onsuccess = () => {
       const value = existing.result as Record<string, unknown> | undefined;
-      // Only a record this release recognises as newer is protected; a
-      // format-less pre-release record is replaced rather than blocking saves.
-      if (value && value["format"] === record.format && value["version"] !== record.version) {
+      // A record this release does not recognise is never overwritten.
+      if (value && (value["format"] !== record.format || value["version"] !== record.version)) {
         contractError = new Error(versionError);
         transaction.abort();
         return;
@@ -465,9 +474,8 @@ async function writeCurrentBody(
 
     existing.onsuccess = () => {
       const value = existing.result as StoredGameBody | undefined;
-      // Only a record this release recognises as newer is protected; a
-      // format-less pre-release record is replaced rather than blocking saves.
-      if (value && value.format === "monotio.agi.project" && value.version !== 1) {
+      // A record this release does not recognise is never overwritten.
+      if (value && (value.format !== "monotio.agi.stored-project" || value.version !== 1)) {
         contractError = new Error("This saved project version is not supported by this app.");
         transaction.abort();
         return;
@@ -566,10 +574,10 @@ function storedIndex(data: CachedGameData): StoredGameIndex {
   };
 }
 function storedBody(data: CachedGameData): StoredGameBody {
-  return { ...data, format: "monotio.agi.project", version: 1 };
+  return { ...data, format: "monotio.agi.stored-project", version: 1 };
 }
 function readStoredBody(raw: StoredGameBody, projectId: ProjectId): CachedGameData {
-  if (raw.format !== "monotio.agi.project" || raw.version !== 1)
+  if (raw.format !== "monotio.agi.stored-project" || raw.version !== 1)
     throw new Error("This saved project version is not supported by this app.");
   const storedId = raw.projectId;
   if (storedId !== projectId)
@@ -623,8 +631,7 @@ function readLibrary(data: CachedGameData): LibraryMetadata {
   });
   const library: Record<string, unknown> = { ...normalized };
   for (const [key, value] of Object.entries(raw))
-    // A stored alias is a pre-identity lookup key, not an extension — drop it.
-    if (!Object.hasOwn(LIBRARY_FIELDS, key) && key !== "alias") library[key] = value;
+    if (!Object.hasOwn(LIBRARY_FIELDS, key)) library[key] = value;
   return library as unknown as LibraryMetadata;
 }
 async function stampLibraryMetadata(
@@ -990,7 +997,7 @@ export async function reconcileGameIndex(): Promise<void> {
             const data = each.result as StoredGameBody | undefined;
             if (
               data !== undefined &&
-              data.format === "monotio.agi.project" &&
+              data.format === "monotio.agi.stored-project" &&
               data.version === 1 &&
               data.projectId === key &&
               data.files &&
@@ -1037,7 +1044,7 @@ export async function reconcileGameIndex(): Promise<void> {
       try {
         index = JSON.parse(raw) as Record<string, unknown>;
       } catch {
-        // Leave unrelated legacy data recoverable.
+        // Leave data this app does not recognise untouched.
         return;
       }
       if (

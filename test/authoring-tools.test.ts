@@ -300,3 +300,141 @@ test("write_logic_source warns on non-diegetic (+N) score counters without delet
   );
   assert.equal(state.sources.logics.get(1), source, "preserves authored copy intact");
 });
+
+test("a source revision covers what its text depends on, not unrelated vocabulary or bindings", () => {
+  // Every Genesis benchmark lane paid a repair turn here: it read logic 0,
+  // registered more words, then edited with the revision it had read.
+  const state = createAgentSessionState();
+  assert.equal(
+    executeAgentTool(state, "write_words", { words: ["look"], groups: null }).success,
+    true,
+  );
+  assert.equal(
+    executeAuthoringTool(state, "reserve_binding", { kind: "flag", name: "gate_open", id: null })!
+      .success,
+    true,
+  );
+  const written = executeAgentTool(state, "write_logic_source", {
+    room: 1,
+    // Message text is not vocabulary: registering "save" later must not
+    // stale this source, which only prints it (as the template's menu does).
+    source: 'if (said("look")) { set(gate_open); print("Save"); } return;',
+  });
+  assert.equal(written.success, true, written.error ?? "");
+  const revision = logicRevision(state, 1);
+
+  // Words and bindings the source does not use leave the revision alone.
+  assert.equal(
+    executeAgentTool(state, "write_words", {
+      words: ["look", "lantern", "moat", "read", "save", "notice"],
+      groups: null,
+    }).success,
+    true,
+  );
+  assert.equal(
+    executeAuthoringTool(state, "reserve_binding", { kind: "flag", name: "lamp_lit", id: null })!
+      .success,
+    true,
+  );
+  assert.equal(logicRevision(state, 1), revision);
+  const edit = executeAuthoringTool(state, "edit_resource_source", {
+    kind: "logic",
+    num: 1,
+    expectedRevision: revision,
+    edits: [{ find: "set(gate_open);", replace: "set(gate_open); set(lamp_lit);" }],
+  })!;
+  assert.equal(edit.success, true, edit.error ?? "");
+
+  // The edit moved the text, so the old revision is stale now.
+  const stale = executeAuthoringTool(state, "edit_resource_source", {
+    kind: "logic",
+    num: 1,
+    expectedRevision: revision,
+    edits: [{ find: "set(lamp_lit);", replace: "" }],
+  })!;
+  assert.equal(stale.success, false);
+  assert.match(stale.error ?? "", /Source revision changed/);
+});
+
+test("assembler errors point at the line the agent wrote, with or without named bindings", () => {
+  // The named-binding #define prelude once shifted every reported line: by
+  // one with no bindings at all, and by one more per binding.
+  const source = "assignn(v40, 1);\nassignn(v41, 300);\nreturn;";
+  const state = createAgentSessionState();
+  const bare = executeAgentTool(state, "write_logic_source", { room: 1, source });
+  assert.match(bare.error ?? "", /AssemblerError: 2:\d+: byte value out of range/);
+  for (const name of ["gate_open", "lamp_lit"])
+    executeAuthoringTool(state, "reserve_binding", { kind: "flag", name, id: null });
+  const bound = executeAgentTool(state, "write_logic_source", { room: 1, source });
+  assert.match(bound.error ?? "", /AssemblerError: 2:\d+: byte value out of range/);
+});
+
+test("a room's name is its title, and other unknown fields list the ones accepted", () => {
+  // Opus named plan rooms `name` in every Genesis benchmark run.
+  const state = createAgentSessionState();
+  const named = executeAgentTool(state, "update_world", {
+    rooms: [{ num: 2, name: "Hall", description: "The great hall.", exits: [] }],
+    facts: [],
+    quests: [],
+  });
+  assert.equal(named.success, true, named.error ?? "");
+  assert.equal(state.authoring.world.rooms["2"]?.title, "Hall");
+  // It also left a stray `name` ("", "x", "unused" or a shorter title) beside
+  // a room's real title in every run; the title stands.
+  const stray = executeAgentTool(state, "update_world", {
+    rooms: [
+      { num: 4, title: "The Great Hall", name: "x", description: "", exits: [] },
+      { name: "", num: 5, title: "Main Street", description: "", exits: [] },
+    ],
+    facts: [],
+    quests: [],
+  });
+  assert.equal(stray.success, true, stray.error ?? "");
+  assert.equal(state.authoring.world.rooms["4"]?.title, "The Great Hall");
+  assert.equal(state.authoring.world.rooms["5"]?.title, "Main Street");
+  const labelled = executeAgentTool(state, "update_world", {
+    rooms: [{ num: 3, title: "Moat", label: "moat", description: "", exits: [] }],
+    facts: [],
+    quests: [],
+  });
+  assert.equal(labelled.success, false);
+  assert.match(
+    labelled.error ?? "",
+    /rooms\[0\]\.label is not a known field \(fields: [^)]*\btitle\b/,
+  );
+});
+
+test("write_words declares ignored words the parser drops before matching", () => {
+  // Opus tried to register "a/an/the/to…" as group 0 twice in the benchmark.
+  const state = createAgentSessionState();
+  const written = executeAgentTool(state, "write_words", {
+    words: ["look", "notice"],
+    groups: null,
+    ignored: ["a", "the", "at"],
+  });
+  assert.equal(written.success, true, written.error ?? "");
+  assert.equal(state.sources.words.get("the"), 0);
+  // An ignored word cannot join a synonym group, and a real word keeps its id.
+  const grouped = executeAgentTool(state, "write_words", {
+    words: ["the/notice"],
+    groups: null,
+    ignored: null,
+  });
+  assert.equal(grouped.success, false);
+  assert.match(grouped.error ?? "", /'the' is an ignored word/);
+  const moved = executeAgentTool(state, "write_words", {
+    words: [],
+    groups: null,
+    ignored: ["look"],
+  });
+  assert.equal(moved.success, false);
+  assert.match(moved.error ?? "", /'look' is already a word/);
+  // A stored test may now phrase its command naturally.
+  assert.equal(
+    executeAgentTool(state, "write_logic_source", {
+      room: 1,
+      source: 'if (said("look", "notice")) { print("It reads: help wanted."); } return;',
+    }).success,
+    true,
+  );
+});

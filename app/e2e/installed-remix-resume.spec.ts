@@ -41,13 +41,13 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   await page.goto("/");
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   let requests = 0;
-  const sprite = { loops: [{ cels: [{ width: 3, height: 2, pixels: [4, 4, 4, 4, 0, 4] }] }] };
+  const sprite = "view\ncel s 3 2 0\n444\n4.4\nendcel\nloop 0 s\nendview";
   const remixed =
     'if(isset(f5)){assignn(v60,1);load.pic(v60);draw.pic(v60);show.pic();load.view(11);animate.obj(13);set.view(13,11);position(13,30,130);draw(13);accept.input();}display(4,2,"ALLIGATOR REMIX");return;';
   await page.route("**/api/openai/v1/responses", async (route) => {
     requests++;
     const calls = [
-      ["write_view", { num: 11, spec: sprite }],
+      ["write_view", { num: 11, source: sprite }],
       ["write_logic_source", { room: 1, source: remixed }],
     ];
     await route.fulfill(
@@ -124,7 +124,8 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   const download = await pending;
   const archive = await readGameZip(new Uint8Array(await readFile((await download.path())!)));
   expect(openContainer(new Map(Object.entries(archive.files))).getResource("view", 11)).toEqual(
-    buildView(sprite),
+    // The same 3x2 cel written as pixels, independent of the source compiler.
+    buildView({ loops: [{ cels: [{ width: 3, height: 2, pixels: [4, 4, 4, 4, 0, 4] }] }] }),
   );
   expect(JSON.stringify(archive.project?.transcript)).toContain("Add an alligator");
   expect(archive.roomGeneration).toBe(false);

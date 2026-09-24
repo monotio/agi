@@ -1,6 +1,7 @@
 /** Schemas for core resource editing and runtime inspection tools. */
 import type { ToolDefinition } from "./tools.ts";
 import { MAX_FRAMES } from "./frames.ts";
+import { VIEW_SOURCE_DOC } from "../view/viewSource.ts";
 
 /** A variable check: exact `value`, or an inclusive `min`/`max` range. */
 const VAR_ASSERTION_SCHEMA = {
@@ -67,6 +68,8 @@ export const PLAYTEST_STEPS_SCHEMA = {
       y: { type: ["integer", "null"], minimum: 0, maximum: 167 },
       answer: { type: ["string", "null"], maxLength: 80 },
       until: {
+        description:
+          "wait, direction or move: run until this holds (room, flag or var); fails if it does not within ticks (default 600).",
         type: ["object", "null"],
         additionalProperties: false,
         properties: {
@@ -261,7 +264,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_words",
     description:
-      "Compile parser vocabulary into WORDS.TOK. Slash-separated words share an ID; `groups` preserves explicit synonyms and multiword phrases. Register words before using them in said(). Standard navigation words are added automatically. Failure stores nothing.",
+      'Compile parser vocabulary into WORDS.TOK. A word starts with a letter and uses only a-z, 0-9, apostrophes and spaces (a phrase): write break in, not break-in. Slash-separated words share an ID; `groups` preserves explicit synonyms and multiword phrases. `ignored` lists words the parser drops before matching (AGI word group 0), such as a, an and the, so LOOK AT THE NOTICE can match said("look", "notice") when at and the are ignored. Register words before using them in said(). Standard navigation words are added automatically. Failure stores nothing.',
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -280,8 +283,13 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
           type: "array",
           items: { type: "string" },
         },
+        ignored: {
+          type: ["array", "null"],
+          maxItems: 256,
+          items: { type: "string", minLength: 1, maxLength: 64 },
+        },
       },
-      required: ["words", "groups"],
+      required: ["words", "groups", "ignored"],
     },
   },
   {
@@ -423,102 +431,16 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   },
   {
     name: "write_view",
-    description:
-      "Compile and replace view `num` from `spec`. Provide exactly one of `loops` (each has cels or mirrors a preceding loop) or `facings` (four-facing actor shorthand: right/left/down/up hex-row cels, a shared transparentColor, mirror flags; omitted directions are filled from available facings and reported in warnings). Pixels are row-major EGA indices; facings rows are hex strings. Pixel-count corrections appear in `adjustments`. Returns a compiled contact sheet; large views sample 32 cels. Failure stores nothing.",
+    description: `Compile and replace view \`num\` from \`source\`. ${VIEW_SOURCE_DOC}
+Returns the compiled contact sheet (a large view shows 32 sampled cels). To change rows or colours of an existing view, use patch_view_cels. Failure stores nothing.`,
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        num: {
-          type: "integer",
-        },
-        spec: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            description: {
-              type: ["string", "null"],
-            },
-            facings: {
-              type: ["object", "null"],
-              additionalProperties: false,
-              properties: {
-                description: { type: ["string", "null"], maxLength: 512 },
-                transparentColor: { type: "integer", minimum: 0, maximum: 15 },
-                mirrorLeftFromRight: { type: ["boolean", "null"] },
-                mirrorUpFromDown: { type: ["boolean", "null"] },
-                right: {
-                  type: ["array", "null"],
-                  items: { type: "array", items: { type: "string" } },
-                },
-                left: {
-                  type: ["array", "null"],
-                  items: { type: "array", items: { type: "string" } },
-                },
-                down: {
-                  type: ["array", "null"],
-                  items: { type: "array", items: { type: "string" } },
-                },
-                up: {
-                  type: ["array", "null"],
-                  items: { type: "array", items: { type: "string" } },
-                },
-              },
-              required: [
-                "description",
-                "transparentColor",
-                "mirrorLeftFromRight",
-                "mirrorUpFromDown",
-                "right",
-                "left",
-                "down",
-                "up",
-              ],
-            },
-            loops: {
-              type: ["array", "null"],
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  mirrorLoop: {
-                    type: ["integer", "null"],
-                  },
-                  cels: {
-                    type: ["array", "null"],
-                    items: {
-                      type: "object",
-                      additionalProperties: false,
-                      properties: {
-                        width: {
-                          type: "integer",
-                        },
-                        height: {
-                          type: "integer",
-                        },
-                        transparentColor: {
-                          type: ["integer", "null"],
-                        },
-                        mirror: {
-                          type: ["boolean", "null"],
-                        },
-                        pixels: {
-                          type: "array",
-                          items: { type: "integer" },
-                        },
-                      },
-                      required: ["width", "height", "transparentColor", "mirror", "pixels"],
-                    },
-                  },
-                },
-                required: ["mirrorLoop", "cels"],
-              },
-            },
-          },
-          required: ["description", "loops", "facings"],
-        },
+        num: { type: "integer", minimum: 0, maximum: 255 },
+        source: { type: "string" },
       },
-      required: ["num", "spec"],
+      required: ["num", "source"],
     },
   },
   {
@@ -656,7 +578,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "playtest_room",
     description:
-      "Run a bounded isolated playtest of `room` against staged resources. `steps` command, move, enter, wait, key, direction, walkTo (position), walkPath (target region), walkWaypoints (explicit route) or answer; answer queues a get.string/get.num reply without advancing a cycle and requires null ticks/captureTicks; `expect` asserts room, inventory, flags, variables, a printed message (`printed`) and visible text (`text`). Null `spawnX`/`spawnY` use initialized ego; null steps checks its footprint. captureTicks samples completed ticks within that step into a composed animation sheet. `fromLiveCheckpoint` restores the paused live game's captured checkpoint instead of booting. Navigation returns typed outcomes in steps[].navigation and stops for explicit modal input. Navigation steps default to 600 logic cycles, bounded by the remaining scenario budget; host polls, logic cycles and eligible movement updates are reported separately. Null `cycleBudget` (600, including setup) and `instructionBudget` (50000) bound the run. Missing destinations report `needs_authoring`.",
+      "Run a bounded isolated playtest of `room` against staged resources. `steps` command, move, enter, wait, key, direction, walkTo (position), walkPath (target region), walkWaypoints (explicit route) or answer; answer queues a get.string/get.num reply without advancing a cycle and requires null ticks/captureTicks; `expect` asserts room, inventory, flags, variables, a printed message (`printed`) and visible text (`text`). Null `spawnX`/`spawnY` use initialized ego; null steps checks its footprint. captureTicks samples completed ticks within that step into a composed animation sheet. `fromLiveCheckpoint` restores the paused live game's captured checkpoint instead of booting. A print() window stops the game until it is dismissed: after a room that prints on entry, or a command that prints, add an enter step before the next walk, wait or command. Navigation returns typed outcomes in steps[].navigation and stops for explicit modal input. Navigation steps default to 600 logic cycles, bounded by the remaining scenario budget; host polls, logic cycles and eligible movement updates are reported separately. Null `cycleBudget` (600, including setup) and `instructionBudget` (50000) bound the run. An exit to a room the world plan declares reports `reached_planned_room` (success: the room is built when the player arrives); an unplanned missing destination reports `needs_authoring`.",
     parameters: {
       type: "object",
       additionalProperties: false,

@@ -829,3 +829,29 @@ describe("apple iigs profile (docs/fidelity.md, SQ2.SYS16 1.014)", () => {
     );
   });
 });
+
+test("profile ids are a frozen public vocabulary", () => {
+  // Ids are stored in GAME.JSON, library records and session tapes, so a
+  // released id is never renamed or removed; new builds only add ids.
+  for (const id of [
+    "2.001",
+    "2.089",
+    "2.230",
+    "2.272",
+    "2.411",
+    "2.440",
+    "2.917",
+    "2.936",
+    "3.002.086",
+    "3.002.102",
+    "3.002.149",
+    "amiga-2.082",
+    "amiga-2.176",
+    "amiga-2.202",
+    "amiga-2.310",
+    "amiga-2.316",
+    "amiga-2.333",
+    "iigs-1.014",
+  ])
+    assert.equal(PROFILES[id as ProfileId]?.id, id, id);
+});

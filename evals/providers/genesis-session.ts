@@ -6,10 +6,13 @@
  * only the exact first JSON request body (never headers or credentials).
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
+import { DEFAULT_TASK_BUDGET_USD } from "../../app/src/agent/agentRun.ts";
 import { AgentSession, type BootResources } from "../../app/src/agent/agentSession.ts";
+import { buildProjectZip } from "../../app/src/projectArchive.ts";
+import { requireProjectId } from "../../src/gameIdentity.ts";
 import { validateGenesis } from "../../src/agent/playtest.ts";
 import { RESOURCE_KINDS } from "../../src/types.ts";
 
@@ -18,7 +21,7 @@ import type { AgentSessionState, AgentToolResult } from "../../src/agent/tools.t
 
 export type EffortProvider = "openai" | "anthropic";
 export interface EffortStage {
-  promptVariant: "baseline" | "lean" | "current";
+  promptVariant: "lean" | "current";
   effort?: LlmConfig["effort"];
 }
 export interface RequestTool {
@@ -45,12 +48,6 @@ export interface ProviderBody {
   output_config?: { effort?: unknown };
   [key: string]: unknown;
 }
-interface PromptVariant {
-  systemPrompt?: string;
-  tools?: RequestTool[];
-  userPrompt?: string;
-  baselineRequestPath?: string;
-}
 export interface GenesisOptions {
   provider: EffortProvider;
   model: string;
@@ -61,14 +58,16 @@ export interface GenesisOptions {
   caseName?: string;
   repeat?: number;
   outputRoot?: string;
-  baselineRequestPath?: string;
   timeoutMs?: number;
   budgetUsd?: number;
   fetchImpl?: typeof fetch;
 }
 
 const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
-const DEFAULT_TIMEOUT_MS = 15 * 60_000;
+/** A hang guard for one paid run, well past the longest recorded Genesis (about twelve minutes). */
+const DEFAULT_TIMEOUT_MS = 40 * 60_000;
+/** Characters of each provider stream kept for a failed run's diagnosis. */
+const STREAM_TAIL_CHARS = 16_000;
 let fetchQueue = Promise.resolve();
 
 function safeName(value: unknown) {
@@ -134,91 +133,6 @@ function summarizedPlaytest(result: AgentToolResult) {
     cycles: result.details?.["cycles"] ?? 0,
     room: (result.details?.["state"] as { room?: number } | undefined)?.room ?? null,
     ...(result.error ? { error: result.error } : {}),
-  };
-}
-
-async function loadVariant(
-  variant: EffortStage["promptVariant"],
-  baselineRequestPath: string | undefined,
-  templateText: string,
-): Promise<PromptVariant> {
-  if (variant === "current" || variant === "lean") return {};
-  if (variant === "baseline") {
-    const path = resolve(
-      baselineRequestPath ??
-        process.env["EVAL_EFFORT_BASELINE_REQUEST"] ??
-        resolve(
-          import.meta.dirname,
-          "../results/effort/baseline-before-pruning/openai-gpt-5.6-sol-baseline-default--knights-trial--r1.first-request.json",
-        ),
-    );
-    if (!existsSync(path))
-      throw new Error(
-        "Baseline request capture is missing. Set EVAL_EFFORT_BASELINE_REQUEST to the preserved first-request JSON.",
-      );
-    const body = JSON.parse(readFileSync(path, "utf8")) as ProviderBody;
-    const capturedUser = Array.isArray(body.input)
-      ? body.input.find((item) => item?.role === "user")?.content
-      : undefined;
-    if (
-      typeof body.instructions !== "string" ||
-      !Array.isArray(body.tools) ||
-      typeof capturedUser !== "string"
-    )
-      throw new Error(
-        "Baseline request must be an OpenAI startup body with instructions and tools.",
-      );
-    const templateMarker = capturedUser.indexOf("\n---\n");
-    if (templateMarker < 0)
-      throw new Error("Baseline request does not contain the captured Genesis template boundary.");
-    return {
-      systemPrompt: body.instructions,
-      tools: structuredClone(body.tools),
-      userPrompt: `${capturedUser.slice(0, templateMarker + "\n---\n".length)}${templateText.trim()}\n---`,
-      baselineRequestPath: path,
-    };
-  }
-  throw new Error(`Unknown prompt variant: ${variant}`);
-}
-
-export function applyBaselineOverride(
-  body: ProviderBody,
-  variant: PromptVariant,
-  provider: EffortProvider,
-): ProviderBody {
-  if (!variant.tools) return body;
-  if (!Array.isArray(body.tools)) throw new Error("Provider request omitted the production tools.");
-  const capturedByName = new Map(variant.tools.map((tool) => [tool.name, tool]));
-  const tools = body.tools.map((current) => {
-    const captured = capturedByName.get(current.name);
-    if (!captured)
-      throw new Error(
-        `Production Genesis tool ${current.name} is absent from the baseline catalog.`,
-      );
-    if (provider === "openai") return structuredClone(captured);
-    return {
-      ...current,
-      description: captured.description,
-      input_schema: structuredClone(captured.parameters),
-    };
-  });
-  const replaceUser = (items: RequestMessage[]) =>
-    items.map((item) =>
-      item?.role === "user" &&
-      typeof item.content === "string" &&
-      item.content.startsWith("### GENESIS:")
-        ? { ...item, content: variant.userPrompt }
-        : item,
-    );
-  return {
-    ...body,
-    tools,
-    ...(provider === "openai" && Array.isArray(body.input)
-      ? { input: replaceUser(body.input) }
-      : {}),
-    ...(provider === "anthropic" && Array.isArray(body.messages)
-      ? { messages: replaceUser(body.messages) }
-      : {}),
   };
 }
 
@@ -288,7 +202,13 @@ export async function runGenesisSession(options: GenesisOptions) {
     const framePath = resolve(directory, `${stem}.first-frame.png`);
     const transcriptPath = resolve(directory, `${stem}.transcript.json`);
     const eventsPath = resolve(directory, `${stem}.events.json`);
+    const projectPath = resolve(directory, `${stem}.project.zip`);
     const resourcesPath = resolve(directory, `${stem}.resources`);
+    const streamsPath = resolve(directory, `${stem}.stream-tails.json`);
+    // The last characters each provider stream delivered: when a run fails
+    // (a runaway response, an interrupted turn), this shows what the model
+    // was writing, which the parsed result no longer holds.
+    const streamTails: string[] = [];
     const delegate = options.fetchImpl ?? globalThis.fetch;
     const originalFetch = globalThis.fetch;
     const firstRequest: { text?: string; body?: ProviderBody } = {};
@@ -316,47 +236,56 @@ export async function runGenesisSession(options: GenesisOptions) {
     const startedAtIso = new Date().toISOString();
     const startedAt = performance.now();
 
-    let variant: PromptVariant = {};
     globalThis.fetch = async (input, init) => {
       const requestedAt = performance.now();
       requestStarts.push(requestedAt);
-      const originalBodyText = await bodyText(input, init);
-      const outgoingBody = applyBaselineOverride(
-        JSON.parse(originalBodyText) as ProviderBody,
-        variant,
-        provider,
-      );
-      const outgoingText = variant.tools ? JSON.stringify(outgoingBody) : originalBodyText;
+      const text = await bodyText(input, init);
       if (firstRequest.text === undefined) {
-        const text = outgoingText;
         if (Buffer.byteLength(text) > MAX_REQUEST_BYTES)
           throw new Error(`First provider request exceeds ${MAX_REQUEST_BYTES} bytes.`);
-        firstRequest.body = outgoingBody;
+        firstRequest.body = JSON.parse(text) as ProviderBody;
         firstRequest.text = text;
         writeFileSync(requestPath, text, "utf8");
       }
-      const [requestInput, requestInit] = requestWithBody(input, init, outgoingText);
+      // Reading the body consumed a Request's stream; send the same text on.
+      const [requestInput, requestInit] = requestWithBody(input, init, text);
       const response = await delegate(requestInput, requestInit);
       requestLatenciesMs.push(performance.now() - requestedAt);
-      return response;
+      if (!response.body) return response;
+      const [forModel, forTail] = response.body.tee();
+      const slot = streamTails.push("") - 1;
+      void (async () => {
+        const decoder = new TextDecoder();
+        const reader = forTail.getReader();
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            streamTails[slot] = (streamTails[slot] + decoder.decode(value, { stream: true })).slice(
+              -STREAM_TAIL_CHARS,
+            );
+          }
+        } catch {
+          // The model side was cancelled; keep what arrived.
+        }
+      })();
+      return new Response(forModel, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
     };
 
     let monitor: ReturnType<typeof setInterval> | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      variant = await loadVariant(
-        options.promptVariant ?? "baseline",
-        options.baselineRequestPath,
-        options.templateText,
-      );
       session = new AgentSession(
         {
           provider,
           apiKey: options.fetchImpl ? "test-placeholder" : apiKey(provider),
           model: options.model,
           ...(options.effort ? { effort: options.effort } : {}),
-          ...(variant.systemPrompt ? { systemPrompt: variant.systemPrompt } : {}),
-          budgetUsd: options.budgetUsd ?? 1.25,
+          budgetUsd: options.budgetUsd ?? DEFAULT_TASK_BUDGET_USD,
         },
         (type, message, data) => {
           events.push({ elapsedMs: performance.now() - startedAt, type, message, data });
@@ -447,6 +376,30 @@ export async function runGenesisSession(options: GenesisOptions) {
         );
     }
     writeFileSync(eventsPath, `${JSON.stringify(events, null, 2)}\n`, "utf8");
+    // Every run, finished or not, keeps what it built as a Project archive the
+    // app imports: the files, the conversation and the authoring state, so
+    // runs can be played and compared side by side afterwards.
+    let projectArchive: string | null = null;
+    if (session) {
+      try {
+        const zip = await buildProjectZip({
+          projectId: requireProjectId(`eval-${stem}`.slice(0, 128)),
+          title: `${caseName} · ${options.model} · ${options.effort ?? "default"}`,
+          authoredAt: startedAtIso,
+          provider,
+          model: options.model,
+          files: Object.fromEntries(session.state.getFiles()),
+          words: [...session.state.sources.words],
+          transcript: session.getTranscript(),
+          authoringState: session.getAuthoringState(),
+          roomGeneration: true,
+        });
+        writeFileSync(projectPath, zip);
+        projectArchive = projectPath;
+      } catch (error) {
+        console.error(`[evals] ${stem}: project archive not written: ${String(error)}`);
+      }
+    }
     const report = {
       schemaVersion: 1,
       startedAt: startedAtIso,
@@ -460,8 +413,7 @@ export async function runGenesisSession(options: GenesisOptions) {
         (provider === "openai"
           ? firstRequest.body?.reasoning?.effort
           : firstRequest.body?.output_config?.effort) ?? null,
-      promptVariant: options.promptVariant ?? "baseline",
-      ...(variant.baselineRequestPath ? { baselineRequestPath: variant.baselineRequestPath } : {}),
+      promptVariant: options.promptVariant ?? "lean",
       completion,
       ...(runError ? { error: runError } : {}),
       firstResponseInputTokens: usageTurns[0]?.input ?? null,
@@ -515,11 +467,14 @@ export async function runGenesisSession(options: GenesisOptions) {
         firstRequest: requestPath,
         report: reportPath,
         firstFrame: frame ? framePath : null,
+        project: projectArchive,
         transcript: bootResources?.transcript ? transcriptPath : null,
         resources: bootResources ? resourcesPath : null,
         events: eventsPath,
       },
     };
+    if (!completion)
+      writeFileSync(streamsPath, `${JSON.stringify(streamTails, null, 2)}\n`, "utf8");
     writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
     return report;
   });

@@ -23,6 +23,18 @@ export function normalizeToolArguments<T>(schema: unknown, value: T): T {
   // Spread copies a JSON "__proto__" key as an own data property; assigning
   // it onto {} would instead hit the prototype setter and hide the key.
   const out: Record<string, unknown> = { ...(value as Record<string, unknown>) };
+  // Where the schema has `title` and no `name`, a sent `name` is the title.
+  // Opus names plan rooms that way, and beside a real title leaves a stray
+  // `name` ("", "x", a shorter title) in one room of every plan. The title
+  // stands; a room has nowhere else a name could belong.
+  if (
+    Object.hasOwn(props, "title") &&
+    !Object.hasOwn(props, "name") &&
+    Object.hasOwn(out, "name")
+  ) {
+    if (!Object.hasOwn(out, "title")) out["title"] = out["name"];
+    delete out["name"];
+  }
   for (const [key, item] of Object.entries(out))
     if (Object.hasOwn(props, key)) out[key] = normalizeToolArguments(props[key], item);
   for (const key of Array.isArray(s["required"]) ? s["required"] : [])
@@ -102,7 +114,10 @@ function check(schema: unknown, value: unknown, path: string, errors: string[]):
     for (const [key, item] of Object.entries(obj)) {
       const child = path ? `${path}.${key}` : key;
       if (Object.hasOwn(props, key)) check(props[key], item, child, errors);
-      else if (s["additionalProperties"] === false) errors.push(`${child} is not a known field.`);
+      // Naming the accepted fields turns a guessed name (a room's `name` for
+      // its `title`) into a one-step correction.
+      else if (s["additionalProperties"] === false)
+        errors.push(`${child} is not a known field (fields: ${Object.keys(props).join(", ")}).`);
     }
   }
 }

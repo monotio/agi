@@ -26,7 +26,7 @@ import { buildProjectZip, buildPublicGameZip } from "../app/src/projectArchive.t
 import { buildZip, type ZipFileInput } from "../app/src/zip.ts";
 import type { CachedGameData } from "../app/src/gameTypes.ts";
 import type { ProjectHistory } from "../app/src/historyArchive.ts";
-import { HISTORY_FORMAT_VERSION } from "../src/agent/history.ts";
+import { HISTORY_FORMAT_VERSION, stampBoot } from "../src/agent/history.ts";
 import { requireProjectId, requireResourceRevision } from "../src/gameIdentity.ts";
 
 /**
@@ -225,7 +225,7 @@ test("the project archive round-trips the recorded tape; a corrupt one rejects",
       segments: [
         {
           id: "sess1.s1",
-          boot: {
+          boot: stampBoot({
             files: { "VOL.0": toBase64(Uint8Array.of(1, 2)) },
             dictionary: [["look", 10]],
             authorRooms: false,
@@ -233,7 +233,7 @@ test("the project archive round-trips the recorded tape; a corrupt one rejects",
             soundDevice: 1,
             resourceSet: "rev-a",
             requestSerial: 0,
-          },
+          }),
           anchors: [],
           events: [{ seq: 0, tick: 3, cycle: 3, cause: { kind: "key", code: 65 } }],
           marks: [],
@@ -244,7 +244,7 @@ test("the project archive round-trips the recorded tape; a corrupt one rejects",
     branches: [
       {
         id: "b0",
-        boot: {
+        boot: stampBoot({
           files: { "VOL.0": toBase64(Uint8Array.of(1, 2)) },
           dictionary: [["look", 10]],
           authorRooms: false,
@@ -252,7 +252,7 @@ test("the project archive round-trips the recorded tape; a corrupt one rejects",
           soundDevice: 1,
           resourceSet: "rev-a",
           requestSerial: 3,
-        },
+        }),
         from: { segment: "sess1.s1", seq: 0, tick: 3 },
         retainedAt: 1_757_000_500_000,
       },

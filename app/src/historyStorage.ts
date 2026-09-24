@@ -20,6 +20,7 @@
  *
  * Unsupported versions and malformed layouts are refused without rewriting them.
  */
+import { PROFILES, type ProfileId } from "../../src/runtime/profile.ts";
 import {
   HISTORY_FORMAT_VERSION,
   validateHistoryRecording,
@@ -100,7 +101,8 @@ interface ManifestSegment {
  * and everything retention needs to collect, without touching tape bytes.
  */
 interface HistoryManifest {
-  format: "monotio.agi.history";
+  /** The browser's tape record; HISTORY.JSON is the archive format. */
+  format: "monotio.agi.stored-history";
   version: 1;
   /** The object store's keyPath: `history/<gameStorageKey>` — a record locator, not an identity. */
   projectId: string;
@@ -108,7 +110,7 @@ interface HistoryManifest {
   recording: {
     version: number;
     identity: GameIdentity;
-    profile: string;
+    profile: ProfileId;
     resourceSet: string;
     startedAt: number;
     dropped?: number;
@@ -181,17 +183,18 @@ function readManifest(raw: unknown): HistoryManifest | null {
   if (raw === undefined) return null;
   const isObject = (value: unknown): value is Record<string, unknown> =>
     typeof value === "object" && value !== null && !Array.isArray(value);
-  if (!isObject(raw) || raw["format"] !== "monotio.agi.history" || raw["version"] !== 1)
+  if (!isObject(raw) || raw["format"] !== "monotio.agi.stored-history" || raw["version"] !== 1)
     throw new Error("This history record version is not supported by this app.");
   if (
     typeof raw["projectId"] !== "string" ||
     !isObject(raw["recording"]) ||
     raw["recording"]["version"] !== HISTORY_FORMAT_VERSION ||
+    typeof raw["recording"]["profile"] !== "string" ||
+    !Object.hasOwn(PROFILES, raw["recording"]["profile"]) ||
     !Array.isArray(raw["segments"]) ||
     !isObject(raw["committed"]) ||
     !isObject(raw["bytes"]) ||
     !isObject(raw["blobs"]) ||
-    "retained" in raw ||
     (raw["branches"] !== undefined && !Array.isArray(raw["branches"])) ||
     (raw["staged"] !== undefined && !Array.isArray(raw["staged"]))
   )
@@ -318,7 +321,7 @@ function evictSegments(
 
 function manifestPut(manifest: HistoryManifest): unknown {
   const put: Record<string, unknown> = {
-    format: "monotio.agi.history",
+    format: "monotio.agi.stored-history",
     version: 1,
     projectId: manifest.projectId,
     recording: manifest.recording,
@@ -338,12 +341,12 @@ function manifestPut(manifest: HistoryManifest): unknown {
 
 function freshManifest(
   key: string,
-  profile: string,
+  profile: ProfileId,
   identity: GameIdentity,
   resourceSet: string,
 ): HistoryManifest {
   return {
-    format: "monotio.agi.history",
+    format: "monotio.agi.stored-history",
     version: 1,
     projectId: key,
     recording: {
@@ -372,7 +375,7 @@ function freshManifest(
 export async function appendHistoryBatch(
   storageKey: string,
   batch: HistoryBatch,
-  profile: string,
+  profile: ProfileId | undefined,
   identity: GameIdentity,
   lifetime?: string | null,
 ): Promise<boolean> {
@@ -412,7 +415,7 @@ export function renewHistoryWriter(
 export async function mergeHistoryBatch(
   key: string,
   batch: HistoryBatch,
-  profile: string,
+  profile: ProfileId | undefined,
   identity: GameIdentity,
   lifetime?: string | null,
 ): Promise<boolean> {
@@ -425,8 +428,10 @@ export async function mergeHistoryBatch(
     return await updateBodyRecords<boolean>(key, expected, (raw) => {
       const stored = readManifest(raw);
       const w = emptyWrites();
+      // Only a batch that names the running interpreter can open a tape.
+      if (stored === null && profile === undefined) return { result: false };
       const manifest =
-        stored ?? freshManifest(key, profile, identity, batch.boot?.resourceSet ?? "");
+        stored ?? freshManifest(key, profile!, identity, batch.boot?.resourceSet ?? "");
       const ledger = (manifest.committed[batch.segment] ??= []);
       if (ledger.includes(batch.batch)) return { result: true }; // a resend of a committed batch
       let directory = manifest.segments.find((s) => s.id === batch.segment);

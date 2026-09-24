@@ -1,0 +1,11 @@
+{
+  "name": "write-view-row-width-mismatch",
+  "description": "A model wrote a 16x20 cel with one row too long. The old pixel-array form padded or truncated silently into different artwork; the view source refuses and names the row and the fix.",
+  "tool": "write_view",
+  "args": {
+    "num": 0,
+    "source": "view\ncel ego 16 20 0\n1111111111111111\n1111111111111111\n1111111111111111\n1111111111111111\n1111111111111111\n1111111111111111\n1111111111111111\n11111111111111111\n1111111111111111\n1111111111111111\n1111111111111111\n1111111111111111\n1111111111111111\n1111111111111111\n1111111111111111\n1111111111111111\n1111111111111111\n1111111111111111\n1111111111111111\n1111111111111111\nendcel\nloop 0 ego\nendview"
+  },
+  "expectedSuccess": false,
+  "expectedErrorSnippet": "cel ego row 7 has 17 symbols; its width is 16. Send exactly 16."
+}

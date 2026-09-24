@@ -313,6 +313,13 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
   function libraryProvenance(game: CachedGameMeta): string | null {
     const lib = game.library;
     if (!lib) return null;
+    const origin = libraryOrigin(game);
+    if (!lib.workInProgress) return origin;
+    return origin ? `${origin} · Work in progress` : "Work in progress";
+  }
+
+  function libraryOrigin(game: CachedGameMeta): string | null {
+    const lib = game.library!;
     if (lib.source === "remix") {
       const parent = lib.parent;
       const parentTitle = parent
@@ -325,8 +332,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
         : undefined;
       return parentTitle ? `Remix of ${parentTitle}` : "Remix";
     }
-    if (lib.source === "zip" || lib.source === "folder") return "Imported copy";
-    return null;
+    return lib.source === "zip" || lib.source === "folder" ? "Imported copy" : null;
   }
 
   function refreshPendingAutosave(): void {
@@ -501,7 +507,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     title: string,
     source: "zip" | "folder",
   ): Promise<ImportStorageReport | null> {
-    const opening = await previewGame(game);
+    const opening = await previewGame(game, game.profile);
     let stored: ImportStorageReport | null = null;
     const importedProjectId = await addLibraryGame(
       game,
@@ -518,11 +524,22 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     return stored;
   }
 
+  /** An unfinished world this copy cannot grow stops at unbuilt rooms. */
+  function workInProgressNote(game: OpenedGame): string {
+    const unfinished = game.workInProgress === true || game.roomGeneration === true;
+    const grows = game.project !== undefined && game.roomGeneration === true;
+    return unfinished && !grows
+      ? " It is a work in progress: exits to rooms not built yet stop the game."
+      : "";
+  }
+
   /** What a project archive brought along besides the game — and what storage refused. */
   function progressNote(game: OpenedGame, stored: ImportStorageReport | null): string {
     const mapNote = game.map
       ? ` (world map ${stored?.map ? "stored" : "could not be stored"})`
-      : "";
+      : game.mapWarning
+        ? ` (${game.mapWarning})`
+        : "";
     const recoveryNote = game.backupWarning ? ` (${game.backupWarning})` : "";
     const historyNote = game.history
       ? ` (session tape ${stored?.history ? "stored" : "could not be stored"})`
@@ -556,7 +573,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       if (file.size > MAX_GAME_ZIP_BYTES) throw new Error("Choose a game ZIP smaller than 128 MB.");
       const game = await readGameZip(new Uint8Array(await file.arrayBuffer()));
       const stored = await stageLibraryGame(game, file.name.replace(/\.zip$/i, ""), "zip");
-      importNotice.value = `${game.title ?? file.name.replace(/\.zip$/i, "")} added to your library${progressNote(game, stored)}.`;
+      importNotice.value = `${game.title ?? file.name.replace(/\.zip$/i, "")} added to your library${progressNote(game, stored)}.${workInProgressNote(game)}`;
     } catch (error) {
       importError.value = String(error).replace(/^Error: /, "");
     } finally {
@@ -593,7 +610,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       const firstPath = paths.keys().next().value as string | undefined;
       const title = firstPath?.split("/")[0] || "Imported game";
       const stored = await stageLibraryGame(game, title, "folder");
-      importNotice.value = `${game.title ?? title} added to your library${progressNote(game, stored)}.`;
+      importNotice.value = `${game.title ?? title} added to your library${progressNote(game, stored)}.${workInProgressNote(game)}`;
     } catch (error) {
       importError.value = String(error).replace(/^Error: /, "");
     } finally {
@@ -653,7 +670,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     try {
       const game = catalogGames.get(id) ?? (await entry.load());
       catalogGames.set(id, game);
-      catalogOpenings.value[id] = await previewGame(game);
+      catalogOpenings.value[id] = await previewGame(game, game.profile);
     } catch (error) {
       catalogGames.delete(id);
       catalogErrors.value[id] = String(error).replace(/^Error: /, "");

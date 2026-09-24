@@ -108,6 +108,21 @@ test("movement reaches authored rooms and reports future missing rooms separatel
   assert.equal(missing.success, false);
   assert.equal(missing.details?.["simulation"], "needs_authoring");
   assert.deepEqual(missing.details?.["missingRooms"], [2]);
+  // A room the world plan declares is built when the player first arrives,
+  // so reaching its exit proves the exit and is not a failure.
+  state.authoring.world.rooms["2"] = { title: "Hall", description: "", exits: {} };
+  const planned = playtestRoom(state, {
+    room: 1,
+    spawnX: 156,
+    spawnY: 120,
+    steps: [{ action: "move", direction: "right", ticks: 8 }],
+    expect: { room: 2 },
+  });
+  assert.equal(planned.success, true, planned.error ?? "");
+  assert.equal(planned.details?.["simulation"], "reached_planned_room");
+  assert.deepEqual(planned.details?.["missingRooms"], [2]);
+  assert.match(planned.message ?? "", /room 2.*planned.*built when the player first arrives/);
+  delete state.authoring.world.rooms["2"];
   const dictionary = new Map([
     ["take", 10],
     ["key", 11],
@@ -176,6 +191,34 @@ test("genesis executes actual boot logic and accepts a start room other than one
     false,
     "caller owns genesis completion, validator is read-only",
   );
+});
+
+test("handover accepts a long intro: thirty messages and a silent title animation", () => {
+  // Boot validation failed after sixteen dismissed messages, and its
+  // simulation stopped at 600 cycles, so a story told over many windows or a
+  // half-minute title animation could never pass handover.
+  const state = world();
+  state.container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      `
+if (lessn(v44, 30)) { addn(v44, 1); print("Once upon a time."); return; }
+if (lessn(v45, 250)) { addn(v45, 1); addn(v45, 1); addn(v45, 1); return; }
+if (lessn(v46, 250)) { addn(v46, 1); return; }
+if (lessn(v47, 250)) { addn(v47, 1); return; }
+if (!isset(f40)) {
+ set(f40);
+ assignn(v10, 1); load.pic(v10); draw.pic(v10); show.pic();
+ load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); accept.input();
+}
+return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  const result = validateGenesis(state);
+  assert.equal(result.success, true, result.error ?? "");
+  assert.equal(result.details?.["genesisValidated"], true);
 });
 
 test("genesis rejects missing runtime dependencies despite existing expected resource numbers", () => {
@@ -333,7 +376,10 @@ return;`,
   const result = validateGenesis(state);
   assert.equal(result.success, true, result.error ?? "");
   assert.equal(result.details?.["acknowledgements"], 11, "ten messages and one key press");
-  assert.equal(result.details?.["warnings"], undefined);
+  // The boot itself raises nothing; the fixture's one-cel ego is the only note.
+  assert.deepEqual(result.details?.["warnings"], [
+    "Ego's view 0 has one cel per loop, so ego slides instead of walking; give each direction a walk cycle of two or more cels.",
+  ]);
 });
 
 test("a barrier-blocked exit fails the expected room assertion instead of claiming reachability", () => {
@@ -567,8 +613,10 @@ test("playtest checkpoints preserve distinct intermediate frames when a cycle re
 test("playtest rejects invalid checkpoint requests before simulation", () => {
   for (const [captureTicks, ticks, pattern] of [
     [[2, 1], 2, /strictly increasing/i],
-    [[1, 3], 2, /integer from 1 to 2/i],
-    [[1.5], 2, /integer from 1 to 2/i],
+    // Opus sent captureTicks [5, 15, 30] on a direction step with null ticks
+    // (one tick) and read only "an integer from 1 to 1".
+    [[1, 3], 2, /captureTicks\[1\] is tick 3, but this step runs 2 ticks; set ticks to at least 3/],
+    [[1.5], 2, /captureTicks\[0\] must be an integer from 1 to 60000/i],
     [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 10, /at most 9/i],
   ] as const) {
     const result = playtestRoom(world(), {
@@ -663,6 +711,8 @@ test("navigation leaves an open prompt for explicit input", () => {
   assert.equal(result.success, false);
   assert.equal(result.details?.["simulation"], "needs_input");
   assert.equal((result.details?.["state"] as { modalKind: string }).modalKind, "print");
+  // The refusal names the step that answers it.
+  assert.match(result.error ?? "", /message window is open; add an enter step/);
 });
 
 test("navigation reports script movement control separately from parser input", () => {
@@ -675,6 +725,7 @@ test("navigation reports script movement control separately from parser input", 
   const navigation = step["navigation"] as { status: string; inputEnabled: boolean };
   assert.equal(navigation?.status, "movement_control_unavailable");
   assert.equal(navigation.inputEnabled, true);
+  assert.match(result.error ?? "", /program control of ego \(program\.control\).*player\.control/);
   assert.equal(step["completedTicks"], 0);
 });
 
@@ -735,6 +786,26 @@ test("playtest walkTo and expect.reachable navigate around barrier obstacles", (
   assert.equal(step["yAfter"], 120);
 });
 
+test("a slow machine reaches the same playtest verdict as a fast one", (t) => {
+  // Playtests stopped at five seconds of wall time, so a slow phone failed a
+  // stored test that a desktop passed. Cycle and instruction budgets bound
+  // the work; here every clock read costs a second and the verdict holds.
+  const state = world();
+  state.container.putResource(
+    "picture",
+    1,
+    Uint8Array.of(0xf0, 2, 0xf2, 0, 0xf6, 85, 115, 85, 125, 0xff),
+  );
+  let clock = 0;
+  t.mock.method(Date, "now", () => (clock += 1000));
+  const result = playtestRoom(state, {
+    room: 1,
+    steps: [{ action: "walkTo", x: 88, y: 120, ticks: 60 }],
+    expect: { reachable: { x: 80, y: 120 } },
+  });
+  assert.equal(result.success, true, result.error ?? "");
+});
+
 test("failure details record recentActions history for diagnosis", () => {
   const result = playtestRoom(world(), {
     room: 1,
@@ -773,4 +844,17 @@ test("navigation failure attaches a dual-plane navigation diagnostic snapshot", 
   );
   assert.equal(Buffer.from(diag.png).readUInt32BE(16), 640);
   assert.equal(Buffer.from(diag.png).readUInt32BE(20), 336);
+});
+
+test("a playtest warns about rooms that do not play like AGI rooms", () => {
+  // GPT-6 Luna's benchmark rooms set the horizon to 0 and gave ego one cel
+  // per direction: it could climb into the sky and slid instead of walking.
+  const warnings = (result: ReturnType<typeof playtestRoom>) =>
+    ((result.details?.["warnings"] ?? []) as string[]).join("\n");
+  const flat = playtestRoom(world("set.horizon(0);"), { room: 1 });
+  assert.equal(flat.success, true, flat.error ?? "");
+  assert.match(warnings(flat), /horizon is 0/);
+  assert.match(warnings(flat), /one cel per loop/);
+  const usual = playtestRoom(world(), { room: 1 });
+  assert.doesNotMatch(warnings(usual), /horizon/);
 });

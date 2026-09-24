@@ -173,7 +173,8 @@ export function textRows(frame: AgentFrame): string[] {
     let line = "";
     for (let c = 0; c < TEXT_COLS; c++) {
       const ch = cells[(r * TEXT_COLS + c) * 2] ?? 0;
-      line += ch === 0 || ch >= 0x80 ? " " : String.fromCharCode(ch);
+      // Borders, the cursor and code-page characters read as blanks here.
+      line += ch < 0x20 || ch >= 0x80 ? " " : String.fromCharCode(ch);
     }
     rows.push(line.replace(/\s+$/, ""));
   }

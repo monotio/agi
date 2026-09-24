@@ -49,6 +49,31 @@ test("hosted catalog rejects future versions, unsafe paths, and private files", 
       readHostedCatalogManifest(manifest([{ ...entry, files: [...entry.files, "logdir"] }]), base),
     /duplicate file/,
   );
+  // A file name is a bare name: an executable-looking suffix never lets a
+  // path, an encoding, a query or a fragment through.
+  for (const unsafe of [
+    "../SIERRA.COM",
+    "../../outside.SYS16",
+    "%2e%2e/SIERRA.COM",
+    "secret.json?ignore=.COM",
+    "notes#.COM",
+    "..\\SIERRA.COM",
+    ".COM",
+    " SIERRA.COM",
+  ])
+    assert.throws(
+      () =>
+        readHostedCatalogManifest(manifest([{ ...entry, files: [...entry.files, unsafe] }]), base),
+      /file/,
+      unsafe,
+    );
+  // A port edition's own interpreter files are playable files too.
+  const port = ["GR", "SQ2.SYS16", "SierraStandard", "game.json"];
+  assert.deepEqual(
+    readHostedCatalogManifest(manifest([{ ...entry, files: [...entry.files, ...port] }]), base)[0]
+      ?.files,
+    [...entry.files, ...port],
+  );
 });
 
 test("loader is lazy, requests exact declared files, and applies manifest provenance", async () => {

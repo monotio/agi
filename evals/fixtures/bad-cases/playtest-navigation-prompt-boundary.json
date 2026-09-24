@@ -2,12 +2,18 @@
   "name": "navigation-must-not-dismiss-a-prompt-or-hide-its-outcome",
   "description": "A movement request behind an open prompt must stop without guessing an answer; its compact navigation verdict must survive diagnostic projection.",
   "setup": [
-    { "tool": "write_picture", "args": { "room": 1, "source": "vis 2\nfill 0,0\nend" } },
+    {
+      "tool": "write_picture",
+      "args": {
+        "room": 1,
+        "source": "vis 2\nfill 0,0\nend"
+      }
+    },
     {
       "tool": "write_view",
       "args": {
         "num": 0,
-        "spec": { "loops": [{ "cels": [{ "width": 1, "height": 1, "pixels": [1] }] }] }
+        "source": "view\ncel ego 1 1 0\n1\nendcel\nloop 0 ego\nendview"
       }
     },
     {
@@ -19,7 +25,16 @@
     }
   ],
   "tool": "playtest_room",
-  "args": { "room": 1, "steps": [{ "action": "walkTo", "x": 85, "y": 120 }] },
+  "args": {
+    "room": 1,
+    "steps": [
+      {
+        "action": "walkTo",
+        "x": 85,
+        "y": 120
+      }
+    ]
+  },
   "expectedFields": {
     "success": false,
     "details.simulation": "needs_input",
@@ -27,6 +42,12 @@
     "details.navigation.x": 80
   },
   "projected": {
-    "details": { "navigation": { "status": "needs_input", "x": 80, "y": 120 } }
+    "details": {
+      "navigation": {
+        "status": "needs_input",
+        "x": 80,
+        "y": 120
+      }
+    }
   }
 }

@@ -5,7 +5,6 @@ import { gameRevision, publicGameMetadata, isPlayableFileName } from "./gameMeta
 import { validateAuthoringState } from "../../src/agent/authoringState.ts";
 import { buildView, type BuildViewInput } from "../../src/view/view.ts";
 import { buildObjectFile, buildSound, type SoundTrackInput } from "../../src/agent/tools.ts";
-import { compactContainer } from "../../src/container/container.ts";
 import { detectProfile } from "../../src/runtime/profile.ts";
 import type { CachedGameData } from "./gameTypes.ts";
 import {
@@ -31,13 +30,20 @@ export interface ProjectContext {
   references?: StoredReference[] | undefined;
 }
 
-/** Only current game resources and interpreter identification travel publicly. */
+/**
+ * Only current game resources and interpreter identification travel publicly.
+ * The playable files ship exactly as stored: every write in the app repacks
+ * its container (ResourceContainer.putResource), so a game made or changed
+ * here carries no stale bytes, and an untouched original exports as the
+ * same bytes it was imported as, with the same revision.
+ */
 function gameEntries(
   data: Pick<CachedGameData, "files" | "title" | "roomGeneration" | "library">,
 ): ZipFileInput[] {
-  const packed = compactContainer(new Map(Object.entries(data.files)));
-  if (!packed.has("OBJECT")) packed.set("OBJECT", buildObjectFile([], detectProfile(packed)));
-  const entries = [...packed]
+  const files = new Map(Object.entries(data.files));
+  if (!files.has("OBJECT"))
+    files.set("OBJECT", buildObjectFile([], detectProfile(files, data.library?.profile)));
+  const entries = [...files]
     .filter(([name]) => isPlayableFileName(name))
     .map(([name, bytes]) => ({ name, data: bytes }) as ZipFileInput);
   entries.push({
@@ -47,7 +53,13 @@ function gameEntries(
       version: 1,
       metadata: publicGameMetadata(data.library),
       title: data.title,
+      // The player's interpreter choice travels with the game; detection
+      // evidence does not — the importer checks the opening itself.
+      ...(data.library?.profile ? { profile: data.library.profile } : {}),
       roomGeneration: data.roomGeneration === true,
+      // Completion travels apart from generation: a copy that cannot grow
+      // is still unfinished, through every later export.
+      workInProgress: data.roomGeneration === true || data.library?.workInProgress === true,
     }),
   });
   return entries;
@@ -146,8 +158,8 @@ export async function buildProjectZip(
   // Reference art is project data: metadata rides in PROJECT.JSON, the bytes
   // in REFERENCES/<id>.<ext> entries. A Game export never carries either.
   // Verify against the live input before rebinding to the exact exported bytes.
-  // Imported containers may contain unused bytes removed by gameEntries, and
-  // export may supply a missing OBJECT file. Neither should strand fresh staging.
+  // Export may supply a missing OBJECT file, which moves the revision; that
+  // must not strand fresh staging.
   let exportedReferences = data.references;
   if (exportedReferences?.length) {
     const exportedFiles = Object.fromEntries(

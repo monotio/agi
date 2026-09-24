@@ -121,6 +121,8 @@ test("in-game ZIP exports the live game after a patch and reload", async ({ page
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
   const downloadPromise = page.waitForEvent("download");
   await openGameOptions(page, "game-menu");
+  // A growing world says what a published copy of it is before it is exported.
+  await expect(page.getByTestId("export-work-in-progress")).toContainText("Work in progress");
   await page.getByTestId("btn-export-game").click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("agi-custom-game.zip");
@@ -152,7 +154,9 @@ test("in-game ZIP exports the live game after a patch and reload", async ({ page
     expect(files[name]).toEqual(Buffer.from(bytes));
   }
   expect(files["WORDS.TOK"]?.length).toBeGreaterThan(52);
-  expect(JSON.parse(files["GAME.JSON"]!.toString()).format).toBe("monotio.agi");
+  const gameJson = JSON.parse(files["GAME.JSON"]!.toString());
+  expect(gameJson.format).toBe("monotio.agi");
+  expect(gameJson.roomGeneration, "the export marks the world as still growing").toBe(true);
   expect(Object.keys(files)).not.toContain("PROJECT.JSON");
   expect(Object.keys(files)).not.toContain("transcript.json");
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
@@ -283,10 +287,11 @@ test("provider and model configuration adapts options and persists choices", asy
 
   await providerSelect.selectOption("openai");
   const modelSelect = dialog.getByTestId("model-select");
-  await expect(modelSelect).toContainText("GPT-5.6");
+  await expect(modelSelect).toContainText("GPT-6 Sol");
+  await expect(modelSelect).toContainText("GPT-6 Luna");
 
   await providerSelect.selectOption("anthropic");
-  await expect(modelSelect).toContainText("Claude Opus 5");
+  await expect(modelSelect).toContainText("Claude Opus 5.5");
   await expect(modelSelect).toContainText("Claude Fable 5.1");
   await dialog.getByTestId("ai-settings-save").click();
   await openAiSettings(page);

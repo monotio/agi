@@ -70,6 +70,47 @@ test("hosted games preview, play and resume in the same library without a provid
   await page.screenshot({ path: test.info().outputPath("hosted-library.png"), fullPage: true });
 });
 
+test("a hosted game's declared interpreter is the one its library entry and playback use", async ({
+  page,
+}) => {
+  // The tutorial detects as 2.936; its GAME.JSON asks for 2.089.
+  const gameJson = JSON.stringify({
+    format: "monotio.agi",
+    version: 1,
+    title: "Declared",
+    profile: "2.089",
+  });
+  const declared = {
+    ...manifest,
+    games: [
+      { ...manifest.games[0]!, id: "declared", files: [...Object.keys(game.files), "GAME.JSON"] },
+    ],
+  };
+  await isolateStorage(page);
+  await page.route("**/fixtures/", (route) => route.fulfill({ json: [] }));
+  await page.route("**/catalog.json", (route) => route.fulfill({ json: declared }));
+  await page.route("**/games/workshop/**", (route) => {
+    const name = new URL(route.request().url()).pathname.split("/").at(-1)!;
+    if (name === "GAME.JSON") return route.fulfill({ body: gameJson });
+    const bytes = game.files[name];
+    return bytes ? route.fulfill({ body: Buffer.from(bytes) }) : route.fulfill({ status: 404 });
+  });
+  await page.goto("/");
+  const card = page.getByTestId("hosted-game-card-declared");
+  await card.scrollIntoViewIfNeeded();
+  await expect(card.getByRole("img")).toHaveAttribute("src", /^data:image\/png;base64,/);
+  await card.getByRole("button", { name: "Play", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).profile).toBe("2.089");
+  // The library entry holds the same choice (read through the UI, so the
+  // production bundle runs this too).
+  await page.getByTestId("btn-exit").click();
+  const saved = page.getByTestId("saved-game-card-catalog-declared-1.0.0");
+  await saved.getByRole("button", { name: "Game actions" }).click();
+  await expect(page.getByTestId("interpreter-profile-menu-item")).toContainText(
+    "2.089 (your override)",
+  );
+});
+
 test("catalog and opening failures explain the problem before play and allow retry", async ({
   page,
 }) => {

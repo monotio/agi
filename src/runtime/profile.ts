@@ -10,7 +10,11 @@
  * or a container-family fallback when the version is missing or unrecognized.
  */
 
-import { canonicalResourceName } from "../types.ts";
+import {
+  AMIGA_INTERPRETER_FILES,
+  INTERPRETER_FILES,
+  canonicalResourceName,
+} from "../container/playableFiles.ts";
 import { sha256Hex } from "../crypto.ts";
 import { detectKnownGameByHashes, type KnownAgiGame } from "../games/knownGames.ts";
 
@@ -778,14 +782,6 @@ export const EQUIVALENT_BUILDS: Readonly<Record<string, ProfileId>> = {
   "3.002.107": "3.002.102",
 };
 
-/**
- * Files that carry the interpreter's ASCII version string. On the observed
- * installations the string lives in AGIDATA.OVL ("Adventure Game Interpreter\n
- * Version 2.917"); the loader/boot files are searched too because other
- * installations place it there.
- */
-export const INTERPRETER_FILES: readonly string[] = ["AGIDATA.OVL", "AGI"];
-
 const DIGIT_0 = 0x30;
 const DIGIT_9 = 0x39;
 const DOT = 0x2e;
@@ -867,21 +863,6 @@ export function hasCombinedDirectory(files: ReadonlyMap<string, Uint8Array>): bo
 const AMIGA_HUNK_MAGIC = 0x000003f3;
 
 /**
- * Amiga interpreter executables observed in contributor fixtures, keyed by
- * their (case-insensitive) file names (docs/fidelity.md "Amiga interpreter
- * profiles"). A name only selects a build when the file opens with the hunk
- * magic; a PC data file that happens to share the name is not an interpreter.
- */
-const AMIGA_INTERPRETER_FILES: Readonly<Record<string, ProfileId>> = {
-  SIERRA: "amiga-2.082",
-  KQ2: "amiga-2.176",
-  SQ2: "amiga-2.202",
-  PQ: "amiga-2.310",
-  GR: "amiga-2.316",
-  MH2: "amiga-2.333",
-};
-
-/**
  * Amiga folders carry no PC version string. A hunk executable with a known
  * interpreter name selects its exact build; anything else returns null.
  */
@@ -904,22 +885,6 @@ function detectAmigaProfile(files: ReadonlyMap<string, Uint8Array>): AgiProfile 
 function hasAmigaCombinedDirectory(files: ReadonlyMap<string, Uint8Array>): boolean {
   const canonical = [...files.keys()].map(canonicalResourceName);
   return canonical.includes("DIR") && canonical.some((name) => /^VOL\.\d+$/.test(name));
-}
-
-/**
- * Whether a file is an interpreter executable detection reads: the PC
- * version-string carriers and `*.COM` loaders, the Amiga hunk executables
- * and the Apple IIgs `*.SYS16` load file. Hosts keep these beside the
- * resources so the edition is identified from its own binary.
- */
-export function isInterpreterFileName(name: string): boolean {
-  const upper = name.toUpperCase();
-  return (
-    INTERPRETER_FILES.includes(upper) ||
-    upper.endsWith(".COM") ||
-    upper.endsWith(".SYS16") ||
-    Object.hasOwn(AMIGA_INTERPRETER_FILES, upper)
-  );
 }
 
 /** True when the binary contains the ASCII marker (an OMF segment's data is contiguous). */
@@ -1049,3 +1014,7 @@ export function detectProfile(
 ): AgiProfile {
   return detectProfileDecision(files, override).profile;
 }
+
+// The playable vocabulary lives in container/playableFiles.ts; detection
+// callers keep importing it from here.
+export { INTERPRETER_FILES, isInterpreterFileName } from "../container/playableFiles.ts";

@@ -1,102 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { AGENT_TOOLS } from "../../src/agent/tools.ts";
-import {
-  bodyText,
-  applyBaselineOverride,
-  requestWithBody,
-  runGenesisSession,
-  type RequestTool,
-} from "../providers/genesis-session.ts";
-
-const captured = {
-  instructions: "Historical system prompt",
-  input: [
-    {
-      role: "user",
-      content: "### GENESIS: Historical instructions\n---\n---\nname: old\n---\n# Old\n---",
-    },
-  ],
-  tools: AGENT_TOOLS.map((tool) => ({
-    type: "function",
-    name: tool.name,
-    description: `Historical ${tool.name}`,
-    parameters: structuredClone(tool.parameters),
-    strict: true,
-  })),
-};
-
-function writeBaseline(directory: string) {
-  const path = join(directory, "baseline.json");
-  writeFileSync(path, JSON.stringify(captured), "utf8");
-  return path;
-}
-
-test("baseline replay restores complete OpenAI and Anthropic tool schemas and Genesis user text", () => {
-  const userPrompt = "OLD GENESIS\n---\nnew template";
-  const variant = { tools: captured.tools, userPrompt };
-  const changed = structuredClone(captured.tools);
-  changed[0]!.description = "short";
-  const nestedTool = changed.find((tool) =>
-    Object.values(tool.parameters?.properties ?? {}).some(
-      (property): property is { description: string } =>
-        typeof property === "object" &&
-        property !== null &&
-        "description" in property &&
-        typeof property.description === "string",
-    ),
-  );
-  assert.ok(nestedTool);
-  const nestedProperty = Object.values(nestedTool.parameters.properties).find(
-    (property): property is { description: string } =>
-      typeof property === "object" &&
-      property !== null &&
-      "description" in property &&
-      typeof property.description === "string",
-  );
-  assert.ok(nestedProperty);
-  nestedProperty.description = "short nested";
-  const openai = applyBaselineOverride(
-    { tools: changed, input: [{ role: "user", content: "### GENESIS: CURRENT" }] },
-    variant,
-    "openai",
-  );
-  assert.deepEqual(openai.tools, captured.tools);
-  assert.ok(Array.isArray(openai.input));
-  assert.equal(openai.input[0]?.content, userPrompt);
-
-  const anthropicTools: RequestTool[] = changed.map(({ name, description, parameters }) => ({
-    name,
-    description,
-    input_schema: parameters,
-  }));
-  anthropicTools.at(-1)!.cache_control = { type: "ephemeral" };
-  const anthropic = applyBaselineOverride(
-    {
-      tools: anthropicTools,
-      messages: [{ role: "user", content: "### GENESIS: CURRENT" }],
-    },
-    variant,
-    "anthropic",
-  );
-  assert.deepEqual(anthropic.tools?.[0]?.input_schema, captured.tools[0]!.parameters);
-  assert.equal(anthropic.messages?.[0]?.content, userPrompt);
-  assert.deepEqual(anthropic.tools?.at(-1)?.cache_control, { type: "ephemeral" });
-
-  const subset = applyBaselineOverride(
-    { tools: anthropicTools.slice(2, 5), messages: [] },
-    variant,
-    "anthropic",
-  );
-  assert.ok(subset.tools);
-  assert.deepEqual(
-    subset.tools.map((tool) => tool.name),
-    anthropicTools.slice(2, 5).map((tool) => tool.name),
-  );
-});
+import { anthropicToolDefinitions } from "../../src/agent/toolTransport.ts";
+import { bodyText, requestWithBody, runGenesisSession } from "../providers/genesis-session.ts";
 
 test("captures and reconstructs a Request body without losing request metadata", async () => {
   const original = new Request("https://example.test/v1/responses", {
@@ -127,7 +36,7 @@ test("timeout cancels a production session and marks its usage incomplete", asyn
   try {
     const report = await runGenesisSession({
       provider: "openai",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       effort: "medium",
       promptVariant: "lean",
       templateText: "# Tiny template",
@@ -153,19 +62,22 @@ test("timeout cancels a production session and marks its usage incomplete", asyn
     const captured = readFileSync(report.artifacts.firstRequest, "utf8");
     assert.ok(captured.includes("Tiny template"));
     assert.ok(!captured.includes("test-placeholder"));
+    // An unfinished run still keeps what it built, as a Project archive.
+    const project = readFileSync(report.artifacts.project!);
+    assert.ok(project.includes("PROJECT.JSON"));
+    assert.ok(project.includes("timeout"));
   } finally {
     rmSync(outputRoot, { recursive: true, force: true });
   }
 });
 
-test("captures the actual Anthropic Genesis turn's tool subset with baseline schemas", async () => {
+test("captures the actual Anthropic Genesis turn with the full tool catalog", async () => {
   const outputRoot = mkdtempSync(join(tmpdir(), "agi-effort-anthropic-"));
   try {
     const report = await runGenesisSession({
       provider: "anthropic",
-      model: "claude-opus-5",
-      promptVariant: "baseline",
-      baselineRequestPath: writeBaseline(outputRoot),
+      model: "claude-opus-5-5",
+      promptVariant: "lean",
       templateText: "  # Tiny template\n",
       caseName: "anthropic-snapshot",
       outputRoot,
@@ -178,46 +90,16 @@ test("captures the actual Anthropic Genesis turn's tool subset with baseline sch
         }),
     });
     const body = JSON.parse(readFileSync(report.artifacts.firstRequest, "utf8"));
-    const catalog = captured.tools;
-    const catalogByName = new Map(catalog.map((tool) => [tool.name, tool]));
-    assert.equal(
-      body.tools.length,
-      catalog.length,
+    const catalog = anthropicToolDefinitions(AGENT_TOOLS);
+    assert.deepEqual(
+      body.tools.map((tool: { name: string }) => tool.name),
+      catalog.map((tool) => tool.name),
       "Anthropic advertises the full stable catalog; availability is host-enforced",
     );
-    for (const tool of body.tools)
-      assert.deepEqual(tool.input_schema, catalogByName.get(tool.name)!.parameters);
     // Genesis is one flow: the first request is the single genesis turn that
     // records the world through update_world and builds the opening room.
     assert.equal(body.messages[0].content.startsWith("### GENESIS:"), true);
     assert.equal(body.messages[0].content.endsWith("# Tiny template\n---"), true);
-  } finally {
-    rmSync(outputRoot, { recursive: true, force: true });
-  }
-});
-
-test("reports a missing baseline artifact without attempting a provider request", async () => {
-  const outputRoot = mkdtempSync(join(tmpdir(), "agi-effort-missing-baseline-"));
-  let fetchCalls = 0;
-  try {
-    const report = await runGenesisSession({
-      provider: "openai",
-      model: "gpt-5.6-sol",
-      promptVariant: "baseline",
-      baselineRequestPath: join(outputRoot, "absent.json"),
-      templateText: "# Tiny template",
-      caseName: "missing-baseline",
-      outputRoot,
-      fetchImpl: async () => {
-        fetchCalls++;
-        throw new Error("must not fetch");
-      },
-    });
-    assert.equal(report.completion, false);
-    assert.equal(report.usageIncomplete, true);
-    assert.match(report.error ?? "", /Baseline request capture is missing/);
-    assert.equal(fetchCalls, 0);
-    assert.ok(readFileSync(report.artifacts.report, "utf8").includes("missing-baseline"));
   } finally {
     rmSync(outputRoot, { recursive: true, force: true });
   }

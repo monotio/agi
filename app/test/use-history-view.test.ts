@@ -16,6 +16,7 @@ import {
   type HistoryBoot,
   type HistoryRecording,
   type HistorySegment,
+  stampBoot,
 } from "../../src/agent/history.ts";
 import {
   commitStagedOriginal,
@@ -32,7 +33,7 @@ import type { WorkerInbound } from "../src/workerProtocol.ts";
 
 const RECORDS = installIndexedDbFixture();
 
-const BOOT: HistoryBoot = {
+const BOOT: HistoryBoot = stampBoot({
   files: { "VOL.0": "eA==" },
   dictionary: [],
   authorRooms: false,
@@ -40,7 +41,7 @@ const BOOT: HistoryBoot = {
   soundDevice: 1,
   resourceSet: "rev-1",
   requestSerial: 0,
-};
+});
 
 function segment(
   id: string,
@@ -93,7 +94,7 @@ const SESSION_SNAPSHOT: Record<string, unknown> = {
 };
 /** The tape's last authoring checkpoint — what a take installs. */
 const TAKE_SNAPSHOT: Record<string, unknown> = { plan: "the tape's checkpoint" };
-const TAKEN_BOOT: HistoryBoot = { ...BOOT, rng: 55, resourceSet: "rev-taken" };
+const TAKEN_BOOT: HistoryBoot = stampBoot({ ...BOOT, rng: 55, resourceSet: "rev-taken" });
 
 function makeHarness(opts?: {
   takeOk?: () => boolean;
@@ -210,7 +211,7 @@ function makeHarness(opts?: {
         return {
           type: "historyRetained",
           id: 0,
-          boot: { ...BOOT, rng: 42 },
+          boot: stampBoot({ ...BOOT, rng: 42 }),
           from: { segment: "sX.2", seq: 9, tick: 9 },
         };
       }
@@ -385,7 +386,7 @@ test("Resume from here keeps the departing session as a branch — no confirmati
   // An earlier rewind already kept one session.
   await stageRetainedOriginal(key, {
     id: "b-old",
-    boot: { ...BOOT, rng: 11 },
+    boot: stampBoot({ ...BOOT, rng: 11 }),
     from: { segment: "sX.1", seq: 3, tick: 6 },
     retainedAt: 1,
   });
@@ -530,7 +531,7 @@ test("a staged candidate the tape proves adopted settles into a branch on the ne
   await importGameHistory(key, { recording: adopted }, RECORDING.identity);
   await stageRetainedOriginal(key, {
     id: "s-owed",
-    boot: { ...BOOT, rng: 77 },
+    boot: stampBoot({ ...BOOT, rng: 77 }),
     from: { segment: "sX.2", seq: 9, tick: 9 },
     retainedAt: 3,
   });
@@ -551,7 +552,7 @@ test("a staged candidate the tape cannot settle stays quiet and blocks nothing",
   // still open and unidentified — the tape cannot prove either outcome.
   await stageRetainedOriginal(key, {
     id: "s-open",
-    boot: { ...BOOT, rng: 77 },
+    boot: stampBoot({ ...BOOT, rng: 77 }),
     from: { segment: "sGone.1", seq: 1, tick: 2 },
     retainedAt: 3,
   });
@@ -834,7 +835,7 @@ test("Undo rewind installs the newest branch's session and moves it off the list
   const keptSnapshot: Record<string, unknown> = { plan: "the kept session's state" };
   await stageRetainedOriginal(key, {
     id: "b-kept",
-    boot: { ...BOOT, rng: 11, resourceSet: "rev-kept" },
+    boot: stampBoot({ ...BOOT, rng: 11, resourceSet: "rev-kept" }),
     from: { segment: "sX.1", seq: 3, tick: 6 },
     retainedAt: 1,
     session: keptSnapshot,
@@ -864,7 +865,7 @@ test("Undo rewind straight from live play parks the session through the swap", a
   await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
   await stageRetainedOriginal(key, {
     id: "b-kept",
-    boot: { ...BOOT, rng: 11, resourceSet: "rev-kept" },
+    boot: stampBoot({ ...BOOT, rng: 11, resourceSet: "rev-kept" }),
     from: { segment: "sX.1", seq: 3, tick: 6 },
     retainedAt: 1,
   });
@@ -887,7 +888,7 @@ test("a restore ack naming a different revision is an uncertain outcome — the 
   await importGameHistory(key, { recording: RECORDING }, RECORDING.identity);
   await stageRetainedOriginal(key, {
     id: "b-kept",
-    boot: { ...BOOT, rng: 11, resourceSet: "rev-kept" },
+    boot: stampBoot({ ...BOOT, rng: 11, resourceSet: "rev-kept" }),
     from: { segment: "sX.1", seq: 3, tick: 6 },
     retainedAt: 1,
     session: { plan: "kept" },

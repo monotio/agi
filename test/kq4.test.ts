@@ -17,7 +17,6 @@ import { loadGame } from "./game-fixture.ts";
  */
 const GAME_ALIAS = "kq4";
 const TARGET_HASH = KNOWN_GAME_HASH.KQ4;
-const skip = fixtureSkip(TARGET_HASH, ["AGIDATA.OVL"]);
 
 class Host implements EngineHost {
   keys: number[] = [];
@@ -85,12 +84,26 @@ test(
   },
 );
 
-test(`${GAME_ALIAS}: every declared resource is readable`, { skip }, () => {
-  const { container } = loadGame(TARGET_HASH);
-  for (let n = 0; n < 256; n++)
-    for (const kind of ["logic", "picture", "view", "sound"] as const)
-      assert.doesNotThrow(() => container.getResource(kind, n), `${kind} ${n}`);
-});
+test(
+  `${GAME_ALIAS}: every declared resource reads except the four the release never shipped`,
+  { skip: fixtureSkip(TARGET_HASH, [], { checkVolumes: "shipped" }) },
+  () => {
+    // KQ4 2.0 (1988-07-27, 3.5") indexes pictures 150-151 in a KQ4VOL.6 and
+    // views 198-199 in a KQ4VOL.7 that it never shipped (docs/testing.md), so
+    // a strict "every resource reads" check could never run on the original.
+    const { container } = loadGame(TARGET_HASH, { checkVolumes: "shipped" });
+    const unshipped: string[] = [];
+    for (let n = 0; n < 256; n++)
+      for (const kind of ["logic", "picture", "view", "sound"] as const)
+        try {
+          container.getResource(kind, n);
+        } catch (error) {
+          assert.match(String(error), /points to missing VOL\.[67]$/, `${kind} ${n}`);
+          unshipped.push(`${kind} ${n}`);
+        }
+    assert.deepEqual(unshipped, ["picture 150", "picture 151", "view 198", "view 199"]);
+  },
+);
 
 test(
   `${GAME_ALIAS}: the opening deals the copy-protection question in room 142`,

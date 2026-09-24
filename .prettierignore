@@ -8,5 +8,8 @@ package-lock.json
 app/package-lock.json
 evals/package-lock.json
 evals/results/
+# Frozen benchmark snapshots: generated runs and matrices stay byte-exact.
+evals/benchmarks/*/*/runs/
+evals/benchmarks/*/*/matrix/
 evals/fixtures/pictures/
 app/public/walkthroughs/

@@ -7,8 +7,7 @@ import {
   type ResourceRevision,
 } from "../../src/gameIdentity.ts";
 import { sha256Hex } from "./crypto.ts";
-import { canonicalResourceName } from "../../src/types.ts";
-import { isInterpreterFileName } from "../../src/runtime/profile.ts";
+import { canonicalResourceName, isPlayableFileName } from "../../src/container/playableFiles.ts";
 import type { BootedGame } from "./gameTypes.ts";
 import { PROFILES, type ProfileId, type ProfileDetectionKind } from "../../src/runtime/profile.ts";
 
@@ -30,6 +29,12 @@ export interface LibraryMetadata extends PublicGameMetadata {
   preview?: string | undefined;
   /** Optional interpreter profile override applied on boot. */
   profile?: ProfileId | undefined;
+  /**
+   * An unfinished world: exits may lead to rooms nobody has built yet, which
+   * stop the game. A completion fact, separate from whether this copy may
+   * generate rooms (CachedGameData.roomGeneration).
+   */
+  workInProgress?: true | undefined;
   validation: {
     status: "ready" | "needs-input" | "unverified";
     message: string;
@@ -127,6 +132,7 @@ export function normalizeLibraryMetadata(
       : {}),
     ...(isLocalGamePreview(value["preview"]) ? { preview: value["preview"] } : {}),
     ...(profileOverride ? { profile: profileOverride } : {}),
+    ...(value["workInProgress"] === true ? { workInProgress: true as const } : {}),
     validation: {
       status:
         status === "ready" || status === "needs-input" || status === "unverified"
@@ -144,37 +150,42 @@ export function readPublicMetadata(raw: unknown): {
   title?: string;
   roomGeneration: boolean;
   metadata?: PublicGameMetadata;
+  /** The interpreter the exporter chose over detection. */
+  profile?: ProfileId;
+  /** The world is unfinished: exits may lead to rooms not built yet. */
+  workInProgress: boolean;
 } {
   if (!raw || typeof raw !== "object") throw new Error("GAME.JSON must contain game metadata.");
   const value = raw as Record<string, unknown>;
-  if (value["format"] !== "monotio.agi") return { roomGeneration: false };
+  if (value["format"] !== "monotio.agi") return { roomGeneration: false, workInProgress: false };
   if (value["version"] !== 1)
     throw new Error(
       "This game metadata version is newer than this app. Update the app and try again.",
     );
   const title = boundedText(value["title"], 160);
+  // An interpreter this build does not ship is newer data, refused like a
+  // newer version: playing it under another would silently drop the choice.
+  const profile = value["profile"];
+  if (profile !== undefined && (typeof profile !== "string" || !Object.hasOwn(PROFILES, profile)))
+    throw new Error(
+      `This game asks for interpreter ${String(profile).slice(0, 80)}, which this version of the app does not know. Update the app and try again.`,
+    );
   return {
     ...(title ? { title } : {}),
+    ...(profile !== undefined ? { profile: profile as ProfileId } : {}),
     roomGeneration: value["roomGeneration"] === true,
+    workInProgress: value["workInProgress"] === true,
     metadata: publicGameMetadata(value["metadata"] as PublicGameMetadata | undefined),
   };
 }
 
 /**
- * The canonical playable file set — the names a Game export ships: AGI
- * directory and volume files, the vocabulary and object tables, the loader
- * overlay and interpreter executables, and the Apple IIgs SIERRASTANDARD
- * wavetable its interpreter uploads to the sound chip. Tests, notes, maps and history are
- * authoring records: they travel in a Project archive, never in a Game
- * bundle, and never move the ResourceRevision.
+ * The canonical playable file set — the names a Game export ships — is one
+ * vocabulary shared with import, discovery and detection. Tests, notes, maps
+ * and history are authoring records: they travel in a Project archive, never
+ * in a Game bundle, and never move the ResourceRevision.
  */
-export function isPlayableFileName(name: string): boolean {
-  return (
-    /^([A-Z0-9_]*DIR|DIRS|[A-Z0-9_]*VOL\.(?:[0-9]|1[0-5])|WORDS\.TOK|OBJECT|SIERRASTANDARD)$/i.test(
-      name,
-    ) || isInterpreterFileName(name)
-  );
-}
+export { isPlayableFileName } from "../../src/container/playableFiles.ts";
 
 /**
  * SHA-256 of the canonical playable file set (`isPlayableFileName`), sorted

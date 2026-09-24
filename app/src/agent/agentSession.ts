@@ -28,6 +28,7 @@ import {
 } from "./sessionState.ts";
 import { readInventoryObjects } from "../../../src/agent/inventory.ts";
 import { prepareRoomPatch } from "../../../src/agent/roomPatch.ts";
+import type { ProfileId } from "../../../src/runtime/profile.ts";
 import { installBaseTemplate } from "../../../src/agent/baseTemplate.ts";
 import { buildWordsTok } from "../../../src/logic/words.ts";
 import { openContainer } from "../../../src/container/container.ts";
@@ -154,16 +155,18 @@ function validateAuthoringSnapshot(snapshot: unknown): Record<string, unknown> {
  * record supplies one — the snapshot's validated authoring state and
  * sources. Shared by project load (fromAuthoredData) and history adoption
  * (adoptAuthoredData); the snapshot's deep validation lives here so both
- * paths reject the same malformed input.
+ * paths reject the same malformed input. `profile` is the game's interpreter
+ * override, when the player chose one.
  */
 function stateFromAuthoredData(
   files: Record<string, Uint8Array>,
   words: [string, number][],
   authoringState?: Record<string, unknown>,
+  profile?: ProfileId,
 ): AgentSessionState {
   const fileMap = new Map(Object.entries(files));
   const container = openContainer(fileMap);
-  const state = createAgentSessionState(container);
+  const state = createAgentSessionState(container, profile);
   // Real copies, not refs: a Node Buffer's .slice() is a view, so callers
   // must never rely on the session detaching their byte arrays itself.
   state.wordsPayload = files["WORDS.TOK"] ? new Uint8Array(files["WORDS.TOK"]) : undefined;
@@ -228,6 +231,8 @@ export class AgentSession implements AgentHandler {
   readonly task: AgentRun;
   private messages: AgentChatMessage[] = [];
   readonly state: AgentSessionState;
+  /** The game's interpreter override; rebuilt state keeps it rather than re-detecting. */
+  private profileOverride: ProfileId | undefined;
   private readonly config: LlmConfig;
   private readonly onEvent: AgentEventSink;
   private readonly conversation: UnifiedConversation | null;
@@ -481,27 +486,28 @@ Answer the player's question using evidence from inspection when needed. For hin
       // declared plan exit checked against this exact staged candidate —
       // passes. The genesis leg of handover is skipped here: the running
       // game already proves it boots, and imported games have no genesis
-      // to re-litigate. A failing verdict goes back to the model once for
-      // repair; a second plain-text reply discards the candidate rather
-      // than adopting it.
+      // to re-litigate. A failing verdict goes back to the model for repair
+      // up to three times — a text reply can be a progress note, not a
+      // final answer — and a further plain-text reply discards the
+      // candidate rather than adopting it.
       let stagedChanges = false;
-      let verdictSent = false;
+      let verdictsSent = 0;
       for (;;) {
         if (turn.toolCalls.length === 0) {
           if (!stagedChanges) break;
           const verdict = remixVerdict(staged);
           if (verdict === null) break;
-          if (verdictSent) {
+          if (verdictsSent === 3) {
             const text = `${turn.text ?? "Done."} The staged changes were not applied: ${verdict}`;
             this.messages.push({ role: "assistant", text });
             this.onEvent("response", `[Remix] ${text.slice(0, 300)}`, { text, patched: [] });
             return { text, patched: [], files: {} };
           }
-          verdictSent = true;
+          verdictsSent++;
           turn = await this.observeTurn(
             this.conversation.sendUserMessage(
               `The staged changes cannot be committed: ${verdict} ` +
-                "Repair them and call handover, or reply once more to abandon them.",
+                "Repair them and call handover. If something blocks the repair, say what blocks it.",
             ),
             "remix",
           );
@@ -714,7 +720,12 @@ Answer the player's question using evidence from inspection when needed. For hin
     const candidate = forkAgentState(this.state);
     candidate.sources.views.set(num, structuredClone(input));
     const snapshot = this.getAuthoringState(candidate);
-    const next = stateFromAuthoredData(files, [...candidate.sources.words], snapshot);
+    const next = stateFromAuthoredData(
+      files,
+      [...candidate.sources.words],
+      snapshot,
+      this.profileOverride,
+    );
     next.genesisComplete = this.state.genesisComplete;
     return {
       authoringState: snapshot,
@@ -772,7 +783,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         : this.resourceSet() === adoptedRevision
           ? this.snapshotAuthoring()
           : undefined;
-    const next = stateFromAuthoredData(files, words, authoringState);
+    const next = stateFromAuthoredData(files, words, authoringState, this.profileOverride);
     next.genesisComplete = this.state.genesisComplete;
     Object.assign(this.state, next);
     // The adoption hold is the caller's to release once the whole
@@ -823,12 +834,15 @@ Answer the player's question using evidence from inspection when needed. For hin
     replacement.adoptionHold = this.adoptionHold;
     replacement.oriented = this.oriented;
     replacement.orientation = this.orientation ? { ...this.orientation } : undefined;
+    replacement.profileOverride = this.profileOverride;
     return replacement;
   }
 
   /**
    * Reconstitute an active AgentSession from previously authored game files
    * (bypassing Genesis, ready for room preparation and explicit live patches).
+   * `profile` is the game's interpreter override, so tools compile and
+   * validate for the interpreter the game actually boots under.
    */
   static fromAuthoredData(
     config: LlmConfig,
@@ -838,10 +852,12 @@ Answer the player's question using evidence from inspection when needed. For hin
     transcript?: unknown[],
     sessionId?: string,
     authoringState?: Record<string, unknown>,
+    profile?: ProfileId,
   ): AgentSession {
-    const state = stateFromAuthoredData(files, words, authoringState);
+    const state = stateFromAuthoredData(files, words, authoringState, profile);
     state.genesisComplete = true;
     const session = new AgentSession(config, onEvent, state, transcript, sessionId);
+    session.profileOverride = profile;
     const chat = authoringState?.["chat"];
     if (Array.isArray(chat)) {
       session.messages = chat
@@ -1002,6 +1018,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           Number(req.context["room"]),
           response,
           this.state.sources.words,
+          this.state.profile,
         );
         for (const resource of patch.resources)
           this.state.container.putResource(resource.kind, resource.num, resource.payload);
@@ -1172,6 +1189,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         room,
         response,
         this.state.sources.words,
+        this.state.profile,
       );
       if (adoptTurnState(this.state, staged, forkRevision))
         this.onEvent(

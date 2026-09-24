@@ -205,7 +205,13 @@ export function createHostRequests(ctx: WorkerContext) {
               patch = committed;
             } else {
               const container = openContainer(ctx.engine.containerFiles);
-              const compiled = prepareRoomPatch(container, room, response, ctx.boot.liveDictionary);
+              const compiled = prepareRoomPatch(
+                container,
+                room,
+                response,
+                ctx.boot.liveDictionary,
+                ctx.engine.profile,
+              );
               const words = buildWordsTok(compiled.words.map(([word, id]) => ({ word, id })));
               applyRoomPatchFiles({
                 resources: compiled.resources,

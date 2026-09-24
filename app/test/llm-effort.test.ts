@@ -20,7 +20,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     });
     const config = {
       provider,
-      model: provider === "openai" ? "gpt-5.6-sol" : "claude-opus-5",
+      model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
       apiKey: "test-placeholder",
       effort: "low" as const,
       systemPrompt: "Create the requested room and verify it.",
@@ -51,5 +51,50 @@ for (const provider of ["openai", "anthropic"] as const) {
       assert.ok(continuedMessages.length > initialMessages.length);
       assert.deepEqual(continuedMessages.slice(0, initialMessages.length), initialMessages);
     }
+  });
+}
+
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} retries a transient overload instead of failing the turn`, async (t) => {
+    // Retries were disabled, so one 529 or 429 ended a room or remix turn and
+    // discarded its staged work. The SDK retries these with backoff.
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let requests = 0;
+    t.mock.method(globalThis, "fetch", async () => {
+      requests++;
+      if (requests === 1)
+        return new Response(
+          JSON.stringify({ type: "error", error: { type: "overloaded_error" } }),
+          {
+            status: 529,
+            headers: { "content-type": "application/json", "retry-after-ms": "10" },
+          },
+        );
+      return new Response(
+        providerSse(
+          provider,
+          provider === "openai"
+            ? { id: "reply", output: [] }
+            : { id: "reply", content: [], stop_reason: "end_turn" },
+        ),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    });
+    const config = {
+      provider,
+      model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+      apiKey: "test-placeholder",
+    };
+    const conversation =
+      provider === "openai"
+        ? createOpenAiConversation(config)
+        : createAnthropicConversation(config);
+    const turn = conversation.sendUserMessage("Inspect the room.");
+    for (let i = 0; i < 20 && requests < 2; i++) {
+      await new Promise((resolve) => setImmediate(resolve));
+      t.mock.timers.tick(1000);
+    }
+    await turn;
+    assert.equal(requests, 2);
   });
 }

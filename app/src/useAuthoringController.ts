@@ -184,9 +184,10 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   const checkpointSource = () => query("checkpoint");
 
   async function createGameSession(game: BootedGame, config: LlmConfig): Promise<AgentSession> {
+    const authored = game.installed ? null : await loadAuthoredGame(game.projectId!);
     const cached = game.installed
       ? await loadGameConversation(game.hash ?? game.alias ?? "installed")
-      : await loadAuthoredGame(game.projectId!);
+      : authored;
     return AgentSession.fromAuthoredData(
       config,
       logAgent,
@@ -197,6 +198,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         ? cached.sessionId
         : undefined,
       cached?.authoringState,
+      authored?.library?.profile,
     );
   }
 
@@ -694,7 +696,13 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       // set is validated before anything lands — dictionary may only grow,
       // rewrites of other rooms' resources commit or fail as one transaction,
       // and the room needs logic plus picture.
-      const compiled = prepareRoomPatch(container, room, response, dictionary);
+      const compiled = prepareRoomPatch(
+        container,
+        room,
+        response,
+        dictionary,
+        author.state.profile,
+      );
       const worker = getWorker();
       worker?.postMessage({
         type: "patchMetadata",
@@ -1025,6 +1033,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
           stored.transcript,
           stored.sessionId,
           stored.authoringState,
+          stored.library?.profile,
         );
       const candidate = sourceSession.prepareViewPatch(files, staged.num, staged.input);
       const forkCatalog =

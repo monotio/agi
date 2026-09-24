@@ -29,10 +29,13 @@ import type { ResourceKind } from "../types.ts";
 
 export const GAME_TESTS_FILE = "TESTS.JSON";
 export const GAME_TESTS_FORMAT = "monotio.agi.tests.v1";
-/** Stored tests per game; enough for a puzzle or two per room of a large game. */
+/**
+ * Tests one write_game_tests or run_game_tests call may name. A game keeps
+ * any number of tests; this only bounds a single call, which can repeat.
+ */
 export const MAX_GAME_TESTS = 64;
-/** TESTS.JSON is capped at 256 KiB on reading AND on writing. */
-export const GAME_TESTS_MAX_BYTES = 262144;
+/** TESTS.JSON is bounded on reading and writing by a game archive entry (gameZip MAX_ENTRY_BYTES). */
+export const GAME_TESTS_MAX_BYTES = 64 * 1024 * 1024;
 /** Tests rerun after one patch; keeps a write tool's latency bounded. */
 const RERUN_LIMIT = 8;
 /** JSON text is escaped again in transport; 3000 characters keeps each page comfortably below 12k. */
@@ -132,7 +135,7 @@ export function parseGameTests(
   profile?: AgiProfile,
 ): GameTestsDocument {
   if (!bytes) return { format: GAME_TESTS_FORMAT, tests: [] };
-  if (bytes.length > GAME_TESTS_MAX_BYTES) fail(`${GAME_TESTS_FILE} is larger than 256 KiB.`);
+  if (bytes.length > GAME_TESTS_MAX_BYTES) fail(`${GAME_TESTS_FILE} is larger than 64 MiB.`);
   let raw: unknown;
   try {
     raw = JSON.parse(new TextDecoder().decode(bytes));
@@ -144,8 +147,7 @@ export function parseGameTests(
   const doc = raw as Record<string, unknown>;
   if (doc["format"] !== GAME_TESTS_FORMAT)
     fail(`${GAME_TESTS_FILE} format must be ${GAME_TESTS_FORMAT}.`);
-  if (!Array.isArray(doc["tests"]) || doc["tests"].length > MAX_GAME_TESTS)
-    fail(`${GAME_TESTS_FILE} must list at most ${MAX_GAME_TESTS} tests.`);
+  if (!Array.isArray(doc["tests"])) fail(`${GAME_TESTS_FILE} must list its tests.`);
   const tests = doc["tests"].map((test, index) =>
     validateGameTest(test, `tests[${index}]`, profile),
   );
@@ -162,7 +164,7 @@ export function serializeGameTests(tests: readonly GameTest[]): Uint8Array {
   );
   if (bytes.length > GAME_TESTS_MAX_BYTES)
     fail(
-      `${GAME_TESTS_FILE} would be ${bytes.length} bytes, over the 256 KiB limit. Remove or shorten tests.`,
+      `${GAME_TESTS_FILE} would be ${bytes.length} bytes, over the 64 MiB a game archive entry may hold. Remove or shorten tests.`,
     );
   return bytes;
 }
@@ -408,7 +410,7 @@ export function verdictLine(outcomes: readonly GameTestOutcome[]): string {
 export function runGameTests(
   session: AgentSessionState,
   names: readonly string[] | null,
-  limit = MAX_GAME_TESTS,
+  limit = Infinity,
 ): AgentToolResult {
   let stored: readonly GameTest[];
   try {
@@ -547,7 +549,7 @@ export const GAME_TEST_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_game_tests",
     description:
-      "Add or replace stored game tests by name (`mode` merge, default), replace the whole set (`mode` replace) or delete the tests listed in `names` (`mode` remove, `tests` null). Each test is a playtest_room scenario: `room`, optional `spawnX`/`spawnY`, `steps` and `expect`, optional `cycleBudget`, and an optional `setup` {image, replay} — the base64 host image and optional machine-generated recording JSON text, which a recorded test restores and replays before its steps. Merge preserves existing setup when null or omitted; replace uses only supplied setup (no setup boots fresh). Steps are command, move, enter, wait (cycles or an until predicate over room/flag/var), key (PC key word), direction (0..8), walkTo (x, y) and answer (prompt text); expectations add score, var ranges, object and reachable to room, carriedItems, flags, vars, printed and text. Commands must use registered words.",
+      "Add or replace stored game tests by name (`mode` merge, default), replace the whole set (`mode` replace) or delete the tests listed in `names` (`mode` remove, `tests` null). Each test is a playtest_room scenario: `room`, optional `spawnX`/`spawnY`, `steps` and `expect`, optional `cycleBudget`, and an optional `setup` {image, replay} — the base64 host image and optional machine-generated recording JSON text, which a recorded test restores and replays before its steps. Merge preserves existing setup when null or omitted; replace uses only supplied setup (no setup boots fresh). Steps are command, move, enter, wait (cycles or an until predicate over room/flag/var), key (PC key word), direction (0..8; with until it walks that way until the predicate holds, as in right until room 2), walkTo (x, y) and answer (prompt text); expectations add score, var ranges, object and reachable to room, carriedItems, flags, vars, printed and text. Commands must use registered words.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -708,7 +710,6 @@ export function executeGameTestTool(
                 return !test.setup && previous?.setup ? { ...test, setup: previous.setup } : test;
               }),
             ];
-      if (next.length > MAX_GAME_TESTS) fail(`A game holds at most ${MAX_GAME_TESTS} tests.`);
     }
     session.testsPayload = serializeGameTests(next);
     let runResult: AgentToolResult | undefined;

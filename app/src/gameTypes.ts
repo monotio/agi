@@ -2,6 +2,7 @@ import type { LibraryMetadata } from "./gameMetadata.ts";
 import type { StoredReference } from "./referenceArt.ts";
 import type { ScreenObjectState } from "../../src/runtime/engine.ts";
 import { projectId } from "../../src/gameIdentity.ts";
+import { cellChar } from "../../src/runtime/textSurface.ts";
 import type { GameIdentity, ProjectId, ResourceRevision } from "../../src/gameIdentity.ts";
 
 /**
@@ -67,6 +68,8 @@ export interface InstalledGameDescriptor {
 export interface CurrentGame {
   readonly installed: boolean;
   readonly title: string;
+  /** The world is unfinished: exits may lead to rooms not built yet. */
+  readonly workInProgress: boolean;
   readonly revision: ResourceRevision;
   readonly hash?: string | undefined;
   readonly alias?: string | undefined;
@@ -150,7 +153,7 @@ export function decodeTextRows(text: Uint8Array): string[] {
     let line = "";
     for (let c = 0; c < 40; c++) {
       const ch = text[(r * 40 + c) * 2]!;
-      line += ch === 0 ? " " : ch >= 0x80 ? "#" : String.fromCharCode(ch);
+      line += cellChar(ch);
     }
     rows.push(line);
   }

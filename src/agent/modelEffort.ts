@@ -3,10 +3,17 @@ export type ModelEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export type ModelProvider = "anthropic" | "openai" | "stub";
 
+/** The model each provider starts with, in the app and in the evaluation scripts. */
+export const DEFAULT_MODELS: Record<ModelProvider, string> = {
+  anthropic: "claude-opus-5-5",
+  openai: "gpt-6-astra",
+  stub: "offline-stub",
+};
+
 const REASONING_LEVELS: readonly ModelEffort[] = ["low", "medium", "high", "xhigh", "max"];
 const OPTIONAL_REASONING_LEVELS: readonly ModelEffort[] = ["none", ...REASONING_LEVELS];
 
-/** USD per million tokens, checked September 5, 2026 (see docs for provider price pages). */
+/** USD per million tokens, checked September 23, 2026 (see docs for provider price pages). */
 export interface ModelPrice {
   input: number;
   output: number;
@@ -26,33 +33,35 @@ export interface ModelCapability {
   caching: "breakpoint" | "implicit" | "none";
   /** Whether tool schemas may be sent under the provider's strict-grammar mode. */
   strictSchema: boolean;
+  /**
+   * Anthropic adaptive thinking whose notes between tool calls come back
+   * empty unless a display is requested (Opus 5.5, Fable 5.1).
+   * https://platform.claude.com/docs/en/models/opus-5-5/migration-guide#text-between-tool-calls
+   */
+  summarizedThinking?: true;
   price?: ModelPrice;
 }
 
 /**
  * The tested capability table. Prices are standard API USD per million tokens,
- * checked September 5, 2026.
+ * checked September 23, 2026.
  * https://developers.openai.com/api/docs/models/gpt-6-astra
- * https://developers.openai.com/api/docs/models/gpt-5.6-sol
- * https://developers.openai.com/api/docs/models/gpt-5.6-terra
+ * https://developers.openai.com/api/docs/models/gpt-6-sol
+ * https://developers.openai.com/api/docs/models/gpt-6-luna
  * https://platform.claude.com/docs/en/about-claude/pricing
+ * https://platform.claude.com/docs/en/models/opus-5-5/overview
  */
 export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
-  "claude-opus-5": {
+  // Anthropic's default, and in the 1.0.0 Genesis benchmark medium matched
+  // high on both briefs for less.
+  "claude-opus-5-5": {
     provider: "anthropic",
     effort: REASONING_LEVELS,
-    defaultEffort: "high",
+    defaultEffort: "medium",
     caching: "breakpoint",
     strictSchema: false,
-    price: { input: 5, output: 25, longContext: false },
-  },
-  "claude-fable-5": {
-    provider: "anthropic",
-    effort: REASONING_LEVELS,
-    defaultEffort: "high",
-    caching: "breakpoint",
-    strictSchema: false,
-    price: { input: 10, output: 50, longContext: false },
+    summarizedThinking: true,
+    price: { input: 4, output: 20, longContext: false, cacheRead: 0.2 },
   },
   "claude-fable-5-1": {
     provider: "anthropic",
@@ -60,6 +69,7 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     defaultEffort: "high",
     caching: "breakpoint",
     strictSchema: false,
+    summarizedThinking: true,
     price: { input: 10, output: 50, longContext: false, cacheRead: 0.25 },
   },
   "gpt-6-astra": {
@@ -70,21 +80,21 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     strictSchema: true,
     price: { input: 10, output: 50, longContext: true },
   },
-  "gpt-5.6-sol": {
-    provider: "openai",
-    effort: OPTIONAL_REASONING_LEVELS,
-    defaultEffort: "low",
-    caching: "implicit",
-    strictSchema: true,
-    price: { input: 4, output: 20, longContext: true },
-  },
-  "gpt-5.6-terra": {
+  "gpt-6-sol": {
     provider: "openai",
     effort: OPTIONAL_REASONING_LEVELS,
     defaultEffort: "medium",
     caching: "implicit",
     strictSchema: true,
-    price: { input: 2, output: 12, longContext: true },
+    price: { input: 2, output: 10, longContext: true },
+  },
+  "gpt-6-luna": {
+    provider: "openai",
+    effort: OPTIONAL_REASONING_LEVELS,
+    defaultEffort: "medium",
+    caching: "implicit",
+    strictSchema: true,
+    price: { input: 0.1, output: 0.5, longContext: true },
   },
   "offline-stub": {
     provider: "stub",
@@ -114,7 +124,8 @@ export function modelCapability(model: string, provider?: ModelProvider): ModelC
 
 /**
  * The app pins an explicit effort for every model instead of leaving the provider default:
- * Sol low (it reduced cost on both stored Genesis briefs), claude-* high, other OpenAI medium.
+ * GPT-5.6 Sol low (it reduced cost on both stored Genesis briefs), claude-* high, other
+ * OpenAI medium, the provider default for the GPT-6 family until an effort sweep says otherwise.
  */
 export function defaultModelEffort(model: string, provider?: ModelProvider): ModelEffort {
   return modelCapability(model, provider).defaultEffort;

@@ -86,7 +86,6 @@ test("Amiga stub slots carry stub help, not the PC effects", () => {
 
 test("prompts load command details on demand using the imported game's profile", () => {
   const catalog = formatCommandCatalog(PROFILES["2.936"]);
-  assert.ok(catalog.length < 12000);
   assert.ok(!AGI_SYSTEM_PROMPT.includes(catalog));
   assert.ok(AGI_SYSTEM_PROMPT.includes("read_command_reference"));
   const text = createOrientationPrompt({

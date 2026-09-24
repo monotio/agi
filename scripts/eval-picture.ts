@@ -94,6 +94,7 @@ import {
 } from "../src/agent/toolTransport.ts";
 export { splitToolResult } from "../src/agent/toolTransport.ts";
 import { AGI_SYSTEM_PROMPT } from "../src/agent/prompt.ts";
+import { DEFAULT_MODELS, MODEL_CAPABILITIES } from "../src/agent/modelEffort.ts";
 import { loadGame } from "../test/game-fixture.ts";
 import { fixtureSkip } from "../test/fixtures.ts";
 import { cropSideBySidePng, sideBySidePng, surfaceToPng } from "./png.ts";
@@ -1278,13 +1279,6 @@ export async function runEditEntry(entry: ManifestEntry, opts: RunOptions): Prom
 // ---------------------------------------------------------------------------
 // CLI
 
-/** USD per 1M tokens (input, output). Unknown models report tokens only. */
-const PRICES: Record<string, [number, number]> = {
-  "claude-opus-5": [5, 25],
-  "claude-fable-5-1": [10, 50],
-  "claude-sonnet-5": [2, 10],
-};
-
 export function createProvider(
   name: string,
   model: string | undefined,
@@ -1293,12 +1287,16 @@ export function createProvider(
 ): Provider {
   if (name === "anthropic")
     return new AnthropicProvider(
-      model ?? "claude-opus-5",
-      judgeModel ?? model ?? "claude-opus-5",
+      model ?? DEFAULT_MODELS.anthropic,
+      judgeModel ?? model ?? DEFAULT_MODELS.anthropic,
       effort,
     );
   if (name === "openai")
-    return new OpenAiProvider(model ?? "gpt-5.6-sol", judgeModel ?? model ?? "gpt-5.6-sol", effort);
+    return new OpenAiProvider(
+      model ?? DEFAULT_MODELS.openai,
+      judgeModel ?? model ?? DEFAULT_MODELS.openai,
+      effort,
+    );
   return new FakeProvider();
 }
 
@@ -1480,11 +1478,12 @@ async function main(): Promise<void> {
     );
   }
   const u = provider.usage;
-  const price = PRICES[provider.model];
+  // The app's price table; unknown models report tokens only.
+  const price = MODEL_CAPABILITIES[provider.model]?.price;
   const cost = price
-    ? ((u.input - u.cachedInput) * price[0] +
-        u.cachedInput * price[0] * 0.1 +
-        u.output * price[1]) /
+    ? ((u.input - u.cachedInput) * price.input +
+        u.cachedInput * (price.cacheRead ?? price.input * 0.1) +
+        u.output * price.output) /
       1e6
     : null;
   console.log(

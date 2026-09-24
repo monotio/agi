@@ -169,7 +169,7 @@ test("format-less and corrupt checkpoints are replaceable; future versions are n
       },
     }),
   );
-  assert.deepEqual(writeAutosave(storage, checkpoint), checkpoint, "pre-release record");
+  assert.deepEqual(writeAutosave(storage, checkpoint), checkpoint, "format-less record");
   assert.deepEqual(JSON.parse(values.get(key)!), checkpoint);
   values.set(key, "{not json");
   assert.deepEqual(writeAutosave(storage, checkpoint), checkpoint, "corrupt record");

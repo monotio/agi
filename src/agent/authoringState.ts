@@ -32,7 +32,9 @@ export function resourceCacheHint(payload: Uint8Array | null): string {
 export function resourceSetHint(state: { getFiles(): Map<string, Uint8Array> }): string {
   let hash = 0x811c9dc5;
   let total = 0;
-  for (const [name, bytes] of [...state.getFiles()].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [name, bytes] of [...state.getFiles()].sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  )) {
     for (let i = 0; i < name.length; i++)
       hash = Math.imul(hash ^ name.charCodeAt(i), 0x01000193) >>> 0;
     hash = Math.imul(hash ^ 0xff, 0x01000193) >>> 0;
@@ -45,7 +47,8 @@ export function resourceSetHint(state: { getFiles(): Map<string, Uint8Array> }):
 /**
  * Revision for the editable source snapshot. Covers the exact text the agent
  * was shown plus everything that changes how it compiles — resource bytes,
- * interpreter profile, dictionary, and named bindings — not only bytes.
+ * interpreter profile, and the dictionary entries and named bindings the text
+ * uses — not only bytes.
  * Formatting-only drift and stale tokens alike invalidate pending edits.
  */
 export function sourceRevision(
