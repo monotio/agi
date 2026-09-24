@@ -70,13 +70,13 @@ test("installed autosaves are folder-scoped so same-hash editions keep separate 
   // Stored under the folder key, reachable by it.
   assert.equal(readAutosave("gr1")?.cycle, 10);
   // A second edition sharing the WORDS.TOK hash sees nothing.
-  assert.equal(readAutosave("agi-imported-gold-rush-polar-bear-project"), null);
+  assert.equal(readAutosave("gr1-second-edition"), null);
   // Nor does a hash lookup find the folder-keyed record.
   assert.equal(readAutosave(sharedHash), null);
   // Once folder-scoped, hash and alias no longer match the record.
   assert.equal(autosaveMatches(record.game, "gr1"), true);
   assert.equal(autosaveMatches(record.game, sharedHash), false);
-  assert.equal(autosaveMatches(record.game, "agi-imported-gold-rush-polar-bear-project"), false);
+  assert.equal(autosaveMatches(record.game, "gr1-second-edition"), false);
 
   // A folder-less record keys on the content hash: only that key matches.
   const legacy = {
@@ -88,7 +88,7 @@ test("installed autosaves are folder-scoped so same-hash editions keep separate 
   };
   assert.equal(autosaveMatches(legacy, "gr1"), false);
   assert.equal(autosaveMatches(legacy, sharedHash), true);
-  assert.equal(autosaveMatches(legacy, "agi-imported-gold-rush-polar-bear-project"), false);
+  assert.equal(autosaveMatches(legacy, "gr1-second-edition"), false);
 });
 
 function installLocalStorageMock(t: { after: (fn: () => void) => void }): Map<string, string> {
